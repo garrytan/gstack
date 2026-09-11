@@ -26,11 +26,34 @@ triggers:
 
 {{PREAMBLE}}
 
+{{WORKFLOW_EFFECT_BOUNDARY}}
+
 {{BASE_BRANCH_DETECT}}
 
 # Pre-Landing PR Review
 
 You are running the `/review` workflow. Analyze the current branch's diff against the base branch for structural issues that tests don't catch.
+
+## Invocation effect modes
+
+- `review` — report-only; no tracked writes or external comments.
+- `review --fix` — bounded tracked writes in the reviewed diff; no external comments.
+- `review --reply-greptile` — report-only plus explicit replies selected for this run.
+- `review --fix --reply-greptile` — bounded reviewed writes plus those explicit replies.
+
+No mode grants commit, push, PR creation/update, merge, or deploy. A write or
+reply not named by the selected mode remains report-only.
+
+### ECPE T0 observation batch
+
+Keep one bounded `ECPE_BATCH_JSON` array in run-local memory. Add only closed
+kind/ID/enum fields and measured numeric durations for decisions, receipts,
+spawns, validators, and final gates. Never include prompts, code, filenames,
+tool arguments, logs, diffs, secrets, or narrative text. Do not launch a
+telemetry command at each boundary. At the already-required final
+`gstack-skill-end` call, add `--ecpe-batch-json "$ECPE_BATCH_JSON"` once when
+the array is non-empty. If a field is unavailable, omit it; never estimate
+runtime tokens or claim `adapter_delivered` section coverage from host memory.
 
 ---
 
@@ -69,6 +92,14 @@ Read `~/.claude/skills/gstack/review/greptile-triage.md` and follow the fetch, f
 ---
 
 ## Step 3: Get the diff
+
+Start one atomic review session before reading the diff. Preserve the returned
+`run_id` as `REVIEW_RUN_ID`; it is an opaque equality token, not a path.
+
+```bash
+REVIEW_BEGIN=$(~/.claude/skills/gstack/bin/gstack-review-log begin --skill review --assert-target-ref origin/<base> --json) || exit 1
+REVIEW_RUN_ID=$(printf '%s' "$REVIEW_BEGIN" | jq -r .run_id)
+```
 
 Fetch the latest base branch to avoid false positives from stale local state:
 
@@ -159,7 +190,9 @@ Follow the output format specified in the checklist. Respect the suppressions �
 
 ## Step 5: Fix-First Review
 
-**Every finding gets action — not just critical ones.**
+Every finding gets a disposition. Without `--fix`, report suggested fixes only
+and perform zero tracked writes. The write instructions below apply only to
+`review --fix` and only inside the reviewed diff.
 
 {{CROSS_REVIEW_DEDUP}}
 
@@ -177,9 +210,10 @@ the finding's `path` using project conventions (`spec/` for RSpec, `__tests__/` 
 Jest/Vitest, `test_` prefix for pytest, `_test.go` suffix for Go). If the test file
 already exists, append the new test. Output: `[FIXED + TEST] [file:line] Problem -> fix + test at [test_path]`
 
-### Step 5b: Auto-fix all AUTO-FIX items
+### Step 5b: Auto-fix all AUTO-FIX items (`--fix` only)
 
-Apply each fix directly. For each one, output a one-line summary:
+With `--fix`, apply each fix directly. In plain `review`, output the same item as
+`[PROPOSED]` and do not edit. For each applied fix, output a one-line summary:
 `[AUTO-FIXED] [file:line] Problem → what you did`
 
 ### Step 5c: Batch-ask about ASK items
@@ -229,7 +263,9 @@ After outputting your own findings, if Greptile comments were classified in Step
 
 **Include a Greptile summary in your output header:** `+ N Greptile comments (X valid, Y fixed, Z FP)`
 
-Before replying to any comment, run the **Escalation Detection** algorithm from greptile-triage.md to determine whether to use Tier 1 (friendly) or Tier 2 (firm) reply templates.
+Before replying to any comment, require `--reply-greptile` plus an explicit
+comment-specific reply choice, then run the **Escalation Detection** algorithm.
+Without both, report the proposed reply and perform no external comment effect.
 
 1. **VALID & ACTIONABLE comments:** These are included in your findings — they follow the Fix-First flow (auto-fixed if mechanical, batched into ASK if not) (A: Fix it now, B: Acknowledge, C: False positive). If the user chooses A (fix), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation). If the user chooses C (false positive), reply using the **False Positive reply template** (include evidence + suggested re-rank), save to both per-project and global greptile-history.
 
@@ -243,7 +279,8 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 
    If the user chooses A, reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history.
 
-3. **VALID BUT ALREADY FIXED comments:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
+3. **VALID BUT ALREADY FIXED comments:** Propose the **Already Fixed reply template**.
+Post it only with `--reply-greptile` and an explicit reply choice:
    - Include what was done and the fixing commit SHA
    - Save to both per-project and global greptile-history
 
@@ -284,10 +321,27 @@ If no documentation files exist, skip this step silently.
 After all review passes complete, persist the final `/review` outcome so `/ship` can
 recognize that Eng Review was run on this branch.
 
-Run:
+If any fixes occurred, retire the now-stale initial session, begin a fresh
+session on the fixed tree, and run exactly one bounded report-only final pass.
+The stale retirement is audit evidence only and is expected to exit nonzero;
+it must never be treated as a clean receipt. Preserve the new `run_id` as
+`REVIEW_RUN_ID`:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"COMMIT"}'
+~/.claude/skills/gstack/bin/gstack-review-log finish --run-id "$REVIEW_RUN_ID" '{"skill":"review","status":"superseded_after_fix"}' >/dev/null 2>&1 || true
+REVIEW_BEGIN=$(~/.claude/skills/gstack/bin/gstack-review-log begin --skill review --assert-target-ref origin/<base> --json) || exit 1
+REVIEW_RUN_ID=$(printf '%s' "$REVIEW_BEGIN" | jq -r .run_id)
+FINAL_REVIEW_START_WTREE=$(~/.claude/skills/gstack/bin/gstack-wtree) || exit 1
+# Run the checklist and applicable specialists once with all writes/replies disabled.
+FINAL_REVIEW_END_WTREE=$(~/.claude/skills/gstack/bin/gstack-wtree) || exit 1
+test "$FINAL_REVIEW_START_WTREE" = "$FINAL_REVIEW_END_WTREE" || exit 1
+```
+
+If the final pass proposes another fix, stop without a clean receipt and require
+reinvocation. Otherwise run the atomic expected-tree append:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log finish --run-id "$REVIEW_RUN_ID" '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","capability_id":"review.code","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"COMMIT"}'
 ```
 
 Substitute:
@@ -296,7 +350,7 @@ Substitute:
 - `issues_found` = total remaining unresolved findings
 - `critical` = remaining unresolved critical findings
 - `informational` = remaining unresolved informational findings
-- `quality_score` = the PR Quality Score computed in Step 4.6 (e.g., 7.5). If specialists were skipped (small diff), use `10.0`
+- `quality_score` = the PR Quality Score computed in Step 4.6 (e.g., 7.5). Skipped specialists are `not_assessed` and add no synthetic score.
 - `specialists` = the per-specialist stats object compiled in Step 4.6. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Include Design specialist. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
 - `findings` = array of per-finding records from Step 5. For each finding (from critical pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"` (Step 5b), `"fixed"` (user approved in Step 5d), or `"skipped"` (user chose Skip in Step 5c). Suppressed findings from Step 5.0 are NOT included (they were already recorded in a prior review entry).
 - `COMMIT` = output of `git rev-parse --short HEAD`
@@ -308,7 +362,7 @@ If the review exits early before a real review completes (for example, no diff a
 ## Important Rules
 
 - **Read the FULL diff before commenting.** Do not flag issues already addressed in the diff.
-- **Fix-first, not read-only.** AUTO-FIX items are applied directly. ASK items are only applied after user approval. Never commit, push, or create PRs — that's /ship's job.
+- **Effects are mode-bound.** Plain review is report-only; `--fix` enables only bounded reviewed writes. Never commit, push, or create PRs.
 - **Be terse.** One line problem, one line fix. No preamble.
 - **Only flag real problems.** Skip anything that's fine.
 - **Use Greptile reply templates from greptile-triage.md.** Every reply includes evidence. Never post vague replies.

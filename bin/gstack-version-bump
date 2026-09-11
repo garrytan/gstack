@@ -1,5 +1,10 @@
 #!/usr/bin/env bun
 // gstack-version-bump — deterministic version-state classifier + writer for /ship.
+// Trusted profiles and --bump invocations use the durable release owner via
+// release-metadata-command. allocate/write take bump intent; classify/inspect
+// inspect that owner; repair/recover reconcile a previously prepared bundle.
+// --assert-* flags are equality checks. --entry-stdin supplies only entry prose.
+// Caller --version/--base/path flags remain profile-absent compatibility only.
 //
 // Extracted from ship Step 12 prose (v2 plan T9, hybrid CLI extraction). The
 // idempotency classification and the dual-write to VERSION + package.json are
@@ -10,7 +15,7 @@
 // What STAYS agent judgment (NOT here): the bump-LEVEL decision (micro/patch vs
 // minor/major, which may AskUserQuestion on feature signals) and the queue
 // collision prompt. The slot pick itself is bin/gstack-next-version. This CLI
-// only answers "what state am I in?" and "write this exact version".
+// retains the historical "write this exact version" API only without a profile.
 //
 // Subcommands:
 //   classify --base <branch> [--version-path <p>]
@@ -27,22 +32,21 @@
 //       committed digest stays freshness-green through the bump. Executes
 //       target-repo code — callers pass it only for repos whose code they
 //       already execute (/ship does).
-//       Use for the FRESH bump (or an approved queue rebump). Exit 3 on a
-//       half-write (VERSION written, package.json failed) so the caller knows
-//       drift exists; the next classify() will report DRIFT_STALE_PKG.
+//       Legacy compatibility API. All metadata is rendered before replacement;
+//       a handled write failure restores the exact snapshots and exits 3.
 //
 //   repair [--version-path <p>]
 //       DRIFT_STALE_PKG path: sync package.json.version to the current VERSION
 //       file. No bump. Validates the VERSION pattern first.
 //
-// Contract: classify NEVER writes. write/repair mutate VERSION + the manifest
+// Contract: legacy classify NEVER writes. Legacy write/repair mutate VERSION + the manifest
 // + npm lockfiles (package-lock.json / npm-shrinkwrap.json, when present) —
 // plus, under the explicit --regen-digest opt-in only, the committed agents
 // digest (whose first line embeds VERSION and is byte-freshness-gated by
 // test/agents-digest.test.ts and the Skill Docs Freshness CI check, so the
 // write that changes VERSION must regenerate it or every release commit of
-// the gstack repo goes red). No git mutation, no network. Mirrors
-// gstack-next-version's reader/writer split so /ship composes them.
+// the gstack repo goes red). Trusted calls may read the provider queue and own
+// an external transaction record; neither path performs Git/provider writes.
 //
 // Manifest resolution (all three subcommands accept --package-json-path):
 //   --package-json-path <p>  →  .gstack/package-json-path  →  ./package.json
@@ -58,10 +62,14 @@
 // (1.67.0.0 → 1.67.0). classify judges drift against the translated form
 // (accepting the pre-v1.67 1:1 mirror as in-sync until the next write).
 
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync, unlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { extractVersion, isJsonVersionPath, npmVersion, setVersionInJson } from "../lib/version-source";
+import { extractVersion, isJsonVersionPath, npmVersion } from "../lib/version-source";
+import { resolveTrustedWorkProfile } from '../lib/trusted-base';
+import { runReleaseMetadataCommand } from '../lib/release-metadata-command';
+import { isPortfolioOpsSeedCandidate } from '../lib/release-legacy';
+import { renderLegacyJson } from '../lib/release-projections';
 
 // 3- or 4-digit (#2501). gstack's own VERSION stays 4-digit MAJOR.MINOR.PATCH.
 // MICRO and stays the source of truth, but a repo whose pinned version source
@@ -69,12 +77,22 @@ import { extractVersion, isJsonVersionPath, npmVersion, setVersionInJson } from 
 // /ship could not write a version at all in such a repo. See lib/version-source.ts.
 const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/;
 const DEFAULT = "0.0.0.0";
+let pendingWrites: Map<string, string> | null = null;
+let pendingOutput: Array<string | (() => string)> | null = null;
+let pendingAfterWrite: (() => void) | null = null;
+function writeLegacyFile(file: string, bytes: string): void {
+  if (!pendingWrites) throw new Error('release_legacy_transaction_required');
+  pendingWrites.set(file, bytes);
+}
+function output(text: string | (() => string)): void {
+  if (pendingOutput) pendingOutput.push(text);
+  else process.stdout.write(typeof text === 'function' ? text() : text);
+}
 
 type State = "FRESH" | "ALREADY_BUMPED" | "DRIFT_STALE_PKG" | "DRIFT_UNEXPECTED";
 
 function fail(msg: string, code = 2): never {
-  process.stderr.write(`gstack-version-bump: ${msg}\n`);
-  process.exit(code);
+  throw Object.assign(new Error(msg), { exitCode: code });
 }
 
 function argVal(args: string[], flag: string): string | undefined {
@@ -142,6 +160,7 @@ function resolveVersionRel(cwd: string, explicit?: string): string {
       return p;
     }
   }
+  assertRepoContained(cwd, 'VERSION', 'VERSION');
   return "VERSION";
 }
 
@@ -180,6 +199,7 @@ function resolvePkgPath(cwd: string, explicit?: string): string {
       return join(cwd, p);
     }
   }
+  assertRepoContained(cwd, 'package.json', 'package.json');
   return join(cwd, "package.json");
 }
 
@@ -204,9 +224,7 @@ function readPkgVersion(pkgPath: string): { exists: boolean; version: string } {
 
 function writePkgVersion(pkgPath: string, version: string): void {
   const raw = readFileSync(pkgPath, "utf-8");
-  const parsed = JSON.parse(raw) as Record<string, unknown>;
-  parsed.version = version;
-  writeFileSync(pkgPath, JSON.stringify(parsed, null, 2) + "\n");
+  writeLegacyFile(pkgPath, renderLegacyJson(raw, version).text);
 }
 
 /**
@@ -243,14 +261,8 @@ function syncNpmLockfiles(dir: string, version: string, root: string): string[] 
     } catch {
       continue;
     }
-    const parsed = JSON.parse(readFileSync(lockPath, "utf-8")) as Record<string, unknown>;
-    parsed.version = version;
-    const packages = parsed.packages as Record<string, Record<string, unknown>> | undefined;
-    if (packages && typeof packages[""] === "object" && packages[""] !== null) {
-      packages[""].version = version;
-    }
-    writeFileSync(lockPath, JSON.stringify(parsed, null, 2) + "\n");
-    synced.push(name);
+    const rendered = renderLegacyJson(readFileSync(lockPath, 'utf8'), version, true);
+    if (rendered.selectors.length) { writeLegacyFile(lockPath, rendered.text); synced.push(name); }
   }
   return synced;
 }
@@ -327,7 +339,7 @@ function cmdClassify(args: string[], cwd: string): void {
   // (#2600). Without this, the DRIFT_STALE_PKG dispatch on a missing VERSION
   // would feed repair a fabricated version that passes the shape check.
   const versionFileExists = existsSync(versionPath);
-  process.stdout.write(
+  output(
     JSON.stringify({
       state,
       baseVersion: baseV,
@@ -401,21 +413,13 @@ function cmdWrite(args: string[], cwd: string): void {
     // npm rejects forever — with no drift state to catch it (a JSON source is
     // self-consistent by construction).
     const jsonV = npmVersion(version!);
-    let manifestWritten = false;
     let lockSynced: string[] = [];
     try {
-      writeFileSync(versionPath, setVersionInJson(readFileSync(versionPath, "utf-8"), jsonV));
-      manifestWritten = true;
+      writePkgVersion(versionPath, jsonV);
       // The pinned manifest's OWN lockfiles (beside it) stay in step too.
       lockSynced = syncNpmLockfiles(dirname(versionPath), jsonV, cwd);
     } catch {
-      fail(
-        manifestWritten
-          ? `write: ${versionRel} was updated but its npm lockfiles were not (corrupt lockfile?). ` +
-            "Fix or delete the lockfile beside it, then re-run write with the same --version."
-          : `write: failed to update ${versionRel} (is it valid JSON?).`,
-        3,
-      );
+      fail(`write: invalid ${versionRel} or npm lockfile metadata; no files written.`, 3);
     }
     if (jsonV !== version) {
       process.stderr.write(
@@ -423,7 +427,7 @@ function cmdWrite(args: string[], cwd: string): void {
           "Consecutive MICRO releases translate to the SAME manifest version — pin a plain VERSION file if that matters.\n",
       );
     }
-    process.stdout.write(
+    output(
       JSON.stringify({
         wrote: jsonV,
         // Only surfaced when a 4-digit request was translated (the healthy
@@ -443,8 +447,8 @@ function cmdWrite(args: string[], cwd: string): void {
 
   const pkgPath = resolvePkgPath(cwd, argVal(args, "--package-json-path"));
   const hasPkg = existsSync(pkgPath);
-  writeFileSync(versionPath, version + "\n");
-  const digestRegen = regenAgentsDigest(versionPath, args.includes("--regen-digest"));
+  writeLegacyFile(versionPath, version + "\n");
+  let digestRegen: boolean | null = null;
   let lockSynced: string[] = [];
   // Decision 11: the manifest (and its lockfiles) carry the npm-valid
   // 3-digit translation — npm rejects a fourth component, so mirroring the
@@ -452,27 +456,17 @@ function cmdWrite(args: string[], cwd: string): void {
   // VERSION keeps the full 4-digit form; it stays the source of truth.
   const manifestV = npmVersion(version!);
   if (hasPkg) {
-    let pkgWritten = false;
     try {
       writePkgVersion(pkgPath, manifestV);
-      pkgWritten = true;
       lockSynced = syncNpmLockfiles(dirname(pkgPath), manifestV, cwd);
     } catch {
-      // Accurate recovery per failure point: classify only reads
-      // package.json (never lockfiles), so "re-run and repair" is only true
-      // when package.json itself is the stale file.
-      fail(
-        pkgWritten
-          ? `VERSION and ${relative(cwd, pkgPath)} were written but the npm lockfiles were not ` +
-            "(corrupt lockfile?). classify cannot see lockfile drift — fix or delete the lockfile, " +
-            "then re-run write with the same --version."
-          : `failed to update ${relative(cwd, pkgPath)}. VERSION was written but package.json is now ` +
-            "stale. Re-run — classify will report DRIFT_STALE_PKG and repair will sync it.",
-        3,
-      );
+      fail(`write: invalid ${relative(cwd, pkgPath)} or npm lockfile metadata; no files written.`, 3);
     }
   }
-  process.stdout.write(
+  pendingAfterWrite = () => {
+    digestRegen = regenAgentsDigest(versionPath, args.includes("--regen-digest"));
+  };
+  output(() =>
     JSON.stringify({
       wrote: version,
       packageJson: hasPkg,
@@ -492,7 +486,7 @@ function cmdRepair(args: string[], cwd: string): void {
   // is no second file to drift from, and classify never reports DRIFT_* for
   // that shape.
   if (isJsonVersionPath(versionRel)) {
-    process.stdout.write(
+    output(
       JSON.stringify({ repaired: null, reason: `${versionRel} is the single source of truth; no drift possible` }) + "\n",
     );
     return;
@@ -552,7 +546,7 @@ function cmdRepair(args: string[], cwd: string): void {
   } catch {
     fail("drift repair failed — could not update package.json/npm lockfiles.", 3);
   }
-  process.stdout.write(
+  output(
     JSON.stringify({
       repaired: current,
       packageJsonPath: relative(cwd, pkgPath),
@@ -564,14 +558,86 @@ function cmdRepair(args: string[], cwd: string): void {
 // Exported for unit tests (pure logic, no I/O).
 export { classifyState, VERSION_RE, type State };
 
-if (import.meta.main) {
-  const [sub, ...rest] = process.argv.slice(2);
-  const cwd = process.cwd();
+/** Preflight and exact rollback for the historical caller-version contract. */
+function legacyTransaction(args: string[], cwd: string, operation: () => void): void {
+  const versionRel = resolveVersionRel(cwd, argVal(args, '--version-path'));
+  const source = join(cwd, versionRel);
+  const pkg = isJsonVersionPath(versionRel) ? source : resolvePkgPath(cwd, argVal(args, '--package-json-path'));
+  const targets = new Set([source, ...(existsSync(pkg) ? [pkg] : [])]);
+  for (const name of NPM_LOCKFILES) {
+    const file = join(dirname(pkg), name);
+    if (!existsSync(file)) continue;
+    const real = realpathSync(file), root = realpathSync(cwd);
+    // Preserve the historical external-symlink skip and its existing warning.
+    if (!real.startsWith(root + sep)) continue;
+    targets.add(file);
+  }
+  const snapshots = [...targets].map(file => ({ file, bytes: existsSync(file) ? readFileSync(file) : null }));
+  const applied = new Set<string>();
+  const digestPath = join(dirname(source), 'agents-digest', 'gstack-AGENTS.md');
+  if (args.includes('--regen-digest')
+      && !isJsonVersionPath(versionRel)
+      && existsSync(join(dirname(source), 'scripts', 'gen-agents-digest.ts'))
+      && existsSync(digestPath)) {
+    targets.add(digestPath);
+    snapshots.push({ file: digestPath, bytes: readFileSync(digestPath) });
+  }
+  pendingWrites = new Map(); pendingOutput = []; pendingAfterWrite = null;
+  try {
+    operation();
+    for (const [file, bytes] of pendingWrites) {
+      if (!targets.has(file)) throw new Error('release_legacy_target_unplanned');
+      applied.add(file);
+      writeFileSync(file, bytes);
+    }
+    if (pendingAfterWrite) {
+      if (targets.has(digestPath)) applied.add(digestPath);
+      pendingAfterWrite();
+    }
+    for (const item of pendingOutput) process.stdout.write(typeof item === 'function' ? item() : item);
+  }
+  catch (error) {
+    for (const { file, bytes } of snapshots) {
+      if (!applied.has(file)) continue;
+      if (bytes) writeFileSync(file, bytes);
+      else if (existsSync(file)) unlinkSync(file);
+    }
+    throw error;
+  } finally { pendingWrites = null; pendingOutput = null; pendingAfterWrite = null; }
+}
+
+export async function runVersionBump(argv: string[], cwd = process.cwd()): Promise<void> {
+  const [sub, ...rest] = argv;
+  const strictIntent = rest.some(flag => ['--assert-target-ref', '--release-requested', '--assert-release-mode', '--bump', '--entry-stdin', '--assert-version', '--current-version', '--lane'].includes(flag)) || ['allocate', 'inspect', 'recover'].includes(sub);
+  let repositoryRoot: string | null = null;
+  try { repositoryRoot = realpathSync(execFileSync('/usr/bin/git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()); }
+  catch { /* standalone file utility outside a repository */ }
+  const policyRoot = repositoryRoot ?? cwd;
+  let profile: ReturnType<typeof resolveTrustedWorkProfile> | undefined;
+  const requestedLane = argVal(rest, '--lane') ?? 'single_repo_code';
+  if (!['docs_ux', 'single_repo_code', 'cross_repo_contract'].includes(requestedLane)) throw new Error('release_lane_invalid');
+  try { profile = resolveTrustedWorkProfile({ cwd: policyRoot, lane: requestedLane as import('../lib/work-profile').Lane, assertTargetRef: argVal(rest, '--assert-target-ref') }); }
+  catch (error) {
+    // A governing repository never becomes the standalone file utility when
+    // policy resolution fails, regardless of the invocation subdirectory.
+    if (repositoryRoot || strictIntent || existsSync(join(policyRoot, '.gstack/work-profile.yaml'))) throw error;
+  }
+  const bootstrap = profile?.mode === 'legacy' && isPortfolioOpsSeedCandidate(policyRoot, profile);
+  if (profile?.mode === 'profile' || strictIntent || bootstrap) {
+    const result = await runReleaseMetadataCommand(argv, policyRoot);
+    if ('warnings' in result) for (const warning of result.warnings) process.stderr.write(`WARNING: ${warning}\n`);
+    process.stdout.write(JSON.stringify(result) + '\n');
+    return;
+  }
   switch (sub) {
     case "classify": cmdClassify(rest, cwd); break;
-    case "write": cmdWrite(rest, cwd); break;
-    case "repair": cmdRepair(rest, cwd); break;
+    case "write": legacyTransaction(rest, cwd, () => cmdWrite(rest, cwd)); break;
+    case "repair": legacyTransaction(rest, cwd, () => cmdRepair(rest, cwd)); break;
     default:
       fail("usage: gstack-version-bump <classify|write|repair> [flags]", 2);
   }
 }
+if (import.meta.main) runVersionBump(process.argv.slice(2)).catch(error => {
+  process.stderr.write(`gstack-version-bump: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(error.exitCode ?? 2);
+});

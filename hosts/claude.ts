@@ -5,6 +5,7 @@ const claude = defineHost({
   displayName: 'Claude Code',
 
   usesEnvVars: false,  // primary host — literal ~ paths, no $GSTACK_ROOT env vars
+  sectionDelivery: 'on-demand-global',
 
   frontmatter: {
     mode: 'denylist',

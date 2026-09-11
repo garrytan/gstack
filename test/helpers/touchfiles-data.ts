@@ -65,7 +65,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Review
   'review-sql-injection':     ['review/**', 'test/fixtures/review-eval-vuln.rb', 'test/skill-e2e-review.test.ts'],
   'review-enum-completeness': ['review/**', 'test/fixtures/review-eval-enum*.rb', 'test/skill-e2e-review.test.ts'],
-  'review-base-branch':       ['review/**', 'test/skill-e2e-review-attribution.test.ts'],
+  'review-base-branch':       ['review/**', 'test/skill-e2e-review-attribution.test.ts', 'lib/work-profile.ts', 'lib/deploy-adapter-registry.ts', 'lib/provider-access.ts', 'lib/effect-scope.ts', 'lib/evidence-envelope.ts', 'lib/profile-validator-binding.ts', 'lib/validator-runner.ts', 'lib/private-validator-env.ts', 'lib/remote-head-validation.ts', 'bin/gstack-work-profile', 'bin/gstack-execution-plan', 'bin/gstack-validator-runtime', 'bin/gstack-evidence', 'bin/gstack-effect-scope', 'bin/gstack-pr-head-guard', 'bin/gstack-review-read'],
   'review-design-lite':       ['review/**', 'test/fixtures/review-eval-design-slop.*', 'test/fixtures/fake-impeccable.ts', 'test/fixtures/impeccable-detect-sample.json', 'lib/design-catalog.ts', 'lib/design-detect-contract.ts', 'bin/gstack-design-detect.ts', 'scripts/resolvers/design-checklist.ts', 'scripts/resolvers/review-army.ts', 'test/skill-e2e-review.test.ts'],
 
   // Review Army (specialist dispatch)
@@ -230,7 +230,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'codex-offered-eng-review':    ['plan-eng-review/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-plan.test.ts'],
 
   // Ship
-  'ship-base-branch': ['ship/**', 'bin/gstack-repo-mode', 'test/skill-e2e-review-attribution.test.ts'],
+  'ship-base-branch': ['ship/**', 'bin/gstack-repo-mode', 'test/skill-e2e-review-attribution.test.ts', 'lib/work-profile.ts', 'lib/deploy-adapter-registry.ts', 'lib/provider-access.ts', 'lib/effect-scope.ts', 'lib/evidence-envelope.ts', 'lib/profile-validator-binding.ts', 'lib/validator-runner.ts', 'lib/private-validator-env.ts', 'lib/remote-head-validation.ts', 'bin/gstack-work-profile', 'bin/gstack-execution-plan', 'bin/gstack-validator-runtime', 'bin/gstack-evidence', 'bin/gstack-effect-scope', 'bin/gstack-pr-head-guard', 'bin/gstack-review-read'],
   'ship-local-workflow': ['ship/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-workflow.test.ts'],
   'review-dashboard-via': ['ship/**', 'scripts/resolvers/review.ts', 'codex/**', 'autoplan/**', 'land-and-deploy/**', 'test/skill-e2e-review-attribution.test.ts'],
 
@@ -329,7 +329,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'gstack-upgrade-happy-path': ['gstack-upgrade/**', 'test/skill-e2e-workflow.test.ts'],
 
   // Deploy skills
-  'land-and-deploy-workflow':      ['land-and-deploy/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-deploy.test.ts'],
+  'land-and-deploy-workflow':      ['land-and-deploy/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-deploy.test.ts', 'lib/work-profile.ts', 'lib/deploy-adapter-registry.ts', 'lib/provider-access.ts', 'lib/effect-scope.ts', 'lib/evidence-envelope.ts', 'lib/profile-validator-binding.ts', 'lib/validator-runner.ts', 'lib/private-validator-env.ts', 'lib/remote-head-validation.ts', 'bin/gstack-work-profile', 'bin/gstack-execution-plan', 'bin/gstack-validator-runtime', 'bin/gstack-evidence', 'bin/gstack-effect-scope', 'bin/gstack-pr-head-guard', 'bin/gstack-review-read'],
   'land-and-deploy-first-run':     ['land-and-deploy/**', 'scripts/gen-skill-docs.ts', 'bin/gstack-slug', 'test/skill-e2e-deploy.test.ts'],
   'land-and-deploy-review-gate':   ['land-and-deploy/**', 'bin/gstack-review-read', 'test/skill-e2e-deploy.test.ts'],
   'canary-workflow':               ['canary/**', 'scripts/resolvers/aside.ts', 'browse/src/**', 'test/skill-e2e-deploy.test.ts'],

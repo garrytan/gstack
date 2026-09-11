@@ -1,0 +1,283 @@
+#!/usr/bin/env bun
+import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { buildBill } from '../lib/context-bill';
+import { assertStateRootId, resolveRuntimeStateRoot, stampStateRoot } from '../lib/canonical-state-root';
+import {
+  appendEcpeBatch,
+  appendReservedEcpeBatch,
+  appendTimelineBatch,
+  appendTimelineInput,
+  aggregateEcpeObservations,
+  parseEcpeTimeline,
+  RecordInventory,
+  validateEcpeObservation,
+  readEcpeTimelineCandidates,
+} from '../lib/ecpe-metrics';
+import { ledgerCandidates, resolveProjectIdentity, resolveRegisteredProjectLocation } from '../lib/project-identity';
+import { resolveTrustedWorkProfile } from '../lib/trusted-base';
+import { resolveProfileRequirements, type Lane } from '../lib/work-profile';
+import { readMilestoneBlock } from '../lib/milestone-block';
+
+const ROOT = path.resolve(import.meta.dir, '..');
+const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const RUN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
+
+class CliError extends Error {
+  code: string;
+  constructor(code: string) { super(code); this.code = code; }
+}
+
+function fail(code: string): never { throw new CliError(code); }
+
+function option(args: string[], name: string, required = true): string | null {
+  const indexes = args.map((value, index) => value === name ? index : -1).filter((index) => index >= 0);
+  if (indexes.length > 1) fail('argument_duplicate');
+  if (indexes.length === 0) {
+    if (required) fail('argument_missing');
+    return null;
+  }
+  const value = args[indexes[0] + 1];
+  if (!value || value.startsWith('--')) fail('argument_missing');
+  return value;
+}
+
+function exactArgs(args: string[], names: string[]): void {
+  const expected = new Set(names);
+  for (let i = 0; i < args.length; i += 2) {
+    if (!expected.has(args[i]) || args[i + 1] === undefined) fail('argument_invalid');
+  }
+}
+
+function stateRoot(): ReturnType<typeof resolveRuntimeStateRoot> {
+  return resolveRuntimeStateRoot();
+}
+
+function slugFromEnvironment(): string {
+  const slug = process.env.GSTACK_PROJECT_SLUG;
+  if (!slug || !SLUG.test(slug)) fail('project_identity_unavailable');
+  return slug;
+}
+
+function legacyRoot(): string {
+  const configured = process.env.GSTACK_HOME || process.env.GSTACK_STATE_DIR;
+  if (configured) return path.resolve(configured);
+  return stateRoot().root;
+}
+
+function sha256File(candidate: string): string {
+  return createHash('sha256').update(fs.readFileSync(candidate)).digest('hex');
+}
+
+function skillpackIdentity(): string {
+  const manifest = path.join(ROOT, '.ecpe-installed-runtime.json');
+  if (fs.existsSync(manifest)) return `sha256:${sha256File(manifest)}`;
+  const hash = createHash('sha256');
+  for (const name of ['VERSION', 'package.json', 'bun.lock']) hash.update(fs.readFileSync(path.join(ROOT, name)));
+  return `sha256:${hash.digest('hex')}`;
+}
+
+function contractForSkill(skill: string): { work_kind: string; finish_line: string } {
+  if (skill === 'review') return { work_kind: 'review', finish_line: 'review_receipt' };
+  if (skill === 'ship') return { work_kind: 'release', finish_line: 'pr_open' };
+  if (skill === 'land-and-deploy') return { work_kind: 'release', finish_line: 'deployed' };
+  if (skill.includes('design') || skill.includes('plan')) return { work_kind: 'design', finish_line: 'artifact' };
+  if (skill === 'investigate') return { work_kind: 'diagnose', finish_line: 'response' };
+  return { work_kind: 'answer', finish_line: 'response' };
+}
+
+function eagerBytes(skill: string): number {
+  try { return buildBill(ROOT).totals.eagerBytesBySkill[skill] ?? 0; } catch { return 0; }
+}
+
+function inflightPath(root: string, runId: string): string {
+  if (!RUN.test(runId)) fail('run_id_invalid');
+  return path.join(root, 'ecpe', 'inflight', `${runId}.json`);
+}
+
+function writeOwnedJson(target: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+  const temporary = `${target}.tmp-${process.pid}`;
+  const fd = fs.openSync(temporary, 'wx', 0o600);
+  try { fs.writeFileSync(fd, JSON.stringify(value) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  fs.renameSync(temporary, target);
+}
+
+function lifecycleStart(args: string[]): void {
+  exactArgs(args, ['--skill', '--run-id', '--branch', '--slug']);
+  const skill = option(args, '--skill')!;
+  const runId = option(args, '--run-id')!;
+  const branch = option(args, '--branch')!;
+  const slug = option(args, '--slug')!;
+  if (!SLUG.test(slug) || !RUN.test(runId) || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(skill)) fail('argument_invalid');
+  const state = stateRoot();
+  const contract = contractForSkill(skill);
+  const inventory = new RecordInventory({ repositoryRoot: process.cwd(), stateRoot: state.root, projectId: slug });
+  const inventoryStart = inventory.start(runId);
+  const now = new Date().toISOString();
+  const context = validateEcpeObservation({
+    schema_version: 1, run_id: runId, timestamp: now, wtree: slug, kind: 'context',
+    ...contract, context: { skill, eager_bytes: eagerBytes(skill), skillpack_identity: skillpackIdentity() },
+  });
+  writeOwnedJson(inflightPath(state.root, runId), stampStateRoot({
+    schema: 'ecpe.lifecycle-inflight.v1', run_id: runId, slug, skill, branch,
+    repository_root: fs.realpathSync(process.cwd()), contract, inventory_start: inventoryStart,
+  }, state));
+  appendTimelineBatch(state.root, slug, [{
+    skill, event: 'started', branch, session: runId, run_id: runId, ts: now, ecpe: context,
+  }]);
+}
+
+function lifecycleEnd(args: string[]): void {
+  exactArgs(args, ['--skill', '--run-id', '--branch', '--slug', '--outcome', '--duration-s', '--batch-json']);
+  const skill = option(args, '--skill')!;
+  const runId = option(args, '--run-id')!;
+  const branch = option(args, '--branch')!;
+  const slug = option(args, '--slug')!;
+  const outcome = option(args, '--outcome')!;
+  const duration = option(args, '--duration-s')!;
+  const batchJson = option(args, '--batch-json', false);
+  if (!SLUG.test(slug) || !RUN.test(runId) || !/^\d+$/.test(duration)) fail('argument_invalid');
+  const state = stateRoot();
+  const target = inflightPath(state.root, runId);
+  let inflight: Record<string, any> | null = null;
+  try {
+    inflight = JSON.parse(fs.readFileSync(target, 'utf8'));
+    assertStateRootId(inflight!, state);
+    if (inflight!.run_id !== runId || inflight!.slug !== slug || inflight!.skill !== skill) fail('inflight_identity_mismatch');
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    inflight = null;
+  }
+  const now = new Date().toISOString();
+  const entries: Record<string, any>[] = [{
+    skill, event: 'completed', branch, session: runId, run_id: runId, outcome, duration_s: duration, ts: now,
+  }];
+  if (batchJson !== null) {
+    let batch: unknown;
+    try { batch = JSON.parse(batchJson); } catch { fail('host_batch_invalid'); }
+    if (!Array.isArray(batch) || batch.length > 32) fail('host_batch_invalid');
+    const allowedKinds = new Set(['decision', 'section_load', 'receipt', 'spawn', 'validator', 'gate', 'token']);
+    const protectedKeys = new Set(['schema_version', 'run_id', 'timestamp', 'wtree', 'execution_purpose', 'work_kind', 'finish_line']);
+    for (const partial of batch) {
+      if (!partial || typeof partial !== 'object' || Array.isArray(partial)) fail('host_batch_invalid');
+      const item = partial as Record<string, any>;
+      if (!allowedKinds.has(item.kind) || Object.keys(item).some((key) => protectedKeys.has(key))) fail('host_batch_invalid');
+      if (item.kind === 'section_load' && item.section_load?.delivery_provenance !== 'host_reported_assertion') fail('host_batch_invalid');
+      const observation = validateEcpeObservation({
+        schema_version: 1, run_id: runId, timestamp: now, wtree: slug,
+        ...(inflight?.contract ?? contractForSkill(skill)), ...item,
+      });
+      entries.push({ skill, event: 'observation', run_id: runId, ts: now, ecpe: observation });
+    }
+  }
+  if (inflight) {
+    const inventory = new RecordInventory({ repositoryRoot: inflight.repository_root, stateRoot: state.root, projectId: slug });
+    const result = inventory.end(inflight.inventory_start);
+    for (const record of result.observations) {
+      const observation = validateEcpeObservation({
+        schema_version: 1, run_id: runId, timestamp: now, wtree: slug, kind: 'record',
+        ...inflight.contract, record,
+      });
+      entries.push({ skill, event: 'observation', run_id: runId, ts: now, ecpe: observation });
+    }
+  }
+  appendTimelineBatch(state.root, slug, entries);
+  if (inflight) {
+    try { fs.rmSync(target); } catch { /* exact owned inflight cleanup */ }
+  }
+}
+
+function timelineRead(): void {
+  const slug = slugFromEnvironment();
+  let candidates = [path.join(legacyRoot(), 'projects', slug, 'timeline.jsonl')];
+  if (process.env.GSTACK_TIMELINE_CANDIDATES_JSON) {
+    const parsed = JSON.parse(process.env.GSTACK_TIMELINE_CANDIDATES_JSON);
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string') || parsed.length > 128) fail('timeline_candidates_invalid');
+    candidates = parsed;
+  }
+  const expectedRepoId = process.env.GSTACK_PROJECT_REPO_ID;
+  const canonical = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+    if (value && typeof value === 'object') {
+      const row = value as Record<string, unknown>;
+      return `{${Object.keys(row).sort().map((key) => `${JSON.stringify(key)}:${canonical(row[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value);
+  };
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const timeline of candidates) {
+    let raw = '';
+    try { raw = fs.readFileSync(timeline, 'utf8'); } catch { continue; }
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      let key = `invalid:${line}`;
+      try {
+        const row = JSON.parse(line) as Record<string, unknown>;
+        if (expectedRepoId && typeof row.repo_id === 'string' && row.repo_id !== expectedRepoId) continue;
+        key = canonical(row);
+      } catch { /* retain one invalid projection for accurate diagnostics */ }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(line);
+    }
+  }
+  const parsed = parseEcpeTimeline(lines.join('\n'));
+  const report = aggregateEcpeObservations(parsed.observations, { allowCanaryControl: true, allowReservedProducer: true });
+  report.invalid_observations = parsed.invalid;
+  process.stdout.write(JSON.stringify(report) + '\n');
+}
+
+function shadowComparison(args:string[]):void{
+  exactArgs(args,['--run-id','--block-id','--lane','--assert-target-ref']);
+  const runId=option(args,'--run-id')!,blockId=option(args,'--block-id')!,lane=option(args,'--lane')as Lane,targetRef=option(args,'--assert-target-ref')!;
+  if(!RUN.test(runId)||!/^block-[0-9a-f]{32}$/.test(blockId)||!['docs_ux','single_repo_code','cross_repo_contract'].includes(lane))fail('argument_invalid');
+  const state=stateRoot();const identity=resolveProjectIdentity(process.cwd(),{mode:'profile'});if(identity.repo_id!=='portfolioops')fail('shadow_participant_mismatch');
+  const block=readMilestoneBlock(state.root,blockId);if(block.phase!=='active'||!block.participants.includes('portfolioops'))fail('shadow_block_invalid');
+  const resolved=resolveTrustedWorkProfile({cwd:process.cwd(),lane,assertTargetRef:targetRef});if(!resolved.effective||resolved.lane_activation!=='shadow'||!resolved.profile_hash)fail('shadow_profile_invalid');
+  const parsed=readEcpeTimelineCandidates(state.root,ledgerCandidates(identity,'timeline',state.root),identity.repo_id);if(parsed.invalid)fail('shadow_timeline_invalid');const report=aggregateEcpeObservations(parsed.observations,{allowCanaryControl:true,allowReservedProducer:true});const runs=report.runs.filter((item:any)=>item.run_id===runId);if(runs.length!==1)fail('shadow_run_missing');const run=runs[0];
+  const terminalKeys=new Set<string>();const terminals:any[]=[];for(const candidate of ledgerCandidates(identity,'timeline',state.root)){let raw='';try{raw=fs.readFileSync(candidate,'utf8')}catch{continue}for(const line of raw.split('\n')){if(!line.trim())continue;try{const row=JSON.parse(line);if(row.run_id!==runId||row.event!=='completed')continue;const key=JSON.stringify(row);if(!terminalKeys.has(key)){terminalKeys.add(key);terminals.push(row)}}catch{fail('shadow_timeline_invalid')}}}if(terminals.length!==1)fail('shadow_run_nonterminal');
+  const headChild=Bun.spawnSync(['/usr/bin/git','rev-parse','HEAD^{commit}'],{cwd:process.cwd(),stdout:'pipe',stderr:'pipe',env:{PATH:'/usr/bin:/bin',LC_ALL:'C',GIT_CONFIG_NOSYSTEM:'1'}});if(headChild.exitCode!==0)fail('shadow_subject_invalid');const head=headChild.stdout.toString().trim();
+  const requirements=resolveProfileRequirements(resolved.effective,{roles:run.semantic_roles,lane,finishLine:parsed.observations.find(item=>item.run_id===runId)?.finish_line??'local_change'});const projected=[...new Set(requirements.required_capabilities)].sort();const legacy=[...new Set(run.capabilities as string[])].sort();let paired:string|null=null;
+  if(lane==='cross_repo_contract'){const pairs:Array<[string,string]>=[];for(const dependency of Object.values(resolved.effective.dependencies)as any[]){try{const location=resolveRegisteredProjectLocation(dependency.registry_id,process.cwd());const child=Bun.spawnSync(['/usr/bin/git','rev-parse','HEAD^{commit}'],{cwd:location.root,stdout:'pipe',stderr:'pipe',env:{PATH:'/usr/bin:/bin',LC_ALL:'C',GIT_CONFIG_NOSYSTEM:'1'}});if(child.exitCode!==0)fail('shadow_dependency_invalid');pairs.push([dependency.repo_id,child.stdout.toString().trim()])}catch{fail('shadow_dependency_invalid')}}paired=createHash('sha256').update(JSON.stringify(pairs.sort())).digest('hex')}
+  const base={block_id:blockId,participant:'portfolioops',repo_id:identity.repo_id,profile_lineage_hash:resolved.profile_hash,lane,lane_activation:'shadow',execution:'legacy',subject_head_sha:head,trusted_base_sha:resolved.trusted_base.target_sha,paired_change_set_id:paired,legacy_executed_capability_ids:legacy,projected_capability_ids:projected,safety_outcomes:run.unauthorized_effects.length===0?'complete':'unknown'};const comparisonId=`comparison-${createHash('sha256').update(JSON.stringify(base)).digest('hex').slice(0,32)}`;const payload={...base,comparison_id:comparisonId};
+  const existing=run.shadow_comparisons.filter((item:any)=>item.block_id===blockId&&item.lane===lane);if(existing.length){if(existing.length===1&&JSON.stringify(existing[0])===JSON.stringify(payload)){process.stdout.write(JSON.stringify(payload)+'\n');return}fail('shadow_comparison_conflict')}
+  const timestamp=new Date(terminals[0].ts??Date.now()).toISOString();appendReservedEcpeBatch(path.join(state.root,'projects',identity.write_slug,'timeline.jsonl'),[{schema_version:1,run_id:runId,timestamp,wtree:parsed.observations.find(item=>item.run_id===runId)?.wtree??identity.write_slug,execution_purpose:'ordinary',work_kind:parsed.observations.find(item=>item.run_id===runId)?.work_kind??'change',finish_line:parsed.observations.find(item=>item.run_id===runId)?.finish_line??'local_change',kind:'shadow_comparison',shadow_comparison:payload}]);process.stdout.write(JSON.stringify(payload)+'\n');
+}
+
+function main(args: string[]): void {
+  const command = args.shift();
+  if (command === 'timeline-log') {
+    if (args.length !== 1) fail('argument_invalid');
+    if (!appendTimelineInput(args[0], legacyRoot(), slugFromEnvironment())) fail('timeline_event_invalid');
+    return;
+  }
+  if (command === 'timeline-read') { if (args.length) fail('argument_invalid'); timelineRead(); return; }
+  if (command === 'lifecycle-start') { lifecycleStart(args); return; }
+  if (command === 'lifecycle-end') { lifecycleEnd(args); return; }
+  if (command === 'shadow-comparison') { shadowComparison(args); return; }
+  if (command === 'observe') {
+    if (args.length !== 1) fail('argument_invalid');
+    const parsed = JSON.parse(args[0]);
+    const values = Array.isArray(parsed) ? parsed : [parsed];
+    appendEcpeBatch(path.join(stateRoot().root, 'projects', slugFromEnvironment(), 'timeline.jsonl'), values);
+    return;
+  }
+  if (command === 'canonical-root') {
+    if (args.length) fail('argument_invalid');
+    const state = stateRoot();
+    process.stdout.write(JSON.stringify({ state_root_id: state.stateRootId }) + '\n');
+    return;
+  }
+  fail('command_invalid');
+}
+
+try {
+  main(process.argv.slice(2));
+} catch (error) {
+  const code = error instanceof CliError ? error.code : (error as any)?.code ?? 'ecpe_observation_failed';
+  process.stderr.write(JSON.stringify({ result: null, error: { code } }) + '\n');
+  process.exitCode = 2;
+}

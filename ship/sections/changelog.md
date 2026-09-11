@@ -23,16 +23,16 @@
    - Infrastructure / tooling / tests
    - Refactoring
 
-5. **Write the CHANGELOG entry** covering ALL groups:
-   - If existing CHANGELOG entries on the branch already cover some commits, replace them with one unified entry for the new version
+5. **Compose the CHANGELOG entry body** covering ALL groups:
+   - If existing CHANGELOG entries on the branch already cover some commits, replace their content in the proposed body with one unified entry
    - Categorize changes into applicable sections:
      - `### Added` — new features
      - `### Changed` — changes to existing functionality
      - `### Fixed` — bug fixes
      - `### Removed` — removed features
    - Write concise, descriptive bullet points
-   - Insert after the file header (line 5), dated today
-   - Format: `## [X.Y.Z.W] - YYYY-MM-DD`
+   - Do not include the version/date heading; the release writer owns it
+   - Assign the exact body bytes to the shell variable `CHANGELOG_ENTRY` using a quoted heredoc. Do not edit `CHANGELOG.md` directly
    - **Voice:** Lead with what the user can now **do** that they couldn't before. Use plain language, not implementation details. Never mention TODOS.md, internal tracking, or contributor-facing details.
 
 6. **Cross-check:** Compare your CHANGELOG entry against the commit list from step 2.

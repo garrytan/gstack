@@ -4,13 +4,17 @@
  * Creates temp git repos with specific file patterns and verifies
  * the correct SCOPE_* variables are output.
  */
-import { describe, test, expect, afterAll } from 'bun:test';
+import { describe, test, expect, afterAll, beforeAll } from 'bun:test';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
+import { readFileSync } from 'fs';
+import { createInstalledAuthorityFixture } from './helpers/installed-authority';
 
 const SCRIPT = join(import.meta.dir, '..', 'bin', 'gstack-diff-scope');
+const ROOT = join(import.meta.dir, '..');
+let installed: ReturnType<typeof createInstalledAuthorityFixture>;
 
 const dirs: string[] = [];
 
@@ -57,7 +61,18 @@ function runScope(dir: string): Record<string, string> {
   return vars;
 }
 
+beforeAll(() => {
+  const build = spawnSync(process.execPath, ['run', 'scripts/build-authority-bundles.ts'], {
+    cwd: ROOT,
+    stdio: 'pipe',
+    timeout: 30_000,
+  });
+  expect(build.status).toBe(0);
+  installed = createInstalledAuthorityFixture(ROOT);
+});
+
 afterAll(() => {
+  installed?.cleanup();
   for (const d of dirs) {
     try { rmSync(d, { recursive: true, force: true }); } catch {}
   }
@@ -163,10 +178,10 @@ describe('gstack-diff-scope', () => {
     expect(scope.SCOPE_AUTH).toBe('false');
   });
 
-  test('outputs all 9 scope variables', () => {
+  test('preserves legacy variables and adds schema plus semantic roles', () => {
     const dir = createRepo(['app.ts']);
     const scope = runScope(dir);
-    expect(Object.keys(scope)).toHaveLength(9);
+    expect(Object.keys(scope)).toHaveLength(11);
     expect(scope).toHaveProperty('SCOPE_FRONTEND');
     expect(scope).toHaveProperty('SCOPE_BACKEND');
     expect(scope).toHaveProperty('SCOPE_PROMPTS');
@@ -176,6 +191,43 @@ describe('gstack-diff-scope', () => {
     expect(scope).toHaveProperty('SCOPE_MIGRATIONS');
     expect(scope).toHaveProperty('SCOPE_API');
     expect(scope).toHaveProperty('SCOPE_AUTH');
+    expect(scope.SCOPE_SCHEMA).toBe('ecpe.diff-scope.v1');
+    expect(scope).toHaveProperty('SEMANTIC_ROLES_JSON');
+  });
+
+  test('emits exact sorted multi-role semantics that survive tiny diffs', () => {
+    const scope = runScope(createRepo(['src/auth/session.ts', 'db/migrate/1_add_users.rb', 'openapi.yaml']));
+    expect(scope.SEMANTIC_ROLES_JSON).toBe("'[\"auth\",\"code\",\"contract\",\"runtime\",\"schema\"]'");
+  });
+
+  test('covers docs, prompt, ui, data, and release metadata roles', () => {
+    const scope = runScope(createRepo(['docs/a.md', 'prompts/system_prompt.rb', 'src/A.tsx', 'db/data/1_backfill.rb', 'VERSION']));
+    expect(scope.SEMANTIC_ROLES_JSON).toContain('data');
+    expect(scope.SEMANTIC_ROLES_JSON).toContain('docs');
+    expect(scope.SEMANTIC_ROLES_JSON).toContain('prompt');
+    expect(scope.SEMANTIC_ROLES_JSON).toContain('release_metadata');
+    expect(scope.SEMANTIC_ROLES_JSON).toContain('ui');
+  });
+});
+
+describe('authoritative semantic adapter', () => {
+  test('delegates base selection and rejects caller-selected base flags', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'semantic-scope-test-')); dirs.push(dir);
+    const run = (args: string[]) => spawnSync('/usr/bin/git', args, { cwd: dir, stdio: 'pipe' });
+    run(['init', '-b', 'main']); run(['config', 'user.email', 'test@test.com']); run(['config', 'user.name', 'Test']);
+    mkdirSync(join(dir, '.gstack')); writeFileSync(join(dir, '.gstack/work-profile.yaml'), readFileSync(join(import.meta.dir, 'fixtures/work-profile/valid.yaml'))); writeFileSync(join(dir, 'README.md'), 'base\n'); run(['add', '.']); run(['commit', '-m', 'base']); run(['update-ref', 'refs/remotes/origin/main', 'HEAD']); run(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']); run(['switch', '-c', 'feature']);
+    mkdirSync(join(dir, 'src')); writeFileSync(join(dir, 'src/app.ts'), 'export {};\n'); run(['add', '.']); run(['commit', '-m', 'change']);
+    const semanticScript = join(installed.bin, 'gstack-diff-scope');
+    const ok = spawnSync('bash', [semanticScript, '--semantic-json', '--assert-target-ref', 'origin/main'], { cwd: dir, stdio: 'pipe', timeout: 30_000 });
+    expect(ok.status).toBe(0); expect(JSON.parse(ok.stdout.toString()).roles).toContain('code');
+    const forged = spawnSync('bash', [semanticScript, '--semantic-json', '--target-base', 'HEAD~1'], { cwd: dir, stdio: 'pipe', timeout: 30_000 });
+    expect(forged.status).toBe(2); expect(forged.stderr.toString()).toContain('semantic_manifest_arguments_invalid');
+  });
+
+  test('between-trees remains explicitly advisory', () => {
+    const dir = createRepo(['src/a.ts']); const oldTree = spawnSync('/usr/bin/git', ['rev-parse', 'main^{tree}'], { cwd: dir, encoding: 'utf8' }).stdout.trim(); const newTree = spawnSync('/usr/bin/git', ['rev-parse', 'HEAD^{tree}'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
+    const result = spawnSync('bash', [SCRIPT, '--between-trees', oldTree, newTree], { cwd: dir, stdio: 'pipe' });
+    expect(result.status).toBe(0); expect(JSON.parse(result.stdout.toString()).advisory_only).toBe(true);
   });
 });
 
@@ -255,7 +307,9 @@ describe('exit-code contract (#2526)', () => {
     const { vars, status } = runScopeFull(dir);
     expect(status).toBe(0);
     expect(vars.SCOPE_ERROR).toBeUndefined();
-    expect(Object.values(vars).every((v) => v === 'false')).toBe(true);
+    const legacy = Object.entries(vars).filter(([key]) => key.startsWith('SCOPE_') && key !== 'SCOPE_SCHEMA');
+    expect(legacy.every(([, value]) => value === 'false')).toBe(true);
+    expect(vars.SEMANTIC_ROLES_JSON).toBe("'[]'");
   });
 
   test('changed files but ZERO matches → SCOPE_ERROR=unmatched + exit 2 + paths listed', () => {

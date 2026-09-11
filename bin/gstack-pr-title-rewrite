@@ -1,0 +1,88 @@
+#!/usr/bin/env bun
+import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { resolveReleasePolicy, type ReleaseTitlePolicy } from '../lib/release-policy';
+import { rewritePrTitle, rewriteResolvedPrTitle } from '../lib/pr-title-policy';
+import { resolveTrustedWorkProfile } from '../lib/trusted-base';
+import { LANES, type Lane } from '../lib/work-profile';
+
+type Parsed =
+  | { form: 'legacy'; version: string; title: string }
+  | { form: 'strict'; assertTargetRef: string; assertTitlePolicy?: ReleaseTitlePolicy; releaseRequested: boolean; version?: string; title: string; lane: Lane };
+
+function parse(argv: string[]): Parsed {
+  if (argv.length === 2 && !argv.some(value => value.startsWith('--'))) return { form: 'legacy', version: argv[0], title: argv[1] };
+  const values = new Map<string, string>();
+  let releaseRequested = false;
+  for (let index = 0; index < argv.length; index++) {
+    const flag = argv[index];
+    if (flag === '--release-requested') {
+      if (releaseRequested) throw new Error('release_title_argument_duplicate');
+      releaseRequested = true;
+      continue;
+    }
+    if (!['--assert-target-ref', '--assert-title-policy', '--version', '--title', '--lane'].includes(flag)) throw new Error('release_title_argument_forbidden');
+    if (values.has(flag)) throw new Error('release_title_argument_duplicate');
+    const value = argv[++index];
+    if (value === undefined || value.startsWith('--')) throw new Error('release_title_argument_value_missing');
+    values.set(flag, value);
+  }
+  const assertTargetRef = values.get('--assert-target-ref');
+  const title = values.get('--title');
+  const lane = values.get('--lane') as Lane | undefined;
+  if (!assertTargetRef || title === undefined || !lane) throw new Error('release_title_argument_required');
+  if (!LANES.includes(lane)) throw new Error('release_title_lane_invalid');
+  const asserted = values.get('--assert-title-policy');
+  if (asserted !== undefined && !['version_prefix', 'conventional', 'free'].includes(asserted)) throw new Error('release_title_policy_assertion_invalid');
+  return {
+    form: 'strict',
+    assertTargetRef,
+    ...(asserted ? { assertTitlePolicy: asserted as ReleaseTitlePolicy } : {}),
+    releaseRequested,
+    ...(values.has('--version') ? { version: values.get('--version')! } : {}),
+    title,
+    lane,
+  };
+}
+
+function repositoryRoot(cwd: string): string {
+  try {
+    return realpathSync(execFileSync('/usr/bin/git', ['rev-parse', '--show-toplevel'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1' },
+    }).trim());
+  } catch {
+    throw new Error('trusted_policy_resolution_required');
+  }
+}
+
+export function runPrTitleRewrite(argv: string[], cwd = process.cwd()): string {
+  const parsed = parse(argv);
+  const root = repositoryRoot(cwd);
+  const resolvedProfile = resolveTrustedWorkProfile({
+    cwd: root,
+    lane: parsed.form === 'strict' ? parsed.lane : 'single_repo_code',
+    ...(parsed.form === 'strict' ? { assertTargetRef: parsed.assertTargetRef } : {}),
+  });
+  if (parsed.form === 'legacy' && resolvedProfile.mode === 'profile') throw new Error('release_legacy_title_input_forbidden');
+  if (parsed.form === 'legacy') {
+    return rewritePrTitle({ decision: resolveReleasePolicy({ resolvedProfile }), version: parsed.version, title: parsed.title });
+  }
+  const decision = resolveReleasePolicy({
+    resolvedProfile,
+    releaseRequested: parsed.releaseRequested,
+    assertTitlePolicy: parsed.assertTitlePolicy,
+    cwd: root,
+  });
+  return rewriteResolvedPrTitle({ decision, title: parsed.title, version: parsed.version });
+}
+
+if (import.meta.main) {
+  try { process.stdout.write(runPrTitleRewrite(process.argv.slice(2)) + '\n'); }
+  catch (error) {
+    process.stderr.write(`gstack-pr-title-rewrite: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 2;
+  }
+}

@@ -35,6 +35,39 @@ GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
   // through $HOME instead (env-var hosts already use $GSTACK_BIN).
   const shellPath = (p: string) => p.replace(/^~\//, '$HOME/');
 
+  const governed = ({
+    review: ['review', 'review_receipt'],
+    ship: ['release', 'pr_open'],
+    'land-and-deploy': ['release', 'deployed'],
+    'setup-deploy': ['operation', 'local_change'],
+  } as Record<string, [string, string]>)[ctx.skillName];
+  if (governed) return `## Preamble (run first)
+
+\`\`\`bash
+${runtimeRoot}_EP="${shellPath(ctx.paths.binDir)}/gstack-execution-plan"
+[ -x "$_EP" ] || _EP="${shellPath(ctx.paths.localSkillRoot)}/bin/gstack-execution-plan"
+EXECUTION_PLAN_JSON=$("$_EP" resolve --skill "${ctx.skillName}" --work-kind "${governed[0]}" \\
+  --finish-line "${governed[1]}" --lane auto --json) \\
+  || { echo "EXECUTION_PLAN: unavailable — stale install; run ./setup or /gstack-upgrade (preamble degraded, continue read-only)"; EXECUTION_PLAN_JSON=; }
+[ -z "$EXECUTION_PLAN_JSON" ] || printf '%s\\n' "$EXECUTION_PLAN_JSON"
+\`\`\`
+
+Consume the single JSON object as the authoritative initial decision. Bind its
+exact lane once with
+\`ECPE_EXECUTION_LANE=$(printf '%s' "$EXECUTION_PLAN_JSON" | jq -er '.lane | select(. == "docs_ux" or . == "single_repo_code" or . == "cross_repo_contract")')\`.
+If that binding is absent or malformed, no release, provider, or Git write is
+authorized. The decision starts the lifecycle, resolves
+identity/profile/manifest/requirements, checks current
+evidence, proposes effects without running them, and returns verified initial
+section contents. Note \`lifecycle.run_id\` as \`SESSION_ID\` and
+\`lifecycle.tel_start\` as \`TEL_START\` for the final \`gstack-skill-end\` call.
+The compatibility defaults used by shared preamble rules are in
+\`lifecycle.status\`; no separate \`gstack-skill-start\`, identity, profile,
+manifest, evidence-read, or section-delivery command is allowed for this same
+decision. If the command is unavailable or malformed, continue read-only,
+defer onboarding/telemetry consent, and do not infer any grant or current
+evidence.`;
+
   return `## Preamble (run first)
 
 \`\`\`bash

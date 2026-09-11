@@ -17,6 +17,11 @@
 import type { Model } from './models';
 import { validateModel } from './models';
 
+export type SectionDelivery =
+  | 'inline'
+  | 'on-demand-global'
+  | 'on-demand-relative';
+
 export interface HostConfig {
   /** Unique host identifier (e.g., 'opencode'). Must match filename in hosts/. */
   name: string;
@@ -39,6 +44,8 @@ export interface HostConfig {
   hostSubdir: string;
   /** Whether preamble generates $GSTACK_ROOT env vars (true for non-Claude hosts). */
   usesEnvVars: boolean;
+  /** How carved section bodies reach the host at runtime. */
+  sectionDelivery: SectionDelivery;
 
   // --- Frontmatter Transformation ---
   frontmatter: {
@@ -144,6 +151,9 @@ export function validateHostConfig(config: HostConfig, validResolverNames?: Read
   }
   if (!PATH_REGEX.test(config.hostSubdir)) {
     errors.push(`hostSubdir '${config.hostSubdir}' contains invalid characters`);
+  }
+  if (!['inline', 'on-demand-global', 'on-demand-relative'].includes(config.sectionDelivery)) {
+    errors.push(`sectionDelivery must be 'inline', 'on-demand-global', or 'on-demand-relative'`);
   }
   if (!['allowlist', 'denylist'].includes(config.frontmatter.mode)) {
     errors.push(`frontmatter.mode must be 'allowlist' or 'denylist'`);

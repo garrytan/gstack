@@ -53,6 +53,54 @@ _SCRIPT_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
 _BIN="$_SCRIPT_DIR"
 _GH="${GSTACK_HOME:-$HOME/.gstack}"
 
+# ECPE governed hot path: one canonical lifecycle observation and content-free
+# status only.  It must not inherit onboarding, config mutation, artifact sync,
+# gbrain, upgrade, telemetry, or repository-instruction writes.
+case "$SKILL_NAME" in
+  review|ship|land-and-deploy|setup-deploy)
+    _TEL_START=$(date +%s)
+    _SID_RAND=$(od -An -N4 -tx4 /dev/urandom 2>/dev/null | tr -d ' \n' || true)
+    _SESSION_ID="$PARENT_PID-$_TEL_START${_SID_RAND:+-$_SID_RAND}"
+    umask 077
+    mkdir -p "$_GH/governed-runs" 2>/dev/null || true
+    : > "$_GH/governed-runs/$_SESSION_ID.$SKILL_NAME.active" 2>/dev/null || true
+    _BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-')
+    _BRANCH=${_BRANCH:-unknown}
+    eval "$("$_BIN/gstack-slug" 2>/dev/null)" 2>/dev/null || true
+    "$_BIN/gstack-ecpe-observe" lifecycle-start --skill "$SKILL_NAME" \
+      --run-id "$_SESSION_ID" --branch "$_BRANCH" --slug "${SLUG:-unknown}" 2>/dev/null || true
+    echo "SKILL_START_PROTO: 1"
+    echo "BRANCH: $_BRANCH"
+    echo "PROACTIVE: false"
+    echo "PROACTIVE_PROMPTED: yes"
+    echo "SKILL_PREFIX: false"
+    echo "REPO_MODE: unknown"
+    echo "SESSION_KIND: interactive"
+    echo "ACTIVATED: yes"
+    echo "FIRST_LOOP_SHOWN: yes"
+    echo "FIRST_TASK:"
+    echo "LAKE_INTRO: yes"
+    echo "TELEMETRY: off"
+    echo "TEL_PROMPTED: yes"
+    echo "SESSION_ID: $_SESSION_ID"
+    echo "RUN_ID: $_SESSION_ID"
+    echo "TEL_START: $_TEL_START"
+    echo "EXPLAIN_LEVEL: default"
+    echo "QUESTION_TUNING: false"
+    echo "UPDATE_CHECK: false"
+    echo "LEARNINGS: 0"
+    echo "HAS_ROUTING: unknown"
+    echo "ROUTING_DECLINED: false"
+    echo "VENDORED_GSTACK: unknown"
+    echo "MODEL_OVERLAY: $MODEL_OVERLAY"
+    echo "CHECKPOINT_MODE: explicit"
+    echo "CHECKPOINT_PUSH: false"
+    echo "GSTACK_PLAN_MODE: inactive"
+    echo "ARTIFACTS_SYNC: off"
+    exit 0
+    ;;
+esac
+
 # OV4: strip instruction markers from any passthrough text before echoing it
 # into the blessed tool result. Prior-session/repo content must not be able to
 # mint directive blocks — nor forge a SESSION_ID: status line (the token that
@@ -143,6 +191,7 @@ _SESSION_ID="$PARENT_PID-$_TEL_START${_SID_RAND:+-$_SID_RAND}"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 echo "SESSION_ID: $_SESSION_ID"
+echo "RUN_ID: $_SESSION_ID"
 echo "TEL_START: $_TEL_START"
 _EXPLAIN_LEVEL=$("$_BIN/gstack-config" get explain_level 2>/dev/null || echo "default")
 if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then _EXPLAIN_LEVEL="default"; fi
@@ -177,7 +226,11 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-"$_BIN/gstack-timeline-log" '{"skill":"'"$SKILL_NAME"'","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+if ! "$_BIN/gstack-ecpe-observe" lifecycle-start \
+  --skill "$SKILL_NAME" --run-id "$_SESSION_ID" --branch "$_BRANCH" \
+  --slug "${SLUG:-unknown}" 2>/dev/null; then
+  "$_BIN/gstack-timeline-log" '{"skill":"'"$SKILL_NAME"'","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'","run_id":"'"$_SESSION_ID"'"}' 2>/dev/null &
+fi
 _HAS_ROUTING="no"
 for _RF in CLAUDE.md AGENTS.md; do
   if [ -f "$_RF" ] && grep -q "## Skill routing" "$_RF" 2>/dev/null; then

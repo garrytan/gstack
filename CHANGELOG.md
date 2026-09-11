@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.85.0.0] - 2026-09-11
+
+**ECPE v3 gives review, ship, release, and landing workflows one fail-closed execution authority with durable evidence.**
+
+### Added
+- Trusted work profiles, semantic change manifests, typed effect scopes, exact project identity, and a deterministic authority bundle for cross-host workflow execution.
+- Durable milestone, replay, release-allocation, ShipReceipt, merged-checkpoint, canary, and promotion records with atomic writes, owner locks, bounded recovery, and explicit cleanup handoff.
+- Provider adapters that bind repository, base/head refs and OIDs, PR identity, title policy, remote-head observations, comments, checks, push intent, and landing evidence before an external effect is allowed.
+- Private validator workspaces, attested runtime/toolchain selection, paid-model grant checks, evidence envelopes, section delivery, and low-overhead ECPE metrics.
+
+### Changed
+- Review, ship, deploy setup, document release, and land-and-deploy now consume the same generated authority contracts while keeping host-specific presentation and existing fallback behavior.
+- Free-suite execution isolates stateful provider-recovery tests and gives release-metadata shards a bounded heavy-test wall budget.
+
+### Fixed
+- Atomic owner-lock creation, process supervision and SIGKILL recovery, stale replay adoption, release projection drift, self-claim exclusion, and native Windows authority boundaries now fail closed.
+- Compiled authority commands resolve their installed runtime relative to the bundle, so an atomic install remains relocatable and post-install smoke checks do not mutate it.
+
 ## [1.84.1.0] - 2026-09-09
 
 ### Changed

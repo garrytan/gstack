@@ -8,6 +8,11 @@
 
 Use the project's test commands discovered in Step 4 or documented in CLAUDE.md/AGENTS.md. Run every applicable suite; do not assume Rails or Vitest. The commands below are examples only for repositories that actually provide them. Use the same lane labels and exact commands again in Step 16.
 
+ECPE: each decisive test lane contributes one `validator` partial with a
+closed lane ID, measured duration, and pass/fail. Do not record the command,
+log path, test names, output, or evidence payload. The evidence adapter owns
+its receipt observation in the same process.
+
 **For Rails projects using `bin/test-lane`, do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
 `db:test:prepare` internally, which loads the schema into the correct lane database.
 Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.

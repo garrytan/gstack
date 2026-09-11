@@ -3,12 +3,9 @@ import type { TemplateContext } from '../types';
 export function generateContextRecovery(ctx: TemplateContext): string {
   const binDir = ctx.paths.binDir; // env-var hosts already resolve to $GSTACK_BIN via types.ts
 
-  // Branch-form discipline (#2550/#1851): FILE-PATH positions use $BRANCH —
-  // the canonical slug form the gstack-slug eval on the first line sets
-  // (tr '/' '-' then tr -cd 'a-zA-Z0-9._-', matching what gstack-review-log
-  // WRITES). The timeline.jsonl greps keep raw $_BRANCH because the timeline
-  // writer (preamble's gstack-timeline-log call) stores the raw branch in the
-  // "branch" field — slugging the reader there would break matching.
+  // Artifact paths remain on the legacy gstack-slug projection. Ledger reads
+  // go through their canonical-identity adapters so they union only explicit
+  // legacy candidates and reject conflicting repository identities.
   return `## Context Recovery
 
 At session start or after compaction, recover recent project context.
@@ -16,15 +13,17 @@ At session start or after compaction, recover recent project context.
 \`\`\`bash
 eval "$(${binDir}/gstack-slug 2>/dev/null)"
 _PROJ="\${GSTACK_HOME:-$HOME/.gstack}/projects/\${SLUG:-unknown}"
-if [ -d "$_PROJ" ]; then
+_REVIEW_COUNT=$(${binDir}/gstack-review-read 2>/dev/null | awk '/^---CONFIG---$/{exit} /^\\{/{n++} END{print n+0}')
+_TIMELINE=$(${binDir}/gstack-timeline-read --limit 5 --branch "$_BRANCH" 2>/dev/null)
+if [ -d "$_PROJ" ] || [ "\${_REVIEW_COUNT:-0}" -gt 0 ] || [ -n "$_TIMELINE" ]; then
   echo "--- RECENT ARTIFACTS ---"
   find "$_PROJ/ceo-plans" "$_PROJ/checkpoints" -type f -name "*.md" 2>/dev/null | xargs -r ls -t 2>/dev/null | head -3
-  [ -f "$_PROJ/\${BRANCH:-unknown}-reviews.jsonl" ] && echo "REVIEWS: $(wc -l < "$_PROJ/\${BRANCH:-unknown}-reviews.jsonl" | tr -d ' ') entries"
-  [ -f "$_PROJ/timeline.jsonl" ] && tail -5 "$_PROJ/timeline.jsonl"
-  if [ -f "$_PROJ/timeline.jsonl" ]; then
-    _LAST=$(grep "\\"branch\\":\\"\${_BRANCH}\\"" "$_PROJ/timeline.jsonl" 2>/dev/null | grep '"event":"completed"' | tail -1)
+  [ "\${_REVIEW_COUNT:-0}" -gt 0 ] && echo "REVIEWS: $_REVIEW_COUNT entries"
+  [ -n "$_TIMELINE" ] && printf '%s\\n' "$_TIMELINE"
+  if [ -n "$_TIMELINE" ]; then
+    _LAST=$(printf '%s\\n' "$_TIMELINE" | grep ' completed' | tail -1)
     [ -n "$_LAST" ] && echo "LAST_SESSION: $_LAST"
-    _RECENT_SKILLS=$(grep "\\"branch\\":\\"\${_BRANCH}\\"" "$_PROJ/timeline.jsonl" 2>/dev/null | grep '"event":"completed"' | tail -3 | grep -o '"skill":"[^"]*"' | sed 's/"skill":"//;s/"//' | tr '\\n' ',')
+    _RECENT_SKILLS=$(printf '%s\\n' "$_TIMELINE" | grep ' completed' | tail -3 | sed -n 's/.* \/\\([^ ]*\\) completed.*/\\1/p' | tr '\\n' ',')
     [ -n "$_RECENT_SKILLS" ] && echo "RECENT_PATTERN: $_RECENT_SKILLS"
   fi
   _LATEST_CP=$(find "$_PROJ/checkpoints" -name "*.md" -type f 2>/dev/null | xargs -r ls -t 2>/dev/null | head -1)

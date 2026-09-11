@@ -1,0 +1,3 @@
+#!/bin/sh
+self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -P) || exit 1
+exec "$self_dir/gstack-anchor" gstack-validator-runtime "$@"

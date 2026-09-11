@@ -185,10 +185,10 @@ describe('gstack-config', () => {
   });
 
   // ─── codex_reviews (paid-calls switch: reject-on-set, preserve existing) ──
-  test('codex_reviews defaults to enabled', () => {
+  test('codex_reviews defaults to disabled', () => {
     const { exitCode, stdout } = run(['get', 'codex_reviews']);
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('enabled');
+    expect(stdout).toBe('disabled');
   });
 
   test('codex_reviews accepts enabled and disabled', () => {

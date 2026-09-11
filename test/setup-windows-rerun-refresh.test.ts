@@ -16,6 +16,7 @@
  * factory/opencode can't silently regress.
  */
 import { describe, test, expect } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { runBashScript } from './helpers/bash-script';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -159,6 +160,7 @@ function runInstaller(
     `IS_WINDOWS=${isWindows}`,
     extraVars,
     extractFn('_link_or_copy'),
+    extractFn('_install_authority_runtime'),
     // Ownership gates (#2142) — dependencies of every installer under test.
     extractFn('_owned_for_windows_refresh'),
     extractFn('_sidecar_root_user_owned'),
@@ -207,12 +209,23 @@ describe('setup: Windows re-run refresh — behavior fixture (#2444)', () => {
     try {
       const fake = path.join(tmp, 'gstack');
       fs.mkdirSync(path.join(fake, 'bin'), { recursive: true });
+      fs.mkdirSync(path.join(fake, 'dist', 'authority'), { recursive: true });
       fs.writeFileSync(path.join(fake, 'bin', 'tool.sh'), 'v1\n');
       fs.writeFileSync(path.join(fake, 'ETHOS.md'), 'ethos-v1\n');
+      fs.writeFileSync(path.join(fake, 'dist', 'authority', 'manifest.json'), '{}\n');
+      fs.writeFileSync(path.join(fake, 'dist', 'authority', 'gstack-project-identity.mjs'), '// fixture\n');
+      fs.writeFileSync(path.join(fake, '.ecpe-installed-runtime.json'), '{}\n');
+      for (const asset of ['scripts', 'lib', 'hosts']) {
+        fs.cpSync(path.join(ROOT, asset), path.join(fake, asset), { recursive: true });
+      }
+      const render = spawnSync(process.execPath, ['run', 'gen:skill-docs', '--host', 'codex', '--out-dir', fake], {
+        cwd: ROOT, encoding: 'utf8', timeout: 30_000,
+      });
+      expect(render.status, render.stderr).toBe(0);
 
       const vars = `SOURCE_GSTACK_DIR="${fake}"`;
       let r = runInstaller('1', ['create_agents_sidecar'], `create_agents_sidecar "${fake}"`, vars);
-      expect(r.status).toBe(0);
+      expect(r.status, r.stderr).toBe(0);
       const sidecarBin = path.join(fake, '.agents', 'skills', 'gstack', 'bin', 'tool.sh');
       const sidecarEthos = path.join(fake, '.agents', 'skills', 'gstack', 'ETHOS.md');
       expect(fs.readFileSync(sidecarBin, 'utf-8')).toBe('v1\n');

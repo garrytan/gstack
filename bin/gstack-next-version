@@ -34,7 +34,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   parseVersion,
   versionWidth,
@@ -47,6 +47,12 @@ import {
   type Version,
   type VersionWidth,
 } from "../lib/version-source";
+import { resolveTrustedWorkProfile } from "../lib/trusted-base";
+import { resolveReleasePolicy, type ReleaseMode, type TrustedReleaseDecision } from "../lib/release-policy";
+import { canonicalGithubRemote, trustedGithubTool, fetchTrustedGithubClaimed, type CurrentPrIdentity } from "../lib/release-queue";
+import { inspectReleaseSelfClaimReplay } from '../lib/release-metadata';
+import { inspectAssertedShipHandoff } from '../lib/ship-handoff';
+import type { Lane } from "../lib/work-profile";
 
 type ClaimedPR = {
   pr: number;
@@ -80,6 +86,37 @@ type Output = {
   warnings: string[];
 };
 
+function publicReleaseDecision(
+  decision: TrustedReleaseDecision,
+  version: string | null,
+  currentPrIdentity: CurrentPrIdentity | null = null,
+  replay?: { reason: 'already_bumped' | 'queue_drift'; selfClaimExcluded: boolean },
+) {
+  const reason = replay?.reason ?? (decision.applicable
+    ? (decision.release_mode === 'required_on_release' ? 'explicit_release' : 'per_pr')
+    : decision.reason);
+  return {
+    applicable: decision.applicable,
+    release_mode: decision.release_mode,
+    title_policy: decision.title_policy,
+    version,
+    reason,
+    trusted_base_sha: decision.trusted_base_sha,
+    trusted_base_version: decision.trusted_version,
+    current_subject_version: decision.current_version,
+    current_pr_identity: currentPrIdentity,
+    self_claim_excluded: replay?.selfClaimExcluded ?? false,
+    profile_hash: decision.profile_hash,
+    version_source: decision.version_source,
+    planned_targets: decision.version_targets,
+    changelog_projection: decision.changelog_path === null ? null : {
+      path: decision.changelog_path,
+      format: 'plain_text' as const,
+      selector: 'whole_file' as const,
+    },
+  };
+}
+
 const ACTIVE_SIBLING_MAX_AGE_S = 24 * 60 * 60;
 const GH_API_CONCURRENCY = 10;
 
@@ -111,6 +148,14 @@ function runCommand(cmd: string, args: string[], timeoutMs = 15000): { ok: boole
   };
 }
 
+function runtimeBinDirectory(): string {
+  const moduleDirectory = import.meta.dir;
+  return basename(moduleDirectory) === 'authority'
+    && basename(dirname(moduleDirectory)) === 'dist'
+    ? resolve(moduleDirectory, '..', '..', 'bin')
+    : moduleDirectory;
+}
+
 // VERSION-path resolution for monorepos. Priority: CLI flag > .gstack/version-path
 // at repo root > "VERSION". Pure function; takes the repo root as an argument so
 // tests can drive it with a fixture dir without mocking git.
@@ -129,7 +174,7 @@ function resolveVersionPath(override: string | undefined, repoRoot: string): str
 }
 
 function repoToplevel(): string {
-  const r = runCommand("git", ["rev-parse", "--show-toplevel"]);
+  const r = runCommand("/usr/bin/git", ["rev-parse", "--show-toplevel"]);
   return r.ok ? r.stdout.trim() : process.cwd();
 }
 
@@ -260,6 +305,7 @@ async function fetchGithubClaimed(base: string, versionPath: string, excludePR: 
   return { claimed: results, offline: false };
 }
 
+
 async function fetchGitlabClaimed(base: string, versionPath: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
   const list = runCommand("glab", [
     "mr",
@@ -317,7 +363,7 @@ async function fetchGitlabClaimed(base: string, versionPath: string, excludePR: 
 function resolveWorkspaceRoot(override?: string): string | null {
   if (override === "null") return null;
   if (override) return override;
-  const r = runCommand(join(__dirname, "gstack-config"), ["get", "workspace_root"]);
+  const r = runCommand(join(runtimeBinDirectory(), "gstack-config"), ["get", "workspace_root"]);
   const configured = r.ok ? r.stdout.trim() : "";
   if (configured === "null") return null;
   if (configured) return configured;
@@ -394,7 +440,7 @@ function markActiveSiblings(siblings: Sibling[], baseVersion: Version): Sibling[
   });
 }
 
-function parseArgs(argv: string[]): { base: string; bump: Bump; current: string; workspaceRoot?: string; excludePR: number | null; versionPath?: string; help: boolean } {
+function parseArgs(argv: string[]): { base: string; bump: Bump; current: string; workspaceRoot?: string; excludePR: number | null; versionPath?: string; help: boolean; lane: Lane; releaseRequested: boolean; assertReleaseMode?: ReleaseMode; assertTargetRef?: string; assertTargetSha?: string } {
   let base = "";
   let bump: Bump | "" = "";
   let current = "";
@@ -402,6 +448,11 @@ function parseArgs(argv: string[]): { base: string; bump: Bump; current: string;
   let excludePR: number | null = null;
   let versionPath: string | undefined;
   let help = false;
+  let lane: Lane = "single_repo_code";
+  let releaseRequested = false;
+  let assertReleaseMode: ReleaseMode | undefined;
+  let assertTargetRef: string | undefined;
+  let assertTargetSha: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--base") base = argv[++i] ?? "";
@@ -409,13 +460,22 @@ function parseArgs(argv: string[]): { base: string; bump: Bump; current: string;
     else if (a === "--current-version") current = argv[++i] ?? "";
     else if (a === "--workspace-root") workspaceRoot = argv[++i];
     else if (a === "--version-path") versionPath = argv[++i];
+    else if (a === "--lane") lane = (argv[++i] ?? "") as Lane;
+    else if (a === "--release-requested") releaseRequested = true;
+    else if (a === "--assert-release-mode") assertReleaseMode = (argv[++i] ?? "") as ReleaseMode;
+    else if (a === "--assert-target-ref") assertTargetRef = argv[++i] ?? "";
+    else if (a === "--assert-target-sha") assertTargetSha = argv[++i] ?? "";
+    else if (a === "--json") { /* the command always emits JSON */ }
     else if (a === "--exclude-pr") {
       const n = Number(argv[++i]);
       excludePR = Number.isFinite(n) && n > 0 ? n : null;
     }
     else if (a === "-h" || a === "--help") help = true;
+    else throw new Error(`argument_unknown:${a}`);
   }
-  if (help) return { base: "", bump: "micro", current: "", excludePR: null, help: true };
+  if (help) return { base: "", bump: "micro", current: "", excludePR: null, help: true, lane, releaseRequested };
+  if (!['docs_ux', 'single_repo_code', 'cross_repo_contract'].includes(lane)) throw new Error('lane_invalid');
+  if (assertReleaseMode && !['per_pr', 'required_on_release', 'none'].includes(assertReleaseMode)) throw new Error('release_mode_assertion_invalid');
   if (!base) {
     // Detect the default branch instead of assuming main (local-only repos
     // on trunk/master work like GitHub repos on main). Same probe order as
@@ -424,7 +484,7 @@ function parseArgs(argv: string[]): { base: string; bump: Bump; current: string;
     // origin/master -> literal "main". origin/HEAD is unset on plain clones
     // that never ran `git remote set-head`, so the rev-parse probes matter.
     try {
-      const head = execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      const head = execFileSync("/usr/bin/git", ["symbolic-ref", "refs/remotes/origin/HEAD"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
       base = head.replace("refs/remotes/origin/", "");
     } catch {
       // fall through to the rev-parse probes
@@ -432,7 +492,7 @@ function parseArgs(argv: string[]): { base: string; bump: Bump; current: string;
     if (!base) {
       for (const candidate of ["main", "master"]) {
         try {
-          execFileSync("git", ["rev-parse", "--verify", "-q", `origin/${candidate}`], { stdio: ["ignore", "ignore", "ignore"] });
+          execFileSync("/usr/bin/git", ["rev-parse", "--verify", "-q", `origin/${candidate}`], { stdio: ["ignore", "ignore", "ignore"] });
           base = candidate;
           break;
         } catch {
@@ -450,7 +510,7 @@ function parseArgs(argv: string[]): { base: string; bump: Bump; current: string;
     console.error(`Error: --bump must be major|minor|patch|micro (got ${bump})`);
     process.exit(2);
   }
-  return { base, bump: bump as Bump, current, workspaceRoot, excludePR, versionPath, help: false };
+  return { base, bump: bump as Bump, current, workspaceRoot, excludePR, versionPath, help: false, lane, releaseRequested, assertReleaseMode, assertTargetRef, assertTargetSha };
 }
 
 // Auto-detect: if --exclude-pr wasn't passed, check whether the current branch
@@ -673,7 +733,8 @@ function fetchGitClaimed(
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const rawArgs = process.argv.slice(2);
+  const args = parseArgs(rawArgs);
   if (args.help) {
     console.log(
       "Usage: gstack-next-version --base <branch> --bump <level> --current-version <X.Y.Z.W> [--workspace-root <path|null>] [--version-path <path>]",
@@ -681,10 +742,57 @@ async function main() {
     process.exit(0);
   }
   const warnings: string[] = [];
-  const host = detectHost();
   const repoRoot = repoToplevel();
-  const versionPath = resolveVersionPath(args.versionPath, repoRoot);
-  const baseVersion = args.current || readBaseVersion(args.base, versionPath, repoRoot, warnings);
+  let releaseDecision: ReturnType<typeof resolveReleasePolicy>;
+  let resolvedProfile: ReturnType<typeof resolveTrustedWorkProfile>;
+  try {
+    resolvedProfile = resolveTrustedWorkProfile({ cwd: repoRoot, lane: args.lane, assertTargetRef: args.assertTargetRef, assertTargetSha: args.assertTargetSha });
+    releaseDecision = resolveReleasePolicy({
+      resolvedProfile: resolvedProfile as any,
+      releaseRequested: args.releaseRequested,
+      assertReleaseMode: args.assertReleaseMode,
+      currentVersion: args.current || undefined,
+      cwd: repoRoot,
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : String(error);
+    const unresolved = ['local_project_registry_missing', 'trusted_base_ref_missing'].includes(code);
+    if (unresolved) throw new Error('trusted_policy_resolution_required');
+    else throw error;
+  }
+  if (releaseDecision.source === 'legacy_seam' && args.assertReleaseMode && args.assertReleaseMode !== 'per_pr') throw new Error('release_mode_assertion_mismatch');
+  if (releaseDecision.source === 'legacy_seam' && (args.assertTargetRef || args.assertTargetSha)) throw new Error('release_target_assertion_unavailable');
+  if (releaseDecision.source === 'trusted_profile' && ['--base', '--version-path', '--workspace-root', '--exclude-pr'].some((flag) => rawArgs.includes(flag))) {
+    throw new Error('release_legacy_input_forbidden');
+  }
+  if (releaseDecision.source === 'trusted_profile' && !releaseDecision.applicable) {
+    process.stdout.write(JSON.stringify(publicReleaseDecision(releaseDecision, null), null, 2) + "\n");
+    return;
+  }
+  if (releaseDecision.source === 'trusted_profile' && releaseDecision.current_version !== releaseDecision.target_version) {
+    const replay = await inspectReleaseSelfClaimReplay({ cwd: repoRoot, lane: args.lane, releaseRequested: args.releaseRequested, assertReleaseMode: args.assertReleaseMode, assertTargetRef: args.assertTargetRef, assertTargetSha: args.assertTargetSha, bump: args.bump, currentVersion: args.current || undefined }, {
+      inspectShipReceipt: inspectAssertedShipHandoff,
+    });
+    const verifiedProfile = resolveTrustedWorkProfile({ cwd: repoRoot, lane: args.lane, assertTargetRef: args.assertTargetRef, assertTargetSha: args.assertTargetSha });
+    const verifiedDecision = resolveReleasePolicy({ resolvedProfile: verifiedProfile, releaseRequested: args.releaseRequested, assertReleaseMode: args.assertReleaseMode, currentVersion: args.current || undefined, cwd: repoRoot });
+    if (verifiedDecision.source !== 'trusted_profile' || verifiedDecision.current_version !== replay.version || verifiedDecision.release_mode !== replay.release_mode || verifiedDecision.title_policy !== replay.title_policy || verifiedDecision.profile_hash !== replay.profile_hash || verifiedDecision.subject_sha !== replay.current_pr_identity.head_oid || verifiedDecision.live_target_sha !== replay.current_pr_identity.base_oid || verifiedDecision.trusted_base_sha !== replay.trusted_base_sha) throw new Error('release_policy_moved');
+    process.stdout.write(JSON.stringify(publicReleaseDecision(verifiedDecision, replay.version, replay.current_pr_identity, { reason: replay.reason, selfClaimExcluded: replay.self_claim_excluded }), null, 2) + "\n");
+    return;
+  }
+  const host = releaseDecision.source === 'trusted_profile' ? 'github' : detectHost();
+  const versionPath = releaseDecision.source === 'trusted_profile'
+    ? releaseDecision.version_source!.path
+    : resolveVersionPath(args.versionPath, repoRoot);
+  const effectiveBase = releaseDecision.source === 'trusted_profile'
+    ? (releaseDecision.target_ref?.replace(/^origin\//, '') ?? args.base)
+    : args.base;
+  const baseVersion = releaseDecision.source === 'trusted_profile'
+    ? releaseDecision.target_version!
+    : readBaseVersion(effectiveBase, versionPath, repoRoot, warnings);
+  if (releaseDecision.source === 'legacy_seam' && args.current && args.current !== baseVersion) {
+    console.error(`Error: --current-version is an assertion; expected ${baseVersion}, got ${args.current}`);
+    process.exit(2);
+  }
   const baseParsed = parseVersion(baseVersion);
   if (!baseParsed) {
     console.error(`Error: could not parse base version '${baseVersion}'`);
@@ -698,17 +806,40 @@ async function main() {
     warnings.push(`--bump micro has no component to move in a ${width}-digit version; treated as patch`);
   }
 
-  const excludePR = args.excludePR ?? autoDetectExcludePR();
+  const trustedAllocation = releaseDecision.source === 'trusted_profile';
+  const excludePR = trustedAllocation ? null : (args.excludePR ?? autoDetectExcludePR());
   if (excludePR !== null && args.excludePR === null) {
     warnings.push(`auto-excluded PR #${excludePR} (current branch's own PR)`);
   }
 
   let claimed: ClaimedPR[] = [];
   let offline = false;
-  if (host === "github") {
-    ({ claimed, offline } = await fetchGithubClaimed(args.base, versionPath, excludePR, warnings));
+  if (trustedAllocation) {
+    const remoteBinding = canonicalGithubRemote();
+    const ghPath = await trustedGithubTool(true);
+    const subjectRefResult = runCommand('/usr/bin/git', ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+    if (!subjectRefResult.ok || !subjectRefResult.stdout.trim()) throw new Error('release_lineage_required');
+    const subjectRef = subjectRefResult.stdout.trim();
+    const first = fetchTrustedGithubClaimed(ghPath, effectiveBase, releaseDecision.version_source!, releaseDecision.live_target_sha, releaseDecision.subject_sha, subjectRef, remoteBinding);
+    const second = fetchTrustedGithubClaimed(ghPath, effectiveBase, releaseDecision.version_source!, releaseDecision.live_target_sha, releaseDecision.subject_sha, subjectRef, remoteBinding);
+    if (first.snapshot !== second.snapshot) throw new Error('release_queue_drift');
+    if (second.possibleSelfClaim) throw new Error('release_lineage_required');
+    const headRecheck = runCommand('/usr/bin/git', ['rev-parse', '--verify', 'HEAD^{commit}']);
+    const refRecheck = runCommand('/usr/bin/git', ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+    if (!headRecheck.ok || headRecheck.stdout.trim().toLowerCase() !== releaseDecision.subject_sha.toLowerCase() || !refRecheck.ok || refRecheck.stdout.trim() !== subjectRef) throw new Error('release_queue_drift');
+    const rechecked = resolveReleasePolicy({
+      resolvedProfile: resolvedProfile as any,
+      releaseRequested: args.releaseRequested,
+      assertReleaseMode: args.assertReleaseMode,
+      currentVersion: releaseDecision.current_version ?? undefined,
+      cwd: repoRoot,
+    });
+    if (rechecked.source !== 'trusted_profile' || rechecked.current_version !== releaseDecision.current_version) throw new Error('release_queue_drift');
+    claimed = second.claimed;
+  } else if (host === "github") {
+    ({ claimed, offline } = await fetchGithubClaimed(effectiveBase, versionPath, excludePR, warnings));
   } else if (host === "gitlab") {
-    ({ claimed, offline } = await fetchGitlabClaimed(args.base, versionPath, excludePR, warnings));
+    ({ claimed, offline } = await fetchGitlabClaimed(effectiveBase, versionPath, excludePR, warnings));
   } else {
     warnings.push("host unknown; queue-awareness unavailable");
   }
@@ -716,8 +847,8 @@ async function main() {
   // Degraded host query → fall back to git, which needs no API. Additive: it
   // only runs when the host told us nothing, so the online path is untouched.
   let fallback: "git" | null = null;
-  if (offline || host === "unknown") {
-    const gitClaims = fetchGitClaimed(args.base, versionPath, warnings);
+  if (!trustedAllocation && (offline || host === "unknown")) {
+    const gitClaims = fetchGitClaimed(effectiveBase, versionPath, warnings);
     if (gitClaims.length) {
       claimed = [...claimed, ...gitClaims];
       fallback = "git";
@@ -747,8 +878,8 @@ async function main() {
 
   const { version: picked, reason } = pickNextSlot(baseParsed, claimedVersions, args.bump, width);
 
-  const workspaceRoot = resolveWorkspaceRoot(args.workspaceRoot);
-  const siblings = markActiveSiblings(scanSiblings(workspaceRoot, versionPath, claimed, warnings), baseParsed);
+  const workspaceRoot = trustedAllocation ? null : resolveWorkspaceRoot(args.workspaceRoot);
+  const siblings = trustedAllocation ? [] : markActiveSiblings(scanSiblings(workspaceRoot, versionPath, claimed, warnings), baseParsed);
   const activeSiblings = siblings.filter((s) => s.is_active);
 
   // If an active sibling outranks our pick, bump past it (same bump level).
@@ -766,7 +897,7 @@ async function main() {
 
   const out: Output = {
     version: fmtVersion(finalVersion, width),
-    current_version: args.current || baseVersion,
+    current_version: baseVersion,
     base_version: baseVersion,
     version_path: versionPath,
     bump: args.bump,
@@ -779,18 +910,23 @@ async function main() {
     reason: finalReason,
     warnings,
   };
-  process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+  process.stdout.write(JSON.stringify(trustedAllocation ? publicReleaseDecision(releaseDecision as TrustedReleaseDecision, out.version) : out, null, 2) + "\n");
 }
 
 // Pure-function exports for testing. The version primitives are re-exported
 // from lib/version-source so existing importers of this module keep working
 // unchanged.
 export { parseVersion, fmtVersion, bumpVersion, cmpVersion, versionWidth, extractVersion };
-export { pickNextSlot, markActiveSiblings, resolveVersionPath, fetchGitClaimed };
+export { pickNextSlot, markActiveSiblings, resolveVersionPath, fetchGitClaimed, publicReleaseDecision };
 
 // Only run main() when invoked as a script, not when imported by tests.
 if (import.meta.main) {
   main().catch((e) => {
+    const code = e instanceof Error ? e.message : String(e);
+    if (['argument_unknown', 'lane_invalid', 'release_mode_assertion_invalid', 'release_mode_assertion_mismatch', 'release_current_version_mismatch', 'release_legacy_input_forbidden', 'release_target_assertion_unavailable', 'release_queue_unknown', 'release_queue_drift', 'release_lineage_required', 'release_policy_moved', 'release_commit_', 'release_product_', 'release_projection_', 'release_owner_', 'release_write_', 'ship_handoff_', 'trusted_policy_resolution_required', 'trusted_profile_'].some((prefix) => code.startsWith(prefix))) {
+      console.error(`Error: ${code}`);
+      process.exit(2);
+    }
     console.error("Unexpected error:", e?.stack ?? e);
     process.exit(3);
   });

@@ -26,6 +26,7 @@ import * as path from 'path';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import type { TemplateContext } from '../scripts/resolvers/types';
 import { generateContextRecovery } from '../scripts/resolvers/preamble/generate-context-recovery';
+import { ledgerCandidates, readJsonlUnion, resolveProjectIdentity } from '../lib/project-identity';
 
 const ROOT = path.join(import.meta.dir, '..');
 
@@ -54,7 +55,7 @@ describe('branch slug hygiene (#2550, #1851)', () => {
     expect(offenders).toEqual([]);
   });
 
-  test('Context Recovery probes reviews.jsonl with the slug-canonical $BRANCH', () => {
+  test('Context Recovery reads ledgers through canonical identity adapters', () => {
     const ctx: TemplateContext = {
       skillName: 'test-skill',
       tmplPath: 'test.tmpl',
@@ -63,15 +64,10 @@ describe('branch slug hygiene (#2550, #1851)', () => {
       preambleTier: 2,
     };
     const out = generateContextRecovery(ctx);
-    expect(out).toContain('${BRANCH:-unknown}-reviews.jsonl');
-    expect(out).not.toContain('${_BRANCH}-reviews.jsonl');
-    // The gstack-slug eval that defines $BRANCH must render BEFORE the probe.
-    const evalIdx = out.indexOf('gstack-slug');
-    const probeIdx = out.indexOf('${BRANCH:-unknown}-reviews.jsonl');
-    expect(evalIdx).toBeGreaterThan(-1);
-    expect(evalIdx).toBeLessThan(probeIdx);
-    // Raw $_BRANCH stays for the timeline.jsonl content greps (writer stores raw).
-    expect(out).toContain('"branch\\":\\"${_BRANCH}');
+    expect(out).toContain('gstack-review-read');
+    expect(out).toContain('gstack-timeline-read --limit 5 --branch "$_BRANCH"');
+    expect(out).not.toContain('-reviews.jsonl');
+    expect(out).not.toContain('grep "\\"branch');
   });
 
   test('plan content-search BRANCH uses the full gstack-slug canonical pipeline', () => {
@@ -84,7 +80,7 @@ describe('branch slug hygiene (#2550, #1851)', () => {
     );
   });
 
-  test('live round-trip: gstack-review-log writes, Context Recovery probe finds it (slash branch)', () => {
+  test('live round-trip: canonical ledger identity and reader agree for a slash branch', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-home-'));
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-repo-'));
     try {
@@ -94,38 +90,33 @@ describe('branch slug hygiene (#2550, #1851)', () => {
         { cwd: repo, encoding: 'utf-8', timeout: 30_000 },
       );
 
-      // Writer: the real gstack-review-log (canonicalizes via gstack-slug).
-      execSync(
-        `"${path.join(ROOT, 'bin', 'gstack-review-log')}" '{"skill":"ship","status":"ok"}'`,
-        { cwd: repo, env, encoding: 'utf-8', timeout: 30_000 },
-      );
-
-      // The slug-canonical filename must exist; the raw form must not.
+      // Resolve the same canonical identity used by the installed writer and
+      // reader adapters. The checkout wrappers themselves require an installed
+      // authority manifest, so this unit test exercises their shared library.
+      const identity = resolveProjectIdentity(repo);
       const slugVars = execSync(`"${path.join(ROOT, 'bin', 'gstack-slug')}"`, {
         cwd: repo, env, encoding: 'utf-8', timeout: 30_000,
       });
-      const slug = slugVars.match(/^SLUG=(.*)$/m)![1];
-      const branch = slugVars.match(/^BRANCH=(.*)$/m)![1];
-      expect(branch).toBe('feat-slug-hygiene');
-      const proj = path.join(home, 'projects', slug);
-      expect(fs.existsSync(path.join(proj, 'feat-slug-hygiene-reviews.jsonl'))).toBe(true);
+      const legacySlug = slugVars.match(/^SLUG=(.*)$/m)![1];
+      const legacyBranch = slugVars.match(/^BRANCH=(.*)$/m)![1];
+      const identitySlug = identity.write_slug;
+      const identityBranch = identity.write_branch;
+      const projectDir = path.join(home, 'projects', identitySlug);
+      fs.mkdirSync(projectDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(projectDir, `${identityBranch}-reviews.jsonl`),
+        `${JSON.stringify({ skill: 'ship', status: 'ok', repo_id: identity.repo_id })}\n`,
+      );
+      expect(legacyBranch).toBe('feat-slug-hygiene');
+      expect(identityBranch).toBe('feat%2Fslug-hygiene');
+      expect(fs.existsSync(path.join(home, 'projects', identitySlug, `${identityBranch}-reviews.jsonl`))).toBe(true);
 
-      // Reader: execute the rendered probe line with $BRANCH from gstack-slug.
-      const ctx: TemplateContext = {
-        skillName: 'test-skill', tmplPath: 'test.tmpl', host: 'claude',
-        paths: HOST_PATHS.claude, preambleTier: 2,
-      };
-      const probeLine = generateContextRecovery(ctx)
-        .split('\n')
-        .find((l) => l.includes('-reviews.jsonl'))!;
-      const script = `_PROJ="${proj}"\nBRANCH="${branch}"\n${probeLine.trim()}`;
-      const out = execSync(`bash -c '${script.replace(/'/g, `'\\''`)}'`, {
-        cwd: repo, encoding: 'utf-8', timeout: 30_000,
-      });
-      expect(out).toContain('REVIEWS: 1 entries');
+      const reviews = readJsonlUnion<Record<string, unknown>>(ledgerCandidates(identity, 'reviews', home));
+      expect(reviews).toHaveLength(1);
+      expect(reviews[0]).toMatchObject({ skill: 'ship', status: 'ok' });
 
-      // Negative control: the raw-branch probe (the pre-fix shape) misses.
-      expect(fs.existsSync(path.join(proj, 'feat/slug-hygiene-reviews.jsonl'))).toBe(false);
+      expect(fs.existsSync(path.join(home, 'projects', legacySlug, 'feat-slug-hygiene-reviews.jsonl'))).toBe(false);
+      expect(fs.existsSync(path.join(home, 'projects', legacySlug, 'feat/slug-hygiene-reviews.jsonl'))).toBe(false);
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
       fs.rmSync(repo, { recursive: true, force: true });

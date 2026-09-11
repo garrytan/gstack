@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { parseJSONL, filterByPeriod, formatReport } from '../scripts/analytics';
+import * as analytics from '../scripts/analytics';
 import type { AnalyticsEvent } from '../scripts/analytics';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -8,6 +8,7 @@ import { execSync } from 'child_process';
 
 const TMP_DIR = path.join(os.tmpdir(), 'analytics-test');
 const SCRIPT = path.resolve(import.meta.dir, '../scripts/analytics.ts');
+const { parseJSONL, filterByPeriod, formatReport } = analytics;
 
 function writeTempJSONL(name: string, lines: string[]): string {
   fs.mkdirSync(TMP_DIR, { recursive: true });
@@ -88,6 +89,45 @@ describe('parseJSONL', () => {
     const content = '{"skill":"ship","repo":"my-app"}\n';
     const events = parseJSONL(content);
     expect(events).toHaveLength(0);
+  });
+});
+
+describe('ECPE aggregation', () => {
+  test('exports one shared strict aggregation implementation', () => {
+    expect(typeof (analytics as any).aggregateEcpeTimeline).toBe('function');
+  });
+
+  test('separates canary-control costs and computes exact effect-scope authorization', () => {
+    const aggregate = (analytics as any).aggregateEcpeTimeline;
+    expect(typeof aggregate).toBe('function');
+
+    const base = {
+      schema_version: 1,
+      run_id: 'run-effects',
+      timestamp: '2026-08-31T00:00:00.000Z',
+      wtree: 'repo-1',
+      work_kind: 'change',
+      finish_line: 'local_change',
+    };
+    const scope = {
+      repo_id: 'repo-1',
+      ref_or_pr: null,
+      target_id: null,
+      paths_or_surface: ['src/a.ts', 'src/b.ts'],
+      environment: null,
+      index_preimage_hash: null,
+      binding_id: null,
+      projection_id: null,
+    };
+    const report = aggregate([
+      { ...base, kind: 'effect', effect: { effect: 'tracked_write', phase: 'granted', source: 'explicit_user_request', scope } },
+      { ...base, timestamp: '2026-08-31T00:00:01.000Z', kind: 'effect', effect: { effect: 'tracked_write', phase: 'observed', source: 'adapter_observed', scope: { ...scope, paths_or_surface: ['src/a.ts'] } } },
+      { ...base, timestamp: '2026-08-31T00:00:02.000Z', kind: 'spawn', execution_purpose: 'canary_control', spawn: { kind: 'model', id: 'control-model', execution_effect: 'paid_model' } },
+    ], { allowCanaryControl: true });
+
+    expect(report.runs[0].unauthorized_effects).toHaveLength(0);
+    expect(report.runs[0].model_calls).toBe(0);
+    expect(report.runs[0].canary_control_model_calls).toBe(1);
   });
 });
 

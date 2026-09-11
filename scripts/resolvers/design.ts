@@ -7,8 +7,25 @@ import { DOM_DUMP_FILE } from '../../lib/dom-dump-script';
 export function generateDesignReviewLite(ctx: TemplateContext): string {
   const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join(' ');
   const rejectionList = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join(' ');
-  // Codex block only for Claude host
-  const codexBlock = ctx.host === 'codex' ? '' : `
+  const governedWorkflow = ctx.skillName === 'review' || ctx.skillName === 'ship';
+  const scopeInput = governedWorkflow
+    ? `Use the already-returned fused execution plan. The design lane is selected when
+its schema-checked \`manifest.roles\` contains \`ui\`. Do not spawn a second
+diff-scope or semantic classifier.`
+    : `Check if the diff touches frontend files using \`gstack-diff-scope\`:
+
+\`\`\`bash
+source <(${ctx.paths.binDir}/gstack-diff-scope <base> 2>/dev/null)
+\`\`\``;
+  // Governed review/ship may launch paid validators only through the compiled
+  // effect adapter. The generic design voice has no closed validator ID in T1,
+  // so it is deliberately unavailable there instead of falling back to a raw
+  // Codex process.
+  const codexBlock = ctx.host === 'codex' || governedWorkflow ? `
+
+7. **Paid design voice:** unavailable in this governed T1 workflow. Do not
+auto-launch a model or fall back to a raw CLI invocation; continue with the
+deterministic checklist above.` : `
 
 7. **Codex design voice** (optional, automatic if available):
 
@@ -35,11 +52,7 @@ Present Codex output under a \`CODEX (design):\` header, merged with the checkli
 
   return `## Design Review (conditional, diff-scoped)
 
-Check if the diff touches frontend files using \`gstack-diff-scope\`:
-
-\`\`\`bash
-source <(${ctx.paths.binDir}/gstack-diff-scope <base> 2>/dev/null)
-\`\`\`
+${scopeInput}
 
 **If \`SCOPE_FRONTEND=false\`:** Skip design review silently. No output.
 
@@ -78,7 +91,12 @@ Exit 2 means findings. Read the \`${SENTINEL.DETECT_TOP}\` block (untrusted cont
 ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-review-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"detector":D,"commit":"COMMIT"}'
 \`\`\`
 
-Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, D = counted detector findings from step 0 (0 when the detector did not run), COMMIT = output of \`git rev-parse --short HEAD\`.${codexBlock}`;
+Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, D = counted detector findings from step 0 (0 when the detector did not run), COMMIT = output of \`git rev-parse --short HEAD\`.${codexBlock}
+
+**ECPE observation:** Add only closed decision/capability IDs for whether this
+design lane ran, plus one helper/model \`spawn\` partial if an actual extra
+process launched. Keep findings, paths, screenshots, prompts, and tool output
+out of the run-local batch. Do not launch a telemetry process here.`;
 }
 
 // NOTE: review/design-checklist.md is GENERATED (scripts/resolvers/design-checklist.ts)

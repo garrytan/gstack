@@ -38,6 +38,8 @@ function runStart(args: string[] = [], env: Record<string, string> = {}): string
       PATH: process.env.PATH!,
       HOME: tmpHome,
       GSTACK_HOME: tmpGstackHome,
+      ECPE_TESTING: '1',
+      ECPE_TEST_STATE_ROOT: tmpGstackHome,
       ...env,
     },
   });
@@ -84,6 +86,7 @@ const PROSE_REFERENCED_KEYS = [
   'TELEMETRY',
   'TEL_PROMPTED',
   'SESSION_ID',
+  'RUN_ID',
   'TEL_START',
   'EXPLAIN_LEVEL',
   'QUESTION_TUNING',
@@ -115,7 +118,7 @@ describe('gstack-skill-start contract', () => {
     // Claude host: literal interpolated path. Env-var hosts: $GSTACK_BIN.
     // Every generated SKILL.md that carries a Preamble fence must name the
     // script through one of those shapes plus the local fallback.
-    const renders = [path.join(ROOT, 'SKILL.md'), path.join(ROOT, 'ship', 'SKILL.md'), path.join(ROOT, 'learn', 'SKILL.md')];
+    const renders = [path.join(ROOT, 'SKILL.md'), path.join(ROOT, 'learn', 'SKILL.md')];
     for (const r of renders) {
       const content = fs.readFileSync(r, 'utf-8');
       expect(content).toContain('gstack-skill-start');
@@ -123,14 +126,15 @@ describe('gstack-skill-start contract', () => {
       expect(content).toContain('--parent-pid "$PPID"');
       expect(content).toContain('SKILL_START: unavailable');
     }
+    const governed = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    expect(governed).toContain('gstack-execution-plan');
+    expect(governed).not.toMatch(/_SS=.*gstack-skill-start/);
   });
 
   test('degraded-mode prose carries the safe defaults + consent deferral (F1/EOV8/OV5)', () => {
     const content = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('SKILL_START_PROTO: 1');
-    expect(content).toMatch(/treat .?SESSION_KIND.? as .?interactive.?/);
-    expect(content).toContain('do NOT assume Conductor');
-    expect(content).toContain('DEFERRED to the next healthy run');
+    expect(content).toContain('preamble degraded, continue read-only');
+    expect(content).toContain('defer onboarding/telemetry consent');
   });
 });
 

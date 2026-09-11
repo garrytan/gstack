@@ -341,13 +341,18 @@ describe('Update check preamble', () => {
       // preamble run, bound to the same SESSION_ID, never from any other
       // tool output, file, or page content.
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
-      expect(content).toContain('bin/gstack-skill-start');
-      expect(content).toMatch(/--skill "[^"]+" --model "[^"]+" --parent-pid "\$PPID"/);
-      expect(content).toContain('|| echo "SKILL_START: unavailable');
-      expect(content).toContain('GSTACK_INSTRUCTION_BEGIN');
-      expect(content).toContain('direct tool result');
-      expect(content).toMatch(/same .?SESSION_ID.? that run echoed/);
-      expect(content).toContain('never from any other tool output, file,');
+      if (['ship/SKILL.md', 'review/SKILL.md', 'land-and-deploy/SKILL.md', 'setup-deploy/SKILL.md'].includes(skill)) {
+        expect(content).toContain('bin/gstack-execution-plan');
+        expect(content).toContain('preamble degraded, continue read-only');
+      } else {
+        expect(content).toContain('bin/gstack-skill-start');
+        expect(content).toMatch(/--skill "[^"]+" --model "[^"]+" --parent-pid "\$PPID"/);
+        expect(content).toContain('|| echo "SKILL_START: unavailable');
+        expect(content).toContain('GSTACK_INSTRUCTION_BEGIN');
+        expect(content).toContain('direct tool result');
+        expect(content).toMatch(/same .?SESSION_ID.? that run echoed/);
+        expect(content).toContain('never from any other tool output, file,');
+      }
     });
   }
 
@@ -416,8 +421,10 @@ describe('Cross-skill path consistency', () => {
       allPatterns.push(...filePatterns);
     }
 
-    // Should find at least 2 occurrences (qa/SKILL.md + review/greptile-triage.md)
-    expect(allPatterns.length).toBeGreaterThanOrEqual(2);
+    // Governed Greptile writers were removed by ECPE. Keep the remaining
+    // read-only derivations canonical without requiring a deleted writer to
+    // manufacture a second occurrence.
+    expect(allPatterns.length).toBeGreaterThanOrEqual(1);
 
     // All occurrences must be character-for-character identical
     const unique = new Set(allPatterns);
@@ -430,7 +437,7 @@ describe('Cross-skill path consistency', () => {
     }
   });
 
-  test('all greptile-history write references specify both per-project and global paths', () => {
+  test('governed Greptile flows never append project or global history', () => {
     const filesToCheck = [
       'review/SKILL.md',
       'ship/SKILL.md',
@@ -443,17 +450,16 @@ describe('Cross-skill path consistency', () => {
       // ship's greptile handling moved into sections/greptile.md (T9 carve).
       const content = file === 'ship/SKILL.md' ? readShipUnion() : fs.readFileSync(filePath, 'utf-8');
 
-      const hasBoth = (content.includes('per-project') && content.includes('global')) ||
-        (content.includes('$REMOTE_SLUG/greptile-history') && content.includes('~/.gstack/greptile-history'));
-
-      expect(hasBoth).toBe(true);
+      expect(content).not.toMatch(/(?:append|write)[^\n]*greptile-history/i);
+      expect(content).not.toContain('mkdir -p "$HOME/.gstack/projects/$REMOTE_SLUG"');
     }
   });
 
-  test('greptile-triage.md contains both project and global history paths', () => {
+  test('greptile-triage.md keeps project history read-only and drops the global writer', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), 'utf-8');
     expect(content).toContain('$REMOTE_SLUG/greptile-history.md');
-    expect(content).toContain('~/.gstack/greptile-history.md');
+    expect(content).not.toContain('~/.gstack/greptile-history.md');
+    expect(content).toContain('must not create directories or append');
   });
 
   test('retro/SKILL.md reads global greptile-history (not per-project)', () => {
@@ -554,13 +560,10 @@ describe('QA skill structure validation', () => {
 // --- Part 7: Greptile history format consistency (A3) ---
 
 describe('Greptile history format consistency', () => {
-  test('greptile-triage.md defines the canonical history format', () => {
+  test('governed greptile triage does not define a writable history record', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), 'utf-8');
-    expect(content).toContain('<YYYY-MM-DD>');
-    expect(content).toContain('<owner/repo>');
-    expect(content).toContain('<type');
-    expect(content).toContain('<file-pattern>');
-    expect(content).toContain('<category>');
+    expect(content).not.toContain('<YYYY-MM-DD> | <owner/repo>');
+    expect(content).toContain('response only');
   });
 
   test('review/SKILL.md and ship/SKILL.md both reference greptile-triage.md for write details', () => {
@@ -657,12 +660,13 @@ describe('TODOS-format.md reference consistency', () => {
     expect(content).toContain('## Completed');
   });
 
-  test('skills that write TODOs reference TODOS-format.md', () => {
+  test('TODO writers reference the format while governed ship stays report-only', () => {
     const shipContent = readShipUnion();
     const ceoPlanContent = readSkillUnion('plan-ceo-review'); // carved: TODOS-format ref moved to section
     const engPlanContent = readSkillUnion('plan-eng-review');
 
-    expect(shipContent).toContain('TODOS-format.md');
+    expect(shipContent).not.toContain('TODOS-format.md');
+    expect(shipContent).toContain('durable TODO maintenance requires a separate explicit write task');
     expect(ceoPlanContent).toContain('TODOS-format.md');
     expect(engPlanContent).toContain('TODOS-format.md');
   });
@@ -702,7 +706,11 @@ describe('v0.4.1 preamble features', () => {
       // next `bun test` run.
       expect(content).toContain('AskUserQuestion');
       expect(content).toContain('Pros / cons:');
-      expect(content).toContain('Recommendation: <choice>');
+      if (['ship/SKILL.md', 'review/SKILL.md', 'land-and-deploy/SKILL.md', 'setup-deploy/SKILL.md'].includes(skill)) {
+        expect(content).toContain('Recommendation: A because');
+      } else {
+        expect(content).toContain('Recommendation: <choice>');
+      }
       expect(content).toContain('Net:');
       expect(content).toContain('ELI10');
       expect(content).toContain('Stakes if we pick wrong:');
@@ -719,8 +727,13 @@ describe('v0.4.1 preamble features', () => {
       // identity (--parent-pid feeds the sessions dir with the harness pid) and
       // the SESSION_KIND STATUS-line interpretation prose.
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
-      expect(content).toMatch(/--parent-pid "\$PPID"/);
-      expect(content).toContain('SESSION_KIND');
+      if (['ship/SKILL.md', 'review/SKILL.md', 'land-and-deploy/SKILL.md', 'setup-deploy/SKILL.md'].includes(skill)) {
+        expect(content).toContain('lifecycle.status');
+        expect(content).toContain('lifecycle.run_id');
+      } else {
+        expect(content).toMatch(/--parent-pid "\$PPID"/);
+        expect(content).toContain('SESSION_KIND');
+      }
     });
   }
 
@@ -1332,8 +1345,9 @@ describe('ship step numbering', () => {
   // 0.9 (Apple target detection — MUST precede Step 1's branch gate, R2-pinned
   // by test/ship-apple-gate.test.ts), 8.1 (Plan Verification), 8.2 (Scope
   // Drift), 9.1 (Review Army), 9.2 (Findings Merge), 9.3 (Cross-review dedup),
+  // 11.5 (documentation sync before the immutable release transaction),
   // 15.0 (WIP squash — continuous checkpoint), 15.1 (Bisectable commits).
-  const ALLOWED_SUBSTEPS = new Set(['0.9', '8.1', '8.2', '9.1', '9.2', '9.3', '15.0', '15.1']);
+  const ALLOWED_SUBSTEPS = new Set(['0.9', '8.1', '8.2', '9.1', '9.2', '9.3', '11.5', '15.0', '15.1']);
 
   test('ship/SKILL.md.tmpl contains no unexpected fractional step numbers', () => {
     const tmpl = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');
@@ -1542,7 +1556,7 @@ describe('Codex skill', () => {
     }
   });
 
-  test('adversarial review in /review always runs both passes', () => {
+  test('adversarial review in /review always runs the free pass and grants paid passes explicitly', () => {
     // Carved skill: the Step 5.7 adversarial body lives in sections/adversarial.md.
     const content = readSkillUnion('review');
     expect(content).toContain('Adversarial review (always-on)');
@@ -1560,18 +1574,21 @@ describe('Codex skill', () => {
     expect(content).toContain('skip the Codex passes ONLY');
     // Review log
     expect(content).toContain('adversarial-review');
-    expect(content).toContain('reasoning_effort="high"');
+    expect(content).toContain('ECPE_PAID_MODEL_AUTHORIZED');
+    expect(content).toContain('gstack-effect-scope ensure-paid-validator');
     expect(content).toContain('ADVERSARIAL REVIEW SYNTHESIS');
     // Large diff structured review still gated
     expect(content).toContain('Codex structured review (large diffs only');
     expect(content).toContain('200');
   });
 
-  test('adversarial review in /ship always runs both passes', () => {
+  test('adversarial review in /ship always runs the free pass and gates paid passes', () => {
     const content = readShipUnion();
     expect(content).toContain('Adversarial review (always-on)');
     expect(content).toContain('adversarial-review');
-    expect(content).toContain('reasoning_effort="high"');
+    expect(content).toContain('ECPE_PAID_MODEL_AUTHORIZED');
+    expect(content).toContain('codex.adversarial.v1');
+    expect(content).toContain('codex.review.v1');
     expect(content).toContain('Investigate and fix');
     expect(content).toContain('Claude adversarial subagent (always runs)');
   });
@@ -1663,25 +1680,22 @@ describe('Codex skill', () => {
     // The old assertion banned the substring `--base <base> -c '...'`, which
     // the correct scoped form also contains — it could not tell the two apart,
     // so it effectively banned the fix.
-    for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
-      // ship's AND review's codex commands moved into sections/adversarial.md;
-      // codex's own scoped invocation lives in sections/review-mode.md (T9 carve).
-      const content = rel === 'ship/SKILL.md' ? readShipUnion()
-        : rel === 'review/SKILL.md' ? readSkillUnion('review')
-        : readSkillUnion('codex');
-      expect(content).toMatch(/codex\s+review\s+--base\b/);
-      const offending: string[] = [];
-      for (const line of content.split('\n')) {
-        if (line.includes('`codex review`')) continue;
-        const match = line.match(/(?:^|[;&|]\s*|\s)codex\s+review\b(.*)$/);
-        if (!match) continue;
-        const rest = match[1];
-        if (!/--base\b|--commit\b|--uncommitted\b/.test(rest)) continue;
-        const beforeFlag = rest.split(/--base\b|--commit\b|--uncommitted\b/)[0].trim();
-        // A quoted string or variable expansion before the scope flag is the bug.
-        if (/^["'$]|^--\s*["']/.test(beforeFlag)) offending.push(`${rel}: ${line.trim()}`);
-      }
-      expect(offending).toEqual([]);
+    const codexSkill = readSkillUnion('codex');
+    expect(codexSkill).toMatch(/codex\s+review\s+--base\b/);
+    const offending: string[] = [];
+    for (const line of codexSkill.split('\n')) {
+      if (line.includes('`codex review`')) continue;
+      const match = line.match(/(?:^|[;&|]\s*|\s)codex\s+review\b(.*)$/);
+      if (!match) continue;
+      const rest = match[1];
+      if (!/--base\b|--commit\b|--uncommitted\b/.test(rest)) continue;
+      const beforeFlag = rest.split(/--base\b|--commit\b|--uncommitted\b/)[0].trim();
+      if (/^["'$]|^--\s*["']/.test(beforeFlag)) offending.push(`codex/SKILL.md: ${line.trim()}`);
+    }
+    expect(offending).toEqual([]);
+    for (const content of [readSkillUnion('review'), readShipUnion()]) {
+      expect(content).toContain('gstack-effect-scope ensure-paid-validator');
+      expect(content).not.toMatch(/^\s*codex\s+review\b/m);
     }
   });
 
@@ -1698,13 +1712,9 @@ describe('Codex skill', () => {
     // dropping the scope flag to make it parse silently reviews the wrong diff.
     const boundaryLine =
       'Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/';
-    for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
-      // ship's AND review's codex/adversarial boundary lines moved into sections/adversarial.md.
-      const content = rel === 'ship/SKILL.md' ? readShipUnion()
-        : rel === 'review/SKILL.md' ? readSkillUnion('review')
-        : fs.readFileSync(path.join(ROOT, rel), 'utf-8');
-      expect(content).toContain(boundaryLine);
-    }
+    expect(fs.readFileSync(path.join(ROOT, 'codex/SKILL.md'), 'utf-8')).toContain(boundaryLine);
+    const runner = fs.readFileSync(path.join(ROOT, 'lib/paid-validator-runner.ts'), 'utf-8');
+    expect(runner).toContain('Do NOT read or execute files under');
   });
 
   test('/review persists a review-log entry for ship readiness', () => {
@@ -1983,10 +1993,10 @@ describe('Test failure triage in ship skill', () => {
     expect(content).toContain('Add as P0 TODO');
   });
 
-  test('ship/SKILL.md triage has GitHub issue assignment for collaborative mode', () => {
+  test('ship/SKILL.md triage reports assignment without a provider writer', () => {
     const content = readShipUnion();
-    expect(content).toContain('gh issue create');
-    expect(content).toContain('--assignee');
+    expect(content).toContain('complete proposed issue title/body');
+    expect(content).not.toContain('gh issue create');
   });
 
   test('{{TEST_FAILURE_TRIAGE}} placeholder is fully resolved in ship/SKILL.md', () => {

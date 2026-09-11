@@ -13,6 +13,7 @@ import { discoverTemplates, discoverSectionTemplates } from './discover-skills';
 import { writeLlmsTxt } from './gen-llms-txt';
 import { generateDesignChecklistMd } from './resolvers/design-checklist';
 import { DOM_DUMP_SCRIPT, DOM_DUMP_FILE } from '../lib/dom-dump-script';
+import { SECTION_BATCHES } from '../lib/section-delivery';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Host, TemplateContext } from './resolvers/types';
@@ -22,6 +23,18 @@ import { ALL_HOST_CONFIGS, ALL_HOST_NAMES, resolveHostArg, getHostConfig } from 
 import type { HostConfig } from './host-config';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+export function validateFusedAuthorityProjection(host: Host, relativePath: string, content: string): void {
+  if (host !== 'codex' || !/(?:^|\/)(?:review|ship|land-and-deploy|setup-deploy)(?:\/|$)/.test(relativePath)) return;
+  const forbidden = [
+    'gstack-project-identity',
+    'gstack-semantic-manifest',
+    'gstack-context-bill',
+    'gstack-diff-scope',
+  ];
+  if (forbidden.some((command) => content.includes(command))) {
+    throw new Error(`serial_authority_projection_forbidden:${relativePath}`);
+  }
+}
 const DRY_RUN = process.argv.includes('--dry-run');
 
 // ─── GBrain Detection Override ──────────────────────────────
@@ -735,7 +748,10 @@ function resolvePlaceholders(
       const parts = fullKey.split(':');
       const resolverName = parts[0];
       const args = parts.slice(1);
-      if (suppressed.has(resolverName)) return '';
+      const boundedCodexAdversarial = hostConfig.name === 'codex'
+        && resolverName === 'ADVERSARIAL_STEP'
+        && relTmplPath.endsWith('/sections/adversarial.md.tmpl');
+      if (suppressed.has(resolverName) && !boundedCodexAdversarial) return '';
       const resolve = RESOLVERS[resolverName];
       if (!resolve) throw new Error(`Unknown placeholder {{${resolverName}}} in ${relTmplPath}`);
       return args.length > 0 ? resolve(ctx, args) : resolve(ctx);
@@ -1056,6 +1072,7 @@ for (const currentHost of hostsToRun) {
 
       const { outputPath, content, symlinkLoop } = processTemplate(tmplPath, currentHost);
       const relOutput = path.relative(OUT_DIR || ROOT, outputPath);
+      validateFusedAuthorityProjection(currentHost, relOutput, content);
 
       if (symlinkLoop) {
         console.log(`SKIPPED (symlink loop): ${relOutput}`);
@@ -1093,14 +1110,18 @@ for (const currentHost of hostsToRun) {
       }
     }
 
-    // ─── Section generation (v2 plan T9, Claude-first carve) ───
-    // On-demand sections/*.md for carved skills. Generated for CLAUDE ONLY:
-    // every other host inlines section content via the {{SECTION:id}} resolver
-    // (keeping the full monolith skill), so they need no section files and we
-    // sidestep host-portable section paths until that plumbing lands. No-op for
-    // any skill without a sections/ dir. Mirrors the SKILL.md DRY_RUN handling so
-    // sections participate in the freshness gate.
-    for (const sec of currentHost === 'claude' ? discoverSectionTemplates(ROOT) : []) {
+    // ─── On-demand section generation ───
+    // Inline skills keep their monolith. Executable authority hosts also need
+    // the registered fragments for execution-plan's initial section delivery;
+    // these files have no SKILL.md/frontmatter and add no discoverable skills.
+    const inlineAuthorityHost = ['factory', 'opencode', 'cursor'].includes(currentHost);
+    const sectionTemplates = currentHostConfig.sectionDelivery === 'inline'
+      ? inlineAuthorityHost ? discoverSectionTemplates(ROOT).filter(sec => {
+        const stages = (SECTION_BATCHES as Record<string, Record<string, readonly string[]>>)[sec.skillDir];
+        return stages && Object.values(stages).flat().includes(path.basename(sec.output, '.md'));
+      }) : []
+      : discoverSectionTemplates(ROOT);
+    for (const sec of sectionTemplates) {
       if (currentHostConfig.generation.includeSkills?.length &&
           !currentHostConfig.generation.includeSkills.includes(sec.skillDir)) continue;
       if (currentHostConfig.generation.skipSkills?.length &&
@@ -1108,6 +1129,7 @@ for (const currentHost of hostsToRun) {
 
       const { outputPath, content } = processSectionTemplate(path.join(ROOT, sec.tmpl), sec.skillDir, currentHost);
       const relOutput = path.relative(OUT_DIR || ROOT, outputPath);
+      validateFusedAuthorityProjection(currentHost, relOutput, content);
       if (emitGenerated(outputPath, content)) hasChanges = true;
 
       tokenBudget.push({

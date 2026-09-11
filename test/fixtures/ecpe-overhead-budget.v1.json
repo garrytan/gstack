@@ -1,0 +1,26 @@
+{
+  "schema": "ecpe.overhead-budget.v1",
+  "descriptor": {
+    "platform": "darwin-arm64",
+    "bun": "1.3.13",
+    "iterations": 200,
+    "warmups": 20
+  },
+  "baseline": {
+    "writer_p50_ms": 0.109,
+    "writer_p95_ms": 0.179
+  },
+  "candidate": {
+    "writer_p50_ms": 0.224,
+    "writer_p95_ms": 0.368
+  },
+  "ceilings": {
+    "telemetry_extra_processes": 0,
+    "append_lock_fsync_transactions": 1,
+    "fsync_calls": 1,
+    "open_plus_stat_calls": 16,
+    "bytes_written": 16384,
+    "writer_p50_ms": 1,
+    "writer_p95_ms": 1
+  }
+}

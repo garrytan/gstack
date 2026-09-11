@@ -4,6 +4,12 @@ import { asideExecPrelude } from './aside';
 export function generateTestBootstrap(ctx: TemplateContext): string {
   return `## Test Framework Bootstrap
 
+**ECPE observation:** Keep test discovery and execution content-free. Add one
+closed \`validator\` partial per decisive lane with its measured duration and
+pass/fail; never record commands, test names, paths, logs, framework output, or
+generated test bodies. Accumulate in the run-local batch and do not launch a
+telemetry process from this section.
+
 **Read the project's CLAUDE.md (and TESTING.md if present) FIRST.** If it documents a test command, the project already told you: no detection, no bootstrap. Skip the rest of bootstrap and use that command in Step 5.
 
 **Otherwise gather markers. Every marker below is EVIDENCE for the question you ask — never a command to run blind.** A marker tells you which ecosystem you're in and which command to OFFER. It does not tell you the command works. Do not execute a candidate test command to "check" it: a probe on a project that never had that runner fails loudly and teaches you nothing, and installing a second framework over a working one is worse.
@@ -185,8 +191,19 @@ Append a \`## Testing\` section:
 git status --porcelain
 \`\`\`
 
-Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
-\`git commit -m "chore: bootstrap test framework ({framework name})"\`
+${ctx.skillName === 'ship' ? `Only if there are changes and an exact current-task
+\`ECPE_GIT_WRITE_AUTHORIZED=1\` grant exists, pass every bootstrap path to the
+closed writer (repeat \`--assert-path\` once per exact path):
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-effect-scope git-stage-commit \\
+  --skill ship --operation ship.delivery \\
+  --assert-path <exact-bootstrap-path> --json
+\`\`\`
+
+Without that grant, leave the files unstaged and report the required delivery
+action. Do not invoke a raw Git writer.` : `Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
+\`git commit -m "chore: bootstrap test framework ({framework name})"\``}
 
 ---`;
 }

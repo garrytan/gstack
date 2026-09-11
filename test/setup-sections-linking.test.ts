@@ -24,6 +24,21 @@ function fnBody(src: string, name: string): string {
 }
 
 describe('setup links sections/ for cherry-pick install targets', () => {
+  test('create_agents_sidecar exposes Codex sections beneath its authority root', () => {
+    const body = fnBody(SETUP, 'create_agents_sidecar');
+    expect(body).toContain('_install_authority_runtime "$SOURCE_GSTACK_DIR" "$agents_gstack" codex');
+  });
+
+  test('create_codex_runtime_root exposes generated relative sections to the anchor', () => {
+    const body = fnBody(SETUP, 'create_codex_runtime_root');
+    expect(body).toContain('_install_authority_runtime "$gstack_dir" "$codex_gstack" codex');
+    expect(body).not.toContain('_link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"');
+    expect(body).not.toContain('$codex_gstack/bin/gstack-section-delivery');
+    expect(
+      fs.statSync(path.join(import.meta.dir, '..', 'bin', 'gstack-section-delivery')).isFile()
+    ).toBe(true);
+  });
+
   test('link_claude_skill_dirs installs runtime assets (incl. sections/) via the shared helper', () => {
     // #2317/#2454 generalized the sections/-only install into
     // _link_skill_runtime_assets, which carries EVERY runtime asset a skill

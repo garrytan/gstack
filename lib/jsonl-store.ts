@@ -19,7 +19,9 @@
  * write-atomicity fix lands in all at once.
  */
 
-import { appendFileSync, readFileSync, existsSync } from "fs";
+import { appendFileSync, closeSync, existsSync, fchmodSync, fstatSync, fsyncSync, openSync, readFileSync, writeFileSync, constants } from "fs";
+import { dirname } from "path";
+import { acquireDurableOwnerLock, releaseDurableOwnerLock } from './durable-owner-lock';
 
 /**
  * Prompt-injection patterns. If any matches a free-text field (insight, rationale,
@@ -53,31 +55,53 @@ export function firstInjectionMatch(text: string): RegExp | null {
   return INJECTION_PATTERNS.find((p) => p.test(text)) ?? null;
 }
 
-/**
- * Atomic single-line append of `obj` as one JSON line.
- *
- * Concurrency: opens with `a` (O_APPEND); a single write under PIPE_BUF (>=512,
- * 4096+ on macOS/Linux) is atomic across processes, so concurrent agents appending
- * never interleave. Records MUST serialize to a single line (no embedded newline) —
- * we throw rather than risk a multi-line record breaking the one-record-per-line
- * invariant the tolerant reader relies on.
- *
- * Caveat: a record larger than PIPE_BUF loses the cross-process atomicity guarantee.
- * Keep records line-bounded; very large free-text should be truncated by the caller.
- */
-export function appendJsonl(path: string, obj: unknown, opts: { mode?: number } = {}): void {
+function jsonlLine(obj: unknown): string {
   const line = JSON.stringify(obj);
   if (line.includes("\n")) {
     throw new Error("jsonl-store: record serialized to multiple lines (embedded newline)");
   }
-  // `mode` applies only when the append CREATES the file (POSIX open(2)
-  // semantics) — pass 0o600 for stores holding sensitive content so the
-  // file never exists world-readable.
-  if (opts.mode !== undefined) {
-    appendFileSync(path, line + "\n", { encoding: "utf-8", mode: opts.mode });
-  } else {
-    appendFileSync(path, line + "\n", { encoding: "utf-8" });
+  return line + "\n";
+}
+
+/**
+ * Atomic single-line append of `obj` as one JSON line.
+ *
+ * Concurrency and durability: all shared callers serialize on one owner-validated
+ * per-ledger lock, append in one write, fsync the file, and fsync the directory when
+ * the ledger is first created. Records MUST serialize to a single line (no embedded
+ * newline), preserving the tolerant reader's one-record-per-line invariant.
+ */
+export function appendJsonl(path: string, obj: unknown, opts: { mode?: number } = {}): void {
+  const line = jsonlLine(obj);
+  const owned = acquireDurableOwnerLock(`${path}.jsonl-append`, 'jsonl_store_busy', 20_000);
+  let fd: number | undefined;
+  try {
+    const existed = existsSync(path); const mode = opts.mode ?? 0o666;
+    fd = openSync(path, constants.O_CREAT | constants.O_APPEND | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0), mode);
+    const info = fstatSync(fd); const uid = process.geteuid?.();
+    if (!info.isFile() || info.nlink !== 1 || uid === undefined || info.uid !== uid || (opts.mode !== undefined && (info.mode & 0o777) !== opts.mode)) throw new Error('jsonl-store: target invalid');
+    if (!existed && opts.mode !== undefined) fchmodSync(fd, opts.mode);
+    writeFileSync(fd, line, { encoding: 'utf8' }); fsyncSync(fd); closeSync(fd); fd = undefined;
+    if (!existed) { const parent = openSync(dirname(path), 'r'); try { fsyncSync(parent); } finally { closeSync(parent); } }
+  } finally { if (fd !== undefined) closeSync(fd); releaseDurableOwnerLock(owned); }
+}
+
+/**
+ * Append non-authority operational memory on native Windows.
+ *
+ * ECPE authority ledgers must use appendJsonl and fail closed because their
+ * owner/mode contract has no native-Windows attestation yet. These legacy logs
+ * are never grants, receipts, release state, or provider-effect evidence; on
+ * Windows they retain the pre-ECPE single O_APPEND write behavior.
+ */
+export function appendNonAuthorityJsonl(path: string, obj: unknown, opts: { mode?: number } = {}): void {
+  if (process.platform !== 'win32') {
+    appendJsonl(path, obj, opts);
+    return;
   }
+  const line = jsonlLine(obj);
+  if (opts.mode !== undefined) appendFileSync(path, line, { encoding: 'utf8', mode: opts.mode });
+  else appendFileSync(path, line, { encoding: 'utf8' });
 }
 
 /**

@@ -13,6 +13,7 @@ import { discoverTemplates, discoverSkillFiles } from './discover-skills';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { ALL_HOST_CONFIGS, getExternalHosts, getHostConfig } from '../hosts/index';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ROOT_REALPATH = fs.realpathSync(ROOT);
@@ -64,6 +65,12 @@ for (const file of SKILL_FILES) {
 
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
+const PRIMARY_HOST_CONFIG = getHostConfig('claude');
+
+function isPrimaryHostSkippedTemplate(tmpl: string): boolean {
+  const dir = tmpl.includes('/') ? tmpl.split('/')[0] : '';
+  return Boolean(dir && PRIMARY_HOST_CONFIG.generation.skipSkills?.includes(dir));
+}
 
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);
@@ -73,6 +80,10 @@ for (const { tmpl, output } of TEMPLATES) {
     continue;
   }
   if (!fs.existsSync(outPath)) {
+    if (isPrimaryHostSkippedTemplate(tmpl)) {
+      console.log(`  -  ${tmpl.padEnd(30)} — skipped by Claude Code generation`);
+      continue;
+    }
     hasErrors = true;
     console.log(`  \u274c ${output.padEnd(30)} — generated file missing! Run: bun run gen:skill-docs`);
     continue;
@@ -89,8 +100,6 @@ for (const file of SKILL_FILES) {
 }
 
 // ─── External Host Skills (config-driven) ───────────────────
-
-import { getExternalHosts } from '../hosts/index';
 
 for (const hostConfig of getExternalHosts()) {
   const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
@@ -129,8 +138,6 @@ for (const hostConfig of getExternalHosts()) {
 }
 
 // ─── Freshness (config-driven) ──────────────────────────────
-
-import { ALL_HOST_CONFIGS } from '../hosts/index';
 
 for (const hostConfig of ALL_HOST_CONFIGS) {
   const hostFlag = hostConfig.name === 'claude' ? '' : ` --host ${hostConfig.name}`;

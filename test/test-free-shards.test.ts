@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as shardRunner from '../scripts/test-free-shards';
 import {
   isFreeTestFile,
   collectFreeTestFiles,
@@ -118,6 +119,13 @@ describe('test-free-shards: Windows curation', () => {
     for (const { reason } of result.excluded) {
       expect(reason.length).toBeGreaterThan(0);
     }
+  });
+
+  test('keeps the native Windows authority-boundary regression in Windows CI', () => {
+    const file = 'test/native-windows-authority-boundary.test.ts';
+    const result = curateWindowsSafe([file], ROOT);
+    expect(result.safe).toEqual([file]);
+    expect(result.excluded).toEqual([]);
   });
 });
 
@@ -549,6 +557,30 @@ describe('test-free-shards: curated-list census pins', () => {
     expect(stale).toEqual([]);
   });
 
+  test('subprocess-heavy provider recovery runs outside the contended reader shards', () => {
+    const processIsolated = (shardRunner as unknown as {
+      PROCESS_ISOLATED: Record<string, string>;
+    }).PROCESS_ISOLATED;
+    const partitionFullSuiteFiles = (shardRunner as unknown as {
+      partitionFullSuiteFiles: (files: string[]) => {
+        readers: string[];
+        isolated: string[];
+        mutators: string[];
+      };
+    }).partitionFullSuiteFiles;
+    const providerRecovery = 'test/provider-direct-merge-recovery.test.ts';
+    const ordinary = 'test/provider-access-binding.test.ts';
+
+    expect(processIsolated?.[providerRecovery]).toBeTruthy();
+    expect(TREE_MUTATING).toEqual({});
+    expect(typeof partitionFullSuiteFiles).toBe('function');
+    expect(partitionFullSuiteFiles([ordinary, providerRecovery])).toEqual({
+      readers: [ordinary],
+      isolated: [providerRecovery],
+      mutators: [],
+    });
+  });
+
   test('every KNOWN_WINDOWS_INCOMPATIBLE entry names a real free test file', () => {
     const census = new Set(collectFreeTestFiles(ROOT));
     const stale = KNOWN_WINDOWS_INCOMPATIBLE.map((e) => e.file).filter((f) => !census.has(f));
@@ -576,6 +608,34 @@ describe('test-free-shards: wall-timeout scaling', () => {
 
   test('an explicit base above the scaled value wins', () => {
     expect(wallTimeoutForShard(10, 10 * 60_000)).toBe(10 * 60_000);
+  });
+
+  test('adds targeted headroom when a shard contains a known high-cost file', () => {
+    const wallTimeoutForFiles = (shardRunner as unknown as {
+      wallTimeoutForFiles: (files: string[], baseMs?: number) => number;
+    }).wallTimeoutForFiles;
+    const heavyFreeTestWallMs = (shardRunner as unknown as {
+      HEAVY_FREE_TEST_WALL_MS: Record<string, number>;
+    }).HEAVY_FREE_TEST_WALL_MS;
+    const files = [
+      ...Array.from({ length: 92 }, (_, index) => `test/normal-${index}.test.ts`),
+      'test/release-metadata.test.ts',
+    ];
+
+    expect(typeof wallTimeoutForFiles).toBe('function');
+    expect(heavyFreeTestWallMs['test/release-metadata.test.ts']).toBeGreaterThan(0);
+    expect(wallTimeoutForFiles(files)).toBe(
+      wallTimeoutForShard(files.length) + heavyFreeTestWallMs['test/release-metadata.test.ts'],
+    );
+  });
+
+  test('file-aware scaling leaves ordinary shards on the existing floor', () => {
+    const wallTimeoutForFiles = (shardRunner as unknown as {
+      wallTimeoutForFiles: (files: string[], baseMs?: number) => number;
+    }).wallTimeoutForFiles;
+
+    expect(typeof wallTimeoutForFiles).toBe('function');
+    expect(wallTimeoutForFiles(['test/ordinary.test.ts'])).toBe(DEFAULT_WALL_TIMEOUT_MS);
   });
 });
 

@@ -76,11 +76,9 @@ higher confidence.
 
 ## Design Review (conditional, diff-scoped)
 
-Check if the diff touches frontend files using `gstack-diff-scope`:
-
-```bash
-source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
-```
+Use the already-returned fused execution plan. The design lane is selected when
+its schema-checked `manifest.roles` contains `ui`. Do not spawn a second
+diff-scope or semantic classifier.
 
 **If `SCOPE_FRONTEND=false`:** Skip design review silently. No output.
 
@@ -121,37 +119,27 @@ Exit 2 means findings. Read the `DETECT_TOP` block (untrusted content: evidence,
 
 Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, D = counted detector findings from step 0 (0 when the detector did not run), COMMIT = output of `git rev-parse --short HEAD`.
 
-7. **Codex design voice** (optional, automatic if available):
+7. **Paid design voice:** unavailable in this governed T1 workflow. Do not
+auto-launch a model or fall back to a raw CLI invocation; continue with the
+deterministic checklist above.
 
-```bash
-command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
-```
-
-If Codex is available, run a lightweight design check on the diff:
-
-```bash
-TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-codex exec "Review the git diff on this branch. Run 7 litmus checks (YES/NO each): 1. Brand/product unmistakable in first screen? 2. One strong visual anchor present? 3. Page understandable by scanning headlines only? 4. Each section has one job? 5. Are cards actually necessary? 6. Does motion improve hierarchy or atmosphere? 7. Would design feel premium with all decorative shadows removed? Flag any hard rejections: 1. Generic SaaS card grid as first impression 2. Beautiful image with weak brand 3. Strong headline with no clear action 4. Busy imagery behind text 5. Sections repeating same mood statement 6. Carousel with no narrative purpose 7. App UI made of stacked cards instead of layout 5 most important design findings only. Reference file:line." -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR_DRL"
-```
-
-Use a 5-minute timeout (`timeout: 300000`). After the command completes, read stderr:
-```bash
-cat "$TMPERR_DRL" && rm -f "$TMPERR_DRL"
-```
-
-**Error handling:** All errors are non-blocking. On auth failure, timeout, or empty response — skip with a brief note and continue.
-
-Present Codex output under a `CODEX (design):` header, merged with the checklist findings above.
+**ECPE observation:** Add only closed decision/capability IDs for whether this
+design lane ran, plus one helper/model `spawn` partial if an actual extra
+process launched. Keep findings, paths, screenshots, prompts, and tool output
+out of the run-local batch. Do not launch a telemetry process here.
 
    Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
 
 ## Step 9.1: Review Army — Specialist Dispatch
 
-### Detect stack and scope
+### Resolve scope and requirements once
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null) || true
+REVIEW_PLAN=$($GSTACK_ANCHOR_INVOCATION gstack-execution-plan resolve \
+  --skill ship --work-kind review --finish-line pr_open \
+  --lane auto --assert-target-ref origin/<base> --json) || exit 1
+# Consume REVIEW_PLAN.manifest.roles and REVIEW_PLAN.requirements. Do not invoke
+# identity/profile/manifest/requirements/evidence helpers again for this decision.
 # Detect stack for specialist context
 STACK=""
 [ -f Gemfile ] && STACK="${STACK}ruby "
@@ -185,19 +173,33 @@ echo "TEST_FW: ${TEST_FW:-unknown}"
 
 Based on the scope signals above, select which specialists to dispatch.
 
-**Always-on (dispatch on every review with 50+ changed lines):**
-1. **Testing** — read `~/.claude/skills/gstack/review/specialists/testing.md`
-2. **Maintainability** — read `~/.claude/skills/gstack/review/specialists/maintainability.md`
+Apply this precedence exactly; changed-line count never suppresses a hard role:
 
-**If DIFF_LINES < 50:** Skip all specialists. Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to the Fix-First flow (item 4).
+1. **Explicit user-forced specialist** flags select their named specialist.
+2. **auth hard trigger** — role `auth` selects Security at any size.
+3. **schema/data hard trigger** — either role selects Data Migration at any size.
+4. **contract hard trigger** — role `contract` selects API Contract at any size.
+5. Other semantic roles: `ui` selects Design; `runtime|code` may select Performance.
+6. **size-based optional specialists** — only after semantic selection, add Testing
+   and Maintainability for 50+ changed lines and Performance for large backend diffs.
 
-**Conditional (dispatch if the matching scope signal is true):**
-3. **Security** — if SCOPE_AUTH=true, OR if SCOPE_BACKEND=true AND DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/security.md`
-4. **Performance** — if SCOPE_BACKEND=true OR SCOPE_FRONTEND=true. Read `~/.claude/skills/gstack/review/specialists/performance.md`
-5. **Data Migration** — if SCOPE_MIGRATIONS=true. Read `~/.claude/skills/gstack/review/specialists/data-migration.md`
-6. **API Contract** — if SCOPE_API=true. Read `~/.claude/skills/gstack/review/specialists/api-contract.md`
-7. **Design** — if SCOPE_FRONTEND=true. Use the existing design review checklist at `~/.claude/skills/gstack/review/design-checklist.md` and run the mechanical pass at the top of that checklist (the user-installed design detector, when present) before the LLM items
-8. **Simplification** — if DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/simplification.md`. Advisory-only lens: hunts unrequested structure (hand-rolled stdlib, one-implementation abstractions, dependencies duplicating platform features), never coverage.
+**Checklist mapping and selection conditions:**
+1. **Testing** — for 50+ changed lines or an explicit force flag. Read `~/.claude/skills/gstack/review/specialists/testing.md`
+2. **Maintainability** — for 50+ changed lines or an explicit force flag. Read `~/.claude/skills/gstack/review/specialists/maintainability.md`
+3. **Security** — for role `auth` at any size, or a large backend/runtime diff. Read `~/.claude/skills/gstack/review/specialists/security.md`
+4. **Performance** — for role `runtime`, `code`, or `ui` (the former backend/frontend scope signals). Read `~/.claude/skills/gstack/review/specialists/performance.md`
+5. **Data Migration** — for role `schema` or `data`. Read `~/.claude/skills/gstack/review/specialists/data-migration.md`
+6. **API Contract** — for role `contract`. Read `~/.claude/skills/gstack/review/specialists/api-contract.md`
+7. **Design** — for role `ui`. Use `~/.claude/skills/gstack/review/design-checklist.md` and run the mechanical pass at the top of that checklist (the user-installed design detector, when present) before the LLM items
+8. **Simplification** — for 100+ changed lines. Read `~/.claude/skills/gstack/review/specialists/simplification.md`. This advisory-only lens hunts unrequested structure (hand-rolled stdlib, one-implementation abstractions, dependencies duplicating platform features), never coverage.
+
+Read the corresponding checklist for every selected specialist. A docs-only diff
+may skip specialists. A rename-only diff retains roles from its destination path.
+If `SCOPE_ERROR` is set or `SEMANTIC_ROLES_JSON` is invalid/unknown, fail closed
+into Testing + Maintainability core review instead of reporting clean.
+
+Skipped specialists have state `not_assessed`; they never contribute a synthetic
+quality score. Continue to the Fix-First flow (item 4) only after every hard role was assessed.
 
 ### Adaptive gating
 
@@ -226,17 +228,13 @@ Construct the prompt for each specialist. The prompt includes:
 
 1. The specialist's checklist content (you already read the file above)
 2. Stack context: "This is a {STACK} project."
-3. Past learnings for this domain (if any exist):
-
-```bash
-~/.claude/skills/gstack/bin/gstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5 2>/dev/null || true
-```
-
-If learnings are found, include them: "Past learnings for this domain: {learnings}"
+3. No implicit learnings search. Use only context already present in the
+current task and repository.
 
 4. Instructions:
 
-"You are a specialist code reviewer. Read the checklist below, then run
+"You are a report-only specialist code reviewer. You have no file-write,
+comment, commit, push, PR, merge, or deploy authority. Read the checklist below, then run
 `DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"` to get the full diff. Apply the checklist against the diff.
 
 For each finding, output a JSON object on its own line:
@@ -330,7 +328,7 @@ These findings flow into the Fix-First flow (item 4) alongside the checklist pas
 The Fix-First heuristic applies identically — specialist findings follow the same AUTO-FIX vs ASK classification (except advisory findings, which are ASK-only per the carve-out above).
 
 **Compile per-specialist stats:**
-After merging findings, compile a `specialists` object for the review-log persist.
+After merging findings, compile a `specialists` object for the review-log persist in this generated ship section.
 For each specialist (testing, maintainability, security, performance, data-migration, api-contract, design, simplification, red-team):
 - If dispatched: `{"dispatched": true, "findings": N, "critical": N, "informational": N}`
 - If skipped by scope: `{"dispatched": false, "reason": "scope"}`
@@ -343,7 +341,7 @@ Logging simplification's advisories as `findings: 0` would auto-gate the
 lens into permanent silence after 10 dispatches.
 
 Include the Design specialist even though it uses `design-checklist.md` instead of the specialist schema files.
-Remember these stats — you will need them for the review-log persist.
+Remember these stats — you will need them for the review-log persist in this generated ship section.
 
 ---
 
@@ -370,6 +368,17 @@ the Fix-First flow (item 4). Red Team findings are tagged with `"specialist":"re
 
 If the Red Team returns NO FINDINGS, note: "Red Team review: no additional issues found."
 If the Red Team subagent fails or times out, skip silently and continue.
+
+---
+
+### ECPE review-army observation
+
+For every specialist or red-team process that actually launches, add one
+content-free helper `spawn` partial with a closed specialist ID and
+`execution_effect:"read"`. Record the decisive merged result with closed
+capability/receipt IDs only. Do not include findings, file references, prompts,
+test stubs, or agent output. Accumulate in the existing run-local batch and
+flush only at skill end.
 
 ### Step 9.3: Cross-review finding dedup
 
@@ -420,9 +429,17 @@ Output a summary header: `Pre-Landing Review: N issues (X critical, Y informatio
    - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
 
 7. **After all fixes (auto + user-approved):**
-   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5) on the fixed code, then re-run this review (Step 9 items 2-6) against the updated diff. Repeat until one full pass applies ZERO fixes — tests green and review clean — then summarize and persist (items 8-9). NEVER stop to tell the user to run `/ship` again; a fix-and-rerun cycle has no user decision in it, and stopping there breaks the fully-automated contract (#2391).
+   - If ANY fixes were applied: keep their exact paths in the working tree and
+     **stay in this invocation and loop**: re-run the test suite (Step 5), then
+     re-run this review (Step 9 items 2-6) against the updated diff. Repeat
+     until one full pass applies ZERO fixes. Step 15 is the sole stage/commit
+     writer and may run only through `gstack-effect-scope git-stage-commit`
+     with the exact current-task grant and every fixed path asserted. NEVER
+     stop to tell the user to run `/ship` again; a fix-and-rerun cycle has no
+     user decision in it, and stopping there breaks the fully-automated
+     contract (#2391).
    - **Bound: 3 fix cycles.** If the 3rd cycle still applies fixes, STOP and report which findings keep reappearing — a review that won't converge is a genuine blocker worth human eyes, not a re-run request.
-   - If no fixes applied (all ASK items skipped, or no issues found): summarize and persist (items 8-9).
+   - If no fixes applied (all ASK items skipped, or no issues found): continue to Step 10.
 
 8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
 
@@ -434,7 +451,7 @@ Output a summary header: `Pre-Landing Review: N issues (X critical, Y informatio
 ```
 Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
 and N values from the summary counts above. The `via:"ship"` distinguishes from standalone `/review` runs.
-- `quality_score` = the PR Quality Score computed in Step 9.2 (e.g., 7.5). If specialists were skipped (small diff), use `10.0`
+- `quality_score` = the PR Quality Score computed in Step 9.2 (e.g., 7.5). Skipped specialists are `not_assessed` and add no synthetic score.
 - `specialists` = the per-specialist stats object compiled in Step 9.2. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
 - `findings` = array of per-finding records. For each finding (from checklist pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"`, `"fixed"` (user approved), or `"skipped"` (user chose Skip).
 

@@ -349,7 +349,7 @@ review. The user turns this off only by asking explicitly
 ```bash
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
+_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo disabled)
 source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
 if [ "$_CODEX_CFG" = "disabled" ]; then
   _CODEX_MODE="disabled"
@@ -361,6 +361,8 @@ if [ "$_CODEX_CFG" = "disabled" ]; then
 # the nested passes anyway.
 elif [ "${GSTACK_FORCE_CODEX_REVIEW:-0}" != "1" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
   _CODEX_MODE="under_codex"
+elif [ "${ECPE_PAID_MODEL_AUTHORIZED:-0}" != "1" ]; then
+  _CODEX_MODE="grant_required"
 elif ! command -v codex >/dev/null 2>&1; then
   _CODEX_MODE="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
 elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
@@ -382,16 +384,17 @@ echo "CODEX_MODE: $_CODEX_MODE"
 
 Branch on the echoed `CODEX_MODE`:
 - **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip this section entirely; do NOT fall back to a Claude subagent — disabled means no extra review step. Print: "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."
+- **`grant_required`** — Codex review is enabled, but this invocation has no exact current-task paid-model grant. Spawn no Codex process and write no model-probe cache; use the caller's free fallback when one exists.
 - **`not_installed`** — Codex CLI absent. Print: "Codex not installed — falling back to a Claude subagent (fresh context, but the SAME model family — not an outside model). Install Codex for an actual outside-model read: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
 - **`under_codex`** — this session is already running INSIDE a Codex host, so spawning codex again is the same model reviewing itself at multiplied token cost (#2519). Print exactly one line: "[running under Codex — nested codex passes skipped; set GSTACK_FORCE_CODEX_REVIEW=1 to force]" and skip the codex invocations below; run the section's free in-host pass instead if it defines one.
 - **`not_authed`** — installed but no credentials. Print: "Codex installed but not authenticated — falling back to a Claude subagent (same model family, not an outside model). Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
 - **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines and fall back to the Claude subagent path. This state exists because a missing binary used to land in the model probe's fail-open bucket and report `ready`, so every Codex pass was skipped silently (#2742).
 - **`model_unusable`** — authed but the account cannot use gstack's selected Codex model (#2477: HTTP 400 on every call). Relay the probe's HINT lines, tell the user the one-line fix (set `GSTACK_CODEX_MODEL=<supported-model>` or pass an explicit `-c model=...` override), and fall back to the Claude subagent path. The ~10s round trip is cached for 1h; timeouts fail open to `ready`.
-- **`ready`** — run the Codex pass below.
+- **`ready`** — Codex is available, but run the paid pass below only when the exact current-task `ECPE_PAID_MODEL_AUTHORIZED=1` grant is present. Availability is not authorization.
 
 On `under_codex`, no in-host substitute is defined here: skip this outside-voice section and continue to the required outputs. Do not invoke Codex again or label a self-review as independent.
 
-For all other non-disabled modes (`ready`, `not_installed`, `not_authed`, `broken_install`, `model_unusable`), print one line so the off-switch
+For all other non-disabled modes (`ready`, `grant_required`, `not_installed`, `not_authed`, `broken_install`, `model_unusable`), print one line so the off-switch
 stays discoverable: "Running the outside voice automatically (standard step). Disable: `gstack-config set codex_reviews disabled`."
 
 **Construct the plan review prompt** for every remaining mode, including all Claude fallback modes (skip on `disabled` or `under_codex`).
@@ -442,7 +445,7 @@ CODEX SAYS (plan review — outside voice):
 - Timeout: "Codex timed out after 5 minutes." Fall back to the Claude subagent below.
 - Empty response: "Codex returned no response." Fall back to the Claude subagent below.
 
-**If `CODEX_MODE: not_installed`, `not_authed`, `broken_install`, or `model_unusable` (or Codex errored at runtime):**
+**If `CODEX_MODE: grant_required`, `not_installed`, `not_authed`, `broken_install`, or `model_unusable` (or Codex errored at runtime):**
 
 Dispatch via the Agent tool with `run_in_background: false` (subagents default to background since Claude Code v2.1.198; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the SAME model family, not an outside model; weigh its agreement accordingly.
 Bound it the same way as Codex: cap the dispatch at a 5-minute timeout so "never blocking"
@@ -757,6 +760,12 @@ Display:
 - Fallback (no \`wtree\` on the entry, or wtree mismatch): parse the \`---HEAD---\` section to get the current HEAD commit hash. For each review entry that has a \`commit\` field: compare it against the current HEAD. If different, count elapsed commits: \`git rev-list --count STORED_COMMIT..HEAD\`. If that command FAILS (the stored commit was rebased away), grade UNKNOWN and treat as stale — do not error. Display: "Note: {skill} review from {date} may be stale — {N} commits since review"
 - For entries without a \`commit\` field (legacy entries): display "Note: {skill} review from {date} has no commit tracking — consider re-running for accurate staleness detection"
 - If all reviews grade CURRENT (wtree match or HEAD match), do not display any staleness notes
+
+**ECPE observation:** Record the dashboard result only as closed capability and
+receipt disposition/reason IDs in the run-local batch. If an outside model or
+helper actually launches, add one corresponding `spawn` partial; a bounded
+pass by the current host is not a spawn. Never copy review text, paths, prompts,
+commands, or logs, and do not invoke telemetry from this resolver.
 
 ## Plan File Review Report
 

@@ -356,10 +356,13 @@ export function hermeticChildEnv(
     return buildHermeticEnv(process.env, {}, overrides, opts);
   }
   const dirs = getHermeticDirs();
-  return buildHermeticEnv(
+  const child = buildHermeticEnv(
     process.env,
     { CLAUDE_CONFIG_DIR: dirs.configDir, GSTACK_HOME: dirs.gstackHome },
     overrides,
     opts,
   );
+  child.ECPE_TESTING = '1';
+  child.ECPE_TEST_STATE_ROOT = child.GSTACK_HOME;
+  return child;
 }

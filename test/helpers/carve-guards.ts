@@ -113,26 +113,16 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     scenario:
       'This is a FRESH version-changing ship: the branch has a real code change, VERSION still equals the base version (needs a bump), and CHANGELOG.md needs a new entry. Follow the skill flow for a version-changing ship: run the pre-landing review and prepare the CHANGELOG entry. Produce the ship plan / review report. Do NOT actually commit, push, or open a PR.',
     staticInvariants: {
-      // The PR-title-version invariant MUST stay always-loaded: the v1.54.0.0
-      // carve stranded it in pr-body.md and PRs started landing with bare titles
+      // The trusted PR-title policy invariant MUST stay always-loaded: the v1.54.0.0
+      // carve stranded it in pr-body.md and PRs started landing with ungoverned titles
       // (CI backstop: test/pr-title-sync-workflow-safety.test.ts).
-      // Same carve also stranded the Step 18 /document-release dispatch out of
-      // sight — the skeleton never named it and the handoff "got lost" (#2666
-      // follow-up). Three NON-OVERLAPPING anchors pin the restored visibility,
-      // one per touchpoint (no anchor is a substring of another, so each is
-      // independently enforced — a subsumed anchor adds zero enforcement):
-      //   gerund form  → manifest trigger (renders 2x: section index + STOP)
-      //   imperative   → Step 17 handoff line
-      //   3rd person   → hoisted doc-sync invariant
-      // Matching is case-sensitive String.includes — "dispatching the" does NOT
-      // contain "dispatch the" — so update anchors in lockstep with any
-      // touchpoint rewording.
+      // Documentation now runs before the release writer freezes the final tree.
+      // Keep both the mutation step and the later no-mutation invariant visible.
       mustStayInSkeleton: [
-        'v$NEW_VERSION',
+        'RELEASE_TITLE_POLICY',
         'gstack-pr-title-rewrite',
-        'dispatching the /document-release subagent to sync docs',
-        'dispatch the /document-release subagent to sync docs',
-        'dispatches the /document-release subagent',
+        '## Step 11.5: Documentation sync',
+        '**Doc-sync invariant:** Step 11.5 completed before the release transaction.',
       ],
       // ...while the full create/update procedure stays carved into pr-body.md
       // (out of the skeleton, present in the union). Asserts BOTH PR paths
@@ -141,9 +131,9 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       // skeleton (correctly) fails this guard; the skeleton speaks of "the
       // /document-release subagent", never the carved imperative.
       mustMoveToSection: [
-        'gh pr create --base',
-        'gh pr edit --title',
-        'Dispatch /document-release as a subagent',
+        'PROVIDER_PR_ACTION_ARGS=(create --base <base>)',
+        'PROVIDER_PR_ACTION_ARGS=(update --pr "$PR_NUMBER")',
+        '## Step 18: Documentation handoff',
       ],
       // ship is operational (multi-STOP, not a plan review); no single post-STOP gate.
       gateAfterStop: undefined,
@@ -151,7 +141,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     behavioral: 'external',
     externalTest: 'test/skill-e2e-ship-section-loading.test.ts',
     maxSkeletonBytes: 79_300, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 78_275
-    minUnionBytes: 181_000, // token-reduction Phases 1-2 (v1.69.x branch); measured union 201,464
+    minUnionBytes: 156_500, // ECPE removes implicit paid/config/history/report/provider writers; measured union 156,753
     mustContain: ['VERSION', 'CHANGELOG', 'review', 'merge', 'PR'],
     // v1.58.5.0: pre-push-guard install (#2077) stacks on the shared first-run-guidance preamble.
     // Fork port wave 2: multi-ecosystem test-detection evidence (Django/JVM
@@ -207,7 +197,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 56_500, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 55_457
+    maxSkeletonBytes: 56_600, // v1.84 shared safety prose: measured 56_564; preserve the content floor.
     minUnionBytes: 99_800, // token-reduction Phases 1-2 (v1.69.x branch); measured union 110,910
     mustContain: ['Architecture', 'Code Quality', 'Test', 'Performance'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback + the
@@ -295,7 +285,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // the #538 opt-out + D1 evidence directive — ratio 1.104 measured.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 76_800, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 75_804
+    maxSkeletonBytes: 76_900, // v1.84 shared safety prose: measured 76_841; preserve the content floor.
     minUnionBytes: 115_800, // Phase 4 wave 4; measured union 118,175
     mustContain: ['design doc', 'problem statement'],
     maxSizeRatio: 1.12,
@@ -347,7 +337,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
     // v1.64.1.0: shared-preamble prose from the two parallel v1.64 waves lands
     // the skeleton at 69,022 B; +~1 KB headroom.
-    maxSkeletonBytes: 67_500, // + v1.82 open DESIGN.md format check ({{DESIGN_MD_CHECK}} in Phase 0); measured 67_014
+    maxSkeletonBytes: 67_600, // v1.84 shared safety prose: measured 67_548; preserve the content floor.
     minUnionBytes: 65_000, // token-reduction Phases 1-2 (v1.69.x branch): preamble bash -> bin/gstack-skill-start, onboarding -> gated emission; measured union 72,252
     mustContain: ['Typography', 'Color', 'Aesthetic Direction'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB +
@@ -419,13 +409,13 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
         'Plan File Discovery',
         'MULTI-SPECIALIST CONFIRMED',
         'Cross-model synthesis',
-        'codex review --base',
+        'gstack-effect-scope ensure-paid-validator',
       ],
       gateAfterStop: undefined, // operational multi-STOP skill, like ship
     },
     behavioral: 'plan',
     maxSkeletonBytes: 61_500, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 60_309
-    minUnionBytes: 89_000, // Phase 4 wave 1; measured union 93,357
+    minUnionBytes: 80_000, // ECPE report-only review removes implicit specialist/history effects; measured 80,586
     mustContain: ['confidence', 'P1', 'P2', 'Review Army', 'adversarial'],
   },
   codex: {
@@ -465,13 +455,12 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     staticInvariants: {
       mustStayInSkeleton: [
         'land-deploy-confirmed',
-        '## Step 3.4: VERSION drift detection',
+        '## Step 3.4: Recover the exact ship-time release decision',
         '## Step 6: Wait for deploy',
       ],
       mustPrecedeStop: ['land-deploy-confirmed'],
       mustMoveToSection: [
         'PRE-MERGE READINESS REPORT',
-        'gh pr merge "$MERGE_FLAG" --auto --delete-branch',
         'DEPLOY INFRASTRUCTURE VALIDATION',
       ],
       gateAfterStop: undefined, // operational skill
@@ -479,7 +468,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     behavioral: 'prompt',
     maxSkeletonBytes: 74_500, // + Aside browser contract for Step 7 canary ({{ASIDE_SETUP}}); measured 73_523
     maxSizeRatio: 1.10, // + v1.81 Aside contract + gstack-browser fallback block; measured 1.077
-    minUnionBytes: 91_000, // Phase 4 wave 1; estimated union ~94.9KB
+    minUnionBytes: 74_000, // ECPE direct-CAS land removes implicit report/marker writers; measured 74,514
     mustContain: ['readiness', 'merge', 'canary', 'revert', 'staging'],
   },
   // ── Token-reduction Phase 4 wave 2 (v1.69.x branch) ──────────────────────
@@ -607,7 +596,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'prompt',
     maxSkeletonBytes: 63_500, // + v2.0 {{ASIDE_SETUP}}/{{BROWSE_FALLBACK}} (replaces the browse setup block); measured 61_253
-    maxSizeRatio: 1.08, // + v1.81 Aside contract + gstack-browser fallback block; measured 1.063
+    maxSizeRatio: 1.09, // v1.84 shared safety prose + Aside fallback contract: measured 1.085.
     minUnionBytes: 69_500, // measured union 70,385
     // 'aside repl' pins the Aside contract; '$B goto' pins the fallback block in the always-loaded skeleton.
     mustContain: ['bug', 'aside repl', '$B goto', 'fix', 'Health Score Rubric', 'regression'],

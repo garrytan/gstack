@@ -319,6 +319,9 @@ const expectOk = (r: RenderResult): void => {
 // under a full six-shard load, so the budget is generous and hangs still fail.
 setDefaultTimeout(30_000);
 const browseWorkDirs = (): string[] => fs.readdirSync(SAFE_TMP_DIR).filter((n) => n.startsWith('gstack-render-browse-'));
+const expectNoNewBrowseWorkDirs = (before: string[]): void => {
+  expect(browseWorkDirs().filter((name) => !before.includes(name))).toEqual([]);
+};
 
 /** The subprocess driver: one job per process, so the module's engine cache and the spawn-time PATH are both under the test's control. */
 function writeDriver(dir: string): string {
@@ -693,7 +696,7 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithBrowse — daemon CLI contra
     const payload = fs.readFileSync(`${log}.payloads`, 'utf8');
     expect(payload).toContain('"width":"8.5in"');
     expect(payload).toMatch(/"output":"\/tmp\/gstack-render-browse-[^"]+\/gstack-render-0\.pdf"/);
-    expect(browseWorkDirs()).toEqual(before); // /tmp staging dir removed
+    expectNoNewBrowseWorkDirs(before); // this render's /tmp staging dir was removed
     await expect(fetch(goto.slice('goto '.length, -` ${T}`.length))).rejects.toThrow(); // loopback server stopped
   });
 
@@ -704,7 +707,7 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithBrowse — daemon CLI contra
     expect(r.engine).toBe('browse');
     expect(r.error).toBe('browse newtab --json returned no tabId');
     expect(readLines(log)).toEqual(['newtab --json']);
-    expect(browseWorkDirs()).toEqual(before);
+    expectNoNewBrowseWorkDirs(before);
   });
 
   test('a failing goto → "browse goto failed: <first stderr line>", the tab is still closed, /tmp is left clean', async () => {
@@ -719,7 +722,7 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithBrowse — daemon CLI contra
     expect(lines.some((l) => l.startsWith('goto '))).toBe(true);
     expect(lines.at(-1)).toBe('closetab 7');
     expect(lines.some((l) => l.startsWith('pdf '))).toBe(false);
-    expect(browseWorkDirs()).toEqual(before);
+    expectNoNewBrowseWorkDirs(before);
     expect(fs.existsSync(path.join(outDir, 'x.pdf'))).toBe(false);
   });
 
@@ -815,7 +818,7 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithBrowse — daemon CLI contra
     expect(r.error).toContain('timed out');
     expect(elapsed).toBeLessThan(25_000);
     expect(readLines(log)).toEqual(['newtab --json']); // no tab → nothing to close
-    expect(browseWorkDirs()).toEqual(before);
+    expectNoNewBrowseWorkDirs(before);
   }, 40_000);
 
   test('a hanging CLI that honours SIGTERM is reaped promptly at the budget', async () => {

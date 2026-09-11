@@ -316,7 +316,8 @@ function main() {
   const code = exitCodeFor(result);
 
   if (flag("--json")) {
-    process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    const body_sha256 = new Bun.CryptoHasher("sha256").update(input).digest("hex");
+    process.stdout.write(JSON.stringify({ ...result, body_sha256 }, null, 2) + "\n");
   } else {
     const vis = result.repoVisibility.toUpperCase();
     process.stdout.write(`gstack-redact scan — repo ${vis}\n`);

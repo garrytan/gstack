@@ -118,6 +118,7 @@ describe('validateHostConfig', () => {
       localSkillRoot: '.test/skills/gstack',
       hostSubdir: '.test',
       usesEnvVars: true,
+      sectionDelivery: 'inline',
       frontmatter: { mode: 'allowlist', keepFields: ['name', 'description'] },
       generation: { generateMetadata: false },
       pathRewrites: [],
@@ -496,7 +497,15 @@ describe('golden-file regression', () => {
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
-  test('Codex host renders with generic GPT overlay while existing hosts retain Claude overlay', () => {
+  test('hosts declare the exact section delivery mode for their runtime', () => {
+    expect(claude.sectionDelivery).toBe('on-demand-global');
+    expect(codex.sectionDelivery).toBe('on-demand-relative');
+    for (const host of ALL_HOST_CONFIGS.filter(h => !['claude', 'codex'].includes(h.name))) {
+      expect(host.sectionDelivery).toBe('inline');
+    }
+  });
+
+  test('Codex defaults to generic GPT while all existing hosts retain Claude', () => {
     expect(codex.defaultModel).toBe('gpt');
     for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex')) {
       expect(host.defaultModel).toBe('claude');
@@ -553,7 +562,7 @@ describe('host config correctness', () => {
     expect(codex.suppressedResolvers).toBeDefined();
     expect(codex.suppressedResolvers).toContain('CODEX_SECOND_OPINION');
     expect(codex.suppressedResolvers).toContain('ADVERSARIAL_STEP');
-    expect(codex.suppressedResolvers).toContain('REVIEW_ARMY');
+    expect(codex.suppressedResolvers).not.toContain('REVIEW_ARMY');
   });
 
   test('codex has boundary instruction', () => {

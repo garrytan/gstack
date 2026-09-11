@@ -30,6 +30,31 @@ If the user invokes a skill in plan mode, the skill takes precedence over generi
 }
 
 export function generateCompletionStatus(ctx: TemplateContext): string {
+  const canaryCompletion = ['review', 'ship', 'land-and-deploy', 'setup-deploy']
+    .includes(ctx.skillName) ? `
+The telemetry call is the last ordinary workflow command. If the initial execution-plan returned
+\`canary_focus.execution: "profile_canary"\`, its reserved focused run is not a
+completed canary sample until the lifecycle command above has appended the
+ordinary terminal event. Immediately afterward, recover and append the sole
+read-only legacy control with the exact values from that initial plan (do not
+invent or substitute IDs):
+
+\`\`\`bash
+${ctx.paths.binDir}/gstack-evidence lane-canary focused-run inspect \\
+  --block-id "BLOCK_ID" --participant portfolioops --lane "LANE" --json
+${ctx.paths.binDir}/gstack-evidence lane-canary run \\
+  --block-id "BLOCK_ID" --participant portfolioops --lane "LANE" \\
+  --focused-run-id "SESSION_ID" --json
+${ctx.paths.binDir}/gstack-evidence lane-canary inspect \\
+  --block-id "BLOCK_ID" --participant portfolioops --lane "LANE" --json
+\`\`\`
+
+Here \`BLOCK_ID\` and \`LANE\` are \`canary_focus.block_id\` and
+\`canary_focus.lane\`; \`SESSION_ID\` must equal both
+\`canary_focus.focused_run_id\` and \`lifecycle.run_id\`. The first and third
+commands are read-only recovery. If the run command reports an inconclusive
+comparison, leave the lane pending/legacy; never rerun the same control.
+` : '';
   return `## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
@@ -60,7 +85,7 @@ Do not log obvious facts or one-time transient errors.
 
 After workflow completion, log telemetry with ONE command. OUTCOME is
 success/error/abort/unknown; \`SESSION_ID\` and \`TEL_START\` are the values the
-preamble's skill-start output echoed. It also drains the artifacts-sync queue
+preamble output returned. It also drains the artifacts-sync queue
 (the former skill-end sync step — do not run gstack-brain-sync separately).
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This writes telemetry to
@@ -73,9 +98,11 @@ ${ctx.paths.binDir}/gstack-skill-end --skill "${ctx.skillName}" --outcome OUTCOM
 \`\`\`
 
 Replace \`OUTCOME\` and \`USED_BROWSE\` (yes/no) before running; substitute
-\`SESSION_ID\`/\`TEL_START\` from the skill-start echoes. \`ERROR_MESSAGE\`/\`FAILED_STEP\`
+\`SESSION_ID\`/\`TEL_START\` from the preamble result. \`ERROR_MESSAGE\`/\`FAILED_STEP\`
 are "" unless outcome is error. If the command is missing (stale install), skip
 telemetry — it never blocks the workflow.
+
+${canaryCompletion}
 
 ## Plan Status Footer
 

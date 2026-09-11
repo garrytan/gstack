@@ -19,7 +19,19 @@ import {
   markActiveSiblings,
   resolveVersionPath,
   fetchGitClaimed,
+  publicReleaseDecision,
 } from "../bin/gstack-next-version";
+
+describe('trusted replay decision facade', () => {
+  test('preserves the exact public schema while reporting an evidence-backed self exclusion', () => {
+    const identity = { number: 7, base_oid: 'a'.repeat(40), head_oid: 'b'.repeat(40), head_repository_node_id: 'R_1', head_ref: 'feature' };
+    const out = publicReleaseDecision({ source: 'trusted_profile', schema: 'ecpe.release-decision.v1', applicable: true, reason: 'applicable', release_mode: 'per_pr', title_policy: 'version_prefix', trusted_base_sha: 'c'.repeat(40), live_target_sha: identity.base_oid, subject_sha: identity.head_oid, target_ref: 'origin/main', profile_hash: 'd'.repeat(64), trusted_version: '1.0.0', target_version: '1.0.0', current_version: '1.0.1', version_source: { path: 'VERSION', format: 'plain_text', selector: 'whole_file' }, version_targets: [{ path: 'VERSION', format: 'plain_text', selector: 'whole_file' }], changelog_path: null }, '1.0.1', identity, { reason: 'already_bumped', selfClaimExcluded: true });
+    expect(out).toMatchObject({ version: '1.0.1', reason: 'already_bumped', current_pr_identity: identity, self_claim_excluded: true });
+    expect((out as any).allocation_id).toBeUndefined();
+    expect((out as any).release_write_record_id).toBeUndefined();
+    expect((out as any).receipt_run_id).toBeUndefined();
+  });
+});
 
 describe("parseVersion", () => {
   test("accepts 4-digit semver", () => {
@@ -323,13 +335,13 @@ describe("default-base detection (no --base)", () => {
     return { root, clone: join(root, "clone") };
   }
 
-  function runWithoutBase(cwd: string): { exitCode: number; parsed: any } {
+  function runWithoutBase(cwd: string): { exitCode: number; parsed: any; stderr: string } {
     const proc = Bun.spawnSync(
       ["bun", "run", SCRIPT, "--bump", "patch", "--workspace-root", "null"],
       { cwd, timeout: 30_000 },
     );
     const out = new TextDecoder().decode(proc.stdout);
-    return { exitCode: proc.exitCode, parsed: JSON.parse(out) };
+    return { exitCode: proc.exitCode, parsed: out ? JSON.parse(out) : null, stderr: new TextDecoder().decode(proc.stderr) };
   }
 
   test("origin/HEAD symbolic-ref wins — resolves trunk even though origin/main exists", () => {
@@ -366,12 +378,10 @@ describe("default-base detection (no --base)", () => {
     const { root, clone } = makeClone([["develop", "4.4.4.4"]]);
     try {
       git(clone, "remote", "set-head", "origin", "--delete");
-      const { exitCode, parsed } = runWithoutBase(clone);
-      expect(exitCode).toBe(0);
-      // base = literal "main"; origin/main doesn't exist, so readBaseVersion
-      // warns and assumes 0.0.0.0 — which pins WHICH base the fallback chose.
-      expect(parsed.base_version).toBe("0.0.0.0");
-      expect(parsed.warnings.join("\n")).toContain("origin/main");
+      const { exitCode, parsed, stderr } = runWithoutBase(clone);
+      expect(exitCode).toBe(2);
+      expect(parsed).toBeNull();
+      expect(stderr).toContain('trusted_policy_resolution_required');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -900,7 +910,7 @@ describe("width pinned on failed base read (3-digit repos)", () => {
   // shaped by the LOCAL version file's width.
   const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-next-version");
 
-  test("a 3-digit repo keeps 3-digit allocation when origin/<base> is unreadable", () => {
+  test("an unresolved base fails closed even when the local file reveals a width", () => {
     const dir = mkdtempSync(join(tmpdir(), "nextver-width3-"));
     const stubDir = mkdtempSync(join(tmpdir(), "nextver-width3-stub-"));
     try {
@@ -917,23 +927,21 @@ describe("width pinned on failed base read (3-digit repos)", () => {
         ["bun", "run", SCRIPT, "--base", "main", "--bump", "patch", "--workspace-root", "null"],
         { cwd: dir, env: { ...process.env, PATH: `${stubDir}:${process.env.PATH}` }, timeout: 30_000 },
       );
-      const out = JSON.parse(new TextDecoder().decode(proc.stdout));
-      // Zero base at the repo's OWN width — never "0.0.0.0" in a 3-digit repo.
-      expect(out.base_version).toBe("0.0.0");
-      expect(out.version).toBe("0.0.1"); // 3-digit allocation, not 0.0.1.0
-      expect(out.warnings.join(" ")).not.toContain("0.0.0.0");
+      expect(proc.exitCode).toBe(2);
+      expect(new TextDecoder().decode(proc.stderr)).toContain('trusted_policy_resolution_required');
+      expect(new TextDecoder().decode(proc.stdout)).toBe('');
     } finally {
       rmSync(dir, { recursive: true, force: true });
       rmSync(stubDir, { recursive: true, force: true });
     }
   }, 30_000);
 });
-
 describe("integration (smoke)", () => {
   // Bumps timeout to 30s — the test spawns a real `bun run` subprocess that
   // does a `gh pr list` against the live GitHub API to inspect claimed slots.
   // Network latency makes 5s tight on developer machines.
   test("CLI runs against real repo and emits parseable JSON", async () => {
+    const trustedCurrentVersion = execFileSync('git', ['show', 'origin/main:VERSION'], { encoding: 'utf8', timeout: 30_000 }).trim();
     const proc = Bun.spawnSync([
       "bun",
       "run",
@@ -943,7 +951,7 @@ describe("integration (smoke)", () => {
       "--bump",
       "patch",
       "--current-version",
-      "1.6.3.0",
+      trustedCurrentVersion,
       "--workspace-root",
       "null", // skip sibling scan in CI
     ], { timeout: 30_000 });
@@ -970,8 +978,6 @@ describe("integration (smoke)", () => {
       "main",
       "--bump",
       "patch",
-      "--current-version",
-      "1.6.3.0",
       "--workspace-root",
       "null",
       "--version-path",

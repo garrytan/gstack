@@ -34,6 +34,7 @@ const BIN = path.join(ROOT, 'bin', 'gstack-gbrain-supabase-provision');
 // Minimal PATH that finds standard tools but excludes user bins. The smoke
 // test prepends the running bun's own directory so the shebang resolves.
 const SAFE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin';
+const BUN_DIR = path.dirname(Bun.which('bun') ?? process.execPath);
 
 type Handler = (req: Request) => Response | Promise<Response>;
 
@@ -721,7 +722,7 @@ describe('bin smoke test (spawned)', () => {
     // HTTP call would hit fetch's timeout instead of round-tripping.
     const proc = Bun.spawn([BIN, 'list-orgs', '--json'], {
       env: {
-        PATH: `${path.dirname(process.execPath)}:${SAFE_PATH}`,
+        PATH: `${BUN_DIR}:${SAFE_PATH}`,
         SUPABASE_ACCESS_TOKEN: 'sbp_smoke_pat',
         SUPABASE_API_BASE: mock.url,
         GSTACK_HOME: egressHome,

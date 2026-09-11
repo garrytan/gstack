@@ -216,11 +216,12 @@ describe("install UX surfaces (#1946 / eng review D3+D10)", () => {
     expect(setup).not.toContain("install-prepush-hook");
   });
 
-  test("ship template owns per-repo install: silent-install path + one-time offer marker", () => {
+  test("governed ship never installs hooks or persists consent markers", () => {
     const tmpl = fs.readFileSync(path.join(ROOT, "ship", "SKILL.md.tmpl"), "utf8");
-    expect(tmpl).toContain("install-prepush-hook");
-    expect(tmpl).toContain(".redact-prepush-prompted");
-    expect(tmpl).toContain("redact_prepush_hook");
+    expect(tmpl).not.toContain("install-prepush-hook");
+    expect(tmpl).not.toContain(".redact-prepush-prompted");
+    expect(tmpl).not.toContain("redact_prepush_hook");
+    expect(tmpl).toContain("Required redaction is");
   });
 
   // #1946 / maintainer decision 6: setup asks ONCE for consent on a real TTY,

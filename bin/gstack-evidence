@@ -34,12 +34,39 @@
  * in the ledger; it cannot prove that an expected lane ever ran.
  */
 
-import { openSync, writeSync, closeSync, readdirSync, statSync, unlinkSync, chmodSync, readFileSync } from "fs";
+import { openSync, writeSync, closeSync, readdirSync, statSync, unlinkSync, chmodSync, readFileSync, mkdtempSync, mkdirSync, rmSync, lstatSync, realpathSync } from "fs";
 import { mkdirpSync } from "../lib/fs-utils";
-import { join, dirname } from "path";
+import { join, dirname, isAbsolute } from "path";
+import { tmpdir } from "os";
 import { spawnSync } from "child_process";
-import { appendJsonl, readJsonl } from "../lib/jsonl-store";
+import { appendJsonl } from "../lib/jsonl-store";
 import { scan, applyRedactions } from "../lib/redact-engine";
+import { ledgerCandidates, readJsonlUnion, resolveProjectIdentity, resolveRegisteredProjectLocation, resolveWorkspaceGovernanceLocation } from "../lib/project-identity";
+import { buildEvidenceRecord, type EvidenceRecordV2 } from "../lib/evidence-envelope";
+import { resolveTrustedActivationSnapshot, resolveTrustedWorkProfile } from "../lib/trusted-base";
+import { ensureValidator, evaluateValidatorBinding } from "../lib/validator-runner";
+import type { Lane } from "../lib/work-profile";
+import { appendShipHandoff, inspectCurrentShipHandoff } from "../lib/ship-handoff";
+import { snapshotProviderHead, snapshotSafetyProviderPreflight } from "../lib/provider-access";
+import { advancePrivatePilotWorkspace, cleanupPrivatePilotWorkspace, initPrivatePilotWorkspace, inspectPrivatePilotWorkspace } from "../lib/private-pilot-workspace";
+import { resolveProfileValidatorBinding } from "../lib/profile-validator-binding";
+import { resolveRuntimeStateRoot } from "../lib/canonical-state-root";
+import { deriveCurrentCloseoutStatus, inspectRecordingBinding, inspectRecordingTerminal, prepareCurrentCloseout, prepareMilestoneCloseout, verifyCurrentRecording } from "../lib/milestone-close-journal";
+import type { FinishLine } from "../lib/work-profile";
+import { ECPE_PILOT_LANES, ECPE_PILOT_PARTICIPANTS, ECPE_PILOT_POLICY, claimHarnessVerificationProducer, evaluateAndStopMilestoneSafety, findMilestoneBlockBySlot, inspectMilestoneBlock, inspectMilestoneForPartial, inspectSafetyLatch, readMilestoneBlock, startMilestoneBlock, stopMilestoneBlock, type MilestoneRootTuple } from "../lib/milestone-block";
+import { buildPilotEvaluation, buildPilotReadiness, inspectPilotEvaluation, reservePilotEvaluation } from "../lib/pilot-evaluation";
+import { inspectCandidatePreview } from "../lib/candidate-preview";
+import { verifyFrozenMilestoneParticipant } from "../lib/milestone-participant";
+import { attachHarnessVerificationCheckpoint, terminalizeHarnessVerificationCheckpoint } from "../lib/milestone-harness-checkpoint";
+import { SAFETY_SOURCE_REGISTRY_HASH, buildSafetySourcePreflightFromProvider } from "../lib/safety-source-registry";
+import { aggregateEcpeObservations, readEcpeTimelineCandidates } from "../lib/ecpe-metrics";
+import { inspectSafetyDowngradeSource, sealSafetyDowngradeSource } from "../lib/safety-downgrade";
+import { inspectLanePromotionAssessment, recordLanePromotionAssessment } from "../lib/lane-promotion";
+import { inspectProfilePromotion, reconcileProfilePromotion } from "../lib/profile-promotion-writer";
+import { inspectCanaryWindow, inspectCurrentCanaryFocusedSlot } from "../lib/lane-canary";
+import { inspectCanaryFocusedRun, localCanaryHostFingerprint, runCanaryControl } from "../lib/lane-canary-runner";
+import { inspectProfileDowngrade } from "../lib/profile-downgrade-writer";
+import { assertEcpeAuthorityPlatform } from "../lib/ecpe-platform";
 
 const BIN_DIR = dirname(Bun.fileURLToPath(import.meta.url));
 const LOG_MAX_BYTES = 2 * 1024 * 1024;
@@ -58,13 +85,15 @@ interface EvidenceRecord {
   wtree?: string;
   log_path?: string;
   redacted?: boolean;
+  repo_id?: string;
+  branch_ref?: string;
 }
 
 function warn(msg: string): void {
   console.error(`gstack-evidence: warning: ${msg}`);
 }
 
-function sha256(text: string): string {
+function sha256(text: string | Uint8Array): string {
   const h = new Bun.CryptoHasher("sha256");
   h.update(text);
   return h.digest("hex");
@@ -92,20 +121,21 @@ function currentWtree(): string | undefined {
   }
 }
 
-function ledgerPath(): { dir: string; file: string; logsDir: string } {
+function ledgerPath(): { dir: string; file: string; files: string[]; logsDir: string; repoId: string; branchRef: string } {
   const home = process.env.GSTACK_HOME || (process.env.HOME ? join(process.env.HOME, ".gstack") : undefined);
   // No resolvable home: skip bookkeeping (a literal "~" dir in cwd would land
   // inside the repo and perturb the fingerprint it exists to compute).
   if (!home) throw new Error("no GSTACK_HOME/HOME — bookkeeping skipped");
-  // ONE gstack-slug spawn: its output carries both SLUG= and BRANCH= lines
-  // (same branch→filename sanitization as reviews.jsonl).
-  const slugOut = spawnSync(join(BIN_DIR, "gstack-slug"), { encoding: "utf-8" });
-  const sm = (slugOut.stdout || "").match(/^SLUG=(.+)$/m);
-  const bm = (slugOut.stdout || "").match(/^BRANCH=(.+)$/m);
-  const slug = sm ? sm[1].trim() : "unknown";
-  const branch = bm ? bm[1].trim() : "no-branch";
-  const dir = join(home, "projects", slug);
-  return { dir, file: join(dir, `${branch}-evidence.jsonl`), logsDir: join(dir, "logs") };
+  const identity = resolveProjectIdentity(process.cwd());
+  const dir = join(home, "projects", identity.write_slug);
+  return {
+    dir,
+    file: join(dir, `${identity.write_branch}-evidence.jsonl`),
+    files: ledgerCandidates(identity, 'evidence', home),
+    logsDir: join(dir, "logs"),
+    repoId: identity.repo_id,
+    branchRef: identity.raw_branch,
+  };
 }
 
 /** Redact-engine pass over the command string. HIGH finding → store redacted. */
@@ -250,6 +280,10 @@ async function cmdRun(argv: string[]): Promise<number> {
   let label = "default";
   const li = argv.indexOf("--label");
   const sep = argv.indexOf("--");
+  const prefix = sep < 0 ? argv : argv.slice(0, sep);
+  if (prefix.some((value, index) => index % 2 === 0 ? value !== '--label' : !value || value.startsWith('--'))) {
+    console.error('gstack-evidence: invalid run arguments'); return 2;
+  }
   if (li >= 0 && li + 1 < argv.length && (sep < 0 || li < sep)) label = argv[li + 1];
   if (sep < 0 || sep + 1 >= argv.length) {
     console.error("usage: gstack-evidence run --label <L> -- <cmd...>");
@@ -364,7 +398,7 @@ async function cmdRun(argv: string[]): Promise<number> {
 }
 
 function record(
-  paths: { dir: string; file: string } | undefined,
+  paths: { dir: string; file: string; repoId: string; branchRef: string } | undefined,
   logPath: string | undefined,
   label: string,
   commandString: string,
@@ -383,6 +417,8 @@ function record(
       cmd_sha256: cmdSha,
       exit: exitCode,
       duration_s: Math.round((Date.now() - startedMs) / 100) / 10,
+      repo_id: paths.repoId,
+      branch_ref: paths.branchRef,
     };
     if (redacted) rec.redacted = true;
     const commit = git(["rev-parse", "HEAD"]);
@@ -440,7 +476,17 @@ function cmdCheck(argv: string[]): number {
         return 2;
       }
     }
-    else if (a === "--allow-paths") allowPaths = (argv[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    else if (a === "--allow-paths") {
+      allowPaths = (argv[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+      if (allowPaths.some((candidate) => !["VERSION", "CHANGELOG.md"].includes(candidate))) {
+        console.error("gstack-evidence: --allow-paths accepts only VERSION or CHANGELOG.md in legacy mode");
+        return 2;
+      }
+    }
+    else {
+      console.error(`gstack-evidence: unknown check argument: ${a}`);
+      return 2;
+    }
   }
   if (!all && wanted.length === 0) {
     console.error("usage: gstack-evidence check [--label <L> [--expect-cmd <s>]]... | --all  [--max-age <hrs>] [--allow-paths <csv>]");
@@ -449,7 +495,9 @@ function cmdCheck(argv: string[]): number {
 
   let records: EvidenceRecord[] = [];
   try {
-    records = readJsonl<EvidenceRecord>(ledgerPath().file);
+    const paths = ledgerPath();
+    records = readJsonlUnion<EvidenceRecord>(paths.files)
+      .filter((record) => !record.repo_id || record.repo_id === paths.repoId);
   } catch {
     records = [];
   }
@@ -524,14 +572,286 @@ function cmdCheck(argv: string[]): number {
   return allFresh ? 0 : 1;
 }
 
+function profileArgs(argv: string[]): { validator: string; lane: Lane; targetRef?: string; targetSha?: string; json: boolean } {
+  const values = new Map<string, string>(); let json = false;
+  while (argv.length) { const flag = argv.shift()!; if (flag === '--json') { if (json) throw new Error('evidence_arguments_invalid'); json = true; continue; } const value = argv.shift(); if (!value || value.startsWith('--') || values.has(flag) || !['--validator', '--lane', '--assert-target-ref', '--assert-target-sha'].includes(flag)) throw new Error('evidence_arguments_invalid'); values.set(flag, value); }
+  const validator = values.get('--validator'); const lane = (values.get('--lane') ?? 'single_repo_code') as Lane;
+  if (!validator || !['docs_ux', 'single_repo_code', 'cross_repo_contract'].includes(lane) || (values.has('--assert-target-ref') && values.has('--assert-target-sha'))) throw new Error('evidence_arguments_invalid');
+  return { validator, lane, targetRef: values.get('--assert-target-ref'), targetSha: values.get('--assert-target-sha'), json };
+}
+function profileBinding(args: ReturnType<typeof profileArgs>): { binding: Parameters<typeof ensureValidator>[0]; paths: ReturnType<typeof ledgerPath>; records: EvidenceRecordV2[] } {
+  const paths = ledgerPath();
+  const stateHome = process.env.GSTACK_HOME || (process.env.HOME ? join(process.env.HOME, '.gstack') : ''); if (!stateHome) throw new Error('evidence_state_home_missing');
+  const resolved = resolveProfileValidatorBinding({ cwd: process.cwd(), lane: args.lane, validatorId: args.validator, assertTargetRef: args.targetRef, assertTargetSha: args.targetSha, stateHome });
+  return { binding: resolved.binding, paths, records: [] };
+}
+function profileCheck(args: ReturnType<typeof profileArgs>): number {
+  const { binding } = profileBinding(args); const verdict = evaluateValidatorBinding(binding);
+  console.log(JSON.stringify(verdict)); return verdict.current ? 0 : 1;
+}
+function profileEnsure(args: ReturnType<typeof profileArgs>, forceRun = false): number {
+  const { binding, paths } = profileBinding(args); if (forceRun) binding.currentRecord = null;
+  const isolated = mkdtempSync(join(tmpdir(), 'gstack-read-validator-env-')); chmodSync(isolated, 0o700);
+  let result;
+  try {
+    const home = join(isolated, 'home'); mkdirSync(home, { mode: 0o700 });
+    result = ensureValidator(binding, { spawn: (logical) => { const candidate = logical[0] === 'bun' ? process.execPath : logical[0]; if (!isAbsolute(candidate)) throw new Error('validator_executable_untrusted'); const info = lstatSync(candidate); if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o022) !== 0 || (info.mode & 0o111) === 0) throw new Error('validator_executable_untrusted'); const child = spawnSync(realpathSync(candidate), logical.slice(1), { cwd: binding.cwd, stdio: 'inherit', shell: false, env: { PATH: '/usr/bin:/bin', HOME: home, LC_ALL: 'C', LANG: 'C', GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1' } }); return { exitCode: child.status ?? 1 }; }, append: (record) => { mkdirpSync(paths.dir); appendJsonl(paths.file, record, { mode: 0o600 }); } });
+  } finally { rmSync(isolated, { recursive: true, force: true }); }
+  console.log(JSON.stringify(result)); if (result.disposition === 'grant_required') return 3; if (result.disposition === 'configuration_error') return 2; return result.disposition === 'live_fail' ? result.child_exit ?? 1 : 0;
+}
+
+function exactArgs(argv: string[], allowed: string[]): { values: Map<string, string>; json: boolean } {
+  const values = new Map<string, string>(); let json = false;
+  while (argv.length) {
+    const flag = argv.shift()!;
+    if (flag === '--json') { if (json) throw new Error('evidence_arguments_invalid'); json = true; continue; }
+    const value = argv.shift();
+    if (!allowed.includes(flag) || !value || value.startsWith('--') || values.has(flag)) throw new Error('evidence_arguments_invalid');
+    values.set(flag, value);
+  }
+  return { values, json };
+}
+
+async function handoffCommand(argv: string[]): Promise<number> {
+  const releaseFlags = argv.filter(value => value === '--release-requested');
+  if (releaseFlags.length > 1) throw new Error('evidence_handoff_arguments_invalid');
+  const releaseRequested = releaseFlags.length === 1;
+  argv = argv.filter(value => value !== '--release-requested');
+  const { values } = exactArgs(argv, ['--stage', '--pr', '--assert-target-ref', '--lane', '--assert-milestone-block']);
+  const pr = values.get('--pr'); const target = values.get('--assert-target-ref'); const lane = (values.get('--lane') ?? 'single_repo_code') as Lane | 'auto';
+  if (values.get('--stage') !== 'ship' || !pr || !/^[1-9][0-9]*$/.test(pr) || !target || !['auto', 'docs_ux', 'single_repo_code', 'cross_repo_contract'].includes(lane)) throw new Error('evidence_handoff_arguments_invalid');
+  const blockId = values.get('--assert-milestone-block');
+  if (blockId && !/^block-[0-9a-f]{32}$/.test(blockId)) throw new Error('evidence_handoff_arguments_invalid');
+  console.log(JSON.stringify(await appendShipHandoff({ cwd: process.cwd(), pr: Number(pr), assertTargetRef: target, lane, blockId, releaseRequested })));
+  return 0;
+}
+
+async function handoffInspectCommand(argv: string[]): Promise<number> {
+  const { values, json } = exactArgs(argv, ['--stage', '--pr', '--remote-pr-head', '--assert-target-ref', '--expected-base']);
+  const pr = values.get('--pr');
+  if (!json || values.get('--stage') !== 'ship' || !pr || !/^[1-9][0-9]*$/.test(pr) || !values.get('--remote-pr-head') || !values.get('--assert-target-ref') || !values.get('--expected-base')) throw new Error('evidence_handoff_arguments_invalid');
+  const result = await inspectCurrentShipHandoff({ cwd: process.cwd(), pr: Number(pr), remotePrHead: values.get('--remote-pr-head')!, assertTargetRef: values.get('--assert-target-ref')!, expectedBase: values.get('--expected-base')! });
+  console.log(JSON.stringify(result)); return result.current ? 0 : 1;
+}
+
+async function capabilityCheckCommand(argv: string[]): Promise<number> {
+  const { values, json } = exactArgs(argv, ['--capability', '--subject-pr', '--remote-pr-head']);
+  const pr = values.get('--subject-pr'); const remote = values.get('--remote-pr-head');
+  if (!json || values.get('--capability') !== 'delivery.pr_open' || !pr || !/^[1-9][0-9]*$/.test(pr) || !remote) throw new Error('evidence_arguments_invalid');
+  const snapshot = await snapshotProviderHead(process.cwd(), Number(pr));
+  const result = await inspectCurrentShipHandoff({ cwd: process.cwd(), pr: Number(pr), remotePrHead: remote, assertTargetRef: snapshot.targetRef, expectedBase: snapshot.baseRefOid, provider: async () => snapshot });
+  console.log(JSON.stringify(result)); return result.current ? 0 : 1;
+}
+
+function privateWorkspaceCommand(argv: string[]): number {
+  const operation = argv.shift();
+  const { values, json } = exactArgs(argv, ['--purpose', '--block-id', '--participant', '--lane', '--latch-id', '--source-seal-id', '--assert-phase', '--assert-head']);
+  const purpose = values.get('--purpose')as 'ecpe-v3-pilot'|'safety-downgrade'; const block = values.get('--block-id'); const participant = values.get('--participant');const lane=values.get('--lane')as any,latchId=values.get('--latch-id'),sourceSealId=values.get('--source-seal-id');
+  if (!json || !['ecpe-v3-pilot','safety-downgrade'].includes(purpose) || participant !== 'portfolioops') throw new Error('private_workspace_arguments_invalid');
+  const stateRoot = resolveRuntimeStateRoot().root;
+  if(purpose==='ecpe-v3-pilot'&&(!block||!/^block-[0-9a-f]{32}$/.test(block)||lane||latchId||sourceSealId))throw new Error('private_workspace_arguments_invalid');
+  if(purpose==='safety-downgrade'&&(block||!latchId||!/^latch-[0-9a-f]{32}$/.test(latchId)||!ECPE_PILOT_LANES.includes(lane)))throw new Error('private_workspace_arguments_invalid');
+  const key = purpose==='ecpe-v3-pilot'?`${block}\0${participant}`:`${latchId}\0${participant}\0${lane}`;
+  let result;
+  if (operation === 'init') {
+    if (values.has('--assert-phase') || values.has('--assert-head')) throw new Error('private_workspace_arguments_invalid');
+    if(purpose==='safety-downgrade'){if(!sourceSealId)throw new Error('private_workspace_arguments_invalid');const source=inspectSafetyDowngradeSource({stateRoot,participant:'portfolioops',lane,latchId:latchId!});if(source.seal_id!==sourceSealId)throw new Error('safety_source_mismatch');const portfolio=resolveRegisteredProjectLocation('portfolioops',process.cwd());const resolved=resolveTrustedWorkProfile({cwd:portfolio.root,lane,safetyStateRoot:stateRoot});result=initPrivatePilotWorkspace({stateRoot,sourceRepository:portfolio.root,purpose,key,subjectSha:resolved.trusted_base.target_sha});}
+    else{if(sourceSealId)throw new Error('private_workspace_arguments_invalid');resolveProjectIdentity(process.cwd(), { mode: 'profile' });const resolved = resolveTrustedWorkProfile({ cwd: process.cwd(), lane: 'single_repo_code',safetyStateRoot:stateRoot });result = initPrivatePilotWorkspace({ stateRoot, sourceRepository: process.cwd(), purpose, key, subjectSha: resolved.trusted_base.target_sha });}
+  } else if (operation === 'inspect') {
+    if (values.has('--assert-phase') || values.has('--assert-head')||sourceSealId) throw new Error('private_workspace_arguments_invalid');
+    result = inspectPrivatePilotWorkspace({ stateRoot, purpose, key });
+  } else if (operation === 'advance') {
+    const phase = values.get('--assert-phase') as 'seed' | 'promotion' | 'canary'; const assertedHead = values.get('--assert-head');
+    if (!['seed', 'promotion', 'canary'].includes(phase) || !assertedHead || !/^[0-9a-f]{40}$/.test(assertedHead)) throw new Error('private_workspace_arguments_invalid');
+    const workspace = inspectPrivatePilotWorkspace({ stateRoot, purpose, key });
+    const currentHeadResult = spawnSync('/usr/bin/git', ['rev-parse', 'HEAD^{commit}'], { cwd: workspace.checkout_root, encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1' } });
+    const currentHead = currentHeadResult.status === 0 ? currentHeadResult.stdout.trim() : ''; if (!/^[0-9a-f]{40}$/.test(currentHead)) throw new Error('private_workspace_subject_invalid');
+    const next = ({ seed: 'promotion', promotion: 'canary', canary: 'terminal' } as const)[phase];
+    result = advancePrivatePilotWorkspace({ stateRoot, purpose, key, assertPhase: phase, assertHead: assertedHead, nextPhase: next, nextHead: currentHead });
+  } else if (operation === 'cleanup') {
+    if (values.has('--assert-phase') || values.has('--assert-head')||sourceSealId) throw new Error('private_workspace_arguments_invalid');
+    result = cleanupPrivatePilotWorkspace({ stateRoot, purpose, key });
+  } else throw new Error('private_workspace_command_invalid');
+  const publicResult = result && typeof result === 'object' ? Object.fromEntries(Object.entries(result as Record<string, unknown>).filter(([key]) => !['lease_root', 'checkout_root', 'key'].includes(key))) : result;
+  console.log(JSON.stringify(publicResult)); return 0;
+}
+function safetyDowngradeCommand(argv:string[]):number{const operation=argv.shift();const{values,json}=exactArgs(argv,['--block-id','--participant','--lane','--latch-id']);const blockId=values.get('--block-id'),lane=values.get('--lane')as any,latchId=values.get('--latch-id');if(!json||values.get('--participant')!=='portfolioops'||!ECPE_PILOT_LANES.includes(lane)||!latchId)throw new Error('safety_downgrade_arguments_invalid');if(operation==='source-seal'){if(!blockId)throw new Error('safety_downgrade_arguments_invalid');console.log(JSON.stringify(sealSafetyDowngradeSource({stateRoot:resolveRuntimeStateRoot().root,blockId,participant:'portfolioops',lane,latchId})));return 0}if(operation==='source-seal-inspect'){if(blockId)throw new Error('safety_downgrade_arguments_invalid');console.log(JSON.stringify(inspectSafetyDowngradeSource({stateRoot:resolveRuntimeStateRoot().root,participant:'portfolioops',lane,latchId})));return 0}throw new Error('safety_downgrade_arguments_invalid')}
+
+function closeoutArgs(argv: string[]): { values: Map<string, string>; explicitClose: boolean; json: boolean } {
+  const allowed = new Set(['--work-kind', '--finish-line', '--assert-target-ref', '--assert-target-sha', '--lane', '--assert-product-head', '--terminal-subject-kind', '--terminal-subject-id', '--assert-report-path']);
+  const values = new Map<string, string>(); let explicitClose = false; let json = false;
+  while (argv.length) { const flag = argv.shift()!; if (flag === '--json' || flag === '--explicit-close') { if ((flag === '--json' && json) || (flag === '--explicit-close' && explicitClose)) throw new Error('closeout_arguments_invalid'); if (flag === '--json') json = true; else explicitClose = true; continue; } const value = argv.shift(); if (!allowed.has(flag) || !value || value.startsWith('--') || values.has(flag)) throw new Error('closeout_arguments_invalid'); values.set(flag, value); }
+  return { values, explicitClose, json };
+}
+function closeoutStatusCommand(argv: string[]): number {
+  const operation = argv.shift(); const parsed = closeoutArgs(argv); const workKind = parsed.values.get('--work-kind'); const finishLine = parsed.values.get('--finish-line') as FinishLine; const lane = (parsed.values.get('--lane') ?? 'single_repo_code') as Lane;
+  if (!parsed.json || !['inspect', 'prepare'].includes(operation ?? '') || !workKind || !['answer', 'design', 'diagnose', 'change', 'review', 'release', 'operation'].includes(workKind) || !['response', 'artifact', 'local_change', 'review_receipt', 'pr_open', 'merged', 'deployed', 'verified', 'operation_result'].includes(finishLine) || !['docs_ux', 'single_repo_code', 'cross_repo_contract'].includes(lane) || (parsed.values.has('--assert-target-ref') && parsed.values.has('--assert-target-sha'))) throw new Error('closeout_arguments_invalid');
+  if (operation === 'inspect' && parsed.values.has('--assert-report-path')) throw new Error('closeout_arguments_invalid'); if (operation === 'prepare' && !parsed.values.has('--assert-report-path')) throw new Error('closeout_arguments_invalid');
+  const common = { cwd: process.cwd(), stateRoot: resolveRuntimeStateRoot().root, workKind, requestedFinishLine: finishLine, lane, assertTargetRef: parsed.values.get('--assert-target-ref'), assertTargetSha: parsed.values.get('--assert-target-sha'), explicitClose: parsed.explicitClose, assertProductHead: parsed.values.get('--assert-product-head'), terminalSubjectKind: parsed.values.get('--terminal-subject-kind') as 'pr' | 'deploy_operation' | 'rollback_record' | undefined, terminalSubjectId: parsed.values.get('--terminal-subject-id') };
+  const result = operation === 'prepare' ? prepareCurrentCloseout({ ...common, assertReportPath: parsed.values.get('--assert-report-path')! }) : deriveCurrentCloseoutStatus(common); console.log(JSON.stringify(result)); return result.proof_current ? 0 : 1;
+}
+function recordingVerifyCommand(argv: string[]): number { const { values, json } = exactArgs(argv, ['--binding-id', '--report']); if (!json || !values.get('--binding-id') || !values.get('--report')) throw new Error('recording_verify_arguments_invalid'); console.log(JSON.stringify(verifyCurrentRecording({ stateRoot: resolveRuntimeStateRoot().root, cwd: process.cwd(), bindingId: values.get('--binding-id')!, reportPath: values.get('--report')! }))); return 0; }
+function recordingBindingCommand(argv:string[]):number{if(argv.shift()!=='inspect')throw new Error('recording_binding_arguments_invalid');let json=false,currentProject=false;const values=new Map<string,string>();while(argv.length){const flag=argv.shift()!;if(flag==='--json'||flag==='--current-project'){if((flag==='--json'&&json)||(flag==='--current-project'&&currentProject))throw new Error('recording_binding_arguments_invalid');if(flag==='--json')json=true;else currentProject=true;continue}const value=argv.shift();if(!['--binding-id','--block-id','--purpose'].includes(flag)||!value||value.startsWith('--')||values.has(flag))throw new Error('recording_binding_arguments_invalid');values.set(flag,value)}if(!json)throw new Error('recording_binding_arguments_invalid');console.log(JSON.stringify(inspectRecordingBinding({stateRoot:resolveRuntimeStateRoot().root,cwd:process.cwd(),bindingId:values.get('--binding-id'),blockId:values.get('--block-id'),purpose:values.get('--purpose')as any,currentProject})));return 0}
+function recordingTerminalCommand(argv:string[]):number{if(argv.shift()!=='inspect')throw new Error('recording_terminal_arguments_invalid');const{values,json}=exactArgs(argv,['--binding-id','--repo-id']);const bindingId=values.get('--binding-id'),repoId=values.get('--repo-id');if(!json||!bindingId||!repoId)throw new Error('recording_terminal_arguments_invalid');console.log(JSON.stringify(inspectRecordingTerminal({stateRoot:resolveRuntimeStateRoot().root,cwd:process.cwd(),bindingId,repoId})));return 0}
+function safetyLatchCommand(argv:string[]):number{if(argv.shift()!=='inspect')throw new Error('safety_latch_arguments_invalid');const{values,json}=exactArgs(argv,['--participant','--lane']);const lane=values.get('--lane')as any;if(!json||values.get('--participant')!=='portfolioops'||!ECPE_PILOT_LANES.includes(lane))throw new Error('safety_latch_arguments_invalid');console.log(JSON.stringify(inspectSafetyLatch({stateRoot:resolveRuntimeStateRoot().root,participant:'portfolioops',lane})));return 0}
+function safetyProfileDowngradeCommand(argv:string[]):number{if(argv.shift()!=='inspect')throw new Error('safety_profile_downgrade_arguments_invalid');const{values,json}=exactArgs(argv,['--latch-id','--lane']);const latchId=values.get('--latch-id'),lane=values.get('--lane')as Lane;if(!json||!latchId||!ECPE_PILOT_LANES.includes(lane))throw new Error('safety_profile_downgrade_arguments_invalid');console.log(JSON.stringify(inspectProfileDowngrade({stateRoot:resolveRuntimeStateRoot().root,latchId,lane})));return 0}
+
+function milestoneContext() {
+  const state = resolveRuntimeStateRoot(); const governance = resolveWorkspaceGovernanceLocation(process.cwd());
+  const codeHeadResult = spawnSync('/usr/bin/git', ['rev-parse', 'HEAD^{commit}'], { cwd: governance.code_root, encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1' } }); if (codeHeadResult.status !== 0) throw new Error('milestone_code_root_invalid'); const codeHead = codeHeadResult.stdout.trim();
+  const roots: MilestoneRootTuple = { code_root_id: `code-${sha256(`${governance.common_directory}\0${governance.code_root}`).slice(0, 32)}`, workspace_root_id: `workspace-${sha256(`${governance.common_directory}\0${governance.workspace_root}`).slice(0, 32)}`, state_root_id: state.stateRootId };
+  return { state, governance, roots, codeHead, registryHash: sha256(readFileSync(governance.registry_path)) };
+}
+async function safetySourcesCommand(argv:string[]):Promise<number>{if(argv.shift()!=='preflight')throw new Error('safety_sources_arguments_invalid');const{values,json}=exactArgs(argv,['--purpose','--participant']);if(!json||values.get('--purpose')!=='ecpe-v3-pilot'||values.get('--participant')!=='portfolioops')throw new Error('safety_sources_arguments_invalid');const portfolio=resolveRegisteredProjectLocation('portfolioops',process.cwd());const result=buildSafetySourcePreflightFromProvider(await snapshotSafetyProviderPreflight(portfolio.root));console.log(JSON.stringify(result));return result.ready?0:1}
+async function safetyStopCommand(argv:string[]):Promise<number>{if(argv.shift()!=='evaluate-and-stop')throw new Error('safety_stop_arguments_invalid');const{values,json}=exactArgs(argv,['--block-id','--participant','--lane']);const blockId=values.get('--block-id'),assertLane=values.get('--lane')as any;if(!json||!blockId||values.get('--participant')!=='portfolioops'||(assertLane&&!ECPE_PILOT_LANES.includes(assertLane)))throw new Error('safety_stop_arguments_invalid');const context=milestoneContext(),block=readMilestoneBlock(context.state.root,blockId);if(block.phase!=='active'||JSON.stringify(block.roots)!==JSON.stringify(context.roots))throw new Error('milestone_safety_stop_invalid');const portfolio=resolveRegisteredProjectLocation('portfolioops',process.cwd());const preflight=buildSafetySourcePreflightFromProvider(await snapshotSafetyProviderPreflight(portfolio.root));const observations=readEcpeTimelineCandidates(context.state.root,ledgerCandidates(portfolio.identity,'timeline',context.state.root),portfolio.identity.repo_id);const aggregate=aggregateEcpeObservations(observations.observations,{allowCanaryControl:true,allowReservedProducer:true});const unauthorized=aggregate.totals.unauthorized_effects>0;const sources=preflight.sources.map(source=>({source_id:source.source_id,status:(source.source_id==='gstack.stop_and_rollback.v1'&&unauthorized?'regressed':source.status)as 'pass'|'not_applicable'|'unknown'|'regressed',status_hash:source.source_id==='gstack.stop_and_rollback.v1'&&unauthorized?sha256(`${source.status_hash}\0unauthorized_effect`):source.status_hash??sha256(`${source.source_id}\0unknown`)}));const activations=resolveTrustedActivationSnapshot({cwd:portfolio.root,safetyStateRoot:context.state.root}).activations;const result=evaluateAndStopMilestoneSafety({stateRoot:context.state.root,blockId,roots:context.roots,sources,activations});console.log(JSON.stringify({...result,asserted_lane:assertLane??null,source_registry_hash:SAFETY_SOURCE_REGISTRY_HASH}));return result.result==='stopped'?1:0}
+async function lanePromotionCommand(argv:string[]):Promise<number>{const operation=argv.shift();const{values,json}=exactArgs(argv,['--block-id','--participant','--lane']);const blockId=values.get('--block-id'),lane=values.get('--lane')as any;if(!json||!blockId||values.get('--participant')!=='portfolioops'||!ECPE_PILOT_LANES.includes(lane)||!['check','inspect','reconcile'].includes(operation??''))throw new Error('lane_promotion_arguments_invalid');const stateRoot=resolveRuntimeStateRoot().root;if(operation!=='check'){const assessment=inspectLanePromotionAssessment({stateRoot,blockId,participant:'portfolioops',lane});const portfolio=resolveRegisteredProjectLocation('portfolioops',process.cwd());const lineage=operation==='reconcile'?reconcileProfilePromotion({stateRoot,cwd:portfolio.root,blockId,lane}):inspectProfilePromotion({stateRoot,blockId,lane});const result={...assessment,lineage};console.log(JSON.stringify(result));return assessment.eligible&&lineage.result!=='grant_required'?0:1}const context=milestoneContext(),block=readMilestoneBlock(stateRoot,blockId);if(block.phase!=='active'||JSON.stringify(block.roots)!==JSON.stringify(context.roots))throw new Error('promotion_block_invalid');const portfolio=resolveRegisteredProjectLocation('portfolioops',process.cwd());const profile=resolveTrustedWorkProfile({cwd:portfolio.root,lane,safetyStateRoot:stateRoot});if(!profile.effective||!profile.profile_hash||profile.lane_activation!=='shadow')throw new Error('promotion_activation_invalid');const head=spawnSync('/usr/bin/git',['rev-parse','HEAD^{commit}'],{cwd:portfolio.root,encoding:'utf8',env:{PATH:'/usr/bin:/bin',LC_ALL:'C'}}).stdout.trim(),tree=spawnSync('/usr/bin/git',['rev-parse','HEAD^{tree}'],{cwd:portfolio.root,encoding:'utf8',env:{PATH:'/usr/bin:/bin',LC_ALL:'C'}}).stdout.trim();const timeline=readEcpeTimelineCandidates(stateRoot,ledgerCandidates(portfolio.identity,'timeline',stateRoot),portfolio.identity.repo_id);const comparisons=timeline.observations.filter((item:any)=>item.kind==='shadow_comparison'&&item.shadow_comparison.block_id===blockId&&item.shadow_comparison.lane===lane&&item.shadow_comparison.profile_lineage_hash===profile.profile_hash&&item.shadow_comparison.safety_outcomes==='complete');const ids=comparisons.map((item:any)=>item.shadow_comparison.comparison_id).sort();const distinct=[...new Set(comparisons.map((item:any)=>lane==='cross_repo_contract'?item.shadow_comparison.paired_change_set_id:item.shadow_comparison.subject_head_sha).filter(Boolean))]as string[];const earliest=comparisons.map((item:any)=>Date.parse(item.timestamp)).filter(Number.isFinite).sort((a,b)=>a-b)[0];const elapsed=earliest===undefined?0:Math.floor((Date.now()-earliest)/86_400_000);const provider=buildSafetySourcePreflightFromProvider(await snapshotSafetyProviderPreflight(portfolio.root));const aggregate=aggregateEcpeObservations(timeline.observations,{allowCanaryControl:true,allowReservedProducer:true});const projected=new Set(comparisons.flatMap((item:any)=>item.shadow_comparison.projected_capability_ids));const legacy=new Set(comparisons.flatMap((item:any)=>item.shadow_comparison.legacy_executed_capability_ids));const validators=new Set(Object.values(profile.effective.validators).flatMap((validator:any)=>[validator.capability,...(validator.provides??[])]));const snapshot={block_id:blockId,participant:'portfolioops' as const,lane,activation:'shadow' as const,profile_hash:profile.profile_hash,subject_head:head,subject_tree:tree,terminal_comparison_ids:ids,distinct_subject_heads:distinct,elapsed_days:elapsed,surface_coverage_complete:comparisons.length>0&&projected.size>0,hard_floor_coverage_complete:comparisons.every((item:any)=>item.shadow_comparison.safety_outcomes==='complete'),safety_statuses:provider.sources.map(item=>item.status),unauthorized_effects:aggregate.totals.unauthorized_effects,content_leak_events:0,added_paid_or_helper_calls:[...projected].filter(id=>!legacy.has(id)).length,unknown_validator_baselines:[...projected].filter(id=>!validators.has(id)).length,efficiency_regressed:false};const result=recordLanePromotionAssessment({stateRoot,snapshot});console.log(JSON.stringify(result));return result.eligible?0:1}
+function laneCanaryCommand(argv:string[]):number{
+  const operation=argv.shift();const focusedOperation=operation==='focused-run'?argv.shift():null;
+  const{values,json}=exactArgs(argv,['--block-id','--participant','--lane','--focused-run-id']);const blockId=values.get('--block-id'),lane=values.get('--lane')as Lane,focusedRunId=values.get('--focused-run-id');
+  if(!json||!blockId||values.get('--participant')!=='portfolioops'||!ECPE_PILOT_LANES.includes(lane)||!['inspect','run','focused-run'].includes(operation??'')||(operation==='focused-run'&&focusedOperation!=='inspect')||(operation==='run'?!focusedRunId:!!focusedRunId))throw new Error('lane_canary_arguments_invalid');
+  const stateRoot=resolveRuntimeStateRoot().root;const block=readMilestoneBlock(stateRoot,blockId);if(!block.participants.includes('portfolioops')||!block.lanes.includes(lane))throw new Error('lane_canary_block_invalid');
+  const portfolio=resolveRegisteredProjectLocation('portfolioops',process.cwd());const profile=resolveTrustedWorkProfile({cwd:portfolio.root,lane,safetyStateRoot:stateRoot});const profileHash=profile.effective?.semantic_policy_hash;if(!profileHash||profile.lane_activation!=='enforce')throw new Error('lane_canary_lineage_invalid');
+  if(operation==='inspect'){console.log(JSON.stringify(inspectCanaryWindow({stateRoot,repoId:portfolio.identity.repo_id,lane,profileHash})));return 0}
+  const head=spawnSync('/usr/bin/git',['rev-parse','HEAD^{commit}'],{cwd:portfolio.root,encoding:'utf8',shell:false,env:{PATH:'/usr/bin:/bin',LC_ALL:'C',GIT_CONFIG_NOSYSTEM:'1'}}).stdout.trim();const tree=spawnSync('/usr/bin/git',['rev-parse','HEAD^{tree}'],{cwd:portfolio.root,encoding:'utf8',shell:false,env:{PATH:'/usr/bin:/bin',LC_ALL:'C',GIT_CONFIG_NOSYSTEM:'1'}}).stdout.trim();if(!/^[0-9a-f]{40}$/.test(head)||!/^[0-9a-f]{40}$/.test(tree))throw new Error('lane_canary_subject_invalid');
+  const current={stateRoot,repoId:portfolio.identity.repo_id,lane,profileHash,blockId,participant:'portfolioops' as const,subjectHead:head,subjectTree:tree,hostFingerprint:localCanaryHostFingerprint(),policyHash:block.policy_hash};const binding={...current,focusedRunId:focusedRunId??inspectCurrentCanaryFocusedSlot(current).focused_run_id};
+  const result=operation==='focused-run'?inspectCanaryFocusedRun(binding):runCanaryControl({...binding,sourceRepository:portfolio.root},{resolveSafetySnapshot:()=>{const snapshot=resolveTrustedActivationSnapshot({cwd:portfolio.root,safetyStateRoot:stateRoot});return{activations:snapshot.activations,profileBlobSha:snapshot.profile_blob_sha}}});console.log(JSON.stringify(result));return 0
+}
+async function milestoneBlockCommand(argv: string[]): Promise<number> {
+  const operation = argv.shift();
+  if (operation === 'start') {
+    let purpose = ''; let duration = ''; let json = false;
+    const participants: string[] = []; const lanes: string[] = [];
+    while (argv.length) {
+      const flag = argv.shift()!;
+      if (flag === '--json') { if (json) throw new Error('milestone_arguments_invalid'); json = true; continue; }
+      const value = argv.shift();
+      if (!value || value.startsWith('--')) throw new Error('milestone_arguments_invalid');
+      if (flag === '--purpose') purpose = value;
+      else if (flag === '--duration') duration = value;
+      else if (flag === '--participant') participants.push(value);
+      else if (flag === '--lane') lanes.push(value);
+      else throw new Error('milestone_arguments_invalid');
+    }
+    if (!json || purpose !== 'ecpe-v3-pilot' || duration !== 'P30D' || JSON.stringify(participants) !== JSON.stringify([...ECPE_PILOT_PARTICIPANTS]) || JSON.stringify(lanes) !== JSON.stringify([...ECPE_PILOT_LANES])) throw new Error('milestone_arguments_invalid');
+    const context = milestoneContext();
+    const portfolio = resolveRegisteredProjectLocation('portfolioops', process.cwd());
+    const preflight = buildSafetySourcePreflightFromProvider(await snapshotSafetyProviderPreflight(portfolio.root));
+    if (!preflight.ready) throw new Error('milestone_safety_preflight_not_ready');
+    console.log(JSON.stringify(startMilestoneBlock({ stateRoot: context.state.root, roots: context.roots, codeRootHead: context.codeHead, registryHash: context.registryHash, duration: 'P30D', participants, lanes, safetyPreflightId: preflight.preflight_id })));
+    return 0;
+  }
+  if (operation === 'inspect' || operation === 'inspect-for-partial') {
+    const { values, json } = exactArgs(argv, ['--purpose']);
+    if (!json || values.get('--purpose') !== 'ecpe-v3-pilot') throw new Error('milestone_arguments_invalid');
+    const context = milestoneContext();
+    const result = operation === 'inspect' ? inspectMilestoneBlock({ stateRoot: context.state.root, roots: context.roots }) : inspectMilestoneForPartial({ stateRoot: context.state.root, roots: context.roots });
+    console.log(JSON.stringify(result));
+    return 0;
+  }
+  if (operation === 'stop') {
+    const { values, json } = exactArgs(argv, ['--block-id', '--reason']);
+    if (!json || values.get('--reason') !== 'abort' || !values.get('--block-id')) throw new Error('milestone_arguments_invalid');
+    const context = milestoneContext();
+    console.log(JSON.stringify(stopMilestoneBlock({ stateRoot: context.state.root, roots: context.roots, blockId: values.get('--block-id')!, reason: 'aborted' })));
+    return 0;
+  }
+  if (operation === 'checkpoint') {
+    const { values, json } = exactArgs(argv, ['--block-id', '--evaluation-slot', '--participant', '--lane', '--validator', '--expected-base', '--expected-head', '--verification-proof-id', '--verification-result-id']);
+    const blockId = values.get('--block-id'), slotId = values.get('--evaluation-slot'), expectedBase = values.get('--expected-base'), expectedHead = values.get('--expected-head'), proofId = values.get('--verification-proof-id'), resultId = values.get('--verification-result-id');
+    if (!json || !blockId || !slotId || values.get('--participant') !== 'harness-governance' || values.get('--lane') !== 'docs_ux' || values.get('--validator') !== 'harness.t4' || !expectedBase || !expectedHead || (proofId && resultId)) throw new Error('milestone_arguments_invalid');
+    const context = milestoneContext();
+    const block = findMilestoneBlockBySlot(context.state.root, slotId);
+    if (block.block_id !== blockId) throw new Error('milestone_block_assertion_mismatch');
+    const result = proofId ? attachHarnessVerificationCheckpoint({ stateRoot: context.state.root, blockId, slotId, governanceRoot: context.governance.code_root, registryHash: context.registryHash, expectedBase, expectedHead, verificationProofId: proofId }) : resultId ? terminalizeHarnessVerificationCheckpoint({ stateRoot: context.state.root, blockId, slotId, governanceRoot: context.governance.code_root, registryHash: context.registryHash, expectedBase, expectedHead, verificationResultId: resultId }) : claimHarnessVerificationProducer({ stateRoot: context.state.root, blockId, slotId, expectedBase, expectedHead });
+    console.log(JSON.stringify(result));
+    return resultId ? 1 : 0;
+  }
+  throw new Error('milestone_arguments_invalid');
+}
+function pilotReadiness(blockId:string){const context=milestoneContext();const block=readMilestoneBlock(context.state.root,blockId);if(JSON.stringify(block.roots)!==JSON.stringify(context.roots))throw new Error('milestone_root_mismatch');let cdoRun='';let cdoHash='';const codeTreeResult=spawnSync('/usr/bin/git',['rev-parse','HEAD^{tree}'],{cwd:context.governance.code_root,encoding:'utf8',env:{PATH:'/usr/bin:/bin',LC_ALL:'C'}});const codeTree=codeTreeResult.status===0?codeTreeResult.stdout.trim():'';const hashes:any={'portfolioops':'','cdo-os':'','harness-governance':codeTree?sha256(`${context.codeHead}\0${codeTree}\0${context.registryHash}`):''};try{const cdo=resolveRegisteredProjectLocation('cdo-os',process.cwd());const inspected=inspectCandidatePreview({stateRoot:context.state.root,blockId,sourceRepository:cdo.root});cdoRun=inspected.run_id;cdoHash=sha256(`${inspected.subject_head_sha}\0${inspected.subject_tree_sha}\0${inspected.run_id}`);hashes['cdo-os']=cdoHash;}catch{}try{const portfolio=resolveRegisteredProjectLocation('portfolioops',process.cwd());const head=spawnSync('/usr/bin/git',['rev-parse','HEAD^{commit}'],{cwd:portfolio.root,encoding:'utf8',env:{PATH:'/usr/bin:/bin',LC_ALL:'C'}});const tree=spawnSync('/usr/bin/git',['rev-parse','HEAD^{tree}'],{cwd:portfolio.root,encoding:'utf8',env:{PATH:'/usr/bin:/bin',LC_ALL:'C'}});if(head.status===0&&tree.status===0)hashes.portfolioops=sha256(`${head.stdout.trim()}\0${tree.stdout.trim()}`);}catch{}const readiness=buildPilotReadiness({blockJournalRevision:block.revision,compiledPolicyHash:block.policy_hash,roster:block.participants as any,sourceRegistryHash:SAFETY_SOURCE_REGISTRY_HASH,sourceCursorHash:sha256(`${SAFETY_SOURCE_REGISTRY_HASH}\0${context.registryHash}\0${cdoRun}\0${hashes.portfolioops}`),participantSubjectHashes:hashes,roots:context.roots});return{context,block,readiness,cdoRun,cdoHash};}
+function pilotEvaluationCommand(argv:string[]):number{const operation=argv.shift();if(operation==='preflight'){const{values,json}=exactArgs(argv,['--block-id']);const blockId=values.get('--block-id');if(!json||!blockId)throw new Error('pilot_evaluation_arguments_invalid');const current=pilotReadiness(blockId);console.log(JSON.stringify({schema:'ecpe.close-state.v1',result:current.readiness.ready?'ready':'not_ready',block:{block_id:current.block.block_id,phase:current.block.phase,terminal_reason:current.block.terminal_reason,terminal_kind:current.block.terminal_kind,roots:current.block.roots},payload:{...current.readiness,cdo_run_id:current.cdoRun||null,cdo_subject_hash:current.cdoHash||null},next_operation:current.readiness.ready?'pilot_evaluation_reserve':'pilot_evaluation_preflight',error:null}));return current.readiness.ready?0:1;}if(operation==='reserve'){const{values,json}=exactArgs(argv,['--block-id','--assert-readiness']);const blockId=values.get('--block-id'),assertion=values.get('--assert-readiness');if(!json||!blockId||!assertion)throw new Error('pilot_evaluation_arguments_invalid');const current=pilotReadiness(blockId);console.log(JSON.stringify(reservePilotEvaluation({stateRoot:current.context.state.root,blockId,readiness:current.readiness,assertReadiness:assertion,cdoRunId:current.cdoRun})));return 0;}if(operation==='inspect'){const{values,json}=exactArgs(argv,['--evaluation-slot']);const slot=values.get('--evaluation-slot');if(!json||!slot)throw new Error('pilot_evaluation_arguments_invalid');const context=milestoneContext();const block=findMilestoneBlockBySlot(context.state.root,slot);console.log(JSON.stringify(inspectPilotEvaluation({stateRoot:context.state.root,blockId:block.block_id})));return 0;}if(operation==='build'){const{values,json}=exactArgs(argv,['--block-id','--evaluation-slot']);const blockId=values.get('--block-id'),slot=values.get('--evaluation-slot');if(!json||!blockId||!slot)throw new Error('pilot_evaluation_arguments_invalid');const context=milestoneContext();console.log(JSON.stringify(buildPilotEvaluation({stateRoot:context.state.root,blockId,slotId:slot})));return 0;}throw new Error('pilot_evaluation_arguments_invalid');}
+function milestoneParticipantCommand(argv:string[]):number{if(argv.shift()!=='verify')throw new Error('milestone_participant_arguments_invalid');const{values,json}=exactArgs(argv,['--block-id','--evaluation-slot','--participant','--descriptor']);const blockId=values.get('--block-id'),slot=values.get('--evaluation-slot');if(!json||!blockId||!slot||values.get('--participant')!=='portfolioops'||values.get('--descriptor')!=='portfolioops.final')throw new Error('milestone_participant_arguments_invalid');const context=milestoneContext();const block=findMilestoneBlockBySlot(context.state.root,slot);if(block.block_id!==blockId)throw new Error('milestone_block_assertion_mismatch');const portfolio=resolveRegisteredProjectLocation('portfolioops',process.cwd());const result=verifyFrozenMilestoneParticipant({stateRoot:context.state.root,slotId:slot,participant:'portfolioops',repositoryRoot:portfolio.root});console.log(JSON.stringify(result));return result.disposition==='terminalized'?1:0;}
+function milestoneStatusCommand(argv:string[]):number{const operation=argv.shift();let milestone=false,json=false;const values=new Map<string,string>();const allowed=new Set(['--work-kind','--finish-line','--block-id','--assert-report-path']);while(argv.length){const flag=argv.shift()!;if(flag==='--milestone'||flag==='--json'){if((flag==='--milestone'&&milestone)||(flag==='--json'&&json))throw new Error('milestone_status_arguments_invalid');if(flag==='--milestone')milestone=true;else json=true;continue}const value=argv.shift();if(!allowed.has(flag)||!value||value.startsWith('--')||values.has(flag))throw new Error('milestone_status_arguments_invalid');values.set(flag,value)}const blockId=values.get('--block-id'),finish=values.get('--finish-line')as FinishLine;if(!json||!milestone||!['prepare','prepare-partial'].includes(operation??'')||!blockId||!values.get('--work-kind')||!finish||!values.get('--assert-report-path'))throw new Error('milestone_status_arguments_invalid');const context=milestoneContext();const result=prepareMilestoneCloseout({stateRoot:context.state.root,ownerRoot:context.governance.code_root,ownerRepoId:'harness-governance',roots:context.roots,blockId,workKind:values.get('--work-kind')!,requestedFinishLine:finish,assertReportPath:values.get('--assert-report-path')!,partial:operation==='prepare-partial'});console.log(JSON.stringify(result));return 0;}
+
+const ECPE_EVIDENCE_SUBCOMMANDS = new Set([
+  'handoff',
+  'handoff-inspect',
+  'private-workspace',
+  'safety-downgrade',
+  'closeout-status',
+  'recording-verify',
+  'recording-binding',
+  'recording-terminal',
+  'safety-latch',
+  'safety-profile-downgrade',
+  'safety-sources',
+  'safety-stop',
+  'lane-promotion',
+  'lane-canary',
+  'milestone-block',
+  'pilot-evaluation',
+  'milestone-participant',
+  'milestone-status',
+]);
+
+function requiresEcpeAuthorityPlatform(sub: string | undefined, argv: string[]): boolean {
+  if (!sub) return false;
+  const delimiter = argv.indexOf('--');
+  const options = delimiter === -1 ? argv : argv.slice(0, delimiter);
+  if (ECPE_EVIDENCE_SUBCOMMANDS.has(sub)) return true;
+  if ((sub === 'run' || sub === 'check' || sub === 'ensure') && options.includes('--validator')) return true;
+  return sub === 'check' && options.includes('--capability');
+}
+
 const [, , sub, ...rest] = process.argv;
 try {
-  if (sub === "run") {
+  if (requiresEcpeAuthorityPlatform(sub, rest)) assertEcpeAuthorityPlatform();
+  const delimiter = rest.indexOf('--');
+  const options = delimiter === -1 ? rest : rest.slice(0, delimiter);
+  if ((sub === 'run' || sub === 'check' || sub === 'ensure') && options.includes('--validator')) {
+    const args = profileArgs([...rest]); process.exit(sub === 'check' ? profileCheck(args) : profileEnsure(args, sub === 'run'));
+  } else if (sub === "run") {
     process.exit(await cmdRun(rest));
   } else if (sub === "check") {
-    process.exit(cmdCheck(rest));
+    process.exit(options.includes('--capability') ? await capabilityCheckCommand([...rest]) : cmdCheck(rest));
+  } else if (sub === 'handoff') {
+    process.exit(await handoffCommand([...rest]));
+  } else if (sub === 'handoff-inspect') {
+    process.exit(await handoffInspectCommand([...rest]));
+  } else if (sub === 'private-workspace') {
+    process.exit(privateWorkspaceCommand([...rest]));
+  } else if (sub === 'safety-downgrade') {
+    process.exit(safetyDowngradeCommand([...rest]));
+  } else if (sub === 'closeout-status') {
+    process.exit(closeoutStatusCommand([...rest]));
+  } else if (sub === 'recording-verify') {
+    process.exit(recordingVerifyCommand([...rest]));
+  } else if (sub === 'recording-binding') {
+    process.exit(recordingBindingCommand([...rest]));
+  } else if (sub === 'recording-terminal') {
+    process.exit(recordingTerminalCommand([...rest]));
+  } else if (sub === 'safety-latch') {
+    process.exit(safetyLatchCommand([...rest]));
+  } else if (sub === 'safety-profile-downgrade') {
+    process.exit(safetyProfileDowngradeCommand([...rest]));
+  } else if (sub === 'safety-sources') {
+    process.exit(await safetySourcesCommand([...rest]));
+  } else if (sub === 'safety-stop') {
+    process.exit(await safetyStopCommand([...rest]));
+  } else if (sub === 'lane-promotion') {
+    process.exit(await lanePromotionCommand([...rest]));
+  } else if (sub === 'lane-canary') {
+    process.exit(laneCanaryCommand([...rest]));
+  } else if (sub === 'milestone-block') {
+    process.exit(await milestoneBlockCommand([...rest]));
+  } else if (sub === 'pilot-evaluation') {
+    process.exit(pilotEvaluationCommand([...rest]));
+  } else if (sub === 'milestone-participant') {
+    process.exit(milestoneParticipantCommand([...rest]));
+  } else if (sub === 'milestone-status') {
+    process.exit(milestoneStatusCommand([...rest]));
   } else {
-    console.error("usage: gstack-evidence run|check ...");
+    console.error("usage: gstack-evidence run|check|ensure|handoff|handoff-inspect ...");
     process.exit(2);
   }
 } catch (e: any) {
@@ -539,5 +859,5 @@ try {
   // that breaks a skill flow: `run` propagates the child's code from inside
   // cmdRun; reaching here means bookkeeping blew up outside it.
   warn(`unexpected error: ${e?.message ?? e}`);
-  process.exit(1);
+  process.exit(typeof e?.message==='string'&&/(?:arguments?|command)_invalid$/.test(e.message)?2:1);
 }

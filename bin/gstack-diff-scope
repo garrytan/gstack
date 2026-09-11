@@ -22,6 +22,23 @@
 # is skipped on the common start-work-then-ship flow.
 set -euo pipefail
 
+self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -P) || exit 1
+case "${1-}" in
+  --semantic-json)
+    shift
+    exec "$self_dir/gstack-semantic-manifest" resolve "$@" --json
+    ;;
+  --between-trees)
+    shift
+    [ "$#" -eq 2 ] || { echo '{"result":null,"error":{"code":"diff_scope_arguments_invalid"}}' >&2; exit 2; }
+    old_tree=$(/usr/bin/git rev-parse --verify "$1^{tree}" 2>/dev/null) || { echo '{"result":null,"error":{"code":"diff_scope_tree_invalid"}}' >&2; exit 2; }
+    new_tree=$(/usr/bin/git rev-parse --verify "$2^{tree}" 2>/dev/null) || { echo '{"result":null,"error":{"code":"diff_scope_tree_invalid"}}' >&2; exit 2; }
+    changed_count=$(/usr/bin/git diff --name-only "$old_tree" "$new_tree" | /usr/bin/wc -l | /usr/bin/tr -d ' ')
+    printf '{"schema":"ecpe.diff-scope-advisory.v1","advisory_only":true,"old_tree":"%s","new_tree":"%s","changed_count":%s}\n' "$old_tree" "$new_tree" "$changed_count"
+    exit 0
+    ;;
+esac
+
 # Detect the repo's default branch when no arg is given (#703-class
 # platform-agnostic rule): origin/HEAD -> origin/main -> origin/master -> main.
 _default_base() {
@@ -41,6 +58,33 @@ CONFIG=false
 MIGRATIONS=false
 API=false
 AUTH=false
+ROLE_AUTH=false
+ROLE_CODE=false
+ROLE_CONTRACT=false
+ROLE_DATA=false
+ROLE_DOCS=false
+ROLE_PROMPT=false
+ROLE_RELEASE_METADATA=false
+ROLE_RUNTIME=false
+ROLE_SCHEMA=false
+ROLE_UI=false
+
+_print_roles() {
+  local json="[" sep=""
+  for pair in \
+    "auth:$ROLE_AUTH" "code:$ROLE_CODE" "contract:$ROLE_CONTRACT" \
+    "data:$ROLE_DATA" "docs:$ROLE_DOCS" "prompt:$ROLE_PROMPT" \
+    "release_metadata:$ROLE_RELEASE_METADATA" "runtime:$ROLE_RUNTIME" \
+    "schema:$ROLE_SCHEMA" "ui:$ROLE_UI"; do
+    local role="${pair%%:*}" enabled="${pair#*:}"
+    if [ "$enabled" = true ]; then
+      json="${json}${sep}\"${role}\""
+      sep=","
+    fi
+  done
+  echo "SCOPE_SCHEMA=ecpe.diff-scope.v1"
+  echo "SEMANTIC_ROLES_JSON='${json}]'"
+}
 
 _print_flags() {
   echo "SCOPE_FRONTEND=$FRONTEND"
@@ -52,6 +96,7 @@ _print_flags() {
   echo "SCOPE_MIGRATIONS=$MIGRATIONS"
   echo "SCOPE_API=$API"
   echo "SCOPE_AUTH=$AUTH"
+  _print_roles
 }
 
 # Base reachability (#2526): a shallow CI checkout or an unfetched ref makes
@@ -179,6 +224,32 @@ for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
   [ "$m_api" = true ] && API=true
   [ "$m_auth" = true ] && AUTH=true
   [ "$m_backend" = true ] && BACKEND=true
+
+  # Closed semantic-role projection. Roles are independent and sorted only at
+  # output, so a one-line file may retain every applicable hard-risk signal.
+  [ "$m_auth" = true ] && ROLE_AUTH=true
+  [ "$m_backend" = true ] && ROLE_CODE=true
+  [ "$m_tests" = true ] && ROLE_CODE=true
+  [ "$m_frontend" = true ] && { ROLE_CODE=true; ROLE_UI=true; }
+  [ "$m_api" = true ] && ROLE_CONTRACT=true
+  [ "$m_docs" = true ] && ROLE_DOCS=true
+  [ "$m_prompts" = true ] && ROLE_PROMPT=true
+  case "$f" in
+    db/data/*|data_migrations/*|*/data_migrations/*) ROLE_DATA=true ;;
+    db/migrate/*|migrations/*|*/migrations/*|alembic/*|prisma/migrations/*|db/schema.*|schema.rb) ROLE_SCHEMA=true ;;
+  esac
+  case "$f" in
+    VERSION|CHANGELOG|CHANGELOG.md|*.gemspec) ROLE_RELEASE_METADATA=true ;;
+  esac
+  if [ "$m_config" = true ] && [ "$f" != package.json ]; then ROLE_RUNTIME=true; fi
+  if [ "$f" = package.json ]; then
+    PACKAGE_DIFF="$(git diff "${BASE}...HEAD" -- package.json 2>/dev/null; git diff HEAD -- package.json 2>/dev/null)"
+    printf '%s\n' "$PACKAGE_DIFF" | grep -Eq '^[+-][[:space:]]*"version"[[:space:]]*:' && ROLE_RELEASE_METADATA=true
+    if printf '%s\n' "$PACKAGE_DIFF" | grep -E '^[+-]' | grep -Ev '^(---|\+\+\+)|^[+-][[:space:]]*"version"[[:space:]]*:' | grep -q .; then
+      ROLE_RUNTIME=true
+    fi
+    [ -z "$PACKAGE_DIFF" ] && ROLE_RUNTIME=true
+  fi
 
   if [ "$m_frontend" = false ] && [ "$m_prompts" = false ] && [ "$m_tests" = false ] \
     && [ "$m_docs" = false ] && [ "$m_config" = false ] && [ "$m_migrations" = false ] \

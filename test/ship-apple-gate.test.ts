@@ -29,9 +29,9 @@ describe("ship Apple gate ordering (R2)", () => {
     expect(appleRead).toBeLessThan(gate);
   });
 
-  test("store distribution explicitly bypasses the branch/PR ceremony", () => {
-    expect(SKELETON).toContain("Store distribution proceeds");
-    expect(SKELETON).toMatch(/branch gate and repository-landing pipeline below apply ONLY to\s*\n?repository-landing asks/);
+  test("Apple distribution is report-only and unsupported", () => {
+    expect(SKELETON).toContain("adapter_operation_unsupported");
+    expect(SKELETON).toContain("zero children");
   });
 
   test("the non-Apple branch gate is byte-unchanged and appears exactly once", () => {
@@ -40,15 +40,15 @@ describe("ship Apple gate ordering (R2)", () => {
     expect(SKELETON.indexOf(GATE_TEXT, first + 1)).toBe(-1);
   });
 
-  test("the adapter section exists in the union with its battle-tested spine", () => {
+  test("the adapter section closes every legacy Apple writer", () => {
     const section = readFileSync(join(ROOT, "ship", "sections", "apple-release.md"), "utf-8");
     for (const anchor of [
-      "one authorization moment",
-      "fastlane spaceauth",
-      "iris/v1/apiKeys",
-      "appPriceSchedules",
-      "CLASSIFY the error before touching credentials",
-      "Never abort an App Store release over branch topology",
+      "adapter_operation_unsupported",
+      "zero package installs",
+      "key minting",
+      "pricing",
+      "upload",
+      "submission",
     ]) {
       expect(section).toContain(anchor);
     }

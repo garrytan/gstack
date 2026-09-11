@@ -14,7 +14,7 @@
  */
 import type { TemplateContext } from './types';
 import { generateInvokeSkill } from './composition';
-import { codexPreflight, codexErrorHandling, CODEX_MODEL_CONFIG_FLAG, CODEX_REVIEW_MODEL_CONFIG_FLAG, CODEX_WEB_SEARCH_FLAG, CC_BACKGROUND_DEFAULT_SINCE } from './constants';
+import { codexPreflight, codexErrorHandling, CODEX_MODEL_CONFIG_FLAG, CODEX_WEB_SEARCH_FLAG, CC_BACKGROUND_DEFAULT_SINCE } from './constants';
 import { DESIGN_DOC_DISCOVERY_BLOCK } from './design-doc-discovery';
 import { getHostConfig } from '../../hosts/index';
 
@@ -71,7 +71,13 @@ Display:
 - Plan-tier rows (plan-ceo-review, plan-eng-review, plan-design-review) grade a plan file, not the repo tree — never apply the wtree rule to them; they keep the 7-day freshness logic. If such an entry carries a \\\`plan_sha256\\\` field, you MAY compare it against the current plan file's sha256 and note "plan changed since review" on mismatch.
 - Fallback (no \\\`wtree\\\` on the entry, or wtree mismatch): parse the \\\`---HEAD---\\\` section to get the current HEAD commit hash. For each review entry that has a \\\`commit\\\` field: compare it against the current HEAD. If different, count elapsed commits: \\\`git rev-list --count STORED_COMMIT..HEAD\\\`. If that command FAILS (the stored commit was rebased away), grade UNKNOWN and treat as stale — do not error. Display: "Note: {skill} review from {date} may be stale — {N} commits since review"
 - For entries without a \\\`commit\\\` field (legacy entries): display "Note: {skill} review from {date} has no commit tracking — consider re-running for accurate staleness detection"
-- If all reviews grade CURRENT (wtree match or HEAD match), do not display any staleness notes`;
+- If all reviews grade CURRENT (wtree match or HEAD match), do not display any staleness notes
+
+**ECPE observation:** Record the dashboard result only as closed capability and
+receipt disposition/reason IDs in the run-local batch. If an outside model or
+helper actually launches, add one corresponding \`spawn\` partial; a bounded
+pass by the current host is not a spawn. Never copy review text, paths, prompts,
+commands, or logs, and do not invoke telemetry from this resolver.`;
 }
 
 export function generatePlanFileReviewReport(_ctx: TemplateContext): string {
@@ -473,11 +479,24 @@ Before reviewing code quality, check: **did they build what was requested — no
 // ─── Adversarial Review (always-on) ──────────────────────────────────
 
 export function generateAdversarialStep(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
-
   const isShip = ctx.skillName === 'ship';
   const stepNum = isShip ? '11' : '5.7';
+
+  if (ctx.host === 'codex') {
+    return `## Step ${stepNum}: Adversarial review — bounded in-host pass
+
+The current Codex agent performs one fresh adversarial pass over the already
+resolved diff. Do not launch another model, paid helper, or recursive reviewer.
+Read \`${ctx.paths.skillRoot}/review/specialists/red-team.md\` once, challenge the
+merged review for trust-boundary violations, races, silent corruption, resource
+leaks, and missed integration failures, then merge any new findings into the
+same Fix-First pipeline.
+
+This pass is report-only. A missing checklist or unavailable diff is missing
+coverage and must be stated explicitly; it is never a clean result. Record zero
+model/helper spawns and include only closed capability/receipt IDs in the
+existing skill-end observation batch.`;
+  }
 
   return `## Step ${stepNum}: Adversarial review (always-on)
 
@@ -499,8 +518,8 @@ ${codexPreflight({ disabledBehavior: 'codex-only' })}
 
 For this diff-review path, \`CODEX_MODE: disabled\` means skip the Codex passes ONLY — the
 Claude adversarial subagent below still runs (it's free and fast). \`ready\` runs the Codex
-passes; \`not_installed\` / \`not_authed\` skip them with the printed note and continue with
-Claude only.
+passes; \`grant_required\` / \`not_installed\` / \`not_authed\` skip them with the printed
+note and continue with Claude only.
 
 **User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size (still requires \`CODEX_MODE: ready\`).
 
@@ -525,54 +544,54 @@ If the subagent fails or times out: "Claude adversarial subagent unavailable. Co
 
 ### Codex adversarial challenge (runs whenever \`CODEX_MODE: ready\`)
 
-If \`CODEX_MODE\` is \`ready\`:
+If \`CODEX_MODE\` is \`ready\`, require the exact current-task paid-model grant.
+Without \`ECPE_PAID_MODEL_AUTHORIZED=1\`, print a skip message and spawn no Codex
+process. With the grant, invoke only the closed adapter:
 
 \`\`\`bash
-TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-# Shell functions do not survive between Bash blocks, so re-source the probe
-# here. It defines _gstack_codex_timeout_wrapper (gtimeout -> timeout ->
-# unwrapped fallback), added in #1056 but never wired into this call site.
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
-_gstack_codex_timeout_wrapper 540 codex exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only ${CODEX_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="high"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null 2>"$TMPERR_ADV"
+if [ "\${ECPE_PAID_MODEL_AUTHORIZED:-0}" = "1" ]; then
+  ~/.claude/skills/gstack/bin/gstack-effect-scope ensure-paid-validator \
+    --skill ${isShip ? 'ship' : 'review'} --validator-id codex.adversarial.v1 \
+    --lane "PLAN_LANE" --json
+else
+  echo "Codex adversarial skipped (paid-model grant absent)"
+fi
 \`\`\`
 
-Set the Bash tool's \`timeout\` parameter to \`600000\` (10 minutes). It sits ABOVE the 540s wrapper deliberately, so the wrapper fires first and a stall surfaces as a diagnosable exit 124 instead of a harness kill that returns nothing. The wrapper resolves \`gtimeout\`, then \`timeout\`, then runs unwrapped, so it is safe on a macOS without coreutils. After the command completes, read stderr:
-\`\`\`bash
-cat "$TMPERR_ADV"
-\`\`\`
-
-Present the full output verbatim. This is informational — it never blocks shipping.
+Set the Bash tool's \`timeout\` parameter to \`600000\` (10 minutes). The adapter
+owns the compiled prompt, Codex argv, and captured output. Present its stdout
+verbatim. This is informational — it never blocks shipping.
 
 **Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \\\`codex login\\\` to authenticate."
 - **Timeout (exit 124):** "Codex exceeded 9 minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if Codex had reviewed. Whatever it produced before the cut is recoverable from that run's rollout log under \`~/.codex/sessions/<YYYY>/<MM>/<DD>/\`.
 - **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
 
-**Cleanup:** Run \`rm -f "$TMPERR_ADV"\` after processing.
-
-If \`CODEX_MODE\` is \`not_installed\` / \`not_authed\` / \`disabled\`: the preflight already printed the reason; run Claude adversarial only.
+If \`CODEX_MODE\` is \`grant_required\` / \`not_installed\` / \`not_authed\` /
+\`broken_install\` / \`model_unusable\` / \`under_codex\` / \`disabled\`: the
+preflight already printed the reason; run Claude adversarial only.
 
 ---
 
 ### Codex structured review (large diffs only, 200+ lines)
 
-If \`DIFF_TOTAL >= 200\` AND \`CODEX_MODE\` is \`ready\`:
+If \`DIFF_TOTAL >= 200\`, \`CODEX_MODE\` is \`ready\`, and the exact current-task
+\`ECPE_PAID_MODEL_AUTHORIZED=1\` grant is present:
 
 \`\`\`bash
-TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-cd "$_REPO_ROOT"
-# Shell functions do not survive between Bash blocks, so re-source the probe
-# here. It defines _gstack_codex_timeout_wrapper (gtimeout -> timeout ->
-# unwrapped fallback), added in #1056 but never wired into this call site.
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
-_gstack_codex_timeout_wrapper 540 codex review --base <base> ${CODEX_REVIEW_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="high"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null 2>"$TMPERR"
+~/.claude/skills/gstack/bin/gstack-effect-scope ensure-paid-validator \
+  --skill ${isShip ? 'ship' : 'review'} --validator-id codex.review.v1 \
+  --lane "PLAN_LANE" --json
 \`\`\`
+
+Replace \`PLAN_LANE\` with the exact \`lane\` returned by the initial fused
+execution-plan. If it is unavailable or ambiguous, skip the paid pass.
 
 **No prompt argument.** \`--base\` is what scopes the review, and the positional \`[PROMPT]\` is mutually exclusive with it — passing both fails at argv parsing. Do NOT "fix" that error by dropping \`--base\` and keeping the prompt: a prompt-only \`codex review\` silently falls back to the **uncommitted working-tree** scope (\`git status --short; git diff\`), so it reviews the wrong changes and reports "no changes" on a clean tree. Prompt text describing the diff range does not change what the CLI feeds the reviewer. Unlike the adversarial pass above, which uses \`codex exec\` and really does run the git command it's told to, this path gets a pre-computed diff from the CLI — which is also why it needs no filesystem boundary.
 
-Set the Bash tool's \`timeout\` parameter to \`600000\` (10 minutes). It sits ABOVE the 540s wrapper deliberately, so the wrapper fires first and a stall surfaces as a diagnosable exit 124 instead of a harness kill that returns nothing. The wrapper resolves \`gtimeout\`, then \`timeout\`, then runs unwrapped, so it is safe on a macOS without coreutils. Present output under \`CODEX SAYS (code review):\` header.
+Set the Bash tool's outer \`timeout\` parameter to \`600000\` (10 minutes). The
+closed adapter owns the inner timeout and returns a diagnosable exit 124 before
+the outer harness limit. Present output under \`CODEX SAYS (code review):\` header.
 Check for \`[P1]\` markers: found → \`GATE: FAIL\`, not found → \`GATE: PASS\`.
 
 If GATE is FAIL, use AskUserQuestion:
@@ -583,11 +602,10 @@ A) Investigate and fix now (recommended)
 B) Continue — review will still complete
 \`\`\`
 
-If A: address the findings${isShip ? '. After fixing, re-run tests (Step 5) since code has changed' : ''}. Re-run \`codex review\` to verify.
+If A: address the findings${isShip ? '. After fixing, re-run tests (Step 5) since code has changed' : ''}, then re-run the same closed \`codex.review.v1\` validator adapter to verify; never invoke \`codex review\` directly.
 
-Read stderr for errors (same error handling as Codex adversarial above).
-
-After stderr: \`rm -f "$TMPERR"\`
+The closed adapter derives the base and owns the complete Codex argv. Absent
+authorization skips this pass with zero adapter and zero Codex spawns.
 
 If \`DIFF_TOTAL < 200\`: skip this section silently. The Claude + Codex adversarial passes provide sufficient coverage for smaller diffs.
 
@@ -641,7 +659,7 @@ ${codexPreflight({ disabledBehavior: 'skip-all' })}
 
 On \`under_codex\`, no in-host substitute is defined here: skip this outside-voice section and continue to the required outputs. Do not invoke Codex again or label a self-review as independent.
 
-For all other non-disabled modes (\`ready\`, \`not_installed\`, \`not_authed\`, \`broken_install\`, \`model_unusable\`), print one line so the off-switch
+For all other non-disabled modes (\`ready\`, \`grant_required\`, \`not_installed\`, \`not_authed\`, \`broken_install\`, \`model_unusable\`), print one line so the off-switch
 stays discoverable: "Running the outside voice automatically (standard step). Disable: \`gstack-config set codex_reviews disabled\`."
 
 **Construct the plan review prompt** for every remaining mode, including all Claude fallback modes (skip on \`disabled\` or \`under_codex\`).
@@ -692,7 +710,7 @@ CODEX SAYS (plan review — outside voice):
 - Timeout: "Codex timed out after 5 minutes." Fall back to the Claude subagent below.
 - Empty response: "Codex returned no response." Fall back to the Claude subagent below.
 
-**If \`CODEX_MODE: not_installed\`, \`not_authed\`, \`broken_install\`, or \`model_unusable\` (or Codex errored at runtime):**
+**If \`CODEX_MODE: grant_required\`, \`not_installed\`, \`not_authed\`, \`broken_install\`, or \`model_unusable\` (or Codex errored at runtime):**
 
 Dispatch via the Agent tool with \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the SAME model family, not an outside model; weigh its agreement accordingly.
 Bound it the same way as Codex: cap the dispatch at a 5-minute timeout so "never blocking"
@@ -777,7 +795,7 @@ ${codexPreflight({ disabledBehavior: 'skip-all' })}
 
 On \`disabled\` or \`under_codex\`, skip this section and continue to Step 9; no in-host substitute is defined here. Record the skip in the final summary, not as a completed review-log entry.
 
-For every other mode, print one line so the off-switch
+For every other mode (\`ready\`, \`grant_required\`, \`not_installed\`, \`not_authed\`, \`broken_install\`, or \`model_unusable\`), print one line so the off-switch
 stays discoverable: "Running the Codex doc review automatically (standard step). Disable: \`gstack-config set codex_reviews disabled\`."
 
 **Determine the release diff range (D3 — reuse the method, do not invent one).**
@@ -792,7 +810,7 @@ echo "DOC_DIFF_BASE: $DOC_DIFF_BASE"
 Do NOT rely on an in-memory variable from an earlier step — shell vars do not survive across
 blocks. Recompute it here.
 
-**Construct the doc-review prompt** for \`ready\` and all Claude fallback modes, including \`broken_install\` and \`model_unusable\`. Replace \`<diff-base>\` with the printed SHA before dispatch; the reviewer cannot inherit shell variables.
+**Construct the doc-review prompt** for \`ready\` and all Claude fallback modes, including \`grant_required\`, \`broken_install\`, and \`model_unusable\`. Replace \`<diff-base>\` with the printed SHA before dispatch; the reviewer cannot inherit shell variables.
 Review the docs document-release ACTUALLY touched this run (from the coverage map / the files
 just edited) PLUS any doc claims affected by the diff range — do NOT hard-code a fixed file
 list (a fixed README/ARCHITECTURE/CHANGELOG list misses generated skill docs, package docs,
@@ -827,7 +845,7 @@ Present the full output verbatim under \`CODEX SAYS (documentation review):\`.
 
 ${codexErrorHandling('documentation review')}
 
-**If \`CODEX_MODE: not_installed\`, \`not_authed\`, \`broken_install\`, or \`model_unusable\` (or Codex errored at runtime):**
+**If \`CODEX_MODE: grant_required\`, \`not_installed\`, \`not_authed\`, \`broken_install\`, or \`model_unusable\` (or Codex errored at runtime):**
 
 Dispatch via the Agent tool with the same prompt, passing \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}). Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
 Present findings under \`DOCUMENTATION REVIEW (Claude subagent):\`. If it fails: "Doc review unavailable. Continuing to Step 9." Skip the apply gate and review log in that case; unavailable is not a clean review.

@@ -99,7 +99,8 @@ On any error: continue — ${feature} is informational, not a gate.`;
  *   5. sets ONE canonical mode var and echoes `CODEX_MODE: <mode>` so the agent
  *      gates later blocks on the echoed value.
  *
- * Mode values: `disabled` (config off) | `not_installed` | `not_authed` | `ready`.
+ * Mode values: `disabled` (config off) | `grant_required` | `not_installed` |
+ * `not_authed` | `broken_install` | `model_unusable` | `under_codex` | `ready`.
  * The path is host-rewritten at gen-skill-docs time (pathRewrites), so the
  * literal `~/.claude/skills/gstack` is correct here and becomes `$GSTACK_ROOT`
  * etc. for non-Claude hosts.
@@ -119,7 +120,7 @@ export function codexPreflight(opts: { modeVar?: string; disabledBehavior: 'skip
   return `\`\`\`bash
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
+_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo disabled)
 source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
 if [ "$_CODEX_CFG" = "disabled" ]; then
   ${m}="disabled"
@@ -131,6 +132,8 @@ if [ "$_CODEX_CFG" = "disabled" ]; then
 # the nested passes anyway.
 elif [ "\${GSTACK_FORCE_CODEX_REVIEW:-0}" != "1" ] && { [ -n "\${CODEX_THREAD_ID:-}" ] || [ -n "\${CODEX_SANDBOX:-}" ]; }; then
   ${m}="under_codex"
+elif [ "\${ECPE_PAID_MODEL_AUTHORIZED:-0}" != "1" ]; then
+  ${m}="grant_required"
 elif ! command -v codex >/dev/null 2>&1; then
   ${m}="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
 elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
@@ -152,12 +155,13 @@ echo "CODEX_MODE: $${m}"
 
 Branch on the echoed \`CODEX_MODE\`:
 - **\`disabled\`** — the user turned Codex reviews off (\`codex_reviews=disabled\`). ${disabledLine}
+- **\`grant_required\`** — Codex review is enabled, but this invocation has no exact current-task paid-model grant. Spawn no Codex process and write no model-probe cache; use the caller's free fallback when one exists.
 - **\`not_installed\`** — Codex CLI absent. Print: "Codex not installed — falling back to a Claude subagent (fresh context, but the SAME model family — not an outside model). Install Codex for an actual outside-model read: \`npm install -g @openai/codex\`." Fall back to the Claude subagent path.
 - **\`under_codex\`** — this session is already running INSIDE a Codex host, so spawning codex again is the same model reviewing itself at multiplied token cost (#2519). Print exactly one line: "[running under Codex — nested codex passes skipped; set GSTACK_FORCE_CODEX_REVIEW=1 to force]" and skip the codex invocations below; run the section's free in-host pass instead if it defines one.
 - **\`not_authed\`** — installed but no credentials. Print: "Codex installed but not authenticated — falling back to a Claude subagent (same model family, not an outside model). Run \`codex login\` or set \`$CODEX_API_KEY\`." Fall back to the Claude subagent path.
 - **\`broken_install\`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: \`npm install -g @openai/codex\`." Relay the probe's HINT lines and fall back to the Claude subagent path. This state exists because a missing binary used to land in the model probe's fail-open bucket and report \`ready\`, so every Codex pass was skipped silently (#2742).
 - **\`model_unusable\`** — authed but the account cannot use gstack's selected Codex model (#2477: HTTP 400 on every call). Relay the probe's HINT lines, tell the user the one-line fix (set \`GSTACK_CODEX_MODEL=<supported-model>\` or pass an explicit \`-c model=...\` override), and fall back to the Claude subagent path. The ~10s round trip is cached for 1h; timeouts fail open to \`ready\`.
-- **\`ready\`** — run the Codex pass below.`;
+- **\`ready\`** — Codex is available, but run the paid pass below only when the exact current-task \`ECPE_PAID_MODEL_AUTHORIZED=1\` grant is present. Availability is not authorization.`;
 }
 
 /**

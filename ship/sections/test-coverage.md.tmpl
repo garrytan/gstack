@@ -1,5 +1,10 @@
 ## Step 7: Test Coverage Audit
 
+ECPE: record the selected helper as one content-free `spawn` partial
+(`kind:"helper"`, `execution_effect:"read"`) and the decisive audit as one
+`validator` partial with ID `test-coverage-audit`, measured duration, and
+pass/fail. Keep all response text, paths, and diagrams out of the batch.
+
 **Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent runs the coverage audit in a fresh context window — the parent only sees the conclusion, not intermediate file reads. This is context-rot defense.
 
 {{FOREGROUND_DISPATCH_NOTE}} The parent needs this audit's LAST-line JSON before continuing.

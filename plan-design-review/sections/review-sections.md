@@ -441,6 +441,12 @@ Display:
 - For entries without a \`commit\` field (legacy entries): display "Note: {skill} review from {date} has no commit tracking — consider re-running for accurate staleness detection"
 - If all reviews grade CURRENT (wtree match or HEAD match), do not display any staleness notes
 
+**ECPE observation:** Record the dashboard result only as closed capability and
+receipt disposition/reason IDs in the run-local batch. If an outside model or
+helper actually launches, add one corresponding `spawn` partial; a bounded
+pass by the current host is not a spawn. Never copy review text, paths, prompts,
+commands, or logs, and do not invoke telemetry from this resolver.
+
 ## Plan File Review Report
 
 After displaying the Review Readiness Dashboard in conversation output, also update the

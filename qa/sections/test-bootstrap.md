@@ -2,6 +2,12 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 ## Test Framework Bootstrap
 
+**ECPE observation:** Keep test discovery and execution content-free. Add one
+closed `validator` partial per decisive lane with its measured duration and
+pass/fail; never record commands, test names, paths, logs, framework output, or
+generated test bodies. Accumulate in the run-local batch and do not launch a
+telemetry process from this section.
+
 **Read the project's CLAUDE.md (and TESTING.md if present) FIRST.** If it documents a test command, the project already told you: no detection, no bootstrap. Skip the rest of bootstrap and use that command in Step 5.
 
 **Otherwise gather markers. Every marker below is EVIDENCE for the question you ask — never a command to run blind.** A marker tells you which ecosystem you're in and which command to OFFER. It does not tell you the command works. Do not execute a candidate test command to "check" it: a probe on a project that never had that runner fails loudly and teaches you nothing, and installing a second framework over a working one is worse.

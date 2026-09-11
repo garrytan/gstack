@@ -37,7 +37,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { runBin } from './spawn-bin';
+import { ledgerCandidates, resolveProjectIdentity } from '../../../lib/project-identity';
 
 const DEADLINE_MS = 2000;
 const MAX_TIMELINE_BYTES = 10 * 1024 * 1024;
@@ -91,6 +91,7 @@ interface TimelineEntry {
   session?: string;
   branch?: string;
   ts?: string;
+  run_id?: string;
 }
 
 function main(): void {
@@ -105,41 +106,44 @@ function main(): void {
     // Bad/absent stdin: fall through with process.cwd() — repair is still valid.
   }
 
-  // Resolve the project slug the same way the preamble did (GSTACK_PROJECT_SLUG
-  // override, project-root walk, remote-derived slug).
-  let slug = '';
+  let identity: ReturnType<typeof resolveProjectIdentity>;
   try {
-    const r = runBin('gstack-slug', [], { cwd, encoding: 'utf8', timeout: DEADLINE_MS });
-    const m = (r.stdout ?? '').toString().match(/^SLUG=([A-Za-z0-9._-]+)$/m);
-    if (m) slug = m[1];
+    identity = resolveProjectIdentity(cwd);
   } catch {
-    // fall through
-  }
-  if (!slug) {
-    logHookError('could not resolve project slug — nothing repaired');
-    return;
+    const legacySlug = process.env.GSTACK_PROJECT_SLUG?.trim();
+    if (process.env.ECPE_PROFILE_MODE === 'profile' || !legacySlug) {
+      logHookError('could not resolve project identity — nothing repaired');
+      return;
+    }
+    // Legacy-mode compatibility for non-git hook fixtures and old hosts that
+    // still inject GSTACK_PROJECT_SLUG. Profile mode never accepts this
+    // unauthenticated projection; normal repositories use the canonical
+    // resolver above for every new write.
+    identity = {
+      schema_version: 1,
+      repo_id: legacySlug,
+      write_slug: legacySlug,
+      read_slugs: [legacySlug],
+      raw_branch: 'detached',
+      write_branch: 'detached',
+      read_branches: ['detached'],
+    };
   }
 
-  const timelinePath = path.join(stateRoot(), 'projects', slug, 'timeline.jsonl');
-  let stat: fs.Stats;
-  try {
-    stat = fs.statSync(timelinePath);
-  } catch {
-    return; // no timeline — nothing to repair
+  const timelinePath = path.join(stateRoot(), 'projects', identity.write_slug, 'timeline.jsonl');
+  let raw = '';
+  for (const candidate of ledgerCandidates(identity, 'timeline', stateRoot())) {
+    let stat: fs.Stats;
+    try { stat = fs.statSync(candidate); } catch { continue; }
+    if (stat.size === 0) continue;
+    if (stat.size > MAX_TIMELINE_BYTES) {
+      logHookError(`timeline over size cap (${stat.size} bytes) — skipped (fail-open)`);
+      continue;
+    }
+    try { raw += readTimelineTail(candidate, stat.size) + '\n'; }
+    catch (err) { logHookError(`could not read timeline: ${err instanceof Error ? err.message : String(err)}`); }
   }
-  if (stat.size === 0) return;
-  if (stat.size > MAX_TIMELINE_BYTES) {
-    logHookError(`timeline over size cap (${stat.size} bytes) — skipped (fail-open)`);
-    return;
-  }
-
-  let raw: string;
-  try {
-    raw = readTimelineTail(timelinePath, stat.size);
-  } catch (err) {
-    logHookError(`could not read timeline: ${err instanceof Error ? err.message : String(err)}`);
-    return;
-  }
+  if (!raw) return;
 
   // Corrupt LINES are skipped individually; a fully corrupt file repairs nothing.
   //
@@ -197,11 +201,15 @@ function main(): void {
         outcome: 'unknown',
         source: 'stop-hook',
         ...(entry.session ? { session: entry.session } : {}),
+        ...(entry.run_id ? { run_id: entry.run_id } : {}),
+        repo_id: identity.repo_id,
+        branch_ref: identity.raw_branch,
         ts: now,
       }),
     )
     .join('\n');
   try {
+    fs.mkdirSync(path.dirname(timelinePath), { recursive: true });
     fs.appendFileSync(timelinePath, lines + '\n');
   } catch (err) {
     logHookError(`could not append completions: ${err instanceof Error ? err.message : String(err)}`);

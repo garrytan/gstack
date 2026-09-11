@@ -186,7 +186,7 @@ async function handleTest(args: string[], ctx: SkillCommandContext): Promise<str
     throw new Error(`Skill "${name}" has no script.test.ts at ${testFile}`);
   }
 
-  const { stdout, stderr, exitCode } = await runToFiles(['bun', 'test', testFile], {
+  const { stdout, stderr, exitCode } = await runToFiles([process.execPath, 'test', testFile], {
     cwd: skill.dir,
     env: process.env,
   });
@@ -370,7 +370,7 @@ export async function spawnSkill(opts: SpawnSkillOptions): Promise<SpawnSkillRes
 
     // Captured via temp files, not pipes — see runToFiles for why. A dropped
     // read here would blank the skill's JSON result and still report success.
-    return await runToFiles(['bun', 'run', scriptPath, '--', ...opts.skillArgs], {
+    return await runToFiles([process.execPath, 'run', scriptPath, '--', ...opts.skillArgs], {
       cwd: opts.skill.dir,
       env,
       timeoutMs: opts.timeoutSeconds * 1000,

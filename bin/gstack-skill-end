@@ -14,7 +14,7 @@
 # Error style (F3): per-line `|| true`, never `set -e`.
 
 SKILL_NAME="unknown"; OUTCOME="unknown"; SESSION_ID=""; TEL_START=""
-USED_BROWSE="no"; ERROR_MESSAGE=""; FAILED_STEP=""
+USED_BROWSE="no"; ERROR_MESSAGE=""; FAILED_STEP=""; ECPE_BATCH_JSON=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --skill)         SKILL_NAME="$2"; shift 2 ;;
@@ -24,6 +24,7 @@ while [ $# -gt 0 ]; do
     --used-browse)   USED_BROWSE="$2"; shift 2 ;;
     --error-message) ERROR_MESSAGE="$2"; shift 2 ;;
     --failed-step)   FAILED_STEP="$2"; shift 2 ;;
+    --ecpe-batch-json) ECPE_BATCH_JSON="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -31,6 +32,27 @@ done
 _SCRIPT_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
 _BIN="$_SCRIPT_DIR"
 _GH="${GSTACK_HOME:-$HOME/.gstack}"
+
+case "$SKILL_NAME" in
+  review|ship|land-and-deploy|setup-deploy)
+    _TEL_END=$(date +%s)
+    case "$TEL_START" in ''|*[!0-9]*) TEL_START="$_TEL_END" ;; esac
+    _TEL_DUR=$(( _TEL_END - TEL_START ))
+    case "$SESSION_ID" in ''|*[!A-Za-z0-9._-]*) ;;
+      *) _RUN_MARKER="$_GH/governed-runs/$SESSION_ID.$SKILL_NAME.active"
+         [ -f "$_RUN_MARKER" ] && mv "$_RUN_MARKER" "${_RUN_MARKER%.active}.done" 2>/dev/null || true ;;
+    esac
+    _BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-')
+    _BRANCH=${_BRANCH:-unknown}
+    eval "$("$_BIN/gstack-slug" 2>/dev/null)" 2>/dev/null || true
+    _ECPE_END_ARGS=(lifecycle-end --skill "$SKILL_NAME" --run-id "${SESSION_ID:-unknown}" \
+      --branch "$_BRANCH" --slug "${SLUG:-unknown}" --outcome "$OUTCOME" --duration-s "$_TEL_DUR")
+    [ -n "$ECPE_BATCH_JSON" ] && _ECPE_END_ARGS+=(--batch-json "$ECPE_BATCH_JSON")
+    "$_BIN/gstack-ecpe-observe" "${_ECPE_END_ARGS[@]}" 2>/dev/null || true
+    echo "SKILL_END: recorded outcome=$OUTCOME duration_s=$_TEL_DUR"
+    exit 0
+    ;;
+esac
 _TEL=$("$_BIN/gstack-config" get telemetry 2>/dev/null || echo off)
 
 _TEL_END=$(date +%s)
@@ -38,12 +60,23 @@ case "$TEL_START" in ''|*[!0-9]*) TEL_START="$_TEL_END" ;; esac
 _TEL_DUR=$(( _TEL_END - TEL_START ))
 [ -n "$SESSION_ID" ] && rm -f "$_GH/analytics/.pending-$SESSION_ID" 2>/dev/null || true
 
-# Skill-end artifacts sync (drain + push; formerly its own inline fence).
-"$_BIN/gstack-brain-sync" --discover-new 2>/dev/null || true
-"$_BIN/gstack-brain-sync" --once 2>/dev/null || true
+# Governed workflows never inherit remote artifact-sync authority.
+case "$SKILL_NAME" in
+  review|ship|land-and-deploy|setup-deploy) ;;
+  *) "$_BIN/gstack-brain-sync" --discover-new 2>/dev/null || true
+     "$_BIN/gstack-brain-sync" --once 2>/dev/null || true ;;
+esac
 
-# Session timeline: local-only, never sent anywhere.
-"$_BIN/gstack-timeline-log" '{"skill":"'"$SKILL_NAME"'","event":"completed","branch":"'"$(_b=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-'); echo "${_b:-unknown}")"'","outcome":"'"$OUTCOME"'","duration_s":"'"$_TEL_DUR"'","session":"'"$SESSION_ID"'"}' 2>/dev/null || true
+# Session timeline: local-only, never sent anywhere. The ECPE adapter owns one
+# completion batch; legacy append remains the non-blocking fallback.
+eval "$("$_BIN/gstack-slug" 2>/dev/null)" 2>/dev/null || true
+_BRANCH=$(_b=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-'); echo "${_b:-unknown}")
+_ECPE_END_ARGS=(lifecycle-end --skill "$SKILL_NAME" --run-id "${SESSION_ID:-unknown}" --branch "$_BRANCH" \
+  --slug "${SLUG:-unknown}" --outcome "$OUTCOME" --duration-s "$_TEL_DUR")
+[ -n "$ECPE_BATCH_JSON" ] && _ECPE_END_ARGS+=(--batch-json "$ECPE_BATCH_JSON")
+if ! "$_BIN/gstack-ecpe-observe" "${_ECPE_END_ARGS[@]}" 2>/dev/null; then
+  "$_BIN/gstack-timeline-log" '{"skill":"'"$SKILL_NAME"'","event":"completed","branch":"'"$_BRANCH"'","outcome":"'"$OUTCOME"'","duration_s":"'"$_TEL_DUR"'","session":"'"$SESSION_ID"'","run_id":"'"$SESSION_ID"'"}' 2>/dev/null || true
+fi
 
 # Local analytics (gated on telemetry setting).
 if [ "$_TEL" != "off" ]; then

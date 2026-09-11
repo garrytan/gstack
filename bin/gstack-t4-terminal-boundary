@@ -1,0 +1,169 @@
+#!/usr/bin/env bun
+import { createInterface } from 'node:readline';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { resolveRuntimeStateRoot } from '../lib/canonical-state-root';
+import { withHarnessProducerGateAsync } from '../lib/milestone-harness-producer-gate';
+import {
+  inspectHarnessVerificationUnavailableContext,
+  terminalizeHarnessVerificationUnavailableAlreadyGated,
+  type HarnessUnavailableTerminalOutcome,
+} from '../lib/milestone-harness-terminal';
+import { readMilestoneBlock } from '../lib/milestone-block';
+import { prepareHarnessAbortResourceHandoffAlreadyGated } from '../lib/milestone-harness-terminal-handoff';
+import { verifyCanonicalOwnerTerminalOutcome } from '../lib/milestone-harness-owner-journal';
+
+function exactObject(value: unknown, keys: string[]): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) &&
+    JSON.stringify(Object.keys(value as Record<string, unknown>).sort()) ===
+      JSON.stringify([...keys].sort());
+}
+
+const digest = (value: string | Uint8Array) =>
+  new Bun.CryptoHasher('sha256').update(value).digest('hex');
+
+function verifyCanonicalOwnerOutcome(outcome: HarnessUnavailableTerminalOutcome): void {
+  const ownerRoot = process.env.ECPE_TESTING === '1' && process.env.ECPE_TEST_OWNER_STATE_ROOT
+    ? process.env.ECPE_TEST_OWNER_STATE_ROOT
+    : join(homedir(), '.codex', 'state', 'ecpe-v3', 'verification-workspaces');
+  const terminal = verifyCanonicalOwnerTerminalOutcome({
+    ownerRoot,
+    handle: outcome.handle,
+    ownerOutcomeSha256: outcome.owner_outcome_sha256,
+    requireLast: true,
+    errorCode: 't4_terminal_owner_invalid',
+  });
+  if (
+      terminal.source !== outcome.source || terminal.block_id !== outcome.block_id ||
+      terminal.evaluation_slot_id !== outcome.evaluation_slot_id ||
+      terminal.claim_id !== outcome.claim_id || terminal.generation !== outcome.generation ||
+      terminal.resource_lineage_id !== outcome.resource_lineage_id ||
+      JSON.stringify(terminal.covered_generations) !== JSON.stringify(outcome.covered_generations) ||
+      terminal.recorded_at !== outcome.recorded_at ||
+      terminal.terminal_evidence_sha256 !== outcome.terminal_evidence_sha256) {
+    throw new Error('t4_terminal_owner_invalid');
+  }
+}
+
+const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+const iterator = lines[Symbol.asyncIterator]();
+
+async function nextLine(): Promise<string> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    iterator.next(),
+    new Promise<never>((_, reject) => {
+      timeout = setTimeout(
+        () => reject(new Error('t4_terminal_boundary_timeout')),
+        30_000,
+      );
+    }),
+  ]).finally(() => clearTimeout(timeout));
+  if (result.done || typeof result.value !== 'string') {
+    throw new Error('t4_terminal_boundary_invalid');
+  }
+  return result.value;
+}
+
+try {
+  const request = JSON.parse(await nextLine());
+  const callerOwnedIdentity = request?.source === 'allocation_failed' ||
+    request?.source === 'aborted_before_start' ||
+    request?.source === 'evaluation_aborted';
+  const requestKeys = callerOwnedIdentity
+    ? ['operation', 'block_id', 'evaluation_slot_id', 'source', 'handle', 'resource_lineage_id']
+    : ['operation', 'block_id', 'evaluation_slot_id', 'source'];
+  if (!exactObject(request, requestKeys) ||
+      request.operation !== 'terminal-session' ||
+      !['allocation_failed', 'retry_deadline_reached', 'second_ambiguity', 'aborted_before_start', 'evaluation_aborted'].includes(String(request.source))) {
+    throw new Error('t4_terminal_boundary_invalid');
+  }
+  const stateRoot = resolveRuntimeStateRoot().root;
+  const terminal = await withHarnessProducerGateAsync(stateRoot, async () => {
+    const context = inspectHarnessVerificationUnavailableContext({
+      stateRoot,
+      blockId: String(request.block_id),
+      slotId: String(request.evaluation_slot_id),
+      source: request.source,
+      resourceLineageId: request.resource_lineage_id,
+      handle: request.handle,
+      allowNotAborted: callerOwnedIdentity,
+    });
+    if (context.result === 'not_aborted') return context;
+    process.stdout.write(`${JSON.stringify(context)}\n`);
+    const outcome = JSON.parse(await nextLine()) as HarnessUnavailableTerminalOutcome;
+    const outcomeKeys = [
+      'schema', 'source', 'block_id', 'evaluation_slot_id', 'claim_id', 'generation',
+      'resource_lineage_id', 'handle', 'covered_generations', 'recorded_at',
+      'terminal_evidence_sha256', 'owner_outcome_sha256',
+      ...(request.source === 'aborted_before_start' ? [
+        'producer_kind', 'allocation_phase', 'root_state',
+        'allocation_child_started', 'verification_child_started',
+      ] : []),
+    ];
+    if (!exactObject(outcome, outcomeKeys) ||
+      outcome.source !== context.source ||
+      outcome.block_id !== context.block_id ||
+      outcome.evaluation_slot_id !== context.evaluation_slot_id ||
+      outcome.claim_id !== context.claim_id ||
+      outcome.generation !== context.generation ||
+      outcome.resource_lineage_id !== context.resource_lineage_id ||
+      outcome.handle !== context.handle ||
+      JSON.stringify(outcome.covered_generations) !== JSON.stringify(context.covered_generations)
+    ) throw new Error('t4_terminal_boundary_invalid');
+    verifyCanonicalOwnerOutcome(outcome);
+    const block = readMilestoneBlock(stateRoot, context.block_id);
+    if (block.phase === 'terminal_unreported' && block.terminal_reason === 'aborted') {
+      const cleanupAuthorizationId = `cleanup-auth-${digest(JSON.stringify({
+        abort_receipt_id: block.evaluation_abort_event?.stop_receipt_id,
+        owner_outcome_sha256: outcome.owner_outcome_sha256,
+        resource_lineage_id: outcome.resource_lineage_id,
+        handle: outcome.handle,
+        covered_generations: outcome.covered_generations,
+      })).slice(0, 32)}`;
+      const handoff = prepareHarnessAbortResourceHandoffAlreadyGated({
+        stateRoot,
+        blockId: context.block_id,
+        slotId: context.evaluation_slot_id,
+        claimId: context.claim_id,
+        generation: context.generation,
+        resourceLineageId: context.resource_lineage_id,
+        handle: context.handle,
+        cleanupAuthorityId: cleanupAuthorizationId,
+        coveredGenerations: context.covered_generations,
+        ownerRecordKind: 'terminal_outcome',
+        ownerRecordId: outcome.owner_outcome_sha256,
+        ownerRecordSha256: outcome.owner_outcome_sha256,
+      });
+      return {
+        schema: 'ecpe.t4-terminal-resource-handoff.v1' as const,
+        result: 'terminal_handoff_disposition' as const,
+        disposition: null,
+        proof_id: null,
+        result_id: null,
+        ambiguity_id: null,
+        claim_id: context.claim_id,
+        generation: context.generation,
+        resource_lineage_id: context.resource_lineage_id,
+        verification_resource_handle: context.handle,
+        handoff_id: handoff.handoff_id,
+        abort_receipt_id: block.evaluation_abort_event!.stop_receipt_id,
+        cleanup_authorization_id: cleanupAuthorizationId,
+        covered_generations: context.covered_generations,
+        next_operation: 'verification_lineage_finalize' as const,
+      };
+    }
+    return terminalizeHarnessVerificationUnavailableAlreadyGated({
+      stateRoot,
+      blockId: context.block_id,
+      slotId: context.evaluation_slot_id,
+      terminalOutcome: outcome,
+    });
+  });
+  process.stdout.write(`${JSON.stringify(terminal)}\n`);
+  lines.close();
+} catch (error: any) {
+  console.error(error?.message ?? 't4_terminal_boundary_invalid');
+  process.exitCode = 1;
+  lines.close();
+}

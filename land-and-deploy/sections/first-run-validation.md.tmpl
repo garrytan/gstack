@@ -107,11 +107,13 @@ for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml'
 done
 ```
 
-3. **Vercel/Netlify preview deploys:** Check PR status checks for preview URLs:
+3. **Vercel/Netlify preview deploys:** Read the exact PR's supported check snapshot:
 ```bash
-gh pr checks --json name,targetUrl 2>/dev/null | head -20
+$GSTACK_ANCHOR_INVOCATION gstack-pr-checks snapshot --pr "$PR_NUMBER"
 ```
-Look for check names containing "vercel", "netlify", or "preview" and extract the target URL.
+The adapter derives the canonical repository selector, verifies repository identity and
+read permission, and requests only `name,state,bucket,link,workflow`. Look for check names
+containing "vercel", "netlify", or "preview" and treat their supported `link` as informational.
 
 Record any staging targets found. These will be offered in Step 5.
 
@@ -146,16 +148,8 @@ Present the full dry-run results to the user via AskUserQuestion:
 - B) Something's off — let me tell you what's wrong (Completeness: 10/10)
 - C) I want to configure this more carefully first (runs /setup-deploy) (Completeness: 10/10)
 
-**If A:** Tell the user: "Great — I've saved this configuration. Next time you run `/land-and-deploy`, I'll skip the dry run and go straight to readiness checks. If your deploy setup changes (new platform, different workflows, updated URLs), I'll automatically re-run the dry run to make sure I still have it right."
-
-Save the deploy config fingerprint so we can detect future changes:
-```bash
-{{SLUG_EVAL}}
-mkdir -p ~/.gstack/projects/$SLUG
-CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' CLAUDE.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-WORKFLOW_HASH=$(find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-echo "${CURRENT_HASH}-${WORKFLOW_HASH}" > ~/.gstack/projects/$SLUG/land-deploy-confirmed
-```
+**If A:** Tell the user: "Great — the current deploy configuration is confirmed
+for this run." Do not save a machine marker or configuration fingerprint.
 Continue to Step 2.
 
 **If B:** **STOP.** "Tell me what's different about your setup and I'll adjust. You can also run `/setup-deploy` to walk through the full configuration."

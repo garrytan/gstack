@@ -4,6 +4,12 @@
 
 ## Test Framework Bootstrap
 
+**ECPE observation:** Keep test discovery and execution content-free. Add one
+closed `validator` partial per decisive lane with its measured duration and
+pass/fail; never record commands, test names, paths, logs, framework output, or
+generated test bodies. Accumulate in the run-local batch and do not launch a
+telemetry process from this section.
+
 **Read the project's CLAUDE.md (and TESTING.md if present) FIRST.** If it documents a test command, the project already told you: no detection, no bootstrap. Skip the rest of bootstrap and use that command in Step 5.
 
 **Otherwise gather markers. Every marker below is EVIDENCE for the question you ask — never a command to run blind.** A marker tells you which ecosystem you're in and which command to OFFER. It does not tell you the command works. Do not execute a candidate test command to "check" it: a probe on a project that never had that runner fails loudly and teaches you nothing, and installing a second framework over a working one is worse.
@@ -185,8 +191,18 @@ Append a `## Testing` section:
 git status --porcelain
 ```
 
-Only commit if there are changes. Stage all bootstrap files (config, test directory, TESTING.md, CLAUDE.md, .github/workflows/test.yml if created):
-`git commit -m "chore: bootstrap test framework ({framework name})"`
+Only if there are changes and an exact current-task
+`ECPE_GIT_WRITE_AUTHORIZED=1` grant exists, pass every bootstrap path to the
+closed writer (repeat `--assert-path` once per exact path):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-effect-scope git-stage-commit \
+  --skill ship --operation ship.delivery \
+  --assert-path <exact-bootstrap-path> --json
+```
+
+Without that grant, leave the files unstaged and report the required delivery
+action. Do not invoke a raw Git writer.
 
 ---
 
@@ -195,6 +211,11 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 ## Step 5: Run tests (on merged code)
 
 Use the project's test commands discovered in Step 4 or documented in CLAUDE.md/AGENTS.md. Run every applicable suite; do not assume Rails or Vitest. The commands below are examples only for repositories that actually provide them. Use the same lane labels and exact commands again in Step 16.
+
+ECPE: each decisive test lane contributes one `validator` partial with a
+closed lane ID, measured duration, and pass/fail. Do not record the command,
+log path, test names, output, or evidence payload. The evidence adapter owns
+its receipt observation in the same process.
 
 **For Rails projects using `bin/test-lane`, do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
 `db:test:prepare` internally, which loads the schema into the correct lane database.
@@ -283,13 +304,14 @@ Use AskUserQuestion:
 **If "Investigate and fix now":**
 - Switch to /investigate mindset: root cause first, then minimal fix.
 - Fix the pre-existing failure.
-- Commit the fix separately from the branch's changes: `git commit -m "fix: pre-existing test failure in <test-file>"`
+- Keep the exact changed paths unstaged. Step 15 is the sole stage/commit
+  writer and requires the exact current-task grant; do not invoke a raw Git
+  writer from triage.
 - Continue with the workflow.
 
 **If "Add as P0 TODO":**
-- If `TODOS.md` exists, add the entry following the format in `review/TODOS-format.md` (or `.claude/skills/review/TODOS-format.md`).
-- If `TODOS.md` does not exist, create it with the standard header and add the entry.
-- Entry should include: title, the error output, which branch it was noticed on, and priority P0.
+- Report the proposed P0 TODO in the ship result. Do not create or edit
+  `TODOS.md`; durable TODO maintenance requires a separate explicit write task.
 - Continue with the workflow — treat the pre-existing failure as non-blocking.
 
 **If "Blame + assign GitHub issue" (collaborative only):**
@@ -301,22 +323,9 @@ Use AskUserQuestion:
   git log --format="%an (%ae)" -1 -- <source-file-under-test>
   ```
   If these are different people, prefer the production code author — they likely introduced the regression.
-- Create an issue assigned to that person (use the platform detected in Step 0):
-  - **If GitHub:**
-    ```bash
-    gh issue create \
-      --title "Pre-existing test failure: <test-name>" \
-      --body "Found failing on branch <current-branch>. Failure is pre-existing.\n\n**Error:**\n```\n<first 10 lines>\n```\n\n**Last modified by:** <author>\n**Noticed by:** gstack /ship on <date>" \
-      --assignee "<github-username>"
-    ```
-  - **If GitLab:**
-    ```bash
-    glab issue create \
-      -t "Pre-existing test failure: <test-name>" \
-      -d "Found failing on branch <current-branch>. Failure is pre-existing.\n\n**Error:**\n```\n<first 10 lines>\n```\n\n**Last modified by:** <author>\n**Noticed by:** gstack /ship on <date>" \
-      -a "<gitlab-username>"
-    ```
-- If neither CLI is available or `--assignee`/`-a` fails (user not in org, etc.), create the issue without assignee and note who should look at it in the body.
+- Report the likely owner and a complete proposed issue title/body in the
+  ship result. Governed T1 has no closed issue-creation writer, so spawn no
+  provider mutation and do not fall back to a raw CLI.
 - Continue with the workflow.
 
 **If "Skip":**

@@ -149,13 +149,12 @@ describe("THIRD_PARTY_ACTIONS contract pins", () => {
   });
 
   // Rule 3 sends the agent to the /browse skill doc for HOW to drive. That
-  // keeps the ~10KB Aside contract out of every planning skill that embeds
-  // this section (ship, spec, setup-deploy, office-hours) while still never
-  // letting an agent write `aside repl` from memory.
-  test("rule 3 points at browse/SKILL.md for HOW to drive; planning skills do not embed {{ASIDE_SETUP}}", () => {
+  // keeps the ~10KB Aside contract out of the planning skills that still embed
+  // this section while never letting an agent write `aside repl` from memory.
+  test("rule 3 points at browse/SKILL.md for HOW to drive; remaining carriers do not embed {{ASIDE_SETUP}}", () => {
     expect(section).toContain("Read the /browse skill (`browse/SKILL.md`");
     expect(section).toContain("one flow per script");
-    for (const f of ["ship/SKILL.md.tmpl", "spec/SKILL.md.tmpl", "setup-deploy/SKILL.md.tmpl", "office-hours/SKILL.md.tmpl"]) {
+    for (const f of ["spec/SKILL.md.tmpl", "office-hours/SKILL.md.tmpl"]) {
       const tmpl = fs.readFileSync(path.join(ROOT, f), "utf-8");
       expect({ f, tpa: tmpl.includes("{{THIRD_PARTY_ACTIONS}}"), aside: tmpl.includes("{{ASIDE_SETUP}}") }).toEqual({ f, tpa: true, aside: false });
     }

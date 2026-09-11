@@ -12,6 +12,7 @@ let repoDir: string;
 
 import { gitIn, findFilesBySuffix } from './helpers/scratch-repo';
 import { runBin } from './helpers/run-bin';
+import { resolveProjectIdentity } from '../lib/project-identity';
 
 function git(args: string) {
   gitIn(repoDir, args);
@@ -70,6 +71,9 @@ describe('gstack-evidence run', () => {
     expect(rec.tree).toMatch(/^[0-9a-f]{40}$/);
     expect(rec.wtree).toMatch(/^[0-9a-f]{40}$/);
     expect(typeof rec.dirty).toBe('boolean');
+    const identity = resolveProjectIdentity(repoDir);
+    expect(rec.repo_id).toBe(identity.repo_id);
+    expect(rec.branch_ref).toBe(identity.raw_branch);
     expect(fs.existsSync(rec.log_path)).toBe(true);
     expect(fs.readFileSync(rec.log_path, 'utf-8')).toContain('ok');
   });
@@ -218,13 +222,21 @@ describe('gstack-evidence check', () => {
     const without = run(['check', '--label', 'tests']);
     expect(without.status).toBe(1);
 
-    const withAllow = run(['check', '--label', 'tests', '--allow-paths', 'CHANGELOG.md,VERSION,package.json']);
+    const withAllow = run(['check', '--label', 'tests', '--allow-paths', 'CHANGELOG.md,VERSION']);
     expect(withAllow.status).toBe(0);
     expect(withAllow.stdout).toContain('FRESH');
 
     // A source change is NOT rescued by the allow-list.
     fs.writeFileSync(path.join(repoDir, 'src.txt'), 'v3\n');
     expect(run(['check', '--label', 'tests', '--allow-paths', 'CHANGELOG.md']).status).toBe(1);
+  });
+
+  test('legacy whole-file allow-paths rejects package.json', () => {
+    expect(run(['run', '--label', 'tests', '--', 'echo green']).status).toBe(0);
+    fs.writeFileSync(path.join(repoDir, 'package.json'), '{"version":"2.0.0"}\n');
+    git('add package.json'); git('commit -q -m package');
+    const checked = run(['check', '--label', 'tests', '--allow-paths', 'package.json']);
+    expect(checked.status).toBe(2); expect(checked.stderr).toContain('allow-paths');
   });
 
   test('--expect-cmd binds the label to the exact command string', () => {

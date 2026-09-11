@@ -260,6 +260,13 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
 // coverage, so auto-excluding them defeats the regression tests they carry.
 const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
   {
+    file: 'test/native-windows-authority-boundary.test.ts',
+    // The bin/ references are launched through process.execPath, not as native
+    // shebang executables. This is the regression suite for the native-Windows
+    // ECPE fail-closed boundary, so excluding it would erase the CI proof.
+    reason: 'bin/ entrypoints are launched through process.execPath; native-Windows ECPE boundary coverage must run on windows-latest',
+  },
+  {
     file: 'test/setup-windows-rerun-refresh.test.ts',
     // Trips the "spawns bin/ shebang script" pattern via path.join(..., 'bin',
     // 'tool.sh') fixture paths, but every spawn goes through test/helpers/bash-script.ts
@@ -348,6 +355,33 @@ export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_
   // tighter — it keeps the per-file floor the runner has always guaranteed.
   return Math.max(baseMs, Math.ceil(predictedMs * 3), fileCount * PER_FILE_WALL_MS);
 }
+
+/**
+ * Extra wall-clock allowance for free-test files whose healthy runtime is
+ * dominated by intentional subprocess/repository integration work rather
+ * than by assertion count. Keeping this targeted avoids delaying wedge
+ * diagnosis for every ordinary shard. release-metadata was observed still
+ * making healthy progress when a 93-file shard reached its 7m45s deadline;
+ * six additional minutes covers that integration work under shard load.
+ */
+export const HEAVY_FREE_TEST_WALL_MS: Record<string, number> = {
+  'test/release-metadata.test.ts': 6 * 60_000,
+};
+
+function heavyFreeTestWallAllowance(files: string[]): number {
+  return files.reduce(
+    (total, file) => total + (HEAVY_FREE_TEST_WALL_MS[normalizeRelativePath(file)] ?? 0),
+    0,
+  );
+}
+
+export function wallTimeoutForFiles(
+  files: string[],
+  baseMs = DEFAULT_WALL_TIMEOUT_MS,
+): number {
+  const ordinaryBudget = wallTimeoutForShard(files.length, baseMs);
+  return ordinaryBudget + heavyFreeTestWallAllowance(files);
+}
 /**
  * Full-suite parallelism: leave RESERVED_CPUS cores for the parent runner +
  * OS, cap at MAX_FULL_SUITE_JOBS — beyond ~6 concurrent bun processes the
@@ -396,6 +430,16 @@ export const WORKER_HOSTILE: Record<string, string> = {
 };
 
 /**
+ * Files that are healthy in their own process but become nondeterministic
+ * when they compete with the full reader fleet. Keep these outside the
+ * parallel phase and run each in a fresh, serial process before mutators.
+ */
+export const PROCESS_ISOLATED: Record<string, string> = {
+  'test/provider-direct-merge-recovery.test.ts':
+    'spawns many Bun/Git/provider children and intermittently fails tool attestation or its 5s test deadline under multi-shard process contention',
+};
+
+/**
  * TREE-SERIAL files: run in ONE serial shard AFTER the parallel shards.
  * EMPTY since the 2026-08 dissolution — kept as a mechanism, not a museum:
  * a test that must regenerate shared repo artifacts IN PLACE (and cannot
@@ -414,6 +458,18 @@ export const WORKER_HOSTILE: Record<string, string> = {
  * a renamed file fails the suite instead of silently dropping serialization.
  */
 export const TREE_MUTATING: Record<string, string> = {};
+
+export function partitionFullSuiteFiles(files: string[]): {
+  readers: string[];
+  isolated: string[];
+  mutators: string[];
+} {
+  return {
+    readers: files.filter((file) => !(file in TREE_MUTATING) && !(file in PROCESS_ISOLATED)),
+    isolated: files.filter((file) => file in PROCESS_ISOLATED),
+    mutators: files.filter((file) => file in TREE_MUTATING),
+  };
+}
 
 export function normalizeRelativePath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
@@ -1481,16 +1537,17 @@ async function main(): Promise<number> {
   // wedge only ever costs its own shard. WORKER_HOSTILE files are moot in
   // process shards (no workers) and fold back into normal assignment.
   const jobs = fullSuiteJobs();
-  // Phase split: tree-mutating tests run AFTER the parallel shards, in one
-  // serial shard, so no concurrent shard ever reads a half-regenerated tree.
-  const mutators = files.filter((f) => f in TREE_MUTATING);
-  const readers = files.filter((f) => !(f in TREE_MUTATING));
+  // Phase split: resource-sensitive integrations run alone after the reader
+  // fleet; tree-mutating tests run last in one serial shard, so no concurrent
+  // shard ever reads a half-regenerated tree.
+  const { readers, isolated, mutators } = partitionFullSuiteFiles(files);
   const durations = loadFreeTestDurations();
   const packed = durations ? packShardsByDuration(readers, jobs, durations) : null;
   const shards = packed ? packed.shards : assignFilesToShards(readers, jobs);
-  const totalShards = jobs + (mutators.length > 0 ? 1 : 0);
+  const totalShards = jobs + isolated.length + (mutators.length > 0 ? 1 : 0);
   console.log(`[test:free] full suite: ${readers.length} files across ${jobs} shard processes`
     + (packed ? ' (duration-packed)' : '')
+    + (isolated.length > 0 ? `, then ${isolated.length} process-isolated file(s) serially` : '')
     + (mutators.length > 0 ? `, then ${mutators.length} tree-mutating file(s) serially` : ''));
   if (packed) {
     // One line per shard so a packing regression is diagnosable from any log.
@@ -1498,25 +1555,36 @@ async function main(): Promise<number> {
       console.log(`[test:free]   shard ${i + 1}: ${shards[i].length} files, predicted ~${Math.round(ms / 1000)}s`);
     });
   }
-  const shardTimeout = (fileCount: number): number =>
-    options.wallTimeoutExplicit ? options.wallTimeoutMs : wallTimeoutForShard(fileCount, options.wallTimeoutMs);
+  const shardTimeout = (shardFiles: string[], predictedMs?: number): number => {
+    if (options.wallTimeoutExplicit) return options.wallTimeoutMs;
+    const heavyBudget = heavyFreeTestWallAllowance(shardFiles);
+    if (predictedMs === undefined) return wallTimeoutForFiles(shardFiles, options.wallTimeoutMs);
+    return wallTimeoutForPackedShard(predictedMs, options.wallTimeoutMs, shardFiles.length) + heavyBudget;
+  };
   const outcomes = await Promise.all(
     shards.map((shardFiles, index) => runFreeShard(shardFiles, index + 1, totalShards, {
       // Packed shards get duration-aware walls: LPT decouples file count from
       // cost BY DESIGN, so the 5s/file heuristic would undersize a shard
       // holding few expensive files.
-      wallTimeoutMs: packed && !options.wallTimeoutExplicit
-        ? wallTimeoutForPackedShard(packed.predictedMs[index], options.wallTimeoutMs, shardFiles.length)
-        : shardTimeout(shardFiles.length),
+      wallTimeoutMs: shardTimeout(shardFiles, packed?.predictedMs[index]),
       verbose: options.verbose,
     })),
   );
   let worst = Math.max(...outcomes.map((o) => exitCodeFor(o.status)));
+  let nextShard = jobs + 1;
+  for (const file of isolated) {
+    if (isTerminationRequested()) break;
+    const isolatedOutcome = await runFreeShard([file], nextShard++, totalShards, {
+      wallTimeoutMs: shardTimeout([file]),
+      verbose: options.verbose,
+    });
+    worst = Math.max(worst, exitCodeFor(isolatedOutcome.status));
+  }
   // Cancellation stops the run: don't launch the serial tree-mutating shard
   // after a SIGINT/SIGTERM already killed the parallel phase.
   if (mutators.length > 0 && !isTerminationRequested()) {
-    const mutatorOutcome = await runFreeShard(mutators, totalShards, totalShards, {
-      wallTimeoutMs: shardTimeout(mutators.length),
+    const mutatorOutcome = await runFreeShard(mutators, nextShard, totalShards, {
+      wallTimeoutMs: shardTimeout(mutators),
       verbose: options.verbose,
     });
     worst = Math.max(worst, exitCodeFor(mutatorOutcome.status));

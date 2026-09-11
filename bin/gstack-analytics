@@ -11,6 +11,15 @@
 #   GSTACK_STATE_DIR  — override ~/.gstack state directory
 set -uo pipefail
 
+# ECPE mode is one shared TypeScript aggregation path. Keep the positional
+# legacy dashboard below unchanged.
+for _ARG in "$@"; do
+  if [ "$_ARG" = "--ecpe" ]; then
+    _SCRIPT_DIR=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+    exec bun "$_SCRIPT_DIR/../scripts/analytics.ts" "$@"
+  fi
+done
+
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 JSONL_FILE="$STATE_DIR/analytics/skill-usage.jsonl"
 

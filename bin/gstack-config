@@ -124,7 +124,7 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # is separate; gstack never sets it.
 #
 # ─── Advanced ────────────────────────────────────────────────────────
-# codex_reviews: enabled    # Master switch for Codex cross-model review. enabled =
+# codex_reviews: disabled   # Master switch for Codex cross-model review. enabled =
 #                           #   Codex runs as a standard step in /review, /ship,
 #                           #   /document-release, plan reviews, and /autoplan (auto
 #                           #   falls back to a Claude subagent if Codex is missing or
@@ -171,7 +171,7 @@ lookup_default() {
     checkpoint_mode) echo "explicit" ;;
     checkpoint_push) echo "false" ;;
     explain_level) echo "default" ;;
-    codex_reviews) echo "enabled" ;;
+    codex_reviews) echo "disabled" ;;
     design_detector) echo "auto" ;; # auto | off — impeccable engine pre-pass in the design skills
     design_detector_install_prompted) echo "false" ;; # true once the user answered the one-time engine install offer with "never ask again"
     gstack_contributor) echo "false" ;;

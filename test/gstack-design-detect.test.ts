@@ -19,7 +19,7 @@ import { installFakeImpeccable, DETECT_SAMPLE as SAMPLE } from './helpers/fake-i
 const ROOT = path.join(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-design-detect.ts');
 const POSIX = process.platform !== 'win32';
-const BUN_DIR = path.dirname(process.execPath);
+const BUN_DIR = path.dirname(Bun.which('bun') ?? process.execPath);
 
 let SANDBOX: string;     // holds everything the tests create
 let REPO: string;        // temp git repo (cwd for the wrapper)
@@ -34,7 +34,7 @@ function git(cwd: string, ...args: string[]) {
 }
 
 beforeAll(() => {
-  SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-design-detect-'));
+  SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-design-detect-')));
   REPO = path.join(SANDBOX, 'repo');
   fs.mkdirSync(REPO);
   git(REPO, 'init', '-q', '-b', 'main');
@@ -968,7 +968,7 @@ describe('scan: option-like bases and page-controlled inline ignores', () => {
   });
 
   test.skipIf(!POSIX)('from HOME (no repository) HOME-rooted installs are READY, HOME files are refused as targets, and a dump still scans without inline ignores', () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-fake-home-'));
+    const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-fake-home-')));
     const cache = path.join(home, '.impeccable', 'bin', '0.1.3');
     fs.mkdirSync(cache, { recursive: true });
     fs.copyFileSync(FAKE, path.join(cache, 'impeccable'));
@@ -1078,7 +1078,7 @@ describe('install: the one download gstack makes, after consent', () => {
   const PLATFORM = ENGINE_ASSETS[`${process.platform}-${process.arch}`];
   const VERSION = TESTED_ENGINE_VERSIONS[TESTED_ENGINE_VERSIONS.length - 1];
   const ASSET = PLATFORM ? `impeccable-${PLATFORM}${PLATFORM.startsWith('windows') ? '.exe' : ''}` : '';
-  const freshHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-impeccable-home-'));
+  const freshHome = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-impeccable-home-')));
   const mirror = (body: Uint8Array, hits: string[]) => Bun.serve({
     port: 0, hostname: '127.0.0.1',
     fetch(req) {

@@ -7,6 +7,7 @@ import * as crypto from 'crypto';
 import { buildFetchHandler, __testInternals__, type ServerConfig } from '../src/server';
 import { __resetRegistry } from '../src/token-registry';
 import { resolveConfig } from '../src/config';
+import { hasActivePicker } from '../src/cookie-picker-routes';
 
 // End-to-end regression tests for the parent-process watchdog in server.ts.
 // The watchdog has layered behavior since v0.18.1.0 (#1025) and v0.18.2.0
@@ -271,11 +272,24 @@ describe('suppressed watchdog still reaps tunnel orphans (behavioral)', () => {
   let scratch: string;
   const savedChromiumProfile = process.env.CHROMIUM_PROFILE;
 
+  function clearSharedPickerState(): void {
+    // Bun packs test files into one process per shard. Cookie-picker tests can
+    // therefore leave a valid one-hour session in this module's shared maps;
+    // the production watchdog must preserve such a live picker, but this
+    // watchdog-specific fixture needs the inactive branch. Advance only the
+    // cleanup probe's clock far enough to expire and delete prior sessions.
+    const realNow = Date.now;
+    Date.now = () => realNow() + 3_700_000;
+    try { expect(hasActivePicker()).toBe(false); }
+    finally { Date.now = realNow; }
+  }
+
   beforeEach(() => {
     scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'watchdog-tick-'));
     // shutdown() runs cleanSingletonLocks(resolveChromiumProfile()); point it
     // at scratch so the operator's real profile is never inspected.
     process.env.CHROMIUM_PROFILE = path.join(scratch, 'chromium-profile');
+    clearSharedPickerState();
     __resetRegistry();
     __testInternals__.setTunnelActive(false);
     __testInternals__.setLastActivity(Date.now());

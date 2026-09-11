@@ -1,0 +1,83 @@
+#!/bin/sh
+PATH=/usr/bin:/bin
+export PATH
+case "${1-}" in
+  gstack-candidate-preview|gstack-counterpart-proof|gstack-effect-scope|gstack-execution-plan|gstack-lane-canary|gstack-next-version|gstack-pr-checks|gstack-pr-head-guard|gstack-pr-title-rewrite|gstack-project-identity|gstack-review-read|gstack-section-delivery|gstack-semantic-manifest|gstack-ship-handoff|gstack-validator-runtime|gstack-version-bump|gstack-work-profile) command_name=$1 ;;
+  *) echo 'gstack-anchor: authority_command_unknown' >&2; exit 2 ;;
+esac
+shift
+self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -P) || exit 1
+root=$(CDPATH= cd -- "$self_dir/.." 2>/dev/null && pwd -P) || exit 1
+sha256() {
+  if [ -x /usr/bin/sha256sum ]; then
+    /usr/bin/sha256sum "$1" | /usr/bin/sed 's/ .*//'
+  else
+    /usr/bin/shasum -a 256 "$1" | /usr/bin/sed 's/ .*//'
+  fi
+}
+authority_build_owner_live() {
+  lock_pid=$(/usr/bin/sed -n 's/.*"schema":"ecpe.authority-build-lock.v1".*"pid":\([0-9][0-9]*\).*/\1/p' "$root/dist/.authority-build.lock" 2>/dev/null)
+  case "$lock_pid" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$lock_pid" 2>/dev/null
+}
+attempt=0
+while [ -e "$root/dist/.authority-build.lock" ] && authority_build_owner_live && [ "$attempt" -lt 400 ]; do
+  /bin/sleep 0.025
+  attempt=$((attempt + 1))
+done
+if [ -e "$root/dist/.authority-build.lock" ] && authority_build_owner_live; then
+  echo 'gstack-anchor: authority_bundle_build_locked' >&2; exit 1
+fi
+manifest="$root/dist/authority/manifest.json"
+runtime="$root/.ecpe-installed-runtime.json"
+bundle="$root/dist/authority/$command_name.mjs"
+[ -f "$manifest" ] && [ ! -L "$manifest" ] && [ -f "$runtime" ] && [ ! -L "$runtime" ] || {
+  echo 'gstack-anchor: installed_manifest_missing' >&2; exit 1;
+}
+[ -f "$bundle" ] && [ ! -L "$bundle" ] || { echo 'gstack-anchor: authority_bundle_missing' >&2; exit 1; }
+expected=$(/usr/bin/sed -n "s/.*\"$command_name\":{[^}]*\"sha256\":\"\([0-9a-f]*\)\".*/\1/p" "$manifest")
+observed=$(sha256 "$bundle")
+[ -n "$expected" ] && [ "$expected" = "$observed" ] || { echo 'gstack-anchor: authority_bundle_mismatch' >&2; exit 1; }
+bun_record=$(/usr/bin/sed -n 's/.*"bun":[[:space:]]*{\([^}]*\)}.*/\1/p' "$runtime")
+bun_path=$(printf '%s\n' "$bun_record" | /usr/bin/sed -n 's/.*"realpath":[[:space:]]*"\([^"]*\)".*/\1/p')
+bun_sha=$(printf '%s\n' "$bun_record" | /usr/bin/sed -n 's/.*"sha256":[[:space:]]*"\([0-9a-f]*\)".*/\1/p')
+bun_uid=$(printf '%s\n' "$bun_record" | /usr/bin/sed -n 's/.*"owner_uid":[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+bun_mode=$(printf '%s\n' "$bun_record" | /usr/bin/sed -n 's/.*"mode":[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+bun_kind=$(printf '%s\n' "$bun_record" | /usr/bin/sed -n 's/.*"identity_kind":[[:space:]]*"\([^"]*\)".*/\1/p')
+is_windows=0
+case "$(/usr/bin/uname -s)" in MINGW*|MSYS*|CYGWIN*|Windows_NT) is_windows=1 ;; esac
+if [ "$is_windows" -eq 1 ]; then
+  [ "$bun_kind" = windows-sha256-v1 ] || { echo 'gstack-anchor: bun_identity_missing' >&2; exit 1; }
+  case "$bun_path" in [a-zA-Z]:/*|//*/*) ;; *) echo 'gstack-anchor: bun_identity_missing' >&2; exit 1 ;; esac
+  native_bun_path=$bun_path
+  bun_path=$(/usr/bin/cygpath -u -- "$native_bun_path") || { echo 'gstack-anchor: bun_identity_missing' >&2; exit 1; }
+else
+  case "$bun_path" in /*) ;; *) echo 'gstack-anchor: bun_identity_missing' >&2; exit 1 ;; esac
+fi
+[ "${#bun_sha}" -eq 64 ] && [ -n "$bun_uid" ] && [ -n "$bun_mode" ] || { echo 'gstack-anchor: bun_identity_missing' >&2; exit 1; }
+case "$bun_sha$bun_uid$bun_mode" in *[!0-9a-f]*) echo 'gstack-anchor: bun_identity_missing' >&2; exit 1 ;; esac
+[ -f "$bun_path" ] && [ -x "$bun_path" ] && [ ! -L "$bun_path" ] || { echo 'gstack-anchor: bun_identity_mismatch' >&2; exit 1; }
+bun_dir=$(CDPATH= cd -- "$(dirname -- "$bun_path")" 2>/dev/null && pwd -P) || { echo 'gstack-anchor: bun_identity_mismatch' >&2; exit 1; }
+observed_bun_sha=$(sha256 "$bun_path")
+[ "$observed_bun_sha" = "$bun_sha" ] || { echo 'gstack-anchor: bun_identity_mismatch' >&2; exit 1; }
+if [ "$is_windows" -eq 1 ]; then
+  canonical_bun_path=$(/usr/bin/cygpath -m -- "$bun_dir/$(basename -- "$bun_path")") \
+    || { echo 'gstack-anchor: bun_identity_mismatch' >&2; exit 1; }
+  [ "$canonical_bun_path" = "$native_bun_path" ] || { echo 'gstack-anchor: bun_identity_mismatch' >&2; exit 1; }
+  # Node/Bun's native Windows uid/mode are synthetic and differ from MSYS stat.
+  # Hash + canonical regular-file identity remain mandatory before execution.
+  # ECPE authority writes still reject native Windows inside the pinned bundle.
+  exec "$bun_path" --no-env-file "$bundle" "$@"
+fi
+[ "$bun_dir/$(basename -- "$bun_path")" = "$bun_path" ] || { echo 'gstack-anchor: bun_identity_mismatch' >&2; exit 1; }
+if observed_bun_uid=$(/usr/bin/stat -f '%u' "$bun_path" 2>/dev/null); then
+  observed_bun_mode=$(/usr/bin/stat -f '%Lp' "$bun_path" 2>/dev/null)
+else
+  observed_bun_uid=$(/usr/bin/stat -c '%u' "$bun_path" 2>/dev/null) || { echo 'gstack-anchor: bun_identity_mismatch' >&2; exit 1; }
+  observed_bun_mode=$(/usr/bin/stat -c '%a' "$bun_path" 2>/dev/null) || { echo 'gstack-anchor: bun_identity_mismatch' >&2; exit 1; }
+fi
+expected_bun_mode=$(printf '%o' "$bun_mode")
+[ "$observed_bun_uid" = "$bun_uid" ] && [ "$observed_bun_mode" = "$expected_bun_mode" ] || {
+  echo 'gstack-anchor: bun_identity_mismatch' >&2; exit 1;
+}
+exec "$bun_path" --no-env-file "$bundle" "$@"

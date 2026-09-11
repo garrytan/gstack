@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # gstack-review-log — atomically log a review result
-# Usage: gstack-review-log '{"skill":"...","timestamp":"...","status":"..."}'
+# Usage: gstack-review-log [--expected-wtree <sha>] '{"skill":"...","timestamp":"...","status":"..."}'
 #
 # Binding fields (content-addressed staleness): every appended record is
 # stamped with commit_full, tree, dirty (informational) and wtree (the GATING
@@ -18,10 +18,36 @@
 # immediately after reviewing, which keeps the window small but nonzero.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+if [ "${1:-}" = "begin" ]; then
+  exec "$SCRIPT_DIR/gstack-review-session" "$@"
+fi
+if [ "${1:-}" = "finish" ]; then
+  [ "$#" -eq 4 ] && [ "$2" = "--run-id" ] && exec "$SCRIPT_DIR/gstack-review-session" finish --run-id "$3" --payload "$4"
+  exec "$SCRIPT_DIR/gstack-review-session" "$@"
+fi
+if IDENTITY_SHELL=$("$SCRIPT_DIR/gstack-project-identity" --shell 2>/dev/null); then
+  eval "$IDENTITY_SHELL"
+elif [ "${ECPE_PROFILE_MODE:-legacy}" = "profile" ]; then
+  echo "gstack-review-log: project identity unavailable" >&2
+  exit 1
+else
+  eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+  REPO_ID="$SLUG"
+  BRANCH_REF="${BRANCH:-no-branch}"
+fi
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
+EXPECTED_WTREE=""
+if [ "${1:-}" = "--expected-wtree" ]; then
+  EXPECTED_WTREE="${2:-}"
+  shift 2
+  case "$EXPECTED_WTREE" in
+    *[!0-9a-f]*|'') echo "gstack-review-log: invalid expected wtree" >&2; exit 2 ;;
+  esac
+  [ "${#EXPECTED_WTREE}" -eq 40 ] || { echo "gstack-review-log: invalid expected wtree" >&2; exit 2; }
+fi
+[ "$#" -eq 1 ] || { echo "gstack-review-log: invalid arguments" >&2; exit 2; }
 INPUT="$1"
 
 # Compute binding fields (best-effort; empty outside a git repo).
@@ -39,16 +65,23 @@ if [ -n "$COMMIT_FULL" ]; then
   fi
 fi
 
+if [ -n "$EXPECTED_WTREE" ] && [ "$WTREE" != "$EXPECTED_WTREE" ]; then
+  echo "gstack-review-log: expected working tree moved" >&2
+  exit 1
+fi
+
 # Validate (reject malformed or injection attempts) AND stamp in one pass.
-# Caller values for the binding keys are dropped before stamping.
-STAMPED=$(printf '%s' "$INPUT" | GSTACK_STAMP_COMMIT_FULL="$COMMIT_FULL" GSTACK_STAMP_TREE="$TREE" GSTACK_STAMP_WTREE="$WTREE" GSTACK_STAMP_DIRTY="$DIRTY" bun -e "
+# Caller values for binding/identity keys are dropped before stamping.
+STAMPED=$(printf '%s' "$INPUT" | GSTACK_STAMP_COMMIT_FULL="$COMMIT_FULL" GSTACK_STAMP_TREE="$TREE" GSTACK_STAMP_WTREE="$WTREE" GSTACK_STAMP_DIRTY="$DIRTY" GSTACK_STAMP_REPO_ID="$REPO_ID" GSTACK_STAMP_BRANCH_REF="$BRANCH_REF" bun -e "
 const rec = JSON.parse(await Bun.stdin.text());
-for (const k of ['commit_full', 'tree', 'wtree', 'dirty']) delete rec[k];
+for (const k of ['commit_full', 'tree', 'wtree', 'dirty', 'repo_id', 'branch_ref']) delete rec[k];
 const env = process.env;
 if (env.GSTACK_STAMP_COMMIT_FULL) rec.commit_full = env.GSTACK_STAMP_COMMIT_FULL;
 if (env.GSTACK_STAMP_TREE) rec.tree = env.GSTACK_STAMP_TREE;
 if (env.GSTACK_STAMP_WTREE) rec.wtree = env.GSTACK_STAMP_WTREE;
 if (env.GSTACK_STAMP_DIRTY) rec.dirty = env.GSTACK_STAMP_DIRTY === 'true';
+rec.repo_id = env.GSTACK_STAMP_REPO_ID;
+rec.branch_ref = env.GSTACK_STAMP_BRANCH_REF;
 console.log(JSON.stringify(rec));
 " 2>/dev/null) || {
   # Not valid JSON — refuse to append

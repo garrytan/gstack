@@ -1,0 +1,245 @@
+#!/usr/bin/env bun
+import { createInterface } from 'node:readline';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { resolveRuntimeStateRoot } from '../lib/canonical-state-root';
+import { withHarnessProducerGateAsync } from '../lib/milestone-harness-producer-gate';
+import {
+  acknowledgeHarnessVerificationCleanupAlreadyGated,
+  inspectHarnessVerificationCleanup,
+  type HarnessCleanupSeal,
+} from '../lib/milestone-harness-cleanup';
+import { verifyCanonicalOwnerTerminalOutcome } from '../lib/milestone-harness-owner-journal';
+
+function exact(value: unknown, keys: string[]): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) &&
+    JSON.stringify(Object.keys(value as Record<string, unknown>).sort()) ===
+      JSON.stringify([...keys].sort());
+}
+
+const digest = (value: string | Uint8Array) =>
+  new Bun.CryptoHasher('sha256').update(value).digest('hex');
+
+function ownerStateRoot(): string {
+  return process.env.ECPE_TESTING === '1' && process.env.ECPE_TEST_OWNER_STATE_ROOT
+    ? process.env.ECPE_TEST_OWNER_STATE_ROOT
+    : join(homedir(), '.codex', 'state', 'ecpe-v3', 'verification-workspaces');
+}
+
+function verifyCanonicalOwnerAuthority(request: Record<string, any>): void {
+  if (request.owner_record_kind === null && request.owner_record_sha256 === null) return;
+  if (!['proof_consumed', 'purpose_disposed', 'terminal_outcome'].includes(request.owner_record_kind) ||
+      !/^[0-9a-f]{64}$/.test(request.owner_record_sha256)) {
+    throw new Error('t4_cleanup_owner_invalid');
+  }
+  const journal = join(ownerStateRoot(), 'journals', String(request.handle));
+  const journalInfo = lstatSync(journal);
+  if (!journalInfo.isDirectory() || journalInfo.uid !== process.getuid?.() ||
+      (journalInfo.mode & 0o777) !== 0o700) throw new Error('t4_cleanup_owner_invalid');
+  const names = readdirSync(journal).sort();
+  let previous: string | null = null;
+  let claimId: unknown = null;
+  let lineageId: unknown = null;
+  let generation: unknown = null;
+  let authority: Record<string, unknown> | null = null;
+  for (const [index, name] of names.entries()) {
+    if (!/^\d{8}-[0-9a-f]{64}\.json$/.test(name)) throw new Error('t4_cleanup_owner_invalid');
+    const target = join(journal, name);
+    const info = lstatSync(target);
+    const bytes = readFileSync(target);
+    const fileHash = digest(bytes);
+    if (!info.isFile() || info.isSymbolicLink() || info.uid !== process.getuid?.() ||
+        (info.mode & 0o777) !== 0o600 ||
+        name !== `${String(index + 1).padStart(8, '0')}-${fileHash}.json`) {
+      throw new Error('t4_cleanup_owner_invalid');
+    }
+    const event = JSON.parse(bytes.toString('utf8')) as Record<string, any>;
+    if (event.sequence !== index + 1 || event.previous_event !== previous ||
+        event.handle !== request.handle) throw new Error('t4_cleanup_owner_invalid');
+    if (event.kind === 'allocation_started') {
+      claimId = event.coordinator_claim_id;
+      lineageId = event.resource_lineage_id;
+      generation = 0;
+    } else if (event.kind === 'verification_replay_claimed') {
+      claimId = event.coordinator_binding?.claim_id;
+      lineageId = event.resource_lineage_id;
+      generation = 1;
+    } else if (fileHash === request.owner_record_sha256) {
+      authority = event;
+    }
+    previous = fileHash;
+  }
+  const idKey = request.owner_record_kind === 'proof_consumed'
+    ? 'consumption_id' : request.owner_record_kind === 'purpose_disposed'
+      ? 'disposition_id' : null;
+  const terminalAuthority = request.owner_record_kind === 'terminal_outcome';
+  const canonicalTerminal = terminalAuthority
+    ? verifyCanonicalOwnerTerminalOutcome({
+        ownerRoot: ownerStateRoot(),
+        handle: String(request.handle),
+        ownerOutcomeSha256: String(request.owner_record_sha256),
+        requireLast: false,
+        errorCode: 't4_cleanup_owner_invalid',
+      })
+    : null;
+  if (!authority || authority.kind !== request.owner_record_kind ||
+      (idKey ? authority[idKey] !== request.owner_record_id
+        : request.owner_record_id !== request.owner_record_sha256) ||
+      (terminalAuthority
+        ? canonicalTerminal?.block_id !== request.block_id ||
+          canonicalTerminal?.evaluation_slot_id !== request.evaluation_slot_id ||
+          canonicalTerminal?.claim_id !== request.claim_id ||
+          canonicalTerminal?.resource_lineage_id !== request.resource_lineage_id ||
+          canonicalTerminal?.generation !== request.generation ||
+          JSON.stringify(canonicalTerminal?.covered_generations) !==
+            JSON.stringify(request.covered_generations)
+        : claimId !== request.claim_id ||
+          lineageId !== request.resource_lineage_id ||
+          generation !== request.generation) ||
+      JSON.stringify(request.covered_generations) !==
+        JSON.stringify(request.generation === 0 ? [0] : [0, 1])) {
+    throw new Error('t4_cleanup_owner_invalid');
+  }
+}
+
+function verifyCanonicalOwnerCleanup(seal: HarnessCleanupSeal): void {
+  const ownerRoot = ownerStateRoot();
+  const journal = join(ownerRoot, 'journals', seal.handle);
+  const journalInfo = lstatSync(journal);
+  if (!journalInfo.isDirectory() || journalInfo.uid !== process.getuid?.() ||
+      (journalInfo.mode & 0o777) !== 0o700) throw new Error('t4_cleanup_owner_invalid');
+  const names = readdirSync(journal).sort();
+  if (names.length < 2 || names.some((name) => !/^\d{8}-[0-9a-f]{64}\.json$/.test(name))) {
+    throw new Error('t4_cleanup_owner_invalid');
+  }
+  let previous: string | null = null;
+  let last: Record<string, unknown> | null = null;
+  let predecessor: Record<string, unknown> | null = null;
+  for (const [index, name] of names.entries()) {
+    const target = join(journal, name);
+    const info = lstatSync(target);
+    if (!info.isFile() || info.isSymbolicLink() || info.uid !== process.getuid?.() ||
+        (info.mode & 0o777) !== 0o600) throw new Error('t4_cleanup_owner_invalid');
+    const bytes = readFileSync(target);
+    const fileHash = digest(bytes);
+    if (name !== `${String(index + 1).padStart(8, '0')}-${fileHash}.json`) {
+      throw new Error('t4_cleanup_owner_invalid');
+    }
+    const event = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+    if (event.sequence !== index + 1 || event.previous_event !== previous ||
+        event.handle !== seal.handle) throw new Error('t4_cleanup_owner_invalid');
+    predecessor = last;
+    last = event;
+    previous = fileHash;
+  }
+  const fields = [
+    'claim_id', 'resource_lineage_id', 'cleanup_authority_id', 'tombstone_id',
+    'covered_generations',
+    ...(seal.root_state === 'never_created' ? ['root_state'] : []),
+    'root_device_id', 'root_inode_id', 'parent_device_id',
+    'parent_inode_id', 'owner_marker_sha256',
+  ] as const;
+  if (!last || !predecessor || last.kind !== 'cleanup_complete' ||
+      predecessor.kind !== 'cleanup_started' || previous !== seal.owner_cleanup_event_sha256 ||
+      fields.some((key) => JSON.stringify(last![key]) !== JSON.stringify(seal[key])) ||
+      fields.some((key) => JSON.stringify(predecessor![key]) !== JSON.stringify(seal[key])) ||
+      last.tombstone_sha256 !== seal.tombstone_sha256) {
+    throw new Error('t4_cleanup_owner_invalid');
+  }
+  const tombstones = join(ownerRoot, 'tombstones');
+  const tombstonesInfo = lstatSync(tombstones);
+  const tombstone = join(tombstones, `${seal.tombstone_id}.json`);
+  const tombstoneInfo = lstatSync(tombstone);
+  const bytes = readFileSync(tombstone);
+  if (!tombstonesInfo.isDirectory() || tombstonesInfo.uid !== process.getuid?.() ||
+      (tombstonesInfo.mode & 0o777) !== 0o700 || !tombstoneInfo.isFile() ||
+      tombstoneInfo.isSymbolicLink() || tombstoneInfo.uid !== process.getuid?.() ||
+      (tombstoneInfo.mode & 0o777) !== 0o600 || digest(bytes) !== seal.tombstone_sha256) {
+    throw new Error('t4_cleanup_owner_invalid');
+  }
+  const value = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+  if (!exact(value, [
+    'schema', 'claim_id', 'handle', 'resource_lineage_id', 'cleanup_authority_id',
+    'covered_generations', 'tombstone_id',
+    ...(seal.root_state === 'never_created' ? ['root_state'] : []),
+    'root_device_id', 'root_inode_id',
+    'parent_device_id', 'parent_inode_id', 'owner_marker_sha256',
+  ]) || value.schema !== 'ecpe.t4-lineage-tombstone.v1' ||
+      value.handle !== seal.handle ||
+      fields.some((key) => JSON.stringify(value[key]) !== JSON.stringify(seal[key]))) {
+    throw new Error('t4_cleanup_owner_invalid');
+  }
+}
+
+const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+const iterator = lines[Symbol.asyncIterator]();
+async function nextLine(): Promise<string> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    iterator.next(),
+    new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error('t4_cleanup_boundary_timeout')), 30_000);
+    }),
+  ]).finally(() => clearTimeout(timeout));
+  if (result.done || typeof result.value !== 'string') throw new Error('t4_cleanup_boundary_invalid');
+  return result.value;
+}
+
+try {
+  const request = JSON.parse(await nextLine());
+  if (!exact(request, [
+    'operation', 'block_id', 'evaluation_slot_id', 'claim_id',
+    'resource_lineage_id', 'handle', 'cleanup_authority_id',
+    'covered_generations', 'generation', 'owner_record_kind',
+    'owner_record_id', 'owner_record_sha256',
+  ]) || request.operation !== 'cleanup-session') {
+    throw new Error('t4_cleanup_boundary_invalid');
+  }
+  const stateRoot = resolveRuntimeStateRoot().root;
+  const result = await withHarnessProducerGateAsync(stateRoot, async () => {
+    verifyCanonicalOwnerAuthority(request);
+    const ready = inspectHarnessVerificationCleanup({
+      stateRoot,
+      blockId: String(request.block_id),
+      slotId: String(request.evaluation_slot_id),
+      claimId: String(request.claim_id),
+      resourceLineageId: String(request.resource_lineage_id),
+      handle: String(request.handle),
+      cleanupAuthorityId: String(request.cleanup_authority_id),
+      coveredGenerations: request.covered_generations,
+      generation: request.generation,
+      ownerRecordKind: request.owner_record_kind,
+      ownerRecordId: request.owner_record_id,
+      ownerRecordSha256: request.owner_record_sha256,
+    });
+    process.stdout.write(`${JSON.stringify(ready)}\n`);
+    const seal = JSON.parse(await nextLine()) as HarnessCleanupSeal;
+    if (!exact(seal, [
+      'schema', 'claim_id', 'resource_lineage_id', 'handle',
+      'cleanup_authority_id', 'tombstone_id', 'covered_generations',
+      ...(seal.root_state === 'never_created' ? ['root_state'] : []),
+      'root_device_id', 'root_inode_id', 'parent_device_id', 'parent_inode_id',
+      'owner_marker_sha256', 'tombstone_sha256', 'owner_cleanup_event_sha256',
+    ]) || seal.claim_id !== ready.claim_id ||
+      seal.resource_lineage_id !== ready.resource_lineage_id ||
+      seal.handle !== ready.handle ||
+      seal.cleanup_authority_id !== ready.cleanup_authority_id ||
+      JSON.stringify(seal.covered_generations) !== JSON.stringify(ready.covered_generations)) {
+      throw new Error('t4_cleanup_boundary_invalid');
+    }
+    verifyCanonicalOwnerCleanup(seal);
+    return acknowledgeHarnessVerificationCleanupAlreadyGated({
+      stateRoot,
+      blockId: ready.block_id,
+      slotId: ready.evaluation_slot_id,
+      seal,
+    });
+  });
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+  lines.close();
+} catch (error: any) {
+  console.error(error?.message ?? 't4_cleanup_boundary_invalid');
+  process.exitCode = 1;
+  lines.close();
+}

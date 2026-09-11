@@ -1,0 +1,107 @@
+#!/usr/bin/env bun
+import { resolveRuntimeStateRoot } from '../lib/canonical-state-root';
+import { resolveWorkspaceGovernanceLocation } from '../lib/project-identity';
+import { spawnSync } from 'node:child_process';
+import { lstatSync } from 'node:fs';
+import {
+  admitHarnessVerificationReplayStart,
+  claimHarnessVerificationReplay,
+  recordHarnessVerificationAmbiguity,
+  type HarnessAmbiguousAttempt,
+} from '../lib/milestone-harness-replay';
+
+function exactObject(value: unknown, keys: string[]): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) &&
+    JSON.stringify(Object.keys(value as Record<string, unknown>).sort()) === JSON.stringify([...keys].sort());
+}
+
+try {
+  const payload = JSON.parse(await Bun.stdin.text());
+  const testing = process.env.ECPE_TESTING === '1';
+  if (!exactObject(payload, testing ? ['operation', 'initial_claim', 'ambiguity'] : ['operation', 'initial_claim'])) throw new Error('t4_replay_boundary_invalid');
+  if (!['publish-ambiguity', 'claim-replay', 'admit-start'].includes(payload.operation)) throw new Error('t4_replay_boundary_invalid');
+  const initial = payload.initial_claim;
+  const initialKeys = payload.operation === 'admit-start' ? [
+    'claim_id', 'parent_claim_id', 'block_id', 'evaluation_slot_id', 'participant',
+    'expected_base_sha', 'expected_head_sha', 'descriptor_id', 'generation',
+    'participant_subject_hash', 'roots', 'registry_hash', 'resource_lineage_id',
+    'verification_resource_handle', 'consumed_ambiguous_sha256', 'replays_used',
+    'retry_started_at', 'retry_deadline_at', 'replay_event_hash',
+  ] : [
+    'claim_id', 'block_id', 'evaluation_slot_id', 'participant', 'expected_base_sha',
+    'expected_head_sha', 'descriptor_id', 'generation', 'participant_subject_hash',
+    'roots', 'registry_hash',
+  ];
+  if (!exactObject(initial, initialKeys)) throw new Error('t4_replay_boundary_invalid');
+  if (
+    initial.participant !== 'harness-governance' ||
+    initial.descriptor_id !== 'harness.t4'
+  ) throw new Error('t4_replay_boundary_invalid');
+  if (payload.operation === 'admit-start') {
+    if (initial.generation !== 1 || typeof initial.parent_claim_id !== 'string') throw new Error('t4_replay_boundary_invalid');
+    const stateRoot = resolveRuntimeStateRoot().root;
+    console.log(JSON.stringify(admitHarnessVerificationReplayStart({
+      stateRoot,
+      blockId: String(initial.block_id),
+      slotId: String(initial.evaluation_slot_id),
+      claimId: String(initial.claim_id),
+      assertClaim: initial,
+    })));
+    process.exit(0);
+  }
+  if (initial.generation !== 0) throw new Error('t4_replay_boundary_invalid');
+  let ambiguity: HarnessAmbiguousAttempt;
+  if (testing) {
+    ambiguity = payload.ambiguity as HarnessAmbiguousAttempt;
+  } else {
+    const governance = resolveWorkspaceGovernanceLocation(process.cwd());
+    const helper = `${governance.code_root}/scripts/ops/ecpe_verify_workspace.py`;
+    const helperInfo = lstatSync(helper);
+    if (!helperInfo.isFile() || helperInfo.isSymbolicLink() || helperInfo.uid !== process.geteuid?.() || (helperInfo.mode & 0o022) !== 0) {
+      throw new Error('t4_replay_boundary_invalid');
+    }
+    const child = spawnSync('/usr/bin/python3', [
+      helper, 'inspect-ambiguity', '--purpose', 't4-final',
+      '--claim-id', String(initial.claim_id), '--json',
+    ], {
+      cwd: governance.code_root,
+      encoding: 'utf8',
+      timeout: 30_000,
+      shell: false,
+      env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', PYTHONNOUSERSITE: '1' },
+    });
+    if (child.status !== 0) throw new Error('t4_replay_boundary_invalid');
+    try { ambiguity = JSON.parse(child.stdout); }
+    catch { throw new Error('t4_replay_boundary_invalid'); }
+  }
+  if (ambiguity.claim_id !== initial.claim_id || ambiguity.generation !== 0) {
+    throw new Error('t4_replay_boundary_invalid');
+  }
+  const stateRoot = resolveRuntimeStateRoot().root;
+  const published = recordHarnessVerificationAmbiguity({
+    stateRoot,
+    blockId: String(initial.block_id),
+    slotId: String(initial.evaluation_slot_id),
+    expectedBase: String(initial.expected_base_sha),
+    expectedHead: String(initial.expected_head_sha),
+    ambiguity,
+  });
+  if (payload.operation === 'publish-ambiguity') {
+    console.log(JSON.stringify(published));
+    process.exit(0);
+  }
+  const replay = claimHarnessVerificationReplay({
+    stateRoot,
+    blockId: String(initial.block_id),
+    slotId: String(initial.evaluation_slot_id),
+  });
+  if (replay.result === 'checkpoint_required') {
+    console.log(JSON.stringify(replay));
+    process.exit(0);
+  }
+  const { result: _result, next_operation: _next, ...claim } = replay;
+  console.log(JSON.stringify(claim));
+} catch (error: any) {
+  console.error(error?.message ?? 't4_replay_boundary_invalid');
+  process.exit(1);
+}

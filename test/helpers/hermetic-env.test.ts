@@ -243,6 +243,8 @@ describe('hermeticChildEnv composition', () => {
     const dirs = getHermeticDirs();
     expect(e.CLAUDE_CONFIG_DIR).toBe(dirs.configDir);
     expect(e.GSTACK_HOME).toBe(dirs.gstackHome);
+    expect(e.ECPE_TESTING).toBe('1');
+    expect(e.ECPE_TEST_STATE_ROOT).toBe(dirs.gstackHome);
     expect(e.GSTACK_HEADLESS).toBe('1');
     expect(e.CLAUDECODE).toBeUndefined();
     expect(e.CONDUCTOR_WORKSPACE_PATH).toBeUndefined();

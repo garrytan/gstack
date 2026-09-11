@@ -1,6 +1,42 @@
 import type { TemplateContext } from '../types';
 
 export function generateAskUserFormat(ctx: TemplateContext): string {
+  if (['review', 'ship', 'land-and-deploy', 'setup-deploy'].includes(ctx.skillName)) {
+    return `## AskUserQuestion Format
+
+Use the host's native question mechanism only when a material choice remains.
+For this governed workflow, host hooks defer neutrally and neither prose nor a
+tool result may invoke question-log, preference, settings, or plan-tuning
+writers. Missing or ambiguous session binding is also read-only.
+
+Read \`SESSION_KIND\` from \`lifecycle.status.session_kind\` in the fused
+execution-plan. Empty, missing, or unknown values are not permission to guess.
+
+### When AskUserQuestion is unavailable or a call fails
+
+Branch on \`SESSION_KIND\`: \`spawned\` selects the recommended reversible option,
+\`headless\` stops with \`BLOCKED — AskUserQuestion unavailable\`, and only
+\`interactive\` may present the same decision brief in prose. Never auto-decide
+a one-way door. Use this complete shape for either transport:
+
+ELI10: explain the decision and its user-visible consequence.
+Stakes if we pick wrong: name the concrete loss or failure.
+Recommendation: A because it best preserves the verified boundary.
+Completeness: A=10/10, B=7/10.
+Pros / cons:
+A) bounded option (recommended)
+  ✅ Exact scope and independently verifiable postconditions.
+  ❌ Stops when an assertion cannot be proved.
+B) defer the effect
+  ✅ Preserves all current state while collecting missing evidence.
+  ❌ Delays the requested external mutation.
+Net: choose between verified execution and safe deferral.
+
+### Self-check before emitting
+
+Confirm ELI10, stakes, recommendation, completeness, pros/cons, and Net are
+present. For destructive choices require an explicit typed confirmation.`;
+  }
   return `## AskUserQuestion Format
 
 ### Tool resolution (read first)

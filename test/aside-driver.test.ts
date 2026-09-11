@@ -33,8 +33,8 @@ const setupProbe = setup.match(/```bash\n([\s\S]*?)```/)![1];
 /** A line that invokes Aside's agent directly, bypassing the receipted `_aside_exec` wrapper. */
 const BARE_ASIDE_EXEC = /^\s*aside exec "/m;
 
-/** Skills whose generated docs must drive the browser through Aside, with the `$B` fallback. */
-const BROWSING_SKILLS = ['browse', 'qa', 'qa-only', 'design-review', 'scrape', 'benchmark', 'canary', 'land-and-deploy', 'devex-review', 'design-consultation'];
+/** Skills that carry the shared Aside + `$B` browser contract. */
+const SHARED_BROWSER_CONTRACT_SKILLS = ['browse', 'qa', 'qa-only', 'design-review', 'scrape', 'benchmark', 'canary', 'devex-review', 'design-consultation'];
 
 /** Skills that inline no scripts of their own and therefore carry the cookbook too. */
 const COOKBOOK_SKILLS = ['browse', 'devex-review'];
@@ -315,8 +315,8 @@ describe('web research ({{ASIDE_RESEARCH}})', () => {
 });
 
 describe('browser consolidation tripwires', () => {
-  test('every browsing skill carries the Aside contract followed by the $B fallback', () => {
-    for (const skill of BROWSING_SKILLS) {
+  test('every shared-contract browsing skill carries Aside followed by the $B fallback', () => {
+    for (const skill of SHARED_BROWSER_CONTRACT_SKILLS) {
       const md = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
       const aside = md.indexOf('## BROWSER SETUP (Aside');
       const fb = md.indexOf("## Browser fallback: gstack's own headless browser");

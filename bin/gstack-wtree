@@ -21,11 +21,9 @@
 # produce the identical write-tree hash. Fallback: `read-tree HEAD` when the
 # index copy is unavailable (fresh repo, exotic index).
 #
-# The real repo index is never touched. Staged blobs land in the object store
-# as unreachable objects and get gc'd like stash churn (note: this means the
-# CONTENT of untracked, non-ignored files enters .git/objects until gc — the
-# same property `git stash -u` has). Exit 1 outside a git repo or in a repo
-# with no commits — callers treat that as "no fingerprint".
+# The real repo index and object store are never touched. New blobs/trees land
+# only in helper-owned temporary metadata; the source object directory is a
+# read-only alternate. Exit 1 outside a git repo or without a commit.
 set -euo pipefail
 
 TOP=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
@@ -33,9 +31,18 @@ TOP=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
 # var set, `git rev-parse --git-path index` returns the temp index itself and
 # the stat-cache seed silently self-copies into a dead fast path.
 REAL_INDEX=$(git -C "$TOP" rev-parse --git-path index 2>/dev/null || true)
-TMPIDX=$(mktemp "${TMPDIR:-/tmp}/gstack-wtree-XXXXXX")
-trap 'rm -f "$TMPIDX"' EXIT
+COMMON_DIR=$(git -C "$TOP" rev-parse --git-common-dir 2>/dev/null) || exit 1
+case "$COMMON_DIR" in /*) ;; *) COMMON_DIR="$TOP/$COMMON_DIR" ;; esac
+SOURCE_OBJECTS=$(cd "$COMMON_DIR/objects" 2>/dev/null && pwd -P) || exit 1
+TMPROOT=$(mktemp -d "${TMPDIR:-/tmp}/gstack-wtree-XXXXXX")
+TMPIDX="$TMPROOT/index"
+mkdir -p "$TMPROOT/objects"
+trap 'rm -rf "$TMPROOT"' EXIT
 export GIT_INDEX_FILE="$TMPIDX"
+export GIT_OBJECT_DIRECTORY="$TMPROOT/objects"
+export GIT_ALTERNATE_OBJECT_DIRECTORIES="$SOURCE_OBJECTS"
+export GIT_OPTIONAL_LOCKS=0
+unset GIT_EXTERNAL_DIFF
 # Resolve relative --git-path output against the repo root.
 case "$REAL_INDEX" in
   ""|/*) ;;

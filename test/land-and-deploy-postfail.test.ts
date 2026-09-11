@@ -1,11 +1,13 @@
 /**
- * Coverage for PR #1620 — Post-failure PR-state check after `gh pr merge`
- * non-zero exit.
+ * ECPE v3 post-failure reconciliation after the closed direct-merge adapter
+ * returns non-zero. The provider may have accepted the mutation even when the
+ * response was lost, so only a fresh read is permitted; a second merge or any
+ * cleanup mutation is forbidden.
  *
  * The fix lives in land-and-deploy/sections/merge-and-deploy.md.tmpl as Step
  * §4a-postfail (the Step 4/5 body was carved out of the skeleton into an
  * on-demand section — prompt-token-load-reduction carve; the skeleton keeps
- * only the STOP-Read pointer). After ANY non-zero `gh pr merge`, the skill
+ * only the STOP-Read pointer). After ANY non-zero direct-adapter exit, the skill
  * must query authoritative PR state via
  * `gh pr view --json state,mergeCommit,mergedAt,mergedBy` and
  * branch on the result instead of retrying `gh pr merge` (cli/cli#3442,
@@ -16,11 +18,11 @@
  *   - Universal invariant text + reference to upstream gh bugs
  *   - All three state branches (MERGED, OPEN, CLOSED) named explicitly
  *   - MERGED branch: capture merge SHA via mergeCommit.oid
- *   - MERGED branch: non-destructive worktree cleanup with uncommitted-work guard
- *   - MERGED branch: continues to §4a CI watch
+ *   - MERGED branch: no branch or worktree cleanup
+ *   - MERGED branch: continues to §4a merge-queue detection
  *   - OPEN branch: checks autoMergeRequest before treating as failure
  *   - CLOSED branch: STOPs
- *   - Hard rule: never retry `gh pr merge`
+ *   - Hard rule: never issue a second merge mutation
  *   - .tmpl edit propagated to generated SKILL.md (atomic per T-Codex-3)
  */
 import { describe, expect, test } from "bun:test";
@@ -52,12 +54,11 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(postfail).toBeLessThan(queue);
   });
 
-  test("Universal invariant + upstream gh bug references", () => {
+  test("Universal invariant is bound to the closed direct adapter", () => {
     const body = readTmpl();
     expect(body).toMatch(/Universal invariant/);
-    expect(body).toMatch(/non-zero exit from `gh pr merge`/);
-    expect(body).toMatch(/cli\/cli#3442/);
-    expect(body).toMatch(/cli\/cli#13380/);
+    expect(body).toMatch(/non-zero direct adapter exit/);
+    expect(body).toMatch(/do not retry or/);
   });
 
   test("Authoritative state query uses gh pr view --json", () => {
@@ -77,45 +78,24 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/gh pr view --json mergeCommit -q \.mergeCommit\.oid/);
   });
 
-  test("MERGED worktree cleanup is non-destructive (uncommitted-work guard)", () => {
+  test("MERGED reconciliation performs no branch or worktree cleanup", () => {
     const body = readTmpl();
-    expect(body).toMatch(/uncommitted work/);
-    expect(body).toMatch(/STOP worktree cleanup without removing/);
-    expect(body).toMatch(/Do NOT use `--force`/);
-    expect(body).toMatch(/Do NOT remove the user's primary working tree/);
-  });
-
-  test("MERGED branch continues to §4b CI auto-deploy detection", () => {
-    const body = readTmpl();
-    expect(body).toMatch(/continue to §4b \(CI auto-deploy detection\)/);
-  });
-
-  // #2656: the failed merge carried --delete-branch; the recovery path must
-  // reconcile the remote branch instead of silently dropping that half.
-  // #2696: that reconciliation must target the PR head repository, not the
-  // base checkout's origin, because fork branches do not exist in origin.
-  test("MERGED branch reconciles the PR head repository (ls-remote, confirm-first delete)", () => {
-    const body = readTmpl();
-    expect(body).toMatch(/gh pr view --json headRepositoryOwner,headRepository,headRefName/);
-    // gh leaves .headRepository.nameWithOwner empty (verified live, gh 2.83) —
-    // owner/name is composed from headRepositoryOwner.login + headRepository.name.
-    expect(body).toMatch(/headRepositoryOwner\.login/);
-    expect(body).not.toMatch(/\[\.headRepository\.nameWithOwner/);
-    expect(body).toMatch(/git ls-remote --heads "https:\/\/github\.com\/<head-repository>\.git" "<head-branch>"/);
-    expect(body).toMatch(/git push "https:\/\/github\.com\/<head-repository>\.git" --delete "<head-branch>"/);
-    expect(body).not.toMatch(/git ls-remote --heads origin/);
+    expect(body).toMatch(/cleanup are outside landing/);
+    expect(body).toMatch(/without deleting, moving, pruning/);
     expect(body).not.toMatch(/git push origin --delete/);
-    // Confirm-first: deletion is offered, never unilateral.
-    expect(body).toMatch(/Delete it\?/);
+    expect(body).not.toMatch(/git worktree remove/);
   });
 
-  test("MERGED branch reconciliation distinguishes branch-absent from check-failed", () => {
+  test("MERGED branch continues to §4a merge-queue detection", () => {
     const body = readTmpl();
-    // exit 0 + empty output = already clean (idempotent re-runs)...
-    expect(body).toMatch(/already been cleaned up/);
-    // ...non-zero exit = unknown state, never read as a clean branch.
-    expect(body).toMatch(/Couldn't verify remote branch state/);
-    expect(body).toMatch(/never read a failed check as a clean branch/);
+    expect(body).toMatch(/continue to §4a/);
+  });
+
+  test("the mutation path is one head-CAS direct request without auto-merge", () => {
+    const body = readTmpl();
+    expect(body).toMatch(/one head-CAS direct squash request/);
+    expect(body).toMatch(/never enables auto-merge/);
+    expect(body).not.toMatch(/^gh pr merge\b/m);
   });
 
   test("OPEN branch checks autoMergeRequest before treating as failure", () => {
@@ -129,16 +109,28 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/state == "CLOSED".*[\s\S]{0,200}STOP/);
   });
 
-  test("Hard rule: never retry gh pr merge after non-zero exit", () => {
+  test("Hard rule: never issue a second merge mutation after non-zero exit", () => {
     const body = readTmpl();
-    expect(body).toMatch(/never call `gh pr merge` a second time/);
+    expect(body).toMatch(/never issue a second merge mutation/);
   });
 
   test("Generated merge-and-deploy.md carries the §4a-postfail section (atomic regen per T-Codex-3)", () => {
     const md = readMd();
     expect(md).toMatch(/### 4a-postfail: Post-failure PR-state check/);
     expect(md).toMatch(/state == "MERGED"/);
-    expect(md).toMatch(/headRepositoryOwner\.login/);
+    expect(md).toMatch(/cleanup are outside landing/);
     expect(md).not.toMatch(/git ls-remote --heads origin/);
+  });
+
+  test("generated flow reconciles first and uses the direct mutation at most once", () => {
+    for (const body of [readTmpl(), readMd()]) {
+      const reconcile = body.indexOf('gstack-effect-scope provider-merge reconcile');
+      const direct = body.indexOf('gstack-effect-scope provider-merge direct');
+      expect(reconcile).toBeGreaterThan(-1);
+      expect(direct).toBeGreaterThan(reconcile);
+      expect(body.match(/gstack-effect-scope provider-merge direct/g)).toHaveLength(1);
+      const directBranch = body.slice(direct, body.indexOf('; then', direct));
+      expect(directBranch).not.toContain('|| exit 1');
+    }
   });
 });

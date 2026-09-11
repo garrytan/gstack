@@ -1,0 +1,28 @@
+schema_version: harness.gstack.work-profile.v1
+semantic_paths: [{ glob: src/**, roles: [code] }]
+capabilities: { unit: { version: "1" } }
+validators:
+  unit:
+    capability: unit
+    execution_effect: paid_model
+    argv: [bun, test]
+    required_by_surface: [code]
+    depends_on: [code]
+lanes:
+  docs_ux: { activation: legacy, required_capabilities: [], stage_requirements: {} }
+  single_repo_code: { activation: enforce, required_capabilities: [unit], stage_requirements: {} }
+  cross_repo_contract: { activation: legacy, required_capabilities: [unit], stage_requirements: {} }
+release: { mode: none, title_policy: free }
+metadata_projections: []
+deploy_targets:
+  none: { id: none, environment_class: none, trigger: none, binding: { adapter_id: none.v1 } }
+recording:
+  response: response
+  artifact: receipt
+  local_change: session
+  review_receipt: session
+  pr_open: session
+  merged: release
+  deployed: release
+  verified: session
+  operation_result: session

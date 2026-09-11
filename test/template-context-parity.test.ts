@@ -34,8 +34,8 @@ describe('section TemplateContext parity (skillName pinned to parent)', () => {
 
   test('adversarial section rendered the ADVERSARIAL_STEP resolver (proves ship ctx)', () => {
     const content = readSection('adversarial.md');
-    // The codex filesystem-boundary line only appears when ADVERSARIAL_STEP resolves.
-    expect(content).toContain('Do NOT read or execute any files under');
+    // The closed paid adapter only appears when ADVERSARIAL_STEP resolves.
+    expect(content).toContain('gstack-effect-scope ensure-paid-validator');
     expect(content.length).toBeGreaterThan(500);
   });
 

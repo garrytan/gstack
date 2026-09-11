@@ -20,8 +20,9 @@
 import { describe, test, expect } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';
 import { spawnSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 
 const ROOT = join(import.meta.dir, '..');
 const FIXTURE_PATH = join(ROOT, 'test/fixtures/ios-qa/FixtureApp');
@@ -303,7 +304,22 @@ function hasSwift(): boolean {
   return r.status === 0;
 }
 
-const swiftAvailable = hasSwift();
+// `swift` on PATH doesn't guarantee XCTest is available (e.g. Command Line
+// Tools without full Xcode) — the block below runs `swift test`, which needs
+// it. Probe directly rather than trusting hasSwift() alone.
+function hasXCTest(): boolean {
+  const dir = mkdtempSync(join(tmpdir(), 'gstack-xctest-probe-'));
+  try {
+    const probe = join(dir, 'Probe.swift');
+    writeFileSync(probe, 'import XCTest\n');
+    const r = spawnSync('swiftc', [probe, '-o', join(dir, 'probe.out')], { stdio: 'pipe' });
+    return r.status === 0;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const swiftAvailable = hasSwift() && hasXCTest();
 const describeIfSwift = swiftAvailable ? describe : describe.skip;
 
 describeIfSwift('swift build invariants', () => {

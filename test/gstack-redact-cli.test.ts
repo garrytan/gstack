@@ -45,12 +45,14 @@ describe("gstack-redact exit codes", () => {
 
 describe("gstack-redact --json", () => {
   test("emits valid JSON with findings + counts", () => {
-    const { stdout, code } = run(["--json"], `key ${FAKE_AWS_KEY}`);
+    const input = `key ${FAKE_AWS_KEY}`;
+    const { stdout, code } = run(["--json"], input);
     expect(code).toBe(3);
     const parsed = JSON.parse(stdout);
     expect(parsed.findings[0].id).toBe("aws.access_key");
     expect(parsed.counts.HIGH).toBe(1);
     expect(parsed.repoVisibility).toBe("unknown");
+    expect(parsed.body_sha256).toBe(new Bun.CryptoHasher("sha256").update(input).digest("hex"));
   });
 });
 

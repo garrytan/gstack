@@ -1,5 +1,9 @@
 ## Step 8: Plan Completion Audit
 
+ECPE: add one content-free helper `spawn` partial when dispatched and one
+`validator` partial with ID `plan-completion-audit`, measured duration, and
+pass/fail at the decisive result. Do not copy plan items, paths, or summaries.
+
 **Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent reads the plan file and every referenced code file in its own fresh context. Parent gets only the conclusion.
 
 {{FOREGROUND_DISPATCH_NOTE}} The Gate Logic below consumes this audit's LAST-line JSON before /ship can proceed.
@@ -31,7 +35,7 @@ Counts map one-to-one to the classifications above and sum to total_items. No pl
 
 {{PLAN_VERIFICATION_EXEC}}
 
-{{LEARNINGS_SEARCH:query=release ship version changelog merge pr}}
+Do not invoke learnings or gbrain helpers from governed ship.
 
 {{SCOPE_DRIFT}}
 

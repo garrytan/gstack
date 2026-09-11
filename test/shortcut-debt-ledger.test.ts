@@ -37,11 +37,21 @@ describe('writer: AUQ format preamble mandates the marker', () => {
     expect(resolver).toContain('never a turn-level choice');
   });
 
-  test('rendered tier-2+ skeletons carry the trail rule (always-loaded, like the AUQ format itself)', () => {
-    for (const skill of ['plan-ceo-review', 'ship', 'retro']) {
+  test('ungoverned tier-2+ skeletons carry the trail rule', () => {
+    for (const skill of ['plan-ceo-review', 'retro']) {
       const body = read(`${skill}/SKILL.md`);
       expect(body).toContain('Accepted shortcuts leave a trail');
       expect(body).toContain('gstack-shortcut(dec-<id>)');
+    }
+  });
+
+  test('governed workflows keep questions read-only and never infer debt writes', () => {
+    for (const skill of ['review', 'ship', 'land-and-deploy', 'setup-deploy']) {
+      const body = read(`${skill}/SKILL.md`);
+      expect(body).toContain('neither prose nor a\ntool result may invoke question-log');
+      expect(body).not.toContain('Accepted shortcuts leave a trail');
+      expect(body).not.toContain('gstack-shortcut(dec-<id>)');
+      expect(body).not.toContain('gstack-decision-log');
     }
   });
 });

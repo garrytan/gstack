@@ -86,7 +86,7 @@ describe('codex frontier model flag is present', () => {
     expect(CODEX_MODEL_CONFIG_FLAG).toBe('-c "model=\\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\\""');
   });
 
-  test('native review overrides both model settings with the same selection', () => {
+  test('native Codex review keeps the model override while governed review/ship use the closed validator', () => {
     for (const override of ['', 'custom-codex']) {
       const argv = execFileSync('bash', ['-c', `printf '%s\\n' ${CODEX_REVIEW_MODEL_CONFIG_FLAG}`], {
         env: { ...process.env, GSTACK_CODEX_MODEL: override }, encoding: 'utf8', timeout: 5000,
@@ -94,12 +94,20 @@ describe('codex frontier model flag is present', () => {
       const expected = override || 'gpt-6-astra';
       expect(argv).toEqual(['-c', `model="${expected}"`, '-c', `review_model="${expected}"`]);
     }
-    for (const file of ['codex/sections/review-mode.md', 'review/sections/adversarial.md', 'ship/sections/adversarial.md']) {
-      const rendered = fs.readFileSync(path.join(ROOT, file), 'utf8');
-      const calls = rendered.split('\n').filter(line => line.includes('codex review --base') && line.includes('2>'));
-      expect(calls.length).toBeGreaterThan(0);
-      for (const call of calls) expect(call).toContain(CODEX_REVIEW_MODEL_CONFIG_FLAG);
-    }
+    const nativeMode = fs.readFileSync(path.join(ROOT, 'codex/sections/review-mode.md'), 'utf8');
+    const nativeCalls = nativeMode.split('\n').filter(line => line.includes('codex review --base') && line.includes('2>'));
+    expect(nativeCalls.length).toBeGreaterThan(0);
+    for (const call of nativeCalls) expect(call).toContain(CODEX_REVIEW_MODEL_CONFIG_FLAG);
+
+    const governedResolver = fs.readFileSync(path.join(ROOT, 'scripts/resolvers/review.ts'), 'utf8');
+    expect(governedResolver).toContain('gstack-effect-scope ensure-paid-validator');
+    expect(governedResolver).toContain('--validator-id codex.adversarial.v1');
+    expect(governedResolver).toContain('--validator-id codex.review.v1');
+    expect(governedResolver).not.toContain('_gstack_codex_timeout_wrapper 540 codex review --base');
+
+    const closedRunner = fs.readFileSync(path.join(ROOT, 'lib/paid-validator-runner.ts'), 'utf8');
+    expect(closedRunner).toContain("argv = [codex, 'review', '--base', await defaultBase(cwd)");
+    expect(closedRunner).toContain("'-c', 'model_reasoning_effort=\"high\"'");
   });
 
   test('rendered codex mode sections resolve the model token at every invocation site', () => {

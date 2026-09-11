@@ -68,6 +68,13 @@ interface ExtractedQuestion {
 const MARKER_RE = /<gstack-qid:([a-z0-9-]{1,64})>/i;
 const RECOMMENDED_LABEL_RE = /\(recommended\)\s*$/i;
 
+function isGovernedSession(sessionId: string | undefined): boolean {
+  if (!sessionId || !/^[A-Za-z0-9._-]+$/.test(sessionId)) return false;
+  const root = process.env.GSTACK_STATE_ROOT || process.env.GSTACK_HOME || path.join(os.homedir(), '.gstack');
+  return ['review', 'ship', 'land-and-deploy', 'setup-deploy']
+    .some((skill) => fs.existsSync(path.join(root, 'governed-runs', `${sessionId}.${skill}.active`)));
+}
+
 function logHookError(msg: string): void {
   try {
     const stateRoot =
@@ -275,6 +282,8 @@ async function main(): Promise<void> {
     logHookError(`stdin parse failed: ${(e as Error).message}`);
     process.exit(0);
   }
+
+  if (isGovernedSession(stdin.session_id)) process.exit(0);
 
   const toolName = stdin.tool_name || '';
   if (

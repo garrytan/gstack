@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "1.84.1",
+  "version": "1.85.0",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -10,6 +10,7 @@
   },
   "scripts": {
     "build": "bash scripts/build.sh",
+    "build:authority": "bun run scripts/build-authority-bundles.ts",
     "vendor:xterm": "mkdir -p extension/lib && cp node_modules/xterm/lib/xterm.js extension/lib/xterm.js && cp node_modules/xterm/css/xterm.css extension/lib/xterm.css && cp node_modules/xterm-addon-fit/lib/xterm-addon-fit.js extension/lib/xterm-addon-fit.js",
     "dev:make-pdf": "bun run make-pdf/src/cli.ts",
     "dev:design": "bun run design/src/cli.ts",
@@ -59,8 +60,9 @@
     "diff": "^9.0.0",
     "html-to-docx": "1.8.0",
     "marked": "^18.0.11",
-    "playwright": "^1.62.1",
-    "socks": "^2.8.9"
+    "playwright": "1.62.1",
+    "socks": "^2.8.9",
+    "yaml": "2.9.0"
   },
   "engines": {
     "bun": ">=1.0.0"

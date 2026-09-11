@@ -37,6 +37,7 @@ import { generateThirdPartyActions } from './third-party-actions';
 import { generateAsideSetup, generateAsideCookbook, generateAsideResearch, generateUntrustedContentWarning, asideExecPrelude } from './aside';
 import { generateCommandReference, generateSnapshotFlags, generateBrowseSetup, generateBrowseFallback } from './browse';
 import { generateDesignDocDiscovery } from './design-doc-discovery';
+import { generateWorkflowEffectBoundary } from './effects';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   SLUG_EVAL: generateSlugEval,
@@ -49,6 +50,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   THIRD_PARTY_ACTIONS: generateThirdPartyActions,
   DESIGN_DOC_DISCOVERY: generateDesignDocDiscovery,
   UNTRUSTED_CONTENT_WARNING: generateUntrustedContentWarning,
+  WORKFLOW_EFFECT_BOUNDARY: generateWorkflowEffectBoundary,
   COMMAND_REFERENCE: generateCommandReference,
   SNAPSHOT_FLAGS: generateSnapshotFlags,
   BROWSE_SETUP: generateBrowseSetup,

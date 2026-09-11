@@ -2,6 +2,11 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 ## Step 7: Test Coverage Audit
 
+ECPE: record the selected helper as one content-free `spawn` partial
+(`kind:"helper"`, `execution_effect:"read"`) and the decisive audit as one
+`validator` partial with ID `test-coverage-audit`, measured duration, and
+pass/fail. Keep all response text, paths, and diagrams out of the batch.
+
 **Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent runs the coverage audit in a fresh context window — the parent only sees the conclusion, not intermediate file reads. This is context-rot defense.
 
 **Foreground required:** pass `run_in_background: false` on the Agent call — subagents run in the BACKGROUND by default since Claude Code v2.1.198. (Merely omitting the flag no longer produces a foreground run; it must be explicitly false.) The dispatch happens ONLY via the Agent tool: invoking the target as a Skill, or executing its workflow inline in your own context, is WRONG even though the skill may appear in your available-skills list — inline execution forfeits the fresh-context isolation this dispatch exists for, and the explicit flag already makes the Agent call block. (Where a step defines an inline FALLBACK, it applies only after a dispatched subagent has failed.) The parent needs this audit's LAST-line JSON before continuing.

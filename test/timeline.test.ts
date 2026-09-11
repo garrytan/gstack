@@ -1,14 +1,30 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { execFileSync, execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
+import { execFileSync, execSync, spawnSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { resolveProjectIdentity } from '../lib/project-identity';
+import { createInstalledAuthorityFixture } from './helpers/installed-authority';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const BIN = path.join(ROOT, 'bin');
+let installed: ReturnType<typeof createInstalledAuthorityFixture>;
+let BIN: string;
 
 let tmpDir: string;
 let slugDir: string;
+
+beforeAll(() => {
+  const build = spawnSync(process.execPath, ['run', 'scripts/build-authority-bundles.ts'], {
+    cwd: ROOT,
+    stdio: 'pipe',
+    timeout: 30_000,
+  });
+  expect(build.status).toBe(0);
+  installed = createInstalledAuthorityFixture(ROOT);
+  BIN = installed.bin;
+});
+
+afterAll(() => installed?.cleanup());
 
 function runLog(input: string, opts: { expectFail?: boolean } = {}): { stdout: string; exitCode: number } {
   const execOpts: ExecSyncOptionsWithStringEncoding = {
@@ -28,9 +44,9 @@ function runLog(input: string, opts: { expectFail?: boolean } = {}): { stdout: s
   }
 }
 
-function runRead(args: string = ''): string {
+function runRead(args: string = '', cwd: string = ROOT): string {
   const execOpts: ExecSyncOptionsWithStringEncoding = {
-    cwd: ROOT,
+    cwd,
     env: { ...process.env, GSTACK_HOME: tmpDir },
     encoding: 'utf-8',
     timeout: 15000,
@@ -118,6 +134,14 @@ describe('gstack-timeline-log', () => {
     expect(parsed.ts).toBe('2025-06-15T10:00:00Z');
   });
 
+  test('stamps canonical repository and raw branch identity on every new write', () => {
+    runLog('{"skill":"review","event":"started"}');
+    const identity = resolveProjectIdentity(ROOT);
+    const parsed = JSON.parse(fs.readFileSync(findTimelineFile()!, 'utf-8').trim());
+    expect(parsed.repo_id).toBe(identity.repo_id);
+    expect(parsed.branch_ref).toBe(identity.raw_branch);
+  });
+
   test('validates required fields (skill, event) - exits 0 if missing skill', () => {
     const result = runLog('{"event":"started","branch":"main"}');
     expect(result.exitCode).toBe(0);
@@ -132,6 +156,47 @@ describe('gstack-timeline-log', () => {
 
     const f = findTimelineFile();
     expect(f).toBeNull();
+  });
+
+  test('rejects ECPE events containing content-bearing keys without blocking legacy telemetry', () => {
+    const result = runLog(JSON.stringify({
+      skill: 'review',
+      event: 'observation',
+      ecpe: {
+        schema_version: 1,
+        run_id: 'run-1',
+        timestamp: '2026-08-31T00:00:00.000Z',
+        wtree: 'repo-1',
+        kind: 'decision',
+        work_kind: 'review',
+        finish_line: 'review_receipt',
+        semantic_roles: ['code'],
+        prompt: 'must never enter the timeline',
+      },
+    }));
+
+    expect(result.exitCode).toBe(0);
+    expect(findTimelineFile()).toBeNull();
+  });
+
+  test('rejects caller-forged canary-control observations', () => {
+    runLog(JSON.stringify({
+      skill: 'review',
+      event: 'observation',
+      ecpe: {
+        schema_version: 1,
+        run_id: 'run-control',
+        timestamp: '2026-08-31T00:00:00.000Z',
+        wtree: 'repo-1',
+        kind: 'decision',
+        execution_purpose: 'canary_control',
+        work_kind: 'review',
+        finish_line: 'review_receipt',
+        capability_ids: ['review.complete'],
+      },
+    }));
+
+    expect(findTimelineFile()).toBeNull();
   });
 });
 
@@ -175,5 +240,69 @@ describe('gstack-timeline-read', () => {
 
     expect(unlimitedEvents).toBe(5);
     expect(limitedEvents).toBe(2);
+  });
+
+  test('keeps distinct events from one run while deduplicating copies across explicit legacy paths', () => {
+    const fixtureRepo = path.join(tmpDir, 'fixture-repo');
+    fs.mkdirSync(path.join(fixtureRepo, 'config'), { recursive: true });
+    execFileSync('/usr/bin/git', ['init', '-q'], { timeout: 30_000, cwd: fixtureRepo });
+    fs.writeFileSync(path.join(fixtureRepo, 'README.md'), 'fixture\n');
+    execFileSync('/usr/bin/git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'add', 'README.md'], { timeout: 30_000, cwd: fixtureRepo });
+    execFileSync('/usr/bin/git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture'], { timeout: 30_000, cwd: fixtureRepo });
+    fs.writeFileSync(path.join(fixtureRepo, 'config/workspace-registry.toml'), `
+[registry]
+version = 2
+[[entry]]
+id = "fixture-project"
+path = "."
+kind = "repository"
+remote_required = false
+active = true
+aliases = ["legacy-project"]
+`);
+    const identity = resolveProjectIdentity(fixtureRepo);
+    const canonical = path.join(tmpDir, 'projects', identity.write_slug, 'timeline.jsonl');
+    const legacySlug = identity.read_slugs.find((slug) => slug !== identity.write_slug)!;
+    const legacy = path.join(tmpDir, 'projects', legacySlug, 'timeline.jsonl');
+    fs.mkdirSync(path.dirname(canonical), { recursive: true });
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    const started = { skill: 'review', event: 'started', run_id: 'same-run', repo_id: identity.repo_id, ts: '2026-03-28T10:00:00Z' };
+    const completed = { skill: 'review', event: 'completed', run_id: 'same-run', repo_id: identity.repo_id, ts: '2026-03-28T10:01:00Z' };
+    fs.writeFileSync(canonical, `${JSON.stringify(started)}\n${JSON.stringify(completed)}\n`);
+    fs.writeFileSync(legacy, `${JSON.stringify(started)}\n${JSON.stringify(completed)}\n${JSON.stringify({ skill: 'ship', event: 'completed', repo_id: 'wrong/repository', ts: '2026-03-28T10:02:00Z' })}\n`);
+
+    const output = runRead('', fixtureRepo);
+    expect(output).toContain('1 /review');
+    expect(output.split('\n').filter((line) => line.startsWith('- '))).toHaveLength(2);
+    expect(output).not.toContain('/ship');
+  });
+
+  test('--ecpe-json returns validated run summaries while ignoring legacy events', () => {
+    runLog(JSON.stringify({ skill: 'review', event: 'started', branch: 'main' }));
+    runLog(JSON.stringify({
+      skill: 'review',
+      event: 'observation',
+      ecpe: {
+        schema_version: 1,
+        run_id: 'run-json',
+        timestamp: '2026-08-31T00:00:00.000Z',
+        wtree: 'repo-1',
+        kind: 'decision',
+        work_kind: 'review',
+        finish_line: 'review_receipt',
+        semantic_roles: ['code'],
+        capability_ids: ['review.complete'],
+      },
+    }));
+
+    const parsed = JSON.parse(runReadArgs(['--ecpe-json']));
+    expect(parsed.schema_version).toBe(1);
+    expect(parsed.runs).toHaveLength(1);
+    expect(parsed.runs[0]).toMatchObject({
+      run_id: 'run-json',
+      wtree: 'repo-1',
+      semantic_roles: ['code'],
+      capabilities: ['review.complete'],
+    });
   });
 });

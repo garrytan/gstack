@@ -21,6 +21,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { SECTION_BATCHES } from '../lib/section-delivery';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -41,6 +42,19 @@ describe('section manifest ↔ filesystem consistency', () => {
     // Tripwire: if a carve regresses (manifest deleted) this catches it.
     expect(CARVED_SKILLS).toContain('ship');
     expect(CARVED_SKILLS).toContain('plan-ceo-review');
+  });
+
+  test('the authority-compiled stage table exactly covers every passive manifest ID', () => {
+    for (const skill of CARVED_SKILLS) {
+      const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, skill, 'sections', 'manifest.json'), 'utf8'));
+      const compiled = (SECTION_BATCHES as Record<string, Record<string, readonly string[]>>)[skill];
+      expect(compiled).toBeDefined();
+      expect(Object.keys(compiled).sort()).toEqual(manifest.sections.map((section: { id: string }) => section.id).sort());
+      for (const [stage, ids] of Object.entries(compiled)) {
+        expect([...new Set(ids)].sort()).toEqual([...ids].sort());
+        expect(ids).toContain(stage);
+      }
+    }
   });
 
   for (const skill of CARVED_SKILLS) {

@@ -1,5 +1,11 @@
 ## Step 3.5: Pre-merge readiness gate
 
+When this gate begins, add one content-free `gate` partial with
+`phase:"before_final"` and the current run's adapter-reported worktree ID to
+the in-memory ECPE batch. Add `phase:"after_final"` only after the decisive
+readiness result is complete. These are observations only and grant no merge,
+deploy, rollback, or recording effect.
+
 **This is the critical safety check before an irreversible merge.** The merge cannot
 be undone without a revert commit. Gather ALL evidence, build a readiness report,
 and get explicit user confirmation before proceeding.
@@ -12,6 +18,8 @@ Collect evidence for each check below. Track warnings (yellow) and blockers (red
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null
+$GSTACK_ANCHOR_INVOCATION gstack-review-read --require-current review.code \
+  --assert-target-ref "$PR_TARGET_REF" --json
 ```
 
 Parse the output. For each review skill (plan-eng-review, plan-ceo-review,
@@ -91,6 +99,59 @@ and tell the user: "I found and fixed a few issues during the review. The fixes 
 ### 3.5b: Test results
 
 **Free tests — cite fresh evidence or run them now:**
+
+First inspect the typed ShipReceipt for this exact provider head. If it is
+missing or stale, run each required read validator against a helper-owned
+private checkout; never validate the user's current checkout as the PR head.
+
+```bash
+SHIP_HANDOFF_STATUS=0
+SHIP_HANDOFF_JSON=$($GSTACK_ANCHOR_INVOCATION gstack-ship-handoff inspect --stage ship \
+  --pr "$PR_NUMBER" --remote-pr-head "$PR_HEAD_OID" \
+  --assert-target-ref "$PR_TARGET_REF" --expected-base "$PR_BASE_OID" --json) || SHIP_HANDOFF_STATUS=$?
+if [ "$SHIP_HANDOFF_STATUS" -eq 0 ]; then
+  printf '%s' "$SHIP_HANDOFF_JSON" | jq -e '.current == true and (.receipt_run_id | type == "string")' >/dev/null || exit 1
+else
+  printf '%s' "$SHIP_HANDOFF_JSON" | jq -e '.current == false and .blocker == "ship_handoff_missing_or_stale"' >/dev/null || exit 1
+fi
+SHIP_RECEIPT_ID=$(printf '%s' "$SHIP_HANDOFF_JSON" | jq -r 'if .current == true then .receipt_run_id else empty end')
+[ -n "$SHIP_RECEIPT_ID" ] || { echo "BLOCKED: exact ShipReceipt required; rerun /ship for this provider head"; exit 1; }
+SHIP_RELEASE_APPLICABLE=$(printf '%s' "$SHIP_HANDOFF_JSON" | jq -er 'if .current == true then .release_decision.applicable else false end') || exit 1
+SHIP_RELEASE_MODE=$(printf '%s' "$SHIP_HANDOFF_JSON" | jq -er 'if .current == true then .release_decision.mode else empty end') || exit 1
+SHIP_RELEASE_TITLE_POLICY=$(printf '%s' "$SHIP_HANDOFF_JSON" | jq -er 'if .current == true then .release_decision.title_policy else empty end') || exit 1
+if [ "$SHIP_RELEASE_APPLICABLE" = "true" ]; then
+  SHIP_RELEASE_DRIFT_STATUS=active
+else
+  SHIP_RELEASE_DRIFT_STATUS=not_applicable
+fi
+SHIP_PROMOTION_LANE=$(printf '%s' "$SHIP_HANDOFF_JSON" | jq -r 'if .current == true then (.promotion.lane // empty) else empty end')
+SHIP_PROMOTION_BLOCK_ID=$(printf '%s' "$SHIP_HANDOFF_JSON" | jq -r 'if .current == true then (.promotion.block_id // empty) else empty end')
+SHIP_CANARY_LANE=$(printf '%s' "$SHIP_HANDOFF_JSON" | jq -r 'if .current == true then (.canary_subject.lane // empty) else empty end')
+SHIP_CANARY_BLOCK_ID=$(printf '%s' "$SHIP_HANDOFF_JSON" | jq -r 'if .current == true then (.canary_subject.block_id // empty) else empty end')
+SHIP_CANARY_FOCUSED_RUN_ID=$(printf '%s' "$SHIP_HANDOFF_JSON" | jq -r 'if .current == true then (.canary_subject.focused_run_id // empty) else empty end')
+SHIP_CANARY_PROOF=""
+SHIP_CANARY_SAMPLE=""
+if [ -n "$SHIP_CANARY_LANE" ] && [ -n "$SHIP_CANARY_BLOCK_ID" ]; then
+  SHIP_CANARY_JSON=$($GSTACK_ANCHOR_INVOCATION gstack-lane-canary inspect \
+    --block-id "$SHIP_CANARY_BLOCK_ID" --participant portfolioops \
+    --lane "$SHIP_CANARY_LANE" --json) || exit 1
+  SHIP_CANARY_PROOF=$(printf '%s' "$SHIP_CANARY_JSON" | jq -r '.phase as $phase | if (["aggregate_ready","activation_landing_intent","activation_checkpointed","pending_superseded"] | index($phase)) then (.activation_proof_id // empty) else empty end')
+  if [ -z "$SHIP_CANARY_PROOF" ]; then
+    SHIP_CANARY_SAMPLE=$(printf '%s' "$SHIP_CANARY_JSON" | jq -r --arg run "$SHIP_CANARY_FOCUSED_RUN_ID" --arg block "$SHIP_CANARY_BLOCK_ID" '[.comparison_bindings[] | select(.focused_run_id == $run and .source_block_id == $block and .class != "safety_regressed")] | if length == 1 then .[0].comparison_id else empty end')
+  fi
+  if { [ -n "$SHIP_CANARY_PROOF" ] && [ -n "$SHIP_CANARY_SAMPLE" ]; } || { [ -z "$SHIP_CANARY_PROOF" ] && [ -z "$SHIP_CANARY_SAMPLE" ]; }; then exit 1; fi
+fi
+$GSTACK_ANCHOR_INVOCATION gstack-pr-head-guard with-worktree \
+  --pr "$PR_NUMBER" --expected "$PR_HEAD_OID" \
+  --assert-target-ref "$PR_TARGET_REF" --expected-base "$PR_BASE_OID" \
+  --validator "$VALIDATOR_ID"
+```
+
+The merge authority consumes these exact historical ShipReceipt fields. Active
+release decisions must pass the retired-release readiness inspection again at
+the provider-write boundary. `SHIP_RELEASE_DRIFT_STATUS=not_applicable` skips
+all release allocator, queue, writer, retirement, and release-proof operations;
+it is not a warning override.
 
 Check the evidence ledger first:
 
@@ -221,31 +282,35 @@ Build the full readiness report:
 ╚══════════════════════════════════════════════════════════╝
 ```
 
-If there are BLOCKERS (failing free tests): list them and recommend B.
-If there are WARNINGS but no blockers: list each warning and recommend A if
-warnings are minor, or B if warnings are significant.
-If everything is green: recommend A.
+<!-- ECPE_BLOCKER_BRANCH_START -->
+If `BLOCKER_COUNT > 0`: report every blocker and **STOP**. This branch has one
+terminal action: remediation followed by a fresh `/land-and-deploy` invocation.
+Do not render a merge choice, alternative action, or natural-language escape hatch.
+Failed free tests, failed required validation, failed required checks, and unresolved
+hard review findings are blockers and cannot be bypassed.
+<!-- ECPE_BLOCKER_BRANCH_END -->
 
-Use AskUserQuestion:
+<!-- ECPE_WARNING_BRANCH_START -->
+If `BLOCKER_COUNT == 0` and `WARNING_COUNT > 0`, use AskUserQuestion:
 
-- **Re-ground:** "Ready to merge PR #NNN — '{title}' into {base}. Here's what I found."
-  Show the report above.
-- If everything is green: "All checks passed. This PR is ready to merge."
-- If there are warnings: List each one in plain English. E.g., "The engineering review
-  was done 6 commits ago — the code has changed since then" not "STALE (6 commits)."
-- If there are blockers: "I found issues that need to be fixed before merging: {list}"
-- **RECOMMENDATION:** Choose A if green. Choose B if there are significant warnings.
-  Choose C only if the user understands the risks.
-- A) Merge it — everything looks good (Completeness: 10/10)
+- **Re-ground:** "Ready to merge PR #NNN — '{title}' into {base}. The hard gates passed, but these warnings remain: {list}."
+- **RECOMMENDATION:** Choose A only after reviewing the listed warnings. Choose B to remediate first.
+- A) Proceed despite warnings — I reviewed the warnings and accept them (Completeness: 7/10)
 - B) Hold off — I want to fix the warnings first (Completeness: 10/10)
-- C) Merge anyway — I understand the warnings and want to proceed (Completeness: 3/10)
 
-If the user chooses B: **STOP.** Give specific next steps:
+Only an explicit A selection continues. This override applies to warnings only.
+<!-- ECPE_WARNING_BRANCH_END -->
+
+If `BLOCKER_COUNT == 0` and `WARNING_COUNT == 0`, recommend the single green
+merge choice. Continue only after the user explicitly selects it.
+
+If the user holds off: **STOP.** Give specific next steps:
 - If reviews are stale: "Run `/review` or `/autoplan` to review the current code, then `/land-and-deploy` again."
 - If E2E not run: "Run your E2E tests to make sure nothing is broken, then come back."
 - If docs not updated: "Run `/document-release` to update CHANGELOG and docs."
 - If PR body stale: "The PR description doesn't match what's actually in the diff — update it on GitHub."
 
-If the user chooses A or C: Tell the user "Merging now." Continue to Step 4.
+If the user selects the green choice or the warning-only override: tell the user
+"Merging now." Continue to Step 4.
 
 ---

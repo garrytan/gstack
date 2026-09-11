@@ -18,6 +18,11 @@ on:
       - 'package.json'
       - 'scripts/build.sh'
       - 'scripts/write-version-files.sh'
+      - 'scripts/write-installed-runtime-manifest.ts'
+      - 'scripts/build-authority-bundles.ts'
+      - 'scripts/authority/**'
+      - 'bin/gstack-anchor'
+      - 'bin/gstack-project-identity'
       - 'setup'
       - 'browse/src/cli.ts'
       - 'browse/src/find-browse.ts'
@@ -88,6 +93,42 @@ jobs:
           test -f bin/gstack-global-discover.exe || test -f bin/gstack-global-discover || (echo "MISSING: gstack-global-discover" && exit 1)
           echo "All binaries present"
         shell: bash
+
+      - name: Install an isolated Codex runtime and exercise the installed anchor
+        run: |
+          set -e
+          setup_home="$(mktemp -d "${RUNNER_TEMP}/gstack-setup-home.XXXXXX")"
+          export HOME="$setup_home"
+          export USERPROFILE="$(cygpath -w "$setup_home")"
+          export CODEX_HOME="$setup_home/.codex"
+          export GSTACK_HOME="$setup_home/.gstack"
+          export XDG_CONFIG_HOME="$setup_home/.config"
+          export XDG_STATE_HOME="$setup_home/.local/state"
+          ./setup --host codex --model gpt-5.6-sol --no-team --quiet
+          runtime="$CODEX_HOME/skills/gstack"
+          test -f "$runtime/.ecpe-installed-runtime.json"
+          test -f "$runtime/dist/authority/manifest.json"
+          test ! -L "$runtime/bin"
+          # The installed runtime must work without consulting the source
+          # attestation (a bin symlink used to escape back to the checkout).
+          mv .ecpe-installed-runtime.json "$setup_home/source-runtime.json"
+          # Bundle execution is supported; authority mutation remains POSIX-only.
+          if bash "$runtime/bin/gstack-effect-scope" > "$setup_home/effect.out" 2> "$setup_home/effect.err"; then
+            echo "Native Windows authority mutation unexpectedly succeeded" >&2
+            exit 1
+          fi
+          grep -q 'ecpe_native_windows_unsupported' "$setup_home/effect.err"
+          # A changed installed bundle must be rejected before Bun evaluates it.
+          printf '\n// tamper probe\n' >> "$runtime/dist/authority/gstack-effect-scope.mjs"
+          if bash "$runtime/bin/gstack-effect-scope" > "$setup_home/tamper.out" 2> "$setup_home/tamper.err"; then
+            echo "Changed authority bundle unexpectedly ran" >&2
+            exit 1
+          fi
+          grep -q 'authority_bundle_mismatch' "$setup_home/tamper.err"
+          test ! -s "$setup_home/tamper.out"
+        shell: bash
+        env:
+          GSTACK_SKIP_PLAYWRIGHT: '1'
 
       - name: Verify find-browse resolves to the .exe variant
         run: |

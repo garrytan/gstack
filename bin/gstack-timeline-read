@@ -7,29 +7,45 @@
 # Exit 0 silently if no timeline file exists.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+if IDENTITY_SHELL=$("$SCRIPT_DIR/gstack-project-identity" --shell 2>/dev/null); then
+  eval "$IDENTITY_SHELL"
+else
+  eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+  REPO_ID="$SLUG"
+  READ_SLUGS_JSON="[\"$SLUG\"]"
+fi
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 
 SINCE=""
 LIMIT=20
 BRANCH=""
+ECPE_JSON="no"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --since) SINCE="$2"; shift 2 ;;
     --limit) LIMIT="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
+    --ecpe-json) ECPE_JSON="yes"; shift ;;
     *) shift ;;
   esac
 done
 
-TIMELINE_FILE="$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
-
-if [ ! -f "$TIMELINE_FILE" ]; then
+if [ "$ECPE_JSON" = "yes" ]; then
+  TIMELINE_CANDIDATES_JSON=$(GSTACK_HOME="$GSTACK_HOME" READ_SLUGS_JSON="$READ_SLUGS_JSON" bun --no-env-file -e '
+import path from "node:path"; console.log(JSON.stringify(JSON.parse(process.env.READ_SLUGS_JSON).map(s=>path.join(process.env.GSTACK_HOME,"projects",s,"timeline.jsonl"))))')
+  GSTACK_PROJECT_SLUG="$SLUG" GSTACK_PROJECT_REPO_ID="$REPO_ID" GSTACK_HOME="$GSTACK_HOME" GSTACK_TIMELINE_CANDIDATES_JSON="$TIMELINE_CANDIDATES_JSON" \
+    "$SCRIPT_DIR/gstack-ecpe-observe" timeline-read 2>/dev/null || exit 0
   exit 0
 fi
 
-cat "$TIMELINE_FILE" 2>/dev/null | GSTACK_TIMELINE_SINCE="$SINCE" GSTACK_TIMELINE_BRANCH="$BRANCH" GSTACK_TIMELINE_LIMIT="$LIMIT" bun -e "
+GSTACK_TIMELINE_HOME="$GSTACK_HOME" GSTACK_TIMELINE_SLUGS="$READ_SLUGS_JSON" GSTACK_TIMELINE_REPO_ID="$REPO_ID" bun --no-env-file -e '
+import fs from "node:fs"; import path from "node:path"; const seen=new Set(); const rows=[];
+const canonical=(v)=>Array.isArray(v)?`[${v.map(canonical).join(",")}]`:v&&typeof v==="object"?`{${Object.keys(v).sort().map(k=>JSON.stringify(k)+":"+canonical(v[k])).join(",")}}`:JSON.stringify(v);
+for(const slug of JSON.parse(process.env.GSTACK_TIMELINE_SLUGS)){let raw="";try{raw=fs.readFileSync(path.join(process.env.GSTACK_TIMELINE_HOME,"projects",slug,"timeline.jsonl"),"utf8")}catch{}
+for(const line of raw.split("\n")){if(!line.trim())continue;try{const row=JSON.parse(line);if(row.repo_id&&row.repo_id!==process.env.GSTACK_TIMELINE_REPO_ID)continue;const digest=new Bun.CryptoHasher("sha256").update(canonical(row)).digest("hex");const key=(row.run_id?"run:"+row.run_id+":" : "legacy:")+digest;if(!seen.has(key)){seen.add(key);rows.push(row)}}catch{}}}
+rows.sort((a,b)=>String(a.timestamp??a.ts??"").localeCompare(String(b.timestamp??b.ts??""))); for(const row of rows) console.log(JSON.stringify(row));
+' 2>/dev/null | GSTACK_TIMELINE_SINCE="$SINCE" GSTACK_TIMELINE_BRANCH="$BRANCH" GSTACK_TIMELINE_LIMIT="$LIMIT" bun -e "
 const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
 const since = process.env.GSTACK_TIMELINE_SINCE || '';
 const branch = process.env.GSTACK_TIMELINE_BRANCH || '';

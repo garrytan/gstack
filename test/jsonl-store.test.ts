@@ -61,6 +61,15 @@ describe("appendJsonl", () => {
     expect(readFileSync(p, "utf-8").trim().split("\n").length).toBe(1);
     rmSync(p, { force: true });
   });
+  it("serializes concurrent process writers without losing or corrupting rows", async () => {
+    const p = tmp(); const modulePath = join(import.meta.dir, '../lib/jsonl-store.ts');
+    const source = `import { appendJsonl } from ${JSON.stringify(modulePath)}; for (let i=0;i<40;i++) appendJsonl(process.argv[1], { writer: process.argv[2], i }, { mode: 0o600 });`;
+    const children = ['a', 'b'].map(writer => Bun.spawn([process.execPath, '-e', source, p, writer], { stdout: 'pipe', stderr: 'pipe' }));
+    const results = await Promise.all(children.map(async child => ({ code: await child.exited, stderr: await new Response(child.stderr).text() })));
+    expect(results).toEqual([{ code: 0, stderr: '' }, { code: 0, stderr: '' }]);
+    const rows = readJsonl<{ writer: string; i: number }>(p);
+    expect(rows).toHaveLength(80); expect(new Set(rows.map(row => `${row.writer}:${row.i}`)).size).toBe(80);
+  });
 });
 
 describe("readJsonl (tolerant)", () => {

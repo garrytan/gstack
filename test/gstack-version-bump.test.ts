@@ -177,7 +177,7 @@ describe('write/repair sync npm lockfiles (both version fields, #2567)', () => {
     fs.rmSync(d2, { recursive: true, force: true });
   });
 
-  test('malformed lockfile fails the write with exit 3 (half-write is loud, not silent)', () => {
+  test('malformed lockfile fails the write with exit 3 before any mutation', () => {
     const d3 = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-badlock-'));
     fs.writeFileSync(path.join(d3, 'VERSION'), '1.0.0.0\n');
     fs.writeFileSync(path.join(d3, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0' }, null, 2) + '\n');
@@ -186,9 +186,7 @@ describe('write/repair sync npm lockfiles (both version fields, #2567)', () => {
     try { execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: d3, stdio: 'pipe', timeout: 30_000 }); }
     catch (e: any) { code = e.status; }
     expect(code).toBe(3);
-    // VERSION was written before the failure — exactly the half-write the
-    // exit-3 contract exists to surface.
-    expect(fs.readFileSync(path.join(d3, 'VERSION'), 'utf-8').trim()).toBe('1.1.0.0');
+    expect(fs.readFileSync(path.join(d3, 'VERSION'), 'utf-8').trim()).toBe('1.0.0.0');
     fs.rmSync(d3, { recursive: true, force: true });
   });
 });

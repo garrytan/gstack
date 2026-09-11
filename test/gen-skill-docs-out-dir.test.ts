@@ -11,10 +11,10 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // via a crafted GSTACK_HOME so the test is deterministic regardless of whether
 // the dev machine actually has gbrain installed. Asserts the B2 contract:
 //   (a) the worktree SKILL.md is byte-unchanged (source stays canonical),
-//   (b) the out-dir SKILL.md gained the inline Brain Context Load block,
+//   (b) the out-dir SKILL.md keeps governed implicit gbrain effects disabled,
 //   (c) its section refs point at the out-dir, not ~/.claude/skills/gstack,
 //   (d) bin/ refs are left pointing at the global install,
-//   (e) the out-dir section file gained the Save Results to Brain block.
+//   (e) the out-dir section file does not resurrect the retired save writer.
 describe('gen-skill-docs --out-dir (B2 render isolation)', () => {
   function hashFile(p: string): string {
     return createHash('sha256').update(fs.readFileSync(p)).digest('hex');
@@ -58,8 +58,10 @@ describe('gen-skill-docs --out-dir (B2 render isolation)', () => {
       // unrelated dirty files can't false-fail the suite.
       expect(porcelain()).toBe(beforePorcelain);
 
-      // (b) inline block present in the rendered SKILL.md
-      expect(skillContent).toContain('Brain Context Load');
+      // (b) governed hot paths omit implicit gbrain loads and retain the
+      // explicit effect boundary in the isolated render.
+      expect(skillContent).not.toContain('Brain Context Load');
+      expect(skillContent).toContain('ECPE workflow effect boundary');
 
       // (c) section refs repointed to the out-dir; none left pointing at the install
       expect(skillContent).toContain(`${outDir}/ship/sections/`);
@@ -68,9 +70,12 @@ describe('gen-skill-docs --out-dir (B2 render isolation)', () => {
       // (d) bin refs are NOT rewritten — they still resolve to the global install
       expect(skillContent).toContain('~/.claude/skills/gstack/bin/');
 
-      // (e) the SAVE block landed in the rendered section file
+      // (e) respect-detection cannot resurrect an implicit durable-memory
+      // writer inside governed ship.
       expect(fs.existsSync(outSection)).toBe(true);
-      expect(fs.readFileSync(outSection, 'utf-8')).toContain('Save Results to Brain');
+      const sectionContent = fs.readFileSync(outSection, 'utf-8');
+      expect(sectionContent).not.toContain('Save Results to Brain');
+      expect(sectionContent).not.toMatch(/^\s*(?:\S+\s+)?gbrain\s+save\b/m);
     } finally {
       fs.rmSync(tmpHome, { recursive: true, force: true });
       fs.rmSync(outDir, { recursive: true, force: true });

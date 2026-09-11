@@ -192,8 +192,11 @@ describe('SKILL.md size budget regression (gate, free)', () => {
     //   $B command reference + snapshot-flag tables inline. /browse drives the
     //   Aside browser first and carries the Aside contract in the skeleton; the
     //   command tables live in the carved browse/sections/command-list.md.
+    // - setup-deploy: ECPE v3 removes the shared third-party mutation/setup
+    //   resolver; the governed skill now owns only docs/OPERATIONS.md.
     const INTENTIONAL_SHRINKS = new Set<string>([
       'spec',
+      'setup-deploy',
       'scrape', 'diagram', 'open-gstack-browser',
       'landing-report', 'pair-agent', 'skillify',
       'browse',

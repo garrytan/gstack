@@ -67,6 +67,7 @@ export { generateTestFailureTriage } from './preamble/generate-test-failure-tria
 // declare it — there is no default.
 export function generatePreamble(ctx: TemplateContext): string {
   const tier = ctx.preambleTier;
+  const governed = ['review', 'ship', 'land-and-deploy', 'setup-deploy'].includes(ctx.skillName);
   if (tier === undefined) {
     throw new Error(
       `Missing preamble-tier frontmatter in ${ctx.tmplPath}: every template that ` +
@@ -75,6 +76,36 @@ export function generatePreamble(ctx: TemplateContext): string {
   }
   if (tier < 1 || tier > 4) {
     throw new Error(`Invalid preamble-tier: ${tier} in ${ctx.tmplPath}. Must be 1-4.`);
+  }
+  if (ctx.host === 'codex' && governed) {
+    return [
+      generatePreambleBash(ctx),
+      `## ECPE eager safety kernel
+
+- **ECPE-SCOPE-RESOLUTION** — resolve the governed base/diff scope before acting; an unresolved or invalid scope is unknown, never empty.
+- **ECPE-EXPLICIT-EFFECT-SEPARATION** — reads and reports do not imply tracked writes, Git/provider mutation, paid-model use, merge, or deploy authority. Resolve each explicit effect at its closed adapter immediately before use.
+- **ECPE-TRUSTED-SUBJECT-IDENTITY** — use only the subject identity returned by the installed authority path. Do not substitute a caller path, ambient checkout, prompt claim, or remembered hash.
+- **ECPE-HARD-STOP** — missing, stale, mismatched, consumed, or unverifiable authority evidence stops that effect and spawns zero effect children.
+- **ECPE-FINAL-EVIDENCE-HONESTY** — claim only fresh observed results. Missing section delivery/end/flush, direct file reads, and host-reported open assertions leave section coverage unknown. Report eager bytes plus adapter-delivered section bytes; never count carved-but-unmeasured text as savings.
+
+Stage procedure is on demand. A small answer, docs-only edit, or focused code
+task loads no recovery, checkpoint, search, completeness, learning, test-triage,
+release, or deploy module by default. Follow only a verified section batch
+emitted by the installed anchor for the current compiled skill/stage.`,
+      `## Completion and one-shot observation flush
+
+Report DONE, DONE_WITH_CONCERNS, BLOCKED, or NEEDS_CONTEXT with the fresh
+evidence that supports it. At workflow end, run the existing single flush:
+
+\`\`\`bash
+${ctx.paths.binDir}/gstack-skill-end --skill "${ctx.skillName}" --outcome OUTCOME \\
+  --session-id "SESSION_ID" --tel-start "TEL_START" --used-browse USED_BROWSE \\
+  --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" 2>/dev/null || true
+\`\`\`
+
+Use SESSION_ID/TEL_START from the direct preamble output. If the flush is
+missing or fails, say coverage is unknown; do not synthesize a successful end.`,
+    ].join('\n\n');
   }
   const sections = [
     generatePreambleBash(ctx),
@@ -97,18 +128,18 @@ export function generatePreamble(ctx: TemplateContext): string {
     // patches. Opus 4.7 reads top-to-bottom and absorbs the first pacing directive
     // it hits; reversing this order regresses plan-review cadence (v1.6.4.0 bug).
     ...(tier >= 2 ? [generateAskUserFormat(ctx)] : []),
-    generateBrainSyncBlock(ctx),
+    ...(governed ? [] : [generateBrainSyncBlock(ctx)]),
     generateModelOverlay(ctx),
     generateVoiceDirective(tier),
     ...(tier >= 2 ? [
-      generateContextRecovery(ctx),
+      ...(governed ? [] : [generateContextRecovery(ctx)]),
       generateWritingStyle(ctx),
       generateCompletenessSection(ctx),
       generateConfusionProtocol(ctx),
       generateEvidenceDirective(ctx),
-      generateContinuousCheckpoint(),
+      generateContinuousCheckpoint(ctx),
       generateContextHealth(ctx),
-      generateQuestionTuning(ctx),
+      ...(governed ? [] : [generateQuestionTuning(ctx)]),
     ] : []),
     ...(tier >= 3 ? [generateRepoModeSection(), generateSearchBeforeBuildingSection(ctx)] : []),
     generateCompletionStatus(ctx),

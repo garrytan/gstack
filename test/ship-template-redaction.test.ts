@@ -30,13 +30,17 @@ describe("/ship redaction wiring", () => {
     expect(TMPL).toMatch(/Redaction scan \(PR body \+ title\)/);
   });
   test("creates from the scanned temp file (exact bytes)", () => {
-    expect(TMPL).toMatch(/gh pr create[\s\S]{0,120}--body-file "\$PR_BODY_FILE"/);
+    expect(TMPL).toContain('PROVIDER_PR_ACTION_ARGS=(create --base <base>)');
+    expect(TMPL).toMatch(/gstack-effect-scope provider-pr[\s\S]{0,260}--body-file "\$PR_BODY_FILE"/);
+    expect(TMPL).toContain('--assert-body-sha256 "$PR_BODY_SHA256"');
+    expect(TMPL).not.toMatch(/^gh pr create\b/m);
   });
   test("edit path also scans before sending", () => {
-    expect(TMPL).toMatch(/gh pr edit --body-file "\$PR_BODY_FILE"/);
-    const scanAt = TMPL.indexOf('gstack-redact --from-file "$PR_BODY_FILE"');
-    expect(scanAt).toBeGreaterThan(0);
-    expect(TMPL.indexOf('gh pr edit --body-file "$PR_BODY_FILE"')).toBeGreaterThan(scanAt);
+    expect(TMPL).toContain('PROVIDER_PR_ACTION_ARGS=(update --pr "$PR_NUMBER")');
+    expect(TMPL).toMatch(/gstack-effect-scope provider-pr[\s\S]{0,260}--body-file "\$PR_BODY_FILE"/);
+    expect(TMPL).toContain('--assert-body-sha256 "$PR_BODY_SHA256"');
+    expect(TMPL).toMatch(/same scan runs before the closed provider update path/i);
+    expect(TMPL).not.toMatch(/^gh pr edit\b/m);
   });
   test("HIGH blocks the PR (exit 3), no skip", () => {
     expect(TMPL).toMatch(/BLOCKED — credential in PR body/);
@@ -48,8 +52,9 @@ describe("/ship redaction wiring", () => {
   });
   test("scans the title too", () => {
     expect(TMPL).toContain('printf \'%s\' "$NEW_TITLE" | ~/.claude/skills/gstack/bin/gstack-redact');
-    expect(TMPL).toContain('gh pr create --base <base> --title "$NEW_TITLE"');
-    expect(TMPL).toContain('gh pr edit --title "$NEW_TITLE"');
+    expect(TMPL).toContain('--title "$NEW_TITLE" --body-file "$PR_BODY_FILE"');
+    expect(TMPL).toContain('PROVIDER_TITLE_ASSERTIONS');
+    expect(TMPL).not.toMatch(/^gh pr (create|edit)\b/m);
   });
 });
 

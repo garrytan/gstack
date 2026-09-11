@@ -105,6 +105,17 @@ describe('timeline-stop-hook (#2553, F5 fail-open)', () => {
     expect(typeof repairs[0].ts).toBe('string');
   });
 
+  test('preserves the originating ECPE run id on interrupted completion', () => {
+    fs.writeFileSync(
+      timelinePath,
+      JSON.stringify({ skill: 'review', event: 'started', session: 'run-session', run_id: 'run-authoritative' }) + '\n',
+    );
+
+    expect(runHook(stopPayload()).exitCode).toBe(0);
+    const repair = timelineEntries().find((entry) => entry.source === 'stop-hook');
+    expect(repair).toMatchObject({ run_id: 'run-authoritative', session: 'run-session' });
+  });
+
   test('idempotent: a second Stop appends nothing new', () => {
     fs.writeFileSync(
       timelinePath,

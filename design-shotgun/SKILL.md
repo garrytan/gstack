@@ -257,15 +257,17 @@ At session start or after compaction, recover recent project context.
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 _PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
-if [ -d "$_PROJ" ]; then
+_REVIEW_COUNT=$(~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null | awk '/^---CONFIG---$/{exit} /^\{/{n++} END{print n+0}')
+_TIMELINE=$(~/.claude/skills/gstack/bin/gstack-timeline-read --limit 5 --branch "$_BRANCH" 2>/dev/null)
+if [ -d "$_PROJ" ] || [ "${_REVIEW_COUNT:-0}" -gt 0 ] || [ -n "$_TIMELINE" ]; then
   echo "--- RECENT ARTIFACTS ---"
   find "$_PROJ/ceo-plans" "$_PROJ/checkpoints" -type f -name "*.md" 2>/dev/null | xargs -r ls -t 2>/dev/null | head -3
-  [ -f "$_PROJ/${BRANCH:-unknown}-reviews.jsonl" ] && echo "REVIEWS: $(wc -l < "$_PROJ/${BRANCH:-unknown}-reviews.jsonl" | tr -d ' ') entries"
-  [ -f "$_PROJ/timeline.jsonl" ] && tail -5 "$_PROJ/timeline.jsonl"
-  if [ -f "$_PROJ/timeline.jsonl" ]; then
-    _LAST=$(grep "\"branch\":\"${_BRANCH}\"" "$_PROJ/timeline.jsonl" 2>/dev/null | grep '"event":"completed"' | tail -1)
+  [ "${_REVIEW_COUNT:-0}" -gt 0 ] && echo "REVIEWS: $_REVIEW_COUNT entries"
+  [ -n "$_TIMELINE" ] && printf '%s\n' "$_TIMELINE"
+  if [ -n "$_TIMELINE" ]; then
+    _LAST=$(printf '%s\n' "$_TIMELINE" | grep ' completed' | tail -1)
     [ -n "$_LAST" ] && echo "LAST_SESSION: $_LAST"
-    _RECENT_SKILLS=$(grep "\"branch\":\"${_BRANCH}\"" "$_PROJ/timeline.jsonl" 2>/dev/null | grep '"event":"completed"' | tail -3 | grep -o '"skill":"[^"]*"' | sed 's/"skill":"//;s/"//' | tr '\n' ',')
+    _RECENT_SKILLS=$(printf '%s\n' "$_TIMELINE" | grep ' completed' | tail -3 | sed -n 's/.* /\([^ ]*\) completed.*/\1/p' | tr '\n' ',')
     [ -n "$_RECENT_SKILLS" ] && echo "RECENT_PATTERN: $_RECENT_SKILLS"
   fi
   _LATEST_CP=$(find "$_PROJ/checkpoints" -name "*.md" -type f 2>/dev/null | xargs -r ls -t 2>/dev/null | head -1)
@@ -396,7 +398,7 @@ Do not log obvious facts or one-time transient errors.
 
 After workflow completion, log telemetry with ONE command. OUTCOME is
 success/error/abort/unknown; `SESSION_ID` and `TEL_START` are the values the
-preamble's skill-start output echoed. It also drains the artifacts-sync queue
+preamble output returned. It also drains the artifacts-sync queue
 (the former skill-end sync step — do not run gstack-brain-sync separately).
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** This writes telemetry to
@@ -409,9 +411,11 @@ preamble's skill-start output echoed. It also drains the artifacts-sync queue
 ```
 
 Replace `OUTCOME` and `USED_BROWSE` (yes/no) before running; substitute
-`SESSION_ID`/`TEL_START` from the skill-start echoes. `ERROR_MESSAGE`/`FAILED_STEP`
+`SESSION_ID`/`TEL_START` from the preamble result. `ERROR_MESSAGE`/`FAILED_STEP`
 are "" unless outcome is error. If the command is missing (stale install), skip
 telemetry — it never blocks the workflow.
+
+
 
 ## Plan Status Footer
 

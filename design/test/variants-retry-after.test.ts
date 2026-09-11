@@ -28,7 +28,7 @@ interface CallRecord {
 }
 
 function makeStubFetch(
-  responses: Response[],
+  responses: Array<Response | (() => Response)>,
   calls: CallRecord[],
 ): typeof globalThis.fetch {
   let idx = 0;
@@ -37,7 +37,7 @@ function makeStubFetch(
     const response = responses[idx];
     if (!response) throw new Error(`stub fetch: no response for call ${idx + 1}`);
     idx++;
-    return response;
+    return typeof response === "function" ? response() : response;
   }) as typeof globalThis.fetch;
 }
 
@@ -78,13 +78,15 @@ describe("generateVariant Retry-After handling", () => {
 
   test("HTTP-date: honors a future date with no extra leading exponential", async () => {
     const calls: CallRecord[] = [];
-    // toUTCString() truncates to whole seconds: a +3000ms date could mean an
-    // effective wait as low as ~2001ms, which flaked against a 2500ms floor
-    // under suite load (~1-2 in 9 runs — the TODOS P2 flake). +4000ms makes
-    // the truncation floor 3001ms; the assertion floor sits safely below it
-    // and the ceiling stays wide enough for a loaded scheduler.
-    const future = new Date(Date.now() + 4000).toUTCString();
-    const fetchFn = makeStubFetch([rateLimited(future), successResponse()], calls);
+    // Construct the server's absolute date when the stub actually receives
+    // the request. Building it during test setup lets full-shard scheduling
+    // or pre-send receipt work make the header stale before the first fetch,
+    // shortening the measured fetch-to-fetch gap even though the client
+    // correctly waits until the advertised instant.
+    const fetchFn = makeStubFetch([
+      () => rateLimited(new Date(Date.now() + 4000).toUTCString()),
+      successResponse(),
+    ], calls);
 
     const result = await generateVariant(
       "fake-key", "prompt", outputPath, "1024x1024", "high", fetchFn,

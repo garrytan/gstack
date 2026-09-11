@@ -55,14 +55,9 @@ read the matching file under land-and-deploy/sections/ here instead.
 You are on branch feat/add-deploy with changes against main. This repo has a fly.toml
 with app = "test-app", indicating a Fly.io deployment.
 
-IMPORTANT: There is NO remote and NO GitHub PR — you cannot run gh commands.
-Instead, simulate the workflow:
-1. Detect the deploy platform from fly.toml (should find Fly.io, app = test-app)
-2. Infer the production URL (https://test-app.fly.dev)
-3. Note the merge method would be squash
-4. Write the deploy configuration to CLAUDE.md
-5. Write a deploy report skeleton to .gstack/deploy-reports/report.md showing the
-   expected report structure (PR number: simulated, timing: simulated, verdict: simulated)
+IMPORTANT: There is NO remote, trusted profile, or GitHub PR. Treat the Fly topology
+as unsupported/report-only. Explain the typed blocker and keep merge/deploy spawn
+counts at zero. Do not write machine policy, CLAUDE.md, or a simulated deploy receipt.
 
 Do NOT use AskUserQuestion. Do NOT run gh or fly commands.`,
       workingDirectory: landDir,
@@ -77,15 +72,8 @@ Do NOT use AskUserQuestion. Do NOT run gh or fly commands.`,
     recordE2E(evalCollector, '/land-and-deploy workflow', 'Land-and-Deploy skill E2E', result);
     expect(result.exitReason).toBe('success');
 
-    const claudeMd = path.join(landDir, 'CLAUDE.md');
-    if (fs.existsSync(claudeMd)) {
-      const content = fs.readFileSync(claudeMd, 'utf-8');
-      const hasFly = content.toLowerCase().includes('fly') || content.toLowerCase().includes('test-app');
-      expect(hasFly).toBe(true);
-    }
-
-    const reportDir = path.join(landDir, '.gstack', 'deploy-reports');
-    expect(fs.existsSync(reportDir)).toBe(true);
+    expect(fs.existsSync(path.join(landDir, 'CLAUDE.md'))).toBe(false);
+    expect(fs.existsSync(path.join(landDir, '.gstack', 'deploy-reports'))).toBe(false);
   }, CAPTURE_LONG_MS);
 });
 
@@ -392,6 +380,8 @@ describeIfSelected('Setup-Deploy skill E2E', ['setup-deploy-workflow'], () => {
 
     fs.writeFileSync(path.join(setupDir, 'app.ts'), 'export default { port: 3000 };\n');
     fs.writeFileSync(path.join(setupDir, 'fly.toml'), 'app = "my-cool-app"\n\n[http_service]\n  internal_port = 3000\n  force_https = true\n');
+    fs.mkdirSync(path.join(setupDir, '.gstack'));
+    fs.writeFileSync(path.join(setupDir, '.gstack', 'work-profile.yaml'), 'schema_version: malformed\n');
     run('git', ['add', '.']);
     run('git', ['commit', '-m', 'initial']);
 
@@ -409,13 +399,13 @@ describeIfSelected('Setup-Deploy skill E2E', ['setup-deploy-workflow'], () => {
 This repo has a fly.toml with app = "my-cool-app". Run the /setup-deploy workflow:
 1. Detect the platform from fly.toml (should be Fly.io)
 2. Extract the app name: my-cool-app
-3. Infer production URL: https://my-cool-app.fly.dev
-4. Set deploy status command: fly status --app my-cool-app
-5. Write the Deploy Configuration section to CLAUDE.md
+3. Record the human-facing findings only in docs/OPERATIONS.md
+4. Keep profile_write_count=0 and leave the malformed work profile byte-identical
+5. Do not write CLAUDE.md or invent executable status/deploy commands
 
 Do NOT use AskUserQuestion. Do NOT run fly or gh commands.
 Do NOT try to verify the health check URL (there is no network).
-Just detect the platform and write the config.`,
+Just detect the platform and produce the report-only operations note.`,
       workingDirectory: setupDir,
       maxTurns: 15,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
@@ -428,10 +418,9 @@ Just detect the platform and write the config.`,
     recordE2E(evalCollector, '/setup-deploy workflow', 'Setup-Deploy skill E2E', result);
     expect(result.exitReason).toBe('success');
 
-    const claudeMd = path.join(setupDir, 'CLAUDE.md');
-    expect(fs.existsSync(claudeMd)).toBe(true);
-
-    const content = fs.readFileSync(claudeMd, 'utf-8');
+    expect(fs.existsSync(path.join(setupDir, 'CLAUDE.md'))).toBe(false);
+    expect(fs.readFileSync(path.join(setupDir, '.gstack', 'work-profile.yaml'), 'utf8')).toBe('schema_version: malformed\n');
+    const content = fs.readFileSync(path.join(setupDir, 'docs', 'OPERATIONS.md'), 'utf-8');
     expect(content.toLowerCase()).toContain('fly');
     expect(content).toContain('my-cool-app');
     expect(content).toContain('Deploy Configuration');

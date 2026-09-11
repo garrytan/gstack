@@ -11,9 +11,9 @@ import { mkdirSync, statSync } from "fs";
  * path, a stat failure, a different errno - rethrows the original error, so a
  * real collision still fails loudly.
  */
-export function mkdirpSync(dir: string): void {
+export function mkdirpSync(dir: string, mode?: number): void {
   try {
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true, mode });
   } catch (e) {
     if ((e as NodeJS.ErrnoException | null)?.code === "EEXIST") {
       try {

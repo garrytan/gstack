@@ -5,12 +5,10 @@
  * on demand. The SAME template ships to every host, so these resolvers make the
  * carve host-aware:
  *
- *  - On CLAUDE: {{SECTION:id}} emits a STOP-Read pointer to the generated section
- *    file (the skeleton), and the section .md is generated + installed separately.
- *  - On every OTHER host: {{SECTION:id}} INLINES the section template's content,
- *    so external hosts keep the full monolith ship skill (no section files, no
- *    host-portable-path problem). Inlined content keeps its own {{RESOLVER}}
- *    tokens, which the generator's multi-pass resolve expands.
+ *  - on-demand-global: emits Claude's stable global-path Read pointer.
+ *  - on-demand-relative: emits a compiled authority command. The adapter owns
+ *    selection, installed-manifest verification, observation, and delivery.
+ *  - inline: embeds the section body for hosts without delivery plumbing.
  *
  * {{SECTION_INDEX:skill}} renders the situation→section table from the PASSIVE
  * manifest on Claude (empty on other hosts — they have no sections). The manifest
@@ -19,6 +17,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { getHostConfig } from '../../hosts/index';
 import type { ResolverFn, TemplateContext } from './types';
 
 const ROOT = path.resolve(import.meta.dir, '..', '..');
@@ -58,11 +57,21 @@ export const SECTION: ResolverFn = (ctx: TemplateContext, args?: string[]): stri
   if (!id) throw new Error('{{SECTION:id}} requires a section id');
   const entry = findSection(ctx.skillName, id);
 
-  if (ctx.host === 'claude') {
+  const delivery = getHostConfig(ctx.host).sectionDelivery;
+  if (delivery === 'on-demand-global') {
     const sectionPath = `${ctx.paths.skillRoot}/${ctx.skillName}/sections/${entry.file}`;
     return [
       `> **STOP.** Before ${entry.trigger}, Read \`${sectionPath}\` and execute it`,
       `> in full. Do not work from memory — that section is the source of truth for this step.`,
+    ].join('\n');
+  }
+
+  if (delivery === 'on-demand-relative') {
+    return [
+      `> **STOP.** Before ${entry.trigger}, use the verified section returned by the fused`,
+      `> \`gstack-execution-plan resolve\` batch. If this is a later conditional stage not present`,
+      `> in that decision, invoke exactly one bounded \`gstack-section-delivery resolve --skill ${ctx.skillName} --stage ${entry.id} --json\` batch.`,
+      `> Execute only the verified sections returned by that batch through the installed anchor.`,
     ].join('\n');
   }
 
@@ -77,7 +86,7 @@ export const SECTION: ResolverFn = (ctx: TemplateContext, args?: string[]): stri
  * Claude only; other hosts inline everything so an index would be noise.
  */
 export const SECTION_INDEX: ResolverFn = (ctx: TemplateContext, args?: string[]): string => {
-  if (ctx.host !== 'claude') return '';
+  if (getHostConfig(ctx.host).sectionDelivery === 'inline') return '';
   const skill = args?.[0] ?? ctx.skillName;
   const manifest = loadManifest(skill);
   const lines: string[] = [

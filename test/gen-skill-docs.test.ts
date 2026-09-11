@@ -566,7 +566,7 @@ describe('gen-skill-docs', () => {
       // preamble fence) and gstack-skill-end (the telemetry epilogue) — the
       // scripts write it into the JSONL events.
       expect(content, `${skill.dir} preamble fence must pass its own name`)
-        .toMatch(new RegExp(`--skill "${skill.name}" --model`));
+        .toMatch(new RegExp(`--skill "${skill.name}" (?:--model|--work-kind)`));
       expect(content, `${skill.dir} epilogue must pass its own name`)
         .toContain(`gstack-skill-end --skill "${skill.name}"`);
     }
@@ -685,8 +685,12 @@ describe('GitLab support in generated skills', () => {
     expect(retroContent).toContain('glab');
   });
 
-  test('ship contains glab mr create', () => {
-    expect(shipSkillContent).toContain('glab mr create');
+  test('ship routes GitLab MR creation through the provider-neutral adapter', () => {
+    expect(shipSkillContent).toContain('If GitLab');
+    expect(shipSkillContent).toContain('PROVIDER_PR_ACTION_ARGS=(create --base <base>)');
+    expect(shipSkillContent).toContain('gstack-effect-scope provider-pr');
+    expect(shipSkillContent).toContain('--provider "$PROVIDER_KIND"');
+    expect(shipSkillContent).not.toMatch(/^glab mr create\b/m);
   });
 
   test('ship checks .gitlab-ci.yml', () => {
@@ -907,10 +911,11 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     expect(shipSkill).toContain('Trace every codepath changed');
   });
 
-  test('review mode uses Review Army for specialist dispatch', () => {
-    expect(reviewSkill).toContain('Review Army');
-    expect(reviewSkill).toContain('Specialist Dispatch');
+  test('governed review mode keeps Review Army observations report-only by default', () => {
     expect(reviewSkill).toContain('testing.md');
+    expect(reviewSkill).toContain('report-only; no tracked writes or external comments');
+    expect(reviewSkill).toContain('No mode grants commit, push, PR creation/update, merge, or deploy');
+    expect(reviewSkill).toContain('Missing, stale, mismatched, or consumed scope');
   });
 
   test('plan and ship modes include E2E decision matrix', () => {
@@ -1094,9 +1099,10 @@ describe('TEST_FAILURE_TRIAGE resolver', () => {
     expect(shipSkill).toContain('Skip');
   });
 
-  test('collaborative mode offers blame + assign option', () => {
+  test('collaborative mode offers blame + report-only assignment', () => {
     expect(shipSkill).toContain('Blame + assign GitHub issue');
-    expect(shipSkill).toContain('gh issue create');
+    expect(shipSkill).toContain('complete proposed issue title/body');
+    expect(shipSkill).not.toContain('gh issue create');
   });
 
   test('defaults ambiguous failures to in-branch (safety)', () => {
@@ -1233,10 +1239,10 @@ describe('Coverage gate in ship', () => {
     expect(shipSkill).toContain('could not determine percentage — skipping');
   });
 
-  test('review SKILL.md delegates coverage to Testing specialist', () => {
-    // Coverage audit moved to Testing specialist subagent in Review Army
+  test('review SKILL.md keeps specialist coverage report-only without implicit writes', () => {
     expect(reviewSkill).toContain('testing.md');
-    expect(reviewSkill).toContain('INFORMATIONAL');
+    expect(reviewSkill).toContain('report-only; no tracked writes or external comments');
+    expect(reviewSkill).toContain('No mode grants commit, push, PR creation/update, merge, or deploy');
   });
 });
 
@@ -1463,8 +1469,6 @@ describe('Codex filesystem boundary', () => {
   const CODEX_CALLING_SKILLS = [
     'codex',         // /codex skill — 3 modes
     'autoplan',      // /autoplan — CEO/design/eng voices
-    'review',        // /review — adversarial step resolver
-    'ship',          // /ship — adversarial step resolver
     'plan-eng-review',  // outside voice resolver
     'plan-ceo-review',  // outside voice resolver
     'office-hours',     // second opinion resolver
@@ -1493,16 +1497,14 @@ describe('Codex filesystem boundary', () => {
     expect(content).toContain('Consider retrying');
   });
 
-  test('review.ts CODEX_BOUNDARY constant is interpolated into resolver output', () => {
-    // The adversarial step resolver should include boundary text in codex exec
-    // prompts. Carved: the adversarial step lives in sections/adversarial.md.
-    const reviewContent = readSkillUnion('review');
-    // Boundary should appear near codex exec invocations
-    const boundaryIdx = reviewContent.indexOf(BOUNDARY_MARKER);
-    const codexExecIdx = reviewContent.indexOf('codex exec');
-    // Both must exist and boundary must come before a codex exec call
-    expect(boundaryIdx).toBeGreaterThan(-1);
-    expect(codexExecIdx).toBeGreaterThan(-1);
+  test('review and ship route Codex through the compiled runner boundary', () => {
+    const runner = fs.readFileSync(path.join(ROOT, 'lib/paid-validator-runner.ts'), 'utf8');
+    expect(runner).toContain('Do NOT read or execute files under');
+    for (const skill of ['review', 'ship']) {
+      const content = readSkillUnion(skill);
+      expect(content).toContain('gstack-effect-scope ensure-paid-validator');
+      expect(content).not.toMatch(/^\s*codex\s+(exec|review)\b/m);
+    }
   });
 
   test('autoplan boundary text avoids host-specific paths for cross-host compatibility', () => {
@@ -1603,6 +1605,8 @@ describe('CHANGELOG_WORKFLOW resolver', () => {
   test('changelog workflow includes cross-check step', () => {
     expect(shipContent).toContain('Cross-check');
     expect(shipContent).toContain('Every commit must map to at least one bullet point');
+    expect(shipContent).toContain('shell variable `CHANGELOG_ENTRY`');
+    expect(shipContent).toContain('Do not edit `CHANGELOG.md` directly');
   });
 
   test('changelog workflow includes voice guidance', () => {
@@ -2070,12 +2074,13 @@ describe('DESIGN_SKETCH extended with outside voices', () => {
 
 // --- Extended DESIGN_REVIEW_LITE resolver tests ---
 
-describe('DESIGN_REVIEW_LITE extended with Codex', () => {
+describe('DESIGN_REVIEW_LITE in governed ship', () => {
   const content = readShipUnion();
 
-  test('contains Codex design voice block', () => {
-    expect(content).toContain('Codex design voice');
-    expect(content).toContain('CODEX (design)');
+  test('does not auto-launch an unregistered paid design voice', () => {
+    expect(content).toContain('Paid design voice:');
+    expect(content).toContain('unavailable in this governed T1 workflow');
+    expect(content).not.toContain('CODEX (design)');
   });
 
   test('still contains original checklist steps', () => {
@@ -2188,6 +2193,32 @@ describe('Codex generation (--host codex)', () => {
     for (const skill of CODEX_SKILLS) {
       const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
       expect(content).not.toContain('~/.claude/');
+    }
+  });
+
+  test('Codex review skeleton stops and resolves a verified on-demand batch', () => {
+    const content = fs.readFileSync(
+      path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'),
+      'utf-8',
+    );
+    expect(content).toContain(
+      'gstack-section-delivery resolve --skill review --stage review-army --json',
+    );
+    expect(content).toContain('installed anchor');
+    expect(content).toContain('verified sections returned by that batch');
+  });
+
+  test('Codex carved sections are generated beside their SKILL.md', () => {
+    const sectionsDir = path.join(AGENTS_DIR, 'gstack-review', 'sections');
+    expect(fs.existsSync(sectionsDir)).toBe(true);
+    const sections = fs.readdirSync(sectionsDir).filter(file => file.endsWith('.md')).sort();
+    expect(sections.length).toBeGreaterThan(0);
+    for (const file of sections) {
+      const content = fs.readFileSync(path.join(sectionsDir, file), 'utf-8');
+      expect(content.trim().length).toBeGreaterThan(0);
+      expect(content).toContain('AUTO-GENERATED from');
+      expect(content).not.toContain('~/.claude/');
+      expect(content).not.toContain('.claude/skills/');
     }
   });
 
@@ -2320,9 +2351,9 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('$_ROOT/.agents/skills/gstack');
     // Phase 1/2: config reads moved into gstack-skill-start — the fence itself
     // is the bin asset the preamble must resolve through $GSTACK_BIN, and the
-    // question-preference runtime call still resolves the same way.
-    expect(content).toContain('$GSTACK_BIN/gstack-skill-start');
-    expect(content).toContain('$GSTACK_BIN/gstack-question-preference');
+    // governed question hooks are neutral and perform no preference write.
+    expect(content).toContain('$GSTACK_BIN/gstack-execution-plan');
+    expect(content).not.toContain('$GSTACK_BIN/gstack-question-preference');
     // The upgrade-skill doc reference moved into the script's upgrade-flow
     // block, resolved $0-relative ($_ROOT_DIR) — host-neutral by construction,
     // so the Codex render no longer needs its own copy.
@@ -2347,10 +2378,16 @@ describe('Codex generation (--host codex)', () => {
   });
 
   test('sidecar paths in ship skill point to gstack/review/ for pre-landing review', () => {
-    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const shipDir = path.join(AGENTS_DIR, 'gstack-ship');
+    const content = [
+      fs.readFileSync(path.join(shipDir, 'SKILL.md'), 'utf-8'),
+      ...fs.readdirSync(path.join(shipDir, 'sections'))
+        .filter(file => file.endsWith('.md'))
+        .map(file => fs.readFileSync(path.join(shipDir, 'sections', file), 'utf-8')),
+    ].join('\n');
     // Ship references the review checklist in its pre-landing review step
     if (content.includes('checklist.md')) {
-      expect(content).toContain('.agents/skills/gstack/review/');
+      expect(content).toContain('$GSTACK_ROOT/review/');
       expect(content).not.toContain('.agents/skills/gstack-review/checklist');
     }
   });
@@ -2490,16 +2527,16 @@ describe('Codex generation (--host codex)', () => {
         timeout: 120_000,
       });
       expect(override.exitCode).toBe(0);
-      const content = fs.readFileSync(path.join(overrideOut, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+      const content = fs.readFileSync(path.join(overrideOut, '.agents', 'skills', 'gstack-qa', 'SKILL.md'), 'utf-8');
+      // A non-governed skill keeps the model overlay and carries the selected
+      // model through the compatibility skill-start boundary.
       expect(content).toContain('Model-Specific Behavioral Patch (claude)');
-      // The overlay now travels as --model into gstack-skill-start, which
-      // echoes MODEL_OVERLAY at runtime.
       expect(content).toContain('--model "claude"');
     } finally {
       fs.rmSync(overrideOut, { recursive: true, force: true });
     }
     // Host-default direction: the untouched EXTERNAL_OUT render carries gpt.
-    const hostDefault = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const hostDefault = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-qa', 'SKILL.md'), 'utf-8');
     expect(hostDefault).toContain('Model-Specific Behavioral Patch (gpt)');
     expect(hostDefault).toContain('--model "gpt"');
   });
@@ -3033,7 +3070,8 @@ describe('setup script validation', () => {
     const fnStart = setupContent.indexOf('create_factory_runtime_root()');
     const fnEnd = setupContent.indexOf('create_opencode_runtime_root()', fnStart);
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('$factory_gstack/bin');
+    expect(fnBody).toContain('_install_authority_runtime "$gstack_dir" "$factory_gstack"');
+    expect(fnBody).not.toContain('_link_or_copy "$gstack_dir/bin" "$factory_gstack/bin"');
     expect(fnBody).toContain('$factory_gstack/lib');
   });
 
@@ -3197,6 +3235,16 @@ describe('telemetry', () => {
     expect(content).toContain('gstack-skill-end --skill "gstack" --outcome OUTCOME');
     expect(content).toContain('--tel-start "TEL_START"');
     expect(content).toContain('PLAN MODE EXCEPTION');
+
+    // Canary completion is an effect-bearing closeout and therefore appears
+    // only on the four governed workflow surfaces, never on the root router.
+    for (const skill of ['review', 'ship', 'land-and-deploy', 'setup-deploy']) {
+      const governed = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+      expect(governed).toContain('lane-canary focused-run inspect');
+      expect(governed).toContain('lane-canary run');
+      expect(governed).toContain('canary_focus.focused_run_id');
+    }
+
     // The duration math + remote-log dispatch moved into gstack-skill-end.
     expect(SKILL_END_SCRIPT).toContain('_TEL_END');
     expect(SKILL_END_SCRIPT).toContain('_TEL_DUR');
@@ -3466,7 +3514,7 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
 // ─── Learnings + Confidence Resolver Tests ─────────────────────
 
 describe('LEARNINGS_SEARCH resolver', () => {
-  const SEARCH_SKILLS = ['review', 'ship', 'plan-eng-review', 'investigate', 'office-hours', 'plan-ceo-review'];
+  const SEARCH_SKILLS = ['review', 'plan-eng-review', 'investigate', 'office-hours', 'plan-ceo-review'];
 
   for (const skill of SEARCH_SKILLS) {
     test(`${skill} generated SKILL.md contains learnings search`, () => {
@@ -3475,6 +3523,12 @@ describe('LEARNINGS_SEARCH resolver', () => {
       expect(content).toContain('gstack-learnings-search');
     });
   }
+
+  test('governed ship performs no implicit learnings lookup', () => {
+    const content = readSkillUnion('ship');
+    expect(content).not.toContain('gstack-learnings-search');
+    expect(content).toContain('no implicit learnings search');
+  });
 
   test('learnings search includes cross-project config check', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');

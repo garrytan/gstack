@@ -91,6 +91,7 @@ export function defineHost<const N extends string>(overrides: HostOverrides<N>):
     localSkillRoot = `.${name}/skills/gstack`,
     hostSubdir = `.${name}`,
     usesEnvVars = true,  // false only for Claude (literal ~ paths, no $GSTACK_ROOT)
+    sectionDelivery = 'inline',
     frontmatter = {
       mode: 'allowlist',
       keepFields: ['name', 'description'],
@@ -146,6 +147,7 @@ export function defineHost<const N extends string>(overrides: HostOverrides<N>):
     localSkillRoot,
     hostSubdir,
     usesEnvVars,
+    sectionDelivery,
     frontmatter,
     generation,
     pathRewrites: resolvedPathRewrites,

@@ -2,10 +2,14 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 ## Step 4.5: Review Army — Specialist Dispatch
 
-### Detect stack and scope
+### Resolve scope and requirements once
 
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null) || true
+REVIEW_PLAN=$($GSTACK_ANCHOR_INVOCATION gstack-execution-plan resolve \
+  --skill review --work-kind review --finish-line review_receipt \
+  --lane auto --assert-target-ref origin/<base> --json) || exit 1
+# Consume REVIEW_PLAN.manifest.roles and REVIEW_PLAN.requirements. Do not invoke
+# identity/profile/manifest/requirements/evidence helpers again for this decision.
 # Detect stack for specialist context
 STACK=""
 [ -f Gemfile ] && STACK="${STACK}ruby "
@@ -39,19 +43,33 @@ echo "TEST_FW: ${TEST_FW:-unknown}"
 
 Based on the scope signals above, select which specialists to dispatch.
 
-**Always-on (dispatch on every review with 50+ changed lines):**
-1. **Testing** — read `~/.claude/skills/gstack/review/specialists/testing.md`
-2. **Maintainability** — read `~/.claude/skills/gstack/review/specialists/maintainability.md`
+Apply this precedence exactly; changed-line count never suppresses a hard role:
 
-**If DIFF_LINES < 50:** Skip all specialists. Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to Step 5.
+1. **Explicit user-forced specialist** flags select their named specialist.
+2. **auth hard trigger** — role `auth` selects Security at any size.
+3. **schema/data hard trigger** — either role selects Data Migration at any size.
+4. **contract hard trigger** — role `contract` selects API Contract at any size.
+5. Other semantic roles: `ui` selects Design; `runtime|code` may select Performance.
+6. **size-based optional specialists** — only after semantic selection, add Testing
+   and Maintainability for 50+ changed lines and Performance for large backend diffs.
 
-**Conditional (dispatch if the matching scope signal is true):**
-3. **Security** — if SCOPE_AUTH=true, OR if SCOPE_BACKEND=true AND DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/security.md`
-4. **Performance** — if SCOPE_BACKEND=true OR SCOPE_FRONTEND=true. Read `~/.claude/skills/gstack/review/specialists/performance.md`
-5. **Data Migration** — if SCOPE_MIGRATIONS=true. Read `~/.claude/skills/gstack/review/specialists/data-migration.md`
-6. **API Contract** — if SCOPE_API=true. Read `~/.claude/skills/gstack/review/specialists/api-contract.md`
-7. **Design** — if SCOPE_FRONTEND=true. Use the existing design review checklist at `~/.claude/skills/gstack/review/design-checklist.md` and run the mechanical pass at the top of that checklist (the user-installed design detector, when present) before the LLM items
-8. **Simplification** — if DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/simplification.md`. Advisory-only lens: hunts unrequested structure (hand-rolled stdlib, one-implementation abstractions, dependencies duplicating platform features), never coverage.
+**Checklist mapping and selection conditions:**
+1. **Testing** — for 50+ changed lines or an explicit force flag. Read `~/.claude/skills/gstack/review/specialists/testing.md`
+2. **Maintainability** — for 50+ changed lines or an explicit force flag. Read `~/.claude/skills/gstack/review/specialists/maintainability.md`
+3. **Security** — for role `auth` at any size, or a large backend/runtime diff. Read `~/.claude/skills/gstack/review/specialists/security.md`
+4. **Performance** — for role `runtime`, `code`, or `ui` (the former backend/frontend scope signals). Read `~/.claude/skills/gstack/review/specialists/performance.md`
+5. **Data Migration** — for role `schema` or `data`. Read `~/.claude/skills/gstack/review/specialists/data-migration.md`
+6. **API Contract** — for role `contract`. Read `~/.claude/skills/gstack/review/specialists/api-contract.md`
+7. **Design** — for role `ui`. Use `~/.claude/skills/gstack/review/design-checklist.md` and run the mechanical pass at the top of that checklist (the user-installed design detector, when present) before the LLM items
+8. **Simplification** — for 100+ changed lines. Read `~/.claude/skills/gstack/review/specialists/simplification.md`. This advisory-only lens hunts unrequested structure (hand-rolled stdlib, one-implementation abstractions, dependencies duplicating platform features), never coverage.
+
+Read the corresponding checklist for every selected specialist. A docs-only diff
+may skip specialists. A rename-only diff retains roles from its destination path.
+If `SCOPE_ERROR` is set or `SEMANTIC_ROLES_JSON` is invalid/unknown, fail closed
+into Testing + Maintainability core review instead of reporting clean.
+
+Skipped specialists have state `not_assessed`; they never contribute a synthetic
+quality score. Continue to Step 5 only after every hard role was assessed.
 
 ### Adaptive gating
 
@@ -90,7 +108,8 @@ If learnings are found, include them: "Past learnings for this domain: {learning
 
 4. Instructions:
 
-"You are a specialist code reviewer. Read the checklist below, then run
+"You are a report-only specialist code reviewer. You have no file-write,
+comment, commit, push, PR, merge, or deploy authority. Read the checklist below, then run
 `DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"` to get the full diff. Apply the checklist against the diff.
 
 For each finding, output a JSON object on its own line:
@@ -184,7 +203,7 @@ These findings flow into Step 5 Fix-First alongside the CRITICAL pass findings f
 The Fix-First heuristic applies identically — specialist findings follow the same AUTO-FIX vs ASK classification (except advisory findings, which are ASK-only per the carve-out above).
 
 **Compile per-specialist stats:**
-After merging findings, compile a `specialists` object for the review-log entry in Step 5.8.
+After merging findings, compile a `specialists` object for the standalone generated review-log persist.
 For each specialist (testing, maintainability, security, performance, data-migration, api-contract, design, simplification, red-team):
 - If dispatched: `{"dispatched": true, "findings": N, "critical": N, "informational": N}`
 - If skipped by scope: `{"dispatched": false, "reason": "scope"}`
@@ -197,7 +216,7 @@ Logging simplification's advisories as `findings: 0` would auto-gate the
 lens into permanent silence after 10 dispatches.
 
 Include the Design specialist even though it uses `design-checklist.md` instead of the specialist schema files.
-Remember these stats — you will need them for the review-log entry in Step 5.8.
+Remember these stats — you will need them for the standalone generated review-log persist.
 
 ---
 
@@ -224,3 +243,14 @@ Step 5 Fix-First. Red Team findings are tagged with `"specialist":"red-team"`.
 
 If the Red Team returns NO FINDINGS, note: "Red Team review: no additional issues found."
 If the Red Team subagent fails or times out, skip silently and continue.
+
+---
+
+### ECPE review-army observation
+
+For every specialist or red-team process that actually launches, add one
+content-free helper `spawn` partial with a closed specialist ID and
+`execution_effect:"read"`. Record the decisive merged result with closed
+capability/receipt IDs only. Do not include findings, file references, prompts,
+test stubs, or agent output. Accumulate in the existing run-local batch and
+flush only at skill end.

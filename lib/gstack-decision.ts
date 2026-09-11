@@ -18,7 +18,7 @@ import { homedir } from "os";
 import { randomUUID } from "crypto";
 import { existsSync, readFileSync, appendFileSync, statSync, openSync, closeSync, unlinkSync } from "fs";
 import { atomicWriteSync } from "./fs-atomic";
-import { appendJsonl, readJsonl, hasInjection } from "./jsonl-store";
+import { appendNonAuthorityJsonl, readJsonl, hasInjection } from "./jsonl-store";
 import { scan } from "./redact-engine";
 
 export type DecisionKind = "decide" | "supersede" | "redact";
@@ -211,7 +211,7 @@ export function filterByScope(active: ActiveDecision[], ctx: { branch?: string; 
 
 /** Append a validated event atomically (single-line, concurrency-safe). */
 export function appendEvent(paths: DecisionPaths, event: DecisionEvent): void {
-  appendJsonl(paths.log, event);
+  appendNonAuthorityJsonl(paths.log, event);
 }
 
 /** Read all events tolerantly (skips malformed/partial-tail lines). */

@@ -1,0 +1,35 @@
+import { resolveRuntimeStateRoot } from '../../lib/canonical-state-root';
+import { cleanupCandidatePreview, CDO_PREVIEW_DESCRIPTOR, checkCandidatePreview, initCandidatePreview, inspectCandidatePreview, inspectCandidatePreviewLease, inspectCandidateSource, runCandidatePreview, writeCandidatePreview } from '../../lib/candidate-preview';
+import { resolveRegisteredProjectLocation } from '../../lib/project-identity';
+import { findMilestoneBlockBySlot } from '../../lib/milestone-block';
+import { attachPilotParticipant } from '../../lib/pilot-evaluation';
+
+type Parsed = { values: Map<string, string>; json: boolean; stdin: boolean; resolveClaimOnly: boolean };
+const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const SHA = /^[0-9a-f]{40}$/;
+function fail(error: unknown, status = 2): never { process.stderr.write(JSON.stringify({ result: null, error: { code: error instanceof Error ? error.message : 'candidate_preview_failed' } }) + '\n'); process.exit(status); }
+function parse(args: string[]): Parsed {
+  const values = new Map<string, string>(); let json = false; let stdin = false; let resolveClaimOnly = false;
+  const booleans = new Set(['--json', '--stdin', '--resolve-claim-only']); const valued = new Set(['--descriptor', '--block-id', '--assert-subject-head', '--assert-subject-tree', '--lease', '--comparison-ref', '--run-id', '--evaluation-slot']);
+  while (args.length) { const flag = args.shift()!; if (booleans.has(flag)) { if ((flag === '--json' && json) || (flag === '--stdin' && stdin) || (flag === '--resolve-claim-only' && resolveClaimOnly)) throw new Error('candidate_preview_arguments_invalid'); if (flag === '--json') json = true; else if (flag === '--stdin') stdin = true; else resolveClaimOnly = true; continue; } const value = args.shift(); if (!valued.has(flag) || !value || value.startsWith('--') || values.has(flag)) throw new Error('candidate_preview_arguments_invalid'); values.set(flag, value); }
+  return { values, json, stdin, resolveClaimOnly };
+}
+function exact(parsed: Parsed, names: string[], booleans: { stdin?: boolean; claim?: boolean } = {}): void { if (!parsed.json || parsed.stdin !== Boolean(booleans.stdin) || parsed.resolveClaimOnly !== Boolean(booleans.claim) || [...parsed.values.keys()].some((name) => !names.includes(name)) || names.some((name) => !parsed.values.has(name))) throw new Error('candidate_preview_arguments_invalid'); }
+function descriptor(parsed: Parsed): void { if (parsed.values.get('--descriptor') !== CDO_PREVIEW_DESCRIPTOR.id) throw new Error('candidate_preview_descriptor_invalid'); }
+function block(parsed: Parsed): string { const value = parsed.values.get('--block-id') ?? ''; if (!ID.test(value)) throw new Error('candidate_preview_block_invalid'); return value; }
+function registered() { return resolveRegisteredProjectLocation(CDO_PREVIEW_DESCRIPTOR.registryId, process.cwd()); }
+function runtimeManifest(): string | undefined { return process.env.ECPE_TESTING === '1' ? process.env.ECPE_TEST_RUNTIME_MANIFEST : undefined; }
+
+try {
+  const args = process.argv.slice(2); const command = args.shift(); const parsed = parse(args); const stateRoot = resolveRuntimeStateRoot().root; let result: unknown;
+  if (command === 'source-inspect') { exact(parsed, ['--descriptor', '--block-id']); descriptor(parsed); const source = registered(); result = inspectCandidateSource({ sourceRepository: source.root, repoId: source.identity.repo_id, blockId: block(parsed) }); }
+  else if (command === 'init') { exact(parsed, ['--descriptor', '--block-id', '--assert-subject-head', '--assert-subject-tree']); descriptor(parsed); const blockId = block(parsed); const head = parsed.values.get('--assert-subject-head')!; const tree = parsed.values.get('--assert-subject-tree')!; if (!SHA.test(head) || !SHA.test(tree)) throw new Error('candidate_preview_arguments_invalid'); const source = registered(); result = initCandidatePreview({ stateRoot, sourceRepository: source.root, repoId: source.identity.repo_id, blockId, assertSubjectHead: head, assertSubjectTree: tree }); }
+  else if (command === 'write') { exact(parsed, ['--descriptor', '--block-id', '--lease'], { stdin: true }); descriptor(parsed); const bytes = new Uint8Array(await Bun.stdin.arrayBuffer()); result = writeCandidatePreview({ stateRoot, blockId: block(parsed), lease: parsed.values.get('--lease')!, bytes }); }
+  else if (command === 'run') { const source = registered();if(parsed.resolveClaimOnly){exact(parsed,['--descriptor','--block-id'],{claim:true});descriptor(parsed);const blockId=block(parsed);const recovered=inspectCandidatePreviewLease({stateRoot,blockId});if(!recovered.lease||!['candidate_written','running'].includes(recovered.phase))throw new Error('candidate_preview_claim_not_runnable');result=runCandidatePreview({stateRoot,sourceRepository:source.root,blockId,lease:recovered.lease,comparisonRef:CDO_PREVIEW_DESCRIPTOR.comparisonRef,runtimeManifestPath:runtimeManifest(),timelineSlug:source.identity.write_slug});}else{exact(parsed, ['--descriptor', '--block-id', '--lease', '--comparison-ref']); descriptor(parsed); result = runCandidatePreview({ stateRoot, sourceRepository: source.root, blockId: block(parsed), lease: parsed.values.get('--lease')!, comparisonRef: parsed.values.get('--comparison-ref')!, runtimeManifestPath: runtimeManifest(), timelineSlug: source.identity.write_slug });} }
+  else if (command === 'check') { const evaluationSlot = parsed.values.get('--evaluation-slot'); exact(parsed, evaluationSlot ? ['--run-id', '--evaluation-slot'] : ['--run-id']); const source = registered(); const checked = checkCandidatePreview({ stateRoot, sourceRepository: source.root, runId: parsed.values.get('--run-id')!, frozen: Boolean(evaluationSlot) }); if (evaluationSlot) { const owner = findMilestoneBlockBySlot(stateRoot, evaluationSlot); if (owner.slot?.cdo_run_id !== checked.run_id || checked.result !== 'pass') throw new Error('candidate_preview_frozen_mismatch'); const attached = attachPilotParticipant({ stateRoot, blockId: owner.block_id, slotId: evaluationSlot, participant: 'cdo-os', proofId: checked.run_id }); result = { ...checked, disposition: 'attached', evaluation_slot: evaluationSlot, next_operation: attached.next_operation }; } else result = checked; }
+  else if (command === 'inspect') { exact(parsed, ['--descriptor', '--block-id']); descriptor(parsed); const source = registered(); result = inspectCandidatePreview({ stateRoot, blockId: block(parsed), sourceRepository: source.root }); }
+  else if (command === 'lease-inspect') { exact(parsed, ['--descriptor', '--block-id']); descriptor(parsed); result = inspectCandidatePreviewLease({ stateRoot, blockId: block(parsed) }); }
+  else if (command === 'cleanup') { if (parsed.resolveClaimOnly) throw new Error('candidate_preview_claim_only_unavailable'); exact(parsed, ['--descriptor', '--block-id', '--lease']); descriptor(parsed); result = cleanupCandidatePreview({ stateRoot, blockId: block(parsed), lease: parsed.values.get('--lease')! }); }
+  else throw new Error('candidate_preview_arguments_invalid');
+  process.stdout.write(JSON.stringify(result) + '\n');
+} catch (error) { fail(error); }

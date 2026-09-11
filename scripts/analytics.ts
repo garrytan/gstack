@@ -14,6 +14,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { aggregateEcpeObservations, readEcpeTimelineCandidates } from '../lib/ecpe-metrics';
+import { ledgerCandidates, resolveProjectIdentity } from '../lib/project-identity';
 
 export interface AnalyticsEvent {
   skill: string;
@@ -24,6 +26,54 @@ export interface AnalyticsEvent {
 }
 
 const ANALYTICS_FILE = path.join(os.homedir(), '.gstack', 'analytics', 'skill-usage.jsonl');
+const EXACT_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+export function aggregateEcpeTimeline(values: unknown[], options: { allowCanaryControl?: boolean; allowReservedProducer?: boolean } = {}) {
+  return aggregateEcpeObservations(values, options);
+}
+
+function ecpeMain(args: string[]): number {
+  let json = false;
+  let period: string | null = null;
+  let from: string | null = null;
+  let to: string | null = null;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--ecpe') continue;
+    if (arg === '--json') { json = true; continue; }
+    if (['--period', '--from', '--to'].includes(arg)) {
+      const value = args[++i];
+      if (!value || value.startsWith('--')) throw new Error('ecpe_analytics_arguments_invalid');
+      if (arg === '--period') { if (period !== null) throw new Error('ecpe_analytics_arguments_invalid'); period = value; }
+      if (arg === '--from') { if (from !== null) throw new Error('ecpe_analytics_arguments_invalid'); from = value; }
+      if (arg === '--to') { if (to !== null) throw new Error('ecpe_analytics_arguments_invalid'); to = value; }
+      continue;
+    }
+    throw new Error('ecpe_analytics_arguments_invalid');
+  }
+  if (!json || (period !== null && (from !== null || to !== null)) || ((from === null) !== (to === null))) {
+    throw new Error('ecpe_analytics_arguments_invalid');
+  }
+  if (period !== null && !['7d', '30d', 'all'].includes(period)) throw new Error('ecpe_analytics_arguments_invalid');
+  if (from !== null && (!EXACT_ISO.test(from) || !EXACT_ISO.test(to!) || new Date(from).toISOString() !== from || new Date(to!).toISOString() !== to || from > to!)) {
+    throw new Error('ecpe_analytics_arguments_invalid');
+  }
+  const stateRoot = path.resolve(process.env.GSTACK_STATE_DIR || path.join(os.homedir(), '.gstack'));
+  const identity = resolveProjectIdentity(process.cwd());
+  const parsed = readEcpeTimelineCandidates(stateRoot, ledgerCandidates(identity, 'timeline', stateRoot), identity.repo_id);
+  let observations = parsed.observations;
+  if (period && period !== 'all') {
+    const days = period === '7d' ? 7 : 30;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    observations = observations.filter((item) => new Date(item.timestamp).getTime() >= cutoff);
+  } else if (from && to) {
+    observations = observations.filter((item) => item.timestamp >= from! && item.timestamp <= to!);
+  }
+  const report = aggregateEcpeTimeline(observations, { allowCanaryControl: true, allowReservedProducer: true });
+  report.invalid_observations = parsed.invalid;
+  console.log(JSON.stringify(report));
+  return 0;
+}
 
 /**
  * Parse JSONL content into AnalyticsEvent[], skipping malformed lines.
@@ -156,6 +206,11 @@ function main() {
   // Parse --period flag
   let period = 'all';
   const args = process.argv.slice(2);
+  if (args.includes('--ecpe')) {
+    try { process.exitCode = ecpeMain(args); }
+    catch { console.error(JSON.stringify({ result: null, error: { code: 'ecpe_analytics_arguments_invalid' } })); process.exitCode = 2; }
+    return;
+  }
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--period' && i + 1 < args.length) {
       period = args[i + 1];

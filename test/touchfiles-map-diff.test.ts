@@ -49,6 +49,13 @@ function maps(overrides: Partial<TouchfileMaps> = {}): TouchfileMaps {
 // --- Layer 1: pure core ---
 
 describe('diffTouchfileMapsCore', () => {
+  test('ECPE profile authority core selects review, ship, and landing consumers', () => {
+    const core = ['lib/work-profile.ts', 'lib/deploy-adapter-registry.ts', 'lib/provider-access.ts', 'lib/effect-scope.ts', 'bin/gstack-work-profile', 'bin/gstack-execution-plan', 'bin/gstack-validator-runtime'];
+    for (const name of ['review-base-branch', 'ship-base-branch', 'land-and-deploy-workflow']) {
+      const patterns = E2E_TOUCHFILES[name] ?? [];
+      for (const file of core) expect(patterns).toContain(file);
+    }
+  });
   test('identical maps → nothing changed', () => {
     const result = diffTouchfileMapsCore(maps(), maps());
     expect(result.changedTests).toEqual([]);

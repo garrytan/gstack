@@ -29,18 +29,26 @@ function preflightBash(): string {
 }
 
 function runPreflight(env: Record<string, string>): string {
-  const result = spawnSync('bash', ['-c', `set +e\n${preflightBash()}`], {
-    env: {
-      // Minimal PATH without codex so the not_installed branch is reachable
-      // and no real gstack-config/codex runs. The block's fallbacks
-      // (`|| echo enabled`) keep it self-contained.
-      PATH: '/usr/bin:/bin',
-      HOME: '/nonexistent-home',
-      ...env,
-    },
-    timeout: 10000,
-  });
-  return (result.stdout ?? '').toString();
+  const home = fs.mkdtempSync(path.join('/tmp', 'gstack-codex-preflight-'));
+  const bin = path.join(home, '.claude/skills/gstack/bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'gstack-config'), '#!/bin/sh\nprintf "enabled\\n"\n', { mode: 0o700 });
+  try {
+    const result = spawnSync('bash', ['-c', `set +e\n${preflightBash()}`], {
+      env: {
+        // Explicitly enable the optional paid lane so this suite can exercise
+        // the under-Codex availability branches. Missing config now defaults
+        // to disabled by design.
+        PATH: '/usr/bin:/bin',
+        HOME: home,
+        ...env,
+      },
+      timeout: 10000,
+    });
+    return (result.stdout ?? '').toString();
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 }
 
 describe('under-codex detection bash (#2519)', () => {
@@ -59,6 +67,7 @@ describe('under-codex detection bash (#2519)', () => {
       CODEX_THREAD_ID: '01a00ba9-ff91-7143-b424-c2d9b0cc89ff',
       CODEX_SANDBOX: 'seatbelt',
       GSTACK_FORCE_CODEX_REVIEW: '1',
+      ECPE_PAID_MODEL_AUTHORIZED: '1',
     });
     expect(out).not.toContain('CODEX_MODE: under_codex');
     // With codex absent from the restricted PATH, the forced probe falls
@@ -66,10 +75,10 @@ describe('under-codex detection bash (#2519)', () => {
     expect(out).toContain('CODEX_MODE: not_installed');
   });
 
-  test('no CODEX_* env -> ordinary availability chain', () => {
+  test('no CODEX_* env and no grant -> grant_required before availability checks', () => {
     const out = runPreflight({});
     expect(out).not.toContain('CODEX_MODE: under_codex');
-    expect(out).toContain('CODEX_MODE: not_installed');
+    expect(out).toContain('CODEX_MODE: grant_required');
   });
 });
 

@@ -19,10 +19,14 @@ function generateSpecialistSelection(ctx: TemplateContext): string {
   const nextStep = isShip ? 'the Fix-First flow (item 4)' : 'Step 5';
   return `## Step ${stepSel}: Review Army — Specialist Dispatch
 
-### Detect stack and scope
+### Resolve scope and requirements once
 
 \`\`\`bash
-source <(${ctx.paths.binDir}/gstack-diff-scope <base> 2>/dev/null) || true
+REVIEW_PLAN=$($GSTACK_ANCHOR_INVOCATION gstack-execution-plan resolve \\
+  --skill ${ctx.skillName} --work-kind review --finish-line ${isShip ? 'pr_open' : 'review_receipt'} \\
+  --lane auto --assert-target-ref origin/<base> --json) || exit 1
+# Consume REVIEW_PLAN.manifest.roles and REVIEW_PLAN.requirements. Do not invoke
+# identity/profile/manifest/requirements/evidence helpers again for this decision.
 # Detect stack for specialist context
 STACK=""
 [ -f Gemfile ] && STACK="\${STACK}ruby "
@@ -56,19 +60,33 @@ ${ctx.paths.binDir}/gstack-specialist-stats 2>/dev/null || true
 
 Based on the scope signals above, select which specialists to dispatch.
 
-**Always-on (dispatch on every review with 50+ changed lines):**
-1. **Testing** — read \`${ctx.paths.skillRoot}/review/specialists/testing.md\`
-2. **Maintainability** — read \`${ctx.paths.skillRoot}/review/specialists/maintainability.md\`
+Apply this precedence exactly; changed-line count never suppresses a hard role:
 
-**If DIFF_LINES < 50:** Skip all specialists. Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to ${nextStep}.
+1. **Explicit user-forced specialist** flags select their named specialist.
+2. **auth hard trigger** — role \`auth\` selects Security at any size.
+3. **schema/data hard trigger** — either role selects Data Migration at any size.
+4. **contract hard trigger** — role \`contract\` selects API Contract at any size.
+5. Other semantic roles: \`ui\` selects Design; \`runtime|code\` may select Performance.
+6. **size-based optional specialists** — only after semantic selection, add Testing
+   and Maintainability for 50+ changed lines and Performance for large backend diffs.
 
-**Conditional (dispatch if the matching scope signal is true):**
-3. **Security** — if SCOPE_AUTH=true, OR if SCOPE_BACKEND=true AND DIFF_LINES > 100. Read \`${ctx.paths.skillRoot}/review/specialists/security.md\`
-4. **Performance** — if SCOPE_BACKEND=true OR SCOPE_FRONTEND=true. Read \`${ctx.paths.skillRoot}/review/specialists/performance.md\`
-5. **Data Migration** — if SCOPE_MIGRATIONS=true. Read \`${ctx.paths.skillRoot}/review/specialists/data-migration.md\`
-6. **API Contract** — if SCOPE_API=true. Read \`${ctx.paths.skillRoot}/review/specialists/api-contract.md\`
-7. **Design** — if SCOPE_FRONTEND=true. Use the existing design review checklist at \`${ctx.paths.skillRoot}/review/design-checklist.md\` and run the mechanical pass at the top of that checklist (the user-installed design detector, when present) before the LLM items
-8. **Simplification** — if DIFF_LINES > 100. Read \`${ctx.paths.skillRoot}/review/specialists/simplification.md\`. Advisory-only lens: hunts unrequested structure (hand-rolled stdlib, one-implementation abstractions, dependencies duplicating platform features), never coverage.
+**Checklist mapping and selection conditions:**
+1. **Testing** — for 50+ changed lines or an explicit force flag. Read \`${ctx.paths.skillRoot}/review/specialists/testing.md\`
+2. **Maintainability** — for 50+ changed lines or an explicit force flag. Read \`${ctx.paths.skillRoot}/review/specialists/maintainability.md\`
+3. **Security** — for role \`auth\` at any size, or a large backend/runtime diff. Read \`${ctx.paths.skillRoot}/review/specialists/security.md\`
+4. **Performance** — for role \`runtime\`, \`code\`, or \`ui\` (the former backend/frontend scope signals). Read \`${ctx.paths.skillRoot}/review/specialists/performance.md\`
+5. **Data Migration** — for role \`schema\` or \`data\`. Read \`${ctx.paths.skillRoot}/review/specialists/data-migration.md\`
+6. **API Contract** — for role \`contract\`. Read \`${ctx.paths.skillRoot}/review/specialists/api-contract.md\`
+7. **Design** — for role \`ui\`. Use \`${ctx.paths.skillRoot}/review/design-checklist.md\` and run the mechanical pass at the top of that checklist (the user-installed design detector, when present) before the LLM items
+8. **Simplification** — for 100+ changed lines. Read \`${ctx.paths.skillRoot}/review/specialists/simplification.md\`. This advisory-only lens hunts unrequested structure (hand-rolled stdlib, one-implementation abstractions, dependencies duplicating platform features), never coverage.
+
+Read the corresponding checklist for every selected specialist. A docs-only diff
+may skip specialists. A rename-only diff retains roles from its destination path.
+If \`SCOPE_ERROR\` is set or \`SEMANTIC_ROLES_JSON\` is invalid/unknown, fail closed
+into Testing + Maintainability core review instead of reporting clean.
+
+Skipped specialists have state \`not_assessed\`; they never contribute a synthetic
+quality score. Continue to ${nextStep} only after every hard role was assessed.
 
 ### Adaptive gating
 
@@ -85,6 +103,17 @@ Note which specialists were selected, gated, and skipped. Print the selection:
 }
 
 function generateSpecialistDispatch(ctx: TemplateContext): string {
+  const learningsContext = ctx.skillName === 'ship'
+    ? `3. No implicit learnings search. Use only context already present in the
+current task and repository.`
+    : `3. Past learnings for this domain (if any exist):
+
+\`\`\`bash
+${ctx.paths.binDir}/gstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5 2>/dev/null || true
+\`\`\`
+
+If learnings are found, include them: "Past learnings for this domain: {learnings}"`;
+
   return `### Dispatch specialists in parallel
 
 For each selected specialist, launch an independent subagent via the Agent tool.
@@ -97,17 +126,12 @@ Construct the prompt for each specialist. The prompt includes:
 
 1. The specialist's checklist content (you already read the file above)
 2. Stack context: "This is a {STACK} project."
-3. Past learnings for this domain (if any exist):
-
-\`\`\`bash
-${ctx.paths.binDir}/gstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5 2>/dev/null || true
-\`\`\`
-
-If learnings are found, include them: "Past learnings for this domain: {learnings}"
+${learningsContext}
 
 4. Instructions:
 
-"You are a specialist code reviewer. Read the checklist below, then run
+"You are a report-only specialist code reviewer. You have no file-write,
+comment, commit, push, PR, merge, or deploy authority. Read the checklist below, then run
 \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"\` to get the full diff. Apply the checklist against the diff.
 
 For each finding, output a JSON object on its own line:
@@ -141,7 +165,7 @@ function generateFindingsMerge(ctx: TemplateContext): string {
   const stepSel = isShip ? '9.1' : '4.5';
   const fixFirstRef = isShip ? 'the Fix-First flow (item 4)' : 'Step 5 Fix-First';
   const critPassRef = isShip ? 'the checklist pass (Step 9)' : 'the CRITICAL pass findings from Step 4';
-  const persistRef = isShip ? 'the review-log persist' : 'the review-log entry in Step 5.8';
+  const persistRef = isShip ? 'the review-log persist in this generated ship section' : 'the standalone generated review-log persist';
   return `### Step ${stepMerge}: Collect and merge findings
 
 After all specialist subagents complete, collect their outputs.
@@ -252,15 +276,91 @@ If the Red Team returns NO FINDINGS, note: "Red Team review: no additional issue
 If the Red Team subagent fails or times out, skip silently and continue.`;
 }
 
+function generateEcpeReviewArmyObservation(): string {
+  return `### ECPE review-army observation
+
+For every specialist or red-team process that actually launches, add one
+content-free helper \`spawn\` partial with a closed specialist ID and
+\`execution_effect:"read"\`. Record the decisive merged result with closed
+capability/receipt IDs only. Do not include findings, file references, prompts,
+test stubs, or agent output. Accumulate in the existing run-local batch and
+flush only at skill end.`;
+}
+
+function generateCodexInHostReviewArmy(ctx: TemplateContext): string {
+  const step = ctx.skillName === 'ship' ? '9.1' : '4.5';
+  const next = ctx.skillName === 'ship' ? 'the Fix-First flow (item 4)' : 'Step 5';
+  return `## Step ${step}: Review Army — bounded in-host passes
+
+Use the current Codex agent for every selected pass. Do not launch another
+model, helper reviewer, or recursive review process.
+
+### Select from the fused authority decision
+
+Run the installed execution-plan authority once and consume its schema-checked
+manifest roles (the JSON equivalent of \`SEMANTIC_ROLES_JSON\`). It already binds
+the trusted base, work profile, semantic manifest, requirements, and initial
+section batch. Do not run another identity, diff-scope, profile, manifest,
+requirements, evidence, or section-selection process for this decision.
+
+\`\`\`bash
+REVIEW_PLAN=$($GSTACK_ANCHOR_INVOCATION gstack-execution-plan resolve \\
+  --skill ${ctx.skillName} --work-kind review --finish-line ${ctx.skillName === 'ship' ? 'pr_open' : 'review_receipt'} \\
+  --lane auto --assert-target-ref origin/<base> --json) || exit 1
+printf '%s\n' "SEMANTIC_ROLES_JSON is REVIEW_PLAN.manifest.roles"
+\`\`\`
+
+Apply this compiled map exactly:
+
+- \`auth\` -> security
+- \`schema|data\` -> data-migration
+- \`contract\` -> api-contract
+- \`ui\` -> design
+- \`runtime|code\` -> performance
+- explicit testing/maintainability flags -> their named pass
+
+If \`SCOPE_ERROR\` is set or \`SEMANTIC_ROLES_JSON\` is missing, invalid, or
+unknown, select the conservative hard-section set: security, data-migration,
+api-contract, testing, and maintainability. Never interpret invalid scope as a
+clean result. A docs-only role set may select no specialist batch.
+
+History-wide specialist statistics, per-specialist learning lookup, and a
+second semantic-manifest authority process are forbidden on this hot path. Selection is
+independent of Git history size and specialist count.
+
+### Execute the selected passes directly
+
+For each selected name, read exactly one checklist from
+\`${ctx.paths.skillRoot}/review/specialists/<name>.md\` (Design uses
+\`${ctx.paths.skillRoot}/review/design-checklist.md\`). Apply it directly to the
+already-resolved diff as a report-only pass. Each selected checklist is opened
+at most once. Do not write files, comments, commits, pushes, PR state, merge
+state, or deploy state.
+
+Emit findings with severity, confidence, path, line when known, category,
+summary, fix, and specialist. Merge duplicate fingerprints, keep the highest
+confidence, and note multi-specialist confirmation. Missing checklist bytes are
+missing coverage, never \`NO FINDINGS\`.
+
+The current Codex agent then performs one bounded red-team pass only when the
+diff exceeds 200 lines or an earlier pass found a critical issue. Read
+\`${ctx.paths.skillRoot}/review/specialists/red-team.md\` once and look only for
+gaps across the merged findings. This is still the same in-host process.
+
+Continue to ${next} after every selected pass has a visible disposition. ECPE
+records zero helper/model spawns for these in-host passes; record only closed
+capability and receipt IDs in the existing final batch.`;
+}
+
 export function generateReviewArmy(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should not run Review Army
-  if (ctx.host === 'codex') return '';
+  if (ctx.host === 'codex') return generateCodexInHostReviewArmy(ctx);
 
   const sections = [
     generateSpecialistSelection(ctx),
     generateSpecialistDispatch(ctx),
     generateFindingsMerge(ctx),
     generateRedTeam(ctx),
+    generateEcpeReviewArmyObservation(),
   ];
 
   return sections.join('\n\n---\n\n');

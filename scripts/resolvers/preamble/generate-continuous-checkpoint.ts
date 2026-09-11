@@ -1,6 +1,15 @@
 
 
-export function generateContinuousCheckpoint(): string {
+import type { TemplateContext } from '../types';
+
+export function generateContinuousCheckpoint(ctx: TemplateContext): string {
+  if (['review', 'ship', 'land-and-deploy', 'setup-deploy'].includes(ctx.skillName)) {
+    return `## Continuous Checkpoint Mode
+
+This governed workflow never inherits commit or push authority from checkpoint
+preferences. A separately invoked checkpoint task may request exact git-stage,
+commit, and push grants; this workflow only reports that option.`;
+  }
   return `## Continuous Checkpoint Mode
 
 If \`CHECKPOINT_MODE\` is \`"continuous"\`: auto-commit completed logical units with \`WIP:\` prefix.

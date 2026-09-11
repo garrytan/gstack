@@ -36,6 +36,8 @@ import { join, dirname } from "path";
 
 import { spawnSync } from "child_process";
 
+const BUN_DIR = dirname(Bun.which("bun") ?? process.execPath);
+
 import {
   localEngineStatus,
   cacheFilePath,
@@ -609,7 +611,7 @@ describe("lib/gbrain-local-status — thin-client (#2051)", () => {
   it("--is-ok exits 0 on a thin-client fixture (end-to-end gate)", () => {
     env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", thinClientConfig: true });
     const detectBin = join(import.meta.dir, "..", "bin", "gstack-gbrain-detect");
-    const bunDir = dirname(process.execPath);
+    const bunDir = BUN_DIR;
     const r = spawnSync(detectBin, ["--is-ok"], {
       encoding: "utf-8",
       env: {
@@ -626,7 +628,7 @@ describe("lib/gbrain-local-status — thin-client (#2051)", () => {
   it("--is-ok still exits 1 on broken-config (thin-client did not widen the gate)", () => {
     env = makeEnv({ withGbrain: true, gbrainBehavior: "broken-config", withConfig: true });
     const detectBin = join(import.meta.dir, "..", "bin", "gstack-gbrain-detect");
-    const bunDir = dirname(process.execPath);
+    const bunDir = BUN_DIR;
     const r = spawnSync(detectBin, ["--is-ok"], {
       encoding: "utf-8",
       env: {
@@ -863,7 +865,7 @@ describe("lib/gbrain-local-status — bearer-token thin-client (#2520)", () => {
       claudeJson: { mcpServers: { gbrain: REMOTE_GBRAIN } },
     });
     const detectBin = join(import.meta.dir, "..", "bin", "gstack-gbrain-detect");
-    const bunDir = dirname(process.execPath);
+    const bunDir = BUN_DIR;
     const r = spawnSync(detectBin, ["--is-ok"], {
       encoding: "utf-8",
       env: {

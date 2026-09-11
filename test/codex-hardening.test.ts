@@ -166,6 +166,66 @@ describe('gstack-codex-probe: auth probe', () => {
   });
 });
 
+describe('gstack-codex-probe: paid model authorization', () => {
+  function paidProbeStub(): { dir: string; marker: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-paid-probe-stub-'));
+    const marker = path.join(dir, 'codex-spawned');
+    const stub = path.join(dir, 'codex');
+    fs.writeFileSync(
+      stub,
+      '#!/bin/bash\nprintf spawned > "$ECPE_SPAWN_MARKER"\nprintf "OK\\n"\n',
+      { mode: 0o755 },
+    );
+    return { dir, marker };
+  }
+
+  test('model probe refuses to spawn or cache without an exact current-task grant', () => {
+    const home = tempHome();
+    const stub = paidProbeStub();
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_model_probe',
+        env: {
+          PATH: `${stub.dir}:${process.env.PATH}`,
+          ECPE_SPAWN_MARKER: stub.marker,
+          ECPE_PAID_MODEL_AUTHORIZED: undefined,
+        },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('MODEL_PROBE_GRANT_REQUIRED');
+      expect(r.status).toBe(2);
+      expect(fs.existsSync(stub.marker)).toBe(false);
+      expect(fs.existsSync(path.join(home, '.gstack', '.codex-model-probe'))).toBe(false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('model probe may spawn and cache after the exact grant is present', () => {
+    const home = tempHome();
+    const stub = paidProbeStub();
+    try {
+      const r = runProbe({
+        snippet: '_gstack_codex_model_probe',
+        env: {
+          PATH: `${stub.dir}:${process.env.PATH}`,
+          ECPE_SPAWN_MARKER: stub.marker,
+          ECPE_PAID_MODEL_AUTHORIZED: '1',
+        },
+        home,
+      });
+      expect(r.stdout.trim()).toBe('MODEL_OK');
+      expect(r.status).toBe(0);
+      expect(fs.existsSync(stub.marker)).toBe(true);
+      expect(fs.existsSync(path.join(home, '.gstack', '.codex-model-probe'))).toBe(true);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // --- Group 2: Version check -------------------------------------------------
 // Stub `codex --version` by putting a fake `codex` executable on PATH.
 function tempStubCodex(versionOutput: string, bool_command_fails = false): {
@@ -463,46 +523,27 @@ describe('codex review-mode section Step 2A: PROMPT + --base mutual exclusion gu
 // pass was killed at 287s of a 300s budget mid-tool-call, and the same prompt
 // completed in 336s. An unwrapped stall returns no exit code and no output,
 // which downstream reads as "Codex reviewed and found nothing".
-describe('codex timeout wrapper: /review + /ship diff passes', () => {
-  const WRAPPED_SITES = [
-    'scripts/resolvers/review.ts', // generator (source of truth)
-    'review/sections/adversarial.md', // review section (Step 5.7 carved out of the skeleton)
-    'ship/sections/adversarial.md', // ship section source
-  ];
-
-  // Outer Bash gate for the wrapped passes. The wrapper must be strictly
-  // shorter so IT fires first and the failure is a diagnosable exit 124.
+describe('paid validator timeout: /review + /ship diff passes', () => {
   const BASH_GATE_MS = 600000;
+  const runner = fs.readFileSync(path.join(ROOT, 'lib/paid-validator-runner.ts'), 'utf8');
 
-  for (const relPath of WRAPPED_SITES) {
-    const read = () => fs.readFileSync(path.join(ROOT, relPath), 'utf8');
+  test('generated review and ship invoke the closed paid adapter, never raw Codex', () => {
+    for (const relPath of ['review/sections/adversarial.md', 'ship/sections/adversarial.md']) {
+      const content = fs.readFileSync(path.join(ROOT, relPath), 'utf8');
+      expect(content.match(/gstack-effect-scope ensure-paid-validator/g)?.length).toBeGreaterThanOrEqual(2);
+      expect(content).not.toMatch(/^\s*(?:_gstack_codex_timeout_wrapper\s+\d+\s+)?codex\s+(exec|review)\b/m);
+    }
+  });
 
-    test(`${relPath}: both diff-review Codex calls run under the wrapper`, () => {
-      const wrapped =
-        read().match(/_gstack_codex_timeout_wrapper\s+\d+\s+codex\s+(exec|review)\b/g) ?? [];
-      // Adversarial pass + structured review pass.
-      expect(wrapped.length).toBeGreaterThanOrEqual(2);
-    });
-
-    test(`${relPath}: does not claim \`timeout\` is unavailable on macOS`, () => {
-      // _gstack_codex_timeout_wrapper resolves gtimeout -> timeout -> unwrapped,
-      // so the coreutils-less case is already handled. The old claim is what
-      // steered these call sites away from the wrapper in the first place.
-      expect(read()).not.toMatch(/doesn't exist on macOS/);
-    });
-
-    test(`${relPath}: wrapper budget stays under the outer Bash gate`, () => {
-      const budgets = [...read().matchAll(/_gstack_codex_timeout_wrapper\s+(\d+)\s+codex\b/g)].map(
-        (m) => Number(m[1]) * 1000,
-      );
-      expect(budgets.length).toBeGreaterThan(0);
-      for (const ms of budgets) {
-        // Inverting this makes the wrapper unreachable: the harness kills the
-        // call first and the exit-124 branch below it becomes dead code.
-        expect(ms).toBeLessThan(BASH_GATE_MS);
-      }
-    });
-  }
+  test('the shared runner owns a reachable timeout below the outer Bash gate', () => {
+    const match = runner.match(/PAID_VALIDATOR_TIMEOUT_MS\s*=\s*([0-9_]+)/);
+    expect(match).not.toBeNull();
+    const timeout = Number(match![1].replaceAll('_', ''));
+    expect(timeout).toBeGreaterThan(0);
+    expect(timeout).toBeLessThan(BASH_GATE_MS);
+    expect(runner).toContain('timedOut ? 124');
+    expect(runner).toContain('child.kill()');
+  });
 });
 
 // Regression guards for #2496 / #2524 / #2477 — three "guard reports success
@@ -633,6 +674,14 @@ describe('codex broken-install detection (#2742)', () => {
     ['non-executable binary (exit 126)', 'notexec', 'cannot execute binary file'],
   ];
 
+  // These classification cases exercise the stub after the paid-probe gate.
+  // The separate authorization tests above keep the no-grant/no-spawn pin.
+  const authorizedShimEnv = (bin: string, home: string) => ({
+    PATH: `${bin}:${process.env.PATH ?? ''}`,
+    GSTACK_HOME: home,
+    ECPE_PAID_MODEL_AUTHORIZED: '1',
+  });
+
   for (const [label, mode, needle] of cases) {
     test(`${label} is classified as a broken install, not a transient`, () => {
       const { home, bin } = shimHome(mode);
@@ -640,7 +689,7 @@ describe('codex broken-install detection (#2742)', () => {
         const r = runProbe({
           snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
           home,
-          env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+          env: authorizedShimEnv(bin, home),
         });
         expect(r.stdout).toContain('MODEL_UNUSABLE_INSTALL');
         // Exit 2 is what lets the preflight tell this apart from a model 400.
@@ -662,7 +711,7 @@ describe('codex broken-install detection (#2742)', () => {
       runProbe({
         snippet: '_gstack_codex_model_probe >/dev/null 2>&1',
         home,
-        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+        env: authorizedShimEnv(bin, home),
       });
       const cache = path.join(home, '.codex-model-probe');
       if (fs.existsSync(cache)) {
@@ -679,7 +728,7 @@ describe('codex broken-install detection (#2742)', () => {
       const r = runProbe({
         snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
         home,
-        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+        env: authorizedShimEnv(bin, home),
       });
       expect(r.stdout).toContain('MODEL_PROBE_INCONCLUSIVE');
       expect(r.stdout).toContain('EXIT:0');
@@ -695,7 +744,7 @@ describe('codex broken-install detection (#2742)', () => {
       const r = runProbe({
         snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
         home,
-        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+        env: authorizedShimEnv(bin, home),
       });
       expect(r.stdout).toContain('MODEL_UNUSABLE');
       expect(r.stdout).not.toContain('MODEL_UNUSABLE_INSTALL');
@@ -711,7 +760,7 @@ describe('codex broken-install detection (#2742)', () => {
       const r = runProbe({
         snippet: '_gstack_codex_version_check; echo "EXIT:$?"',
         home,
-        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+        env: authorizedShimEnv(bin, home),
       });
       // Previously this printed nothing: `codex --version 2>/dev/null | head -1`
       // captured head's status, so a CLI that only ever errored read as healthy.
@@ -733,7 +782,7 @@ describe('codex broken-install detection (#2742)', () => {
       const r = runProbe({
         snippet: '_gstack_codex_model_probe; echo "EXIT:$?"',
         home,
-        env: { PATH: `${bin}:${process.env.PATH ?? ''}`, GSTACK_HOME: home },
+        env: authorizedShimEnv(bin, home),
       });
       expect(r.stdout).not.toContain('MODEL_UNUSABLE_INSTALL');
       expect(r.stdout).toContain('EXIT:0');

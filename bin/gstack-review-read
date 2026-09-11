@@ -10,9 +10,27 @@
 # for that rule ships in this one output so graders run no extra commands.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+if [ "$#" -gt 0 ]; then
+  exec "$SCRIPT_DIR/gstack-anchor" gstack-review-read "$@"
+fi
+if IDENTITY_SHELL=$("$SCRIPT_DIR/gstack-project-identity" --shell 2>/dev/null); then
+  eval "$IDENTITY_SHELL"
+else
+  eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+  REPO_ID="$SLUG"
+  READ_SLUGS_JSON="[\"$SLUG\"]"
+  READ_BRANCHES_JSON="[\"$BRANCH\"]"
+fi
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-cat "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" 2>/dev/null || echo "NO_REVIEWS"
+GSTACK_READ_HOME="$GSTACK_HOME" GSTACK_READ_SLUGS="$READ_SLUGS_JSON" GSTACK_READ_BRANCHES="$READ_BRANCHES_JSON" GSTACK_READ_REPO_ID="$REPO_ID" bun --no-env-file -e '
+import fs from "node:fs"; import path from "node:path";
+const slugs=JSON.parse(process.env.GSTACK_READ_SLUGS); const branches=JSON.parse(process.env.GSTACK_READ_BRANCHES);
+const seen=new Set(); const rows=[];
+const canonical=(v)=>Array.isArray(v)?`[${v.map(canonical).join(",")}]`:v&&typeof v==="object"?`{${Object.keys(v).sort().map(k=>JSON.stringify(k)+":"+canonical(v[k])).join(",")}}`:JSON.stringify(v);
+for(const slug of slugs) for(const branch of branches){let raw="";try{raw=fs.readFileSync(path.join(process.env.GSTACK_READ_HOME,"projects",slug,branch+"-reviews.jsonl"),"utf8")}catch{}
+for(const line of raw.split("\n")){if(!line.trim())continue;try{const row=JSON.parse(line);if(row.repo_id&&row.repo_id!==process.env.GSTACK_READ_REPO_ID)continue;const key=row.run_id?"run:"+row.run_id:"legacy:"+new Bun.CryptoHasher("sha256").update(canonical(row)).digest("hex");if(!seen.has(key)){seen.add(key);rows.push(row)}}catch{}}}
+rows.sort((a,b)=>String(a.timestamp??a.ts??"").localeCompare(String(b.timestamp??b.ts??""))); if(!rows.length) console.log("NO_REVIEWS"); else for(const row of rows) console.log(JSON.stringify(row));
+' 2>/dev/null || echo "NO_REVIEWS"
 echo "---CONFIG---"
 "$SCRIPT_DIR/gstack-config" get skip_eng_review 2>/dev/null || echo "false"
 echo "---HEAD---"

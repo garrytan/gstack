@@ -25,13 +25,15 @@ const ROOT = path.resolve(import.meta.dir, '..');
 // Third recurrence (#497 → #2440 → /ship Step 18): the four ship dispatch
 // sections (Steps 7/8/10/18) never carried the flag and were never pinned, so
 // a backgrounded doc-sync dispatch stranded the ship run waiting on LAST-line
-// JSON that never came. Every synchronous dispatch carrier is pinned here now;
+// JSON that never came. ECPE moved that dispatch to the skeleton's Step 11.5,
+// before the final tree is frozen; Step 18 now only reuses its result.
+// Every synchronous dispatch carrier is pinned here now;
 // add new dispatch sites to this list in the same commit that creates them.
 const GENERATED_WITH_GUIDANCE = [
   'review/sections/review-army.md',
   'autoplan/sections/ceo-phase.md',
   'ship/sections/review-army.md',
-  'ship/sections/pr-body.md',
+  'ship/SKILL.md',
   'ship/sections/test-coverage.md',
   'ship/sections/plan-completion.md',
   'ship/sections/greptile.md',
@@ -83,20 +85,27 @@ describe('run_in_background guidance (#2440)', () => {
   test('foreground-required skills instruct run_in_background: false explicitly', () => {
     for (const rel of GENERATED_WITH_GUIDANCE) {
       const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
-      expect(content).toContain('run_in_background: false');
+      expect(content, rel).toContain('run_in_background: false');
     }
   });
 
   // Third recurrence (#497 → #2440 → /ship Step 18): a backgrounded doc-sync
   // dispatch stranded the ship run. Pin the deadline/recovery branch and the
-  // docs-sync scope guard in both the generated section and its template, so
+  // docs-sync scope guard at the moved dispatch in both output and template, so
   // neither a template edit nor a stale regen can drop them silently.
-  const PR_BODY_SITES = ['ship/sections/pr-body.md', 'ship/sections/pr-body.md.tmpl'];
-  test('ship pr-body carries the doc-sync deadline recovery + scope guard', () => {
-    for (const rel of PR_BODY_SITES) {
+  const DOC_SYNC_SITES = ['ship/SKILL.md', 'ship/SKILL.md.tmpl'];
+  test('ship Step 11.5 carries the doc-sync deadline recovery + scope guard', () => {
+    for (const rel of DOC_SYNC_SITES) {
       const content = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
-      expect(content).toContain('document-release did not complete');
-      expect(content).toContain('Scope guard — docs sync ONLY');
+      const docs = content.slice(content.indexOf('## Step 11.5:'), content.indexOf('## Step 12:'));
+      const normalizedDocs = docs.replace(/\s+/g, ' ');
+      expect(normalizedDocs).toContain('run_in_background: false');
+      expect(normalizedDocs).toContain('2-3 checks across');
+      expect(normalizedDocs).toContain('stop any still-running helper');
+      expect(normalizedDocs).toContain('pass the failure through `finish` to burn the original lease');
+      expect(normalizedDocs).toContain('stop before Step 12');
+      expect(normalizedDocs).toContain('Scope guard — docs sync ONLY');
+      expect(normalizedDocs).toContain('never dispatch a second documentation helper');
     }
   });
 
@@ -138,10 +147,7 @@ describe('run_in_background guidance (#2440)', () => {
     /(?:via|using) the Agent tool|dispatch(?:es)? (?:a|an|the|one|each|it as a)[^.\n]{0,60}subagent|\(foreground[^)]*\)|foreground Agent tool/i;
   // Reasoned exemptions: files where the match is a reference to a dispatch
   // that lives (flag and all) in another file, not a dispatch spec itself.
-  const BACKGROUND_OK: Record<string, string> = {
-    'ship/SKILL.md':
-      'skeleton anchors reference the Step 18 dispatch by name (carve-guards mustStayInSkeleton); the dispatch spec + flag live in sections/pr-body.md',
-  };
+  const BACKGROUND_OK: Record<string, string> = {};
   test('structural scanner: every generated dispatch imperative carries the flag', () => {
     for (const file of allGeneratedSkillFiles()) {
       const rel = path.relative(ROOT, file).split(path.sep).join('/');

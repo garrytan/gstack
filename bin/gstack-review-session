@@ -1,0 +1,12 @@
+#!/usr/bin/env bun
+import { beginReview, finishReview } from '../lib/review-session';
+
+function fail(error: unknown): never { process.stderr.write(JSON.stringify({ result: null, error: { code: error instanceof Error ? error.message : 'review_session_failed' } }) + '\n'); process.exit(2); }
+try {
+  const args = process.argv.slice(2); const command = args.shift(); const values = new Map<string, string>(); let json = false;
+  while (args.length) { const flag = args.shift()!; if (flag === '--json') { if (json) throw new Error('review_session_arguments_invalid'); json = true; continue; } const value = args.shift(); if (!flag.startsWith('--') || !value || value.startsWith('--') || values.has(flag)) throw new Error('review_session_arguments_invalid'); values.set(flag, value); }
+  const stateRoot = process.env.GSTACK_HOME ?? (process.env.HOME ? `${process.env.HOME}/.gstack` : ''); if (!stateRoot) throw new Error('review_state_root_missing');
+  if (command === 'begin') { if ([...values.keys()].some((key) => !['--skill', '--assert-target-ref', '--assert-target-sha'].includes(key))) throw new Error('review_session_arguments_invalid'); const result = beginReview({ cwd: process.cwd(), stateRoot, skill: values.get('--skill') ?? '', assertTargetRef: values.get('--assert-target-ref'), assertTargetSha: values.get('--assert-target-sha') }); process.stdout.write(JSON.stringify(result) + '\n'); }
+  else if (command === 'finish') { if ([...values.keys()].some((key) => !['--run-id', '--payload'].includes(key))) throw new Error('review_session_arguments_invalid'); const payload = values.get('--payload'); if (!payload) throw new Error('review_payload_missing'); const result = finishReview({ cwd: process.cwd(), stateRoot, runId: values.get('--run-id') ?? '', payload: JSON.parse(payload) }); process.stdout.write(JSON.stringify(result) + '\n'); if (result.status === 'stale') process.exit(1); }
+  else throw new Error('review_session_command_invalid');
+} catch (error) { fail(error); }

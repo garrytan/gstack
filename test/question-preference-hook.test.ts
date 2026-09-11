@@ -703,7 +703,7 @@ describe('Conductor spawned deny (#2733)', () => {
       path.join(ROOT, 'hosts', 'claude', 'hooks', 'auq-error-fallback-hook.ts'),
       path.join(ROOT, 'scripts', 'resolvers', 'preamble', 'generate-ask-user-format.ts'),
       path.join(ROOT, 'bin', 'gstack-skill-start'),
-      path.join(ROOT, 'ship', 'sections', 'pr-body.md.tmpl'),
+      path.join(ROOT, 'ship', 'SKILL.md.tmpl'),
     ];
     for (const f of surfaces) {
       const src = fs.readFileSync(f, 'utf-8');

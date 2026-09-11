@@ -66,6 +66,13 @@ interface HookStdin {
 const MARKER_RE = /<gstack-qid:([a-z0-9-]{1,64})>/i;
 const RECOMMENDED_LABEL_RE = /\(recommended\)\s*$/i;
 
+function isGovernedSession(sessionId: string | undefined): boolean {
+  if (!sessionId || !/^[A-Za-z0-9._-]+$/.test(sessionId)) return false;
+  const root = process.env.GSTACK_STATE_ROOT || process.env.GSTACK_HOME || path.join(os.homedir(), '.gstack');
+  return ['review', 'ship', 'land-and-deploy', 'setup-deploy']
+    .some((skill) => fs.existsSync(path.join(root, 'governed-runs', `${sessionId}.${skill}.active`)));
+}
+
 function stateRoot(): string {
   return (
     process.env.GSTACK_STATE_ROOT ||
@@ -369,6 +376,11 @@ async function main(): Promise<void> {
     stdin = JSON.parse(raw);
   } catch (e) {
     logHookError(`stdin parse failed: ${(e as Error).message}`);
+    passThrough();
+    return;
+  }
+
+  if (isGovernedSession(stdin.session_id)) {
     passThrough();
     return;
   }

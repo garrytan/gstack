@@ -18,7 +18,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "fs";
-import { appendJsonl } from "./jsonl-store";
+import { appendNonAuthorityJsonl } from "./jsonl-store";
 import { gbrainConfigDir, isExecTimeout } from "./gbrain-exec";
 import { dirname, join } from "path";
 import { execFileSync } from "child_process";
@@ -357,7 +357,7 @@ function logGbrainError(kind: string, detail: string): void {
   try {
     const path = errorLogPath();
     mkdirSync(dirname(path), { recursive: true });
-    appendJsonl(path, { ts: new Date().toISOString(), kind, detail: detail.slice(0, 500) });
+    appendNonAuthorityJsonl(path, { ts: new Date().toISOString(), kind, detail: detail.slice(0, 500) });
   } catch { /* logging is best-effort */ }
 }
 
@@ -590,7 +590,7 @@ function logErrorContext(entry: ErrorContextEntry): void {
   try {
     const path = errorLogPath();
     mkdirSync(dirname(path), { recursive: true });
-    appendJsonl(path, entry);
+    appendNonAuthorityJsonl(path, entry);
   } catch {
     // Logging failure is non-fatal — never block the op.
   }

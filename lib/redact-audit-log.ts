@@ -6,7 +6,9 @@
  *
  * The file (`~/.gstack/security/semantic-reviews.jsonl`) is sensitive metadata,
  * not "safe": it leaks repo names, timing, and a membership oracle via the hash.
- * Written 0600. Local-only — no third-party egress.
+ * Written 0600 on POSIX. Native Windows uses the account's inherited ACL;
+ * this best-effort operational log is not ECPE authority. Local-only — no
+ * third-party egress.
  *
  * Usable two ways:
  *   - CLI:  bun lib/redact-audit-log.ts '<json-line-without-ts/hash>' [body-file]
@@ -18,7 +20,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { createHash } from "crypto";
-import { appendJsonl } from "./jsonl-store";
+import { appendNonAuthorityJsonl } from "./jsonl-store";
 
 export interface SemanticReviewEntry {
   ts: string;
@@ -44,9 +46,10 @@ export function appendSemanticReview(entry: SemanticReviewEntry): void {
     const dir = securityDir();
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, "semantic-reviews.jsonl");
-    // 0600 at create via appendJsonl's mode opt; the chmod backstop covers
-    // files created looser by pre-mode versions.
-    appendJsonl(file, entry, { mode: 0o600 });
+    // POSIX: 0600 at create plus a chmod backstop for files created looser by
+    // pre-mode versions. Native Windows inherits the account ACL; numeric
+    // mode bits are not an NTFS DACL attestation.
+    appendNonAuthorityJsonl(file, entry, { mode: 0o600 });
     try {
       fs.chmodSync(file, 0o600);
     } catch {

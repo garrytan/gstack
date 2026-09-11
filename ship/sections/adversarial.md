@@ -19,7 +19,7 @@ echo "DIFF_SIZE: $DIFF_TOTAL"
 ```bash
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
+_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo disabled)
 source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
 if [ "$_CODEX_CFG" = "disabled" ]; then
   _CODEX_MODE="disabled"
@@ -31,6 +31,8 @@ if [ "$_CODEX_CFG" = "disabled" ]; then
 # the nested passes anyway.
 elif [ "${GSTACK_FORCE_CODEX_REVIEW:-0}" != "1" ] && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ]; }; then
   _CODEX_MODE="under_codex"
+elif [ "${ECPE_PAID_MODEL_AUTHORIZED:-0}" != "1" ]; then
+  _CODEX_MODE="grant_required"
 elif ! command -v codex >/dev/null 2>&1; then
   _CODEX_MODE="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
 elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
@@ -52,17 +54,18 @@ echo "CODEX_MODE: $_CODEX_MODE"
 
 Branch on the echoed `CODEX_MODE`:
 - **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."
+- **`grant_required`** — Codex review is enabled, but this invocation has no exact current-task paid-model grant. Spawn no Codex process and write no model-probe cache; use the caller's free fallback when one exists.
 - **`not_installed`** — Codex CLI absent. Print: "Codex not installed — falling back to a Claude subagent (fresh context, but the SAME model family — not an outside model). Install Codex for an actual outside-model read: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
 - **`under_codex`** — this session is already running INSIDE a Codex host, so spawning codex again is the same model reviewing itself at multiplied token cost (#2519). Print exactly one line: "[running under Codex — nested codex passes skipped; set GSTACK_FORCE_CODEX_REVIEW=1 to force]" and skip the codex invocations below; run the section's free in-host pass instead if it defines one.
 - **`not_authed`** — installed but no credentials. Print: "Codex installed but not authenticated — falling back to a Claude subagent (same model family, not an outside model). Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
 - **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines and fall back to the Claude subagent path. This state exists because a missing binary used to land in the model probe's fail-open bucket and report `ready`, so every Codex pass was skipped silently (#2742).
 - **`model_unusable`** — authed but the account cannot use gstack's selected Codex model (#2477: HTTP 400 on every call). Relay the probe's HINT lines, tell the user the one-line fix (set `GSTACK_CODEX_MODEL=<supported-model>` or pass an explicit `-c model=...` override), and fall back to the Claude subagent path. The ~10s round trip is cached for 1h; timeouts fail open to `ready`.
-- **`ready`** — run the Codex pass below.
+- **`ready`** — Codex is available, but run the paid pass below only when the exact current-task `ECPE_PAID_MODEL_AUTHORIZED=1` grant is present. Availability is not authorization.
 
 For this diff-review path, `CODEX_MODE: disabled` means skip the Codex passes ONLY — the
 Claude adversarial subagent below still runs (it's free and fast). `ready` runs the Codex
-passes; `not_installed` / `not_authed` skip them with the printed note and continue with
-Claude only.
+passes; `grant_required` / `not_installed` / `not_authed` skip them with the printed
+note and continue with Claude only.
 
 **User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size (still requires `CODEX_MODE: ready`).
 
@@ -87,54 +90,50 @@ If the subagent fails or times out: "Claude adversarial subagent unavailable. Co
 
 ### Codex adversarial challenge (runs whenever `CODEX_MODE: ready`)
 
-If `CODEX_MODE` is `ready`:
+If `CODEX_MODE` is `ready`, require the exact current-task paid-model grant.
+Without `ECPE_PAID_MODEL_AUTHORIZED=1`, print a skip message and spawn no Codex
+process. With the grant, invoke only the closed adapter:
 
 ```bash
-TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-# Shell functions do not survive between Bash blocks, so re-source the probe
-# here. It defines _gstack_codex_timeout_wrapper (gtimeout -> timeout ->
-# unwrapped fallback), added in #1056 but never wired into this call site.
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
-_gstack_codex_timeout_wrapper 540 codex exec "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nReview the changes on this branch against the base branch. Run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR_ADV"
+if [ "${ECPE_PAID_MODEL_AUTHORIZED:-0}" = "1" ]; then
+  ~/.claude/skills/gstack/bin/gstack-effect-scope ensure-paid-validator     --skill ship --validator-id codex.adversarial.v1     --lane "PLAN_LANE" --json
+else
+  echo "Codex adversarial skipped (paid-model grant absent)"
+fi
 ```
 
-Set the Bash tool's `timeout` parameter to `600000` (10 minutes). It sits ABOVE the 540s wrapper deliberately, so the wrapper fires first and a stall surfaces as a diagnosable exit 124 instead of a harness kill that returns nothing. The wrapper resolves `gtimeout`, then `timeout`, then runs unwrapped, so it is safe on a macOS without coreutils. After the command completes, read stderr:
-```bash
-cat "$TMPERR_ADV"
-```
-
-Present the full output verbatim. This is informational — it never blocks shipping.
+Set the Bash tool's `timeout` parameter to `600000` (10 minutes). The adapter
+owns the compiled prompt, Codex argv, and captured output. Present its stdout
+verbatim. This is informational — it never blocks shipping.
 
 **Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
 - **Timeout (exit 124):** "Codex exceeded 9 minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if Codex had reviewed. Whatever it produced before the cut is recoverable from that run's rollout log under `~/.codex/sessions/<YYYY>/<MM>/<DD>/`.
 - **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
 
-**Cleanup:** Run `rm -f "$TMPERR_ADV"` after processing.
-
-If `CODEX_MODE` is `not_installed` / `not_authed` / `disabled`: the preflight already printed the reason; run Claude adversarial only.
+If `CODEX_MODE` is `grant_required` / `not_installed` / `not_authed` /
+`broken_install` / `model_unusable` / `under_codex` / `disabled`: the
+preflight already printed the reason; run Claude adversarial only.
 
 ---
 
 ### Codex structured review (large diffs only, 200+ lines)
 
-If `DIFF_TOTAL >= 200` AND `CODEX_MODE` is `ready`:
+If `DIFF_TOTAL >= 200`, `CODEX_MODE` is `ready`, and the exact current-task
+`ECPE_PAID_MODEL_AUTHORIZED=1` grant is present:
 
 ```bash
-TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
-_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-cd "$_REPO_ROOT"
-# Shell functions do not survive between Bash blocks, so re-source the probe
-# here. It defines _gstack_codex_timeout_wrapper (gtimeout -> timeout ->
-# unwrapped fallback), added in #1056 but never wired into this call site.
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
-_gstack_codex_timeout_wrapper 540 codex review --base <base> -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c "review_model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR"
+~/.claude/skills/gstack/bin/gstack-effect-scope ensure-paid-validator   --skill ship --validator-id codex.review.v1   --lane "PLAN_LANE" --json
 ```
+
+Replace `PLAN_LANE` with the exact `lane` returned by the initial fused
+execution-plan. If it is unavailable or ambiguous, skip the paid pass.
 
 **No prompt argument.** `--base` is what scopes the review, and the positional `[PROMPT]` is mutually exclusive with it — passing both fails at argv parsing. Do NOT "fix" that error by dropping `--base` and keeping the prompt: a prompt-only `codex review` silently falls back to the **uncommitted working-tree** scope (`git status --short; git diff`), so it reviews the wrong changes and reports "no changes" on a clean tree. Prompt text describing the diff range does not change what the CLI feeds the reviewer. Unlike the adversarial pass above, which uses `codex exec` and really does run the git command it's told to, this path gets a pre-computed diff from the CLI — which is also why it needs no filesystem boundary.
 
-Set the Bash tool's `timeout` parameter to `600000` (10 minutes). It sits ABOVE the 540s wrapper deliberately, so the wrapper fires first and a stall surfaces as a diagnosable exit 124 instead of a harness kill that returns nothing. The wrapper resolves `gtimeout`, then `timeout`, then runs unwrapped, so it is safe on a macOS without coreutils. Present output under `CODEX SAYS (code review):` header.
+Set the Bash tool's outer `timeout` parameter to `600000` (10 minutes). The
+closed adapter owns the inner timeout and returns a diagnosable exit 124 before
+the outer harness limit. Present output under `CODEX SAYS (code review):` header.
 Check for `[P1]` markers: found → `GATE: FAIL`, not found → `GATE: PASS`.
 
 If GATE is FAIL, use AskUserQuestion:
@@ -145,11 +144,10 @@ A) Investigate and fix now (recommended)
 B) Continue — review will still complete
 ```
 
-If A: address the findings. After fixing, re-run tests (Step 5) since code has changed. Re-run `codex review` to verify.
+If A: address the findings. After fixing, re-run tests (Step 5) since code has changed, then re-run the same closed `codex.review.v1` validator adapter to verify; never invoke `codex review` directly.
 
-Read stderr for errors (same error handling as Codex adversarial above).
-
-After stderr: `rm -f "$TMPERR"`
+The closed adapter derives the base and owns the complete Codex argv. Absent
+authorization skips this pass with zero adapter and zero Codex spawns.
 
 If `DIFF_TOTAL < 200`: skip this section silently. The Claude + Codex adversarial passes provide sufficient coverage for smaller diffs.
 
@@ -184,43 +182,9 @@ High-confidence findings (agreed on by multiple sources) should be prioritized f
 
 ---
 
-## Capture Learnings
+ECPE: add a `spawn` partial for each actual helper/model launch. Use
+`execution_effect:"paid_model"` only for an actual paid-model spawn; an
+already-running host pass is not a spawn. Store only closed IDs/enums.
 
-If you discovered a non-obvious pattern, pitfall, or architectural insight during
-this session, log it for future sessions:
-
-```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"ship","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
-```
-
-**Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
-(user stated), `architecture` (structural decision), `tool` (library/framework insight),
-`operational` (project environment/CLI/workflow knowledge).
-
-**Sources:** `observed` (you found this in the code), `user-stated` (user told you),
-`inferred` (AI deduction), `cross-model` (both Claude and Codex agree).
-
-**Confidence:** 1-10. Be honest. An observed pattern you verified in the code is 8-9.
-An inference you're not sure about is 4-5. A user preference they explicitly stated is 10.
-
-**files:** Include the specific file paths this learning references. This enables
-staleness detection: if those files are later deleted, the learning can be flagged.
-
-**Only log genuine discoveries.** Don't log obvious things. Don't log things the user
-already knows. A good test: would this insight save time in a future session? If yes, log it.
-
-
-
-### Refresh learnings for the headline feature on this branch
-
-The top-of-skill learnings pull was keyed to "release ship" broadly. Before the VERSION/CHANGELOG step, re-pull learnings keyed to THIS branch's headline feature so any prior version-bump or CHANGELOG pitfalls for similar features surface.
-
-Pick ONE keyword that names the headline feature you're shipping. The keyword should be a noun: the primary skill or module name, the central feature noun, or the binary you changed. The keyword MUST be alphanumeric or hyphen only — no quotes, slashes, dots, colons, or whitespace. If your candidate has any of those, simplify to just the alphanumeric stem.
-
-Worked examples (ship-specific): good keywords are `learnings-search`, `pacing`, `worktree-ship`. Bad: `the branch headline`, `v1.31.1.0`, `feat: token-or search`.
-
-```bash
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>/dev/null || true
-```
-
-If any learnings come back, name which one applies to the version bump or CHANGELOG framing in one sentence. If none come back, continue without reference — the absence is itself useful information.
+Governed ship performs no implicit learnings search, write, or gbrain save.
+Use an explicit context or learning task when durable memory work is requested.

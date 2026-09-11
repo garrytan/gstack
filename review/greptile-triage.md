@@ -6,11 +6,13 @@ Shared reference for fetching, filtering, and classifying Greptile review commen
 
 ## Fetch
 
-Run these commands to detect the PR and fetch comments. Both API calls run in parallel.
+The caller must supply an exact positive `PR_NUMBER`. Bind it to the canonical
+origin before fetching comments; current-branch inference is not authority.
 
 ```bash
-REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
-PR_NUMBER=$(gh pr view --json number --jq '.number' 2>/dev/null)
+PR_HEAD_SNAPSHOT=$($GSTACK_ANCHOR_INVOCATION gstack-pr-head-guard snapshot --pr "$PR_NUMBER") || exit 1
+REPO=$(printf '%s' "$PR_HEAD_SNAPSHOT" | jq -r .repositorySelector)
+PR_HEAD_OID=$(printf '%s' "$PR_HEAD_SNAPSHOT" | jq -r .headRefOid)
 ```
 
 **If either fails or is empty:** Skip Greptile triage silently. This integration is additive — the workflow works without it.
@@ -92,23 +94,22 @@ For each non-suppressed comment:
 
 ---
 
-## Reply APIs
+## Reply adapter
 
-When replying to Greptile comments, use the correct endpoint based on comment source:
+For an explicitly authorized line-level Greptile reply, place the final scanned
+body in a mode-0600 temporary file and invoke only the closed adapter:
 
-**Line-level comments** (from `pulls/$PR/comments`):
 ```bash
-gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
-  -f body="<reply text>"
+~/.claude/skills/gstack/bin/gstack-effect-scope provider-comment \
+  --skill review --operation review.greptile --pr "$PR_NUMBER" \
+  --comment-id "$COMMENT_ID" --reply-intent "$REPLY_INTENT" \
+  --body-file "$REPLY_BODY_FILE" --json
 ```
 
-**Top-level comments** (from `issues/$PR/comments`):
-```bash
-gh api repos/$REPO/issues/$PR_NUMBER/comments \
-  -f body="<reply text>"
-```
+Top-level issue comments have no T1 closed writer and remain report-only.
 
-**If a reply POST fails** (e.g., PR was closed, no write permission): warn and continue. Do not stop the workflow for a failed reply.
+**If the adapter fails** (e.g., PR was closed, no write permission): warn and
+continue. Never fall back to a raw provider command.
 
 ---
 
@@ -198,30 +199,12 @@ When classifying comments, also assess whether Greptile's implied severity match
 
 ---
 
-## History File Writes
+## History observation
 
-Before writing, ensure both directories exist:
-```bash
-REMOTE_SLUG=$(browse/bin/remote-slug 2>/dev/null || ~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
-mkdir -p "$HOME/.gstack/projects/$REMOTE_SLUG"
-mkdir -p ~/.gstack
-```
-
-Append one line per triage outcome to **both** files (per-project for suppressions, global for retro):
-- `~/.gstack/projects/$REMOTE_SLUG/greptile-history.md` (per-project)
-- `~/.gstack/greptile-history.md` (global aggregate)
-
-Format:
-```
-<YYYY-MM-DD> | <owner/repo> | <type> | <file-pattern> | <category>
-```
-
-Example entries:
-```
-2026-03-13 | garrytan/myapp | fp | app/services/auth_service.rb | race-condition
-2026-03-13 | garrytan/myapp | fix | app/models/user.rb | null-check
-2026-03-13 | garrytan/myapp | already-fixed | lib/payments.rb | error-handling
-```
+Existing history may be read as a suppression input. Governed review and ship
+must not create directories or append either project or global
+`greptile-history.md`. Report the proposed classification in the response only;
+a separate explicit learning task owns any durable update.
 
 ---
 

@@ -75,6 +75,7 @@ function runProbe(f: Fixture, stubMode: string, extraEnv: Record<string, string>
         HOME: f.home,
         CODEX_HOME: f.codexHome,
         GSTACK_HOME: f.gstackHome,
+        ECPE_PAID_MODEL_AUTHORIZED: '1',
         STUB_MODE: stubMode,
         STUB_LOG: f.stubLog,
         STUB_ARGS_LOG: f.stubArgsLog,

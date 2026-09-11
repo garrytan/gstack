@@ -37,6 +37,10 @@ _gstack_codex_auth_probe() {
 # --- Model round-trip probe (#2477) ------------------------------------------
 
 _gstack_codex_model_probe() {
+  if [ "${ECPE_PAID_MODEL_AUTHORIZED:-0}" != "1" ]; then
+    echo "MODEL_PROBE_GRANT_REQUIRED"
+    return 2
+  fi
   # Auth-exists is a weaker signal than the auth probe implies: a ChatGPT
   # account can be valid while the model gstack will request is unavailable.
   # A short real round trip with gstack's selected model catches model

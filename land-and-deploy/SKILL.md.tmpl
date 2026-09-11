@@ -22,11 +22,7 @@ triggers:
 
 {{PREAMBLE}}
 
-{{THIRD_PARTY_ACTIONS}}
-
-{{ASIDE_SETUP}}
-
-{{BROWSE_FALLBACK}}
+{{WORKFLOW_EFFECT_BOUNDARY}}
 
 {{BASE_BRANCH_DETECT}}
 
@@ -38,14 +34,26 @@ You are a **Release Engineer** who has deployed to production thousands of times
 
 This skill picks up where `/ship` left off. `/ship` creates the PR. You merge it, wait for deploy, and verify production.
 
+### ECPE T0 observation batch
+
+Maintain one bounded in-memory `ECPE_BATCH_JSON` array containing only closed
+decision, receipt, spawn, validator, and gate IDs/enums plus measured numeric
+durations. Never include prompts, code, filenames, tool arguments, logs,
+diffs, secrets, or narrative. Do not invoke telemetry at each boundary; flush
+once through the existing final `gstack-skill-end --ecpe-batch-json` call.
+Merge/deploy/rollback grants and observations belong only to the effect
+adapters, never this host-reported batch. Missing values stay absent.
+
 ## User-invocable
 When the user types `/land-and-deploy`, run this skill.
 
 ## Arguments
-- `/land-and-deploy` — auto-detect PR from current branch, no post-deploy URL
-- `/land-and-deploy <url>` — auto-detect PR, verify deploy at this URL
-- `/land-and-deploy #123` — specific PR number
-- `/land-and-deploy #123 <url>` — specific PR + verification URL
+- `/land-and-deploy #123 --mode merge-only` — merge one exact PR
+- `/land-and-deploy #123 --mode merge-and-deploy --environment <configured-id>` — merge and verify one configured target
+
+An omitted PR, mode, or required configured environment exits before any effect
+adapter. Current-branch detection may be displayed as information but never
+authorizes merge or deploy.
 
 ## Non-interactive philosophy (like /ship) — with one critical gate
 
@@ -102,43 +110,72 @@ If not authenticated, **STOP**: "I need GitHub CLI access to merge your PR. Run 
 gh pr view --json number,state,title,url,mergeStateStatus,mergeable,baseRefName,headRefName
 ```
 
+Current-branch detection is informational only. Once a positive number is found,
+first inspect the canonical landing journal by repository identity and PR. This
+is the fresh-process recovery entrypoint; it does not issue a merge mutation:
+
+```bash
+LANDING_RECOVERY_JSON=$($GSTACK_ANCHOR_INVOCATION gstack-effect-scope provider-merge discover \
+  --skill land-and-deploy --pr "$PR_NUMBER") || exit 1
+LANDING_RECOVERY_STATUS=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .status) || exit 1
+if [ "$LANDING_RECOVERY_STATUS" = "absent" ]; then
+  LANDING_RECOVERY=0
+  LANDING_COMPLETE=0
+  PR_HEAD_SNAPSHOT=$($GSTACK_ANCHOR_INVOCATION gstack-pr-head-guard snapshot --pr "$PR_NUMBER") || exit 1
+  PR_HEAD_OID=$(printf '%s' "$PR_HEAD_SNAPSHOT" | jq -r .headRefOid)
+  PR_BASE_OID=$(printf '%s' "$PR_HEAD_SNAPSHOT" | jq -r .baseRefOid)
+  PR_TARGET_REF=$(printf '%s' "$PR_HEAD_SNAPSHOT" | jq -r .targetRef)
+  PR_REPOSITORY_NODE_ID=$(printf '%s' "$PR_HEAD_SNAPSHOT" | jq -r .repositoryNodeId)
+elif printf '%s' "$LANDING_RECOVERY_JSON" | jq -e \
+  '.status == "merged" and (.deliveryReceiptId | startswith("merged-delivery-")) and (.milestone_landing_id == null)' >/dev/null; then
+  LANDING_RECOVERY=0
+  LANDING_COMPLETE=1
+  PR_HEAD_OID=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .expectedHeadOid)
+  PR_BASE_OID=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .expectedBaseOid)
+  PR_TARGET_REF=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .expectedTargetRef)
+  PR_REPOSITORY_NODE_ID=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .expectedRepositoryNodeId)
+else
+  LANDING_RECOVERY=1
+  LANDING_COMPLETE=0
+  PR_HEAD_OID=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .expectedHeadOid)
+  PR_BASE_OID=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .expectedBaseOid)
+  PR_TARGET_REF=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .expectedTargetRef)
+  PR_REPOSITORY_NODE_ID=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .expectedRepositoryNodeId)
+  SHIP_RECOVERY_KIND=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -r .landing_kind)
+  SHIP_RECOVERY_LANDING_ID=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .milestone_landing_id)
+  SHIP_RECOVERY_SUBJECT_TREE=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .subject_tree)
+  SHIP_RECEIPT_ID=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -r '.ship_receipt_id // empty')
+  SHIP_RECOVERY_LANE=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -r '.lane // empty')
+  SHIP_RECOVERY_BLOCK=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -r '.milestone_block_id // empty')
+  if [ "$SHIP_RECOVERY_KIND" = "promotion" ]; then SHIP_PROMOTION_LANE=$SHIP_RECOVERY_LANE; SHIP_PROMOTION_BLOCK_ID=$SHIP_RECOVERY_BLOCK; fi
+  if [ "$SHIP_RECOVERY_KIND" = "canary_activation" ]; then SHIP_CANARY_LANE=$SHIP_RECOVERY_LANE; SHIP_CANARY_BLOCK_ID=$SHIP_RECOVERY_BLOCK; SHIP_CANARY_PROOF=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .canary_proof_id); fi
+  if [ "$SHIP_RECOVERY_KIND" = "canary_sample" ]; then SHIP_CANARY_LANE=$SHIP_RECOVERY_LANE; SHIP_CANARY_BLOCK_ID=$SHIP_RECOVERY_BLOCK; SHIP_CANARY_SAMPLE=$(printf '%s' "$LANDING_RECOVERY_JSON" | jq -er .canary_sample_id); fi
+fi
+```
+
 4. Tell the user what you found: "Found PR #NNN — '{title}' (branch → base)."
 
 5. Validate the PR state:
    - If no PR exists: **STOP.** "No PR found for this branch. Run `/ship` first to create a PR, then come back here to land and deploy it."
-   - If `state` is `MERGED`: "This PR is already merged — nothing to deploy. If you need to verify the deploy, run `/canary <url>` instead."
+   - If `state` is `MERGED`, `LANDING_COMPLETE == 1`, and the protected typed receipt is current: "This PR merge is already verified — no second merge will run. If you need to verify the deploy, run `/canary <url>` instead."
+   - If `state` is `MERGED` without `LANDING_RECOVERY == 1` or `LANDING_COMPLETE == 1`: **STOP.** The raw provider state is not typed terminal evidence.
+   - If `LANDING_RECOVERY == 1`: continue with the frozen journal assertions even when provider state is already `MERGED`; do not take the ordinary early exit.
    - If `state` is `CLOSED`: "This PR was closed without merging. Reopen it on GitHub first, then try again."
    - If `state` is `OPEN`: continue.
+
+When `LANDING_RECOVERY == 1`, skip Steps 1.5, 2, and 3 and resume at Step 4
+with the frozen journal assertions. Those steps are fresh-landing readiness work
+and must not prevent reconciliation of a provider effect that may already have
+completed.
 
 ---
 
 ## Step 1.5: First-run dry-run validation
 
-Check whether this project has been through a successful `/land-and-deploy` before,
-and whether the deploy configuration has changed since then:
-
-```bash
-{{SLUG_EVAL}}
-if [ ! -f ~/.gstack/projects/$SLUG/land-deploy-confirmed ]; then
-  echo "FIRST_RUN"
-else
-  # Check if deploy config has changed since confirmation
-  SAVED_HASH=$(cat ~/.gstack/projects/$SLUG/land-deploy-confirmed 2>/dev/null)
-  CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' CLAUDE.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-  # Also hash workflow files that affect deploy behavior
-  WORKFLOW_HASH=$(find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-  COMBINED_HASH="${CURRENT_HASH}-${WORKFLOW_HASH}"
-  if [ "$SAVED_HASH" != "$COMBINED_HASH" ] && [ -n "$SAVED_HASH" ]; then
-    echo "CONFIG_CHANGED"
-  else
-    echo "CONFIRMED"
-  fi
-fi
-```
-
-**If CONFIRMED:** Print "I've deployed this project before and know how it works. Moving straight to readiness checks." Proceed to Step 2 — do NOT read the dry-run section.
-
-**If FIRST_RUN or CONFIG_CHANGED:** the full dry-run flow (teacher-mode explanation, deploy infrastructure detection, command validation, staging detection, readiness preview, and the save-or-stop confirmation) is on-demand:
+Do not read or write a `land-deploy-confirmed` marker. Inspect current deploy
+configuration every run. The full dry-run flow (teacher-mode explanation,
+deploy infrastructure detection, command validation, staging detection,
+readiness preview, and confirmation) is on-demand:
 
 {{SECTION:first-run-validation}}
 
@@ -153,7 +190,7 @@ Tell the user: "Checking CI status and merge readiness..."
 Check CI status and merge readiness:
 
 ```bash
-gh pr checks --json name,state,status,conclusion
+$GSTACK_ANCHOR_INVOCATION gstack-pr-checks snapshot --pr "$PR_NUMBER"
 ```
 
 Parse the output:
@@ -185,46 +222,18 @@ If timeout (15 min): **STOP.** "CI has been running for over 15 minutes — that
 
 ---
 
-## Step 3.4: VERSION drift detection (workspace-aware ship)
+## Step 3.4: Recover the exact ship-time release decision
 
-Before gathering readiness evidence, verify that the VERSION this PR claims is still the next free slot. A sibling workspace may have shipped and landed since `/ship` ran, leaving this PR's VERSION stale.
+Do not recalculate a version queue position from the current base and do not run
+`gstack-next-version` here. Step 3.5 must inspect the exact protected ShipReceipt
+for this PR head. Its closed release decision is the only discriminator:
 
-```bash
-BRANCH_VERSION=$(git show HEAD:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
-BASE_BRANCH=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)
-BASE_VERSION=$(git show origin/$BASE_BRANCH:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
-
-# Imply bump level by comparing branch VERSION to base (crude but good enough for drift detection)
-# We don't need the exact original level — we just need "a level" that passes to the util.
-# If the minor digit advanced, call it minor; patch digit, patch; etc. If base > branch, skip (not ours to land).
-# For simplicity: use "patch" as a conservative default; util handles collision-past regardless of input level.
-QUEUE_JSON=$(bun run ~/.claude/skills/gstack/bin/gstack-next-version \
-  --base "$BASE_BRANCH" \
-  --bump patch \
-  --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
-NEXT_SLOT=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
-OFFLINE=$(echo "$QUEUE_JSON" | jq -r '.offline // false')
-```
-
-Behavior:
-
-1. If `OFFLINE=true` or the util fails: print `⚠ VERSION drift check unavailable (util offline) — proceeding with PR version v<BRANCH_VERSION>`. Continue to Step 3.5. CI's version-gate job is the backstop.
-
-2. If `BRANCH_VERSION` is already `>=` than `NEXT_SLOT`: no drift (or our PR is ahead of the queue). Continue.
-
-3. If drift is detected (a PR landed ahead of us and `BRANCH_VERSION < NEXT_SLOT`): **STOP** and print exactly:
-   ```
-   ⚠ VERSION drift detected.
-     This PR claims:  v<BRANCH_VERSION>
-     Next free slot:  v<NEXT_SLOT>   (queue moved since last /ship)
-
-   Rerun /ship from the feature branch to reconcile. /ship's ALREADY_BUMPED
-   branch will detect the drift and rewrite VERSION + CHANGELOG header + PR title
-   atomically. Do NOT merge from here — the landed PR would overwrite the other
-   branch's CHANGELOG entry or land with a duplicate version header.
-   ```
-
-   Exit non-zero. Do NOT auto-bump from `/land-and-deploy` — rerunning `/ship` is the clean path (it already handles VERSION + package.json + CHANGELOG header + PR title atomically via Step 12 ALREADY_BUMPED detection).
+- `applicable:false` means `drift_status=not_applicable`; no version, queue,
+  writer, retirement, or release-proof operation is reachable.
+- `applicable:true` means the merge authority must revalidate the exact retired
+  allocation and release projection at the provider-write boundary. Any drift
+  fails closed before the merge. Rerun `/ship` to produce a new PR head and
+  ShipReceipt; `/land-and-deploy` never repairs or reallocates release metadata.
 
 ---
 
@@ -312,7 +321,7 @@ Use the diff-scope classification from Step 5 to determine canary depth:
 | SCOPE_DOCS only | Already skipped in Step 5 |
 | SCOPE_CONFIG only | Smoke: the Aside script below; `responseStatus` in `NAV=` must be 200 |
 | SCOPE_BACKEND only | Console errors + perf check |
-| SCOPE_FRONTEND (any) | Full: console + perf + screenshot |
+| SCOPE_FRONTEND (any) | Full: console + perf + accessibility snapshot |
 | Mixed scopes | Full canary |
 
 **Full canary sequence** — one `aside repl` script does the whole check (console hook first, then load, then evidence):
@@ -327,19 +336,11 @@ console.log("URL=" + pg.url());
 console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
 console.log("NAV=" + await pg.evaluate(() => JSON.stringify(performance.getEntriesByType("navigation")[0])));
 console.log("TEXT_START"); console.log((await pg.evaluate(() => document.body.innerText)).slice(0, 20000)); console.log("TEXT_END");
-await pg.screenshot({ path: "post-deploy.jpg", type: "jpeg", quality: 60, fullPage: true });
-const a = await annotatedScreenshot(pg);
-await fs.writeFile(path.join(pwd, "post-deploy-annotated.png"), Buffer.from(a.base64Image, "base64"));
-console.log("ASIDE_DIR=" + pwd);
+const s = await snapshot(pg, { interactive: true });
+console.log("A11Y=" + s.tree);
 await closeTab(pg);
 console.log("GSTACK_STEP_OK");
 '
-```
-
-Then copy the evidence out of the printed session directory:
-
-```bash
-mkdir -p .gstack/deploy-reports && cp "<ASIDE_DIR>/post-deploy.jpg" "<ASIDE_DIR>/post-deploy-annotated.png" .gstack/deploy-reports/
 ```
 
 Read the output line by line:
@@ -348,7 +349,9 @@ Read the output line by line:
 - `CONSOLE_ERRORS=` — check for critical errors: entries containing `Error`, `Uncaught`, `Failed to load`, `TypeError`, `ReferenceError`. Ignore warnings.
 - `NAV=` — `responseStatus` is the HTTP status of the document (Chromium PerformanceNavigationTiming) — must be 200. `loadEventEnd` is the page load time. Check that it is under 10 seconds.
 - `TEXT_START` / `TEXT_END` — verify the page has real content (not blank, not a generic error page).
-- `post-deploy.jpg` and the annotated `post-deploy-annotated.png` are the evidence. Read the copied screenshot so the user sees it.
+- `A11Y=` — inspect the accessibility snapshot in memory. Do not save screenshots or other deploy-report artifacts during the governed default workflow.
+
+On the fallback browser, use `$B perf`, `$B text`, and `$B snapshot -i` to collect the equivalent in-memory checks.
 
 **Health assessment:**
 - Page loads successfully with 200 status (`responseStatus` in `NAV=`) → PASS
@@ -356,9 +359,9 @@ Read the output line by line:
 - Page has real content (not blank or error screen) → PASS
 - Loads in under 10 seconds → PASS
 
-If all pass: Tell the user "Site is healthy. Page loaded in {X}s, no console errors, content looks good. Screenshot saved to {path}." Mark as HEALTHY, continue to Step 9.
+If all pass: Tell the user "Site is healthy. Page loaded in {X}s, no console errors, content looks good." Mark as HEALTHY, continue to Step 9.
 
-If any fail: show the evidence (screenshot path, console errors, perf numbers). Use AskUserQuestion:
+If any fail: show the in-memory evidence (console errors and perf numbers). Use AskUserQuestion:
 - **Re-ground:** "I found some issues on the live site after the deploy. Here's what I see: {specific issues}. This might be temporary (caches clearing, CDN propagating) or it might be a real problem."
 - **RECOMMENDATION:** Choose based on severity — B for critical (site down), A for minor (console errors).
 - A) That's expected — the site is still warming up. Mark it as healthy.
@@ -374,16 +377,17 @@ If the user chose to revert at any point:
 Tell the user: "Reverting the merge now. This will create a new commit that undoes all the changes from this PR. The previous version of your site will be restored once the revert deploys."
 
 ```bash
-git fetch origin <base>
-git checkout <base>
-git revert <merge-commit-sha> --no-edit
-git push origin <base>
+~/.claude/skills/gstack/bin/gstack-effect-scope rollback \
+  --skill land-and-deploy --pr <number> --assert-environment <configured-id> --json
 ```
 
-If the revert has conflicts: "The revert has merge conflicts — this can happen if other changes landed on {base} after your merge. You'll need to resolve the conflicts manually. The merge commit SHA is `<sha>` — run `git revert <sha>` to try again."
+If the closed rollback adapter reports conflicts: stop and show the merge
+commit SHA. Explain that manual conflict resolution requires a separate,
+explicitly authorized task. Do not fall back to a raw Git or provider writer.
 
-If the base branch has push protections: "This repo has branch protections, so I can't push the revert directly. I'll create a revert PR instead — merge it to roll back."
-Keep the local revert commit. Create a new branch at that commit (`git switch -c "revert/pr-<PR_NUMBER>-<timestamp>"`), push it with `git push -u origin HEAD`, then create the revert PR with `gh pr create --base <base> --title 'revert: <original PR title>'`. Report rollback as pending until this PR merges and deploys, not REVERTED.
+The closed rollback adapter derives the merge commit, base, provider repository,
+and whether a revert PR is required. It owns the revert, push, and PR operation;
+the workflow must not invoke raw Git or provider writers.
 
 After a successful revert: Tell the user "Revert pushed to {base}. The deploy should roll back automatically once CI passes. Keep an eye on the site to confirm." Note the revert commit SHA and continue to Step 9 with status REVERTED.
 
@@ -391,13 +395,7 @@ After a successful revert: Tell the user "Revert pushed to {base}. The deploy sh
 
 ## Step 9: Deploy report
 
-Create the deploy report directory:
-
-```bash
-mkdir -p .gstack/deploy-reports
-```
-
-Produce and display the ASCII summary:
+Produce and display the ASCII summary in the response only:
 
 ```
 LAND & DEPLOY REPORT
@@ -429,24 +427,14 @@ Verification: <HEALTHY / DEGRADED / SKIPPED / REVERTED>
   Scope:      <FRONTEND / BACKEND / CONFIG / DOCS / MIXED>
   Console:    <N errors or "clean">
   Load time:  <Xs>
-  Screenshot: <path or "none">
+  Snapshot:   <inspected in memory or "not run">
 
 VERDICT: <DEPLOYED AND VERIFIED / DEPLOYED (UNVERIFIED) / STAGING VERIFIED / REVERTED>
 ```
 
-Save report to `.gstack/deploy-reports/{date}-pr{number}-deploy.md`.
-
-Log to the review dashboard:
-
-```bash
-{{SLUG_EVAL}}
-mkdir -p ~/.gstack/projects/$SLUG
-```
-
-Write a JSONL entry with timing data:
-```json
-{"skill":"land-and-deploy","timestamp":"<ISO>","status":"<SUCCESS/REVERTED>","pr":<number>,"merge_sha":"<sha>","merge_path":"<auto/direct/queue>","first_run":<true/false>,"deploy_status":"<HEALTHY/DEGRADED/SKIPPED>","staging_status":"<VERIFIED/SKIPPED>","review_status":"<CURRENT/STALE/NOT_RUN/INLINE_FIX>","ci_wait_s":<N>,"queue_s":<N>,"deploy_s":<N>,"staging_s":<N>,"canary_s":<N>,"total_s":<N>}
-```
+Do not create `.gstack/deploy-reports`, save a Markdown/PNG report, or append a
+second dashboard/JSONL status record. Canonical evidence and timeline writers
+remain the sole durable status sources.
 
 ---
 
@@ -479,14 +467,14 @@ the source of truth — STOP, Read it now, and redo that step.
 
 ## Important Rules
 
-- **Never force push.** Use `gh pr merge` which is safe.
+- **Never force push.** Landing uses the exact-head, direct-CAS adapter only.
 - **Never skip CI.** If checks are failing, stop and explain why.
 - **Narrate the journey.** The user should always know: what just happened, what's happening now, and what's about to happen next. No silent gaps between steps.
 - **Auto-detect everything.** PR number, merge method, deploy strategy, project type, merge queues, staging environments. Only ask when information genuinely can't be inferred.
 - **Poll with backoff.** Don't hammer GitHub API. 30-second intervals for CI/deploy, with reasonable timeouts.
 - **Revert is always an option.** At every failure point, offer revert as an escape hatch. Explain what reverting does in plain English.
 - **Single-pass verification, not continuous monitoring.** `/land-and-deploy` checks once. `/canary` does the extended monitoring loop.
-- **Clean up.** Delete the feature branch after merge (via `--delete-branch`).
+- **Cleanup is separate.** Landing never deletes branches or worktrees.
 - **First run = teacher mode.** Walk the user through everything. Explain what each check does and why it matters. Show them their infrastructure. Let them confirm before proceeding. Build trust through transparency.
 - **Subsequent runs = efficient mode.** Brief status updates, no re-explanations. The user already trusts the tool — just do the job and report results.
 - **The goal is: first-timers think "wow, this is thorough — I trust it." Repeat users think "that was fast — it just works."**

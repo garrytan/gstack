@@ -1,15 +1,31 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
+import { execSync, spawnSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { gitIn } from './helpers/scratch-repo';
+import { resolveProjectIdentity } from '../lib/project-identity';
+import { createInstalledAuthorityFixture } from './helpers/installed-authority';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const BIN = path.join(ROOT, 'bin');
+let installed: ReturnType<typeof createInstalledAuthorityFixture>;
+let BIN: string;
 
 let tmpDir: string;
 let slugDir: string;
+
+beforeAll(() => {
+  const build = spawnSync(process.execPath, ['run', 'scripts/build-authority-bundles.ts'], {
+    cwd: ROOT,
+    stdio: 'pipe',
+    timeout: 30_000,
+  });
+  expect(build.status).toBe(0);
+  installed = createInstalledAuthorityFixture(ROOT);
+  BIN = installed.bin;
+});
+
+afterAll(() => installed?.cleanup());
 
 function run(input: string, opts: { expectFail?: boolean } = {}): { stdout: string; exitCode: number } {
   const execOpts: ExecSyncOptionsWithStringEncoding = {
@@ -93,13 +109,16 @@ describe('gstack-review-log', () => {
     expect(rec.tree).toMatch(/^[0-9a-f]{40}$/);
     expect(rec.wtree).toMatch(/^[0-9a-f]{40}$/);
     expect(typeof rec.dirty).toBe('boolean');
+    const identity = resolveProjectIdentity(ROOT);
+    expect(rec.repo_id).toBe(identity.repo_id);
+    expect(rec.branch_ref).toBe(identity.raw_branch);
     // Non-binding caller fields pass through untouched.
     expect(rec.skill).toBe('review');
     expect(rec.status).toBe('clean');
   });
 
   test('caller-supplied binding fields are IGNORED, never trusted', () => {
-    const forged = '{"skill":"review","status":"clean","wtree":"forged","tree":"forged","commit_full":"forged","dirty":"forged"}';
+    const forged = '{"skill":"review","status":"clean","wtree":"forged","tree":"forged","commit_full":"forged","dirty":"forged","repo_id":"forged","branch_ref":"forged"}';
     const result = run(forged);
     expect(result.exitCode).toBe(0);
     const rec = readNewestRecord();
@@ -107,6 +126,8 @@ describe('gstack-review-log', () => {
     expect(rec.tree).not.toBe('forged');
     expect(rec.commit_full).not.toBe('forged');
     expect(rec.dirty).not.toBe('forged');
+    expect(rec.repo_id).not.toBe('forged');
+    expect(rec.branch_ref).not.toBe('forged');
     expect(rec.wtree).toMatch(/^[0-9a-f]{40}$/);
   });
 
@@ -137,6 +158,33 @@ describe('gstack-review-log', () => {
       expect(rec.commit_full).toBeUndefined();
     } finally {
       fs.rmSync(nonGit, { recursive: true, force: true });
+    }
+  });
+
+  test('--expected-wtree atomically rejects movement and appends nothing', () => {
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-revlog-tree-'));
+    try {
+      gitIn(repoDir, 'init -q -b main');
+      fs.writeFileSync(path.join(repoDir, 'a.txt'), 'one\n');
+      gitIn(repoDir, 'add a.txt');
+      gitIn(repoDir, 'commit -q -m init');
+      const expected = execSync(`${BIN}/gstack-wtree`, { timeout: 30_000, cwd: repoDir, encoding: 'utf8' }).trim();
+      fs.writeFileSync(path.join(repoDir, 'a.txt'), 'two\n');
+      expect(() => execSync(`${BIN}/gstack-review-log --expected-wtree ${expected} '{"skill":"review","status":"clean"}'`, {
+        cwd: repoDir, env: { ...process.env, GSTACK_HOME: tmpDir }, stdio: 'pipe',
+      })).toThrow();
+      const records: string[] = [];
+      const walk = (dir: string) => {
+        if (!fs.existsSync(dir)) return;
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const item = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(item); else if (entry.name.endsWith('-reviews.jsonl')) records.push(item);
+        }
+      };
+      walk(slugDir);
+      expect(records).toHaveLength(0);
+    } finally {
+      fs.rmSync(repoDir, { recursive: true, force: true });
     }
   });
 });
@@ -256,6 +304,10 @@ describe('gstack-wtree', () => {
 });
 
 describe('gstack-review-read', () => {
+  test('--json returns one stable union object', () => {
+    const result = spawnSync(process.execPath, [path.join(ROOT, 'scripts/authority/review-read.ts'), '--json'], { cwd: ROOT, env: { ...process.env, GSTACK_HOME: tmpDir }, encoding: 'utf8' });
+    expect(result.status).toBe(0); expect(JSON.parse(result.stdout)).toMatchObject({ schema: 'ecpe.review-union.v1', reviews: expect.any(Array) });
+  });
   test('emits ---WTREE---, ---TREE--- and ---DIRTY--- sections', () => {
     const out = execSync(`${BIN}/gstack-review-read`, {
       cwd: ROOT,
@@ -271,5 +323,45 @@ describe('gstack-review-read', () => {
     expect(wtreeLine).toMatch(/^([0-9a-f]{40}|unknown)$/);
     const dirtyLine = out.split('---DIRTY---')[1].trim().split('\n')[0].trim();
     expect(['true', 'false']).toContain(dirtyLine);
+  });
+
+  test('unions only explicit legacy candidates, deduplicates, and filters conflicting repo ids', () => {
+    const fixtureRepo = path.join(tmpDir, 'fixture-repo');
+    fs.mkdirSync(path.join(fixtureRepo, 'config'), { recursive: true });
+    gitIn(fixtureRepo, 'init -q -b main');
+    fs.writeFileSync(path.join(fixtureRepo, 'README.md'), 'fixture\n');
+    gitIn(fixtureRepo, 'add README.md');
+    gitIn(fixtureRepo, 'commit -qm fixture');
+    fs.writeFileSync(path.join(fixtureRepo, 'config/workspace-registry.toml'), `
+[registry]
+version = 2
+[[entry]]
+id = "fixture-project"
+path = "."
+kind = "repository"
+remote_required = false
+active = true
+aliases = ["legacy-project"]
+`);
+    const identity = resolveProjectIdentity(fixtureRepo);
+    const row = { run_id: 'run-1', timestamp: '2026-08-31T00:00:00.000Z', skill: 'review', repo_id: identity.repo_id };
+    for (const slug of [identity.write_slug, 'legacy-project']) {
+      const target = path.join(tmpDir, 'projects', slug, `${identity.write_branch}-reviews.jsonl`);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, JSON.stringify(row) + '\n');
+    }
+    fs.appendFileSync(
+      path.join(tmpDir, 'projects', 'legacy-project', `${identity.write_branch}-reviews.jsonl`),
+      JSON.stringify({ run_id: 'wrong', timestamp: '2026-08-31T00:00:01.000Z', repo_id: 'wrong/repository' }) + '\n',
+    );
+
+    const out = execSync(`${BIN}/gstack-review-read`, {
+      cwd: fixtureRepo,
+      env: { ...process.env, GSTACK_HOME: tmpDir },
+      encoding: 'utf-8',
+      timeout: 10000,
+    });
+    expect(out.match(/"run_id":"run-1"/g)).toHaveLength(1);
+    expect(out).not.toContain('"run_id":"wrong"');
   });
 });
