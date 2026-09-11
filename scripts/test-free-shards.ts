@@ -514,6 +514,8 @@ export const WORKER_HOSTILE: Record<string, string> = {
  * parallel phase and run each in a fresh, serial process before mutators.
  */
 export const PROCESS_ISOLATED: Record<string, string> = {
+  'browse/test/server-proxy-fail-fast.test.ts':
+    'its Bun server and rejecting TCP proxy fixture hit the 60s test deadline inside the 666-file Linux process but complete in about 1.3s in a fresh single-file process',
   'browse/test/snapshot.test.ts':
     'owns long-lived Playwright and HTTP fixture state; it wedges after earlier passes inside the 668-file process but passes in a fresh single-file process',
   'test/timeline.test.ts':

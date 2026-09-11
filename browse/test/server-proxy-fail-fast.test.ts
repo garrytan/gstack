@@ -21,7 +21,10 @@ async function startRejectingUpstream(): Promise<{ port: number; close: () => Pr
   // Accepts TCP connections, completes the SOCKS5 username/password auth
   // handshake by REJECTING (status 0x01), then closes. Our testUpstream()
   // should retry 3x and exhaust within ~5s.
+  const sockets = new Set<net.Socket>();
   const server = net.createServer((sock) => {
+    sockets.add(sock);
+    sock.once('close', () => sockets.delete(sock));
     sock.once('data', (greeting) => {
       if (greeting[0] !== 0x05) { sock.destroy(); return; }
       const methods = greeting.subarray(2, 2 + greeting[1]);
@@ -43,7 +46,10 @@ async function startRejectingUpstream(): Promise<{ port: number; close: () => Pr
   if (!addr || typeof addr === 'string') throw new Error('rejecting upstream: bad address');
   return {
     port: addr.port,
-    close: () => new Promise((r) => server.close(() => r())),
+    close: () => new Promise((resolve, reject) => {
+      for (const socket of sockets) socket.destroy();
+      server.close((error) => error ? reject(error) : resolve());
+    }),
   };
 }
 
@@ -64,20 +70,23 @@ describe('server fail-fast on bad SOCKS5 upstream', () => {
     env.BROWSE_PROXY_URL = `socks5://baduser:badpass@127.0.0.1:${upstream.port}`;
 
     const start = Date.now();
-    const result = await new Promise<{ code: number; stdout: string; stderr: string; ms: number }>((resolve) => {
-      const proc = spawn('bun', ['run', serverPath], {
+    const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string; ms: number }>((resolve, reject) => {
+      const proc = spawn(process.execPath, ['run', serverPath], {
         timeout: 30000,
+        killSignal: 'SIGKILL',
         env,
       });
       let stdout = ''; let stderr = '';
       proc.stdout.on('data', (d) => stdout += d.toString());
       proc.stderr.on('data', (d) => stderr += d.toString());
-      proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr, ms: Date.now() - start }));
+      proc.once('error', reject);
+      proc.once('close', (code, signal) => resolve({ code, signal, stdout, stderr, ms: Date.now() - start }));
     });
 
     try {
       // Expectation 1: exit 1
       expect(result.code).toBe(1);
+      expect(result.signal).toBeNull();
       // Expectation 2: stderr names the failure mode and references the upstream
       const combined = result.stdout + result.stderr;
       expect(combined).toMatch(/FAIL upstream/);

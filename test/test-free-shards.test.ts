@@ -629,17 +629,19 @@ describe('test-free-shards: curated-list census pins', () => {
     }).partitionFullSuiteFiles;
     const providerRecovery = 'test/provider-direct-merge-recovery.test.ts';
     const browserSnapshot = 'browse/test/snapshot.test.ts';
+    const serverProxyFailFast = 'browse/test/server-proxy-fail-fast.test.ts';
     const timeline = 'test/timeline.test.ts';
     const ordinary = 'test/provider-access-binding.test.ts';
 
     expect(processIsolated?.[providerRecovery]).toBeTruthy();
     expect(processIsolated?.[browserSnapshot]).toBeTruthy();
+    expect(processIsolated?.[serverProxyFailFast]).toBeTruthy();
     expect(processIsolated?.[timeline]).toBeTruthy();
     expect(TREE_MUTATING).toEqual({});
     expect(typeof partitionFullSuiteFiles).toBe('function');
-    expect(partitionFullSuiteFiles([ordinary, browserSnapshot, timeline, providerRecovery])).toEqual({
+    expect(partitionFullSuiteFiles([ordinary, browserSnapshot, serverProxyFailFast, timeline, providerRecovery])).toEqual({
       readers: [ordinary],
-      isolated: [browserSnapshot, timeline, providerRecovery],
+      isolated: [browserSnapshot, serverProxyFailFast, timeline, providerRecovery],
       mutators: [],
     });
   });
