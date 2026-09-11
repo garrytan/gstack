@@ -3237,17 +3237,19 @@ function engNumberedFindingAUQ(fp: AskUserQuestionFingerprint): boolean {
   // The category may precede the issue number. Bind this library choice to
   // the current scheduling defect and both concrete outcomes, not its label.
   const declaredLibraryHooks = /^Issue ([1-9]\d*): Custom inline scheduler vs\. the job library's built-in retry hooks \([A-Za-z][\w./-]*:[1-9]\d*(?:-[1-9]\d*)?\)$/i.exec(title);
-  const libraryHooks = /^Architecture issue ([1-9]\d*): custom inline scheduler vs the job library's built-in retry hooks\?$/i.exec(title) ?? declaredLibraryHooks;
+  const implicitLibraryHooks = /^D([1-9]\d*)\s*[—–:-]\s*Custom inline backoff scheduler vs the job library's built-in retry hooks$/i.exec(q.question.split('\n')[0]!);
+  const scopedLibraryHooks = /^Issue ([1-9]\d*): custom inline scheduler per worker, or the job library's retry hook with a custom curve\?$/i.exec(title) ?? implicitLibraryHooks;
+  const libraryHooks = /^Architecture issue ([1-9]\d*): custom inline scheduler vs the job library's built-in retry hooks\?$/i.exec(title) ?? declaredLibraryHooks ?? scopedLibraryHooks;
   if (libraryHooks) {
-    if (!new RegExp(`^${declaredLibraryHooks ? 'Issue' : 'Arch(?:itecture)?'} ${libraryHooks[1]}$`, 'i').test(q.header.trim())) return false;
-    const ordinal = declaredLibraryHooks && /^D([1-9]\d*)\s*[—–:-]/.exec(q.question)?.[1];
+    if (!(implicitLibraryHooks ? /^Architecture$/i : new RegExp(`^${declaredLibraryHooks ? 'Issue' : 'Arch(?:itecture)?'} ${libraryHooks[1]}$`, 'i')).test(q.header.trim())) return false;
+    const ordinal = (declaredLibraryHooks || scopedLibraryHooks) && /^D([1-9]\d*)\s*[—–:-]/.exec(q.question)?.[1];
     const declaredOwner = `(?:(?:this|the|that) (?:finding|issue|gap|remedy|amendment|assessment|option|deferral|(?:unchanged )?risk)|Issue ${libraryHooks[1]}${ordinal ? `|D${ordinal}` : ''})`;
     const declaredBoundary = '(?:^|[.!?;]\\s+|\\n|[✅❌]\\s*)(?:Correction:\\s*)?';
     const scalarOwner = new RegExp(`${declaredBoundary}${declaredOwner} (?:is|was|has been) (?:(?:now|already) )?$`, 'i');
     const current = (text: string) => {
       const prose = text.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
         .replace(/^(?:\s*>| {4}|\t).*$/gm, '');
-      if (declaredLibraryHooks) return prose.replace(/\*\*/g, '')
+      if (declaredLibraryHooks || scopedLibraryHooks) return prose.replace(/\*\*/g, '')
         .replace(/"[^"\n]*"|“[^”\n]*”|(?<![A-Za-z0-9])'[^'\n]*'(?![A-Za-z0-9])|‘[^’\n]*’|`[^`\n]*`/g,
           (quoted: string, at: number, source: string) => {
             const status = /^["“'‘`](withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)["”'’`]$/i.exec(quoted);
@@ -3264,16 +3266,48 @@ function engNumberedFindingAUQ(fp: AskUserQuestionFingerprint): boolean {
     const contexts = lines.filter(line => /^Project\/branch\/task: \S/.test(line));
     const assessments = [...text.matchAll(/^ELI10: (.+)$/gm)];
     const preface = text.slice(0, assessments[0]?.index ?? 0).split('\n').filter(line => line.trim()).slice(1);
+    // A crash consequence explains the current defect; approval conditions
+    // still suspend the owned decision and are checked below.
+    const framingText = scopedLibraryHooks ? text.replace(/(?:^|[.!?]\s+)If (?:that|the|this) (?:worker )?process (?:dies|restarts|crashes)\b[^.!?\n]*[.!?]?/gi, '') : text;
     if (contexts.length !== 1 || assessments.length !== 1 || preface.length !== 1 || preface[0] !== contexts[0] ||
-        framed.test(text) || closed.test(text) || /\b(?:the|this) plan no longer rebuilds retry scheduling\b|\bretry scheduling no longer runs inside each worker\b/i.test(text)) return false;
+        framed.test(framingText) || closed.test(text) || /\b(?:the|this) plan no longer rebuilds retry scheduling\b|\bretry scheduling no longer runs inside each worker\b/i.test(text)) return false;
     const assessment = assessments[0]![1]!;
     // A declarative issue with a source location can own the same concrete
     // scheduling decision. Bind the assessment and each offered outcome;
     // the issue number and source location alone do not begin review.
-    if (declaredLibraryHooks) {
+    if (declaredLibraryHooks || scopedLibraryHooks) {
       const ownClosed = new RegExp(`${declaredBoundary}${declaredOwner} (?:is|was|has been) (?:(?:now|already) )?(?:withdrawn|superseded|rejected|cancelled|canceled|resolved|closed|hypothetical|not current|no longer current)\\b`, 'i');
-      const conditional = new RegExp(`${declaredBoundary}(?:${declaredOwner} (?:(?:applies|holds) (?:only )?(?:if|when|once|unless) (?:approved|accepted)|is (?:conditional|contingent|dependent) on (?:approval|acceptance)|requires (?:approval|acceptance))|(?:if|when|once) (?:approved|accepted),? (?:use|adopt|accept|keep|proceed|choose|preserve)\\b)`, 'i');
+      // Read approval clauses in the original text, including an owned
+      // condition after a crash premise or after an option's tradeoffs.
+      const approvalBoundary = scopedLibraryHooks ? `(?:${declaredBoundary}|,\\s+)` : declaredBoundary;
+      const approvalPremise = scopedLibraryHooks ? '(?:(?:if|when|once) (?:approved|accepted)|(?:assuming|provided) (?:approval|acceptance))' : '(?:if|when|once) (?:approved|accepted)';
+      const conditional = new RegExp(`${approvalBoundary}(?:${declaredOwner} (?:(?:applies|holds) (?:only )?(?:if|when|once|unless) (?:approved|accepted)|is (?:conditional|contingent|dependent) on (?:approval|acceptance)|requires (?:approval|acceptance))|${approvalPremise},? (?:use|adopt|accept|keep|proceed|choose|preserve)\\b)`, 'i');
       if (ownClosed.test(text) || conditional.test(text)) return false;
+      if (scopedLibraryHooks) {
+        const workers = /(?:^|[.!?]\s+)The plan writes its own\s+loop inside each of the ([1-9]\d*) workers\./i.exec(assessment)?.[1] ??
+          /(?:^|[.!?]\s+)The plan says \([A-Za-z][\w./-]*:[1-9]\d*(?:-[1-9]\d*)?\) to ignore it and hand-roll a scheduler inside each of the ([1-9]\d*) workers\b/i.exec(assessment)?.[1];
+        if (!workers || Number(workers) < 2) return false;
+        const ids = q.options.map(o => /^([1-9]\d*)([A-D])[).:]\s+(\S[\s\S]*)$/.exec(o.label));
+        if (ids.some(id => id?.[1] !== libraryHooks[1]) || new Set(ids.map(id => id![2])).size !== q.options.length) return false;
+        const actions = ids.map(id => id![3]!.replace(/\s*\(recommended\)$/i, ''));
+        const repair = actions.findIndex(action => /^Library hooks? \+ (?:custom curve|shared backoff fn)$/i.test(action));
+        const keep = actions.findIndex(action => /^Custom inline scheduler as planned$/i.test(action) ||
+          new RegExp(`^Proceed as planned \\(inline in ${workers} workers\\)$`, 'i').test(action));
+        if (repair < 0 || keep < 0 || repair === keep) return false;
+        const remedy = current(q.options[repair]!.description ?? '').trim(), unchanged = current(q.options[keep]!.description ?? '').trim();
+        const cancelled = /(?:^|[.!?;]\s+|\n|\bCorrection:\s*)(?:do not|don't|never|skip|cancel|withdraw) (?:use|accept|keep|proceed|adopt|choose|preserve|register)\b/i;
+        if ([remedy, unchanged].some(value => framed.test(value.split('❌')[0]!) || closed.test(value) || ownClosed.test(value) || conditional.test(value) || cancelled.test(value)) ||
+            /\bthe library will not own (?:persistence|attempt counting|crash safety)\b/i.test(remedy) ||
+            /\b(?:the|this) (?:unchanged |per-worker )?scheduler is (?:now |already )?crash-safe\b|\bretry state no longer lives in-process\b/i.test(unchanged)) return false;
+        const persisted = /^(?:✅\s*)?Retry state persisted by the library: [^.!?✅❌]*\bsurvives\b[^.!?✅❌]*\b(?:crash|restart|deploy)\b[^.!?✅❌]*/i.exec(remedy);
+        const registered = /^Register the library's retry hook in each worker, pass one shared pure [A-Za-z_$][\w$]*\(attempt\) for the curve\./i.test(remedy);
+        const lost = /(?:^|❌\s*)Retry state lives in process memory: [^.!?✅❌]*\b(?:crash|restart)\b[^.!?✅❌]*\b(?:drops|loses)\b[^.!?✅❌]*\b(?:job|retry|retries)\b/i.exec(unchanged);
+        const drift = /^Keep the plan as written\.[\s\S]*?\bRetries die with the process; ([a-z]+|[1-9]\d*) copies drift\./i.exec(unchanged);
+        const count = drift && (/^[1-9]\d*$/.test(drift[1]!) ? Number(drift[1]) :
+          ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'].indexOf(drift[1]!.toLowerCase()));
+        return Boolean((registered || (persisted && !/\b(?:not|never|no longer)\b/i.test(persisted[0]))) &&
+          ((lost && !/\b(?:not|never|no longer)\b/i.test(lost[0])) || (drift && count === Number(workers))));
+      }
       if (!/^The job library already knows how to retry a failed job later; you just tell it how long to wait\. The plan instead rebuilds that waiting-and-rescheduling machinery by hand inside each worker\./.test(assessment) ||
           !/\bjobs get lost \(worker dies mid-sleep\)/.test(assessment) ||
           !/\bno attempt cap or dead-letter path\b/.test(assessment)) return false;

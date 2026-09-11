@@ -158,19 +158,33 @@ function hasCurrentHoldScopePosture(text: string, selected: NativePlanQuestionCa
   if (/\b(?:not|never|won't|can't|don't|isn't|aren't|if|unless|until|may|might|could|would|will|later|tomorrow|eventually|future|example|hypothetical|after|once|when|whenever|following|pending|provided|assuming)\b|\b(?:next (?:week|month|year)|subject to)\b/i.test(sentence)) return false;
   const declaration = /^(?:I'm|I am|We're|We are) (?:locking|keeping|holding) (?:the )?scope (?:to|at) ([^,\n]+),\s*(?:flagging|treating|marking) (?:anything|everything) (?:beyond|outside) that(?: \([^()\n]+\))? as out of scope,? and (?:hunting|checking|looking) for (?:silent )?(?:failure modes|errors|edge cases)\b([^.!?\n]*)\.$/i.exec(sentence);
   const pressureTest = /^(?:I'm|I am|We're|We are) (?:locking|keeping|holding) (?:the )?scope fixed to ([^,\n]+),\s*pressure[- ]testing every stated behavior for failure modes, ([^.!?\n]+?) while deferring (?:anything|everything) extra rather than adding it silently\.$/i.exec(sentence);
+  const ambiguityReview = /^(?:I'm|I am|We're|We are) (?:keeping|holding) strictly to (?:the )?(plan|[\w./-]+\.md)'s approved scope(?: \((Approach [A-Z])(?:, [^()\n]+)?\))? and (?:flagging|surfacing|raising) (?:any|the) ambiguities (?:the (?:sketch|plan) leaves undecided|in the (?:plan|sketch)) as targeted questions rather than expanding scope\.$/i.exec(sentence);
   const commitment = declaration ?? pressureTest;
-  if (!commitment) return false;
+  if (!commitment && !ambiguityReview) return false;
   // A later current correction can withdraw the declaration. Quoted examples
   // cannot; the opening declaration was matched before removing quoted blocks.
-  const currentProse = plain.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+  // Only this recognized opening's explicit exclusion is negative expansion;
+  // keep later corrections and every other scope statement in the withdrawal check.
+  const current = ambiguityReview
+    ? opening.replace(/ rather than expanding scope\.$/i, '.') + plain.slice(opening.length) : plain;
+  const currentProse = current.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
     .replace(/^\s*>.*$/gm, '').replace(/"[^"\n]*"|“[^”\n]*”/g, '');
+  if (ambiguityReview && (/\b(?:no longer|not)\s+(?:flagging|surfacing|raising)\s+(?:(?:any|the)\s+)?ambiguities\b/i.test(currentProse) ||
+      /\b(?:this|the) posture (?:is|was|has been) (?:withdrawn|rejected|cancelled|canceled|superseded|(?:not|no longer) current)\b/i.test(currentProse))) return false;
   if (/\b(?:expand\w*|widen\w*|reduc(?:e|ing)|shrink\w*)\s+(?:the\s+)?scope\b/i.test(currentProse) ||
       /\b(?:add|adding)\b[^.!?\n]*\b(?:to|into)\s+(?:the\s+)?scope\b/i.test(currentProse) ||
-      /\b(?:no longer|not)\s+(?:locking|keeping|holding|lock|keep|hold)\s+(?:the\s+)?scope\b/i.test(currentProse) ||
+      /\b(?:no longer|not)\s+(?:locking|keeping|holding|lock|keep|hold)\s+(?:(?:the\s+)?scope\b|strictly to (?:the )?(?:plan|[\w./-]+\.md)'s approved scope\b)/i.test(currentProse) ||
       /\b(?:previously|formerly) excluded\b[^.!?\n]*\b(?:now )?in scope\b/i.test(currentProse)) return false;
   const context = selected.questions.map(q => /^Project\/branch\/task:([^\n]*)/im.exec(q.question)?.[1] ?? '').join(' ');
   const plans = new Set(context.match(/\b[\w./-]+\.md\b/gi) ?? []);
-  const baseline = commitment[1]!.trim();
+  if (ambiguityReview) {
+    if (plans.size !== 1 || (sentence.match(/\b[\w./-]+\.md\b/gi) ?? []).some(plan => !plans.has(plan))) return false;
+    // Parenthetical approach labels must belong to the approved current plan.
+    const approach = ambiguityReview[2];
+    const approval = approach ? new RegExp(`\\b${approach}\\b[^.!?\\n]*\\bapproved\\b`, 'i') : /\bapproved\b/i;
+    return approval.test(context) && !/\b(?:not|no|unapproved|rejected|hypothetical|if|unless|until|after|once|when|whenever|following|pending|provided|assuming)\b|\bsubject to\b/i.test(context);
+  }
+  const baseline = commitment![1]!.trim();
   const namedPlan = /^(?:the )?(?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten) )?([\w./-]+\.md) (?:bullets|requirements|scope)(?: from approach [A-Z])?$/i.exec(baseline);
   const possessivePlan = /^(?:the )?([\w./-]+\.md)'s (?:(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten) )?(?:bullets|requirements|scope)( plus the approved schema)?$/i.exec(baseline);
   const plan = namedPlan ?? possessivePlan;
@@ -179,7 +193,7 @@ function hasCurrentHoldScopePosture(text: string, selected: NativePlanQuestionCa
   if (possessivePlan?.[2] && (!/\bschema\b[^.!?\n]{0,80}\bapproved\b|\bapproved\b[^.!?\n]{0,80}\bschema\b/i.test(context)
     || /\b(?:not|no|unapproved|rejected|hypothetical|if|unless|until|after|once|when|whenever|following|pending|provided|assuming)\b|\bsubject to\b/i.test(context))) return false;
   // Concrete failure surfaces distinguish review rigor from merely retaining scope.
-  const hardening = commitment[2]!;
+  const hardening = commitment![2]!;
   return [/\bconstraints\b/i, /\b(?:error handling|errors)\b/i, /\bedge cases\b/i,
     /\baccess(?:-rule)? leaks\b/i, /\bsecurity\b/i, /\btest(?:ing|s)\b/i, /\bproduction visibility\b/i]
     .filter(surface => surface.test(hardening)).length >= 2;

@@ -371,11 +371,31 @@ function queuedCommandViewport(viewport: string, current: NativePublicToolEvent,
 /** A native command description can remain above an unpublished Edit panel.
  * Its text supplies no command identity, completion, or approval authority.
  * Only the digest-bound pending path may discard this one display prefix. */
-function pendingCommandDisplayViewport(viewport: string): string {
+function pendingCommandDisplayViewport(viewport: string, file: string, ownedStateRoot?: string): string {
   const text = viewport.replace(/\r\n?/g, '\n');
   const panels = [...text.matchAll(/^[─╌]{8,}\n {0,3}Edit file[ \t]*\n/gm)];
   if (panels.length !== 1 || panels[0]!.index === 0) return viewport;
   const prefix = text.slice(0, panels[0]!.index).split('\n').filter(line => line.trim());
+  // An unpublished batch can leave the current Update title, plan redraws,
+  // and a queued Bash card above the panel. These cards grant no authority:
+  // only the one current Edit's owned path and complete digest below do so.
+  const update = /^[●⏺] Update\(([^\n]+)\)$/.exec(prefix[0] ?? '');
+  if (update && ownedStateRoot) {
+    const relative = path.relative(ownedStateRoot, file).split(path.sep).join('/');
+    const alias = path.basename(ownedStateRoot) === '.gstack' ? `~/.gstack/${relative}` : undefined;
+    const bash = prefix.findIndex(row => /^[●⏺] Bash\(/.test(row));
+    const command = prefix.slice(bash, -1);
+    if ((update[1] === file || update[1] === alias) && bash > 1 &&
+        prefix.slice(1, bash).every(row => /^[●⏺] Updated plan$/.test(row)) &&
+        /^ {2}⎿[ \u00a0]+Waiting…$/.test(prefix.at(-1) ?? '') && command.length > 0 &&
+        command.every((row, i) => (i === 0 ? /^[●⏺] Bash\(\S.*$/ : /^ {6}\S.*$/).test(row)) &&
+        command.at(-1)!.endsWith('…)') &&
+        !command.slice(1).some(row => /^ {6}[●⏺❯☐□>]|^ {6}(?:`{3,}|~{3,})/.test(row)) &&
+        !/(?:Do you want|Would you like|Bash command[^\n]*permission|requested permissions?|allow all edits|always allow access|Esc to cancel|Edit file)/i.test(command.join('\n'))) {
+      return text.slice(panels[0]!.index);
+    }
+    return viewport;
+  }
   const title = /^[●⏺] ([^\n]+)$/.exec(prefix[0] ?? '')?.[1];
   if (!title || /^(?:["'`“‘]|(?:source|example|quoted|history|historical|hypothetical|previous|earlier)\b)/i.test(title) ||
       !/^ {2}⎿[ \u00a0]+\$ \S.*$/.test(prefix[1] ?? '') ||
@@ -421,7 +441,7 @@ export function pendingAutoplanArtifactPermissionInput(viewport: string,
       !mutations.some(e => e.input?.file_path === p.file && results.get(e.toolUseId)?.isError === false &&
         Date.parse(results.get(e.toolUseId)!.timestamp) <= pendingTime)) return null;
   try {
-    const currentViewport = p.editDigest ? pendingCommandDisplayViewport(viewport) : viewport;
+    const currentViewport = p.editDigest ? pendingCommandDisplayViewport(viewport, p.file, context.ownedStateRoot) : viewport;
     const text = currentViewport.replace(/\r\n?/g, '\n');
     const menu = /^ {0,3}Do you want to make this edit to ([^\n?]+)\? *\n {0,3}❯ *1\. Yes *\n {0,3}2\. Yes, and switch to accept edits \(auto-approve file edits and common file commands\) for this session(?: \(shift\+tab\))? *\n {0,3}3\. No *\n\s*Esc to cancel [·•] Tab to amend\s*$/m.exec(text);
     if (!menu || menu.index + menu[0].length !== text.length || menu[1] !== path.basename(p.file)) return null;

@@ -64,3 +64,104 @@ describe('AQ library-hooks choice opens batching review on its current remedy',(
   expect(classify(text(s=>s+'\nCorrection: retry scheduling no longer runs inside each worker.'))).toBe(false);
  });
 });
+
+describe('AY scheduler choices retain the current gap and opposed native remedies', () => {
+ const publicCall=(retry=false):NativePlanQuestionCall=>{
+  // Minimal excerpts from the two public calls; no transcript/report corpus.
+  const question=retry
+   ? "D1 — Custom inline backoff scheduler vs the job library's built-in retry hooks\nProject/branch/task: main — background job retry framework (PLAN.md:6-8).\nELI10: The plan says (PLAN.md:6-8) to ignore it and hand-roll a scheduler inside each of the 5 workers, same shape as the library version."
+   : "D3 — Issue 1: custom inline scheduler per worker, or the job library's retry hook with a custom curve?\nProject/branch/task: main, PLAN.md §Architecture — background job retry framework.\nELI10: The plan writes its own \"wait, then try again\" loop inside each of the 5 workers. If that process dies mid-wait, the retry is gone and nobody knows.";
+  const options=retry?[
+   {label:'1A) Library hooks + shared backoff fn (recommended)',description:"Register the library's retry hook in each worker, pass one shared pure backoffDelay(attempt) for the curve. Completeness 9/10."},
+   {label:'1B) Custom scheduler as one shared module',description:'Roll your own, but once, with persisted retry state. You own a second job system.'},
+   {label:'1C) Proceed as planned (inline in 5 workers)',description:'Keep the plan as written. Completeness 4/10. Retries die with the process; five copies drift.'},
+  ]:[
+   {label:'1A: Library hook + custom curve (recommended)',description:'✅ Retry state persisted by the library: survives worker crash, deploy, and restart (human: ~1 day / CC: ~20 min).'},
+   {label:'1B: Custom inline scheduler as planned',description:'✅ No dependency on library hook semantics. ❌ Retry state lives in process memory: any crash mid-backoff silently drops the job; you rebuild max-attempts, dead-letter, and metrics by hand.'},
+   {label:'1C: Hybrid: library hook, but custom scheduler for one worker',description:'Library persistence for 4 workers today; two retry systems remain.'},
+  ];
+  return {sessionId:'ay-public',toolUseId:retry?'retry':'first',questions:[{header:retry?'Architecture':'Arch 1',question,multiSelect:false,options}],
+   answered:true,failed:false,unansweredQuestionIndices:[],answeredAt:'2026-09-11T03:22:05.503Z',answers:{[question]:options[0]!.label}};
+ };
+ const edit=(retry:boolean,change:(c:NativePlanQuestionCall)=>void)=>{
+  const c=publicCall(retry);change(c);
+  if(c.answers&&Object.keys(c.answers).length)c.answers={[c.questions[0]!.question]:c.questions[0]!.options[0]!.label};
+  return c;
+ };
+ test('both public forms start review on the same answered native choice',()=>{
+  for(const retry of [false,true]){
+   const c=publicCall(retry),q=c.questions[0]!;
+   for(const o of q.options){c.answers={[q.question]:o.label};expect(classify(c)).toBe(true);}
+   expect(engSetupAUQ(fp(c))).toBe(false);
+  }
+ });
+ test('worker counts and native option order may vary consistently',()=>{
+  for(const retry of [false,true])expect(classify(edit(retry,c=>{
+   const q=c.questions[0]!;q.question=q.question.replace('5 workers','7 workers');
+   q.options=q.options.map(o=>({...o,label:o.label.replace('5 workers','7 workers'),description:o.description?.replace('five copies','seven copies')}));
+   q.options.reverse();
+  }))).toBe(true);
+ });
+ test('same-owner native completion, metadata and menu are mandatory',()=>{
+  const bad:Array<(c:NativePlanQuestionCall)=>void>=[
+   c=>{c.answered=false;},c=>{c.failed=true;},c=>{delete c.answeredAt;},c=>{c.answers={};},c=>{c.unansweredQuestionIndices=[0];},
+   c=>{c.questions[0]!.header='Routing';},c=>{c.questions[0]!.options[0]!.label='2A: Library hook + custom curve';},
+   c=>{c.questions[0]!.question='Source excerpt:\n'+c.questions[0]!.question;},
+   c=>{c.questions[0]!.question=c.questions[0]!.question.replace('ELI10: ','ELI10: If approved, ');},
+   c=>{c.questions[0]!.question=c.questions[0]!.question.replace('Project/branch/task: ','Project/branch/task: If approved, ');},
+   c=>{c.questions[0]!.question=c.questions[0]!.question.replace('ELI10:','> ELI10:');},
+   c=>{c.questions[0]!.question+='\nELI10: The plan writes its own loop inside each of the 5 workers.';},
+   c=>{c.questions[0]!.question+='\nCorrection: retry scheduling no longer runs inside each worker.';},
+  ];
+  for(const retry of [false,true])for(const change of bad)expect(classify(edit(retry,change))).toBe(false);
+  for(const retry of [false,true])expect(engFirstReviewAUQ({...fp(publicCall(retry)),signature:'foreign:call'})).toBe(false);
+ });
+ test('the proposed library mechanism cannot borrow from another native option',()=>{
+  for(const retry of [false,true]){
+   const keep=retry?2:1;
+   for(const change of [
+    (c:NativePlanQuestionCall)=>{[c.questions[0]!.options[0]!.description,c.questions[0]!.options[keep]!.description]=[c.questions[0]!.options[keep]!.description,c.questions[0]!.options[0]!.description];},
+    (c:NativePlanQuestionCall)=>{c.questions[0]!.options[0]!.description='The library could be evaluated later.';},
+    (c:NativePlanQuestionCall)=>{c.questions[0]!.options[0]!.description='Source excerpt: '+c.questions[0]!.options[0]!.description;},
+    (c:NativePlanQuestionCall)=>{c.questions[0]!.options[0]!.description='"'+c.questions[0]!.options[0]!.description+'"';},
+    (c:NativePlanQuestionCall)=>{c.questions[0]!.options[0]!.description+='\nThe library will not own persistence.';},
+    (c:NativePlanQuestionCall)=>{c.questions[0]!.options[keep]!.description='Keep the current design; no retries are lost.';},
+    (c:NativePlanQuestionCall)=>{c.questions[0]!.options[keep]!.description='If approved, '+c.questions[0]!.options[keep]!.description;},
+    (c:NativePlanQuestionCall)=>{c.questions[0]!.options[keep]!.description+='\nThe scheduler is now crash-safe.';},
+   ])expect(classify(edit(retry,change))).toBe(false);
+  }
+  expect(classify(edit(false,c=>{c.questions[0]!.options[0]!.description=c.questions[0]!.options[0]!.description!.replace('survives worker','never survives worker');}))).toBe(false);
+  expect(classify(edit(false,c=>{c.questions[0]!.options[1]!.description=c.questions[0]!.options[1]!.description!.replace('silently drops','never drops');}))).toBe(false);
+  expect(classify(edit(true,c=>{c.questions[0]!.options[2]!.description=c.questions[0]!.options[2]!.description!.replace('five copies','two copies');}))).toBe(false);
+ });
+ test('quoted owner status and approval conditions remain current after matched outcomes',()=>{
+  for(const retry of [false,true])for(const target of ['question','remedy','unchanged']){
+   for(const status of ["This finding is 'withdrawn'.",'This option is conditional on approval.','If approved, proceed with this option.']){
+    expect(classify(edit(retry,c=>{
+     const q=c.questions[0]!;
+     if(target==='question')q.question+='\n'+status;
+     else q.options[target==='remedy'?0:retry?2:1]!.description+='\n'+status;
+    }))).toBe(false);
+   }
+  }
+ });
+ test('approval clauses remain binding after option tradeoffs',()=>{
+  for(const retry of [false,true])for(const option of [0,retry?2:1]){
+   for(const clause of ['Assuming approval, proceed with this option.','Provided approval, keep this option.']){
+    const add=(c:NativePlanQuestionCall,quoted=false)=>{c.questions[0]!.options[option]!.description+=' ❌ Additional integration effort.\n'+(quoted?'"Earlier assessment: '+clause+'"':clause);};
+    expect(classify(edit(retry,c=>add(c)))).toBe(false);
+    expect(classify(edit(retry,c=>add(c,true)))).toBe(true);
+   }
+  }
+ });
+ test('a crash premise cannot erase an owned approval condition',()=>{
+  for(const retry of [false,true]){
+   expect(classify(edit(retry,c=>{c.questions[0]!.question+='\nIf that process dies, this finding applies only if approved.';}))).toBe(false);
+   expect(classify(edit(retry,c=>{c.questions[0]!.question+='\n"Earlier assessment: If that process dies, this finding applies only if approved."';}))).toBe(true);
+   expect(classify(edit(retry,c=>{
+    const q=c.questions[0]!,consequence='If the worker process crashes, the retry is gone and nobody knows.';
+    q.question=retry?q.question+'\n'+consequence:q.question.replace('If that process dies mid-wait, the retry is gone and nobody knows.',consequence);
+   }))).toBe(true);
+  }
+ });
+});

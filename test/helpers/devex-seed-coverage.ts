@@ -8,20 +8,23 @@ export type DevexSeededGap = typeof DEVEX_SEEDED_GAPS[number];
 /** Bind an unnamed signature question to its own first asserted explanation. */
 function explainedReversedSignatures(q: NativePlanQuestion, title: string): boolean {
   const question = /^(?:Journey stage [A-Z ]+: )?the two public functions take the same two arguments in (?:opposite|reversed) positional order\. How should (?:the plan|we) (?:fix|align|unify) the signatures\?$/i.test(title);
-  const declaration = /^Journey stage(?: REAL USAGE:|: REAL USAGE\.) The two public evaluation functions take the same two arguments in (?:opposite|reversed) order\.$/i.test(title);
+  const traced = /^Journey stage: REAL USAGE\. Two sibling functions take the same two arguments in (?:opposite|reversed) order\.$/i.test(title);
+  const declaration = traced || /^Journey stage(?: REAL USAGE:|: REAL USAGE\.) The two public evaluation functions take the same two arguments in (?:opposite|reversed) order\.$/i.test(title);
   if (!question && !declaration) return false;
   const lines = q.question.split('\n');
   if (lines[0]!.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '') !== title) return false;
   const explanation = lines.findIndex(line => line.startsWith('ELI10: '));
   const context = lines.slice(1, explanation).filter(line => line.trim());
-  const project = declaration && context.length === 1
+  const project = traced ? /^Project\/branch\/task: [^;\n]+; ([\w./-]+):\d+(?:[-–]\d+)?\.$/.exec(context[0] ?? '') : declaration && context.length === 1
     ? /^Project\/branch\/task: [^;\n]+; ([\w./-]+) lines? \d+(?: to |[-–])\d+\.$/.exec(context[0]!) : null;
-  if (explanation < 1 || (declaration && !project) || context.some(line =>
+  if (explanation < 1 || (declaration && !project) || (!traced && context.some(line =>
     (!declaration && !/^Project\/branch\/task: [^;\n]+; reviewing the public function signatures in [\w./-]+\.$/.test(line)) ||
-    /\b(?:quoted|source excerpt|source example|hypothetical|historical|not (?:a )?current|if approved)\b/i.test(line))) return false;
+    /\b(?:quoted|source excerpt|source example|hypothetical|historical|not (?:a )?current|if approved)\b/i.test(line)))) return false;
   // Inline code may name each signature; a quoted/fenced explanation, earlier
   // unrelated sentence, past definition or hypothetical definition cannot.
-  const declaredSignatures = declaration && /^ELI10: ([\w./-]+) documents (`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\2 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\3\. Same two concepts, reversed positional order, and neither function requires keywords\./.exec(lines[explanation]!);
+  const declaredSignatures = traced
+    ? /^I traced the first real integration after the demo\. ([\w./-]+) lists the two evaluation functions: (`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\2 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\3\./.exec(context[1] ?? '')
+    : declaration && /^ELI10: ([\w./-]+) documents (`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\2 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\3\. Same two concepts, reversed positional order, and neither function requires keywords\./.exec(lines[explanation]!);
   if (declaration ? !declaredSignatures || declaredSignatures[1] !== project?.[1]
     : !/^ELI10: [\w./-]+(?: lines? \d+(?:\s*[-–]\s*\d+)?)? define (`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\1 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\2\./.test(lines[explanation]!)) return false;
   const currentProse = (text: string) => {
@@ -31,18 +34,23 @@ function explainedReversedSignatures(q: NativePlanQuestion, title: string): bool
       return !fence && !/^\s*>/.test(line);
     }).join('\n').replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”/g, '');
   };
-  const current = currentProse(lines.slice(explanation).join('\n'));
+  // The traced declaration owns its named signatures before ELI10, so its
+  // currentness must include that same source paragraph.
+  const current = currentProse(lines.slice(traced ? 1 : explanation).join('\n'));
   if ((current.match(/^ELI10:/gm)?.length ?? 0) !== 1) return false;
   if (declaration && /\b(?:if|once|when|unless) (?:approved|accepted)|\b(?:after|pending) approval\b/i.test(current)) return false;
   if (declaration && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:these|the) (?:functions|signatures) (?:are (?:now|already)|have been) (?:aligned|consistent)\b/i.test(current)) return false;
+  if (traced && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) trace (?:is|was|has been) (?:withdrawn|rejected|historical|(?:not|no longer) current)\b/i.test(current)) return false;
   if (/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:this|that|the) (?:finding|explanation)|(?:(?:this|that|the) )?argument[- ]order (?:issue|defect)|these signatures)\b[^.\n]*\b(?:withdrawn|rejected|(?:already )?(?:fixed|resolved)|historical|(?:not|no longer) current)\b/i.test(current) ||
       /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:there is|there's) no argument[- ]order (?:issue|defect)\b/i.test(current) ||
       /(?:^|[.!?\n]\s*)(?:Correction:\s*)?run_eval and run_batch now (?:use|take) the same positional order\b/i.test(current)) return false;
   // A declared reversal may offer a keyword-only repair instead of a swap
   // guard. It must bind both arguments to both functions in the same option.
   if (declaration) return q.options.some(option =>
-    /^(?:Align|Unify|Standardize) order \+ keyword-only(?: \(recommended\))?$/i.test(option.label) &&
-    /^Both functions (?:take|accept|use) dataset and evaluator as keyword-only in the same order\./i.test(option.description ?? '') &&
+    (traced ? /^Fix in plan: same order \+ keyword-only for both(?: \(recommended\))?$/i.test(option.label) &&
+      /^✅\s*run_eval\(\*\s*,\s*dataset\s*,\s*evaluator\s*\) and run_batch\(\*\s*,\s*dataset\s*,\s*evaluator\s*\); wrong order becomes a TypeError naming the parameter at the call site\b/i.test(option.description ?? '')
+      : /^(?:Align|Unify|Standardize) order \+ keyword-only(?: \(recommended\))?$/i.test(option.label) &&
+        /^Both functions (?:take|accept|use) dataset and evaluator as keyword-only in the same order\./i.test(option.description ?? '')) &&
     !/\b(?:if|once|when|unless) (?:approved|accepted)|\b(?:after|pending) approval\b/i.test(currentProse(option.description ?? '')) &&
     !/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:(?:do not|don't|never) (?:change|align|unify) (?:either|both|the|these) (?:functions?|signatures?)\b|(?:do not|don't|never) (?:make|require) (?:either|both|the) (?:functions?|signatures?|arguments?) keyword-only\b|(?:this|the) (?:option|correction|action) is (?:withdrawn|rejected|cancelled)\b)/i.test(currentProse(option.description ?? '')));
   // The same offered action must align both functions and retain the call-site
@@ -67,7 +75,7 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   // adjacent touchpoints without changing the subject or who asserts it.
   const journeyStage = '(?:DISCOVER|INSTALL|HELLO WORLD|REAL USAGE|DEBUG|UPGRADE)';
   const stage = title.match(new RegExp(`^Journey stage ${journeyStage}(?:\\s*\\/\\s*${journeyStage})?: (.+)$`, 'i'))
-    ?? title.match(new RegExp(`^Journey stage: ${journeyStage}\\. (.+)$`, 'i'));
+    ?? title.match(new RegExp(`^Journey stage: ${journeyStage}(?:\\s*\\/\\s*${journeyStage})?\\. (.+)$`, 'i'));
   // New field declarations require a canonical stage. Existing direct
   // questions can still name another touchpoint without normalizing it.
   if (!stage && (/^Journey stage:/i.test(title) ||
@@ -78,10 +86,12 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
     .replace(/, including ([A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+){0,6}),/gi, (aside, subject: string) =>
       /\b(?:if|unless|assuming|provided|except|excluding|only|no|not|never|without|was|were|is|are|has|had|may|might|could|would|historical|earlier|quoted|source|example|hypothetical|fixed|resolved|cancelled|canceled|withdrawn|rejected|superseded)\b/i.test(subject) ? aside : '')
     : title;
+  const opaqueAuthentication = /^(?:The )?authentication error says nothing[.?]?$/i.test(assertionTitle);
+  const vanishingUpgrade = /^v\d+ Client\.evaluate\(\) vanishes in v\d+ with no warning, alias, or guide[.?]?$/i.test(assertionTitle);
   // A defect heading can assert a prerequisite or compare named signatures
   // without a finite verb. Keep these semantic families narrow: a topic label,
   // healthy signature pair or optional check is not an asserted defect.
-  const nominalDefect = /^(?:Mandatory|Required) (?:\d+(?:\.\d+)?[- ](?:minute|second) )?(?:remote )?CI (?:check|gate) before (?:the )?first local (?:result|evaluation|run)[.?]?$/i.test(assertionTitle) ||
+  const nominalDefect = /^(?:The )?(?:Mandatory|Required) (?:\d+(?:\.\d+)?[- ](?:minute|second) )?(?:remote )?CI (?:check|gate) before (?:the )?first local (?:result|evaluation|run)[.?]?$/i.test(assertionTitle) ||
     /^run_eval\(\s*dataset\s*,\s*evaluator\s*\) (?:vs\.?|versus|and) run_batch\(\s*evaluator\s*,\s*dataset\s*\): (?:reversed|opposite|swapped) (?:positional|argument) order[.?]?$/i.test(assertionTitle);
   const nominalSubject = /^(?:Mandatory|Required|Optional)\b[^?!\n]*\bCI (?:check|gate)\b/i.test(assertionTitle) ||
     /^run_eval\([^)]+\) (?:vs\.?|versus|and) run_batch\([^)]+\):/i.test(assertionTitle);
@@ -100,14 +110,14 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   const finiteTitle = signatureDeclaration ? assertionTitle.replace(/\([^)]*\)/g, '') : assertionTitle;
   // Negative availability asserts a missing referenced file. Bind it to that
   // object; do not erase a negation of the quickstart's own reference or gate.
-  const absentReference = /\b(?:points?|references?) (?:at|to) (?:examples\/first_eval\.py|(?:a|the) (?:file|example)),? (?:which|that) (?:is not in (?:the )?(?:package|wheel)(?: or (?:the )?(?:release )?examples archive)?|does not (?:ship|exist))[.?]?$/i.test(assertionTitle);
-  const newAssertion = nominalDefect || signatureDeclaration || reversedTuples || absentReference;
+  const absentReference = /\b(?:points?|references?) (?:at|to) (?:examples\/first_eval\.py|(?:a|the) (?:file|example)),? (?:which|that) (?:is not (?:shipped|in (?:the )?(?:package|wheel)(?: or (?:the )?(?:release )?examples archive)?)|does not (?:ship|exist))[.?]?$/i.test(assertionTitle);
+  const newAssertion = nominalDefect || signatureDeclaration || reversedTuples || absentReference || opaqueAuthentication || vanishingUpgrade;
   const guardedDeclaration = Boolean(stage || newAssertion || upgradeTransition);
   const polarityTitle = absentReference ? title.replace(/\bdoes not (ship|exist)([.?]?)$/i, 'is absent$2') : title;
   // Punctuation cannot route a newly admitted asserted family around its
   // ownership checks; an offered alternate still resolves the same decision.
   const declaration = (questionMarks === 0 || (questionMarks === 1 && title.endsWith('?'))) &&
-    (/^(?:[A-Za-z0-9_.]+\s+){1,12}(?:points?|references?|blocks?|requires?|takes?|raises?|removes?|drops?)\b/i.test(finiteTitle) || nominalDefect) &&
+    (/^(?:[A-Za-z0-9_.]+\s+){1,12}(?:points?|references?|blocks?|requires?|takes?|raises?|removes?|drops?)\b/i.test(finiteTitle) || nominalDefect || opaqueAuthentication || vanishingUpgrade) &&
     !/^`[^`]*`$/.test(rawTitle) &&
     !/\b(?:if|unless|suppose|might|may|could|would|previously|earlier|historical|hypothetical|example|quoted|source|never|no longer|does not|do not|did not)\b/i.test(polarityTitle);
   if (newAssertion && !declaration) return [];
@@ -184,8 +194,8 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
     offered = signatureOptions.map(option => ({ ...option, label: action(option.label), description: action(option.description ?? '') }));
   }
   const options = offered.map(o => `${o.label} ${o.description ?? ''}`);
-  const ownUpgradeAlias = (option: string) => !upgradeTransition || (
-    /(?<![\w.])(?:Client\.)?evaluate\(\) (?:stays|remains) (?:as )?(?:a |an )?(?:deprecated |compatibility )?alias\b|\b(?:keep|retain|preserve) (?<![\w.])(?:Client\.)?evaluate\(\) as (?:a |an )?(?:deprecated |compatibility )?alias\b/i.test(option) &&
+  const ownUpgradeAlias = (option: string) => !(upgradeTransition || vanishingUpgrade) || (
+    /(?<![\w.])(?:Client\.)?evaluate\(\) (?:stays|remains) (?:as )?(?:a |an )?(?:thin |deprecated |compatibility )?alias\b|\b(?:keep|retain|preserve) (?<![\w.])(?:Client\.)?evaluate\(\) as (?:a |an )?(?:deprecated |compatibility )?alias\b/i.test(option) &&
     !/\b(?:no |without (?:a )?)(?:compatibility )?alias\b|\b(?:do not|don't|never) (?:keep|retain|preserve) (?:Client\.)?evaluate\(\)/i.test(option));
   const labels = q.options.map(o => o.label.trim().replace(/\s*\(recommended\)$/i, '').toLowerCase());
   const yesNo = labels.length === 2 && labels.includes('yes') && labels.includes('no');
@@ -207,10 +217,10 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
       (!declaration || reversedTuples || /\b(?:reversed|opposite|swapped|inconsistent)\b/i.test(title)) &&
       (options.some(o => (!reversedTuples || /\bboth functions\b|\brun_eval\b[^\n]*\brun_batch\b/i.test(o)) &&
         /\b(?:align|unify|standardize|keyword|swap)\b/i.test(o) && /\b(?:order|dataset|arguments?|positional)\b/i.test(o)) || directAction('align|unify|standardize|enforce|make')))) found.push('reversed-arguments');
-  if (/\bAuthError\b|\binvalid API key\b/i.test(title) &&
+  if ((opaqueAuthentication || /\bAuthError\b|\binvalid API key\b/i.test(title)) &&
       /\b(?:error|message|code|cause|fix|guidance|opaque|explain)\b|request failed/i.test(title) &&
-      (!declaration || /\b(?:no (?:cause|fix|explanation|code)|opaque)\b|request failed/i.test(title)) &&
-      (options.some(o => (/\bcodes?\b/i.test(o) || /^(?:[A-D]\)\s*)?Coded\b/i.test(o)) && /\b(?:cause|fix|link)\b/i.test(o)) || directAction('add|include|explain|replace|report|give'))) found.push('opaque-auth-error');
+      (!declaration || opaqueAuthentication || /\b(?:no (?:cause|fix|explanation|code)|opaque)\b|request failed/i.test(title)) &&
+      (options.some(o => (!opaqueAuthentication || /\bAuthError\b/i.test(o)) && (/\bcodes?\b/i.test(o) || /^(?:[A-D]\)\s*)?Coded\b/i.test(o)) && /\b(?:cause|fix|link)\b/i.test(o)) || directAction('add|include|explain|replace|report|give'))) found.push('opaque-auth-error');
   if (/Client\.evaluate\b/i.test(title) &&
       /Client\.run\b|\b(?:v\d+|version \d+|alias|deprecation|migration)\b/i.test(title) &&
       (upgradeVocabulary || upgradeTransition) &&

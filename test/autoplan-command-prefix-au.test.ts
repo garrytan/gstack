@@ -40,6 +40,57 @@ type Replay = ReturnType<typeof replay>;
 const pick = (r: Replay, seen = new Set<string>()) => permission.pendingAutoplanArtifactPermissionInput(r.viewport, r.context, seen);
 const panel = (viewport: string) => viewport.slice(viewport.search(/^[─╌]{8,}\n {0,3}Edit file/m));
 
+// Exact AY public native prefix; only its owned archive path is relocated onto
+// this existing digest fixture. The unpublished Bash body is not reconstructed.
+function nativeCards(r: Replay): string {
+  const relative = path.relative(r.context.ownedStateRoot, r.file).split(path.sep).join('/');
+  return [
+    `● Update(~/.gstack/${relative})`, ' ', '● Updated plan', ' ', '● Updated plan', ' ',
+    '● Bash(mkdir -p ~/.gstack/analytics',
+    `      echo '{"skill":"plan-ceo-review","via":"autoplan","ts":"'$(date -u`,
+    `      +%Y-%m-%dT%H:%M:%SZ)'","iterations":3,"issues_found":56,"issues_…)`,
+    '  ⎿  Waiting…', '', '', '',
+  ].join('\n') + panel(r.viewport);
+}
+
+test('native plan redraws and a queued command preserve only the digest-bound pending Edit', () => {
+  const r = replay(); try {
+    r.viewport = nativeCards(r);
+    const granted = pick(r);
+    expect(granted).toEqual({ input: '1\r', signature: `${r.context.pending!.sessionId}:${r.context.pending!.toolUseId}`, file: r.file });
+    expect(permission.autoplanArtifactPermissionInput(r.viewport, r.context, new Set())).toBeNull();
+    expect(permission.publishedAutoplanArtifactPermissionInput(r.viewport, r.context, new Set())).toBeNull();
+    expect(pick(r, new Set([granted!.signature]))).toBeNull();
+    expect(pick(r, new Set([permission.autoplanArtifactMenuKey(r.viewport)]))).toBeNull();
+  } finally { r.dispose(); }
+});
+
+const nativeScreens: Array<[string, (s: string) => string]> = [
+  ['foreign Update title', s => s.replace('Update(~/.gstack/', 'Update(/foreign/')],
+  ['unbound redraw', s => s.replace('● Updated plan', '● Updated another file')],
+  ['second Update', s => s.replace('● Updated plan', '● Update(/foreign/plan.md)')],
+  ['second Bash', s => s.replace('● Updated plan', '● Bash(echo another…)')],
+  ['no native redraw', s => s.replaceAll('● Updated plan', '')],
+  ['completed command', s => s.replace('Waiting…', 'Done')],
+  ['missing Waiting marker', s => s.replace('  ⎿  Waiting…', '')],
+  ['unclosed command card', s => s.replace('"issues_…)', '"issues_…')],
+  ['unindented command continuation', s => s.replace('      echo ', 'echo ')],
+  ['competing permission', s => s.replace('      echo ', '      Do you want to proceed? ')],
+  ['indented native action', s => s.replace('      echo ', '      ● Read ')],
+  ['indented question', s => s.replace('      echo ', '      ❯ 1. ')],
+  ['source prefix', s => 'Source:\n' + s],
+  ['quoted pane', s => s.split('\n').map(row => '> ' + row).join('\n')],
+  ['code pane', s => '```text\n' + s + '\n```'],
+  ['second edit panel', s => s + '\n' + panel(s)],
+  ['foreign active panel', s => s.replace('projects/gstack-autoplan-chain-zmFsqo/', 'projects/foreign/')],
+  ['foreign menu', s => s.replace('edit to 2026-09-10-user-dashboard.md?', 'edit to other.md?')],
+  ['persistent approval', s => s.replace('❯ 1. Yes', '❯ 2. Yes')],
+  ['changed digest-bound addition', s => s.replace('zero before advancing', 'ten before advancing')],
+];
+for (const [name, change] of nativeScreens) test(`native batch cards cannot hide another authority: ${name}`, () => {
+  const r = replay(); try { r.viewport = change(nativeCards(r)); expect(pick(r)).toBeNull(); } finally { r.dispose(); }
+});
+
 test('the exact public command display preserves only the current unpublished Edit approval', () => {
   const r = replay(); try {
     expect(r.context.transcriptStatus).toBe('ready'); expect(r.context.publicTools).toHaveLength(2);
@@ -124,6 +175,9 @@ const bindings: Array<[string, (r: Replay) => void]> = [
 ];
 for (const [name, change] of bindings) test(`pending authorization is retained: ${name}`, () => {
   const r = replay(); try { change(r); expect(pick(r)).toBeNull(); } finally { r.dispose(); }
+});
+for (const [name, change] of bindings) test(`native cards retain pending authorization: ${name}`, () => {
+  const r = replay(); try { r.viewport = nativeCards(r); change(r); expect(pick(r)).toBeNull(); } finally { r.dispose(); }
 });
 test('only the Autoplan workflow selects this fixture and behavioral regression', () => {
   for (const file of ['test/autoplan-command-prefix-au.test.ts', 'test/fixtures/autoplan-command-prefix-au.json'])

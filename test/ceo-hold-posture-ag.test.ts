@@ -129,3 +129,84 @@ test('new evidence controls select only the existing mode paid owner', () => {
     expect(selectTests([file], E2E_TOUCHFILES, []).selected).toEqual(['plan-ceo-mode-routing']);
   }
 });
+
+// Exact public AY parent narration after the answered HOLD SCOPE mode AUQ.
+// Its native ownership controls use the existing PLAN.md / approved-approach-B fixture.
+const ambiguityNarration = "I'm holding strictly to the plan's approved scope (Approach B, private-only views) and flagging any ambiguities the sketch leaves undecided as targeted questions rather than expanding scope. First up: what happens when a saved view's filters reference something that's been deleted.\n\n";
+const ambiguityReplay = () => {
+  const transcript = replay();
+  transcript.assistantMessages[0]!.text = ambiguityNarration;
+  return transcript;
+};
+const ambiguityMatches = (text = ambiguityNarration) => {
+  const transcript = ambiguityReplay(); transcript.assistantMessages[0]!.text = text;
+  return matches(transcript);
+};
+
+test('approved scope plus targeted ambiguity questions applies HOLD without naming the mode', () => {
+  expect(posture.test(ambiguityNarration)).toBe(false);
+  expect(ambiguityMatches()).toBe(true);
+  for (const text of [
+    ambiguityNarration.replace("I'm holding", 'We are keeping'),
+    ambiguityNarration.replace("I'm holding", 'I will hold'),
+    ambiguityNarration.replace('the sketch leaves undecided', 'in the plan').replace('flagging', 'surfacing'),
+    ambiguityNarration.replace("plan's", "PLAN.md's"),
+    ambiguityNarration.replace("I'm", 'I’m').replace("plan's", 'plan’s'),
+  ]) expect(ambiguityMatches(text), text).toBe(true);
+});
+
+test('ambiguity wording must adopt every obligation without quoting, negating or deferring it', () => {
+  for (const text of [
+    '> ' + ambiguityNarration, '"' + ambiguityNarration.trim() + '"',
+    '```text\n' + ambiguityNarration + '```', '~~~text\n' + ambiguityNarration + '~~~',
+    'Example only: ' + ambiguityNarration, 'The user said: ' + ambiguityNarration,
+    'Read(file)\n' + ambiguityNarration, 'If approved, ' + ambiguityNarration,
+    ambiguityNarration.replace("I'm holding", 'I would hold'),
+    ambiguityNarration.replace("I'm holding", 'I will later hold'),
+    ambiguityNarration.replace("I'm holding", "I'm not holding"),
+    ambiguityNarration.replace('and flagging', 'and not flagging'),
+    ambiguityNarration.replace('approved scope', 'proposed scope'),
+    ambiguityNarration.replace("plan's", "OTHER.md's"),
+    ambiguityNarration.replace('private-only views', 'OTHER.md views'),
+    ambiguityNarration.replace('Approach B', 'Approach C'),
+    ambiguityNarration.replace('as targeted questions rather than expanding scope', 'as optional improvements'),
+    ambiguityNarration.replace('rather than expanding scope', 'while expanding scope'),
+    ambiguityNarration.replace('ambiguities the sketch leaves undecided', 'word choice and formatting'),
+  ]) expect(ambiguityMatches(text), text).toBe(false);
+  for (const correction of [
+    'I am expanding scope to include sharing.',
+    'Correction: I will add defaults to scope.',
+    'The previously excluded sharing feature is now in scope.',
+    'Correction: I am no longer holding scope to this plan.',
+    "Correction: I am not holding strictly to the plan's approved scope.",
+    'Correction: I am no longer flagging ambiguities as targeted questions.',
+    'Correction: this posture is withdrawn.',
+    'This posture is no longer current.',
+  ]) {
+    expect(ambiguityMatches(ambiguityNarration + correction), correction).toBe(false);
+    expect(ambiguityMatches(ambiguityNarration + '> ' + correction), correction).toBe(true);
+  }
+});
+
+test('ambiguity posture stays bound to the approved plan and its actual native answer', () => {
+  for (const change of [
+    (t: PlanCountTranscript) => { t.calls[0]!.answered = false; },
+    (t: PlanCountTranscript) => { t.calls[0]!.failed = true; },
+    (t: PlanCountTranscript) => { t.calls[0]!.answers![t.calls[0]!.questions[0]!.question] = 'Scope Expansion'; },
+    (t: PlanCountTranscript) => { t.assistantMessages[0]!.sessionId = 'foreign'; },
+    (t: PlanCountTranscript) => { t.assistantMessages[0]!.timestamp = t.calls[0]!.answeredAt!; },
+    (t: PlanCountTranscript) => { t.assistantMessages[0]!.timestamp = 'invalid'; },
+    (t: PlanCountTranscript) => { t.assistantMessages[0]!.timestamp = new Date(Date.now() + 60_000).toISOString(); },
+  ]) { const transcript = ambiguityReplay(); change(transcript); expect(matches(transcript)).toBe(false); }
+  for (const [from, to] of [
+    ['PLAN.md', 'PLAN.md and OTHER.md'],
+    ['approved.', 'not approved.'],
+    ['approved.', 'approved if accepted.'],
+    ['approved.', 'discussed.'],
+  ]) {
+    const transcript = ambiguityReplay(); const q = transcript.calls[0]!.questions[0]!;
+    const before = q.question; q.question = before.replace(from!, to!);
+    transcript.calls[0]!.answers = { [q.question]: transcript.calls[0]!.answers![before]! };
+    expect(matches(transcript), to).toBe(false);
+  }
+});

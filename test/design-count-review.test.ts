@@ -41,6 +41,155 @@ function replay(input: NativePlanQuestionCall[], first = isDesignCountFirstRevie
   return { ...counts, started, phases };
 }
 
+describe('A descriptive hierarchy header owns its primary and peer controls', () => {
+  // Minimal public excerpt of AY D3: retain its question, current gap and native
+  // options, without copying the full review or its repeated option prose.
+  const first = (): NativePlanQuestionCall => {
+    const question = 'D3 — Issue 1: How should Save be distinguished from Reset, Cancel, and Export in the header?\n' +
+      'Project/branch/task: settings on main, design review of PLAN.md.\n' +
+      'ELI10: Right now all four header buttons look identical.';
+    const options = [
+      {label: '1A Filled primary + ghosts (recommended)', description: 'Save is #1d4ed8 with white text; Reset, Cancel, Export are neutral ghost buttons per DESIGN.md.'},
+      {label: '1B Also move Export out', description: 'Primary + ghosts, plus relocate Export below the header; changes accepted DOM order.'},
+      {label: '1C Bold label only', description: 'Keep identical buttons, bold the Save text. Weak signal, off-token.'},
+    ];
+    return {sessionId: 'ay-design', toolUseId: 'hierarchy', questions: [{header: 'Hierarchy', question, multiSelect: false, options}],
+      answered: true, failed: false, unansweredQuestionIndices: [], answeredAt: '2026-09-11T03:10:11.660Z',
+      answers: {[question]: options[0]!.label}};
+  };
+  const retry = (): NativePlanQuestionCall => {
+    const c = first(), q = c.questions[0]!;
+    q.header = 'Issue 1';
+    q.question = q.question.replace('be distinguished from Reset, Cancel, and Export in the header', 'stand out from Reset, Cancel and Export')
+      .replace('all four', 'the four') +
+      ' DESIGN.md already names the answer: Save is the only filled primary button, the other three are neutral ghost buttons.';
+    q.options = [
+      {label: '1A Filled primary Save (recommended)', description: '✅ Save becomes the only filled button (#1d4ed8, white text); Reset/Cancel/Export use the existing neutral ghost variant (human: ~1h / CC: ~5min). ✅ Matches DESIGN.md exactly and reuses existing Button variants, no new styles.'},
+      {label: '1B Position only, no fill', description: '✅ Keeps all four buttons visually calm with Save separated by a 16px gap from the secondaries. ❌ Violates DESIGN.md and still forces label reading.'},
+      {label: '1C Leave as-is', description: "✅ Zero implementation work in this update. ✅ No visual change for users who already learned the layout. ❌ Ships a known DESIGN.md violation and the plan's own Visual Hierarchy gap stays open."},
+    ];
+    c.answers = {[q.question]: q.options[0]!.label};
+    return c;
+  };
+  const edit = (change: (c: NativePlanQuestionCall) => void, source = first) => {
+    const c = source(); change(c);
+    if (c.answers && Object.keys(c.answers).length) c.answers = {[c.questions[0]!.question]: c.questions[0]!.options[0]!.label};
+    return fingerprint(c);
+  };
+  test('a current gap, complete style and opposed partial fix start review for any offered answer', () => {
+    const c = first(), q = c.questions[0]!;
+    for (const o of q.options) {
+      c.answers = {[q.question]: o.label};
+      expect(isDesignCountFirstReview(fingerprint(c))).toBe(true);
+    }
+    expect(isDesignCountSetup(fingerprint(c))).toBe(false);
+    expect(isDesignCompletionHandoff(fingerprint(c))).toBe(false);
+  });
+  test('names, palette, peer order, numeric count and severity metadata may vary consistently', () => {
+    expect(isDesignCountFirstReview(edit(c => {
+      const q = c.questions[0]!;
+      q.header = 'Visual Hierarchy';
+      q.question = q.question.replaceAll('Save', 'Publish').replace('all four', 'all 4').replace('\nELI10:', '\n[P1]\nELI10:');
+      q.options = q.options.map(o => ({...o, description: o.description?.replaceAll('Save', 'Publish')
+        .replace('#1d4ed8 with white', '#ffee22 with black').replace('Reset, Cancel, Export are', 'Export, Reset, Cancel are')}));
+      q.options.reverse();
+    }))).toBe(true);
+  });
+  test('retry stand-out wording binds existing variants and an owned open hierarchy gap', () => {
+    const c = retry(), q = c.questions[0]!;
+    for (const option of q.options) {
+      c.answers = {[q.question]: option.label};
+      expect(isDesignCountFirstReview(fingerprint(c))).toBe(true);
+    }
+    expect(isDesignCountFirstReview(edit(c => {
+      const q = c.questions[0]!;
+      q.question = q.question.replaceAll('Save', 'Publish').replace('the four', 'the 4');
+      q.options = q.options.map(o => ({...o, label: o.label.replaceAll('Save', 'Publish'),
+        description: o.description?.replaceAll('Save', 'Publish').replace('#1d4ed8, white', '#ffee22, black')
+          .replace('Reset/Cancel/Export', 'Export, Reset and Cancel')}));
+    }, retry))).toBe(true);
+  });
+  test('retry variants, authority, primary and peers must remain in the same native option', () => {
+    const changes: Array<(c: NativePlanQuestionCall) => void> = [
+      c => {c.questions[0]!.options[0]!.label = '1A Filled primary Reset (recommended)';},
+      c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('Save becomes', 'Publish becomes');},
+      c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('Reset/Cancel/Export', 'Reset/Cancel/Archive');},
+      c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('neutral ghost variant', 'filled primary variant');},
+      c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.split(' ✅ Matches')[0]!;},
+      c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('✅ Matches DESIGN.md exactly', '✅ If approved, matches DESIGN.md exactly');},
+      c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('✅ Matches DESIGN.md exactly', '✅ "Matches DESIGN.md exactly"');},
+      c => {c.questions[0]!.options[1]!.description = c.questions[0]!.options[0]!.description; c.questions[0]!.options[0]!.description = 'Prepare the review.';},
+      c => {c.questions[0]!.options[2]!.description = c.questions[0]!.options[2]!.description!.replace('gap stays open', 'gap is closed');},
+      c => {c.questions[0]!.options[2]!.description = 'Historical source excerpt:\n' + c.questions[0]!.options[2]!.description;},
+      c => {c.questions[0]!.options[2]!.description = c.questions[0]!.options[2]!.description!.replace('Ships a known', 'Does not ship a known');},
+      c => {c.questions[0]!.options[2]!.description = c.questions[0]!.options[2]!.description!.replace('Visual Hierarchy gap', 'account permission gap');},
+    ];
+    for (const change of changes) expect(isDesignCountFirstReview(edit(change, retry))).toBe(false);
+  });
+  const invalid: Array<[string, (c: NativePlanQuestionCall) => void]> = [
+    ['unanswered native call', c => {c.answered = false;}],
+    ['failed native call', c => {c.failed = true;}],
+    ['no recorded answer', c => {c.answers = {};}],
+    ['missing completion timestamp', c => {delete c.answeredAt;}],
+    ['unanswered member', c => {c.unansweredQuestionIndices = [0];}],
+    ['multiple native questions', c => {c.questions.push(structuredClone(c.questions[0]!));}],
+    ['multi-select', c => {c.questions[0]!.multiSelect = true;}],
+    ['duplicate native label', c => {c.questions[0]!.options[1]!.label = c.questions[0]!.options[0]!.label;}],
+    ['wrong choice issue', c => {c.questions[0]!.options[0]!.label = '2A Filled primary + ghosts (recommended)';}],
+    ['setup header', c => {c.questions[0]!.header = 'Routing';}],
+    ['foreign Issue header', c => {c.questions[0]!.header = 'Issue 2';}],
+    ['no D-numbered finding', c => {c.questions[0]!.question = c.questions[0]!.question.replace('D3 — ', '');}],
+    ['source-framed question', c => {c.questions[0]!.question = 'Historical example:\n' + c.questions[0]!.question;}],
+    ['conditional current gap', c => {c.questions[0]!.question = c.questions[0]!.question.replace('ELI10: Right now', 'ELI10: If right now');}],
+    ['quoted current gap', c => {c.questions[0]!.question = c.questions[0]!.question.replace('ELI10:', '> ELI10:');}],
+    ['negated current gap', c => {c.questions[0]!.question = c.questions[0]!.question.replace('look identical', 'do not look identical');}],
+    ['duplicate assessment', c => {c.questions[0]!.question += '\nELI10: Right now all four header buttons look identical.';}],
+    ['foreign pre-assessment prose', c => {c.questions[0]!.question = c.questions[0]!.question.replace('\nELI10:', '\nSource excerpt:\nELI10:');}],
+    ['conditional metadata', c => {c.questions[0]!.question = c.questions[0]!.question.replace('Project/branch/task: settings', 'Project/branch/task: If settings');}],
+    ['wrong control count', c => {c.questions[0]!.question = c.questions[0]!.question.replace('all four', 'all three');}],
+    ['duplicate peer', c => {c.questions[0]!.question = c.questions[0]!.question.replace('Reset, Cancel, and Export', 'Reset, Cancel, and Cancel');}],
+    ['primary also a peer', c => {c.questions[0]!.question = c.questions[0]!.question.replace('Reset, Cancel, and Export', 'Save, Cancel, and Export');}],
+    ['foreign remedy primary', c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('Save is', 'Publish is');}],
+    ['foreign remedy peer', c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('Export are', 'Archive are');}],
+    ['no filled role in native label', c => {c.questions[0]!.options[0]!.label = '1A Prepare a review';}],
+    ['no concrete color', c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('#1d4ed8', 'blue');}],
+    ['no design authority', c => {c.questions[0]!.options[0]!.description = c.questions[0]!.options[0]!.description!.replace('per DESIGN.md', 'per an archived example');}],
+    ['split label and remedy owners', c => {c.questions[0]!.options[1]!.description = c.questions[0]!.options[0]!.description; c.questions[0]!.options[0]!.description = 'Prepare the design review.';}],
+    ['quoted remedy', c => {c.questions[0]!.options[0]!.description = '"' + c.questions[0]!.options[0]!.description + '"';}],
+    ['conditional remedy', c => {c.questions[0]!.options[0]!.description = 'If approved: ' + c.questions[0]!.options[0]!.description;}],
+    ['contradicted remedy', c => {c.questions[0]!.options[0]!.description += ' This amendment keeps all four buttons identical.';}],
+    ['control named Fix cannot bypass owned style checks', c => {
+      const q = c.questions[0]!;
+      q.question = q.question.replaceAll('Save', 'Fix');
+      q.options[0]!.description = 'This applies the next review step.';
+    }],
+    ['wrong declined control', c => {c.questions[0]!.options[2]!.description = c.questions[0]!.options[2]!.description!.replace('Save text', 'Publish text');}],
+    ['no retained equality', c => {c.questions[0]!.options[2]!.description = 'Make Save a filled primary button.';}],
+    ['no retained violation', c => {c.questions[0]!.options[2]!.description = c.questions[0]!.options[2]!.description!.replace('Weak signal, off-token.', 'Strong signal, on-token.');}],
+    ['quoted deferral', c => {c.questions[0]!.options[2]!.description = '> ' + c.questions[0]!.options[2]!.description;}],
+    ['conditional deferral', c => {c.questions[0]!.options[2]!.description = 'If accepted: ' + c.questions[0]!.options[2]!.description;}],
+    ['cancelled deferral', c => {c.questions[0]!.options[2]!.description += ' Correction: do not keep identical buttons.';}],
+  ];
+  test.each(invalid)('%s cannot provide current finding evidence', (_, change) => {
+    expect(isDesignCountFirstReview(edit(change))).toBe(false);
+  });
+  test('withdrawal and approval status stay local even after a style or a partial-fix match', () => {
+    for (const source of [first, retry]) for (const target of ['question', 'remedy', 'decline']) {
+      for (const status of [' This issue is withdrawn.', ' This issue is "withdrawn".', ' This gap is now closed.', ' If approval is granted, use this option.']) {
+        expect(isDesignCountFirstReview(edit(c => {
+          const q = c.questions[0]!;
+          if (target === 'question') q.question += status;
+          else q.options[target === 'remedy' ? 0 : 2]!.description += status;
+        }, source))).toBe(false);
+      }
+    }
+    const fp = fingerprint(first());
+    expect(isDesignCountFirstReview({...fp, signature: 'foreign:call'})).toBe(false);
+    expect(isDesignCountFirstReview({...fp, nativeQuestionIndex: 1})).toBe(false);
+    expect(isDesignCountFirstReview({...fp, options: fp.options.slice(1)})).toBe(false);
+  });
+});
+
 describe('Z numbered gap starts review at the actual plan amendment', () => {
   const actual = () => structuredClone(gapCalls.calls) as NativePlanQuestionCall[];
   const first = () => actual()[0]!;

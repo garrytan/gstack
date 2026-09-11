@@ -13,6 +13,111 @@ function extra(id: string, sessionId: string): NativePlanQuestionCall {
   return {sessionId,toolUseId:id,questions:[{header:'Extra',question,multiSelect:false,options:[{label:'Add command',description:'Add the command after the beta.'},{label:'Defer',description:'Defer the command.'}]}],answered:true,failed:false,answers:{[question]:'Defer'},unansweredQuestionIndices:[],answeredAt:'2026-09-09T20:23:00Z'};
 }
 
+// Exact public AY headings and signature trace, applied to the existing native
+// completion fixture. Full public replay remains separate from paid-run credit.
+const tracedAyTitles = [
+  'D5 — Journey stage: INSTALL / HELLO WORLD. The README quickstart points at a file that is not shipped.',
+  'D4 — Journey stage: HELLO WORLD. The mandatory 5-minute remote CI check before the first local result.',
+  'D7 — Journey stage: REAL USAGE. Two sibling functions take the same two arguments in opposite order.',
+  'D6 — Journey stage: DEBUG. The authentication error says nothing.',
+  "D8 — Journey stage: UPGRADE. v1's Client.evaluate() vanishes in v2 with no warning, alias, or guide.",
+];
+function tracedAyTranscript(): PlanCountTranscript {
+  const t = transcript();
+  for (const [i, c] of t.calls.entries()) {
+    const q = c.questions[0]!, lines = q.question.split('\n'); lines[0] = tracedAyTitles[i]!;
+    if (i === 2) {
+      lines[1] = 'Project/branch/task: EvalKit 2.0.0b1 beta, branch main; docs/api.md:3-9.';
+      lines.splice(2, 0, 'I traced the first real integration after the demo. docs/api.md lists the two evaluation functions: `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)`.');
+      q.options[0] = {
+        label: 'Fix in plan: same order + keyword-only for both (recommended)',
+        description: '✅ run_eval(*, dataset, evaluator) and run_batch(*, dataset, evaluator); wrong order becomes a TypeError naming the parameter at the call site',
+      };
+    }
+    q.question = lines.join('\n'); c.answers = { [q.question]: q.options[0]!.label };
+  }
+  return t;
+}
+
+describe('DX current traced journey decisions', () => {
+  test('five observed title forms retain distinct completed seed decisions', () => {
+    const t = tracedAyTranscript(), result = devexSeedCoverage(t);
+    expect(result.complete).toBe(true); expect(result.missing).toEqual([]);
+    expect(new Set(Object.values(result.decisions).flat()).size).toBe(5);
+    for (let i = 0; i < 5; i++) {
+      const copy = structuredClone(t); copy.calls.splice(i, 1);
+      expect(devexSeedCoverage(copy).missing).toHaveLength(1);
+      for (const option of t.calls[i]!.questions[0]!.options) {
+        const alternate = structuredClone(t), c = alternate.calls[i]!;
+        c.answers = { [c.questions[0]!.question]: option.label };
+        expect(devexSeedCoverage(alternate).complete).toBe(true);
+      }
+    }
+  });
+  test('quoted, hypothetical, healthy and withdrawn titles cannot supply these findings', () => {
+    const healthy = [
+      (s: string) => s.replace('is not shipped', 'is shipped'),
+      (s: string) => s.replace('mandatory', 'optional'),
+      (s: string) => s.replace('opposite order', 'the same order'),
+      (s: string) => s.replace('says nothing', 'explains the cause and fix'),
+      (s: string) => s.replace('vanishes in v2 with no warning, alias, or guide', 'remains in v2 as a compatibility alias'),
+    ];
+    for (let i = 0; i < 5; i++) for (const edit of [
+      (s: string) => '> ' + s, (s: string) => 'Quoted source: ' + s,
+      (s: string) => 'If approved, ' + s,
+      (s: string) => s.replace('Project/branch/task: ', 'Project/branch/task: Historical assessment: '),
+      (s: string) => s + '\nCorrection: this finding is withdrawn.',
+      (s: string) => s.replace(tracedAyTitles[i]!, healthy[i]!(tracedAyTitles[i]!)),
+    ]) {
+      const t = tracedAyTranscript(); changeDeclaration(t, i, edit);
+      expect(devexSeedCoverage(t).complete, `${i}: ${edit(tracedAyTitles[i]!)}`).toBe(false);
+    }
+  });
+  test('signature identity and a current same-function remedy must belong to the trace', () => {
+    for (const [from, to] of [
+      ['I traced the first real integration', 'The source says I traced the first real integration'],
+      ['docs/api.md lists', 'docs/other.md lists'],
+      ['`run_batch(evaluator, dataset)`', '`run_batch(dataset, evaluator)`'],
+      ['I traced the first real integration', '> I traced the first real integration'],
+    ]) {
+      const t = tracedAyTranscript(); changeDeclaration(t, 2, s => s.replace(from!, to!));
+      expect(devexSeedCoverage(t).missing, to).toContain('reversed-arguments');
+    }
+    for (const i of [2, 3, 4]) for (const mode of ['quoted', 'withdrawn', 'foreign']) {
+      const t = tracedAyTranscript(), c = t.calls[i]!, q = c.questions[0]!;
+      q.options = q.options.map(o => mode === 'quoted' ? { label: '"' + o.label + '"', description: '"' + o.description + '"' }
+        : mode === 'withdrawn' ? { ...o, description: o.description + '\nThis option is withdrawn.' }
+        : { ...o, description: o.description?.replaceAll('run_batch', 'other_batch').replaceAll('AuthError', 'OtherError').replaceAll('Client.evaluate', 'OtherClient.evaluate') });
+      c.answers = { [q.question]: q.options[0]!.label };
+      expect(devexSeedCoverage(t).complete, `${i}: ${mode}`).toBe(false);
+    }
+  });
+  test('the asserted signature trace remains current before ELI10', () => {
+    for (const status of [
+      'Correction: these functions are now aligned.',
+      'These signatures are historical.',
+      'These signatures are no longer current.',
+      'This trace applies only if approved.',
+      'This trace is historical.',
+      'This trace is withdrawn.',
+    ]) for (const quoted of [false, true]) {
+      const t = tracedAyTranscript();
+      changeDeclaration(t, 2, text => text.replace(/^(I traced[^\n]*)$/m,
+        '$1 ' + (quoted ? JSON.stringify(status) : status)));
+      expect(devexSeedCoverage(t).complete, `${quoted ? 'quoted' : 'current'}: ${status}`).toBe(quoted);
+    }
+  });
+  test('new title wording cannot bypass native completion or session ownership', () => {
+    for (let i = 0; i < 5; i++) for (const mutate of [
+      (c: NativePlanQuestionCall) => { c.answered = false; },
+      (c: NativePlanQuestionCall) => { c.failed = true; },
+      (c: NativePlanQuestionCall) => { c.sessionId = 'foreign'; },
+      (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+      (c: NativePlanQuestionCall) => { c.answers = { [c.questions[0]!.question]: 'Not offered' }; },
+    ]) { const t = tracedAyTranscript(); mutate(t.calls[i]!); expect(devexSeedCoverage(t).complete).toBe(false); }
+  });
+});
+
 describe('DX seeded-gap coverage', () => {
   for (const [i, attempt] of fixture.attempts.entries()) test(`actual attempt ${attempt.attempt} has five distinct completed seed decisions`, () => {
     const result = devexSeedCoverage(transcript(i));
