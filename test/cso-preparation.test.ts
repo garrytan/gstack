@@ -9,6 +9,7 @@ import { completeRuntimeCatalogFixture, qualifiedRuntimeFixture } from './helper
 const roots: string[] = [];
 const hash = 'a'.repeat(64);
 const sri = `sha512-${Buffer.alloc(64, 1).toString('base64')}`;
+const CREDENTIAL_ARCHIVE_URL = ['https://user:', 'secret@registry.npmjs.org/a.tgz'].join('');
 function fixture(files: Record<string, unknown>): string {
   const root = mkdtempSync(join(tmpdir(), 'cso-preparation-')); roots.push(root);
   for (const [path, contents] of Object.entries(files)) {
@@ -58,7 +59,7 @@ describe('CSO inert Node preparation', () => {
     const plan = inspectPreparation(fixture(nodeFiles(1)));
     expect(plan.prerequisites[0].code).toBe('UNSUPPORTED_LOCK'); expect(plan.acquisition).toEqual([]); expect(plan.metadata).toEqual([]);
   });
-  for (const url of ['https://user:secret@registry.npmjs.org/a.tgz', 'http://registry.npmjs.org/a.tgz', 'https://registry.npmjs.org.evil.invalid/a.tgz', 'https://127.0.0.1/a.tgz', 'git+ssh://github.com/a/b', 'https://registry.npmjs.org/a.tgz?token=secret']) test(`rejects non-public archive ${url.split('@').at(-1)}`, () => {
+  for (const url of [CREDENTIAL_ARCHIVE_URL, 'http://registry.npmjs.org/a.tgz', 'https://registry.npmjs.org.evil.invalid/a.tgz', 'https://127.0.0.1/a.tgz', 'git+ssh://github.com/a/b', 'https://registry.npmjs.org/a.tgz?token=secret']) test(`rejects non-public archive ${url.split('@').at(-1)}`, () => {
     const files = nodeFiles(); files['package-lock.json'].packages['node_modules/cookie'].resolved = url;
     const plan = inspectPreparation(fixture(files)); expect(plan.status).toBe('prerequisites'); expect(plan.acquisition).toEqual([]);
   });

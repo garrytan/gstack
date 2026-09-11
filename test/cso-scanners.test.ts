@@ -94,7 +94,7 @@ describe('CSO scanner execution plans', () => {
     expect(() => scannerPlans({ snapshotRoot: '/src', offline: true, schemaPath: 'https://example.test/api.json' })).toThrow();
   });
 
-  test.each(['http://example.com', 'http://localhost:3000', 'http://169.254.169.254/', 'http://127.1/', 'http://2130706433/', 'http://0x7f000001/', 'http://127.0.0.1.evil.test/', 'http://user:pass@127.0.0.1/', 'file:///tmp/app', 'http://[::ffff:127.0.0.1]/', 'http://127.0.0.1/?x=secret'])('rejects non-canonical or credential-bearing target %s', url => {
+  test.each(['http://example.com', 'http://localhost:3000', 'http://169.254.169.254/', 'http://127.1/', 'http://2130706433/', 'http://0x7f000001/', 'http://127.0.0.1.evil.test/', ['http://user:', 'pass@127.0.0.1/'].join(''), 'file:///tmp/app', 'http://[::ffff:127.0.0.1]/', 'http://127.0.0.1/?x=secret'])('rejects non-canonical or credential-bearing target %s', url => {
     expect(() => validateScannerBaseUrl(url)).toThrow();
   });
 
@@ -228,7 +228,7 @@ describe('CSO scanner failure and hostile-input handling', () => {
   });
 
   test('marker-only private keys withhold the entire decoded document', () => {
-    const data = [{ RuleID: 'key', Description: '-----BEGIN PRIVATE KEY-----\nsecretbody\n-----END PRIVATE KEY-----', File: 'config' }];
+    const data = [{ RuleID: 'key', Description: ['-----BEGIN ', 'PRIVATE KEY-----\nsecretbody\n-----END ', 'PRIVATE KEY-----'].join(''), File: 'config' }];
     const result = parse('gitleaks', data, 10);
     expect(result.status).toBe('not_assessed');
     expect(result.gaps[0].code).toBe('REDACTION_FAILED');

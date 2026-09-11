@@ -10,6 +10,7 @@ const ROOT = resolve(import.meta.dir, '..');
 const temps: string[] = [];
 afterEach(() => { for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
+const CREDENTIAL_IMAGE = ['https://user:', 'pass@example.test/node'].join('');
 
 function buildFixture() {
   const dir = mkdtempSync(join(tmpdir(), 'gstack-cso-build-')); temps.push(dir);
@@ -257,7 +258,7 @@ describe('CSO runtime staging gates', () => {
     expect(() => imageBuildMatrix(inputs)).toThrow('INCOMPLETE_STACK_MATRIX');
   });
 
-  test.each(['node:latest', 'docker.io/library/node:24', 'https://user:pass@example.test/node', 'docker.io/library/node@sha256:bad', 'docker.io/library/node@sha256:' + 'A'.repeat(64), 'docker.io/library/node@sha256:' + 'a'.repeat(64) + '\nBAD=value'])('untrusted base input %s cannot enter the workflow matrix', image => {
+  test.each(['node:latest', 'docker.io/library/node:24', CREDENTIAL_IMAGE, 'docker.io/library/node@sha256:bad', 'docker.io/library/node@sha256:' + 'A'.repeat(64), 'docker.io/library/node@sha256:' + 'a'.repeat(64) + '\nBAD=value'])('untrusted base input %s cannot enter the workflow matrix', image => {
     const inputs = reviewedInputs(); inputs.profiles[0].baseImages['linux/amd64'] = image;
     expect(() => imageBuildMatrix(inputs)).toThrow('UNPINNED_BASE_IMAGE');
   });

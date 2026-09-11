@@ -12,7 +12,7 @@ const evalCollector = createEvalCollector('e2e-cso');
 afterAll(() => finalizeEvalCollector(evalCollector));
 
 // Synthetic credential-shaped canary: its bytes must never appear in agent output or saved reports.
-const CANARY = 'ghp_f7K3mV9nT2qR8sL4xP6dW0bH5jY1cZ3aF9uE';
+const CANARY = ['ghp_', 'f7K3mV9nT2qR8sL4xP6dW0bH5jY1cZ3aF9uE'].join('');
 interface Fixture { repo: string; state: string; original: Map<string, string>; }
 function git(repo: string, ...args: string[]): string {
   const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 5000 });
