@@ -36,8 +36,18 @@ describe('CSO Git metadata hardening',()=>{
     try{await readGitMetadata(repo,['rev-parse','--verify','secret-ref-name'],root);}catch(error){failure=error;}
     expect(failure).toMatchObject({code:'MISSING_INPUT'});
     expect(failure.message).toContain('rev-parse exited');
+    expect(failure.message).toContain('(request rejected)');
     expect(failure.message).not.toContain(root);
     expect(failure.message).not.toContain('secret-ref-name');
+  });
+
+  test.skipIf(process.platform==='win32')('labels the fixed object-format phase without exposing repository data',async()=>{
+    const {root,repo}=fixture();fs.appendFileSync(path.join(repo,'.git','config'),'\n[broken configuration\n');let failure:any;
+    try{await readGitMetadata(repo,['rev-parse','--show-object-format'],root);}catch(error){failure=error;}
+    expect(failure).toMatchObject({code:'MISSING_INPUT'});
+    expect(failure.message).toContain('object-format exited');
+    expect(failure.message).toContain('(configuration rejected)');
+    expect(failure.message).not.toContain(root);
   });
 
   test.skipIf(process.platform==='win32')('refuses trusted Git calls that are not bound to one audited worktree',async()=>{

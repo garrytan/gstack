@@ -205,8 +205,10 @@ export async function git(repo: string, args: string[], home: string): Promise<s
     // content. Name only the fixed helper-owned operation and bounded process
     // outcome so native failures are actionable without exposing either.
     const knownOperations=new Set(['rev-parse','symbolic-ref','ls-files','ls-tree','log','merge-base']),operation=args.find(value=>knownOperations.has(value))??'metadata',
+      phase=operation==='rev-parse'&&args.includes('--show-object-format')?'object-format':operation==='rev-parse'&&args.includes('--is-inside-work-tree')?'worktree-probe':operation,
+      reason=/not a git repository|outside repository/i.test(result.stderr)?'repository unavailable':/dubious ownership/i.test(result.stderr)?'repository ownership rejected':/(?:bad|invalid|unable to read).*config|config (?:error|file)/i.test(result.stderr)?'configuration rejected':/unknown option|unknown switch|unrecognized option|usage:/i.test(result.stderr)?'unsupported invocation':/(?:cannot|could not|unable to) (?:chdir|change directory)|no such file or directory/i.test(result.stderr)?'path unavailable':'request rejected',
       outcome=result.timedOut?'timed out':result.truncated?'exceeded the output limit':`exited ${result.code}`;
-    throw new CsoError('MISSING_INPUT',`Could not read bounded Git metadata: ${operation} ${outcome}; source may not be a Git repository`);
+    throw new CsoError('MISSING_INPUT',`Could not read bounded Git metadata: ${phase} ${outcome} (${reason}); source may not be a Git repository`);
   }
   return result.stdout;
 }

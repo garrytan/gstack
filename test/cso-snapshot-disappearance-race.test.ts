@@ -16,11 +16,15 @@ function trustedGit():string{
 function gitEnvironment(home:string):NodeJS.ProcessEnv{
   return{...process.env,HOME:home,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:process.platform==='win32'?'NUL':'/dev/null',GIT_TERMINAL_PROMPT:'0'};
 }
-type FileIdentity={dev:bigint;ino:bigint};
-function fileIdentity(file:string):FileIdentity{const stat=fs.statSync(file,{bigint:true});return{dev:stat.dev,ino:stat.ino};}
+type FileIdentity={path:string;dev:bigint;ino:bigint};
+function canonicalFile(file:string):string{
+  const resolved=fs.realpathSync.native(file);
+  return process.platform==='win32'?resolved.replace(/^\\\\\?\\UNC\\/i,'\\\\').replace(/^\\\\\?\\/,'').toLowerCase():resolved;
+}
+function fileIdentity(file:string):FileIdentity{const stat=fs.statSync(file,{bigint:true});return{path:canonicalFile(file),dev:stat.dev,ino:stat.ino};}
 function isFileIdentity(candidate:unknown,expected:FileIdentity):boolean{
   if(path.basename(String(candidate)).toLowerCase()!=='tracked.txt')return false;
-  try{const current=fs.statSync(String(candidate),{bigint:true});return current.isFile()&&current.dev===expected.dev&&current.ino===expected.ino;}catch{return false;}
+  try{const file=String(candidate),current=fs.statSync(file,{bigint:true});return canonicalFile(file)===expected.path&&current.dev===expected.dev&&current.ino===expected.ino;}catch{return false;}
 }
 
 function fixture(){
