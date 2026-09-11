@@ -71,7 +71,7 @@ export function outsideVoicePreflight(ctx: TemplateContext, opts: { disabledBeha
   if (v.id === 'codex' && opts.disabledBehavior !== 'opt-in') {
     const preflight = outsideVoiceLabels(ctx, codexPreflight(opts))
       .replace('```bash\n', `\`\`\`bash\n${outsideVoiceRuntime(ctx)}\n`);
-    return preflight + '\n\nA stale artifact selecting its own harness must report missing coverage and run no outside CLI. Repair: `setup --host codex`. Never infer a replacement provider from inherited environment markers. The invocation below repeats this guard.\n';
+    return preflight;
   }
   const bin = toShellPath(ctx.paths.binDir);
   const probe = v.id === 'codex'

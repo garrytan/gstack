@@ -5,11 +5,40 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { outsideVoiceCommand, outsideVoicePreflight } from '../scripts/resolvers/outside-voice';
+import { generateCodexDocReview, generateCodexPlanReview } from '../scripts/resolvers/review';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
+import { ALL_HOST_CONFIGS } from '../hosts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-outside-preflight-'));
 afterAll(() => fs.rmSync(TEMP, { recursive: true, force: true }));
+
+describe('own-harness review fallback instructions', () => {
+  for (const host of ALL_HOST_CONFIGS) {
+    for (const [name, render] of [['plan', generateCodexPlanReview], ['documentation', generateCodexDocReview]] as const) {
+      test(`${host.name}: ${name} fallback names only the mode its preflight emits`, () => {
+        const ctx: TemplateContext = { host: host.name, skillName: 'review', tmplPath: 'review/SKILL.md.tmpl', paths: HOST_PATHS[host.name] };
+        const text = render(ctx);
+        const mode = host.name === 'codex' ? 'under_current_harness' : 'under_codex';
+        const preflight = text.match(/```bash\n([\s\S]*?)\n```/)![1];
+        expect(preflight).toContain(mode);
+        expect([...new Set(text.match(/under_codex|under_current_harness/g))]).toEqual([mode]);
+        expect(text.includes("retain the section's native pass if defined")).toBe(false);
+
+        const fallback = text.slice(text.indexOf('**Native fallback'), text.indexOf('Dispatch via the Agent tool'));
+        const ownHarnessBranch = `On \`CODEX_MODE: ${mode}\``;
+        expect(text.split(ownHarnessBranch)).toHaveLength(2);
+        expect(fallback).toContain(ownHarnessBranch);
+        expect(fallback).toContain('`outside_status: unavailable`');
+        expect(fallback).toContain('run no outside CLI');
+        expect(fallback).toContain('use the native subagent below');
+        expect(fallback).toContain('A native result never supplies outside coverage.');
+        expect(fallback).toContain('The disabled branch never reaches this fallback.');
+        expect(fallback).toContain('`CODEX_MODE: disabled`, finish this section with `outside_status: disabled`;');
+      });
+    }
+  }
+});
 
 function fixture() {
   const dir = fs.mkdtempSync(path.join(TEMP, 'case-'));

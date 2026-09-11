@@ -932,7 +932,7 @@ Present these approach options via AskUserQuestion using the preamble's AskUserQ
 
 ### 0F. Mode Selection
 After 0C-bis, before 0D; keep labels stable.
-Every mode requires your explicit approval for added scope.
+Every mode requires explicit user approval for scope changes.
 
 The four modes are:
 1. **SCOPE EXPANSION:** The plan is good but could be great. Dream big — propose the ambitious version. Every expansion is presented individually for your approval. You opt in to each one.
@@ -994,8 +994,8 @@ Both are outcome-framed. Only one makes the user feel the cathedral. Lead with t
 3. Keep stated invariants and acceptance criteria; repairs needed to meet them are in scope.
 
 **For SCOPE REDUCTION** — run this:
-1. Ruthless cut: What is the absolute minimum that ships value to a user? Everything else is deferred. No exceptions.
-2. What can be a follow-up PR? Separate "must ship together" from "nice to ship together."
+1. Propose minimum scope for the core goal and work to defer.
+2. Explain each cut via AskUserQuestion; **STOP** for approval. Put approved cuts in "NOT in scope" and retain the rest.
 
 ### 0D-POST. Persist CEO Plan (EXPANSION and SELECTIVE EXPANSION only)
 
@@ -1050,7 +1050,8 @@ After writing the CEO plan, run the spec review loop on it:
 
 ## Spec Review Loop
 
-Before presenting the document to the user for approval, run an adversarial review.
+Run an adversarial review before presenting the final document to the user.
+Follow the calling workflow's approval steps.
 
 **Step 1: Dispatch reviewer subagent**
 
@@ -1157,16 +1158,16 @@ missing work — do NOT call ExitPlanMode:
    does NOT count — only the structured `## GSTACK REVIEW REPORT` section
    satisfies this check.
 3. Confirm the report has a Runs / Status / Findings table and a VERDICT line
-   (CODEX / CROSS-MODEL absorbed if applicable).
+   (OUTSIDE COVERAGE / CROSS-MODEL included when applicable).
 4. Confirm the report's FINAL non-whitespace line is the unresolved-decisions
    status: the exact unbolded `NO UNRESOLVED DECISIONS`, or a bullet of a final
    `**UNRESOLVED DECISIONS:**` block. BLOCKING, no "if applicable" escape — a
-   bolded sentinel, any trailing CODEX/CROSS-MODEL/VERDICT/prose, or a missing
+   bolded sentinel, any trailing report field or prose, or a missing
    status each FAILS the gate.
 5. If a plan file is in context for this skill invocation: confirm
    `gstack-review-log` was called and `gstack-review-read` was run at least
-   once. If no plan file is in context (e.g. `/codex consult` against a
-   diff with no plan), this check short-circuits — checks 1-4 already
+   once. If no plan file is in context (e.g. a diff review with no plan),
+   this check short-circuits — checks 1-4 already
    short-circuit when no plan file exists.
 
 Failing this gate and calling ExitPlanMode anyway is a contract violation —

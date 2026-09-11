@@ -84,7 +84,7 @@ test('only an explicit user selection or enabled successful mode check bypasses 
   expect(q).toContain('`ASK_NORMALLY` means ask.');
   expect(s).toContain('This settles only the mode, not approach or scope approval.');
   expect(document).toContain('Do NOT proceed to mode selection (0F) without user approval of the chosen approach.');
-  expect(s).toContain('Every mode requires your explicit approval for added scope.');
+  expect(s).toContain('Every mode requires explicit user approval for scope changes.');
   expect(s).toContain('Keep the approved 0C-bis approach; explain and obtain approval for any mode-required change.');
   expect(s).toContain('offer all four modes in one AskUserQuestion');
   expect(s).toContain('context defaults for RECOMMENDATION');

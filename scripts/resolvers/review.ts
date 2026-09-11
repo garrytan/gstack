@@ -203,16 +203,16 @@ ${approvals}1. Read the plan file with the Read tool (after your most recent wri
    does NOT count — only the structured \`## GSTACK REVIEW REPORT\` section
    satisfies this check.
 3. Confirm the report has a Runs / Status / Findings table and a VERDICT line
-   (CODEX / CROSS-MODEL absorbed if applicable).
+   (OUTSIDE COVERAGE / CROSS-MODEL included when applicable).
 4. Confirm the report's FINAL non-whitespace line is the unresolved-decisions
    status: the exact unbolded \`NO UNRESOLVED DECISIONS\`, or a bullet of a final
    \`**UNRESOLVED DECISIONS:**\` block. BLOCKING, no "if applicable" escape — a
-   bolded sentinel, any trailing CODEX/CROSS-MODEL/VERDICT/prose, or a missing
+   bolded sentinel, any trailing report field or prose, or a missing
    status each FAILS the gate.
 5. If a plan file is in context for this skill invocation: confirm
    \`gstack-review-log\` was called and \`gstack-review-read\` was run at least
-   once. If no plan file is in context (e.g. \`/codex consult\` against a
-   diff with no plan), this check short-circuits — checks 1-4 already
+   once. If no plan file is in context (e.g. a diff review with no plan),
+   this check short-circuits — checks 1-4 already
    short-circuit when no plan file exists.
 
 Failing this gate and calling ExitPlanMode anyway is a contract violation —
@@ -230,7 +230,8 @@ export function generateAntiShortcutClause(_ctx: TemplateContext): string {
 export function generateSpecReviewLoop(_ctx: TemplateContext): string {
   return `## Spec Review Loop
 
-Before presenting the document to the user for approval, run an adversarial review.
+Run an adversarial review before presenting the final document to the user.
+Follow the calling workflow's approval steps.
 
 **Step 1: Dispatch reviewer subagent**
 
@@ -706,10 +707,10 @@ Immediately before dispatching, check the preflight result again. On
 \`CODEX_MODE: disabled\`, finish this section with \`outside_status: disabled\`;
 do not dispatch. Otherwise, use this fallback for missing/broken CLI, failed
 authentication/model selection, a failed preflight, or a failed outside invocation.
-The disabled branch never reaches this fallback. In this section, \`under_codex\`
-or \`under_current_harness\` also follows this native fallback: run no outside CLI,
-report the setup repair and \`outside_status: unavailable\`, then use the native
-subagent below. A native result never supplies outside coverage.
+The disabled branch never reaches this fallback.
+On \`CODEX_MODE: ${outsideVoiceFor(ctx).id === 'codex' ? 'under_codex' : 'under_current_harness'}\`, report the setup repair and
+\`outside_status: unavailable\`, run no outside CLI, and use the native subagent below.
+A native result never supplies outside coverage.
 
 Dispatch via the Agent tool with \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}; the findings must land before the workflow continues). The subagent has fresh context and no conversation bias — but it is the same harness; model identity stays unknown unless the runtime reports it; weigh its agreement accordingly.
 Bound it the same way as ${outsideVoiceFor(ctx).label}: cap the dispatch at a 5-minute timeout so "never blocking"
@@ -846,10 +847,10 @@ Immediately before dispatching, check the preflight result again. On
 \`CODEX_MODE: disabled\`, finish this section with \`outside_status: disabled\`;
 do not dispatch. Otherwise, use this fallback for missing/broken CLI, failed
 authentication/model selection, a failed preflight, or a failed outside invocation.
-The disabled branch never reaches this fallback. In this section, \`under_codex\`
-or \`under_current_harness\` also follows this native fallback: run no outside CLI,
-report the setup repair and \`outside_status: unavailable\`, then use the native
-subagent below. A native result never supplies outside coverage.
+The disabled branch never reaches this fallback.
+On \`CODEX_MODE: ${outsideVoiceFor(ctx).id === 'codex' ? 'under_codex' : 'under_current_harness'}\`, report the setup repair and
+\`outside_status: unavailable\`, run no outside CLI, and use the native subagent below.
+A native result never supplies outside coverage.
 
 Dispatch via the Agent tool with the same prompt, passing \`run_in_background: false\` (subagents default to background since ${CC_BACKGROUND_DEFAULT_SINCE}). Bound it at a 5-minute timeout; if it never completes, treat the review as unavailable and continue.
 Present findings under \`DOCUMENTATION REVIEW (${outsideVoiceFor(ctx).nativeLabel} subagent):\`. If it fails: "Doc review unavailable. Continuing to Step 9." Skip the apply gate, persist \`status: unavailable\`, \`outside_status: unavailable\`, and \`source: none\` below, then continue; unavailable is not a clean review.

@@ -166,7 +166,8 @@ Supersedes: {prior filename — omit this line if first design on this branch}
 
 ## Spec Review Loop
 
-Before presenting the document to the user for approval, run an adversarial review.
+Run an adversarial review before presenting the final document to the user.
+Follow the calling workflow's approval steps.
 
 **Step 1: Dispatch reviewer subagent**
 
