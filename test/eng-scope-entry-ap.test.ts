@@ -37,12 +37,12 @@ test('every host expands its real bootstrap after the mandatory entry gate', () 
   }
 });
 
-test('entry instruction binds the announcement to skill load and delays bootstrap until scope resolves', () => {
+test('entry binds a current target and delays bootstrap until scope resolves', () => {
   expect(scope).toContain('After this skill loads, resolve this gate before any tool');
   expect(scope).toContain('including preamble and context/brain lookup.');
   expect(scope).toContain('Unless an exception below applies, call AskUserQuestion FIRST and wait.');
-  expect(scope).toContain('Announce plan-mode auto-selection before tools');
-  expect(scope).toContain('introducing this skill does not count.');
+  expect(scope).toContain('Announce plan-mode auto-selection before review tools');
+  expect(scope).toContain('A fresh declaration for this invocation may precede skill loading');
   expect(scope).toContain('After resolution: preamble → brain context → Design Doc Check → Step 0.');
   expect(scope).toContain('Preamble “run first” is subordinate to this gate.');
 });

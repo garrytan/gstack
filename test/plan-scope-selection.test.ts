@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import awFixture from './fixtures/plan-scope-target-aw.json';
 import agFixture from './fixtures/design-plan-scope-ag.json';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -69,7 +70,7 @@ ${text}`,
     text.replace('draft plan pasted here', 'branch diff'),
     text.replace(', starting with', ', if approved, starting with'),
     text.replace(', starting with', '. Unless you object, starting with'),
-    `I'll review the supplied plan.`, `I'll run the /plan-design-review skill against this draft plan.`,
+    `I'll review the supplied plan.`, `I'll run the /plan-design-review skill.`,
   ]) expect(verdict(fixture(invalid)), invalid).toBe(false);
 });
 
@@ -226,4 +227,114 @@ test('AG audit continuation cannot withdraw or relabel the current selection', (
   ]) expect(verdict(fixture(text + tail)), tail).toBe(false);
   expect(verdict(fixture(text + " Now I'll run the audit, including the examples in DESIGN.md."))).toBe(true);
   expect(verdict(fixture(text + '\n\n> Example: cancel that selection.'))).toBe(true);
+});
+
+// These are public observation projections. Synthetic mutations below are
+// controls; the recorded failed paid outcomes are never rewritten.
+const awInput = (i = 0) => structuredClone(awFixture[i]!);
+const awCheck = (p = awInput()) => nativeSeededPlanSelection(p.transcript as PlanCountTranscript, p.tools as NativePublicToolEvent[], p.opts);
+test('AW first and retry select the unique pasted draft before loading the requested skill', () => {
+  expect(awFixture).toHaveLength(4);
+  for (const p of awFixture) {
+    expect(p.observed.scopeGateAutoSelectObserved).toBe(false);
+    expect(awCheck(p)).toBe(true);
+    expect(Date.parse(p.transcript.assistantMessages[0]!.timestamp)).toBeLessThan(Date.parse(p.tools[0]!.timestamp));
+  }
+});
+
+test('a current target may be announced before or after load, but always before review work', () => {
+  for (const i of [0, 1, 2, 3]) {
+    const p = awInput(i), m = p.transcript.assistantMessages[0]!;
+    m.timestamp = new Date(Date.parse(p.tools[1]!.timestamp) + 1).toISOString();
+    expect(awCheck(p)).toBe(true);
+    const title = /^#\s+(?:Plan:\s*)?(.+)$/m.exec(p.opts.seed)![1]!;
+    m.timestamp = new Date(p.opts.commandStartedAt + 1).toISOString();
+    m.text = `I'll review "${title}" plan.`;
+    expect(awCheck(p)).toBe(true);
+    m.timestamp = p.tools[2]!.timestamp;
+    expect(awCheck(p)).toBe(false);
+  }
+});
+
+test('new scope route rejects stale, foreign, premature or unsuccessful evidence', () => {
+  const controls: Array<(p: ReturnType<typeof awInput>) => void> = [
+    p => { p.transcript.assistantMessages[0]!.timestamp = new Date(p.opts.commandStartedAt - 1).toISOString(); },
+    p => { p.transcript.assistantMessages[0]!.timestamp = 'unknown'; },
+    p => { p.transcript.assistantMessages[0]!.sessionId = 'foreign'; },
+    p => { p.transcript.status = 'error'; },
+    p => { p.opts.seed += '\n# Plan: Another plan'; },
+    p => { p.tools[0]!.input!.skill = 'plan-ceo-review'; },
+    p => { p.tools[0]!.sessionId = 'foreign'; },
+    p => { p.tools[1]!.isError = true; },
+    p => { p.tools[1]!.toolUseId = 'unrelated'; },
+    p => { p.tools[1]!.sessionId = 'foreign'; },
+    p => { p.tools.splice(1, 1); },
+    p => { p.tools.push(structuredClone(p.tools[1]!)); },
+    p => { p.tools[2]!.timestamp = new Date(p.opts.commandStartedAt + 1).toISOString(); },
+    p => { p.tools[2]!.timestamp = new Date(Date.parse(p.tools[1]!.timestamp) - 1).toISOString(); },
+    p => { p.tools[2]!.timestamp = 'unknown'; },
+    p => { p.tools[0]!.timestamp = new Date(p.opts.commandStartedAt - 1).toISOString(); },
+  ];
+  for (const [index, mutate] of controls.entries()) { const p = awInput(); mutate(p); expect(awCheck(p), `control ${index}`).toBe(false); }
+});
+
+test('unique-draft declarations must be affirmative and owned, not merely a skill introduction', () => {
+  for (const text of [
+    `I'll run the /plan-design-review skill.`, `I'll run the /plan-eng-review skill on this draft plan.`,
+    `I'll run the plan-design-review skill on this draft plan if approved.`,
+    `I'll run the plan-design-review skill on this draft plan?`,
+    `I'll run the plan-design-review skill on a draft plan.`,
+    `I might run the plan-design-review skill on this draft plan.`,
+    `I won't run the plan-design-review skill on this draft plan.`,
+    `I'll run the plan-design-review skill on this draft plan or another plan.`,
+    `If approved, I'll review this draft plan.`, `Provided the plan exists, I'll review this draft plan.`,
+    `> I'll review this draft plan.`, `"I'll review this draft plan."`, `    I'll review this draft plan.`,
+    `Source excerpt:\nI'll review this draft plan.`, `Historical note:\nI'll review this draft plan.`,
+    '```text\nI\'ll review this draft plan.\n```',
+  ]) { const p = awInput(); p.transcript.assistantMessages[0]!.text = text; expect(awCheck(p), text).toBe(false); }
+  for (const text of [`I'll review this draft plan.`, `I will review your draft plan.`, `I'll run the gstack:plan-design-review skill against the draft plan.`]) {
+    const p = awInput(); p.transcript.assistantMessages[0]!.text = text; expect(awCheck(p), text).toBe(true);
+  }
+});
+
+test('Skill arguments cannot override the announced target or borrow a quoted matching title', () => {
+  for (const args of [
+    'branch diff', 'Review the draft plan "Another plan".',
+    'Review the branch diff; the old draft was "Marketing landing page".',
+    'Example: Review the draft plan "Marketing landing page".',
+    '"Review the draft plan \\"Marketing landing page\\"."',
+    'Review the draft plan "Marketing landing page" if approved.',
+    'Review the draft plan "Marketing landing page". Instead review the branch diff.',
+    'Review the draft plan "Marketing landing page" (not the target; review another plan).',
+  ]) { const p = awInput(1); p.tools[0]!.input!.args = args; expect(awCheck(p), args).toBe(false); }
+  for (const args of ['Review the pasted \"Marketing landing page\" draft plan.', 'Review the draft plan \"Marketing landing page\".']) {
+    const p = awInput(1); p.tools[0]!.input!.args = args; expect(awCheck(p), args).toBe(true);
+  }
+  const p = awInput(1); p.opts.seed = p.opts.seed.replace('Marketing landing page', 'Checkout page');
+  p.tools[0]!.input!.args = p.tools[0]!.input!.args!.replace('Marketing landing page', 'Checkout page');
+  expect(awCheck(p)).toBe(true);
+});
+
+test('later current corrections defeat the draft selection while quoted history does not', () => {
+  for (const text of [
+    'This selection is withdrawn.', "This selection is 'withdrawn'.", 'This selection is `no longer current`.',
+    'This declaration is “no longer current”.',
+    'Historical note:\nThat selection is withdrawn.\n## Current status\nThat selection is withdrawn.', 'This selection is superseded.', 'This selection is rejected.',
+    'The selected target is now the branch diff.', 'I will review the branch diff instead.',
+    'I will review "Another plan" plan.',
+  ]) {
+    const p = awInput(), m = p.transcript.assistantMessages[0]!;
+    p.transcript.assistantMessages.push({...m, timestamp:new Date(Date.parse(m.timestamp)+1).toISOString(), text});
+    expect(awCheck(p), text).toBe(false);
+  }
+  for (const text of ['> This selection is withdrawn.', 'Historical note: "This selection is withdrawn."', 'Source excerpt:\nI will review the branch diff instead.']) {
+    const p = awInput(), m = p.transcript.assistantMessages[0]!;
+    p.transcript.assistantMessages.push({...m, timestamp:new Date(Date.parse(m.timestamp)+1).toISOString(), text});
+    expect(awCheck(p), text).toBe(true);
+  }
+});
+
+test('the AW public fixture selects the existing scope helper owners without a new paid test', () => {
+  expect(selectTests(['test/fixtures/plan-scope-target-aw.json'], E2E_TOUCHFILES, []).selected)
+    .toEqual(selectTests(['test/helpers/plan-scope-selection.ts'], E2E_TOUCHFILES, []).selected);
 });

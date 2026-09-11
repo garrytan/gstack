@@ -282,12 +282,87 @@ function designSystemChoiceIssue(fp: AskUserQuestionFingerprint): boolean {
     /^❌ (?:Ships (?:the documented violation|a known WCAG AA failure)\b|Deviates from the DESIGN\.md\b)/m.test(o.description ?? '')));
 }
 
+/** Named decision fields may be compact prose; native choices still own the finding. */
+function compactPrimaryDecision(fp: AskUserQuestionFingerprint): boolean {
+  const call = fp.nativeCall;
+  if (!call || call.answered !== true || call.failed !== false || !call.sessionId || !call.toolUseId ||
+      !call.answeredAt || !Number.isFinite(Date.parse(call.answeredAt)) || call.questions.length !== 1 ||
+      !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0)) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || q.options.length !== 2 || new Set(q.options.map(o => o.label)).size !== 2 ||
+      fp.options.length !== 2 || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      !q.options.some(o => o.label === call.answers?.[q.question]) || /<gstack-qid:/i.test(q.question)) return false;
+  const headline = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*): ([A-Za-z][A-Za-z0-9 _-]{0,39}) (?:has no|lacks) primary[- ]action hierarchy\./i.exec(q.question.trim());
+  if (!headline || q.header.trim() !== `Issue ${headline[1]}`) return false;
+  const issue = headline[1]!, control = headline[2]!;
+  const inactive = 'withdrawn|superseded|resolved|closed|hypothetical|unproven|rejected|cancelled|canceled|deferred|not current|no longer current';
+  const owner = `(?:This (?:issue|finding|question|amendment|deferral|style|fix|remedy|choice|option)|Issue ${issue}|(?:These|The|This) (?:tokens?|styles?|primary treatment))`;
+  const boundary = '(?:^|[.!?;]\\s+|\\n)(?:Correction:\\s*)?';
+  const scalarPrefix = new RegExp(`${boundary}${owner} (?:is|was|are|were|has been|have been) $`, 'i');
+  const current = (value: string) => value
+    .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+    .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
+    .replace(/`[^`\n]*`|"[^"\n]*"|“[^”\n]*”|(?<!\w)'[^'\n]*'(?!\w)|‘[^’\n]*’/g, (quoted, index, source) =>
+      new RegExp(`^(?:${inactive})$`, 'i').test(quoted.slice(1, -1)) && scalarPrefix.test(source.slice(0, index)) ? quoted.slice(1, -1) : '')
+    .replace(/\*\*/g, '');
+  const invalid = (value: string) =>
+    new RegExp(`${boundary}${owner} (?:is|was|are|were|has been|have been) (?:${inactive})\\b`, 'i').test(value) ||
+    new RegExp(`${boundary}(?:(?:This|The) (?:gap|violation) (?:is|was|has been) (?:already |now )?(?:resolved|fixed|closed)|No current (?:gap|issue|finding|violation) (?:remains|exists))\\b`, 'i').test(value) ||
+    new RegExp(`${boundary}(?:If|When|Once|Provided|Assuming|Pending) (?:approval|approved|acceptance|accepted|(?:we|you) (?:approve|accept))\\b`, 'i').test(value) ||
+    new RegExp(`${boundary}(?:Do not|Don't|Never|Skip|Cancel|Withdraw) (?:apply|use|add|keep) (?:this (?:fix|amendment)|(?:the |these )?(?:tokens?|styles?|primary treatment))\\b`, 'i').test(value) ||
+    new RegExp(`${boundary}(?:${control} (?:already (?:is|has)|is already) (?:the (?:only |visible )?primary action|primary[- ]action hierarchy)|This (?:issue|finding) has no current (?:gap|defect)|(?:This|The) (?:amendment|fix) keeps (?:all )?(?:[a-z]+|[1-9]\\d*) buttons identical)\\b`, 'i').test(value) ||
+    /(?:^|[.!?;]\s+|\n)(?:Historical|Hypothetical|Quoted|Source|Archived|Example)(?:\s+(?:review|example|excerpt|assessment|material|text))?\s*:/i.test(value);
+  const text = current(q.question);
+  if (invalid(text)) return false;
+  // These are the skill's existing decision fields, not a particular sentence
+  // or line layout. Duplicate/missing fields cannot borrow a neighboring issue.
+  const fields = ['Project/branch/task:', 'ELI10:', 'Stakes if we pick wrong:', 'Recommendation:', 'Completeness:', 'Net:'];
+  const positions = fields.map(field => text.indexOf(field));
+  if (positions.some((position, i) => position < 0 || text.lastIndexOf(fields[i]!) !== position ||
+      (i > 0 && position <= positions[i - 1]!)) ||
+      text.slice(0, positions[0]).trim() !== headline[0] ||
+      (text.match(/\?/g)?.length ?? 0) !== 1 || !/\?\s*$/.test(text)) return false;
+  const values = fields.map((field, i) => text.slice(positions[i]! + field.length, positions[i + 1] ?? text.length).trim());
+  if (values.some(value => !value) || values.some(value => /^(?:If|When|Once|Unless|Assuming|Provided|Historical|Hypothetical|Quoted|Source|Example)\b/i.test(value)) ||
+      !/\bDESIGN\.md\b/.test(values[3]!)) return false;
+  const count = (value: string) => /^\d+$/.test(value) ? Number(value) :
+    ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'].indexOf(value.toLowerCase());
+  const names = (value: string) => value.toLowerCase().split(/\s*[,/]\s*(?:and\s+)?|\s+and\s+/).map(s => s.trim()).sort();
+  const same = (a: string[], b: string[]) => JSON.stringify(a) === JSON.stringify(b);
+  const assessment = /^The header shows ([A-Za-z][A-Za-z0-9 ,/_-]{0,159}) as (two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) identical buttons\./i.exec(values[1]!);
+  if (!assessment) return false;
+  const actors = names(assessment[1]!);
+  if (new Set(actors).size !== actors.length || actors.length !== count(assessment[2]!) || !actors.includes(control.toLowerCase())) return false;
+  const peers = actors.filter(actor => actor !== control.toLowerCase());
+  const ids = q.options.map(o => new RegExp(`^(${issue}[A-Z])[).:]\\s+`).exec(o.label)?.[1]);
+  if (ids.some(id => !id) || new Set(ids).size !== 2 || !ids.some(id => values[3]!.startsWith(`${id} `))) return false;
+  const offered = ids.map(id => [...values[4]!.matchAll(new RegExp(`(?:^|\\s)${id}[).:]\\s+`, 'g'))]);
+  if (offered.some(matches => matches.length !== 1)) return false;
+  return q.options.some((option, index) => {
+    const body = current(option.description ?? ''), other = q.options[1 - index]!, declined = current(other.description ?? '');
+    const style = /^([A-Za-z][A-Za-z0-9 _-]{0,39}): filled (#[0-9a-f]{6}) with (white|black) text\. ([A-Za-z][A-Za-z0-9 ,/_-]{0,159}): neutral ghost(?: buttons)?\./i.exec(body);
+    const keep = new RegExp(`^${ids[1 - index]}[).:] Keep (two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) equal buttons(?: \\(recommended\\))?$`, 'i').exec(other.label);
+    if (!style || style[1]!.toLowerCase() !== control.toLowerCase() || !same(names(style[4]!), peers) ||
+        !new RegExp(`^${ids[index]}[).:] Filled primary ${control}(?: \\(recommended\\))?$`, 'i').test(option.label) ||
+        !keep || count(keep[1]!) !== actors.length || invalid(body) || invalid(declined) ||
+        !/^No change\. Documented as a declined fix; Pass [1-7] stays below 10\./i.test(declined)) return false;
+    // The detailed offered action must agree with its native menu's tokens and
+    // actors; prose about another control cannot lend this choice a remedy.
+    const start = offered[index]![0]!.index!, next = offered[1 - index]![0]!.index!;
+    const action = values[4]!.slice(start, next > start ? next : undefined);
+    const detail = new RegExp(`(?:^|[✅]\\s*)${control} becomes the only filled button \\((#[0-9a-f]{6}), (white|black) text\\); ([A-Za-z][A-Za-z0-9 ,/_-]{0,159}) become neutral ghost buttons`, 'i').exec(action);
+    return !!detail && detail[1]!.toLowerCase() === style[2]!.toLowerCase() && detail[2]!.toLowerCase() === style[3]!.toLowerCase() && same(names(detail[3]!), peers);
+  });
+}
+
 /** A completed finding can start the passes when the caller already supplied the focus. */
 export function isDesignCountFirstReview(fp: AskUserQuestionFingerprint): boolean {
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   if (isDesignCountSetup(fp)) return false;
-  if (numberedVisualHierarchyFinding(fp) || ordinaryDesignIssue(fp) || designSystemChoiceIssue(fp)) return true;
+  if (numberedVisualHierarchyFinding(fp) || ordinaryDesignIssue(fp) || designSystemChoiceIssue(fp) || compactPrimaryDecision(fp)) return true;
   if (designFirstReviewAUQ(fp)) return true;
   return call.questions.some(q => {
     if (!call.answers?.[q.question] || q.options.length < 2) return false;

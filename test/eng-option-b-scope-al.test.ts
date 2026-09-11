@@ -9,9 +9,9 @@ type Input = ReturnType<typeof input>;
 const verdict = (p = input()) => nativeSeededPlanSelection(p.transcript as PlanCountTranscript, p.tools as NativePublicToolEvent[], p.opts);
 const declaration = (p: Input) => p.transcript.assistantMessages.find(m => m.text.startsWith("I've selected option B,"))!;
 
-test('the captured retry selects its named pasted plan while the first retained poll does not', () => {
+test('both named retry and fresh unique-draft first introduction bind; original outcomes stay intact', () => {
   expect(fixture.attempts.map(a => a.rawScopeGateAutoSelectObserved)).toEqual([false, false]);
-  expect(verdict(input(0))).toBe(false);
+  expect(verdict(input(0))).toBe(true);
   expect(verdict(input(1))).toBe(true);
 });
 
@@ -54,7 +54,7 @@ test('the same successful post-command Skill completion and current native sessi
     (p: Input) => { p.tools[1]!.sessionId = 'foreign'; },
     (p: Input) => { p.tools[1]!.toolUseId = 'unrelated'; },
     (p: Input) => { p.opts.commandStartedAt = Date.parse(p.tools[0]!.timestamp) + 1; },
-    (p: Input) => { declaration(p).timestamp = new Date(Date.parse(p.tools[1]!.timestamp) - 1).toISOString(); },
+    (p: Input) => { declaration(p).timestamp = new Date(p.opts.commandStartedAt - 1).toISOString(); },
     (p: Input) => { declaration(p).sessionId = 'foreign'; },
     (p: Input) => { p.tools.push(structuredClone(p.tools[1]!)); },
   ]) { const p = input(); change(p); expect(verdict(p)).toBe(false); }

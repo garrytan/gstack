@@ -33,7 +33,7 @@ test('a named target still requires the successful current skill and invocation'
       (o: typeof original) => { o.tools[1]!.toolUseId = 'foreign'; },
       (o: typeof original) => { o.tools.pop(); },
     ]) {
-      const o = structuredClone(original); mutate(o); expect(check(o)).toBe(false);
+      const o = structuredClone(original); o.transcript.assistantMessages = [selectedMessage(o)]; mutate(o); expect(check(o)).toBe(false);
     }
   }
 });
@@ -51,7 +51,7 @@ test('quoted, hypothetical, conditional and withdrawn selections do not select t
       text + ' I retract that selection.', text + ' This selection is withdrawn.',
       text + ' Treat that declaration as a hypothetical example.',
     ].filter(value => value !== text)) {
-      const o = structuredClone(original); selectedMessage(o).text = invalid;
+      const o = structuredClone(original); o.transcript.assistantMessages = [selectedMessage(o)]; selectedMessage(o).text = invalid;
       expect(check(o), invalid).toBe(false);
     }
   }

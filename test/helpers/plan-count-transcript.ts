@@ -158,13 +158,32 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
         bytes += fs.statSync(file).size;
         if (bytes > MAX_BYTES) throw new Error('transcript exceeds 32 MiB read limit');
         const text = fs.readFileSync(file, 'utf8');
+        // Native sessions retain their original journal after Bash changes cwd.
+        // Admit that continuation only through UUID ancestry rooted in this
+        // fixture's first parent user message; legacy records keep exact-cwd scoping.
+        let originSeen = false;
+        const ancestry = new Set<string>();
+        const nativeUuid = (value: unknown): value is string =>
+          typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
         // Claude appends JSONL during rendering; an unfinished record is not
         // evidence of a call or an answer until its newline has been written.
         for (const line of text.slice(0, text.lastIndexOf('\n') + 1).split('\n')) {
           if (!line.trim()) continue;
           const record = JSON.parse(line);
-          if (!object(record) || record.cwd !== cwd || record.isSidechain !== false ||
-              typeof record.sessionId !== 'string' || entry.name !== `${record.sessionId}.jsonl` ||
+          if (!object(record) || typeof record.sessionId !== 'string' ||
+              entry.name !== `${record.sessionId}.jsonl`) continue;
+          const parentMetadata = record.isSidechain === false && record.agentId == null &&
+            typeof record.cwd === 'string' && path.isAbsolute(record.cwd) &&
+            nativeUuid(record.uuid) && validTimestamp(record.timestamp);
+          const continuation = parentMetadata && nativeUuid(record.parentUuid) &&
+            ancestry.has(record.parentUuid) && !ancestry.has(record.uuid);
+          if (!originSeen && object(record.message) && ['user', 'assistant'].includes(record.message.role)) {
+            originSeen = true;
+            if (parentMetadata && record.cwd === cwd && record.message.role === 'user' &&
+                record.parentUuid === null) ancestry.add(record.uuid);
+          }
+          if (continuation) ancestry.add(record.uuid);
+          if ((record.cwd !== cwd && !continuation) || record.isSidechain !== false ||
               !object(record.message) || !Array.isArray(record.message.content)) continue;
           matched = true;
           for (const block of record.message.content) {

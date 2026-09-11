@@ -42,7 +42,7 @@ const rejected: Array<[string, (p: Input) => void]> = [
   ['cancelled selection', p => { announcement(p).text += '\nCorrection: this selection is withdrawn.'; }],
   ['quoted status cancellation', p => { announcement(p).text += '\nThis selection is "withdrawn".'; }],
   ['replaced target', p => { announcement(p).text += '\nThe selected target is now the branch diff.'; }],
-  ['pre-load announcement', p => { announcement(p).timestamp = new Date(Date.parse(p.tools[1]!.timestamp) - 1).toISOString(); }],
+  ['pre-invocation announcement', p => { announcement(p).timestamp = new Date(p.opts.commandStartedAt - 1).toISOString(); }],
   ['foreign announcement', p => { announcement(p).sessionId = 'foreign'; }],
   ['foreign load result', p => { p.tools[1]!.sessionId = 'foreign'; }],
   ['failed skill load', p => { p.tools[1]!.isError = true; }],
@@ -51,7 +51,7 @@ const rejected: Array<[string, (p: Input) => void]> = [
   ['multiple seed titles', p => { p.opts.seed += '\n# Another plan\n'; }],
 ];
 test.each(rejected)('%s supplies no scope selection', (_, change) => {
-  const p = input(); change(p); expect(verdict(p)).toBe(false);
+  const p = input(); p.transcript.assistantMessages = [announcement(p)]; change(p); expect(verdict(p)).toBe(false);
 });
 
 test('quoted historical or foreign withdrawals do not replace the current selection', () => {

@@ -14,20 +14,22 @@ function withdrawsPlanSelection(message: string, title: string): boolean {
     }
     if (fence || /^(?:\s*>| {4}|\t)/.test(line)) continue;
     const text = line.trim();
-    if (/^(?:#{1,6}\s+)?(?:Current|Actual)\s+(?:assessment|scope|selection)\b/i.test(text)) source = false;
+    if (/^(?:#{1,6}\s+)?(?:Current|Actual)\s+(?:assessment|scope|selection|status)\b/i.test(text)) source = false;
     else if (/^(?:#{1,6}\s+)?(?:Source|Example|Historical|Quoted|Original message|Expected output)\b/i.test(text)
       || /^(?:The following|This is)\b[^.!?]*\b(?:source|example|hypothetical|quoted)\b/i.test(text)) source = true;
     if (!source) assertions.push(text);
   }
-  for (const statement of assertions.join('\n').split(/(?<=[.!?])\s+|\n+/).map(line => line.trim())) {
+  for (const statement of assertions.join('\n').split(/(?<=[.!?;])\s+|\n+/).map(line => line.trim())) {
     if (statement.endsWith('?')) continue;
     const claim = statement.replace(/^Correction:\s*/i, '');
-    const plain = claim.replace(/"[^"\n]*"|“[^”\n]*”|`[^`\n]*`/g, (quoted, index) =>
-      /^(?:withdrawn|retracted|cancelled|canceled|hypothetical)$/i.test(quoted.slice(1, -1)) &&
+    const plain = claim.replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]*'|‘[^’\n]*’|`[^`\n]*`/g, (quoted, index) =>
+      /^(?:withdrawn|retracted|cancelled|canceled|hypothetical|no longer current|superseded|rejected)$/i.test(quoted.slice(1, -1)) &&
       /^(?:The|This|That|My)\s+(?:(?:scope|target)\s+)?(?:selection|declaration)\s+(?:is|was|has been|remains)\s+(?:now\s+)?$/i.test(claim.slice(0, index))
         ? quoted.slice(1, -1) : '[quoted]');
-    if (/^(?:The|This|That|My)\s+(?:(?:scope|target)\s+)?(?:selection|declaration)\s+(?:is|was|has been|remains)\s+(?:now\s+)?(?:withdrawn|retracted|cancelled|canceled|hypothetical)\b/i.test(plain)
+    if (/^(?:The|This|That|My)\s+(?:(?:scope|target)\s+)?(?:selection|declaration)\s+(?:is|was|has been|remains)\s+(?:now\s+)?(?:withdrawn|retracted|cancelled|canceled|hypothetical|no longer current|superseded|rejected)\b/i.test(plain)
       || /^(?:(?:I|We)\s+(?:have\s+)?)?(?:withdrawn?|withdrew|retract(?:ed)?|cancel(?:led|ed)?|disregard(?:ed)?|ignore(?:d)?)\s+(?:this|that|the|my)\s+(?:selection|declaration)\b/i.test(plain)) return true;
+    const reviewing = /^(?:I'll|I will|I'm|I am|We will|We're|We are) (?:now )?(?:review|reviewing) (?:the )?(?:branch diff|(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`) (?:draft(?: plan)?|plan))(?: instead)?\.$/i.exec(claim);
+    if (reviewing && (reviewing[1] ?? reviewing[2] ?? reviewing[3] ?? 'branch diff').toLowerCase() !== title.toLowerCase()) return true;
     const changedTarget = /^(?:The|This|My)\s+(?:selected|review)\s+target\s+is\s+(?:now\s+)?(.+?)[.!?]?$/i.exec(claim);
     if (changedTarget) {
       const target = changedTarget[1]!.replace(/^(?:the\s+)/i, '').replace(/["“”`]/g, '').replace(/\s+(?:draft(?:\s+plan)?|plan)[.!?]?$/i, '').trim();
@@ -49,26 +51,48 @@ export function nativeSeededPlanSelection(
   const title = headings[0]![1]!.trim();
   if (!title || title.length > 200) return false;
   const at = (timestamp: string) => Date.parse(timestamp);
-  // A late reply to the pre-pumped seed is insufficient: the same owned
-  // session must actually finish loading this skill after its invocation.
+  // Loading must succeed in this invocation; the public target declaration
+  // may come immediately before it, so the user can interrupt before work.
   const calls = tools.filter(event => event.kind === 'use' && event.sessionId === opts.sessionId &&
     event.name === 'Skill' && [opts.skillName, `gstack:${opts.skillName}`].includes(String(event.input?.skill ?? '')) &&
     Number.isFinite(at(event.timestamp)) && at(event.timestamp) >= opts.commandStartedAt);
   const loaded = calls.flatMap(call => tools.filter(event => event.kind === 'result' &&
     event.sessionId === opts.sessionId && event.toolUseId === call.toolUseId && event.isError === false &&
     Number.isFinite(at(event.timestamp)) && at(event.timestamp) >= at(call.timestamp)));
-  if (loaded.length !== 1) return false;
+  if (calls.length !== 1 || loaded.length !== 1) return false;
+  // Explicit Skill arguments must select this seed, not merely mention its
+  // title while requesting another target. Unknown argument forms fail closed.
+  const args = calls[0]!.input?.args;
+  if (args !== undefined && args !== '') {
+    if (typeof args !== 'string') return false;
+    const target = /^Review (?:the )?(?:draft plan|plan) (?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)(?: (?:provided|pasted) in the conversation above)?(?: \([^()\n]*\))?\.?$/i.exec(args)
+      ?? /^Review (?:the )?pasted (?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`) (?:draft plan|plan)\.?$/i.exec(args);
+    const pasted = /^Review this draft plan:\s*([\s\S]+)$/i.exec(args);
+    const sameDraft = pasted && pasted[1]!.replace(/\s+/g, ' ').trim() === opts.seed.replace(/\s+/g, ' ').trim();
+    if (!sameDraft && (!target || (target[1] ?? target[2] ?? target[3])!.toLowerCase() !== title.toLowerCase()
+      || /\b(?:if|unless|instead|not|pending|assuming)\b/i.test(args))) return false;
+  }
+  const work = tools.filter(event => event.kind === 'use' && event.sessionId === opts.sessionId && event.toolUseId !== calls[0]!.toolUseId);
+  const beforeWork = (time: number) => work.every(event => Number.isFinite(at(event.timestamp)) &&
+    (at(event.timestamp) < opts.commandStartedAt || at(event.timestamp) > time));
+  if (!beforeWork(at(loaded[0]!.timestamp))) return false;
   const remainsSelected = (timestamp: string) => !transcript.assistantMessages.some(later =>
     later.sessionId === opts.sessionId && Number.isFinite(at(later.timestamp)) &&
     at(later.timestamp) >= at(timestamp) && withdrawsPlanSelection(later.text, title));
   for (const message of transcript.assistantMessages) {
     if (message.sessionId !== opts.sessionId || !Number.isFinite(at(message.timestamp)) ||
-        at(message.timestamp) < at(loaded[0]!.timestamp)) continue;
+        at(message.timestamp) <= opts.commandStartedAt || !beforeWork(at(message.timestamp))) continue;
     // Only a first asserted line can select the target. A source, quote or
     // hypothesis introduction owns its following text regardless of wording.
     const line = message.text.split(/\r?\n/).find(value => value.trim());
     if (!line || /^(?: {4}|\t)/.test(line)) continue;
     const text = line.trim();
+    // "This draft" binds to the single user-pasted plan, never arbitrary
+    // nearby source text. The anchored declaration excludes quoted/conditional
+    // introductions; currentness checks still cover its following assertions.
+    const draft = /^(?:I'll|I will) (?:review (?:this|your|the) draft plan|(?:run|invoke) (?:the )?\/?([\w:-]+) skill (?:to review|on|against) (?:this|your|the) draft plan)\.$/i.exec(text);
+    const names = [opts.skillName, `gstack:${opts.skillName}`, opts.skillName.replace(/^plan-/, '')];
+    if (draft && (!draft[1] || names.includes(draft[1].toLowerCase())) && remainsSelected(message.timestamp)) return true;
     const automatic = /^(?:I\'ll|I will) auto[- ]select option B and review\s+(?:the\s+)?(.+?)\s+(?:draft(?:\s+plan)?|plan)\s+(?:you shared|you pasted|pasted here)(.*)$/i.exec(text);
     const automaticTarget = automatic?.[1]?.replace(/^(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)$/, (_, straight, curly, code) => straight ?? curly ?? code);
     const selectedNow = /^(?:I've|I have) selected (?:option B, )?(?:reviewing|to review)\s+(?:the\s+)?pasted\s+(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)\s+(?:draft(?:\s+plan)?|plan)(.*)$/i.exec(text);

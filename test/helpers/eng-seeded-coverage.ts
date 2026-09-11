@@ -955,7 +955,75 @@ function declaredLegacyCharacterization(text: string): boolean {
     }
   }
 
-  return hasRetainedLegacyCorpus(current, snapshotSource);
+  return hasRetainedLegacyCorpus(current, snapshotSource)
+    || !suiteWithdrawn && hasScheduledLegacyRegression(current, snapshotSource);
+}
+
+/** Bind a required test file to its task and a baseline run before changing the legacy code. */
+function hasScheduledLegacyRegression(current: ReadonlyArray<{ title: string; body: string[] }>, snapshot: string): boolean {
+  const flat = (s: string) => s.replace(/\s+/g, ' ').trim();
+  const unquoted = (s: string) => s.replace(/"[^"]*"|“[^”]*”|(?<!\w)'[^'\n]*'(?!\w)|‘[^’]*’/g, '');
+  const framed = (s: string) => /(?:^|\n)\s*(?:source|quoted|historical|example|if approved|once approved|when approved|pending approval|assuming approval|provided approval)\b/i.test(unquoted(s));
+  const inactive = '(?:withdrawn|rejected|cancelled|canceled|deferred|optional|proposed|hypothetical|unproven|superseded|not current|no longer current|not required|no longer required|conditional on approval)';
+  const approval = /\b(?:if|when|once|unless) approved|\b(?:after|pending|assuming|provided) approval\b|(?:^|\n|:\s*)(?:if|when|once|unless) accepted\b/i;
+  const owned = (s: string) => snapshot.includes(flat(s)) && !framed(s)
+    && !approval.test(unquoted(s))
+    && !/\b(?:do not|don\x27t|never|skip|omit|defer) (?:add|write|run|capture|record|pin|implement)\b|\b(?:maybe|might|could|optional|proposed)\b/i.test(unquoted(s));
+  const tasks = current.filter(s => /^Implementation Tasks$/i.test(s.title)).flatMap(s => {
+    const text = s.body.join('\n');
+    return text.split(/\n(?=- )/).map(body => ({ body,
+      preceding: text.slice(0, text.indexOf(body)).trim().split('\n').at(-1) ?? '',
+      match: /^- (?:\[[ xX]\] )?(T[1-9]\d*)(?: \([^\n)]*\))? [—–:-] (.+)(?:\n|$)/.exec(body) }));
+  });
+  for (const declaration of current) {
+    if (!/\b(?:regression|characterization)\b/i.test(declaration.title) || !/\bmandatory\b/i.test(declaration.title)
+        || /\b(?:not|never|no longer) mandatory\b/i.test(declaration.title) || approval.test(unquoted(declaration.title)) || /\b(?:if|when|once|unless) accepted\b/i.test(unquoted(declaration.title))) continue;
+    const body = declaration.body.join('\n').trim(), text = flat(unquoted(body));
+    const files = [...text.matchAll(/\b([A-Za-z][\w/.-]*\.test(?:\.[jt]s)?)\b/g)].map(m => m[1]!);
+    if (files.length !== 1 || !owned(body) || !/\blegacyAuthFlow\b/.test(declaration.title + ' ' + text)
+        || !/\b(?:captures?|records?|pins?)\b[^.;:]{0,180}\b(?:behavior|outcomes|outputs)\b/i.test(text)
+        || !/\bbefore (?:any |the )?(?:rewrite|refactor|change)\b/i.test(text)) continue;
+    for (const task of tasks) {
+      if (!task.match) continue;
+      const [, id, rawTitle] = task.match, title = unquoted(rawTitle!);
+      if (tasks.filter(t => t.match?.[1] === id).length !== 1 || !/\blegacyAuthFlow\b/.test(title)
+          || !/\b(?:regression|characterization)\b/i.test(title) || !/\bCRITICAL\b/.test(title)) continue;
+      const taskFiles = [...task.body.matchAll(/^  - Files: (.+)$/gm)];
+      const verifies = [...task.body.matchAll(/^  - Verify: (.+)$/gm)];
+      if (taskFiles.length !== 1 || taskFiles[0]![1] !== files[0] || verifies.length !== 1 || !owned(task.body) || framed(task.preceding)) continue;
+      const verify = unquoted(verifies[0]![1]!);
+      if (!/\b(?:pass(?:es)?|green)\b/i.test(verify) || !/\bbefore\b[^.;]*\bafter\b|\bbefore\b[^.;]*;[^.;]*\bafter\b/i.test(verify)) continue;
+      // An explicit ordered step provides the old-code oracle; matching a task label alone cannot.
+      const baseline = current.filter(s => /^Verification(?: \([^)]*\))?$/i.test(s.title)).some(s => {
+        const lines = s.body.join('\n').split(/\n(?=\d+\. )/);
+        return lines.some(line => {
+          const statement = unquoted(line);
+          return /^\d+\. (?:Write|Run|Execute|Add|Create)\b/i.test(statement) && owned(line) && new RegExp(`\\b${id}\\b`).test(statement)
+            && /\blegacyAuthFlow\b/.test(statement) && /\b(?:untouched|unmodified)\b/.test(statement)
+            && /\b(?:must (?:pass|be green)|commit it green)\b/i.test(statement)
+            && /\bbefore\b|\bfirst\b/i.test(statement);
+        });
+      });
+      if (!baseline) continue;
+      const subject = `(?:${id}(?: (?:baseline )?verification)?|(?:this|the) (?:(?:legacy|baseline) )?(?:(?:regression|characterization) )?(?:suite|test|requirement|verification))`;
+      const cancelled = current.some(s => {
+        if (/\b(?:history|historical|source|quoted|example)\b/i.test(s.title)) return false;
+        const named = /^(.*?)\b(?:regression|characterization)\s+(?:suite|tests?)\b/i.exec(s.title)?.[1]?.trim();
+        const foreign = Boolean(named && !/^(?:(?:current|final|critical|required|updated)\s*)*(?:legacy(?:AuthFlow\(\))?)?[\s:—-]*$/i.test(named));
+        const raw = s.body.join('\n').replace(new RegExp(`(${subject} (?:is|was|has been) )["“'‘](${inactive})["”'’]`, 'gi'), '$1$2');
+        return unquoted(raw).split(/\n|[.!?;]\s+/).some(line => {
+          if (framed(line) || /^\s*(?:if|unless|assuming|provided)\b/i.test(line)) return false;
+          if (foreign && !new RegExp(`\\b${id}\\b|legacyAuthFlow|\\blegacy (?:regression|characterization)`).test(line)) return false;
+          return new RegExp(`\\b${subject} (?:is|was|has been) ${inactive}\\b|^\\s*\\|\\s*${id}\\s*\\|\\s*${inactive}\\s*\\|`, 'i').test(line)
+            || new RegExp(`^\\s*(?:Correction:\\s*)?(?:do not|don't|never|skip|defer|cancel|withdraw) (?:run |execute |implement )?${subject}\\b`, 'i').test(line)
+            || new RegExp(`\\b(?:run|execute|record|capture) ${id} only after (?:modifying|changing|rewriting|refactoring|removing|deleting) legacyAuthFlow\\b`, 'i').test(line)
+            || new RegExp(`\\blegacyAuthFlow\\(\\) (?:is|was|has been|will be) (?:modified|changed|rewritten|refactored|removed|deleted) before ${id}\\b`, 'i').test(line);
+        });
+      });
+      if (!cancelled) return true;
+    }
+  }
+  return false;
 }
 
 function regressionEvidence(text: string): boolean {

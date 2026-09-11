@@ -38,7 +38,7 @@ GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
   const entry = ['plan-design-review', 'plan-eng-review'].includes(ctx.skillName)
     ? `## Preamble (after scope gate)
 
-**Before the command below:** complete the Scope gate above. When plan mode auto-selects an existing plan, first send ordinary prose naming the actual selected plan title or path: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Send it after this skill loads; a pre-invocation introduction does not count. If the gate asks a question, wait for its answer before running this command.`
+**Before the command below:** resolve the Scope gate above. If the gate asks a question, wait for its answer.`
     : '## Preamble (run first)';
 
   return `${entry}

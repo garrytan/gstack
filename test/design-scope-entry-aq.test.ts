@@ -40,25 +40,24 @@ test('every host expands its real bootstrap after the mandatory entry gate', () 
   }
 });
 
-test('entry instruction binds the announcement to skill load and delays bootstrap until scope resolves', () => {
+test('entry binds a current target and delays bootstrap until scope resolves', () => {
   expect(scope).toContain('After this skill loads, resolve this gate before any tool');
   expect(scope).toContain('including preamble and base-branch detection.');
   expect(scope).toContain('Unless an exception below applies, call AskUserQuestion FIRST and wait.');
-  expect(scope).toContain('Announce plan-mode auto-selection before tools');
-  expect(scope).toContain('introducing this skill does not count.');
+  expect(scope).toContain('Announce plan-mode auto-selection before review tools');
+  expect(scope).toContain('A fresh declaration for this invocation may precede skill loading');
   expect(scope).toContain('After resolution: preamble → base branch → audit → mockups → Step 0.');
   expect(scope).toContain('Preamble “run first” is subordinate to this gate.');
 });
 
-test('the explicit first response names the plan while both actual missing-scope attempts remain rejected', () => {
-  expect(scope.split('\n').filter(line => line === announcement)).toHaveLength(1);
-  expect(scope).toContain('First response when plan mode auto-selects an existing plan:');
-  expect(scope).toContain('After this skill finishes loading, send this sentence as ordinary prose before any tool:');
-  expect(scope).toContain('actual selected plan title or path');
-  expect(scope).toContain('An introduction before invoking this skill does not satisfy this checkpoint.');
+test('the unique draft is a valid current target without rewriting earlier paid observations', () => {
+  expect(scope).toContain(announcement);
+  expect(scope).toContain('Name the plan, or say "this draft" when the user pasted exactly one plan.');
+  expect(scope).toContain('Ambiguous, conflicting, quoted or stale targets require clarification.');
+  expect(scope).not.toContain('After this skill finishes loading');
   for (const row of failedScopes) {
     expect(row.observed.scopeGateAutoSelectObserved).toBe(false);
-    expect(nativeSeededPlanSelection(row.transcript as any, row.tools as any, row.opts)).toBe(false);
+    expect(nativeSeededPlanSelection(row.transcript as any, row.tools as any, row.opts)).toBe(true);
     const title = /^# Plan: (.+)$/m.exec(row.opts.seed)![1]!;
     expect(isScopeGateAutoSelectVisible(announcement.replace('<target>', title))).toBe(true);
   }

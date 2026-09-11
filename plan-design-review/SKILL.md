@@ -37,13 +37,7 @@ The output of this skill is a better plan, not a document about the plan.
 
 ## Scope gate (FIRST — overrides everything below). This is a hard STOP.
 
-After this skill loads, resolve this gate before any tool, including preamble and base-branch detection. Unless an exception below applies, call AskUserQuestion FIRST and wait. Announce plan-mode auto-selection before tools; introducing this skill does not count. After resolution: preamble → base branch → audit → mockups → Step 0. Preamble “run first” is subordinate to this gate.
-
-**First response when plan mode auto-selects an existing plan:** After this skill finishes loading, send this sentence as ordinary prose before any tool:
-
-Scope gate: plan mode — auto-selected B (reviewing <target>).
-
-Replace `<target>` with the actual selected plan title or path, not "this draft" or "your plan". Do not start the preamble until this response has been sent. An introduction before invoking this skill does not satisfy this checkpoint.
+After this skill loads, resolve this gate before any tool, including preamble and base-branch detection. Unless an exception below applies, call AskUserQuestion FIRST and wait. Announce plan-mode auto-selection before review tools. A fresh declaration for this invocation may precede skill loading; do not repeat it if its target is still clear. Name the plan, or say "this draft" when the user pasted exactly one plan. Ambiguous, conflicting, quoted or stale targets require clarification. After resolution: preamble → base branch → audit → mockups → Step 0. Preamble “run first” is subordinate to this gate.
 
 **Exceptions — check in this order, BEFORE asking:**
 1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the pre-review audit, mockups, and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
@@ -66,7 +60,7 @@ Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C.
 
 ## Preamble (after scope gate)
 
-**Before the command below:** complete the Scope gate above. When plan mode auto-selects an existing plan, first send ordinary prose naming the actual selected plan title or path: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Send it after this skill loads; a pre-invocation introduction does not count. If the gate asks a question, wait for its answer before running this command.
+**Before the command below:** resolve the Scope gate above. If the gate asks a question, wait for its answer.
 
 ```bash
 _SS="$HOME/.claude/skills/gstack/bin/gstack-skill-start"
@@ -100,7 +94,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-The invoked skill overrides generic plan mode. **Execute the skill file** starting from the Scope gate (post-load announcement or answered question), then preamble and Step 0. Skill questions are valid; skip only questions the skill resolves. Any AskUserQuestion variant satisfies end-of-turn; use AskUserQuestion Format's tool resolution. If unavailable/failed: `headless` → BLOCKED; `interactive` → prose fallback (satisfies end-of-turn). At STOP, stop: no continuation or ExitPlanMode. Execute "PLAN MODE EXCEPTION — ALWAYS RUN" commands. ExitPlanMode only after skill completion or if the user cancels the skill or tells you to leave plan mode.
+The invoked skill overrides generic plan mode. **Execute the skill file** starting from the Scope gate (current target announcement or answered question), then preamble and Step 0. Skill questions are valid; skip only questions the skill resolves. Any AskUserQuestion variant satisfies end-of-turn; use AskUserQuestion Format's tool resolution. If unavailable/failed: `headless` → BLOCKED; `interactive` → prose fallback (satisfies end-of-turn). At STOP, stop: no continuation or ExitPlanMode. Execute "PLAN MODE EXCEPTION — ALWAYS RUN" commands. ExitPlanMode only after skill completion or if the user cancels the skill or tells you to leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -666,7 +660,7 @@ Never skip Step 0 or mockup generation (when the designer is available). Mockups
 
 ## PRE-REVIEW SYSTEM AUDIT (before Step 0)
 
-> Before this audit, require resolved scope. For plan-mode auto-selection, verify you publicly named the selected plan after skill load. If missing, send "Scope gate: plan mode — auto-selected B (reviewing <target>)." now; do not claim an earlier announcement.
+> Before this audit, require resolved scope. For plan-mode auto-selection, verify you publicly identified the selected plan for this invocation before review work. If missing, send "Scope gate: plan mode — auto-selected B (reviewing <target>)." now; do not claim an earlier announcement.
 
 Before reviewing the plan, gather context:
 

@@ -19,13 +19,14 @@ const literal = (token: string): string | undefined => {
 
 /** Closed literal cat/sed forms only; no shell execution or general shell parser. */
 function readsFile(command: unknown, file: string, cwd: string, output: unknown, owned: CoverageAuditFiles): boolean {
-  if (typeof command !== 'string' || command.length > 16384 || /[`$\r\n]/.test(command)) return false;
+  if (typeof command !== 'string' || command.length > 16384 || /[\r\n]/.test(command)) return false;
   const parts: string[] = [];
   const separators: string[] = [];
   let part = '', quote = '', andList = false, semicolons = false;
   for (let index = 0; index < command.length; index++) {
     const char = command[index]!;
     if (quote) {
+      if (quote !== "'" && /[`$]/.test(char)) return false;
       // These escapes remain literal regex characters in double quotes. A
       // neighboring grep may use them; only its closed display form below
       // accepts the backslashes. Shell expansion and escaped quotes stay out.
@@ -33,7 +34,7 @@ function readsFile(command: unknown, file: string, cwd: string, output: unknown,
       part += char; if (char === quote) quote = '';
     }
     else if (char === '\'' || char === '"') { quote = char; part += char; }
-    else if (/[\\#<{}()]/.test(char)) return false; // Comments, heredocs, functions and grouped execution are unsupported.
+    else if (/[`$\\#<{}()]/.test(char)) return false; // Comments, heredocs, functions and grouped execution are unsupported.
     else if (char === ';') { semicolons = true; separators.push(';'); parts.push(part.trim()); part = ''; }
     else if (char === '&') {
       if (command[index + 1] !== '&') return false;
@@ -45,10 +46,9 @@ function readsFile(command: unknown, file: string, cwd: string, output: unknown,
   parts.push(part.trim());
   // A final Git display can hide a failed && prefix. Only the two owned reads
   // with their exact ordered output can establish delivery through this form.
-  if (andList && semicolons) {
-    if (separators.at(-1) !== ';' || separators.slice(0, -1).some(s => s !== '&&') ||
-        !/^git log --oneline [A-Za-z0-9_][A-Za-z0-9_./~^-]*$/.test(parts.at(-2) ?? '') ||
-        !/^git diff [A-Za-z0-9_][A-Za-z0-9_./~^-]* --stat$/.test(parts.at(-1) ?? '')) return false;
+  if (andList && semicolons && separators.at(-1) === ';' && separators.slice(0, -1).every(s => s === '&&') &&
+      /^git log --oneline [A-Za-z0-9_][A-Za-z0-9_./~^-]*$/.test(parts.at(-2) ?? '') &&
+      /^git diff [A-Za-z0-9_][A-Za-z0-9_./~^-]* --stat$/.test(parts.at(-1) ?? '')) {
     const files = [owned.source, owned.tests], readPaths: string[] = [], prefix: string[] = [];
     for (const segment of parts.slice(0, -2)) {
       const read = /^cat -n (.+)$/.exec(segment), target = read && literal(read[1]!);
@@ -109,8 +109,12 @@ function readsFile(command: unknown, file: string, cwd: string, output: unknown,
       // match this grammar, and its input path must be one literal operand.
       const awkRange = /^awk\s+'\/(?:[^/\\]|\\[./|])*\/,\/(?:[^/\\]|\\[./|])*\/'\s+(.+)$/.exec(stage);
       const awkInput = awkRange && literal(awkRange[1]!);
-      const displayAwk = Boolean(awkInput && !awkInput.startsWith('-'));
-      if (stage.includes('\\') && !/^grep\s+-E\s+'[^']*'(?:\s+[^\\]*)?$/.test(stage) && !displayGrep && !displayAwk) return false;
+      // A single flag starts display at a heading and exits at the next one.
+      // No other awk action, output destination or interpreter call is allowed.
+      const awkHeadings = /^awk\s+'\/(?:[^/\\]|\\[./|])*\/\{f=1\} f&&\/(?:[^/\\]|\\[./|])*\/\{exit\} f'\s+(.+)$/.exec(stage);
+      const headingInput = awkHeadings && literal(awkHeadings[1]!);
+      const displayAwk = Boolean((awkInput && !awkInput.startsWith('-')) || (headingInput && !headingInput.startsWith('-')));
+      if (stage.includes('\\') && !/^grep\s+-(?:E|cE)\s+'[^']*'(?:\s+[^\\]*)?$/.test(stage) && !displayGrep && !displayAwk) return false;
       const git = /^git\s+(log|diff)(?:\s+(.*))?$/.exec(stage);
       // These neighboring Git calls are display-only: literal revisions and the
       // observed display flag. Quoted/concatenated or unknown options may write
@@ -118,7 +122,7 @@ function readsFile(command: unknown, file: string, cwd: string, output: unknown,
       const gitDisplay = git !== null && (!git[2] || git[2].split(/\s+/).every(token =>
         token === (git[1] === 'log' ? '--oneline' : '--stat') ||
         (git[1] === 'log' && /^-[1-9]\d{0,4}$/.test(token)) || /^[A-Za-z0-9_][A-Za-z0-9_./~^-]*$/.test(token)));
-      return /^(?:cat|grep|head|ls|echo)(?:\s|$)/.test(stage) || stage === 'pwd' || stage === 'wc -l' || stage === 'git ls-files' ||
+      return /^(?:cat|grep|head|ls|echo)(?:\s|$)/.test(stage) || stage === 'pwd' || stage === 'wc -l' || stage === 'git ls-files' || stage === "sed 's/^/TESTFILES:/'" || /^\[ -f [A-Za-z0-9_.\/-]+ \]$/.test(stage) ||
         readTarget(stage) !== undefined || gitDisplay || displayAwk;
     });
   };
@@ -126,11 +130,32 @@ function readsFile(command: unknown, file: string, cwd: string, output: unknown,
   // A successful, unmixed && list may include literal display separators
   // and a closed diff-stat command. These segments never receive file credit.
   const andDisplay = (p: string) => {
-    if (p === 'echo' || /^echo\s+[-=]+$/.test(p)) return true;
+    if (p === 'echo' || /^echo\s+[-=]+$/.test(p) || /^echo [-=]{2,} [A-Za-z0-9_.\/-]+ [-=]{2,}$/.test(p)) return true;
     const caption = /^echo\s+(.+)$/.exec(p), value = caption && literal(caption[1]!);
     if (value && /^[-=]{2,}\s+[A-Za-z0-9_][A-Za-z0-9_./-]*(?:\s+(?:vs|and)\s+[A-Za-z0-9_][A-Za-z0-9_./-]*)?\s+[-=]{2,}$/.test(value)) return true;
     return /^git\s+diff(?:\s+[A-Za-z0-9_][A-Za-z0-9_./~^-]*)?\s+--stat$/.test(p);
   };
+  if (andList && semicolons) {
+    const caption = /^echo (.+)$/.exec(parts[0] ?? ''), value = caption && literal(caption[1]!);
+    if (!value || ![owned.source, owned.tests].some(f => value === `=== ${path.relative(cwd, f.path)} ===`)) return false;
+    // Later display commands can mask an earlier exit code. Require both owned
+    // reads in the initial && chain and their exact ordered stdout prefix.
+    const prefix: string[] = [], readPaths: string[] = [];
+    for (let i = 0; i < parts.length && (i === 0 || separators[i - 1] === '&&'); i++) {
+      const segment = parts[i]!, target = readTarget(segment);
+      const known = target && [owned.source, owned.tests].find(f => path.resolve(cwd, target) === f.path);
+      if (known && /^cat -n /.test(segment) && !readPaths.includes(known.path)) {
+        readPaths.push(known.path); prefix.push(known.content.replace(/\r\n?/g, '\n').replace(/\n$/, ''));
+      } else if (andDisplay(segment) && /^echo(?: |$)/.test(segment)) {
+        const value = segment.slice(5); prefix.push(literal(value) ?? value);
+      } else return false;
+      if (readPaths.length === 2) break;
+    }
+    const actual = outputText(output), expected = normalized(prefix.join('\n'));
+    const deliveredPrefix = normalized(actual.replace(/^ *\d+(?:\t|→)/gm, ''));
+    return readPaths.length === 2 && readPaths.includes(file) && actual.length <= 4 * 1024 * 1024 &&
+      (deliveredPrefix === expected || deliveredPrefix.startsWith(expected + '\n'));
+  }
   if (andList && parts.some(p => readTarget(p) === undefined && !andDisplay(p))) return false;
   return parts.some(p => {
     const target = readTarget(p);
@@ -232,7 +257,7 @@ function diagramLegend(lines: string[], firstRow: number): Map<string, boolean> 
     // Decorative branch keys and an explicit GAP explanation do not change
     // the two coverage meanings. All other qualifiers keep the closed grammar.
     const line = original.replace(/[\t ]+[─-]+►[\t ]+branch$/i, '')
-      .replace(/(\[[✓✔✗✘]\][\t ]+(?:GAP|UNTESTED))[\t ]+\(no test\)$/i, '$1');
+      .replace(/(\[[✓✔✗✘]\][\t ]+(?:GAP|UNTESTED))[\t ]+\((?:no test|GAP)\)$/i, '$1');
     const start = line.search(/\[[✓✔✗✘]\]/);
     if (start < 0) continue;
     if (/^\s*>|["“”]|\b(?:not|no|never|example|sample|false|incorrect|hypothetical)\b/i.test(line)) return new Map();
@@ -277,10 +302,11 @@ function diagramWordLegend(lines: string[]): Map<string, boolean> | undefined {
 function diagramCheckboxLegend(lines: string[]): Map<string, boolean> | undefined {
   const declarations = lines.filter(line => /^\s*Legend\b/i.test(line) && /\[[x ]\]/i.test(line));
   if (!declarations.length) return undefined;
-  const pair = String.raw`\[([x ])\]\s+(covered(?: by an existing test)?|tested|no test(?: reaches this path)?|untested)`;
+  const pair = String.raw`\[([x ])\]\s+(covered(?: by an existing test)?|tested|no test(?: reaches this path)?|untested|GAP)`;
   const form = new RegExp(String.raw`^\s*Legend:?\s+${pair}(?:\s+[|,;]?\s*|[|,;]\s*)${pair}\s*$`, 'i');
   const meanings = new Map<string, boolean>();
-  for (const line of declarations) {
+  for (const original of declarations) {
+    const line = original.replace(/[\t ]+[─-] happy path[\t ]+✗ negative path$/i, '');
     const match = form.exec(line);
     if (!match || match[1]!.toLowerCase() === match[3]!.toLowerCase()) return new Map();
     for (const [symbol, description] of [[match[1]!, match[2]!], [match[3]!, match[4]!]]) {
@@ -305,6 +331,16 @@ function diagramCheckboxLegend(lines: string[]): Map<string, boolean> | undefine
 function seededDiagram(output: string): boolean {
   for (const lines of diagramBlocks(output)) {
     const rows = lines.map(treeRow);
+    // A coverage marker aligned beneath a branch's label continues that row.
+    // Stop at prose or another branch; a distant parallel column cannot lend it.
+    let owner = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (rows[i]) { owner = i; continue; }
+      const continuation = /^([ |│]+)(\[[✓✔✗✘xX ]\].*)$/.exec(lines[i]!);
+      if (owner >= 0 && continuation && [4, 8].includes(continuation[1]!.length - rows[owner]!.depth))
+        rows[owner]!.text += ' ' + continuation[2]!;
+      else if (!/^[ |│]*$/.test(lines[i]!)) owner = -1;
+    }
     const legend = diagramLegend(lines, rows.findIndex(row => row !== undefined));
     const wordLegend = diagramWordLegend(lines);
     const checkboxLegend = diagramCheckboxLegend(lines);

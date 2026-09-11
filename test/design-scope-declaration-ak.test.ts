@@ -16,15 +16,16 @@ test('both exact owned post-load announcements select the named pasted draft', (
   }
 });
 
-test('the prior AJ pre-load-only announcement still supplies no selected-plan evidence', () => {
+test('the prior AJ fresh unique-draft introduction now binds without changing its recorded outcome', () => {
   const p = fixture.priorGenuineFailure.projection;
-  expect(nativeSeededPlanSelection(p.transcript as PlanCountTranscript, p.tools as NativePublicToolEvent[], p.opts)).toBe(false);
+  expect(nativeSeededPlanSelection(p.transcript as PlanCountTranscript, p.tools as NativePublicToolEvent[], p.opts)).toBe(true);
 });
 
 test('target identity and ordinary equivalent current review wording remain bound', () => {
   for (let attempt = 0; attempt < 2; attempt++) {
     const p = input(attempt); p.opts.seed = p.opts.seed.replace('Marketing landing page', 'Account settings');
     p.transcript.assistantMessages.forEach(m => { m.text = m.text.replaceAll('Marketing landing page', 'Account settings'); });
+    for (const t of p.tools) if (t.input?.args) t.input.args = t.input.args.replaceAll('Marketing landing page', 'Account settings');
     expect(verdict(p)).toBe(true);
   }
   const p = input(); declaration(p).text = declaration(p).text.replace("I'll proceed", 'I will proceed'); expect(verdict(p)).toBe(true);
@@ -45,7 +46,7 @@ test('a different target or conditional scope announcement cannot borrow the dra
     (s: string) => s.replace(/draft(?: plan)?/, 'draft plan if approved'),
   ]) { const p = input(attempt), m = declaration(p); p.transcript.assistantMessages = [m]; m.text = change(m.text); expect(verdict(p)).toBe(false); }
   for (const prefix of ['Scope gate might confirm plan mode, so', 'Scope gate confirms branch mode, so']) {
-    const p = input(1); declaration(p).text = declaration(p).text.replace('Scope gate confirms plan mode, so', prefix); expect(verdict(p)).toBe(false);
+    const p = input(1); p.transcript.assistantMessages = [declaration(p)]; declaration(p).text = declaration(p).text.replace('Scope gate confirms plan mode, so', prefix); expect(verdict(p)).toBe(false);
   }
 });
 
@@ -56,7 +57,7 @@ test('the same successful Skill load and post-command current session remain nec
     (p: ReturnType<typeof input>) => { p.tools[1]!.toolUseId = 'foreign'; },
     (p: ReturnType<typeof input>) => { p.tools[0]!.input!.skill = 'plan-eng-review'; },
     (p: ReturnType<typeof input>) => { p.opts.commandStartedAt = Date.parse(p.tools[1]!.timestamp) + 1; },
-    (p: ReturnType<typeof input>) => { declaration(p).timestamp = new Date(Date.parse(p.tools[1]!.timestamp) - 1).toISOString(); p.transcript.assistantMessages = [declaration(p)]; },
+    (p: ReturnType<typeof input>) => { declaration(p).timestamp = new Date(p.opts.commandStartedAt - 1).toISOString(); p.transcript.assistantMessages = [declaration(p)]; },
   ]) { const p = input(attempt); change(p); expect(verdict(p)).toBe(false); }
 });
 

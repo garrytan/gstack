@@ -57,6 +57,10 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   const rawTitle = q.question.split('\n')[0]!.trim().replace(/^D\s*\d+\s*[—–:-]\s*/i, '');
   const title = rawTitle.replace(/`([^`\n]+)`/g, '$1');
   const questionMarks = title.match(/\?/g)?.length ?? 0;
+  const upgradeVocabulary = /\b(?:alias|warning|compatibility|deprecat\w*|migration|remov\w*|rename|keep)\b/i.test(title);
+  // A named method becoming its replacement is a transition even when the
+  // title asks about a soft landing. Its own explanation must establish the gap.
+  const upgradeTransition = !upgradeVocabulary && /\bClient\.evaluate\(\) becomes Client\.run\(\)/i.test(title);
   // Journey labels, possessives and a positive inclusive aside format the
   // asserted subject. Keep the original title for all meaning/currentness checks.
   // These six stages come from the skill's journey trace. A decision may span
@@ -98,7 +102,7 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   // object; do not erase a negation of the quickstart's own reference or gate.
   const absentReference = /\b(?:points?|references?) (?:at|to) (?:examples\/first_eval\.py|(?:a|the) (?:file|example)),? (?:which|that) (?:is not in (?:the )?(?:package|wheel)(?: or (?:the )?(?:release )?examples archive)?|does not (?:ship|exist))[.?]?$/i.test(assertionTitle);
   const newAssertion = nominalDefect || signatureDeclaration || reversedTuples || absentReference;
-  const guardedDeclaration = Boolean(stage || newAssertion);
+  const guardedDeclaration = Boolean(stage || newAssertion || upgradeTransition);
   const polarityTitle = absentReference ? title.replace(/\bdoes not (ship|exist)([.?]?)$/i, 'is absent$2') : title;
   // Punctuation cannot route a newly admitted asserted family around its
   // ownership checks; an offered alternate still resolves the same decision.
@@ -116,11 +120,11 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
       /\b(?:report|summary|recap)\b[^?]*\b(?:mention|include|reference|list)\b|\b(?:mention|include|reference|list)\b[^?]*\b(?:report|summary|recap)\b/i.test(title)) return [];
   let offered = q.options;
   let signatureOptions = q.options;
-  if (declaration) {
+  if (declaration || upgradeTransition) {
     const currentProse = (text: string, offeredAction = false) => {
       // In a tuple decision, a semicolon also separates current assertions.
       // Quotations and fenced examples are still removed as whole statements.
-      if (reversedTuples) text = text.replace(/;/g, '.');
+      if (reversedTuples || upgradeTransition) text = text.replace(/;/g, '.');
       // An option's trailing effort estimate separates its prose from an owned
       // status even without punctuation. Keep it on the same line so a quoted
       // historical sentence is still removed as one quotation below.
@@ -144,6 +148,18 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
         /\bnot (?:a )?current (?:finding|issue|defect)\b/i.test(currentProse(preface))) return [];
     const current = currentProse(q.question);
     const approval = /\b(?:if|once|when|unless) (?:approved|accepted)|\b(?:after|pending) approval\b/i;
+    if (upgradeTransition) {
+      if (/^ELI10:\s*>/.test(lines[explanation] ?? '')) return [];
+      const namedCurrent = currentProse(q.question.replace(/`([A-Za-z_$][\w.$]*(?:\(\))?)`/g, '$1'));
+      if (/(?:^|[.!?\n]\s*)(?:Correction:\s*)?Client\.evaluate\(\) (?:is (?:now|already|still)|now remains) (?:a |an )?(?:deprecated |compatibility )?alias\b/i.test(namedCurrent)) return [];
+      const first = currentProse((lines[explanation] ?? '').replace(/`([A-Za-z_$][\w.$]*(?:\(\))?)`/g, '$1'))
+        .replace(/^ELI10:\s*/, '').split(/(?<=[.!?])\s/)[0] ?? '';
+      if (explanation < 1 || lines.filter(line => /^ELI10:/.test(line)).length !== 1 || approval.test(current) ||
+          /\b(?:if|unless|assuming|provided|suppose|might|may|could|would|previously|earlier|historical|hypothetical|never|no longer|does not|do not|did not)\b/i.test(`${title} ${first}`) ||
+          !/\brenames Client\.evaluate\(\) to Client\.run\(\)/i.test(first) ||
+          !/\b(?:deletes|removes|drops) (?:the )?old (?:name|method)\b/i.test(first) ||
+          !/\b(?:no |without (?:a )?)(?:compatibility )?alias\b/i.test(first)) return [];
+    }
     if (reversedTuples && (approval.test(current) ||
       /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:these (?:functions|signatures)|run_eval and run_batch) (?:are (?:now|already) aligned|(?:now )?(?:use|take) the same (?:positional )?order)\b/i.test(current))) return [];
     const decision = guardedDeclaration && /^D\s*([1-9]\d*)\s*[—–:-]/i.exec(q.question);
@@ -155,6 +171,7 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
     const action = (text: string) => currentProse(text.replace(/`([A-Za-z_$][\w.$/-]*(?:\([^`\n]*\))?)`/g, '$1'), true);
     signatureOptions = offered.filter(option => {
       const text = `${option.label}\n${option.description ?? ''}`, prose = currentProse(text, true);
+      if (upgradeTransition && (approval.test(prose) || /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:do not|don't|never) (?:keep|add|preserve|provide|retain) (?:the |a |an )?(?:compatibility )?alias\b/i.test(prose))) return false;
       if (reversedTuples && (approval.test(prose) ||
         /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:do not|don't|never) (?:align|unify|standardize|change|make|require) (?:either|both|the|these) (?:functions?|signatures?|arguments?)\b/i.test(prose))) return false;
       if (guardedDeclaration && /(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:option|action|correction) (?:is|was|has been) (?:cancelled|canceled|superseded|withdrawn|rejected|(?:not|no longer) current)\b/i.test(prose)) return false;
@@ -167,6 +184,9 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
     offered = signatureOptions.map(option => ({ ...option, label: action(option.label), description: action(option.description ?? '') }));
   }
   const options = offered.map(o => `${o.label} ${o.description ?? ''}`);
+  const ownUpgradeAlias = (option: string) => !upgradeTransition || (
+    /(?<![\w.])(?:Client\.)?evaluate\(\) (?:stays|remains) (?:as )?(?:a |an )?(?:deprecated |compatibility )?alias\b|\b(?:keep|retain|preserve) (?<![\w.])(?:Client\.)?evaluate\(\) as (?:a |an )?(?:deprecated |compatibility )?alias\b/i.test(option) &&
+    !/\b(?:no |without (?:a )?)(?:compatibility )?alias\b|\b(?:do not|don't|never) (?:keep|retain|preserve) (?:Client\.)?evaluate\(\)/i.test(option));
   const labels = q.options.map(o => o.label.trim().replace(/\s*\(recommended\)$/i, '').toLowerCase());
   const yesNo = labels.length === 2 && labels.includes('yes') && labels.includes('no');
   // A terse Yes/No panel still resolves an action explicitly asked in the
@@ -193,9 +213,9 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
       (options.some(o => (/\bcodes?\b/i.test(o) || /^(?:[A-D]\)\s*)?Coded\b/i.test(o)) && /\b(?:cause|fix|link)\b/i.test(o)) || directAction('add|include|explain|replace|report|give'))) found.push('opaque-auth-error');
   if (/Client\.evaluate\b/i.test(title) &&
       /Client\.run\b|\b(?:v\d+|version \d+|alias|deprecation|migration)\b/i.test(title) &&
-      /\b(?:alias|warning|compatibility|deprecat\w*|migration|remov\w*|rename|keep)\b/i.test(title) &&
+      (upgradeVocabulary || upgradeTransition) &&
       (!declaration || /\b(?:no |without (?:a )?)(?:compatibility )?(?:alias|warning|migration (?:guide|path))\b/i.test(title)) &&
-      (options.some(o => /\balias\b/i.test(o) && /\b(?:warning|DeprecationWarning|migration)\b/i.test(o)) || directAction('keep|add|preserve|provide|retain'))) found.push('breaking-upgrade');
+      (options.some(o => ownUpgradeAlias(o) && /\balias\b/i.test(o) && /\b(?:warning|DeprecationWarning|migration)\b/i.test(o)) || directAction('keep|add|preserve|provide|retain'))) found.push('breaking-upgrade');
   return found;
 }
 

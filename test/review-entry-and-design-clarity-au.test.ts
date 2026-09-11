@@ -21,10 +21,7 @@ function assertScopedEntry(preamble: string) {
   expect(command).toBeGreaterThan(0);
   const entry = preamble.slice(0, command);
   expect(entry).toContain('## Preamble (after scope gate)');
-  expect(entry).toContain(announcement);
-  expect(entry).toContain('actual selected plan title or path');
-  expect(entry).toContain('after this skill loads');
-  expect(entry).toContain('a pre-invocation introduction does not count');
+  expect(entry).toContain('resolve the Scope gate above');
   expect(entry).toContain('If the gate asks a question, wait for its answer');
   expect(preamble).not.toContain('## Preamble (run first)');
   expect(preamble).toContain('starting from the Scope gate');
@@ -44,7 +41,7 @@ test('Design and Eng resolve the existing gate at the first executable preamble 
 
 test('missing local checkpoint and competing Step 0 entry instructions fail the generation contract', () => {
   const text = generatePreamble(context('plan-design-review', ALL_HOST_CONFIGS[0]!));
-  expect(() => assertScopedEntry(text.replace(announcement, ''))).toThrow();
+  expect(() => assertScopedEntry(text.replace('resolve the Scope gate above', ''))).toThrow();
   expect(() => assertScopedEntry(text.replace('## Preamble (after scope gate)', '## Preamble (run first)'))).toThrow();
   expect(() => assertScopedEntry(text.replace('starting from the Scope gate', 'starting from Step 0; then the Scope gate'))).toThrow();
 });
