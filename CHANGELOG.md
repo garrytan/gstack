@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.86.0.0] - 2026-09-11
+## [1.87.0.0] - 2026-09-11
 
 **`/cso` now distinguishes verified vulnerabilities from hypotheses and coverage gaps, and qualified comprehensive audits can produce replayable repair bundles without changing your working branch.**
 
