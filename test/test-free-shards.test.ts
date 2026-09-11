@@ -119,6 +119,22 @@ describe('test-free-shards: Windows curation', () => {
       expect(reason.length).toBeGreaterThan(0);
     }
   });
+
+  test('excludes POSIX CSO helper suites while retaining portable image metadata coverage', () => {
+    const posixOnly = [
+      'test/cso-preparation-adversarial.test.ts',
+      'test/cso-preparation-container.test.ts',
+      'test/cso-preparation-executor.test.ts',
+      'test/cso-scanner-cli.test.ts',
+      'test/cso-verification-cleanup.test.ts',
+      'test/cso-witness.test.ts',
+    ];
+    const portable = ['test/cso-image-provisioning.test.ts', 'test/cso-public-ghcr.test.ts'];
+    const result = curateWindowsSafe([...posixOnly, ...portable], ROOT);
+    expect(result.safe).toEqual(portable);
+    expect(result.excluded.map(({ file }) => file).sort()).toEqual(posixOnly.sort());
+    for (const { reason } of result.excluded) expect(reason).toMatch(/Linux|POSIX|Windows/);
+  });
 });
 
 describe('test-free-shards: sharding', () => {

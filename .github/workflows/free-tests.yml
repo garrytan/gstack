@@ -44,7 +44,72 @@ permissions:
   contents: read
 
 jobs:
-  free-tests:
+  cso-macos-launcher:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+      - name: Install helper dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Build and sign the native macOS startup boundary
+        run: bun run build:cso
+      - name: Exercise hardened-runtime startup and environment scrubbing
+        run: bun run test:cso:macos
+        env:
+          GSTACK_CSO_MACOS_TESTS: "1"
+
+  cso-windows-launcher:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+      - name: Install helper dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Build the native Windows startup boundary from Git Bash
+        shell: bash
+        run: bun run build:cso
+      - name: Exercise native startup, environment, and argument forwarding
+        run: bun run test:cso:windows
+        env:
+          GSTACK_CSO_WINDOWS_TESTS: "1"
+
+  cso-docker-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+      - name: Require local Docker containment prerequisites
+        # A missing daemon is a failed gate, never a skipped integration test.
+        run: |
+          command -v docker
+          docker --host unix:///var/run/docker.sock info
+          command -v cc
+      - name: Install helper dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Compile trusted CSO helper and watchdog
+        run: bun run build:cso
+      - name: Run CSO Docker integration gate
+        run: bun run test:cso:docker
+        env:
+          GSTACK_CSO_DOCKER_TESTS: "1"
+          DOCKER_HOST: unix:///var/run/docker.sock
+
+  free-suite:
     runs-on: ubicloud-standard-8
     timeout-minutes: 20
     steps:
@@ -52,7 +117,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.13
 
@@ -122,6 +187,9 @@ jobs:
       - name: Build gate binaries (make-pdf e2e gates)
         run: bun run build:gates
 
+      - name: Build trusted CSO helper used by free contract tests
+        run: bun run build:cso
+
       # GSTACK_EXPECT_BINARIES=1 arms make-pdf/test/e2e/ci-prereqs.test.ts:
       # if a future edit drops the gate build (or poppler), the lane FAILS
       # instead of the gates silently self-skipping back to false green.
@@ -163,3 +231,25 @@ jobs:
           name: free-test-shard-logs
           path: /tmp/gstack-free-test-*.log
           if-no-files-found: ignore
+
+  # Branch protection already requires the `free-tests` context. Keep that
+  # stable name as an always-running aggregate so every platform-specific CSO
+  # gate is merge-blocking without a separate branch-protection migration.
+  free-tests:
+    if: always()
+    needs: [free-suite, cso-macos-launcher, cso-windows-launcher, cso-docker-integration]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require the free suite and every CSO platform gate
+        env:
+          FREE_SUITE_RESULT: ${{ needs.free-suite.result }}
+          CSO_MACOS_RESULT: ${{ needs.cso-macos-launcher.result }}
+          CSO_WINDOWS_RESULT: ${{ needs.cso-windows-launcher.result }}
+          CSO_DOCKER_RESULT: ${{ needs.cso-docker-integration.result }}
+        run: |
+          set -eu
+          test "$FREE_SUITE_RESULT" = success
+          test "$CSO_MACOS_RESULT" = success
+          test "$CSO_WINDOWS_RESULT" = success
+          test "$CSO_DOCKER_RESULT" = success

@@ -363,7 +363,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     scenario:
       'Run a security audit on this repository in --owasp mode (OWASP Top 10 only). Resolve the mode, do the Phase 0 stack detection and Phase 1 attack-surface census, then run the scoped audit phases and produce the findings report. Skip any step that needs network access.',
     staticInvariants: {
-      // Dispatch + always-run + FP-filtering phases are ALWAYS loaded (security).
+      // Dispatch, trusted execution, evidence/proof, reporting and recovery stay always loaded.
       mustStayInSkeleton: [
         '## Arguments',
         '## Mode Resolution',
@@ -372,6 +372,9 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
         '### Phase 12',
         '### Phase 13',
         '### Phase 14',
+        '**Private startup.**',
+        'CSO evidence rubric',
+        'identical security assertion',
       ],
       // Earliest-use: mode must be resolvable before any section is read (codex #6).
       mustPrecedeStop: ['## Arguments', '## Mode Resolution'],
@@ -383,17 +386,15 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       ],
       gateAfterStop: undefined,
     },
-    behavioral: 'prompt',
-    // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
-    // always-loaded AskUserQuestion Format section.
-    // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
-    maxSkeletonBytes: 61_800, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 60_628
-    minUnionBytes: 64_200, // token-reduction Phases 1-2 (v1.69.x branch); measured union 71,379
+    // v3 requires a trusted helper and private state, absent from generic prompt fixtures.
+    // The full-audit E2E asserts actual section loading alongside report/proof behavior.
+    behavioral: 'external',
+    externalTest: 'test/skill-e2e-cso.test.ts',
+    maxSkeletonBytes: 18_000,
+    minUnionBytes: 30_000, // v3 deliberately removes the shared export/startup preamble.
     mustContain: ['OWASP', 'STRIDE', 'daily', 'comprehensive', 'verif'],
-    // cso keeps its mode-dispatch + FP-filtering phases always-loaded, so the
-    // cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB + the
-    // decision-memory nudge) lands it just over 1.05; headroom for the shared additions.
-    // v1.64+v1.65 merge sums both waves' preamble growth; measured 1.073.
+    // Existing baseline comparison remains an upper bound; absolute limits above
+    // preserve the compact controller and its complete domain reference.
     maxSizeRatio: 1.08,
   },
   // ── Token-reduction Phase 4 wave 1 (v1.69.x branch) ──────────────────────

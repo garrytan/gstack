@@ -1,0 +1,109 @@
+name: CSO Runtime Qualification
+
+# A private evaluator sends only gate results and public runtime identities.
+# Its held-out assertions remain outside this repository. GitHub authenticates
+# the dispatch actor; the protected environment supplies the human review gate.
+on:
+  repository_dispatch:
+    types: [cso-runtime-qualified]
+
+permissions:
+  contents: read
+  packages: read
+  attestations: read
+
+jobs:
+  qualify:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'repository_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: cso-runtime-release
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.13
+      - name: Require the configured private-evaluator actor and bounded matrix
+        env:
+          CSO_QUALIFICATION_ACTOR: ${{ vars.CSO_QUALIFICATION_ACTOR }}
+        run: |
+          set -euo pipefail
+          test -n "$CSO_QUALIFICATION_ACTOR"
+          test "$GITHUB_ACTOR" = "$CSO_QUALIFICATION_ACTOR"
+          jq -e '
+            .action == "cso-runtime-qualified" and
+            (.client_payload | keys == ["statements"]) and
+            (.client_payload.statements | type == "array" and length == 10)
+          ' "$GITHUB_EVENT_PATH"
+      - name: Recheck public visibility and anonymous pulls for every qualified digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir public-image-evidence
+          jq -c '.client_payload.statements[]' "$GITHUB_EVENT_PATH" | while IFS= read -r statement; do
+            runtime_id="$(printf '%s' "$statement" | jq -er '.runtimeId | select(test("^[a-z0-9][a-z0-9._-]{0,100}$"))')"
+            image="$(printf '%s' "$statement" | jq -er '.image | select(test("^ghcr.io/garrytan/gstack/cso-staging/[a-z0-9-]+-(amd64|arm64)@sha256:[a-f0-9]{64}$"))')"
+            platform="$(printf '%s' "$statement" | jq -er '.platform | select(. == "linux/amd64" or . == "linux/arm64")')"
+            bun run scripts/cso-public-ghcr.ts verify \
+              --image "$image" --platform "$platform" --repository "$GITHUB_REPOSITORY" \
+              --output "public-image-evidence/$runtime_id.json" --remove-after
+          done
+      - name: Verify each staged image attestation and normalize qualification statements
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          signer="https://github.com/$GITHUB_REPOSITORY/.github/workflows/cso-runtime-images.yml@refs/heads/main"
+          workflow="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          qualified_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          mkdir qualification-evidence
+          jq -c '.client_payload.statements[]' "$GITHUB_EVENT_PATH" | while IFS= read -r statement; do
+            runtime_id="$(printf '%s' "$statement" | jq -er '.runtimeId | select(test("^[a-z0-9][a-z0-9._-]{0,100}$"))')"
+            image="$(printf '%s' "$statement" | jq -er '.image | select(test("^ghcr.io/garrytan/gstack/cso-staging/[a-z0-9-]+-(amd64|arm64)@sha256:[a-f0-9]{64}$"))')"
+            source_commit="$(printf '%s' "$statement" | jq -er '.sourceCommit | select(test("^[a-f0-9]{40}$"))')"
+            output="qualification-evidence/$runtime_id"
+            mkdir "$output"
+            gh attestation verify "oci://$image" --repo "$GITHUB_REPOSITORY" \
+              --cert-identity "$signer" --source-ref refs/heads/main --source-digest "$source_commit" \
+              --deny-self-hosted-runners --predicate-type https://slsa.dev/provenance/v1 \
+              --format json > "$output/provenance-verification.json"
+            gh attestation verify "oci://$image" --repo "$GITHUB_REPOSITORY" \
+              --cert-identity "$signer" --source-ref refs/heads/main --source-digest "$source_commit" \
+              --deny-self-hosted-runners --predicate-type https://spdx.dev/Document/v2.3 \
+              --format json > "$output/sbom-verification.json"
+            provenance_digest="sha256:$(sha256sum "$output/provenance-verification.json" | cut -d ' ' -f 1)"
+            sbom_digest="sha256:$(sha256sum "$output/sbom-verification.json" | cut -d ' ' -f 1)"
+            printf '%s' "$statement" | jq \
+              --arg workflow "$workflow" --arg qualifiedAt "$qualified_at" \
+              --arg provenanceDigest "$provenance_digest" --arg sbomDigest "$sbom_digest" \
+              '{
+                schemaVersion:.schemaVersion,helperAbi:.helperAbi,state:.state,
+                buildRevision:.buildRevision,runtimeId:.runtimeId,stack:.stack,
+                platform:.platform,image:.image,versions:.versions,sourceCommit:.sourceCommit,
+                checks:.checks,workflow:$workflow,qualifiedAt:$qualifiedAt,
+                provenanceDigest:$provenanceDigest,sbomDigest:$sbomDigest
+              }' \
+              > "$output/qualified-runtime.json"
+          done
+      - name: Enforce the complete release contract before retaining evidence
+        run: |
+          set -euo pipefail
+          bun run scripts/cso-runtime-promotion.ts \
+            --evidence-root qualification-evidence \
+            --output runtime-catalog.proof.json
+          rm runtime-catalog.proof.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cso-qualified-runtime-statements
+          path: |
+            qualification-evidence
+            public-image-evidence
+          if-no-files-found: error
+          retention-days: 30

@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.87.0.0] - 2026-09-11
+
+**`/cso` now distinguishes verified vulnerabilities from hypotheses and coverage gaps, and qualified comprehensive audits can produce replayable repair bundles without changing your working branch.**
+
+### Added
+- `/cso --doctor`, `--resume`, `--replay`, and `--recheck` diagnose prerequisites, recover interrupted work, repeat recorded verification, and establish closure from a fresh snapshot. `--base`, `--budget`, and `--offline` make scope, time, and network policy explicit.
+- A native `gstack-cso` helper captures tracked changes and nonignored source without Git hooks or staging, rejects unsafe files and changing inputs, redacts output before storage, enforces run budgets, and retains recoverable reports and bundles under the private gstack state root.
+- Comprehensive audits have declared preparation paths for Node, Bun, Python, and Rails, with SQLite and disposable PostgreSQL support. Dependency acquisition is separated from offline application execution, and target code runs only through the constrained local Docker policy.
+- Runtime-tested repair bundles record the original reproduction, an authenticated out-of-process security assertion, legitimate controls, the patch, dependency and configuration closures, provenance, and input hashes. Project-test completion remains `self_reported`; the stronger `tested` label is reserved for a future target-independent completion witness. Replay requires matching source; current-source rechecks collect new evidence instead of inheriting old status.
+- Scanner adapters normalize Gitleaks, OSV-Scanner, Semgrep, zizmor, Trivy, Schemathesis, and imported SARIF as candidate evidence with version, scope, freshness, exclusions, and failure records.
+- Protected release workflows, 40 vulnerable/fixed evaluation pairs across the four supported stacks, fault-injection tests, and runtime/scanner promotion gates qualify catalogs before comprehensive target execution is enabled.
+
+### Changed
+- Daily `/cso` audits remain bounded and static. Reports begin with `complete`, `partial`, or `not assessed`, publish supported findings as they become available, separate severity from confidence and evidence, and say exactly which security work was left undone.
+- Security judgment now models actors, assets, entrypoints, tenant boundaries, sensitive operations, and invariants; challenges each candidate against callers and controls; and evaluates development dependencies, availability, historical secrets, role-controlled input, and gstack-owned skills by attacker control and impact.
+- Setup builds the trusted launcher only when Bun supports all required no-autoload flags and the native toolchain is available. Unsupported hosts retain the rest of gstack and receive a precise `/cso` prerequisite instead of a partially trusted helper.
+- Legacy v2 reports remain readable as historical review evidence. They never inherit v3 reproduced, repair-tested, or current-source closure status.
+- The authenticated repository owner account `@garrytan` is exempt from the PR liveness screenshot; all other contributors still provide live `GSTACK PR` proof.
+
+### Security
+- Runtime startup strips injection variables, binds absolute executables and allowlisted environments, rejects remote Docker contexts, and uses pinned images, non-root containers, dropped capabilities, read-only roots, bounded writable storage and output, no published ports, and network-isolated reproduction groups.
+- Runtime and scanner catalogs ship unpromoted until protected native Docker qualification succeeds. On an unqualified installation, `/cso --doctor` reports the missing qualification and comprehensive target execution fails closed; static assessment remains available.
+
 ## [1.84.1.0] - 2026-09-09
 
 ### Changed

@@ -35,6 +35,9 @@ const BUILT_ARTIFACT_ALLOWLIST = [
   'design/dist/',
   'make-pdf/dist/',
   'bin/gstack-global-discover', // compiled from bin/gstack-global-discover.ts at build time
+  'bin/gstack-cso-core',
+  'bin/gstack-cso-launcher',
+  'bin/gstack-cso-watchdog',
 ];
 
 /**

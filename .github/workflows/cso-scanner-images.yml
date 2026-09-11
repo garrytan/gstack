@@ -1,0 +1,373 @@
+name: Qualify CSO Scanner Images
+
+# Branch dispatches may validate reviewed inputs. Only protected main and the
+# cso-scanner-release environment may publish or qualify scanner images. An
+# explicit promotion input may then propose a catalog.
+on:
+  workflow_dispatch:
+    inputs:
+      promote_catalog:
+        description: Open a reviewed scanner catalog promotion PR after every gate passes
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cso-scanner-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  reviewed-inputs:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.inputs.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+      - name: Prove scanner normalization and fail-closed behavior
+        run: |
+          set -eu
+          bun install --frozen-lockfile --ignore-scripts
+          bun test --max-concurrency 1 test/cso-scanners.test.ts test/cso-scanner-executor.test.ts test/cso-scanner-release.test.ts
+      - name: Validate complete reviewed scanner inputs
+        id: inputs
+        run: |
+          set -eu
+          matrix="$(bun run scripts/cso-scanner-matrix.ts)"
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
+  stage-and-qualify:
+    needs: reviewed-inputs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    environment: cso-scanner-release
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.reviewed-inputs.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+      - name: Require native Docker and the declared architecture
+        env:
+          CSO_ARCH: ${{ matrix.arch }}
+        run: |
+          set -eu
+          case "$CSO_ARCH:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo 'Native architecture mismatch; emulation cannot qualify a scanner.' >&2; exit 1 ;;
+          esac
+          docker --host unix:///var/run/docker.sock info
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify reviewed upstream and SBOM-generator attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSO_BASE_ATTESTATION: ${{ toJSON(matrix.baseAttestation) }}
+          CSO_SBOM_GENERATOR: ${{ toJSON(matrix.sbomGenerator) }}
+        run: |
+          set -eu
+          verify_reviewed_image() {
+            declaration="$1"
+            label="$2"
+            printf '%s\n' "$declaration" > "$label-declaration.json"
+            image="$(jq -r '.image' "$label-declaration.json")"
+            repository="$(jq -r '.repository' "$label-declaration.json")"
+            repository="${repository#https://github.com/}"
+            source_commit="$(jq -r '.sourceCommit' "$label-declaration.json")"
+            signer_workflow="$(jq -r '.signerWorkflow' "$label-declaration.json")"
+            signer_digest="$(jq -r '.signerDigest' "$label-declaration.json")"
+            subject_sha256="${image##*@sha256:}"
+            gh attestation verify "oci://$image" --repo "$repository" --signer-workflow "$signer_workflow" --signer-digest "$signer_digest" --source-digest "$source_commit" --deny-self-hosted-runners --predicate-type https://slsa.dev/provenance/v1 --format json > "$label-provenance-verification.json"
+            actual_provenance="$(bun run scripts/cso-attestation-evidence.ts digest "$label-provenance-verification.json" https://slsa.dev/provenance/v1 "$subject_sha256")"
+            test "$actual_provenance" = "$(jq -r '.provenanceStatementDigest' "$label-declaration.json")"
+            gh attestation verify "oci://$image" --repo "$repository" --signer-workflow "$signer_workflow" --signer-digest "$signer_digest" --source-digest "$source_commit" --deny-self-hosted-runners --predicate-type https://spdx.dev/Document/v2.3 --format json > "$label-sbom-verification.json"
+            actual_sbom="$(bun run scripts/cso-attestation-evidence.ts digest "$label-sbom-verification.json" https://spdx.dev/Document/v2.3 "$subject_sha256")"
+            test "$actual_sbom" = "$(jq -r '.sbomStatementDigest' "$label-declaration.json")"
+          }
+          verify_reviewed_image "$CSO_BASE_ATTESTATION" upstream-base
+          verify_reviewed_image "$CSO_SBOM_GENERATOR" sbom-generator
+      - name: Compile the trusted loopback assertion verifier
+        run: |
+          bun build --compile \
+            --no-compile-autoload-dotenv \
+            --no-compile-autoload-bunfig \
+            --no-compile-autoload-tsconfig \
+            --no-compile-autoload-package-json \
+            lib/cso/verifier.ts --outfile lib/cso/images/gstack-cso-verifier
+      - name: Choose the immutable scanner repository
+        id: image
+        env:
+          CSO_SCANNER: ${{ matrix.scanner }}
+          CSO_ARCH: ${{ matrix.arch }}
+        run: |
+          set -eu
+          name="ghcr.io/${GITHUB_REPOSITORY,,}/cso-scanners/$CSO_SCANNER-$CSO_ARCH"
+          printf 'name=%s\n' "$name" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s:%s-%s\n' "$name" "$GITHUB_SHA" "$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+      - name: Build native scanner wrapper with SBOM and provenance
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: lib/cso
+          file: lib/cso/scanner-images/scanner.Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            BASE_IMAGE=${{ matrix.baseImage }}
+            SCANNER_EXECUTABLE=${{ matrix.scannerExecutable }}
+          tags: ${{ steps.image.outputs.tag }}
+          push: true
+          provenance: mode=max
+          attests: type=sbom,generator=${{ matrix.sbomGenerator.image }}
+      - name: Extract and validate the wrapper SBOM
+        env:
+          CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -eu
+          docker buildx imagetools inspect "$CSO_IMAGE" --format '{{ json .SBOM.SPDX }}' > sbom.spdx.json
+          jq -e '.spdxVersion == "SPDX-2.3" and (.packages | type == "array")' sbom.spdx.json
+      - name: Sign build provenance
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Sign the image SBOM
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: sbom.spdx.json
+          push-to-registry: true
+      - name: Verify branch-bound provenance and SBOM identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -eu
+          signer="https://github.com/$GITHUB_REPOSITORY/.github/workflows/cso-scanner-images.yml@$GITHUB_REF"
+          gh attestation verify "oci://$CSO_IMAGE" --repo "$GITHUB_REPOSITORY" --cert-identity "$signer" --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners --predicate-type https://slsa.dev/provenance/v1 --format json > provenance-verification.json
+          gh attestation verify "oci://$CSO_IMAGE" --repo "$GITHUB_REPOSITORY" --cert-identity "$signer" --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" --deny-self-hosted-runners --predicate-type https://spdx.dev/Document/v2.3 --format json > sbom-verification.json
+      - name: Require a public package and anonymously load the verified immutable image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          CSO_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          bun run scripts/cso-public-ghcr.ts verify \
+            --image "$CSO_IMAGE" --platform "$CSO_PLATFORM" \
+            --repository "$GITHUB_REPOSITORY" --output public-image.json
+      - name: Recompute immutable rule or database content
+        env:
+          CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          CSO_ASSETS: ${{ toJSON(matrix.assets) }}
+        run: |
+          set -eu
+          printf '%s\n' "$CSO_ASSETS" > declared-assets.json
+          asset_path="$(jq -r '.semgrepRules.path // .advisoryDatabase.path // empty' declared-assets.json)"
+          expected="$(jq -r '.semgrepRules.sha256 // .advisoryDatabase.contentSha256 // empty' declared-assets.json)"
+          if test -n "$asset_path"; then
+            case "$asset_path" in /policy/catalog/*|/opt/cso/scanner-data/*) ;; *) exit 1 ;; esac
+            container="$(docker --host unix:///var/run/docker.sock create --pull=never "$CSO_IMAGE" /bin/true)"
+            trap 'docker --host unix:///var/run/docker.sock rm --force "$container" >/dev/null 2>&1 || true' EXIT
+            docker --host unix:///var/run/docker.sock cp "$container:$asset_path" scanner-asset
+            actual="$(bun run scripts/cso-scanner-catalog.ts hash-asset scanner-asset)"
+            test "$actual" = "$expected"
+            docker --host unix:///var/run/docker.sock rm --force "$container" >/dev/null
+            trap - EXIT
+          else
+            test "$CSO_ASSETS" = null
+          fi
+      - name: Compile the helper and bind the staged profile
+        env:
+          CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          CSO_SCANNER: ${{ matrix.scanner }}
+          CSO_PLATFORM: ${{ matrix.platform }}
+          CSO_VERSION: ${{ matrix.version }}
+          CSO_CAPABILITIES: ${{ toJSON(matrix.capabilities) }}
+          CSO_ASSETS: ${{ toJSON(matrix.assets) }}
+          CSO_APPLICATION_EXECUTABLE: ${{ matrix.applicationExecutable }}
+        run: |
+          set -eu
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build:cso
+          policy_hash="$(bun -e "import {ISOLATION_POLICY_HASH} from './lib/cso/docker'; process.stdout.write(ISOLATION_POLICY_HASH)")"
+          jq -n --arg scanner "$CSO_SCANNER" --arg image "$CSO_IMAGE" --arg platform "$CSO_PLATFORM" --arg version "$CSO_VERSION" --arg policy "$policy_hash" --arg app "$CSO_APPLICATION_EXECUTABLE" --argjson capabilities "$CSO_CAPABILITIES" --argjson assets "$CSO_ASSETS" '{scanner:$scanner,image:$image,platform:$platform,version:$version,isolationPolicyHash:$policy,capabilities:$capabilities,assets:$assets,applicationExecutable:$app}' > staged-profile.json
+      - name: Exercise common containment and the real scanner adapter
+        env:
+          GSTACK_CSO_DOCKER_TESTS: "1"
+          GSTACK_CSO_SCANNER_DOCKER_TESTS: "1"
+          GSTACK_CSO_SCANNER_PROFILE: ${{ github.workspace }}/staged-profile.json
+          GSTACK_CSO_SCANNER_VERSION_HASH: ${{ github.workspace }}/version.sha256
+          DOCKER_HOST: unix:///var/run/docker.sock
+        run: |
+          set -eu
+          bun test --max-concurrency 1 test/cso-docker-integration.test.ts
+          bun test --max-concurrency 1 test/cso-scanner-docker-integration.test.ts
+      - name: Emit one immutable qualified profile
+        env:
+          CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          CSO_SCANNER: ${{ matrix.scanner }}
+          CSO_ARCH: ${{ matrix.arch }}
+          CSO_PLATFORM: ${{ matrix.platform }}
+          CSO_VERSION: ${{ matrix.version }}
+          CSO_CAPABILITIES: ${{ toJSON(matrix.capabilities) }}
+          CSO_ASSETS: ${{ toJSON(matrix.assets) }}
+          CSO_UPSTREAM: ${{ toJSON(matrix.baseAttestation) }}
+          CSO_SBOM_GENERATOR: ${{ toJSON(matrix.sbomGenerator) }}
+        run: |
+          set -eu
+          policy_hash="$(jq -r '.isolationPolicyHash' staged-profile.json)"
+          version_hash="$(cat version.sha256)"
+          sbom_digest="sha256:$(sha256sum sbom.spdx.json | cut -d' ' -f1)"
+          provenance_digest="sha256:$(sha256sum provenance-verification.json | cut -d' ' -f1)"
+          qualified_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          workflow="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          version_id="$(printf '%s' "$CSO_VERSION" | tr '[:upper:]+' '[:lower:]-' | tr -cd 'a-z0-9._-')"
+          profile_id="$CSO_SCANNER-$version_id-$CSO_ARCH"
+          output="$CSO_SCANNER-$CSO_ARCH.json"
+          jq -n --arg id "$profile_id" --arg scanner "$CSO_SCANNER" --arg platform "$CSO_PLATFORM" --arg image "$CSO_IMAGE" --arg version "$CSO_VERSION" --arg versionHash "$version_hash" --arg policy "$policy_hash" --arg qualifiedAt "$qualified_at" --arg sourceCommit "$GITHUB_SHA" --arg workflow "$workflow" --arg sbomDigest "$sbom_digest" --arg provenanceDigest "$provenance_digest" --argjson capabilities "$CSO_CAPABILITIES" --argjson assets "$CSO_ASSETS" '{id:$id,scanner:$scanner,state:"qualified",platform:$platform,image:$image,entrypoint:"/opt/cso/entrypoint",executable:"/opt/cso/bin/scanner",version:$version,versionOutputSha256:$versionHash,helperAbi:3,isolationPolicyHash:$policy,capabilities:$capabilities} + (if $assets == null then {} else {assets:$assets} end) + {qualifiedAt:$qualifiedAt,qualification:{sourceCommit:$sourceCommit,workflow:$workflow,sbomDigest:$sbomDigest,provenanceDigest:$provenanceDigest,verifiedProvenance:true,containmentPassed:true,adapterContractPassed:true,offlineAssetsPassed:true}}' > "$output"
+          printf '%s\n' "$CSO_UPSTREAM" > upstream-evidence.json
+          printf '%s\n' "$CSO_SBOM_GENERATOR" > sbom-generator-evidence.json
+          sha256sum "$output" staged-profile.json version.sha256 declared-assets.json public-image.json sbom.spdx.json provenance-verification.json sbom-verification.json upstream-evidence.json sbom-generator-evidence.json upstream-base-*-verification.json sbom-generator-*-verification.json > evidence.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cso-scanner-profile-${{ matrix.scanner }}-${{ matrix.arch }}
+          path: |
+            ${{ matrix.scanner }}-${{ matrix.arch }}.json
+            staged-profile.json
+            version.sha256
+            declared-assets.json
+            public-image.json
+            sbom.spdx.json
+            provenance-verification.json
+            sbom-verification.json
+            upstream-evidence.json
+            sbom-generator-evidence.json
+            upstream-base-declaration.json
+            upstream-base-provenance-verification.json
+            upstream-base-sbom-verification.json
+            sbom-generator-declaration.json
+            sbom-generator-provenance-verification.json
+            sbom-generator-sbom-verification.json
+            evidence.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  catalog-proposal:
+    needs: [reviewed-inputs, stage-and-qualify]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: cso-scanner-profile-*
+          path: qualified-artifacts
+      - name: Assemble and validate the complete catalog proposal
+        run: |
+          set -eu
+          mkdir qualified-fragments
+          find qualified-artifacts -mindepth 2 -maxdepth 2 -type f \( -name '*-amd64.json' -o -name '*-arm64.json' \) | sort | while IFS= read -r file; do cp "$file" qualified-fragments/; done
+          test "$(find qualified-fragments -type f -name '*.json' | wc -l | tr -d ' ')" -eq 12
+          revision="cso-scanners-$(printf '%s' "$GITHUB_SHA" | cut -c1-12)-$GITHUB_RUN_ID"
+          workflow="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          image_prefix="ghcr.io/${GITHUB_REPOSITORY,,}/cso-scanners/"
+          bun run scripts/cso-scanner-catalog.ts assemble qualified-fragments lib/cso/scanner-images/catalog.json catalog-proposal.json --revision "$revision" --source-commit "$GITHUB_SHA" --workflow "$workflow" --image-prefix "$image_prefix"
+          bun run scripts/cso-scanner-catalog.ts validate catalog-proposal.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cso-scanner-catalog-proposal
+          path: catalog-proposal.json
+          if-no-files-found: error
+          retention-days: 30
+
+  promote-catalog:
+    needs: catalog-proposal
+    if: github.ref == 'refs/heads/main' && inputs.promote_catalog == true
+    environment: cso-scanner-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: true
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.13
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: cso-scanner-catalog-proposal
+          path: promotion
+      - name: Recheck public visibility and anonymous pulls before promotion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir public-image-evidence
+          jq -c '.scanners[]' promotion/catalog-proposal.json | while IFS= read -r profile; do
+            profile_id="$(printf '%s' "$profile" | jq -er '.id | select(test("^[a-z0-9][a-z0-9._-]{0,100}$"))')"
+            image="$(printf '%s' "$profile" | jq -er '.image')"
+            platform="$(printf '%s' "$profile" | jq -er '.platform | select(. == "linux/amd64" or . == "linux/arm64")')"
+            bun run scripts/cso-public-ghcr.ts verify \
+              --image "$image" --platform "$platform" --repository "$GITHUB_REPOSITORY" \
+              --output "public-image-evidence/$profile_id.json" --remove-after
+          done
+      - name: Revalidate and open the reviewable source catalog PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          bun run scripts/cso-scanner-catalog.ts validate promotion/catalog-proposal.json
+          bun run scripts/cso-scanner-catalog.ts validate-transition lib/cso/scanner-images/catalog.json promotion/catalog-proposal.json
+          cp promotion/catalog-proposal.json lib/cso/scanner-images/catalog.json
+          bun install --frozen-lockfile --ignore-scripts
+          bun test test/cso-scanners.test.ts test/cso-scanner-executor.test.ts test/cso-scanner-release.test.ts
+          bun run build:cso
+          branch="cso-scanner-catalog-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          git switch -c "$branch"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add lib/cso/scanner-images/catalog.json
+          git commit -m "Promote qualified CSO scanner catalog"
+          git push --set-upstream origin "$branch"
+          cat > pr-body.md <<'EOF'
+          Promotes the complete scanner catalog produced by native amd64/arm64 qualification for all six CSO scanners. Each profile binds its immutable image, exact version-output hash, offline asset hash when required, containment and adapter gates, SBOM, provenance, source commit, and workflow run.
+
+          Validation: scanner catalog contract tests and compiled CSO helper build.
+          EOF
+          gh pr create --base main --head "$branch" --title "Promote qualified CSO scanner catalog" --body-file pr-body.md

@@ -49,6 +49,28 @@ function readShipUnion(): string {
   return readSkillUnion('ship');
 }
 
+describe('CSO host permission boundary', () => {
+  test('grants no raw source, mutation, search, question, or Agent tools', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    const fmEnd = content.indexOf('\n---', 4);
+    const frontmatter = Bun.YAML.parse(content.slice(4, fmEnd)) as Record<string, unknown>;
+    const allowed = frontmatter['allowed-tools'];
+    expect(allowed).toEqual([
+      'Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher *)',
+      'Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher.exe *)',
+    ]);
+    for (const broad of ['Bash', 'Read', 'Grep', 'Glob', 'Write', 'Agent', 'WebSearch', 'AskUserQuestion']) expect(allowed).not.toContain(broad);
+  });
+
+  test('retains helper-only source access, sequential challenge, and honest host containment', () => {
+    const content = readSkillUnion('cso');
+    expect(content).toContain('Never use host `Read`/`Glob`/`Grep`');
+    expect(content).toContain('sequential challenge; independent agent unavailable');
+    expect(content).toContain('Do not request broader tool access solely to obtain an independent reviewer.');
+    expect(content).toContain('Containment does not sandbox the host agent or kernel.');
+  });
+});
+
 describe('SKILL.md command validation', () => {
   // P2 (v1.2.0): the top-level gstack skill is a pure ROUTER, not the browse
   // skill. The browse body lives only in browse/SKILL.md now. This regression
@@ -323,7 +345,8 @@ describe('Update check preamble', () => {
     'benchmark/SKILL.md',
     'land-and-deploy/SKILL.md',
     'setup-deploy/SKILL.md',
-    'cso/SKILL.md',
+    // CSO intentionally uses a private startup instead of the shared update,
+    // session, learning, checkpoint, and telemetry PREAMBLE.
   ];
 
   for (const skill of skillsWithUpdateCheck) {
@@ -688,7 +711,8 @@ describe('v0.4.1 preamble features', () => {
     'canary/SKILL.md',
     'land-and-deploy/SKILL.md',
     'setup-deploy/SKILL.md',
-    'cso/SKILL.md',
+    // CSO's private startup intentionally omits the generic AUQ/session/
+    // escalation PREAMBLE; its helper owns readiness and terminal state.
   ];
 
   const skillsWithPreamble = [...tier1Skills, ...tier2PlusSkills];
@@ -954,7 +978,9 @@ describe('Completeness Principle in generated SKILL.md files', () => {
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
     'document-release/SKILL.md',
-    'cso/SKILL.md',  ];
+    // CSO reports complete/partial/not-assessed from its own evidence contract
+    // and must not inherit the shared numerical completeness rubric.
+  ];
 
   for (const skill of skillsWithPreamble) {
     test(`${skill} contains Completeness Principle section`, () => {
@@ -965,7 +991,8 @@ describe('Completeness Principle in generated SKILL.md files', () => {
   }
 
   test('Completeness Principle keeps compact scoring guidance in tier 2+ skills', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    // CSO is intentionally exempt; use a regular tier 2+ PREAMBLE consumer.
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Completeness: X/10');
     expect(content).toContain('10 = all edge cases');
     expect(content).toContain('Note: options differ in kind, not coverage');

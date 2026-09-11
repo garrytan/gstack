@@ -107,7 +107,8 @@ const EXPECTED_INTERACTIVE = [
   'qa-only',
   'codex',
   'autoplan',
-  'cso',
+  // CSO uses a private startup and intentionally omits the shared PREAMBLE,
+  // including its generic AskUserQuestion formatting block.
   'investigate',
   'retro',
   'design-review',

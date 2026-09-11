@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "helperAbi": 3,
+  "state": "pending",
+  "platforms": ["linux/amd64", "linux/arm64"],
+  "scanners": ["gitleaks", "osv", "semgrep", "zizmor", "trivy", "schemathesis"],
+  "requiredChecks": [
+    "native image build from a reviewed immutable upstream digest",
+    "verified upstream and wrapper provenance plus SPDX SBOM",
+    "exact version-output hash through the fixed entrypoint",
+    "adapter feature contract and representative output normalization",
+    "network-none target execution with read-only source and exact cleanup",
+    "secret canary redaction and malformed-output failure",
+    "Semgrep rules or OSV/Trivy database content hash matches reviewed input",
+    "OSV and Trivy complete a representative scan with no network",
+    "Schemathesis reaches only an admitted loopback fixture and completes selected operations"
+  ],
+  "promotion": "CI emits a complete immutable catalog proposal. Only an environment-approved run from protected main may open the source-controlled catalog promotion PR.",
+  "rollback": "Restore the previous compatible scanner catalog revision; never replace a missing profile with a host executable or mutable image tag."
+}

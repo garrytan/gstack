@@ -27,9 +27,13 @@ changed. -->
 - **Verified live by:**
 - **Did NOT test:**
 
-## Liveness proof (required)
+## Liveness proof (required for external contributors)
 
-<!-- Attach a screenshot of your own machine with the text `GSTACK PR` typed LIVE
+<!-- Repository owner @garrytan is explicitly exempt. Agents must verify the
+authenticated GitHub login with `gh api user --jq .login`; Git author metadata
+alone is not sufficient.
+
+All other contributors: attach a screenshot of your own machine with the text `GSTACK PR` typed LIVE
 into a real surface — terminal prompt, a shell command, your browser
 address/search bar, an editor buffer. It must be TYPED INTO A LIVE UI, not drawn,
 overlaid, or edited onto the image. A painted-on `GSTACK PR` is an automatic
@@ -37,7 +41,7 @@ close. This confirms a human opened this PR. -->
 
 ## Checklist
 
-- [ ] Liveness screenshot attached: `GSTACK PR` typed live into a real surface (not edited onto the image)
+- [ ] Liveness screenshot attached (`GSTACK PR` typed live into a real surface) or PR author is @garrytan (owner exemption)
 - [ ] This is not a generated-file-only diff (I edited the source/template and regenerated)
 - [ ] No ETHOS.md edits, and no changes to voice / founder perspective / YC references
 - [ ] New public command / external service / host adapter has an accepted issue linked (or N/A)

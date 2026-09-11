@@ -858,6 +858,80 @@ cleanup_copied_bun() {
 prepare_bun_for_windows_compile
 trap cleanup_copied_bun EXIT
 
+_cso_unavailable() {
+  CSO_BUILD_AVAILABLE=0
+  CSO_FAIL_REASON="$1"
+}
+
+# CSO has a native startup boundary. Its extra toolchain is optional for setup:
+# when unavailable, install every other skill and leave /cso visibly fail-closed.
+# A successful probe is only a prerequisite check; any later source build failure
+# still aborts setup and therefore cannot be mistaken for a missing local tool.
+probe_cso_build_prerequisites() {
+  local _help _flag _platform _compiler _tmp _ps_script _repo_root _git_path
+  CSO_BUILD_AVAILABLE=1
+  CSO_FAIL_REASON=""
+
+  _help="$(bun_cmd build --help 2>&1 || true)"
+  for _flag in --no-compile-autoload-dotenv --no-compile-autoload-bunfig --no-compile-autoload-tsconfig --no-compile-autoload-package-json; do
+    case "$_help" in
+      *"$_flag"*) ;;
+      *) _cso_unavailable "bun-compile-flags"; return 0 ;;
+    esac
+  done
+
+  _platform="$(uname -s)"
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    if ! command -v powershell.exe >/dev/null 2>&1 || ! command -v cygpath >/dev/null 2>&1; then
+      _cso_unavailable "windows-shell-toolchain"
+      return 0
+    fi
+    _ps_script="$(cygpath -w "$SOURCE_GSTACK_DIR/scripts/build-cso-windows.ps1")"
+    _repo_root="$(cygpath -w "$SOURCE_GSTACK_DIR")"
+    _git_path="$(type -P git 2>/dev/null || true)"
+    if [ -z "$_git_path" ] || [ ! -f "$_git_path" ]; then
+      _cso_unavailable "windows-git"
+      return 0
+    fi
+    if ! powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+      -File "$_ps_script" -RepoRoot "$_repo_root" -GitExePath "$(cygpath -aw "$_git_path")" -CheckOnly >/dev/null 2>&1; then
+      _cso_unavailable "windows-msvc-toolchain"
+    fi
+    return 0
+  fi
+
+  _compiler="${CSO_CC:-cc}"
+  if ! command -v "$_compiler" >/dev/null 2>&1; then
+    _cso_unavailable "c-compiler"
+    return 0
+  fi
+  _tmp="$(mktemp -d "${TMPDIR:-/tmp}/gstack-cso-probe.XXXXXX" 2>/dev/null || true)"
+  if [ -z "$_tmp" ]; then
+    _cso_unavailable "native-toolchain-probe"
+    return 0
+  fi
+  printf '%s\n' 'int main(void) { return 0; }' > "$_tmp/probe.c"
+  case "$_platform" in
+    Linux)
+      if ! "$_compiler" -std=c11 -static "$_tmp/probe.c" -o "$_tmp/probe" >/dev/null 2>&1; then
+        _cso_unavailable "static-c-toolchain"
+      fi
+      ;;
+    Darwin)
+      if ! command -v codesign >/dev/null 2>&1; then
+        _cso_unavailable "macos-codesign"
+      elif ! "$_compiler" -std=c11 "$_tmp/probe.c" -o "$_tmp/probe" >/dev/null 2>&1 || \
+        ! codesign --force --sign - --options runtime "$_tmp/probe" >/dev/null 2>&1 || \
+        ! codesign --verify --strict "$_tmp/probe" >/dev/null 2>&1 || \
+        ! codesign -d --verbose=4 "$_tmp/probe" 2>&1 | grep -q 'runtime'; then
+        _cso_unavailable "macos-native-toolchain"
+      fi
+      ;;
+    *) _cso_unavailable "unsupported-platform" ;;
+  esac
+  rm -rf "$_tmp"
+}
+
 # Resolve the model overlay used for generated Codex skills. Setup auto-detects
 # only Codex because it has one canonical TOML config surface; direct generator
 # calls remain deterministic and use the host default unless --model is explicit.
@@ -884,22 +958,46 @@ if [ "$INSTALL_CODEX" -eq 1 ] || [ "$CODEX_GENERATION_MODEL" != "gpt-6-astra" ];
 fi
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock).
-# One `bun run build` produces every binary (browse, design, make-pdf), so a
-# missing or stale one of any of them triggers the whole build.
+probe_cso_build_prerequisites
 _EXE=""
 if [ "$IS_WINDOWS" -eq 1 ]; then _EXE=".exe"; fi
+# Never leave a trusted helper from an earlier toolchain/version available when
+# this setup run cannot reproduce it. The /cso skill then reports not assessed.
+if [ "$CSO_BUILD_AVAILABLE" -eq 0 ]; then
+  rm -f "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher" \
+    "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher.exe" \
+    "$SOURCE_GSTACK_DIR/bin/gstack-cso-core" \
+    "$SOURCE_GSTACK_DIR/bin/gstack-cso-core.exe" \
+    "$SOURCE_GSTACK_DIR/bin/gstack-cso-watchdog" \
+    "$SOURCE_GSTACK_DIR/bin/.gstack-cso-generation" \
+    "$SOURCE_GSTACK_DIR/bin/.gstack-cso-generation.lock"
+fi
+BUILD_STAMP="$SOURCE_GSTACK_DIR/browse/dist/.build-complete"
 NEEDS_BUILD=0
-if [ ! -x "$BROWSE_BIN" ] || [ ! -x "$SOURCE_GSTACK_DIR/design/dist/design$_EXE" ] || [ ! -x "$SOURCE_GSTACK_DIR/make-pdf/dist/pdf$_EXE" ]; then
+if [ ! -f "$BUILD_STAMP" ] || [ ! -x "$BROWSE_BIN" ] || [ ! -x "$SOURCE_GSTACK_DIR/design/dist/design$_EXE" ] || [ ! -x "$SOURCE_GSTACK_DIR/make-pdf/dist/pdf$_EXE" ]; then
   NEEDS_BUILD=1
+fi
+if [ "$CSO_BUILD_AVAILABLE" -eq 1 ]; then
+  if [ ! -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher$_EXE" ] || [ ! -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-core$_EXE" ] || [ ! -f "$SOURCE_GSTACK_DIR/bin/.gstack-cso-generation" ]; then
+    NEEDS_BUILD=1
+  elif [ "$IS_WINDOWS" -eq 0 ] && [ ! -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-watchdog" ]; then
+    NEEDS_BUILD=1
+  elif [ "$IS_WINDOWS" -eq 1 ] && [ ! -f "$SOURCE_GSTACK_DIR/bin/.gstack-cso-generation.lock" ];then
+    NEEDS_BUILD=1
+  fi
 fi
 # lib/ holds the canonical claude-bin, error-handling and aside-render sources
 # the binaries embed (browse/src re-exports them), so it is part of the set.
 if [ "$NEEDS_BUILD" -eq 0 ]; then
-  if [ -n "$(find "$SOURCE_GSTACK_DIR/browse/src" "$SOURCE_GSTACK_DIR/make-pdf/src" "$SOURCE_GSTACK_DIR/design/src" "$SOURCE_GSTACK_DIR/lib" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
+  if [ -n "$(find "$SOURCE_GSTACK_DIR/browse/src" "$SOURCE_GSTACK_DIR/make-pdf/src" "$SOURCE_GSTACK_DIR/design/src" "$SOURCE_GSTACK_DIR/lib" -type f -newer "$BUILD_STAMP" -print -quit 2>/dev/null)" ]; then
     NEEDS_BUILD=1
-  elif [ "$SOURCE_GSTACK_DIR/package.json" -nt "$BROWSE_BIN" ]; then
+  elif [ "$SOURCE_GSTACK_DIR/package.json" -nt "$BUILD_STAMP" ]; then
     NEEDS_BUILD=1
-  elif [ -f "$SOURCE_GSTACK_DIR/bun.lock" ] && [ "$SOURCE_GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN" ]; then
+  elif [ -f "$SOURCE_GSTACK_DIR/bun.lock" ] && [ "$SOURCE_GSTACK_DIR/bun.lock" -nt "$BUILD_STAMP" ]; then
+    NEEDS_BUILD=1
+  elif [ "$SOURCE_GSTACK_DIR/scripts/build.sh" -nt "$BUILD_STAMP" ]; then
+    NEEDS_BUILD=1
+  elif [ "$CSO_BUILD_AVAILABLE" -eq 1 ] && { [ "$SOURCE_GSTACK_DIR/scripts/build-cso.sh" -nt "$BUILD_STAMP" ] || [ "$SOURCE_GSTACK_DIR/scripts/build-cso-windows.ps1" -nt "$BUILD_STAMP" ]; }; then
     NEEDS_BUILD=1
   fi
 fi
@@ -909,6 +1007,9 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   (
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    if [ "$CSO_BUILD_AVAILABLE" -eq 0 ]; then
+      export GSTACK_SETUP_SKIP_CSO_BUILD=1
+    fi
     bun_cmd run build
   )
   # Safety net: write .version if build script didn't (e.g., git not available during build)
@@ -934,6 +1035,8 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   # binary is genuinely SIGKILL'd on exec (exit 137).
   # See: https://github.com/garrytan/gstack/issues/997
   if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+    # CSO artifacts are signed and verified inside build-cso's staged generation;
+    # mutating them here would break its launcher-last publication guarantee.
     for _bin in browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover; do
       _bin_path="$SOURCE_GSTACK_DIR/$_bin"
       [ -f "$_bin_path" ] && [ -x "$_bin_path" ] || continue
@@ -980,6 +1083,26 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
         log "warning: Homebrew not found. /codex will run without hang protection. Install coreutils manually or set GSTACK_SKIP_COREUTILS=1."
       fi
     fi
+  fi
+fi
+
+if [ "$CSO_BUILD_AVAILABLE" -eq 1 ]; then
+  if [ ! -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher$_EXE" ] || [ ! -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-core$_EXE" ] || [ ! -f "$SOURCE_GSTACK_DIR/bin/.gstack-cso-generation" ] || { [ "$IS_WINDOWS" -eq 0 ] && [ ! -x "$SOURCE_GSTACK_DIR/bin/gstack-cso-watchdog" ]; } || { [ "$IS_WINDOWS" -eq 1 ] && [ ! -f "$SOURCE_GSTACK_DIR/bin/.gstack-cso-generation.lock" ]; }; then
+    echo "gstack setup failed: CSO build completed without its required native artifact set" >&2
+    exit 1
+  fi
+  # Runtime/scanner execution never pulls. Setup is the sole automatic
+  # acquisition path: the trusted launcher validates committed catalogs,
+  # rejects remote Docker contexts, and uses an empty Docker config for
+  # anonymous exact-digest pulls. Each image gets a bounded pull window and the
+  # whole catalog remains under a hard aggregate deadline; Docker or network
+  # gaps stay nonfatal so a later setup can continue from local exact digests.
+  _CSO_IMAGE_SUMMARY=""
+  _CSO_IMAGE_PULL_TIMEOUT_SECONDS="${GSTACK_CSO_IMAGE_PULL_TIMEOUT_SECONDS:-30}"
+  if _CSO_IMAGE_SUMMARY="$("$SOURCE_GSTACK_DIR/bin/gstack-cso-launcher$_EXE" provision-images --setup-summary --per-image-seconds "$_CSO_IMAGE_PULL_TIMEOUT_SECONDS" 2>/dev/null)"; then
+    [ -n "$_CSO_IMAGE_SUMMARY" ] && log "$_CSO_IMAGE_SUMMARY"
+  else
+    log "warning: qualified CSO images could not be checked or preloaded; static audits remain available. Re-run setup after local Docker and public registry access are available."
   fi
 fi
 
@@ -3059,6 +3182,25 @@ if ! grep -q '^redact_prepush_hook:' "$_GSTACK_CFG_FILE" 2>/dev/null; then
     log "     Enable once: gstack-config set redact_prepush_hook true — /ship"
     log "     installs the hook automatically in every repo you ship from."
   fi
+fi
+
+# ─── CSO native-helper summary ────────────────────────────────────────────────
+if [ "$CSO_BUILD_AVAILABLE" -eq 0 ]; then
+  case "$CSO_FAIL_REASON" in
+    bun-compile-flags) _CSO_PREREQ="upgrade Bun to a release supporting all four --no-compile-autoload-* build flags" ;;
+    c-compiler) _CSO_PREREQ="install a C compiler (cc, Clang, or GCC)" ;;
+    static-c-toolchain) _CSO_PREREQ="install a C toolchain capable of static linking" ;;
+    macos-codesign|macos-native-toolchain) _CSO_PREREQ="install the macOS compiler and codesign command-line tools" ;;
+    windows-shell-toolchain) _CSO_PREREQ="run setup from Git Bash with Windows PowerShell available" ;;
+    windows-msvc-toolchain) _CSO_PREREQ="install Visual Studio 2022 Build Tools with Desktop development with C++" ;;
+    windows-git) _CSO_PREREQ="install Git for Windows and run setup from its Git Bash" ;;
+    unsupported-platform) _CSO_PREREQ="use a supported macOS, Linux, or Windows host" ;;
+    *) _CSO_PREREQ="install the native CSO build prerequisites" ;;
+  esac
+  log ""
+  log "CSO unavailable: its native helper was not built ($CSO_FAIL_REASON)."
+  log "  /cso will report not assessed and the install prerequisite; it will not use repository tooling."
+  log "  Everything else is installed and works. To enable /cso, $_CSO_PREREQ, then re-run ./setup."
 fi
 
 # ─── Chromium bootstrap summary (best-effort browser, see # 2) ───────────────

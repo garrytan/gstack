@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+test "$#" -eq 1
+policy="$1"
+case "$policy" in /policy/*) ;; *) exit 64 ;; esac
+test -f /work/postgresql.ready
+export PGPASSWORD=cso-disposable-test
+count=0
+while IFS= read -r database || test -n "$database"; do
+  case "$database" in cso_[A-Za-z_]*) ;; *) exit 64 ;; esac
+  case "$database" in *[!A-Za-z0-9_]*) exit 64 ;; esac
+  count=$((count + 1)); test "$count" -le 64
+  test "$(/opt/cso/bin/psql -h 127.0.0.1 -p 5432 -U cso -d "$database" -Atqc 'SELECT 1')" = 1
+done < "$policy"
+test "$count" -gt 0

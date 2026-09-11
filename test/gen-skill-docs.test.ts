@@ -422,9 +422,10 @@ describe('gen-skill-docs', () => {
   });
 
   test('tier 2+ skills contain ELI10 simplification rules (AskUserQuestion format)', () => {
-    // Root SKILL.md is tier 1 (no AskUserQuestion format). Check a tier 2+ skill instead.
+    // Root SKILL.md is tier 1 and CSO intentionally uses a private startup with
+    // no shared PREAMBLE. Check a regular tier 2+ PREAMBLE consumer instead.
     // v1.7.0.0 Pros/Cons format uses "ELI10 (ALWAYS)" rather than "Simplify (ELI10".
-    const content = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('ELI10');
     expect(content).toContain('plain English');
     expect(content).toContain('not function names');
@@ -3527,7 +3528,9 @@ describe('LEARNINGS_LOG resolver', () => {
 });
 
 describe('CONFIDENCE_CALIBRATION resolver', () => {
-  const CONFIDENCE_SKILLS = ['review', 'ship', 'plan-eng-review', 'cso'];
+  // CSO owns a distinct evidence rubric; the shared numerical confidence
+  // resolver would conflict with that contract and its private startup.
+  const CONFIDENCE_SKILLS = ['review', 'ship', 'plan-eng-review'];
 
   for (const skill of CONFIDENCE_SKILLS) {
     test(`${skill} generated SKILL.md contains confidence calibration`, () => {
@@ -3668,6 +3671,29 @@ describe('voice-triggers processing', () => {
     const fmEnd = content.indexOf('\n---', 4);
     const frontmatter = content.slice(0, fmEnd);
     expect(frontmatter).not.toContain('voice-triggers:');
+  });
+
+  test('generated Claude CSO skill preauthorizes only the trusted launcher', () => {
+    const expected = [
+      'Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher *)',
+      'Bash(~/.claude/skills/gstack/bin/gstack-cso-launcher.exe *)',
+    ];
+    for (const file of ['cso/SKILL.md.tmpl', 'cso/SKILL.md']) {
+      const content = fs.readFileSync(path.join(ROOT, file), 'utf-8');
+      const fmEnd = content.indexOf('\n---', 4);
+      const frontmatter = Bun.YAML.parse(content.slice(4, fmEnd)) as Record<string, unknown>;
+      expect(frontmatter['allowed-tools'], file).toEqual(expected);
+    }
+  });
+
+  test('generated CSO host variants retain challenge fallback and host-containment disclosure', () => {
+    const claude = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    const codex = fs.readFileSync(path.join(EXTERNAL_OUT, '.agents', 'skills', 'gstack-cso', 'SKILL.md'), 'utf-8');
+    for (const content of [claude, codex]) {
+      expect(content).toContain('sequential challenge; independent agent unavailable');
+      expect(content).toContain('Containment does not sandbox the host agent or kernel.');
+      expect(content).toContain('Do not request broader tool access solely to obtain an independent reviewer.');
+    }
   });
 
   // Gen-time-only keys: interactive + benefits-from are read from the .tmpl by
