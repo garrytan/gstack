@@ -70,7 +70,7 @@ Usage:
   gstack-cso patch-hash REQUEST.json
   gstack-cso finish RUN
   gstack-cso replay BUNDLE_ID [--source MATCHING_SOURCE]
-  gstack-cso recheck FINDING --run RUN --repo PATH
+  gstack-cso recheck FINDING --repo PATH [--run RUN]
   gstack-cso import-v2 REPORT.json
   gstack-cso schema
 
@@ -363,10 +363,29 @@ async function scanner(args:string[],sarif=false){
   });
 }
 function scannerOutcome(args:string[]){const {dir}=run(args);if(args.length!==1||!/^[a-z0-9-]{1,40}-[a-f0-9]{16}-[a-f0-9]{16}$/.test(args[0]))throw new CsoError('INVALID_ARGUMENT','scanner-outcome requires one immutable scanner artifact ID');return readJson(join(dir,'scanner-outcomes',`${args[0]}.json`));}
-async function recheck(args:string[],dependencies:CsoCliDependencies){const startedAt=new Date();if(!args.length)throw new CsoError('INVALID_ARGUMENT','recheck requires a finding ID');retention(startedAt.getTime(),{deadlineMs:startedAt.getTime()+RETENTION_MAINTENANCE_MS,maxEntries:RETENTION_MAX_ENTRIES});const findingId=args.shift()!,runId=need(args,'--run'),originalDir=runDirectory(runId);return await withLock(originalDir,async()=>{const original=loadReport(originalDir),finding=original.findings.find(f=>f.id===findingId);if(!finding)throw new CsoError('MISSING_INPUT','Original finding does not exist');if(original.status!=='finished')throw new CsoError('INVALID_SCHEMA','Recheck requires a finished original audit');
+function recheckOriginalDirectory(repo:string,findingId:string,requestedRun?:string):{dir:string;runId:string}{
+  const currentRepoId=repoId(repo),root=privateRoot(),repoDir=join(root,currentRepoId),runPattern=/^\d{13}-[a-f0-9]{16}$/;
+  if(requestedRun){
+    if(!runPattern.test(requestedRun))throw new CsoError('INVALID_ARGUMENT','Run identifier must be the ID returned by start');
+    const dir=join(repoDir,requestedRun);if(!fs.existsSync(dir))throw new CsoError('MISSING_INPUT','Original run was not found for the current repository or has expired');
+    return{dir:secureDirectory(dir),runId:requestedRun};
+  }
+  if(!fs.existsSync(repoDir))throw new CsoError('MISSING_INPUT','No finished original audit contains this finding in the current repository');
+  const matches:{dir:string;runId:string}[]=[],directory=fs.opendirSync(secureDirectory(repoDir));let visited=0;
+  try{let entry:fs.Dirent|null;while((entry=directory.readSync())!==null){
+    if(++visited>REPLAY_LOOKUP_MAX_ENTRIES)throw new CsoError('INSUFFICIENT_CAPACITY',`Recheck lookup exceeded ${REPLAY_LOOKUP_MAX_ENTRIES} private state entries`);
+    if(!entry.isDirectory()||!runPattern.test(entry.name))continue;const dir=join(repoDir,entry.name),reportPath=join(dir,'report.json');if(!fs.existsSync(reportPath))continue;const report=loadReport(dir);
+    if(report.runId!==entry.name||report.repoId!==currentRepoId)throw new CsoError('INCOMPATIBLE_INPUT','Retained original audit identity does not match its repository state path');
+    if(report.status==='finished'&&!report.parent&&report.findings.some(f=>f.id===findingId))matches.push({dir,runId:entry.name});
+  }}finally{directory.closeSync();}
+  if(!matches.length)throw new CsoError('MISSING_INPUT','No finished original audit contains this finding in the current repository');
+  if(matches.length>1)throw new CsoError('INVALID_ARGUMENT',`Finding matches ${matches.length} finished original audits; use --run RUN to select one`);
+  return matches[0];
+}
+async function recheck(args:string[],dependencies:CsoCliDependencies){const startedAt=new Date();if(!args.length)throw new CsoError('INVALID_ARGUMENT','recheck requires a finding ID');const findingId=args.shift()!;if(!/^[a-f0-9]{32}$/.test(findingId))throw new CsoError('INVALID_ARGUMENT','Finding identifier must be the 32-character ID reported by CSO');const repo=callerPath(need(args,'--repo')),requestedRun=args.includes('--run')?need(args,'--run'):undefined;if(args.length)throw new CsoError('INVALID_ARGUMENT',`Unknown recheck argument: ${args[0]}`);if(!fs.existsSync(repo)||!fs.statSync(repo).isDirectory())throw new CsoError('MISSING_INPUT','Repository directory does not exist');assertStateOutside(repo);retention(startedAt.getTime(),{deadlineMs:startedAt.getTime()+RETENTION_MAINTENANCE_MS,maxEntries:RETENTION_MAX_ENTRIES});const selected=recheckOriginalDirectory(repo,findingId,requestedRun),runId=selected.runId,originalDir=selected.dir;return await withLock(originalDir,async()=>{const original=loadReport(originalDir);if(original.runId!==runId||original.repoId!==repoId(repo))throw new CsoError('INCOMPATIBLE_INPUT','Retained original audit identity does not match its repository state path');const finding=original.findings.find(f=>f.id===findingId);if(!finding)throw new CsoError('MISSING_INPUT','Original finding does not exist');if(original.status!=='finished'||original.parent)throw new CsoError('INVALID_SCHEMA','Recheck requires a finished original audit');
     // Keep the original immutable while the fresh snapshot is captured and
     // until its child lineage report has been durably published.
-    const repo=callerPath(need(args,'--repo'));if(args.length)throw new CsoError('INVALID_ARGUMENT',`Unknown recheck argument: ${args[0]}`);if(repoId(repo)!==original.repoId)throw new CsoError('INCOMPATIBLE_INPUT','Recheck must use the original audited repository');const oldManifest=readJson(join(originalDir,'snapshot.json'));
+    const oldManifest=readJson(join(originalDir,'snapshot.json'));
     const preserveBase=original.policy.diff||Boolean(original.source.baseCommit),report=await start(['--repo',repo,...(original.policy.mode==='comprehensive'?['--comprehensive']:[]),...(original.policy.diff?['--diff']:[]),...(preserveBase?['--base',original.policy.base]:[]),'--budget',String(original.policy.budgetSeconds),...(original.policy.offline?['--offline']:[]),...(original.policy.scope==='default'?[]:original.policy.scope.startsWith('domain:')?['--scope',original.policy.scope.slice(7)]:[`--${original.policy.scope}`])],dependencies,{runId,findingId,kind:'recheck'},oldManifest.headCommit,startedAt);
     return {runId:report.runId,parent:report.parent};});}
 

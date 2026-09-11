@@ -71,7 +71,7 @@ gstack-cso start --repo <repo> [scope/diff/base/budget/offline flags] [--compreh
 gstack-cso doctor --repo <repo>
 gstack-cso resume <run>
 gstack-cso replay <bundle> [--source <matching-source>]
-gstack-cso recheck <finding> --run <original-run> --repo <repo>
+gstack-cso recheck <finding> --repo <repo> [--run <original-run>]
 gstack-cso inspect <run>
 gstack-cso read <run> <path-or-handle>
 gstack-cso history <run> [path-or-handle]
