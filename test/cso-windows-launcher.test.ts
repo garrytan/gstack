@@ -322,7 +322,7 @@ describe('CSO native Windows build contract', () => {
     const actual=path.join(ROOT,'bin','gstack-cso-launcher.exe'),env={...process.env,HOME:'',GSTACK_HOME:'',CLAUDE_PLUGIN_ROOT:'',CLAUDE_PLUGIN_DATA:'',USERPROFILE:profile,PATH:temporary,NODE_OPTIONS:'--require=hostile'};
     const doctor=spawnSync(actual,['doctor','--repo',repository],{cwd:repository,encoding:'utf8',env,timeout:30_000});expect(doctor.status).toBe(0);const diagnosis=JSON.parse(doctor.stdout);expect(diagnosis.downloads).toBe(false);
     const started=spawnSync(actual,['start','--repo',repository,'--offline'],{cwd:repository,encoding:'utf8',env,timeout:30_000});
-    if(started.status!==0){const trustedGit=diagnosis.checks.find((check:any)=>check.capability==='static-snapshot')?.detail;if(typeof trustedGit!=='string')throw new Error('gstack-cso start failed and the fixed Git probe was unavailable');throw new Error(`gstack-cso start failed; fixed Git probe statuses: ${JSON.stringify(gitProbeMatrix(trustedGit,repository,profile))}`);}
+    if(started.status!==0)throw new Error(`gstack-cso start failed; fixed Git probe statuses: ${JSON.stringify(gitProbeMatrix(git,repository,profile))}`);
     expectSuccessfulProcess(started,'gstack-cso start');expect(JSON.parse(started.stdout).schemaVersion).toBe(3);expect(fs.existsSync(path.join(profile,'.gstack','security','cso'))).toBe(true);
   });
 });
