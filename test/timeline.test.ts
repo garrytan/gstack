@@ -90,6 +90,55 @@ function findTimelineFile(): string | null {
 }
 
 describe('gstack-timeline-log', () => {
+  test('accepts canonical percent-encoded project slugs and rejects malformed or traversal slugs', () => {
+    const observer = path.join(BIN, 'gstack-ecpe-observe');
+    const input = JSON.stringify({ skill: 'review', event: 'started', branch: 'main' });
+    const invoke = (slug: string) => spawnSync(observer, ['timeline-log', input], {
+      cwd: ROOT,
+      env: { ...process.env, GSTACK_HOME: tmpDir, GSTACK_PROJECT_SLUG: slug },
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+
+    for (const slug of ['fixture%2Dproject', 'fixture%25project', 'caf%C3%A9']) {
+      const canonical = invoke(slug);
+      expect(canonical.status).toBe(0);
+      expect(fs.existsSync(path.join(tmpDir, 'projects', slug, 'timeline.jsonl'))).toBe(true);
+    }
+
+    for (const invalid of ['fixture%2Gproject', 'fixture%2dproject', 'fixture%41project', 'fixture%2Fproject', '../escape']) {
+      const rejected = invoke(invalid);
+      expect(rejected.status).toBe(2);
+      expect(rejected.stderr).toContain('project_identity_unavailable');
+    }
+  });
+
+  test('uses a canonical percent-encoded project slug across lifecycle state and observations', () => {
+    const observer = path.join(BIN, 'gstack-ecpe-observe');
+    const slug = 'fixture%2Dproject';
+    const started = spawnSync(observer, [
+      'lifecycle-start', '--skill', 'review', '--run-id', 'run-encoded-slug',
+      '--branch', 'main', '--slug', slug,
+    ], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        GSTACK_HOME: tmpDir,
+        GSTACK_PROJECT_SLUG: slug,
+        ECPE_TESTING: '1',
+        ECPE_TEST_STATE_ROOT: tmpDir,
+      },
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+
+    expect(started.status).toBe(0);
+    const timeline = path.join(tmpDir, 'projects', slug, 'timeline.jsonl');
+    const row = JSON.parse(fs.readFileSync(timeline, 'utf8').trim());
+    expect(row.ecpe.wtree).toBe(slug);
+    expect(fs.existsSync(path.join(tmpDir, 'ecpe', 'record-inventory', `${slug}.json`))).toBe(true);
+  });
+
   test('accepts valid JSON and appends to timeline.jsonl', () => {
     const input = '{"skill":"review","event":"started","branch":"main"}';
     const result = runLog(input);

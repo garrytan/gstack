@@ -25,6 +25,31 @@ const scope = {
 };
 
 describe('strict content-free ECPE observations', () => {
+  test('accepts canonical project slugs only in project-identity fields', async () => {
+    const api = await subject();
+    expect(api).not.toBeNull();
+    for (const valid of ['legacy-project', 'fixture%2Dproject', 'fixture%25project', 'caf%C3%A9']) {
+      expect(api.isProjectSlug(valid)).toBe(true);
+    }
+    for (const invalid of ['fixture%2Gproject', 'fixture%2dproject', 'fixture%41project', 'fixture%2Fproject', '../escape', 'a'.repeat(129)]) {
+      expect(api.isProjectSlug(invalid)).toBe(false);
+    }
+
+    expect(api.validateEcpeObservation({
+      ...base,
+      wtree: 'fixture%2Dproject',
+      kind: 'gate',
+      gate: { phase: 'before_final', gate_wtree: 'fixture%2Dproject' },
+    })).toMatchObject({ wtree: 'fixture%2Dproject' });
+
+    expect(() => api.validateEcpeObservation({
+      ...base,
+      wtree: 'fixture%2Dproject',
+      kind: 'decision',
+      capability_ids: ['fixture%2Dproject'],
+    })).toThrow(/ecpe_schema_invalid/);
+  });
+
   test('accepts closed enums and validated IDs but rejects unknown and content-bearing keys recursively', async () => {
     const api = await subject();
     expect(api).not.toBeNull();

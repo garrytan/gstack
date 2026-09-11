@@ -15,6 +15,8 @@ const BASE_KEYS = ['schema_version', 'run_id', 'timestamp', 'wtree', 'kind', 'ex
 const BASE_REQUIRED_KEYS = ['schema_version', 'run_id', 'timestamp', 'wtree', 'kind', 'work_kind', 'finish_line'] as const;
 const ID = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 const OPAQUE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
+const LEGACY_PROJECT_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const CANONICAL_PROJECT_COMPONENT = /^(?:[A-Za-z0-9._]|%[0-9A-F]{2})+$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 export type EcpeObservation = Record<string, any>;
@@ -61,6 +63,34 @@ function exactKeys(value: Record<string, any>, allowed: readonly string[], requi
 function text(value: unknown, expression: RegExp = OPAQUE, maxBytes = 256): string {
   if (typeof value !== 'string' || Buffer.byteLength(value) > maxBytes || !expression.test(value)) invalid();
   return value;
+}
+
+function encodeProjectComponent(value: string): string {
+  let encoded = '';
+  for (const byte of new TextEncoder().encode(value)) {
+    const literal =
+      (byte >= 0x30 && byte <= 0x39) ||
+      (byte >= 0x41 && byte <= 0x5a) ||
+      (byte >= 0x61 && byte <= 0x7a) ||
+      byte === 0x2e ||
+      byte === 0x5f;
+    encoded += literal ? String.fromCharCode(byte) : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+  }
+  return encoded;
+}
+
+/** A filesystem-safe legacy slug or exact canonical project-identity encoding. */
+export function isProjectSlug(value: unknown): value is string {
+  if (typeof value !== 'string' || Buffer.byteLength(value) > 128) return false;
+  if (LEGACY_PROJECT_SLUG.test(value)) return true;
+  const components = value.split('--');
+  if (components.some((component) => !CANONICAL_PROJECT_COMPONENT.test(component))) return false;
+  return components.every((component) => {
+    let decoded: string;
+    try { decoded = decodeURIComponent(component); } catch { return false; }
+    if (decoded === '.' || decoded === '..' || /[\/\\\0\r\n]/.test(decoded)) return false;
+    return encodeProjectComponent(decoded) === component;
+  });
 }
 
 function nullableText(value: unknown): string | null {
@@ -183,7 +213,7 @@ export function validateEcpeObservation(value: unknown, options: ValidateEcpeOpt
   if (value.schema_version !== ECPE_SCHEMA_VERSION) invalid();
   text(value.run_id, OPAQUE);
   if (typeof value.timestamp !== 'string' || !ISO.test(value.timestamp) || new Date(value.timestamp).toISOString() !== value.timestamp) invalid();
-  text(value.wtree, OPAQUE);
+  if (!isProjectSlug(value.wtree)) text(value.wtree, OPAQUE);
   closed(value.work_kind, WORK_KINDS);
   closed(value.finish_line, FINISH_LINES);
   const purpose = value.execution_purpose ?? 'ordinary';
@@ -241,7 +271,8 @@ export function validateEcpeObservation(value: unknown, options: ValidateEcpeOpt
     case 'gate':
       if (!plain(value.gate)) invalid();
       exactKeys(value.gate, ['phase', 'gate_wtree']);
-      closed(value.gate.phase, ['before_final', 'after_final']); text(value.gate.gate_wtree, OPAQUE);
+      closed(value.gate.phase, ['before_final', 'after_final']);
+      if (!isProjectSlug(value.gate.gate_wtree)) text(value.gate.gate_wtree, OPAQUE);
       break;
     case 'effect': validateEffect(value.effect); break;
     case 'token':
@@ -519,7 +550,7 @@ function appendLines(timelinePath: string, entries: Record<string, any>[]): Appe
 }
 
 export function appendTimelineBatch(stateRoot: string, slug: string, values: unknown[]): AppendMetrics {
-  text(slug, /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
+  if (!isProjectSlug(slug)) invalid();
   if (!Array.isArray(values) || values.length === 0 || values.length > 256) invalid();
   const entries = values.map((value) => {
     if (!plain(value) || typeof value.skill !== 'string' || !value.skill || typeof value.event !== 'string' || !value.event) invalid();
@@ -673,7 +704,7 @@ export class RecordInventory {
   constructor(options: { repositoryRoot: string; stateRoot: string; projectId: string; reconciliationEntryBudget?: number }) {
     this.repositoryRoot = fs.realpathSync(options.repositoryRoot);
     this.stateRoot = fs.realpathSync(options.stateRoot);
-    this.projectId = text(options.projectId, ID);
+    this.projectId = isProjectSlug(options.projectId) ? options.projectId : text(options.projectId, ID);
     this.reconciliationEntryBudget = options.reconciliationEntryBudget ?? 4096;
     this.baselinePath = path.join(this.stateRoot, 'ecpe', 'record-inventory', `${this.projectId}.json`);
   }

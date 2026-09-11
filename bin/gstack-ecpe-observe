@@ -10,6 +10,7 @@ import {
   appendTimelineBatch,
   appendTimelineInput,
   aggregateEcpeObservations,
+  isProjectSlug,
   parseEcpeTimeline,
   RecordInventory,
   validateEcpeObservation,
@@ -21,7 +22,6 @@ import { resolveProfileRequirements, type Lane } from '../lib/work-profile';
 import { readMilestoneBlock } from '../lib/milestone-block';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const RUN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
 
 class CliError extends Error {
@@ -56,7 +56,7 @@ function stateRoot(): ReturnType<typeof resolveRuntimeStateRoot> {
 
 function slugFromEnvironment(): string {
   const slug = process.env.GSTACK_PROJECT_SLUG;
-  if (!slug || !SLUG.test(slug)) fail('project_identity_unavailable');
+  if (!isProjectSlug(slug)) fail('project_identity_unavailable');
   return slug;
 }
 
@@ -110,7 +110,7 @@ function lifecycleStart(args: string[]): void {
   const runId = option(args, '--run-id')!;
   const branch = option(args, '--branch')!;
   const slug = option(args, '--slug')!;
-  if (!SLUG.test(slug) || !RUN.test(runId) || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(skill)) fail('argument_invalid');
+  if (!isProjectSlug(slug) || !RUN.test(runId) || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(skill)) fail('argument_invalid');
   const state = stateRoot();
   const contract = contractForSkill(skill);
   const inventory = new RecordInventory({ repositoryRoot: process.cwd(), stateRoot: state.root, projectId: slug });
@@ -138,7 +138,7 @@ function lifecycleEnd(args: string[]): void {
   const outcome = option(args, '--outcome')!;
   const duration = option(args, '--duration-s')!;
   const batchJson = option(args, '--batch-json', false);
-  if (!SLUG.test(slug) || !RUN.test(runId) || !/^\d+$/.test(duration)) fail('argument_invalid');
+  if (!isProjectSlug(slug) || !RUN.test(runId) || !/^\d+$/.test(duration)) fail('argument_invalid');
   const state = stateRoot();
   const target = inflightPath(state.root, runId);
   let inflight: Record<string, any> | null = null;
