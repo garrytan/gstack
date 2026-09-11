@@ -3620,7 +3620,7 @@ needs one paid run to validate, so it didn't ride the ship.
 **Priority:** P1
 **Depends on:** None
 
-**Completed:** v1.85.0.0 (2026-09-09). Shipped as `/claude-code`, with automatic outside-review routing and safe installation migration.
+**Completed:** v1.86.0.0 (2026-09-11). Shipped as `/claude-code`, with automatic outside-review routing and safe installation migration.
 
 ### P3: Carve the always-loaded `{{PREAMBLE}}` reference blocks into an on-demand doc
 
