@@ -122,7 +122,11 @@ describe('CSO public GHCR release proof', () => {
     expect(pulled).toBe(false);
   });
 
-  test('kills a Docker client as soon as bounded output exceeds the release limit', async () => {
+  // The public-image release verifier runs in Linux CI. This case exercises
+  // its process-kill path with a POSIX shebang fixture; Windows CreateProcess
+  // cannot execute that fixture, while the metadata contract above remains
+  // portable and continues to run in the curated Windows lane.
+  test.skipIf(process.platform === 'win32')('kills a Docker client as soon as bounded output exceeds the release limit', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cso-public-docker-test-'));
     const docker = path.join(directory, 'docker');
     fs.writeFileSync(docker, '#!/bin/sh\npython3 -c "import sys; sys.stdout.write(chr(120) * 70000)"\n', { mode: 0o700 });

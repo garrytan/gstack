@@ -123,6 +123,16 @@ describe('CSO build and distribution wiring', () => {
     expectPublishedBundle(dir);
   });
 
+  test.skipIf(process.platform === 'win32')('generation validation accepts BSD wc padding', () => {
+    const dir = buildFixture(), tools = join(dir, 'bsd-tools'), wc = join(tools, 'wc');
+    mkdirSync(tools);
+    writeFileSync(wc, '#!/bin/sh\nset -eu\ncount=$(/usr/bin/wc -c "$@")\nprintf "      %s\\n" "$count"\n');
+    chmodSync(wc, 0o755);
+    const result = fakeBuild(dir, `PATH=${quote(`${tools}:/usr/bin:/bin`)}`);
+    expect(result.status).toBe(0);
+    expectPublishedBundle(dir);
+  });
+
   test.skipIf(process.platform === 'win32').each([1,2,3,4])('compiler failure at stage %i preserves the exact runnable old bundle', failure => {
     const dir=buildFixture();seedBundle(dir);const before=bundleContents(dir);
     const r=fakeBuild(dir,`CSO_FAIL_COMPILER_N=${failure}`);

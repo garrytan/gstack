@@ -74,6 +74,23 @@ function publishProbe() {
   return spawnSync(publisher, [temporary, process.execPath, '--version'], { encoding: 'utf8', timeout: 10_000 });
 }
 
+function pathIdentity(value: string) {
+  const stat = fs.statSync(value, { bigint: true });
+  return { device: stat.dev, file: stat.ino };
+}
+
+function expectSuccessfulProcess(result: ReturnType<typeof spawnSync>, label: string) {
+  if (result.status === 0) return;
+  const bounded = (value: unknown) => String(value ?? '').slice(0, 8192);
+  throw new Error(`${label} failed: ${JSON.stringify({
+    status: result.status,
+    signal: result.signal,
+    error: result.error?.message,
+    stdout: bounded(result.stdout),
+    stderr: bounded(result.stderr),
+  })}`);
+}
+
 describe('CSO native Windows build contract', () => {
   test('Windows builds use MSVC with a static CRT and no Bun-hosted public launcher', () => {
     const build = fs.readFileSync(path.join(ROOT, 'scripts/build-cso.sh'), 'utf8');
@@ -156,8 +173,8 @@ describe('CSO native Windows build contract', () => {
     expect(value.env.GSTACK_HOME).toBe(path.join(temporary, 'state'));
     expect(value.env.PATH).not.toBe(temporary);
     expect(value.env.SystemRoot.toLowerCase()).toBe(process.env.SystemRoot!.toLowerCase());
-    expect(fs.realpathSync(value.cwd).toLowerCase()).toBe(fs.realpathSync(temporary).toLowerCase());
-    expect(fs.realpathSync(value.cwd).toLowerCase()).not.toBe(fs.realpathSync(invocationCwd).toLowerCase());
+    expect(pathIdentity(value.cwd)).toEqual(pathIdentity(temporary));
+    expect(pathIdentity(value.cwd)).not.toEqual(pathIdentity(invocationCwd));
   });
 
   test('BUN_BE_BUN cannot turn the public command into the Bun runtime', () => {
@@ -264,6 +281,6 @@ describe('CSO native Windows build contract', () => {
     for(const args of [['add','app.js'],['commit','-qm','fixture']] as string[][]){const result=spawnSync(git,args,{cwd:repository,encoding:'utf8',env:gitEnv,timeout:10_000});expect(result.status).toBe(0);}
     const actual=path.join(ROOT,'bin','gstack-cso-launcher.exe'),env={...process.env,HOME:'',GSTACK_HOME:'',CLAUDE_PLUGIN_ROOT:'',CLAUDE_PLUGIN_DATA:'',USERPROFILE:profile,PATH:temporary,NODE_OPTIONS:'--require=hostile'};
     const doctor=spawnSync(actual,['doctor','--repo',repository],{cwd:repository,encoding:'utf8',env,timeout:30_000});expect(doctor.status).toBe(0);expect(JSON.parse(doctor.stdout).downloads).toBe(false);
-    const started=spawnSync(actual,['start','--repo',repository,'--offline'],{cwd:repository,encoding:'utf8',env,timeout:30_000});expect(started.status).toBe(0);expect(JSON.parse(started.stdout).schemaVersion).toBe(3);expect(fs.existsSync(path.join(profile,'.gstack','security','cso'))).toBe(true);
+    const started=spawnSync(actual,['start','--repo',repository,'--offline'],{cwd:repository,encoding:'utf8',env,timeout:30_000});expectSuccessfulProcess(started,'gstack-cso start');expect(JSON.parse(started.stdout).schemaVersion).toBe(3);expect(fs.existsSync(path.join(profile,'.gstack','security','cso'))).toBe(true);
   });
 });

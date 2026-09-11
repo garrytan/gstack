@@ -97,7 +97,10 @@ trap 'exit 143' TERM
 cso_valid_artifact() { [ -f "$1" ] && [ ! -L "$1" ] && [ -x "$1" ]; }
 cso_present() { [ -e "$1" ] || [ -L "$1" ]; }
 cso_valid_generation() {
-  [ -f "$1" ]&&[ ! -L "$1" ]&&[ "$(wc -c < "$1" 2>/dev/null||true)" = 65 ]||return 1
+  [ -f "$1" ]&&[ ! -L "$1" ]||return 1
+  generation_size="$(wc -c < "$1" 2>/dev/null||true)"
+  generation_size="${generation_size//[[:space:]]/}"
+  [ "$generation_size" = 65 ]||return 1
   generation="$(cat "$1" 2>/dev/null)";[ "${#generation}" -eq 64 ]||return 1
   case "$generation" in *[!a-f0-9]*) return 1;;esac
 }

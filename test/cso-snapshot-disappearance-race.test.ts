@@ -23,8 +23,12 @@ function fixture(){
   fs.mkdirSync(repo);fs.mkdirSync(runDir,{mode:0o700});
   const git=(...args:string[])=>{const result=spawnSync(trustedGit(),['-C',repo,...args],{encoding:'utf8',env:gitEnvironment(root),timeout:30_000});if(result.status)throw new Error(result.stderr);return result.stdout.trim();};
   git('init','-q');git('config','user.email','fixture@example.test');git('config','user.name','Fixture');
-  const tracked=path.join(repo,'tracked.txt');fs.writeFileSync(tracked,'security-relevant source\n');git('add','tracked.txt');git('commit','-qm','base');
-  return{repo,runDir,tracked,parked:path.join(repo,'.tracked.txt.parked')};
+  // capture() binds the repository through realpath before it touches source.
+  // Use that same spelling for hook targets: Windows can surface one directory
+  // as a short path, long path, or \\?\-namespaced path, and raw string equality
+  // against the caller spelling would leave the race injection dormant.
+  const canonicalRepo=fs.realpathSync(repo),tracked=path.join(canonicalRepo,'tracked.txt');fs.writeFileSync(tracked,'security-relevant source\n');git('add','tracked.txt');git('commit','-qm','base');
+  return{repo,runDir,tracked,parked:path.join(canonicalRepo,'.tracked.txt.parked')};
 }
 
 describe('CSO snapshot source-disappearance races',()=>{
@@ -48,7 +52,7 @@ describe('CSO snapshot source-disappearance races',()=>{
     expect(failure).toMatchObject({code:'SNAPSHOT_RACE'});
   });
   test('rejects a nonignored source file introduced during the final content validation',async()=>{
-    const {repo,runDir,tracked}=fixture(),late=path.join(repo,'late-vulnerable.js'),lstat=fs.lstatSync;let injected=false,failure:unknown;
+    const {repo,runDir,tracked}=fixture(),late=path.join(path.dirname(tracked),'late-vulnerable.js'),lstat=fs.lstatSync;let injected=false,failure:unknown;
     const patched=spyOn(fs,'lstatSync').mockImplementation(((candidate:any,options?:any)=>{
       if(!injected&&path.resolve(String(candidate))===tracked&&fs.existsSync(path.join(runDir,'history-status.json'))){injected=true;fs.writeFileSync(late,'export const vulnerable = true\n');}
       return options===undefined?lstat(candidate):lstat(candidate,options);
