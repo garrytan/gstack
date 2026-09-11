@@ -43,6 +43,18 @@ function fixture(): { source: string; destination: string; sentinel: string } {
 }
 
 describe('setup authority runtime installation', () => {
+  test('resolves the Bun runtime from the executable identity reported by Bun', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-bun-runtime-path-'));
+    roots.push(root);
+    const bun = path.join(root, 'bun');
+    fs.writeFileSync(bun, '#!/bin/sh\nprintf "%s" "C:/Program Files/Bun/bun.exe"\n', { mode: 0o755 });
+    const result = spawnSync('bash', ['-c', `${extractFunction('_resolve_bun_runtime_path')}\nPATH="$1" _resolve_bun_runtime_path`, 'fixture', root], {
+      encoding: 'utf8', timeout: 30_000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('C:/Program Files/Bun/bun.exe');
+  });
+
   test('a sidecar refresh does not replace bin before authority staging succeeds', () => {
     const f = fixture();
     const repo = path.join(path.dirname(f.source), 'repo');
@@ -57,7 +69,8 @@ describe('setup authority runtime installation', () => {
     const script = [
       'set -e', 'IS_WINDOWS=1', 'SOURCE_GSTACK_DIR="$1"',
       extractFunction('_link_or_copy'), extractFunction('_sidecar_root_user_owned'),
-      extractFunction('_install_authority_runtime'), extractFunction('create_agents_sidecar'),
+      extractFunction('_resolve_bun_runtime_path'), extractFunction('_install_authority_runtime'),
+      extractFunction('create_agents_sidecar'),
     ].join('\n');
     const first = spawnSync('bash', ['-c', `${script}\ncreate_agents_sidecar "$2"`, 'fixture', f.source, repo], { encoding: 'utf8', timeout: 30_000 });
     expect(first.status, first.stderr).toBe(0);
@@ -178,7 +191,7 @@ describe('setup authority runtime installation', () => {
     const kiro = SETUP.slice(SETUP.indexOf('# 6. Install for Kiro CLI'), SETUP.indexOf('# 6b. Install for Factory Droid'));
     expect(kiro).toContain('_install_authority_runtime "$SOURCE_GSTACK_DIR" "$KIRO_GSTACK"');
     expect(SETUP).toContain('write-installed-runtime-manifest.ts');
-    expect(SETUP).toContain('BUN_RUNTIME_PATH="$(command -v bun)"');
+    expect(SETUP).toContain('BUN_RUNTIME_PATH="$(_resolve_bun_runtime_path)"');
     expect(SETUP).toContain('--bun-path "$BUN_RUNTIME_PATH"');
     for (const [host, next] of [['slate', 'openclaw'], ['openclaw', 'hermes'], ['hermes', 'gbrain'], ['gbrain', '*']] as const) {
       const start = SETUP.indexOf(`  ${host})`);
@@ -241,6 +254,12 @@ describe('setup authority runtime installation', () => {
   });
 
   test('the Claude source runtime passes the installed anchor contract', () => {
+    const repository = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-source-identity-'));
+    roots.push(repository);
+    for (const args of [['init', '-q'], ['remote', 'add', 'origin', 'git@github.com:garrytan/gstack.git']]) {
+      const result = spawnSync('/usr/bin/git', args, { cwd: repository, encoding: 'utf8', timeout: 30_000 });
+      expect(result.status, result.stderr).toBe(0);
+    }
     const build = spawnSync(process.execPath, ['run', 'build:authority'], { cwd: ROOT, encoding: 'utf8', timeout: 30_000 });
     expect(build.status, build.stderr).toBe(0);
     const manifest = spawnSync(process.execPath, ['run', 'scripts/write-installed-runtime-manifest.ts', '--output', path.join(ROOT, '.ecpe-installed-runtime.json'), '--artifact-root', ROOT], {
@@ -250,7 +269,7 @@ describe('setup authority runtime installation', () => {
     });
     expect(manifest.status, manifest.stderr).toBe(0);
     const identity = spawnSync('bash', [path.join(ROOT, 'bin', 'gstack-project-identity')], {
-      cwd: ROOT,
+      cwd: repository,
       encoding: 'utf8',
       timeout: 30_000,
     });

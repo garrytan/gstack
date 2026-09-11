@@ -118,6 +118,7 @@ const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
 // first windows-free-tests CI run surfaced concrete failure modes.
 const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // Hardcoded POSIX shells / commands.
+  { pattern: /['"`]\/usr\/bin\/git/, reason: 'hardcoded /usr/bin/git' },
   { pattern: /['"`]\/bin\/(?:ba)?sh/, reason: 'hardcoded /bin/sh or /bin/bash' },
   { pattern: /spawnSync\(['"]sh['"],|spawn\(['"]sh['"],|exec\(['"]sh /, reason: 'spawn("sh", ...)' },
   { pattern: /['"]bash -c['"]|['"]sh -c['"]/, reason: 'bash -c / sh -c' },
@@ -252,6 +253,78 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     file: 'browse/test/security-audit-r2.test.ts',
     reason: 'symlink-attack fixtures (evil-link) need Developer Mode CI runners lack; expect(toThrow) fires unhandled on Windows',
   },
+  // ECPE v3 native mutation is deliberately POSIX-only. These suites require
+  // successful owner-UID locks, directory fsync, POSIX Git fixtures, or direct
+  // shebang execution. Windows keeps the dedicated fail-closed/install suites
+  // below instead of running tests whose success contract is unavailable.
+  {
+    file: 'test/canary-sample-landing.test.ts',
+    reason: 'expects successful durable owner locking; native Windows deliberately rejects ECPE mutation',
+  },
+  {
+    file: 'test/ecpe-record-inventory-hot-path.test.ts',
+    reason: 'metrics checkpoints require POSIX directory fsync',
+  },
+  {
+    file: 'test/git-base-sync-adapter.test.ts',
+    reason: 'tests POSIX authority mutation with Git config fixtures that are not native-Windows paths',
+  },
+  {
+    file: 'test/land-canary-assertion-flow.test.ts',
+    reason: 'expects successful durable canary owner locking',
+  },
+  {
+    file: 'test/milestone-block.test.ts',
+    reason: 'expects successful durable milestone owner locking',
+  },
+  {
+    file: 'test/release-metadata.test.ts',
+    reason: 'tests POSIX durable release mutation through a POSIX Git fixture',
+  },
+  {
+    file: 'test/canary-activation-landing.test.ts',
+    reason: 'expects successful durable milestone owner locking',
+  },
+  {
+    file: 'test/review-log.test.ts',
+    reason: 'directly executes shell wrappers and writes the POSIX authority ledger',
+  },
+  {
+    file: 'test/section-delivery.test.ts',
+    reason: 'asserts POSIX modes and commits to the POSIX authority timeline',
+  },
+  {
+    file: 'test/terminal-landing-cancel.test.ts',
+    reason: 'landing journal persistence requires POSIX directory fsync',
+  },
+  {
+    file: 'test/lane-canary-runner.test.ts',
+    reason: 'expects successful durable owner locking',
+  },
+  {
+    file: 'test/merged-delivery.test.ts',
+    reason: 'durable authority writes require POSIX owner identity',
+  },
+  {
+    file: 'test/milestone-merged-admission.test.ts',
+    reason: 'expects successful durable milestone owner locking',
+  },
+  {
+    file: 'test/pilot-evaluation.test.ts',
+    reason: 'expects successful durable milestone owner locking',
+  },
+  {
+    file: 'test/wtree-isolation.test.ts',
+    reason: 'directly executes the gstack-wtree shebang through native CreateProcess',
+  },
+  {
+    file: 'test/release-landing.test.ts',
+    reason: 'landing journal persistence requires POSIX directory fsync',
+  },
+  {
+    file: 'test/release-queue.test.ts',
+    reason: 'directly executes a shebang-based provider fixture',
+  },
 ];
 
 // Force-include overrides: files a WINDOWS_FRAGILE_PATTERNS regex excludes for
@@ -275,6 +348,12 @@ const KNOWN_WINDOWS_SAFE: Array<{ file: string; reason: string }> = [
     // excluding it here would keep the bug class unexercised on the one
     // platform it bites.
     reason: 'bin/ hits are fixture path segments; spawns bash explicitly — the IS_WINDOWS=1 refresh path must run on windows-latest',
+  },
+  {
+    file: 'test/setup-authority-windows.test.ts',
+    // The bin/ references are fixture paths. Every wrapper is invoked through
+    // explicit Bun or Bash, and the suite owns native writer/hash/anchor proof.
+    reason: 'bin/ hits are fixture paths; explicit Bun/Bash launches preserve native Windows authority install and tamper coverage',
   },
   {
     file: 'test/uninstall-windows-copies.test.ts',

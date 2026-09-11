@@ -83,6 +83,12 @@ describe('test-free-shards: Windows curation', () => {
     });
   });
 
+  test('detects a hardcoded /usr/bin/git executable', () => {
+    withTempFile(`const git = '/usr/bin/git';`, (f) => {
+      expect(detectWindowsFragility(f)?.reason).toBe('hardcoded /usr/bin/git');
+    });
+  });
+
   test('detects spawn("sh", ...)', () => {
     // tripwire-exempt: string fixture fed to detectWindowsFragility, not a call
     withTempFile(`spawnSync('sh', ['-c', 'command -v claude']);`, (f) => {
@@ -126,6 +132,55 @@ describe('test-free-shards: Windows curation', () => {
     const result = curateWindowsSafe([file], ROOT);
     expect(result.safe).toEqual([file]);
     expect(result.excluded).toEqual([]);
+  });
+
+  test('excludes POSIX ECPE mutation suites while retaining native Windows boundary coverage', () => {
+    const posixOnly = [
+      'test/evidence-closeout-status.test.ts',
+      'test/execution-plan.test.ts',
+      'test/lane-promotion.test.ts',
+      'test/milestone-participant.test.ts',
+      'test/private-validator-env.test.ts',
+      'test/provider-merge-verification.test.ts',
+      'test/review-local-only-base.test.ts',
+      'test/change-manifest.test.ts',
+      'test/review-session.test.ts',
+      'test/closed-effect-environment.test.ts',
+      'test/ship-profile-downgrade.test.ts',
+      'test/counterpart-proof.test.ts',
+      'test/evidence-projection.test.ts',
+      'test/timeline.test.ts',
+      'test/milestone-close-journal.test.ts',
+      'test/project-identity.test.ts',
+      'test/remote-head-validation.test.ts',
+      'test/trusted-base.test.ts',
+      'test/canary-sample-landing.test.ts',
+      'test/ecpe-record-inventory-hot-path.test.ts',
+      'test/git-base-sync-adapter.test.ts',
+      'test/land-canary-assertion-flow.test.ts',
+      'test/milestone-block.test.ts',
+      'test/release-metadata.test.ts',
+      'test/canary-activation-landing.test.ts',
+      'test/review-log.test.ts',
+      'test/section-delivery.test.ts',
+      'test/terminal-landing-cancel.test.ts',
+      'test/lane-canary-runner.test.ts',
+      'test/merged-delivery.test.ts',
+      'test/milestone-merged-admission.test.ts',
+      'test/pilot-evaluation.test.ts',
+      'test/wtree-isolation.test.ts',
+      'test/release-landing.test.ts',
+      'test/release-queue.test.ts',
+    ].sort();
+    const windowsBoundaries = [
+      'test/governed-host-question-hooks.test.ts',
+      'test/native-windows-authority-boundary.test.ts',
+      'test/setup-authority-windows.test.ts',
+      'test/setup-windows-rerun-refresh.test.ts',
+    ].sort();
+    const result = curateWindowsSafe([...posixOnly, ...windowsBoundaries], ROOT);
+    expect(result.excluded.map(({ file }) => file).sort()).toEqual(posixOnly);
+    expect(result.safe.sort()).toEqual(windowsBoundaries);
   });
 });
 

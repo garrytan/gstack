@@ -24,6 +24,7 @@ export function projectAccountEnvironment(
   source: Record<string, string | undefined> = process.env,
 ): Record<string, string> {
   const environment: Record<string, string> = { PATH: '/usr/bin:/bin', LC_ALL: 'C', LANG: 'C' };
+  if (tool === 'git') environment.GIT_CONFIG_NOSYSTEM = '1';
   for (const key of [...ACCOUNT_CONTEXT, ...TOOL_CONTEXT[tool]]) {
     if (source[key] !== undefined) environment[key] = source[key]!;
   }

@@ -59,7 +59,11 @@ if ! command -v bun >/dev/null 2>&1; then
   echo '  BUN_VERSION="$BUN_VERSION" bash "$tmpfile" && rm "$tmpfile"' >&2
   exit 1
 fi
-BUN_RUNTIME_PATH="$(command -v bun)"
+_resolve_bun_runtime_path() {
+  "${BUN_CMD:-bun}" -e 'process.stdout.write(process.execPath)'
+}
+BUN_RUNTIME_PATH="$(_resolve_bun_runtime_path)"
+[ -n "$BUN_RUNTIME_PATH" ] || { echo "Error: unable to resolve the Bun executable identity." >&2; exit 1; }
 
 INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
@@ -164,8 +168,12 @@ _install_authority_runtime() {
     local backups=("$authority_stage/old" "$stage/old-manifest" "$stage/old-bin")
     local saved=(0 0 0) installed=(0 0 0)
     if [ -n "$section_host" ]; then
+      local section_bun_path="${BUN_RUNTIME_PATH:-}"
+      if [ -z "$section_bun_path" ]; then
+        section_bun_path="$("${BUN_CMD:-bun}" -e 'process.stdout.write(process.execPath)')" || return 1
+      fi
       if ! "${BUN_CMD:-bun}" "$source_root/scripts/write-installed-runtime-manifest.ts" \
-        --output "$stage/new-manifest" --bun-path "${BUN_RUNTIME_PATH:-$(command -v bun)}" \
+        --output "$stage/new-manifest" --bun-path "$section_bun_path" \
         --artifact-root "$stage" --section-source "$source_root" --section-host "$section_host" \
         --runtime-metadata-from "$runtime_root/.ecpe-installed-runtime.json"; then
         rm -rf "$stage" "$authority_stage"

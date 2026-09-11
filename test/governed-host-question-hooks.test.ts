@@ -18,6 +18,8 @@ describe('governed host question hooks', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout.toString()).toBe('');
     }
-    expect(fs.readdirSync(state, { recursive: true }).map(String).sort()).toEqual(['governed-runs', 'governed-runs/session-1.review.active']);
+    expect(fs.readdirSync(state, { recursive: true }).map(String).sort()).toEqual([
+      'governed-runs', path.join('governed-runs', 'session-1.review.active'),
+    ]);
   });
 });

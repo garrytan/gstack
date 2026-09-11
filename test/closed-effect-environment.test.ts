@@ -141,6 +141,7 @@ describe('closed adapter account environment', () => {
     expect(result.exitCode).toBe(0);
     for (const child of f.children()) {
       assertIsolated(child.env);
+      expect(child.env.GIT_CONFIG_NOSYSTEM).toBe(child.tool === 'git' ? '1' : undefined);
       expect(child.env.GITLAB_TOKEN).toBeUndefined();
       expect(child.env.GH_TOKEN).toBe(child.tool === 'gh' ? 'fixture-gh-token' : undefined);
       expect(child.env.GIT_AUTHOR_NAME).toBe(child.tool === 'git' ? 'CI Author' : undefined);
