@@ -20,7 +20,7 @@ import * as path from 'path';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { TEMP_DIR } from './platform';
 import { resolveConfig } from './config';
-import { filterSessionCookies } from './session-persist';
+import { filterSessionCookies, sanitizeTabStorage } from './session-persist';
 import type { Frame } from 'playwright';
 
 /** Tokenize a pipe segment respecting double-quoted strings. */
@@ -916,15 +916,27 @@ export async function handleMetaCommand(
 
       if (action === 'save') {
         const state = await bm.saveState();
-        // V1: cookies + URLs only (not localStorage — breaks on load-before-navigate)
+        // cookies + per-tab url/isActive/storage — the same v1 shape
+        // serializeSessionState writes (session-persist.ts). loadedHtml,
+        // loadedHtmlWaitUntil and owner stay in-memory-only.
+        //
+        // localStorage IS saved. It used to be dropped, on the reasoning that
+        // storage cannot be written before navigating to its origin — true, but
+        // restoreState already navigates each tab to its saved URL FIRST and
+        // applies storage after, so the ordering problem does not arise. Dropping
+        // it silently broke every token-in-localStorage login (Supabase, Firebase,
+        // most SPA auth): `state load` restored 400 cookies, reported success, and
+        // handed back a signed-OUT browser with no error anywhere.
         const saveData = {
           version: 1,
           savedAt: new Date().toISOString(),
           cookies: state.cookies,
-          pages: state.pages.map(p => ({ url: p.url, isActive: p.isActive })),
+          pages: state.pages.map(p => ({ url: p.url, isActive: p.isActive, storage: p.storage })),
         };
         writeSecureFile(statePath, JSON.stringify(saveData, null, 2));
-        return `State saved: ${statePath} (${state.cookies.length} cookies, ${state.pages.length} pages)\n⚠️  Cookies stored in plaintext. Delete when no longer needed.`;
+        const localKeys = state.pages.reduce(
+          (n, p) => n + Object.keys(p.storage?.localStorage ?? {}).length, 0);
+        return `State saved: ${statePath} (${state.cookies.length} cookies, ${state.pages.length} pages, ${localKeys} localStorage keys)\n⚠️  Cookies and localStorage stored in plaintext — this file can contain auth tokens. Delete when no longer needed.`;
       }
 
       if (action === 'load') {
@@ -963,10 +975,21 @@ export async function handleMetaCommand(
           pages: data.pages.map((p: any) => ({
             url: typeof p.url === 'string' ? p.url : '',
             isActive: Boolean(p.isActive),
-            storage: null,
+            // Storage goes through the same validator as the persistence restore
+            // path (sanitizeTabStorage): string keys and string values only, so a
+            // tampered file cannot smuggle a non-string into localStorage.setItem.
+            // Files written before storage was saved have no `storage` key and
+            // restore exactly as they did — cookies only.
+            storage: sanitizeTabStorage(p.storage),
           })),
         });
-        return `State loaded: ${data.cookies.length} cookies, ${data.pages.length} pages`;
+        const loadedKeys = data.pages.reduce(
+          (n: number, p: any) => n + Object.keys(sanitizeTabStorage(p.storage)?.localStorage ?? {}).length, 0);
+        // Name the localStorage count: a "0 localStorage keys" line is the visible
+        // tell that this file predates storage capture and cannot restore a
+        // token-based login, instead of that failure showing up later as an
+        // unexplained redirect to a sign-in page.
+        return `State loaded: ${data.cookies.length} cookies, ${data.pages.length} pages, ${loadedKeys} localStorage keys`;
       }
 
       throw new Error('Usage: state save|load <name>');

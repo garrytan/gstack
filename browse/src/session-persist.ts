@@ -98,6 +98,31 @@ export function filterSessionCookies(cookies: unknown[]): BrowserState['cookies'
 }
 
 /**
+ * Validate one tab's storage blob off disk. Shared by the persistence restore
+ * path here AND `state load` (meta-commands.ts) — same single-source-of-truth
+ * rule as isInternalCookieDomain/filterSessionCookies above.
+ *
+ * localStorage is what carries token-based auth (Supabase, Firebase, most SPA
+ * auth keeps its session there, not in a cookie), so dropping it is the
+ * difference between a restored login and a state file that reports success
+ * and hands back a signed-out browser. Values must be strings: Playwright's
+ * page.evaluate serializes them straight into localStorage.setItem, and a
+ * non-string from a tampered file would be coerced rather than rejected.
+ */
+export function sanitizeTabStorage(raw: any): BrowserState['pages'][number]['storage'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const pick = (v: any): Record<string, string> => {
+    if (!v || typeof v !== 'object') return {};
+    const out: Record<string, string> = {};
+    for (const [k, val] of Object.entries(v)) {
+      if (typeof k === 'string' && typeof val === 'string') out[k] = val;
+    }
+    return out;
+  };
+  return { localStorage: pick(raw.localStorage), sessionStorage: pick(raw.sessionStorage) };
+}
+
+/**
  * Parse + validate the on-disk shape into a BrowserState. Returns null for
  * anything malformed (corrupt JSON, wrong version, missing arrays).
  * loadedHtml/owner are stripped unconditionally even if present on disk.
@@ -116,12 +141,7 @@ export function deserializeSessionState(raw: string): BrowserState | null {
     pages: data.pages.map((p: any) => ({
       url: typeof p?.url === 'string' ? p.url : '',
       isActive: Boolean(p?.isActive),
-      storage: p?.storage && typeof p.storage === 'object'
-        ? {
-            localStorage: typeof p.storage.localStorage === 'object' && p.storage.localStorage ? p.storage.localStorage : {},
-            sessionStorage: typeof p.storage.sessionStorage === 'object' && p.storage.sessionStorage ? p.storage.sessionStorage : {},
-          }
-        : null,
+      storage: sanitizeTabStorage(p?.storage),
       // NEVER accept loadedHtml / loadedHtmlWaitUntil / owner from disk.
     })),
   };
