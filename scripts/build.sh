@@ -30,6 +30,7 @@ esac
 "$BUN_CMD" build --compile make-pdf/src/cli.ts --outfile make-pdf/dist/pdf
 "$BUN_CMD" build --compile bin/gstack-global-discover.ts --outfile bin/gstack-global-discover
 bash browse/scripts/build-node-server.sh
+bash browse/scripts/build-node-cli.sh
 bash scripts/write-version-files.sh browse/dist/.version design/dist/.version make-pdf/dist/.version
 chmod +x browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover
 rm -f .*.bun-build
