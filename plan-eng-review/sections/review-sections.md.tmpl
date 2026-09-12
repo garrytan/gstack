@@ -167,6 +167,35 @@ Check the git log for this branch. If there are prior commits suggesting a previ
 * One sentence max per option. Pick in under 5 seconds.
 * After each review section, pause and ask for feedback before moving on.
 
+## Review Artifact
+
+After completing the interactive review and displaying the Completion Summary,
+save the full findings locally, even when GBrain is unavailable. This is an
+additional review output, not a replacement for the section-by-section questions,
+test-plan artifact, Review Log, or plan-file review report.
+
+Resolve the state root with `bin/gstack-paths` and the project slug and sanitized
+branch with `bin/gstack-slug`, using the installed gstack helpers. Create
+`$GSTACK_STATE_ROOT/projects/$SLUG/eng-reviews/` and write a new Markdown file named
+`{YYYYMMDDTHHMMSSZ}-{branch}-eng-review.md` (UTC, no filename colons). If that
+name already exists, append a unique suffix instead of overwriting a prior review.
+This is a state-directory write, including in plan mode; respect host permission
+restrictions. If saving fails, report the failure and still write the Review Log.
+
+Include YAML frontmatter with `status`, `date`, `branch`, `mode`, `commit`, and the
+reviewed target (plan path or branch diff). Use the same status and mode as the
+Review Log. The body must contain the verdict; every reported issue with its
+number, severity, confidence, evidence, and recommendation; user choices and
+rationale; unresolved decisions; test and architecture diagrams produced during
+the review; scope exclusions; and implementation order. Keep suppressed findings
+in a separate appendix under the existing confidence rules. Record missing input
+as unknown; do not invent decisions, evidence, or diagrams.
+
+Read back the saved file to verify its contents, then show its path in the final
+response. When asked to resume this review in a later session, read the matching
+artifact and compare its target contents and commit with the current work before reusing
+findings. Saved findings are historical context, not fresh approval of changed work.
+
 ## Review Log
 
 After producing the Completion Summary above, persist the review result.
