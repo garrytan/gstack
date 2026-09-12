@@ -121,13 +121,24 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     // Opt-out short-circuits to NEEDS_ASIDE before `command -v aside` is even consulted.
     expect(setupProbe).toMatch(/if \[ "\$\{GSTACK_SKIP_ASIDE:-\}" = "1" \] \|\| ! command -v aside >\/dev\/null 2>&1; then\n\s*echo "NEEDS_ASIDE"/);
     // Deadline chain: gtimeout (coreutils on macOS) → timeout (Linux) → perl alarm (stock macOS ships neither).
-    expect(setupProbe).toContain('_T="gtimeout 30"');
-    expect(setupProbe).toContain('_T="timeout 30"');
-    expect(setupProbe).toContain('_T="perl -e alarm(shift);exec(@ARGV) 30"');
-    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e alarm'));
+    expect(setupProbe).toContain('gtimeout 30 "$@"');
+    expect(setupProbe).toContain('timeout 30 "$@"');
+    expect(setupProbe).toContain(`perl -e 'alarm(shift); exec(@ARGV)' 30 "$@"`);
+    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf("perl -e 'alarm"));
+    // Regression guard (zsh): a command prefix held in an unquoted variable is NOT
+    // word-split by zsh, so `$_T aside repl` execs a command literally named
+    // "gtimeout 30". The error is swallowed by the probe and a perfectly healthy
+    // Aside gets reported as ASIDE_NOT_RUNNING. Bound the call through a function
+    // applied to "$@" instead, which splits correctly in both bash and zsh.
+    expect(setupProbe).not.toMatch(/\$[A-Za-z_][A-Za-z0-9_]* aside repl/);
     // The bounded call is the readiness probe itself, and READY quotes the version.
-    expect(setupProbe).toContain('$_T aside repl \'console.log("ASIDE_READY " + pwd)\'');
+    expect(setupProbe).toContain('_gs_timeout aside repl \'console.log("ASIDE_READY " + pwd)\'');
     expect(setupProbe).toContain('echo "READY: aside $(aside --version 2>/dev/null)"');
+    // A failed probe must KEEP its output: step 2 tells the agent to quote it, and
+    // the cause (closed app vs. a sandbox/permission/signing error, which opening
+    // the app will not fix) is only distinguishable from the error text itself.
+    expect(setupProbe).toContain('PROBE_OUTPUT:');
+    expect(setupProbe).toContain('echo "$_OUT" | head -5');
   });
 
   test('LOCAL host rule: .localhost and .test count, .local (mDNS) does not', () => {
