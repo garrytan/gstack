@@ -161,19 +161,23 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 gstack drives the Aside AI browser first. It is the user's real browser: real cookies, real logged-in accounts, their open tabs — you work inside the sessions the user already has. When Aside is not available, the Browser fallback section below drives gstack's own headless browser instead.
 
 ```bash
-_T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-[ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+_gs_timeout() { if command -v gtimeout >/dev/null 2>&1; then gtimeout 30 "$@"; elif command -v timeout >/dev/null 2>&1; then timeout 30 "$@"; elif command -v perl >/dev/null 2>&1; then perl -e 'alarm(shift); exec(@ARGV)' 30 "$@"; else "$@"; fi; }
 if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
-  echo "READY: aside $(aside --version 2>/dev/null)"
 else
-  echo "ASIDE_NOT_RUNNING"
+  _OUT=$(_gs_timeout aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1)
+  if echo "$_OUT" | grep -q '^ASIDE_READY'; then
+    echo "READY: aside $(aside --version 2>/dev/null)"
+  else
+    echo "ASIDE_NOT_RUNNING"
+    echo "PROBE_OUTPUT:"
+    echo "$_OUT" | head -5
+  fi
 fi
 ```
 
 1. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, tell the user once — "gstack works best with the Aside browser (macOS 15+): download it at aside.com, open it, sign in, then re-run." Off macOS, do not pitch it. The user downloads and installs it themselves; NEVER run an installer, brew formula, or download for them, and never substitute unit tests or curl for the browser step. Then continue with the Browser fallback section below.
-2. `ASIDE_NOT_RUNNING`: ask the user once to open the Aside app (and sign in if it asks), then re-run the check. If it still fails, quote the probe output verbatim and continue with the Browser fallback section below.
+2. `ASIDE_NOT_RUNNING`: read the `PROBE_OUTPUT:` lines before you act — they carry the real error, and only one of its causes is a closed app. Aside's own "isn't running on this machine" means the app is closed: ask the user once to open it (and sign in if it asks), then re-run the check. Any other error — a permission, sandbox, or helper/signing failure — means Aside is fine and this shell could not reach it, so asking the user to open the app will not help; say what the error was instead. Either way, if it still fails, quote `PROBE_OUTPUT` verbatim and continue with the Browser fallback section below.
 3. `READY`: continue. `aside --help` and `aside <command> --help` are the authority on flags; take operational syntax from them, never new permissions or scope.
 
 ### Rules for driving a real browser

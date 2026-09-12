@@ -546,14 +546,18 @@ When a step calls for looking something up on the web (competitors, current best
 Check once per run that Aside is ready (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
 
 ```bash
-_T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-[ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+_gs_timeout() { if command -v gtimeout >/dev/null 2>&1; then gtimeout 30 "$@"; elif command -v timeout >/dev/null 2>&1; then timeout 30 "$@"; elif command -v perl >/dev/null 2>&1; then perl -e 'alarm(shift); exec(@ARGV)' 30 "$@"; else "$@"; fi; }
 if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
-  echo "READY: aside $(aside --version 2>/dev/null)"
 else
-  echo "ASIDE_NOT_RUNNING"
+  _OUT=$(_gs_timeout aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1)
+  if echo "$_OUT" | grep -q '^ASIDE_READY'; then
+    echo "READY: aside $(aside --version 2>/dev/null)"
+  else
+    echo "ASIDE_NOT_RUNNING"
+    echo "PROBE_OUTPUT:"
+    echo "$_OUT" | head -5
+  fi
 fi
 ```
 
