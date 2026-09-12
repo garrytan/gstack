@@ -117,16 +117,23 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     }
   });
 
-  test('probe honors the GSTACK_SKIP_ASIDE=1 opt-out and bounds the readiness call even on stock macOS', () => {
+  test('probe honors the GSTACK_SKIP_ASIDE=1 opt-out and bounds the readiness call even on stock macOS, in bash and zsh alike', () => {
     // Opt-out short-circuits to NEEDS_ASIDE before `command -v aside` is even consulted.
     expect(setupProbe).toMatch(/if \[ "\$\{GSTACK_SKIP_ASIDE:-\}" = "1" \] \|\| ! command -v aside >\/dev\/null 2>&1; then\n\s*echo "NEEDS_ASIDE"/);
     // Deadline chain: gtimeout (coreutils on macOS) → timeout (Linux) → perl alarm (stock macOS ships neither).
-    expect(setupProbe).toContain('_T="gtimeout 30"');
-    expect(setupProbe).toContain('_T="timeout 30"');
-    expect(setupProbe).toContain('_T="perl -e alarm(shift);exec(@ARGV) 30"');
-    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e alarm'));
+    expect(setupProbe).toContain('_gs_t() { gtimeout 30 "$@"; }');
+    expect(setupProbe).toContain('_gs_t() { timeout 30 "$@"; }');
+    expect(setupProbe).toContain(`_gs_t() { perl -e 'alarm(shift); exec(@ARGV)' 30 "$@"; }`);
+    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf("perl -e 'alarm"));
+    // The deadline is applied through a FUNCTION, never a variable holding a command word.
+    // zsh does not word-split unquoted expansions, so the old `$_T aside repl ...` tried to
+    // exec a command literally named "gtimeout 30", failed, and reported a false
+    // ASIDE_NOT_RUNNING — silently downgrading every browsing skill to the headless
+    // fallback (no user cookies, no signed-in sessions) on the shell Claude Code uses.
+    // The old perl branch was broken in bash too: unquoted, the `;` split the command.
+    expect(setupProbe).not.toMatch(/\$_T\s/);
     // The bounded call is the readiness probe itself, and READY quotes the version.
-    expect(setupProbe).toContain('$_T aside repl \'console.log("ASIDE_READY " + pwd)\'');
+    expect(setupProbe).toContain('_gs_t aside repl \'console.log("ASIDE_READY " + pwd)\'');
     expect(setupProbe).toContain('echo "READY: aside $(aside --version 2>/dev/null)"');
   });
 
