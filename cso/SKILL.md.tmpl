@@ -233,6 +233,7 @@ For each finding that survives the confidence gate, attempt to PROVE it where sa
 4. **CI/CD:** Parse workflow YAML to confirm whether `pull_request_target` actually checks out PR code.
 5. **Dependencies:** Check if the vulnerable function is directly imported/called. If it IS called, mark VERIFIED. If NOT directly called, mark UNVERIFIED with note: "Vulnerable function not directly called — may still be reachable via framework internals, transitive execution, or config-driven paths. Manual verification recommended."
 6. **LLM Security:** Trace data flow to confirm user input actually reaches system prompt construction.
+7. **Redaction / masking modes:** A flag that promises to strip secrets, amounts, or identifiers from an output is PROVEN by running it, never by reading it. Build a malformed and an out-of-vocabulary input in a scratch directory (unrecognized category value, wrong column count, truncated row, wrong type), run the masked command against it, and grep the output for the raw values. The leak lives in the error, exception-detail and fallback branches — the paths a well-formed sample never reaches and a code read skips because the happy path is clean. Synthetic input only, run locally against the audited code: never a real dataset, never a live system, and never edit the code to test it.
 
 Mark each finding as:
 - `VERIFIED` — actively confirmed via code tracing or safe testing
