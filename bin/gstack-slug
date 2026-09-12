@@ -12,6 +12,26 @@ PROJECT_DIR="$(pwd)"
 # Encode absolute path as cache key: /Users/j/foo → _Users_j_foo
 CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')
 CACHE_FILE="${CACHE_DIR}/${CACHE_KEY}"
+IDENTITY_FILE="${CACHE_DIR}/${CACHE_KEY}.identity"
+
+# GUARD: refuse to treat $HOME or $HOME/Documents as a project root.
+# These are personal folders, not projects. If git walked all the way up
+# here, it's either an accident (user ran the script from home) or a
+# misconfiguration (someone accidentally cloned into $HOME, like spacemacs).
+if [[ "$PROJECT_DIR" == "$HOME" ]] || [[ "$PROJECT_DIR" == "$HOME/Documents" ]]; then
+  echo "ERROR: gstack-slug refuses to treat $PROJECT_DIR as a project root" >&2
+  echo "       (it's a home/personal folder, not a project)" >&2
+  echo "       Run this script from inside a project directory" >&2
+  exit 1
+fi
+
+# Reset unconditionally: bash inherits any exported SLUG from the calling
+# shell (e.g. left over from `eval "$(gstack-slug)"` in a different repo's
+# session), and step 2 below only recomputes when SLUG is unset. Without
+# this reset, an inherited value from another project silently satisfies
+# that check, skips git-remote resolution entirely, and gets cached
+# permanently against THIS directory's cache key — poisoning it forever.
+SLUG=""
 
 # 1. Try cached slug first (guarantees consistency across sessions)
 if [[ -f "$CACHE_FILE" ]]; then
@@ -39,12 +59,38 @@ SLUG="${SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
 #     promised in the header on every path, and heals a poisoned cache on write (4).
 SLUG=$(printf '%s' "$SLUG" | tr -cd 'a-zA-Z0-9._-')
 
+# 3c. Validate identity: if we have a cached slug, verify it matches the current repo.
+# If it doesn't (e.g., user cloned a different repo into the same path), warn instead
+# of silently overwriting the cache. This catches accidental collisions early.
+if [[ -f "$IDENTITY_FILE" ]]; then
+  CACHED_IDENTITY=$(cat "$IDENTITY_FILE")
+  CURRENT_REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
+  CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+  CURRENT_IDENTITY="$CURRENT_REMOTE:$CURRENT_COMMIT"
+
+  if [[ "$CACHED_IDENTITY" != "$CURRENT_IDENTITY" ]]; then
+    echo "WARNING: slug cache identity mismatch for $PROJECT_DIR" >&2
+    echo "         cached: $CACHED_IDENTITY" >&2
+    echo "         actual: $CURRENT_IDENTITY" >&2
+    echo "         (this usually means a different repo was cloned at this path)" >&2
+    echo "         clearing stale cache and recomputing slug" >&2
+    rm -f "$CACHE_FILE" "$IDENTITY_FILE" 2>/dev/null || true
+  fi
+fi
+
 # 4. Cache the slug for future sessions (atomic write, fail silently)
 if [[ -n "$SLUG" ]]; then
   mkdir -p "$CACHE_DIR" 2>/dev/null || true
   CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
   if [[ -n "$CACHE_TMP" ]]; then
     printf '%s' "$SLUG" > "$CACHE_TMP" && mv "$CACHE_TMP" "$CACHE_FILE" 2>/dev/null || rm -f "$CACHE_TMP" 2>/dev/null
+  fi
+
+  # Also save identity file for future collision detection
+  REMOTE=$(git remote get-url origin 2>/dev/null || echo "")
+  COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+  if [[ -n "$REMOTE" && -n "$COMMIT" ]]; then
+    printf '%s' "$REMOTE:$COMMIT" > "$IDENTITY_FILE" 2>/dev/null || true
   fi
 fi
 
