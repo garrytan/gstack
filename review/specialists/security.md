@@ -27,6 +27,10 @@ This checklist goes deeper than the main CRITICAL pass. The main agent already c
 - Session fixation or session hijacking opportunities
 - Token/API key validation that doesn't check expiration
 
+- Authorization enforced only at route admission — the shared error/exception renderer (403/404/500, maintenance) composes its body outside the guard, so a correctly blocked request still returns internal names, counts, or navigation the role must not see (read the error template and its context builder, not just the route guard)
+- Object access that survives a role downgrade — ownership recorded at creation still grants reads after the role map changes and the user logs in again; ownership must be re-evaluated against the current role policy on every read, not treated as a standing grant
+- List, detail, and file/artifact-download routes for one object audited as a single entry — each usually resolves the object through a different code path, so check each against the role matrix separately
+- Account or identity switch that mutates the session before the incoming authentication is validated — a callback handler that clears, regenerates, or rebinds the existing session on entry, instead of after verifying the single-use value the app itself issued and stored, turns any forced navigation to that URL into a CSRF logout; check the denied, cancelled, and network-error branches of the same handler too, since leaving the prior session live there silently keeps the operator acting as the previous identity
 ### Injection Vectors (beyond SQL)
 - Command injection via subprocess calls with user-controlled arguments
 - Template injection (Jinja2, ERB, Handlebars) with user input
