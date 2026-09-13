@@ -825,6 +825,23 @@ Match findings across reports using the `fingerprint` field (sha256 of category 
    - C) Accept risk — [document why, set review date]
    - D) Defer to TODOS.md with security label
 
+**Never block the roadmap on a human.** One AskUserQuestion per finding turns an
+unattended audit into one that stops at Finding 1 and delivers nothing — the
+findings are already written; the roadmap is the last step, not a gate.
+
+When no human will answer this turn — `SESSION_KIND: spawned`, or an auto-decide
+result (see `## AskUserQuestion Format`) — ask nothing and render no prose brief:
+take your own RECOMMENDATION as each finding's disposition and prefix it in that
+finding's `recommendation` field with `AUTO-CHOSEN (unconfirmed):`. Close the
+report with those lines under a **Decisions still owed a human** heading. If your
+recommendation is C) Accept risk, the spawned-session exception applies (never
+auto-choose an irreversible option): record D) Defer instead — a risk nobody
+accepted is deferred, not accepted.
+
+The disposition is a line in the report, not a licence to edit. **Read-only still
+holds** (see Important Rules): A) Fix now names the change, it does not make it.
+Interactive and Conductor sessions are unchanged — ask, or render the prose brief.
+
 ### Phase 14: Save Report
 
 ```bash
