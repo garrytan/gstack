@@ -22,6 +22,10 @@ If no findings: output `NO FINDINGS` and nothing else.
 - Unicode and special characters in user-facing inputs
 - Concurrent access patterns with no race-condition test
 
+### Header-Derived Gates Tested Without a Browser
+- `Origin` / `Referer` / `Sec-Fetch-*` gating covered only by a test that sets those headers by hand — a request client or an in-process test client fabricates the header set, so the test asserts what the author typed, not what a browser derives from policy, navigation and form target. Real coverage for this class is browser-driven.
+- Account/identity switch covered only by a clean-browser test — starting from no session proves the rejected account never gets one, and nothing about the transition; real coverage starts from a valid session already open and asserts, for each of the four outcomes (authorized, denied, cancelled, network failure), which identity remains authenticated afterwards
+
 ### Test Isolation Violations
 - Tests sharing mutable state (class variables, global singletons, DB records not cleaned up)
 - Order-dependent tests (pass in sequence, fail when randomized)
