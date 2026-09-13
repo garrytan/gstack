@@ -165,6 +165,9 @@ For each OWASP category, perform targeted analysis. Use the Grep tool for all se
 - Check for direct object reference patterns (params[:id], req.params.id, request.args.get)
 - Can user A access user B's resources by changing IDs?
 - Is there horizontal/vertical privilege escalation?
+- Does the shared error/exception renderer (403/404/500) compose its body outside the authorization path, so a correctly blocked route still returns internal names, counts, or navigation?
+- After a role downgrade plus reauthentication, does ownership recorded earlier still grant object access instead of being re-checked against the current role policy?
+- Are list, detail, and file/artifact-download routes for the same object checked separately, given that each resolves it through a different code path?
 
 #### A02: Cryptographic Failures
 - Weak crypto (MD5, SHA1, DES, ECB) or hardcoded secrets
