@@ -165,6 +165,8 @@ For each OWASP category, perform targeted analysis. Use the Grep tool for all se
 - Check for direct object reference patterns (params[:id], req.params.id, request.args.get)
 - Can user A access user B's resources by changing IDs?
 - Is there horizontal/vertical privilege escalation?
+- Request-origin gating on state-changing endpoints (`Origin`, `Referer`, `Sec-Fetch-Site`/`Sec-Fetch-Mode`) — and the response headers the app sets that change what a browser will send. Ask what the gate does when `Origin` is absent or literally `null`: allowed is a CSRF bypass (the check is decorative — an attacker just omits the header); rejected breaks real sign-ins whenever the app also sends `Referrer-Policy: no-referrer`, under which the browser sends `Origin: null` on a same-origin form POST. Both branches are findings; neither is "missing hardening".
+- **A hand-built request cannot settle this class.** `curl -H "Origin: ..."`, an HTTP client, or an in-process test client fabricates the header set a browser derives from policy, navigation and form target — a green result there proves only what you typed. Report the finding as `UNVERIFIED` with the browser check named as the next step (`/qa`, `/browse`, or the user driving the real flow); never downgrade or discard it because a request tool succeeded.
 
 #### A02: Cryptographic Failures
 - Weak crypto (MD5, SHA1, DES, ECB) or hardcoded secrets
