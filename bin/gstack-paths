@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# gstack-paths — output portable state-root paths for skill bash blocks
+# Usage: eval "$(gstack-paths)"  → sets GSTACK_STATE_ROOT, PLAN_ROOT, TMP_ROOT
+# Or:    gstack-paths            → prints GSTACK_STATE_ROOT=... etc.
+#
+# Resolves three roots with explicit fallback chains so skills work the same
+# whether installed as a Claude Code plugin (CLAUDE_PLUGIN_DATA / CLAUDE_PLANS_DIR
+# set), a global ~/.claude/skills/gstack/ install, or a local checkout under
+# CI / container env where HOME may be unset.
+#
+# Chains:
+#   GSTACK_STATE_ROOT: GSTACK_HOME -> CLAUDE_PLUGIN_DATA (only when CLAUDE_PLUGIN_ROOT=*gstack*) -> $HOME/.gstack -> .gstack
+#   PLAN_ROOT:         GSTACK_PLAN_DIR -> CLAUDE_PLANS_DIR -> $HOME/.claude/plans -> .claude/plans
+#   TMP_ROOT:          TMPDIR -> TMP -> .gstack/tmp (and mkdir -p, best-effort)
+#
+# Output: values are emitted shell-quoted (printf %q) so `eval` round-trips them
+# byte-for-byte. This matters on Windows, where $TMP is a backslash path like
+# C:\Users\me\AppData\Local\Temp — with a bare `echo`, eval consumes the
+# backslashes as escapes and the caller gets C:UsersmeAppDataLocalTemp. A value
+# containing a space (C:\Program Files\Temp) is worse: eval word-splits it and
+# the variable ends up empty. Quoting here is the only fix that works, because
+# the corruption happens during eval, before the caller has anything to quote.
+# Callers should still quote expansions ("$GSTACK_STATE_ROOT") for the same
+# reason any path variable needs quoting.
+set -u
+
+# State root: where gstack writes projects/, sessions/, analytics/.
+if [ -n "${GSTACK_HOME:-}" ]; then
+  _state_root="$GSTACK_HOME"
+elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && echo "${CLAUDE_PLUGIN_ROOT:-}" | grep -qi "gstack"; then
+  # Guard: only trust CLAUDE_PLUGIN_DATA when CLAUDE_PLUGIN_ROOT confirms we are
+  # running as the gstack plugin. Without this, a CLAUDE_PLUGIN_DATA from another
+  # plugin (e.g. codex) that leaked into the session env via CLAUDE_ENV_FILE would
+  # be picked up, writing all gstack state into the wrong directory.
+  _state_root="$CLAUDE_PLUGIN_DATA"
+elif [ -n "${HOME:-}" ]; then
+  _state_root="$HOME/.gstack"
+else
+  _state_root=".gstack"
+fi
+
+# Plan root: where /context-save and /codex consult write plan files.
+if [ -n "${GSTACK_PLAN_DIR:-}" ]; then
+  _plan_root="$GSTACK_PLAN_DIR"
+elif [ -n "${CLAUDE_PLANS_DIR:-}" ]; then
+  _plan_root="$CLAUDE_PLANS_DIR"
+elif [ -n "${HOME:-}" ]; then
+  _plan_root="$HOME/.claude/plans"
+else
+  _plan_root=".claude/plans"
+fi
+
+# Tmp root: where ephemeral files (codex stderr captures, etc.) live.
+# Honor TMPDIR / TMP for Windows + container compat; fall back to a
+# project-local .gstack/tmp so we never write to a system /tmp that may
+# be read-only or shared.
+if [ -n "${TMPDIR:-}" ]; then
+  _tmp_root="$TMPDIR"
+elif [ -n "${TMP:-}" ]; then
+  _tmp_root="$TMP"
+else
+  _tmp_root=".gstack/tmp"
+fi
+# macOS exports TMPDIR with a trailing slash; mktemp templates built as
+# "$TMP_ROOT/name-XXXXXX" would then carry "//", and any consumer comparing
+# paths gets a spurious mismatch. Strip it (never strips a bare "/"). #2091
+case "$_tmp_root" in
+  */) [ "$_tmp_root" != "/" ] && _tmp_root="${_tmp_root%/}" ;;
+esac
+
+# Strip any trailing slash so consumers can safely concatenate "$TMP_ROOT/name"
+# without producing a double slash. On macOS $TMPDIR ends in `/` by default
+# (e.g. /var/folders/.../T/), which would otherwise yield paths like
+# `…/T//codex-err-…`. Normalizing at the source means every consumer benefits,
+# not just /codex.
+_tmp_root="${_tmp_root%/}"
+# A value of "/" collapses to "" above; restore it so TMP_ROOT is never empty.
+[ -z "$_tmp_root" ] && _tmp_root="/"
+
+# Best-effort mkdir; if it fails (read-only fs, permission denied), the caller
+# will discover that on their own write attempt. Don't fail the eval here.
+mkdir -p "$_tmp_root" 2>/dev/null || true
+
+printf 'GSTACK_STATE_ROOT=%q\n' "$_state_root"
+printf 'PLAN_ROOT=%q\n' "$_plan_root"
+printf 'TMP_ROOT=%q\n' "$_tmp_root"

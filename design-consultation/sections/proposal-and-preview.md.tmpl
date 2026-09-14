@@ -1,0 +1,316 @@
+<!-- The font-selection procedure and the three-looks calibration in this section are derived from pbakaus/impeccable reference/new-work.md (Apache-2.0), rewritten and modified. See NOTICE.md. -->
+## Phase 3: The Complete Proposal
+
+Develop your draft with the design knowledge below. Compare completed outside proposals: explain agreements, differences, and ideas adopted with attribution. Tie the recommendation to the memorable-thing answer. Do not count agreement as a vote or invent a missing proposal. Q2 names completed, unavailable, or declined voices and presents the recommendation.
+
+**AskUserQuestion Q2 — present the full proposal with SAFE/RISK breakdown:**
+
+```
+Based on [product context] and [research findings / my design knowledge]:
+
+AESTHETIC: [direction] — [one-line rationale]
+DECORATION: [level] — [why this pairs with the aesthetic]
+LAYOUT: [approach] — [why this fits the product type]
+COLOR: [approach] + proposed palette (hex values) — [rationale]
+TYPOGRAPHY: [3 font recommendations with roles] — [why these fonts]
+SPACING: [base unit + density] — [rationale]
+MOTION: [approach] — [rationale]
+
+This system is coherent because [explain how choices reinforce each other].
+
+INDEPENDENT INPUT: [completed/unavailable/skipped voices; agreements, differences, ideas adopted and product-specific reasons — omit comparisons if none completed]
+
+SAFE CHOICES (category baseline — your users expect these):
+  - [2-3 decisions that match category conventions, with rationale for playing safe]
+
+RISKS (where your product gets its own face):
+  - [2-3 deliberate departures from convention]
+  - For each risk: what it is, why it works, what you gain, what it costs
+
+The safe choices keep you literate in your category. The risks are where
+your product becomes memorable. Which risks appeal to you? Want to see
+different ones? Or adjust anything else?
+```
+
+Coherence alone can look generic. Propose at least 2 creative risks—type, accent, spacing, layout or motion—with rationale, benefit and cost alongside the category's safe choices.
+
+**Options:** A) Looks great — generate the preview page. B) I want to adjust [section]. C) I want different risks — show me wilder options. D) Start over with a different direction. E) Skip the preview, just write DESIGN.md.
+
+### Your Design Knowledge (use to inform proposals — do NOT display as tables)
+
+**Calibration: the three looks.** Avoid predictable compositions: cream/serif/terracotta; near-black/neon/glowing edges; or broadsheet hairlines/italic serif/tiny tracked mono. Use one only when the brief specifically calls for it. Otherwise choose a direction grounded in these users, rather than the category stereotype or its obvious opposite. For example, a book product can draw color from jackets and cloth instead of defaulting to cream and serif.
+
+**Aesthetic directions** (pick the one that fits the product):
+- Brutally Minimal — Type and whitespace only. No decoration. Modernist.
+- Maximalist Chaos — Dense, layered, pattern-heavy. Y2K meets contemporary.
+- Retro-Futuristic — Vintage tech nostalgia. Phosphor palette, bitmap type, warm monospace for data (no glow halos, no grid-paper backgrounds).
+- Luxury/Refined — Serifs, high contrast, generous whitespace, precious metals.
+- Playful/Toy-like — Rounded, springy (no overshoot), bold primaries. Approachable and fun.
+- Editorial/Magazine — Strong typographic hierarchy, asymmetric grids, pull quotes.
+- Brutalist/Raw — Exposed structure, one utilitarian grotesk, visible grid, no polish (a system stack only when the user asks for it by name).
+- Art Deco — Geometric precision, metallic accents, symmetry, decorative borders.
+- Organic/Natural — Earth tones, rounded forms, hand-drawn texture, grain.
+- Industrial/Utilitarian — Function-first, data-dense, monospace accents, muted palette.
+
+**Decoration levels:** minimal (typography does all the work) / intentional (subtle texture, grain, or background treatment) / expressive (full creative direction, layered depth, patterns)
+
+**Layout approaches:** grid-disciplined (strict columns, predictable alignment) / creative-editorial (asymmetry, overlap, grid-breaking) / hybrid (grid for app, creative for marketing)
+
+**Color approaches:** Restrained (1 accent + neutrals, color is rare and meaningful) / Committed (one hue owns the page, neutrals derive from it) / Full palette (primary + secondary + semantic colors for hierarchy) / Drenched (color as the primary design tool, surfaces carry it)
+
+**Motion approaches:** minimal-functional (only transitions that aid comprehension) / intentional (subtle entrance animations, meaningful state transitions) / expressive (full choreography, scroll-driven, playful)
+
+**Choosing faces: a procedure, not a menu.** (1) Name the audience and surface mode: Persuade (marketing), Operate (tasks), Read (long content), or Experience (immersive). Choose the corresponding tone. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files and licenses; omit unverified faces. (5) Specify loading strategy.
+
+**Font-verification fallback:** Skipping competitive research does not waive font verification. Offline, check local files/licenses. Otherwise describe roles/weights/proportions; mark font selection as pending verification in DESIGN.md. Continue palette/layout; defer the preview until fonts can be verified, or honor a user skip. Invent no face or URL.
+
+{{OVERUSED_FONTS}}
+
+**Anti-convergence directive:** VARY aesthetic, faces and palette across project generations; justify repetition. Light vs dark is not one of the dials: fix it to the use scene (who, where, lighting) until that scene changes. Unjustified convergence is slop.
+
+**AI slop anti-patterns** (never include in your recommendations):
+{{DESIGN_SLOP_BULLETS}}
+
+### Coherence Validation
+
+After any override, gently flag mismatches and offer alternatives: Brutalist/Minimal + expressive motion → quieter motion or keep intentionally; Drenched + minimal decoration → supporting decoration; editorial + dense data → hybrid layout. Never block; accept the user's final choice and proceed.
+
+---
+
+## Phase 4: Drill-downs (only if user requests adjustments)
+
+Use one focused AskUserQuestion per requested drill-down: **Fonts:** 3-5 candidates, rationale/evocation and preview offer; **Colors:** 2-3 hex palettes and color theory; **Aesthetic:** product-fit directions and why; **Layout/Spacing/Motion:** concrete product-specific tradeoffs. Re-check coherence after each decision.
+
+---
+
+## Phase 5: Design System Preview (default ON)
+
+Preview the proposed system using the available path.
+
+### Path A: AI Mockups (if DESIGN_READY)
+
+Generate AI mockups applying the proposed system to realistic product screens.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_DESIGN_DIR="$HOME/.gstack/projects/$SLUG/designs/design-system-$(date +%Y%m%d)"
+mkdir -p "$_DESIGN_DIR"
+echo "DESIGN_DIR: $_DESIGN_DIR"
+```
+
+Brief: Phase 3 aesthetic/colors/type/spacing/layout plus Phase 1 product context:
+
+```bash
+$D variants --brief "<product name: [name]. Product type: [type]. Aesthetic: [direction]. Colors: primary [hex], secondary [hex], neutrals [range]. Typography: display [font], body [font]. Layout: [approach]. Show a realistic [page type] screen with [specific content for this product].>" --count 3 --output-dir "$_DESIGN_DIR/"
+```
+
+Run quality check on each variant:
+
+```bash
+$D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the original brief>"
+```
+
+Read each PNG to show the variants inline.
+
+**Before presenting, self-gate:** Would a human designer be embarrassed to sign each variant? If yes, discard and regenerate. Hard rejects: purple gradient hero, 3-column SaaS grid, centered-everything, overused display face, generic stock photo, system-ui, gradient CTA, bubble-radius everything. Any trigger requires regeneration.
+
+Open the board before inviting the user to choose or remix.
+
+{{DESIGN_SHOTGUN_LOOP}}
+
+After the user picks a direction:
+
+- `$D extract --image "$_DESIGN_DIR/variant-<CHOSEN>.png"`: Phase 6 color/type/spacing tokens come from the approved visual, not text alone.
+- Further iteration: `$D iterate --feedback "<user's feedback>" --output "$_DESIGN_DIR/refined.png"`
+
+**Plan mode:** Carry the approved mockup paths/tokens into Phase 6's "## Proposed DESIGN.md" plan section. Its Q-final approval governs saving that content; defer the actual DESIGN.md to implementation.
+
+### Path B: HTML Preview Page (fallback if DESIGN_NOT_AVAILABLE)
+
+Create and open the HTML preview:
+
+```bash
+PREVIEW_FILE="/tmp/design-consultation-preview-$(date +%s).html"
+```
+
+Write the preview HTML to `$PREVIEW_FILE`, then open it:
+
+```bash
+open "$PREVIEW_FILE"
+```
+
+### Preview Page Requirements (Path B only)
+
+Write a **single, self-contained HTML file**, no frameworks:
+
+1. **Loads proposed fonts** via `<link>` from their step (4) verified Google Fonts/Fontshare/self-hosted source.
+2. **Uses the proposed palette** throughout.
+3. **Shows the product name**, not Lorem Ipsum, in the hero.
+4. **Font specimen section:**
+   - Each candidate in its hero/body/button/table role; compare same-role alternatives side by side using real domain content (e.g. civic tech: government data).
+5. **Color palette section:**
+   - Named hex swatches; primary/secondary/ghost buttons, cards, inputs, success/warning/error/info alerts; background/text contrast pairs.
+6. **Realistic product mockups:** Render 2-3 Phase 1 product-type layouts with the full system, product name, domain content and proposed spacing/layout/radii:
+   - **Dashboard/web app:** metrics table, sidebar nav, avatar header, stat cards.
+   - **Marketing:** real-copy hero, features, testimonials, CTA.
+   - **Settings/admin:** labeled inputs, toggles, dropdowns, save.
+   - **Auth/onboarding:** branded login, social buttons, validation states.
+7. **Light/dark toggle:** CSS custom properties plus a JS button.
+8. **Clean, professional layout.**
+9. **Responsive** at every width.
+
+Show how their product feels, beyond a font/color inventory.
+
+If `open` fails (headless environment), tell the user: *"I wrote the preview to [path] — open it in your browser to see the fonts and colors rendered."*
+
+If the user says skip the preview, go directly to Phase 6.
+
+---
+
+## Phase 6: Write DESIGN.md & Confirm
+
+Only Path A invokes `$D extract` for approved mockup tokens. For Path B, use the approved HTML preview's CSS values. No preview: approved Phase 3 values with pending fonts. Retain Phase 3 rationale.
+
+**Confirm before writing.** Prepare the contents below; show decisions and agent-selected defaults. AskUserQuestion Q-final:
+- A) Approve — write DESIGN.md and CLAUDE.md; in plan mode, save Proposed DESIGN.md in the plan only
+- B) Revise — return to Phase 3, then confirm again
+- C) Start over — return to Phase 1
+
+Wait. Only A permits the writes below; B/C leave project files untouched. Honor prior explicit approval of these exact writes without re-asking.
+
+**If in plan mode:** Write the DESIGN.md content into the plan file as a "## Proposed DESIGN.md" section. Do NOT write the actual file — that happens at implementation time.
+
+**If NOT in plan mode:** Write root `DESIGN.md` in google-labs-code/design.md format. All tokens belong in the five normative YAML groups below; prose explains rationale/use without repeating values. Preserve the line-2 format marker to prevent conversion re-asks. A Phase 0 kept-legacy file instead retains its own shape.
+
+```markdown
+---
+# gstack: design-md-format=spec
+name: [Project Name]
+description: [one sentence: mood, material, energy]
+colors:
+  primary: "#..."          # descriptive slugs; hex, or the project's canonical color space
+  on-primary: "#..."
+  surface: "#..."
+  text: "#..."
+  text-muted: "#..."
+  accent: "#..."
+  success: "#..."
+  warning: "#..."
+  error: "#..."
+typography:
+  display:
+    fontFamily: [face]
+    fontWeight: [weight]
+    fontSize: [clamp() or rem]
+    letterSpacing: [em]
+  body:
+    fontFamily: [face]
+    fontSize: 1rem
+    lineHeight: 1.5
+  label:
+    fontFamily: [face]
+    fontSize: 0.75rem
+    letterSpacing: 0.04em
+  mono:
+    fontFamily: [face]
+    fontFeature: tnum
+rounded:
+  sm: 4px
+  md: 8px
+  lg: 12px
+  full: 9999px
+spacing:
+  xs: 4px
+  sm: 8px
+  md: 16px
+  lg: 24px
+  xl: 32px
+  2xl: 48px
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    rounded: "{rounded.md}"
+  button-primary-hover:
+    backgroundColor: "#..."
+  input:
+    borderColor: "{colors.text-muted}"
+    rounded: "{rounded.sm}"
+  card:
+    backgroundColor: "{colors.surface}"
+    rounded: "{rounded.lg}"
+  nav-link:
+    textColor: "{colors.text}"
+---
+
+# [Project Name]
+
+## Overview
+
+**Creative North Star:** [one sentence: aesthetic + why it fits these users]
+**Product context:** [product, users, category/peers, project type]
+**Mode per surface:** [one line each: Persuade / Operate / Read / Experience]
+**Reference sites:** [URLs, if research was done]
+**Key characteristics:** [3-5 bullets: first-five-second impressions]
+
+## Colors
+
+**Strategy:** [Restrained / Committed / Full palette / Drenched] — [why]
+**Light or dark:** [decided by the use scene: who, where, under what light]
+[Explain which tokens signal interaction or emphasis, how neutrals derive from the palette, and how dark-mode surfaces preserve hierarchy rather than merely inverting lightness.]
+
+## Typography
+
+[Faces' source world, mode/register, roles and display boundaries; loading, scale rationale, justified overused-list exceptions]
+
+## Layout
+
+[Breakpoint grids, max width, density, large/small spacing rhythm, intentional grid breaks]
+
+## Elevation & Depth
+
+[Depth: offset + soft-blur shadows, tints, borders; no zero-offset glow]
+
+## Shapes
+
+[Radius hierarchy/uses; nested inner radius = outer radius − gap]
+
+## Components
+
+[Per component: hover/focus-visible/active/disabled states, invariants and adaptations]
+
+## Do's and Don'ts
+
+- Do: [3-5 specific, checkable rules]
+- Don't: [3-5 system-specific anti-patterns, including this category's tempting catalog entries]
+
+## Motion
+
+- **Approach:** [minimal-functional / intentional / expressive]
+- **Easing:** enter(ease-out) exit(ease-in) move(ease-in-out)
+- **Duration:** micro(50-100ms) short(150-250ms) medium(250-400ms) long(400-700ms)
+- **The one authored moment:** [what it is]
+
+## Decisions Log
+| Date | Decision | Rationale |
+|------|----------|-----------|
+| [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
+```
+
+Use real token values, no placeholders; omit invented `components` entries. Outside plan mode, after writing DESIGN.md, require `bun --no-env-file run ~/.claude/skills/gstack/bin/gstack-design-md.ts check DESIGN.md` to print `DESIGN_MD_FORMAT: spec`.
+
+**Outside plan mode, update CLAUDE.md** (or create it if it doesn't exist) — append this section:
+
+```markdown
+## Design System
+Always read DESIGN.md before making any visual or UI decisions.
+All font choices, colors, spacing, and aesthetic direction are defined there.
+Do not deviate without explicit user approval.
+In QA mode, flag any code that doesn't match DESIGN.md.
+```
+
+After shipping DESIGN.md, if the session produced screen-level mockups or page layouts
+(not just system-level tokens), suggest:
+"Want to see this design system as working Pretext-native HTML? Run /design-html."
+
+---

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# gstack-ios-qa-daemon — Mac-side daemon that brokers tailnet/loopback traffic
+# to a connected iPhone running the in-app StateServer over the CoreDevice USB
+# tunnel. Single-instance via flock on ~/.gstack/ios-qa-daemon.pid.
+#
+# Usage:
+#   gstack-ios-qa-daemon                         # loopback-only (local USB)
+#   gstack-ios-qa-daemon --tailnet               # additionally open tailnet listener
+#
+# Environment:
+#   GSTACK_IOS_DAEMON_PORT       — loopback listener port (default 9099)
+#   GSTACK_IOS_TARGET_UDID       — target iOS device UDID (optional; otherwise
+#                                  the first paired connected device is used)
+#   GSTACK_IOS_TARGET_BUNDLE_ID  — bundle ID of the iOS app hosting StateServer
+#                                  (default com.gstack.iosqa.fixture)
+#
+# Readiness protocol: prints `READY: port=<n> pid=<pid>` to stdout once both
+# listeners are bound. Spawners read stdin with a ~5s timeout to confirm.
+#
+# Exits cleanly when no active loopback clients are connected AND no remote
+# session tokens are outstanding.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GSTACK_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENTRY="$GSTACK_DIR/ios-qa/daemon/src/index.ts"
+
+if [ ! -f "$ENTRY" ]; then
+  echo "gstack-ios-qa-daemon: missing $ENTRY (gstack install incomplete?)" >&2
+  exit 1
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "gstack-ios-qa-daemon: bun runtime not on PATH — install from https://bun.sh" >&2
+  exit 1
+fi
+
+exec bun run "$ENTRY" "$@"

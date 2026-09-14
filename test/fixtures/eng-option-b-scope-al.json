@@ -1,0 +1,138 @@
+{
+  "sourceHead": "c73102357cbc3466d6a3c8d3ad0ac7e3177ce62c",
+  "provenance": {
+    "replay": ".context/ship-source-al-delta-paid-20260910-v1/eng23-scope-replay-ledger-v1.json",
+    "projection": "Exact owned public assistant messages and the successful Skill use/result only. First is the retained native poll, not an exhaustive terminal journal; no post-load selected-plan announcement is present. Both original callback failures remain failures."
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "sourceObservation": {
+        "sha256": "6a50c83263b4b18f8bcd49c3f5116144f43369b3046f6f43775543d534551c3c",
+        "path": ".context/ship-source-al-delta-paid-20260910-v1/eng23-first-evidence-ledger-v1/seeded-observation.json"
+      },
+      "rawScopeGateAutoSelectObserved": false,
+      "projection": {
+        "transcript": {
+          "status": "ready",
+          "calls": [],
+          "assistantMessages": [
+            {
+              "sessionId": "3b7d1fc0-f1c8-40b2-9aa5-d08b84138d07",
+              "text": "I'll invoke the /plan-eng-review skill to review this draft plan.",
+              "timestamp": "2026-09-10T08:18:19.536Z"
+            },
+            {
+              "sessionId": "3b7d1fc0-f1c8-40b2-9aa5-d08b84138d07",
+              "text": "Interactive session, no Conductor. Running context recovery, brain context, and the design doc check in parallel.",
+              "timestamp": "2026-09-10T08:18:39.042Z"
+            },
+            {
+              "sessionId": "3b7d1fc0-f1c8-40b2-9aa5-d08b84138d07",
+              "text": "Found `scripts/test-free-shards.ts` already exists and a related P2 item in TODOS.md about bun-native `--shard`. I'll read those along with the design doc's review sections next.",
+              "timestamp": "2026-09-10T08:19:06.553Z"
+            },
+            {
+              "sessionId": "3b7d1fc0-f1c8-40b2-9aa5-d08b84138d07",
+              "text": "The plan calls for building a custom runner, but that already exists in `scripts/test-free-shards.ts` (1631 lines, duration-packed, strict-classified, backed by 17 tests). I'll keep gathering the remaining context before starting Step 0.\n\n",
+              "timestamp": "2026-09-10T08:19:30.967Z"
+            },
+            {
+              "sessionId": "3b7d1fc0-f1c8-40b2-9aa5-d08b84138d07",
+              "text": "AskUserQuestion and Aside aren't available, so I'll fall back to prose for decision briefs and use WebSearch for the Step 0 search check. Loading that now and reading the packer's successor note.\n\n",
+              "timestamp": "2026-09-10T08:19:55.872Z"
+            },
+            {
+              "sessionId": "3b7d1fc0-f1c8-40b2-9aa5-d08b84138d07",
+              "text": "Bun is at 1.4.0 here and in every CI workflow, so the packer's own \"replace me when unpinned past 1.3.13\" note has already fired. Running the Step 0 search check.",
+              "timestamp": "2026-09-10T08:20:04.932Z"
+            }
+          ]
+        },
+        "tools": [
+          {
+            "sessionId": "3b7d1fc0-f1c8-40b2-9aa5-d08b84138d07",
+            "timestamp": "2026-09-10T08:18:19.579Z",
+            "toolUseId": "toolu_01St7VYUhEJNWgXSKthMKTJ1",
+            "kind": "use",
+            "name": "Skill",
+            "input": {
+              "skill": "plan-eng-review"
+            }
+          },
+          {
+            "sessionId": "3b7d1fc0-f1c8-40b2-9aa5-d08b84138d07",
+            "timestamp": "2026-09-10T08:18:22.516Z",
+            "toolUseId": "toolu_01St7VYUhEJNWgXSKthMKTJ1",
+            "kind": "result",
+            "content": "Launching skill: plan-eng-review",
+            "isError": false
+          }
+        ],
+        "opts": {
+          "seed": "\n# Parallelize unit tests\n\n## Plan\nBuild a custom test runner: scripts/test-parallel.ts, scripts/test-shard-impl.ts,\nscripts/test-merge-results.ts, scripts/test-progress.ts, scripts/test-watch.ts,\nscripts/test-coverage.ts, scripts/test-cli.ts, scripts/test-config.ts.\n\nAdd new TestRunner class, new ShardManager class, new ResultMerger class.\n\nIgnore Bun's native --shard flag because we want full control.\n\n## Files\n- scripts/test-parallel.ts (new)\n- scripts/test-shard-impl.ts (new)\n- scripts/test-merge-results.ts (new)\n- scripts/test-progress.ts (new)\n- scripts/test-watch.ts (new)\n- scripts/test-coverage.ts (new)\n- scripts/test-cli.ts (new)\n- scripts/test-config.ts (new)\n- package.json (add scripts)\n\n## Tests\nNone planned \u2014 will add later.\n",
+          "skillName": "plan-eng-review",
+          "sessionId": "3b7d1fc0-f1c8-40b2-9aa5-d08b84138d07",
+          "commandStartedAt": 1789028293455
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "sourceObservation": {
+        "sha256": "0e9174bb66916b6d86b20688d9e1ff28c251104237bf0816d4cc05cc4946b1dc",
+        "path": ".context/ship-source-al-delta-paid-20260910-v1/eng23-retry-evidence-ledger-v1/observation.json"
+      },
+      "rawScopeGateAutoSelectObserved": false,
+      "projection": {
+        "transcript": {
+          "status": "ready",
+          "calls": [],
+          "assistantMessages": [
+            {
+              "sessionId": "58b7a2a4-20c6-4779-bca1-0e748059d0a4",
+              "text": "I'll run the eng review skill on this draft plan.",
+              "timestamp": "2026-09-10T08:21:23.762Z"
+            },
+            {
+              "sessionId": "58b7a2a4-20c6-4779-bca1-0e748059d0a4",
+              "text": "Plan mode is active, so the scope gate auto-selects B. Running the preamble first.",
+              "timestamp": "2026-09-10T08:21:33.170Z"
+            },
+            {
+              "sessionId": "58b7a2a4-20c6-4779-bca1-0e748059d0a4",
+              "text": "I've selected option B, reviewing the pasted \"Parallelize unit tests\" draft plan. Next I'll run the Design Doc Check, brain context, and context recovery, along with the Aside probe.",
+              "timestamp": "2026-09-10T08:21:43.626Z"
+            }
+          ]
+        },
+        "tools": [
+          {
+            "sessionId": "58b7a2a4-20c6-4779-bca1-0e748059d0a4",
+            "timestamp": "2026-09-10T08:21:23.804Z",
+            "toolUseId": "toolu_01TCceDrqU6vMJTMtNFR8bjF",
+            "kind": "use",
+            "name": "Skill",
+            "input": {
+              "skill": "plan-eng-review"
+            }
+          },
+          {
+            "sessionId": "58b7a2a4-20c6-4779-bca1-0e748059d0a4",
+            "timestamp": "2026-09-10T08:21:27.842Z",
+            "toolUseId": "toolu_01TCceDrqU6vMJTMtNFR8bjF",
+            "kind": "result",
+            "content": "Launching skill: plan-eng-review",
+            "isError": false
+          }
+        ],
+        "opts": {
+          "seed": "\n# Parallelize unit tests\n\n## Plan\nBuild a custom test runner: scripts/test-parallel.ts, scripts/test-shard-impl.ts,\nscripts/test-merge-results.ts, scripts/test-progress.ts, scripts/test-watch.ts,\nscripts/test-coverage.ts, scripts/test-cli.ts, scripts/test-config.ts.\n\nAdd new TestRunner class, new ShardManager class, new ResultMerger class.\n\nIgnore Bun's native --shard flag because we want full control.\n\n## Files\n- scripts/test-parallel.ts (new)\n- scripts/test-shard-impl.ts (new)\n- scripts/test-merge-results.ts (new)\n- scripts/test-progress.ts (new)\n- scripts/test-watch.ts (new)\n- scripts/test-coverage.ts (new)\n- scripts/test-cli.ts (new)\n- scripts/test-config.ts (new)\n- package.json (add scripts)\n\n## Tests\nNone planned \u2014 will add later.\n",
+          "skillName": "plan-eng-review",
+          "sessionId": "58b7a2a4-20c6-4779-bca1-0e748059d0a4",
+          "commandStartedAt": 1789028478459
+        }
+      }
+    }
+  ]
+}

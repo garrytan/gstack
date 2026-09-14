@@ -1,0 +1,8 @@
+{
+  "provenance": "Public row and contiguous redraw bytes from the owned source-AP routing permission at 2026-09-10T13:06:31Z. Cursor placement is a minimal synthetic seed; no private transcript content is included.",
+  "cols": 120,
+  "rows": 3,
+  "initial": "│    Create CLAUDE.md with the gstack routing section and commit it (after plan mode ends).",
+  "update": "\r│\u001b[5G❌ You have to remember and type each /skill name\u001b[55Gyourself every tim\u001b[74G\u001b[K",
+  "expected": "│   ❌ You have to remember and type each /skill name yourself every time"
+}

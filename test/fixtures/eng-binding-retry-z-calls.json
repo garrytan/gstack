@@ -1,0 +1,182 @@
+[
+  {
+    "sessionId": "db9c3882-1a7f-47c7-827e-16fc3fdf4031",
+    "toolUseId": "toolu_012Ro9wjqWQHApDSVPwATL21",
+    "questions": [
+      {
+        "question": "D1 — Scope check: 12 files + 4 new classes exceeds the complexity threshold. Should we recommend reducing scope, or accept the plan as-is and review it at full size? <gstack-qid:plan-eng-scope-check>",
+        "header": "Scope check",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Recommend scope reduction (Recommended)",
+            "description": "Flag the complexity in the review and propose a minimal design: 2 new classes (AuthBroker + RequestPolicy), reuse the existing adapter as TokenStore, inline session minting into AuthBroker. Estimated ~6 files instead of 12. The review report will include a concrete scope-reduction recommendation the team can choose to adopt."
+          },
+          {
+            "label": "Accept full scope, review as-is",
+            "description": "The 12-file, 4-class plan is accepted as the target. The review proceeds across Architecture, Code Quality, Tests, and Performance at full scope. Scope complexity is noted but not challenged."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 — Scope check: 12 files + 4 new classes exceeds the complexity threshold. Should we recommend reducing scope, or accept the plan as-is and review it at full size? <gstack-qid:plan-eng-scope-check>": "Recommend scope reduction (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:19:21.399Z"
+  },
+  {
+    "sessionId": "db9c3882-1a7f-47c7-827e-16fc3fdf4031",
+    "toolUseId": "toolu_014Ty9SbhubQaW9QaD8UPL5d",
+    "questions": [
+      {
+        "question": "D2 — Architecture: Two services share a global mutable AuthCache via module-level export. This is the #1 reliability risk in multi-tenant auth — concurrent mutations can corrupt tenant isolation. How should the plan address this? <gstack-qid:plan-eng-shared-mutable-cache>",
+        "header": "Shared cache",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Dependency injection (Recommended)",
+            "description": "The plan is updated to pass AuthCache as a constructor argument to both AuthBroker and SessionMint. No module-level mutable export. Tests can inject a mock/stub. Single shared instance still possible at the app root. Completeness: 9/10."
+          },
+          {
+            "label": "Mutation guards on the global",
+            "description": "Keep the global export but wrap every mutation site in explicit locking or compare-and-swap. Safer than bare shared state but still couples both services to the global. Adds concurrency primitives that need their own tests. Completeness: 7/10."
+          },
+          {
+            "label": "Accept as-is, flag as known risk",
+            "description": "Note the shared-global pattern in the review report as a known risk. Leave the plan unchanged. Suitable only if the runtime is single-threaded and concurrent mutation is architecturally impossible. Completeness: 4/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 — Architecture: Two services share a global mutable AuthCache via module-level export. This is the #1 reliability risk in multi-tenant auth — concurrent mutations can corrupt tenant isolation. How should the plan address this? <gstack-qid:plan-eng-shared-mutable-cache>": "Dependency injection (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:19:49.487Z"
+  },
+  {
+    "sessionId": "db9c3882-1a7f-47c7-827e-16fc3fdf4031",
+    "toolUseId": "toolu_01C6JJGSvUTP8Gi9tcj8N4C9",
+    "questions": [
+      {
+        "question": "D3 — Code quality: validateAndDispatch() has 3 nested try/catch blocks, each swallowing a different error class. Silent auth failures are a serious observability and reliability gap. What should the plan prescribe? <gstack-qid:plan-eng-error-swallowing>",
+        "header": "Error handling",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Re-throw as typed domain errors (Recommended)",
+            "description": "Each catch block catches its error class, logs it, then re-throws a typed domain error (e.g. TokenValidationError, PolicyError). Callers get structured errors. The function shrinks to ~30 lines. Full observability + type safety. Completeness: 9/10."
+          },
+          {
+            "label": "Single top-level handler + flatten",
+            "description": "Extract the three try/catch bodies into separate private methods, wrap the whole function in one top-level try/catch that logs and re-throws. Simpler than per-error typing but loses the error-class distinction callers may need. Completeness: 7/10."
+          },
+          {
+            "label": "Accept current structure",
+            "description": "Note the error-swallowing as a code smell in the report, but don't prescribe a change in the plan. Suitable if error types are genuinely irrelevant to callers and observability is handled elsewhere. Completeness: 4/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 — Code quality: validateAndDispatch() has 3 nested try/catch blocks, each swallowing a different error class. Silent auth failures are a serious observability and reliability gap. What should the plan prescribe? <gstack-qid:plan-eng-error-swallowing>": "Re-throw as typed domain errors (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:20:01.524Z"
+  },
+  {
+    "sessionId": "db9c3882-1a7f-47c7-827e-16fc3fdf4031",
+    "toolUseId": "toolu_01HLXRnjNyqRXBUUWy9NQYq4",
+    "questions": [
+      {
+        "question": "D4 — Tests: The D2 decision introduced DI for AuthCache. Should the test plan explicitly require a concurrent-mutation test — two requests from different tenants hitting AuthBroker and SessionMint simultaneously — to verify tenant isolation holds under load? <gstack-qid:plan-eng-concurrent-mutation-test>",
+        "header": "Concurrency test",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add concurrent-mutation test (Recommended)",
+            "description": "Add a test that fires AuthBroker and SessionMint simultaneously with different tenant IDs and asserts no cross-tenant cache bleed. This is the failure mode DI was chosen to prevent; testing it closes the loop. Completeness: 9/10."
+          },
+          {
+            "label": "Defer — unit tests cover the contract",
+            "description": "Unit tests for the DI'd AuthCache interface plus the existing adapter tests are sufficient. Concurrent integration testing can be added post-ship if production issues surface. Completeness: 6/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 — Tests: The D2 decision introduced DI for AuthCache. Should the test plan explicitly require a concurrent-mutation test — two requests from different tenants hitting AuthBroker and SessionMint simultaneously — to verify tenant isolation holds under load? <gstack-qid:plan-eng-concurrent-mutation-test>": "Add concurrent-mutation test (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:20:43.682Z"
+  },
+  {
+    "sessionId": "db9c3882-1a7f-47c7-827e-16fc3fdf4031",
+    "toolUseId": "toolu_01LHzWK7Mzr4tT2iFN3Q3tzY",
+    "questions": [
+      {
+        "question": "D5 — Performance: Token validation makes 5 sequential IDP calls that are independent. Should the plan prescribe parallelizing them via Promise.all, or defer? <gstack-qid:plan-eng-idp-parallelism>",
+        "header": "IDP parallelism",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Parallelize in this PR (Recommended)",
+            "description": "Replace sequential IDP calls with Promise.all. The plan itself calls this trivial and the calls are confirmed independent. ~5x auth latency improvement. Error handling: Promise.allSettled if partial success is acceptable, Promise.all if all-or-nothing. Add a test for the parallel execution path. Completeness: 9/10."
+          },
+          {
+            "label": "Defer to a follow-up PR",
+            "description": "Merge the refactor first, parallelize in a separate PR. Lower risk per-PR, but ships known 5x latency regression compared to what is achievable. Completeness: 6/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 — Performance: Token validation makes 5 sequential IDP calls that are independent. Should the plan prescribe parallelizing them via Promise.all, or defer? <gstack-qid:plan-eng-idp-parallelism>": "Parallelize in this PR (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:20:53.719Z"
+  },
+  {
+    "sessionId": "db9c3882-1a7f-47c7-827e-16fc3fdf4031",
+    "toolUseId": "toolu_01JywMpehKe8eWcfqbYKDyfb",
+    "questions": [
+      {
+        "question": "D6 — TODO: Should we capture a cross-tenant E2E integration test (real IDP, two tenants, verify no cache bleed) as a TODO for post-ship? The D4 concurrent-mutation test covers the unit level; this covers the full integration boundary. <gstack-qid:plan-eng-todo-e2e-cross-tenant>",
+        "header": "TODO: E2E test",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to TODOS.md (Recommended)",
+            "description": "Capture the cross-tenant E2E test as a tracked TODO. Why: the unit-level concurrent test covers cache isolation; the E2E test covers the full flow including IDP, policy enforcement, and session creation across tenants. Prerequisites: test IDP infrastructure."
+          },
+          {
+            "label": "Skip — unit tests are sufficient",
+            "description": "The concurrent-mutation test plus unit/integration coverage the plan already describes is enough. Don't add an E2E TODO."
+          },
+          {
+            "label": "Build it now in this PR",
+            "description": "Include the cross-tenant E2E test in the current PR scope. Expands scope but closes the full integration gap now."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 — TODO: Should we capture a cross-tenant E2E integration test (real IDP, two tenants, verify no cache bleed) as a TODO for post-ship? The D4 concurrent-mutation test covers the unit level; this covers the full integration boundary. <gstack-qid:plan-eng-todo-e2e-cross-tenant>": "Add to TODOS.md (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:21:45.933Z"
+  }
+]

@@ -1,0 +1,171 @@
+{
+  "sourceHead": "04c62ac678bb7bc1a22090f72f7ed51c451c22b9",
+  "proof": ".context/ship-source-ak-delta-paid-20260910-v1/design19-scope-evidence-ledger-v1/proof.json",
+  "proofSha256": "0e5451e8db7de6b3a6441ba1ca2739c98c3be1a6c7c9971950b5562e86e29b49",
+  "attempts": [
+    {
+      "attempt": 1,
+      "source": {
+        "path": ".context/ship-source-ak-delta-paid-20260910-v1/evals/job-19/shards/skill-e2e-plan-design-plan-mode/pty-count/ship-source-ak-delta-paid-20260910-v1-19/plan-design-review-1789024094296-1SOisw/observation.json",
+        "sha256": "a697e4cb3a4452e4104bcaf5585048cf72e28b455d10076f83f6df33155683b5"
+      },
+      "rawScopeGateAutoSelectObserved": false,
+      "projection": {
+        "transcript": {
+          "status": "ready",
+          "calls": [],
+          "assistantMessages": [
+            {
+              "sessionId": "67726d1f-17e6-4716-9f05-ee0287088742",
+              "text": "I'll run the design review skill against your draft plan.",
+              "timestamp": "2026-09-10T07:06:50.423Z"
+            },
+            {
+              "sessionId": "67726d1f-17e6-4716-9f05-ee0287088742",
+              "text": "Running the skill preamble first.",
+              "timestamp": "2026-09-10T07:07:01.381Z"
+            },
+            {
+              "sessionId": "67726d1f-17e6-4716-9f05-ee0287088742",
+              "text": "I'll proceed with reviewing the \"Marketing landing page\" draft, starting with a pre-review audit covering context recovery, the design binary check, brain context, and repo state.\n\n",
+              "timestamp": "2026-09-10T07:07:13.761Z"
+            },
+            {
+              "sessionId": "67726d1f-17e6-4716-9f05-ee0287088742",
+              "text": "Audit done. Here's what I found before rating.\n\n**Pre-review system audit**\n\n- **Target:** the pasted \"Marketing landing page\" draft (plan mode auto-selected B). No plan file exists yet; I'll create one at the host-referenced path as the review artifact.\n- **DESIGN.md exists** at repo root. It is a real spec: Satoshi display, DM Sans body, JetBrains Mono as the personality font, amber accent used rarely, dark mode default, Industrial/Utilitarian direction, editorial hero for the landing page, 12-col grid at lg+, 4px spacing base, one authored motion moment. Every finding below calibrates against it.\n- **Prior design reviews:** none on this branch. TODOS.md has no landing-page or pricing items.\n- **Designer binary:** `DESIGN_READY`. Mockups will be generated after you answer the scope question.\n- **Brain context:** cold (no product, brand, or decisions digests).\n- **Base branch:** `main`.\n- **UI scope:** two pages, six sections, one carousel. Design review applies.\n\n**Step 0A: Initial design rating: 2/10**\n\nIt's a 2 because the plan names sections but makes exactly three concrete design decisions, and all three contradict DESIGN.md or a core principle:\n\n1. **\"Everything center-aligned for a clean modern look\"** is a vibe, not a decision, and it fights DESIGN.md's \"editorial hero\" and 12-column grid. Centered body copy is also the single most reliable AI-slop tell.\n2. **Hero h1 8px above the subhead** is `sm` on the spacing scale. At 72px Satoshi Black, 8px reads as a typo, not a pairing. Proximity is right, magnitude is wrong.\n3. **CTA has the same visual weight as \"Learn more\"** breaks hierarchy on the one element the page exists to drive. Users satisfice; if nothing is more prominent, they click nothing.\n\nThen the pattern list: hero, 3-column features grid, testimonials carousel, footer, 3 pricing tier cards. That is the Codex hard-rejection list verbatim (generic card grid, carousel with no narrative purpose, stacked cards instead of layout). No copy hierarchy, no brand anchor, no states, and \"stacks on mobile\" is Principle 6's exact anti-pattern.\n\nA 10 for this plan: every section names its one job and its first/second/third read; the hero is a composition using Satoshi + JetBrains Mono per DESIGN.md with one authored motion moment; primary CTA is a filled amber button and \"Learn more\" is a text link; the features section is a layout, not a grid of cards; testimonials are a static, scannable set or cut; pricing shows tier comparison without three identical cards; loading, error, empty, and success states are specified for anything dynamic (carousel, pricing toggle, any form); mobile has its own hierarchy decisions per section; touch targets, contrast, keyboard nav, and reduced-motion are specified.\n\n**0B:** DESIGN.md exists. All decisions calibrate against it.\n\n**0C: Existing leverage.** DESIGN.md already gives you the type scale, color tokens, spacing scale, radii, grain texture, and the motion budget. The plan should reference these tokens by name rather than invent \"8px\" or \"same weight\" ad hoc.",
+              "timestamp": "2026-09-10T07:08:01.152Z"
+            }
+          ]
+        },
+        "tools": [
+          {
+            "sessionId": "67726d1f-17e6-4716-9f05-ee0287088742",
+            "timestamp": "2026-09-10T07:06:52.634Z",
+            "toolUseId": "toolu_013AVSbqXfk4Pma6UmJKtGwY",
+            "kind": "use",
+            "name": "Skill",
+            "input": {
+              "skill": "plan-design-review",
+              "args": "Review the draft plan \"Marketing landing page\" (centered-everything layout, hero h1 8px above subhead, CTA same weight as Learn more link, / and /pricing pages, happy-path-only states, \"stacks on mobile\")"
+            }
+          },
+          {
+            "sessionId": "67726d1f-17e6-4716-9f05-ee0287088742",
+            "timestamp": "2026-09-10T07:06:54.050Z",
+            "toolUseId": "toolu_013AVSbqXfk4Pma6UmJKtGwY",
+            "kind": "result",
+            "content": "Launching skill: plan-design-review",
+            "isError": false
+          }
+        ],
+        "opts": {
+          "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n",
+          "skillName": "plan-design-review",
+          "sessionId": "67726d1f-17e6-4716-9f05-ee0287088742",
+          "commandStartedAt": 1789024004718
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "source": {
+        "path": ".context/ship-source-ak-delta-paid-20260910-v1/evals/job-19/shards/skill-e2e-plan-design-plan-mode/pty-count/ship-source-ak-delta-paid-20260910-v1-19/plan-design-review-1789024241776-ohRpzN/observation.json",
+        "sha256": "93c2cb9fce8e642b7ed3044f9637f9a611b9d7a7f240d188ec743c8cd069cc4a"
+      },
+      "rawScopeGateAutoSelectObserved": false,
+      "projection": {
+        "transcript": {
+          "status": "ready",
+          "calls": [],
+          "assistantMessages": [
+            {
+              "sessionId": "edf34f25-8871-4710-b541-df9b2f625431",
+              "text": "I'll run the /plan-design-review skill against this draft plan.",
+              "timestamp": "2026-09-10T07:08:31.881Z"
+            },
+            {
+              "sessionId": "edf34f25-8871-4710-b541-df9b2f625431",
+              "text": "Scope gate confirms plan mode, so I'll review the pasted \"Marketing landing page\" draft plan. Running the pre-review audit, design setup check, brain context, and base-branch detection in parallel next.\n\n",
+              "timestamp": "2026-09-10T07:08:52.518Z"
+            }
+          ]
+        },
+        "tools": [
+          {
+            "sessionId": "edf34f25-8871-4710-b541-df9b2f625431",
+            "timestamp": "2026-09-10T07:08:33.112Z",
+            "toolUseId": "toolu_01MSnSSPSULjT7Pn11A36Vw7",
+            "kind": "use",
+            "name": "Skill",
+            "input": {
+              "skill": "plan-design-review"
+            }
+          },
+          {
+            "sessionId": "edf34f25-8871-4710-b541-df9b2f625431",
+            "timestamp": "2026-09-10T07:08:34.543Z",
+            "toolUseId": "toolu_01MSnSSPSULjT7Pn11A36Vw7",
+            "kind": "result",
+            "content": "Launching skill: plan-design-review",
+            "isError": false
+          }
+        ],
+        "opts": {
+          "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n",
+          "skillName": "plan-design-review",
+          "sessionId": "edf34f25-8871-4710-b541-df9b2f625431",
+          "commandStartedAt": 1789024105646
+        }
+      }
+    }
+  ],
+  "priorGenuineFailure": {
+    "source": ".context/ship-source-aj-delta-paid-20260910-v1/eng24-scope-replay-ledger-v1/projection.json",
+    "sha256": "7d2b435d77c060a7964e43a3273a86702f75e50c62a37881ba44be479999bb96",
+    "rawScopeSelection": false,
+    "projection": {
+      "transcript": {
+        "status": "ready",
+        "calls": [],
+        "assistantMessages": [
+          {
+            "sessionId": "54227e78-941b-4cd3-937a-dd4f30837acd",
+            "text": "I'll run the /plan-eng-review skill on this draft plan.",
+            "timestamp": "2026-09-10T06:04:55.547Z"
+          },
+          {
+            "sessionId": "54227e78-941b-4cd3-937a-dd4f30837acd",
+            "text": "Step 0 scope check: gathering the last facts on the existing runner before I write up findings.",
+            "timestamp": "2026-09-10T06:06:00.736Z"
+          }
+        ]
+      },
+      "tools": [
+        {
+          "sessionId": "54227e78-941b-4cd3-937a-dd4f30837acd",
+          "timestamp": "2026-09-10T06:04:55.590Z",
+          "toolUseId": "toolu_01NvWCxjAJZ3EEQdqDWa6yo7",
+          "kind": "use",
+          "name": "Skill",
+          "input": {
+            "skill": "plan-eng-review"
+          }
+        },
+        {
+          "sessionId": "54227e78-941b-4cd3-937a-dd4f30837acd",
+          "timestamp": "2026-09-10T06:04:57.061Z",
+          "toolUseId": "toolu_01NvWCxjAJZ3EEQdqDWa6yo7",
+          "kind": "result",
+          "content": "Launching skill: plan-eng-review",
+          "isError": false
+        }
+      ],
+      "opts": {
+        "seed": "\n# Parallelize unit tests\n\n## Plan\nBuild a custom test runner: scripts/test-parallel.ts, scripts/test-shard-impl.ts,\nscripts/test-merge-results.ts, scripts/test-progress.ts, scripts/test-watch.ts,\nscripts/test-coverage.ts, scripts/test-cli.ts, scripts/test-config.ts.\n\nAdd new TestRunner class, new ShardManager class, new ResultMerger class.\n\nIgnore Bun's native --shard flag because we want full control.\n\n## Files\n- scripts/test-parallel.ts (new)\n- scripts/test-shard-impl.ts (new)\n- scripts/test-merge-results.ts (new)\n- scripts/test-progress.ts (new)\n- scripts/test-watch.ts (new)\n- scripts/test-coverage.ts (new)\n- scripts/test-cli.ts (new)\n- scripts/test-config.ts (new)\n- package.json (add scripts)\n\n## Tests\nNone planned \u2014 will add later.\n",
+        "skillName": "plan-eng-review",
+        "sessionId": "54227e78-941b-4cd3-937a-dd4f30837acd",
+        "commandStartedAt": 1789020263038
+      }
+    }
+  }
+}

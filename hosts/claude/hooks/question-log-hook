@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Bash shim — Claude Code hooks run `command` strings via /bin/sh, so this
+# wrapper makes the TypeScript hook executable via bun. Settings.json
+# references this file directly.
+set -e
+HERE="$(cd "$(dirname "$0")" && pwd)"
+exec bun "$HERE/question-log-hook.ts"

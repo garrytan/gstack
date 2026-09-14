@@ -1,0 +1,214 @@
+[
+  {
+    "sessionId": "7ed1eb96-03ea-429a-a28d-a436c9db55fe",
+    "toolUseId": "toolu_0195yBYrTA3BG7dhe55rVaf2",
+    "questions": [
+      {
+        "question": "D1 — Cross-project learnings: enable or keep project-scoped?\n\ngstack can search learnings from your other projects on this machine to find patterns that might apply here (e.g., a recurring auth-error pattern caught in a prior SDK review). This stays fully local — no data leaves the machine.\n\nRecommendation: A — enable, because solo ML engineers benefit from cross-project pattern matching (e.g., the CI-gate anti-pattern appears across multiple SDK projects). Completeness: A=9/10, B=7/10.",
+        "header": "Learnings",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Enable cross-project learnings (Recommended)",
+            "description": "Search learnings from all local gstack projects — higher signal, same privacy."
+          },
+          {
+            "label": "Keep learnings project-scoped",
+            "description": "Only search learnings from this project — lower noise if you work across unrelated codebases."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 — Cross-project learnings: enable or keep project-scoped?\n\ngstack can search learnings from your other projects on this machine to find patterns that might apply here (e.g., a recurring auth-error pattern caught in a prior SDK review). This stays fully local — no data leaves the machine.\n\nRecommendation: A — enable, because solo ML engineers benefit from cross-project pattern matching (e.g., the CI-gate anti-pattern appears across multiple SDK projects). Completeness: A=9/10, B=7/10.": "Enable cross-project learnings (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T13:50:33.167Z"
+  },
+  {
+    "sessionId": "7ed1eb96-03ea-429a-a28d-a436c9db55fe",
+    "toolUseId": "toolu_01D7okc8RXjop2Jg4QXyWaAk",
+    "questions": [
+      {
+        "question": "D2 — Empathy narrative: does this match your actual developer experience?\n\nHere's what I think a Python ML engineer experiences today with EvalKit:\n\n---\n\nI find EvalKit referenced somewhere and open the README. First thing I see: install with `python -m pip install evalkit==2.0.0b1`. Fine, I run it — installs clean. Then: set `EVALKIT_API_KEY`. I go generate a key and come back. README then says: \"follow the quickstart's command: `python examples/first_eval.py`.\"\n\nI run it. `can't open file 'examples/first_eval.py': [Errno 2] No such file or directory`. I look around the installed package: no examples/ directory. The README pointed me at a file that doesn't exist.\n\nAfter scanning the README again I spot `python -m evalkit.demo`. I try it. It starts — nothing happens. Thirty seconds later: \"Waiting for CI check: 90s elapsed of 300s.\" Wait, what? A local demo needs a CI check? Is something broken? I don't know. I sit and wait. Five minutes pass. \"CI check passed.\" Then: `example 1: score=0.80 / example 2: score=1.00 / overall: score=0.90`.\n\nI got results. But I lost five minutes to an invisible gate I didn't know was coming, and I burned my first minute chasing a file the README promised but the package omitted.\n\n---\n\nDoes this match reality?",
+        "header": "Empathy",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Accurate — proceed with this understanding",
+            "description": "This matches the actual developer experience; use it as the basis for the review."
+          },
+          {
+            "label": "Partially wrong — let me correct it",
+            "description": "Some details are off; I'll clarify the actual experience."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 — Empathy narrative: does this match your actual developer experience?\n\nHere's what I think a Python ML engineer experiences today with EvalKit:\n\n---\n\nI find EvalKit referenced somewhere and open the README. First thing I see: install with `python -m pip install evalkit==2.0.0b1`. Fine, I run it — installs clean. Then: set `EVALKIT_API_KEY`. I go generate a key and come back. README then says: \"follow the quickstart's command: `python examples/first_eval.py`.\"\n\nI run it. `can't open file 'examples/first_eval.py': [Errno 2] No such file or directory`. I look around the installed package: no examples/ directory. The README pointed me at a file that doesn't exist.\n\nAfter scanning the README again I spot `python -m evalkit.demo`. I try it. It starts — nothing happens. Thirty seconds later: \"Waiting for CI check: 90s elapsed of 300s.\" Wait, what? A local demo needs a CI check? Is something broken? I don't know. I sit and wait. Five minutes pass. \"CI check passed.\" Then: `example 1: score=0.80 / example 2: score=1.00 / overall: score=0.90`.\n\nI got results. But I lost five minutes to an invisible gate I didn't know was coming, and I burned my first minute chasing a file the README promised but the package omitted.\n\n---\n\nDoes this match reality?": "Accurate — proceed with this understanding"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T13:51:01.233Z"
+  },
+  {
+    "sessionId": "7ed1eb96-03ea-429a-a28d-a436c9db55fe",
+    "toolUseId": "toolu_01WbFkT1HJSWkmg72TX8DAy6",
+    "questions": [
+      {
+        "question": "D3 — Missing examples/first_eval.py: how should the plan address it?\n\nELI10: The README's getting-started section tells the Python ML engineer to run `python examples/first_eval.py`. But docs/package-contents.txt explicitly states that file is absent from both the published package and the release examples archive. The developer follows the primary quickstart path and hits a file-not-found error before they've seen a single result. This is a broken first-run path.\n\nStakes if we pick wrong: The quickstart is broken for every developer who follows the README. First impression is an error, not magic. TTHW is undefined (never completes on the documented path).\n\nRecommendation: A because shipping a README that references a nonexistent file is a contract violation, and the demo module already works.\n\nCompleteness: A=10/10, B=8/10, C=0/10\n\nPros / cons:\nA) Remove the examples/first_eval.py reference from the README; make python -m evalkit.demo the single primary path (recommended)\n  ✔️ Aligns the README with what the package actually ships — immediate fix, zero new work\n  ✔️ Demo module is documented and tested; consolidates quickstart to one working path\n  ❌ Removes the file-based quickstart option; teams who wanted an editable script lose it\nB) Add examples/first_eval.py to the package and examples archive before release\n  ✔️ Preserves both quickstart paths; developers who prefer editing a file get one\n  ✔️ Addresses the root cause rather than hiding it\n  ❌ Requires authoring, testing, and packaging a new file; scope creep against DX POLISH\nC) Leave as-is — accept the broken quickstart\n  ✔️ No work required\n  ❌ Every developer hits a file-not-found error on the documented path; this is a ship blocker\n\nNet: ship with a broken README link or fix it — the only real choice is A or B.",
+        "header": "Quickstart",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A — Remove broken reference, use demo (Recommended)",
+            "description": "Update README to point only at python -m evalkit.demo; no new files needed."
+          },
+          {
+            "label": "B — Add examples/first_eval.py to package",
+            "description": "Author and package the missing file to fulfill the README's promise."
+          },
+          {
+            "label": "C — Leave as-is",
+            "description": "Accept the broken quickstart link; no plan change."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 — Missing examples/first_eval.py: how should the plan address it?\n\nELI10: The README's getting-started section tells the Python ML engineer to run `python examples/first_eval.py`. But docs/package-contents.txt explicitly states that file is absent from both the published package and the release examples archive. The developer follows the primary quickstart path and hits a file-not-found error before they've seen a single result. This is a broken first-run path.\n\nStakes if we pick wrong: The quickstart is broken for every developer who follows the README. First impression is an error, not magic. TTHW is undefined (never completes on the documented path).\n\nRecommendation: A because shipping a README that references a nonexistent file is a contract violation, and the demo module already works.\n\nCompleteness: A=10/10, B=8/10, C=0/10\n\nPros / cons:\nA) Remove the examples/first_eval.py reference from the README; make python -m evalkit.demo the single primary path (recommended)\n  ✔️ Aligns the README with what the package actually ships — immediate fix, zero new work\n  ✔️ Demo module is documented and tested; consolidates quickstart to one working path\n  ❌ Removes the file-based quickstart option; teams who wanted an editable script lose it\nB) Add examples/first_eval.py to the package and examples archive before release\n  ✔️ Preserves both quickstart paths; developers who prefer editing a file get one\n  ✔️ Addresses the root cause rather than hiding it\n  ❌ Requires authoring, testing, and packaging a new file; scope creep against DX POLISH\nC) Leave as-is — accept the broken quickstart\n  ✔️ No work required\n  ❌ Every developer hits a file-not-found error on the documented path; this is a ship blocker\n\nNet: ship with a broken README link or fix it — the only real choice is A or B.": "A — Remove broken reference, use demo (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T13:51:23.300Z"
+  },
+  {
+    "sessionId": "7ed1eb96-03ea-429a-a28d-a436c9db55fe",
+    "toolUseId": "toolu_013UD9yHb5CjSqQkeoHpENm4",
+    "questions": [
+      {
+        "question": "D4 — 5-minute mandatory CI gate makes the <2min TTHW target impossible: how should the plan address it?\n\nELI10: docs/benchmarks.md says the agreed target is under 2 minutes from install to first result. But docs/current-contracts.md says the SDK blocks for 5 minutes on every first-run evaluation waiting for a remote CI check, and the plan retains this gate unchanged. A 5-minute wait inside a <2-minute target is a logical impossibility. The benchmark measured 6 minutes because the CI wait alone exceeds the target. The plan currently promises <2 minutes while shipping the gate that makes it unreachable.\n\nStakes if we pick wrong: The plan ships with an internal contradiction. Either the TTHW target is meaningless, or the CI gate is silently broken. A Python ML engineer running the demo will wait 5 minutes with no warning that this is expected behavior.\n\nRecommendation: A — add a --local / --skip-ci flag for the demo module; the gate stays for production use. Achieves the <2min target for the first-success experience without removing the gate from CI paths.\n\nCompleteness: A=9/10, B=7/10, C=5/10\n\nPros / cons:\nA) Add --local flag (or EVALKIT_LOCAL=1 env var) to python -m evalkit.demo that skips the CI gate; document it prominently (recommended)\n  ✔️ First-success experience hits <2 min; the <2min target becomes achievable\n  ✔️ Matches DX First Principle #4: opinionated defaults, escape hatches required\n  ❌ Adds one flag to document and test; minor scope against DX POLISH baseline\nB) Revise the TTHW target in the plan to reflect reality (e.g., <7 min including CI wait)\n  ✔️ Resolves the contradiction without changing the SDK behavior\n  ✔️ Honest about what the CI gate costs the developer\n  ❌ Concedes the competitive ground; benchmark shows Peer A already does 2 min\nC) Add a prominent warning in README/demo output that the first run always takes 5 minutes\n  ✔️ Expectation-setting reduces abandonment; cheap to implement\n  ❌ Developer still waits 5 minutes; TTHW stays at 6 min; target still not met\n\nNet: the plan cannot claim <2min TTHW while mandating a 5-min CI gate without a local escape path.",
+        "header": "CI gate",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A — Add --local / env var to skip gate for demo (Recommended)",
+            "description": "Achieves the <2min target for first-success; gate stays for production CI use."
+          },
+          {
+            "label": "B — Revise the TTHW target to <7min",
+            "description": "Remove the contradiction by updating the target, not the gate."
+          },
+          {
+            "label": "C — Add a prominent 5-minute warning, keep gate and target as-is",
+            "description": "Expectation-setting only; TTHW contradiction stays in plan."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 — 5-minute mandatory CI gate makes the <2min TTHW target impossible: how should the plan address it?\n\nELI10: docs/benchmarks.md says the agreed target is under 2 minutes from install to first result. But docs/current-contracts.md says the SDK blocks for 5 minutes on every first-run evaluation waiting for a remote CI check, and the plan retains this gate unchanged. A 5-minute wait inside a <2-minute target is a logical impossibility. The benchmark measured 6 minutes because the CI wait alone exceeds the target. The plan currently promises <2 minutes while shipping the gate that makes it unreachable.\n\nStakes if we pick wrong: The plan ships with an internal contradiction. Either the TTHW target is meaningless, or the CI gate is silently broken. A Python ML engineer running the demo will wait 5 minutes with no warning that this is expected behavior.\n\nRecommendation: A — add a --local / --skip-ci flag for the demo module; the gate stays for production use. Achieves the <2min target for the first-success experience without removing the gate from CI paths.\n\nCompleteness: A=9/10, B=7/10, C=5/10\n\nPros / cons:\nA) Add --local flag (or EVALKIT_LOCAL=1 env var) to python -m evalkit.demo that skips the CI gate; document it prominently (recommended)\n  ✔️ First-success experience hits <2 min; the <2min target becomes achievable\n  ✔️ Matches DX First Principle #4: opinionated defaults, escape hatches required\n  ❌ Adds one flag to document and test; minor scope against DX POLISH baseline\nB) Revise the TTHW target in the plan to reflect reality (e.g., <7 min including CI wait)\n  ✔️ Resolves the contradiction without changing the SDK behavior\n  ✔️ Honest about what the CI gate costs the developer\n  ❌ Concedes the competitive ground; benchmark shows Peer A already does 2 min\nC) Add a prominent warning in README/demo output that the first run always takes 5 minutes\n  ✔️ Expectation-setting reduces abandonment; cheap to implement\n  ❌ Developer still waits 5 minutes; TTHW stays at 6 min; target still not met\n\nNet: the plan cannot claim <2min TTHW while mandating a 5-min CI gate without a local escape path.": "A — Add --local / env var to skip gate for demo (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T13:51:55.881Z"
+  },
+  {
+    "sessionId": "7ed1eb96-03ea-429a-a28d-a436c9db55fe",
+    "toolUseId": "toolu_01DyF9zjSEc7yp5rJVQjh2hN",
+    "questions": [
+      {
+        "question": "D5 — AuthError(\"request failed\"): the plan retains a useless error message. Fix it?\n\nELI10: When the API key is invalid or missing, the SDK raises `AuthError(\"request failed\")`. That's it. No error code, no explanation of the cause, no instruction for fixing it. From docs/api.md: \"The plan retains this message.\" A developer who types the key wrong sees a cryptic error with no path forward. Compare to Stripe's auth errors: `No API key provided. Set your API key using STRIPE_API_KEY. You can find your API key in the Dashboard at https://dashboard.stripe.com/apikeys.` That is the DX First Principle #5 standard: problem + cause + fix.\n\nStakes if we pick wrong: A developer whose key is wrong or expired has no idea whether the key format is bad, the key expired, the network is blocked, or the SDK has a bug. They abandon or file a support ticket.\n\nRecommendation: A — replace with a three-tier error message. This is a one-line change in the SDK, and it is exactly what DX POLISH is for.\n\nNote: options differ in kind, not coverage — no completeness score.\n\nPros / cons:\nA) Replace AuthError message with problem + cause + fix (recommended)\n  ✔️ Gives the developer the next action: check the key, regenerate it, verify the env var\n  ✔️ Zero scope creep: one string change in the SDK; no new API surface\n  ❌ None — this is a pure quality improvement with no tradeoff\nB) Retain \"request failed\" as documented in the plan\n  ✔️ No change required\n  ❌ Every developer with an invalid key gets a dead-end error with no recovery path\n\nNet: this is a straightforward DX POLISH fix; the only question is whether the plan should mandate it.",
+        "header": "AuthError",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A — Fix AuthError message to include cause + fix (Recommended)",
+            "description": "Mandate that AuthError carries the key name, cause, and a doc link — one string change."
+          },
+          {
+            "label": "B — Retain current AuthError message",
+            "description": "Leave \"request failed\" unchanged as documented; no plan change."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 — AuthError(\"request failed\"): the plan retains a useless error message. Fix it?\n\nELI10: When the API key is invalid or missing, the SDK raises `AuthError(\"request failed\")`. That's it. No error code, no explanation of the cause, no instruction for fixing it. From docs/api.md: \"The plan retains this message.\" A developer who types the key wrong sees a cryptic error with no path forward. Compare to Stripe's auth errors: `No API key provided. Set your API key using STRIPE_API_KEY. You can find your API key in the Dashboard at https://dashboard.stripe.com/apikeys.` That is the DX First Principle #5 standard: problem + cause + fix.\n\nStakes if we pick wrong: A developer whose key is wrong or expired has no idea whether the key format is bad, the key expired, the network is blocked, or the SDK has a bug. They abandon or file a support ticket.\n\nRecommendation: A — replace with a three-tier error message. This is a one-line change in the SDK, and it is exactly what DX POLISH is for.\n\nNote: options differ in kind, not coverage — no completeness score.\n\nPros / cons:\nA) Replace AuthError message with problem + cause + fix (recommended)\n  ✔️ Gives the developer the next action: check the key, regenerate it, verify the env var\n  ✔️ Zero scope creep: one string change in the SDK; no new API surface\n  ❌ None — this is a pure quality improvement with no tradeoff\nB) Retain \"request failed\" as documented in the plan\n  ✔️ No change required\n  ❌ Every developer with an invalid key gets a dead-end error with no recovery path\n\nNet: this is a straightforward DX POLISH fix; the only question is whether the plan should mandate it.": "A — Fix AuthError message to include cause + fix (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T13:52:14.426Z"
+  },
+  {
+    "sessionId": "7ed1eb96-03ea-429a-a28d-a436c9db55fe",
+    "toolUseId": "toolu_0181W6gwiM2m2SPz7tAQ5egw",
+    "questions": [
+      {
+        "question": "D6 — run_eval and run_batch have reversed argument order for the same concepts: fix or document?\n\nELI10: From docs/api.md: `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)`. The two functions take the same arguments but in reversed order — docs/api.md says this is \"intentional.\" Since neither function requires keyword arguments, a developer who switches between them will silently pass the wrong values in the wrong positions. Python won't raise an error — it will just produce wrong evaluation results. This is a classic API design trap: an inconsistency that looks fine until the developer moves from tutorial code to their own integration.\n\nStakes if we pick wrong: Silent incorrect evaluations. A developer who uses run_eval and then tries run_batch will flip dataset and evaluator and get wrong scores with no error message.\n\nRecommendation: A — standardize order and add keyword-argument enforcement. This prevents silent misuse and makes both functions consistent with each other.\n\nNote: options differ in kind, not coverage — no completeness score.\n\nPros / cons:\nA) Standardize to one consistent order (dataset, evaluator) across both functions; require keyword args (recommended)\n  ✔️ Eliminates the silent-wrong-result trap; consistent API is learnable without docs\n  ✔️ Keyword enforcement surfaces mistakes as clear errors at call time, not wrong outputs\n  ❌ Minor breaking change if anyone is already calling run_batch by position; needs changelog entry\nB) Keep reversed order but add a deprecation-style warning when called without keyword args\n  ✔️ Non-breaking; warns developers without forcing a signature change\n  ❌ The inconsistency remains; warning only fires at runtime, not during code review\nC) Keep as-is — treat the reversed order as intentional and undocumented gotcha\n  ✔️ No change\n  ❌ Creates silent wrong-result bugs for every developer who uses both functions\n\nNet: a reversed positional-arg order with no keyword enforcement is a correctness trap, not a style choice.",
+        "header": "API design",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A — Standardize order + require keyword args (Recommended)",
+            "description": "Align both functions to (dataset, evaluator); enforce keyword-only to prevent silent misuse."
+          },
+          {
+            "label": "B — Keep order, add runtime warning for positional calls",
+            "description": "Non-breaking; warns but doesn't fix the inconsistency."
+          },
+          {
+            "label": "C — Keep as-is, treat as intentional",
+            "description": "No plan change; silent wrong-result risk stays."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 — run_eval and run_batch have reversed argument order for the same concepts: fix or document?\n\nELI10: From docs/api.md: `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)`. The two functions take the same arguments but in reversed order — docs/api.md says this is \"intentional.\" Since neither function requires keyword arguments, a developer who switches between them will silently pass the wrong values in the wrong positions. Python won't raise an error — it will just produce wrong evaluation results. This is a classic API design trap: an inconsistency that looks fine until the developer moves from tutorial code to their own integration.\n\nStakes if we pick wrong: Silent incorrect evaluations. A developer who uses run_eval and then tries run_batch will flip dataset and evaluator and get wrong scores with no error message.\n\nRecommendation: A — standardize order and add keyword-argument enforcement. This prevents silent misuse and makes both functions consistent with each other.\n\nNote: options differ in kind, not coverage — no completeness score.\n\nPros / cons:\nA) Standardize to one consistent order (dataset, evaluator) across both functions; require keyword args (recommended)\n  ✔️ Eliminates the silent-wrong-result trap; consistent API is learnable without docs\n  ✔️ Keyword enforcement surfaces mistakes as clear errors at call time, not wrong outputs\n  ❌ Minor breaking change if anyone is already calling run_batch by position; needs changelog entry\nB) Keep reversed order but add a deprecation-style warning when called without keyword args\n  ✔️ Non-breaking; warns developers without forcing a signature change\n  ❌ The inconsistency remains; warning only fires at runtime, not during code review\nC) Keep as-is — treat the reversed order as intentional and undocumented gotcha\n  ✔️ No change\n  ❌ Creates silent wrong-result bugs for every developer who uses both functions\n\nNet: a reversed positional-arg order with no keyword enforcement is a correctness trap, not a style choice.": "A — Standardize order + require keyword args (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T13:52:34.478Z"
+  },
+  {
+    "sessionId": "7ed1eb96-03ea-429a-a28d-a436c9db55fe",
+    "toolUseId": "toolu_01U9xG3jqLvwP4qai5GLXbtE",
+    "questions": [
+      {
+        "question": "D7 — v1→v2 removes Client.evaluate() with no migration path: add one?\n\nELI10: From docs/api.md: Version 1 has `Client.evaluate()`. Version 2 replaces it with `Client.run()` and removes the old name immediately — no compatibility alias, no deprecation warning, no migration guide, no codemod. Any developer who upgrades from v1 to v2 will get `AttributeError: 'Client' object has no attribute 'evaluate'` with no explanation and no path forward. They will either stay pinned to v1 forever or manually diff changelogs to find the rename.\n\nStakes if we pick wrong: Every v1 user who upgrades gets a hard break with no recovery path. Upgrade fear is one of the top reasons developers stay on old versions indefinitely.\n\nRecommendation: A — add a v1→v2 migration guide and a one-version deprecation alias. This is exactly what DX POLISH is for: making upgrades boring.\n\nCompleteness: A=9/10, B=6/10, C=0/10\n\nPros / cons:\nA) Add a v1→v2 migration guide (one page) + Client.evaluate() alias in v2 that raises DeprecationWarning pointing to Client.run() (recommended)\n  ✔️ Developers can upgrade without a hard break; the alias tells them exactly what changed\n  ✔️ Migration guide is a one-time doc addition; alias is a one-line shim\n  ❌ Carries the alias until v3; minor maintenance burden\nB) Add a migration guide only (no alias)\n  ✔️ Documents the rename; developer knows what to search-replace\n  ❌ Still a hard break on upgrade; the AttributeError fires before the developer checks docs\nC) Keep as-is — undocumented breaking rename with no alias\n  ✔️ No additional work\n  ❌ v1 users are permanently blocked on upgrade or silently broken until they debug the AttributeError\n\nNet: a silent rename with no alias and no migration guide is the highest-friction upgrade path possible.",
+        "header": "Migration",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A — Migration guide + DeprecationWarning alias (Recommended)",
+            "description": "Add docs/migration-v1-v2.md and a Client.evaluate() shim that warns and calls Client.run()."
+          },
+          {
+            "label": "B — Migration guide only, no alias",
+            "description": "Document the rename; developer still gets a hard break on upgrade."
+          },
+          {
+            "label": "C — Keep as-is",
+            "description": "No migration path; v1 users silently break on upgrade."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D7 — v1→v2 removes Client.evaluate() with no migration path: add one?\n\nELI10: From docs/api.md: Version 1 has `Client.evaluate()`. Version 2 replaces it with `Client.run()` and removes the old name immediately — no compatibility alias, no deprecation warning, no migration guide, no codemod. Any developer who upgrades from v1 to v2 will get `AttributeError: 'Client' object has no attribute 'evaluate'` with no explanation and no path forward. They will either stay pinned to v1 forever or manually diff changelogs to find the rename.\n\nStakes if we pick wrong: Every v1 user who upgrades gets a hard break with no recovery path. Upgrade fear is one of the top reasons developers stay on old versions indefinitely.\n\nRecommendation: A — add a v1→v2 migration guide and a one-version deprecation alias. This is exactly what DX POLISH is for: making upgrades boring.\n\nCompleteness: A=9/10, B=6/10, C=0/10\n\nPros / cons:\nA) Add a v1→v2 migration guide (one page) + Client.evaluate() alias in v2 that raises DeprecationWarning pointing to Client.run() (recommended)\n  ✔️ Developers can upgrade without a hard break; the alias tells them exactly what changed\n  ✔️ Migration guide is a one-time doc addition; alias is a one-line shim\n  ❌ Carries the alias until v3; minor maintenance burden\nB) Add a migration guide only (no alias)\n  ✔️ Documents the rename; developer knows what to search-replace\n  ❌ Still a hard break on upgrade; the AttributeError fires before the developer checks docs\nC) Keep as-is — undocumented breaking rename with no alias\n  ✔️ No additional work\n  ❌ v1 users are permanently blocked on upgrade or silently broken until they debug the AttributeError\n\nNet: a silent rename with no alias and no migration guide is the highest-friction upgrade path possible.": "A — Migration guide + DeprecationWarning alias (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T13:52:55.036Z"
+  }
+]

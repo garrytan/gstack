@@ -1,0 +1,14 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "design-consultation",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). id/file/title/trigger text ONLY. The skeleton's decision-tree prose decides WHEN to read.",
+  "sections": [
+    {
+      "id": "proposal-and-preview",
+      "file": "proposal-and-preview.md",
+      "title": "The complete design-system proposal, drill-downs, design preview (AI mockups / HTML), and writing DESIGN.md (Phases 3-6)",
+      "trigger": "building the complete design-system proposal, drill-downs, the design preview, and writing DESIGN.md (Phases 3-6, after product context and research)"
+    }
+  ]
+}

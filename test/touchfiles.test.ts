@@ -1,0 +1,467 @@
+/**
+ * Unit tests for diff-based test selection.
+ * Free (no API calls), runs with `bun test`.
+ */
+
+import { describe, test, expect } from 'bun:test';
+import { spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import {
+  matchGlob,
+  selectTests,
+  detectBaseBranch,
+  E2E_TOUCHFILES,
+  E2E_TIERS,
+  LLM_JUDGE_TOUCHFILES,
+  GLOBAL_TOUCHFILES,
+} from './helpers/touchfiles';
+
+const ROOT = path.resolve(import.meta.dir, '..');
+
+// --- matchGlob ---
+
+describe('matchGlob', () => {
+  test('** matches any depth of path segments', () => {
+    expect(matchGlob('browse/src/commands.ts', 'browse/src/**')).toBe(true);
+    expect(matchGlob('browse/src/deep/nested/file.ts', 'browse/src/**')).toBe(true);
+    expect(matchGlob('browse/src/cli.ts', 'browse/src/**')).toBe(true);
+  });
+
+  test('** does not match unrelated paths', () => {
+    expect(matchGlob('browse/src/commands.ts', 'qa/**')).toBe(false);
+    expect(matchGlob('review/SKILL.md', 'qa/**')).toBe(false);
+  });
+
+  test('exact match works', () => {
+    expect(matchGlob('SKILL.md', 'SKILL.md')).toBe(true);
+    expect(matchGlob('SKILL.md.tmpl', 'SKILL.md')).toBe(false);
+    expect(matchGlob('qa/SKILL.md', 'SKILL.md')).toBe(false);
+  });
+
+  test('* matches within a single segment', () => {
+    expect(matchGlob('test/fixtures/review-eval-enum.rb', 'test/fixtures/review-eval-enum*.rb')).toBe(true);
+    expect(matchGlob('test/fixtures/review-eval-enum-diff.rb', 'test/fixtures/review-eval-enum*.rb')).toBe(true);
+    expect(matchGlob('test/fixtures/review-eval-vuln.rb', 'test/fixtures/review-eval-enum*.rb')).toBe(false);
+  });
+
+  test('dots in patterns are escaped correctly', () => {
+    expect(matchGlob('SKILL.md', 'SKILL.md')).toBe(true);
+    expect(matchGlob('SKILLxmd', 'SKILL.md')).toBe(false);
+  });
+
+  test('** at end matches files in the directory', () => {
+    expect(matchGlob('qa/SKILL.md', 'qa/**')).toBe(true);
+    expect(matchGlob('qa/SKILL.md.tmpl', 'qa/**')).toBe(true);
+    expect(matchGlob('qa/templates/report.md', 'qa/**')).toBe(true);
+  });
+});
+
+// --- selectTests ---
+
+describe('selectTests', () => {
+  test('browse/src change selects browse and qa tests', () => {
+    const result = selectTests(['browse/src/commands.ts'], E2E_TOUCHFILES);
+    expect(result.selected).toContain('browse-basic');
+    expect(result.selected).toContain('browse-snapshot');
+    expect(result.selected).toContain('qa-quick');
+    expect(result.selected).toContain('qa-fix-loop');
+    expect(result.selected).toContain('design-review-fix');
+    expect(result.reason).toBe('diff');
+    // Should NOT include unrelated tests
+    expect(result.selected).not.toContain('plan-ceo-review');
+    expect(result.selected).not.toContain('retro');
+    expect(result.selected).not.toContain('document-release');
+  });
+
+  test('aside resolver change selects the Aside-driven skill tests', () => {
+    const result = selectTests(['scripts/resolvers/aside.ts'], E2E_TOUCHFILES);
+    expect(result.selected).toContain('aside-browse-basic');
+    expect(result.selected).toContain('aside-browse-flow');
+    expect(result.selected).toContain('qa-quick');
+    expect(result.selected).toContain('qa-fix-loop');
+    expect(result.selected).toContain('design-review-fix');
+    expect(result.reason).toBe('diff');
+    expect(result.selected).not.toContain('plan-ceo-review');
+    expect(result.selected).not.toContain('retro');
+  });
+
+  test('skill-specific change selects only that skill and related tests', () => {
+    const result = selectTests(['plan-ceo-review/SKILL.md'], E2E_TOUCHFILES);
+    expect(result.selected).toContain('plan-ceo-review');
+    expect(result.selected).toContain('plan-ceo-review-selective');
+    expect(result.selected).toContain('plan-ceo-review-benefits');
+    expect(result.selected).toContain('plan-ceo-review-expansion-energy');
+    expect(result.selected).toContain('codex-offered-ceo-review');
+    expect(result.selected).toContain('plan-ceo-review-format-mode');
+    expect(result.selected).toContain('plan-ceo-review-format-approach');
+    // v1.10.2.0 plan-mode handshake entries also depend on plan-ceo-review/**
+    expect(result.selected).toContain('plan-ceo-review-plan-mode');
+    expect(result.selected).toContain('plan-mode-no-op');
+    expect(result.selected).toContain('plan-ceo-review-prosons-cadence');
+    expect(result.selected).toContain('plan-review-prosons-format');
+    expect(result.selected).toContain('plan-review-prosons-hardstop-neg');
+    expect(result.selected).toContain('plan-review-prosons-neutral-neg');
+    // v1.13.x real-PTY E2E batch entries that also depend on plan-ceo-review/**
+    expect(result.selected).toContain('auq-format-gate');
+    expect(result.selected).toContain('plan-ceo-mode-routing');
+    expect(result.selected).toContain('autoplan-chain-pty');
+    // Per-finding count + review-report-at-bottom (v1.21.x)
+    expect(result.selected).toContain('plan-ceo-finding-count');
+    // v1.22+ AskUserQuestion-blocked regression: auto-decide-preserved
+    // also depends on plan-ceo-review/** (autoplan-auto-mode test was
+    // removed in v1.28 — see commit message for the rationale).
+    expect(result.selected).toContain('auto-decide-preserved');
+    // v1.27+ gate-tier reviewCount-floor regression for transcript bug
+    expect(result.selected).toContain('plan-ceo-finding-floor');
+    // garrytan/askuserquestion-split-on-overflow: split-overflow periodic
+    // E2E test also depends on plan-ceo-review/** (5-option scope decision
+    // regression for the "drop to fit 4 options" failure mode).
+    expect(result.selected).toContain('plan-ceo-split-overflow');
+    // v2 plan Phase B carve: the section-loading E2E depends on plan-ceo-review/**.
+    expect(result.selected).toContain('plan-ceo-section-loading');
+    expect(result.selected).toContain('outside-plan-disabled-no-fallback');
+    expect(result.selected.length).toBe(22);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 22);
+  });
+
+  test('global touchfile triggers ALL tests', () => {
+    const result = selectTests(['test/helpers/session-runner.ts'], E2E_TOUCHFILES);
+    expect(result.selected.length).toBe(Object.keys(E2E_TOUCHFILES).length);
+    expect(result.skipped.length).toBe(0);
+    expect(result.reason).toContain('global');
+  });
+
+  test('section-capture tool isolation regression selects only its three capture workflows', () => {
+    const result = selectTests(['test/session-runner-tools.test.ts'], E2E_TOUCHFILES);
+    expect(result.selected.sort()).toEqual([
+      'carve-section-loading', 'plan-ceo-section-loading', 'ship-section-loading',
+    ]);
+    expect(result.reason).toBe('diff');
+  });
+
+  test('gen-skill-docs.ts is a scoped touchfile, not global', () => {
+    const result = selectTests(['scripts/gen-skill-docs.ts'], E2E_TOUCHFILES);
+    // Should select tests that list gen-skill-docs.ts in their touchfiles, not ALL tests
+    expect(result.selected.length).toBeGreaterThan(0);
+    expect(result.selected.length).toBeLessThan(Object.keys(E2E_TOUCHFILES).length);
+    expect(result.reason).toBe('diff');
+    // Should include tests that depend on gen-skill-docs.ts
+    expect(result.selected).toContain('skillmd-setup-discovery');
+    expect(result.selected).toContain('session-awareness');
+    expect(result.selected).toContain('journey-ideation');
+    // Should NOT include tests that don't depend on it
+    expect(result.selected).not.toContain('retro');
+    expect(result.selected).not.toContain('cso-full-audit');
+  });
+
+  test('unrelated file selects nothing', () => {
+    const result = selectTests(['README.md'], E2E_TOUCHFILES);
+    expect(result.selected).toEqual([]);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length);
+  });
+
+  test('empty changed files selects nothing', () => {
+    const result = selectTests([], E2E_TOUCHFILES);
+    expect(result.selected).toEqual([]);
+  });
+
+  test('multiple changed files union their selections', () => {
+    const result = selectTests(
+      ['plan-ceo-review/SKILL.md', 'retro/SKILL.md.tmpl'],
+      E2E_TOUCHFILES,
+    );
+    expect(result.selected).toContain('plan-ceo-review');
+    expect(result.selected).toContain('plan-ceo-review-selective');
+    expect(result.selected).toContain('retro');
+    expect(result.selected).toContain('retro-base-branch');
+    // Also selects journey routing tests (*/SKILL.md.tmpl matches retro/SKILL.md.tmpl)
+    expect(result.selected.length).toBeGreaterThanOrEqual(4);
+  });
+
+  test('works with LLM_JUDGE_TOUCHFILES', () => {
+    const result = selectTests(['qa/SKILL.md'], LLM_JUDGE_TOUCHFILES);
+    expect(result.selected).toContain('qa/SKILL.md workflow');
+    expect(result.selected).toContain('qa/SKILL.md health rubric');
+    expect(result.selected).toContain('qa/SKILL.md anti-refusal');
+    expect(result.selected.length).toBe(3);
+  });
+
+  test('SKILL.md.tmpl root template selects root-dependent tests and routing tests', () => {
+    const result = selectTests(['SKILL.md.tmpl'], E2E_TOUCHFILES);
+    // Should select the 7 tests that depend on root SKILL.md
+    expect(result.selected).toContain('skillmd-setup-discovery');
+    expect(result.selected).toContain('session-awareness');
+    expect(result.selected).toContain('session-awareness');
+    // Also selects journey routing tests (SKILL.md.tmpl in their touchfiles)
+    expect(result.selected).toContain('journey-ideation');
+    // Should NOT select unrelated non-routing tests
+    expect(result.selected).not.toContain('plan-ceo-review');
+    expect(result.selected).not.toContain('retro');
+  });
+
+  test('global touchfiles work for LLM-judge tests too', () => {
+    const result = selectTests(['test/helpers/session-runner.ts'], LLM_JUDGE_TOUCHFILES);
+    expect(result.selected.length).toBe(Object.keys(LLM_JUDGE_TOUCHFILES).length);
+  });
+});
+
+// --- detectBaseBranch ---
+
+describe('detectBaseBranch', () => {
+  test('detects local main branch', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'touchfiles-test-'));
+    const run = (cmd: string, args: string[]) =>
+      spawnSync(cmd, args, { cwd: dir, stdio: 'pipe', timeout: 5000 });
+
+    run('git', ['init']);
+    run('git', ['config', 'user.email', 'test@test.com']);
+    run('git', ['config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(dir, 'test.txt'), 'hello\n');
+    run('git', ['add', '.']);
+    run('git', ['commit', '-m', 'init']);
+
+    const result = detectBaseBranch(dir);
+    // Should find 'main' (or 'master' depending on git default)
+    expect(result).toMatch(/^(main|master)$/);
+
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  });
+
+  test('returns null for empty repo with no branches', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'touchfiles-test-'));
+    const run = (cmd: string, args: string[]) =>
+      spawnSync(cmd, args, { cwd: dir, stdio: 'pipe', timeout: 5000 });
+
+    run('git', ['init']);
+    // No commits = no branches
+    const result = detectBaseBranch(dir);
+    expect(result).toBeNull();
+
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  });
+
+  test('returns null for non-git directory', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'touchfiles-test-'));
+    const result = detectBaseBranch(dir);
+    expect(result).toBeNull();
+
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  });
+});
+
+// --- Completeness: every testName in skill-e2e-*.test.ts has a TOUCHFILES entry ---
+
+describe('TOUCHFILES completeness', () => {
+  test('every E2E testName has a TOUCHFILES entry', () => {
+    // Read all split E2E test files
+    const testDir = path.join(ROOT, 'test');
+    const e2eFiles = fs.readdirSync(testDir).filter(f => f.startsWith('skill-e2e-') && f.endsWith('.test.ts'));
+    let e2eContent = '';
+    for (const f of e2eFiles) {
+      e2eContent += fs.readFileSync(path.join(testDir, f), 'utf-8') + '\n';
+    }
+
+    // Extract all testName: 'value' entries
+    const testNameRegex = /testName:\s*['"`]([^'"`]+)['"`]/g;
+    const testNames: string[] = [];
+    let match;
+    while ((match = testNameRegex.exec(e2eContent)) !== null) {
+      let name = match[1];
+      // Handle template literals like `qa-${label}` — these expand to
+      // qa-b6-static, qa-b7-spa, qa-b8-checkout
+      if (name.includes('${')) continue; // skip template literals, check expanded forms below
+      testNames.push(name);
+    }
+
+    // Add the template-expanded testNames from runPlantedBugEval calls
+    const plantedBugRegex = /runPlantedBugEval\([^,]+,\s*[^,]+,\s*['"`]([^'"`]+)['"`]\)/g;
+    while ((match = plantedBugRegex.exec(e2eContent)) !== null) {
+      testNames.push(`qa-${match[1]}`);
+    }
+
+    expect(testNames.length).toBeGreaterThan(0);
+
+    const missing = testNames.filter(name => !(name in E2E_TOUCHFILES));
+    if (missing.length > 0) {
+      throw new Error(
+        `E2E tests missing TOUCHFILES entries: ${missing.join(', ')}\n` +
+        `Add these to E2E_TOUCHFILES in test/helpers/touchfiles.ts`,
+      );
+    }
+  });
+
+  test('E2E_TIERS covers exactly the same tests as E2E_TOUCHFILES', () => {
+    const touchfileKeys = new Set(Object.keys(E2E_TOUCHFILES));
+    const tierKeys = new Set(Object.keys(E2E_TIERS));
+
+    const missingFromTiers = [...touchfileKeys].filter(k => !tierKeys.has(k));
+    const extraInTiers = [...tierKeys].filter(k => !touchfileKeys.has(k));
+
+    if (missingFromTiers.length > 0) {
+      throw new Error(
+        `E2E tests missing TIER entries: ${missingFromTiers.join(', ')}\n` +
+        `Add these to E2E_TIERS in test/helpers/touchfiles.ts`,
+      );
+    }
+    if (extraInTiers.length > 0) {
+      throw new Error(
+        `E2E_TIERS has extra entries not in E2E_TOUCHFILES: ${extraInTiers.join(', ')}\n` +
+        `Remove these from E2E_TIERS or add to E2E_TOUCHFILES`,
+      );
+    }
+  });
+
+  test('E2E_TIERS only contains valid tier values', () => {
+    const validTiers = ['gate', 'periodic'];
+    for (const [name, tier] of Object.entries(E2E_TIERS)) {
+      if (!validTiers.includes(tier)) {
+        throw new Error(`E2E_TIERS['${name}'] has invalid tier '${tier}'. Valid: ${validTiers.join(', ')}`);
+      }
+    }
+  });
+
+  test('every LLM-judge test has a TOUCHFILES entry', () => {
+    const llmContent = fs.readFileSync(
+      path.join(ROOT, 'test', 'skill-llm-eval.test.ts'),
+      'utf-8',
+    );
+
+    // Extract test names from addTest({ name: '...' }) calls
+    const nameRegex = /name:\s*['"`]([^'"`]+)['"`]/g;
+    const testNames: string[] = [];
+    let match;
+    while ((match = nameRegex.exec(llmContent)) !== null) {
+      testNames.push(match[1]);
+    }
+
+    // Deduplicate (some tests call addTest with the same name)
+    const unique = [...new Set(testNames)];
+    expect(unique.length).toBeGreaterThan(0);
+
+    const missing = unique.filter(name => !(name in LLM_JUDGE_TOUCHFILES));
+    if (missing.length > 0) {
+      throw new Error(
+        `LLM-judge tests missing TOUCHFILES entries: ${missing.join(', ')}\n` +
+        `Add these to LLM_JUDGE_TOUCHFILES in test/helpers/touchfiles.ts`,
+      );
+    }
+  });
+});
+
+// --- dependency paths exist on disk ---
+//
+// The axis nobody guarded: a dep-list entry can point at a file that was
+// deleted long ago (browse/src/sidebar-agent.ts sat in three entries for 48
+// versions), and diff-based selection then silently never triggers those
+// tests. Globs are skipped (they describe patterns, not files); every literal
+// path must exist.
+
+describe('touchfile dependency paths exist', () => {
+  const allEntries: Array<[string, string]> = [];
+  for (const [name, deps] of Object.entries(E2E_TOUCHFILES)) {
+    for (const dep of deps) allEntries.push([name, dep]);
+  }
+  for (const [name, deps] of Object.entries(LLM_JUDGE_TOUCHFILES)) {
+    for (const dep of deps) allEntries.push([name, dep]);
+  }
+  for (const dep of GLOBAL_TOUCHFILES) allEntries.push(['(global)', dep]);
+
+  test('every non-glob dependency path exists', () => {
+    const stale = allEntries
+      .filter(([, dep]) => !dep.includes('*'))
+      .filter(([, dep]) => !fs.existsSync(path.join(ROOT, dep)));
+    if (stale.length > 0) {
+      throw new Error(
+        `Touchfile dep lists reference files that do not exist:\n` +
+        stale.map(([name, dep]) => `  ${name} -> ${dep}`).join('\n') +
+        `\nDelete or update these entries in test/helpers/touchfiles.ts — ` +
+        `diff-based selection silently skips tests whose deps are gone.`,
+      );
+    }
+  });
+
+  test('every glob dependency anchors to a directory that exists', () => {
+    // Cheap sanity for globs, two shapes: 'dir/**' (prefix ends with '/')
+    // must have the directory itself; 'dir/file-prefix*.ext' must have the
+    // containing directory. Catches 'deleted-dir/**' rot without a full
+    // filesystem walk; deliberately does not chase file-prefix staleness.
+    const stale = allEntries
+      .filter(([, dep]) => dep.includes('*'))
+      .map(([name, dep]) => {
+        const prefix = dep.split('*')[0];
+        const anchor = prefix.endsWith('/') ? prefix.slice(0, -1) : path.dirname(prefix);
+        return [name, dep, anchor] as const;
+      })
+      .filter(([, , anchor]) => anchor.length > 0 && anchor !== '.' && !fs.existsSync(path.join(ROOT, anchor)));
+    if (stale.length > 0) {
+      throw new Error(
+        `Touchfile glob deps whose anchor directory does not exist:\n` +
+        stale.map(([name, dep]) => `  ${name} -> ${dep}`).join('\n'),
+      );
+    }
+  });
+});
+
+// --- Reverse invariant: every selection key names a LIVING test ---
+// The forward invariants above catch stale dep PATHS; nothing caught stale
+// KEYS. The 2026-08 audit found 15 phantom E2E keys (6 gate-tier) selecting
+// tests that existed nowhere — the merge-blocking census counted work that
+// could not run. A key earns its place by appearing as a quoted testName in
+// a living paid test file; constructed names get a reasoned exception.
+
+describe('reverse invariant — keys must name living paid tests', () => {
+  const { isPaidTestFile } = require('./helpers/paid-test-set') as typeof import('./helpers/paid-test-set');
+
+  /** Keys whose testNames are CONSTRUCTED at runtime (template literals), so
+   *  a quoted-occurrence scan cannot see them. Each entry needs the file that
+   *  constructs it. Shrink-only: prefer literal names in new tests. */
+  const CONSTRUCTED_NAME_EXCEPTIONS: Record<string, string> = {};
+
+  const paidSources: string[] = [];
+  for (const name of fs.readdirSync(path.join(ROOT, 'test'))) {
+    const rel = `test/${name}`;
+    if (!isPaidTestFile(rel)) continue;
+    paidSources.push(fs.readFileSync(path.join(ROOT, rel), 'utf-8'));
+  }
+
+  const quotedSomewhere = (key: string): boolean =>
+    paidSources.some((src) =>
+      src.includes(`'${key}'`) || src.includes(`"${key}"`) || src.includes('`' + key + '`'));
+
+  /** Clause (b) of liveness: constructed testNames (template literals) bind
+   *  through SELF-REGISTRATION — the 2026-08 dep-list sweep put each test
+   *  FILE into its key's dep list, and the parent mapper keeps a shard on
+   *  that registration union. So a key is alive when its name is quoted in a
+   *  paid file OR its dep list names an existing paid test file. */
+  const registeredToLivingFile = (key: string): boolean =>
+    (E2E_TOUCHFILES[key] ?? []).some((dep) =>
+      /\.test\.ts$/.test(dep) && isPaidTestFile(dep) && fs.existsSync(path.join(ROOT, dep)));
+
+  test('every E2E_TOUCHFILES key is declared in a living paid test file', () => {
+    expect(paidSources.length).toBeGreaterThan(50); // scan-rot guard
+    const phantoms = Object.keys(E2E_TOUCHFILES)
+      .filter((key) => !(key in CONSTRUCTED_NAME_EXCEPTIONS))
+      .filter((key) => !quotedSomewhere(key) && !registeredToLivingFile(key));
+    expect(
+      phantoms,
+      `E2E_TOUCHFILES key(s) with NO declaring paid test — the census counts tests that cannot run. ` +
+      `Delete the key (both maps) or implement the test:\n  ${phantoms.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
+  test('every LLM_JUDGE_TOUCHFILES key is declared in a living paid test file', () => {
+    const phantoms = Object.keys(LLM_JUDGE_TOUCHFILES).filter((key) => !quotedSomewhere(key));
+    expect(
+      phantoms,
+      `LLM_JUDGE_TOUCHFILES key(s) with NO declaring test:\n  ${phantoms.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
+  test('constructed-name exceptions stay live (files exist and construct them)', () => {
+    const stale = Object.entries(CONSTRUCTED_NAME_EXCEPTIONS)
+      .filter(([, file]) => !fs.existsSync(path.join(ROOT, file)));
+    expect(stale.map(([k]) => k), 'exception points at a deleted file — remove the entry').toEqual([]);
+  });
+});

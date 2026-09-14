@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "helperAbi": 3,
+  "state": "enforced",
+  "buildRevision": "cso-runtime-inputs-2026-09-10",
+  "platforms": ["linux/amd64", "linux/arm64"],
+  "profiles": ["node", "bun", "python", "rails", "postgresql"],
+  "statementArtifact": "cso-qualified-runtime-statements",
+  "statementFilename": "qualified-runtime.json",
+  "requiredInputs": [
+    "reviewed native base and SBOM generator manifests",
+    "exact runtime and package-manager versions verified inside the selected base",
+    "immutable staged runtime digest",
+    "trusted protected-main source commit and workflow run",
+    "verified SBOM and provenance digests"
+  ],
+  "requiredChecks": [
+    "non-root/read-only/capability/seccomp admission",
+    "IPv4/IPv6/DNS and metadata egress denied",
+    "secretless cold acquisition and offline boot",
+    "application verifier positive and deliberately failing assertions",
+    "lifecycle and native build hooks execute only offline",
+    "Rails SQLite and PostgreSQL, all connections, native gem cold start",
+    "one held-out reproduced defect and runtime-tested repair per application stack",
+    "watchdog survival and exact resource cleanup",
+    "secret-canary containment",
+    "daily precision and comprehensive high/critical recall release thresholds",
+    "signed provenance verification and SBOM digest"
+  ],
+  "promotion": "The protected promotion workflow accepts exactly ten authenticated same-run qualified-runtime.json statements and emits an attested source-review candidate. It never writes the catalog.",
+  "externalPrerequisite": "A successful protected-main qualification run must upload cso-qualified-runtime-statements after private held-out and accuracy gates finish. No such artifact exists until those external gates actually pass.",
+  "rollback": "Select the prior compatible helper/catalog pair; never fall back to a mutable tag."
+}

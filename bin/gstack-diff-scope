@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# gstack-diff-scope — categorize what changed in the diff against a base branch
+# Usage: source <(gstack-diff-scope main)  → sets SCOPE_FRONTEND=true SCOPE_BACKEND=false ...
+# Or:    gstack-diff-scope main           → prints SCOPE_*=... lines
+#
+# Output contract (#2526 — all-false must be distinguishable from "we could
+# not look" and from "nothing matched"):
+#   exit 0  changed-file set empty            → all false, legitimately nothing
+#   exit 0  changed files, >=1 category match → flags
+#   exit 2  changed files, ZERO matches       → flags + SCOPE_ERROR=unmatched
+#           (+ the unmatched paths as comment lines, so a new top-level layout
+#            trips loudly instead of silently disabling reviewers)
+#   exit 2  base ref unresolvable             → all false + SCOPE_ERROR=no_base
+#           (shallow CI checkout / missing fetch — a green here would mean
+#            "we could not look")
+# Every line is shell-safe for `source <(...)` consumers: assignments or
+# `#`-comments only.
+#
+# The changed-file set is the UNION of committed diff + working tree +
+# untracked files (#2299): /ship detects scope in Step 9, BEFORE it commits in
+# Step 15, so uncommitted work must be visible or every scope-gated reviewer
+# is skipped on the common start-work-then-ship flow.
+set -euo pipefail
+
+# Detect the repo's default branch when no arg is given (#703-class
+# platform-agnostic rule): origin/HEAD -> origin/main -> origin/master -> main.
+_default_base() {
+  git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' && return
+  git rev-parse --verify -q origin/main >/dev/null 2>&1 && { echo "main"; return; }
+  git rev-parse --verify -q origin/master >/dev/null 2>&1 && { echo "master"; return; }
+  echo "main"
+}
+BASE="${1:-$(_default_base)}"
+
+FRONTEND=false
+BACKEND=false
+PROMPTS=false
+TESTS=false
+DOCS=false
+CONFIG=false
+MIGRATIONS=false
+API=false
+AUTH=false
+
+_print_flags() {
+  echo "SCOPE_FRONTEND=$FRONTEND"
+  echo "SCOPE_BACKEND=$BACKEND"
+  echo "SCOPE_PROMPTS=$PROMPTS"
+  echo "SCOPE_TESTS=$TESTS"
+  echo "SCOPE_DOCS=$DOCS"
+  echo "SCOPE_CONFIG=$CONFIG"
+  echo "SCOPE_MIGRATIONS=$MIGRATIONS"
+  echo "SCOPE_API=$API"
+  echo "SCOPE_AUTH=$AUTH"
+}
+
+# Base reachability (#2526): a shallow CI checkout or an unfetched ref makes
+# `git diff` return an empty list — all-false with exit 0, a green that means
+# "we could not look". Distinguish it before diffing.
+if ! git rev-parse --verify -q "${BASE}^{commit}" >/dev/null 2>&1; then
+  _print_flags
+  echo "SCOPE_ERROR=no_base"
+  echo "# base ref '${BASE}' is not resolvable — shallow checkout or missing fetch. Run: git fetch origin ${BASE}"
+  exit 2
+fi
+
+# Changed files, NUL-delimited (#2526 minor: `git diff --name-only` octal-quotes
+# non-ASCII paths, and the trailing quote defeats extension globs; -z avoids it).
+FILES_LIST=()
+_collect() {
+  local f
+  while IFS= read -r -d '' f; do
+    [ -n "$f" ] && FILES_LIST+=("$f")
+  done
+}
+# Committed diff vs base (merge-base form; two-dot fallback when no merge base).
+_collect < <(git diff -z "${BASE}...HEAD" --name-only 2>/dev/null || git diff -z "${BASE}" --name-only 2>/dev/null || true)
+# Working-tree changes (staged + unstaged). `git diff HEAD` fails on a repo
+# with no commits; tolerated.
+_collect < <(git diff -z HEAD --name-only 2>/dev/null || true)
+# Untracked files: a brand-new component/migration/test is exactly what a
+# reviewer should see, and /ship commits it in Step 15 regardless.
+_collect < <(git ls-files -z --others --exclude-standard 2>/dev/null || true)
+
+if [ "${#FILES_LIST[@]}" -eq 0 ]; then
+  _print_flags
+  exit 0
+fi
+
+UNMATCHED=()
+
+# Categories are INDEPENDENT booleans (#2299): a single first-match-wins case
+# made them mutually exclusive, so Button.test.jsx set FRONTEND but not TESTS
+# while util.test.ts set TESTS but not BACKEND — same intent, opposite result,
+# purely from arm ordering. Each category now gets its own case; only BACKEND
+# stays deliberately exclusive of frontend component/view files.
+for f in ${FILES_LIST[@]+"${FILES_LIST[@]}"}; do
+  m_frontend=false; m_prompts=false; m_tests=false; m_docs=false
+  m_config=false; m_migrations=false; m_api=false; m_auth=false; m_backend=false
+
+  # Frontend: CSS, views, components, templates
+  case "$f" in
+    *.css|*.scss|*.less|*.sass|*.pcss) m_frontend=true ;;
+    *.tsx|*.jsx|*.vue|*.svelte|*.astro) m_frontend=true ;;
+    *.erb|*.haml|*.slim|*.hbs|*.ejs) m_frontend=true ;;
+    *.html) m_frontend=true ;;
+    tailwind.config.*|postcss.config.*) m_frontend=true ;;
+    app/views/*|*/components/*|styles/*|css/*|app/assets/stylesheets/*) m_frontend=true ;;
+  esac
+
+  # Prompts: prompt builders, system prompts, generation services
+  case "$f" in
+    *prompt_builder*|*generation_service*|*writer_service*|*designer_service*) m_prompts=true ;;
+    *evaluator*|*scorer*|*classifier_service*|*analyzer*) m_prompts=true ;;
+    *voice*.rb|*writing*.rb|*prompt*.rb|*token*.rb) m_prompts=true ;;
+    app/services/chat_tools/*|app/services/x_thread_tools/*) m_prompts=true ;;
+    config/system_prompts/*) m_prompts=true ;;
+  esac
+
+  # Tests
+  case "$f" in
+    *.test.*|*.spec.*|*_test.*|*_spec.*) m_tests=true ;;
+    test/*|tests/*|spec/*|__tests__/*|cypress/*|e2e/*) m_tests=true ;;
+  esac
+
+  # Docs
+  case "$f" in
+    *.md) m_docs=true ;;
+  esac
+
+  # Config
+  case "$f" in
+    package.json|package-lock.json|yarn.lock|bun.lock|bun.lockb) m_config=true ;;
+    Gemfile|Gemfile.lock) m_config=true ;;
+    *.yml|*.yaml) m_config=true ;;
+    .github/*) m_config=true ;;
+    requirements.txt|pyproject.toml|go.mod|Cargo.toml|composer.json) m_config=true ;;
+  esac
+
+  # Migrations: database migration files. Bare migrations/* covers a
+  # root-level migrations dir (#2526); db/data covers the Rails data_migrate
+  # gem's DATA migrations (#2455) — arbitrary Ruby run unattended against
+  # production data, strictly higher-risk than a schema migration (they also
+  # match BACKEND below via their extension, as ordinary app code should).
+  case "$f" in
+    db/migrate/*|migrations/*|*/migrations/*|alembic/*|prisma/migrations/*) m_migrations=true ;;
+    db/data/*|data_migrations/*|*/data_migrations/*) m_migrations=true ;;
+  esac
+
+  # API: routes, controllers, endpoints, GraphQL/OpenAPI schemas. Bare api/*
+  # covers root-level serverless layouts (Vercel functions, Next.js pages/api
+  # at root) that */api/* silently missed (#2526).
+  case "$f" in
+    api/*|*/api/*|*controller*|*route*|*endpoint*) m_api=true ;;
+    *.graphql|*.gql|openapi.*|swagger.*) m_api=true ;;
+  esac
+
+  # Auth: authentication, authorization, sessions, permissions
+  case "$f" in
+    *auth*|*session*|*jwt*|*oauth*|*permission*|*role*) m_auth=true ;;
+  esac
+
+  # Backend: code that isn't a frontend component/view file. Includes ESM/CJS
+  # (.mjs/.cjs) and explicit-module TS (.mts/.cts) — #1810: these matched no
+  # category, so an ESM/CJS-only PR skipped the backend reviewer entirely.
+  if [ "$m_frontend" = false ]; then
+    case "$f" in
+      *.rb|*.py|*.go|*.rs|*.java|*.php|*.ex|*.exs) m_backend=true ;;
+      *.ts|*.js|*.mjs|*.cjs|*.mts|*.cts) m_backend=true ;;
+    esac
+  fi
+
+  [ "$m_frontend" = true ] && FRONTEND=true
+  [ "$m_prompts" = true ] && PROMPTS=true
+  [ "$m_tests" = true ] && TESTS=true
+  [ "$m_docs" = true ] && DOCS=true
+  [ "$m_config" = true ] && CONFIG=true
+  [ "$m_migrations" = true ] && MIGRATIONS=true
+  [ "$m_api" = true ] && API=true
+  [ "$m_auth" = true ] && AUTH=true
+  [ "$m_backend" = true ] && BACKEND=true
+
+  if [ "$m_frontend" = false ] && [ "$m_prompts" = false ] && [ "$m_tests" = false ] \
+    && [ "$m_docs" = false ] && [ "$m_config" = false ] && [ "$m_migrations" = false ] \
+    && [ "$m_api" = false ] && [ "$m_auth" = false ] && [ "$m_backend" = false ]; then
+    UNMATCHED+=("$f")
+  fi
+done
+
+_print_flags
+
+# Changed files but ZERO category matches (#2526): a classifier bug, an
+# unrecognised layout, or a new top-level directory would otherwise present
+# as "no reviewers needed" with the skip invisible. Trip loudly instead.
+if [ "$FRONTEND" = false ] && [ "$BACKEND" = false ] && [ "$PROMPTS" = false ] \
+  && [ "$TESTS" = false ] && [ "$DOCS" = false ] && [ "$CONFIG" = false ] \
+  && [ "$MIGRATIONS" = false ] && [ "$API" = false ] && [ "$AUTH" = false ]; then
+  echo "SCOPE_ERROR=unmatched"
+  printf '%s\n' ${UNMATCHED[@]+"${UNMATCHED[@]}"} | sort -u | head -50 | while IFS= read -r u; do
+    [ -n "$u" ] && printf '# unmatched: %s\n' "$u"
+  done
+  exit 2
+fi

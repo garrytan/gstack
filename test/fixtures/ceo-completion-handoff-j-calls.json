@@ -1,0 +1,66 @@
+{
+  "cases": [
+    {
+      "name": "plan-ceo-review-1788903658730-n3l9gY",
+      "nativeCall": {
+        "sessionId": "d4161b76-f48e-4394-9657-e0e70ef4ce19",
+        "toolUseId": "toolu_01PCc7hwaVZdhJmZcXNWj6mt",
+        "questions": [
+          {
+            "question": "D10 \u2014 Next steps: The CEO Review is complete. Eng Review is the required shipping gate. This plan now has 5 significant changes (SQL injection fix, IDOR fix, ownership validation, batch query, security tests) \u2014 all of which the eng review will need to verify for implementation correctness. Run /plan-eng-review next? <gstack-qid:plan-ceo-next-steps>\n\nELI10: The CEO review checks whether the plan is strategically sound and safe. The eng review checks whether the plan is architecturally correct and implementable. Since this CEO review added significant new requirements (especially security fixes), the eng review will check that those new requirements are specified clearly enough for an engineer to implement correctly.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.",
+            "header": "Next review",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Run /plan-eng-review next (Recommended)",
+                "description": "The required shipping gate. The eng review will verify the security specifications (parameterized query, ownership validation) are specified precisely enough to implement correctly, and check for any architectural gaps the CEO review missed."
+              },
+              {
+                "label": "B) Skip \u2014 handle reviews manually",
+                "description": "Proceed without a structured eng review. Acceptable if the team has a separate code review process or the implementation team is already familiar with the security requirements."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D10 \u2014 Next steps: The CEO Review is complete. Eng Review is the required shipping gate. This plan now has 5 significant changes (SQL injection fix, IDOR fix, ownership validation, batch query, security tests) \u2014 all of which the eng review will need to verify for implementation correctness. Run /plan-eng-review next? <gstack-qid:plan-ceo-next-steps>\n\nELI10: The CEO review checks whether the plan is strategically sound and safe. The eng review checks whether the plan is architecturally correct and implementable. Since this CEO review added significant new requirements (especially security fixes), the eng review will check that those new requirements are specified clearly enough for an engineer to implement correctly.\n\nNote: options differ in kind, not coverage \u2014 no completeness score.": "A) Run /plan-eng-review next (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-08T21:51:58.748Z"
+      }
+    },
+    {
+      "name": "plan-ceo-review-1788903658733-5uB041",
+      "nativeCall": {
+        "sessionId": "321868b3-77b8-40bd-95e4-a3c9a0c41c0f",
+        "toolUseId": "toolu_01UeFGERPKpG3SbMnkFXxwMP",
+        "questions": [
+          {
+            "question": "Next step: run /plan-eng-review to clear the required shipping gate?\n\nCEO Review is CLEAN. Eng Review is the required gate before shipping \u2014 it covers architecture, code quality, and test completeness. For a test-coverage PR with one accepted finding (6.1), the eng review will be short.\nRecommendation: A \u2014 eng review is the required gate; run it now while context is fresh.",
+            "header": "Next review",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Run /plan-eng-review now (Recommended)",
+                "description": "Required shipping gate. Will validate architecture and tests, including Finding 6.1 resolution."
+              },
+              {
+                "label": "Skip \u2014 I'll handle reviews manually",
+                "description": "CEO review is complete. You'll run eng review separately before shipping."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "Next step: run /plan-eng-review to clear the required shipping gate?\n\nCEO Review is CLEAN. Eng Review is the required gate before shipping \u2014 it covers architecture, code quality, and test completeness. For a test-coverage PR with one accepted finding (6.1), the eng review will be short.\nRecommendation: A \u2014 eng review is the required gate; run it now while context is fresh.": "Run /plan-eng-review now (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-08T21:52:10.800Z"
+      }
+    }
+  ]
+}

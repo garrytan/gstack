@@ -1,0 +1,196 @@
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { generateVariant } from "../src/variants";
+
+// 1x1 transparent PNG, base64 — valid bytes that fs.writeFileSync can write.
+const TINY_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=";
+
+function successResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      output: [{ type: "image_generation_call", result: TINY_PNG_BASE64 }],
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function rateLimited(retryAfter?: string): Response {
+  const headers: Record<string, string> = {};
+  if (retryAfter !== undefined) headers["Retry-After"] = retryAfter;
+  return new Response("rate limited", { status: 429, headers });
+}
+
+interface CallRecord {
+  ts: number;
+}
+
+function makeStubFetch(
+  responses: Response[],
+  calls: CallRecord[],
+): typeof globalThis.fetch {
+  let idx = 0;
+  return (async (_input: any, _init?: any) => {
+    calls.push({ ts: Date.now() });
+    const response = responses[idx];
+    if (!response) throw new Error(`stub fetch: no response for call ${idx + 1}`);
+    idx++;
+    return response;
+  }) as typeof globalThis.fetch;
+}
+
+describe("generateVariant Retry-After handling", () => {
+  let tmpDir: string;
+  let outputPath: string;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "variants-retry-after-"));
+    outputPath = path.join(tmpDir, "variant.png");
+    // The fetch path now writes egress receipts — keep them in the temp home.
+    savedHome = process.env.GSTACK_HOME;
+    process.env.GSTACK_HOME = tmpDir;
+  });
+
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.GSTACK_HOME;
+    else process.env.GSTACK_HOME = savedHome;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("delta-seconds: honors Retry-After: 1 with no extra leading exponential", async () => {
+    const calls: CallRecord[] = [];
+    const fetchFn = makeStubFetch([rateLimited("1"), successResponse()], calls);
+
+    const result = await generateVariant(
+      "fake-key", "prompt", outputPath, "1024x1024", "high", fetchFn,
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls.length).toBe(2);
+    const gap = calls[1].ts - calls[0].ts;
+    // Honored ~1s; should NOT add the 2s leading exponential on top
+    expect(gap).toBeGreaterThanOrEqual(900);
+    expect(gap).toBeLessThan(1700);
+  });
+
+  test("HTTP-date: honors a future date with no extra leading exponential", async () => {
+    const calls: CallRecord[] = [];
+    // toUTCString() truncates to whole seconds: a +3000ms date could mean an
+    // effective wait as low as ~2001ms, which flaked against a 2500ms floor
+    // under suite load (~1-2 in 9 runs — the TODOS P2 flake). +4000ms makes
+    // the truncation floor 3001ms; the assertion floor sits safely below it
+    // and the ceiling stays wide enough for a loaded scheduler.
+    const future = new Date(Date.now() + 4000).toUTCString();
+    const fetchFn = makeStubFetch([rateLimited(future), successResponse()], calls);
+
+    const result = await generateVariant(
+      "fake-key", "prompt", outputPath, "1024x1024", "high", fetchFn,
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls.length).toBe(2);
+    const gap = calls[1].ts - calls[0].ts;
+    expect(gap).toBeGreaterThanOrEqual(2900);
+    expect(gap).toBeLessThan(5500);
+  });
+
+  test("invalid Retry-After (alphanumeric): falls through to exponential", async () => {
+    const calls: CallRecord[] = [];
+    const fetchFn = makeStubFetch([rateLimited("2abc"), successResponse()], calls);
+
+    const result = await generateVariant(
+      "fake-key", "prompt", outputPath, "1024x1024", "high", fetchFn,
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls.length).toBe(2);
+    const gap = calls[1].ts - calls[0].ts;
+    // Falls through to existing 2s exponential leading delay
+    expect(gap).toBeGreaterThanOrEqual(1800);
+    expect(gap).toBeLessThan(3000);
+  });
+
+  test("no Retry-After header: falls through to exponential", async () => {
+    const calls: CallRecord[] = [];
+    const fetchFn = makeStubFetch([rateLimited(), successResponse()], calls);
+
+    const result = await generateVariant(
+      "fake-key", "prompt", outputPath, "1024x1024", "high", fetchFn,
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls.length).toBe(2);
+    const gap = calls[1].ts - calls[0].ts;
+    expect(gap).toBeGreaterThanOrEqual(1800);
+    expect(gap).toBeLessThan(3000);
+  });
+
+  test("Retry-After: 0 retries immediately, skips leading exponential", async () => {
+    const calls: CallRecord[] = [];
+    const fetchFn = makeStubFetch([rateLimited("0"), successResponse()], calls);
+
+    const result = await generateVariant(
+      "fake-key", "prompt", outputPath, "1024x1024", "high", fetchFn,
+    );
+
+    expect(result.success).toBe(true);
+    expect(calls.length).toBe(2);
+    const gap = calls[1].ts - calls[0].ts;
+    expect(gap).toBeLessThan(500);
+  });
+
+  test("AbortError surfaces the actual configured 240s timeout in the error message", async () => {
+    // Regression: `generateVariant`'s `setTimeout` aborts at 240_000 ms
+    // (240s) but the AbortError branch returned `"Timeout (120s)"`. A
+    // user staring at the failure has no way to know whether to bump
+    // the orchestrator timeout, retry, or drop the call — the message
+    // is off by 2x. Force the abort path and assert the surfaced
+    // string matches the real bound.
+    const fetchFn = (async (_input: any, init?: any): Promise<Response> => {
+      const signal = init?.signal as AbortSignal | undefined;
+      return await new Promise((_resolve, reject) => {
+        if (signal?.aborted) {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+          return;
+        }
+        signal?.addEventListener("abort", () => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      });
+    }) as typeof globalThis.fetch;
+
+    const originalSetTimeout = globalThis.setTimeout;
+    // Force the 240_000 ms timer to fire on the next event-loop tick
+    // so the test runs in milliseconds instead of 4 minutes. Only the
+    // 240_000 ms timer maps to fast; the leading exponential delays
+    // (2_000+ ms on retry) keep their real value via this branch
+    // because attempt 0 never sleeps.
+    const fastSetTimeout = ((handler: any, timeout?: number, ...rest: any[]): any => {
+      if (timeout === 240_000) {
+        return originalSetTimeout(handler, 0, ...rest);
+      }
+      return originalSetTimeout(handler, timeout as number, ...rest);
+    }) as typeof globalThis.setTimeout;
+    (globalThis as any).setTimeout = fastSetTimeout;
+
+    try {
+      const result = await generateVariant(
+        "fake-key", "prompt", outputPath, "1024x1024", "high", fetchFn,
+      );
+
+      expect(result.success).toBe(false);
+      // Critical: the message MUST report 240s (the real bound), not
+      // 120s (the pre-fix mismatched literal).
+      expect(result.error).toBe("Timeout (240s)");
+    } finally {
+      (globalThis as any).setTimeout = originalSetTimeout;
+    }
+  });
+});

@@ -1,0 +1,20 @@
+The Horizon
+This is the combined-features fixture. Every feature turned on simultaneously. The gate asserts that all of these paragraphs extract cleanly from the PDF with pdftotext.
+
+A paragraph with bold, italic, and inline code tokens — each of which gets a different HTML treatment. None should fragment text on copy-paste.
+
+A paragraph with “curly quotes”, ‘single quotes’, an em dash — like this, and an ellipsis… All three get smartypants transforms.
+
+A subsection heading
+
+First list item with some words that keep it on one line.
+Second list item with more words.
+Third list item.
+
+A blockquote from Van Dyke. Her diminished size is in me, not in her.
+
+A second chapter
+
+This content begins on a fresh page because the default chapter-breaks rule fires. Extract must still find these paragraphs.
+
+A final paragraph with enough words to trigger hyphenation across the line wrap boundary. Extraordinary words sometimes hyphenate. Interdisciplinary ones certainly do.

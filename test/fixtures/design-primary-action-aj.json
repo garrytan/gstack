@@ -1,0 +1,52 @@
+{
+  "signature": "9aedb365-c1e6-4f04-ac07-e4fc5dd32b9c:toolu_01QSUqwbg4YnBNKRvCUJKxHZ",
+  "promptSnippet": "Issue 1 D3 \u2014 Issue 1 (Visual Hierarchy): make Save the only filled primary action? Project/branch/task: main, /plan-design-review of PLAN.md, Pass 1 Information Architecture. ELI10: Right now Save, Reset, Cancel, and Export look identical i",
+  "options": [
+    {
+      "index": 1,
+      "label": "1A Filled Save, ghost others (recommended)"
+    },
+    {
+      "index": 2,
+      "label": "1B Filled Save only, keep others as-is"
+    },
+    {
+      "index": 3,
+      "label": "1C Defer, keep four identical buttons"
+    }
+  ],
+  "observedAtMs": 176039,
+  "preReview": true,
+  "nativeCall": {
+    "sessionId": "9aedb365-c1e6-4f04-ac07-e4fc5dd32b9c",
+    "toolUseId": "toolu_01QSUqwbg4YnBNKRvCUJKxHZ",
+    "questions": [
+      {
+        "question": "D3 \u2014 Issue 1 (Visual Hierarchy): make Save the only filled primary action?\nProject/branch/task: main, /plan-design-review of PLAN.md, Pass 1 Information Architecture.\nELI10: Right now Save, Reset, Cancel, and Export look identical in the page header. A user scanning the page has no signal which button finishes their task, and the two destructive ones (Reset, Cancel) look just as inviting as Save. DESIGN.md already says Save is the only filled primary (#1d4ed8, white text) and the other three are neutral ghost buttons. Principle: hierarchy as service; users satisfice and pick the most visible option.\nStakes if we pick wrong: users mis-click Reset or Cancel and hit a discard dialog they did not want, or hesitate before every save.\nRecommendation: 1A because it is the exact DESIGN.md token, reuses the existing Button variants, and fixes the primary-action ambiguity at zero new-component cost.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: one filled button vs. leaving the header ambiguous.",
+        "header": "Issue 1",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "1A Filled Save, ghost others (recommended)",
+            "description": "\u2705 Save is the single filled #1d4ed8 button; Reset/Cancel/Export become neutral ghosts, exactly per DESIGN.md (human: ~1h / CC: ~5min). \u2705 Reuses existing Button variants; no new component. \u274c Ghost buttons rely on border and text for affordance, so their contrast must be verified."
+          },
+          {
+            "label": "1B Filled Save only, keep others as-is",
+            "description": "\u2705 Save stands out immediately with minimal change. \u2705 Smallest diff to the existing header. \u274c Reset/Cancel/Export stay heavy and visually compete; drifts from DESIGN.md's ghost spec."
+          },
+          {
+            "label": "1C Defer, keep four identical buttons",
+            "description": "\u2705 No header changes in this update. \u2705 Zero implementation effort now. \u274c Primary-action ambiguity ships; documented DESIGN.md violation remains and Pass 1 stays at 7."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Issue 1 (Visual Hierarchy): make Save the only filled primary action?\nProject/branch/task: main, /plan-design-review of PLAN.md, Pass 1 Information Architecture.\nELI10: Right now Save, Reset, Cancel, and Export look identical in the page header. A user scanning the page has no signal which button finishes their task, and the two destructive ones (Reset, Cancel) look just as inviting as Save. DESIGN.md already says Save is the only filled primary (#1d4ed8, white text) and the other three are neutral ghost buttons. Principle: hierarchy as service; users satisfice and pick the most visible option.\nStakes if we pick wrong: users mis-click Reset or Cancel and hit a discard dialog they did not want, or hesitate before every save.\nRecommendation: 1A because it is the exact DESIGN.md token, reuses the existing Button variants, and fixes the primary-action ambiguity at zero new-component cost.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: one filled button vs. leaving the header ambiguous.": "1A Filled Save, ghost others (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-10T05:42:43.858Z"
+  }
+}

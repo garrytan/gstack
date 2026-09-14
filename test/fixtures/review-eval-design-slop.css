@@ -1,0 +1,86 @@
+/* Planted design anti-patterns for E2E eval — 7 issues */
+
+/* Issue 1: [HIGH] Blacklisted font (Papyrus) */
+/* Issue 2: [HIGH] Body text < 16px (14px) */
+body {
+  font-family: 'Papyrus', sans-serif;
+  font-size: 14px;
+  margin: 0;
+  padding: 0;
+}
+
+/* Issue 5: [MEDIUM] Purple/violet gradient background */
+.hero {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  text-align: center;
+  padding: 80px 20px;
+  color: white;
+}
+
+.hero h1 {
+  text-align: center;
+  font-size: 48px;
+}
+
+.hero p {
+  text-align: center;
+  font-size: 20px;
+}
+
+/* Issue 7: [LOW] 3-column feature grid with icon circles */
+.features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  padding: 60px 40px;
+  text-align: center;
+}
+
+.feature-card {
+  border-radius: 24px;
+  padding: 32px;
+  text-align: center;
+  background: #f9fafb;
+}
+
+/* Icon in colored circle — AI slop pattern */
+.icon-circle {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #ede9fe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  font-size: 24px;
+}
+
+/* Issue 3: [HIGH] outline: none without replacement */
+button {
+  outline: none;
+  background: #6366f1;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 24px;
+  cursor: pointer;
+}
+
+.small-link {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+/* Issue 4: [HIGH] !important usage */
+.override {
+  color: red !important;
+  margin-left: 10px !important;
+}
+
+.footer {
+  text-align: center;
+  padding: 40px;
+  background: #1e1b4b;
+  color: white;
+}

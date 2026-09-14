@@ -1,0 +1,39 @@
+       9 dimension, get individual decisions, and convert approved fixes into implementation
+      10 tasks.
+     … +340 lines (ctrl+o to expand)
+
+● Writing the plan-mode plan file, then raising Issue 1.
+
+● Updated plan
+  ⎿  /plan to preview
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Save button
+
+│ D1 — Gap 1 (Visual Hierarchy): Should we add the DESIGN.md primary button style for Save as a P1 implementation task?
+│ <gstack-qid:plan-design-review-gap1-visual-hierarchy>
+
+❯ 1. Apply DESIGN.md token —      ┌────────────────────────────────────────────────────┐
+    P1 task (Recommended)         │ BEFORE (all 4 identical):                          │
+  2. Defer to a follow-up         │ [ Save ] [ Reset ] [ Cancel ] [ Export ]           │
+    iteration                     │                                                    │
+                                  │ AFTER (DESIGN.md-aligned):                         │
+                                  │ [■ Save ] [ Reset ] [ Cancel ] [ Export ]          │
+                                  │     ↑                  ↑                           │
+                                  │   filled           ghost buttons                   │
+                                  │   #1d4ed8                                          │
+                                  │   white text                                       │
+                                  │                                                    │
+                                  │ ELI10: Right now all 4 buttons look the same.      │
+                                  │ DESIGN.md already says Save = filled blue,         │
+                                  │ others = outlined/ghost. This task wires           │
+                                  │ that up. Low effort, high user impact.             │
+                                  ├─── ✂ ─── 5 lines hidden ───────────────────────────┤
+                                  └────────────────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel

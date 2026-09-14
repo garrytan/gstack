@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Page - Change-Only Validator</title>
+</head>
+<body>
+  <h1>Change-Only Validator</h1>
+
+  <!--
+    Minimal repro of AngularJS ng-change / debounced cross-field validators
+    (e.g. cPanel's Jupiter theme "Add FTP Account" password-match check):
+    the listener only reacts to `change`, never `input`. A page like this
+    silently "loses" a Playwright-style value-set-without-a-change-event.
+  -->
+  <input type="password" id="password" name="password">
+  <input type="password" id="password2" name="password2">
+  <div id="match-status">unknown</div>
+
+  <script>
+    function checkMatch() {
+      var a = document.getElementById('password').value;
+      var b = document.getElementById('password2').value;
+      document.getElementById('match-status').textContent =
+        a && a === b ? 'match' : 'no-match';
+    }
+    document.getElementById('password').addEventListener('change', checkMatch);
+    document.getElementById('password2').addEventListener('change', checkMatch);
+  </script>
+</body>
+</html>

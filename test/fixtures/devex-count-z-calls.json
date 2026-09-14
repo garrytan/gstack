@@ -1,0 +1,258 @@
+[
+  {
+    "sessionId": "c863dd11-6557-4988-b509-ac5229e24427",
+    "toolUseId": "toolu_01YYoD4nRXm4BfiePigvsrN6",
+    "questions": [
+      {
+        "question": "D1 \u2014 Does this empathy narrative match your ML engineer developer's actual experience?\n\nPersona: ML engineer, Python daily, terminal-oriented, target TTHW < 2 min\nMode: DX POLISH (pre-settled)\n\nI traced the actual path from README.md. Here's what your developer experiences today:\n\n> I install evalkit==2.0.0b1, set EVALKIT_API_KEY. The README says to run\n> `python examples/first_eval.py`. I try it:\n>\n> ```\n> python: can't open file 'examples/first_eval.py': [Errno 2] No such file or directory\n> ```\n>\n> The file is not in the published package (confirmed: docs/package-contents.txt).\n> After some confusion I find the demo command. I run `python -m evalkit.demo`.\n> For five minutes I watch: \"Waiting for CI check: 90s elapsed of 300s...\".\n> No explanation of why this check runs locally. Then: scores appear.\n> Total time: 6-7 min. First command failed. I'm not confident in this tool.\n\nI found 5 friction points. Settled decisions (persona, DX POLISH mode, terminal demo, benchmark) are not re-litigated \u2014 I'll go straight to the issues. <gstack-qid:plan-devex-review-empathy-confirm>",
+        "header": "Narrative",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Accurate \u2014 proceed to issues (Recommended)",
+            "description": "This is accurate. Proceed to walk through the 5 friction points one at a time."
+          },
+          {
+            "label": "Some details wrong",
+            "description": "The general picture is right but some specifics are off \u2014 describe corrections."
+          },
+          {
+            "label": "Way off",
+            "description": "The actual getting-started experience is significantly different from this \u2014 describe what's actually happening."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 \u2014 Does this empathy narrative match your ML engineer developer's actual experience?\n\nPersona: ML engineer, Python daily, terminal-oriented, target TTHW < 2 min\nMode: DX POLISH (pre-settled)\n\nI traced the actual path from README.md. Here's what your developer experiences today:\n\n> I install evalkit==2.0.0b1, set EVALKIT_API_KEY. The README says to run\n> `python examples/first_eval.py`. I try it:\n>\n> ```\n> python: can't open file 'examples/first_eval.py': [Errno 2] No such file or directory\n> ```\n>\n> The file is not in the published package (confirmed: docs/package-contents.txt).\n> After some confusion I find the demo command. I run `python -m evalkit.demo`.\n> For five minutes I watch: \"Waiting for CI check: 90s elapsed of 300s...\".\n> No explanation of why this check runs locally. Then: scores appear.\n> Total time: 6-7 min. First command failed. I'm not confident in this tool.\n\nI found 5 friction points. Settled decisions (persona, DX POLISH mode, terminal demo, benchmark) are not re-litigated \u2014 I'll go straight to the issues. <gstack-qid:plan-devex-review-empathy-confirm>": "Accurate \u2014 proceed to issues (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:05:40.860Z"
+  },
+  {
+    "sessionId": "c863dd11-6557-4988-b509-ac5229e24427",
+    "toolUseId": "toolu_01Hi3US42PswPmBjW2NvsUhi",
+    "questions": [
+      {
+        "question": "D2 \u2014 Friction point 1: `examples/first_eval.py` is referenced in README but doesn't exist in the published package.\n\nPlan file: README.md line 11: \"follow the quickstart's command: `python examples/first_eval.py`\"\nEvidence: docs/package-contents.txt explicitly states: \"The quickstart references examples/first_eval.py, but that file is absent from both the published package and the release examples archive.\"\n\nYour ML engineer developer hits a FileNotFoundError on their very first command. This violates DX First Principle #1 (Zero friction at T0) and is the most visible broken contract in the release. The terminal demo (`python -m evalkit.demo`) is already in the package and works \u2014 it just needs to be the primary getting-started command.\n\nRecommendation: A \u2014 update README to point to `python -m evalkit.demo` as the canonical first command. It's already documented as the chosen delivery vehicle; the README just hasn't been updated to match.\nCompleteness: A=9/10, B=7/10, C=2/10 <gstack-qid:plan-devex-review-fp1-missing-quickstart>",
+        "header": "FP1 Quickstart",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Fix in plan: update README to use python -m evalkit.demo (Recommended)",
+            "description": "Remove the reference to examples/first_eval.py from README. Replace with python -m evalkit.demo as the canonical first-run command. Completeness: 9/10."
+          },
+          {
+            "label": "Fix in plan: include the missing file in the release",
+            "description": "Add examples/first_eval.py to the published package. Requires writing and testing the file before release. Completeness: 7/10."
+          },
+          {
+            "label": "Acceptable \u2014 skip",
+            "description": "Leave the broken reference in place. Completeness: 2/10 \u2014 first command fails for every developer following the README."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 \u2014 Friction point 1: `examples/first_eval.py` is referenced in README but doesn't exist in the published package.\n\nPlan file: README.md line 11: \"follow the quickstart's command: `python examples/first_eval.py`\"\nEvidence: docs/package-contents.txt explicitly states: \"The quickstart references examples/first_eval.py, but that file is absent from both the published package and the release examples archive.\"\n\nYour ML engineer developer hits a FileNotFoundError on their very first command. This violates DX First Principle #1 (Zero friction at T0) and is the most visible broken contract in the release. The terminal demo (`python -m evalkit.demo`) is already in the package and works \u2014 it just needs to be the primary getting-started command.\n\nRecommendation: A \u2014 update README to point to `python -m evalkit.demo` as the canonical first command. It's already documented as the chosen delivery vehicle; the README just hasn't been updated to match.\nCompleteness: A=9/10, B=7/10, C=2/10 <gstack-qid:plan-devex-review-fp1-missing-quickstart>": "Fix in plan: update README to use python -m evalkit.demo (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:05:54.895Z"
+  },
+  {
+    "sessionId": "c863dd11-6557-4988-b509-ac5229e24427",
+    "toolUseId": "toolu_01J4HW3Qwn9KWXkCgRHhPtEn",
+    "questions": [
+      {
+        "question": "D3 \u2014 Friction point 2: mandatory 5-minute CI wait on first run, no skip flag.\n\nEvidence: docs/current-contracts.md: \"On a developer's first local evaluation, the SDK requires a successful remote CI check and blocks for five minutes before returning a result. There is no skip flag or offline first-run path.\"\nEvidence: docs/benchmarks.md: \"EvalKit took 6 minutes... The agreed target is under 2 minutes.\"\n\nYour ML engineer wants a local result first, before hooking up CI. The 5-minute mandatory wait IS the entire 4-minute gap between current TTHW (6 min) and the agreed target (< 2 min). No other single change closes this gap.\n\nThe plan retains this gate as-is. DX POLISH mode means working within existing release scope \u2014 but a gap this large between stated target and actual behavior is a contract worth calling out explicitly in the plan, even if the full fix isn't in scope.\n\nRecommendation: B \u2014 document the TTHW gap prominently in the plan and add a note that a --skip-ci-check flag is a prerequisite for hitting the < 2 min target. No scope addition now; P1 blocker for a follow-on.\nCompleteness: A=10/10, B=8/10, C=4/10 <gstack-qid:plan-devex-review-fp2-ci-wait>",
+        "header": "FP2 CI wait",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add --skip-ci-check to scope (Recommended if target matters)",
+            "description": "Add a --skip-ci-check or EVALKIT_SKIP_CI=1 flag to this release. Required to hit the < 2 min TTHW target. Completeness: 10/10."
+          },
+          {
+            "label": "Document gap in plan, flag as P1 follow-up (Recommended for DX POLISH)",
+            "description": "Keep the 5-min wait. Add an explicit note in the plan that the < 2 min target is currently unachievable and a --skip-ci-check flag is the prerequisite. Completeness: 8/10."
+          },
+          {
+            "label": "Retain as-is, no change",
+            "description": "Keep the mandatory wait and don't call it out. The stated TTHW target remains unmet without explanation. Completeness: 4/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Friction point 2: mandatory 5-minute CI wait on first run, no skip flag.\n\nEvidence: docs/current-contracts.md: \"On a developer's first local evaluation, the SDK requires a successful remote CI check and blocks for five minutes before returning a result. There is no skip flag or offline first-run path.\"\nEvidence: docs/benchmarks.md: \"EvalKit took 6 minutes... The agreed target is under 2 minutes.\"\n\nYour ML engineer wants a local result first, before hooking up CI. The 5-minute mandatory wait IS the entire 4-minute gap between current TTHW (6 min) and the agreed target (< 2 min). No other single change closes this gap.\n\nThe plan retains this gate as-is. DX POLISH mode means working within existing release scope \u2014 but a gap this large between stated target and actual behavior is a contract worth calling out explicitly in the plan, even if the full fix isn't in scope.\n\nRecommendation: B \u2014 document the TTHW gap prominently in the plan and add a note that a --skip-ci-check flag is a prerequisite for hitting the < 2 min target. No scope addition now; P1 blocker for a follow-on.\nCompleteness: A=10/10, B=8/10, C=4/10 <gstack-qid:plan-devex-review-fp2-ci-wait>": "Add --skip-ci-check to scope (Recommended if target matters)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:06:10.945Z"
+  },
+  {
+    "sessionId": "c863dd11-6557-4988-b509-ac5229e24427",
+    "toolUseId": "toolu_016Kwybn1nSkZJvdeGXbZDmp",
+    "questions": [
+      {
+        "question": "D4 \u2014 Friction point 3: `AuthError(\"request failed\")` tells the developer nothing useful.\n\nEvidence: docs/api.md: \"For an invalid API key, the SDK raises AuthError('request failed'). There is no authentication error code, explanation of the cause, or instruction for replacing the key. The plan retains this message.\"\nEvidence: docs/current-contracts.md: \"Authentication errors behave exactly as documented in docs/api.md. All other errors already identify the cause, relevant argument or file, and an actionable fix.\"\n\nThis is the only error that doesn't follow the pattern your other errors already follow. Your ML engineer sets a wrong API key and sees:\n  AuthError: request failed\n\nThey don't know: was it a network error? A bad key? A rate limit? They have no idea what to fix. The Hall of Fame Tier 1 standard: problem + cause + fix. You're at Tier 3 (just a message string).\n\nA minimal fix: `AuthError(\"invalid API key \u2014 check EVALKIT_API_KEY or regenerate at [dashboard]\")`\n\nRecommendation: A \u2014 update the error message. It's a one-line change. Completeness: A=9/10, B=6/10, C=3/10 <gstack-qid:plan-devex-review-fp3-auth-error>",
+        "header": "FP3 AuthError",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Fix in plan: update AuthError message to name cause + fix (Recommended)",
+            "description": "Change the message to identify the problem (invalid API key), cause (key mismatch), and fix (check EVALKIT_API_KEY or regenerate). One-line change. Completeness: 9/10."
+          },
+          {
+            "label": "Add error code only",
+            "description": "Add a structured error code (e.g., auth/invalid-key) without changing the prose message. Partial improvement. Completeness: 6/10."
+          },
+          {
+            "label": "Retain 'request failed' as-is",
+            "description": "Leave the message unchanged. Every developer with a bad key will be confused. Completeness: 3/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 Friction point 3: `AuthError(\"request failed\")` tells the developer nothing useful.\n\nEvidence: docs/api.md: \"For an invalid API key, the SDK raises AuthError('request failed'). There is no authentication error code, explanation of the cause, or instruction for replacing the key. The plan retains this message.\"\nEvidence: docs/current-contracts.md: \"Authentication errors behave exactly as documented in docs/api.md. All other errors already identify the cause, relevant argument or file, and an actionable fix.\"\n\nThis is the only error that doesn't follow the pattern your other errors already follow. Your ML engineer sets a wrong API key and sees:\n  AuthError: request failed\n\nThey don't know: was it a network error? A bad key? A rate limit? They have no idea what to fix. The Hall of Fame Tier 1 standard: problem + cause + fix. You're at Tier 3 (just a message string).\n\nA minimal fix: `AuthError(\"invalid API key \u2014 check EVALKIT_API_KEY or regenerate at [dashboard]\")`\n\nRecommendation: A \u2014 update the error message. It's a one-line change. Completeness: A=9/10, B=6/10, C=3/10 <gstack-qid:plan-devex-review-fp3-auth-error>": "Fix in plan: update AuthError message to name cause + fix (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:06:28.980Z"
+  },
+  {
+    "sessionId": "c863dd11-6557-4988-b509-ac5229e24427",
+    "toolUseId": "toolu_01PgqUSGF7FHPd1cVUJoURXX",
+    "questions": [
+      {
+        "question": "D5 \u2014 Friction point 4: v1\u2192v2 upgrade removes Client.evaluate() immediately, no deprecation or compat alias.\n\nEvidence: docs/api.md: \"Version 1 exposes Client.evaluate(). Version 2 replaces it with Client.run() and removes the old name immediately. No compatibility alias, deprecation warning, migration guide, or codemod is provided.\"\n\nAny v1 user who runs pip install --upgrade evalkit will immediately get:\n  AttributeError: 'Client' object has no attribute 'evaluate'\n\nNo warning before it happens. No message telling them what to call instead. They have to go to the changelog to find out `evaluate()` is now `run()`. The changelog is otherwise complete, so the information exists \u2014 it's just not surfaced at the point of failure.\n\nMinimum viable fix: keep `Client.evaluate()` as a one-version deprecation shim:\n  def evaluate(self, *args, **kwargs):\n      import warnings\n      warnings.warn(\"evaluate() is renamed run() in v2; remove this call by v2.1\", DeprecationWarning, stacklevel=2)\n      return self.run(*args, **kwargs)\n\nThis is what 'DX POLISH' means for upgrades \u2014 the right thing should be to not break users silently.\n\nRecommendation: A \u2014 add the deprecation shim. One function. Surfaces the fix at the point of failure, and validates that run() accepts the same args.\nCompleteness: A=9/10, B=7/10, C=5/10, D=2/10 <gstack-qid:plan-devex-review-fp4-v1v2-upgrade>",
+        "header": "FP4 v1\u2192v2",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Fix in plan: add Client.evaluate() deprecation shim (Recommended)",
+            "description": "Add a one-function compat wrapper that raises DeprecationWarning and delegates to run(). Removes silently broken upgrades. Completeness: 9/10."
+          },
+          {
+            "label": "Fix in plan: update changelog/error to name the replacement",
+            "description": "When AttributeError fires, Python's default message is unclear. Catch it or add a __getattr__ that names run() as the replacement. No compat shim. Completeness: 7/10."
+          },
+          {
+            "label": "Add migration guide to docs only",
+            "description": "Write a v1\u2192v2 migration guide. Developers must find it before upgrading. No protection at upgrade time. Completeness: 5/10."
+          },
+          {
+            "label": "Retain immediate removal as-is",
+            "description": "Keep the hard break. v1 users get AttributeError with no guidance. Completeness: 2/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 \u2014 Friction point 4: v1\u2192v2 upgrade removes Client.evaluate() immediately, no deprecation or compat alias.\n\nEvidence: docs/api.md: \"Version 1 exposes Client.evaluate(). Version 2 replaces it with Client.run() and removes the old name immediately. No compatibility alias, deprecation warning, migration guide, or codemod is provided.\"\n\nAny v1 user who runs pip install --upgrade evalkit will immediately get:\n  AttributeError: 'Client' object has no attribute 'evaluate'\n\nNo warning before it happens. No message telling them what to call instead. They have to go to the changelog to find out `evaluate()` is now `run()`. The changelog is otherwise complete, so the information exists \u2014 it's just not surfaced at the point of failure.\n\nMinimum viable fix: keep `Client.evaluate()` as a one-version deprecation shim:\n  def evaluate(self, *args, **kwargs):\n      import warnings\n      warnings.warn(\"evaluate() is renamed run() in v2; remove this call by v2.1\", DeprecationWarning, stacklevel=2)\n      return self.run(*args, **kwargs)\n\nThis is what 'DX POLISH' means for upgrades \u2014 the right thing should be to not break users silently.\n\nRecommendation: A \u2014 add the deprecation shim. One function. Surfaces the fix at the point of failure, and validates that run() accepts the same args.\nCompleteness: A=9/10, B=7/10, C=5/10, D=2/10 <gstack-qid:plan-devex-review-fp4-v1v2-upgrade>": "Fix in plan: add Client.evaluate() deprecation shim (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:06:51.037Z"
+  },
+  {
+    "sessionId": "c863dd11-6557-4988-b509-ac5229e24427",
+    "toolUseId": "toolu_01BSgdeurwMUzvxqPYoVXyDg",
+    "questions": [
+      {
+        "question": "D6 \u2014 Friction point 5: `run_eval` and `run_batch` have reversed positional argument order.\n\nEvidence: docs/api.md: \"`run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)`. Both argument names describe the same concepts. The reversed positional order is intentional in the current draft; neither function requires keyword arguments.\"\n\nA developer who uses both functions will likely swap arguments at least once. Python won't catch it \u2014 both args are objects, so the wrong order silently passes and produces wrong results (or crashes deep in the evaluator). This violates the Hall of Fame anti-pattern 'Inconsistent naming'.\n\nThe 'intentional' note in the plan is a flag that this needs a decision, not a justification.\n\nOptions:\n  A) Fix the API \u2014 make both `(dataset, evaluator)` or both `(evaluator, dataset)`. One is changed, both become consistent. Requires updating docs.\n  B) Enforce keyword-only args \u2014 add `*` to force keyword use: `run_eval(*, dataset, evaluator)`, `run_batch(*, evaluator, dataset)`. Prevents silent swaps even with inconsistent ordering.\n  C) Document the difference prominently \u2014 add a warning to the API docs and docstrings. The inconsistency stays; developers are warned.\n\nRecommendation: A \u2014 fix the arg order to be consistent. Silent wrong-result bugs from swapped positional args are the worst kind. The API is in beta; this is the time to fix it.\nCompleteness: A=10/10, B=8/10, C=5/10 <gstack-qid:plan-devex-review-fp5-arg-order>",
+        "header": "FP5 Arg order",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Fix in plan: standardize to one ordering (Recommended)",
+            "description": "Pick one order (dataset, evaluator) for both functions. Beta is the time to fix APIs before they're locked in. Completeness: 10/10."
+          },
+          {
+            "label": "Fix in plan: force keyword-only arguments",
+            "description": "Add `*` to both signatures so callers must use keyword args. Prevents silent swaps without changing the underlying order. Completeness: 8/10."
+          },
+          {
+            "label": "Document the difference, leave ordering as-is",
+            "description": "Add a prominent warning to API docs and docstrings. Inconsistency stays; developers are warned. Completeness: 5/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 \u2014 Friction point 5: `run_eval` and `run_batch` have reversed positional argument order.\n\nEvidence: docs/api.md: \"`run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)`. Both argument names describe the same concepts. The reversed positional order is intentional in the current draft; neither function requires keyword arguments.\"\n\nA developer who uses both functions will likely swap arguments at least once. Python won't catch it \u2014 both args are objects, so the wrong order silently passes and produces wrong results (or crashes deep in the evaluator). This violates the Hall of Fame anti-pattern 'Inconsistent naming'.\n\nThe 'intentional' note in the plan is a flag that this needs a decision, not a justification.\n\nOptions:\n  A) Fix the API \u2014 make both `(dataset, evaluator)` or both `(evaluator, dataset)`. One is changed, both become consistent. Requires updating docs.\n  B) Enforce keyword-only args \u2014 add `*` to force keyword use: `run_eval(*, dataset, evaluator)`, `run_batch(*, evaluator, dataset)`. Prevents silent swaps even with inconsistent ordering.\n  C) Document the difference prominently \u2014 add a warning to the API docs and docstrings. The inconsistency stays; developers are warned.\n\nRecommendation: A \u2014 fix the arg order to be consistent. Silent wrong-result bugs from swapped positional args are the worst kind. The API is in beta; this is the time to fix it.\nCompleteness: A=10/10, B=8/10, C=5/10 <gstack-qid:plan-devex-review-fp5-arg-order>": "Fix in plan: standardize to one ordering (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:07:13.609Z"
+  },
+  {
+    "sessionId": "c863dd11-6557-4988-b509-ac5229e24427",
+    "toolUseId": "toolu_016oCjoi96WfcniXDZhDYr8g",
+    "questions": [
+      {
+        "question": "D7 \u2014 TODO: should the demo add one explanatory line when the CI check starts?\n\nCurrently, developers running `python -m evalkit.demo` (without --skip-ci-check) see:\n  Waiting for CI check: 30s elapsed of 300s\n  Waiting for CI check: 60s elapsed of 300s\n  ...\n\nThere is no explanation of what the CI check is validating or why it runs on a local machine. Developers wait 5 minutes without context. After the --skip-ci-check flag lands (T2), this matters less for new developers. But developers who run without the flag, or in CI where it's intentional, get no explanation.\n\nProposed one-line fix (at first progress line):\n  \"First-run quality gate: verifying sample integrity via remote CI check (~5 min). Skip with --skip-ci-check for local dev.\"\n\nWhy: it's the same pattern as the other good error messages \u2014 problem + cause + fix.\n\nCompleteness: A=9/10 (complete), B=2/10 (minimal) <gstack-qid:plan-devex-review-todo1-ci-explanation>",
+        "header": "TODO-1 CI note",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to TODOS.md \u2014 include one-line CI explanation in plan (Recommended)",
+            "description": "Add this as a P2 implementation task. One-line change to demo output. Follows the error-message pattern already established in the SDK. Completeness: 9/10."
+          },
+          {
+            "label": "Skip \u2014 --skip-ci-check flag (T2) makes this less critical",
+            "description": "New developers will use --skip-ci-check after T2 lands. Explanation not worth the scope. Completeness: 2/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D7 \u2014 TODO: should the demo add one explanatory line when the CI check starts?\n\nCurrently, developers running `python -m evalkit.demo` (without --skip-ci-check) see:\n  Waiting for CI check: 30s elapsed of 300s\n  Waiting for CI check: 60s elapsed of 300s\n  ...\n\nThere is no explanation of what the CI check is validating or why it runs on a local machine. Developers wait 5 minutes without context. After the --skip-ci-check flag lands (T2), this matters less for new developers. But developers who run without the flag, or in CI where it's intentional, get no explanation.\n\nProposed one-line fix (at first progress line):\n  \"First-run quality gate: verifying sample integrity via remote CI check (~5 min). Skip with --skip-ci-check for local dev.\"\n\nWhy: it's the same pattern as the other good error messages \u2014 problem + cause + fix.\n\nCompleteness: A=9/10 (complete), B=2/10 (minimal) <gstack-qid:plan-devex-review-todo1-ci-explanation>": "Add to TODOS.md \u2014 include one-line CI explanation in plan (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:10:09.658Z"
+  },
+  {
+    "sessionId": "c863dd11-6557-4988-b509-ac5229e24427",
+    "toolUseId": "toolu_01QVaGJ8sDovuePEycGQ5kEA",
+    "questions": [
+      {
+        "question": "D8 \u2014 TODO: should the plan include a v1\u2192v2 written migration guide?\n\nThe deprecation shim (T4) handles the runtime experience: v1 callers get a DeprecationWarning naming `run()` as the replacement. But there is currently no written migration guide in docs/.\n\nA one-page migration guide covers:\n- What changed (`evaluate()` \u2192 `run()`)\n- What stayed the same (all other APIs)\n- How to find and update callsites (grep for `\\.evaluate(`)\n- When the shim is removed (e.g., v2.1)\n\nWithout it, developers upgrading a large codebase need to discover the change at each call site rather than planning the migration upfront. The changelog has the what; the guide provides the how and the timeline.\n\nCompleteness: A=9/10 (complete), B=6/10 (runtime-only, no planning), C=2/10 <gstack-qid:plan-devex-review-todo2-migration-guide>",
+        "header": "TODO-2 Migration",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to TODOS.md \u2014 include migration guide in plan (Recommended)",
+            "description": "Add docs/migration-v1-v2.md as a P2 task. One page covering the rename, unchanged APIs, grep command to find callsites, and shim removal timeline. Completeness: 9/10."
+          },
+          {
+            "label": "Deprecation shim is enough \u2014 skip the guide",
+            "description": "Runtime warning names the replacement. Developers can upgrade call-by-call without a guide. Completeness: 6/10."
+          },
+          {
+            "label": "Skip entirely",
+            "description": "No guide, no shim documentation. Developers discover the change at each AttributeError or DeprecationWarning. Completeness: 2/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D8 \u2014 TODO: should the plan include a v1\u2192v2 written migration guide?\n\nThe deprecation shim (T4) handles the runtime experience: v1 callers get a DeprecationWarning naming `run()` as the replacement. But there is currently no written migration guide in docs/.\n\nA one-page migration guide covers:\n- What changed (`evaluate()` \u2192 `run()`)\n- What stayed the same (all other APIs)\n- How to find and update callsites (grep for `\\.evaluate(`)\n- When the shim is removed (e.g., v2.1)\n\nWithout it, developers upgrading a large codebase need to discover the change at each call site rather than planning the migration upfront. The changelog has the what; the guide provides the how and the timeline.\n\nCompleteness: A=9/10 (complete), B=6/10 (runtime-only, no planning), C=2/10 <gstack-qid:plan-devex-review-todo2-migration-guide>": "Add to TODOS.md \u2014 include migration guide in plan (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T12:10:21.700Z"
+  }
+]

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "revision": "cso-v3-build-reviewed-2026-09-10",
+  "previousRevision": null,
+  "helperAbi": 3,
+  "buildRevision": "cso-runtime-inputs-2026-09-10",
+  "profiles": [
+    {
+      "id": "node-24.4.0-amd64",
+      "stack": "node",
+      "platform": "linux/amd64",
+      "state": "build_reviewed",
+      "versions": { "node": "24.4.0", "npm": "11.4.2", "cso-preparation": "1.0.0" },
+      "reviewedAt": "2026-09-10T00:00:00.000Z"
+    },
+    {
+      "id": "node-24.4.0-arm64",
+      "stack": "node",
+      "platform": "linux/arm64",
+      "state": "build_reviewed",
+      "versions": { "node": "24.4.0", "npm": "11.4.2", "cso-preparation": "1.0.0" },
+      "reviewedAt": "2026-09-10T00:00:00.000Z"
+    },
+    {
+      "id": "bun-1.3.10-amd64",
+      "stack": "bun",
+      "platform": "linux/amd64",
+      "state": "build_reviewed",
+      "versions": { "bun": "1.3.10", "cso-preparation": "1.0.0" },
+      "reviewedAt": "2026-09-10T00:00:00.000Z"
+    },
+    {
+      "id": "bun-1.3.10-arm64",
+      "stack": "bun",
+      "platform": "linux/arm64",
+      "state": "build_reviewed",
+      "versions": { "bun": "1.3.10", "cso-preparation": "1.0.0" },
+      "reviewedAt": "2026-09-10T00:00:00.000Z"
+    },
+    {
+      "id": "python-3.13.4-uv-0.8.0-amd64",
+      "stack": "python",
+      "platform": "linux/amd64",
+      "state": "build_reviewed",
+      "versions": { "python": "3.13.4", "uv": "0.8.0", "cso-preparation": "1.0.0" },
+      "reviewedAt": "2026-09-10T00:00:00.000Z"
+    },
+    {
+      "id": "python-3.13.4-uv-0.8.0-arm64",
+      "stack": "python",
+      "platform": "linux/arm64",
+      "state": "build_reviewed",
+      "versions": { "python": "3.13.4", "uv": "0.8.0", "cso-preparation": "1.0.0" },
+      "reviewedAt": "2026-09-10T00:00:00.000Z"
+    },
+    {
+      "id": "rails-ruby-3.4.4-amd64",
+      "stack": "rails",
+      "platform": "linux/amd64",
+      "state": "build_reviewed",
+      "versions": { "ruby": "3.4.4", "bundler": "2.6.7", "cso-preparation": "1.0.0" },
+      "reviewedAt": "2026-09-10T00:00:00.000Z"
+    },
+    {
+      "id": "rails-ruby-3.4.4-arm64",
+      "stack": "rails",
+      "platform": "linux/arm64",
+      "state": "build_reviewed",
+      "versions": { "ruby": "3.4.4", "bundler": "2.6.7", "cso-preparation": "1.0.0" },
+      "reviewedAt": "2026-09-10T00:00:00.000Z"
+    },
+    {
+      "id": "postgresql-17.2-amd64",
+      "stack": "postgresql",
+      "platform": "linux/amd64",
+      "state": "build_reviewed",
+      "versions": { "postgresql": "17.2" },
+      "reviewedAt": "2026-09-10T00:00:00.000Z"
+    },
+    {
+      "id": "postgresql-17.2-arm64",
+      "stack": "postgresql",
+      "platform": "linux/arm64",
+      "state": "build_reviewed",
+      "versions": { "postgresql": "17.2" },
+      "reviewedAt": "2026-09-10T00:00:00.000Z"
+    }
+  ],
+  "runtimes": []
+}

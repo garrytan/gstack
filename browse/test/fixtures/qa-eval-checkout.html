@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>QA Eval — Checkout</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .checkout-form { max-width: 500px; }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 4px; font-weight: bold; }
+    .form-group input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    .form-group input.invalid { border-color: red; }
+    .form-group .error-msg { color: red; font-size: 12px; display: none; }
+    .total { font-size: 24px; font-weight: bold; margin: 20px 0; }
+    button[type="submit"] { padding: 12px 24px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+    .order-summary { background: #f5f5f5; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Checkout</h1>
+
+  <div class="order-summary">
+    <h2>Order Summary</h2>
+    <p>Widget Pro — $99.99 x <input type="number" id="quantity" value="1" min="1" style="width: 50px;"></p>
+    <p class="total" id="total">Total: $99.99</p>  <!-- BUG 2: shows $NaN when quantity is cleared -->
+  </div>
+
+  <form class="checkout-form" id="checkout-form">
+    <h2>Shipping Information</h2>
+
+    <div class="form-group">
+      <label for="email">Email</label>
+      <input type="text" id="email" name="email" placeholder="you@example.com" required
+             pattern="[^@]+@[^@]">  <!-- BUG 1: broken regex — accepts "user@" as valid -->
+      <span class="error-msg" id="email-error">Please enter a valid email</span>
+    </div>
+
+    <div class="form-group">
+      <label for="address">Address</label>
+      <input type="text" id="address" name="address" placeholder="123 Main St" required>
+    </div>
+
+    <div class="form-group">
+      <label for="city">City</label>
+      <input type="text" id="city" name="city" placeholder="San Francisco" required>
+    </div>
+
+    <div class="form-group">
+      <label for="zip">Zip Code</label>
+      <input type="text" id="zip" name="zip" placeholder="94105">  <!-- BUG 4: missing required attribute -->
+    </div>
+
+    <h2>Payment</h2>
+
+    <div class="form-group">
+      <label for="cc">Credit Card Number</label>
+      <input type="text" id="cc" name="cc" placeholder="4111 1111 1111 1111" required>
+      <!-- BUG 3: no maxlength — overflows container at >20 chars -->
+    </div>
+
+    <div class="form-group">
+      <label for="exp">Expiration</label>
+      <input type="text" id="exp" name="exp" placeholder="MM/YY" required maxlength="5">
+    </div>
+
+    <div class="form-group">
+      <label for="cvv">CVV</label>
+      <input type="text" id="cvv" name="cvv" placeholder="123" required maxlength="4">
+    </div>
+
+    <button type="submit">Place Order — $<span id="submit-total">99.99</span></button>
+  </form>
+
+  <script>
+    // Update total when quantity changes
+    const quantityInput = document.getElementById('quantity');
+    const totalEl = document.getElementById('total');
+    const submitTotalEl = document.getElementById('submit-total');
+
+    quantityInput.addEventListener('input', () => {
+      // BUG 2: parseInt on empty string returns NaN, no fallback
+      const qty = parseInt(quantityInput.value);
+      const total = (qty * 99.99).toFixed(2);
+      totalEl.textContent = 'Total: $' + total;
+      submitTotalEl.textContent = total;
+    });
+
+    // Email validation (broken)
+    const emailInput = document.getElementById('email');
+    emailInput.addEventListener('blur', () => {
+      // BUG 1: this regex accepts "user@" — missing domain part check
+      const valid = /[^@]+@/.test(emailInput.value);
+      emailInput.classList.toggle('invalid', !valid && emailInput.value.length > 0);
+      document.getElementById('email-error').style.display = (!valid && emailInput.value.length > 0) ? 'block' : 'none';
+    });
+
+    // Form submit
+    document.getElementById('checkout-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      // BUG 5: stripe is not defined — console error on submit
+      stripe.createPaymentMethod({
+        type: 'card',
+        card: { number: document.getElementById('cc').value }
+      });
+    });
+  </script>
+</body>
+</html>

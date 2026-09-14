@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# gstack-brain-enqueue — write a path record into the GBrain sync spool.
+#
+# Usage:
+#   gstack-brain-enqueue <file-path>
+#
+# Called by writer scripts (gstack-learnings-log, gstack-timeline-log, etc.)
+# after their local write. Fire-and-forget; failures are silent (never blocks
+# the writer). The spool is drained by `gstack-brain-sync --once` invoked from
+# the preamble at skill START and END boundaries.
+#
+# No-op when:
+#   - artifacts_sync_mode is off (the default)
+#   - ~/.gstack/.git doesn't exist (feature not initialized)
+#   - <file-path> matches a line in ~/.gstack/.brain-skip.txt
+#
+# Env:
+#   GSTACK_HOME — override ~/.gstack state directory (aligns with writers).
+#                 Tests use GSTACK_HOME=/tmp/test-$$ for isolation.
+#
+# Concurrency: maildir-style spool — one FILE per record under
+# .brain-queue.d/, created via tmp-file + atomic rename. Writer and drainer
+# never share an inode, so there is no append/rewrite race by construction
+# (the legacy single-file .brain-queue.jsonl append could race the drain's
+# rewrite). Filenames are <epoch>-<pid>-<uniq>.json, so a sorted listing is
+# chronological.
+
+# No `-e` — writer shims rely on this never failing loudly.
+set -uo pipefail
+
+FILE="${1:-}"
+[ -z "$FILE" ] && exit 0
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+SPOOL="$GSTACK_HOME/.brain-queue.d"
+SKIP_FILE="$GSTACK_HOME/.brain-skip.txt"
+
+# Fast exits: no git repo, no sync.
+[ ! -d "$GSTACK_HOME/.git" ] && exit 0
+
+# Check sync mode. off → silent no-op.
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+MODE=$("$SCRIPT_DIR/gstack-config" get artifacts_sync_mode 2>/dev/null || echo off)
+[ "$MODE" = "off" ] && exit 0
+
+# User-maintained skip list (for secret-scan false positives).
+if [ -f "$SKIP_FILE" ]; then
+  if grep -Fxq "$FILE" "$SKIP_FILE" 2>/dev/null; then
+    exit 0
+  fi
+fi
+
+# JSON-escape the file path (backslash + quotes only; paths shouldn't have other specials).
+ESC_FILE=$(printf '%s' "$FILE" | sed 's/\\/\\\\/g; s/"/\\"/g')
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+
+# One spool file per record: tmp write + atomic rename. Any failure exits 0
+# silently (fire-and-forget contract), cleaning up the tmp file.
+mkdir -p "$SPOOL" 2>/dev/null || exit 0
+TMP="$SPOOL/.tmp-$$-$RANDOM"
+printf '{"file":"%s","ts":"%s"}\n' "$ESC_FILE" "$TS" > "$TMP" 2>/dev/null || { rm -f "$TMP" 2>/dev/null; exit 0; }
+mv -f "$TMP" "$SPOOL/$(date +%s)-$$-$RANDOM.json" 2>/dev/null || rm -f "$TMP" 2>/dev/null
+
+exit 0

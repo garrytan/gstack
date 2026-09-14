@@ -1,0 +1,105 @@
+{
+  "source": "W paired first attempt native AskUserQuestion calls, exact question/options/answers; no rescore of historical run",
+  "calls": [
+    {
+      "sessionId": "e085f9ed-106c-4221-885e-31ef6d1f6704",
+      "toolUseId": "toolu_011esQs6aZmjLoM9yFnAu4Jp",
+      "questions": [
+        {
+          "question": "D1 \u2014 What does processPayment() return or raise when 502 retries are exhausted? <gstack-qid:plan-ceo-review-failure-sig>\n\nELI10: When Stripe keeps returning 502 and the retry budget runs out (max_retries=1 means 2 total attempts), processPayment() has to signal failure to its caller. The 502 exhaustion test needs to assert this exact behavior \u2014 but the plan says only \"fails clean\" without defining what that means. Without a specified failure contract (exception class or error return), the test cannot be written correctly.\n\nStakes: An assumption here that's wrong means the test asserts the wrong contract \u2014 it may pass while not actually verifying the intended behavior, giving false confidence in a payment-critical path.\n\nRecommendation: A because exception-raising is the most common payment failure pattern, most explicit for callers, and most directly testable.\n\nCompleteness: A=9/10, B=8/10, C=4/10\n\nNet: A or B adds one sentence to the plan and unblocks implementation; C defers and creates ambiguity the implementer must resolve alone.",
+          "header": "Failure sig",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Specify: raises exception (Recommended)",
+              "description": "Add to plan: \"processPayment() raises PaymentError (or equivalent) on 502 exhaustion; no receipt is emitted.\" Implementer asserts the exception class in the 502 test."
+            },
+            {
+              "label": "Specify: returns error value",
+              "description": "Add to plan: \"processPayment() returns an error tuple/result on 502 exhaustion; no receipt is emitted.\" Implementer asserts the error return in the 502 test."
+            },
+            {
+              "label": "Defer to implementer",
+              "description": "Leave failure contract unspecified. The developer reads the existing code to determine it at implementation time. Creates ambiguity; acceptable if the contract is already documented elsewhere."
+            }
+          ]
+        }
+      ],
+      "answers": {
+        "D1 \u2014 What does processPayment() return or raise when 502 retries are exhausted? <gstack-qid:plan-ceo-review-failure-sig>\n\nELI10: When Stripe keeps returning 502 and the retry budget runs out (max_retries=1 means 2 total attempts), processPayment() has to signal failure to its caller. The 502 exhaustion test needs to assert this exact behavior \u2014 but the plan says only \"fails clean\" without defining what that means. Without a specified failure contract (exception class or error return), the test cannot be written correctly.\n\nStakes: An assumption here that's wrong means the test asserts the wrong contract \u2014 it may pass while not actually verifying the intended behavior, giving false confidence in a payment-critical path.\n\nRecommendation: A because exception-raising is the most common payment failure pattern, most explicit for callers, and most directly testable.\n\nCompleteness: A=9/10, B=8/10, C=4/10\n\nNet: A or B adds one sentence to the plan and unblocks implementation; C defers and creates ambiguity the implementer must resolve alone.": "Specify: raises exception (Recommended)"
+      },
+      "answeredAt": "2026-09-09T09:36:36.913Z",
+      "answered": true,
+      "failed": false,
+      "unansweredQuestionIndices": []
+    },
+    {
+      "sessionId": "e085f9ed-106c-4221-885e-31ef6d1f6704",
+      "toolUseId": "toolu_01VuyZDEogxPgphTdJQxB8Sj",
+      "questions": [
+        {
+          "question": "D2 \u2014 What must the happy path test assert about the receipt? <gstack-qid:plan-ceo-review-receipt-spec>\n\nELI10: The plan says \"assert correct receipt is generated\" but doesn't define what \"correct\" means. A receipt struct has multiple fields (amount, currency, customer_id, stripe_charge_id, etc.). The test could assert: (A) all key business fields by value, (B) only the Stripe-linked field (charge ID) to confirm the right charge was recorded, or (C) just that a receipt exists (smoke test only). Option A is a correctness test; C is a smoke test that would pass even with a half-populated receipt.\n\nStakes: A test that only checks receipt presence could pass while critical fields (amount, customer_id) are wrong \u2014 a payment is charged correctly in Stripe but the internal record is broken.\n\nRecommendation: A because correctness means verifying the business-critical fields, not just existence. CC writes this in seconds.\n\nCompleteness: A=10/10, B=7/10, C=3/10\n\nNet: A vs C is the difference between a correctness test and a smoke test.",
+          "header": "Receipt spec",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Full field assertion (Recommended)",
+              "description": "Plan specifies: assert receipt.amount, receipt.currency, receipt.customer_id, and receipt.stripe_charge_id match expected values. Full structural correctness test."
+            },
+            {
+              "label": "Stripe linkage only",
+              "description": "Plan specifies: assert receipt.stripe_charge_id matches the mock charge ID. Confirms the right charge was recorded; other fields assumed correct."
+            },
+            {
+              "label": "Presence only (smoke test)",
+              "description": "Plan specifies: assert a receipt is returned (not nil/error). Minimal \u2014 does not verify field values."
+            }
+          ]
+        }
+      ],
+      "answers": {
+        "D2 \u2014 What must the happy path test assert about the receipt? <gstack-qid:plan-ceo-review-receipt-spec>\n\nELI10: The plan says \"assert correct receipt is generated\" but doesn't define what \"correct\" means. A receipt struct has multiple fields (amount, currency, customer_id, stripe_charge_id, etc.). The test could assert: (A) all key business fields by value, (B) only the Stripe-linked field (charge ID) to confirm the right charge was recorded, or (C) just that a receipt exists (smoke test only). Option A is a correctness test; C is a smoke test that would pass even with a half-populated receipt.\n\nStakes: A test that only checks receipt presence could pass while critical fields (amount, customer_id) are wrong \u2014 a payment is charged correctly in Stripe but the internal record is broken.\n\nRecommendation: A because correctness means verifying the business-critical fields, not just existence. CC writes this in seconds.\n\nCompleteness: A=10/10, B=7/10, C=3/10\n\nNet: A vs C is the difference between a correctness test and a smoke test.": "Full field assertion (Recommended)"
+      },
+      "answeredAt": "2026-09-09T09:36:50.950Z",
+      "answered": true,
+      "failed": false,
+      "unansweredQuestionIndices": []
+    },
+    {
+      "sessionId": "e085f9ed-106c-4221-885e-31ef6d1f6704",
+      "toolUseId": "toolu_01GPeo4Z8FQvGf5MF2vZ21L3",
+      "questions": [
+        {
+          "question": "D3\u2013D6 \u2014 Which of these test quality additions should be added to the plan? <gstack-qid:plan-ceo-review-test-quality>\n\nELI10: The plan's two tests are scoped correctly but leave 4 test quality gaps unspecified. Each is a one-liner to add to the plan and a few lines of test code. All are recommended \u2014 they separate a correctness test suite from a smoke test suite. With CC, implementation cost is negligible.\n\nRecommendation: All four \u2014 each closes a real gap in what the test proves. Completeness: each is 10/10 with all selected, 7/10 without any.\n\nNet: Selecting all turns the plan into a complete test specification; selecting none leaves implementation details to the developer's discretion.",
+          "header": "Test quality",
+          "multiSelect": true,
+          "options": [
+            {
+              "label": "Assert charge count (mock.call_count == 2)",
+              "description": "502 test must assert the Stripe mock was called exactly twice (one original + one retry). The factory exposes call history \u2014 the plan should require using it."
+            },
+            {
+              "label": "Assert backoff invoked (virtual_sleeper)",
+              "description": "502 test must assert the virtual sleeper was invoked (backoff actually fired, not skipped). The plan mentions the sleeper records backoff but doesn't require asserting it."
+            },
+            {
+              "label": "State test isolation explicitly",
+              "description": "Plan should state: factory provides a fully mocked Stripe client; no real network calls. Prevents future confusion about whether these are true unit tests."
+            },
+            {
+              "label": "Require descriptive test names + messages",
+              "description": "Plan should require descriptive test names and failure messages (e.g., 'expected 2 Stripe calls, got N'). Makes CI failures debuggable without reading the implementation."
+            }
+          ]
+        }
+      ],
+      "answers": {
+        "D3\u2013D6 \u2014 Which of these test quality additions should be added to the plan? <gstack-qid:plan-ceo-review-test-quality>\n\nELI10: The plan's two tests are scoped correctly but leave 4 test quality gaps unspecified. Each is a one-liner to add to the plan and a few lines of test code. All are recommended \u2014 they separate a correctness test suite from a smoke test suite. With CC, implementation cost is negligible.\n\nRecommendation: All four \u2014 each closes a real gap in what the test proves. Completeness: each is 10/10 with all selected, 7/10 without any.\n\nNet: Selecting all turns the plan into a complete test specification; selecting none leaves implementation details to the developer's discretion.": "Assert charge count (mock.call_count == 2)"
+      },
+      "answeredAt": "2026-09-09T09:37:26.560Z",
+      "answered": true,
+      "failed": false,
+      "unansweredQuestionIndices": []
+    }
+  ]
+}

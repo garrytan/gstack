@@ -1,0 +1,56 @@
+# OSV-Scanner configuration.
+# Direct/transitive dependency versions are pinned to their fixed releases via
+# the `overrides` block in package.json; this file only records advisories we
+# have assessed as not-reachable or not-fixable without disproportionate risk.
+#
+# LOADING CONTRACT: OSV-Scanner only auto-discovers configs named
+# osv-scanner.toml (no leading dot) and applies them per-directory — a root
+# config never covers lib/diagram-render/bun.lock. The workflow therefore
+# passes an explicit global `--config=.osv-scanner.toml`; the wiring test
+# (test/osv-config-wiring.test.ts) pins that flag to this filename so the
+# suppression file can never silently go inert again (it was inert from
+# v1.65.0.0 to v1.78.0.0).
+#
+# Every entry carries `ignoreUntil` — suppressions expire and must be
+# re-justified; the re-scan on expiry either finds a fix landed upstream or
+# forces a fresh decision. Tracking issues are filed at ship time and named in
+# each reason.
+
+[[IgnoredVulns]]
+id = "GHSA-frvp-7c67-39w9"
+# @hono/node-server 1.19.x. Reachable only through @modelcontextprotocol/sdk,
+# which is an unused transitive dependency (no source file imports it) and never
+# starts a Hono HTTP server, so the advisory's request path is not exercised.
+# The only fix is @hono/node-server 2.0.5, a major bump the MCP SDK pins against
+# (^1.19.9); forcing it via override risks breaking the SDK at runtime for a
+# vulnerability we do not expose. Re-evaluate if the MCP SDK becomes a direct,
+# server-hosting dependency.
+reason = "Unreachable transitive (unused @modelcontextprotocol/sdk); fix requires a risky major override on a pinned peer dep."
+ignoreUntil = 2026-11-30T00:00:00Z
+
+[[IgnoredVulns]]
+id = "GHSA-5p2g-fcmc-qvqq"
+# image-size 1.2.1 via html-to-docx@1.8.0 (pins ^1.0.0). No fixed release
+# exists (FIXED VERSION = --; tracking: #2753). Exposure: image-size only parses images the
+# user themselves embeds into their own generated .docx — no untrusted input
+# path. Upgrade trigger: an image-size release with a fix, or html-to-docx
+# moving off it. Tracking: #2753.
+reason = "No fixed version exists; local-only input path (user's own docx images). Re-evaluate on expiry."
+ignoreUntil = 2026-11-30T00:00:00Z
+
+[[IgnoredVulns]]
+id = "GHSA-w3rx-r6r6-pgpr"
+# Same package/node as GHSA-5p2g-fcmc-qvqq above; same rationale.
+reason = "No fixed version exists; local-only input path (user's own docx images). Re-evaluate on expiry."
+ignoreUntil = 2026-11-30T00:00:00Z
+
+[[IgnoredVulns]]
+id = "GHSA-p7fg-763f-g4gf"
+# @anthropic-ai/sdk 0.81.0 nested under @anthropic-ai/claude-agent-sdk@0.2.117,
+# which is deliberately exact-pinned (eval-harness stability; the v1.77 wave
+# pinned the whole harness after repeated CLI-drift breakage) and declares
+# ^0.81.0 (0.x caret = 0.81.x only), so the 0.91.1 fix cannot be reached
+# without violating the harness pin. 4.8 MEDIUM. Upgrade trigger: the next
+# deliberate claude-agent-sdk bump. Tracking: #2754.
+reason = "Fix requires breaking the deliberate eval-harness agent-sdk pin; MEDIUM severity accepted until the next harness bump."
+ignoreUntil = 2026-11-30T00:00:00Z

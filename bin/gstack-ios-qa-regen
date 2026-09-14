@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# gstack-ios-qa-regen — deterministically regenerate the iOS DebugBridge
+# package and the app-owned typed state accessors.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: gstack-ios-qa-regen --app-source <dir> --bridge-dir <dir>
+
+  --app-source  Swift source tree to scan for @Observable state
+  --bridge-dir  Destination for the generated local DebugBridge package
+EOF
+}
+
+APP_SOURCE=""
+BRIDGE_DIR=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --app-source)
+      [[ $# -ge 2 ]] || { echo "gstack-ios-qa-regen: --app-source requires a value" >&2; exit 2; }
+      APP_SOURCE="$2"
+      shift 2
+      ;;
+    --bridge-dir)
+      [[ $# -ge 2 ]] || { echo "gstack-ios-qa-regen: --bridge-dir requires a value" >&2; exit 2; }
+      BRIDGE_DIR="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "gstack-ios-qa-regen: unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$APP_SOURCE" || -z "$BRIDGE_DIR" ]]; then
+  echo "gstack-ios-qa-regen: both --app-source and --bridge-dir are required" >&2
+  usage >&2
+  exit 2
+fi
+
+if [[ ! -d "$APP_SOURCE" ]]; then
+  echo "gstack-ios-qa-regen: app source directory not found: $APP_SOURCE" >&2
+  exit 1
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "gstack-ios-qa-regen: bun runtime not on PATH — install from https://bun.sh" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GSTACK_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TEMPLATE_DIR="$GSTACK_ROOT/ios-qa/templates"
+GENERATOR="$GSTACK_ROOT/ios-qa/scripts/gen-accessors.ts"
+VERSION_FILE="$GSTACK_ROOT/VERSION"
+GENERATED_DIR="$APP_SOURCE/DebugBridgeGenerated"
+
+for required in "$GENERATOR" "$VERSION_FILE"; do
+  if [[ ! -f "$required" ]]; then
+    echo "gstack-ios-qa-regen: missing required gstack file: $required" >&2
+    exit 1
+  fi
+done
+
+TMP_FILE=""
+cleanup() {
+  if [[ -n "$TMP_FILE" ]]; then
+    rm -f "$TMP_FILE"
+  fi
+}
+trap cleanup EXIT
+
+# Copy through a sibling temporary file so interruption never leaves a
+# truncated generated source. Preserve an unchanged destination byte-for-byte
+# and metadata-for-metadata on repeated runs.
+install_file() {
+  local source="$1"
+  local destination="$2"
+
+  if [[ ! -f "$source" ]]; then
+    echo "gstack-ios-qa-regen: missing template: $source" >&2
+    exit 1
+  fi
+  if [[ -f "$destination" ]] && cmp -s "$source" "$destination"; then
+    return
+  fi
+
+  mkdir -p "$(dirname "$destination")"
+  TMP_FILE="${destination}.tmp.$$"
+  cp "$source" "$TMP_FILE"
+  mv "$TMP_FILE" "$destination"
+  TMP_FILE=""
+}
+
+# Invalidate the completion marker before changing any package source. A
+# failed or interrupted regeneration must never look current to ios-sync.
+mkdir -p "$GENERATED_DIR"
+rm -f -- "$GENERATED_DIR/.gstack-version"
+
+# This is intentionally an allowlist, not a template glob. Wiring belongs to
+# the consuming app and StateAccessor.swift is emitted by the parser below.
+install_file "$TEMPLATE_DIR/Package.swift.template" \
+  "$BRIDGE_DIR/Package.swift"
+install_file "$TEMPLATE_DIR/StateServer.swift.template" \
+  "$BRIDGE_DIR/Sources/DebugBridgeCore/StateServer.swift"
+install_file "$TEMPLATE_DIR/DebugBridgeManager.swift.template" \
+  "$BRIDGE_DIR/Sources/DebugBridgeCore/DebugBridgeManager.swift"
+install_file "$TEMPLATE_DIR/Bridges.swift.template" \
+  "$BRIDGE_DIR/Sources/DebugBridgeUI/Bridges.swift"
+install_file "$TEMPLATE_DIR/DebugOverlay.swift.template" \
+  "$BRIDGE_DIR/Sources/DebugBridgeUI/DebugOverlay.swift"
+install_file "$TEMPLATE_DIR/DebugBridgeTouch.m.template" \
+  "$BRIDGE_DIR/Sources/DebugBridgeTouch/DebugBridgeTouch.m"
+install_file "$TEMPLATE_DIR/DebugBridgeTouch.h.template" \
+  "$BRIDGE_DIR/Sources/DebugBridgeTouch/include/DebugBridgeTouch.h"
+
+# Older ios-sync versions copied the entire template set flat into the app's
+# generated-source directory. Those files can shadow the package modules or
+# make Xcode compile two harness implementations. Remove only the explicit
+# obsolete generated paths; handwritten app sources are never touched.
+for obsolete in \
+  "$BRIDGE_DIR/DebugBridgeWiring.swift" \
+  "$BRIDGE_DIR/StateAccessor.swift" \
+  "$GENERATED_DIR/Package.swift" \
+  "$GENERATED_DIR/StateServer.swift" \
+  "$GENERATED_DIR/DebugBridgeManager.swift" \
+  "$GENERATED_DIR/Bridges.swift" \
+  "$GENERATED_DIR/DebugOverlay.swift" \
+  "$GENERATED_DIR/DebugBridgeTouch.m" \
+  "$GENERATED_DIR/DebugBridgeTouch.h" \
+  "$GENERATED_DIR/DebugBridgeWiring.swift"
+do
+  if [[ -f "$obsolete" || -L "$obsolete" ]]; then
+    rm -f -- "$obsolete"
+    echo "gstack-ios-qa-regen: removed obsolete generated file $obsolete"
+  fi
+done
+
+bun run "$GENERATOR" --input "$APP_SOURCE" --output "$GENERATED_DIR"
+
+# Stamp only after successful accessor generation. ios-sync uses this marker
+# to distinguish a complete current install from an interrupted regeneration.
+install_file "$VERSION_FILE" "$GENERATED_DIR/.gstack-version"
+
+echo "gstack-ios-qa-regen: bridge package ready at $BRIDGE_DIR"
+echo "gstack-ios-qa-regen: accessors ready at $GENERATED_DIR/StateAccessor.swift"

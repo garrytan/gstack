@@ -1,0 +1,543 @@
+#!/usr/bin/env bun
+/**
+ * gstack-evidence — verification-evidence ledger: the mechanical arm of /ship's
+ * IRON LAW ("no completion claims without fresh verification evidence").
+ *
+ *   gstack-evidence run --label <L> -- <cmd...>
+ *   gstack-evidence check [--label <L> [--expect-cmd <exact string>]]... | --all
+ *                         [--max-age <hours>] [--allow-paths <csv>]
+ *
+ * `run` is a TRANSPARENT wrapper: it streams the child's output through
+ * unchanged, tees it to a 0600 log (2MB cap with a truncation marker), and
+ * appends {ts, label, command, cmd_sha256, exit, duration_s, commit, tree,
+ * dirty, wtree, log_path} to ~/.gstack/projects/<slug>/<branch>-evidence.jsonl.
+ *
+ * TRANSPARENCY INVARIANT (load-bearing): the child's exit code is ALWAYS the
+ * wrapper's exit code. Every bookkeeping failure — ledger append, log dir,
+ * non-git context, redact scan — is a stderr warning, never a failure. The
+ * wrapper must never turn green tests red.
+ *
+ * Freshness binds to `wtree`, the working-tree content fingerprint from
+ * bin/gstack-wtree: evidence recorded on uncommitted code stays FRESH after
+ * the exact tested content is committed, and an untracked new source file
+ * invalidates it. `cmd_sha256` = sha256 of the exact command string, no
+ * normalization — the same convention as bin/gstack-verify-gate (which hashes
+ * for TRUST; this ledger hashes for FRESHNESS).
+ *
+ * MACHINE-LOCAL by design: neither the ledger nor the logs are brain-synced.
+ * A synced record citing an unsynced log would grade FRESH on a machine where
+ * the log doesn't exist.
+ *
+ * `check` is read-only and never throws into the calling skill flow: any git
+ * failure (gc'd stored tree, not a repo) degrades to STALE/MISSING. Call sites
+ * must name expected labels explicitly — `--all` checks only labels that exist
+ * in the ledger; it cannot prove that an expected lane ever ran.
+ */
+
+import { openSync, writeSync, closeSync, readdirSync, statSync, unlinkSync, chmodSync, readFileSync } from "fs";
+import { mkdirpSync } from "../lib/fs-utils";
+import { join, dirname } from "path";
+import { spawnSync } from "child_process";
+import { appendJsonl, readJsonl } from "../lib/jsonl-store";
+import { scan, applyRedactions } from "../lib/redact-engine";
+
+const BIN_DIR = dirname(Bun.fileURLToPath(import.meta.url));
+const LOG_MAX_BYTES = 2 * 1024 * 1024;
+const LOG_PRUNE_DAYS = 30;
+
+interface EvidenceRecord {
+  ts: string;
+  label: string;
+  command: string;
+  cmd_sha256: string;
+  exit: number;
+  duration_s: number;
+  commit?: string;
+  tree?: string;
+  dirty?: boolean;
+  wtree?: string;
+  log_path?: string;
+  redacted?: boolean;
+}
+
+function warn(msg: string): void {
+  console.error(`gstack-evidence: warning: ${msg}`);
+}
+
+function sha256(text: string): string {
+  const h = new Bun.CryptoHasher("sha256");
+  h.update(text);
+  return h.digest("hex");
+}
+
+function git(args: string[]): string | undefined {
+  try {
+    const r = spawnSync("git", args, { encoding: "utf-8", timeout: 15000 });
+    if (r.status !== 0) return undefined;
+    const out = (r.stdout || "").trim();
+    return out || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function currentWtree(): string | undefined {
+  try {
+    const r = spawnSync(join(BIN_DIR, "gstack-wtree"), { encoding: "utf-8", timeout: 30000 });
+    if (r.status !== 0) return undefined;
+    const out = (r.stdout || "").trim();
+    return /^[0-9a-f]{40}$/.test(out) ? out : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function ledgerPath(): { dir: string; file: string; logsDir: string } {
+  const home = process.env.GSTACK_HOME || (process.env.HOME ? join(process.env.HOME, ".gstack") : undefined);
+  // No resolvable home: skip bookkeeping (a literal "~" dir in cwd would land
+  // inside the repo and perturb the fingerprint it exists to compute).
+  if (!home) throw new Error("no GSTACK_HOME/HOME — bookkeeping skipped");
+  // ONE gstack-slug spawn: its output carries both SLUG= and BRANCH= lines
+  // (same branch→filename sanitization as reviews.jsonl).
+  const slugOut = spawnSync(join(BIN_DIR, "gstack-slug"), { encoding: "utf-8" });
+  const sm = (slugOut.stdout || "").match(/^SLUG=(.+)$/m);
+  const bm = (slugOut.stdout || "").match(/^BRANCH=(.+)$/m);
+  const slug = sm ? sm[1].trim() : "unknown";
+  const branch = bm ? bm[1].trim() : "no-branch";
+  const dir = join(home, "projects", slug);
+  return { dir, file: join(dir, `${branch}-evidence.jsonl`), logsDir: join(dir, "logs") };
+}
+
+/** Redact-engine pass over the command string. HIGH finding → store redacted. */
+function safeCommandForRecord(command: string): { command: string; redacted: boolean } {
+  try {
+    const { findings } = scan(command);
+    const high = findings.filter((f) => f.tier === "HIGH");
+    if (high.length === 0) return { command, redacted: false };
+    const redactedBody = applyRedactions(command, findings.map((f) => f.id)).body;
+    const still = scan(redactedBody).findings.some((f) => f.tier === "HIGH");
+    return { command: still ? "<redacted: HIGH credential in command>" : redactedBody, redacted: true };
+  } catch {
+    return { command, redacted: false };
+  }
+}
+
+/** Opportunistic prune of logs older than LOG_PRUNE_DAYS. Best-effort. */
+function pruneOldLogs(logsDir: string): void {
+  try {
+    const cutoff = Date.now() - LOG_PRUNE_DAYS * 24 * 3600 * 1000;
+    for (const name of readdirSync(logsDir)) {
+      const p = join(logsDir, name);
+      try {
+        if (statSync(p).mtimeMs < cutoff) unlinkSync(p);
+      } catch {}
+    }
+  } catch {}
+}
+
+/** Exclusive-open a collision-safe log file. Returns undefined on failure. */
+function openLog(logsDir: string, label: string, cmdSha: string): { fd: number; path: string } | undefined {
+  try {
+    mkdirpSync(logsDir);
+    pruneOldLogs(logsDir);
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = `${ts}-${label}-${process.pid}-${cmdSha.slice(0, 8)}`;
+    for (let i = 0; i < 3; i++) {
+      const p = join(logsDir, i === 0 ? `${base}.log` : `${base}-${i}.log`);
+      try {
+        const fd = openSync(p, "ax", 0o600);
+        return { fd, path: p };
+      } catch {}
+    }
+  } catch (e: any) {
+    warn(`log setup failed (${e?.message ?? e}) — running unlogged`);
+  }
+  return undefined;
+}
+
+/**
+ * Bun AUTO-LOADS `.env`, `.env.<NODE_ENV>` and `.env.local` from the working
+ * directory into `process.env`. This file has a `#!/usr/bin/env bun` shebang, so
+ * every command it spawns inherits those variables — and a repo `.env.local`
+ * routinely holds PRODUCTION credentials.
+ *
+ * Two things go wrong, and the second one is worse than the leak:
+ *
+ *  1. Secrets reach a child process that would not have had them. `npm test` run
+ *     by hand in the same shell sees none of this; run through the wrapper it sees
+ *     all of it.
+ *  2. THE COMMAND UNDER TEST BEHAVES DIFFERENTLY, so the evidence ledger
+ *     certifies a run that is not the run CI performs. Observed in a Next.js repo
+ *     2026-08-20: four tests failed 4/4 through the wrapper and passed 5/5 without
+ *     it, because app code branched on env vars only the wrapper supplied. The
+ *     wrapper exists to record trustworthy evidence, so silently changing the
+ *     environment defeats its whole purpose.
+ *
+ * Verified against bun 1.3.11: a dotenv file does NOT override a variable the
+ * shell already exported (the shell's value wins). So a key whose live value is
+ * exactly the dotenv file's value was injected by bun, and dropping it restores
+ * the environment the user's own shell would have given the command.
+ *
+ * Escape hatch: GSTACK_EVIDENCE_KEEP_DOTENV=1 keeps the old behaviour for anyone
+ * who really does want the wrapper to supply .env values.
+ */
+const BUN_DOTENV_FILES = (): string[] => {
+  const nodeEnv = process.env.NODE_ENV;
+  // bun's documented precedence, lowest first. `.env.local` is skipped by bun
+  // when NODE_ENV is "test"; mirror that rather than guessing.
+  const files = [".env"];
+  if (nodeEnv) files.push(`.env.${nodeEnv}`);
+  if (nodeEnv !== "test") files.push(".env.local");
+  return files;
+};
+
+/** Minimal dotenv reader: KEY=VALUE, one per line. Quotes stripped, comments and
+ *  `export ` prefixes tolerated. Multi-line values are not parsed — a key we fail
+ *  to parse is simply left in the child env, which is the safe direction.
+ *  Known limitation: bun EXPANDS ${VAR} references inside dotenv values, but this
+ *  reader compares the raw file text, so an expanded live value never matches and
+ *  that key is left in the child env — the pre-scrub behavior persists for those
+ *  keys (fails open, same safe direction as above). */
+function parseDotenv(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    let key = line.slice(0, eq).trim();
+    if (key.startsWith("export ")) key = key.slice(7).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    let val = line.slice(eq + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"') && val.length > 1) ||
+        (val.startsWith("'") && val.endsWith("'") && val.length > 1)) {
+      val = val.slice(1, -1);
+    }
+    out.set(key, val);
+  }
+  return out;
+}
+
+/** process.env minus the variables bun injected from the repo's dotenv files.
+ *  Returns the scrubbed env and the KEY NAMES removed (never the values). */
+function childEnv(cwd: string): { env: Record<string, string>, scrubbed: string[] } {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  if (process.env.GSTACK_EVIDENCE_KEEP_DOTENV === "1") return { env, scrubbed: [] };
+
+  const scrubbed: string[] = [];
+  for (const file of BUN_DOTENV_FILES()) {
+    let text: string;
+    try {
+      text = readFileSync(join(cwd, file), "utf-8");
+    } catch {
+      continue; // absent or unreadable — nothing to scrub from it
+    }
+    for (const [k, v] of parseDotenv(text)) {
+      // Only when the live value IS the file's value. A different live value means
+      // the shell exported its own and bun left it alone, so it is genuinely the
+      // user's environment and must survive.
+      if (env[k] !== undefined && env[k] === v) {
+        delete env[k];
+        if (!scrubbed.includes(k)) scrubbed.push(k);
+      }
+    }
+  }
+  return { env, scrubbed };
+}
+
+async function cmdRun(argv: string[]): Promise<number> {
+  let label = "default";
+  const li = argv.indexOf("--label");
+  const sep = argv.indexOf("--");
+  if (li >= 0 && li + 1 < argv.length && (sep < 0 || li < sep)) label = argv[li + 1];
+  if (sep < 0 || sep + 1 >= argv.length) {
+    console.error("usage: gstack-evidence run --label <L> -- <cmd...>");
+    return 2;
+  }
+  const cmdArgv = argv.slice(sep + 1);
+  // Compound/piped commands pass as ONE string via bash -c; a multi-token argv
+  // runs directly. The hashed command string is exact, no normalization.
+  const commandString = cmdArgv.length === 1 ? cmdArgv[0] : cmdArgv.join(" ");
+  const spawnArgv = cmdArgv.length === 1 ? ["bash", "-c", cmdArgv[0]] : cmdArgv;
+  const cmdSha = sha256(commandString);
+  label = label.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+  // Bookkeeping context — every piece is optional; failures only warn.
+  let paths: ReturnType<typeof ledgerPath> | undefined;
+  try {
+    paths = ledgerPath();
+    mkdirpSync(paths.dir);
+  } catch (e: any) {
+    warn(`ledger setup failed (${e?.message ?? e}) — result will not be recorded`);
+  }
+  const log = paths ? openLog(paths.logsDir, label, cmdSha) : undefined;
+
+  // Fingerprint the content BEFORE the child runs: a working-tree edit made
+  // DURING a long suite must not be certified as "the tested content".
+  const wtreeBefore = currentWtree();
+
+  const started = Date.now();
+  let exitCode: number;
+  let proc: ReturnType<typeof Bun.spawn> | undefined;
+  try {
+    const { env: spawnEnv, scrubbed } = childEnv(process.cwd());
+    if (scrubbed.length > 0) {
+      // Names only. Printing values here would defeat the point.
+      warn(`scrubbed ${scrubbed.length} bun-injected dotenv var(s) from the child env: ${scrubbed.join(", ")} `
+        + `(GSTACK_EVIDENCE_KEEP_DOTENV=1 to keep them)`);
+    }
+    proc = Bun.spawn(spawnArgv, { stdin: "inherit", stdout: "pipe", stderr: "pipe", env: spawnEnv });
+  } catch (e: any) {
+    // Spawn failure (ENOENT on argv-direct form): record exit 127, propagate 127.
+    exitCode = 127;
+    warn(`spawn failed: ${e?.message ?? e}`);
+    record(paths, log?.path, label, commandString, cmdSha, exitCode, started, wtreeBefore);
+    return exitCode;
+  }
+
+  // Stream-tee: forward chunks as they arrive (never buffer — E2E logs are MBs).
+  let logBytes = 0;
+  let truncated = false;
+  const teeToLog = (chunk: Uint8Array) => {
+    if (!log || truncated) return;
+    try {
+      if (logBytes + chunk.byteLength > LOG_MAX_BYTES) {
+        const room = LOG_MAX_BYTES - logBytes;
+        if (room > 0) writeSync(log.fd, chunk.subarray(0, room));
+        writeSync(log.fd, Buffer.from("\n\n[gstack-evidence: log truncated at 2MB — output continued on console]\n"));
+        truncated = true;
+      } else {
+        writeSync(log.fd, chunk);
+        logBytes += chunk.byteLength;
+      }
+    } catch {
+      truncated = true; // stop teeing on any write failure; console stream continues
+      try {
+        writeSync(log.fd, Buffer.from("\n\n[gstack-evidence: log ended early (write failure) — output continued on console]\n"));
+      } catch {}
+    }
+  };
+  const pump = async (stream: ReadableStream<Uint8Array> | undefined, out: NodeJS.WriteStream) => {
+    if (!stream) return;
+    for await (const chunk of stream) {
+      // Honor backpressure: when the console consumer is slower than the child
+      // (piped into a pager/log collector), wait for drain instead of queueing
+      // unbounded chunks in the WriteStream buffer.
+      if (!out.write(chunk)) {
+        // Race drain against error: a dying consumer (EPIPE from `| head`)
+        // never drains — resolve either way and stop forwarding on error.
+        await new Promise<void>((r) => {
+          const done = () => {
+            out.off("drain", done);
+            out.off("error", done);
+            r();
+          };
+          out.once("drain", done);
+          out.once("error", done);
+        });
+      }
+      teeToLog(chunk);
+    }
+  };
+  try {
+    await Promise.all([pump(proc.stdout as any, process.stdout), pump(proc.stderr as any, process.stderr)]);
+    exitCode = await proc.exited;
+    if (exitCode === null || exitCode === undefined) exitCode = 1;
+  } catch (e: any) {
+    warn(`stream error: ${e?.message ?? e}`);
+    try {
+      exitCode = await proc.exited;
+    } catch {
+      exitCode = 1;
+    }
+  } finally {
+    if (log) {
+      try {
+        closeSync(log.fd);
+      } catch {}
+    }
+  }
+
+  record(paths, log?.path, label, commandString, cmdSha, exitCode, started, wtreeBefore);
+  return exitCode;
+}
+
+function record(
+  paths: { dir: string; file: string } | undefined,
+  logPath: string | undefined,
+  label: string,
+  commandString: string,
+  cmdSha: string,
+  exitCode: number,
+  startedMs: number,
+  wtreeBefore: string | undefined,
+): void {
+  if (!paths) return;
+  try {
+    const { command, redacted } = safeCommandForRecord(commandString);
+    const rec: EvidenceRecord = {
+      ts: new Date().toISOString(),
+      label,
+      command,
+      cmd_sha256: cmdSha,
+      exit: exitCode,
+      duration_s: Math.round((Date.now() - startedMs) / 100) / 10,
+    };
+    if (redacted) rec.redacted = true;
+    const commit = git(["rev-parse", "HEAD"]);
+    if (commit) {
+      rec.commit = commit;
+      rec.tree = git(["rev-parse", "HEAD^{tree}"]);
+      rec.dirty = (git(["status", "--porcelain", "-uno"]) ?? "") !== "";
+      // TOCTOU guard: the fingerprint is only trustworthy when the content was
+      // IDENTICAL before and after the run. A mid-run edit omits wtree, so
+      // check grades STALE instead of certifying content the suite never ran.
+      const wtreeAfter = currentWtree();
+      if (wtreeBefore && wtreeAfter && wtreeBefore === wtreeAfter) {
+        rec.wtree = wtreeAfter;
+      } else if (wtreeBefore || wtreeAfter) {
+        warn("working-tree content changed during the run — evidence recorded without a content fingerprint (will grade STALE)");
+      }
+    }
+    if (logPath) rec.log_path = logPath;
+    appendJsonl(paths.file, rec, { mode: 0o600 });
+    try {
+      chmodSync(paths.file, 0o600);
+    } catch {}
+    // Summary line on stderr so calling agents get the exit + log path even
+    // when the lane ran backgrounded. Never on stdout (stays transparent).
+    console.error(`gstack-evidence: recorded label=${label} exit=${exitCode} log=${logPath ?? "-"}`);
+  } catch (e: any) {
+    warn(`ledger append failed (${e?.message ?? e}) — the command result stands`);
+  }
+}
+
+function cmdCheck(argv: string[]): number {
+  // Parse: repeated --label, each optionally followed (anywhere later) by its
+  // own --expect-cmd; pairing is positional — an --expect-cmd binds to the most
+  // recent --label before it.
+  const wanted: { label: string; expectCmd?: string }[] = [];
+  let all = false;
+  let maxAgeHours: number | undefined;
+  let allowPaths: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--label") wanted.push({ label: argv[++i] ?? "" });
+    else if (a === "--expect-cmd") {
+      if (wanted.length === 0) {
+        console.error("gstack-evidence: --expect-cmd requires a preceding --label");
+        return 2;
+      }
+      wanted[wanted.length - 1].expectCmd = argv[++i] ?? "";
+    } else if (a === "--all") all = true;
+    else if (a === "--max-age") {
+      maxAgeHours = Number(argv[++i]);
+      if (!Number.isFinite(maxAgeHours) || maxAgeHours <= 0) {
+        // A typo must never silently drop the age gate (fail open) on a
+        // freshness checker: it is a usage error.
+        console.error(`gstack-evidence: --max-age must be a positive number of hours, got: ${JSON.stringify(argv[i])}`);
+        return 2;
+      }
+    }
+    else if (a === "--allow-paths") allowPaths = (argv[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  if (!all && wanted.length === 0) {
+    console.error("usage: gstack-evidence check [--label <L> [--expect-cmd <s>]]... | --all  [--max-age <hrs>] [--allow-paths <csv>]");
+    return 2;
+  }
+
+  let records: EvidenceRecord[] = [];
+  try {
+    records = readJsonl<EvidenceRecord>(ledgerPath().file);
+  } catch {
+    records = [];
+  }
+
+  const labels = all
+    ? [...new Set(records.map((r) => r.label))].map((label) => ({ label, expectCmd: undefined as string | undefined }))
+    : wanted;
+  if (all && labels.length === 0) {
+    console.log("EVIDENCE: MISSING (ledger empty — no labels recorded)");
+    return 1;
+  }
+
+  const wtreeNow = currentWtree();
+  let allFresh = true;
+  for (const { label, expectCmd } of labels) {
+    const latest = records.findLast((r) => r.label === label);
+    if (!latest) {
+      console.log(`EVIDENCE: MISSING label=${label}`);
+      allFresh = false;
+      continue;
+    }
+    const detail = `label=${label} exit=${latest.exit} ts=${latest.ts}${latest.log_path ? ` log=${latest.log_path}` : ""}`;
+    let verdict: "FRESH" | "STALE" = "FRESH";
+    let reason = "";
+    if (latest.exit !== 0) {
+      verdict = "STALE";
+      reason = "recorded run failed";
+    } else if (maxAgeHours !== undefined) {
+      const ageMs = Date.now() - Date.parse(latest.ts);
+      if (!(ageMs >= 0 && ageMs <= maxAgeHours * 3600 * 1000)) {
+        verdict = "STALE";
+        reason = `older than ${maxAgeHours}h`;
+      }
+    }
+    if (verdict === "FRESH" && expectCmd !== undefined && sha256(expectCmd) !== latest.cmd_sha256) {
+      verdict = "STALE";
+      reason = "command changed (cmd_sha256 mismatch)";
+    }
+    if (verdict === "FRESH") {
+      // Content binding: identical working-tree fingerprint, or a diff confined
+      // to the allow-list. Any git failure (gc'd tree, not a repo) → STALE —
+      // never an error into the calling flow.
+      if (!latest.wtree || !/^[0-9a-f]{40}$/.test(latest.wtree) || !wtreeNow) {
+        // Stored fingerprints are re-validated before reaching git argv — a
+        // forged/corrupt ledger line must degrade, never inject options.
+        verdict = "STALE";
+        reason = !latest.wtree
+          ? "record has no content fingerprint"
+          : !/^[0-9a-f]{40}$/.test(latest.wtree)
+            ? "record has malformed fingerprint"
+            : "current fingerprint unavailable";
+      } else if (latest.wtree !== wtreeNow) {
+        const diff = git(["diff", "--name-only", latest.wtree, wtreeNow]);
+        if (diff === undefined) {
+          verdict = "STALE";
+          reason = "content changed (fingerprint diff unavailable)";
+        } else {
+          const changed = diff.split("\n").map((s) => s.trim()).filter(Boolean);
+          const outside = changed.filter((f) => !allowPaths.some((a) => f === a || f.startsWith(a.replace(/\/$/, "") + "/")));
+          if (changed.length === 0 || outside.length === 0) {
+            reason = changed.length ? `diff confined to allow-paths (${changed.length} file(s))` : "";
+          } else {
+            verdict = "STALE";
+            reason = `content changed: ${outside.slice(0, 5).join(", ")}${outside.length > 5 ? ", ..." : ""}`;
+          }
+        }
+      }
+    }
+    console.log(`EVIDENCE: ${verdict} ${detail}${reason ? ` reason=${reason}` : ""}`);
+    if (verdict !== "FRESH") allFresh = false;
+  }
+  return allFresh ? 0 : 1;
+}
+
+const [, , sub, ...rest] = process.argv;
+try {
+  if (sub === "run") {
+    process.exit(await cmdRun(rest));
+  } else if (sub === "check") {
+    process.exit(cmdCheck(rest));
+  } else {
+    console.error("usage: gstack-evidence run|check ...");
+    process.exit(2);
+  }
+} catch (e: any) {
+  // Never let the wrapper's own failure look like a command failure in a way
+  // that breaks a skill flow: `run` propagates the child's code from inside
+  // cmdRun; reaching here means bookkeeping blew up outside it.
+  warn(`unexpected error: ${e?.message ?? e}`);
+  process.exit(1);
+}

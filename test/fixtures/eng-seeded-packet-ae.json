@@ -1,0 +1,96 @@
+{
+  "provenance": {
+    "kind": "exact completed public native packet and required-test paragraph",
+    "sourceHead": "e8470a7e447f7850f75214383bb1a41d3f1debd8",
+    "session": "97b9510d-c630-4cbb-9f8c-d1bb31a9e4ec",
+    "reportSha256": "959c68c2ea28986ccb1f7ce8526ba622ad6f733144dc062cb3bc795a20092ce1",
+    "historicalOutcome": "plan_ready609366ms; natural test failure for missing complexity and mandatory regression"
+  },
+  "packet": {
+    "sessionId": "97b9510d-c630-4cbb-9f8c-d1bb31a9e4ec",
+    "toolUseId": "toolu_01Fdi1cEcgf6vKR8da6kmRLV",
+    "questions": [
+      {
+        "question": "D3 \u2014 Issue 0: 12 files and 5 new types for an auth refactor \u2014 reduce scope or proceed as-is?\nProject/branch/task: gstack-plan-count-I2kvlg on main, PLAN.md Multi-tenant Auth Refactor (PLAN.md:34-36 \"touches 12 files and introduces 4 new classes\", plus AuthBroker at PLAN.md:19).\nELI10: The plan adds five new moving parts to do auth: AuthBroker, SessionMint, TokenStore, AuthCache, RequestPolicy. Two of them look like wrappers around things that already exist. AuthCache is described (PLAN.md:11-13) as a facade over the existing adapter \"with one backing cache\" that keeps every rule unchanged, so it is a pass-through. TokenStore stores tokens next to a cache that already stores tokens keyed by tenant. RequestPolicy has no stated behavior. Every extra class is a place for a 3am bug to hide and a file the next engineer has to read.\nStakes if we pick wrong: Too many parts and the auth path becomes hard to reason about and test; too few and we may cram unrelated responsibilities into one class.\nRecommendation: 0A because AuthBroker and SessionMint can take the existing adapter by constructor injection, TokenStore's job is already the adapter's, and RequestPolicy can start as a plain typed config object. That matches the 'engineered enough' and smallest-clean-diff preferences. Estimated ~7-8 files, 2 new classes.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n0A) Reduce: keep AuthBroker + SessionMint, inject the existing adapter, drop AuthCache facade and TokenStore, make RequestPolicy a typed object (recommended) (human: ~1 day saved / CC: ~10 min saved)\n  \u2705 Two new classes instead of five; the auth hot path stays readable in one sitting\n  \u2705 Removes the pass-through facade that would otherwise need its own test suite\n  \u274c If TokenStore was meant to hold non-cache state (refresh tokens, mint receipts), that need must be re-stated\n0B) Middle: drop only the AuthCache facade, keep TokenStore and RequestPolicy as classes (human: ~2 days / CC: ~20 min)\n  \u2705 Keeps a dedicated place for token persistence separate from the validity cache\n  \u2705 Still removes the pure pass-through wrapper\n  \u274c Three new classes for one feature is still a lot of surface for 12 files\n0C) Proceed as-is: 5 new types, 12 files (human: ~3 days / CC: ~30 min)\n  \u2705 Each concern gets its own named home, which some teams prefer for auth\n  \u2705 No rework of the plan before implementation starts\n  \u274c Facade with no new behavior and overlapping stores add coupling and test burden without user-visible gain\nNet: fewer classes with injected dependencies versus more named boundaries that mostly wrap existing code.",
+        "header": "Scope",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "0A Reduce to 2 new classes (recommended)",
+            "description": "Inject existing adapter into AuthBroker/SessionMint; drop AuthCache facade and TokenStore; RequestPolicy becomes a typed object."
+          },
+          {
+            "label": "0B Drop only AuthCache facade",
+            "description": "Keep TokenStore and RequestPolicy as classes; remove the pass-through wrapper."
+          },
+          {
+            "label": "0C Proceed as-is",
+            "description": "Keep all 5 new types and 12 files; review continues against the plan unchanged."
+          }
+        ]
+      },
+      {
+        "question": "D4 \u2014 Enable cross-project learnings search on this machine?\nProject/branch/task: gstack setup for gstack-plan-count-I2kvlg; one-time config, not a plan finding.\nELI10: gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local (no data leaves your machine). Recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern.\nStakes if we pick wrong: Enabled on a multi-client machine, a learning from one client's codebase could surface in another's review; disabled, this project only learns from itself.\nRecommendation: A because it is local-only, reversible with one config command, and compounding learnings is the point of the tool.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Enable cross-project learnings (recommended)\n  \u2705 Reviews get smarter from patterns seen in your other local projects\n  \u2705 Local-only lookup, nothing leaves the machine, one command to reverse\n  \u274c On a shared or multi-client machine, unrelated project patterns may surface\nB) Keep learnings project-scoped only\n  \u2705 Zero chance of cross-client pattern leakage in review output\n  \u2705 Simpler mental model: this repo only learns from itself\n  \u274c Slower compounding; every project restarts its learning from zero\nNet: faster compounding versus strict per-project isolation.",
+        "header": "Learnings",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Enable cross-project (recommended)",
+            "description": "Set cross_project_learnings true; local-only search across your projects."
+          },
+          {
+            "label": "Project-scoped only",
+            "description": "Set cross_project_learnings false; this repo learns only from itself."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Issue 0: 12 files and 5 new types for an auth refactor \u2014 reduce scope or proceed as-is?\nProject/branch/task: gstack-plan-count-I2kvlg on main, PLAN.md Multi-tenant Auth Refactor (PLAN.md:34-36 \"touches 12 files and introduces 4 new classes\", plus AuthBroker at PLAN.md:19).\nELI10: The plan adds five new moving parts to do auth: AuthBroker, SessionMint, TokenStore, AuthCache, RequestPolicy. Two of them look like wrappers around things that already exist. AuthCache is described (PLAN.md:11-13) as a facade over the existing adapter \"with one backing cache\" that keeps every rule unchanged, so it is a pass-through. TokenStore stores tokens next to a cache that already stores tokens keyed by tenant. RequestPolicy has no stated behavior. Every extra class is a place for a 3am bug to hide and a file the next engineer has to read.\nStakes if we pick wrong: Too many parts and the auth path becomes hard to reason about and test; too few and we may cram unrelated responsibilities into one class.\nRecommendation: 0A because AuthBroker and SessionMint can take the existing adapter by constructor injection, TokenStore's job is already the adapter's, and RequestPolicy can start as a plain typed config object. That matches the 'engineered enough' and smallest-clean-diff preferences. Estimated ~7-8 files, 2 new classes.\nNote: options differ in kind, not coverage \u2014 no completeness score.\n0A) Reduce: keep AuthBroker + SessionMint, inject the existing adapter, drop AuthCache facade and TokenStore, make RequestPolicy a typed object (recommended) (human: ~1 day saved / CC: ~10 min saved)\n  \u2705 Two new classes instead of five; the auth hot path stays readable in one sitting\n  \u2705 Removes the pass-through facade that would otherwise need its own test suite\n  \u274c If TokenStore was meant to hold non-cache state (refresh tokens, mint receipts), that need must be re-stated\n0B) Middle: drop only the AuthCache facade, keep TokenStore and RequestPolicy as classes (human: ~2 days / CC: ~20 min)\n  \u2705 Keeps a dedicated place for token persistence separate from the validity cache\n  \u2705 Still removes the pure pass-through wrapper\n  \u274c Three new classes for one feature is still a lot of surface for 12 files\n0C) Proceed as-is: 5 new types, 12 files (human: ~3 days / CC: ~30 min)\n  \u2705 Each concern gets its own named home, which some teams prefer for auth\n  \u2705 No rework of the plan before implementation starts\n  \u274c Facade with no new behavior and overlapping stores add coupling and test burden without user-visible gain\nNet: fewer classes with injected dependencies versus more named boundaries that mostly wrap existing code.": "0A Reduce to 2 new classes (recommended)",
+      "D4 \u2014 Enable cross-project learnings search on this machine?\nProject/branch/task: gstack setup for gstack-plan-count-I2kvlg; one-time config, not a plan finding.\nELI10: gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local (no data leaves your machine). Recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern.\nStakes if we pick wrong: Enabled on a multi-client machine, a learning from one client's codebase could surface in another's review; disabled, this project only learns from itself.\nRecommendation: A because it is local-only, reversible with one config command, and compounding learnings is the point of the tool.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Enable cross-project learnings (recommended)\n  \u2705 Reviews get smarter from patterns seen in your other local projects\n  \u2705 Local-only lookup, nothing leaves the machine, one command to reverse\n  \u274c On a shared or multi-client machine, unrelated project patterns may surface\nB) Keep learnings project-scoped only\n  \u2705 Zero chance of cross-client pattern leakage in review output\n  \u2705 Simpler mental model: this repo only learns from itself\n  \u274c Slower compounding; every project restarts its learning from zero\nNet: faster compounding versus strict per-project isolation.": "Enable cross-project (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T21:37:45.546Z"
+  },
+  "requiredTest": "- `legacyAuthFlow` regression test. Before the rewrite, capture the current\n  input/output and side-effect behavior of `legacyAuthFlow()` for valid,\n  expired, revoked, and wrong-tenant tokens. The rewritten path must pass the\n  same assertions. What broke without it: the plan rewrote existing behavior\n  with no test covering the changed path.",
+  "retryPacket": {
+    "sessionId": "afed76c6-b7b0-41a8-9a5d-90088b2471fe",
+    "toolUseId": "toolu_016RCPa88bGkVXejhUDAta4S",
+    "questions": [
+      {
+        "header": "Arch 1",
+        "question": "D4 \u2014 Issue 1 [P1] (confidence 9/10) PLAN.md:19-20,10: two services write the same cache entries with no serialization. Who owns writes?\nProject/branch/task: gstack-plan-count on main, PLAN.md Multi-tenant Auth Refactor, Architecture review.\nELI10: The plan says both AuthBroker and SessionMint mutate the shared cache (\"Both services mutate it\", PLAN.md:20) and that the cache rules \"do not serialize mutations\" (PLAN.md:10). D2 removed the module-level export, but two writers to one adapter is still a race condition: two code paths touching the same entry at once, so the last one to finish wins. Concretely, SessionMint writes a fresh session for tenant A while AuthBroker, mid-validation, overwrites the same key with a stale or revoked result. The tenant sees a session that is either dead or wrongly alive.\nStakes if we pick wrong: Intermittent auth failures or, worse, a revoked token briefly honored, and neither is reproducible in a unit test.\nRecommendation: 1A because separate key namespaces give each service exactly one writer, need no locking code, and are enforced by a type on the key builder. This maps to your explicit-over-clever preference.\nCompleteness: A=9/10, B=8/10, C=3/10\nNet: eliminate the race by design (A), fence it at runtime (B), or accept last-write-wins (C). <gstack-qid:plan-eng-review-arch-shared-writer>",
+        "options": [
+          {
+            "label": "1A Single writer per key namespace (recommended)",
+            "description": "\u2705 AuthBroker owns `validation:` keys, SessionMint owns `session:` keys; no entry has two writers, so no race to serialize. (human: ~3h / CC: ~15 min)\n\u2705 Enforced at compile time by a typed key builder; a wrong-namespace write fails the build, not production.\n\u274c Cross-namespace invalidation (revocation must clear both) needs an explicit fan-out in the adapter hook."
+          },
+          {
+            "label": "1B Per-key async mutex in one shared writer path",
+            "description": "\u2705 Both services keep writing anywhere; a per-key queue serializes mutations at runtime. (human: ~1 day / CC: ~25 min)\n\u2705 Handles future writers without re-partitioning keys.\n\u274c Adds a lock primitive and a lock-lifetime bug class (leaked or held-across-await locks) to an auth path."
+          },
+          {
+            "label": "1C Accept last-write-wins, document it",
+            "description": "\u2705 Zero code; the adapter already behaves this way today.\n\u2705 Fastest path to shipping the two services.\n\u274c A revoked token can be resurrected by a slower concurrent write; silent and untestable."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 Issue 1 [P1] (confidence 9/10) PLAN.md:19-20,10: two services write the same cache entries with no serialization. Who owns writes?\nProject/branch/task: gstack-plan-count on main, PLAN.md Multi-tenant Auth Refactor, Architecture review.\nELI10: The plan says both AuthBroker and SessionMint mutate the shared cache (\"Both services mutate it\", PLAN.md:20) and that the cache rules \"do not serialize mutations\" (PLAN.md:10). D2 removed the module-level export, but two writers to one adapter is still a race condition: two code paths touching the same entry at once, so the last one to finish wins. Concretely, SessionMint writes a fresh session for tenant A while AuthBroker, mid-validation, overwrites the same key with a stale or revoked result. The tenant sees a session that is either dead or wrongly alive.\nStakes if we pick wrong: Intermittent auth failures or, worse, a revoked token briefly honored, and neither is reproducible in a unit test.\nRecommendation: 1A because separate key namespaces give each service exactly one writer, need no locking code, and are enforced by a type on the key builder. This maps to your explicit-over-clever preference.\nCompleteness: A=9/10, B=8/10, C=3/10\nNet: eliminate the race by design (A), fence it at runtime (B), or accept last-write-wins (C). <gstack-qid:plan-eng-review-arch-shared-writer>": "1A Single writer per key namespace (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T21:49:10.064Z"
+  },
+  "retryRequiredTask": "- [ ] **T1 (P1, human: ~4h / CC: ~20min)** \u2014 legacyAuthFlow \u2014 Write characterization suite before any rewrite",
+  "retryProvenance": {
+    "sessionId": "afed76c6-b7b0-41a8-9a5d-90088b2471fe",
+    "reportSha256": "0a8018a1fd6652514ef2373640ea290e32a295ed39335972b9aeeb6540b6d697",
+    "historicalOutcome": "natural second-attempt assertion failure after plan_ready; replay never grants completion credit"
+  }
+}

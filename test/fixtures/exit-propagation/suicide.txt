@@ -1,0 +1,8 @@
+import { test, expect } from 'bun:test';
+test('passes then arms a delayed exit', () => {
+  expect(1).toBe(1);
+  setTimeout(() => process.exit(0), 300);
+});
+test('waits long enough for the timer to fire', async () => {
+  await new Promise((r) => setTimeout(r, 1500));
+});

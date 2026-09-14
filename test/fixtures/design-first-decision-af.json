@@ -1,0 +1,52 @@
+{
+  "signature": "c06cd100-d350-4030-a14e-b091b9d42d42:toolu_0178gAV9n3Fkx2tXMDSUuGBS",
+  "promptSnippet": "Issue 1 D1 \u2014 Issue 1: Make Save the visible primary action? Project/branch/task: gstack-plan-count-Yf6fxy on main, design review of the settings-form plan. ELI10: Right now Save, Reset, Cancel, and Export all look the same. A user scanning ",
+  "options": [
+    {
+      "index": 1,
+      "label": "1A Filled primary Save (recommended)"
+    },
+    {
+      "index": 2,
+      "label": "1B Primary Save, demote Export to text"
+    },
+    {
+      "index": 3,
+      "label": "1C Keep four identical buttons"
+    }
+  ],
+  "observedAtMs": 166054,
+  "preReview": true,
+  "nativeCall": {
+    "sessionId": "c06cd100-d350-4030-a14e-b091b9d42d42",
+    "toolUseId": "toolu_0178gAV9n3Fkx2tXMDSUuGBS",
+    "questions": [
+      {
+        "header": "Issue 1",
+        "question": "D1 \u2014 Issue 1: Make Save the visible primary action?\nProject/branch/task: gstack-plan-count-Yf6fxy on main, design review of the settings-form plan.\nELI10: Right now Save, Reset, Cancel, and Export all look the same. A user scanning the header cannot tell which one commits their work and which one throws it away. Users scan and satisfice, so the loudest button gets clicked. With four equal buttons, the loudest is whichever is first, not the safest.\nStakes if we pick wrong: users hesitate on every save, or hit Reset/Cancel by mistake and lose edits.\nRecommendation: 1A because DESIGN.md already names the token and the Button component already has the primary variant, so this is a class change with zero new design.\nCompleteness: A=10/10, B=7/10, C=2/10\nPrinciple: Hierarchy as service. What the user should see first is the one action that finishes their task.\nNet: adopt the approved primary token now, or ship a header where nothing wins.",
+        "options": [
+          {
+            "label": "1A Filled primary Save (recommended)",
+            "description": "\u2705 Matches DESIGN.md exactly: Save filled #1d4ed8 with white text; Reset, Cancel, Export as neutral ghost buttons. \u2705 Reuses the existing Button primary variant, no new CSS or component (human: ~30min / CC: ~3min). \u274c Export loses visual weight, which is fine only if the ghost style stays clearly a button."
+          },
+          {
+            "label": "1B Primary Save, demote Export to text",
+            "description": "\u2705 Sharpens the header further by making Export a plain text-style action. \u2705 Reduces button count competing with Save. \u274c Conflicts with the accepted requirement that Export remains a clearly labeled button, and counts as visual exploration the plan excludes."
+          },
+          {
+            "label": "1C Keep four identical buttons",
+            "description": "\u2705 No implementation work in this change (human: 0 / CC: 0). \u2705 Nothing to re-test visually. \u274c Leaves a documented DESIGN.md violation in place; users keep guessing which action is primary, and the pass stays capped near 6/10."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 \u2014 Issue 1: Make Save the visible primary action?\nProject/branch/task: gstack-plan-count-Yf6fxy on main, design review of the settings-form plan.\nELI10: Right now Save, Reset, Cancel, and Export all look the same. A user scanning the header cannot tell which one commits their work and which one throws it away. Users scan and satisfice, so the loudest button gets clicked. With four equal buttons, the loudest is whichever is first, not the safest.\nStakes if we pick wrong: users hesitate on every save, or hit Reset/Cancel by mistake and lose edits.\nRecommendation: 1A because DESIGN.md already names the token and the Button component already has the primary variant, so this is a class change with zero new design.\nCompleteness: A=10/10, B=7/10, C=2/10\nPrinciple: Hierarchy as service. What the user should see first is the one action that finishes their task.\nNet: adopt the approved primary token now, or ship a header where nothing wins.": "1A Filled primary Save (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T23:35:58.344Z"
+  }
+}

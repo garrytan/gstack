@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Media Test Page</title>
+  <meta property="og:title" content="Test Product">
+  <meta property="og:description" content="A test product description">
+  <meta property="og:image" content="https://example.com/og-image.jpg">
+  <meta property="og:type" content="product">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Test Product Tweet">
+  <meta name="description" content="Page description for SEO">
+  <meta name="keywords" content="test, product, media">
+  <meta name="author" content="Test Author">
+  <link rel="canonical" href="https://example.com/test-product">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    "name": "Test Widget",
+    "description": "A widget for testing",
+    "image": "https://example.com/widget.jpg",
+    "offers": {
+      "@type": "Offer",
+      "price": "29.99",
+      "priceCurrency": "USD"
+    }
+  }
+  </script>
+  <style>
+    .hero { background-image: url('https://example.com/hero-bg.jpg'); width: 100%; height: 300px; }
+    .banner { background-image: url('https://example.com/banner.png'); width: 100%; height: 100px; }
+  </style>
+</head>
+<body>
+  <div class="hero"></div>
+  <div class="banner"></div>
+
+  <!-- Standard images -->
+  <img src="https://example.com/photo1.jpg" alt="Photo 1" width="800" height="600">
+  <img src="https://example.com/photo2.png" alt="Photo 2" width="400" height="300">
+
+  <!-- Lazy loaded image -->
+  <img data-src="https://example.com/lazy.jpg" alt="Lazy Image" loading="lazy" width="600" height="400">
+
+  <!-- Image with srcset -->
+  <img src="https://example.com/responsive-sm.jpg"
+       srcset="https://example.com/responsive-sm.jpg 480w, https://example.com/responsive-lg.jpg 1200w"
+       alt="Responsive Image"
+       width="480" height="320">
+
+  <!-- Video with sources -->
+  <video width="640" height="480" poster="https://example.com/poster.jpg">
+    <source src="https://example.com/video.mp4" type="video/mp4">
+    <source src="https://example.com/video.webm" type="video/webm">
+  </video>
+
+  <!-- HLS video -->
+  <video width="1920" height="1080">
+    <source src="https://example.com/stream.m3u8" type="application/x-mpegURL">
+  </video>
+
+  <!-- Audio -->
+  <audio>
+    <source src="https://example.com/podcast.mp3" type="audio/mpeg">
+  </audio>
+</body>
+</html>

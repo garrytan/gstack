@@ -1,0 +1,14 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "cso",
+  "version": 1,
+  "note": "Passive host-section registry. Mode dispatch, trusted execution/privacy rules, evidence rubric, verification gates, reporting, and recovery stay always-loaded; only scope-dependent investigation detail is on demand.",
+  "sections": [
+    {
+      "id": "audit-phases",
+      "file": "audit-phases.md",
+      "title": "Scope-dependent audit phases: secrets, dependencies, CI/CD, infra, webhooks, LLM/AI, skill supply chain, OWASP Top 10, STRIDE, data classification (Phases 2-11)",
+      "trigger": "running the scope-dependent audit phases (Phases 2-11) selected by the resolved mode, after the Phase 0 stack detection and Phase 1 attack-surface census"
+    }
+  ]
+}

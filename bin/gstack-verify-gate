@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+# gstack-verify-gate — Stop hook. Blocks the turn from ending until the
+# project's declared verification command passes.
+#
+# Declare the command on one line in the project's CLAUDE.md:
+#   <!-- gstack:verify: bun test -->
+#
+# Read-or-ask: gstack never invents this command. No declaration, no gate.
+# Fails open on every absence (no CLAUDE.md, no declaration, empty value).
+#
+# Trust boundary: hooks bypass the permission system, so a declared command
+# NEVER runs until the user records it in the per-repo trust store:
+#   gstack-verify-gate --trust        (run from inside the repo)
+# The store maps realpath(repo root) -> sha256(command) at
+# ${GSTACK_HOME:-$HOME/.gstack}/verify-gate-trust (flat "path<TAB>hash",
+# 0600, atomic rewrite). Any edit to the declared command invalidates trust
+# until --trust is run again. Untrusted commands never block the turn.
+#
+# Exit 0 = allow the turn to end, one-line reason on stdout.
+# Exit 2 = block, Claude Code feeds stderr back to the agent.
+#
+# Remove with: gstack-settings-hook remove-source --source verify-gate
+set -uo pipefail
+
+TAB="$(printf '\t')"
+STORE="${GSTACK_HOME:-$HOME/.gstack}/verify-gate-trust"
+
+_sha256() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1
+  elif command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | cut -d' ' -f1
+  else
+    printf '%s' "$1" | openssl dgst -sha256 | awk '{print $NF}'
+  fi
+}
+
+# Resolve the project root: CLAUDE_PROJECT_DIR, else walk up from $PWD to
+# the first directory containing CLAUDE.md. Sets ROOT (may lack CLAUDE.md).
+_resolve_root() {
+  ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+  while [ ! -f "$ROOT/CLAUDE.md" ] && [ "$ROOT" != "/" ]; do
+    ROOT="$(dirname "$ROOT")"
+  done
+}
+
+# Extract the declared command from $ROOT/CLAUDE.md into CMD (may be empty).
+# Accepts both `<!-- gstack:verify: cmd -->` and bare `gstack:verify: cmd`.
+_extract_cmd() {
+  CMD="$(sed -n 's/^[[:space:]]*\(<!--[[:space:]]*\)\{0,1\}gstack:verify:[[:space:]]*\(.*\)$/\2/p' "$ROOT/CLAUDE.md" | head -1)"
+  CMD="${CMD%%-->*}"
+  CMD="$(printf '%s' "$CMD" | tr -d '`' | sed 's/[[:space:]]*$//')"
+}
+
+# Symlink-stable store key for the root.
+_trust_key() {
+  (cd "$ROOT" 2>/dev/null && pwd -P) || printf '%s' "$ROOT"
+}
+
+# Print the stored hash for key $1, or return 1 when absent.
+_trusted_hash() {
+  [ -f "$STORE" ] || return 1
+  local p h
+  while IFS="$TAB" read -r p h; do
+    if [ "$p" = "$1" ]; then
+      printf '%s' "$h"
+      return 0
+    fi
+  done <"$STORE"
+  return 1
+}
+
+# Record key $1 -> hash $2, replacing any prior entry. Atomic, 0600.
+_record_trust() {
+  local store_dir tmp p h
+  store_dir="$(dirname "$STORE")"
+  mkdir -p "$store_dir"
+  tmp="$STORE.tmp.$$"
+  : >"$tmp"
+  chmod 600 "$tmp"
+  if [ -f "$STORE" ]; then
+    while IFS="$TAB" read -r p h; do
+      [ "$p" = "$1" ] || printf '%s\t%s\n' "$p" "$h" >>"$tmp"
+    done <"$STORE"
+  fi
+  printf '%s\t%s\n' "$1" "$2" >>"$tmp"
+  mv -f "$tmp" "$STORE"
+}
+
+# Minimal JSON string escaping (backslash + double quote). CMD and paths are
+# single-line by construction, so control characters never appear.
+_json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+# Forensic audit of trust grants. --trust stays agent-runnable (guardrail
+# posture: catch accidents, not determined actors — same as the redaction
+# guard), but a grant is never invisible: append {ts, root, cmd_sha256,
+# cmd verbatim, tty} to a 0600 JSONL under GSTACK_HOME/security/.
+# Args: $1 = root key, $2 = cmd sha256, $3 = cmd verbatim.
+_log_trust_grant() {
+  local sec_dir log tty ts
+  sec_dir="${GSTACK_HOME:-$HOME/.gstack}/security"
+  log="$sec_dir/verify-gate-trust-grants.jsonl"
+  tty=false
+  [ -t 0 ] && tty=true
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  mkdir -p "$sec_dir"
+  [ -f "$log" ] || : >"$log"
+  chmod 600 "$log" 2>/dev/null || true
+  printf '{"ts":"%s","root":"%s","cmd_sha256":"%s","cmd":"%s","tty":%s}\n' \
+    "$ts" "$(_json_escape "$1")" "$2" "$(_json_escape "$3")" "$tty" >>"$log"
+}
+
+if [ "${1:-}" = "--trust" ]; then
+  _resolve_root
+  if [ ! -f "$ROOT/CLAUDE.md" ]; then
+    echo "verify-gate: no CLAUDE.md above $PWD, nothing to trust." >&2
+    exit 1
+  fi
+  _extract_cmd
+  if [ -z "$CMD" ]; then
+    echo "verify-gate: $ROOT/CLAUDE.md declares no 'gstack:verify:' command, nothing to trust." >&2
+    exit 1
+  fi
+  KEY="$(_trust_key)"
+  HASH="$(_sha256 "$CMD")"
+  _record_trust "$KEY" "$HASH"
+  _log_trust_grant "$KEY" "$HASH" "$CMD"
+  echo "verify-gate: trusted '$CMD' for $ROOT."
+  exit 0
+fi
+
+INPUT=""
+[ -t 0 ] || INPUT="$(cat)"
+
+# Claude Code re-runs Stop hooks after a block (stop_hook_active=true). A
+# re-entry is NOT a free pass: the gate re-runs the trusted check so an agent
+# can't clear a red verification by simply stopping again. Re-entry blocks are
+# bounded per episode (MAX_REENTRY_BLOCKS) so a stuck check can't loop forever;
+# at the bound the gate allows with a loud warning.
+REENTRY=0
+if printf '%s' "$INPUT" | grep -q '"stop_hook_active"[[:space:]]*:[[:space:]]*true'; then
+  REENTRY=1
+fi
+
+_resolve_root
+
+if [ ! -f "$ROOT/CLAUDE.md" ]; then
+  echo "verify-gate: no CLAUDE.md above $PWD, no check declared, allowing."
+  exit 0
+fi
+
+_extract_cmd
+
+if [ -z "$CMD" ]; then
+  echo "verify-gate: $ROOT/CLAUDE.md declares no 'gstack:verify:' command, allowing."
+  exit 0
+fi
+
+# Trust gate: never execute a declared command the user has not recorded.
+# Applies on re-entry too — untrusted commands keep the exit-0-with-hint path.
+if [ "$(_trusted_hash "$(_trust_key)" || true)" != "$(_sha256 "$CMD")" ]; then
+  echo "verify-gate: found '$CMD' in $ROOT/CLAUDE.md but it is not trusted yet, skipping; enable with: cd $ROOT && $0 --trust" >&2
+  echo "verify-gate: declared command not trusted, allowing."
+  exit 0
+fi
+
+# Episode-scoped re-entry attempt counter. Keyed by the hook-input session_id
+# when present, else ppid+root — stale entries are fine to overwrite.
+MAX_REENTRY_BLOCKS=3
+_session_key() {
+  local sid
+  sid="$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  [ -n "$sid" ] || sid="ppid-$PPID"
+  _sha256 "$sid|$(_trust_key)"
+}
+ATTEMPTS_DIR="${GSTACK_HOME:-$HOME/.gstack}/verify-gate-attempts"
+COUNTER="$ATTEMPTS_DIR/$(_session_key)"
+
+# A first entry (stop_hook_active=false) starts a fresh blocking episode.
+if [ "$REENTRY" -eq 0 ]; then
+  rm -f "$COUNTER" 2>/dev/null || true
+fi
+
+OUT="$(cd "$ROOT" && eval "$CMD" 2>&1)"
+STATUS=$?
+
+if [ "$STATUS" -eq 0 ]; then
+  rm -f "$COUNTER" 2>/dev/null || true
+  echo "verify-gate: declared check passed ($CMD)."
+  exit 0
+fi
+
+if [ "$REENTRY" -eq 1 ]; then
+  COUNT="$(cat "$COUNTER" 2>/dev/null || echo 0)"
+  case "$COUNT" in
+    ''|*[!0-9]*) COUNT=0 ;;
+  esac
+  if [ "$COUNT" -ge "$MAX_REENTRY_BLOCKS" ]; then
+    rm -f "$COUNTER" 2>/dev/null || true
+    WARN="verify-gate: WARNING — allowing after $MAX_REENTRY_BLOCKS blocked re-entries but the declared check is still FAILING ($CMD). Verification is RED; do not treat this turn as verified."
+    echo "$WARN"
+    echo "$WARN" >&2
+    exit 0
+  fi
+  mkdir -p "$ATTEMPTS_DIR"
+  echo $((COUNT + 1)) >"$COUNTER"
+fi
+
+echo "verify-gate: declared check FAILED with exit $STATUS: $CMD" >&2
+printf '%s\n' "$OUT" | tail -20 >&2
+echo "Fix the failure, or drop the gstack:verify line from $ROOT/CLAUDE.md." >&2
+exit 2

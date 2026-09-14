@@ -1,0 +1,60 @@
+{
+  "provenance": {
+    "sourceHead": "fd7698b23d0d88dfcfe8a2b0fd4c3140cdad01fa",
+    "sourceSnapshotSha256": "301da80253ea22bb5ce253badc41acee083276922775aaa05f37cd9f32f9ee8c",
+    "historicalOutcome": "no_review_questions",
+    "paidOutcomesReclassified": false
+  },
+  "fingerprint": {
+    "signature": "7f5f0e7e-9a06-41c1-8bc2-de4416f05cc4:toolu_01Xw5UP67eAKs8y9Dgz8aKPE",
+    "promptSnippet": "Issue 1 D2 \u2014 Issue 1 (Pass 1, Visual Hierarchy): make Save the single primary action? Project/branch/task: main branch, PLAN.md design review, header action group. ELI10: Right now Save, Reset, Cancel, and Export all look identical. A user ",
+    "options": [
+      {
+        "index": 1,
+        "label": "1A) Save filled #1d4ed8/white, others ghost (recommended)"
+      },
+      {
+        "index": 2,
+        "label": "1B) Weight and size only, keep colors"
+      },
+      {
+        "index": 3,
+        "label": "1C) Decline, leave all four identical"
+      }
+    ],
+    "observedAtMs": 232060,
+    "preReview": true,
+    "nativeCall": {
+      "sessionId": "7f5f0e7e-9a06-41c1-8bc2-de4416f05cc4",
+      "toolUseId": "toolu_01Xw5UP67eAKs8y9Dgz8aKPE",
+      "questions": [
+        {
+          "header": "Issue 1",
+          "question": "D2 \u2014 Issue 1 (Pass 1, Visual Hierarchy): make Save the single primary action?\nProject/branch/task: main branch, PLAN.md design review, header action group.\nELI10: Right now Save, Reset, Cancel, and Export all look identical. A user scanning the header sees four equal grey buttons and has to read every label to find the one that stores their work. DESIGN.md already says Save is the only filled primary button and the other three are neutral ghost buttons. This just brings the implementation in line with that.\nStakes if we pick wrong: users hesitate at the one moment the journey needs confidence, and some hit Reset or Cancel by mistake next to Save.\nRecommendation: 1A because DESIGN.md already prescribes the exact tokens and the change is one class swap per button.\nCompleteness: 1A=10/10, 1B=5/10, 1C=0/10\nNet: a token-exact fix now versus leaving a documented hierarchy gap in the shipped header.",
+          "options": [
+            {
+              "label": "1A) Save filled #1d4ed8/white, others ghost (recommended)",
+              "description": "\u2705 Matches DESIGN.md exactly: one filled primary, three neutral ghosts, 44px targets kept. (human: ~30min / CC: ~3min) \u2705 White-on-#1d4ed8 text is about 8:1 contrast, well above AA. \u274c Ghost buttons must still show a visible border or the row loses its clickability signal."
+            },
+            {
+              "label": "1B) Weight and size only, keep colors",
+              "description": "\u2705 Save stands out without touching the palette. \u2705 Smallest visual delta from the current build. \u274c Contradicts DESIGN.md's filled-primary rule, so /design-review will flag it again later."
+            },
+            {
+              "label": "1C) Decline, leave all four identical",
+              "description": "\u2705 Zero implementation work in this update. \u2705 Nothing new to QA visually. \u274c Documented DESIGN.md violation ships and Pass 1 stays at 7/10."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Issue 1 (Pass 1, Visual Hierarchy): make Save the single primary action?\nProject/branch/task: main branch, PLAN.md design review, header action group.\nELI10: Right now Save, Reset, Cancel, and Export all look identical. A user scanning the header sees four equal grey buttons and has to read every label to find the one that stores their work. DESIGN.md already says Save is the only filled primary button and the other three are neutral ghost buttons. This just brings the implementation in line with that.\nStakes if we pick wrong: users hesitate at the one moment the journey needs confidence, and some hit Reset or Cancel by mistake next to Save.\nRecommendation: 1A because DESIGN.md already prescribes the exact tokens and the change is one class swap per button.\nCompleteness: 1A=10/10, 1B=5/10, 1C=0/10\nNet: a token-exact fix now versus leaving a documented hierarchy gap in the shipped header.": "1A) Save filled #1d4ed8/white, others ghost (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T09:41:05.919Z"
+    }
+  }
+}

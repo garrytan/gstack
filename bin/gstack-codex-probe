@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+# gstack-codex-probe: shared helper for /codex and /autoplan skills.
+# Sourced from template bash blocks; never execute directly.
+#
+# Functions (all prefixed with _gstack_codex_ for namespace hygiene):
+#   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
+#   _gstack_codex_model_probe     — round-trip probe of gstack's selected model (#2477)
+#   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
+#   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> unwrapped fallback
+#   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
+#
+# Hygiene rules (enforced by test/codex-hardening.test.ts):
+#   - Never set -e / set -u / trap / IFS= / PATH= in this file.
+#   - All internal vars prefix with _GSTACK_CODEX_.
+#   - All functions prefix with _gstack_codex_.
+#   - No command execution at source time (only function defs).
+
+# --- Auth probe -------------------------------------------------------------
+
+_gstack_codex_auth_probe() {
+  # Multi-signal: env vars OR auth file. Avoids false negatives for env-auth
+  # users (CI, platform engineers) that a file-only check would reject.
+  local _codex_home="${CODEX_HOME:-$HOME/.codex}"
+  # Use `-n` which returns true only for non-empty non-whitespace. Bash's [ -n ]
+  # alone allows whitespace; pair with a whitespace strip for robustness.
+  local _k1 _k2
+  _k1=$(printf '%s' "${CODEX_API_KEY:-}" | tr -d '[:space:]')
+  _k2=$(printf '%s' "${OPENAI_API_KEY:-}" | tr -d '[:space:]')
+  if [ -n "$_k1" ] || [ -n "$_k2" ] || [ -f "$_codex_home/auth.json" ]; then
+    echo "AUTH_OK"
+    return 0
+  fi
+  echo "AUTH_FAILED"
+  return 1
+}
+
+# --- Model round-trip probe (#2477) ------------------------------------------
+
+_gstack_codex_model_probe() {
+  # Auth-exists is a weaker signal than the auth probe implies: a ChatGPT
+  # account can be valid while the model gstack will request is unavailable.
+  # A short real round trip with gstack's selected model catches model
+  # rejection and entitlement changes in one shot (#2477). gstack pins a
+  # frontier default rather than inheriting Codex CLI's built-in default,
+  # because that default can lag the most capable available model.
+  #
+  # Contract:
+  #   MODEL_OK (exit 0)              — round trip succeeded; cached 1h.
+  #   MODEL_UNUSABLE (exit 1)        — deterministic model 400; hints printed.
+  #     Cached 15 min: the 400 is model/entitlement-driven, so re-probing every preflight
+  #     charged the affected user a 30s round trip + real tokens per review
+  #     section, forever. Editing config.toml (the fix) changes the cache
+  #     signature and re-probes immediately; the short TTL covers server-side
+  #     entitlement recovery the signature can't see.
+  #   MODEL_UNUSABLE_INSTALL (exit 2) — the CLI cannot execute at all (spawn
+  #     ENOENT, non-executable binary, missing vendor payload). Deterministic,
+  #     so fail-open is wrong: retrying never helps. Never cached — a reinstall
+  #     fixes it and must be picked up on the very next probe (#2742).
+  #   MODEL_PROBE_INCONCLUSIVE (exit 0) — timeout/transient; FAIL-OPEN so a
+  #     slow network never wedges codex mode (the per-invocation Error
+  #     Handling entry still covers a later 400). Never cached.
+  #
+  # Only call this AFTER _gstack_codex_auth_probe passes — probing without
+  # auth just measures the auth failure again.
+  local _codex_home="${CODEX_HOME:-$HOME/.codex}"
+  local _gstack_home="${GSTACK_HOME:-$HOME/.gstack}"
+  local _cache="$_gstack_home/.codex-model-probe"
+  local _model="${GSTACK_CODEX_MODEL:-gpt-6-astra}"
+  # Cache signature: config.toml + auth.json mtimes + gstack model selection.
+  # Editing the model env/config or re-logging-in invalidates the cached result
+  # immediately.
+  # GNU-first stat order + numeric validation (the #2195 pattern): on GNU
+  # stat, `-f` means FILESYSTEM mode, so the BSD-first form emitted a
+  # multi-line filesystem block on Linux — the signature then never matched
+  # its own cache line and the cache missed on every read. BSD stat rejects
+  # `-c` cleanly, so GNU-first degrades correctly on macOS.
+  local _cfg_m _auth_m _model_sig _sig
+  _cfg_m=$(stat -c %Y "$_codex_home/config.toml" 2>/dev/null || stat -f %m "$_codex_home/config.toml" 2>/dev/null || echo 0)
+  _auth_m=$(stat -c %Y "$_codex_home/auth.json" 2>/dev/null || stat -f %m "$_codex_home/auth.json" 2>/dev/null || echo 0)
+  case "$_cfg_m" in ''|*[!0-9]*) _cfg_m=0 ;; esac
+  case "$_auth_m" in ''|*[!0-9]*) _auth_m=0 ;; esac
+  _model_sig=$(printf '%s' "$_model" | sed 's/[^A-Za-z0-9._:-]/_/g')
+  _sig="${_cfg_m}-${_auth_m}-${_model_sig}"
+  local _now
+  _now=$(date +%s 2>/dev/null || echo 0)
+  if [ -f "$_cache" ]; then
+    local _c_line _c_status _c_ts _c_sig
+    _c_line=$(head -1 "$_cache" 2>/dev/null)
+    _c_status=$(printf '%s' "$_c_line" | cut -d' ' -f1)
+    _c_ts=$(printf '%s' "$_c_line" | cut -d' ' -f2)
+    _c_sig=$(printf '%s' "$_c_line" | cut -d' ' -f3)
+    case "$_c_ts" in ''|*[!0-9]*) _c_ts=0 ;; esac
+    if [ "$_c_status" = "MODEL_OK" ] && [ "$_c_sig" = "$_sig" ] && [ $((_now - _c_ts)) -lt 3600 ]; then
+      echo "MODEL_OK (cached)"
+      return 0
+    fi
+    if [ "$_c_status" = "MODEL_UNUSABLE" ] && [ "$_c_sig" = "$_sig" ] && [ $((_now - _c_ts)) -lt 900 ]; then
+      echo "MODEL_UNUSABLE (cached)"
+      echo "HINT: gstack requested model '$_model'."
+      echo "HINT: set GSTACK_CODEX_MODEL=<supported-model> or pass an explicit -c model=... override."
+      return 1
+    fi
+  fi
+  local _out _code
+  _out=$(_gstack_codex_timeout_wrapper 30 codex exec --skip-git-repo-check -s read-only -c "model=\"$_model\"" "reply OK" </dev/null 2>&1)
+  _code=$?
+  if [ "$_code" -eq 0 ]; then
+    mkdir -p "$_gstack_home" 2>/dev/null || true
+    printf 'MODEL_OK %s %s\n' "$_now" "$_sig" > "$_cache" 2>/dev/null || true
+    echo "MODEL_OK"
+    return 0
+  fi
+  if printf '%s' "$_out" | grep -qiE 'model.{0,40}is not supported|"status":[[:space:]]*400'; then
+    mkdir -p "$_gstack_home" 2>/dev/null || true
+    printf 'MODEL_UNUSABLE %s %s\n' "$_now" "$_sig" > "$_cache" 2>/dev/null || true
+    echo "MODEL_UNUSABLE"
+    printf '%s\n' "$_out" | grep -i "model" | head -3
+    echo "HINT: gstack requested model '$_model'."
+    echo "HINT: set GSTACK_CODEX_MODEL=<supported-model> or pass an explicit -c model=... override."
+    _gstack_codex_log_event "codex_model_unusable" 2>/dev/null || true
+    return 1
+  fi
+  # A CLI that cannot execute is deterministic, not transient: the fail-open
+  # below exists for network luck, and swallowing this here is what let a
+  # missing vendor binary report CODEX_MODE: ready while every Codex pass was
+  # silently skipped (#2742). 126 = found but not executable, 127 = not found.
+  # String signatures only count on a FAILED, NON-TIMEOUT spawn: a successful
+  # response that mentions "permission denied" must not classify as broken,
+  # and neither may a timed-out (124) probe whose partial output quotes such
+  # strings — 124 keeps its fail-open contract below.
+  _BROKEN_SIG='ENOENT|ENOEXEC|EACCES|no such file or directory|cannot execute binary file|not executable|permission denied'
+  if [ "$_code" -eq 126 ] || [ "$_code" -eq 127 ] || { [ "$_code" -ne 0 ] && [ "$_code" -ne 124 ] && printf '%s' "$_out" | grep -qiE "$_BROKEN_SIG"; }; then
+    echo "MODEL_UNUSABLE_INSTALL"
+    printf '%s\n' "$_out" | grep -iE "$_BROKEN_SIG" | head -3
+    echo "HINT: the Codex CLI is on PATH but cannot run — its binary or vendor payload is missing."
+    echo "HINT: reinstall with: npm install -g @openai/codex"
+    _gstack_codex_log_event "codex_broken_install" 2>/dev/null || true
+    return 2
+  fi
+  # Timeout (124) or transient failure: fail-open with a warning. The probe
+  # exists to catch the deterministic model 400, not to gate on network luck.
+  echo "MODEL_PROBE_INCONCLUSIVE (exit $_code) — proceeding; if invocations fail with a model 400, see the codex skill's Error Handling entry."
+  return 0
+}
+
+# --- Version check ----------------------------------------------------------
+
+_gstack_codex_version_check() {
+  # Warn on known-bad Codex CLI versions. Anchored regex prevents false
+  # positives like 0.120.10 or 0.120.20 from matching. 0.120.2-beta still
+  # matches the bad release and gets warned (it IS buggy).
+  # Update this list when a new Codex CLI version regresses.
+  local _ver _vcode
+  # Capture the code from codex, not from `head` — a pipeline reports the LAST
+  # command's status, which is why a CLI that only ever printed a spawn error
+  # still read as healthy here (#2742). Keep stderr: it carries the diagnosis.
+  _ver=$(codex --version 2>&1)
+  _vcode=$?
+  _ver=$(printf '%s' "$_ver" | head -1)
+  # Only a NON-ZERO exit is evidence of a broken CLI. Empty-but-successful
+  # output stays silent by design (a CLI may legitimately print nothing), which
+  # the "empty output → OK" case in this file's suite pins.
+  if [ "$_vcode" -ne 0 ]; then
+    echo "WARN: \`codex --version\` failed (exit $_vcode) — the CLI is on PATH but may not be runnable."
+    [ -n "$_ver" ] && echo "WARN: it said: $_ver"
+    echo "WARN: if Codex passes are being skipped, reinstall with: npm install -g @openai/codex"
+    _gstack_codex_log_event "codex_version_unreadable" 2>/dev/null || true
+    return 0
+  fi
+  [ -z "$_ver" ] && return 0
+  if echo "$_ver" | grep -Eq '(^|[^0-9.])0\.120\.(0|1|2)([^0-9.]|$)'; then
+    echo "WARN: Codex CLI $_ver has known stdin deadlock bugs. Run: npm install -g @openai/codex@latest"
+    _gstack_codex_log_event "codex_version_warning"
+  fi
+}
+
+# --- Timeout wrapper --------------------------------------------------------
+
+_gstack_codex_timeout_wrapper() {
+  # Resolve wrapper binary: prefer gtimeout (Homebrew coreutils on macOS),
+  # fall back to timeout (Linux), else a bash-native watchdog. Arguments:
+  # $1 is the duration in seconds; rest is the command to run.
+  local _duration="$1"
+  shift
+  local _to
+  _to=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+  if [ -n "$_to" ]; then
+    "$_to" "$_duration" "$@"
+  else
+    # Stock macOS ships neither coreutils gtimeout nor timeout(1); running
+    # unwrapped let a hung `codex exec` block the probe — and the calling
+    # workflow — indefinitely. Emulate: background the command, TERM it at
+    # the deadline, mirror timeout(1)'s exit-124 contract. The watchdog's
+    # stdout is detached so an early finish never blocks a caller's $(...)
+    # capture on the orphaned sleep.
+    "$@" &
+    local _cmd_pid=$!
+    ( sleep "$_duration" && kill -TERM "$_cmd_pid" 2>/dev/null ) >/dev/null 2>&1 &
+    local _watch_pid=$!
+    local _rc
+    wait "$_cmd_pid"
+    _rc=$?
+    if kill -0 "$_watch_pid" 2>/dev/null; then
+      # Command finished before the deadline. Retiring the watchdog subshell
+      # also defuses its pending kill (the `&& kill` lives in the subshell);
+      # its detached sleep expires harmlessly.
+      kill "$_watch_pid" 2>/dev/null
+      wait "$_watch_pid" 2>/dev/null
+    elif [ "$_rc" -ge 128 ]; then
+      _rc=124  # killed by the watchdog: report timeout(1)'s code
+    fi
+    return "$_rc"
+  fi
+}
+
+# --- Telemetry event --------------------------------------------------------
+
+_gstack_codex_log_event() {
+  # Emit a telemetry event to ~/.gstack/analytics/skill-usage.jsonl.
+  # Gated on $_TEL != "off" (caller sets this from gstack-config).
+  # Event types: codex_timeout, codex_auth_failed, codex_cli_missing,
+  #              codex_version_warning, codex_model_unusable.
+  # Payload schema: {skill, event, duration_s, ts}. NEVER includes prompt
+  # content, env var values, or auth tokens.
+  local _event="$1"
+  local _duration="${2:-0}"
+  [ "${_TEL:-off}" = "off" ] && return 0
+  mkdir -p "$HOME/.gstack/analytics" 2>/dev/null || return 0
+  local _ts
+  _ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+  printf '{"skill":"codex","event":"%s","duration_s":"%s","ts":"%s"}\n' \
+    "$_event" "$_duration" "$_ts" \
+    >> "$HOME/.gstack/analytics/skill-usage.jsonl" 2>/dev/null || true
+}
+
+# --- Learnings log on hang --------------------------------------------------
+
+_gstack_codex_log_hang() {
+  # Invoked when a codex invocation times out (exit 124). Records an
+  # operational learning so future /investigate sessions surface the pattern.
+  # Best-effort: errors swallowed.
+  local _mode="${1:-unknown}"
+  local _prompt_size="${2:-0}"
+  local _log_bin="$HOME/.claude/skills/gstack/bin/gstack-learnings-log"
+  [ -x "$_log_bin" ] || return 0
+  local _key="codex-hang-$(date +%s 2>/dev/null || echo unknown)"
+  "$_log_bin" "$(printf '{"skill":"codex","type":"operational","key":"%s","insight":"Codex timed out after 600s during [%s] invocation. Prompt size: %s. Consider splitting prompt or checking network.","confidence":8,"source":"observed","files":["codex/SKILL.md.tmpl","autoplan/SKILL.md.tmpl"]}' "$_key" "$_mode" "$_prompt_size")" \
+    >/dev/null 2>&1 || true
+}

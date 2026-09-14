@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+# gstack-slug — output project slug and sanitized branch name
+# Usage: eval "$(gstack-slug)"  → sets SLUG and BRANCH variables
+# Or:    gstack-slug            → prints SLUG=... and BRANCH=... lines
+#
+# Resolution order (highest precedence first):
+#   0. $GSTACK_PROJECT_SLUG env override (documented escape hatch)
+#   1. Walk UP from $(pwd) to the OUTERMOST ancestor containing a canonical
+#      project-identity marker (.git, .project.yaml, package.json, pyproject.toml,
+#      Cargo.toml, Gemfile, go.mod). Use that ancestor as the "project root".
+#      Build/deploy artifacts (.vercel, .next, dist, node_modules, etc.) are
+#      DELIBERATELY NOT markers — they're tooling output, not project identity.
+#      Without this walk-up, running gstack-slug from a subdir whose only
+#      "marker" is a deploy artifact silently resolves to the subdir's basename,
+#      misfiling all session state under a phantom slug. (2026-05-25 bug fix.)
+#   2. Derive the slug from the canonical git remote: the OUTERMOST ancestor
+#      that is an actual git repo (`.git` directory, or `.git` FILE for
+#      worktrees/submodules) with an `origin` remote wins. The slug is
+#      `owner-repo`, parsed EXACTLY like browse/bin/remote-slug so the two
+#      bins can never disagree on a canonical-remote repo. Marker-only
+#      ancestors that are NOT remote-bearing repos (a stray empty ~/.git,
+#      a stray package.json in $HOME) still anchor the basename FALLBACK,
+#      but they can no longer shadow a real remote. (2026-08-17 bug fix:
+#      a stray empty ~/.git made the walk-up pick $HOME as project root;
+#      $HOME has no origin, so EVERY repo under it degraded to
+#      SLUG=<username> — one shared bucket for all projects.)
+#   3. Otherwise use the basename of the resolved project root.
+#   4. If no project root was found anywhere on the chain, fall back to the
+#      basename of $(pwd) (preserves prior behavior for plain folders).
+#
+# MIGRATION NOTE (2026-08-17): sessions run BEFORE the remote-first fix above,
+# in repos below a stray marker-bearing ancestor, filed their session state
+# (decisions / timeline / ceo-plans / learnings) under the DEGRADED slug —
+# ~/.gstack/projects/<ancestor-basename>/ (e.g. `garrytan`) instead of the
+# canonical ~/.gstack/projects/<owner-repo>/. The slug cache self-heals on the
+# next invocation (see 1b), but already-written store data does NOT move.
+# Whether/how to merge those stores is tracked in TODOS.md — do not add data
+# migration code here.
+#
+# Caching is self-healing: a cache entry for the literal pwd that differs from
+# the freshly-computed slug gets opportunistically rewritten (single-shot, key-
+# local — never sweeps other entries). This lets pre-existing poisoned caches
+# clean themselves up without a manual `rm -rf ~/.gstack/slug-cache/`.
+#
+# Security: output is sanitized to [a-zA-Z0-9._-] only, preventing shell
+# injection when consumed via source or eval.
+set -euo pipefail
+
+# GSTACK_HOME-aware, matching lib/bin-context.ts's native port (#2561): the
+# bash writer and the TS reader must key the SAME cache, and a test running
+# with GSTACK_HOME=<temp> must write its cache junk there, not into the real
+# home (observed: 2,528 stale temp-cwd entries accumulated in ~/.gstack).
+CACHE_DIR="${GSTACK_HOME:-$HOME/.gstack}/slug-cache"
+PROJECT_DIR="$(pwd)"
+# Encode absolute path as cache key: /Users/j/foo → _Users_j_foo
+CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')
+CACHE_FILE="${CACHE_DIR}/${CACHE_KEY}"
+
+SLUG=""
+
+# 0. Explicit env override — wins over everything. Escape hatch for vendored
+#    sub-repos and other genuine "subdir IS its own project" edge cases.
+SLUG_FROM_ENV=0
+if [[ -n "${GSTACK_PROJECT_SLUG:-}" ]]; then
+  SLUG=$(printf '%s' "$GSTACK_PROJECT_SLUG" | tr -cd 'a-zA-Z0-9._-')
+  # Per-invocation escape hatch, never a durable identity: persisting it
+  # would rebind THIS cwd's slug for every later env-less run (observed: a
+  # test exporting GSTACK_PROJECT_SLUG from the repo root rebound the whole
+  # repo's session state to the test's slug).
+  SLUG_FROM_ENV=1
+fi
+
+# 1. Walk up from pwd, tracking the OUTERMOST ancestor with a canonical
+#    project-identity marker. The walk stops at "/" so we never escape the
+#    filesystem root. Markers are an allow-list (not a blacklist) so new
+#    build/deploy tools cannot silently establish phantom project roots.
+#
+#    Markers: .git can be a directory (normal repo) or a file (worktree /
+#    submodule pointer). Everything else is a file at the directory's top
+#    level.
+#    Two tiers of markers:
+#    - STRONG markers (canonical version-control / language project files):
+#      .git, .project.yaml, package.json, pyproject.toml, Cargo.toml, Gemfile,
+#      go.mod. These signal "this directory is a real project of its own."
+#    - WEAK markers (content-only project signals): README.md, README, LICENSE.
+#      These catch content folders (markdown bundles, asset collections, AJ's
+#      loadout-style folders) that have no programming-language project files
+#      but ARE the user's project root.
+#    Rule: outermost STRONG marker wins. If no strong marker exists anywhere on
+#    the chain, outermost WEAK marker wins. This means a vendored sub-repo
+#    (e.g. `loadout/starter-pack/.git`) correctly keeps its own slug even when
+#    a weak-marker parent (`loadout/README.md`) is higher up — the sub-repo IS
+#    its own project. But a deploy-artifact-only subdir (`loadout/site/.vercel`)
+#    correctly folds into the content-project parent (`loadout/README.md`),
+#    because `.vercel` is not a marker at all.
+_outermost_project_root() {
+  local dir="$1"
+  local outermost_strong=""
+  local outermost_weak=""
+  local parent="" depth=0
+  # Terminate on dirname's FIXED POINT, not on a literal "/": under git-bash
+  # on Windows a mixed-form path walks C:/Users -> C: -> . -> . forever, which
+  # hung every bin that evals gstack-slug (caught by windows-free-tests CI).
+  # The depth cap is belt-and-braces for exotic path forms (UNC, //server).
+  while [[ -n "$dir" && "$dir" != "/" && $depth -lt 64 ]]; do
+    if [[ -e "$dir/.git" \
+       || -f "$dir/.project.yaml" \
+       || -f "$dir/package.json" \
+       || -f "$dir/pyproject.toml" \
+       || -f "$dir/Cargo.toml" \
+       || -f "$dir/Gemfile" \
+       || -f "$dir/go.mod" ]]; then
+      outermost_strong="$dir"
+    elif [[ -f "$dir/README.md" \
+         || -f "$dir/README" \
+         || -f "$dir/README.rst" \
+         || -f "$dir/LICENSE" \
+         || -f "$dir/LICENSE.md" ]]; then
+      outermost_weak="$dir"
+    fi
+    parent=$(dirname "$dir")
+    [[ "$parent" == "$dir" ]] && break # dirname fixed point (C:/, ., //srv)
+    dir="$parent"
+    depth=$((depth + 1))
+  done
+  # Strong markers win over weak; either wins over nothing.
+  if [[ -n "$outermost_strong" ]]; then
+    printf '%s' "$outermost_strong"
+  else
+    printf '%s' "$outermost_weak"
+  fi
+}
+
+# 1a. Outermost REMOTE-BEARING repo root: walk the same ancestor chain and
+#     track the outermost dir that has a `.git` entry (directory for normal
+#     clones, FILE for git-worktrees/submodules — `git -C` resolves a
+#     worktree's remote through its main clone) AND whose `origin` remote
+#     resolves. This is the canonical-identity walk: a marker-only ancestor
+#     with no resolvable origin (stray empty ~/.git, stray package.json)
+#     cannot win here, so it cannot hijack remote-derived identity the way
+#     it can hijack the marker walk above. Nested-repo semantics preserved:
+#     an inner repo under an outer canonical-remote repo still resolves to
+#     the OUTER repo's remote (outermost wins), same as before.
+#     Note: git spawns only at `.git`-bearing ancestors — typically one.
+_outermost_remote_repo() {
+  local dir="$1"
+  local outermost="" parent="" depth=0
+  while [[ -n "$dir" && "$dir" != "/" && $depth -lt 64 ]]; do
+    if [[ -e "$dir/.git" ]] && git -C "$dir" remote get-url origin >/dev/null 2>&1; then
+      outermost="$dir"
+    fi
+    parent=$(dirname "$dir")
+    [[ "$parent" == "$dir" ]] && break # dirname fixed point (C:/, ., //srv)
+    dir="$parent"
+    depth=$((depth + 1))
+  done
+  printf '%s' "$outermost"
+}
+
+# Only compute the project root if we don't already have a slug (env override
+# took precedence). The walk is cheap (~10 stats on the deepest realistic cwd).
+PROJECT_ROOT=""
+if [[ -z "$SLUG" ]]; then
+  PROJECT_ROOT=$(_outermost_project_root "$PROJECT_DIR")
+fi
+
+# Lazy, memoized remote discovery. Needed on exactly two paths: fresh
+# resolution (no usable cache) and the degraded-ancestor heal check below.
+# Gating it keeps ordinary cache hits git-spawn-free.
+REMOTE_ROOT=""
+REMOTE_URL=""
+_REMOTE_RESOLVED=0
+_resolve_remote() {
+  if [[ "$_REMOTE_RESOLVED" -eq 1 ]]; then return 0; fi
+  _REMOTE_RESOLVED=1
+  REMOTE_ROOT=$(_outermost_remote_repo "$PROJECT_DIR")
+  if [[ -n "$REMOTE_ROOT" ]]; then
+    REMOTE_URL=$(git -C "$REMOTE_ROOT" remote get-url origin 2>/dev/null) || REMOTE_URL=""
+  fi
+  return 0
+}
+
+# 1b. Cached identity is STICKY (#2212): a project that used gstack before it
+#     adopted a git remote keeps its pre-origin slug — recomputing from the
+#     remote here would rename the project mid-life and orphan everything
+#     under ~/.gstack/projects/<slug>/. TWO provable bug shapes are exempt
+#     and fall through to recompute (self-heal):
+#     - Old-bug shape (#1125): the pre-walk-up resolver cached basename(pwd)
+#       for a SUBDIRECTORY of the real project — cached == pwd basename while
+#       the walk-up says pwd is NOT the project root.
+#     - Degraded-ancestor shape (2026-08-17), STRAY-REPO shape ONLY: the
+#       pre-remote-first resolver cached basename(PROJECT_ROOT) for an
+#       ancestor anchored by a .git entry whose origin does NOT resolve (the
+#       stray empty ~/.git live bug) while a remote-bearing repo BELOW it
+#       exists. A marker root anchored by package.json / pyproject etc. with
+#       NO .git is legit #2212 sticky identity (a monorepo wrapper that used
+#       gstack before its inner dir grew a remote) and must NOT be healed.
+#       Legit remote-adopting stickiness is safe too: there the repo that
+#       adopted the remote IS the marker root (REMOTE_ROOT == PROJECT_ROOT),
+#       so the heal never fires.
+if [[ -z "$SLUG" && -f "$CACHE_FILE" ]]; then
+  _CACHED=$(cat "$CACHE_FILE" 2>/dev/null | tr -cd 'a-zA-Z0-9._-')
+  if [[ -n "$_CACHED" ]]; then
+    _PWD_BASE=$(basename "$PROJECT_DIR" | tr -cd 'a-zA-Z0-9._-')
+    _ROOT_BASE=""
+    if [[ -n "$PROJECT_ROOT" ]]; then
+      _ROOT_BASE=$(basename "$PROJECT_ROOT" | tr -cd 'a-zA-Z0-9._-')
+    fi
+    if [[ "$_CACHED" == "$_PWD_BASE" && -n "$PROJECT_ROOT" && "$PROJECT_ROOT" != "$PROJECT_DIR" ]]; then
+      : # old-bug shape — recompute below and self-heal the cache
+    elif [[ -n "$PROJECT_ROOT" && "$_CACHED" == "$_ROOT_BASE" && -e "$PROJECT_ROOT/.git" ]] \
+      && ! git -C "$PROJECT_ROOT" remote get-url origin >/dev/null 2>&1 \
+      && { _resolve_remote; [[ -n "$REMOTE_URL" && "$REMOTE_ROOT" != "$PROJECT_ROOT" ]]; }; then
+      : # degraded-ancestor (stray-repo) shape — recompute below and self-heal the cache
+    else
+      SLUG="$_CACHED"
+    fi
+  fi
+fi
+
+# 2. Canonical remote-derived slug. Sourced from the outermost remote-bearing
+#    repo (see 1a) — NOT from PROJECT_ROOT, which may be a marker-only
+#    ancestor with no remote. Parse kept byte-identical to
+#    browse/bin/remote-slug (strip trailing .git, then owner/repo → owner-repo)
+#    so the two bins agree on every canonical-remote repo, worktrees included.
+#    Parity pinned by test/gstack-slug-parity.test.ts.
+if [[ -z "$SLUG" ]]; then
+  _resolve_remote
+  if [[ -n "$REMOTE_URL" ]]; then
+    RAW_SLUG=$(printf '%s' "${REMOTE_URL%.git}" | sed -E 's#.*[:/]([^/]+)/([^/]+)$#\1-\2#')
+    SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
+    # Dot-only / degenerate guard: a hostile origin like `url = ..` (git
+    # accepts it) passes sed unchanged and would become SLUG=".." — filing
+    # state one level ABOVE ~/.gstack/projects/. Reject empty/"."/".."/
+    # slash-bearing slugs and fall through to the basename fallback below.
+    # (tr -cd already deletes "/", so */* is belt-and-braces.)
+    case "$SLUG" in ""|.|..|*/*) SLUG="" ;; esac
+  fi
+fi
+
+# 3. No git remote (or no remote at all) — use the project root's basename.
+if [[ -z "$SLUG" && -n "$PROJECT_ROOT" ]]; then
+  SLUG=$(basename "$PROJECT_ROOT" | tr -cd 'a-zA-Z0-9._-')
+fi
+
+# 4. Final fallback: no project root found anywhere on the chain. Use pwd's
+#    basename (preserves the old behavior for plain non-project folders).
+SLUG="${SLUG:-$(basename "$PROJECT_DIR" | tr -cd 'a-zA-Z0-9._-')}"
+
+# Cache compare/evict/write — self-healing. Compute the cache decision AFTER
+# fresh resolution so a stale cached value gets corrected on next invocation
+# rather than perpetuated. Single-shot: we only ever touch the cache entry for
+# the literal current pwd's key, never sweep others.
+# 3b. Re-sanitize unconditionally before the value is echoed into `eval`/`source`
+#     output — honors the [a-zA-Z0-9._-] invariant promised in the header on
+#     every path (the fresh-compute design already prevents poisoned-cache
+#     injection, but the invariant should not depend on that reasoning).
+SLUG=$(printf '%s' "$SLUG" | tr -cd 'a-zA-Z0-9._-')
+
+if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 ]]; then
+  CURRENT_CACHE=""
+  if [[ -f "$CACHE_FILE" ]]; then
+    CURRENT_CACHE=$(cat "$CACHE_FILE" 2>/dev/null || true)
+  fi
+  if [[ "$CURRENT_CACHE" != "$SLUG" ]]; then
+    mkdir -p "$CACHE_DIR" 2>/dev/null || true
+    CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
+    if [[ -n "$CACHE_TMP" ]]; then
+      printf '%s' "$SLUG" > "$CACHE_TMP" && mv "$CACHE_TMP" "$CACHE_FILE" 2>/dev/null || rm -f "$CACHE_TMP" 2>/dev/null
+    fi
+  fi
+fi
+
+RAW_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || RAW_BRANCH=""
+BRANCH=$(printf '%s' "${RAW_BRANCH:-}" | tr '/' '-' | tr -cd 'a-zA-Z0-9._-')
+BRANCH="${BRANCH:-unknown}"
+echo "SLUG=$SLUG"
+echo "BRANCH=$BRANCH"

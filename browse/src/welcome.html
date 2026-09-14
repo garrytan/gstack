@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GStack Browser</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@700,900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --amber-400: #FBBF24;
+    --amber-500: #F59E0B;
+    --zinc-400: #A1A1AA;
+    --zinc-600: #52525B;
+    --zinc-800: #27272A;
+    --surface: #141414;
+    --base: #0C0C0C;
+    --border: #262626;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: var(--base);
+    color: #e4e4e7;
+    font-family: 'DM Sans', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 128px 128px;
+  }
+  .page { width: 100%; max-width: 1060px; padding: 0 40px; }
+
+  /* Sidebar prompt — points RIGHT toward where sidebar opens */
+  .sidebar-prompt {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: opacity 300ms ease-out;
+  }
+  .sidebar-prompt .bubble {
+    background: var(--amber-500);
+    color: #000;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 10px;
+    max-width: 220px;
+    text-align: left;
+    line-height: 1.4;
+  }
+  .sidebar-prompt .arrow-right {
+    font-size: 28px;
+    color: var(--amber-500);
+    animation: nudge 1.5s ease-in-out infinite;
+  }
+  @keyframes nudge {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(6px); }
+  }
+  .sidebar-prompt.hidden { opacity: 0; pointer-events: none; }
+
+  /* Hero */
+  .hero { margin-bottom: 36px; }
+  .logo-row { display: inline-flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .logo-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--amber-500);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(245,158,11,0.4); }
+    50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(245,158,11,0); }
+  }
+  .logo-text { font-family: 'Satoshi', sans-serif; font-weight: 900; font-size: 28px; color: #fff; letter-spacing: -0.5px; }
+  .tagline { font-size: 15px; color: var(--zinc-400); max-width: 560px; line-height: 1.6; }
+
+  /* Feature cards — 3 columns for 6 cards */
+  .features { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 28px; }
+  .feat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .feat-title {
+    font-family: 'Satoshi', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    color: #fff;
+    margin-bottom: 6px;
+  }
+  .feat p { font-size: 13px; color: var(--zinc-400); line-height: 1.5; }
+  .feat .hl { color: #e4e4e7; font-weight: 500; }
+  .feat code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--amber-400);
+    background: rgba(245,158,11,0.08);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  /* Try it strip */
+  .try-strip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+  }
+  .try-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--amber-400);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+  .try-items { display: flex; flex-direction: column; gap: 8px; }
+  .try-item {
+    font-size: 13px;
+    color: var(--zinc-400);
+    line-height: 1.5;
+    padding-left: 16px;
+    position: relative;
+  }
+  .try-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--zinc-600);
+  }
+  .try-item .hl { color: #e4e4e7; font-weight: 500; }
+
+  /* Footer */
+  .footer {}
+  .footer p { font-size: 12px; color: var(--zinc-600); }
+  .footer a { color: var(--zinc-400); text-decoration: none; }
+  .footer a:hover { color: var(--amber-400); }
+
+  @media (max-width: 900px) {
+    .features { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 600px) {
+    .features { grid-template-columns: 1fr; }
+    html, body { overflow: auto; }
+    .sidebar-prompt { right: 40px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="sidebar-prompt" id="sidebar-prompt">
+  <div class="bubble">Open the sidebar to get started. Click the puzzle piece icon in the toolbar, then pin gstack browse.</div>
+  <span class="arrow-right">&#x2192;</span>
+</div>
+
+<div class="page">
+  <header class="hero">
+    <div class="logo-row">
+      <div class="logo-dot"></div>
+      <span class="logo-text">GStack Browser</span>
+    </div>
+    <p class="tagline">This browser is connected to your Claude Code session. The sidebar is your co-pilot: it can control this window, read pages, edit CSS, and pass everything back to your terminal.</p>
+  </header>
+
+  <div class="features">
+    <div class="feat">
+      <div class="feat-title">Talk to the sidebar</div>
+      <p>The sidebar chat is a Claude instance that <span class="hl">controls this browser</span>. Say "go to my app and check if login works" and watch it navigate, click, fill forms, and report back.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-title">Or use your main agent</div>
+      <p>Your Claude Code terminal <span class="hl">also controls this browser</span>. Run <code>/qa</code>, <code>/design-review</code>, or any skill and watch every action happen here. Two agents, one browser.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-title">Import your cookies</div>
+      <p>Click <span class="hl">🍪 Cookies</span> in the sidebar to import login sessions from Chrome, Arc, or Brave. Browse authenticated pages <span class="hl">without logging in again</span>.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-title">Clean up any page</div>
+      <p>Click <span class="hl">Cleanup</span> in the sidebar. AI identifies overlays, paywalls, cookie banners, and clutter, then <span class="hl">removes them</span>. Articles become readable.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-title">Smart screenshots</div>
+      <p>The <span class="hl">Screenshot</span> button captures a cleaned screenshot and sends it to your Claude Code session as context. "What's wrong with this page?" now has a visual answer.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-title">Modify any page</div>
+      <p>The sidebar can <span class="hl">edit CSS and DOM</span> on any page. "Make the header sticky" or "change the font to Inter." Changes happen live, reported back to your terminal.</p>
+    </div>
+  </div>
+
+  <div class="try-strip">
+    <div class="try-title">Try it now</div>
+    <div class="try-items">
+      <div class="try-item">Open the sidebar and type: <span class="hl">"Go to news.ycombinator.com, open the top story, clean up the article, and summarize the key points back to my terminal"</span></div>
+      <div class="try-item">On any article page, click <span class="hl">Cleanup</span> to strip away the noise</div>
+      <div class="try-item">Click <span class="hl">Screenshot</span> to capture the page and send it to your Claude Code session</div>
+      <div class="try-item">Ask the sidebar: <span class="hl">"Inspect the CSS on this page and send the color palette to my terminal"</span></div>
+      <div class="try-item">From your Claude Code terminal: <span class="hl">"Navigate to my app, extract the full CSS design system, and write it to DESIGN.md"</span></div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p><a href="https://github.com/garrytan/gstack">gstack</a> is open source. Built by <a href="https://x.com/garrytan">Garry Tan</a>.</p>
+  </footer>
+</div>
+
+<script>
+// Hide sidebar prompt ONLY when the sidebar is actually opened.
+// The content script dispatches 'gstack-extension-ready' when it receives
+// a 'sidebarOpened' message from the side panel (via background.js).
+// This means the arrow stays visible until the user actually opens the sidebar.
+document.addEventListener('gstack-extension-ready', () => {
+  const prompt = document.getElementById('sidebar-prompt');
+  if (prompt) prompt.classList.add('hidden');
+});
+</script>
+</body>
+</html>

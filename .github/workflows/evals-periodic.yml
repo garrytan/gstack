@@ -1,0 +1,335 @@
+name: Periodic Evals
+# The weekly coverage contract: EVERY periodic-tier paid test runs (EVALS_ALL,
+# minus the reasoned excludes in test/helpers/periodic-exclude-data.ts), so
+# tests can't rot invisibly — the class where the autoplan-dual-voice E2E was
+# silently broken for months until a lucky local diff selected it. Engine:
+# scripts/test-paid-shards.ts (the same runner local eval:bg:periodic uses):
+# one planner manifest, 6 ordinary slices plus dedicated Autoplan slice 7, and a FAIL-CLOSED report — a slice
+# whose artifact never landed is a failure, not an absence. The gate-census
+# job is the weekly EVALS_ALL backstop for the gate tier (PR lanes are
+# diff-billed, so without it the full gate census might never execute
+# anywhere); the hollow-shard guard (exit 0 + zero executed tests under
+# EVALS_ALL fails) makes both lanes census-health checks, not just test runs.
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Monday 6 AM UTC (ci-image prebuilds at 4 AM)
+  workflow_dispatch:
+
+concurrency:
+  group: evals-periodic
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/ci
+
+jobs:
+  build-image:
+    runs-on: ubicloud-standard-8
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - id: meta
+        # Keep in sync with evals.yml — key on Dockerfile + lockfile only
+        # (package.json's version field would bust the key on every ship).
+        # Byte-identity pinned by test/ci-image-tag-binding.test.ts.
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image exists
+        id: check
+        run: |
+          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.check.outputs.exists == 'false'
+        run: cp package.json bun.lock .github/docker/ && cp -R patches .github/docker/patches
+
+      # Registry cache export needs a docker-container builder — the default
+      # `docker` driver hard-errors on cache-to.
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .github/docker
+          file: .github/docker/Dockerfile.ci
+          push: true
+          # Cron-triggered in the base repo only, so cache export is always safe here.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+          tags: |
+            ${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+
+  plan-slices:
+    runs-on: ubicloud-standard-8
+    needs: build-image
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Restore deps
+        uses: ./.github/actions/restore-deps
+
+      - name: Emit run manifest (ALL periodic tests minus reasoned excludes)
+        env:
+          EVALS_ALL: "1"
+        run: EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slices 7 --autoplan-slice
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: paid-plan
+          path: /tmp/paid-plan/manifest.json
+          retention-days: 30
+
+  eval-slices:
+    runs-on: ubicloud-standard-8
+    needs: [build-image, plan-slices]
+    # Six ordinary slices retain their existing walls and concurrency. Slice 7
+    # runs only Autoplan: its specified 172min two-attempt wall leaves 28min
+    # for setup/upload. This is not a measured latency bound for ordinary work.
+    timeout-minutes: 200
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history: files with SELF-derived selection (the LLM-judge
+          # map, routing) walk git at module load, and selection is
+          # fail-closed on git errors — a shallow checkout crashed those
+          # shards on the lane's first live run ("ambiguous argument
+          # 'main...HEAD'"). The manifest still governs WHICH shards run.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fix bun temp
+        uses: ./.github/actions/fix-bun-temp
+
+      - name: Restore deps
+        uses: ./.github/actions/restore-deps
+
+      - run: bun run build
+
+      # Any slice can host a PTY test — seed + registration run
+      # unconditionally (idempotent; mirrors evals.yml's sliced lane). The
+      # register composite carries the fail-fast dangling-symlink/frontmatter
+      # verification loop — this lane previously LACKED it, so a moved skill
+      # target surfaced as a silent "Unknown command" + wedged PTY session.
+      - name: Seed claude interactive config
+        uses: ./.github/actions/seed-claude-config
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Register gstack skills for PTY tests
+        uses: ./.github/actions/register-gstack-skills
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: paid-plan
+          path: /tmp/paid-plan
+
+      - name: Run slice ${{ matrix.slice }}/7
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
+          EVALS_JOBS: "2"
+          EVALS_CONCURRENCY: "2"
+          GSTACK_EVAL_DIR: /tmp/paid-slice-results
+        run: EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --plan /tmp/paid-plan/manifest.json --slice ${{ matrix.slice }}
+
+      - name: Upload slice results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: paid-slice-${{ matrix.slice }}
+          path: /tmp/paid-slice-results
+          retention-days: 90
+
+      - name: Upload shard logs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: paid-slice-${{ matrix.slice }}-logs
+          # The Fix-bun-temp step points TMPDIR at /home/runner/.cache, so the
+          # runner's spool lands THERE, not /tmp — the original /tmp glob
+          # uploaded nothing and a red slice's diagnostics were unreachable.
+          path: |
+            /home/runner/.cache/gstack-paid-shard-*.log
+            /tmp/gstack-paid-shard-*.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # Weekly EVALS_ALL gate-tier census: PR lanes are diff-billed, so without
+  # this the full gate census might never execute anywhere and the selector's
+  # blind spots rot invisibly. Census health, not selector correctness —
+  # selector logic has free synthetic-diff contract tests.
+  gate-census:
+    runs-on: ubicloud-standard-8
+    needs: build-image
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history: files with SELF-derived selection (the LLM-judge
+          # map, routing) walk git at module load, and selection is
+          # fail-closed on git errors — a shallow checkout crashed those
+          # shards on the lane's first live run ("ambiguous argument
+          # 'main...HEAD'"). The manifest still governs WHICH shards run.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fix bun temp
+        uses: ./.github/actions/fix-bun-temp
+
+      - name: Restore deps
+        uses: ./.github/actions/restore-deps
+
+      - run: bun run build
+
+      - name: Run full gate census
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
+          EVALS_ALL: "1"
+          EVALS_JOBS: "4"
+          EVALS_CONCURRENCY: "2"
+          GSTACK_EVAL_DIR: /tmp/gate-census-results
+        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate
+
+      - name: Upload census results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gate-census
+          path: /tmp/gate-census-results
+          retention-days: 90
+
+  report:
+    runs-on: ubicloud-standard-2
+    needs: [plan-slices, eval-slices, gate-census]
+    # always(): the report must run (and FAIL) when an executor died — a
+    # missing slice artifact reading as green is the class this lane kills.
+    if: always() && needs.plan-slices.result == 'success'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # The failure notification below upserts a tracking issue via
+      # `gh api /issues` — gated by the issues permission.
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+
+      - run: bun install --frozen-lockfile
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: paid-plan
+          path: /tmp/paid-report
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: paid-slice-[0-9]*
+          path: /tmp/paid-report
+          merge-multiple: true
+
+      - name: Reconcile slices against the manifest (fail-closed)
+        id: reconcile
+        run: |
+          set +e
+          EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --report /tmp/paid-report | tee /tmp/report.txt
+          # PIPESTATUS[0], NOT $?: GitHub's default run-step shell is
+          # `bash -e {0}` with NO pipefail, so $? after the pipe is tee's
+          # exit (always 0) — the fail-closed gate was silently fail-open
+          # (caught by the ship review army; the wiring test now pins this).
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      # A red weekly lane nobody must action is waste — upsert ONE tracking
+      # issue (never a new issue per week) with the reconciliation output, so
+      # failures have an owner-visible artifact with history in one place.
+      - name: Upsert tracking issue on failure
+        if: steps.reconcile.outputs.exit != '0' || needs.gate-census.result == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TITLE="Weekly periodic evals: red lane needs triage"
+          BODY_FILE=/tmp/issue-body.md
+          {
+            echo "Automated weekly report — run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "- periodic reconciliation exit: ${{ steps.reconcile.outputs.exit }}"
+            echo "- gate census job: ${{ needs.gate-census.result }}"
+            echo
+            echo '```'
+            tail -c 6000 /tmp/report.txt 2>/dev/null || echo "(no reconciliation output)"
+            echo '```'
+            echo
+            echo "Exclusion policy: test/helpers/periodic-exclude-data.ts (every entry needs reason + tracking; removal re-activates the file next week)."
+          } > "$BODY_FILE"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file "$BODY_FILE"
+            echo "commented on #$EXISTING"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$BODY_FILE"
+          fi
+
+      - name: Fail the workflow when reconciliation failed
+        if: steps.reconcile.outputs.exit != '0'
+        run: exit 1

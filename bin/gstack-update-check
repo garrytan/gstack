@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+# gstack-update-check — periodic version check for all skills.
+#
+# Output (one line, or nothing):
+#   JUST_UPGRADED <old> <new>       — marker found from recent upgrade
+#   UPGRADE_AVAILABLE <old> <new>   — remote VERSION differs from local
+#   (nothing)                       — up to date, snoozed, disabled, or check skipped
+#
+# Env overrides (for testing):
+#   GSTACK_DIR          — override auto-detected gstack root
+#   GSTACK_REMOTE_URL   — override remote VERSION URL (branch-pinned fallback)
+#   GSTACK_REMOTE_REPO  — override remote git URL for ls-remote SHA resolution
+#   GSTACK_STATE_DIR    — override ~/.gstack state directory
+set -euo pipefail
+
+# A crash must not read as "up to date" (#1974). With set -e, any unguarded
+# failure used to exit silently — and silence IS the up-to-date signal, so a
+# broken check was indistinguishable from a current install (observed live as
+# a 45-release silent-staleness incident). -E propagates the trap into
+# functions/subshells; exit 0 keeps callers' `|| true` from eating the line.
+set -E
+trap 'rc=$?; echo "CHECK_FAILED gstack-update-check crashed (line $LINENO, rc=$rc) — update status UNKNOWN, not up-to-date"; exit 0' ERR
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+
+# Egress receipt helpers (_receipted_curl / _receipted_git). Update checks
+# are fail-OPEN: a receipt hiccup warns but never blocks the version check.
+. "$GSTACK_DIR/bin/gstack-egress-lib.sh"
+
+# _receipted_version_fetch <url>
+#   Receipted bodyless GET for a VERSION file (fail-open). Local reads
+#   (file://, or a URL with no network host) never leave the machine — they
+#   are not egress, so they get no receipt.
+_receipted_version_fetch() {
+  local url="$1" host scheme
+  scheme="${url%%://*}"
+  host="${url#*://}"; host="${host%%/*}"
+  case "$scheme" in
+    http|https|git|ssh|ftp|ftps)
+      GSTACK_HOME="$STATE_DIR" _receipted_curl open update-check "$host" version-fetch "update_check!=false" --no-payload \
+        curl -sf --max-time 5 "$url" || true
+      ;;
+    *)
+      curl -sf --max-time 5 "$url" 2>/dev/null || true
+      ;;
+  esac
+}
+CACHE_FILE="$STATE_DIR/last-update-check"
+MARKER_FILE="$STATE_DIR/just-upgraded-from"
+SNOOZE_FILE="$STATE_DIR/update-snoozed"
+VERSION_FILE="$GSTACK_DIR/VERSION"
+REMOTE_URL="${GSTACK_REMOTE_URL:-https://raw.githubusercontent.com/garrytan/gstack/main/VERSION}"
+REMOTE_REPO="${GSTACK_REMOTE_REPO:-https://github.com/garrytan/gstack.git}"
+
+# ─── Force flag (busts cache + snooze for standalone /gstack-upgrade) ──
+if [ "${1:-}" = "--force" ]; then
+  rm -f "$CACHE_FILE"
+  rm -f "$SNOOZE_FILE"
+fi
+
+# ─── Step 0: Check if updates are disabled ────────────────────
+_UC=$("$GSTACK_DIR/bin/gstack-config" get update_check 2>/dev/null || true)
+if [ "$_UC" = "false" ]; then
+  exit 0
+fi
+
+# ─── Migration: fix stale Codex descriptions (one-time) ───────
+# Existing installs may have .agents/skills/gstack/SKILL.md with oversized
+# descriptions (>1024 chars) that Codex rejects. We can't regenerate from
+# the runtime root (no bun/scripts), so delete oversized files — the next
+# ./setup or /gstack-upgrade will regenerate them properly.
+# Marker file ensures this runs at most once per install.
+if [ ! -f "$STATE_DIR/.codex-desc-healed" ]; then
+  for _AGENTS_SKILL in "$GSTACK_DIR"/.agents/skills/*/SKILL.md; do
+    [ -f "$_AGENTS_SKILL" ] || continue
+    _DESC=$(awk '/^---$/{n++;next}n==1&&/^description:/{d=1;sub(/^description:\s*/,"");if(length>0)print;next}d&&/^  /{sub(/^  /,"");print;next}d{d=0}' "$_AGENTS_SKILL" | wc -c | tr -d ' ')
+    if [ "${_DESC:-0}" -gt 1024 ]; then
+      rm -f "$_AGENTS_SKILL"
+    fi
+  done
+  mkdir -p "$STATE_DIR"
+  touch "$STATE_DIR/.codex-desc-healed"
+fi
+
+# ─── Snooze helper ──────────────────────────────────────────
+# check_snooze <remote_version>
+#   Returns 0 if snoozed (should stay quiet), 1 if not snoozed (should output).
+#
+#   Snooze file format: <version> <level> <epoch>
+#   Level durations: 1=24h, 2=48h, 3+=7d
+#   New version (version mismatch) resets snooze.
+check_snooze() {
+  local remote_ver="$1"
+  if [ ! -f "$SNOOZE_FILE" ]; then
+    return 1  # no snooze file → not snoozed
+  fi
+  local snoozed_ver snoozed_level snoozed_epoch
+  snoozed_ver="$(awk '{print $1}' "$SNOOZE_FILE" 2>/dev/null || true)"
+  snoozed_level="$(awk '{print $2}' "$SNOOZE_FILE" 2>/dev/null || true)"
+  snoozed_epoch="$(awk '{print $3}' "$SNOOZE_FILE" 2>/dev/null || true)"
+
+  # Validate: all three fields must be non-empty
+  if [ -z "$snoozed_ver" ] || [ -z "$snoozed_level" ] || [ -z "$snoozed_epoch" ]; then
+    return 1  # corrupt file → not snoozed
+  fi
+
+  # Validate: level and epoch must be integers
+  case "$snoozed_level" in *[!0-9]*) return 1 ;; esac
+  case "$snoozed_epoch" in *[!0-9]*) return 1 ;; esac
+
+  # New version dropped? Ignore snooze.
+  if [ "$snoozed_ver" != "$remote_ver" ]; then
+    return 1
+  fi
+
+  # Compute snooze duration based on level
+  local duration
+  case "$snoozed_level" in
+    1) duration=86400 ;;   # 24 hours
+    2) duration=172800 ;;  # 48 hours
+    *) duration=604800 ;;  # 7 days (level 3+)
+  esac
+
+  local now
+  now="$(date +%s)"
+  local expires=$(( snoozed_epoch + duration ))
+  if [ "$now" -lt "$expires" ]; then
+    return 0  # still snoozed
+  fi
+
+  return 1  # snooze expired
+}
+
+# ─── Step 1: Read local version ──────────────────────────────
+LOCAL=""
+if [ -f "$VERSION_FILE" ]; then
+  LOCAL="$(cat "$VERSION_FILE" 2>/dev/null | tr -d '[:space:]')"
+fi
+if [ -z "$LOCAL" ]; then
+  exit 0  # No VERSION file → skip check
+fi
+
+# ─── Step 2: Check "just upgraded" marker ─────────────────────
+if [ -f "$MARKER_FILE" ]; then
+  OLD="$(cat "$MARKER_FILE" 2>/dev/null | tr -d '[:space:]')"
+  rm -f "$MARKER_FILE"
+  rm -f "$SNOOZE_FILE"
+  if [ -n "$OLD" ]; then
+    echo "JUST_UPGRADED $OLD $LOCAL"
+  fi
+  # Don't exit — fall through to remote check in case
+  # more updates landed since the upgrade
+fi
+
+# ─── Step 3: Check cache freshness ──────────────────────────
+# UP_TO_DATE: 60 min TTL (detect new releases quickly)
+# UPGRADE_AVAILABLE: 720 min TTL (keep nagging)
+if [ -f "$CACHE_FILE" ]; then
+  CACHED="$(cat "$CACHE_FILE" 2>/dev/null || true)"
+  case "$CACHED" in
+    UP_TO_DATE*)        CACHE_TTL=60 ;;
+    UPGRADE_AVAILABLE*) CACHE_TTL=720 ;;
+    *)                  CACHE_TTL=0 ;;  # corrupt → force re-fetch
+  esac
+
+  STALE=$(find "$CACHE_FILE" -mmin +$CACHE_TTL 2>/dev/null || true)
+  if [ -z "$STALE" ] && [ "$CACHE_TTL" -gt 0 ]; then
+    case "$CACHED" in
+      UP_TO_DATE*)
+        CACHED_VER="$(echo "$CACHED" | awk '{print $2}')"
+        if [ "$CACHED_VER" = "$LOCAL" ]; then
+          exit 0
+        fi
+        ;;
+      UPGRADE_AVAILABLE*)
+        CACHED_OLD="$(echo "$CACHED" | awk '{print $2}')"
+        if [ "$CACHED_OLD" = "$LOCAL" ]; then
+          CACHED_NEW="$(echo "$CACHED" | awk '{print $3}')"
+          if check_snooze "$CACHED_NEW"; then
+            exit 0  # snoozed — stay quiet
+          fi
+          echo "$CACHED"
+          exit 0
+        fi
+        ;;
+    esac
+  fi
+fi
+
+# ─── Step 4: Slow path — fetch remote version ────────────────
+mkdir -p "$STATE_DIR"
+
+# Fire Supabase install ping in background (parallel, non-blocking)
+# This logs an update check event for community health metrics via edge function.
+# If Supabase is not configured or telemetry is off, this is a no-op.
+if [ -z "${GSTACK_SUPABASE_URL:-}" ] && [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+_SUPA_URL="${GSTACK_SUPABASE_URL:-}"
+_SUPA_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
+# Respect telemetry opt-out — don't ping Supabase if user set telemetry: off
+_TEL_TIER="$("$GSTACK_DIR/bin/gstack-config" get telemetry 2>/dev/null || true)"
+if [ -n "$_SUPA_URL" ] && [ -n "$_SUPA_KEY" ] && [ "${_TEL_TIER:-off}" != "off" ]; then
+  _OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  # Receipted (fail-open) and fully backgrounded: the receipt write happens
+  # inside the background subshell, so it can never block this script's exit.
+  _PING_FILE="$(mktemp "${TMPDIR:-/tmp}/gstack-update-ping-XXXXXX" 2>/dev/null)" || _PING_FILE=""
+  if [ -n "$_PING_FILE" ]; then
+    printf '{"version":"%s","os":"%s"}' "$LOCAL" "$_OS" > "$_PING_FILE"
+    _SUPA_HOST="${_SUPA_URL#*://}"; _SUPA_HOST="${_SUPA_HOST%%/*}"
+    GSTACK_HOME="$STATE_DIR" _receipted_curl open update-check "$_SUPA_HOST" update-check-ping "telemetry=$_TEL_TIER" "$_PING_FILE" \
+      curl -sf --max-time 5 \
+      -X POST "${_SUPA_URL}/functions/v1/update-check" \
+      -H "Content-Type: application/json" \
+      -H "apikey: ${_SUPA_KEY}" \
+      >/dev/null 2>&1 &
+  fi
+fi
+
+# Resolve VERSION via a SHA-pinned raw URL. GitHub's branch-raw CDN
+# (raw.githubusercontent.com/<owner>/<repo>/<branch>/...) can serve stale
+# content for several minutes after a push, which previously caused
+# /gstack-upgrade to silently report "up to date" right after a release
+# landed. git ls-remote always returns the live HEAD; SHA-pinned raw URLs
+# are immediately consistent.
+#
+# An explicit GSTACK_REMOTE_URL override (tests, mirrors) skips this path
+# so the override is honored verbatim.
+REMOTE=""
+if [ -z "${GSTACK_REMOTE_URL:-}" ]; then
+  # Disable credential prompts and apply a 5-second low-speed timeout so a
+  # flaky network or captive portal can't hang every skill preamble.
+  _REPO_HOST="${REMOTE_REPO#*://}"; _REPO_HOST="${_REPO_HOST#*@}"; _REPO_HOST="${_REPO_HOST%%[/:]*}"
+  _LSR_LINE="$(GSTACK_HOME="$STATE_DIR" _receipted_git open update-check "${_REPO_HOST:-unknown}" version-ls-remote "update_check!=false" \
+    bash -c 'GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 \
+      git ls-remote "$1" refs/heads/main 2>/dev/null' _ "$REMOTE_REPO" || true)"
+  _REMOTE_SHA="$(echo "$_LSR_LINE" | awk '{print $1}')"
+  if echo "$_REMOTE_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+    _SHA_URL="https://raw.githubusercontent.com/garrytan/gstack/${_REMOTE_SHA}/VERSION"
+    REMOTE="$(_receipted_version_fetch "$_SHA_URL")"
+  fi
+fi
+
+# Fallback: branch-pinned URL when ls-remote is unavailable (no git, no
+# network, mirror without refs/heads/main) or when GSTACK_REMOTE_URL was
+# explicitly overridden.
+if [ -z "$REMOTE" ]; then
+  REMOTE="$(_receipted_version_fetch "$REMOTE_URL")"
+fi
+REMOTE="$(echo "$REMOTE" | tr -d '[:space:]')"
+
+# Validate: must look like a version number (reject HTML error pages)
+if ! echo "$REMOTE" | grep -qE '^[0-9]+\.[0-9.]+$'; then
+  # Invalid or empty response — assume up to date
+  echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  exit 0
+fi
+
+if [ "$LOCAL" = "$REMOTE" ]; then
+  echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  exit 0
+fi
+
+# Semver-order guard: only flag an upgrade when REMOTE sorts higher than
+# LOCAL. Protects against transient stale-CDN regressions (REMOTE < LOCAL)
+# and dev installs running ahead of main, both of which would otherwise
+# emit a backwards UPGRADE_AVAILABLE line.
+_HIGHER="$(printf '%s\n%s\n' "$LOCAL" "$REMOTE" | sort -V | tail -1)"
+if [ "$_HIGHER" != "$REMOTE" ]; then
+  echo "UP_TO_DATE $LOCAL" > "$CACHE_FILE"
+  exit 0
+fi
+
+# REMOTE is strictly newer — upgrade available
+echo "UPGRADE_AVAILABLE $LOCAL $REMOTE" > "$CACHE_FILE"
+if check_snooze "$REMOTE"; then
+  exit 0  # snoozed — stay quiet
+fi
+
+# Log upgrade_prompted event (only on slow-path fetch, not cached replays)
+TEL_CMD="$GSTACK_DIR/bin/gstack-telemetry-log"
+if [ -x "$TEL_CMD" ]; then
+  "$TEL_CMD" --event-type upgrade_prompted --skill "" --duration 0 \
+    --outcome success --session-id "update-$$-$(date +%s)" 2>/dev/null &
+fi
+
+echo "UPGRADE_AVAILABLE $LOCAL $REMOTE"

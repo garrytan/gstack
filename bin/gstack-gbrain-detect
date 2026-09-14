@@ -1,0 +1,308 @@
+#!/usr/bin/env -S bun run
+/**
+ * gstack-gbrain-detect — emit current gbrain/gstack-brain state as JSON.
+ *
+ * Rewritten from bash to TypeScript in v{X.Y.Z.0} to share the engine-status
+ * classifier with bin/gstack-gbrain-sync.ts. Single source of truth via
+ * lib/gbrain-local-status.ts. Filename and exec semantics unchanged: callers
+ * just shell out to the file path; the bun shebang resolves at runtime.
+ *
+ * Output (always valid JSON, even when every check is false):
+ *   {
+ *     "gbrain_on_path": true|false,
+ *     "gbrain_version": "0.18.2" | null,
+ *     "gbrain_config_exists": true|false,
+ *     "gbrain_engine": "pglite"|"postgres" | null,
+ *     "gbrain_doctor_ok": true|false,
+ *     "gbrain_mcp_mode": "local-stdio"|"remote-http"|"none",
+ *     "gstack_brain_sync_mode": "off"|"artifacts-only"|"full",
+ *     "gstack_brain_git": true|false,
+ *     "gstack_artifacts_remote": "https://..." | "",
+ *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db"|"engine-locked"|"timeout"|"thin-client",
+ *     "gbrain_pooler_mode": "transaction"|"session"|null
+ *   }
+ *
+ * Backward compatibility (per plan codex #5): the 9 pre-existing fields stay
+ * identical in name + type + value semantics. One new field added:
+ * gbrain_local_status. Key order may differ from the bash version's `jq -n`
+ * output — downstream parsers must not depend on key order (none currently do).
+ *
+ * Env:
+ *   GSTACK_HOME      — override ~/.gstack for state lookups (used by tests).
+ *   HOME             — effective user home (drives ~/.gbrain/config.json path).
+ *   GSTACK_DETECT_NO_CACHE=1 — bypass the 60s local-status cache.
+ */
+
+import { execFileSync } from "child_process";
+import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
+
+import {
+  localEngineStatus,
+  resolveGbrainBin,
+  readGbrainVersion,
+} from "../lib/gbrain-local-status";
+import { gbrainConfigDir, isTransactionModePooler } from "../lib/gbrain-exec";
+
+const STATE_DIR = process.env.GSTACK_HOME || join(userHome(), ".gstack");
+const SCRIPT_DIR = __dirname;
+const CONFIG_BIN = join(SCRIPT_DIR, "gstack-config");
+// Honors GBRAIN_HOME with gbrain's own configDir() semantics (#2521:
+// GBRAIN_HOME is a parent dir, `.gbrain` is appended) — must stay consistent
+// with lib/gbrain-local-status's config resolution, or the detect JSON
+// reports gbrain_local_status "ok" alongside gbrain_config_exists false for
+// relocated-home users. Both route through gbrainConfigDir.
+const GBRAIN_CONFIG = join(gbrainConfigDir(), "config.json");
+const CLAUDE_JSON = join(userHome(), ".claude.json");
+
+function userHome(): string {
+  return process.env.HOME || homedir();
+}
+
+function tryExec(cmd: string, args: string[], timeoutMs = 5_000): string | null {
+  try {
+    return execFileSync(cmd, args, {
+      encoding: "utf-8",
+      timeout: timeoutMs,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function tryReadJSON(path: string): unknown | null {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+// --- gbrain binary presence + version ---
+// Uses the shared memoized resolvers from lib/gbrain-local-status.ts so
+// detect and the classifier share probe results within one process.
+function detectGbrain(): { onPath: boolean; version: string | null } {
+  const bin = resolveGbrainBin();
+  if (!bin) return { onPath: false, version: null };
+  const verRaw = readGbrainVersion();
+  if (!verRaw) return { onPath: true, version: null };
+  // Match bash behavior: head -1 | tr -d '[:space:]'
+  const version = verRaw.split("\n")[0].replace(/\s+/g, "") || null;
+  return { onPath: true, version };
+}
+
+// --- gbrain config existence + engine kind ---
+function detectConfig(): { exists: boolean; engine: "pglite" | "postgres" | null } {
+  if (!existsSync(GBRAIN_CONFIG)) return { exists: false, engine: null };
+  const parsed = tryReadJSON(GBRAIN_CONFIG) as { engine?: string } | null;
+  if (!parsed) return { exists: true, engine: null };
+  if (parsed.engine === "pglite" || parsed.engine === "postgres") {
+    return { exists: true, engine: parsed.engine };
+  }
+  return { exists: true, engine: null };
+}
+
+// --- pooler mode detection (#1435) ---
+//
+// Reads DATABASE_URL from ~/.gbrain/config.json and checks whether it targets
+// a PgBouncer transaction-mode pooler (port 6543). Surfaced so /sync-gbrain
+// and /setup-gbrain can advise users when search may require GBRAIN_PREPARE.
+function detectPoolerMode(): "transaction" | "session" | "unknown" | null {
+  const parsed = tryReadJSON(GBRAIN_CONFIG) as { database_url?: string } | null;
+  if (!parsed?.database_url) return null;
+  return isTransactionModePooler(parsed.database_url) ? "transaction" : "session";
+}
+
+// --- gbrain doctor health (any nonzero exit or non-"ok"/"warnings" status → false) ---
+//
+// Uses --fast to avoid hanging on a dead DB. Per the local-status classifier
+// (which probes DB directly via `gbrain sources list`), gbrain_doctor_ok is a
+// coarse health summary, not engine-reachability — that's gbrain_local_status.
+function detectDoctor(onPath: boolean): boolean {
+  if (!onPath) return false;
+  const out = tryExec("gbrain", ["doctor", "--json", "--fast"], 3_000);
+  if (!out) return false;
+  try {
+    const parsed = JSON.parse(out) as { status?: string };
+    return parsed.status === "ok" || parsed.status === "warnings";
+  } catch {
+    return false;
+  }
+}
+
+// --- artifacts sync mode ---
+function detectSyncMode(): "off" | "artifacts-only" | "full" {
+  if (!existsSync(CONFIG_BIN)) return "off";
+  const out = tryExec(CONFIG_BIN, ["get", "artifacts_sync_mode"], 2_000);
+  if (out === "off" || out === "artifacts-only" || out === "full") return out;
+  return "off";
+}
+
+// --- gstack-brain git repo present? ---
+function detectBrainGit(): boolean {
+  return existsSync(join(STATE_DIR, ".git"));
+}
+
+// --- MCP mode: local-stdio | remote-http | none ---
+//
+// Defense-in-depth fallback chain (same ordering as the bash version):
+//   1. `claude mcp get gbrain --json` — public CLI surface, structured output
+//   2. `claude mcp list` text-grep    — older claude versions without --json
+//   3. `~/.claude.json` jq read       — last resort if `claude` isn't on PATH
+function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
+  const claudeOnPath = tryExec("sh", ["-c", "command -v claude"], 1_000) !== null;
+  if (claudeOnPath) {
+    // Tier 1: `claude mcp get gbrain --json`
+    const get = tryExec("claude", ["mcp", "get", "gbrain", "--json"], 3_000);
+    if (get) {
+      try {
+        const parsed = JSON.parse(get) as {
+          type?: string;
+          transport?: string;
+          command?: string;
+          url?: string;
+        };
+        const mtype = parsed.type || parsed.transport || "";
+        if (mtype === "http" || mtype === "sse") return "remote-http";
+        if (mtype === "stdio") return "local-stdio";
+        if (parsed.url) return "remote-http";
+        if (parsed.command) return "local-stdio";
+      } catch {
+        // fall through
+      }
+    }
+    // Tier 2: `claude mcp list` text-grep. Name-pattern generalized (#2051):
+    // a gbrain server registered as e.g. "gbrain-remote" or "gbrain_work"
+    // still counts. Anchored to the gbrain token so unrelated servers can't
+    // false-positive.
+    const list = tryExec("claude", ["mcp", "list"], 3_000);
+    if (list) {
+      const line = list.split("\n").find((l) => /^gbrain([-_][\w-]*)?:/.test(l));
+      if (line) {
+        if (/\b(http|HTTP)\b/.test(line)) return "remote-http";
+        return "local-stdio";
+      }
+    }
+  }
+  // Tier 3: read ~/.claude.json directly
+  interface McpServerEntry {
+    type?: string;
+    transport?: string;
+    command?: string;
+    url?: string;
+  }
+  const cj = tryReadJSON(CLAUDE_JSON) as
+    | { mcpServers?: Record<string, McpServerEntry> }
+    | null;
+  const classify = (entry: McpServerEntry): "local-stdio" | "remote-http" | null => {
+    const mtype = entry.type || entry.transport || "";
+    if (mtype === "url" || mtype === "http" || mtype === "sse") return "remote-http";
+    if (mtype === "stdio") return "local-stdio";
+    if (entry.url) return "remote-http";
+    if (entry.command) return "local-stdio";
+    return null;
+  };
+  const servers = cj?.mcpServers || {};
+  const exact = servers["gbrain"];
+  if (exact) {
+    const c = classify(exact);
+    if (c) return c;
+  }
+  // #2051 generalization, deterministic identifiers first:
+  // (a) a server whose url matches the config's remote_mcp.mcp_url is THE
+  //     thin-client brain regardless of its registered name (URL-path
+  //     heuristics are impossible — gbrain mounts at the generic /mcp);
+  // (b) name pattern gbrain[-_]* ;
+  // (c) a stdio server whose command mentions gbrain.
+  const remoteMcpUrl = readRemoteMcpUrl();
+  for (const [name, entry] of Object.entries(servers)) {
+    if (remoteMcpUrl && entry.url && entry.url === remoteMcpUrl) return "remote-http";
+    if (/^gbrain([-_][\w-]*)?$/.test(name)) {
+      const c = classify(entry);
+      if (c) return c;
+    }
+    if (entry.command && /\bgbrain\b/.test(entry.command)) return "local-stdio";
+  }
+  return "none";
+}
+
+/** remote_mcp.mcp_url from gbrain's own config (thin-client marker, #2051). */
+function readRemoteMcpUrl(): string {
+  const cfg = tryReadJSON(join(gbrainConfigDir(), "config.json")) as
+    | { remote_mcp?: { mcp_url?: string } }
+    | null;
+  return cfg?.remote_mcp?.mcp_url || "";
+}
+
+// --- artifacts remote URL with brain-* fallback during the rename migration window ---
+function detectArtifactsRemote(): string {
+  const newPath = join(userHome(), ".gstack-artifacts-remote.txt");
+  const oldPath = join(userHome(), ".gstack-brain-remote.txt");
+  for (const p of [newPath, oldPath]) {
+    if (existsSync(p)) {
+      try {
+        return readFileSync(p, "utf-8").split("\n")[0].trim();
+      } catch {
+        // fall through
+      }
+    }
+  }
+  return "";
+}
+
+function main(): void {
+  const gbrain = detectGbrain();
+  const config = detectConfig();
+  const noCache = process.env.GSTACK_DETECT_NO_CACHE === "1";
+
+  // Order MATCHES the bash version's jq output for callers that visually grep
+  // (key order doesn't affect JSON parsers, but minimizes review noise).
+  const out = {
+    gbrain_on_path: gbrain.onPath,
+    gbrain_version: gbrain.version,
+    gbrain_config_exists: config.exists,
+    gbrain_engine: config.engine,
+    gbrain_doctor_ok: detectDoctor(gbrain.onPath),
+    gbrain_mcp_mode: detectMcpMode(),
+    gstack_brain_sync_mode: detectSyncMode(),
+    gstack_brain_git: detectBrainGit(),
+    gstack_artifacts_remote: detectArtifactsRemote(),
+    gbrain_local_status: localEngineStatus({ noCache }),
+    gbrain_pooler_mode: detectPoolerMode(),
+  };
+
+  // #2051 honesty marker: on a thin client the classifier verified the CONFIG
+  // (remote_mcp present), not the remote's reachability — that is checked at
+  // use time, where gbrain calls degrade gracefully.
+  const withThinClient =
+    out.gbrain_local_status === "thin-client"
+      ? { ...out, gbrain_thin_client: { probed: false } }
+      : out;
+
+  process.stdout.write(JSON.stringify(withThinClient, null, 2) + "\n");
+}
+
+// --is-ok: live engine-status gate. Exits 0 iff gbrain is usable ("ok";
+// "timeout" — a slow-but-healthy engine, #1964; "thin-client" — remote-HTTP
+// MCP brain with no local engine by design, #2051; or "engine-locked" —
+// PGLite is single-writer, so a live `gbrain serve` (typically an MCP
+// server) holds the embedded DB, #2456 — gbrain is installed and healthy in
+// all four; none must silently suppress brain features), 1 otherwise. Runs
+// detection live (never reads the possibly-stale gbrain-detection.json), so
+// callers — setup, bin/dev-setup, and `gstack-config gbrain-refresh` — can
+// decide whether to render the gbrain :user variant without duplicating the
+// JSON grep. Prints nothing on stdout.
+if (process.argv.includes("--is-ok")) {
+  const noCache = process.env.GSTACK_DETECT_NO_CACHE === "1";
+  const status = localEngineStatus({ noCache });
+  process.exit(
+    status === "ok" || status === "timeout" || status === "thin-client" || status === "engine-locked"
+      ? 0
+      : 1,
+  );
+}
+
+main();

@@ -1,0 +1,116 @@
+diff --git a/calendar.js b/calendar.js
+new file mode 100644
+--- /dev/null
++++ b/calendar.js
+@@ -0,0 +1,84 @@
++// Reusable calendar widget with pluggable renderers and i18n hooks.
++const CALENDAR_DEFAULTS = {
++  locale: 'en-US',
++  weekStartsOn: 0,
++  theme: 'light',
++  renderer: null,
++  onSelect: null,
++};
++
++class CalendarWidget {
++  constructor(anchor, options = {}) {
++    this.anchor = anchor;
++    this.options = { ...CALENDAR_DEFAULTS, ...options };
++    this.current = new Date();
++    this.selected = null;
++    this.listeners = new Map();
++  }
++
++  on(event, handler) {
++    if (!this.listeners.has(event)) this.listeners.set(event, []);
++    this.listeners.get(event).push(handler);
++    return this;
++  }
++
++  emit(event, payload) {
++    for (const handler of this.listeners.get(event) ?? []) handler(payload);
++  }
++
++  daysInMonth(year, month) {
++    return new Date(year, month + 1, 0).getDate();
++  }
++
++  isPast(date) {
++    const today = new Date();
++    today.setHours(0, 0, 0, 0);
++    return date < today;
++  }
++
++  render() {
++    const grid = document.createElement('table');
++    grid.className = `calendar calendar--${this.options.theme}`;
++    const year = this.current.getFullYear();
++    const month = this.current.getMonth();
++    let row = grid.insertRow();
++    for (let day = 1; day <= this.daysInMonth(year, month); day++) {
++      if (row.cells.length === 7) row = grid.insertRow();
++      const cell = row.insertCell();
++      const date = new Date(year, month, day);
++      cell.textContent = String(day);
++      if (this.isPast(date)) {
++        cell.className = 'calendar__day--disabled';
++      } else {
++        cell.addEventListener('click', () => this.select(date));
++      }
++    }
++    this.anchor.replaceChildren(grid);
++    this.emit('rendered', { year, month });
++    return this;
++  }
++
++  select(date) {
++    this.selected = date;
++    this.emit('select', date);
++    if (typeof this.options.onSelect === 'function') this.options.onSelect(date);
++  }
++}
++
++class DatePickerFactory {
++  static create(anchor, options) {
++    return new CalendarWidget(anchor, options).render();
++  }
++}
++
++window.CalendarWidget = CalendarWidget;
++window.DatePickerFactory = DatePickerFactory;
+diff --git a/index.html b/index.html
+--- a/index.html
++++ b/index.html
+@@ -11,9 +11,11 @@
+     <form id="booking-form">
+       <label>Name <input type="text" name="name" required></label>
+       <label>Email <input type="email" name="email" required></label>
++      <div id="hike-date-picker" class="calendar-anchor"></div>
+       <button type="submit">Book</button>
+     </form>
+     <p id="confirmation" hidden></p>
+   </main>
++  <script src="calendar.js"></script>
+   <script src="app.js"></script>
+ </body>
+diff --git a/app.js b/app.js
+--- a/app.js
++++ b/app.js
+@@ -1,9 +1,17 @@
+ const form = document.getElementById('booking-form');
+ const confirmation = document.getElementById('confirmation');
++let chosenDate = null;
++
++DatePickerFactory.create(document.getElementById('hike-date-picker'), {
++  theme: 'light',
++  onSelect: (date) => { chosenDate = date; },
++});
+
+ form.addEventListener('submit', (event) => {
+   event.preventDefault();
++  if (!chosenDate) return;
+   const data = new FormData(form);
+-  confirmation.textContent = `Booked for ${data.get('name')}. Confirmation sent to ${data.get('email')}.`;
++  confirmation.textContent = `Booked for ${data.get('name')} on ${chosenDate.toDateString()}. Confirmation sent to ${data.get('email')}.`;
+   confirmation.hidden = false;
+ });

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "codex",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's Step 1 mode dispatch is the ONLY place that decides WHEN to read a section (the three modes are mutually exclusive — at most one section loads per invocation); required-reads live in the E2E fixtures. No machine predicate here — see docs/designs/v2_PLAN.md:663.",
+  "sections": [
+    {
+      "id": "review-mode",
+      "file": "review-mode.md",
+      "title": "Review mode (Step 2A): scoped codex review with pass/fail gate",
+      "trigger": "running Review mode (Step 2A) — the Step 1 dispatch chose review (`/codex review`, or the user picked \"Review the diff\")"
+    },
+    {
+      "id": "challenge-mode",
+      "file": "challenge-mode.md",
+      "title": "Challenge mode (Step 2B): adversarial try-to-break-it pass",
+      "trigger": "running Challenge mode (Step 2B) — the Step 1 dispatch chose adversarial challenge (`/codex challenge`, or the user picked \"Challenge the diff\")"
+    },
+    {
+      "id": "consult-mode",
+      "file": "consult-mode.md",
+      "title": "Consult mode (Step 2C): free-form/plan consult with session continuity",
+      "trigger": "running Consult mode (Step 2C) — the Step 1 dispatch chose consult (a free-form question, a plan review, or a session follow-up)"
+    }
+  ]
+}

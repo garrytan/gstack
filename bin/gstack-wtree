@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# gstack-wtree — print a working-tree CONTENT fingerprint (a git tree hash).
+#
+# Builds a temp index, stages the full working tree into it (`git add -A`, so
+# .gitignore'd scratch stays out and UNTRACKED source is included), and prints
+# `git write-tree` of that index. Properties that make this the right
+# staleness fingerprint, vs `git rev-parse HEAD^{tree}`:
+#
+#   - Committing identical content does NOT change the fingerprint, so a
+#     record made on a dirty tree stays valid after the exact same content is
+#     committed (the /ship Step 5 -> Step 16 case).
+#   - Untracked new source files DO change the fingerprint, so "tests passed"
+#     can't stay FRESH after a new file appears.
+#   - Rebase/amend/squash that preserve content do not change it.
+#
+# Performance: the temp index is seeded by COPYING the real index (git writes
+# it atomically via rename, so the copy is a consistent snapshot). That
+# preserves the stat cache, so `git add -A` only re-hashes files whose stat
+# changed — measured 40x faster than a `read-tree HEAD` seed, which zeroes
+# stat data and forces a full re-hash of every tracked file. Both seeds
+# produce the identical write-tree hash. Fallback: `read-tree HEAD` when the
+# index copy is unavailable (fresh repo, exotic index).
+#
+# The real repo index is never touched. Staged blobs land in the object store
+# as unreachable objects and get gc'd like stash churn (note: this means the
+# CONTENT of untracked, non-ignored files enters .git/objects until gc — the
+# same property `git stash -u` has). Exit 1 outside a git repo or in a repo
+# with no commits — callers treat that as "no fingerprint".
+set -euo pipefail
+
+TOP=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
+# Resolve the REAL index path BEFORE exporting GIT_INDEX_FILE — with the env
+# var set, `git rev-parse --git-path index` returns the temp index itself and
+# the stat-cache seed silently self-copies into a dead fast path.
+REAL_INDEX=$(git -C "$TOP" rev-parse --git-path index 2>/dev/null || true)
+TMPIDX=$(mktemp "${TMPDIR:-/tmp}/gstack-wtree-XXXXXX")
+trap 'rm -f "$TMPIDX"' EXIT
+export GIT_INDEX_FILE="$TMPIDX"
+# Resolve relative --git-path output against the repo root.
+case "$REAL_INDEX" in
+  ""|/*) ;;
+  *) REAL_INDEX="$TOP/$REAL_INDEX" ;;
+esac
+if [ -n "$REAL_INDEX" ] && [ -f "$REAL_INDEX" ] && cp "$REAL_INDEX" "$TMPIDX" 2>/dev/null; then
+  # Carry the real index's mtime onto the copy. Git's racy-git protection
+  # re-hashes any entry whose cached mtime is not older than the index file
+  # itself; `cp` stamps the copy "now", which silently marks every entry
+  # non-racy and lets a same-size rewrite in the same second as the original
+  # `git add` keep its stale stat-cache entry — the content change vanishes
+  # from the fingerprint. touch -r restores the original racy window.
+  # #2687 hardening: a FAILED touch silently reopened that exact hole (the
+  # copy keeps its "now" stamp). Fall through to the HEAD seed instead —
+  # slower, but every entry gets re-hashed, so the fingerprint stays honest.
+  if ! touch -r "$REAL_INDEX" "$TMPIDX" 2>/dev/null; then
+    rm -f "$TMPIDX" 2>/dev/null || true
+    git -C "$TOP" read-tree HEAD 2>/dev/null || exit 1
+  fi
+else
+  git -C "$TOP" read-tree HEAD 2>/dev/null || exit 1
+fi
+git -C "$TOP" add -A 2>/dev/null || exit 1
+git -C "$TOP" write-tree 2>/dev/null

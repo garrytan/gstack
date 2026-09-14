@@ -1,0 +1,208 @@
+/**
+ * gstack-config default-table completeness (gate, free).
+ *
+ * Skill preambles read configuration with
+ *
+ *     VAR=$(gstack-config get <key> 2>/dev/null || echo "<default>")
+ *
+ * and that fallback only fires on a NON-ZERO exit. `get` used to answer a key
+ * it did not know with "" and exit 0, so VAR came back empty and the default
+ * written right there in the preamble was unreachable. The skill then branched
+ * on a value it never specified -- "skip entirely if QUESTION_TUNING is false"
+ * reached with QUESTION_TUNING="".
+ *
+ * Four keys skills actually read had no entry in lookup_default and took that
+ * path: question_tuning, repo_mode, team_mode, transcript_ingest_mode.
+ *
+ * Three invariants are pinned so the class cannot reopen:
+ *
+ *   1. every key read anywhere in the tree is matched by an arm of the DEFAULTS
+ *      table. Add a `gstack-config get some_new_key` to a preamble without
+ *      adding its default and this test fails. Checked by parsing the case arms
+ *      rather than shelling out per key, which keeps it fast and makes the
+ *      failure name the key.
+ *   2. a genuinely unknown key exits non-zero, so the caller fallback fires.
+ *   3. a known key whose default is intentionally empty still exits 0 --
+ *      cross_project_learnings ("unset triggers the first-time prompt") and
+ *      redact_repo_visibility ("empty falls through to gh/glab detection")
+ *      depend on receiving "" successfully.
+ */
+
+import { describe, test, expect } from 'bun:test';
+import { spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+const ROOT = path.resolve(import.meta.dir, '..');
+const CONFIG_BIN = path.join(ROOT, 'bin', 'gstack-config');
+const SELF = 'gstack-config-defaults.test.ts';
+
+// Isolated state dir, so a value the developer happens to have set in their own
+// ~/.gstack/config.yaml cannot mask a missing default.
+const STATE = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-config-test-'));
+
+function get(key: string): { out: string; code: number } {
+  const r = spawnSync('bash', [CONFIG_BIN, 'get', key], {
+    encoding: 'utf-8',
+    timeout: 30_000,
+    env: { ...process.env, GSTACK_STATE_ROOT: STATE },
+  });
+  return { out: r.stdout ?? '', code: r.status ?? -1 };
+}
+
+/** Case-arm patterns of lookup_default, in order, excluding the catch-all. */
+function defaultArms(): string[] {
+  const src = fs.readFileSync(CONFIG_BIN, 'utf-8');
+  const body = src.slice(src.indexOf('lookup_default()'));
+  const end = body.indexOf('\n}');
+  const arms: string[] = [];
+  // e.g. `    proactive) echo "true" ;;` or `    user_slug_at_*) echo "" ;;`
+  for (const m of body.slice(0, end).matchAll(/^\s{4}([a-zA-Z0-9_*]+)\)/gm)) {
+    if (m[1] !== '*') arms.push(m[1]);
+  }
+  return arms;
+}
+
+function isCovered(key: string, arms: string[]): boolean {
+  return arms.some((a) =>
+    a.endsWith('*') ? key.startsWith(a.slice(0, -1)) : key === a,
+  );
+}
+
+const SKIP_DIRS = new Set(['node_modules', '.git', '.context', 'dist', 'build', '.next']);
+
+/** Every `gstack-config get <key>` call site in the tree. */
+function keysReadInTree(root = ROOT): string[] {
+  const keys = new Set<string>();
+  // [ \t]+ rather than \s+: \s crosses newlines and would pair a trailing
+  // "gstack-config get" with the first word of the next line.
+  const re = /gstack-config["']?[ \t]+get[ \t]+([a-zA-Z0-9_]+)/g;
+  const stack = [root];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(cur, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const ent of entries) {
+      if (SKIP_DIRS.has(ent.name) || ent.isSymbolicLink()) continue;
+      const full = path.join(cur, ent.name);
+      if (ent.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      // Skip this file: its own prose cites example keys.
+      if (ent.name === SELF) continue;
+      if (!/\.(md|ts|sh)$|^gstack-[a-z-]+$/.test(ent.name)) continue;
+      let text: string;
+      try {
+        text = fs.readFileSync(full, 'utf-8');
+      } catch {
+        continue;
+      }
+      for (const m of text.matchAll(re)) keys.add(m[1]);
+    }
+  }
+  return [...keys].sort();
+}
+
+describe('gstack-config defaults (gate, free)', () => {
+  test('workspace history does not add call sites to the source census', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-config-census-'));
+    try {
+      fs.mkdirSync(path.join(root, '.context', 'old-checkout'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'active.md'), 'gstack-config get question_tuning\n');
+      fs.writeFileSync(path.join(root, '.context', 'old-checkout', 'old.md'), 'gstack-config get retired_workspace_key\n');
+      expect(keysReadInTree(root)).toEqual(['question_tuning']);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('every key read in the tree is covered by the DEFAULTS table', () => {
+    const arms = defaultArms();
+    expect(arms.length).toBeGreaterThan(10); // the parse actually found the table
+    const uncovered = keysReadInTree().filter((k) => !isCovered(k, arms));
+    expect(uncovered).toEqual([]);
+  });
+
+  test('an unknown key exits non-zero, so the caller fallback fires', () => {
+    const r = get('definitely_not_a_gstack_key_9f3a');
+    expect(r.code).not.toBe(0);
+    expect(r.out).toBe('');
+  });
+
+  test('a known key whose default is intentionally empty still exits 0', () => {
+    // repo_mode is in this class BY CONTRACT: gstack-repo-mode treats any
+    // non-empty answer as a user override and skips classification, so a
+    // synthesized "unknown" default would turn the classifier into dead code
+    // (caught live by test/gstack-repo-mode.test.ts during the wave).
+    for (const key of ['cross_project_learnings', 'salience_allowlist', 'redact_repo_visibility', 'repo_mode']) {
+      expect({ key, ...get(key) }).toEqual({ key, out: '', code: 0 });
+    }
+  });
+
+  test('the regressed keys resolve to the values their callers assume', () => {
+    expect(get('question_tuning').out).toBe('false');
+    expect(get('team_mode').out).toBe('false');
+    expect(get('transcript_ingest_mode').out).toBe('off');
+  });
+});
+
+describe('design_detector (auto|off, rejecting validator)', () => {
+  test('defaults to auto', () => {
+    expect(get('design_detector')).toEqual({ out: 'auto', code: 0 });
+  });
+
+  test('set to an invalid value exits 1 and leaves the file unchanged', () => {
+    const file = path.join(STATE, 'config.yaml');
+    const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null;
+    const r = spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector', 'maybe'], {
+      encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE },
+    });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("design_detector 'maybe' not recognized");
+    const after = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null;
+    expect(after).toBe(before);
+    expect(get('design_detector').out).toBe('auto');
+  });
+
+  test('list and defaults enumerate design_detector', () => {
+    for (const verb of ['list', 'defaults']) {
+      const r = spawnSync('bash', [CONFIG_BIN, verb], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toMatch(/design_detector:\s+auto/);
+    }
+  });
+
+  test('set off / set auto round-trip', () => {
+    spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector', 'off'], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
+    expect(get('design_detector').out).toBe('off');
+    spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector', 'auto'], { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_STATE_ROOT: STATE } });
+    expect(get('design_detector').out).toBe('auto');
+  });
+});
+
+describe('design_detector_install_prompted (true|false, rejecting validator)', () => {
+  const env = { ...process.env, GSTACK_STATE_ROOT: STATE };
+  test('defaults to false, rejects a typo with the file unchanged, round-trips true/false, and is enumerated', () => {
+    expect(get('design_detector_install_prompted')).toEqual({ out: 'false', code: 0 });
+    const file = path.join(STATE, 'config.yaml');
+    const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null;
+    const bad = spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector_install_prompted', 'yes'], { encoding: 'utf-8', timeout: 30_000, env });
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toContain("design_detector_install_prompted 'yes' not recognized");
+    expect(fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : null).toBe(before);
+    spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector_install_prompted', 'true'], { encoding: 'utf-8', timeout: 30_000, env });
+    expect(get('design_detector_install_prompted').out).toBe('true');
+    spawnSync('bash', [CONFIG_BIN, 'set', 'design_detector_install_prompted', 'false'], { encoding: 'utf-8', timeout: 30_000, env });
+    expect(get('design_detector_install_prompted').out).toBe('false');
+    for (const verb of ['list', 'defaults']) {
+      const r = spawnSync('bash', [CONFIG_BIN, verb], { encoding: 'utf-8', timeout: 30_000, env });
+      expect(r.stdout).toMatch(/design_detector_install_prompted:\s+false/);
+    }
+  });
+});

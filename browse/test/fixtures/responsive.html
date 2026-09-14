@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test Page - Responsive</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 20px; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .grid { display: grid; gap: 16px; }
+    .card { padding: 16px; border: 1px solid #ddd; border-radius: 8px; }
+
+    /* Mobile: single column */
+    .grid { grid-template-columns: 1fr; }
+
+    /* Tablet: two columns */
+    @media (min-width: 768px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      .mobile-only { display: none; }
+    }
+
+    /* Desktop: three columns */
+    @media (min-width: 1024px) {
+      .grid { grid-template-columns: 1fr 1fr 1fr; }
+    }
+
+    .mobile-only { color: red; }
+    .desktop-indicator { display: none; }
+    @media (min-width: 1024px) {
+      .desktop-indicator { display: block; color: green; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Responsive Layout Test</h1>
+    <p class="mobile-only">You are on mobile</p>
+    <p class="desktop-indicator">You are on desktop</p>
+    <div class="grid">
+      <div class="card">Card 1</div>
+      <div class="card">Card 2</div>
+      <div class="card">Card 3</div>
+      <div class="card">Card 4</div>
+      <div class="card">Card 5</div>
+      <div class="card">Card 6</div>
+    </div>
+  </div>
+</body>
+</html>

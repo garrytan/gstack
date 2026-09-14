@@ -1,0 +1,106 @@
+{
+  "observations": [
+    {
+      "observationSha256": "ba974f73975a2b66bb57ba033810cd85365d1fb016bd44e95d70c3c752ad75a5",
+      "observationPath": ".context/ship-source-aj-delta-paid-20260910-v1/evals/job-19/shards/skill-e2e-plan-design-plan-mode/pty-count/ship-source-aj-delta-paid-20260910-v1-19/plan-design-review-1789020195325-SyATGW/observation.json",
+      "opts": {
+        "skillName": "plan-design-review",
+        "sessionId": "808696cc-cbb7-4309-b3ae-ba2df3c25e55",
+        "commandStartedAt": 1789020092112,
+        "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n"
+      },
+      "transcript": {
+        "status": "ready",
+        "calls": [],
+        "assistantMessages": [
+          {
+            "sessionId": "808696cc-cbb7-4309-b3ae-ba2df3c25e55",
+            "text": "I'll run the design plan review skill on this draft.",
+            "timestamp": "2026-09-10T06:01:37.058Z"
+          },
+          {
+            "sessionId": "808696cc-cbb7-4309-b3ae-ba2df3c25e55",
+            "text": "Running the skill preamble first.",
+            "timestamp": "2026-09-10T06:01:44.578Z"
+          },
+          {
+            "sessionId": "808696cc-cbb7-4309-b3ae-ba2df3c25e55",
+            "text": "I'll go with reviewing the \"Marketing landing page\" draft plan you pasted, and now I'm running the pre-review audit, design-binary setup check, brain context, and context recovery checks in parallel.\n\n",
+            "timestamp": "2026-09-10T06:01:57.951Z"
+          }
+        ]
+      },
+      "tools": [
+        {
+          "sessionId": "808696cc-cbb7-4309-b3ae-ba2df3c25e55",
+          "timestamp": "2026-09-10T06:01:38.217Z",
+          "toolUseId": "toolu_01TZiuAG9dfxkLeVa8fqpAiC",
+          "kind": "use",
+          "name": "Skill",
+          "input": {
+            "skill": "plan-design-review"
+          }
+        },
+        {
+          "sessionId": "808696cc-cbb7-4309-b3ae-ba2df3c25e55",
+          "timestamp": "2026-09-10T06:01:39.549Z",
+          "toolUseId": "toolu_01TZiuAG9dfxkLeVa8fqpAiC",
+          "kind": "result",
+          "content": "Launching skill: plan-design-review",
+          "isError": false
+        }
+      ]
+    },
+    {
+      "observationSha256": "641c71f3e241aebf6f4a25a521f5268e068f1e1b9d2ed5be89633c89a7d9adde",
+      "observationPath": ".context/ship-source-aj-delta-paid-20260910-v1/evals/job-19/shards/skill-e2e-plan-design-plan-mode/pty-count/ship-source-aj-delta-paid-20260910-v1-19/plan-design-review-1789020323069-dJQJlj/observation.json",
+      "opts": {
+        "skillName": "plan-design-review",
+        "sessionId": "7714cb87-097d-43a6-996b-481517779210",
+        "commandStartedAt": 1789020206706,
+        "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n"
+      },
+      "transcript": {
+        "status": "ready",
+        "calls": [],
+        "assistantMessages": [
+          {
+            "sessionId": "7714cb87-097d-43a6-996b-481517779210",
+            "text": "I'll run the plan-design-review skill on your draft plan.",
+            "timestamp": "2026-09-10T06:03:32.514Z"
+          },
+          {
+            "sessionId": "7714cb87-097d-43a6-996b-481517779210",
+            "text": "I'll review the \"Marketing landing page\" draft, starting by checking git status, design tool availability, brain context, base branch, and any DESIGN.md/TODOS files.\n\n",
+            "timestamp": "2026-09-10T06:03:51.333Z"
+          },
+          {
+            "sessionId": "7714cb87-097d-43a6-996b-481517779210",
+            "text": "Base branch is `main`. DESIGN.md exists, and the design binary is ready. Reading DESIGN.md, the review sections, and design-related TODOs.",
+            "timestamp": "2026-09-10T06:04:09.509Z"
+          }
+        ]
+      },
+      "tools": [
+        {
+          "sessionId": "7714cb87-097d-43a6-996b-481517779210",
+          "timestamp": "2026-09-10T06:03:32.556Z",
+          "toolUseId": "toolu_01GDBKDDZnYTY3qMsMdL6s1r",
+          "kind": "use",
+          "name": "Skill",
+          "input": {
+            "skill": "plan-design-review"
+          }
+        },
+        {
+          "sessionId": "7714cb87-097d-43a6-996b-481517779210",
+          "timestamp": "2026-09-10T06:03:33.859Z",
+          "toolUseId": "toolu_01GDBKDDZnYTY3qMsMdL6s1r",
+          "kind": "result",
+          "content": "Launching skill: plan-design-review",
+          "isError": false
+        }
+      ]
+    }
+  ]
+}

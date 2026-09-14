@@ -1,0 +1,135 @@
+{
+  "sourceHead": "ca16058341c2e073051340d9653bbbc900f3ca36",
+  "paidPassCredit": false,
+  "rows": [
+    {
+      "source": {
+        "path": ".context/ship-source-af-delta-paid-20260909-v1/evals/job-4/shards/skill-e2e-plan-ceo-finding-count/pty-count/ship-source-af-delta-paid-20260909-v1-4/plan-ceo-review-1788996831916-OadFGi/observation.json",
+        "sha256": "9fed81472a96985a90adffc78fb02408c47edd7bf5472bbddfb4e9b5d73d1d2f"
+      },
+      "projection": {
+        "path": ".context/ship-source-af-delta-paid-20260909-v1/ceo-terminal-ledger-v1/plan-ceo-review-1788996831916-OadFGi.json",
+        "sha256": "987bc525727e4f1197337fcce4a50c473ea96e427cdedbe084ada0dfbf8e6cba"
+      },
+      "actualOutcome": "no_review_questions",
+      "call": {
+        "sessionId": "54f41180-12a0-4a1e-8787-461777c4d7e7",
+        "toolUseId": "toolu_01CYSfdAef891fxQvdPsuuNz",
+        "questions": [
+          {
+            "header": "Email leg",
+            "question": "D4 \u2014 1.1 Email leg: transaction boundary and failure handling\nProject/branch/task: gstack-plan-count-rTr6Nq on main, CEO review of the Stripe payment webhook plan (HOLD SCOPE).\nELI10: After marking the user paid, the handler sends an email in the same request with no error handling, and the plan never says whether that email runs inside the database transaction or after it. If inside, a mail outage rolls back the payment and the customer stays \"unpaid\" until the mail provider recovers. If after, an unhandled mail error becomes an HTTP 500 for a payment that already committed: the ingress fires its \"webhook processing failed\" alert for a non-failure, and Stripe retries for three days into a dedupe no-op that never resends the email but does degrade endpoint health. Stakes if we pick wrong: paying customers shown as unpaid, or false payment-failure alerts that bury real ones, plus a Stripe endpoint that can be auto-disabled.\nRecommendation: A because \"every error has a name\" and \"zero silent failures\": the mail client's own exception classes get rescued, the failure stays visible through the existing mail failure-rate alert, and the runbook already says retry only the notification.\nCompleteness: A=9/10, B=6/10, C=3/10\nA) Send after commit; rescue the mail client's named delivery and timeout exception classes (never StandardError); log at warn with event ID, user ID and payment intent ID; return 200 (recommended) (human: ~3h / CC: ~10 min)\n  \u2705 Payment commits regardless of mail health; the notification failure is counted by the existing dashboard and on-call alert, which already include caught exceptions\n  \u2705 Stripe sees 200 for a committed payment, so no false retry loop and no endpoint-health damage; unit test: mail raises, user is paid, response 200, one warn line\n  \u274c A user whose mail fails gets no email until on-call runs the notification retry procedure, exactly as the runbook prescribes today\nB) Send after commit, let mail exceptions propagate (plan as written, ordering fixed) (human: ~1h / CC: ~5 min)\n  \u2705 Smallest change: only the transaction boundary is pinned down\n  \u2705 Payment still commits before the email is attempted\n  \u274c 500 for a committed payment fires the ingress failure alert falsely and Stripe retries into a dedupe no-op for three days\nC) Do nothing: leave the boundary unspecified and the email leg unhandled\n  \u2705 Zero implementation work\n  \u2705 Existing alerts still fire on any mail exception\n  \u274c Implementer picks the transaction boundary ad hoc; inside-transaction mail failures roll back real payments\nNet: named rescue with existing visibility versus a false 500 versus leaving a payment-affecting decision to chance.",
+            "options": [
+              {
+                "label": "A: After commit + named rescue (recommended)",
+                "description": "Email after commit; rescue mail client's named exceptions; warn log with event/user/intent IDs; return 200; existing alert + runbook cover retry."
+              },
+              {
+                "label": "B: After commit, propagate",
+                "description": "Pin the email after commit but keep no error handling; mail failure yields HTTP 500."
+              },
+              {
+                "label": "C: Do nothing",
+                "description": "Leave transaction boundary and error handling unspecified in the plan."
+              }
+            ],
+            "multiSelect": false
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 \u2014 1.1 Email leg: transaction boundary and failure handling\nProject/branch/task: gstack-plan-count-rTr6Nq on main, CEO review of the Stripe payment webhook plan (HOLD SCOPE).\nELI10: After marking the user paid, the handler sends an email in the same request with no error handling, and the plan never says whether that email runs inside the database transaction or after it. If inside, a mail outage rolls back the payment and the customer stays \"unpaid\" until the mail provider recovers. If after, an unhandled mail error becomes an HTTP 500 for a payment that already committed: the ingress fires its \"webhook processing failed\" alert for a non-failure, and Stripe retries for three days into a dedupe no-op that never resends the email but does degrade endpoint health. Stakes if we pick wrong: paying customers shown as unpaid, or false payment-failure alerts that bury real ones, plus a Stripe endpoint that can be auto-disabled.\nRecommendation: A because \"every error has a name\" and \"zero silent failures\": the mail client's own exception classes get rescued, the failure stays visible through the existing mail failure-rate alert, and the runbook already says retry only the notification.\nCompleteness: A=9/10, B=6/10, C=3/10\nA) Send after commit; rescue the mail client's named delivery and timeout exception classes (never StandardError); log at warn with event ID, user ID and payment intent ID; return 200 (recommended) (human: ~3h / CC: ~10 min)\n  \u2705 Payment commits regardless of mail health; the notification failure is counted by the existing dashboard and on-call alert, which already include caught exceptions\n  \u2705 Stripe sees 200 for a committed payment, so no false retry loop and no endpoint-health damage; unit test: mail raises, user is paid, response 200, one warn line\n  \u274c A user whose mail fails gets no email until on-call runs the notification retry procedure, exactly as the runbook prescribes today\nB) Send after commit, let mail exceptions propagate (plan as written, ordering fixed) (human: ~1h / CC: ~5 min)\n  \u2705 Smallest change: only the transaction boundary is pinned down\n  \u2705 Payment still commits before the email is attempted\n  \u274c 500 for a committed payment fires the ingress failure alert falsely and Stripe retries into a dedupe no-op for three days\nC) Do nothing: leave the boundary unspecified and the email leg unhandled\n  \u2705 Zero implementation work\n  \u2705 Existing alerts still fire on any mail exception\n  \u274c Implementer picks the transaction boundary ad hoc; inside-transaction mail failures roll back real payments\nNet: named rescue with existing visibility versus a false 500 versus leaving a payment-affecting decision to chance.": "A: After commit + named rescue (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T23:39:24.944Z"
+      }
+    },
+    {
+      "source": {
+        "path": ".context/ship-source-af-delta-paid-20260909-v1/evals/job-4/shards/skill-e2e-plan-ceo-finding-count/pty-count/ship-source-af-delta-paid-20260909-v1-4/plan-ceo-review-1788997281060-65WZiv/observation.json",
+        "sha256": "3e4a314dde8e89c25caa924aadc4fa44c0f8f0612f50b29d9aece52b81a009e2"
+      },
+      "projection": {
+        "path": ".context/ship-source-af-delta-paid-20260909-v1/ceo-terminal-ledger-v1/plan-ceo-review-1788997281060-65WZiv.json",
+        "sha256": "84ad6daf9e40ee2280b4e091d0ba1a9e2a4966e734fdf8598dd42399737a4b8e"
+      },
+      "actualOutcome": "no_review_questions",
+      "call": {
+        "sessionId": "12c50992-b5ec-4015-ab9f-fc8295433e7a",
+        "toolUseId": "toolu_01RFiZnwi8DfzeHUuPfwWVmh",
+        "questions": [
+          {
+            "question": "D4 \u2014 Finding F1: test 1 asserts only that the receipt is truthy. Pin the exact receipt instead?\nProject/branch/task: gstack-plan-count-CxSz2g on main; PLAN.md test 1 (successful 1000-cent USD charge, Stripe id ch_paid).\nELI10: PLAN.md says the contract is that the receipt equals { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The planned assertion is only \"receipt is truthy\". An empty object, a wrong amount, a missing currency, or a chargeId of undefined all pass that check. The test would be green while the contract it exists to protect is broken.\nStakes if we pick wrong: A refactor that drops currency or mis-maps amountCents ships with a passing suite; the first signal is a customer receipt with the wrong money on it.\nRecommendation: A because well-tested code is non-negotiable and the plan already states the exact expected value; asserting it costs one line.\nCompleteness: A=10/10, B=7/10, C=3/10\nPros / cons:\nA) Deep-equal the full receipt (recommended) (human ~5 min / CC ~1 min)\n  \u2705 Rejects {} , wrong amount, wrong currency, missing or extra fields in one assertion with a readable diff on failure\n  \u2705 Exactly matches the contract sentence already written in PLAN.md, so prose and test agree\n  \u274c If the receipt legitimately gains a field later, this test must be updated (that is the point)\nB) Assert the three fields individually\n  \u2705 Each field failure names itself in the assertion message\n  \u2705 Tolerates extra receipt fields without a test change\n  \u274c Silently accepts unexpected extra fields; three assertions where one structural equality is clearer\nC) Keep truthy-only as planned\n  \u2705 Zero risk of the test needing maintenance when the receipt shape evolves\n  \u2705 Still proves processPayment resolves rather than rejects on a 200\n  \u274c Passes for {} and for any wrong amount or currency; protects nothing the plan says it protects\nNet: One exact structural assertion vs a test that can never fail for the bugs it was written to catch.",
+            "header": "F1 receipt",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A: Deep-equal full receipt (recommended)",
+                "description": "expect(receipt).toEqual({ chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }). Completeness 10/10."
+              },
+              {
+                "label": "B: Assert three fields individually",
+                "description": "Three field-level assertions; extra fields tolerated. Completeness 7/10."
+              },
+              {
+                "label": "C: Keep truthy-only",
+                "description": "As written in PLAN.md. Completeness 3/10."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 \u2014 Finding F1: test 1 asserts only that the receipt is truthy. Pin the exact receipt instead?\nProject/branch/task: gstack-plan-count-CxSz2g on main; PLAN.md test 1 (successful 1000-cent USD charge, Stripe id ch_paid).\nELI10: PLAN.md says the contract is that the receipt equals { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The planned assertion is only \"receipt is truthy\". An empty object, a wrong amount, a missing currency, or a chargeId of undefined all pass that check. The test would be green while the contract it exists to protect is broken.\nStakes if we pick wrong: A refactor that drops currency or mis-maps amountCents ships with a passing suite; the first signal is a customer receipt with the wrong money on it.\nRecommendation: A because well-tested code is non-negotiable and the plan already states the exact expected value; asserting it costs one line.\nCompleteness: A=10/10, B=7/10, C=3/10\nPros / cons:\nA) Deep-equal the full receipt (recommended) (human ~5 min / CC ~1 min)\n  \u2705 Rejects {} , wrong amount, wrong currency, missing or extra fields in one assertion with a readable diff on failure\n  \u2705 Exactly matches the contract sentence already written in PLAN.md, so prose and test agree\n  \u274c If the receipt legitimately gains a field later, this test must be updated (that is the point)\nB) Assert the three fields individually\n  \u2705 Each field failure names itself in the assertion message\n  \u2705 Tolerates extra receipt fields without a test change\n  \u274c Silently accepts unexpected extra fields; three assertions where one structural equality is clearer\nC) Keep truthy-only as planned\n  \u2705 Zero risk of the test needing maintenance when the receipt shape evolves\n  \u2705 Still proves processPayment resolves rather than rejects on a 200\n  \u274c Passes for {} and for any wrong amount or currency; protects nothing the plan says it protects\nNet: One exact structural assertion vs a test that can never fail for the bugs it was written to catch.": "A: Deep-equal full receipt (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T23:45:01.186Z"
+      }
+    },
+    {
+      "source": {
+        "path": ".context/ship-source-af-delta-paid-20260909-v1/evals/job-4/shards/skill-e2e-plan-ceo-finding-count/pty-count/ship-source-af-delta-paid-20260909-v1-4/plan-ceo-review-1788997629849-jugmPk/observation.json",
+        "sha256": "8f907736d26d40c921324315a0f92390530b2ea887493630e31bd9939ebda8a1"
+      },
+      "projection": {
+        "path": ".context/ship-source-af-delta-paid-20260909-v1/ceo-terminal-ledger-v1/plan-ceo-review-1788997629849-jugmPk.json",
+        "sha256": "99e90a7a76a284969f9db70700e57118eef48155fd825c6d3c964e39c850fc4a"
+      },
+      "actualOutcome": "no_review_questions",
+      "call": {
+        "sessionId": "fa93e2c2-006d-448f-b1ae-798a3da8cc83",
+        "toolUseId": "toolu_017Tow7bZ4HY4jLdj9DC2Yus",
+        "questions": [
+          {
+            "question": "D3 \u2014 Issue 1: the inline email leg has no error handling and its position relative to the DB transaction is unspecified.\nProject/branch/task: main @ 2d1bd82, PLAN.md \"Webhook fan-out\" section.\nELI10: The shared mail client rethrows every failure. If the email call sits inside the payment transaction, a mail outage rolls back the paid status and Stripe retries the same event for hours while the user stays unpaid. If it sits after commit, the raise turns into a 500 for a payment that is already committed: the ingress \"failed webhook processing\" alert fires falsely, and because dedup already recorded completion, Stripe's retry is acknowledged and the email is never retried automatically. Either way, the plan does not say which one happens.\nStakes if we pick wrong: Users who paid either stay unpaid during a mail outage, or on-call chases a false payment failure while the receipt silently depends on a manual runbook step.\nRecommendation: 1A because it makes the payment commit independent of the mail provider, keeps the failure visible through the existing mail dashboard and alert plus an explicit correlated log line, and names the exceptions instead of a catch-all. Maps to: zero silent failures, every error has a name.\nCompleteness: 1A=9/10, 1B=6/10, 1C=3/10\nPros / cons:\n1A) Commit first, then send email outside the transaction; rescue only the mail client's named delivery and timeout exception classes; log error with event_id, user_id, intent ID, \"payment committed, notification failed\"; return 200 (human: ~2h / CC: ~10 min)\n  \u2705 Payment status never depends on mail provider health; Stripe sees success for a committed payment\n  \u2705 Failure stays visible: mail failure-rate dashboard and alert, correlated trace, plus one explicit log line the runbook can key on\n  \u274c Implementer must confirm the exact exception classes exported by the shared mail client; no rescue StandardError allowed\n1B) Commit first, then send email; let the mail exception propagate as today (500) (human: ~30 min / CC: ~5 min)\n  \u2705 Minimal change: only pins the ordering so a mail outage cannot roll back a payment\n  \u2705 Ingress alert still fires so on-call notices something\n  \u274c 500 for a committed payment is a false failure alert; Stripe retry is deduped so the email is still never retried by the system\n1C) Keep as planned: inline, unspecified ordering, no rescue (human: 0 / CC: 0)\n  \u2705 No additional code\n  \u2705 Mail failure-rate alert still fires\n  \u274c If the send lands inside the transaction, a mail outage blocks payment recording for its full duration and produces a retry storm\nNet: decouple payment commit from notification with named rescues and explicit visibility (1A) vs. pin ordering only (1B) vs. leave the failure mode unspecified (1C).",
+            "header": "Email leg",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A) Post-commit send, named rescue, 200 (recommended)",
+                "description": "Completeness 9/10. Send after commit, rescue only the mail client's named delivery/timeout classes, log with event_id + user_id + intent ID, return 200. Tests: mail raise leaves user paid and returns 200 with the log line asserted. Human ~2h / CC ~10 min."
+              },
+              {
+                "label": "1B) Post-commit send, let it raise",
+                "description": "Completeness 6/10. Pin ordering after commit only; mail failure still yields 500 and a false failed-webhook alert. Human ~30 min / CC ~5 min."
+              },
+              {
+                "label": "1C) Keep as planned",
+                "description": "Completeness 3/10. Inline send, ordering unspecified, no rescue. Accept possible rollback of the paid status during mail outages."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 \u2014 Issue 1: the inline email leg has no error handling and its position relative to the DB transaction is unspecified.\nProject/branch/task: main @ 2d1bd82, PLAN.md \"Webhook fan-out\" section.\nELI10: The shared mail client rethrows every failure. If the email call sits inside the payment transaction, a mail outage rolls back the paid status and Stripe retries the same event for hours while the user stays unpaid. If it sits after commit, the raise turns into a 500 for a payment that is already committed: the ingress \"failed webhook processing\" alert fires falsely, and because dedup already recorded completion, Stripe's retry is acknowledged and the email is never retried automatically. Either way, the plan does not say which one happens.\nStakes if we pick wrong: Users who paid either stay unpaid during a mail outage, or on-call chases a false payment failure while the receipt silently depends on a manual runbook step.\nRecommendation: 1A because it makes the payment commit independent of the mail provider, keeps the failure visible through the existing mail dashboard and alert plus an explicit correlated log line, and names the exceptions instead of a catch-all. Maps to: zero silent failures, every error has a name.\nCompleteness: 1A=9/10, 1B=6/10, 1C=3/10\nPros / cons:\n1A) Commit first, then send email outside the transaction; rescue only the mail client's named delivery and timeout exception classes; log error with event_id, user_id, intent ID, \"payment committed, notification failed\"; return 200 (human: ~2h / CC: ~10 min)\n  \u2705 Payment status never depends on mail provider health; Stripe sees success for a committed payment\n  \u2705 Failure stays visible: mail failure-rate dashboard and alert, correlated trace, plus one explicit log line the runbook can key on\n  \u274c Implementer must confirm the exact exception classes exported by the shared mail client; no rescue StandardError allowed\n1B) Commit first, then send email; let the mail exception propagate as today (500) (human: ~30 min / CC: ~5 min)\n  \u2705 Minimal change: only pins the ordering so a mail outage cannot roll back a payment\n  \u2705 Ingress alert still fires so on-call notices something\n  \u274c 500 for a committed payment is a false failure alert; Stripe retry is deduped so the email is still never retried by the system\n1C) Keep as planned: inline, unspecified ordering, no rescue (human: 0 / CC: 0)\n  \u2705 No additional code\n  \u2705 Mail failure-rate alert still fires\n  \u274c If the send lands inside the transaction, a mail outage blocks payment recording for its full duration and produces a retry storm\nNet: decouple payment commit from notification with named rescues and explicit visibility (1A) vs. pin ordering only (1B) vs. leave the failure mode unspecified (1C).": "1A) Post-commit send, named rescue, 200 (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T23:51:26.599Z"
+      }
+    }
+  ]
+}

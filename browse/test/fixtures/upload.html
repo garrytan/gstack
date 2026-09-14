@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Page - Upload</title>
+</head>
+<body>
+  <h1>Upload Test</h1>
+  <input type="file" id="file-input" />
+  <input type="file" id="multi-input" multiple />
+  <p id="upload-result"></p>
+  <script>
+    document.getElementById('file-input').addEventListener('change', function(e) {
+      const files = e.target.files;
+      const names = Array.from(files).map(f => f.name).join(', ');
+      document.getElementById('upload-result').textContent = 'Uploaded: ' + names;
+    });
+    document.getElementById('multi-input').addEventListener('change', function(e) {
+      const files = e.target.files;
+      const names = Array.from(files).map(f => f.name).join(', ');
+      document.getElementById('upload-result').textContent = 'Multi: ' + names;
+    });
+  </script>
+</body>
+</html>

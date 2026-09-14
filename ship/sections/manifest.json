@@ -1,0 +1,62 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "ship",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's decision-tree prose is the ONLY place that decides WHEN to read a section; required-reads live in the E2E fixtures. No machine predicate here \u2014 see docs/designs/v2_PLAN.md:663.",
+  "sections": [
+    {
+      "id": "apple-release",
+      "file": "apple-release.md",
+      "title": "Apple App Store / TestFlight release adapter",
+      "trigger": "the ship target is an Apple platform app (.xcodeproj, .xcworkspace, or an app-product Swift package) \u2014 read BEFORE Step 1's branch gate and any preflight; store distribution never routes through the branch/PR ceremony"
+    },
+    {
+      "id": "tests",
+      "file": "tests.md",
+      "title": "Test bootstrap, run, triage + eval suites",
+      "trigger": "running the test suites and (if prompt files changed) the eval suites (Steps 4-6)"
+    },
+    {
+      "id": "test-coverage",
+      "file": "test-coverage.md",
+      "title": "Test coverage audit (subagent)",
+      "trigger": "auditing test coverage of the diff (Step 7)"
+    },
+    {
+      "id": "plan-completion",
+      "file": "plan-completion.md",
+      "title": "Plan completion + verification audit (subagent)",
+      "trigger": "auditing plan completion, verification, and scope drift (Step 8)"
+    },
+    {
+      "id": "review-army",
+      "file": "review-army.md",
+      "title": "Pre-landing review + specialist army",
+      "trigger": "the pre-landing review and specialist dispatch (Step 9)"
+    },
+    {
+      "id": "greptile",
+      "file": "greptile.md",
+      "title": "Address Greptile review comments",
+      "trigger": "addressing Greptile review comments when a PR exists (Step 10)"
+    },
+    {
+      "id": "adversarial",
+      "file": "adversarial.md",
+      "title": "Adversarial review + learnings refresh",
+      "trigger": "the adversarial review and learnings capture (Step 11)"
+    },
+    {
+      "id": "changelog",
+      "file": "changelog.md",
+      "title": "CHANGELOG entry (release-summary + itemized)",
+      "trigger": "writing the CHANGELOG entry (Step 13)"
+    },
+    {
+      "id": "pr-body",
+      "file": "pr-body.md",
+      "title": "Documentation sync + PR/MR creation",
+      "trigger": "dispatching the /document-release subagent to sync docs (Step 18) and then creating or updating the PR/MR (Step 19)"
+    }
+  ]
+}

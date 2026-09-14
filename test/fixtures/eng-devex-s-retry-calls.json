@@ -1,0 +1,412 @@
+{
+  "devex": {
+    "sessionId": "306e0de6-6557-43cf-8502-f320c689b3ad",
+    "calls": [
+      {
+        "sessionId": "306e0de6-6557-43cf-8502-f320c689b3ad",
+        "toolUseId": "toolu_01PF1kGiAidK2jLcnwa63hkH",
+        "questions": [
+          {
+            "question": "D1 — Does this empathy narrative match the real EvalKit onboarding experience? <gstack-qid:plan-devex-review-empathy-narrative>\n\nI traced the actual path from README and docs. Your ML engineer persona today:\n\nT+0:00 — Runs `python -m pip install evalkit==2.0.0b1`. Installs fine.\nT+1:00 — Sets EVALKIT_API_KEY.\nT+1:30 — README says: \"follow the quickstart's command: python examples/first_eval.py\". Runs it.\nT+1:35 — Error: \"can't open file 'examples/first_eval.py': No such file or directory\"\nT+1:40 — Scrolls README, no explanation. Spots python -m evalkit.demo and tries it.\nT+1:45 — stderr: \"Waiting for CI check: 0s elapsed of 300s\"\nT+6:45 — \"CI check completed.\"\nT+6:50 — Finally: example 1: score=0.80 / example 2: score=1.00 / overall: score=0.90\n\nResult: ~7 minutes. The quickstart pointed at a file absent from the package. The demo blocked 5 minutes on an unexplained network hold. Target is under 2 minutes. Does this match reality?",
+            "header": "Empathy check",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Accurate — proceed (Recommended)",
+                "description": "This is correct. Use this as the empathy baseline for all 8 review passes."
+              },
+              {
+                "label": "Partly wrong — correct it",
+                "description": "Some details are off. You'll clarify and I'll update before proceeding."
+              },
+              {
+                "label": "Wrong — actual experience differs",
+                "description": "The real onboarding path is substantially different. Describe the actual flow."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Does this empathy narrative match the real EvalKit onboarding experience? <gstack-qid:plan-devex-review-empathy-narrative>\n\nI traced the actual path from README and docs. Your ML engineer persona today:\n\nT+0:00 — Runs `python -m pip install evalkit==2.0.0b1`. Installs fine.\nT+1:00 — Sets EVALKIT_API_KEY.\nT+1:30 — README says: \"follow the quickstart's command: python examples/first_eval.py\". Runs it.\nT+1:35 — Error: \"can't open file 'examples/first_eval.py': No such file or directory\"\nT+1:40 — Scrolls README, no explanation. Spots python -m evalkit.demo and tries it.\nT+1:45 — stderr: \"Waiting for CI check: 0s elapsed of 300s\"\nT+6:45 — \"CI check completed.\"\nT+6:50 — Finally: example 1: score=0.80 / example 2: score=1.00 / overall: score=0.90\n\nResult: ~7 minutes. The quickstart pointed at a file absent from the package. The demo blocked 5 minutes on an unexplained network hold. Target is under 2 minutes. Does this match reality?": "Accurate — proceed (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:56:14.770Z"
+      },
+      {
+        "sessionId": "306e0de6-6557-43cf-8502-f320c689b3ad",
+        "toolUseId": "toolu_01BcgUMDvFU4UsB9GrrdsVmY",
+        "questions": [
+          {
+            "question": "D2 — Journey Stage HELLO WORLD: The quickstart file is absent from the published package. <gstack-qid:plan-devex-review-missing-quickstart>\n\nThe README says the first command after install is `python examples/first_eval.py`. But docs/package-contents.txt confirms: \"The quickstart references examples/first_eval.py, but that file is absent from both the published package and the release examples archive.\"\n\nEvery developer who follows the README gets a file-not-found error as their first interaction with EvalKit. This is a P0 blocker — the primary onboarding path is broken before any evaluation runs. The demo module (python -m evalkit.demo) works, but the README leads here first.\n\nStakes if we don't fix: First impression is a crash. The developer doesn't know if it's their fault or the SDK's.\n\nRecommendation: A — replace the quickstart reference in README with the working demo command, because the demo is already packaged and produces the right output.\n\nCompleteness: A=9/10, B=7/10, C=4/10",
+            "header": "Missing file",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Fix README to point to demo (Recommended)",
+                "description": "Replace `python examples/first_eval.py` with `python -m evalkit.demo` as the primary quickstart command. One-line README edit. Completeness: 9/10"
+              },
+              {
+                "label": "Add first_eval.py to package",
+                "description": "Write and include examples/first_eval.py in the published package so the README stays correct. Requires authoring the file and updating the package manifest. Completeness: 7/10"
+              },
+              {
+                "label": "Leave both, add a note",
+                "description": "Keep the README reference but add a note that the file is not included and point to the demo as an alternative. Lowest effort but perpetuates the confusion. Completeness: 4/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Journey Stage HELLO WORLD: The quickstart file is absent from the published package. <gstack-qid:plan-devex-review-missing-quickstart>\n\nThe README says the first command after install is `python examples/first_eval.py`. But docs/package-contents.txt confirms: \"The quickstart references examples/first_eval.py, but that file is absent from both the published package and the release examples archive.\"\n\nEvery developer who follows the README gets a file-not-found error as their first interaction with EvalKit. This is a P0 blocker — the primary onboarding path is broken before any evaluation runs. The demo module (python -m evalkit.demo) works, but the README leads here first.\n\nStakes if we don't fix: First impression is a crash. The developer doesn't know if it's their fault or the SDK's.\n\nRecommendation: A — replace the quickstart reference in README with the working demo command, because the demo is already packaged and produces the right output.\n\nCompleteness: A=9/10, B=7/10, C=4/10": "Fix README to point to demo (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:56:28.814Z"
+      },
+      {
+        "sessionId": "306e0de6-6557-43cf-8502-f320c689b3ad",
+        "toolUseId": "toolu_018Xrf5Na2k8ebPUaMS6Hj3G",
+        "questions": [
+          {
+            "question": "D3 — Journey Stage HELLO WORLD: The 5-minute mandatory CI block makes the under-2-minute TTHW target unreachable. <gstack-qid:plan-devex-review-tthw-ci-block>\n\nThe plan retains the first-run CI gate (docs/current-contracts.md): \"blocks for five minutes before returning an evaluation result. There is no skip flag or offline first-run path.\" The README confirms: \"Like every first evaluation, it currently waits for the mandatory CI check.\"\n\ndocs/benchmarks.md shows the agreed target is under 2 minutes. Competitor A already hits 2 minutes. The 5-minute block applies to EVERY first-time developer, including the demo (`python -m evalkit.demo`). No matter how fast install + auth runs, the gate adds 5 minutes.\n\nThe plan retains this gate. That makes the under-2-minute target a documented goal the plan cannot achieve as written.\n\nStakes if we don't fix: The benchmarks.md target is false. Developers wait 5x longer than the stated goal. The plan ships with a known broken promise.\n\nRecommendation: A — add a demo-mode skip flag that bypasses the CI check for bundled sample data, so `python -m evalkit.demo` is fast while real evaluations keep the gate. The magical moment should not cost 5 minutes.\n\nCompleteness: A=9/10, B=6/10, C=3/10",
+            "header": "TTHW target",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add demo-mode CI skip flag (Recommended)",
+                "description": "Exempt `python -m evalkit.demo` (bundled sample data only) from the mandatory CI check. Real evaluations keep the gate. TTHW for onboarding becomes ~1 minute. Completeness: 9/10"
+              },
+              {
+                "label": "Revise target in benchmarks.md",
+                "description": "Update the documented target to reflect reality: 6-7 minutes. Honest, but accepts losing to all three peer SDKs and abandons the competitive goal. Completeness: 6/10"
+              },
+              {
+                "label": "Leave as-is, document the wait",
+                "description": "Keep the gate, keep the target, and add a note in README that first-run takes 5 minutes. Developers are warned but still wait. Target remains broken. Completeness: 3/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 — Journey Stage HELLO WORLD: The 5-minute mandatory CI block makes the under-2-minute TTHW target unreachable. <gstack-qid:plan-devex-review-tthw-ci-block>\n\nThe plan retains the first-run CI gate (docs/current-contracts.md): \"blocks for five minutes before returning an evaluation result. There is no skip flag or offline first-run path.\" The README confirms: \"Like every first evaluation, it currently waits for the mandatory CI check.\"\n\ndocs/benchmarks.md shows the agreed target is under 2 minutes. Competitor A already hits 2 minutes. The 5-minute block applies to EVERY first-time developer, including the demo (`python -m evalkit.demo`). No matter how fast install + auth runs, the gate adds 5 minutes.\n\nThe plan retains this gate. That makes the under-2-minute target a documented goal the plan cannot achieve as written.\n\nStakes if we don't fix: The benchmarks.md target is false. Developers wait 5x longer than the stated goal. The plan ships with a known broken promise.\n\nRecommendation: A — add a demo-mode skip flag that bypasses the CI check for bundled sample data, so `python -m evalkit.demo` is fast while real evaluations keep the gate. The magical moment should not cost 5 minutes.\n\nCompleteness: A=9/10, B=6/10, C=3/10": "Add demo-mode CI skip flag (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:56:54.414Z"
+      },
+      {
+        "sessionId": "306e0de6-6557-43cf-8502-f320c689b3ad",
+        "toolUseId": "toolu_01XoZ2ZdG3rGW5Ssh8ZttgU3",
+        "questions": [
+          {
+            "question": "D4 — Pass 2 API Design: `run_eval` and `run_batch` take the same two arguments in opposite order. <gstack-qid:plan-devex-review-arg-order>\n\ndocs/api.md shows:\n- `run_eval(dataset, evaluator)` — dataset first\n- `run_batch(evaluator, dataset)` — evaluator first\n\nBoth describe the same concepts. The plan notes \"The reversed positional order is intentional in the current draft; neither function requires keyword arguments.\"\n\nFor an ML engineer using both functions in the same codebase, this is a muscle memory trap. A dev who writes `run_eval(my_dataset, my_eval)` will write `run_batch(my_dataset, my_eval)` by reflex — silently passing the wrong values in the wrong order, with no type error because both arguments are the same type.\n\nThe Pit of Success test: make the right thing easy, the wrong thing hard. This API makes a silent wrong call easy.\n\nStakes: Logic bugs that don't surface at runtime, only in evaluation results. \"Why are my batch scores wrong?\" is a hard debug.\n\nRecommendation: A — standardize on `(dataset, evaluator)` order in both functions, because dataset is the primary noun (what you're evaluating), evaluator is the tool. Both should require keyword arguments or be consistently ordered.\n\nCompleteness: A=10/10, B=7/10, C=4/10",
+            "header": "Arg order",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Standardize order to (dataset, evaluator) (Recommended)",
+                "description": "Fix run_batch to match run_eval's order. Breaking change for v2, so ideal to ship before beta release. Add keyword-argument requirement or deprecation shim for the old order. Completeness: 10/10"
+              },
+              {
+                "label": "Require keyword arguments in both",
+                "description": "Leave the positional order inconsistency but require callers to use keyword arguments (`run_batch(evaluator=e, dataset=d)`). Eliminates silent wrong-order calls without changing argument order. Completeness: 7/10"
+              },
+              {
+                "label": "Leave intentional, add docs warning",
+                "description": "Keep the reversed order as-is but add a prominent note in the API reference. Preserves current behavior, relies on developers reading docs carefully. Completeness: 4/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — Pass 2 API Design: `run_eval` and `run_batch` take the same two arguments in opposite order. <gstack-qid:plan-devex-review-arg-order>\n\ndocs/api.md shows:\n- `run_eval(dataset, evaluator)` — dataset first\n- `run_batch(evaluator, dataset)` — evaluator first\n\nBoth describe the same concepts. The plan notes \"The reversed positional order is intentional in the current draft; neither function requires keyword arguments.\"\n\nFor an ML engineer using both functions in the same codebase, this is a muscle memory trap. A dev who writes `run_eval(my_dataset, my_eval)` will write `run_batch(my_dataset, my_eval)` by reflex — silently passing the wrong values in the wrong order, with no type error because both arguments are the same type.\n\nThe Pit of Success test: make the right thing easy, the wrong thing hard. This API makes a silent wrong call easy.\n\nStakes: Logic bugs that don't surface at runtime, only in evaluation results. \"Why are my batch scores wrong?\" is a hard debug.\n\nRecommendation: A — standardize on `(dataset, evaluator)` order in both functions, because dataset is the primary noun (what you're evaluating), evaluator is the tool. Both should require keyword arguments or be consistently ordered.\n\nCompleteness: A=10/10, B=7/10, C=4/10": "Standardize order to (dataset, evaluator) (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:57:22.039Z"
+      },
+      {
+        "sessionId": "306e0de6-6557-43cf-8502-f320c689b3ad",
+        "toolUseId": "toolu_01Y1XAbDXc99z6tzdt5eXBXG",
+        "questions": [
+          {
+            "question": "D5 — Pass 3 Error Messages: The auth error gives developers nothing to act on. <gstack-qid:plan-devex-review-auth-error>\n\ndocs/api.md states: \"For an invalid API key, the SDK raises `AuthError('request failed')`.\nThere is no authentication error code, explanation of the cause, or instruction for replacing the key. The plan retains this message.\"\n\nAuth errors are the single most common first-run failure mode for SDK developers. \"request failed\" tells the developer nothing: not what request, not why it failed, not what to check. They'll grep their code looking for what they broke.\n\nThe DX First Principle: every error = problem + cause + fix. Current message delivers zero of three.\n\nComparison: A Stripe auth failure returns `{\"error\": {\"code\": \"api_key_invalid\", \"message\": \"No API key provided.\", \"type\": \"invalid_request_error\"}}`.\n\nStakes: Developers with a wrong or missing key get a useless message. They try again, check env vars three times, maybe open a support ticket. The fix is one line.\n\nRecommendation: A — change the error message to include cause and fix, because DX POLISH means bulletproofing every touchpoint and this is the highest-traffic error path.\n\nCompleteness: A=10/10, B=6/10",
+            "header": "Auth error",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Fix error message to include cause + fix (Recommended)",
+                "description": "Change AuthError message to something like: \"Authentication failed: API key invalid or missing. Check that EVALKIT_API_KEY is set and valid. See docs/api.md for key setup.\" Completeness: 10/10"
+              },
+              {
+                "label": "Add error code only, keep existing message",
+                "description": "Add a machine-readable error code (e.g. AuthError code='auth_key_invalid') without rewriting the human message. Useful for programmatic handling but still unhelpful for the developer reading it. Completeness: 6/10"
+              },
+              {
+                "label": "Leave as-is (plan's current position)",
+                "description": "Keep AuthError('request failed'). The plan explicitly retains this. Requires accepting that auth failures are invisible to developers. Completeness: 3/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 — Pass 3 Error Messages: The auth error gives developers nothing to act on. <gstack-qid:plan-devex-review-auth-error>\n\ndocs/api.md states: \"For an invalid API key, the SDK raises `AuthError('request failed')`.\nThere is no authentication error code, explanation of the cause, or instruction for replacing the key. The plan retains this message.\"\n\nAuth errors are the single most common first-run failure mode for SDK developers. \"request failed\" tells the developer nothing: not what request, not why it failed, not what to check. They'll grep their code looking for what they broke.\n\nThe DX First Principle: every error = problem + cause + fix. Current message delivers zero of three.\n\nComparison: A Stripe auth failure returns `{\"error\": {\"code\": \"api_key_invalid\", \"message\": \"No API key provided.\", \"type\": \"invalid_request_error\"}}`.\n\nStakes: Developers with a wrong or missing key get a useless message. They try again, check env vars three times, maybe open a support ticket. The fix is one line.\n\nRecommendation: A — change the error message to include cause and fix, because DX POLISH means bulletproofing every touchpoint and this is the highest-traffic error path.\n\nCompleteness: A=10/10, B=6/10": "Fix error message to include cause + fix (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:57:45.639Z"
+      },
+      {
+        "sessionId": "306e0de6-6557-43cf-8502-f320c689b3ad",
+        "toolUseId": "toolu_016eEvDGhGseLrg8LRLyAnDN",
+        "questions": [
+          {
+            "question": "D6 — Pass 5 Upgrade Path: `Client.evaluate()` is removed in v2 with no migration path. <gstack-qid:plan-devex-review-v1-migration>\n\ndocs/api.md: \"Version 1 exposes `Client.evaluate()`. Version 2 replaces it with `Client.run()` and removes the old name immediately. No compatibility alias, deprecation warning, migration guide, or codemod is provided.\"\n\nAny v1 user who upgrades gets `AttributeError: 'Client' object has no attribute 'evaluate'` with no context — the error tells them nothing about `Client.run()` or why the method disappeared.\n\nThis contradicts the SDK's own stated values: docs/current-contracts.md says \"All other errors already identify the cause, relevant argument or file, and an actionable fix.\" The upgrade path is the one place where this standard is violated.\n\nFor a beta SDK, a breaking rename without a shim is acceptable — but a helpful error message at the call site is not optional. Upgrade fear is a leading cause of SDK abandonment.\n\nStakes: v1 users hit an opaque error. They file issues instead of upgrading. Migration time grows from \"5 minutes\" to \"I need to figure out what changed.\"\n\nRecommendation: A — add a deprecated-method shim that raises a helpful AttributeError, because it's one function and it makes the upgrade self-documenting.\n\nCompleteness: A=9/10, B=7/10, C=4/10",
+            "header": "v1→v2 upgrade",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add deprecated shim with helpful error (Recommended)",
+                "description": "Keep `Client.evaluate()` but have it raise AttributeError: \"evaluate() was renamed to run() in v2. Replace: client.evaluate(data) -> client.run(data). See changelog for details.\" No behavior, just a self-documenting error. Completeness: 9/10"
+              },
+              {
+                "label": "Add migration guide only",
+                "description": "Write a v1-to-v2 migration guide in docs/ that lists the rename. Developers who read changelogs find it. Developers who don't still hit the opaque AttributeError. Completeness: 7/10"
+              },
+              {
+                "label": "Leave as-is (plan's current position)",
+                "description": "Keep the silent removal. Beta SDK, breaking changes expected. Developers can read the changelog. Completeness: 4/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 — Pass 5 Upgrade Path: `Client.evaluate()` is removed in v2 with no migration path. <gstack-qid:plan-devex-review-v1-migration>\n\ndocs/api.md: \"Version 1 exposes `Client.evaluate()`. Version 2 replaces it with `Client.run()` and removes the old name immediately. No compatibility alias, deprecation warning, migration guide, or codemod is provided.\"\n\nAny v1 user who upgrades gets `AttributeError: 'Client' object has no attribute 'evaluate'` with no context — the error tells them nothing about `Client.run()` or why the method disappeared.\n\nThis contradicts the SDK's own stated values: docs/current-contracts.md says \"All other errors already identify the cause, relevant argument or file, and an actionable fix.\" The upgrade path is the one place where this standard is violated.\n\nFor a beta SDK, a breaking rename without a shim is acceptable — but a helpful error message at the call site is not optional. Upgrade fear is a leading cause of SDK abandonment.\n\nStakes: v1 users hit an opaque error. They file issues instead of upgrading. Migration time grows from \"5 minutes\" to \"I need to figure out what changed.\"\n\nRecommendation: A — add a deprecated-method shim that raises a helpful AttributeError, because it's one function and it makes the upgrade self-documenting.\n\nCompleteness: A=9/10, B=7/10, C=4/10": "Add deprecated shim with helpful error (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:58:11.250Z"
+      }
+    ]
+  },
+  "eng": {
+    "sessionId": "4fc2a716-4122-4cd3-bc0e-1128cd9b9819",
+    "calls": [
+      {
+        "sessionId": "4fc2a716-4122-4cd3-bc0e-1128cd9b9819",
+        "toolUseId": "toolu_01YJ9RYv2tb9dKBYui3SMbnN",
+        "questions": [
+          {
+            "question": "D1 — Complexity check triggered: 12 files, 4 new classes. Reduce scope or proceed as-is? <gstack-qid:plan-eng-scope-complexity>",
+            "header": "Scope check",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Proceed as-is (Recommended)",
+                "description": "Accept the full scope: AuthBroker, SessionMint, AuthCache facade, TokenStore, RequestPolicy across 12 files. Review all four classes for correctness and coupling, then implement the complete refactor."
+              },
+              {
+                "label": "Reduce scope first",
+                "description": "Propose a leaner version: keep AuthBroker + SessionMint as the core services, collapse AuthCache into direct adapter usage (the adapter already exists with all eviction/invalidation logic), and inline RequestPolicy and TokenStore logic rather than introducing standalone classes. Target: 7-8 files, 2 classes."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Complexity check triggered: 12 files, 4 new classes. Reduce scope or proceed as-is? <gstack-qid:plan-eng-scope-complexity>": "Proceed as-is (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:56:31.324Z"
+      },
+      {
+        "sessionId": "4fc2a716-4122-4cd3-bc0e-1128cd9b9819",
+        "toolUseId": "toolu_018Pp3EC7wSd6EHLjWc58EDu",
+        "questions": [
+          {
+            "question": "D2 — Architecture Issue 1: Global mutable AuthCache shared between two services with no mutation serialization. How should we fix this? <gstack-qid:plan-eng-arch-shared-cache>",
+            "header": "Shared cache",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Inject AuthCache via constructor (Recommended)",
+                "description": "Pass the AuthCache instance as a constructor argument to AuthBroker and SessionMint. No module-level singleton. Add a mutex or async queue (e.g. a simple promise-chain lock) to serialize writes. This makes the coupling explicit, testable, and prevents interleaved mutations from concurrent async flows."
+              },
+              {
+                "label": "Keep global export, add write serialization",
+                "description": "Retain the module-level singleton but wrap all mutating methods in an async mutex (e.g. using the 'async-mutex' package or a hand-rolled promise queue). Lower refactor surface, but the hidden global dependency remains, making unit testing harder and creating a subtle import-order hazard."
+              },
+              {
+                "label": "Keep as-is, document the risk",
+                "description": "Accept the race condition as acceptable for the current scale and add a code comment flagging it. Not recommended: the plan explicitly notes mutations are not serialized, and a cache holding auth tokens corrupted at write time is a security surface, not just a correctness issue."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Architecture Issue 1: Global mutable AuthCache shared between two services with no mutation serialization. How should we fix this? <gstack-qid:plan-eng-arch-shared-cache>": "Inject AuthCache via constructor (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:56:53.399Z"
+      },
+      {
+        "sessionId": "4fc2a716-4122-4cd3-bc0e-1128cd9b9819",
+        "toolUseId": "toolu_01VwxtKsLQumQ7Ag869jNbBk",
+        "questions": [
+          {
+            "question": "D3 — Code Quality Issue 1: validateAndDispatch() swallows three distinct error classes across nested try/catch blocks. How should we address this? <gstack-qid:plan-eng-cq-error-swallow>",
+            "header": "Error handling",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Refactor into typed error propagation (Recommended)",
+                "description": "Break validateAndDispatch() into 3-4 focused sub-functions (validateToken, dispatchPolicy, recordAudit etc.), each throwing or returning a typed Result<T, AuthError>. Replace catch-and-swallow with catch-log-rethrow at the entry point boundary only. This aligns with 'explicit over clever' and gives callers actionable error types. (human: ~3h / CC: ~20min)"
+              },
+              {
+                "label": "Log and rethrow in each catch, keep structure",
+                "description": "Minimal change: add logger.error() in each catch, then rethrow (or return a discriminated error enum). Keeps the 60-line function intact but stops silently swallowing failures. Faster, but doesn't fix the structural debt. (human: ~30min / CC: ~5min)"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 — Code Quality Issue 1: validateAndDispatch() swallows three distinct error classes across nested try/catch blocks. How should we address this? <gstack-qid:plan-eng-cq-error-swallow>": "Refactor into typed error propagation (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:57:51.609Z"
+      },
+      {
+        "sessionId": "4fc2a716-4122-4cd3-bc0e-1128cd9b9819",
+        "toolUseId": "toolu_011quLsKZRH26s88RTtqZNgp",
+        "questions": [
+          {
+            "question": "D4 — Test Issue 1: No E2E or integration test planned for the cross-service auth flow (AuthBroker → IDP → AuthCache → SessionMint). Add one? <gstack-qid:plan-eng-test-e2e-auth>",
+            "header": "E2E coverage",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add E2E integration test for full auth flow (Recommended)",
+                "description": "Add one E2E test file (auth-flow.e2e.ts or similar) covering: (1) full token validation round-trip against a stubbed IDP, (2) concurrent requests from two tenants (validates mutex correctness), (3) logout triggers cache invalidation. This is the flow the plan's unit tests cannot adequately mock. (human: ~4h / CC: ~25min)"
+              },
+              {
+                "label": "Unit tests only, skip E2E",
+                "description": "Accept that unit tests with mocked IDP and mocked cache cover the plan's scope. The integration surface is small enough to trust. Risk: mutex correctness and IDP retry behavior are not verified until production. (human: 0 / CC: 0)"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — Test Issue 1: No E2E or integration test planned for the cross-service auth flow (AuthBroker → IDP → AuthCache → SessionMint). Add one? <gstack-qid:plan-eng-test-e2e-auth>": "Add E2E integration test for full auth flow (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:58:43.808Z"
+      },
+      {
+        "sessionId": "4fc2a716-4122-4cd3-bc0e-1128cd9b9819",
+        "toolUseId": "toolu_01ETKhG4zvAW4PURcXzHVMwh",
+        "questions": [
+          {
+            "question": "D5 — Performance Issue 1: 5 sequential IDP calls per token validation. Fix with Promise.all in this PR or defer? <gstack-qid:plan-eng-perf-idp-parallel>",
+            "header": "IDP calls",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Fix with Promise.all in this PR (Recommended)",
+                "description": "Wrap the 5 independent IDP calls in Promise.all(). The plan itself calls this 'trivial' and 'calls are independent.' With CC, this is a ~5-minute change. Leaving it sequential while doing a full auth refactor is the wrong time to ignore a known bottleneck. (human: ~30min / CC: ~5min)"
+              },
+              {
+                "label": "Defer to a follow-up PR",
+                "description": "Add a TODO and ship the refactor without the optimization. Acceptable if the IDP calls are already fast enough at current scale and you want to keep the diff minimal. (human: 0 now / CC: 0 now, but requires a follow-up task)"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 — Performance Issue 1: 5 sequential IDP calls per token validation. Fix with Promise.all in this PR or defer? <gstack-qid:plan-eng-perf-idp-parallel>": "Fix with Promise.all in this PR (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:58:59.871Z"
+      },
+      {
+        "sessionId": "4fc2a716-4122-4cd3-bc0e-1128cd9b9819",
+        "toolUseId": "toolu_01Pfq8t8yzTVsZUGQZdukwii",
+        "questions": [
+          {
+            "question": "D6 — TODO: Add IDP circuit breaker or retry strategy? The plan parallelizes IDP calls but does not address IDP unavailability. <gstack-qid:plan-eng-todo-circuit-breaker>",
+            "header": "TODO: IDP CB",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add to TODOS.md for later",
+                "description": "Capture it now so it is not forgotten, but do not scope it into this PR. Context: Promise.all failing on first IDP error means auth is non-functional during IDP brownouts. A circuit breaker (e.g. opossum library) or exponential-backoff retry would isolate failures. Depends on: T5 (IDP parallelization) being merged first."
+              },
+              {
+                "label": "Build it now in this PR",
+                "description": "Add a circuit breaker or retry wrapper around the IDP calls as part of this PR. Most natural time to add it since we are already refactoring the IDP call path. (human: ~3h / CC: ~20min)"
+              },
+              {
+                "label": "Skip — not valuable enough",
+                "description": "Acceptable if the IDP has its own HA/retry guarantees and application-level retries are not required by SLA."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 — TODO: Add IDP circuit breaker or retry strategy? The plan parallelizes IDP calls but does not address IDP unavailability. <gstack-qid:plan-eng-todo-circuit-breaker>": "Add to TODOS.md for later"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T06:01:14.441Z"
+      },
+      {
+        "sessionId": "4fc2a716-4122-4cd3-bc0e-1128cd9b9819",
+        "toolUseId": "toolu_01Fc4jMYA8Nxj9ToEEp6ZjF9",
+        "questions": [
+          {
+            "question": "D7 — TODO: Distributed locking for AuthCache if running multi-instance? The in-process mutex from T1 only protects within a single process. <gstack-qid:plan-eng-todo-distributed-lock>",
+            "header": "TODO: dist lock",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add to TODOS.md for later",
+                "description": "Capture the gap: if AuthBroker + SessionMint run as multiple replicas, the mutex from T1 only serializes writes within one process. Cross-process writes to the shared cache can still race. A Redis lock or optimistic concurrency on the underlying adapter would fix it. Depends on: knowing the deployment topology."
+              },
+              {
+                "label": "Skip — not valuable enough",
+                "description": "Acceptable if the service runs as a single process or the underlying cache adapter already handles concurrent writes atomically (e.g. Redis SET NX). If the adapter is thread-safe and atomic, the in-process mutex is redundant anyway."
+              },
+              {
+                "label": "Investigate now before deciding",
+                "description": "Check if the existing cache adapter (mentioned in the plan) already provides atomic write semantics. If it does, neither the in-process mutex nor a distributed lock are needed for correctness."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D7 — TODO: Distributed locking for AuthCache if running multi-instance? The in-process mutex from T1 only protects within a single process. <gstack-qid:plan-eng-todo-distributed-lock>": "Add to TODOS.md for later"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T06:01:24.472Z"
+      }
+    ]
+  }
+}

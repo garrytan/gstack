@@ -1,0 +1,1009 @@
+/**
+ * Eval result persistence and comparison.
+ *
+ * EvalCollector accumulates test results, writes them to
+ * ~/.gstack/projects/$SLUG/evals/{version}-{branch}-{tier}-{timestamp}.json,
+ * prints a summary table, and auto-compares with the previous run.
+ *
+ * Comparison functions are exported for reuse by the eval:compare CLI.
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { spawnSync } from 'child_process';
+
+// v2: EvalTestEntry.harvest gains optional {insertions, deletions, net} and
+// may be explicitly null (arm-benchmark harvest-failure taxonomy). Readers
+// stay tolerant of v1 runs: no reader requires the new fields, and
+// eval-compare only warns on version mismatch.
+const SCHEMA_VERSION = 2;
+const LEGACY_EVAL_DIR = path.join(os.homedir(), '.gstack-dev', 'evals');
+
+/**
+ * Detect project-scoped eval dir via gstack-slug.
+ * Falls back to legacy ~/.gstack-dev/evals/ if slug detection fails.
+ */
+export function getProjectEvalDir(): string {
+  try {
+    // Try repo-local gstack-slug first, then global install
+    const localSlug = spawnSync('bash', ['-c', '.claude/skills/gstack/bin/gstack-slug 2>/dev/null || ~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null'], {
+      stdio: 'pipe', timeout: 3000,
+    });
+    const output = localSlug.stdout?.toString().trim();
+    if (output) {
+      const slugMatch = output.match(/^SLUG=(.+)$/m);
+      if (slugMatch && slugMatch[1]) {
+        const dir = path.join(os.homedir(), '.gstack', 'projects', slugMatch[1], 'evals');
+        fs.mkdirSync(dir, { recursive: true });
+        return dir;
+      }
+    }
+  } catch { /* fall through */ }
+  return LEGACY_EVAL_DIR;
+}
+
+/**
+ * Lazy + memoized so importing this module never spawns the gstack-slug
+ * subprocess. Callers that pass an explicit dir or set GSTACK_EVAL_DIR
+ * (the sharded paid runner does, per shard) never pay for slug detection.
+ */
+let memoizedDefaultEvalDir: string | null = null;
+function defaultEvalDir(): string {
+  if (memoizedDefaultEvalDir === null) memoizedDefaultEvalDir = getProjectEvalDir();
+  return memoizedDefaultEvalDir;
+}
+
+// --- Interfaces ---
+
+export interface EvalTestEntry {
+  name: string;
+  suite: string;
+  tier: 'e2e' | 'llm-judge';
+  passed: boolean;
+  duration_ms: number;
+  cost_usd: number;
+  /** 1-based record attempt for this name in this run. bun's --retry leaves
+   *  retried passes INVISIBLE in its text output (a fail→pass prints no
+   *  (fail) line and recaps as a clean pass — probed on 1.3.10), so the ONLY
+   *  reliable attempt signal is this in-process record: a retried test runs
+   *  its body again and re-records under the same name. Set by addTest. */
+  attempt?: number;
+
+  // E2E
+  transcript?: any[];
+  prompt?: string;
+  output?: string;
+  turns_used?: number;
+  tokens_used?: number;
+  browse_errors?: string[];
+
+  // LLM judge
+  judge_scores?: Record<string, number>;
+  judge_reasoning?: string;
+
+  // Machine-readable diagnostics
+  exit_reason?: string;       // 'success' | 'timeout' | 'error_max_turns' | 'exit_code_N'
+  timeout_at_turn?: number;   // which turn was active when timeout hit
+  last_tool_call?: string;    // e.g. "Write(review-output.md)"
+
+  // Model + timing diagnostics (added for Sonnet/Opus split)
+  model?: string;                // e.g. 'claude-sonnet-4-6' or 'claude-opus-4-7'
+  first_response_ms?: number;    // time from spawn to first NDJSON line
+  max_inter_turn_ms?: number;    // peak latency between consecutive tool calls
+
+  // Outcome eval
+  detection_rate?: number;
+  false_positives?: number;
+  evidence_quality?: number;
+  detected_bugs?: string[];
+  missed_bugs?: string[];
+
+  error?: string;
+
+  // Diff harvest data. Two writers today:
+  //   - WorktreeManager harvests set {filesChanged, patchPath, isDuplicate}.
+  //   - Arm-benchmark cells (schema v2) set {filesChanged, insertions,
+  //     deletions, net} from `git add -A && git diff --cached --stat`, and
+  //     record an explicit `null` when harvest itself failed (failure
+  //     taxonomy: a failed harvest is never silently dropped).
+  harvest?: {
+    filesChanged: number;
+    patchPath?: string;
+    isDuplicate?: boolean;
+    insertions?: number;
+    deletions?: number;
+    net?: number;
+  } | null;
+}
+
+export interface EvalResult {
+  schema_version: number;
+  version: string;
+  branch: string;
+  git_sha: string;
+  timestamp: string;
+  hostname: string;
+  /** `claude --version` first line at run time (schema-additive, optional).
+   *  TUI drift broke the PTY harness three times before runs recorded which
+   *  CLI they actually exercised. */
+  claude_cli_version?: string;
+  tier: 'e2e' | 'llm-judge';
+  total_tests: number;
+  passed: number;
+  failed: number;
+  total_cost_usd: number;
+  total_duration_ms: number;
+  wall_clock_ms?: number;     // wall-clock from collector creation to finalization (shows parallelism)
+  tests: EvalTestEntry[];
+  /** Shard slug when the run was collected under <evalDir>/shards/<slug>/. */
+  shard?: string;
+  /** Tests recorded more than once this run — the flake ledger for the paid
+   *  lane. A test passing on attempt 2 every week used to read permanently
+   *  green (the retry's entry was indistinguishable and bun's output hides
+   *  retries entirely). Present only when non-empty. */
+  flaky_retries?: Array<{ name: string; attempts: number }>;
+  _partial?: boolean;  // true for incremental saves, absent in final
+}
+
+export interface TestDelta {
+  name: string;
+  before: { passed: boolean; cost_usd: number; turns_used?: number; duration_ms?: number;
+            detection_rate?: number; tool_summary?: Record<string, number> };
+  after:  { passed: boolean; cost_usd: number; turns_used?: number; duration_ms?: number;
+            detection_rate?: number; tool_summary?: Record<string, number> };
+  status_change: 'improved' | 'regressed' | 'unchanged';
+}
+
+export interface ComparisonResult {
+  before_file: string;
+  after_file: string;
+  before_branch: string;
+  after_branch: string;
+  before_timestamp: string;
+  after_timestamp: string;
+  deltas: TestDelta[];
+  total_cost_delta: number;
+  total_duration_delta: number;
+  improved: number;
+  regressed: number;
+  unchanged: number;
+  tool_count_before: number;
+  tool_count_after: number;
+  /** After-tests that had a same-named entry in the before run. 0 = nothing was
+   *  actually compared, so no stability claim is warranted. */
+  matched?: number;
+}
+
+// --- Shared helpers ---
+
+/**
+ * Is this eval file an in-progress accumulator rather than a finalized run?
+ *
+ * True on either signal: the `_partial` flag inside the JSON (the authoritative
+ * role marker) OR a filename starting with `_partial` (catches accumulators
+ * whose body predates the flag, and flagged files that were renamed keep being
+ * caught by the flag). Every baseline lookup must exclude these — an
+ * accumulator carries the current run's tier, branch, and freshest timestamp,
+ * so treating it as a baseline makes the run compare against itself.
+ */
+export function isPartialEval(data: unknown, filename: string): boolean {
+  if (path.basename(filename).startsWith('_partial')) return true;
+  return Boolean((data as { _partial?: unknown } | null)?._partial);
+}
+
+/**
+ * Is this path a FINALIZED eval-store result file? Single owner of the
+ * filename taxonomy (manifest.json / slice-N.json are runner artifacts,
+ * _partial* are in-progress accumulators) — the paid runner's report mode
+ * and eval-flake-rank both consume this instead of re-encoding the rule
+ * (review finding: the rule lived in three places).
+ */
+export function isFinalizedEvalResultFile(relPath: string): boolean {
+  const base = path.basename(relPath);
+  if (!base.endsWith('.json')) return false;
+  if (base === 'manifest.json' || /^slice-\d+\.json$/.test(base)) return false;
+  if (base.startsWith('_partial')) return false;
+  return true;
+}
+
+/**
+ * List eval JSON files in `evalDir` plus one level of `<evalDir>/shards/<slug>/`
+ * subdirectories (where the sharded paid runner points each shard's collector).
+ * Returns absolute paths. Missing dirs yield [].
+ */
+export function listEvalJsonFiles(evalDir: string): string[] {
+  const jsonIn = (dir: string): string[] => {
+    let names: string[];
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      return [];
+    }
+    return names.filter(f => f.endsWith('.json')).map(f => path.join(dir, f));
+  };
+
+  const files = jsonIn(evalDir);
+  const shardsRoot = path.join(evalDir, 'shards');
+  let shardDirs: fs.Dirent[];
+  try {
+    shardDirs = fs.readdirSync(shardsRoot, { withFileTypes: true });
+  } catch {
+    return files;
+  }
+  for (const entry of shardDirs) {
+    if (!entry.isDirectory()) continue;
+    files.push(...jsonIn(path.join(shardsRoot, entry.name)));
+  }
+  return files;
+}
+
+/**
+ * Shard slug for an eval dir: when the dir is directly under a `shards/`
+ * directory (the sharded paid runner's per-shard GSTACK_EVAL_DIR layout),
+ * the dir name is the slug; otherwise null.
+ */
+export function shardSlugOfEvalDir(evalDir: string): string | null {
+  const normalized = path.resolve(evalDir);
+  return path.basename(path.dirname(normalized)) === 'shards' ? path.basename(normalized) : null;
+}
+
+/**
+ * Find the most recent finalized (non-partial) eval file for a tier, scanning
+ * `evalDir` and one level of `shards/<slug>/` subdirs. Shared by the budget
+ * regression gate and any tooling that needs "the latest real run".
+ */
+export function findLatestFinalizedRun(
+  evalDir: string,
+  tier: 'e2e' | 'llm-judge',
+): { filepath: string; result: EvalResult } | null {
+  let latest: { filepath: string; result: EvalResult; timestamp: string } | null = null;
+  for (const filepath of listEvalJsonFiles(evalDir)) {
+    let data: EvalResult;
+    try {
+      data = JSON.parse(fs.readFileSync(filepath, 'utf-8')) as EvalResult;
+    } catch { continue; }
+    if (isPartialEval(data, filepath)) continue;
+    if (data.tier !== tier) continue;
+    const timestamp = data.timestamp ?? '';
+    if (!latest || timestamp.localeCompare(latest.timestamp) > 0) {
+      latest = { filepath, result: data, timestamp };
+    }
+  }
+  return latest ? { filepath: latest.filepath, result: latest.result } : null;
+}
+
+/**
+ * Determine if a planted-bug eval passed based on judge results vs ground truth thresholds.
+ * Centralizes the pass/fail logic so all planted-bug tests use the same criteria.
+ */
+export function judgePassed(
+  judgeResult: { detection_rate: number; false_positives: number; evidence_quality: number },
+  groundTruth: { minimum_detection: number; max_false_positives: number },
+): boolean {
+  return judgeResult.detection_rate >= groundTruth.minimum_detection
+    && judgeResult.false_positives <= groundTruth.max_false_positives
+    && judgeResult.evidence_quality >= 2;
+}
+
+// --- Comparison functions (exported for eval:compare CLI) ---
+
+/**
+ * Extract tool call counts from a transcript.
+ * Returns e.g. { Bash: 8, Read: 3, Write: 1 }.
+ */
+export function extractToolSummary(transcript: any[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const event of transcript) {
+    if (event.type === 'assistant') {
+      const content = event.message?.content || [];
+      for (const item of content) {
+        if (item.type === 'tool_use') {
+          const name = item.name || 'unknown';
+          counts[name] = (counts[name] || 0) + 1;
+        }
+      }
+    }
+  }
+  return counts;
+}
+
+/**
+ * Find the most recent prior COMPLETED eval file for comparison.
+ * Scans the eval dir plus one level of `shards/<slug>/` subdirs. Prefers
+ * same shard slug (a shard's own history over another shard's or the flat
+ * dir's), then same branch, then falls back to anything.
+ *
+ * In-progress accumulators (`_partial: true`, written by savePartial after every
+ * test) are never candidates: the current run's own partial carries the current
+ * tier + branch and the freshest timestamp, so including it made every run
+ * compare against itself and report "no regressions" unconditionally. The
+ * exclusion is by role (the `_partial` flag), not by filename.
+ */
+export function findPreviousRun(
+  evalDir: string,
+  tier: string,
+  branch: string,
+  excludeFile: string,
+): string | null {
+  // Parse top-level fields from each file (cheap — no full tests array needed)
+  const entries: Array<{ file: string; branch: string; timestamp: string; shard: string | null }> = [];
+  for (const fullPath of listEvalJsonFiles(evalDir)) {
+    if (path.resolve(fullPath) === path.resolve(excludeFile)) continue;
+    try {
+      const raw = fs.readFileSync(fullPath, 'utf-8');
+      // Quick parse — only grab the fields we need
+      const data = JSON.parse(raw);
+      if (isPartialEval(data, fullPath)) continue; // in-progress run, not a baseline
+      if (data.tier !== tier) continue;
+      entries.push({
+        file: fullPath,
+        branch: data.branch || '',
+        timestamp: data.timestamp || '',
+        shard: data.shard || shardSlugOfEvalDir(path.dirname(fullPath)),
+      });
+    } catch { continue; }
+  }
+
+  if (entries.length === 0) return null;
+
+  // Sort by timestamp descending
+  entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+  // Prefer same shard slug (null = the flat dir), then same branch, then any.
+  const targetShard = shardSlugOfEvalDir(path.dirname(excludeFile));
+  const preferences: Array<(e: typeof entries[number]) => boolean> = [
+    e => e.shard === targetShard && e.branch === branch,
+    e => e.shard === targetShard,
+    e => e.branch === branch,
+  ];
+  for (const matches of preferences) {
+    const hit = entries.find(matches);
+    if (hit) return hit.file;
+  }
+  return entries[0].file;
+}
+
+/**
+ * Compare two eval results. Matches tests by name.
+ */
+export function compareEvalResults(
+  before: EvalResult,
+  after: EvalResult,
+  beforeFile: string,
+  afterFile: string,
+): ComparisonResult {
+  const deltas: TestDelta[] = [];
+  let improved = 0, regressed = 0, unchanged = 0;
+  let toolCountBefore = 0, toolCountAfter = 0;
+  let matched = 0;
+
+  // Index before tests by name
+  const beforeMap = new Map<string, EvalTestEntry>();
+  for (const t of before.tests) {
+    beforeMap.set(t.name, t);
+  }
+
+  // Walk after tests, match by name
+  for (const afterTest of after.tests) {
+    const beforeTest = beforeMap.get(afterTest.name);
+    const beforeToolSummary = beforeTest?.transcript ? extractToolSummary(beforeTest.transcript) : {};
+    const afterToolSummary = afterTest.transcript ? extractToolSummary(afterTest.transcript) : {};
+
+    const beforeToolCount = Object.values(beforeToolSummary).reduce((a, b) => a + b, 0);
+    const afterToolCount = Object.values(afterToolSummary).reduce((a, b) => a + b, 0);
+    toolCountBefore += beforeToolCount;
+    toolCountAfter += afterToolCount;
+
+    let statusChange: TestDelta['status_change'] = 'unchanged';
+    if (beforeTest) {
+      matched++;
+      if (!beforeTest.passed && afterTest.passed) { statusChange = 'improved'; improved++; }
+      else if (beforeTest.passed && !afterTest.passed) { statusChange = 'regressed'; regressed++; }
+      else { unchanged++; }
+    } else {
+      // New test — treat as unchanged (no prior data)
+      unchanged++;
+    }
+
+    deltas.push({
+      name: afterTest.name,
+      before: {
+        passed: beforeTest?.passed ?? false,
+        cost_usd: beforeTest?.cost_usd ?? 0,
+        turns_used: beforeTest?.turns_used,
+        duration_ms: beforeTest?.duration_ms,
+        detection_rate: beforeTest?.detection_rate,
+        tool_summary: beforeToolSummary,
+      },
+      after: {
+        passed: afterTest.passed,
+        cost_usd: afterTest.cost_usd,
+        turns_used: afterTest.turns_used,
+        duration_ms: afterTest.duration_ms,
+        detection_rate: afterTest.detection_rate,
+        tool_summary: afterToolSummary,
+      },
+      status_change: statusChange,
+    });
+
+    beforeMap.delete(afterTest.name);
+  }
+
+  // Tests that were in before but not in after (removed tests)
+  for (const [name, beforeTest] of beforeMap) {
+    const beforeToolSummary = beforeTest.transcript ? extractToolSummary(beforeTest.transcript) : {};
+    const beforeToolCount = Object.values(beforeToolSummary).reduce((a, b) => a + b, 0);
+    toolCountBefore += beforeToolCount;
+    unchanged++;
+    deltas.push({
+      name: `${name} (removed)`,
+      before: {
+        passed: beforeTest.passed,
+        cost_usd: beforeTest.cost_usd,
+        turns_used: beforeTest.turns_used,
+        duration_ms: beforeTest.duration_ms,
+        detection_rate: beforeTest.detection_rate,
+        tool_summary: beforeToolSummary,
+      },
+      after: { passed: false, cost_usd: 0, tool_summary: {} },
+      status_change: 'unchanged',
+    });
+  }
+
+  return {
+    before_file: beforeFile,
+    after_file: afterFile,
+    before_branch: before.branch,
+    after_branch: after.branch,
+    before_timestamp: before.timestamp,
+    after_timestamp: after.timestamp,
+    deltas,
+    total_cost_delta: after.total_cost_usd - before.total_cost_usd,
+    total_duration_delta: after.total_duration_ms - before.total_duration_ms,
+    improved,
+    regressed,
+    unchanged,
+    tool_count_before: toolCountBefore,
+    tool_count_after: toolCountAfter,
+    matched,
+  };
+}
+
+/**
+ * Format a ComparisonResult as a readable string.
+ */
+export function formatComparison(c: ComparisonResult): string {
+  const lines: string[] = [];
+  const ts = c.before_timestamp ? c.before_timestamp.replace('T', ' ').slice(0, 16) : 'unknown';
+  lines.push(`\nvs previous: ${c.before_branch}/${c.deltas.length ? 'eval' : ''} (${ts})`);
+  lines.push('─'.repeat(70));
+
+  // Per-test deltas
+  for (const d of c.deltas) {
+    const arrow = d.status_change === 'improved' ? '↑' : d.status_change === 'regressed' ? '↓' : '=';
+    const beforeStatus = d.before.passed ? 'PASS' : 'FAIL';
+    const afterStatus = d.after.passed ? 'PASS' : 'FAIL';
+
+    // Turns delta
+    let turnsDelta = '';
+    if (d.before.turns_used !== undefined && d.after.turns_used !== undefined) {
+      const td = d.after.turns_used - d.before.turns_used;
+      turnsDelta = ` ${d.before.turns_used}→${d.after.turns_used}t`;
+      if (td !== 0) turnsDelta += `(${td > 0 ? '+' : ''}${td})`;
+    } else if (d.after.turns_used !== undefined) {
+      turnsDelta = ` ${d.after.turns_used}t`;
+    }
+
+    // Duration delta
+    let durDelta = '';
+    if (d.before.duration_ms !== undefined && d.after.duration_ms !== undefined) {
+      const bs = Math.round(d.before.duration_ms / 1000);
+      const as = Math.round(d.after.duration_ms / 1000);
+      const dd = as - bs;
+      durDelta = ` ${bs}→${as}s`;
+      if (dd !== 0) durDelta += `(${dd > 0 ? '+' : ''}${dd})`;
+    } else if (d.after.duration_ms !== undefined) {
+      durDelta = ` ${Math.round(d.after.duration_ms / 1000)}s`;
+    }
+
+    let detail = '';
+    if (d.before.detection_rate !== undefined || d.after.detection_rate !== undefined) {
+      detail = ` ${d.before.detection_rate ?? '?'}→${d.after.detection_rate ?? '?'} det`;
+    } else {
+      const costBefore = d.before.cost_usd.toFixed(2);
+      const costAfter = d.after.cost_usd.toFixed(2);
+      detail = ` $${costBefore}→$${costAfter}`;
+    }
+
+    const name = d.name.length > 30 ? d.name.slice(0, 27) + '...' : d.name.padEnd(30);
+    lines.push(`  ${name}  ${beforeStatus.padEnd(5)} → ${afterStatus.padEnd(5)}  ${arrow}${detail}${turnsDelta}${durDelta}`);
+  }
+
+  lines.push('─'.repeat(70));
+
+  // Totals
+  const parts: string[] = [];
+  if (c.improved > 0) parts.push(`${c.improved} improved`);
+  if (c.regressed > 0) parts.push(`${c.regressed} regressed`);
+  if (c.unchanged > 0) parts.push(`${c.unchanged} unchanged`);
+  lines.push(`  Status: ${parts.join(', ')}`);
+
+  const costSign = c.total_cost_delta >= 0 ? '+' : '';
+  lines.push(`  Cost:   ${costSign}$${c.total_cost_delta.toFixed(2)}`);
+
+  const durDelta = Math.round(c.total_duration_delta / 1000);
+  const durSign = durDelta >= 0 ? '+' : '';
+  lines.push(`  Duration: ${durSign}${durDelta}s`);
+
+  const toolDelta = c.tool_count_after - c.tool_count_before;
+  const toolSign = toolDelta >= 0 ? '+' : '';
+  lines.push(`  Tool calls: ${c.tool_count_before} → ${c.tool_count_after} (${toolSign}${toolDelta})`);
+
+  // Tool breakdown (show tools that changed)
+  const allTools = new Set<string>();
+  for (const d of c.deltas) {
+    for (const t of Object.keys(d.before.tool_summary || {})) allTools.add(t);
+    for (const t of Object.keys(d.after.tool_summary || {})) allTools.add(t);
+  }
+
+  if (allTools.size > 0) {
+    // Aggregate tool counts across all tests
+    const totalBefore: Record<string, number> = {};
+    const totalAfter: Record<string, number> = {};
+    for (const d of c.deltas) {
+      for (const [t, n] of Object.entries(d.before.tool_summary || {})) {
+        totalBefore[t] = (totalBefore[t] || 0) + n;
+      }
+      for (const [t, n] of Object.entries(d.after.tool_summary || {})) {
+        totalAfter[t] = (totalAfter[t] || 0) + n;
+      }
+    }
+
+    for (const tool of [...allTools].sort()) {
+      const b = totalBefore[tool] || 0;
+      const a = totalAfter[tool] || 0;
+      if (b !== a) {
+        const d = a - b;
+        lines.push(`    ${tool}: ${b} → ${a} (${d >= 0 ? '+' : ''}${d})`);
+      }
+    }
+  }
+
+  // Commentary — interpret what the deltas mean
+  const commentary = generateCommentary(c);
+  if (commentary.length > 0) {
+    lines.push('');
+    lines.push('  Takeaway:');
+    for (const line of commentary) {
+      lines.push(`    ${line}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Generate human-readable commentary interpreting comparison deltas.
+ * Pure function — analyzes the numbers and explains what they mean.
+ */
+export function generateCommentary(c: ComparisonResult): string[] {
+  const notes: string[] = [];
+
+  // 1. Regressions are the most important signal — call them out first
+  const regressions = c.deltas.filter(d => d.status_change === 'regressed');
+  if (regressions.length > 0) {
+    for (const d of regressions) {
+      notes.push(`REGRESSION: "${d.name}" was passing, now fails. Investigate immediately.`);
+    }
+  }
+
+  // 2. Improvements
+  const improvements = c.deltas.filter(d => d.status_change === 'improved');
+  for (const d of improvements) {
+    notes.push(`Fixed: "${d.name}" now passes.`);
+  }
+
+  // 3. Per-test efficiency changes (only for unchanged-status tests — regressions/improvements are already noted)
+  const stable = c.deltas.filter(d => d.status_change === 'unchanged' && d.after.passed);
+  for (const d of stable) {
+    const insights: string[] = [];
+
+    // Turns
+    if (d.before.turns_used !== undefined && d.after.turns_used !== undefined && d.before.turns_used > 0) {
+      const turnsDelta = d.after.turns_used - d.before.turns_used;
+      const turnsPct = Math.round((turnsDelta / d.before.turns_used) * 100);
+      if (Math.abs(turnsPct) >= 20 && Math.abs(turnsDelta) >= 2) {
+        if (turnsDelta < 0) {
+          insights.push(`${Math.abs(turnsDelta)} fewer turns (${Math.abs(turnsPct)}% more efficient)`);
+        } else {
+          insights.push(`${turnsDelta} more turns (${turnsPct}% less efficient)`);
+        }
+      }
+    }
+
+    // Duration
+    if (d.before.duration_ms !== undefined && d.after.duration_ms !== undefined && d.before.duration_ms > 0) {
+      const durDelta = d.after.duration_ms - d.before.duration_ms;
+      const durPct = Math.round((durDelta / d.before.duration_ms) * 100);
+      if (Math.abs(durPct) >= 20 && Math.abs(durDelta) >= 5000) {
+        if (durDelta < 0) {
+          insights.push(`${Math.round(Math.abs(durDelta) / 1000)}s faster`);
+        } else {
+          insights.push(`${Math.round(durDelta / 1000)}s slower`);
+        }
+      }
+    }
+
+    // Detection rate
+    if (d.before.detection_rate !== undefined && d.after.detection_rate !== undefined) {
+      const detDelta = d.after.detection_rate - d.before.detection_rate;
+      if (detDelta !== 0) {
+        if (detDelta > 0) {
+          insights.push(`detecting ${detDelta} more bug${detDelta > 1 ? 's' : ''}`);
+        } else {
+          insights.push(`detecting ${Math.abs(detDelta)} fewer bug${Math.abs(detDelta) > 1 ? 's' : ''} — check prompt quality`);
+        }
+      }
+    }
+
+    // Cost
+    if (d.before.cost_usd > 0) {
+      const costDelta = d.after.cost_usd - d.before.cost_usd;
+      const costPct = Math.round((costDelta / d.before.cost_usd) * 100);
+      if (Math.abs(costPct) >= 30 && Math.abs(costDelta) >= 0.05) {
+        if (costDelta < 0) {
+          insights.push(`${Math.abs(costPct)}% cheaper`);
+        } else {
+          insights.push(`${costPct}% more expensive`);
+        }
+      }
+    }
+
+    if (insights.length > 0) {
+      notes.push(`"${d.name}": ${insights.join(', ')}.`);
+    }
+  }
+
+  // 4. No baseline — say so. A run with nothing to compare against must never
+  //    read as "stable"; silence or a false all-clear is worse than no output.
+  if (c.matched === 0 && c.deltas.length > 0) {
+    notes.push(
+      `NO BASELINE: none of these ${c.deltas.length} test(s) appear in ${path.basename(c.before_file)}. ` +
+      'Nothing was compared, so this run says nothing about regressions.',
+    );
+    return notes;
+  }
+
+  // 5. Overall summary
+  if (c.deltas.length >= 3 && regressions.length === 0) {
+    const overallParts: string[] = [];
+
+    // Total cost
+    const totalBefore = c.deltas.reduce((s, d) => s + d.before.cost_usd, 0);
+    if (totalBefore > 0) {
+      const costPct = Math.round((c.total_cost_delta / totalBefore) * 100);
+      if (Math.abs(costPct) >= 10) {
+        overallParts.push(`${Math.abs(costPct)}% ${costPct < 0 ? 'cheaper' : 'more expensive'} overall`);
+      }
+    }
+
+    // Total duration
+    const totalDurBefore = c.deltas.reduce((s, d) => s + (d.before.duration_ms || 0), 0);
+    if (totalDurBefore > 0) {
+      const durPct = Math.round((c.total_duration_delta / totalDurBefore) * 100);
+      if (Math.abs(durPct) >= 10) {
+        overallParts.push(`${Math.abs(durPct)}% ${durPct < 0 ? 'faster' : 'slower'}`);
+      }
+    }
+
+    // Total turns
+    const turnsBefore = c.deltas.reduce((s, d) => s + (d.before.turns_used || 0), 0);
+    const turnsAfter = c.deltas.reduce((s, d) => s + (d.after.turns_used || 0), 0);
+    if (turnsBefore > 0) {
+      const turnsPct = Math.round(((turnsAfter - turnsBefore) / turnsBefore) * 100);
+      if (Math.abs(turnsPct) >= 10) {
+        overallParts.push(`${Math.abs(turnsPct)}% ${turnsPct < 0 ? 'fewer' : 'more'} turns`);
+      }
+    }
+
+    if (overallParts.length > 0) {
+      notes.push(`Overall: ${overallParts.join(', ')}. ${regressions.length === 0 ? 'No regressions.' : ''}`);
+    } else if (regressions.length === 0) {
+      notes.push('Stable run — no significant efficiency changes, no regressions.');
+    }
+  }
+
+  return notes;
+}
+
+// --- Budget regression assertion ---
+
+export interface BudgetRegression {
+  testName: string;
+  metric: 'tools' | 'turns';
+  before: number;
+  after: number;
+  ratio: number;
+}
+
+/**
+ * Compute budget regressions: tests where tool calls or turns grew by more
+ * than `ratioCap` between two runs. Pure function — caller decides how to
+ * surface the result. Used by test/skill-budget-regression.test.ts and any
+ * future ship gate.
+ *
+ * `ratioCap` defaults to 2.0 (>2× growth is a regression). Override via
+ * `GSTACK_BUDGET_RATIO` env var. New tests with no prior data are skipped.
+ */
+export function findBudgetRegressions(
+  comparison: ComparisonResult,
+  opts?: { ratioCap?: number; minPriorTools?: number; minPriorTurns?: number },
+): BudgetRegression[] {
+  const envRatio = Number(process.env.GSTACK_BUDGET_RATIO);
+  const cap = opts?.ratioCap ?? (Number.isFinite(envRatio) && envRatio > 0 ? envRatio : 2.0);
+  // Floors avoid noise on tiny numbers (1 → 3 tools is 3× but meaningless).
+  const minPriorTools = opts?.minPriorTools ?? 5;
+  const minPriorTurns = opts?.minPriorTurns ?? 3;
+  const out: BudgetRegression[] = [];
+  for (const d of comparison.deltas) {
+    const beforeTools = Object.values(d.before.tool_summary ?? {}).reduce((a, b) => a + b, 0);
+    const afterTools  = Object.values(d.after.tool_summary  ?? {}).reduce((a, b) => a + b, 0);
+    const beforeTurns = d.before.turns_used ?? 0;
+    const afterTurns  = d.after.turns_used  ?? 0;
+    if (beforeTools >= minPriorTools && afterTools / beforeTools > cap) {
+      out.push({ testName: d.name, metric: 'tools', before: beforeTools, after: afterTools, ratio: afterTools / beforeTools });
+    }
+    if (beforeTurns >= minPriorTurns && afterTurns / beforeTurns > cap) {
+      out.push({ testName: d.name, metric: 'turns', before: beforeTurns, after: afterTurns, ratio: afterTurns / beforeTurns });
+    }
+  }
+  return out;
+}
+
+/**
+ * Throw if any test in the comparison exceeds the budget cap. Convenience
+ * wrapper around findBudgetRegressions for use in test assertions.
+ */
+export function assertNoBudgetRegression(
+  comparison: ComparisonResult,
+  opts?: { ratioCap?: number; minPriorTools?: number; minPriorTurns?: number },
+): void {
+  const regressions = findBudgetRegressions(comparison, opts);
+  if (regressions.length === 0) return;
+  const cap = opts?.ratioCap ?? (Number(process.env.GSTACK_BUDGET_RATIO) || 2.0);
+  const lines = regressions.map(
+    r => `  "${r.testName}" ${r.metric}: ${r.before} → ${r.after} (${r.ratio.toFixed(2)}× > ${cap.toFixed(2)}× cap)`,
+  );
+  throw new Error(
+    `Budget regression: ${regressions.length} test(s) exceeded ${cap.toFixed(2)}× prior usage:\n` +
+    lines.join('\n') +
+    `\n(Override per run: GSTACK_BUDGET_RATIO=<n>. ${comparison.before_file} vs ${comparison.after_file})`,
+  );
+}
+
+// --- EvalCollector ---
+
+function getGitInfo(): { branch: string; sha: string } {
+  try {
+    const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { stdio: 'pipe', timeout: 5000 });
+    const sha = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { stdio: 'pipe', timeout: 5000 });
+    return {
+      branch: branch.stdout?.toString().trim() || 'unknown',
+      sha: sha.stdout?.toString().trim() || 'unknown',
+    };
+  } catch {
+    return { branch: 'unknown', sha: 'unknown' };
+  }
+}
+
+function getVersion(): string {
+  try {
+    const pkgPath = path.resolve(__dirname, '..', '..', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    return pkg.version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+// Cached per process: savePartial runs after EVERY test and must not pay a
+// CLI spawn each time. Three separate harness breakages were traced to
+// claude-CLI TUI drift only after long flake hunts — stamping the version
+// into every run record makes that correlation a grep instead of an
+// archaeology dig.
+//
+// GSTACK_CLAUDE_CLI_VERSION short-circuits the spawn entirely: the paid
+// runner's parent resolves the version once and passes it to every shard,
+// so test processes never block on it. The fallback spawn is SYNCHRONOUS on
+// the same thread that polls PTY sessions — the judgePtyState blocking
+// class — so its budget is a tight 3s, not a generous one: a slow/hung CLI
+// costs one bounded stall per process and records 'unknown'.
+let claudeCliVersionCache: string | null = null;
+export function getClaudeCliVersion(): string {
+  if (claudeCliVersionCache !== null) return claudeCliVersionCache;
+  const fromEnv = process.env.GSTACK_CLAUDE_CLI_VERSION;
+  if (fromEnv) {
+    claudeCliVersionCache = fromEnv;
+    return claudeCliVersionCache;
+  }
+  try {
+    const result = spawnSync('claude', ['--version'], { stdio: 'pipe', timeout: 3_000 });
+    claudeCliVersionCache = result.stdout?.toString().split('\n')[0].trim() || 'unknown';
+  } catch {
+    claudeCliVersionCache = 'unknown';
+  }
+  return claudeCliVersionCache;
+}
+
+export class EvalCollector {
+  private tier: 'e2e' | 'llm-judge';
+  private tests: EvalTestEntry[] = [];
+  private finalized = false;
+  private evalDir: string;
+  private shard: string | null;
+  private createdAt = Date.now();
+
+  constructor(tier: 'e2e' | 'llm-judge', evalDir?: string) {
+    this.tier = tier;
+    this.evalDir = evalDir || process.env.GSTACK_EVAL_DIR || defaultEvalDir();
+    this.shard = shardSlugOfEvalDir(this.evalDir);
+  }
+
+  addTest(entry: EvalTestEntry): void {
+    // Same-name re-record = the test body ran again = bun retried it (test
+    // names are unique by convention). Stamp the 1-based attempt so a
+    // pass-on-attempt-2 stays visible forever — the stream hides it.
+    const prior = this.tests.filter((t) => t.name === entry.name).length;
+    this.tests.push({ ...entry, attempt: prior + 1 });
+    this.savePartial();
+  }
+
+  /** Names recorded more than once this run, with their attempt counts. */
+  private flakyRetries(): Array<{ name: string; attempts: number }> {
+    const counts = new Map<string, number>();
+    for (const t of this.tests) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
+    return [...counts.entries()]
+      .filter(([, n]) => n > 1)
+      .map(([name, attempts]) => ({ name, attempts }));
+  }
+
+  /** Write incremental results after each test. Atomic write, non-fatal. */
+  savePartial(): void {
+    try {
+      const git = getGitInfo();
+      const version = getVersion();
+      const totalCost = this.tests.reduce((s, t) => s + t.cost_usd, 0);
+      const totalDuration = this.tests.reduce((s, t) => s + t.duration_ms, 0);
+      const passed = this.tests.filter(t => t.passed).length;
+
+      const partial: EvalResult = {
+        schema_version: SCHEMA_VERSION,
+        version,
+        branch: git.branch,
+        git_sha: git.sha,
+        timestamp: new Date().toISOString(),
+        hostname: os.hostname(),
+        claude_cli_version: getClaudeCliVersion(),
+        tier: this.tier,
+        total_tests: this.tests.length,
+        passed,
+        failed: this.tests.length - passed,
+        total_cost_usd: Math.round(totalCost * 100) / 100,
+        total_duration_ms: totalDuration,
+        tests: this.tests,
+        ...(this.shard ? { shard: this.shard } : {}),
+        _partial: true,
+      };
+
+      fs.mkdirSync(this.evalDir, { recursive: true });
+      const partialPath = path.join(this.evalDir, '_partial-e2e.json');
+      const tmp = partialPath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(partial, null, 2) + '\n');
+      fs.renameSync(tmp, partialPath);
+    } catch { /* non-fatal — partial saves are best-effort */ }
+  }
+
+  async finalize(): Promise<string> {
+    if (this.finalized) return '';
+    this.finalized = true;
+
+    const git = getGitInfo();
+    const version = getVersion();
+    const timestamp = new Date().toISOString();
+    const totalCost = this.tests.reduce((s, t) => s + t.cost_usd, 0);
+    const totalDuration = this.tests.reduce((s, t) => s + t.duration_ms, 0);
+    const passed = this.tests.filter(t => t.passed).length;
+
+    const flaky = this.flakyRetries();
+    const result: EvalResult = {
+      schema_version: SCHEMA_VERSION,
+      version,
+      branch: git.branch,
+      git_sha: git.sha,
+      timestamp,
+      hostname: os.hostname(),
+      claude_cli_version: getClaudeCliVersion(),
+      tier: this.tier,
+      total_tests: this.tests.length,
+      passed,
+      failed: this.tests.length - passed,
+      total_cost_usd: Math.round(totalCost * 100) / 100,
+      total_duration_ms: totalDuration,
+      wall_clock_ms: Date.now() - this.createdAt,
+      tests: this.tests,
+      ...(this.shard ? { shard: this.shard } : {}),
+      ...(flaky.length > 0 ? { flaky_retries: flaky } : {}),
+    };
+
+    // Write eval file
+    fs.mkdirSync(this.evalDir, { recursive: true });
+    const dateStr = timestamp.replace(/[:.]/g, '').replace('T', '-').slice(0, 15);
+    const safeBranch = git.branch.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const filename = `${version}-${safeBranch}-${this.tier}-${dateStr}.json`;
+    const filepath = path.join(this.evalDir, filename);
+    fs.writeFileSync(filepath, JSON.stringify(result, null, 2) + '\n');
+
+    // Print summary table
+    this.printSummary(result, filepath, git);
+
+    // Auto-compare with previous run
+    try {
+      const prevFile = findPreviousRun(this.evalDir, this.tier, git.branch, filepath);
+      if (prevFile) {
+        const prevResult: EvalResult = JSON.parse(fs.readFileSync(prevFile, 'utf-8'));
+        const comparison = compareEvalResults(prevResult, result, prevFile, filepath);
+        process.stderr.write(formatComparison(comparison) + '\n');
+      } else {
+        process.stderr.write(
+          `\nNO BASELINE: no completed prior ${this.tier} run found in ${this.evalDir}` +
+          ' (the in-progress accumulator is not a baseline). Nothing compared —' +
+          ' this run says nothing about regressions.\n',
+        );
+      }
+    } catch (err: any) {
+      process.stderr.write(`\nCompare error: ${err.message}\n`);
+    }
+
+    return filepath;
+  }
+
+  private printSummary(result: EvalResult, filepath: string, git: { branch: string; sha: string }): void {
+    const lines: string[] = [];
+    lines.push('');
+    lines.push(`Eval Results — v${result.version} @ ${git.branch} (${git.sha}) — ${this.tier}`);
+    lines.push('═'.repeat(70));
+
+    for (const t of this.tests) {
+      const status = t.passed ? ' PASS ' : ' FAIL ';
+      const cost = `$${t.cost_usd.toFixed(2)}`;
+      const dur = t.duration_ms ? `${Math.round(t.duration_ms / 1000)}s` : '';
+      const turns = t.turns_used !== undefined ? `${t.turns_used}t` : '';
+
+      let detail = '';
+      if (t.detection_rate !== undefined) {
+        detail = `${t.detection_rate}/${(t.detected_bugs?.length || 0) + (t.missed_bugs?.length || 0)} det`;
+      } else if (t.judge_scores) {
+        const scores = Object.entries(t.judge_scores).map(([k, v]) => `${k[0]}:${v}`).join(' ');
+        detail = scores;
+      }
+
+      const name = t.name.length > 35 ? t.name.slice(0, 32) + '...' : t.name.padEnd(35);
+      lines.push(`  ${name}  ${status}  ${cost.padStart(6)}  ${turns.padStart(4)}  ${dur.padStart(5)}  ${detail}`);
+    }
+
+    lines.push('─'.repeat(70));
+    const totalCost = `$${result.total_cost_usd.toFixed(2)}`;
+    const totalDur = `${Math.round(result.total_duration_ms / 1000)}s`;
+    lines.push(`  Total: ${result.passed}/${result.total_tests} passed${' '.repeat(20)}${totalCost.padStart(6)}  ${totalDur}`);
+    if (result.flaky_retries && result.flaky_retries.length > 0) {
+      // Loud, never fatal: a flaky pass must not block anyone, but it must
+      // never be silent either — that invisibility is how flakes calcified.
+      lines.push(`  ⚠ FLAKY: ${result.flaky_retries.length} test(s) recorded multiple attempts this run: `
+        + result.flaky_retries.map((f) => `${f.name} (x${f.attempts})`).join(', '));
+    }
+    lines.push(`Saved: ${filepath}`);
+
+    process.stderr.write(lines.join('\n') + '\n');
+  }
+}
