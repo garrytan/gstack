@@ -605,4 +605,4 @@ Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-desig
 
 ## License
 
-MIT. Free forever. Go build something.
+MIT. Free forever. Go build something..
