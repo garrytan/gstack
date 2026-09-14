@@ -1,0 +1,35 @@
+{
+  "$comment": [
+    "Why every entry in package.json `overrides` exists, and when it must be re-justified.",
+    "",
+    "This is the second half of the security ledger. `.osv-scanner.toml` records which",
+    "advisories we have consciously chosen NOT to fix yet, and every entry there expires",
+    "via `ignoreUntil`. Nothing watched the other direction: an exact pin like",
+    "sharp@0.35.0 cannot drift forward, Dependabot will not move it, and",
+    "dependency-review.yml only inspects newly-ADDED dependencies at PR time. So an",
+    "aging pin stayed invisible until the weekly OSV cron turned red days later",
+    "(2026-09-14, GHSA-rgj7-g3m4-5g8c in sharp and GHSA-vwc7-r8mq-g2x9 in adm-zip).",
+    "",
+    "Every key in `overrides` needs an entry here with a reason and a reviewBy date.",
+    "test/override-freshness.test.ts runs in the free suite and fails the PR once a",
+    "reviewBy has passed — which turns an unwatched weekly cron failure into a gate",
+    "a human is already looking at.",
+    "",
+    "Re-justifying means: check the current advisory state and upstream releases for",
+    "the package, bump the pin if it has fallen behind, then push reviewBy forward."
+  ],
+  "pins": {
+    "adm-zip": {
+      "reason": "Transitive via onnxruntime-node <- @huggingface/transformers, which asks for ^0.5.16. Pinned forward past GHSA-vwc7-r8mq-g2x9 (CVE-2026-76845, symlink-follow on extract lets a crafted archive overwrite files outside the target directory). No gstack source imports adm-zip.",
+      "reviewBy": "2026-12-15"
+    },
+    "ip-address": {
+      "reason": "Pinned to a single version to keep the socks/proxy-agent chain on one resolution; a floating range pulled two copies into the tree.",
+      "reviewBy": "2026-12-15"
+    },
+    "sharp": {
+      "reason": "Transitive via @huggingface/transformers, which asks for ^0.34.5. Pinned forward past GHSA-rgj7-g3m4-5g8c (bundled libheif RCE). gstack's only consumer is browse/src/screenshot-size-guard.ts, which downscales PNG screenshots and never decodes AVIF/HEIF, so real exposure was low, but the fix is a one-line bump.",
+      "reviewBy": "2026-12-15"
+    }
+  }
+}

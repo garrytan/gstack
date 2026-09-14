@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.84.2.0] - 2026-09-14
+
+**Two security advisories in pinned dependencies are fixed, and the pins that hid them now expire on a date instead of aging in silence.**
+**A failing weekly security scan opens an issue rather than turning a cron red where nobody is subscribed.**
+
+`sharp` and `adm-zip` reach gstack only through `package.json` overrides, and both had fallen behind a published fix. The weekly OSV scan caught it, which is the system working, but it caught it days late and only in a scheduled run. The deeper problem is that an exact pin is the one dependency shape that cannot drift forward on its own: Dependabot will not move it, and `dependency-review.yml` only inspects newly added dependencies at PR time. So `.override-pins.json` now records why every override exists and when it must be re-justified, and a free test fails the build once that date passes.
+
+### The numbers that matter
+
+Source: the OSV advisory records for each package, `bun.lock` after `bun install`, and `test/override-freshness.test.ts` running in the free suite.
+
+| Metric | Before | After |
+|---|---|---|
+| `sharp` | 0.35.0, GHSA-rgj7-g3m4-5g8c (bundled libheif RCE, CVSS 8.9) | 0.35.4, no known advisories |
+| `adm-zip` | 0.6.0, GHSA-vwc7-r8mq-g2x9 (symlink-follow on extract, CVSS 6.8) | 0.6.1, no known advisories |
+| Overrides carrying a documented reason and expiry | 0 of 3 | 3 of 3 |
+| Where a stale pin first shows up | weekly cron, days later | the free suite, on the PR |
+| A failed scheduled scan | red run only | red run plus an issue naming it |
+
+Exposure was low in practice: gstack's only `sharp` consumer downscales PNG screenshots and never decodes the AVIF or HEIF paths the advisory covers, and nothing in the tree imports `adm-zip` directly. Both fixes were a one-line version change, so exposure was never the deciding question.
+
+### Itemized changes
+
+#### Fixed
+- `sharp` moves to 0.35.4 and `adm-zip` to 0.6.1, clearing both advisories from the scan. The `adm-zip` advisory records `last_affected` rather than a fixed event, which is why the scanner table prints a blank fixed version for it even though 0.6.1 is published and unaffected.
+
+#### Added
+- `.override-pins.json` gives every `package.json` override a reason and a `reviewBy` date, the same discipline `.osv-scanner.toml` already applies to suppressed advisories.
+- `test/override-freshness.test.ts` (free suite) fails when an override has no rationale, when a rationale outlives its override, when a `reviewBy` has passed, or when an exact pin no longer matches what the lockfile resolved.
+- The OSV Scanner workflow opens an issue on a failed scheduled run, or comments on the open one, and skips that step on forks with issues disabled.
+
 ## [1.84.1.0] - 2026-09-09
 
 ### Changed

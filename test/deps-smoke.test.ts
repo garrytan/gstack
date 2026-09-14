@@ -2,7 +2,7 @@
  * Dependency-override smoke tests (v1.78.0.0 dependency wave).
  *
  * The wave's `overrides` entries (package.json: ip-address 10.3.1,
- * sharp 0.35.0; lib/diagram-render: nanoid 5.x, lodash-es 4.18.x) defeat
+ * sharp 0.35.4; lib/diagram-render: nanoid 5.x, lodash-es 4.18.x) defeat
  * nested exact pins, so a green unit suite alone does not prove the forced
  * versions actually work for their consumers. These smokes exercise the
  * overridden surfaces directly. SOCKS is covered by
@@ -12,7 +12,7 @@
 import { describe, expect, test } from "bun:test";
 
 describe("dependency-wave smoke", () => {
-  test("sharp 0.35 override: import + metadata + resize round-trip", async () => {
+  test("sharp 0.35.4 override: import + metadata + resize round-trip", async () => {
     const sharp = (await import("sharp")).default;
     // 1x1 red PNG.
     const png = Buffer.from(

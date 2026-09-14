@@ -25,3 +25,41 @@ jobs:
         --include-git-root
         --recursive
         ./
+
+  # A weekly cron that only fails is a signal nobody is subscribed to. File an
+  # issue so the failure lands somewhere a human already looks, and reuse the
+  # open one on the next run rather than filing a new one every Monday.
+  report-failure:
+    needs: scan
+    if: failure() && github.event_name == 'schedule' && github.event.repository.has_issues
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const title = 'OSV Scanner: scheduled scan is failing';
+            const { owner, repo } = context.repo;
+            const url = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              `The weekly OSV Scanner run failed: ${url}`,
+              '',
+              'Open the run log for the advisory table. The usual cause is a pin in',
+              'package.json `overrides` that has fallen behind a fixed release — an',
+              'exact pin cannot drift forward on its own.',
+              '',
+              'To fix: bump the pin, run `bun install`, and push `reviewBy` forward in',
+              '`.override-pins.json`. If the advisory genuinely cannot be fixed yet, add',
+              'an `[[IgnoredVulns]]` entry with an `ignoreUntil` to `.osv-scanner.toml`.',
+            ].join('\n');
+            const existing = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', labels: 'security',
+            });
+            const open = existing.data.find((i) => i.title === title);
+            if (open) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: open.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body, labels: ['security'] });
+            }
