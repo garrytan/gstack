@@ -140,7 +140,7 @@ Transactions · Billing · NRI workflows · Admin · Blog.
 npm run typecheck   ✓ strict, noUncheckedIndexedAccess, zero errors
 npm run lint        ✓ zero errors, zero warnings
 npm run test        ✓ 276 tests across 16 files, ~2s
-npm run build       ✓ 28 routes, production build clean
+npm run build       ✓ 26 routes, production build clean
 ```
 
 Nothing is suppressed. No `any`, no `@ts-ignore`, no disabled lint rules.
