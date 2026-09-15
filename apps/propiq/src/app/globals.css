@@ -13,6 +13,9 @@
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
     'Noto Sans', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Monaco, 'Cascadia Mono', monospace;
+  /* Set by next/font in the root layout; the stacks are the fallback while
+     the face loads and the answer when it fails to. */
+  --font-display: var(--font-display-var, ui-sans-serif), system-ui, sans-serif;
 
   --color-ink-50: #f6f7f9;
   --color-ink-100: #eceef2;
@@ -74,6 +77,23 @@
     color: var(--text-primary);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+  }
+
+  /* Headlines take the display face; body text keeps the system stack, which
+     is faster and perfectly good for reading. */
+  h1,
+  h2,
+  h3,
+  .display {
+    font-family: var(--font-display), var(--font-sans);
+    letter-spacing: -0.02em;
+  }
+
+  /* Every number in this product is meant to be compared to another number,
+     so they are set in a mono face with tabular figures. */
+  [data-figure],
+  .figure {
+    font-family: var(--font-mono-figures), var(--font-mono);
   }
 
   /* Every number in this product is meant to be compared to another number. */

@@ -1,7 +1,32 @@
 import type { Metadata, Viewport } from 'next';
+import { Archivo, IBM_Plex_Mono } from 'next/font/google';
 import Link from 'next/link';
 import { clientEnv } from '@/lib/env';
 import './globals.css';
+
+/**
+ * Typography.
+ *
+ * `next/font` downloads these at build time and serves them from our own
+ * origin, so there is no runtime request to a font host and no layout shift
+ * waiting for one. Two faces, each with a job: Archivo carries headlines and
+ * figures because it is an industrial grotesk that holds its shape at display
+ * size, and Plex Mono sets every number, because a product whose whole point
+ * is comparing figures should line its digits up.
+ */
+const display = Archivo({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+  variable: '--font-display',
+  display: 'swap',
+});
+
+const mono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-mono-figures',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(clientEnv.NEXT_PUBLIC_SITE_URL),
@@ -43,7 +68,7 @@ const NAV = [
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en-IN" suppressHydrationWarning>
+    <html lang="en-IN" suppressHydrationWarning className={`${display.variable} ${mono.variable}`}>
       <body className="min-h-dvh">
         <a
           href="#main"
@@ -90,7 +115,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         <main id="main">{children}</main>
 
-        <footer className="mt-16 border-t border-[var(--border-subtle)] bg-[var(--surface-1)]">
+        <footer className="border-t border-[var(--border-subtle)] bg-[var(--surface-1)]">
           <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:grid-cols-2 lg:grid-cols-5">
             <div>
               <p className="font-semibold">PropIQ by CiteRank AI</p>
