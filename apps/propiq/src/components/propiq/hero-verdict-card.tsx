@@ -34,7 +34,7 @@ export const HeroVerdictCard = ({ intel }: { intel: PropertyIntelligence }) => {
   return (
     <article
       aria-label="A worked example: one property's verdict"
-      className="relative overflow-hidden rounded-xl border border-ink-800 bg-ink-900/85 p-5 shadow-2xl backdrop-blur"
+      className="propiq-glass relative overflow-hidden rounded-xl p-5"
     >
       {/* A single hairline in the verdict colour, so the card reads at a glance. */}
       <span aria-hidden className="absolute inset-x-0 top-0 h-px" style={{ background: color }} />
@@ -87,7 +87,7 @@ export const HeroVerdictCard = ({ intel }: { intel: PropertyIntelligence }) => {
       </dl>
 
       {negotiation && (
-        <dl className="mt-3 grid grid-cols-3 gap-3 rounded-lg bg-ink-950/60 p-3">
+        <dl className="mt-3 grid grid-cols-3 gap-3 rounded-lg bg-ink-950/45 p-3 ring-1 ring-inset ring-white/5">
           <Cell label="Open at" value={formatINR(negotiation.openingOffer)} small />
           <Cell label="Target" value={formatINR(negotiation.targetPrice)} small />
           <Cell label="Walk away above" value={formatINR(negotiation.walkAwayPrice)} small />

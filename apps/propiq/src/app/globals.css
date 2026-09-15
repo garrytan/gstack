@@ -171,3 +171,274 @@
     background-position: -200% 0;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   The hero's 3D stage.
+
+   Real perspective rather than a drop shadow pretending to be one. The depth
+   carries information: the cards behind the front one are the rest of the
+   scored market, so the stack has a thickness you can read.
+
+   Everything degrades in one direction. Without JS the scene keeps its
+   resting tilt; under reduced motion it keeps the tilt and loses the
+   tracking; below `lg` it flattens entirely, because a tilted card on a
+   phone costs legibility and buys nothing.
+--------------------------------------------------------------------------- */
+
+.propiq-stage {
+  perspective: 1500px;
+  perspective-origin: 50% 40%;
+}
+
+.propiq-tilt {
+  position: relative;
+  transform-style: preserve-3d;
+  /* The resting pose. Pointer tracking overrides these two properties. */
+  transform: rotateX(var(--tilt-x, 3deg)) rotateY(var(--tilt-y, -9deg));
+  transition:
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 420ms ease;
+  will-change: transform;
+}
+
+/* The receding stack. Each card is one step further back and one step dimmer,
+   so the depth is countable rather than atmospheric. */
+.propiq-ghost {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-ink-800);
+  background: color-mix(in srgb, var(--color-ink-900) 82%, transparent);
+  transform: translateZ(calc(var(--ghost) * -46px)) translateY(calc(var(--ghost) * 22px))
+    translateX(calc(var(--ghost) * 5px)) scale(calc(1 - var(--ghost) * 0.012));
+  opacity: calc(0.7 - var(--ghost) * 0.16);
+  box-shadow: 0 18px 34px -16px rgba(0, 0, 0, 0.7);
+}
+
+.propiq-face {
+  position: relative;
+  transform: translateZ(1px);
+}
+
+/* A light source above and left of the stage, so the lift reads as lit rather
+   than as a blurred rectangle. */
+.propiq-face > * {
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.07) inset,
+    0 24px 48px -18px rgba(0, 0, 0, 0.75),
+    0 60px 90px -40px rgba(0, 0, 0, 0.6);
+}
+
+@media (max-width: 1023px) {
+  .propiq-stage {
+    perspective: none;
+  }
+  .propiq-tilt {
+    transform: none;
+  }
+  .propiq-ghost {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-tilt {
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The horizon grid.
+
+   A plane laid flat and rotated away from the viewer, fading into the band's
+   own colour. It sets the hero on a surface instead of on a gradient.
+--------------------------------------------------------------------------- */
+
+.propiq-horizon {
+  position: absolute;
+  inset-inline: -25%;
+  bottom: -8%;
+  height: 58%;
+  pointer-events: none;
+  transform: perspective(520px) rotateX(68deg);
+  transform-origin: 50% 100%;
+  background-image:
+    linear-gradient(to right, rgba(77, 208, 199, 0.32) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(77, 208, 199, 0.32) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: linear-gradient(to bottom, transparent 4%, #000 55%, transparent 96%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 4%, #000 55%, transparent 96%);
+}
+
+/* ---------------------------------------------------------------------------
+   Aurora ground.
+
+   Four soft light sources drifting behind the hero, plus a grain layer over
+   the top. The grain is not texture for its own sake: large, low-contrast
+   gradients band badly on 8-bit displays, and a few percent of noise breaks
+   the bands up. Everything here sits behind translucent glass, which is what
+   makes the depth read.
+--------------------------------------------------------------------------- */
+
+.propiq-aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.propiq-aurora span {
+  position: absolute;
+  display: block;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.85;
+  will-change: transform;
+}
+
+.propiq-aurora span:nth-child(1) {
+  width: 46rem;
+  height: 34rem;
+  top: -14rem;
+  left: -12rem;
+  background: radial-gradient(circle, rgba(31, 179, 168, 0.85), transparent 68%);
+  animation: propiq-drift-a 34s ease-in-out infinite alternate;
+}
+
+.propiq-aurora span:nth-child(2) {
+  width: 40rem;
+  height: 32rem;
+  top: -6rem;
+  right: -10rem;
+  background: radial-gradient(circle, rgba(74, 127, 181, 0.72), transparent 68%);
+  animation: propiq-drift-b 41s ease-in-out infinite alternate;
+}
+
+.propiq-aurora span:nth-child(3) {
+  width: 34rem;
+  height: 26rem;
+  bottom: -12rem;
+  left: 28%;
+  background: radial-gradient(circle, rgba(77, 208, 199, 0.55), transparent 70%);
+  animation: propiq-drift-c 47s ease-in-out infinite alternate;
+}
+
+.propiq-aurora span:nth-child(4) {
+  width: 28rem;
+  height: 22rem;
+  top: 38%;
+  left: 40%;
+  background: radial-gradient(circle, rgba(47, 158, 99, 0.45), transparent 70%);
+  animation: propiq-drift-a 53s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes propiq-drift-a {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(5rem, 3rem, 0) scale(1.14);
+  }
+}
+
+@keyframes propiq-drift-b {
+  from {
+    transform: translate3d(0, 0, 0) scale(1.06);
+  }
+  to {
+    transform: translate3d(-4rem, 4rem, 0) scale(1);
+  }
+}
+
+@keyframes propiq-drift-c {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(3rem, -3rem, 0) scale(1.18);
+  }
+}
+
+/* Grain. Inline so it costs no request and cannot be blocked. */
+.propiq-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------------------------------------------------------------------------
+   Glass.
+
+   Translucent panels over the aurora, with a rim light along the top edge so
+   they read as a sheet of something rather than a flat tint. `backdrop-filter`
+   is the whole effect, so where it is unsupported the fallback is a solid
+   panel rather than an unreadable transparent one.
+--------------------------------------------------------------------------- */
+
+.propiq-glass {
+  background: color-mix(in srgb, var(--color-ink-900) 88%, transparent);
+  border: 1px solid color-mix(in srgb, white 9%, transparent);
+  box-shadow: inset 0 1px 0 0 color-mix(in srgb, white 8%, transparent);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .propiq-glass {
+    background: color-mix(in srgb, var(--color-ink-900) 58%, transparent);
+    backdrop-filter: blur(22px) saturate(1.35);
+    -webkit-backdrop-filter: blur(22px) saturate(1.35);
+  }
+}
+
+.propiq-glass-soft {
+  background: color-mix(in srgb, var(--color-ink-900) 55%, transparent);
+  border: 1px solid color-mix(in srgb, white 10%, transparent);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .propiq-glass-soft {
+    background: color-mix(in srgb, var(--color-ink-900) 30%, transparent);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Matched on :nth-child so this ties the specificity of the rules that set
+     the animations. A plain `.propiq-aurora span` loses to them and the
+     aurora keeps drifting for someone who asked it not to. */
+  .propiq-aurora span:nth-child(n) {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Hero search.
+
+   The shared SearchBar paints a solid input, which is right everywhere else
+   and punches a white hole through the glass here. Scoped to the hero rather
+   than parameterised on the component: one surface wants this, and a prop
+   would put a presentation concern into a component every page uses.
+--------------------------------------------------------------------------- */
+
+.propiq-search-glass input[type='search'] {
+  background: transparent;
+  border-color: color-mix(in srgb, white 14%, transparent);
+  color: var(--color-ink-50);
+}
+
+.propiq-search-glass input[type='search']::placeholder {
+  color: color-mix(in srgb, var(--color-ink-300) 70%, transparent);
+}
+
+.propiq-search-glass input[type='search']:focus-visible {
+  border-color: var(--color-accent-500);
+}
+
+/* A held breath of light behind the accent line, so the headline sits in the
+   scene rather than on top of it. */
+.propiq-headline-glow {
+  text-shadow: 0 0 42px color-mix(in srgb, var(--color-accent-400) 45%, transparent);
+}

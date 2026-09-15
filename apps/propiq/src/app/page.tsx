@@ -25,6 +25,7 @@ import { MarketMap } from '@/components/propiq/market-map';
 import type { MapProperty } from '@/components/propiq/market-map';
 import { CommandRail } from '@/components/propiq/command-rail';
 import { HeroVerdictCard } from '@/components/propiq/hero-verdict-card';
+import { HeroScene } from '@/components/propiq/hero-scene';
 import { TrackView } from '@/components/propiq/track-view';
 
 export const dynamic = 'force-dynamic';
@@ -154,22 +155,19 @@ export default async function HomePage() {
               'radial-gradient(ellipse 85% 75% at 45% 0%, #000 50%, transparent 100%)',
           }}
         />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -left-40 -top-52 size-[42rem] rounded-full"
-          style={{
-            background:
-              'radial-gradient(circle, rgba(31,179,168,0.30) 0%, rgba(31,179,168,0.07) 45%, transparent 70%)',
-          }}
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -right-32 top-24 size-[38rem] rounded-full"
-          style={{
-            background:
-              'radial-gradient(circle, rgba(74,127,181,0.26) 0%, rgba(74,127,181,0.06) 48%, transparent 72%)',
-          }}
-        />
+        {/* Four drifting light sources under the glass, then grain over the
+            top to stop the gradients banding. */}
+        <div aria-hidden className="propiq-aurora">
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
+        <div aria-hidden className="propiq-grain" />
+
+        {/* The floor the scene stands on. */}
+        <div aria-hidden className="propiq-horizon" />
+
         {/* A hairline that picks the band back up at the fold. */}
         <div
           aria-hidden
@@ -190,7 +188,7 @@ export default async function HomePage() {
 
               <h1 className="mt-5 text-[2.6rem] font-bold leading-[1.02] sm:text-5xl lg:text-[3.5rem]">
                 <span className="block">Know what it is worth</span>
-                <span className="block text-accent-400">before you sign.</span>
+                <span className="propiq-headline-glow block text-accent-400">before you sign.</span>
               </h1>
 
               <p className="mt-5 max-w-xl text-lg leading-relaxed text-ink-300">
@@ -200,7 +198,9 @@ export default async function HomePage() {
               </p>
 
               <div className="mt-8 max-w-xl">
-                <SearchBar />
+                <div className="propiq-glass propiq-search-glass rounded-xl p-2">
+                  <SearchBar />
+                </div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <span className="text-xs text-ink-400">Try</span>
                   {EXAMPLE_QUERIES.map((q) => (
@@ -215,9 +215,12 @@ export default async function HomePage() {
                 </div>
               </div>
 
-              <ul className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs text-ink-400">
+              <ul className="mt-7 flex flex-wrap gap-2">
                 {HERO_PROOF.map((p) => (
-                  <li key={p} className="flex items-center gap-1.5">
+                  <li
+                    key={p}
+                    className="propiq-glass-soft flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-ink-200"
+                  >
                     <Check aria-hidden className="size-3.5 text-accent-400" />
                     {p}
                   </li>
@@ -226,11 +229,15 @@ export default async function HomePage() {
             </div>
 
             {showcase && (
-              <div className="min-w-0 lg:pt-8">
-                <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-500">
+              <div className="min-w-0 lg:pt-10">
+                <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-500">
                   What that looks like, on a real property
                 </p>
-                <HeroVerdictCard intel={showcase} />
+                {/* The cards behind it are the rest of the scored market, so
+                    the stack's thickness is a real quantity. */}
+                <HeroScene depth={market.total - 1}>
+                  <HeroVerdictCard intel={showcase} />
+                </HeroScene>
               </div>
             )}
           </div>
