@@ -54,7 +54,11 @@ export const SiteHeader = () => (
           href="/search"
           className="propiq-brand-gradient inline-flex h-10 items-center whitespace-nowrap rounded-md px-3 text-[13px] font-semibold text-white shadow-sm transition-opacity hover:opacity-90 sm:px-4 sm:text-sm"
         >
-          Analyze Property
+          {/* Below `sm` the full label pushes the header past a 375px
+              viewport and the whole page starts scrolling sideways. The short
+              label is the same destination, not a different action. */}
+          <span className="sm:hidden">Analyze</span>
+          <span className="hidden sm:inline">Analyze Property</span>
         </Link>
         <MobileNavigation items={SITE_NAV} />
       </div>

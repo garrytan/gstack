@@ -57,7 +57,7 @@ export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
               <p data-figure className="text-xl font-bold leading-none" style={{ color: colour }}>
                 {property.propiqScore.toFixed(0)}
               </p>
-              <p className="text-[9px] uppercase tracking-wider text-[var(--text-muted)]">Score</p>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Score</p>
             </div>
           )}
         </div>

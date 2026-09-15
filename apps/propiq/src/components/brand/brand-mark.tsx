@@ -61,8 +61,10 @@ export const BrandMark = ({
             Prop<span className="propiq-brand-text">IQ</span>
           </span>
           {/* Tracking this wide wraps to three lines in a 390px header, and a
-              wordmark that wraps stops being a wordmark. */}
-          <span className="whitespace-nowrap text-[9.5px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)] sm:tracking-[0.18em]">
+              wordmark that wraps stops being a wordmark. Below 360px even the
+              nowrap version pushes the header past the viewport, so the
+              qualifier drops rather than the page scrolling sideways. */}
+          <span className="whitespace-nowrap text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)] max-[359px]:hidden sm:tracking-[0.18em]">
             by CiteRank AI
           </span>
         </span>

@@ -121,7 +121,7 @@ const Cell = ({
   small?: boolean;
 }) => (
   <div>
-    <dt className="text-[9.5px] font-semibold uppercase tracking-[0.12em] text-ink-500">{label}</dt>
+    <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-500">{label}</dt>
     <dd
       data-figure
       className={`mt-0.5 font-semibold tracking-tight ${small ? 'text-xs' : 'text-sm'}`}

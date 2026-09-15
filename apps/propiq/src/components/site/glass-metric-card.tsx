@@ -33,10 +33,8 @@ export const GlassMetricCard = ({
 }) => (
   <div className={`propiq-site-glass rounded-xl px-4 py-3 ${className ?? ''}`}>
     <div className="flex items-center justify-between gap-3">
-      <p className="text-[9.5px] font-semibold uppercase tracking-[0.14em] text-white/55">
-        {label}
-      </p>
-      <span className="rounded border border-white/15 px-1.5 py-0.5 text-[8.5px] font-medium uppercase tracking-wider text-white/45">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/55">{label}</p>
+      <span className="rounded border border-white/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white/45">
         {STATUS_LABEL[dataStatus]}
       </span>
     </div>

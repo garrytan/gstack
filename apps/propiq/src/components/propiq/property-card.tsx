@@ -42,7 +42,7 @@ export const PropertyCard = ({ intelligence }: { intelligence: PropertyIntellige
           >
             {score.score === undefined ? '—' : Math.round(score.score)}
           </span>
-          <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)]">
+          <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
             Score
           </span>
         </div>
