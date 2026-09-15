@@ -19,7 +19,7 @@ import type { Developer } from '@/domain/property/types';
 import { carpetPricePerSqFt, pricePerSqFt } from '@/domain/property/types';
 import { PILLAR_LABELS } from '@/domain/scoring/types';
 import { formatPercent } from '@/lib/utils';
-import type { DeveloperProfile, SiteLocality, SiteProperty } from '@/site/types';
+import type { DeveloperProfile, LocalityAnchor, SiteLocality, SiteProperty } from '@/site/types';
 
 /**
  * The badge a card wears.
@@ -100,6 +100,53 @@ export const toSiteProperty = (intel: PropertyIntelligence): SiteProperty => {
 const indicator = (label: string, value: string | undefined, detail?: string) =>
   value === undefined ? undefined : { label, value, detail };
 
+/**
+ * The fixed points a locality is measured against.
+ *
+ * Sorted by distance so a reader sees the nearest thing first, and capped so a
+ * locality with a dozen recorded hubs does not turn the chart into a hedgehog.
+ */
+const localityAnchors = (locality: Locality): readonly LocalityAnchor[] => {
+  const anchors: LocalityAnchor[] = [];
+
+  for (const hub of locality.employment ?? []) {
+    anchors.push({
+      label: hub.hubName,
+      kind: 'employment',
+      distanceKm: hub.distanceKm,
+      peakCommuteMinutes: hub.peakCommuteMinutes,
+    });
+  }
+
+  const transit = locality.transit;
+  if (transit?.metroDistanceKm !== undefined) {
+    anchors.push({
+      label: transit.nearestMetroStation ?? 'Nearest metro',
+      kind: 'metro',
+      distanceKm: transit.metroDistanceKm,
+      peakCommuteMinutes: undefined,
+    });
+  }
+  if (transit?.arterialRoadDistanceKm !== undefined) {
+    anchors.push({
+      label: 'Arterial road',
+      kind: 'road',
+      distanceKm: transit.arterialRoadDistanceKm,
+      peakCommuteMinutes: undefined,
+    });
+  }
+  if (transit?.airportDistanceKm !== undefined) {
+    anchors.push({
+      label: 'Airport',
+      kind: 'airport',
+      distanceKm: transit.airportDistanceKm,
+      peakCommuteMinutes: undefined,
+    });
+  }
+
+  return anchors.sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 8);
+};
+
 export const toSiteLocality = (locality: Locality): SiteLocality => {
   const cagr = priceCagrPercent(locality.priceHistory ?? []);
   const supplyMonths =
@@ -108,6 +155,12 @@ export const toSiteLocality = (locality: Locality): SiteLocality => {
     locality.annualAbsorptionUnits > 0
       ? (locality.activeSupplyUnits / locality.annualAbsorptionUnits) * 12
       : undefined;
+
+  // A project that has only been announced has not moved a spade. Only funded
+  // and beyond counts as a catalyst.
+  const catalysts = (locality.pipeline ?? []).filter((item) =>
+    ['funded', 'underConstruction', 'commissioned'].includes(item.status),
+  );
 
   return {
     id: locality.id,
@@ -121,6 +174,11 @@ export const toSiteLocality = (locality: Locality): SiteLocality => {
     priceCagrPercent: cagr,
     supplyMonths,
     summary: locality.summary ?? 'No written summary recorded for this locality.',
+    priceHistory: locality.priceHistory ?? [],
+    // A project that has only been announced has not moved a spade. Only
+    // funded and beyond counts as a catalyst.
+    catalysts,
+    anchors: localityAnchors(locality),
     // Only indicators the record actually carries. A locality missing a figure
     // shows one fewer tile rather than a tile reading zero.
     indicators: [
@@ -163,8 +221,8 @@ export const toSiteLocality = (locality: Locality): SiteLocality => {
       ),
       indicator(
         'Infrastructure pipeline',
-        locality.pipeline && locality.pipeline.length > 0
-          ? `${locality.pipeline.length} funded or under way`
+        catalysts.length > 0
+          ? `${catalysts.length} funded or under way`
           : undefined,
       ),
       indicator(

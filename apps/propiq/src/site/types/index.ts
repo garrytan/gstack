@@ -15,6 +15,7 @@
 import type { DataStatus } from '@/domain/evidence/types';
 import type { Decision } from '@/domain/decision/engine';
 import type { RiskBand } from '@/domain/risk/types';
+import type { InfrastructurePipelineItem, PricePoint } from '@/domain/locality/types';
 
 export type { DataStatus };
 
@@ -81,6 +82,19 @@ export interface SiteProperty {
   readonly signal: string;
 }
 
+/**
+ * A fixed point the locality is measured against.
+ *
+ * The record stores distances, not coordinates, so this is a radius and not a
+ * position. Anything that draws it must say so rather than implying a bearing.
+ */
+export interface LocalityAnchor {
+  readonly label: string;
+  readonly kind: 'employment' | 'metro' | 'road' | 'airport';
+  readonly distanceKm: number;
+  readonly peakCommuteMinutes: number | undefined;
+}
+
 export interface SiteLocality {
   readonly id: string;
   readonly name: string;
@@ -93,6 +107,12 @@ export interface SiteLocality {
   readonly priceCagrPercent: number | undefined;
   readonly supplyMonths: number | undefined;
   readonly summary: string;
+  /** Straight from the record, so the chart is not fed a second copy. */
+  readonly priceHistory: readonly PricePoint[];
+  /** Only funded, under construction or commissioned. An announcement is not infrastructure. */
+  readonly catalysts: readonly InfrastructurePipelineItem[];
+  /** Employment hubs and transit anchors, by distance. Never a bearing. */
+  readonly anchors: readonly LocalityAnchor[];
   readonly indicators: ReadonlyArray<{
     readonly label: string;
     readonly value: string;
