@@ -20,6 +20,12 @@ import { BUYER_PERSONAS } from '@/domain/buyer/types';
 import type { BuyerProfile } from '@/domain/buyer/types';
 import { VALUATION_SOURCES } from '@/domain/portfolio/types';
 import type { PortfolioAsset } from '@/domain/portfolio/types';
+import { getVisitRepository } from '@/server/visits';
+import { getNegotiationRepository } from '@/server/negotiations';
+import type { SiteVisit } from '@/domain/visits/types';
+import { summariseVisit, visitChangesDecision } from '@/domain/visits/engine';
+import type { Negotiation } from '@/domain/negotiation/types';
+import { NEGOTIATION_STATUSES } from '@/domain/negotiation/types';
 import { getServerEnv } from '@/lib/env';
 
 export interface ActionResult {
@@ -240,4 +246,214 @@ export const loadPortfolio = async (): Promise<readonly PortfolioAsset[]> => {
   const userId = await resolveUserId();
   if (!userId) return [];
   return getPortfolioRepository().list(userId);
+};
+
+// ---------------------------------------------------------------------------
+// Site visits
+// ---------------------------------------------------------------------------
+
+const answerSchema = z.enum(['good', 'acceptable', 'concern', 'unknown']);
+
+const observationsSchema = z
+  .array(
+    z.object({
+      itemId: z.string().min(1).max(64),
+      answer: answerSchema,
+      note: z.string().max(500).optional(),
+    }),
+  )
+  .max(100);
+
+export const scheduleVisit = async (
+  rawPropertyId: string,
+  scheduledFor: string,
+): Promise<ActionResult> => {
+  const parsed = z
+    .object({
+      propertyId: propertyIdSchema,
+      scheduledFor: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a YYYY-MM-DD date.'),
+    })
+    .safeParse({ propertyId: rawPropertyId, scheduledFor });
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Check the date.' };
+  }
+
+  const userId = await resolveUserId();
+  if (!userId) return { ok: false, message: 'Sign in to plan a site visit.' };
+
+  await getVisitRepository().schedule(
+    userId,
+    asId<PropertyId>(parsed.data.propertyId),
+    parsed.data.scheduledFor,
+  );
+  revalidatePath(`/property/${parsed.data.propertyId}/visit`);
+  return { ok: true, message: 'Visit planned. The checklist is ready when you are.' };
+};
+
+export const completeVisit = async (
+  visitId: string,
+  rawObservations: unknown,
+  overallNote?: string,
+): Promise<ActionResult> => {
+  const parsed = z
+    .object({
+      visitId: z.string().min(1).max(64),
+      observations: observationsSchema,
+      overallNote: z.string().max(2000).optional(),
+    })
+    .safeParse({ visitId, observations: rawObservations, overallNote });
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Check what you entered.' };
+  }
+
+  const userId = await resolveUserId();
+  if (!userId) return { ok: false, message: 'Sign in to record a visit.' };
+
+  const visit = await getVisitRepository().complete(
+    userId,
+    parsed.data.visitId,
+    parsed.data.observations,
+    parsed.data.overallNote,
+  );
+  if (!visit) return { ok: false, message: 'We could not find that visit.' };
+
+  const summary = summariseVisit(visit);
+  revalidatePath(`/property/${visit.propertyId}`);
+  revalidatePath(`/property/${visit.propertyId}/visit`);
+
+  // A material concern means what we hold on this property is now out of date.
+  return {
+    ok: true,
+    message: visitChangesDecision(summary)
+      ? `Recorded. You flagged ${summary.materialConcerns.length} thing(s) serious enough to change the verdict — the property page now reads them as first-party evidence.`
+      : 'Recorded. What you saw is now evidence on this property.',
+  };
+};
+
+export const loadVisits = async (rawPropertyId?: string): Promise<readonly SiteVisit[]> => {
+  const userId = await resolveUserId();
+  if (!userId) return [];
+  const repo = getVisitRepository();
+  if (!rawPropertyId) return repo.list(userId);
+  const parsed = propertyIdSchema.safeParse(rawPropertyId);
+  if (!parsed.success) return [];
+  return repo.listForProperty(userId, asId<PropertyId>(parsed.data));
+};
+
+// ---------------------------------------------------------------------------
+// Negotiation
+// ---------------------------------------------------------------------------
+
+const startNegotiationSchema = z.object({
+  propertyId: propertyIdSchema,
+  askingPrice: z.coerce.number().min(0).max(1_000_00_00_000),
+  fairValueMid: z.coerce.number().min(0).max(1_000_00_00_000).optional(),
+  targetPrice: z.coerce.number().min(0).max(1_000_00_00_000),
+  walkAwayPrice: z.coerce.number().min(0).max(1_000_00_00_000),
+});
+
+export const startNegotiation = async (raw: unknown): Promise<ActionResult> => {
+  const parsed = startNegotiationSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Check the numbers.' };
+  }
+
+  const userId = await resolveUserId();
+  if (!userId) return { ok: false, message: 'Sign in to track a negotiation.' };
+
+  const v = parsed.data;
+  if (v.walkAwayPrice < v.targetPrice) {
+    return {
+      ok: false,
+      message:
+        'Your walk-away price should be at or above your target. Otherwise the target is the walk-away.',
+    };
+  }
+
+  await getNegotiationRepository().start(userId, {
+    propertyId: asId<PropertyId>(v.propertyId),
+    askingPrice: Math.round(v.askingPrice),
+    fairValueMid: v.fairValueMid === undefined ? undefined : Math.round(v.fairValueMid),
+    targetPrice: Math.round(v.targetPrice),
+    walkAwayPrice: Math.round(v.walkAwayPrice),
+  });
+  revalidatePath(`/property/${v.propertyId}/negotiate`);
+  return { ok: true, message: 'Both numbers recorded before the first offer. That was the point.' };
+};
+
+const offerSchema = z.object({
+  negotiationId: z.string().min(1).max(64),
+  party: z.enum(['buyer', 'seller']),
+  amount: z.coerce.number().min(0).max(1_000_00_00_000),
+  concessions: z.array(z.string().max(160)).max(12).optional(),
+  note: z.string().max(500).optional(),
+});
+
+export const recordOffer = async (raw: unknown): Promise<ActionResult> => {
+  const parsed = offerSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Check the offer details.' };
+  }
+
+  const userId = await resolveUserId();
+  if (!userId) return { ok: false, message: 'Sign in to record an offer.' };
+
+  const v = parsed.data;
+  const updated = await getNegotiationRepository().addOffer(userId, v.negotiationId, {
+    party: v.party,
+    amount: Math.round(v.amount),
+    at: new Date().toISOString(),
+    concessions: v.concessions?.filter((c) => c.trim().length > 0),
+    note: v.note,
+  });
+  if (!updated) return { ok: false, message: 'We could not find that negotiation.' };
+
+  revalidatePath(`/property/${updated.propertyId}/negotiate`);
+  return { ok: true, message: 'Offer recorded.' };
+};
+
+export const setNegotiationStatus = async (
+  negotiationId: string,
+  status: string,
+  outcomePrice?: number,
+): Promise<ActionResult> => {
+  const parsed = z
+    .object({
+      negotiationId: z.string().min(1).max(64),
+      status: z.enum(NEGOTIATION_STATUSES),
+      outcomePrice: z.coerce.number().min(0).max(1_000_00_00_000).optional(),
+    })
+    .safeParse({ negotiationId, status, outcomePrice });
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'That status is not valid.' };
+  }
+
+  const userId = await resolveUserId();
+  if (!userId) return { ok: false, message: 'Sign in to update a negotiation.' };
+
+  const result = await getNegotiationRepository().setStatus(
+    userId,
+    parsed.data.negotiationId,
+    parsed.data.status,
+    parsed.data.outcomePrice === undefined ? undefined : Math.round(parsed.data.outcomePrice),
+  );
+  if (result.refused) return { ok: false, message: result.refused };
+  if (!result.negotiation) return { ok: false, message: 'We could not find that negotiation.' };
+
+  revalidatePath(`/property/${result.negotiation.propertyId}/negotiate`);
+  return { ok: true, message: 'Updated.' };
+};
+
+export const loadNegotiation = async (rawPropertyId: string): Promise<Negotiation | undefined> => {
+  const parsed = propertyIdSchema.safeParse(rawPropertyId);
+  if (!parsed.success) return undefined;
+  const userId = await resolveUserId();
+  if (!userId) return undefined;
+  return getNegotiationRepository().getForProperty(userId, asId<PropertyId>(parsed.data));
+};
+
+export const loadNegotiations = async (): Promise<readonly Negotiation[]> => {
+  const userId = await resolveUserId();
+  if (!userId) return [];
+  return getNegotiationRepository().list(userId);
 };

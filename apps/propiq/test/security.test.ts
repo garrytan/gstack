@@ -19,7 +19,10 @@ import { DEMO_LOCALITIES } from '@/data/fixtures/localities';
 
 const root = process.cwd();
 const schema = readFileSync(join(root, 'supabase/migrations/0001_canonical_schema.sql'), 'utf-8');
-const rls = readFileSync(join(root, 'supabase/migrations/0002_rls.sql'), 'utf-8');
+const rls = [
+  readFileSync(join(root, 'supabase/migrations/0002_rls.sql'), 'utf-8'),
+  readFileSync(join(root, 'supabase/migrations/0003_visits_and_negotiations.sql'), 'utf-8'),
+].join('\n\n');
 const productionAdapter = readFileSync(
   join(root, 'src/data/supabase/property-repository.ts'),
   'utf-8',
@@ -34,6 +37,8 @@ const USER_OWNED_TABLES = [
   'analysis_documents',
   'document_findings',
   'admin_audit_log',
+  'site_visits',
+  'negotiations',
 ] as const;
 
 describe('row level security', () => {
@@ -41,18 +46,23 @@ describe('row level security', () => {
     expect(rls).toMatch(new RegExp(`alter table ${table}\\s+enable row level security`));
   });
 
-  it.each(['buyer_profiles', 'watchlist', 'portfolio_assets', 'alerts', 'analysis_documents'])(
-    'scopes every write verb on %s to auth.uid()',
-    (table) => {
-      const policies = rls.split('\n\n').filter((block) => block.includes(`on ${table} for`));
-      const verbs = ['select', 'insert', 'update', 'delete'];
-      for (const verb of verbs) {
-        const policy = policies.find((p) => p.includes(`for ${verb}`));
-        expect(policy, `${table} has no ${verb} policy`).toBeDefined();
-        expect(policy).toContain('auth.uid()');
-      }
-    },
-  );
+  it.each([
+    'buyer_profiles',
+    'watchlist',
+    'portfolio_assets',
+    'alerts',
+    'analysis_documents',
+    'site_visits',
+    'negotiations',
+  ])('scopes every write verb on %s to auth.uid()', (table) => {
+    const policies = rls.split('\n\n').filter((block) => block.includes(`on ${table} for`));
+    const verbs = ['select', 'insert', 'update', 'delete'];
+    for (const verb of verbs) {
+      const policy = policies.find((p) => p.includes(`for ${verb}`));
+      expect(policy, `${table} has no ${verb} policy`).toBeDefined();
+      expect(policy).toContain('auth.uid()');
+    }
+  });
 
   it('never writes a policy that grants blanket access to a user-owned table', () => {
     for (const table of USER_OWNED_TABLES) {
