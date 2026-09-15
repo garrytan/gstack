@@ -1,6 +1,6 @@
 {
   "name": "gstack",
-  "version": "1.87.0",
+  "version": "1.87.1",
   "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
   "license": "MIT",
   "type": "module",
@@ -86,9 +86,9 @@
     "xterm-addon-fit": "^0.8.0"
   },
   "overrides": {
-    "adm-zip": "^0.6.0",
+    "adm-zip": "^0.6.1",
     "ip-address": "10.3.1",
-    "sharp": "0.35.0"
+    "sharp": "0.35.4"
   },
   "patchedDependencies": {
     "playwright-core@1.62.1": "patches/playwright-core@1.62.1.patch"

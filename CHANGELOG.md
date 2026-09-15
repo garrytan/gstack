@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.87.1.0] - 2026-09-15
+
+**Two vulnerable dependencies are fixed.**
+**Archive extraction keeps its boundary.**
+
+Sharp now resolves to 0.35.4, replacing the vulnerable libheif bundle, and adm-zip resolves to 0.6.1, which rejects extraction through destination symlinks. Both packages arrive through transitive dependencies, so the override changes also update the resolved lockfile and Sharp's platform packages. A normal archive still extracts, and the screenshot downscaler still reads and resizes PNGs. The fix does not change the pinned evaluation harness or add a vulnerability exception. This takes the dependency update from #2867 without bundling its separate override-expiry and scheduled-notification proposals into the security patch.
+
+### The three numbers that matter
+
+These results come from OSV-Scanner 2.3.8 with the existing `.osv-scanner.toml`, and `bun test test/dependency-security.test.ts` against the original and updated lockfiles.
+
+| Check | Before | After | Δ |
+|---|---:|---:|---:|
+| Unsuppressed OSV findings | 2 | 0 | -2 |
+| Security regression checks passing | 1/6 | 6/6 | +5 |
+| Destination-symlink escape cases rejected | 0/2 | 2/2 | +2 |
+
+The two escape cases cover a symlinked file and a symlinked directory. Both now refuse the write and leave the file outside the extraction directory unchanged. The scanner's existing exceptions remain in place; zero unsuppressed findings is not a claim that every dependency is vulnerability-free.
+
+### What this means for users
+
+The installed dependency tree no longer carries these two known-vulnerable versions. The screenshot path continues to handle PNGs, while archive extraction gains the upstream boundary check without a new configuration switch. Upgrade, then run `bun install --frozen-lockfile` to install the fixed dependency set.
+
+### Itemized changes
+
+#### Security
+- Upgrade the `sharp` override to 0.35.4 and `adm-zip` to 0.6.1, including the resolved Sharp platform packages. Addresses #2866. Contributed by @smsmatt in #2867.
+- Add regression coverage for fixed version floors, the loaded Sharp runtime, ordinary archive extraction, and file/directory destination symlink rejection.
+
 ## [1.87.0.0] - 2026-09-11
 
 **`/cso` now distinguishes verified vulnerabilities from hypotheses and coverage gaps, and qualified comprehensive audits can produce replayable repair bundles without changing your working branch.**
