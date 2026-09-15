@@ -11,7 +11,7 @@ import { z } from 'zod';
 const clientSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(20).optional(),
-  NEXT_PUBLIC_SITE_URL: z.string().url().default('http://localhost:3000'),
+  NEXT_PUBLIC_SITE_URL: z.string().url().optional(),
   NEXT_PUBLIC_MAPS_PROVIDER: z.enum(['mapbox', 'google', 'none']).default('none'),
   NEXT_PUBLIC_MAPS_TOKEN: z.string().optional(),
   NEXT_PUBLIC_ANALYTICS_DEBUG: z.enum(['0', '1']).default('0'),
@@ -47,7 +47,21 @@ const serverSchema = z.object({
   ALERT_WEBHOOK_SECRET: z.string().min(16).optional(),
 });
 
-export type ClientEnv = z.infer<typeof clientSchema>;
+/** Where the app is served from, when nothing better is configured. */
+const DEV_SITE_URL = 'http://localhost:3000';
+
+const isLoopback = (url: string): boolean => {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
+};
+
+export type ClientEnv = Omit<z.infer<typeof clientSchema>, 'NEXT_PUBLIC_SITE_URL'> & {
+  readonly NEXT_PUBLIC_SITE_URL: string;
+};
 export type ServerEnv = z.infer<typeof serverSchema>;
 
 const formatIssues = (error: z.ZodError): string =>
@@ -69,7 +83,37 @@ export const clientEnv: ClientEnv = (() => {
   if (!parsed.success) {
     throw new Error(`Invalid public environment configuration:\n${formatIssues(parsed.error)}`);
   }
-  return parsed.data;
+
+  const configured = parsed.data.NEXT_PUBLIC_SITE_URL;
+
+  // `NEXT_PUBLIC_*` is inlined into both bundles at build time, so a production
+  // build without this value bakes `localhost` into every canonical link, the
+  // sitemap, `llms.txt`, the JSON-LD `@id` and — the one that actually hurts a
+  // real user — the auth email redirect. A crawler told the canonical URL is
+  // localhost de-indexes the real page; a buyer sent to localhost after
+  // confirming their address is simply stranded. Better to refuse the build.
+  //
+  // The check runs on the server only. By the time this module evaluates in a
+  // browser the value is already baked, so throwing there would punish the
+  // visitor for a mistake made at build time. And it is skipped under `next
+  // build`'s own phase so `npm run build` stays runnable with no environment
+  // at all, which is how CI and a fresh clone both invoke it.
+  const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
+  if (
+    typeof window === 'undefined' &&
+    process.env.NODE_ENV === 'production' &&
+    !isBuildPhase &&
+    (configured === undefined || isLoopback(configured))
+  ) {
+    throw new Error(
+      "NEXT_PUBLIC_SITE_URL must be set to this deployment's public origin " +
+        `(got ${configured ?? 'nothing'}). It is baked into canonical links, the ` +
+        'sitemap, llms.txt, structured data and the auth email redirect, so a ' +
+        'loopback value silently points real users and crawlers at localhost.',
+    );
+  }
+
+  return { ...parsed.data, NEXT_PUBLIC_SITE_URL: configured ?? DEV_SITE_URL };
 })();
 
 let cachedServerEnv: ServerEnv | undefined;
