@@ -8,7 +8,8 @@ import type { PropertyId } from '@/domain/shared/types';
 import { carpetEfficiency, pricePerSqFt } from '@/domain/property/types';
 import { bestCommute } from '@/domain/locality/types';
 import { buildPropertyIntelligence } from '@/server/intelligence';
-import { isWatched, loadBuyerProfile } from '@/server/actions';
+import { isWatched, loadBuyerProfile, loadVisits } from '@/server/actions';
+import { visitToEvidence } from '@/domain/visits/engine';
 import { DemoDataBanner, DataStatusBadge } from '@/components/propiq/data-status';
 import { DecisionBadge } from '@/components/propiq/decision-badge';
 import { ScoreDial } from '@/components/propiq/score-dial';
@@ -36,12 +37,21 @@ type Params = { params: Promise<{ id: string }> };
  * runs once rather than twice.
  */
 const loadIntelligence = cache(async (id: string) => {
-  // The saved profile drives persona weighting and every buyer-fit signal, so
-  // the verdict on this page is the one for this buyer, not for an average.
-  const buyer = await loadBuyerProfile();
+  // The saved profile drives persona weighting and every buyer-fit signal, and
+  // a completed site visit contributes first-party evidence. Both are read here
+  // so the verdict on this page is the one for this buyer, on what they have
+  // actually seen — not for an average buyer on second-hand data.
+  const now = new Date().toISOString();
+  const [buyer, visits] = await Promise.all([loadBuyerProfile(), loadVisits(id)]);
+  const visitEvidence = visits
+    .filter((v) => v.status === 'completed')
+    .flatMap((v) => visitToEvidence(v, now));
+
   return buildPropertyIntelligence(asId<PropertyId>(id), {
+    now,
     buyer,
     persona: buyer?.persona,
+    visitEvidence,
   });
 });
 
@@ -186,6 +196,18 @@ export default async function PropertyPage({ params }: Params) {
                 className="inline-flex h-10 items-center rounded-md border border-[var(--border-strong)] px-4 text-sm font-medium hover:bg-[var(--surface-2)]"
               >
                 Ask PropIQ
+              </Link>
+              <Link
+                href={`/property/${property.id}/visit`}
+                className="inline-flex h-10 items-center rounded-md border border-[var(--border-strong)] px-4 text-sm font-medium hover:bg-[var(--surface-2)]"
+              >
+                Site visit
+              </Link>
+              <Link
+                href={`/property/${property.id}/negotiate`}
+                className="inline-flex h-10 items-center rounded-md border border-[var(--border-strong)] px-4 text-sm font-medium hover:bg-[var(--surface-2)]"
+              >
+                Negotiate
               </Link>
               <Link
                 href={`/property/${property.id}/report`}
@@ -463,6 +485,13 @@ export default async function PropertyPage({ params }: Params) {
 
       {/* ---------------- Evidence ---------------- */}
       <Section title="Evidence & sources" id="evidence">
+        {intel.visitEvidenceCount > 0 && (
+          <p className="mb-3 text-xs text-[var(--text-secondary)]">
+            {intel.visitEvidenceCount} of these records came from your own site visit. First-party
+            observations are the only evidence here that is not second-hand, and they are weighted
+            accordingly.
+          </p>
+        )}
         <EvidencePanel
           evidence={property.evidence}
           commercial={property.commercial}

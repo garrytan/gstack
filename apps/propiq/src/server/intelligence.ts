@@ -31,6 +31,7 @@ import type { PropIQScore } from '@/domain/scoring/types';
 import { decide } from '@/domain/decision/engine';
 import type { DecisionResult } from '@/domain/decision/engine';
 import { getPropertyRepository } from '@/data';
+import type { Evidence } from '@/domain/evidence/types';
 
 export interface PropertyIntelligence {
   readonly property: Property;
@@ -45,6 +46,8 @@ export interface PropertyIntelligence {
   readonly decision: DecisionResult;
   readonly freshness: FreshnessSummary;
   readonly alternatives: readonly Property[];
+  /** Count of first-party site-visit records folded into this payload. */
+  readonly visitEvidenceCount: number;
   /** True when any input to this payload was demo data. */
   readonly usesDemoData: boolean;
   readonly computedAt: string;
@@ -56,6 +59,15 @@ export interface IntelligenceOptions {
   /** Injected clock. Defaults to now; tests and replays pass a fixed instant. */
   readonly now?: string;
   readonly includeAlternatives?: boolean;
+  /**
+   * First-party evidence from the buyer's own site visit.
+   *
+   * Merged into the property's evidence before scoring, which is what closes
+   * the loop: a buyer who stands in a flat and sees a silt line on the
+   * compound wall knows something the model does not, and that observation
+   * should move the score rather than sit in a notes field.
+   */
+  readonly visitEvidence?: readonly Evidence[];
 }
 
 /**
@@ -79,8 +91,15 @@ export const buildPropertyIntelligence = async (
   const repo = getPropertyRepository();
   const now = options.now ?? new Date().toISOString();
 
-  const property = await repo.getById(id);
-  if (!property) return undefined;
+  const base = await repo.getById(id);
+  if (!base) return undefined;
+
+  // Visit evidence is appended, never substituted: it adds what the buyer saw
+  // to what we already hold rather than replacing it.
+  const property =
+    options.visitEvidence && options.visitEvidence.length > 0
+      ? { ...base, evidence: [...base.evidence, ...options.visitEvidence] }
+      : base;
 
   const [project, locality, comparables] = await Promise.all([
     repo.getProject(property.projectId),
@@ -146,7 +165,10 @@ export const buildPropertyIntelligence = async (
 
   const leverPoints: string[] = [];
   for (const material of risk.materialRisks) {
-    leverPoints.push(`${material.label}: ${material.drivers[0] ?? 'material risk on record'}.`);
+    // Drivers are written as complete sentences, so trim any trailing stop
+    // before adding our own rather than emitting "... period..".
+    const driver = (material.drivers[0] ?? 'material risk on record').replace(/\.\s*$/, '');
+    leverPoints.push(`${material.label}: ${driver}.`);
   }
 
   return {
@@ -162,6 +184,7 @@ export const buildPropertyIntelligence = async (
     decision,
     freshness: summarizeFreshness([...property.evidence, ...(locality?.evidence ?? [])], now),
     alternatives,
+    visitEvidenceCount: options.visitEvidence?.length ?? 0,
     usesDemoData:
       repo.servesDemoData ||
       property.dataStatus === 'demo' ||
