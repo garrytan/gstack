@@ -37,10 +37,7 @@ export const VerdictSection = ({ property }: { property: SiteProperty }) => (
         <dl className="mt-6 grid grid-cols-2 gap-5">
           <Fact label="Confidence" value={formatPercent(property.verdictConfidence * 100, 0)} />
           <Fact label="Risk band" value={property.riskBand} />
-          <Fact
-            label="Asking"
-            value={formatINR(property.price)}
-          />
+          <Fact label="Asking" value={formatINR(property.price)} />
           <Fact
             label="Fair value"
             value={

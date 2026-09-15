@@ -198,7 +198,10 @@ describe('new surfaces stay inside the security model', () => {
 });
 
 describe('scheduled endpoints', () => {
-  const cronRoute = readFileSync(join(root, 'src/app/(app)/api/cron/evaluate-alerts/route.ts'), 'utf-8');
+  const cronRoute = readFileSync(
+    join(root, 'src/app/(app)/api/cron/evaluate-alerts/route.ts'),
+    'utf-8',
+  );
 
   it('refuses every request when no secret is configured, rather than defaulting open', () => {
     expect(cronRoute).toContain('if (!env.CRON_SECRET)');

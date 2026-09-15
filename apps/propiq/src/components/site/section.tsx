@@ -70,9 +70,9 @@ export const DemoNote = ({ children }: { children?: React.ReactNode }) => (
   <p className="mt-4 text-[11px] leading-relaxed text-[var(--text-muted)]">
     {children ?? (
       <>
-        Figures on this section are computed by the live scoring engine over a labelled
-        development dataset. Locality names are real Bengaluru localities; every figure attached
-        to them is synthetic.
+        Figures on this section are computed by the live scoring engine over a labelled development
+        dataset. Locality names are real Bengaluru localities; every figure attached to them is
+        synthetic.
       </>
     )}
   </p>

@@ -15,7 +15,7 @@
     "test:coverage": "vitest run --coverage",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"test/**/*.ts\"",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"test/**/*.ts\"",
-    "verify": "npm run typecheck && npm run lint && npm run test"
+    "verify": "npm run typecheck && npm run lint && npm run format:check && npm run test"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.11",

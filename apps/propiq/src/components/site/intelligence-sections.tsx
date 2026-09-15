@@ -254,15 +254,15 @@ export const InvestmentIntelligence = ({
               ))}
             </ul>
             <p className="mt-3 text-[11px] text-[var(--text-muted)]">
-              Only funded, under construction and commissioned projects are counted. An
-              announcement is not infrastructure, and scoring it as though it were is how a
-              corridor gets priced for a metro line that never arrives.
+              Only funded, under construction and commissioned projects are counted. An announcement
+              is not infrastructure, and scoring it as though it were is how a corridor gets priced
+              for a metro line that never arrives.
             </p>
           </>
         ) : (
           <p className="mt-2 text-xs text-[var(--text-secondary)]">
-            Nothing funded or under construction on file for this locality. That is reported
-            rather than filled in with announcements.
+            Nothing funded or under construction on file for this locality. That is reported rather
+            than filled in with announcements.
           </p>
         )}
       </div>
@@ -494,9 +494,7 @@ const Bento = ({
         {value}
       </p>
       {note && (
-        <p className="mt-2 max-w-md text-xs leading-relaxed text-[var(--text-secondary)]">
-          {note}
-        </p>
+        <p className="mt-2 max-w-md text-xs leading-relaxed text-[var(--text-secondary)]">{note}</p>
       )}
     </div>
   </div>
@@ -519,9 +517,7 @@ const Row = ({
       data-figure
       className="font-semibold"
       style={
-        value !== undefined && invert && value > 0
-          ? { color: 'var(--color-negotiate)' }
-          : undefined
+        value !== undefined && invert && value > 0 ? { color: 'var(--color-negotiate)' } : undefined
       }
     >
       {value === undefined ? 'No record' : `${value.toLocaleString('en-IN')}${suffix}`}

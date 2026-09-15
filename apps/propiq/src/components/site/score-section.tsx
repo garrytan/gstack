@@ -100,8 +100,8 @@ export const ScoreSection = ({ property }: { property: SiteProperty }) => {
                 </div>
                 {pillar.score === undefined && (
                   <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                    Withheld — no evidence. Its weight is redistributed across the rest rather
-                    than scored as zero.
+                    Withheld — no evidence. Its weight is redistributed across the rest rather than
+                    scored as zero.
                   </p>
                 )}
               </li>

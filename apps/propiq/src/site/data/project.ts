@@ -184,9 +184,7 @@ export const toSiteLocality = (locality: Locality): SiteLocality => {
     indicators: [
       indicator(
         'Peak commute',
-        locality.employment?.[0]
-          ? `${locality.employment[0].peakCommuteMinutes} min`
-          : undefined,
+        locality.employment?.[0] ? `${locality.employment[0].peakCommuteMinutes} min` : undefined,
         locality.employment?.[0]?.hubName,
       ),
       indicator(
@@ -221,9 +219,7 @@ export const toSiteLocality = (locality: Locality): SiteLocality => {
       ),
       indicator(
         'Infrastructure pipeline',
-        catalysts.length > 0
-          ? `${catalysts.length} funded or under way`
-          : undefined,
+        catalysts.length > 0 ? `${catalysts.length} funded or under way` : undefined,
       ),
       indicator(
         'Price CAGR',

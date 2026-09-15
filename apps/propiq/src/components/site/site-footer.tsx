@@ -86,9 +86,9 @@ export const SiteFooter = () => (
     <div className="border-t border-[var(--border-subtle)]">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5">
         <p className="max-w-3xl text-[11px] leading-relaxed text-[var(--text-muted)]">
-          PropIQ provides informational property intelligence and does not replace legal,
-          financial, tax, engineering, or investment advice. Every estimate carries a confidence
-          band and a source.
+          PropIQ provides informational property intelligence and does not replace legal, financial,
+          tax, engineering, or investment advice. Every estimate carries a confidence band and a
+          source.
         </p>
         <ul className="flex gap-4 text-[11px] text-[var(--text-muted)]">
           <li>
