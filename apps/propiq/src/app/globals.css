@@ -442,3 +442,132 @@
 .propiq-headline-glow {
   text-shadow: 0 0 42px color-mix(in srgb, var(--color-accent-400) 45%, transparent);
 }
+
+/* ---------------------------------------------------------------------------
+   The homepage canvas.
+
+   The homepage is one continuous dark surface whichever theme the visitor
+   prefers. Not a stylistic whim: a dark hero bolted onto a light body reads
+   as two products, and this is the one page whose job is to make a first
+   impression rather than to be worked in all day. Every other route stays
+   theme-aware.
+
+   It works by redefining the surface tokens for its own subtree, so every
+   component inside — the map, the rail, the cards, the demo banner — renders
+   dark without knowing anything about it. One declaration instead of a dark
+   variant on a dozen components.
+--------------------------------------------------------------------------- */
+
+.propiq-canvas {
+  --surface-0: #0b0e14;
+  --surface-1: #141821;
+  --surface-2: #1f2430;
+  --border-subtle: #262d3b;
+  --border-strong: #3a4354;
+  --text-primary: #f6f7f9;
+  --text-secondary: #b0b7c6;
+  --text-muted: #7c8598;
+
+  position: relative;
+  isolation: isolate;
+  background: var(--surface-0);
+  color: var(--text-primary);
+}
+
+/* The aurora runs the height of the page rather than stopping at the fold,
+   so the sections below the hero sit in the same light. */
+.propiq-canvas-aurora {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.propiq-canvas-aurora span {
+  position: absolute;
+  display: block;
+  border-radius: 9999px;
+  filter: blur(110px);
+  opacity: 0.4;
+}
+
+.propiq-canvas-aurora span:nth-child(1) {
+  width: 44rem;
+  height: 40rem;
+  top: 22%;
+  right: -14rem;
+  background: radial-gradient(circle, rgba(74, 127, 181, 0.6), transparent 70%);
+}
+
+.propiq-canvas-aurora span:nth-child(2) {
+  width: 40rem;
+  height: 36rem;
+  top: 48%;
+  left: -12rem;
+  background: radial-gradient(circle, rgba(31, 179, 168, 0.55), transparent 70%);
+}
+
+.propiq-canvas-aurora span:nth-child(3) {
+  width: 36rem;
+  height: 34rem;
+  bottom: 4%;
+  left: 38%;
+  background: radial-gradient(circle, rgba(77, 208, 199, 0.4), transparent 72%);
+}
+
+/* Panels on the canvas. Translucent so the aurora shows through them, which
+   is what stops a dark page reading as a flat black rectangle. */
+.propiq-panel {
+  border: 1px solid color-mix(in srgb, white 8%, transparent);
+  background: color-mix(in srgb, #141821 72%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in srgb, white 6%, transparent),
+    0 18px 40px -24px rgba(0, 0, 0, 0.8);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .propiq-panel {
+    background: color-mix(in srgb, #141821 48%, transparent);
+    backdrop-filter: blur(18px) saturate(1.25);
+    -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Chrome on the canvas.
+
+   The header and footer live in the root layout, outside the homepage's
+   canvas, so they would render light over a dark page. `:has()` lets the
+   canvas reach them without a route group or a dark variant threaded through
+   the layout, and without touching any other route.
+
+   Where `:has()` is unsupported the chrome simply stays theme-aware, which is
+   the behaviour every other page gets. Degrading to "correct but less
+   cohesive" is the right direction for a selector this page depends on.
+--------------------------------------------------------------------------- */
+
+body:has(.propiq-canvas) > header,
+body:has(.propiq-canvas) > footer {
+  --surface-0: #0b0e14;
+  --surface-1: #141821;
+  --surface-2: #1f2430;
+  --border-subtle: #262d3b;
+  --border-strong: #3a4354;
+  --text-primary: #f6f7f9;
+  --text-secondary: #b0b7c6;
+  --text-muted: #7c8598;
+
+  color: var(--text-primary);
+}
+
+/* The header floats over the canvas rather than capping it, so the aurora
+   runs behind the navigation. */
+body:has(.propiq-canvas) > header {
+  background: color-mix(in srgb, #0b0e14 86%, transparent);
+  border-color: color-mix(in srgb, white 7%, transparent);
+}
+
+body:has(.propiq-canvas) > footer {
+  background: color-mix(in srgb, #0b0e14 92%, transparent);
+}

@@ -130,15 +130,24 @@ export default async function HomePage() {
     : undefined;
 
   return (
-    <>
+    <div className="propiq-canvas">
       <TrackView event="property_viewed" properties={{ surface: 'home' }} />
+
+      {/* Three slow lights spanning the page, so every section below the fold
+          sits in the same atmosphere as the hero rather than dropping out of
+          it. */}
+      <div aria-hidden className="propiq-canvas-aurora">
+        <span />
+        <span />
+        <span />
+      </div>
 
       {/* ---------------- Hero: the decision desk ----------------
           A single dark instrument band in both themes. The product is
           dark-led and analytical, and a headline floating on white gave the
           page no anchor at all. Everything inside it is a real figure from
           the same scoring pass that feeds the map, the rail and the cards. */}
-      <section className="relative isolate overflow-hidden bg-ink-950 text-ink-50">
+      <section className="relative isolate overflow-hidden">
         {/* Three layers of depth, none of them moving: a graticule that fades
             out, one warm glow behind the headline, one cool glow behind the
             card. Decoration that says "instrument" rather than "landing page". */}
@@ -248,7 +257,7 @@ export default async function HomePage() {
 
       {/* ---------------- The live desk: map + rail ---------------- */}
       <section className="border-b border-[var(--border-subtle)]">
-        <div className="mx-auto max-w-7xl px-4 py-10">
+        <div className="mx-auto max-w-7xl px-4 py-14">
           {repo.servesDemoData && <DemoDataBanner className="mb-6" />}
 
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -294,9 +303,9 @@ export default async function HomePage() {
           </p>
         </div>
 
-        <ol className="relative mt-8 grid gap-px overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--border-subtle)] sm:grid-cols-2 lg:grid-cols-3">
+        <ol className="propiq-panel relative mt-8 grid gap-px overflow-hidden rounded-xl sm:grid-cols-2 lg:grid-cols-3">
           {JOURNEY.map((step, i) => (
-            <li key={step.label} className="group relative bg-[var(--surface-0)] p-5">
+            <li key={step.label} className="group relative bg-[var(--surface-0)]/35 p-5">
               <div className="flex items-baseline gap-3">
                 <span data-figure className="text-[11px] font-semibold text-accent-500" aria-hidden>
                   {String(i + 1).padStart(2, '0')}
@@ -316,7 +325,7 @@ export default async function HomePage() {
       </section>
 
       {/* ---------------- Scored properties ---------------- */}
-      <section className="mx-auto max-w-7xl px-4 py-8">
+      <section className="mx-auto max-w-7xl px-4 py-14">
         <div className="flex items-end justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold tracking-tight">Highest scoring right now</h2>
@@ -343,7 +352,7 @@ export default async function HomePage() {
           The part of the product that needs no account and no dataset. It
           works today for any property in any Indian market, which is why it
           sits on the homepage rather than behind a signup. */}
-      <section className="border-y border-[var(--border-subtle)] bg-[var(--surface-1)]">
+      <section className="border-y border-[var(--border-subtle)]">
         <div className="mx-auto max-w-7xl px-4 py-14">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="max-w-2xl">
@@ -372,7 +381,7 @@ export default async function HomePage() {
               <Link
                 key={t.href}
                 href={t.href}
-                className="group rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-0)] p-4 transition-colors hover:border-accent-500"
+                className="propiq-panel group rounded-lg p-4 transition-colors hover:border-accent-500"
               >
                 <t.icon aria-hidden className="size-5 text-accent-500" />
                 <h3 className="mt-3 text-sm font-semibold">{t.title}</h3>
@@ -395,7 +404,7 @@ export default async function HomePage() {
       {/* ---------------- Commitments ----------------
           Four refusals, each enforced by a test rather than a promise. This
           is the product's central claim, so it gets the weight of one. */}
-      <section className="relative overflow-hidden bg-ink-950 text-ink-50">
+      <section className="relative overflow-hidden border-t border-[var(--border-subtle)]">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-50"
@@ -423,7 +432,7 @@ export default async function HomePage() {
             </p>
           </div>
 
-          <div className="mt-8 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-ink-800 bg-ink-800 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="propiq-panel mt-8 grid grid-cols-1 gap-px overflow-hidden rounded-xl sm:grid-cols-2 lg:grid-cols-4">
             <Commitment
               icon={ScanSearch}
               title="No invented facts"
@@ -454,7 +463,7 @@ export default async function HomePage() {
           </p>
         </div>
       </section>
-    </>
+    </div>
   );
 }
 
@@ -577,7 +586,7 @@ const Commitment = ({
   title: string;
   body: string;
 }) => (
-  <article className="bg-ink-950 p-5">
+  <article className="bg-[var(--surface-0)]/40 p-5">
     <Icon aria-hidden className="size-5 text-accent-400" />
     <h3 className="mt-3 text-sm font-semibold text-ink-50">{title}</h3>
     <p className="mt-2 text-xs leading-relaxed text-ink-400">{body}</p>
