@@ -29,7 +29,7 @@ import type { InvestmentAnalysis } from '@/domain/investment/types';
 import { computePropIQScore } from '@/domain/scoring/engine';
 import type { PropIQScore } from '@/domain/scoring/types';
 import { decide } from '@/domain/decision/engine';
-import type { DecisionResult } from '@/domain/decision/engine';
+import type { Decision, DecisionResult } from '@/domain/decision/engine';
 import { getPropertyRepository } from '@/data';
 import type { Evidence } from '@/domain/evidence/types';
 
@@ -208,4 +208,61 @@ export const buildSummaries = async (
     ),
   );
   return results.filter((r): r is PropertyIntelligence => r !== undefined);
+};
+
+/**
+ * Market-level aggregation over a scoring pass.
+ *
+ * The hero strip and the command rail both report these figures. They are
+ * derived here rather than in each component so the two can never disagree
+ * about the same market — the same reason every surface calls one use case
+ * for a single property's verdict.
+ *
+ * Nothing here is a vanity metric: coverage and the insufficient-evidence
+ * count are the two numbers a measurement product should be judged on.
+ */
+export interface MarketSummary {
+  readonly total: number;
+  readonly counts: ReadonlyArray<{ readonly decision: Decision; readonly count: number }>;
+  readonly meanScore: number | undefined;
+  readonly meanCoverage: number;
+  readonly materialRisks: number;
+  /** The most underpriced property we can actually value, if any can be valued. */
+  readonly bestValue: PropertyIntelligence | undefined;
+}
+
+const DECISION_ORDER: readonly Decision[] = [
+  'BUY',
+  'NEGOTIATE',
+  'WATCH',
+  'AVOID',
+  'INSUFFICIENT_EVIDENCE',
+];
+
+export const summariseMarket = (intelligence: readonly PropertyIntelligence[]): MarketSummary => {
+  const total = intelligence.length;
+  const scored = intelligence.filter((i) => i.score.score !== undefined);
+
+  return {
+    total,
+    counts: DECISION_ORDER.map((decision) => ({
+      decision,
+      count: intelligence.filter((i) => i.decision.decision === decision).length,
+    })),
+    meanScore:
+      scored.length === 0
+        ? undefined
+        : scored.reduce((a, i) => a + (i.score.score ?? 0), 0) / scored.length,
+    meanCoverage: total === 0 ? 0 : intelligence.reduce((a, i) => a + i.score.coverage, 0) / total,
+    materialRisks: intelligence.reduce((a, i) => a + i.risk.materialRisks.length, 0),
+    bestValue: intelligence
+      .filter((i) => !i.valuation.insufficientEvidence)
+      .reduce<PropertyIntelligence | undefined>(
+        (best, i) =>
+          i.valuation.askingDeviationPercent < (best?.valuation.askingDeviationPercent ?? Infinity)
+            ? i
+            : best,
+        undefined,
+      ),
+  };
 };

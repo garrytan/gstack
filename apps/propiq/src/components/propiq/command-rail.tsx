@@ -12,12 +12,11 @@
  */
 
 import Link from 'next/link';
+import { summariseMarket } from '@/server/intelligence';
 import type { PropertyIntelligence } from '@/server/intelligence';
 import type { Decision } from '@/domain/decision/engine';
 import { DECISION_LABELS } from '@/domain/decision/engine';
 import { formatINR, formatPercent } from '@/lib/utils';
-
-const ORDER: readonly Decision[] = ['BUY', 'NEGOTIATE', 'WATCH', 'AVOID', 'INSUFFICIENT_EVIDENCE'];
 
 const COLOR: Readonly<Record<Decision, string>> = {
   BUY: 'var(--color-buy)',
@@ -32,34 +31,9 @@ export const CommandRail = ({
 }: {
   intelligence: readonly PropertyIntelligence[];
 }) => {
-  const total = intelligence.length;
-
-  const counts = ORDER.map((decision) => ({
-    decision,
-    count: intelligence.filter((i) => i.decision.decision === decision).length,
-  }));
-
-  const scored = intelligence.filter((i) => i.score.score !== undefined);
-  const meanScore =
-    scored.length === 0
-      ? undefined
-      : scored.reduce((a, i) => a + (i.score.score ?? 0), 0) / scored.length;
-  const meanCoverage =
-    total === 0 ? 0 : intelligence.reduce((a, i) => a + i.score.coverage, 0) / total;
-
-  // The most underpriced property we can actually value — the one thing on this
-  // panel a buyer would act on today.
-  const bestValue = intelligence
-    .filter((i) => !i.valuation.insufficientEvidence)
-    .reduce<PropertyIntelligence | undefined>(
-      (best, i) =>
-        i.valuation.askingDeviationPercent < (best?.valuation.askingDeviationPercent ?? Infinity)
-          ? i
-          : best,
-      undefined,
-    );
-
-  const materialRisks = intelligence.reduce((a, i) => a + i.risk.materialRisks.length, 0);
+  // Shared with the hero strip, so the two cannot report different markets.
+  const { total, counts, meanScore, meanCoverage, materialRisks, bestValue } =
+    summariseMarket(intelligence);
 
   return (
     <aside
