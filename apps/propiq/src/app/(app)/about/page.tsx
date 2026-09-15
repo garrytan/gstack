@@ -56,7 +56,9 @@ export default function AboutPage() {
         overclaims its coverage has already lost the argument it exists to win.
       </p>
 
-      <h2 className="mt-8 text-lg font-semibold tracking-tight">What this is not</h2>
+      <h2 id="what-this-is-not" className="mt-8 text-lg font-semibold tracking-tight">
+        What this is not
+      </h2>
       <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
         PropIQ produces decision support. It is not investment advice, not legal advice, and not a
         title certification. Document analysis, when it ships, will flag what looks wrong in a deed

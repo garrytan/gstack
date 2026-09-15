@@ -90,23 +90,29 @@ export const SiteFooter = () => (
           tax, engineering, or investment advice. Every estimate carries a confidence band and a
           source.
         </p>
-        <ul className="flex gap-4 text-[11px] text-[var(--text-muted)]">
-          <li>
-            <Link href="/about" className="hover:text-[var(--text-primary)]">
-              Privacy
-            </Link>
-          </li>
-          <li>
-            <Link href="/about" className="hover:text-[var(--text-primary)]">
-              Terms
-            </Link>
-          </li>
-          <li>
-            <Link href="/methodology" className="hover:text-[var(--text-primary)]">
-              Disclaimer
-            </Link>
-          </li>
-        </ul>
+        {/* A labelled group, and every link goes where its label says. "Privacy"
+            and "Terms" both pointed at /about, which carries neither. Terms of
+            service do not exist yet, so there is no link for them rather than
+            one that lands somewhere else. */}
+        <nav aria-label="Legal">
+          <ul className="flex gap-4 text-[11px] text-[var(--text-muted)]">
+            <li>
+              <Link href="/privacy" className="hover:text-[var(--text-primary)]">
+                Privacy
+              </Link>
+            </li>
+            <li>
+              <Link href="/about#what-this-is-not" className="hover:text-[var(--text-primary)]">
+                Disclaimer
+              </Link>
+            </li>
+            <li>
+              <Link href="/methodology" className="hover:text-[var(--text-primary)]">
+                Methodology
+              </Link>
+            </li>
+          </ul>
+        </nav>
       </div>
     </div>
   </footer>
