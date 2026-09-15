@@ -20,6 +20,25 @@ Score v0.1.0 · decision engine v0.1.0 · fair value with negotiation guidance �
 evidence panel · locality intelligence · persona weighting · auth · watchlist ·
 analytics.
 
+### P1 partial delivery ✓
+
+Everything on the P1 list that was not blocked on a credential or a provider:
+
+- **Buyer profile editor** (`/preferences`) — persona, budget, bedrooms,
+  commute tolerance, carpet-efficiency floor, preferred localities. Feeds
+  persona weighting and every buyer-fit signal, so search and the property
+  page now score for *this* buyer. Proven by test, not just wired.
+- **Portfolio** — add, list and remove assets, with equity, unrealised gain,
+  annualised return and yields. Every figure labelled with where it came from.
+- **Alerts** — eight rule families with published thresholds, evaluated live
+  against the watchlist on page load.
+- **Rate limiting** — fixed-window behind an interface, applied to the AI
+  endpoint, standard `RateLimit-*` headers.
+- **Copilot** — the full pipeline: intent, retrieval, deterministic figure
+  selection, grounded context, injection fencing, synthesis, output guard.
+  Refuses with a 503 rather than stubbing when no provider is configured.
+- **Reports** — a frozen, versioned, printable intelligence report per property.
+
 ## Next
 
 ### The exact next task
@@ -60,12 +79,12 @@ a large payoff: it turns a generic score into a personal one.
 | Feature | Blocked on |
 |---|---|
 | Document AI | Private storage + extraction provider |
-| Copilot UI + retrieval | AI provider configured; rate limiting |
-| Reports / PDF | Snapshot store keyed by scoring version |
-| Alerts | Scheduler + delivery channel |
+| Alert scheduling and delivery | A job runner and a channel (email or webhook) |
+| Distributed rate limiting | A shared store. Needed before a second instance runs |
+| Durable snapshot store | Supabase. The in-process store loses its baseline on restart |
 | Maps | Provider decision (abstraction exists) |
 | Floor-plan intelligence | CV provider; confidence labelling is non-negotiable |
-| Portfolio UI | Nothing — schema and arithmetic are done |
+| Copilot synthesis | `AI_PROVIDER` / `AI_API_KEY`. Everything around it is built |
 
 ## P2
 

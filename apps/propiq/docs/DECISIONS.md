@@ -255,3 +255,112 @@ scoring chain runs once per request rather than twice.
 
 **Verified:** `/property/does-not-exist` → 404, `/locality/nowhere` → 404,
 valid routes → 200.
+
+---
+
+## D-014 — Rate limiting is in-process, and says so
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** A fixed-window counter behind a `RateLimiter` interface, with
+`isDistributed: false` exposed on the implementation.
+
+**Why.** The AI endpoint needed a limit before it could be exposed at all, and
+a shared store is not yet justified by the deployment. What would be wrong is
+pretending the guarantee is stronger than it is: on N instances an in-process
+limiter permits N times the configured rate. Exposing `isDistributed` means a
+caller that needs a hard guarantee can check for one rather than assume it.
+
+An anonymous caller gets half the per-user budget, because an IP is far easier
+to rotate than an account.
+
+**Cost.** Must be swapped before a second instance runs. Named in
+`IMPLEMENTATION_STATUS.md` under known limitations.
+
+---
+
+## D-015 — An unvalued portfolio asset is excluded, not assumed flat
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** An asset with no current value is left out of portfolio totals
+and counted separately, rather than being treated as still worth its cost
+basis.
+
+**Why.** Assuming flat value would understate a gain and overstate a loss, and
+would present an assumption as a measurement — the same error as scoring a
+missing signal as zero (D-004). The UI states the exclusion and the count
+rather than hiding it.
+
+Relatedly: a value the user typed is stored as `userProvided` even if the form
+offered `verified`. The label on a number has to match where it actually came
+from, and the server action enforces that rather than trusting the form.
+
+**Cost.** Totals can look lower than a user expects until they value everything.
+That is the honest reading.
+
+---
+
+## D-016 — The Copilot refuses rather than degrading
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** With no provider configured, `/api/copilot` returns **503** with
+`code: AI_NOT_CONFIGURED`, and the UI shows what is missing. The retrieval,
+grounding, fencing and guard steps still run.
+
+**Why.** 503 rather than 500 because nothing is broken: the service is
+correctly configured to refuse. And a refusal rather than a canned answer
+because a stubbed AI response is indistinguishable from a real one to a user —
+shipping one from the module whose job is preventing fabrication would be the
+sharpest possible version of the failure.
+
+The pipeline runs regardless so the parts that keep the promise are exercised
+and tested without a provider present.
+
+**Cost.** The Copilot is visibly unfinished in an unconfigured environment.
+Preferable to being invisibly wrong.
+
+---
+
+## D-017 — Alerts evaluate on page load, against published thresholds
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** Each watched property is re-scored when the alerts page opens,
+diffed against its last snapshot, and the new snapshot stored. Every rule
+carries an explicit threshold, published on the page itself.
+
+**Why.** The evaluation rules are the hard part and they are pure, so they can
+be built and tested before a scheduler exists. Doing it on load makes the
+feature real today and leaves the scheduler as a delivery concern rather than a
+prerequisite.
+
+The thresholds are the substance: an alert that fires on a one-point score
+wobble trains people to ignore alerts, which is worse than having none. A score
+move under 4 points is inside the confidence band anyway, so reporting it would
+be reporting noise.
+
+**Cost.** The snapshot store is in-process, so a restart loses the baseline and
+the next visit re-baselines rather than reporting a change. Stated on the page
+("we just took a first reading") rather than papered over.
+
+---
+
+## D-018 — Reports print through the browser
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** `/property/[id]/report` is a print-styled page. `window.print()`
+produces the PDF. No server-side renderer.
+
+**Why.** It yields a real PDF with selectable text, adds no dependency, works
+offline, and is available now. A headless-browser renderer earns its place when
+reports must be emailed or stored server-side — not before.
+
+The report carries the scoring, decision and valuation versions it was produced
+under, so a conclusion can be re-derived rather than taken on trust, and is
+`noindex` because it is an artefact for one buyer.
+
+**Cost.** No server-side generation, so reports cannot yet be emailed or
+attached. That is the trigger for revisiting this.

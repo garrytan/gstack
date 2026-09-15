@@ -50,7 +50,10 @@ records as live Indian property intelligence.
   deterministic engines computed.
 
 If you cannot satisfy a request truthfully, ship the honest empty state. See
-`src/components/propiq/roadmap-notice.tsx` for the pattern.
+`src/components/propiq/roadmap-notice.tsx` for the pattern. The same rule
+applies to degraded dependencies: with no AI provider the Copilot returns 503
+rather than a canned answer, and an unvalued portfolio asset is excluded from
+totals rather than assumed to be worth its cost basis.
 
 ## Architecture rules
 
@@ -60,7 +63,7 @@ Modular monolith. Dependencies point inward, never out.
 src/domain/   pure TypeScript. No I/O, no React, no Next, no adapters.
 src/data/     ports + adapters (fixture, supabase). Implements domain contracts.
 src/server/   server-only: clients, use cases, actions.
-src/ai/       provider abstraction + grounding guards.
+src/ai/       provider abstraction, grounding guards, Copilot pipeline.
 src/components/ presentation.
 src/lib/      shared utilities, env, analytics.
 ```
@@ -138,6 +141,10 @@ do not blur the two.
 - Documents go to a private bucket under a per-user prefix, accessed via signed
   URLs.
 - Untrusted text reaching an LLM is fenced with `fenceUntrusted()`.
+- AI endpoints are rate limited (`checkAiRateLimit`) before any expensive work.
+  The order — validate, rate limit, then work — is pinned by a test.
+- The in-process limiter is not distributed. Check `RateLimiter.isDistributed`
+  before assuming a hard guarantee; swap the store before running two instances.
 
 ## Market coverage
 

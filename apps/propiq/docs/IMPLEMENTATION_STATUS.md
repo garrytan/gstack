@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: 2026-09-15 · Milestones A and B complete.
+Last updated: 2026-09-15 · Milestones A and B complete; P1 partially delivered.
 
 Status vocabulary: `IMPLEMENTED` · `FOUNDATION` · `PARTIAL` · `MOCK/DEMO` ·
 `NOT BUILT` · `BLOCKED BY DATA/INTEGRATION`.
@@ -49,7 +49,9 @@ have broken the host repository. See `DECISIONS.md` D-001.
 | Risk engine v0.1.0 | `IMPLEMENTED` | 9 dimensions with drivers, 10 tests |
 | Comparison analysis | `IMPLEMENTED` | Winners, differences, trade-offs, 13 tests |
 | Locality intelligence | `IMPLEMENTED` | CAGR, overhang, commute, environment |
-| Buyer profile / personas | `PARTIAL` | Types + persona weighting live; no profile editor UI |
+| Buyer profile / personas | `IMPLEMENTED` | Editor at `/preferences`; drives weighting and buyer-fit signals |
+| Portfolio arithmetic | `IMPLEMENTED` | Equity, gain, CAGR, yields; unvalued assets excluded, 17 tests |
+| Alert evaluation | `IMPLEMENTED` | 8 rule families with published thresholds, 17 tests |
 
 ## Data layer
 
@@ -82,10 +84,13 @@ have broken the host repository. See `DECISIONS.md` D-001.
 | `/dashboard/watchlist` | `IMPLEMENTED` | Persisted, re-scored on load, empty + signed-out states |
 | `/login`, `/signup` | `PARTIAL` | Full flow built; needs a Supabase project to function |
 | `/pricing` | `NOT BUILT` | Honest placeholder. Pricing undecided |
-| `/copilot` | `NOT BUILT` | Honest placeholder. Blocked on AI provider |
-| `/dashboard/portfolio` | `FOUNDATION` | Schema + return arithmetic done; no entry UI |
-| `/dashboard/alerts` | `NOT BUILT` | Honest placeholder. Needs a scheduler |
-| `/dashboard/reports` | `NOT BUILT` | Honest placeholder. Needs PDF + snapshot store |
+| `/preferences` | `IMPLEMENTED` | Buyer profile editor; changes every score on the site |
+| `/copilot` | `PARTIAL` | Full pipeline live; synthesis `BLOCKED BY DATA/INTEGRATION` on a provider |
+| `/api/copilot` | `IMPLEMENTED` | Validated, rate limited, refuses rather than stubs |
+| `/dashboard/portfolio` | `IMPLEMENTED` | Add, list, remove; provenance labelled per figure |
+| `/dashboard/alerts` | `PARTIAL` | Live evaluation on page load; `NOT BUILT`: scheduler + delivery |
+| `/dashboard/reports` | `IMPLEMENTED` | Frozen, versioned, printable report per property |
+| `/property/[id]/report` | `IMPLEMENTED` | Print-to-PDF via the browser; noindex |
 | `/sitemap.xml`, `/robots.txt` | `IMPLEMENTED` | Demo-backed pages excluded from the sitemap |
 
 Every route in the navigation resolves. No dead CTAs.
@@ -106,21 +111,36 @@ Every route in the navigation resolves. No dead CTAs.
 | Accessibility | `PARTIAL` | Semantic tables, labelled controls, skip link, chart text summaries, reduced-motion, focus-visible. Not yet screen-reader tested |
 | SEO | `IMPLEMENTED` | Metadata, canonicals, sitemap, robots, breadcrumbs |
 | Security headers | `IMPLEMENTED` | HSTS, nosniff, DENY, referrer, permissions |
-| Rate limiting | `NOT BUILT` | Configured; enforcement lands with the Copilot |
+| Rate limiting | `IMPLEMENTED` | Fixed-window, applied to the AI endpoint, standard headers, 8 tests |
+| AI Copilot pipeline | `IMPLEMENTED` | Intent, retrieval, grounding, fencing, output guard, 21 tests |
+| AI synthesis | `BLOCKED BY DATA/INTEGRATION` | Needs `AI_PROVIDER` / `AI_API_KEY`. Refuses with 503 until then |
 
 ## Not built
 
-Document AI · Floor-plan intelligence · Copilot UI · Reports/PDF · Alerts ·
-Maps · Advisor workspace · CRM · Site visits · Negotiation workflow · Offers ·
+Document AI · Floor-plan intelligence · Alert scheduling and delivery · Maps ·
+Advisor workspace · CRM · Site visits · Negotiation workflow · Offers ·
 Transactions · Billing · NRI workflows · Admin · Blog.
+
+### Known limitations in what did ship
+
+- **Rate limiting is in-process.** On N instances it permits N times the
+  configured rate. `RateLimiter.isDistributed` exposes this rather than hiding
+  it; swap in a shared store before running more than one instance.
+- **Alerts evaluate on page load, not on a schedule.** Snapshots live in an
+  in-process store, so a restart loses the baseline and the next visit
+  re-baselines instead of reporting a change. Correct behaviour for a
+  stand-in; not a substitute for the scheduler.
+- **Reports print through the browser.** Real PDF with selectable text, no
+  extra dependency. A server renderer is only needed once reports must be
+  emailed or stored.
 
 ## Quality gates
 
 ```
 npm run typecheck   ✓ strict, noUncheckedIndexedAccess, zero errors
 npm run lint        ✓ zero errors, zero warnings
-npm run test        ✓ 201 tests across 12 files, ~1.6s
-npm run build       ✓ 22 routes, production build clean
+npm run test        ✓ 276 tests across 16 files, ~2s
+npm run build       ✓ 28 routes, production build clean
 ```
 
 Nothing is suppressed. No `any`, no `@ts-ignore`, no disabled lint rules.
@@ -129,15 +149,19 @@ Nothing is suppressed. No `any`, no `@ts-ignore`, no disabled lint rules.
 
 | Area | Tests |
 |---|---|
+| Security / provenance invariants | 34 |
+| Integration (fixture + full chain + profile) | 28 |
 | Investment math | 24 |
-| Security / provenance invariants | 28 |
-| Integration (fixture + full chain) | 24 |
+| AI Copilot pipeline | 21 |
 | Valuation | 19 |
-| Evidence & freshness | 13 |
+| Portfolio arithmetic | 17 |
+| Alert rules | 17 |
 | Scoring | 15 |
 | AI grounding | 14 |
 | Analytics & formatting | 14 |
 | Comparison | 14 |
-| Decision rules | 12 |
+| Decision rules | 14 |
+| Evidence & freshness | 13 |
 | Normalization | 12 |
 | Risk | 10 |
+| Rate limiting | 8 |
