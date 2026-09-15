@@ -84,6 +84,7 @@ have broken the host repository. See `DECISIONS.md` D-001.
 | `/methodology` | `IMPLEMENTED` | Reads live constants — cannot drift |
 | `/data-sources` | `IMPLEMENTED` | Per-source integration status, live adapter state |
 | `/about` | `IMPLEMENTED` | |
+| `/privacy` | `PARTIAL` | Technical data handling documented accurately; operator policy (fiduciary, retention, DPDP grievance officer) not published |
 | `/developers` | `IMPLEMENTED` | Delivery record, handover delay, complaints on file |
 | `/research` | `IMPLEMENTED` | Index of the written method pieces; every card links to a page that exists |
 | `/dashboard` | `IMPLEMENTED` | |
@@ -113,6 +114,7 @@ have broken the host repository. See `DECISIONS.md` D-001.
 | `/methodology/[version]` | `IMPLEMENTED` | Frozen permalink per scoring version (`/methodology/v0.1.0`), for citation |
 | `/llms.txt` | `IMPLEMENTED` | Generated from live constants; declares this deployment's data status |
 | `/sitemap.xml`, `/robots.txt` | `IMPLEMENTED` | Demo-backed pages excluded; AI crawlers named explicitly |
+| `/opengraph-image`, `/icon` | `IMPLEMENTED` | Generated share card and tab icon; no figures on the card |
 
 Every route in the navigation resolves. No dead CTAs.
 

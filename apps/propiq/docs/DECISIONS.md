@@ -657,3 +657,50 @@ lying is the wrong chart; the honest version of that data is one axis.
 **Consequence.** Nothing on the page implies a direction we do not hold. When a
 geocoded anchor set exists, a real map can replace this — and it will be a map,
 not a diagram shaped like one.
+
+## D-033 — A misconfiguration fails the process, not one route at a time
+
+**Context.** `getServerEnv()` validated lazily, on first call. A production
+server running the fixture adapter therefore booted happily and then answered
+the tool pages with 200, every data-backed route with 500, and four more routes
+with a **200** carrying a permanently stuck loading skeleton — the error was
+raised inside a Suspense boundary after the shell had already flushed its
+status. An uptime check on `/search` reported a healthy service.
+
+**Decision.** `src/instrumentation.ts` calls `getServerEnv()` from Next's
+`register()` hook, which runs once before the server accepts anything. A
+production process with an invalid configuration refuses to start. The same
+commit added a second guard: `NEXT_PUBLIC_SITE_URL` may not be missing or
+loopback in production.
+
+**Why.** Lazy validation makes the failure proportional to which route you
+happened to hit, which is the worst property a configuration error can have.
+Half-up is harder to diagnose than down, and it defeats monitoring.
+`NEXT_PUBLIC_*` is inlined at build time, so a localhost default is not a
+runtime inconvenience — it is baked into every canonical link, the sitemap,
+`llms.txt`, the JSON-LD `@id` and the auth email redirect.
+
+**Consequence.** Both checks are skipped under `next build`'s own phase, so a
+build still runs with no environment at all. The cost is that a production
+deploy now needs `NEXT_PUBLIC_SITE_URL` set; that is the correct cost.
+
+## D-034 — A link goes where its label says, or it does not exist
+
+**Context.** The footer's "Privacy" and "Terms" both pointed at `/about`, which
+carries neither. A routing test that asserts every internal link returns 200
+passes this happily, which is how it survived an audit.
+
+**Decision.** `/privacy` documents what the software actually does with data —
+which tables are RLS-scoped, where uploaded documents live, what the free tools
+transmit, what reaches an AI provider — and names what is *not* published:
+fiduciary identity, retention, lawful basis, the DPDP grievance officer,
+cross-border transfer. There is no Terms link, because there are no terms.
+
+**Why.** The truthfulness rule already forbids a fabricated figure. A privacy
+policy invented to fill a footer slot is the same failure with legal exposure
+attached. What the code does is knowable and can be stated precisely; what the
+operator commits to is not, and the honest empty state says so.
+
+**Consequence.** "Every internal link resolves" is necessary and not
+sufficient. A link's destination has to match its label, and only a human or a
+test that knows the label's meaning can check that.
