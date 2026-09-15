@@ -1,0 +1,70 @@
+# PropIQ CI.
+#
+# Scoped to apps/propiq/** so it never fires on gstack's own changes, and runs
+# on ubuntu-latest rather than the ubicloud-standard-8 runner gstack's
+# workflows target — a fork does not have that runner, and this needs to work
+# the moment Actions is enabled.
+#
+# No secrets. Everything here is deterministic: the domain layer is pure, the
+# fixture adapter needs no network, and no AI provider is contacted.
+
+name: PropIQ CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/propiq/**'
+      - '.github/workflows/propiq-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/propiq/**'
+      - '.github/workflows/propiq-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: propiq-ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apps/propiq
+
+jobs:
+  verify:
+    name: typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/propiq/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
