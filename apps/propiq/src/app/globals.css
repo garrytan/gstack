@@ -1,0 +1,127 @@
+@import 'tailwindcss';
+
+/*
+ * PropIQ design tokens.
+ *
+ * The visual brief is analytical density, not portal gloss: a dark-first
+ * surface stack, one accent, and semantic decision colours that mean exactly
+ * one thing each. Figures use tabular numerals so columns of rupees line up.
+ */
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Monaco, 'Cascadia Mono', monospace;
+
+  --color-ink-50: #f6f7f9;
+  --color-ink-100: #eceef2;
+  --color-ink-200: #d5d9e2;
+  --color-ink-300: #b0b7c6;
+  --color-ink-400: #7c8598;
+  --color-ink-500: #5b6478;
+  --color-ink-600: #454d5e;
+  --color-ink-700: #333a49;
+  --color-ink-800: #1f2430;
+  --color-ink-900: #141821;
+  --color-ink-950: #0b0e14;
+
+  --color-accent-400: #4dd0c7;
+  --color-accent-500: #1fb3a8;
+  --color-accent-600: #12908a;
+
+  /* Decision semantics. One meaning each, never decorative. */
+  --color-buy: #2f9e63;
+  --color-negotiate: #d9a133;
+  --color-watch: #4a7fb5;
+  --color-avoid: #c4524b;
+  --color-unknown: #6b7383;
+}
+
+:root {
+  color-scheme: light dark;
+
+  --surface-0: #ffffff;
+  --surface-1: #f6f7f9;
+  --surface-2: #eceef2;
+  --border-subtle: #dfe3ea;
+  --border-strong: #c4cad6;
+  --text-primary: #141821;
+  --text-secondary: #454d5e;
+  --text-muted: #7c8598;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-0: #0b0e14;
+    --surface-1: #141821;
+    --surface-2: #1f2430;
+    --border-subtle: #262d3b;
+    --border-strong: #3a4354;
+    --text-primary: #f6f7f9;
+    --text-secondary: #b0b7c6;
+    --text-muted: #7c8598;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border-subtle);
+  }
+
+  body {
+    background: var(--surface-0);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Every number in this product is meant to be compared to another number. */
+  .tabular,
+  table,
+  [data-figure] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@utility surface {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Skeletons signal "loading", not "empty". Kept distinct from empty states. */
+@utility skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    var(--border-subtle) 50%,
+    var(--surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: propiq-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes propiq-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
