@@ -1,0 +1,56 @@
+{
+  "name": "propiq",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PropIQ by CiteRank AI \u2014 India's Property Decision Intelligence Platform",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"test/**/*.ts\"",
+    "verify": "npm run typecheck && npm run lint && npm run test"
+  },
+  "dependencies": {
+    "@radix-ui/react-accordion": "^1.2.11",
+    "@radix-ui/react-dialog": "^1.1.14",
+    "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-slot": "^1.2.3",
+    "@radix-ui/react-tabs": "^1.1.12",
+    "@radix-ui/react-tooltip": "^1.2.7",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.116.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.552.0",
+    "next": "16.3.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "recharts": "^3.3.1",
+    "server-only": "^0.0.1",
+    "tailwind-merge": "^3.3.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "eslint": "^9.39.0",
+    "eslint-config-next": "16.3.5",
+    "prettier": "^3.6.2",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}
