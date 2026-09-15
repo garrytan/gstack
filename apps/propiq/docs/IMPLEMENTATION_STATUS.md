@@ -91,14 +91,17 @@ have broken the host repository. See `DECISIONS.md` D-001.
 | `/preferences` | `IMPLEMENTED` | Buyer profile editor; changes every score on the site |
 | `/copilot` | `PARTIAL` | Full pipeline live; synthesis `BLOCKED BY DATA/INTEGRATION` on a provider |
 | `/api/copilot` | `IMPLEMENTED` | Validated, rate limited, refuses rather than stubs |
+| `/api/cron/evaluate-alerts` | `IMPLEMENTED` | Bearer-secret auth, evaluates then delivers, per-channel receipts |
 | `/dashboard/portfolio` | `IMPLEMENTED` | Add, list, remove; provenance labelled per figure |
-| `/dashboard/alerts` | `PARTIAL` | Live evaluation on page load; `NOT BUILT`: scheduler + delivery |
+| `/dashboard/alerts` | `IMPLEMENTED` | Live evaluation on load, written to the inbox, scheduler endpoint delivers |
+| `/dashboard/notifications` | `IMPLEMENTED` | Inbox, mark-all-read, per-channel delivery status shown honestly |
+| `/decision-room` | `IMPLEMENTED` | Permanent redirect to `/compare`, the canonical surface |
+| `/reports` | `IMPLEMENTED` | Permanent redirect to `/dashboard/reports` |
 | `/dashboard/reports` | `IMPLEMENTED` | Frozen, versioned, printable report per property |
 | `/property/[id]/report` | `IMPLEMENTED` | Print-to-PDF via the browser; noindex |
 | `/property/[id]/visit` | `IMPLEMENTED` | Checklist; captured answers feed the score |
 | `/property/[id]/negotiate` | `IMPLEMENTED` | Offer tracking against a walk-away set up front |
 | `/document-ai` | `IMPLEMENTED` | Checks run in-browser on typed input; no upload needed |
-| `/api/cron/evaluate-alerts` | `IMPLEMENTED` | Bearer secret, constant-time compare, refuses unconfigured |
 | `/sitemap.xml`, `/robots.txt` | `IMPLEMENTED` | Demo-backed pages excluded from the sitemap |
 
 Every route in the navigation resolves. No dead CTAs.
@@ -123,22 +126,35 @@ Every route in the navigation resolves. No dead CTAs.
 | AI Copilot pipeline | `IMPLEMENTED` | Intent, retrieval, grounding, fencing, output guard, 21 tests |
 | AI synthesis | `BLOCKED BY DATA/INTEGRATION` | Needs `AI_PROVIDER` / `AI_API_KEY`. Refuses with 503 until then |
 | Document extraction (OCR) | `BLOCKED BY DATA/INTEGRATION` | Upload path and validation built; no provider. Checks work on typed input |
-| Alert scheduling | `FOUNDATION` | Endpoint ready for any cron; delivery channel not built |
+| Alert scheduling | `IMPLEMENTED` | Endpoint ready for any cron; evaluates then delivers, per-channel receipts |
+| Alert delivery — in-app | `IMPLEMENTED` | Inbox with dedupe key, read state, rule shown per row |
+| Alert delivery — webhook | `IMPLEMENTED` | HMAC-SHA256 signed, 5s timeout, reports non-2xx as failed |
+| Alert delivery — email | `BLOCKED BY DATA/INTEGRATION` | No transactional provider. Reports `notConfigured`; never claims a send |
+| Navigation integrity | `IMPLEMENTED` | `test/navigation.test.ts` fails CI on a link with no route behind it |
 
 ## Not built
 
-Floor-plan intelligence · Alert delivery channel · Maps · Advisor workspace ·
-CRM · Transaction state · Billing · NRI workflows · Admin · Blog.
+Floor-plan intelligence · Maps · Advisor workspace · CRM · Transaction state ·
+Billing · NRI workflows · Admin · Blog.
+
+Advisor, CRM, admin and NRI are deliberately not started rather than
+half-built. NRI in particular turns on statutory TDS, FEMA and DTAA
+positions: shipping those from memory would put asserted tax law on screen
+under a product promise of verified, sourced facts, which is the one thing
+this product must not do. It needs a citable, dated rate table and
+professional review before any of it renders.
 
 ### Known limitations in what did ship
 
 - **Rate limiting is in-process.** On N instances it permits N times the
   configured rate. `RateLimiter.isDistributed` exposes this rather than hiding
   it; swap in a shared store before running more than one instance.
-- **Alerts evaluate on page load, not on a schedule.** Snapshots live in an
-  in-process store, so a restart loses the baseline and the next visit
-  re-baselines instead of reporting a change. Correct behaviour for a
-  stand-in; not a substitute for the scheduler.
+- **Alert snapshots live in an in-process store in fixture mode.** A restart
+  loses the baseline and the next visit re-baselines instead of reporting a
+  change. Supabase mode persists; the in-memory store is development only.
+- **Email delivery has no provider.** The channel reports itself
+  `notConfigured` with the integration requirement rather than shipping a
+  console-logging stand-in that returns success.
 - **Reports print through the browser.** Real PDF with selectable text, no
   extra dependency. A server renderer is only needed once reports must be
   emailed or stored.

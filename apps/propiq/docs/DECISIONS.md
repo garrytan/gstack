@@ -456,3 +456,62 @@ reason to move quickly, not a reason to stop negotiating.
 
 **Cost.** None. Six regression tests pin the ordering invariant in both the
 overpriced and underpriced cases.
+
+## D-023 — An unconfigured delivery channel says so, rather than stubbing
+
+**Context.** Alerts evaluated correctly but went nowhere. Three delivery
+channels were candidates: an in-app inbox, a webhook, and email. Only the
+first two can be built without a third-party account.
+
+**Decision.** Every channel implements the same `AlertNotifier` port and
+reports one of four outcomes: `delivered`, `skipped`, `failed`,
+`notConfigured`. Email is implemented as a notifier that always returns
+`notConfigured`, carrying the integration requirement as its detail string.
+It does not log to the console and return success.
+
+**Why.** A stub that reports a send it did not make is the alerting version
+of a fabricated data point, and this product's central promise is that it
+does not do that. `test/alert-delivery.test.ts` asserts that the email
+notifier's source contains no `'delivered'` branch, so the stub cannot be
+reintroduced quietly.
+
+**Consequence.** The notifications page renders per-channel configuration
+state, so a deployment's real capability is visible rather than implied.
+Wiring an email provider means adding a notifier, not editing a page.
+
+## D-024 — The page view writes to the inbox, and the write is idempotent
+
+**Context.** Alerts are evaluated when `/dashboard/alerts` loads, because
+that is the only evaluation that happens without a scheduler. Without a
+write, a change detected on a page view was forgotten as soon as the user
+navigated away.
+
+**Decision.** The alerts page writes what fired to the notification inbox.
+The store's uniqueness key is `(user, property, kind, rule, day)`, so a
+refresh, a double-fired scheduler and a page view that races the cron all
+collapse to one row.
+
+**Why.** A side effect on a GET is normally a smell. Here the effect is
+idempotent by construction and the alternative is a product that detects a
+price cut and then loses it. The dedupe key is what makes it safe, so it is
+enforced by a unique index in the schema rather than by application code.
+
+**Consequence.** Three evaluations of the same unchanged alert produce one
+inbox row — verified in the browser, not only in unit tests.
+
+## D-025 — Spec-named URLs redirect; they do not become second pages
+
+**Context.** The product calls the comparison surface the "Decision Room"
+and the surface lives at `/compare`. People type and link the name.
+
+**Decision.** `/decision-room` and `/reports` are permanent redirects to
+`/compare` and `/dashboard/reports`. They are not copies.
+
+**Why.** Two pages rendering the same thing drift, and a score that differs
+between two screens is worse than no score. One canonical route keeps that
+impossible.
+
+**Consequence.** `test/navigation.test.ts` walks the App Router tree and
+fails when any internal link in the header, footer, homepage or dashboard
+has no route behind it — which is the spec rule "do not show nonexistent
+routes in navigation", enforced rather than remembered.
