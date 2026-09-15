@@ -181,6 +181,61 @@ describe('new surfaces stay inside the security model', () => {
   });
 });
 
+describe('scheduled endpoints', () => {
+  const cronRoute = readFileSync(join(root, 'src/app/api/cron/evaluate-alerts/route.ts'), 'utf-8');
+
+  it('refuses every request when no secret is configured, rather than defaulting open', () => {
+    expect(cronRoute).toContain('if (!env.CRON_SECRET)');
+    expect(cronRoute).toContain('503');
+  });
+
+  it('compares the secret in constant time', () => {
+    expect(cronRoute).toContain('timingSafeEqual');
+    // A plain === on a secret leaks its prefix to a timing attack.
+    expect(cronRoute).not.toMatch(/provided === env\.CRON_SECRET/);
+  });
+
+  it('requires a bearer token and returns 401 without one', () => {
+    expect(cronRoute).toContain("startsWith('Bearer ')");
+    expect(cronRoute).toContain('401');
+  });
+
+  it('does not accept a secret in the query string, where it would be logged', () => {
+    expect(cronRoute).not.toMatch(/searchParams\.get\(['"]secret/);
+  });
+});
+
+describe('document intelligence stays honest', () => {
+  const extractor = readFileSync(join(root, 'src/ai/document-extractor.ts'), 'utf-8');
+  const rules = readFileSync(join(root, 'src/domain/documents/rules.ts'), 'utf-8');
+
+  it('refuses to return an empty extraction when no provider is configured', () => {
+    expect(extractor).toContain('ExtractionNotConfiguredError');
+    // An empty extraction would read as a clean document.
+    expect(extractor).not.toMatch(/return\s*\{\s*kind[\s\S]{0,120}\}\s*;?\s*\}\s*$/m);
+  });
+
+  it('validates uploads against an allowlist, not a blocklist', () => {
+    expect(extractor).toContain('ALLOWED_DOCUMENT_TYPES');
+    expect(extractor).not.toMatch(/BLOCKED_|DISALLOWED_/);
+  });
+
+  it('keeps only the extension from a user-supplied filename', () => {
+    expect(extractor).toContain('lastIndexOf');
+    expect(extractor).toContain("replace(/[^a-z.]/g, '')");
+  });
+
+  it('never lets a skipped check read as a pass', () => {
+    expect(rules).toContain('skipped.push');
+    expect(rules).toContain('passed.push');
+  });
+
+  it('always requires legal review, with no code path that clears a document', () => {
+    expect(rules).toContain('requiresLegalReview: true');
+    expect(rules).not.toMatch(/requiresLegalReview:\s*false/);
+  });
+});
+
 describe('schema integrity', () => {
   it('constrains evidence to exactly one subject', () => {
     expect(schema).toContain('constraint evidence_single_subject');

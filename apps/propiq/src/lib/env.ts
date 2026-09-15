@@ -32,6 +32,11 @@ const serverSchema = z.object({
   AI_FALLBACK_MODEL: z.string().optional(),
   /** Requests per minute per user for AI endpoints. */
   AI_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(10),
+  /**
+   * Shared secret for scheduled endpoints. Unset means scheduled evaluation is
+   * refused outright — it never defaults open.
+   */
+  CRON_SECRET: z.string().min(16).optional(),
 });
 
 export type ClientEnv = z.infer<typeof clientSchema>;
