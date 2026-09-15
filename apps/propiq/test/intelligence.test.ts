@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 process.env.PROPIQ_DATA_ADAPTER = 'fixture';
 
 import { asId } from '@/domain/shared/types';
-import type { PropertyId } from '@/domain/shared/types';
+import type { PropertyId, UserId } from '@/domain/shared/types';
 import { FixturePropertyRepository } from '@/data/fixtures/adapter';
 import { DEMO_LOCALITIES } from '@/data/fixtures/localities';
 import { DEMO_DEVELOPERS, DEMO_PROJECTS, DEMO_PROPERTIES } from '@/data/fixtures/properties';
@@ -205,5 +205,75 @@ describe('buildPropertyIntelligence', () => {
   it('never returns negotiation guidance without a usable valuation', async () => {
     const intel = await buildPropertyIntelligence(asId<PropertyId>('prop-sv-2a'), { now: NOW });
     expect(intel!.negotiation).toBeUndefined();
+  });
+});
+
+describe('buyer profile changes the score', () => {
+  const buyerFit = (intel: NonNullable<Awaited<ReturnType<typeof buildPropertyIntelligence>>>) =>
+    intel.score.pillars.find((p) => p.pillar === 'buyerFit');
+
+  it('leaves buyer fit unscored when no profile is supplied', async () => {
+    const intel = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), { now: NOW });
+    expect(buyerFit(intel!)!.score).toBeUndefined();
+  });
+
+  it('scores buyer fit once a profile is supplied', async () => {
+    const intel = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+      buyer: {
+        userId: asId<UserId>('u1'),
+        persona: 'homebuyer',
+        budgetMin: 12_000_000,
+        budgetMax: 18_000_000,
+        preferredLocalities: [],
+        bedroomsMin: 3,
+        bedroomsMax: 4,
+        workplace: { label: 'ITPL', maxPeakCommuteMinutes: 40 },
+        needsReadyToMove: false,
+        minCarpetEfficiency: 0.65,
+      },
+    });
+    expect(buyerFit(intel!)!.score).toBeDefined();
+    expect(buyerFit(intel!)!.coverage).toBeGreaterThan(0);
+  });
+
+  it('scores a property inside the budget above one far outside it', async () => {
+    const base = {
+      userId: asId<UserId>('u1'),
+      persona: 'homebuyer' as const,
+      preferredLocalities: [],
+      bedroomsMin: 3,
+      bedroomsMax: 4,
+    };
+    const inBudget = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+      buyer: { ...base, budgetMin: 12_000_000, budgetMax: 18_000_000 },
+    });
+    const overBudget = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+      buyer: { ...base, budgetMin: 4_000_000, budgetMax: 6_000_000 },
+    });
+    expect(buyerFit(inBudget!)!.score!).toBeGreaterThan(buyerFit(overBudget!)!.score!);
+    // And the composite moves with it, so the profile is not cosmetic.
+    expect(inBudget!.score.score!).toBeGreaterThan(overBudget!.score.score!);
+  });
+
+  it('rewards a commute inside the stated tolerance', async () => {
+    const base = {
+      userId: asId<UserId>('u1'),
+      persona: 'homebuyer' as const,
+      budgetMin: 12_000_000,
+      budgetMax: 18_000_000,
+      preferredLocalities: [],
+    };
+    const tolerant = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+      buyer: { ...base, workplace: { label: 'ITPL', maxPeakCommuteMinutes: 60 } },
+    });
+    const strict = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+      buyer: { ...base, workplace: { label: 'ITPL', maxPeakCommuteMinutes: 20 } },
+    });
+    expect(buyerFit(tolerant!)!.score!).toBeGreaterThan(buyerFit(strict!)!.score!);
   });
 });

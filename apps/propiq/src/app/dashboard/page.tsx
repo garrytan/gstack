@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Bell, Bookmark, FileText, Wallet } from 'lucide-react';
+import { Bell, Bookmark, FileText, SlidersHorizontal, Wallet } from 'lucide-react';
 import { currentUserId } from '@/server/actions';
 import { getWatchlistRepository } from '@/server/watchlist';
 import { getPropertyRepository } from '@/data';
@@ -37,7 +37,13 @@ const CARDS = [
     href: '/dashboard/reports',
     label: 'Reports',
     icon: FileText,
-    blurb: 'Intelligence reports you have generated.',
+    blurb: 'Frozen intelligence reports you can print or share.',
+  },
+  {
+    href: '/preferences',
+    label: 'Preferences',
+    icon: SlidersHorizontal,
+    blurb: 'How you buy. Changes the pillar weights behind every score you see.',
   },
 ] as const;
 
@@ -57,7 +63,7 @@ export default async function DashboardPage() {
           : 'Sign in to save properties, track changes and build a portfolio.'}
       </p>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {CARDS.map((c) => (
           <Link
             key={c.href}

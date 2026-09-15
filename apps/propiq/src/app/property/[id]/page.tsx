@@ -8,7 +8,7 @@ import type { PropertyId } from '@/domain/shared/types';
 import { carpetEfficiency, pricePerSqFt } from '@/domain/property/types';
 import { bestCommute } from '@/domain/locality/types';
 import { buildPropertyIntelligence } from '@/server/intelligence';
-import { isWatched } from '@/server/actions';
+import { isWatched, loadBuyerProfile } from '@/server/actions';
 import { DemoDataBanner, DataStatusBadge } from '@/components/propiq/data-status';
 import { DecisionBadge } from '@/components/propiq/decision-badge';
 import { ScoreDial } from '@/components/propiq/score-dial';
@@ -35,9 +35,15 @@ type Params = { params: Promise<{ id: string }> };
  * collapses them into a single computation per request, so the scoring chain
  * runs once rather than twice.
  */
-const loadIntelligence = cache(async (id: string) =>
-  buildPropertyIntelligence(asId<PropertyId>(id)),
-);
+const loadIntelligence = cache(async (id: string) => {
+  // The saved profile drives persona weighting and every buyer-fit signal, so
+  // the verdict on this page is the one for this buyer, not for an average.
+  const buyer = await loadBuyerProfile();
+  return buildPropertyIntelligence(asId<PropertyId>(id), {
+    buyer,
+    persona: buyer?.persona,
+  });
+});
 
 export const generateMetadata = async ({ params }: Params): Promise<Metadata> => {
   const { id } = await params;
@@ -181,13 +187,22 @@ export default async function PropertyPage({ params }: Params) {
               >
                 Ask PropIQ
               </Link>
+              <Link
+                href={`/property/${property.id}/report`}
+                className="inline-flex h-10 items-center rounded-md border border-[var(--border-strong)] px-4 text-sm font-medium hover:bg-[var(--surface-2)]"
+              >
+                Report
+              </Link>
             </div>
           </div>
 
           <div className="shrink-0 lg:pl-6">
             <ScoreDial score={score.score} band={score.band} confidence={score.confidence} />
             <p className="mt-2 max-w-[180px] text-center text-[11px] text-[var(--text-muted)]">
-              Scoring v{score.scoringVersion}, weighted for a {score.persona}.
+              Scoring v{score.scoringVersion}, weighted for a {score.persona}.{' '}
+              <Link href="/preferences" className="text-accent-500 hover:underline">
+                Change this
+              </Link>
             </p>
           </div>
         </div>

@@ -123,6 +123,64 @@ describe('demo data containment', () => {
   });
 });
 
+describe('new surfaces stay inside the security model', () => {
+  const actions = readFileSync(join(root, 'src/server/actions.ts'), 'utf-8');
+  const copilotRoute = readFileSync(join(root, 'src/app/api/copilot/route.ts'), 'utf-8');
+
+  it('resolves identity server-side in every user-scoped action', () => {
+    // No action may take a user id as a parameter — it is always resolved from
+    // the session, so a client cannot act as someone else.
+    const exported = actions.match(/export const (\w+) = async \(([^)]*)\)/g) ?? [];
+    for (const signature of exported) {
+      expect(signature).not.toMatch(/userId\s*:/);
+    }
+    expect(actions).toContain('const resolveUserId');
+  });
+
+  it('validates every action input with Zod before it reaches a repository', () => {
+    for (const schema of ['profileSchema', 'assetSchema', 'propertyIdSchema']) {
+      expect(actions).toContain(schema);
+    }
+    const safeParses = actions.match(/safeParse\(/g) ?? [];
+    expect(safeParses.length).toBeGreaterThanOrEqual(5);
+  });
+
+  // Ordering is asserted inside the handler body: the import block mentions
+  // every symbol up front, so whole-file indexOf would compare import order.
+  const handlerBody = copilotRoute.slice(copilotRoute.indexOf('export const POST'));
+
+  it('gates the AI endpoint in order: validate, then rate limit, then work', () => {
+    const parseIndex = handlerBody.indexOf('bodySchema.parse');
+    const limitIndex = handlerBody.indexOf('await checkAiRateLimit');
+    const workIndex = handlerBody.indexOf('await buildPropertyIntelligence');
+
+    expect(parseIndex).toBeGreaterThan(-1);
+    expect(limitIndex).toBeGreaterThan(-1);
+    expect(workIndex).toBeGreaterThan(-1);
+
+    // Cheapest gate first: an unparseable or rate-limited request must never
+    // reach the scoring chain or a paid model call.
+    expect(parseIndex).toBeLessThan(limitIndex);
+    expect(limitIndex).toBeLessThan(workIndex);
+  });
+
+  it('refuses rather than stubs when no AI provider is configured', () => {
+    expect(copilotRoute).toContain('AI_NOT_CONFIGURED');
+    expect(copilotRoute).toContain('503');
+  });
+
+  it('keeps commercial fields out of the Copilot context builder', () => {
+    const copilot = readFileSync(join(root, 'src/ai/copilot.ts'), 'utf-8');
+    expect(copilot).not.toMatch(/paidPlacement|commissionPossible|developerRelationship/);
+  });
+
+  it('labels a user-supplied portfolio value as self-reported', () => {
+    // A form cannot claim a user's own guess is a verified valuation.
+    expect(actions).toContain("v.valuationSource === 'verified'");
+    expect(actions).toContain("'userProvided'");
+  });
+});
+
 describe('schema integrity', () => {
   it('constrains evidence to exactly one subject', () => {
     expect(schema).toContain('constraint evidence_single_subject');

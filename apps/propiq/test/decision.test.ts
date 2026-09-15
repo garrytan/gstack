@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DECISION_THRESHOLDS, decide } from '@/domain/decision/engine';
+import { DECISION_DESCRIPTIONS, DECISION_THRESHOLDS, decide } from '@/domain/decision/engine';
 import type { PropIQScore } from '@/domain/scoring/types';
 import type { RiskAssessment, RiskSignalDetail } from '@/domain/risk/types';
 import type { Valuation } from '@/domain/valuation/types';
@@ -172,6 +172,29 @@ describe('decide', () => {
       now: NOW,
     });
     expect(d.positives.some((p) => p.rule === 'valuation.underpriced')).toBe(true);
+  });
+
+  it('gives BUY a headline that adds to the generic description rather than repeating it', () => {
+    const d = decide({
+      score: score({ score: 82 }),
+      risk: risk(),
+      valuation: valuation(),
+      now: NOW,
+    });
+    expect(d.decision).toBe('BUY');
+    expect(d.headline).not.toBe(DECISION_DESCRIPTIONS.BUY);
+    expect(d.headline.toLowerCase()).not.toContain('the evidence supports buying');
+  });
+
+  it('names the discount in the headline when a property is priced under fair value', () => {
+    const d = decide({
+      score: score({ score: 82 }),
+      risk: risk(),
+      valuation: valuation({ askingDeviationPercent: -9 }),
+      now: NOW,
+    });
+    expect(d.decision).toBe('BUY');
+    expect(d.headline).toContain('9.0%');
   });
 
   it('records the rules version so any verdict can be reproduced', () => {

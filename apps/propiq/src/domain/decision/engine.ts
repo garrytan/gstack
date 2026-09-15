@@ -243,10 +243,16 @@ export const decide = (input: DecisionInput): DecisionResult => {
         verdictConfidence,
       );
     }
+    // The headline is situational so it adds something the generic description
+    // does not. A verdict page that says the same sentence twice reads as filler.
+    const underpriced =
+      valuation && !valuation.insufficientEvidence && valuation.askingDeviationPercent <= -3;
     return base(
       'BUY',
       'score.buyBand',
-      'The evidence supports buying this at or near the asking price.',
+      underpriced
+        ? `Strong on the fundamentals and priced ${Math.abs(valuation.askingDeviationPercent).toFixed(1)}% under what the comparables say it is worth.`
+        : 'Nothing in the evidence argues against paying the asking price for this one.',
       verdictConfidence,
     );
   }
