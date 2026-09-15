@@ -21,6 +21,13 @@ import type { Decision } from '@/domain/decision/engine';
 import { formatINR } from '@/lib/utils';
 import type { SiteLocality, SiteProperty } from '@/site/types';
 
+/**
+ * Label geometry. Annotations stack *upward* from the marker so switching a
+ * layer on grows the block away from the pin instead of down through it.
+ */
+const LABEL_GAP = 44;
+const LINE_H = 11;
+
 const VIEW_W = 640;
 const VIEW_H = 460;
 const PAD = 54;
@@ -33,13 +40,53 @@ const DECISION_COLOR: Readonly<Record<Decision, string>> = {
   INSUFFICIENT_EVIDENCE: 'var(--color-unknown)',
 };
 
-/** Layers a reader can toggle. Only those the dataset can actually support. */
+/**
+ * Layers a reader can toggle. Only those the dataset can actually support.
+ *
+ * Every one of these reads a figure the locality record already carries, and a
+ * locality missing that figure simply shows one fewer line — nothing is
+ * zero-filled to keep a layer looking complete. Road geometry, school and
+ * hospital positions are deliberately absent: the record holds counts and
+ * distances for those, not coordinates, and a marker placed at a guessed
+ * position is a fabricated fact with a pin in it.
+ */
 const LAYERS = [
   { id: 'properties', label: 'Properties' },
   { id: 'localities', label: 'Localities' },
   { id: 'price', label: 'Price' },
+  { id: 'growth', label: 'Growth' },
+  { id: 'metro', label: 'Metro' },
+  { id: 'infrastructure', label: 'Infrastructure' },
 ] as const;
 type LayerId = (typeof LAYERS)[number]['id'];
+
+/**
+ * The annotation lines an active layer set produces for one locality. Returns
+ * only the lines the record can actually support.
+ */
+const annotationsFor = (
+  locality: SiteLocality,
+  on: (id: LayerId) => boolean,
+): readonly string[] => {
+  const lines: string[] = [];
+  if (on('price') && locality.medianPricePerSqFt !== undefined) {
+    lines.push(`₹${locality.medianPricePerSqFt.toLocaleString('en-IN')}/sqft`);
+  }
+  if (on('growth') && locality.priceCagrPercent !== undefined) {
+    const cagr = locality.priceCagrPercent;
+    lines.push(`${cagr >= 0 ? '+' : ''}${cagr.toFixed(1)}% a year`);
+  }
+  if (on('metro')) {
+    const metro = locality.anchors.find((a) => a.kind === 'metro');
+    if (metro) lines.push(`Metro ${metro.distanceKm} km`);
+  }
+  if (on('infrastructure') && locality.catalysts.length > 0) {
+    lines.push(
+      `${locality.catalysts.length} catalyst${locality.catalysts.length === 1 ? '' : 's'}`,
+    );
+  }
+  return lines;
+};
 
 export const MapExplorer = ({
   properties,
@@ -51,6 +98,7 @@ export const MapExplorer = ({
   const [selected, setSelected] = useState(properties[0]?.id);
   const [layers, setLayers] = useState<readonly LayerId[]>(['properties', 'localities']);
   const [mobileView, setMobileView] = useState<'list' | 'map'>('list');
+  const [hoveredLocality, setHoveredLocality] = useState<string | undefined>();
 
   const project = useMemo(() => {
     const points = [
@@ -78,11 +126,17 @@ export const MapExplorer = ({
   }, [properties, localities]);
 
   const active = properties.find((p) => p.id === selected);
+
   const on = (id: LayerId) => layers.includes(id);
   const toggle = (id: LayerId) =>
     setLayers((current) =>
       current.includes(id) ? current.filter((l) => l !== id) : [...current, id],
     );
+
+  /** Localities that have something to say under the active value layers. */
+  const valueLayerRows = localities
+    .map((l) => ({ slug: l.slug, name: l.name, lines: annotationsFor(l, on) }))
+    .filter((row) => row.lines.length > 0);
 
   return (
     <div>
@@ -193,42 +247,63 @@ export const MapExplorer = ({
             <rect width={VIEW_W} height={VIEW_H} fill="url(#explorer-grid)" />
 
             {on('localities') &&
-              localities.map((l) => (
-                <g key={l.id}>
-                  <circle
-                    cx={project.x(l.longitude)}
-                    cy={project.y(l.latitude)}
-                    r={34}
-                    fill="var(--color-brand-blue-500)"
-                    fillOpacity="0.07"
-                    stroke="var(--color-brand-blue-500)"
-                    strokeOpacity="0.28"
-                    strokeDasharray="3 4"
-                  />
-                  <text
-                    x={project.x(l.longitude)}
-                    y={project.y(l.latitude) - 42}
-                    textAnchor="middle"
-                    fontSize="10.5"
-                    fontWeight="600"
-                    fill="var(--text-secondary)"
+              localities.map((l) => {
+                // Layer values are shown for one locality at a time. Stacking
+                // four lines over every marker made neighbouring blocks collide
+                // and clipped the northern ones out of the viewBox — a legible
+                // plot that answers on demand beats a complete one that cannot
+                // be read.
+                const focused =
+                  hoveredLocality === l.slug ||
+                  (hoveredLocality === undefined && active?.localitySlug === l.slug);
+                const lines = focused ? annotationsFor(l, on) : [];
+                return (
+                  <g
+                    key={l.id}
+                    onPointerEnter={() => setHoveredLocality(l.slug)}
+                    onPointerLeave={() => setHoveredLocality(undefined)}
                   >
-                    {l.name}
-                  </text>
-                  {on('price') && l.medianPricePerSqFt !== undefined && (
+                    <circle
+                      cx={project.x(l.longitude)}
+                      cy={project.y(l.latitude)}
+                      r={34}
+                      fill="var(--color-brand-blue-500)"
+                      fillOpacity="0.07"
+                      stroke="var(--color-brand-blue-500)"
+                      strokeOpacity="0.28"
+                      strokeDasharray="3 4"
+                    />
                     <text
                       x={project.x(l.longitude)}
-                      y={project.y(l.latitude) - 30}
+                      y={
+                        project.y(l.latitude) -
+                        LABEL_GAP -
+                        LINE_H * annotationsFor(l, on).length -
+                        2
+                      }
                       textAnchor="middle"
-                      fontSize="9.5"
-                      fill="var(--text-muted)"
-                      style={{ fontVariantNumeric: 'tabular-nums' }}
+                      fontSize="10.5"
+                      fontWeight="600"
+                      fill="var(--text-secondary)"
                     >
-                      ₹{l.medianPricePerSqFt.toLocaleString('en-IN')}/sqft
+                      {l.name}
                     </text>
-                  )}
-                </g>
-              ))}
+                    {lines.map((line, i, all) => (
+                      <text
+                        key={line}
+                        x={project.x(l.longitude)}
+                        y={project.y(l.latitude) - LABEL_GAP - LINE_H * (all.length - 1 - i)}
+                        textAnchor="middle"
+                        fontSize="9.5"
+                        fill="var(--text-muted)"
+                        style={{ fontVariantNumeric: 'tabular-nums' }}
+                      >
+                        {line}
+                      </text>
+                    ))}
+                  </g>
+                );
+              })}
 
             {on('properties') &&
               properties.map((p) => {
@@ -308,6 +383,25 @@ export const MapExplorer = ({
           )}
         </div>
       </div>
+
+      {/* The plot annotates one locality at a time so the labels stay legible.
+          This is where the rest of them live: the same figures as text, so a
+          keyboard or screen-reader user is never asked to hover for a number,
+          and a touch user is never asked for a hover they cannot perform. */}
+      {valueLayerRows.length > 0 && (
+        <dl className="mt-4 grid gap-x-6 gap-y-3 border-t border-[var(--border-subtle)] pt-4 text-xs sm:grid-cols-2 lg:grid-cols-3">
+          {valueLayerRows.map((row) => (
+            <div key={row.slug}>
+              {/* Name above values rather than beside them: side by side, a
+                  four-layer value string squeezes the name to nothing. */}
+              <dt className="font-medium">{row.name}</dt>
+              <dd data-figure className="mt-0.5 text-[var(--text-muted)]">
+                {row.lines.join(' · ')}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 };
