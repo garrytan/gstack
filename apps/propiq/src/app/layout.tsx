@@ -103,14 +103,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               links={[
                 { href: '/search', label: 'Search' },
                 { href: '/compare', label: 'Decision Room' },
-                { href: '/copilot', label: 'Copilot' },
-                { href: '/document-ai', label: 'Document checks' },
-                { href: '/document-ai', label: 'Documents' },
                 { href: '/valuation', label: 'Fair value' },
                 { href: '/investment', label: 'Investment analysis' },
                 { href: '/copilot', label: 'Copilot' },
                 { href: '/document-ai', label: 'Document checks' },
-                { href: '/document-ai', label: 'Documents' },
               ]}
             />
             <FooterColumn

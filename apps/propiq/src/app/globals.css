@@ -117,6 +117,32 @@
   animation: propiq-shimmer 1.4s ease-in-out infinite;
 }
 
+/* Command-desk signals. Restrained on purpose: a live dot and a soft pin
+   halo, nothing that moves while you are trying to read a number. */
+@keyframes propiq-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.propiq-live-dot {
+  animation: propiq-pulse 2.4s ease-in-out infinite;
+}
+
+.propiq-pin circle:first-child {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 160ms ease;
+}
+
+.propiq-pin:hover circle:first-child {
+  opacity: 0.4;
+}
+
 @keyframes propiq-shimmer {
   0% {
     background-position: 200% 0;
