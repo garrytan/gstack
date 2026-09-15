@@ -528,8 +528,10 @@ describe("lib/gbrain-local-status — cache behavior", () => {
     expect(localEngineStatus({ noCache: false })).toBe("timeout");
 
     // User raises the timeout past the fake's 2s sleep: cache key changes,
-    // re-probe succeeds.
-    process.env.GSTACK_GBRAIN_PROBE_TIMEOUT_MS = "5000";
+    // re-probe succeeds. Keep this at the production default because a full
+    // six-shard run can starve child process scheduling enough to make 5s
+    // occasionally too tight on developer machines.
+    process.env.GSTACK_GBRAIN_PROBE_TIMEOUT_MS = "15000";
     expect(localEngineStatus({ noCache: false })).toBe("ok");
   });
 

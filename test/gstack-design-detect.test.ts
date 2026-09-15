@@ -207,9 +207,9 @@ describe('probe', () => {
     fs.writeFileSync(path.join(scripts, 'VERSION'), '0.1.3\n');
     try {
       const r = run(['probe']);
-      expect(lines(r.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${path.join(scripts, 'impeccable')}`);
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${fs.realpathSync(path.join(scripts, 'impeccable'))}`);
       expect(r.out).toContain(`${SENTINEL.SKILL}: present`);
-      expect(r.out).toContain(`run \`${path.join(scripts, 'impeccable')} detect --help\` once`);
+      expect(r.out).toContain(`run \`${fs.realpathSync(path.join(scripts, 'impeccable'))} detect --help\` once`);
       expect(r.out).not.toContain('npx impeccable');
       expect(r.out).not.toContain('would download');
 
@@ -312,7 +312,7 @@ describe('probe', () => {
       expect(r.out).toContain(`${SENTINEL.IGNORED_FILES}: src/legacy/**`);
       fs.writeFileSync(path.join(dir, 'config.local.json'), '{{{');
       const bad = run(['probe']);
-      expect(bad.out).toContain(`${SENTINEL.CONFIG_UNREADABLE}: ${path.join(dir, 'config.local.json')}`);
+      expect(bad.out).toContain(`${SENTINEL.CONFIG_UNREADABLE}: ${fs.realpathSync(path.join(dir, 'config.local.json'))}`);
       expect(bad.out).toContain(`${SENTINEL.IGNORED_RULES}: overused-font`);
       expect(bad.code).toBe(0);
     } finally {
@@ -1110,7 +1110,7 @@ describe('install: the one download gstack makes, after consent', () => {
       fs.writeFileSync(path.join(scripts, 'impeccable'), '#!/bin/sh\necho would download\n');
       fs.chmodSync(path.join(scripts, 'impeccable'), 0o755);
       const nc = run(['probe'], { env: { HOME: home } });
-      expect(lines(nc.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${path.join(scripts, 'impeccable')}`);
+      expect(lines(nc.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${fs.realpathSync(path.join(scripts, 'impeccable'))}`);
       expect(nc.out).not.toContain(SENTINEL.HINT);
       expect(nc.out).not.toContain(SENTINEL.INSTALL_OFFER);
     } finally {
@@ -1128,7 +1128,7 @@ describe('install: the one download gstack makes, after consent', () => {
     try {
       const r = await runAsync(['install', '--base', `http://127.0.0.1:${server.port}`, '--sha256', hash], { env: { IMPECCABLE_HOME: home } });
       const installed = path.join(home, 'bin', VERSION, 'impeccable');
-      expect(lines(r.out)[0]).toBe(`${SENTINEL.INSTALLED}: ${installed} version=${VERSION} sha256=${hash} bytes=${body.byteLength}`);
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.INSTALLED}: ${fs.realpathSync(installed)} version=${VERSION} sha256=${hash} bytes=${body.byteLength}`);
       expect(r.code).toBe(0);
       expect(fs.readFileSync(installed)).toEqual(body);
       expect(fs.statSync(installed).mode & 0o111).not.toBe(0);

@@ -318,7 +318,9 @@ const expectOk = (r: RenderResult): void => {
 // not latency. Bun's 5s default once failed a CI run whose render was merely slow
 // under a full six-shard load, so the budget is generous and hangs still fail.
 setDefaultTimeout(30_000);
-const browseWorkDirs = (): string[] => fs.readdirSync(SAFE_TMP_DIR).filter((n) => n.startsWith('gstack-render-browse-'));
+const browseWorkRoot = (): string => process.env.GSTACK_RENDER_TMPDIR || SAFE_TMP_DIR;
+const browseWorkDirs = (): string[] => fs.readdirSync(browseWorkRoot()).filter((n) => n.startsWith('gstack-render-browse-'));
+const re = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** The subprocess driver: one job per process, so the module's engine cache and the spawn-time PATH are both under the test's control. */
 function writeDriver(dir: string): string {
@@ -640,14 +642,22 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithBrowse — daemon CLI contra
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-fake-render-'));
   const bin = path.join(tmp, 'bin');
   const www = path.join(tmp, 'www');
+  const browseTmp = path.join(tmp, 'browse-tmp');
   const log = path.join(tmp, 'browse-argv.log');
   const doc = path.join(www, 'doc.html');
   const outDir = path.join(tmp, 'out');
+  let prevRenderTmp: string | undefined;
   beforeAll(() => {
-    fs.mkdirSync(bin); fs.mkdirSync(www);
+    prevRenderTmp = process.env.GSTACK_RENDER_TMPDIR;
+    process.env.GSTACK_RENDER_TMPDIR = browseTmp;
+    fs.mkdirSync(bin); fs.mkdirSync(www); fs.mkdirSync(browseTmp);
     fs.writeFileSync(doc, '<!doctype html><title>Doc</title>');
   });
-  afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  afterAll(() => {
+    if (prevRenderTmp === undefined) delete process.env.GSTACK_RENDER_TMPDIR;
+    else process.env.GSTACK_RENDER_TMPDIR = prevRenderTmp;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
 
   const fake = (overrides: Partial<Record<BrowseCmd, string>> = {}): string => {
     fs.rmSync(log, { force: true }); fs.rmSync(`${log}.payloads`, { force: true });
@@ -686,13 +696,13 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithBrowse — daemon CLI contra
     expect(goto.endsWith(` ${T}`)).toBe(true);
     expect(goto.slice('goto '.length, -` ${T}`.length)).toMatch(NONCE_RE);
     expect(lines.some((l) => /^pdf --from-file \S+\/pdf-0\.json --tab-id 7$/.test(l))).toBe(true);
-    expect(lines.some((l) => /^screenshot \/tmp\/gstack-render-browse-[^ ]+\/gstack-render-1\.png --tab-id 7$/.test(l))).toBe(true);
+    expect(lines.some((l) => new RegExp(`^screenshot ${re(browseTmp)}/gstack-render-browse-[^ ]+/gstack-render-1\\.png --tab-id 7$`).test(l))).toBe(true);
     expect(lines.some((l) => /^js window\.__svg --out \S+\/gstack-render-2\.svg --tab-id 7$/.test(l))).toBe(true);
     expect(lines.some((l) => l.startsWith('viewport '))).toBe(false); // un-sized shot: the daemon's viewport is left alone
     expect(lines.at(-1)).toBe('closetab 7');
     const payload = fs.readFileSync(`${log}.payloads`, 'utf8');
     expect(payload).toContain('"width":"8.5in"');
-    expect(payload).toMatch(/"output":"\/tmp\/gstack-render-browse-[^"]+\/gstack-render-0\.pdf"/);
+    expect(payload).toMatch(new RegExp(`"output":"${re(browseTmp)}/gstack-render-browse-[^"]+/gstack-render-0\\.pdf"`));
     expect(browseWorkDirs()).toEqual(before); // /tmp staging dir removed
     await expect(fetch(goto.slice('goto '.length, -` ${T}`.length))).rejects.toThrow(); // loopback server stopped
   });

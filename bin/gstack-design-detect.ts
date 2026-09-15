@@ -98,8 +98,11 @@ import { isFrontendPath } from '../lib/frontend-scope';
 // ── Environment ──────────────────────────────────────────────────────────────
 
 const WIN = process.platform === 'win32';
-const HOME = os.homedir();
 const ENV = process.env;
+const RAW_HOME = ENV.HOME || os.homedir();
+const HOME = (() => {
+  try { return fs.realpathSync(RAW_HOME); } catch { return RAW_HOME; }
+})();
 
 /** Where config.yaml lives: the same precedence bin/gstack-config uses. */
 function gstackStateDir(): string {

@@ -415,7 +415,13 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
   // box is slow (#2716: bun-shim installs) — that's "timeout", which the
   // `--is-ok` whitelist forgives, never "no-cli", which it doesn't.
   const probe = probeGbrainBin(env);
-  if (!probe.bin) return probe.timedOut ? "timeout" : "no-cli";
+  if (!probe.bin) {
+    // Remote-only MCP evidence is file-local and cheap. It should still win
+    // when the local `gbrain --version` probe times out on a loaded machine:
+    // the remote brain is the active brain, and no local engine is required.
+    if (hasRemoteOnlyGbrainMcp(env)) return "thin-client";
+    return probe.timedOut ? "timeout" : "no-cli";
+  }
   const gbrainBin = probe.bin;
 
   // 2. Config file present? A bearer thin client (#2520) may never have run

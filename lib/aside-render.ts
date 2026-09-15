@@ -399,6 +399,7 @@ const BROWSE_ROOTS = [
 ];
 /** The daemon only reads/writes under its safe dirs; /tmp is always one of them. */
 export const SAFE_TMP_DIR = process.platform === 'win32' ? os.tmpdir() : '/tmp';
+const browseStagingRoot = (): string => process.env.GSTACK_RENDER_TMPDIR || SAFE_TMP_DIR;
 
 /** A regular, executable file — probing .exe/.cmd/.bat on Windows, where X_OK degrades to an existence check. */
 function executable(p: string): string | null {
@@ -514,7 +515,7 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
   let srv: { url: string; stop: () => void } | undefined;
   let tab: number | undefined;
   try {
-    work = fs.mkdtempSync(path.join(SAFE_TMP_DIR, 'gstack-render-browse-'));
+    work = fs.mkdtempSync(path.join(browseStagingRoot(), 'gstack-render-browse-'));
     srv = serveDir(root);
     // The first CLI call auto-starts the daemon; on a cold start it can answer
     // "Unable to connect" once while the server is still coming up. One retry

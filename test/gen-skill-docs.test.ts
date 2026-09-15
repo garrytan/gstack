@@ -660,6 +660,11 @@ describe('BASE_BRANCH_DETECT resolver', () => {
     expect(shipContent).toContain('the base branch');
   });
 
+  test('resolver output defines the <base> placeholder used by ship commands', () => {
+    expect(shipContent).toContain('`<base>`');
+    expect(shipContent).toContain('branch name wherever the instructions say "the base branch", `<base>`, or');
+  });
+
   test('resolver output contains GitLab CLI commands', () => {
     expect(shipContent).toContain('glab');
   });
