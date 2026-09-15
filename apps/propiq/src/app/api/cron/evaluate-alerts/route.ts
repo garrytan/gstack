@@ -16,7 +16,9 @@ import { timingSafeEqual } from 'node:crypto';
 import { asId } from '@/domain/shared/types';
 import type { PropertyId } from '@/domain/shared/types';
 import { evaluateAlerts } from '@/domain/alerts/engine';
+import { buildDigest } from '@/domain/alerts/digest';
 import type { Alert } from '@/domain/alerts/types';
+import { deliverDigest } from '@/server/alert-delivery';
 import { buildPropertyIntelligence } from '@/server/intelligence';
 import { getSnapshotStore, toSnapshot } from '@/server/snapshots';
 import { getWatchlistRepository } from '@/server/watchlist';
@@ -84,15 +86,20 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     await store.put(userId, current);
   }
 
+  // Evaluation and delivery stay separate functions but one call: a scheduler
+  // that had to make a second request to deliver would eventually make only
+  // the first. Every channel reports its own outcome, including the channels
+  // this deployment has not configured.
+  const digest = buildDigest(alerts, now);
+  const receipts = await deliverDigest(asId(userId), digest);
+
   return NextResponse.json({
     evaluatedAt: now,
     watched: entries.length,
     baselined,
     skipped,
     alerts,
-    // Delivery is deliberately not this endpoint's job. It returns the alerts
-    // so a scheduler, a webhook or an email worker can decide what to do with
-    // them, which keeps the evaluation testable in isolation.
-    delivered: false,
+    digest: { subject: digest.subject, counts: digest.counts },
+    delivery: receipts,
   });
 };
