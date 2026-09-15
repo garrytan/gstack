@@ -579,3 +579,81 @@ built from a record would put demo figures into a machine-readable claim that
 no banner covers. And a payload assembled from literals has no untrusted
 string reaching a script tag, which removes the injection question entirely
 rather than answering it.
+
+## D-029 — The marketing surface projects the engine; it stores no numbers
+
+**Context.** A homepage needs headline figures, and the fastest way to get them
+is to write them down. The build brief for the page even supplied illustrative
+ones.
+
+**Decision.** `src/site/data/page-data.ts` runs one `buildPropertyIntelligence`
+pass and every section reads from it. `src/site/types` describes only what that
+projection produces. Three shapes are authored, because the engine has no
+concept of them — research entries, the developer profile wrapper and the
+command-centre framing — and each carries its own `dataStatus`.
+
+**Why.** Hand-written numbers on a page whose entire argument is that it does
+not invent numbers would be self-defeating. And one pass means the hero, the
+map, the cards, the comparison table and the command centre cannot disagree
+about the same property, which a second copy would eventually guarantee.
+
+**Consequence.** Changing a weight in `src/domain/scoring/weights.ts` moves the
+homepage. That is the intended coupling.
+
+## D-030 — Two verdict palettes, picked by the ground the subtree sits on
+
+**Context.** The site is light-first with dark sections inside it. A single
+`--color-buy` cannot clear 4.5:1 on both #ffffff and #070b16, and an axe sweep
+found 188 contrast failures across the page when it tried.
+
+**Decision.** `globals.css` defines each decision colour twice: the original,
+tuned for dark grounds, and an `-ink` variant for paper. `.propiq-site` points
+the five semantic tokens at the ink set; `.propiq-dark` points them back. The
+same trick already used for surfaces and text now covers verdicts, plus a
+`--text-accent` token for brand blue used as text rather than as a background.
+
+**Why.** No component should have to know which ground it landed on. The
+alternative — conditional classes at every call site — is the version that
+silently rots the first time a section changes tone.
+
+**Consequence.** A verdict is legible on both halves of the page, and the
+homepage reports zero serious or critical axe violations at 1440px and 390px.
+Adding a third ground means extending the token block, not the components.
+
+## D-031 — The comparison tray is browser-local and never calls itself a watchlist
+
+**Context.** A visitor weighing three properties needs somewhere to put them
+before they have an account.
+
+**Decision.** `src/components/site/shortlist.tsx` holds the tray in a module
+store read through `useSyncExternalStore`, persisted to `localStorage` and
+capped at four — what the Decision Room can render side by side. It hands off
+to `/compare?ids=`. Saving is a separate action that goes to the real watchlist
+repository and reports what actually happened, including "Sign in to save
+properties to your watchlist."
+
+**Why.** Comparing is a reading task; gating it behind a signup would be
+theatre. But a local list presented as a stored one is the same class of
+untruth as a demo figure presented as a market fact, so the two are never
+conflated in the copy or in the storage.
+
+**Consequence.** The tray survives a reload and reaches no server. A save that
+cannot happen says so rather than flipping the button optimistically.
+
+## D-032 — Distances are drawn on an axis, because the record has no coordinates
+
+**Context.** The locality section needed a spatial view. The first attempt was
+a radar: employment hubs and transit anchors placed around a circle at their
+true radius.
+
+**Decision.** Replaced with `LocalityAccess` — one shared horizontal scale, one
+bar per anchor, the kilometres and the peak commute printed next to each.
+
+**Why.** `Locality` stores `distanceKm`, not a position. The radar therefore
+had to invent a bearing for every anchor and then spend a paragraph explaining
+that the bearings meant nothing. A chart that needs a disclaimer to stop it
+lying is the wrong chart; the honest version of that data is one axis.
+
+**Consequence.** Nothing on the page implies a direction we do not hold. When a
+geocoded anchor set exists, a real map can replace this — and it will be a map,
+not a diagram shaped like one.

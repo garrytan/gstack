@@ -73,7 +73,7 @@ have broken the host repository. See `DECISIONS.md` D-001.
 
 | Route | Status | Notes |
 |---|---|---|
-| `/` | `IMPLEMENTED` | Live scored properties, journey, commitments |
+| `/` | `IMPLEMENTED` | 19 sections, every figure projected from one scoring pass; shortlist tray, 3D hero, WebGL fallback |
 | `/search` | `IMPLEMENTED` | Filters, personas, sort, pagination, empty state |
 | `/property/[id]` | `IMPLEMENTED` | The flagship screen, all 13 sections |
 | `/compare` | `IMPLEMENTED` | Decision Room with winners and trade-offs |
@@ -84,6 +84,8 @@ have broken the host repository. See `DECISIONS.md` D-001.
 | `/methodology` | `IMPLEMENTED` | Reads live constants — cannot drift |
 | `/data-sources` | `IMPLEMENTED` | Per-source integration status, live adapter state |
 | `/about` | `IMPLEMENTED` | |
+| `/developers` | `IMPLEMENTED` | Delivery record, handover delay, complaints on file |
+| `/research` | `IMPLEMENTED` | Index of the written method pieces; every card links to a page that exists |
 | `/dashboard` | `IMPLEMENTED` | |
 | `/dashboard/watchlist` | `IMPLEMENTED` | Persisted, re-scored on load, empty + signed-out states |
 | `/login`, `/signup` | `PARTIAL` | Full flow built; needs a Supabase project to function |
@@ -108,7 +110,7 @@ have broken the host repository. See `DECISIONS.md` D-001.
 | `/tools/rental-yield` | `IMPLEMENTED` | Gross vs net yield on all capital deployed |
 | `/checks/[kind]` | `IMPLEMENTED` | Six document types, each publishing the rules we run |
 | `/site-visit-checklist` | `IMPLEMENTED` | All 22 items, free, printable, no account |
-| `/methodology/v[version]` | `IMPLEMENTED` | Frozen permalink per scoring version, for citation |
+| `/methodology/[version]` | `IMPLEMENTED` | Frozen permalink per scoring version (`/methodology/v0.1.0`), for citation |
 | `/llms.txt` | `IMPLEMENTED` | Generated from live constants; declares this deployment's data status |
 | `/sitemap.xml`, `/robots.txt` | `IMPLEMENTED` | Demo-backed pages excluded; AI crawlers named explicitly |
 

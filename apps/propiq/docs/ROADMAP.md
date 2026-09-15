@@ -70,6 +70,14 @@ Discover → Verify → Compare → Score → Analyze → **Visit → Negotiate*
 - **Answer-engine surface** — `llms.txt` generated from the live constants,
   frozen methodology permalinks per scoring version, JSON-LD across the tools,
   and AI crawlers named explicitly in robots. See D-027 and D-028.
+- **The homepage** — nineteen sections, light-first with dark where it earns
+  it, a Three.js hero with a flat fallback, a coordinate-real market plot that
+  needs no map token, price and locality charts that each carry a written
+  summary, a locality access chart, and a browser-local comparison tray that
+  hands off to the Decision Room. Every score, verdict, valuation, yield and
+  comparison on it is projected from one `buildPropertyIntelligence` pass, so
+  the page holds no second copy of any number. Verified at WCAG AA: no serious
+  or critical axe violations at 1440px or 390px. See D-029 to D-032.
 
 ### The exact next task
 
