@@ -124,6 +124,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 { href: '/signup', label: 'Create account' },
                 { href: '/dashboard', label: 'Dashboard' },
                 { href: '/preferences', label: 'Preferences' },
+                { href: '/dashboard/notifications', label: 'Notifications' },
               ]}
             />
           </div>
