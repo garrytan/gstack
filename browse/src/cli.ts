@@ -515,8 +515,10 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   // holding it) before launch, so an auto-restart after an abrupt kill isn't
   // blocked by the previous Chromium's SingletonLock — the self-inflicted
   // crash-loop. Previously only the manual connect preamble did this.
-  await killOrphanChromium();
-  cleanChromiumProfileLocks();
+  if ((extraEnv?.BROWSE_HEADED ?? process.env.BROWSE_HEADED) === '1') {
+    await killOrphanChromium();
+    cleanChromiumProfileLocks();
+  }
 
   // Allow the caller to opt out of the parent-process watchdog by setting
   // BROWSE_PARENT_PID=0 in the environment. Useful for CI, non-interactive
@@ -1818,8 +1820,11 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     // #1781: killing the daemon can orphan its Chromium child tree, which keeps
     // holding the SingletonLock and makes the next `connect` fail to launch.
     // Reap the orphan via the lock, then clear the lock files + state.
-    await killOrphanChromium();
-    cleanChromiumProfileLocks();
+    if (existingState.mode === 'headed') {
+      await killOrphanChromium();
+      cleanChromiumProfileLocks();
+    }
+    await reapRecordedChromium(existingState);
     // Xvfb orphan cleanup: if the recorded PID still matches our Xvfb (by
     // cmdline AND start-time), kill it. PID-only would risk killing a
     // recycled PID belonging to an unrelated process.
@@ -1876,9 +1881,11 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       // NEXT launch is clean (same cleanup as the disconnect force path).
       // The headless child has no SingletonLock — reap it via the recorded
       // identity too (#2709).
-      await killOrphanChromium();
+      if (stopState.mode === 'headed') {
+        await killOrphanChromium();
+        cleanChromiumProfileLocks();
+      }
       await reapRecordedChromium(stopState);
-      cleanChromiumProfileLocks();
       safeUnlinkQuiet(config.stateFile);
       console.log('Daemon stopped (forced — tabs/cookies/logins discarded).');
       process.exit(0);

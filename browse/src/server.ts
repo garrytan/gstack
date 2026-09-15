@@ -1469,7 +1469,9 @@ function emergencyCleanup() {
 
   // Clean Chromium profile locks via the shared helper (defensive guard
   // refuses to operate on unrecognized profile dirs).
-  cleanSingletonLocks(resolveChromiumProfile());
+  if (activeBrowserManager.getConnectionMode() === 'headed' || process.env.BROWSE_HEADED === '1') {
+    cleanSingletonLocks(resolveChromiumProfile());
+  }
   safeUnlinkQuiet(config.stateFile);
 }
 // Same import.meta.main gate as SIGINT/SIGTERM — embedders register their
@@ -1704,7 +1706,9 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
 
     await cfgBrowserManager.close();
 
-    cleanSingletonLocks(resolveChromiumProfile());
+    if (cfgBrowserManager.getConnectionMode() === 'headed') {
+      cleanSingletonLocks(resolveChromiumProfile());
+    }
     safeUnlinkQuiet(config.stateFile);
     process.exit(exitCode);
   }

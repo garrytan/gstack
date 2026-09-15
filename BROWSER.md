@@ -452,15 +452,22 @@ for the full design + decision trail.
    daemon (tabs, cookies, and logins are lost). `browse stop` against a
    daemon that already died is success: the desired end state holds, so it
    cleans the stale state file instead of booting a daemon just to stop it —
-   and reaps the headless Chromium child recorded in that state file if one
-   survived. The reap verifies the recorded start time AND a Chromium-looking
-   cmdline before sending any signal, so a recycled PID is never killed.
+   and attempts to reap a surviving headless Chromium child when the state
+   file contains its recorded identity. The reap checks the start time AND a
+   Chromium-looking cmdline before sending any signal. Production identity
+   capture remains unfixed: the existing Playwright `Browser.process()`
+   assumption does not supply that record. Tests with supplied identities
+   verify cleanup, not real-launch identity capture.
 
 ### Multi-workspace isolation
 
 Each project root (detected via `git rev-parse --show-toplevel`) gets its
-own daemon, port, state file, cookies, and logs. No cross-workspace
-collisions. State at `<project>/.gstack/browse.json`.
+own daemon, port, state file, and logs. Headless sessions have separate
+cookie stores; headed sessions still share the default Chromium profile.
+Headless startup, stop, disconnect, and shutdown leave that profile's locks
+and their holder alone. Headed launches retain stale-lock cleanup, and
+headed-versus-headed arbitration is unchanged. State lives at
+`<project>/.gstack/browse.json`.
 
 | Workspace | State file | Port |
 |-----------|-----------|------|
@@ -1510,8 +1517,10 @@ No protocol. No schema. No connection management.
 ## Multi-workspace
 
 Each project root (detected via `git rev-parse --show-toplevel`) gets its
-own daemon, port, state file, cookies, and logs. No cross-workspace
-collisions.
+own daemon, port, state file, and logs. Headless sessions have separate
+cookie stores and leave the shared headed profile alone; two headed
+sessions still share the default profile. See [Multi-workspace isolation](#multi-workspace-isolation)
+for the cleanup boundary.
 
 | Workspace | State file | Port |
 |-----------|-----------|------|
@@ -1537,7 +1546,7 @@ the global `~/.gstack/browser-skills/foo/` only inside project-a.
 | `BROWSE_HEADLESS_SKIP` | 0 | Skip Chromium launch entirely (test harness only) |
 | `BROWSE_TUNNEL` | 0 | Activate the dual-listener tunnel architecture (requires `NGROK_AUTHTOKEN`) |
 | `BROWSE_TUNNEL_LOCAL_ONLY` | 0 | Test-only — bind both listeners locally without ngrok |
-| `CHROMIUM_PROFILE` | unset | Explicit Chromium profile directory (used by gbrowser's gbd per-workspace); honored by both launch and profile-lock cleanup |
+| `CHROMIUM_PROFILE` | unset | Explicit headed Chromium profile directory (used by gbrowser's gbd per-workspace); honored by headed launch and profile-lock cleanup, not used by headless sessions |
 | `GSTACK_DISABLE_GPU` | unset | Set to `off` to skip the macOS headless GPU-taming flag set (applied by default on Darwin to stop runaway GPU-process spin) |
 | `GSTACK_BROWSE_MAX_HTML_BYTES` | 52428800 (50MB) | `load-html` size cap |
 | `GSTACK_SECURITY_OFF` | unset | Emergency kill switch — disable ML classifier |

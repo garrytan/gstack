@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.87.2.0] - 2026-09-15
+
+**Headless commands stop closing your logged-in browser.**
+**Other projects leave it alone.**
+
+Keep a headed GStack Browser open while another project uses headless browse commands. Starting, stopping, or disconnecting that project's headless daemon no longer kills the process holding your headed profile or removes its locks. The shared-profile cleanup now runs only for headed sessions, which actually use that profile. Headed startup keeps its stale-lock recovery.
+
+### The three numbers that matter
+
+Source: `bun test browse/test/chromium-profile-isolation.test.ts`, running the same nine-case regression suite against unchanged main and this release. Its headless CLI cases pair a real daemon with a controlled live process holding another project's profile locks. The headed startup controls use a stub daemon.
+
+| Metric | Before | After | Δ |
+|---|---|---|---|
+| Isolation suite cases passing | 3 of 9 | 9 of 9 | +6 |
+| Isolation suite cases failing | 6 of 9 | 0 of 9 | -6 |
+| Headed startup controls passing | 2 of 2 | 2 of 2 | Unchanged |
+
+The six previously failing cases now pass without deleting the foreign locks or killing their holder. Both explicit `--headed` and `BROWSE_HEADED=1` still clear stale locks before launch.
+
+This release separates headless cleanup from the shared headed profile. It does not give two headed sessions separate profiles, and it does not fix production Chromium process-identity capture. Tests that supply a recorded process identity verify its cleanup behavior; they are not evidence that a real launch records that identity.
+
+### What this means for multi-project work
+
+You can leave one browser open for work that needs your logins while another project starts or stops its own headless daemon. That removes the cross-project cleanup path behind the disappearing-window report, without claiming a solution for two headed browsers sharing one profile. Upgrade gstack and keep using your existing headed connection.
+
+### Itemized changes
+
+#### Fixed
+
+- Headless daemon startup, stop, disconnect, and crash cleanup leave another project's headed browser and shared profile locks alone. Headed launches retain stale-lock cleanup. (#2817)
+
+#### For contributors
+
+- Added nine regression cases for shared-profile isolation, including cleanup with a supplied recorded process identity. Production identity capture is not validated by those fixtures.
+- Extended only the outer deadline of the native Windows USERPROFILE integration test to 120 seconds. Its assertions and subprocess timeouts are unchanged.
+
 ## [1.87.1.0] - 2026-09-15
 
 **Two vulnerable dependencies are fixed.**

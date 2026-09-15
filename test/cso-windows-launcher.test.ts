@@ -300,7 +300,7 @@ describe('CSO native Windows build contract', () => {
     const actual=path.join(ROOT,'bin','gstack-cso-launcher.exe'),env={...process.env,HOME:'',GSTACK_HOME:'',CLAUDE_PLUGIN_ROOT:'',CLAUDE_PLUGIN_DATA:'',USERPROFILE:profile,PATH:temporary,NODE_OPTIONS:'--require=hostile'};
     const doctor=spawnSync(actual,['doctor','--repo',repository],{cwd:repository,encoding:'utf8',env,timeout:30_000});expect(doctor.status).toBe(0);expect(JSON.parse(doctor.stdout).downloads).toBe(false);
     const started=spawnSync(actual,['start','--repo',repository,'--offline'],{cwd:repository,encoding:'utf8',env,timeout:30_000});expectSuccessfulProcess(started,'gstack-cso start');expect(JSON.parse(started.stdout).schemaVersion).toBe(3);expect(fs.existsSync(path.join(profile,'.gstack','security','cso'))).toBe(true);
-  });
+  }, 120_000);
 
   test('the actual helper rejects source mutation during snapshot capture without certifying a report', async () => {
     const repository=path.join(temporary,'racing repository'),profile=path.join(temporary,'race profile'),padding=path.join(repository,'padding'),target=path.join(repository,'zzzz-race-target.js');

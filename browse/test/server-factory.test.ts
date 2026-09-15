@@ -531,7 +531,7 @@ describe('idle timer + onDisconnect dual-instance fix', () => {
 
   test('lifecycle handlers (idleCheckTick + parent watchdog + SIGTERM) read activeBrowserManager, not module-level browserManager', () => {
     // Static guard against a future refactor reintroducing a stale read.
-    // The 3 lifecycle sites this plan fixed all call getConnectionMode via
+    // The 4 lifecycle sites all call getConnectionMode via
     // the indirection. Other module-level browserManager reads inside
     // handleCommandInternalImpl (informational mode reporting in response
     // payloads) are out of scope and intentionally untouched.
@@ -540,7 +540,10 @@ describe('idle timer + onDisconnect dual-instance fix', () => {
     expect(factoryStart).toBeGreaterThan(0);
     const moduleLevel = src.slice(0, factoryStart);
     const activeCount = (moduleLevel.match(/activeBrowserManager\.getConnectionMode\(\)/g) || []).length;
-    // Edit 2 (idleCheckTick), Edit 3 (parent watchdog), Edit 6 (SIGTERM).
-    expect(activeCount).toBe(3);
+    // idleCheckTick, parent watchdog, SIGTERM, and emergencyCleanup.
+    expect(activeCount).toBe(4);
+    const emergencyStart = src.indexOf('function emergencyCleanup()');
+    expect(emergencyStart).toBeGreaterThan(0);
+    expect(src.slice(emergencyStart, factoryStart)).toContain("activeBrowserManager.getConnectionMode() === 'headed'");
   });
 });
