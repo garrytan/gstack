@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: 2026-09-15 · Milestones A and B complete; P1 partially delivered.
+Last updated: 2026-09-15 · Milestones A and B complete; P1 delivered bar its providers; the buyer journey now runs end to end.
 
 Status vocabulary: `IMPLEMENTED` · `FOUNDATION` · `PARTIAL` · `MOCK/DEMO` ·
 `NOT BUILT` · `BLOCKED BY DATA/INTEGRATION`.
@@ -52,6 +52,10 @@ have broken the host repository. See `DECISIONS.md` D-001.
 | Buyer profile / personas | `IMPLEMENTED` | Editor at `/preferences`; drives weighting and buyer-fit signals |
 | Portfolio arithmetic | `IMPLEMENTED` | Equity, gain, CAGR, yields; unvalued assets excluded, 17 tests |
 | Alert evaluation | `IMPLEMENTED` | 8 rule families with published thresholds, 17 tests |
+| Document checks | `IMPLEMENTED` | 22 deterministic rules over 6 document types, 46 tests |
+| Site visit checklist | `IMPLEMENTED` | 22 items; answers become first-party evidence, 21 tests |
+| Visit → score loop | `IMPLEMENTED` | Visit evidence merges into scoring and moves confidence |
+| Negotiation state | `IMPLEMENTED` | Offer sequence, guarded transitions, blunt guidance, 18 tests |
 
 ## Data layer
 
@@ -91,6 +95,10 @@ have broken the host repository. See `DECISIONS.md` D-001.
 | `/dashboard/alerts` | `PARTIAL` | Live evaluation on page load; `NOT BUILT`: scheduler + delivery |
 | `/dashboard/reports` | `IMPLEMENTED` | Frozen, versioned, printable report per property |
 | `/property/[id]/report` | `IMPLEMENTED` | Print-to-PDF via the browser; noindex |
+| `/property/[id]/visit` | `IMPLEMENTED` | Checklist; captured answers feed the score |
+| `/property/[id]/negotiate` | `IMPLEMENTED` | Offer tracking against a walk-away set up front |
+| `/document-ai` | `IMPLEMENTED` | Checks run in-browser on typed input; no upload needed |
+| `/api/cron/evaluate-alerts` | `IMPLEMENTED` | Bearer secret, constant-time compare, refuses unconfigured |
 | `/sitemap.xml`, `/robots.txt` | `IMPLEMENTED` | Demo-backed pages excluded from the sitemap |
 
 Every route in the navigation resolves. No dead CTAs.
@@ -114,12 +122,13 @@ Every route in the navigation resolves. No dead CTAs.
 | Rate limiting | `IMPLEMENTED` | Fixed-window, applied to the AI endpoint, standard headers, 8 tests |
 | AI Copilot pipeline | `IMPLEMENTED` | Intent, retrieval, grounding, fencing, output guard, 21 tests |
 | AI synthesis | `BLOCKED BY DATA/INTEGRATION` | Needs `AI_PROVIDER` / `AI_API_KEY`. Refuses with 503 until then |
+| Document extraction (OCR) | `BLOCKED BY DATA/INTEGRATION` | Upload path and validation built; no provider. Checks work on typed input |
+| Alert scheduling | `FOUNDATION` | Endpoint ready for any cron; delivery channel not built |
 
 ## Not built
 
-Document AI · Floor-plan intelligence · Alert scheduling and delivery · Maps ·
-Advisor workspace · CRM · Site visits · Negotiation workflow · Offers ·
-Transactions · Billing · NRI workflows · Admin · Blog.
+Floor-plan intelligence · Alert delivery channel · Maps · Advisor workspace ·
+CRM · Transaction state · Billing · NRI workflows · Admin · Blog.
 
 ### Known limitations in what did ship
 
@@ -139,8 +148,8 @@ Transactions · Billing · NRI workflows · Admin · Blog.
 ```
 npm run typecheck   ✓ strict, noUncheckedIndexedAccess, zero errors
 npm run lint        ✓ zero errors, zero warnings
-npm run test        ✓ 276 tests across 16 files, ~2s
-npm run build       ✓ 26 routes, production build clean
+npm run test        ✓ 386 tests across 19 files, ~2s
+npm run build       ✓ 30 routes, production build clean
 ```
 
 Nothing is suppressed. No `any`, no `@ts-ignore`, no disabled lint rules.
@@ -149,11 +158,14 @@ Nothing is suppressed. No `any`, no `@ts-ignore`, no disabled lint rules.
 
 | Area | Tests |
 |---|---|
-| Security / provenance invariants | 34 |
-| Integration (fixture + full chain + profile) | 28 |
+| Security / provenance invariants | 47 |
+| Document checks | 46 |
+| Integration (fixture + full chain + profile + visits) | 34 |
 | Investment math | 24 |
 | AI Copilot pipeline | 21 |
-| Valuation | 19 |
+| Valuation | 25 |
+| Site visits | 21 |
+| Negotiation | 18 |
 | Portfolio arithmetic | 17 |
 | Alert rules | 17 |
 | Scoring | 15 |

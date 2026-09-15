@@ -364,3 +364,95 @@ under, so a conclusion can be re-derived rather than taken on trust, and is
 
 **Cost.** No server-side generation, so reports cannot yet be emailed or
 attached. That is the trigger for revisiting this.
+
+---
+
+## D-019 — Document checks are deterministic and ship without OCR
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** The rule engine runs over a structured `ExtractedDocument`.
+Extraction is a separate, swappable step. The UI offers manual entry, so the
+checks work today with no provider.
+
+**Why.** The valuable half of document analysis is not reading the page, it is
+knowing that a B-khata is not loan-eligible, that a five-year encumbrance
+certificate proves nothing about a six-year-old charge, and that an agreement
+which forfeits your deposit but carries no delay penalty is not symmetric.
+That half is deterministic. Coupling it to OCR would have delayed all of it
+for none of it.
+
+Field presence is presence, not truthiness: an empty string means the
+extractor looked and found nothing (a finding), `undefined` means it never
+looked (a skip). Conflating them would downgrade "this deed has no
+registration number" into "we did not check whether it was registered".
+
+**Cost.** Manual entry is slower than an upload. It is also private, free and
+available now.
+
+---
+
+## D-020 — A site visit produces first-party evidence, not a notes field
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** Checklist items may declare an `evidenceField`. Answers on those
+items become `Evidence` records with source type `survey` at trust 0.9, merged
+into the property's evidence before scoring.
+
+**Why.** A buyer standing in a flat who sees a silt line on the compound wall
+knows something the model does not. That observation should move the score,
+not sit in free text nobody reads again. It is the only first-party evidence
+in the product and is weighted accordingly — above a listing, below an
+instrumented survey.
+
+A reported concern is trusted more than a reported all-clear (0.9 against
+0.7): "it looked fine" is easy to say without checking. `Didn't check` is
+excluded entirely, exactly as a missing signal is excluded from a pillar.
+
+**Cost.** Visit evidence is per user, so two buyers can hold different scores
+for the same property. That is correct — it is their observation, not a market
+fact — but it means a score is no longer globally cacheable.
+
+---
+
+## D-021 — Negotiation records the sequence, and the walk-away price up front
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** Store the offer sequence and derive state from it. `walk_away_price`
+is NOT NULL and must be at or above the target, enforced by a check constraint.
+Status transitions go through `canTransition`.
+
+**Why.** A number set while calm is worth more than one set across a table, and
+the failure mode is revising the walk-away upward because you are already in
+the room. Storing it before the first offer is the entire point of the model,
+so the schema refuses a negotiation without one.
+
+Deriving state from the offers means the summary can never disagree with the
+history it summarises. The guidance is deliberately blunt: a buyer
+mid-negotiation needs to be told the number on the table is past their own
+walk-away, not given a balanced summary of considerations.
+
+**Cost.** None worth naming.
+
+---
+
+## D-022 — Negotiation guidance is capped at the asking price
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Context.** Found by running the app, not by a test. For a property priced
+*below* fair value, the raw valuation band sits above the asking price, so the
+guidance suggested a target of ₹1.67 Cr against an asking price of ₹1.59 Cr —
+advising the buyer to offer more than the seller was asking.
+
+**Decision.** Cap the walk-away at the asking price and the target at 97% of
+it, then derive the opening offer under that.
+
+**Why.** An uncapped target is not negotiation advice, it is a bug with a rupee
+sign on it. The 3% margin matters too: a below-fair-value asking price is a
+reason to move quickly, not a reason to stop negotiating.
+
+**Cost.** None. Six regression tests pin the ordering invariant in both the
+overpriced and underpriced cases.

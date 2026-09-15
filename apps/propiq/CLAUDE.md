@@ -63,7 +63,7 @@ Modular monolith. Dependencies point inward, never out.
 src/domain/   pure TypeScript. No I/O, no React, no Next, no adapters.
 src/data/     ports + adapters (fixture, supabase). Implements domain contracts.
 src/server/   server-only: clients, use cases, actions.
-src/ai/       provider abstraction, grounding guards, Copilot pipeline.
+src/ai/       provider abstraction, grounding guards, Copilot, extraction contract.
 src/components/ presentation.
 src/lib/      shared utilities, env, analytics.
 ```
@@ -78,7 +78,9 @@ src/lib/      shared utilities, env, analytics.
   what makes results reproducible and replayable.
 - **One source of truth per verdict.** Search results, the Decision Room and
   the intelligence page all call the same use case. A score that differs
-  between two screens is worse than no score.
+  between two screens is worse than no score. The one intended exception is
+  site-visit evidence, which is per user by design (D-020) — so a score is not
+  globally cacheable.
 
 ## Scoring is a public API
 

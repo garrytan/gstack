@@ -39,6 +39,21 @@ Everything on the P1 list that was not blocked on a credential or a provider:
   Refuses with a 503 rather than stubbing when no provider is configured.
 - **Reports** — a frozen, versioned, printable intelligence report per property.
 
+### The buyer journey, end to end ✓
+
+Discover → Verify → Compare → Score → Analyze → **Visit → Negotiate** → Monitor.
+
+- **Document checks** — 22 deterministic rules across sale deeds, encumbrance
+  certificates, khata, agreements, RERA certificates and cost sheets. They run
+  in the browser on typed input, so they work with no OCR provider and nothing
+  ever leaves the page.
+- **Site visits** — a 22-item checklist of things you can only learn standing
+  there. Answers on mapped items become verified first-party evidence and move
+  the score, which is the loop the product was missing.
+- **Negotiation** — the offer sequence, guarded status transitions, and a
+  walk-away price recorded before the first offer, which is the whole point.
+- **Scheduled alerts** — an endpoint any cron can call.
+
 ## Next
 
 ### The exact next task
@@ -78,8 +93,8 @@ a large payoff: it turns a generic score into a personal one.
 
 | Feature | Blocked on |
 |---|---|
-| Document AI | Private storage + extraction provider |
-| Alert scheduling and delivery | A job runner and a channel (email or webhook) |
+| Document OCR | An extraction provider. Checks already work on typed input |
+| Alert delivery | A channel (email or webhook). The cron endpoint exists |
 | Distributed rate limiting | A shared store. Needed before a second instance runs |
 | Durable snapshot store | Supabase. The in-process store loses its baseline on restart |
 | Maps | Provider decision (abstraction exists) |
