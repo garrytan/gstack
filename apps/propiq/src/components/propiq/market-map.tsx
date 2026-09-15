@@ -30,8 +30,8 @@ export interface MapProperty {
 }
 
 const VIEW_W = 800;
-const VIEW_H = 640;
-const PAD = 96;
+const VIEW_H = 470;
+const PAD = 74;
 
 const DECISION_COLOR: Readonly<Record<Decision, string>> = {
   BUY: 'var(--color-buy)',
@@ -39,6 +39,25 @@ const DECISION_COLOR: Readonly<Record<Decision, string>> = {
   WATCH: 'var(--color-watch)',
   AVOID: 'var(--color-avoid)',
   INSUFFICIENT_EVIDENCE: 'var(--color-unknown)',
+};
+
+const PLATE_H = 31;
+
+interface Plate {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+const platesOverlap = (a: Plate, b: Plate): boolean =>
+  a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/** Closest point on the rect to the circle centre, then compare to the radius. */
+const plateHitsCircle = (plate: Plate, circle: { cx: number; cy: number; r: number }): boolean => {
+  const nx = Math.max(plate.x, Math.min(circle.cx, plate.x + plate.w));
+  const ny = Math.max(plate.y, Math.min(circle.cy, plate.y + plate.h));
+  return Math.hypot(circle.cx - nx, circle.cy - ny) < circle.r;
 };
 
 interface Projector {
@@ -107,9 +126,49 @@ export const MarketMap = ({
   const maxPsf = psfValues.length > 0 ? Math.max(...psfValues) : 1;
   /** Catchment radius reads price level: dearer locality, larger halo. */
   const radiusFor = (psf: number | undefined): number => {
-    if (psf === undefined || maxPsf === minPsf) return 40;
-    return 30 + ((psf - minPsf) / (maxPsf - minPsf)) * 28;
+    if (psf === undefined || maxPsf === minPsf) return 30;
+    return 22 + ((psf - minPsf) / (maxPsf - minPsf)) * 22;
   };
+
+  const catchments = localities.map((l) => ({
+    locality: l,
+    cx: project.x(l.center.lng),
+    cy: project.y(l.center.lat),
+    r: radiusFor(l.currentMedianPricePerSqFt),
+  }));
+
+  // Label placement, resolved once so the JSX stays declarative. Each plate is
+  // tried above its catchment and moved below when that would cover another
+  // locality's circle or a plate already placed.
+  const placed: Plate[] = [];
+  const labelPlates = catchments.map((c) => {
+    const psf = c.locality.currentMedianPricePerSqFt
+      ? `\u20B9${c.locality.currentMedianPricePerSqFt.toLocaleString('en-IN')}/sqft`
+      : 'no data';
+    // Width from character count: an SVG text node cannot be measured before
+    // paint, and this is accurate enough at 12.5px.
+    const w = Math.max(c.locality.name.length * 7.4, psf.length * 6.2) + 18;
+    const above: Plate = { x: c.cx - w / 2, y: c.cy - c.r - 34, w, h: PLATE_H };
+    const below: Plate = { x: c.cx - w / 2, y: c.cy + c.r + 5, w, h: PLATE_H };
+
+    const blocked = (plate: Plate): boolean =>
+      placed.some((q) => platesOverlap(plate, q)) ||
+      catchments.some((o) => o.locality.id !== c.locality.id && plateHitsCircle(plate, o));
+
+    const plate = blocked(above) && !blocked(below) ? below : above;
+    placed.push(plate);
+    return { locality: c.locality, plate, psf };
+  });
+
+  // Two pins on top of each other would stack their score numerals into an
+  // unreadable smudge. The pin still marks the true coordinate; only the
+  // numeral is dropped, and the tooltip still carries the score.
+  const crowded = (p: MapProperty): boolean =>
+    properties.some(
+      (o) =>
+        o.id !== p.id &&
+        Math.hypot(project.x(o.lng) - project.x(p.lng), project.y(o.lat) - project.y(p.lat)) < 26,
+    );
 
   const dearest = localities.reduce<Locality | undefined>(
     (best, l) =>
@@ -141,9 +200,14 @@ export const MarketMap = ({
               <stop offset="70%" stopColor="var(--color-accent-500)" stopOpacity="0.05" />
               <stop offset="100%" stopColor="var(--color-accent-500)" stopOpacity="0" />
             </radialGradient>
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <radialGradient id="ground" cx="50%" cy="45%" r="72%">
+              <stop offset="0%" stopColor="var(--color-accent-500)" stopOpacity="0.10" />
+              <stop offset="55%" stopColor="var(--color-accent-500)" stopOpacity="0.03" />
+              <stop offset="100%" stopColor="var(--color-accent-500)" stopOpacity="0" />
+            </radialGradient>
+            <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
               <path
-                d="M 40 0 L 0 0 0 40"
+                d="M 32 0 L 0 0 0 32"
                 fill="none"
                 stroke="var(--border-subtle)"
                 strokeWidth="1"
@@ -152,22 +216,19 @@ export const MarketMap = ({
             </pattern>
           </defs>
 
-          {/* Graticule — this is an instrument, and it should read as one. */}
+          {/* Graticule over a soft ground — this is an instrument, and it
+              should read as one rather than as an empty panel. */}
           <rect width={VIEW_W} height={VIEW_H} fill="url(#grid)" />
+          <rect width={VIEW_W} height={VIEW_H} fill="url(#ground)" />
 
           {/* Locality catchments, sized by price level. */}
-          {localities.map((l) => (
-            <g key={l.id}>
+          {catchments.map((c) => (
+            <g key={c.locality.id}>
+              <circle cx={c.cx} cy={c.cy} r={c.r} fill="url(#catchment)" />
               <circle
-                cx={project.x(l.center.lng)}
-                cy={project.y(l.center.lat)}
-                r={radiusFor(l.currentMedianPricePerSqFt)}
-                fill="url(#catchment)"
-              />
-              <circle
-                cx={project.x(l.center.lng)}
-                cy={project.y(l.center.lat)}
-                r={radiusFor(l.currentMedianPricePerSqFt)}
+                cx={c.cx}
+                cy={c.cy}
+                r={c.r}
                 fill="none"
                 stroke="var(--color-accent-600)"
                 strokeOpacity="0.35"
@@ -177,38 +238,45 @@ export const MarketMap = ({
             </g>
           ))}
 
-          {/* Locality labels sit clear above each catchment. Centring them put
-              them underneath the property pins, which have to be at the centre. */}
-          {localities.map((l) => {
-            const cx = project.x(l.center.lng);
-            const top = project.y(l.center.lat) - radiusFor(l.currentMedianPricePerSqFt);
-            return (
-              <g key={`label-${l.id}`}>
-                <text
-                  x={cx}
-                  y={top - 22}
-                  textAnchor="middle"
-                  fill="var(--text-primary)"
-                  fontSize="13"
-                  fontWeight="600"
-                >
-                  {l.name}
-                </text>
-                <text
-                  x={cx}
-                  y={top - 7}
-                  textAnchor="middle"
-                  fill="var(--text-muted)"
-                  fontSize="11"
-                  style={{ fontVariantNumeric: 'tabular-nums' }}
-                >
-                  {l.currentMedianPricePerSqFt
-                    ? `₹${l.currentMedianPricePerSqFt.toLocaleString('en-IN')}/sqft`
-                    : 'no data'}
-                </text>
-              </g>
-            );
-          })}
+          {/* Locality labels sit on a plate, above the catchment where there
+              is room and below it where there is not. Placing every label
+              above put some of them over a neighbour's pins, which hides the
+              one thing on this drawing a reader is looking for. */}
+          {labelPlates.map(({ locality, plate, psf }) => (
+            <g key={`label-${locality.id}`}>
+              <rect
+                x={plate.x}
+                y={plate.y}
+                width={plate.w}
+                height={plate.h}
+                rx={5}
+                fill="var(--surface-0)"
+                fillOpacity="0.94"
+                stroke="var(--border-subtle)"
+                strokeWidth="1"
+              />
+              <text
+                x={plate.x + plate.w / 2}
+                y={plate.y + 13}
+                textAnchor="middle"
+                fill="var(--text-primary)"
+                fontSize="12.5"
+                fontWeight="600"
+              >
+                {locality.name}
+              </text>
+              <text
+                x={plate.x + plate.w / 2}
+                y={plate.y + 26}
+                textAnchor="middle"
+                fill="var(--text-muted)"
+                fontSize="10.5"
+                style={{ fontVariantNumeric: 'tabular-nums' }}
+              >
+                {psf}
+              </text>
+            </g>
+          ))}
 
           {/* Property pins, coloured by verdict. */}
           {properties.map((p) => {
@@ -217,15 +285,28 @@ export const MarketMap = ({
             const color = DECISION_COLOR[p.decision];
             return (
               <g key={p.id} className="propiq-pin">
-                <circle cx={cx} cy={cy} r="11" fill={color} opacity="0.18" />
+                <circle cx={cx} cy={cy} r="13" fill={color} opacity="0.16" />
                 <circle
                   cx={cx}
                   cy={cy}
-                  r="5"
+                  r="5.5"
                   fill={color}
-                  stroke="var(--surface-1)"
-                  strokeWidth="1.5"
+                  stroke="var(--surface-0)"
+                  strokeWidth="1.75"
                 />
+                {p.score !== undefined && !crowded(p) && (
+                  <text
+                    x={cx}
+                    y={cy + 21}
+                    textAnchor="middle"
+                    fill={color}
+                    fontSize="10.5"
+                    fontWeight="700"
+                    style={{ fontVariantNumeric: 'tabular-nums' }}
+                  >
+                    {Math.round(p.score)}
+                  </text>
+                )}
                 <title>
                   {`${p.title} — ${DECISION_LABELS[p.decision]}${
                     p.score === undefined ? '' : `, score ${Math.round(p.score)}`
