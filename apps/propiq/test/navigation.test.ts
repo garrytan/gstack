@@ -56,9 +56,13 @@ const hrefsIn = (file: string): string[] => {
 };
 
 const NAV_SURFACES = [
-  'src/app/layout.tsx',
+  // Application chrome, now in the (app) route group.
+  'src/app/(app)/layout.tsx',
+  'src/app/(app)/dashboard/page.tsx',
+  // The marketing surface carries its own header and footer.
   'src/app/page.tsx',
-  'src/app/dashboard/page.tsx',
+  'src/components/site/site-header.tsx',
+  'src/components/site/site-footer.tsx',
 ] as const;
 
 describe('navigation integrity', () => {

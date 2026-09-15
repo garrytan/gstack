@@ -25,9 +25,9 @@ const filesUnder = (dir: string): string[] => {
 };
 
 const TOOL_SOURCES = [
-  ...filesUnder(join(root, 'src/app/tools')),
-  ...filesUnder(join(root, 'src/app/checks')),
-  join(root, 'src/app/site-visit-checklist/page.tsx'),
+  ...filesUnder(join(root, 'src/app/(app)/tools')),
+  ...filesUnder(join(root, 'src/app/(app)/checks')),
+  join(root, 'src/app/(app)/site-visit-checklist/page.tsx'),
   ...filesUnder(join(root, 'src/components/propiq/tools')),
 ];
 

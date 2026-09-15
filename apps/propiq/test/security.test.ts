@@ -141,7 +141,7 @@ describe('demo data containment', () => {
 
 describe('new surfaces stay inside the security model', () => {
   const actions = readFileSync(join(root, 'src/server/actions.ts'), 'utf-8');
-  const copilotRoute = readFileSync(join(root, 'src/app/api/copilot/route.ts'), 'utf-8');
+  const copilotRoute = readFileSync(join(root, 'src/app/(app)/api/copilot/route.ts'), 'utf-8');
 
   it('resolves identity server-side in every user-scoped action', () => {
     // No action may take a user id as a parameter — it is always resolved from
@@ -198,7 +198,7 @@ describe('new surfaces stay inside the security model', () => {
 });
 
 describe('scheduled endpoints', () => {
-  const cronRoute = readFileSync(join(root, 'src/app/api/cron/evaluate-alerts/route.ts'), 'utf-8');
+  const cronRoute = readFileSync(join(root, 'src/app/(app)/api/cron/evaluate-alerts/route.ts'), 'utf-8');
 
   it('refuses every request when no secret is configured, rather than defaulting open', () => {
     expect(cronRoute).toContain('if (!env.CRON_SECRET)');

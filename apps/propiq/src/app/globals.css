@@ -33,6 +33,25 @@
   --color-accent-500: #1fb3a8;
   --color-accent-600: #12908a;
 
+  /* PropIQ brand: blue, cyan, violet. The infinity-loop identity reads as a
+     spectrum rather than a single hue, so the palette carries all three and
+     the gradients below move between them. Teal above stays as the product's
+     working accent inside the app; brand colour is for the marketing surface. */
+  --color-brand-blue-400: #5b8def;
+  --color-brand-blue-500: #2f6bdd;
+  --color-brand-blue-600: #1f4fb0;
+  --color-brand-cyan-400: #42c9e8;
+  --color-brand-cyan-500: #14a5c9;
+  --color-brand-violet-400: #8b7cf0;
+  --color-brand-violet-500: #6d55d9;
+  --color-brand-ink: #0a1020;
+
+  /* Light-first marketing surfaces. The app keeps its own token stack. */
+  --color-paper-0: #ffffff;
+  --color-paper-1: #f7f9fc;
+  --color-paper-2: #eef2f8;
+  --color-paper-line: #e2e8f1;
+
   /* Decision semantics. One meaning each, never decorative. */
   --color-buy: #2f9e63;
   --color-negotiate: #d9a133;
@@ -570,4 +589,116 @@ body:has(.propiq-canvas) > header {
 
 body:has(.propiq-canvas) > footer {
   background: color-mix(in srgb, #0b0e14 92%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   Marketing surface.
+
+   The homepage is light-first with dark sections used deliberately: the 3D
+   hero, the score, the command centre and the closing call. Everything here
+   is scoped under `.propiq-site` so none of it leaks into the application
+   routes, which keep their own dark-led token stack.
+--------------------------------------------------------------------------- */
+
+.propiq-site {
+  --surface-0: var(--color-paper-0);
+  --surface-1: var(--color-paper-1);
+  --surface-2: var(--color-paper-2);
+  --border-subtle: var(--color-paper-line);
+  --border-strong: #cbd5e4;
+  --text-primary: #0d1524;
+  --text-secondary: #46536a;
+  --text-muted: #6b7a92;
+
+  background: var(--surface-0);
+  color: var(--text-primary);
+}
+
+/* Dark sections inside the light site. Same trick as the canvas: redefine the
+   tokens for a subtree so every component inside renders correctly without
+   knowing which side of the page it landed on. */
+.propiq-dark {
+  --surface-0: #070b16;
+  --surface-1: #0d1424;
+  --surface-2: #151e33;
+  --border-subtle: #1e2942;
+  --border-strong: #2c3a58;
+  --text-primary: #f3f6fb;
+  --text-secondary: #a8b4cb;
+  --text-muted: #77849d;
+
+  background: var(--surface-0);
+  color: var(--text-primary);
+}
+
+/* The brand gradient. One definition, used for rules, text and glows so the
+   identity stays consistent wherever it appears. */
+.propiq-brand-gradient {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-brand-blue-500) 0%,
+    var(--color-brand-cyan-500) 48%,
+    var(--color-brand-violet-500) 100%
+  );
+}
+
+.propiq-brand-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-brand-blue-500) 0%,
+    var(--color-brand-cyan-500) 46%,
+    var(--color-brand-violet-500) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.propiq-dark .propiq-brand-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-brand-blue-400) 0%,
+    var(--color-brand-cyan-400) 46%,
+    var(--color-brand-violet-400) 100%
+  );
+}
+
+/* Selective glass, for the hero's floating metric cards only. */
+.propiq-site-glass {
+  background: color-mix(in srgb, #0a1020 62%, transparent);
+  border: 1px solid color-mix(in srgb, white 12%, transparent);
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in srgb, white 10%, transparent),
+    0 20px 44px -22px rgba(4, 8, 18, 0.9);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .propiq-site-glass {
+    background: color-mix(in srgb, #0a1020 40%, transparent);
+    backdrop-filter: blur(18px) saturate(1.3);
+    -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  }
+}
+
+/* Reveal on scroll. Starts visible and settles, never parked at zero opacity:
+   the first still frame of the page has to be readable. */
+@keyframes propiq-rise {
+  from {
+    opacity: 0.55;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.propiq-reveal {
+  animation: propiq-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-reveal {
+    animation: none;
+  }
 }
