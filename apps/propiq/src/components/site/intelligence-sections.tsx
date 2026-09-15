@@ -481,7 +481,10 @@ const Bento = ({
   large?: boolean;
 }) => (
   <div
-    className={`flex flex-col justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5 ${span ?? ''}`}
+    // `justify-between` keeps figures on a baseline across a row of equal
+    // tiles, but on the tall spanning tile it strands the label at the top of
+    // a half-empty box. That one reads top-down instead.
+    className={`flex flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5 ${large ? 'justify-start' : 'justify-between'} ${span ?? ''}`}
   >
     <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
       {label}
