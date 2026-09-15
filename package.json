@@ -62,9 +62,9 @@
     "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
     "html-to-docx": "1.8.0",
-    "marked": "^18.0.11",
-    "playwright": "^1.62.1",
-    "socks": "^2.8.9"
+    "marked": "^18.0.12",
+    "playwright": "^1.63.0",
+    "socks": "^2.8.10"
   },
   "engines": {
     "bun": ">=1.0.0"
