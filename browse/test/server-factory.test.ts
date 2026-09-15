@@ -370,6 +370,41 @@ describe('buildFetchHandler factory contract', () => {
     initRegistry('first-token-pad-to-16-chars');
     expect(() => initRegistry('second-token-pad-to-16-chars')).toThrow(/already initialized/i);
   });
+
+  // D3 handler gating: tab ownership outlives token expiry, so DELETE /token
+  // must release tabs and 200 even when no token remains (revoked=0, tabs>0).
+  // Drives the handler into that exact state — HTTP e2e can't (headless-skip
+  // owns no real tabs), so the revoke-gated-release regression would pass there.
+  test('13. DELETE /token releases orphaned tabs and 200s when no token remains', async () => {
+    const cfg = makeMinimalConfig();
+    (cfg.browserManager as any).tabOwnership.set(7, 'ghost'); // owned, no token
+    const handle = buildFetchHandler(cfg);
+    const req = new Request('http://127.0.0.1/token/ghost', {
+      method: 'DELETE', headers: { Authorization: `Bearer ${cfg.authToken}` },
+    });
+    const resp = await handle.fetchLocal(req, null);
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as { tokens_deleted: number; tabs_released: number };
+    expect(body.tokens_deleted).toBe(0);
+    expect(body.tabs_released).toBe(1);
+    expect(cfg.browserManager.getTabOwner(7)).toBeNull();
+  });
+
+  // D1 F2: a re-pair with no LIVE session must release tabs orphaned by an
+  // expired incarnation, or the new session inherits its authenticated pages.
+  test('14. /pair releases tabs orphaned by an expired session (no inheritance)', async () => {
+    const cfg = makeMinimalConfig();
+    (cfg.browserManager as any).tabOwnership.set(9, 'ghost'); // orphaned, no live session
+    const handle = buildFetchHandler(cfg);
+    const req = new Request('http://127.0.0.1/pair', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cfg.authToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId: 'ghost', scopes: ['read'] }),
+    });
+    const resp = await handle.fetchLocal(req, null);
+    expect(resp.status).toBe(200);
+    expect(cfg.browserManager.getTabOwner(9)).toBeNull();
+  });
 });
 
 // ─── Idle timer + onDisconnect dual-instance fix (v1.42.3.0) ──────────

@@ -1,0 +1,61 @@
+{
+  "qualification": "Exact public 92-line and 106-line permission screens plus content-free successful Write identity pairs. Payloads removed; only fields used for progress correlation retained. Original AX cancellation remains a failure.",
+  "before": "     +.                                                                                                                \n  78 +- Server snapshot-time validation; client same-origin route validation; text-only rendering of notification/activ\n     +ity content.                                                                                                     \n  79 +- Observability (handler logs, metrics, Server-Timing, client events, alerts, day-1 dashboard, runbook), staged f\n     +lag rollout with flag-off rollback, experiment design with production baseline (sized as one P1 task, human ~4 h \n     +/ CC ~30 min).                                                                                                   \n  80  \n  81  ## Deferred to TODOS.md\n  82  - Next-item hero card \u2014 needs assigned-items query; revisit after the experiment reads out.\n ...\n  85  - Cache action eligibility per member \u2014 only if Server-Timing shows predicates > 100 ms p95.\n  86  - Remove old landing redirect and flag branch \u2014 after the experiment decides 100%.\n  87  \n  48 -## Open at the Final Gate (not decided here)                                                                     \n  49 -- Challenged premise: should a redirect-to-single-next-item ship as v0 before or instead of the dashboard? (Nativ\n     -e subagent argues yes; primary review keeps the user's direction because the plan names three member jobs.)      \n  50 -- Approach A (client-parallel to existing endpoints) vs Approach C (aggregate envelope). Recommended C.          \n  51 -- Keep the confirmation modal for mark-all-read (recommended, one-way action) vs direct action.                  \n  52 -- QuickActions-first hierarchy (recommended) vs equal panels.                                                    \n  88 +## Open at the Final Gate (provisional decisions, not settled here)                                              \n  89 +1. **Challenged premise:** ship a redirect-to-single-next-item as v0 before or instead of the dashboard? The nati\n     +ve subagent argues yes. The primary review keeps the user's direction because the plan names three member jobs, a\n     +nd because the redirect needs the same assigned-items data source that deferred proposal 9 lacks, so it is not ch\n     +eaper than it looks for this release. The user decides.                                                          \n  90 +2. Approach A (client-parallel to existing endpoints, 7/10) vs Approach C (aggregate envelope, 10/10). Recommende\n     +d C; accepted scope above assumes C.                                                                             \n  91 +3. Keep the confirmation modal for mark-all-read (recommended: one-way action, no unread-restore API) vs direct a\n     +ction with live-region confirmation.                                                                             \n  92 +4. QuickActions-first hierarchy (recommended) vs equal panels.                                                   \n\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\n Do you want to overwrite 2026-09-11-user-dashboard.md?\n \u276f 1. Yes\n   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session; Yes, and\n      always allow access to /tmp/gstack-paid-shard-OALVx0/tmp/gstack-native-review-state-K0cbcP/projects/gstack-autopla\n      n-chain-fviI7n/ceo-plans for this session (shift+tab)\n\n   3. No\n\n Esc to cancel \u00b7 Tab to amend\n",
+  "after": "     +th \"Updated X ago\", CTA empty states, landmark sections, independently mountable panels (no registry; static orde\n     +r).                                                                                                              \n  89  - App-root toast primitive as specified above, no theming/positioning API in v1.\n  90  - Mark-all-read confirmation dialog as specified above (**provisional: keep modal vs direct action at the gate**)\n      .\n  91  - Server snapshot-time validation; client same-origin route validation; text-only rendering of notification/activ\n      ity content.\n ...\n   95  - Next-item hero card \u2014 needs assigned-items query; revisit after the experiment reads out.\n   96  - Optimistic mark-all-read \u2014 after v1 ships; measure whether the confirm\u2192toast latency is noticed.\n   97  - Prefetch dashboard data on login \u2014 login-flow change; separate PR.\n   85 -- Cache action eligibility per member \u2014 only if Server-Timing shows predicates > 100 ms p95.                    \n   98 +- Cache action eligibility per member \u2014 only if `Server-Timing` `quickActions;dur` shows > 100 ms p95.          \n   99 +- Server-side `unreadCount` \u2014 when `20+` proves insufficient or the notifications repo gains a count method.    \n  100  - Remove old landing redirect and flag branch \u2014 after the experiment decides 100%.\n  101  \n   88 -## Open at the Final Gate (provisional decisions, not settled here)                                             \n  102 +## Open at the Final Gate (three provisional scope decisions + one challenged premise)                          \n  103  1. **Challenged premise:** ship a redirect-to-single-next-item as v0 before or instead of the dashboard? The nat\n       ive subagent argues yes. The primary review keeps the user's direction because the plan names three member jobs,\n        and because the redirect needs the same assigned-items data source that deferred proposal 9 lacks, so it is not\n        cheaper than it looks for this release. The user decides.\n   90 -2. Approach A (client-parallel to existing endpoints, 7/10) vs Approach C (aggregate envelope, 10/10). Recommend\n      -ed C; accepted scope above assumes C.                                                                           \n  104 +2. Approach A (client-parallel to existing endpoints, 7/10) vs Approach C (aggregate envelope, 10/10). Recommend\n      +ed C; the Contracts section assumes C and is rewritten first if A wins.                                         \n  105  3. Keep the confirmation modal for mark-all-read (recommended: one-way action, no unread-restore API) vs direct\n       action with live-region confirmation.\n  106  4. QuickActions-first hierarchy (recommended) vs equal panels.\n\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\u254c\n Do you want to overwrite 2026-09-11-user-dashboard.md?\n \u276f 1. Yes\n   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session; Yes, and\n      always allow access to /tmp/gstack-paid-shard-OALVx0/tmp/gstack-native-review-state-K0cbcP/projects/gstack-autopla\n      n-chain-fviI7n/ceo-plans for this session (shift+tab)\n\n   3. No\n\n Esc to cancel \u00b7 Tab to amend\n",
+  "beforeEvents": [
+    {
+      "sessionId": "53d424c8-2e93-47fb-93d6-9adbbb763a6f",
+      "timestamp": "2026-09-11T02:25:05.912Z",
+      "toolUseId": "toolu_01RBorP8UERrbVheRiXSN1v4",
+      "kind": "use",
+      "name": "Write",
+      "input": {
+        "file_path": "/tmp/gstack-paid-shard-OALVx0/tmp/gstack-native-review-state-K0cbcP/projects/gstack-autoplan-chain-fviI7n/ceo-plans/2026-09-11-user-dashboard.md"
+      }
+    },
+    {
+      "sessionId": "53d424c8-2e93-47fb-93d6-9adbbb763a6f",
+      "timestamp": "2026-09-11T02:25:08.955Z",
+      "toolUseId": "toolu_01RBorP8UERrbVheRiXSN1v4",
+      "kind": "result",
+      "isError": false
+    }
+  ],
+  "afterEvents": [
+    {
+      "sessionId": "53d424c8-2e93-47fb-93d6-9adbbb763a6f",
+      "timestamp": "2026-09-11T02:25:05.912Z",
+      "toolUseId": "toolu_01RBorP8UERrbVheRiXSN1v4",
+      "kind": "use",
+      "name": "Write",
+      "input": {
+        "file_path": "/tmp/gstack-paid-shard-OALVx0/tmp/gstack-native-review-state-K0cbcP/projects/gstack-autoplan-chain-fviI7n/ceo-plans/2026-09-11-user-dashboard.md"
+      }
+    },
+    {
+      "sessionId": "53d424c8-2e93-47fb-93d6-9adbbb763a6f",
+      "timestamp": "2026-09-11T02:25:08.955Z",
+      "toolUseId": "toolu_01RBorP8UERrbVheRiXSN1v4",
+      "kind": "result",
+      "isError": false
+    },
+    {
+      "sessionId": "53d424c8-2e93-47fb-93d6-9adbbb763a6f",
+      "timestamp": "2026-09-11T02:28:24.850Z",
+      "toolUseId": "toolu_01RPGbV4z5AAMcnzwD4qcx9p",
+      "kind": "use",
+      "name": "Write",
+      "input": {
+        "file_path": "/tmp/gstack-paid-shard-OALVx0/tmp/gstack-native-review-state-K0cbcP/projects/gstack-autoplan-chain-fviI7n/ceo-plans/2026-09-11-user-dashboard.md"
+      }
+    },
+    {
+      "sessionId": "53d424c8-2e93-47fb-93d6-9adbbb763a6f",
+      "timestamp": "2026-09-11T02:28:26.532Z",
+      "toolUseId": "toolu_01RPGbV4z5AAMcnzwD4qcx9p",
+      "kind": "result",
+      "isError": false
+    }
+  ],
+  "sourceFrameReplaySha256": "b238735abcfecdd9912ff9ded124dcdb1321477dd7b0394afbc918aa75465c01"
+}

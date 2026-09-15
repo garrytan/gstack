@@ -13,12 +13,13 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { canRevokeReads } from "./helpers/fs-caps";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { spawnSync } from "child_process";
 
-import { repoPolicyTierBatch } from "../lib/gbrain-repo-policy-client";
+import { repoPolicyTier, repoPolicyTierBatch } from "../lib/gbrain-repo-policy-client";
 import { canonicalizeRemote } from "../lib/gstack-memory-helpers";
 
 const ROOT = path.resolve(import.meta.dir, "..");
@@ -31,7 +32,7 @@ function env(): NodeJS.ProcessEnv {
 }
 
 function run(args: string[], input?: string) {
-  const res = spawnSync(BIN, args, { env: env(), encoding: "utf-8", input });
+  const res = spawnSync(BIN, args, { env: env(), encoding: "utf-8", input, timeout: 30_000 });
   return {
     stdout: res.stdout || "",
     stderr: res.stderr || "",
@@ -140,7 +141,7 @@ describe("repoPolicyTierBatch (TypeScript client)", () => {
   });
 
   test("store unreadable on disk (chmod 000): whole batch classified unreadable", () => {
-    if (process.platform === "win32" || process.getuid?.() === 0) return; // chmod semantics differ
+    if (!canRevokeReads()) return; // chmod is advisory here (win32, root, DAC-override containers)
     expect(run(["set", "https://github.com/foo/bar", "deny"]).status).toBe(0);
     fs.chmodSync(policyFile(), 0o000);
     try {
@@ -206,5 +207,15 @@ describe("normalize parity: bash normalize() ↔ canonicalizeRemote (edge URL sh
     const canon = canonicalizeRemote("https://github.com/ACME/XShape.GIT/");
     const verdicts = repoPolicyTierBatch([canon], env());
     expect(verdicts.get(canon)).toEqual({ tier: "deny" });
+  });
+});
+
+describe("repoPolicyTier timeoutMs (hook deadline seam)", () => {
+  test("a spawn that cannot finish inside timeoutMs classifies as unreadable; the default still reads the tier", () => {
+    const url = "https://github.com/example/timed.git";
+    expect(run(["set", url, "deny"]).status).toBe(0);
+    expect(repoPolicyTier(url, env())).toEqual({ tier: "deny" });
+    // 1 ms cannot cover a bash+jq spawn; the caller's polarity decides what unreadable means
+    expect(repoPolicyTier(url, env(), 1)).toEqual({ tier: "none", error: "unreadable" });
   });
 });

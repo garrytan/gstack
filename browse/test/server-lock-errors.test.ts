@@ -14,6 +14,7 @@
  */
 
 import { describe, test, expect, afterAll } from 'bun:test';
+import { canRevokeWrites } from '../../test/helpers/fs-caps';
 import * as fs from 'fs';
 // Default (CJS) export — its properties are mutable in Bun, unlike the frozen
 // `* as fs` namespace, and mutations propagate to cli.ts's own fs import.
@@ -41,7 +42,7 @@ describe('acquireServerLock (#1084 error honesty)', () => {
   });
 
   test('EACCES throws ServerLockError with the real errno — NOT phantom contention', () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return; // chmod semantics differ
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     const rodir = path.join(tmpRoot, 'rodir');
     fs.mkdirSync(rodir, { recursive: true });
     fs.chmodSync(rodir, 0o500); // r-x: open('wx') inside fails EACCES

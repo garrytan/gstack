@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "helperAbi": 3,
+  "state": "pending",
+  "sbomGenerator": null,
+  "profiles": [],
+  "instructions": "Add one reviewed, digest-pinned SBOM generator and exactly one profile for each scanner. Every platform image and the generator must declare its GitHub repository, source commit, release, signer workflow and signer digest, plus canonical SLSA and SPDX statement-set digests that the workflow re-verifies cryptographically before use. Semgrep bases must contain the reviewed rules bundle. OSV and Trivy bases must contain the declared offline databases. Change state to reviewed only after all identities and content hashes have been independently checked."
+}

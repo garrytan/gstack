@@ -1,5 +1,7 @@
 # Domain Skills
 
+> **Scope:** domain-skills are a feature of gstack's own browser engine (`$B`), the **fallback** that runs when the Aside browser is absent (Linux, Windows, a closed Aside app). Skills driving Aside record per-project learnings through `/learn` instead. See [BROWSER.md](../BROWSER.md).
+
 Per-site notes the agent writes for itself. Compounds across sessions: once an
 agent figures out something non-obvious about a website, it saves a skill, and
 future sessions on that host get the note injected into their prompt context.

@@ -72,6 +72,13 @@ export interface WriteReceiptOptions {
   sha256?: string | null;
   /** the consent key+value that authorizes this send */
   consent: string;
+  /**
+   * Max milliseconds to wait for the ledger lock (default LEDGER_LOCK_BUDGET_MS).
+   * Callers on an interactive hot path with their own deadline (a Claude Code
+   * hook under a 5 s kill) pass what they can afford; the lock is always
+   * tried at least once.
+   */
+  lockBudgetMs?: number;
 }
 
 export interface WriteOutcomeOptions {
@@ -80,7 +87,12 @@ export interface WriteOutcomeOptions {
   /** receipt id returned by writeReceipt */
   receipt: string;
   status?: string | number;
+  /** see WriteReceiptOptions.lockBudgetMs */
+  lockBudgetMs?: number;
 }
+
+/** Default spin budget for the ledger lock. Egress events are rare (minutes apart). */
+export const LEDGER_LOCK_BUDGET_MS = 2500;
 
 export interface LedgerLine {
   lineNo: number;
@@ -139,8 +151,10 @@ function requireString(value: unknown, name: string): string {
 }
 
 /**
- * mkdir spin lock, ~2.5s budget. Egress events are rare (minutes apart); the
- * lock only protects the read-last-line → append window.
+ * mkdir spin lock; the budget defaults to LEDGER_LOCK_BUDGET_MS (2.5 s) and
+ * callers on their own deadline pass less. Egress events are usually rare
+ * (minutes apart; the memorable hook is the per-prompt exception); the lock
+ * only protects the read-last-line → append window.
  *
  * Stale-lock reclaim: a crashed writer strands the lock dir. Once the spin
  * budget is exhausted, a lock dir whose mtime is >10s old is stale by
@@ -148,9 +162,9 @@ function requireString(value: unknown, name: string): string {
  * retries instead of failing. The rmdir/stat races with a concurrent
  * reclaimer or the owner's own cleanup are harmless — losers just loop.
  */
-function withLedgerLock<T>(ledger: string, callback: () => T): T {
+function withLedgerLock<T>(ledger: string, callback: () => T, budgetMs: number = LEDGER_LOCK_BUDGET_MS): T {
   const lock = `${ledger}.lock`;
-  const deadline = Date.now() + 2500;
+  const deadline = Date.now() + Math.max(0, budgetMs);
   for (;;) {
     try {
       fs.mkdirSync(lock);
@@ -240,10 +254,19 @@ export function ledgerSizeWarning(ledger: string, size: number): string {
   );
 }
 
+function lockBudget(value: number | undefined): number {
+  if (value === undefined) return LEDGER_LOCK_BUDGET_MS;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw receiptError('Egress receipt lockBudgetMs must be a non-negative finite number');
+  }
+  return value;
+}
+
 function appendChained(
   homeOrNull: string | null,
   record: Record<string, unknown>,
   env?: Env,
+  budgetMs: number = LEDGER_LOCK_BUDGET_MS,
 ): { id: string; path: string } {
   const home = homeOrNull ?? resolveEgressHome(env);
   const ledger = egressLedgerPath(home);
@@ -256,7 +279,7 @@ function appendChained(
       fs.appendFileSync(ledger, `${line}\n`, { mode: 0o600 });
       if (!existed) fs.chmodSync(ledger, 0o600); // umask must not weaken the ledger
       return { id: sha256Hex(line), path: ledger };
-    });
+    }, budgetMs);
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === EGRESS_RECEIPT_FAILED) throw error;
     throw receiptError(
@@ -282,6 +305,7 @@ export function writeReceipt(opts: WriteReceiptOptions): { id: string; path: str
   if (!Number.isSafeInteger(bytes) || bytes < 0) throw receiptError('Egress receipt bytes must be a non-negative integer');
   const sha256 = opts.sha256 ?? null;
   if (sha256 !== null && !SHA256_HEX.test(String(sha256))) throw receiptError('Egress receipt sha256 must be 64 lowercase hex chars or null');
+  const budgetMs = lockBudget(opts.lockBudgetMs);
   const home = opts.home ?? resolveEgressHome(opts.env);
   warnLedgerSizeOnce(egressLedgerPath(home));
   return appendChained(home, {
@@ -293,7 +317,7 @@ export function writeReceipt(opts: WriteReceiptOptions): { id: string; path: str
     bytes,
     sha256,
     consent,
-  }, opts.env);
+  }, opts.env, budgetMs);
 }
 
 /**
@@ -303,12 +327,13 @@ export function writeReceipt(opts: WriteReceiptOptions): { id: string; path: str
  */
 export function writeOutcome(opts: WriteOutcomeOptions): { id: string; path: string } {
   const receipt = requireString(opts.receipt, 'receipt id');
+  const budgetMs = lockBudget(opts.lockBudgetMs);
   return appendChained(opts.home ?? null, {
     ts: new Date().toISOString(),
     type: 'outcome',
     receipt,
     status: String(opts.status ?? 'unknown'),
-  }, opts.env);
+  }, opts.env, budgetMs);
 }
 
 /** Raw parsed lines: [{lineNo, raw, record|null}]. Missing ledger → []. */

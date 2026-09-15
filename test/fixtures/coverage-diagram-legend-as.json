@@ -1,0 +1,124 @@
+{
+  "provenance": {
+    "run": "ship-source-as-delta-paid-20260910-v1",
+    "sourceHead": "f26d569e0345cb1131d9ca52d4a43965085c3468",
+    "originalAttemptOutcomes": [
+      "failed",
+      "failed"
+    ],
+    "paidOutcomesReclassified": false,
+    "projection": "Exact final public assistant text and the native parent file-read pair; init and event envelopes retain only required identity fields."
+  },
+  "rows": [
+    {
+      "attempt": 1,
+      "cwd": "/tmp/gstack-paid-shard-eMtnp5/tmp/skill-e2e-review-coverage-5yDBnd",
+      "result": {
+        "exitReason": "success",
+        "browseErrors": [],
+        "output": "Test coverage audit is complete. Vitest is not installed in this sandbox, so the suite could not be executed; the analysis below is static, based on reading both files.\n\n```\nTEST COVERAGE MAP \u2014 src/billing.ts  (branch: feature/billing vs main)\nLegend: [\u2713] tested   [\u2717] GAP   \u2500\u2500\u25ba branch\n\nsrc/billing.ts\n\u2502\n\u251c\u2500\u2500 processPayment(amount, currency)                        1 of 3 paths tested\n\u2502   \u2502\n\u2502   \u251c\u2500\u2500\u25ba line 3   amount <= 0  \u2192 throw 'Invalid amount'      [\u2717] GAP  Missing Negative-Path\n\u2502   \u2502              zero / negative boundary never exercised\n\u2502   \u2502\n\u2502   \u251c\u2500\u2500\u25ba line 4   currency \u2209 {USD, EUR} \u2192 throw              [\u2717] GAP  Missing Negative-Path\n\u2502   \u2502              'Unsupported currency'   (e.g. 'GBP', '')\n\u2502   \u2502\n\u2502   \u2514\u2500\u2500\u25ba line 5   return { status: 'success', ... }          [\u2713] test/billing.test.ts:6\n\u2502                  'processes valid payment' (100, 'USD')\n\u2502                  note: only USD covered; EUR happy path untested\n\u2502\n\u2514\u2500\u2500 refundPayment(paymentId, reason)                         0 of 3 paths tested\n    \u2502                                                        [\u2717] GAP  Coverage Gap\n    \u2502              exported function, never imported by any test\n    \u2502\n    \u251c\u2500\u2500\u25ba line 9   !paymentId \u2192 throw 'Payment ID required'   [\u2717] GAP  Missing Negative-Path\n    \u2502\n    \u251c\u2500\u2500\u25ba line 10  !reason \u2192 throw 'Reason required'          [\u2717] GAP  Missing Negative-Path\n    \u2502\n    \u2514\u2500\u2500\u25ba line 11  return { status: 'refunded', ... }         [\u2717] GAP  Coverage Gap\n\n\nSUMMARY\n  Functions exported ........ 2      covered: 1   uncovered: 1\n  Branches / paths .......... 6      covered: 1   uncovered: 5\n  Guard clauses ............. 4      covered: 0   uncovered: 4\n  Error branches tested ..... 0 of 4\n```\n\nFindings, ranked by severity:\n\n- **refundPayment has zero coverage** (Coverage Gaps). A new public function is exported and never imported in the test file. Both guard clauses and the success return are unverified.\n- **processPayment rejects are untested** (Missing Negative-Path Tests). Both throw branches at lines 3 and 4 have no failing-input test. A regression that removes either guard would pass the suite.\n- **Happy path is narrow.** The one existing test covers only USD. The EUR branch of the currency check is accepted by code but never asserted.\n\nSuggested test stubs to close the gaps:\n\n```ts\nimport { processPayment, refundPayment } from '../src/billing';\n\ntest('rejects zero amount', () => expect(() => processPayment(0, 'USD')).toThrow('Invalid amount'));\ntest('rejects negative amount', () => expect(() => processPayment(-5, 'USD')).toThrow('Invalid amount'));\ntest('rejects unsupported currency', () => expect(() => processPayment(10, 'GBP')).toThrow('Unsupported currency'));\ntest('accepts EUR', () => expect(processPayment(10, 'EUR').currency).toBe('EUR'));\n\ntest('refunds valid payment', () => expect(refundPayment('p1', 'dup').status).toBe('refunded'));\ntest('rejects missing paymentId', () => expect(() => refundPayment('', 'dup')).toThrow('Payment ID required'));\ntest('rejects missing reason', () => expect(() => refundPayment('p1', '')).toThrow('Reason required'));\n```\n\nOne environment note: the package.json test script only echoes \"no tests yet\" and node_modules is absent, so even the existing test does not run in CI as configured.",
+        "transcript": [
+          {
+            "type": "system",
+            "subtype": "init",
+            "cwd": "/tmp/gstack-paid-shard-eMtnp5/tmp/skill-e2e-review-coverage-5yDBnd",
+            "session_id": "7c7ba4bd-9818-4a7e-b3b7-ad74b24c4836"
+          },
+          {
+            "type": "assistant",
+            "session_id": "7c7ba4bd-9818-4a7e-b3b7-ad74b24c4836",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_015hqy9J6KoorxoLUuXTTEVM",
+                  "name": "Bash",
+                  "input": {
+                    "command": "cat -n src/billing.ts && echo ==== && cat -n test/billing.test.ts",
+                    "description": "Read source and test files"
+                  },
+                  "caller": {
+                    "type": "direct"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "session_id": "7c7ba4bd-9818-4a7e-b3b7-ad74b24c4836",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "tool_use_id": "toolu_015hqy9J6KoorxoLUuXTTEVM",
+                  "type": "tool_result",
+                  "content": "     1\t\n     2\texport function processPayment(amount: number, currency: string) {\n     3\t  if (amount <= 0) throw new Error('Invalid amount');\n     4\t  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n     5\t  return { status: 'success', amount, currency };\n     6\t}\n     7\t\n     8\texport function refundPayment(paymentId: string, reason: string) {\n     9\t  if (!paymentId) throw new Error('Payment ID required');\n    10\t  if (!reason) throw new Error('Reason required');\n    11\t  return { status: 'refunded', paymentId, reason };\n    12\t}\n====\n     1\t\n     2\timport { describe, test, expect } from 'vitest';\n     3\timport { processPayment } from '../src/billing';\n     4\t\n     5\tdescribe('processPayment', () => {\n     6\t  test('processes valid payment', () => {\n     7\t    const result = processPayment(100, 'USD');\n     8\t    expect(result.status).toBe('success');\n     9\t  });\n    10\t  // GAP: no test for invalid amount\n    11\t  // GAP: no test for unsupported currency\n    12\t  // GAP: refundPayment not tested at all\n    13\t});",
+                  "is_error": false
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "attempt": 2,
+      "cwd": "/tmp/gstack-paid-shard-eMtnp5/tmp/skill-e2e-review-coverage-5yDBnd",
+      "result": {
+        "exitReason": "success",
+        "browseErrors": [],
+        "output": "The skill docs don't prescribe a diagram format, so here is the audit in an ASCII coverage map. The branch has one commit shared with main, so the audit covers the full file rather than a diff.\n\n```\nsrc/billing.ts \u2014 test coverage map (test/billing.test.ts)\nLegend: [\u2714] tested   [\u2718] GAP (no test)\n\nprocessPayment(amount, currency)                        1 of 3 paths covered\n\u2502\n\u251c\u2500 if (amount <= 0) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25ba throw 'Invalid amount'          [\u2718] GAP  negative-path\n\u2502      boundary values untested: 0, -1, NaN\n\u2502\n\u251c\u2500 if (currency !== 'USD' && !== 'EUR')\n\u2502                 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25ba throw 'Unsupported currency'      [\u2718] GAP  negative-path\n\u2502      untested: 'GBP', '', 'usd' (case)\n\u2502      happy-path 'EUR' branch also untested                   [\u2718] GAP  edge-case\n\u2502\n\u2514\u2500 return { status: 'success', amount, currency }              [\u2714] processes valid payment\n       (asserts only .status; amount/currency echo unchecked)\n\nrefundPayment(paymentId, reason)                        0 of 3 paths covered \u2014 never imported\n\u2502\n\u251c\u2500 if (!paymentId) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25ba throw 'Payment ID required'     [\u2718] GAP  negative-path\n\u2502      untested: '', undefined\n\u2502\n\u251c\u2500 if (!reason) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u25ba throw 'Reason required'         [\u2718] GAP  negative-path\n\u2502      untested: '', undefined\n\u2502\n\u2514\u2500 return { status: 'refunded', paymentId, reason }            [\u2714]\u2192[\u2718] GAP  coverage: public fn, zero tests\n\nSummary\n  Branches:  6 total   1 covered   5 gaps\n  Functions: 2 total   1 covered   1 with zero coverage\n```\n\nFindings, ranked:\n\n- **Coverage Gaps: refundPayment has zero tests.** Exported public function, never imported by the test file. Both guards and the success return are unverified.\n- **Missing Negative-Path: amount guard untested.** No test that `processPayment(0, 'USD')` or a negative amount throws. A regression to `amount < 0` would pass the suite.\n- **Missing Negative-Path: currency guard untested.** No test that an unsupported code throws. The `EUR` accept path is also unexercised, so the only value proven to work is `USD`.\n- **Missing Negative-Path: refund guards untested.** Neither the missing payment ID nor the missing reason rejection has a failing-input test.\n- **Weak assertion on the one existing test.** It checks `status` only, so a bug that drops or mutates `amount` or `currency` in the return value would go unnoticed.\n\nThe test file's own comments already acknowledge the first three gaps. Adding five `expect(() => ...).toThrow(...)` cases plus one `EUR` happy path and one `refundPayment` success case would bring every branch to covered.",
+        "transcript": [
+          {
+            "type": "system",
+            "subtype": "init",
+            "cwd": "/tmp/gstack-paid-shard-eMtnp5/tmp/skill-e2e-review-coverage-5yDBnd",
+            "session_id": "b36532b9-369f-4dc3-ba70-197663bdfee6"
+          },
+          {
+            "type": "assistant",
+            "session_id": "b36532b9-369f-4dc3-ba70-197663bdfee6",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01XBJKThc7uaHKvMwCYY9oxC",
+                  "name": "Bash",
+                  "input": {
+                    "command": "cat review/specialists/testing.md; echo ======; cat -n src/billing.ts; echo ======; cat -n test/billing.test.ts",
+                    "description": "Read testing specialist, source, and tests"
+                  },
+                  "caller": {
+                    "type": "direct"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "session_id": "b36532b9-369f-4dc3-ba70-197663bdfee6",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "tool_use_id": "toolu_01XBJKThc7uaHKvMwCYY9oxC",
+                  "type": "tool_result",
+                  "content": "# Testing Specialist Review Checklist\n\nScope: Always-on (every review)\nOutput: JSON objects, one finding per line. Schema:\n{\"severity\":\"CRITICAL|INFORMATIONAL\",\"confidence\":N,\"path\":\"file\",\"line\":N,\"category\":\"testing\",\"summary\":\"...\",\"fix\":\"...\",\"fingerprint\":\"path:line:testing\",\"specialist\":\"testing\"}\nOptional: line, fix, fingerprint, evidence, test_stub.\nIf no findings: output `NO FINDINGS` and nothing else.\n\n---\n\n## Categories\n\n### Missing Negative-Path Tests\n- New code paths that handle errors, rejections, or invalid input with NO corresponding test\n- Guard clauses and early returns that are untested\n- Error branches in try/catch, rescue, or error boundaries with no failure-path test\n- Permission/auth checks that are asserted in code but never tested for the \"denied\" case\n\n### Missing Edge-Case Coverage\n- Boundary values: zero, negative, max-int, empty string, empty array, nil/null/undefined\n- Single-element collections (off-by-one on loops)\n- Unicode and special characters in user-facing inputs\n- Concurrent access patterns with no race-condition test\n\n### Test Isolation Violations\n- Tests sharing mutable state (class variables, global singletons, DB records not cleaned up)\n- Order-dependent tests (pass in sequence, fail when randomized)\n- Tests that depend on system clock, timezone, or locale\n- Tests that make real network calls instead of using stubs/mocks\n\n### Flaky Test Patterns\n- Timing-dependent assertions (sleep, setTimeout, waitFor with tight timeouts)\n- Assertions on ordering of unordered results (hash keys, Set iteration, async resolution order)\n- Tests that depend on external services (APIs, databases) without fallback\n- Randomized test data without seed control\n\n### Security Enforcement Tests Missing\n- Auth/authz checks in controllers with no test for the \"unauthorized\" case\n- Rate limiting logic with no test proving it actually blocks\n- Input sanitization with no test for malicious input\n- CSRF/CORS configuration with no integration test\n\n### Coverage Gaps\n- New public methods/functions with zero test coverage\n- Changed methods where existing tests only cover the old behavior, not the new branch\n- Utility functions called from multiple places but tested only indirectly\n======\n     1\t\n     2\texport function processPayment(amount: number, currency: string) {\n     3\t  if (amount <= 0) throw new Error('Invalid amount');\n     4\t  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n     5\t  return { status: 'success', amount, currency };\n     6\t}\n     7\t\n     8\texport function refundPayment(paymentId: string, reason: string) {\n     9\t  if (!paymentId) throw new Error('Payment ID required');\n    10\t  if (!reason) throw new Error('Reason required');\n    11\t  return { status: 'refunded', paymentId, reason };\n    12\t}\n======\n     1\t\n     2\timport { describe, test, expect } from 'vitest';\n     3\timport { processPayment } from '../src/billing';\n     4\t\n     5\tdescribe('processPayment', () => {\n     6\t  test('processes valid payment', () => {\n     7\t    const result = processPayment(100, 'USD');\n     8\t    expect(result.status).toBe('success');\n     9\t  });\n    10\t  // GAP: no test for invalid amount\n    11\t  // GAP: no test for unsupported currency\n    12\t  // GAP: refundPayment not tested at all\n    13\t});",
+                  "is_error": false
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

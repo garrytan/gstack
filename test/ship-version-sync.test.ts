@@ -69,7 +69,7 @@ else
   fi
 fi`;
   try {
-    const stdout = execSync(script, { shell: "/bin/bash", encoding: "utf8" });
+    const stdout = execSync(script, { shell: "/bin/bash", encoding: "utf8", timeout: 30_000 });
     return { stdout: stdout.trim(), code: 0 };
   } catch (e: any) {
     return { stdout: (e.stdout || "").toString().trim(), code: e.status ?? 1 };
@@ -88,7 +88,7 @@ if [ -f package.json ]; then
   node -e 'const fs=require("fs"),p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\\n")' "$NEW_VERSION"
 fi`;
   try {
-    execSync(script, { shell: "/bin/bash", stdio: "pipe" });
+    execSync(script, { shell: "/bin/bash", stdio: "pipe", timeout: 30_000 });
     return { code: 0 };
   } catch (e: any) {
     return { code: e.status ?? 1 };
@@ -104,7 +104,7 @@ if ! printf '%s' "$REPAIR_VERSION" | grep -qE '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]
 fi
 node -e 'const fs=require("fs"),p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\\n")' "$REPAIR_VERSION"`;
   try {
-    execSync(script, { shell: "/bin/bash", stdio: "pipe" });
+    execSync(script, { shell: "/bin/bash", stdio: "pipe", timeout: 30_000 });
     return { code: 0 };
   } catch (e: any) {
     return { code: e.status ?? 1 };

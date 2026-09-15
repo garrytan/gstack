@@ -15,47 +15,31 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const SKILL_GLOBS = [
-  'plan-ceo-review',
-  'plan-eng-review',
-  'plan-design-review',
-  'plan-devex-review',
-  'office-hours',
-  'codex',
-  'investigate',
-  'qa',
-  'retro',
-  'cso',
-  'review',
-  'ship',
-  'design-review',
-  'devex-review',
-  'qa-only',
-  'design-consultation',
-  'design-shotgun',
-  'autoplan',
-  'land-and-deploy',
-  'plan-tune',
-  'document-release',
-  'context-save',
-  'context-restore',
-  'health',
-  'setup-deploy',
-  'setup-browser-cookies',
-  'canary',
-  'learn',
-  'benchmark',
-  'benchmark-models',
-  'make-pdf',
-  'open-gstack-browser',
-  'gstack-upgrade',
-  'pair-agent',
-  'design-html',
-  'freeze',
-  'unfreeze',
-  'careful',
-  'guard',
-];
+
+/**
+ * Every top-level skill directory with a SKILL.md.tmpl, discovered from
+ * disk. This replaced a hand-maintained 39-name list that had drifted to
+ * 39-of-54 templates on disk — none of the unlisted 15 happened to be
+ * interactive, so there was no LIVE gap, but the next interactive skill
+ * would have landed unguarded with no signal.
+ */
+function skillTemplateDirs(): string[] {
+  return fs.readdirSync(ROOT, { withFileTypes: true })
+    .filter((entry) => {
+      // Directory symlinks (connect-chrome → open-gstack-browser) count too:
+      // existsSync below follows them, and duplicates only re-check the same
+      // template. isDirectory() is false for symlinked dirs, hence statSync.
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') return false;
+      try {
+        return fs.statSync(path.join(ROOT, entry.name)).isDirectory()
+          && fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'));
+      } catch {
+        return false;
+      }
+    })
+    .map((entry) => entry.name)
+    .sort();
+}
 
 /**
  * Load .tmpl files for each skill and return the names of those that have
@@ -63,7 +47,7 @@ const SKILL_GLOBS = [
  */
 function findInteractiveSkills(): string[] {
   const interactive: string[] = [];
-  for (const skill of SKILL_GLOBS) {
+  for (const skill of skillTemplateDirs()) {
     const tmplPath = path.join(ROOT, skill, 'SKILL.md.tmpl');
     if (!fs.existsSync(tmplPath)) continue;
     const content = fs.readFileSync(tmplPath, 'utf-8');

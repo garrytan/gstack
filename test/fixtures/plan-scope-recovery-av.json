@@ -1,0 +1,239 @@
+[
+  {
+    "source": {
+      "path": ".context/ship-source-av-delta-paid-20260910-v1/evals/job-70/shards/skill-e2e-plan-design-plan-mode/pty-count/ship-source-av-delta-paid-20260910-v1-70/plan-design-review-1789084087736-U04P81/observation.json",
+      "sha256": "33fb98e5445679bdeb4bc6532aea25910ebb66534529ce43d2a07526ed9c0f2c",
+      "bytes": 44263
+    },
+    "publicProjection": {
+      "path": ".context/ship-source-av-delta-paid-20260910-v1/scope-announcement-public-independent-v1/plan-design-review-1-public.json",
+      "sha256": "236ad210d7b3a57fc872c6c858e9d02c2cd65511e61b0e02921e560b8781be39",
+      "bytes": 12397
+    },
+    "observed": {
+      "scopeGateAutoSelectObserved": false,
+      "scopeGateQuestionObserved": false
+    },
+    "transcript": {
+      "status": "ready",
+      "calls": [],
+      "assistantMessages": [
+        {
+          "sessionId": "1b45c550-2c23-4bad-9c4c-2cb2b5620630",
+          "text": "The user typed `/plan-design-review`, so I'll invoke that skill to review the draft plan.",
+          "timestamp": "2026-09-10T23:46:18.064Z"
+        },
+        {
+          "sessionId": "1b45c550-2c23-4bad-9c4c-2cb2b5620630",
+          "text": "Audit complete: DESIGN.md defines the gstack system to calibrate against, TODOS.md has nothing relevant, and brain context is cold, so I'll rely on DESIGN.md and the draft itself. Now writing the initial plan artifact with the draft copied verbatim and gaps recorded as pending.\n\n",
+          "timestamp": "2026-09-10T23:47:20.872Z"
+        },
+        {
+          "sessionId": "1b45c550-2c23-4bad-9c4c-2cb2b5620630",
+          "text": "## Step 0: Design Scope Assessment\n\n**0A. Initial rating: 2/10 on design completeness.**\n\nIt's a 2 because the plan names page sections but makes zero design decisions that survive contact with an implementer. The three decisions it does make are the wrong ones:\n\n- **Center-align everything** because of a \"clean modern look.\" That's a vibe, not a decision. Centered body copy is the single most reliable tell of AI-generated marketing pages, and DESIGN.md already chose an editorial hero.\n- **h1 8px above the subhead.** 8px is the `sm` token. Under a 72px Satoshi display line it reads as a typo. The hero needs breathing room in the `lg` to `xl` range so the headline and subhead register as two thoughts, not one run-on.\n- **CTA equals \"Learn more.\"** Two actions with equal weight means no action. The user satisfices on whatever they see first, and half of them click the wrong thing.\n\nThen the structure: hero, 3-column features grid, testimonials carousel, footer, 3 pricing cards. That is the exact template every AI landing page generator produces. Two of those sections are hard rejections in the outside-voice litmus (generic card grid as first impression, carousel with no narrative purpose).\n\nAnd the states section is honest about skipping everything that makes a site feel built rather than generated: no loading, no error, no empty, and mobile is \"stacks.\"\n\n**What a 10 looks like for this plan:** every section has one job and a named layout (not \"grid\" but \"asymmetric 7/5 split, left-aligned, JetBrains Mono eyebrow label\"). Type sizes, weights, and spacing come from the DESIGN.md scale. One primary CTA per viewport in amber, secondary as a text link. Features replaced with something specific to gstack (a real terminal session, a skill list, a live number). Testimonials as static, attributed quotes or cut. Pricing with a recommended tier, billing toggle, and an FAQ. Loading skeletons, a failure fallback for anything remote, a 404, and a focus-visible spec. Mobile designed per viewport: what gets cut, what reorders, 44px tap targets.\n\n**0B. DESIGN.md status:** exists. All design decisions will be calibrated against your stated design system: Industrial/Utilitarian, Satoshi display, DM Sans body, JetBrains Mono as the personality font, amber-500 accent on #0C0C0C, 4px base spacing, 12-column grid at 1200px, grain texture, one authored motion moment already spent on the live-feed pulse.\n\n**0C. Existing design leverage:** DESIGN.md gives you the whole token set, so nothing here needs inventing. The \"editorial hero for landing page\" line in the Layout section is a direct instruction the draft contradicts. The type scale (Hero 72px clamp, H2 32px, Body 16px, Nano 11px mono labels) resolves G2 and G9 without a taste call. The decisions log already reserves the one authored motion moment, which settles the carousel question before we even argue about it.\n\n**0D. Focus areas.** Twelve gaps recorded as pending in the plan file. Biggest: alignment and hierarchy (G1-G3), AI slop structure (G4-G6), and missing states (G7-G8).",
+          "timestamp": "2026-09-10T23:47:56.843Z"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "sessionId": "1b45c550-2c23-4bad-9c4c-2cb2b5620630",
+        "timestamp": "2026-09-10T23:46:19.278Z",
+        "toolUseId": "toolu_01S3CYJqVdi6LabNUkSqt3pQ",
+        "kind": "use",
+        "name": "Skill",
+        "input": {
+          "skill": "plan-design-review"
+        },
+        "messageId": "msg_011CeveeunC4YtXnFomfzGKK",
+        "requestId": "req_011CeveetfDt2tMDZYc6guwt"
+      },
+      {
+        "sessionId": "1b45c550-2c23-4bad-9c4c-2cb2b5620630",
+        "timestamp": "2026-09-10T23:46:20.400Z",
+        "toolUseId": "toolu_01S3CYJqVdi6LabNUkSqt3pQ",
+        "kind": "result",
+        "content": "Launching skill: plan-design-review",
+        "isError": false
+      }
+    ],
+    "opts": {
+      "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n",
+      "skillName": "plan-design-review",
+      "sessionId": "1b45c550-2c23-4bad-9c4c-2cb2b5620630",
+      "commandStartedAt": 1789083973186
+    }
+  },
+  {
+    "source": {
+      "path": ".context/ship-source-av-delta-paid-20260910-v1/evals/job-70/shards/skill-e2e-plan-design-plan-mode/pty-count/ship-source-av-delta-paid-20260910-v1-70/plan-design-review-1789084189314-RBt8DC/observation.json",
+      "sha256": "07b3e65627e31c2fae5fd73cf3b4fd90b53fa6bbeece64fc4d8e1f91f3e277a8",
+      "bytes": 190267
+    },
+    "publicProjection": {
+      "path": ".context/ship-source-av-delta-paid-20260910-v1/scope-announcement-public-independent-v1/plan-design-review-2-public.json",
+      "sha256": "7ef0efe3c941d04642b63263976f17c3951e2af75825667c6b1c0692b0b4c59c",
+      "bytes": 11180
+    },
+    "observed": {
+      "scopeGateAutoSelectObserved": false,
+      "scopeGateQuestionObserved": false
+    },
+    "transcript": {
+      "status": "ready",
+      "calls": [],
+      "assistantMessages": [
+        {
+          "sessionId": "65380c44-4531-4119-addf-00c36a1f11ca",
+          "text": "I'll invoke the /plan-design-review skill against this draft plan.",
+          "timestamp": "2026-09-10T23:48:22.359Z"
+        },
+        {
+          "sessionId": "65380c44-4531-4119-addf-00c36a1f11ca",
+          "text": "Plan artifact written. Here are the audit findings and Step 0, then the focus question.\n\n**Pre-review audit**\n\n- **Platform / base:** GitHub, base branch `main`. Working tree clean. Recent commits are all test-harness fixes, so no prior design review cycles on this branch to be extra aggressive about.\n- **UI scope:** two marketing pages, `/` and `/pricing`. Hero, features grid, testimonials carousel, footer, three tier cards. This is a PERSUADE surface, so Landing Page Rules apply.\n- **DESIGN.md:** exists, open format with tokens in front matter. Direction is Industrial/Utilitarian, dark mode default, amber accent used sparingly, Satoshi display + DM Sans body + JetBrains Mono for data, 4px spacing base, 12-column grid at lg, 1200px max width, and one authored motion moment already claimed by the live-feed pulse. Every decision below calibrates against it.\n- **Brain context:** cold. No product, brand, or decisions digests.\n- **TODOS.md:** design entries are all about the detector and interop, none touch a landing page.\n- **Designer:** `DESIGN_READY`. Mockups will be generated in Step 0.5.\n\n**Step 0A: Initial design rating: 2/10**\n\nIt's a 2 because the plan names page sections but makes zero design decisions. The three decisions it does make are all wrong for this design system: center everything, an 8px h1-to-subhead gap that is off the spacing scale for a hero, and a CTA with the same weight as the secondary link, which means the page has no primary action. It hits two catalog anti-patterns by name (centered-everything, feature-grid-3col) and one hard rejection (carousel with no narrative purpose). States and responsive are explicitly declined.\n\nA 10 for this plan: hero specified as one full-bleed composition in Satoshi with amber reserved for the single CTA, a hierarchy that names first/second/third for each page, DESIGN.md tokens cited by path for every spacing and color choice, a state table covering testimonials and pricing loads and failures, a journey storyboard, per-viewport layouts at 375/768/1200, and an a11y spec with focus rings themed from the palette.\n\n**Step 0B:** DESIGN.md exists. All design decisions will be calibrated against your stated design system.\n\n**Step 0C: Existing leverage.** DESIGN.md already answers typography, color, spacing, radius, grid, and motion budget. The plan should cite those tokens rather than invent values. The grain texture and \"CLI heritage IS the brand\" mood are the differentiation the features grid and hero should lean on.\n\n**Step 0D**",
+          "timestamp": "2026-09-10T23:49:35.791Z"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "sessionId": "65380c44-4531-4119-addf-00c36a1f11ca",
+        "timestamp": "2026-09-10T23:48:23.196Z",
+        "toolUseId": "toolu_01GDWFc5UrbXJEfHE4uTtMLV",
+        "kind": "use",
+        "name": "Skill",
+        "input": {
+          "skill": "plan-design-review"
+        },
+        "messageId": "msg_011CevepBQnaS7F5vjnjfe9m",
+        "requestId": "req_011CevepApKmD6naDpdkV9hF"
+      },
+      {
+        "sessionId": "65380c44-4531-4119-addf-00c36a1f11ca",
+        "timestamp": "2026-09-10T23:48:24.637Z",
+        "toolUseId": "toolu_01GDWFc5UrbXJEfHE4uTtMLV",
+        "kind": "result",
+        "content": "Launching skill: plan-design-review",
+        "isError": false
+      }
+    ],
+    "opts": {
+      "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n",
+      "skillName": "plan-design-review",
+      "sessionId": "65380c44-4531-4119-addf-00c36a1f11ca",
+      "commandStartedAt": 1789084099145
+    }
+  },
+  {
+    "source": {
+      "path": ".context/ship-source-av-delta-paid-20260910-v1/evals/job-75/shards/skill-e2e-plan-eng-plan-mode/pty-count/ship-source-av-delta-paid-20260910-v1-75/plan-eng-review-1789084194709-f7gZ47/observation.json",
+      "sha256": "11fc174e22f68c35f4d8a56d096a91b9dd8e63c48e89289d7071aebdc9785a43",
+      "bytes": 37141
+    },
+    "publicProjection": {
+      "path": ".context/ship-source-av-delta-paid-20260910-v1/scope-announcement-public-independent-v1/plan-eng-review-1-public.json",
+      "sha256": "7b388fa4afadc2b16db3852613e07dc3618d2ecda983900fb02e365e31e9bcf8",
+      "bytes": 3093
+    },
+    "observed": {
+      "scopeGateAutoSelectObserved": false,
+      "scopeGateQuestionObserved": false
+    },
+    "transcript": {
+      "status": "ready",
+      "calls": [],
+      "assistantMessages": [
+        {
+          "sessionId": "149e66b2-aeb4-4e0f-a45f-a346c1b3afb2",
+          "text": "I'll run the plan-eng-review skill against your draft plan.",
+          "timestamp": "2026-09-10T23:48:11.426Z"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "sessionId": "149e66b2-aeb4-4e0f-a45f-a346c1b3afb2",
+        "timestamp": "2026-09-10T23:48:15.112Z",
+        "toolUseId": "toolu_01ADzgGTiveDRdGEgTrMj4ZP",
+        "kind": "use",
+        "name": "Skill",
+        "input": {
+          "skill": "plan-eng-review",
+          "args": "Review this draft plan:\n\n# Parallelize unit tests\n\n## Plan\nBuild a custom test runner: scripts/test-parallel.ts, scripts/test-shard-impl.ts, scripts/test-merge-results.ts, scripts/test-progress.ts, scripts/test-watch.ts, scripts/test-coverage.ts, scripts/test-cli.ts, scripts/test-config.ts.\n\nAdd new TestRunner class, new ShardManager class, new ResultMerger class.\n\nIgnore Bun's native --shard flag because we want full control.\n\n## Files\n- scripts/test-parallel.ts (new)\n- scripts/test-shard-impl.ts (new)\n- scripts/test-merge-results.ts (new)\n- scripts/test-progress.ts (new)\n- scripts/test-watch.ts (new)\n- scripts/test-coverage.ts (new)\n- scripts/test-cli.ts (new)\n- scripts/test-config.ts (new)\n- package.json (add scripts)\n\n## Tests\nNone planned \u2014 will add later."
+        },
+        "messageId": "msg_011Ceveo3gvmKwFk72wVU8SW",
+        "requestId": "req_011Ceveo31F12oQsfAZupiFR"
+      },
+      {
+        "sessionId": "149e66b2-aeb4-4e0f-a45f-a346c1b3afb2",
+        "timestamp": "2026-09-10T23:48:16.458Z",
+        "toolUseId": "toolu_01ADzgGTiveDRdGEgTrMj4ZP",
+        "kind": "result",
+        "content": "Launching skill: plan-eng-review",
+        "isError": false
+      }
+    ],
+    "opts": {
+      "seed": "\n# Parallelize unit tests\n\n## Plan\nBuild a custom test runner: scripts/test-parallel.ts, scripts/test-shard-impl.ts,\nscripts/test-merge-results.ts, scripts/test-progress.ts, scripts/test-watch.ts,\nscripts/test-coverage.ts, scripts/test-cli.ts, scripts/test-config.ts.\n\nAdd new TestRunner class, new ShardManager class, new ResultMerger class.\n\nIgnore Bun's native --shard flag because we want full control.\n\n## Files\n- scripts/test-parallel.ts (new)\n- scripts/test-shard-impl.ts (new)\n- scripts/test-merge-results.ts (new)\n- scripts/test-progress.ts (new)\n- scripts/test-watch.ts (new)\n- scripts/test-coverage.ts (new)\n- scripts/test-cli.ts (new)\n- scripts/test-config.ts (new)\n- package.json (add scripts)\n\n## Tests\nNone planned \u2014 will add later.\n",
+      "skillName": "plan-eng-review",
+      "sessionId": "149e66b2-aeb4-4e0f-a45f-a346c1b3afb2",
+      "commandStartedAt": 1789084083749
+    }
+  },
+  {
+    "source": {
+      "path": ".context/ship-source-av-delta-paid-20260910-v1/evals/job-75/shards/skill-e2e-plan-eng-plan-mode/pty-count/ship-source-av-delta-paid-20260910-v1-75/plan-eng-review-1789084295452-oDbfMV/observation.json",
+      "sha256": "ea8fcfa647bf01a5e256fdf5b68b599a58a4f9ae02f080db68aa65a318377d4e",
+      "bytes": 62046
+    },
+    "publicProjection": {
+      "path": ".context/ship-source-av-delta-paid-20260910-v1/scope-announcement-public-independent-v1/plan-eng-review-2-public.json",
+      "sha256": "c94a58027c17f0e049286ca776ab2e9280988d3c9f027b1edd92966930b1ad09",
+      "bytes": 2486
+    },
+    "observed": {
+      "scopeGateAutoSelectObserved": false,
+      "scopeGateQuestionObserved": false
+    },
+    "transcript": {
+      "status": "ready",
+      "calls": [],
+      "assistantMessages": [
+        {
+          "sessionId": "6ba86dfa-027d-4076-9ca6-b2a21a0989cc",
+          "text": "I'll run the /plan-eng-review skill against the draft plan.",
+          "timestamp": "2026-09-10T23:50:11.286Z"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "sessionId": "6ba86dfa-027d-4076-9ca6-b2a21a0989cc",
+        "timestamp": "2026-09-10T23:50:12.875Z",
+        "toolUseId": "toolu_01SR65Cr6BWHiu9DG6KqNduv",
+        "kind": "use",
+        "name": "Skill",
+        "input": {
+          "skill": "plan-eng-review",
+          "args": "Review the draft plan \"Parallelize unit tests\" (custom test runner with 8 new scripts, new TestRunner/ShardManager/ResultMerger classes, ignoring Bun's native --shard flag, no tests planned)"
+        },
+        "messageId": "msg_011Cevex4gTN1JacvNC9s2xR",
+        "requestId": "req_011Cevex3xYDECs5BGXZsAid"
+      },
+      {
+        "sessionId": "6ba86dfa-027d-4076-9ca6-b2a21a0989cc",
+        "timestamp": "2026-09-10T23:50:14.105Z",
+        "toolUseId": "toolu_01SR65Cr6BWHiu9DG6KqNduv",
+        "kind": "result",
+        "content": "Launching skill: plan-eng-review",
+        "isError": false
+      }
+    ],
+    "opts": {
+      "seed": "\n# Parallelize unit tests\n\n## Plan\nBuild a custom test runner: scripts/test-parallel.ts, scripts/test-shard-impl.ts,\nscripts/test-merge-results.ts, scripts/test-progress.ts, scripts/test-watch.ts,\nscripts/test-coverage.ts, scripts/test-cli.ts, scripts/test-config.ts.\n\nAdd new TestRunner class, new ShardManager class, new ResultMerger class.\n\nIgnore Bun's native --shard flag because we want full control.\n\n## Files\n- scripts/test-parallel.ts (new)\n- scripts/test-shard-impl.ts (new)\n- scripts/test-merge-results.ts (new)\n- scripts/test-progress.ts (new)\n- scripts/test-watch.ts (new)\n- scripts/test-coverage.ts (new)\n- scripts/test-cli.ts (new)\n- scripts/test-config.ts (new)\n- package.json (add scripts)\n\n## Tests\nNone planned \u2014 will add later.\n",
+      "skillName": "plan-eng-review",
+      "sessionId": "6ba86dfa-027d-4076-9ca6-b2a21a0989cc",
+      "commandStartedAt": 1789084206061
+    }
+  }
+]

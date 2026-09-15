@@ -13,8 +13,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { spawn as nodeSpawn } from 'child_process';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
+import { readPidStartTime, readPidCmdline } from './xvfb';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
-import { resolveConfig, ensureStateDir, readVersionHash, isPairAgentEnabled } from './config';
+import { resolveConfig, ensureStateDir, readVersionHash, isPairAgentEnabled, resolveChromiumProfile } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
 import { spawnTerminalAgent } from './terminal-agent-control';
@@ -131,6 +132,9 @@ interface ServerState {
   xvfbPid?: number;
   xvfbStartTime?: number;
   xvfbDisplay?: string;
+  /** Launched-Chromium identity for post-stop reaping (#2709). */
+  chromiumPid?: number;
+  chromiumStartTime?: string;
 }
 
 // ─── State File ────────────────────────────────────────────────
@@ -257,9 +261,12 @@ function cleanupLegacyState(): void {
 }
 
 // ─── Chromium profile lock helpers (#1781) ─────────────────────
-/** Profile dir used by headed/connect Chromium sessions. */
+/** Profile dir used by headed/connect Chromium sessions. Must resolve exactly
+ * as browser-manager does (config.resolveChromiumProfile), or the lock cleanup
+ * and orphan kill below target a different profile than the one being launched
+ * and evict an unrelated browser. */
 function chromiumProfileDir(): string {
-  return path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+  return resolveChromiumProfile();
 }
 
 /** Remove Chromium SingletonLock/Socket/Cookie so a relaunch can acquire the
@@ -287,6 +294,36 @@ async function killOrphanChromium(profileDir: string = chromiumProfileDir()): Pr
     }
   } catch (err: any) {
     if (err?.code !== 'ENOENT' && err?.code !== 'EINVAL') throw err;
+  }
+}
+
+/**
+ * Reap the launched Chromium recorded in the state file (#2709). The headless
+ * launch has no userDataDir, so it never writes the SingletonLock that
+ * killOrphanChromium walks — `browse stop` reported success while the
+ * orphaned GPU process kept spinning (~800% CPU on macOS 26). Identity is
+ * verified TWO ways before any signal — start time matches the recorded
+ * value AND the executable looks like Chromium — so a recycled PID (even one
+ * now running a different, legitimate Chromium) is never killed.
+ */
+export async function reapRecordedChromium(state: {
+  chromiumPid?: number;
+  chromiumStartTime?: string;
+}): Promise<void> {
+  const pid = state.chromiumPid;
+  if (!pid || !isProcessAlive(pid)) return;
+  if (!state.chromiumStartTime || readPidStartTime(pid) !== state.chromiumStartTime) return;
+  const cmd = readPidCmdline(pid).toLowerCase();
+  if (!/chrom|headless_shell/.test(cmd)) return;
+  safeKill(pid, 'SIGTERM');
+  // Poll instead of a fixed sleep: the common case (daemon's own close is
+  // finishing concurrently) exits in ~100-200ms instead of always paying 1s.
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline && isProcessAlive(pid)) {
+    await new Promise(r => setTimeout(r, 100));
+  }
+  if (isProcessAlive(pid)) {
+    safeKill(pid, 'SIGKILL');
   }
 }
 
@@ -463,7 +500,14 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   // Bound the append-mode daemon log before the new daemon starts writing.
   rotateDaemonLogIfOversized();
 
-  // Clean up stale state file and error log
+  // Clean up stale state file and error log. Reap the previous daemon's
+  // recorded headless Chromium first — the state file is the only carrier of
+  // its identity, and the lock-less headless child is invisible to
+  // killOrphanChromium below (#2709). Identity-gated, so safe when stale.
+  {
+    const staleState = readState();
+    if (staleState) await reapRecordedChromium(staleState);
+  }
   safeUnlink(config.stateFile);
   safeUnlink(path.join(config.stateDir, 'browse-startup-error.log'));
 
@@ -1225,6 +1269,14 @@ async function tunnelAgents(): Promise<number> {
  * opposite of the user's intent. And `control` never rides in via --restrict:
  * browser-wide destructive ops stay behind the explicit --control flag. */
 function validatePairAgentFlags(args: string[]): void {
+  // `root` is the sentinel that bypasses all scope/domain/rate/tab enforcement;
+  // naming an agent that way would silently un-sandbox it. Reject client-side
+  // before hitting the daemon (the server rejects it too).
+  const client = parseFlag(args, '--client');
+  if (client && client.trim().toLowerCase() === 'root') {
+    console.error("[browse] --client 'root' is reserved — it would bypass all scope enforcement. Choose another name.");
+    process.exit(1);
+  }
   // hasFlag/parseFlag are exact-token matches, so `--restrict=read` would
   // sail past every check below and silently grant FULL access.
   if (args.some(a => a.startsWith('--restrict='))) {
@@ -1305,7 +1357,20 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
     scopes: string[];
     tunnel_url: string | null;
     server_url: string;
+    superseded?: { tokens_deleted: number; tabs_released: number };
   };
+
+  // Version-skew safe: only speak when the daemon actually superseded a live
+  // session (old daemons omit the field, so a new CLI never claims a false one).
+  if (pairData.superseded && pairData.superseded.tokens_deleted > 0) {
+    console.log(`[browse] Superseded the previous session for "${clientName}" (${pairData.superseded.tokens_deleted} token(s), ${pairData.superseded.tabs_released} tab(s) released). The agent must reconnect with the new key.`);
+  }
+  // A re-pair narrows/changes an EXISTING agent only when it reuses that agent's
+  // --client name. Without one, this mints a brand-new agent and the old grant
+  // lives on — warn when the intent looks like a re-pair.
+  if (!parseFlag(args, '--client') && (restrict || domains)) {
+    console.warn(`[browse] No --client given: this pairs a NEW agent and does NOT narrow an existing one. To change an agent's access, re-pair with its --client name (see 'browse tunnel agents').`);
+  }
 
   // Determine the URL to use
   let serverUrl: string;
@@ -1538,7 +1603,13 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     // Kill an orphaned Chromium still holding the profile lock (the Bun server
     // PID's Chromium child can outlive an abrupt kill/crash), then clear the
     // lock files so the launch is clean. Shared with the auto-restart path (#1781).
+    // Also reap the lock-less headless child recorded in the state file before
+    // deleting it — killOrphanChromium can't see it (#2709).
     await killOrphanChromium();
+    {
+      const staleState = readState();
+      if (staleState) await reapRecordedChromium(staleState);
+    }
     cleanChromiumProfileLocks();
 
     // Delete stale state file
@@ -1783,6 +1854,10 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       process.exit(0);
     }
     if (!isProcessAlive(stopState.pid) && !(await isServerHealthy(stopState.port))) {
+      // The daemon died abruptly (SIGKILL, crash) — the likeliest orphan case.
+      // Reap the recorded headless Chromium BEFORE destroying the state file,
+      // which is the only carrier of its identity (#2709).
+      await reapRecordedChromium(stopState);
       safeUnlinkQuiet(config.stateFile);
       console.log('No daemon running (cleaned stale state) — nothing to stop.');
       process.exit(0);
@@ -1799,7 +1874,10 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       await killServer(stopState.pid);
       // Reap the orphaned Chromium child + clear its profile locks so the
       // NEXT launch is clean (same cleanup as the disconnect force path).
+      // The headless child has no SingletonLock — reap it via the recorded
+      // identity too (#2709).
       await killOrphanChromium();
+      await reapRecordedChromium(stopState);
       cleanChromiumProfileLocks();
       safeUnlinkQuiet(config.stateFile);
       console.log('Daemon stopped (forced — tabs/cookies/logins discarded).');
@@ -1888,6 +1966,14 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
   }
 
   await sendCommand(state, command, commandArgs);
+
+  // #2709: after a graceful stop, the daemon has closed Chromium via
+  // Playwright — but on macOS 26 the GPU process can survive that close and
+  // spin at ~800% CPU forever. The state snapshot read above still carries
+  // the launched child's identity; reap a verified survivor.
+  if (command === 'stop') {
+    await reapRecordedChromium(state);
+  }
 
   // #1781: `focus` means "show me the window". The server-side focus activates
   // the page via CDP, but on macOS the app can still sit on another Space — pull

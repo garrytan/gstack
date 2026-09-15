@@ -5,6 +5,18 @@
   "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's decision-tree prose is the ONLY place that decides WHEN to read a section. No machine predicate here — see docs/designs/v2_PLAN.md.",
   "sections": [
     {
+      "id": "phase-2a-startup-diagnostic",
+      "file": "phase-2a-startup-diagnostic.md",
+      "title": "Phase 2A startup-mode diagnostic",
+      "trigger": "running the startup-mode diagnostic (Phase 2A: operating principles, pushback patterns, and the six forcing questions)"
+    },
+    {
+      "id": "phase-2b-builder-brainstorm",
+      "file": "phase-2b-builder-brainstorm.md",
+      "title": "Phase 2B builder-mode brainstorm",
+      "trigger": "running the builder-mode brainstorm (Phase 2B: operating principles, the wild exemplar, and the generative questions)"
+    },
+    {
       "id": "design-and-handoff",
       "file": "design-and-handoff.md",
       "title": "Phase 5 design doc + Phase 6 relationship handoff",

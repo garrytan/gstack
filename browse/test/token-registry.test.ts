@@ -6,7 +6,9 @@ import {
   revokeToken, rotateRoot, listTokens, recordCommand,
   serializeRegistry, restoreRegistry, checkConnectRateLimit,
   SCOPE_READ, SCOPE_WRITE, SCOPE_ADMIN, SCOPE_CONTROL, SCOPE_META,
-  DEFAULT_PAIR_SCOPES, InvalidScopeError,
+  DEFAULT_PAIR_SCOPES, InvalidScopeError, ReservedClientIdError,
+  revokeSetupKeys, getClientSession, grantReducesAccess,
+  type TokenInfo, type ResolvedGrant,
   __resetRegistry,
 } from '../src/token-registry';
 
@@ -17,6 +19,92 @@ describe('token-registry', () => {
     // a UUID in rootToken and the guard would throw.
     __resetRegistry();
     initRegistry('root-token-for-tests');
+  });
+
+  // D2: `root` is the sentinel checkScope/checkDomain/checkRate use for the
+  // omnipotent caller; a scoped token carrying it bypasses all enforcement.
+  describe('reserved clientId (D2)', () => {
+    it('createToken rejects clientId "root" and lookalikes', () => {
+      expect(() => createToken({ clientId: 'root' })).toThrow(ReservedClientIdError);
+      expect(() => createToken({ clientId: 'ROOT' })).toThrow(ReservedClientIdError);
+      expect(() => createToken({ clientId: '  root  ' })).toThrow(ReservedClientIdError);
+    });
+
+    it('createToken rejects empty / whitespace clientId', () => {
+      expect(() => createToken({ clientId: '' })).toThrow(ReservedClientIdError);
+      expect(() => createToken({ clientId: '   ' })).toThrow(ReservedClientIdError);
+    });
+
+    it('createSetupKey rejects clientId "root" but allows an omitted one', () => {
+      expect(() => createSetupKey({ clientId: 'root' })).toThrow(ReservedClientIdError);
+      // Omitted clientId gets a safe generated default, not a throw.
+      const key = createSetupKey({});
+      expect(key.clientId.startsWith('remote-')).toBe(true);
+    });
+
+    it('revokeSetupKeys drops only PENDING keys, keeping the spent key and the session', () => {
+      const k1 = createSetupKey({ clientId: 'x' });   // pending
+      exchangeSetupKey(k1.token);                      // k1 now spent + a session exists
+      createSetupKey({ clientId: 'x' });               // pending k2
+      expect(revokeSetupKeys('x')).toBe(1);            // only the pending k2
+      expect(getClientSession('x')).not.toBeNull();    // session kept
+      // The spent key survives for idempotent re-exchange (#2646).
+      expect(exchangeSetupKey(k1.token)).not.toBeNull();
+    });
+
+    it('restoreRegistry skips a persisted "root" entry instead of injecting a bypass token', () => {
+      restoreRegistry({ agents: {
+        root: { token: 'gsk_sess_evil', type: 'session', scopes: ['read', 'write', 'admin', 'meta', 'control'], tabPolicy: 'shared', rateLimit: 0, expiresAt: null, createdAt: new Date().toISOString() } as any,
+        good: { token: 'gsk_sess_good', type: 'session', scopes: ['read'], tabPolicy: 'own-only', rateLimit: 10, expiresAt: null, createdAt: new Date().toISOString() } as any,
+      } });
+      // The evil root entry is dropped; the valid one still restores.
+      expect(validateToken('gsk_sess_evil')).toBeNull();
+      const good = validateToken('gsk_sess_good');
+      expect(good?.clientId).toBe('good');
+    });
+  });
+
+  // D1: drives the /pair supersede decision. Direction matters — dropping an
+  // allowlisted domain is the reduction, not adding one; 0 = unlimited rate.
+  describe('grantReducesAccess (D1)', () => {
+    const prior = (o: Partial<TokenInfo> = {}): TokenInfo => ({
+      token: 't', clientId: 'c', type: 'session',
+      scopes: ['read', 'write', 'admin', 'meta'], tabPolicy: 'own-only',
+      rateLimit: 10, expiresAt: null, createdAt: '', commandCount: 0, ...o,
+    });
+    const grant = (o: Partial<ResolvedGrant> = {}): ResolvedGrant => ({
+      scopes: ['read', 'write', 'admin', 'meta'], rateLimit: 10, tabPolicy: 'own-only', ...o,
+    });
+
+    it('scopes: drop → reduce; add/equal → not; dropping control → reduce', () => {
+      expect(grantReducesAccess(prior({ scopes: ['read', 'write', 'admin', 'meta'] }), grant({ scopes: ['read'] }))).toBe(true);
+      expect(grantReducesAccess(prior({ scopes: ['read'] }), grant({ scopes: ['read', 'write'] }))).toBe(false);
+      expect(grantReducesAccess(prior({ scopes: ['read'] }), grant({ scopes: ['read'] }))).toBe(false);
+      expect(grantReducesAccess(prior({ scopes: ['read', 'control'] }), grant({ scopes: ['read'] }))).toBe(true);
+    });
+
+    it('domains: drop → reduce; add/equal → not; unrestricted→restricted → reduce; glob narrowing → reduce', () => {
+      expect(grantReducesAccess(prior({ domains: ['a.com', 'b.com'] }), grant({ domains: ['a.com'] }))).toBe(true);
+      expect(grantReducesAccess(prior({ domains: ['a.com'] }), grant({ domains: ['a.com', 'b.com'] }))).toBe(false);
+      expect(grantReducesAccess(prior({ domains: ['a.com'] }), grant({ domains: ['a.com'] }))).toBe(false);
+      expect(grantReducesAccess(prior({ domains: undefined }), grant({ domains: ['a.com'] }))).toBe(true);
+      expect(grantReducesAccess(prior({ domains: ['a.com'] }), grant({ domains: undefined }))).toBe(false);
+      expect(grantReducesAccess(prior({ domains: ['*.example.com'] }), grant({ domains: ['*.com'] }))).toBe(false); // widen
+      expect(grantReducesAccess(prior({ domains: ['*.com'] }), grant({ domains: ['*.example.com'] }))).toBe(true);  // narrow
+    });
+
+    it('rate (0 = unlimited): unlimited→capped → reduce; lower cap → reduce; higher/equal → not', () => {
+      expect(grantReducesAccess(prior({ rateLimit: 0 }), grant({ rateLimit: 10 }))).toBe(true);
+      expect(grantReducesAccess(prior({ rateLimit: 10 }), grant({ rateLimit: 5 }))).toBe(true);
+      expect(grantReducesAccess(prior({ rateLimit: 5 }), grant({ rateLimit: 10 }))).toBe(false);
+      expect(grantReducesAccess(prior({ rateLimit: 10 }), grant({ rateLimit: 10 }))).toBe(false);
+      expect(grantReducesAccess(prior({ rateLimit: 10 }), grant({ rateLimit: 0 }))).toBe(false); // → unlimited = broaden
+    });
+
+    it('tabPolicy: shared → own-only → reduce; the reverse → not', () => {
+      expect(grantReducesAccess(prior({ tabPolicy: 'shared' }), grant({ tabPolicy: 'own-only' }))).toBe(true);
+      expect(grantReducesAccess(prior({ tabPolicy: 'own-only' }), grant({ tabPolicy: 'shared' }))).toBe(false);
+    });
   });
 
   describe('root token', () => {

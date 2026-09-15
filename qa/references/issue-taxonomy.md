@@ -75,11 +75,11 @@
 
 For each page visited during a QA session:
 
-1. **Visual scan** — Take annotated screenshot (`snapshot -i -a -o`). Look for layout issues, broken images, alignment.
+1. **Visual scan** — Take a screenshot (the Read-a-page script; `annotatedScreenshot(pg)` when you need ref labels). Look for layout issues, broken images, alignment.
 2. **Interactive elements** — Click every button, link, and control. Does each do what it says?
-3. **Forms** — Fill and submit. Test empty submission, invalid data, edge cases (long text, special characters).
+3. **Forms** — Fill and submit (non-local target: consent first — rule 13). Test empty submission, invalid data, edge cases (long text, special characters).
 4. **Navigation** — Check all paths in/out. Breadcrumbs, back button, deep links, mobile menu.
 5. **States** — Check empty state, loading state, error state, full/overflow state.
-6. **Console** — Run `console --errors` after interactions. Any new JS errors or failed requests?
+6. **Console** — Print `CONSOLE_ERRORS=` after interactions. Any new JS errors or failed requests?
 7. **Responsiveness** — If relevant, check mobile and tablet viewports.
-8. **Auth boundaries** — What happens when logged out? Different user roles?
+8. **Auth boundaries** — Never sign the user out or switch accounts yourself. If the signed-out or other-role view matters, ask the user to sign out / switch in Aside and re-run the page scripts.

@@ -36,7 +36,7 @@ export const TOOL_COMPATIBILITY: Record<'claude' | 'gpt' | 'gemini', Record<Tool
     Glob: true,
     Grep: true,
     AskUserQuestion: true,
-    WebSearch: true,
+    WebSearch: true,    // research skills try Aside first ({{ASIDE_RESEARCH}}); WebSearch is the fallback
     WebFetch: true,
   },
   gpt: {
@@ -64,7 +64,7 @@ export const TOOL_COMPATIBILITY: Record<'claude' | 'gpt' | 'gemini', Record<Tool
     Glob: false,
     Grep: false,
     AskUserQuestion: false,
-    WebSearch: true,
+    WebSearch: true,    // research skills try Aside first ({{ASIDE_RESEARCH}}); WebSearch is the fallback
     WebFetch: false,
   },
 };

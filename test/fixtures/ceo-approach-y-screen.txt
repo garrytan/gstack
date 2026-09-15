@@ -1,0 +1,39 @@
+      10 **Files touched recently:** PLAN.md, CLAUDE.md only.
+     … +89 lines (ctrl+o to expand)
+
+● Now I'll present the first decision — approach selection (Step 0C-bis). I've completed internal analysis of 0A, 0B,
+  and 0C. The plan has a textbook SQL injection on the critical payment path.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Planning:
+/tmp/gstack-paid-shard-38V9gy/tmp/gstack-hermetic-2351339-GfM888/with-skills/.claude/plans/magical-dazzling-waterfall.md
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Approach
+
+│ D1 — Which implementation approach for the payment webhook handler? <gstack-qid:plan-ceo-review-approach>
+
+❯ 1. A) Minimal Viable
+     Fix the SQL injection (parameterized query for userId lookup) and add a rescue/catch block around the email call.
+     Smallest diff, fastest to ship. Completeness: 6/10 — happy path only, no tests, N+1 query and WebhookDispatcher
+     bypass remain as known debt.��✅  Surgical change — easy to review, easy to revert if the feature flag needs to roll
+     back�✅  Fixes the one non-negotiable blocker: SQL injection. Email errors can no longer cascade to HTTP 500 and
+     trigger Stripe retries�❌  Zero automated tests on a payment flow — regressions will surface in production, not
+     CI�❌  N+1 order-fetch loop stays; WebhookDispatcher bypass stays as architectural debt
+  2. B) Proper Integration
+     Everything in A, plus: register the handler through the existing WebhookDispatcher module instead of bypassing it.
+     Completeness: 7/10 — happy path + architectural correctness, still no test coverage.��✅  Eliminates the
+     architectural fragmentation — future Stripe event types plug into the dispatcher naturally�✅  SQL injection fixed,
+     email bounded — all of A's must-fixes, plus namespace consistency�❌  Still no automated tests for the payment flow;
+     CI cannot catch regressions on this path�❌  Requires reading WebhookDispatcher internals before implementing —
+     slightly wider blast radius
+  3. C) Production-Grade (recommended)
+     Everything in B, plus: unit + integration tests for the handler, fix the N+1 order-fetch with a bulk query, move
+     the notification email to async delivery (queue or background job). Completeness: 10/10.��✅  Zero silent failures —
+     every path is tested, observable, and bounded. Payment flows have zero defect tolerance�✅  The extra scope over A
+     is ~25 min of CC time. With AI coding, "do it right" costs nearly the same as "do it quick"�❌  Async email delivery
+     requires confirming whether a queue or background-job infrastructure already exists�❌  Largest diff of the three —
+     more review surface, though each piece is individually straightforward
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

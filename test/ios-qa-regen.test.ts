@@ -105,7 +105,7 @@ describe('gstack-ios-qa-regen', () => {
     const workDir = mkdtempSync(join(tmpdir(), 'ios-qa-regen-'));
     workDirs.push(workDir);
     const { launcher } = copyIntoFakeInstall(workDir);
-    const result = spawnSync('bash', [launcher, '--app-source', workDir], { encoding: 'utf8' });
+    const result = spawnSync('bash', [launcher, '--app-source', workDir], { encoding: 'utf8', timeout: 30_000 });
 
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('both --app-source and --bridge-dir are required');
@@ -134,6 +134,7 @@ describe('gstack-ios-qa-regen', () => {
     ], {
       encoding: 'utf8',
       env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH ?? ''}` },
+      timeout: 30_000,
     });
 
     expect(result.status).toBe(17);
@@ -184,7 +185,7 @@ final class AppState {
       GEN_ACCESSORS_REV: 'regen-test',
     };
     const args = [launcher, '--app-source', appSource, '--bridge-dir', bridgeDir];
-    const first = spawnSync('bash', args, { encoding: 'utf8', env });
+    const first = spawnSync('bash', args, { encoding: 'utf8', env, timeout: 30_000 });
     expect(first.status).toBe(0);
     expect(first.stderr).toBe('');
 
@@ -232,10 +233,11 @@ final class AppState {
     expect(installedContents).not.toContain('FORBIDDEN-STATE-SENTINEL');
     expect(installedContents).not.toContain('OBSOLETE-HARNESS-SENTINEL');
 
-    const swiftAvailable = spawnSync('swift', ['--version'], { encoding: 'utf8' }).status === 0;
+    const swiftAvailable = spawnSync('swift', ['--version'], { encoding: 'utf8', timeout: 30_000 }).status === 0;
     if (swiftAvailable) {
       const dump = spawnSync('swift', ['package', 'dump-package', '--package-path', bridgeDir], {
         encoding: 'utf8',
+        timeout: 30_000,
       });
       expect(dump.status).toBe(0);
       const manifest = JSON.parse(dump.stdout) as { targets: Array<{ name: string }> };
@@ -248,7 +250,7 @@ final class AppState {
 
     const firstHash = treeHash(bridgeDir, generatedDir);
     const firstAccessorHash = accessor.match(/accessorHash: "([a-f0-9]+)"/)?.[1];
-    const second = spawnSync('bash', args, { encoding: 'utf8', env });
+    const second = spawnSync('bash', args, { encoding: 'utf8', env, timeout: 30_000 });
     expect(second.status).toBe(0);
     expect(second.stderr).toBe('');
     expect(second.stdout).toContain('gen-accessors: cache hit');

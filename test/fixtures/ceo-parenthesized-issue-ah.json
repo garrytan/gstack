@@ -1,0 +1,293 @@
+{
+  "sourceHead": "c9e7a422be47b69d855f48cfce9024457e0dd4fc",
+  "sourceSnapshot": {
+    "path": ".context/ship-source-ah-delta-paid-20260910-v1/ceo-first-finding-checkpoint-ledger-v1/public-snapshots.json",
+    "sha256": "b60ad4921c649276c52d8f09caf45178d91d028b56560e49610165faede4eed9"
+  },
+  "sessionId": "d87d468e-9058-4a52-8dc8-f7d4246dc13a",
+  "cwd": "/tmp/gstack-paid-shard-zcm490/tmp/gstack-plan-count-q8859d",
+  "publicEvents": [
+    {
+      "line": 107,
+      "record": {
+        "type": "assistant",
+        "sessionId": "d87d468e-9058-4a52-8dc8-f7d4246dc13a",
+        "cwd": "/tmp/gstack-paid-shard-zcm490/tmp/gstack-plan-count-q8859d",
+        "isSidechain": false,
+        "timestamp": "2026-09-10T03:17:25.755Z",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01M2hWu9BLPXb7e1wjfF23L5",
+              "name": "AskUserQuestion",
+              "input": {
+                "questions": [
+                  {
+                    "header": "Email leg",
+                    "question": "D4 (Issue 1) \u2014 What should the handler do when the notification email fails after the payment update commits?\nProject/branch/task: gstack-plan-count-q8859d on main, PLAN.md \"Webhook fan-out\": update + email inline, no error handling on the email leg.\nELI10: The database write says \"this user paid\" and commits. Then the email call throws. Today that exception turns into a 500, which tells Stripe \"try again\". But the payment is already saved, so the retry either gets swallowed by the dedup guard (no email ever goes out) or re-runs the handler and can send a second email. Stripe's failed-webhook alert fires for a payment that actually succeeded, which the runbook says must never trigger a blind replay.\nStakes if we pick wrong: paid users get zero or two receipts, on-call gets paged for successful payments, and a permanently rejected address retries for 72 hours.\nRecommendation: 1A because it is the only option where a committed payment returns 200 and the failure is still fully visible through the mail client's existing metric, alert and runbook. Maps to your preference: every error has a name, zero silent failures.\nCompleteness: 1A=9/10, 1B=4/10, 1C=2/10\nPros / cons:\n1A) Order: commit update -> record dedup completion -> send email. Rescue only the mail client's named classes (MailDeliveryError, MailTimeoutError, MailRejectedError). Log at error with event ID, user ID, payment intent ID, exception class. Return 200. If the existing notification retry procedure has a programmatic entry point, call it in the rescue; otherwise the logged correlation feeds the runbook. Tests: one per rescued class asserting 200, update persisted, error log emitted; one asserting DB errors still propagate as 500. (recommended) (human ~3h / CC ~15 min)\n  \u2705 Committed payments never report failure to Stripe, so no false retries or alert noise\n  \u2705 Named rescues only; DB failures keep their retry-via-500 contract untouched\n  \u2705 Failure remains visible via the mail client's failure-rate metric, alert, and correlated trace\n  \u274c Adds a rescue block and ordering rule the implementer must get right; needs the tests listed\n1B) Keep no rescue, but move the email after commit and dedup record so a retry cannot double-send (human ~30 min / CC ~5 min)\n  \u2705 Tiny change; no new rescue code in the handler\n  \u2705 Double email is prevented because the retry hits the dedup guard\n  \u274c A mail failure still returns 500 and pages on-call for a successful payment; the retry acks 200 and the notification is silently never sent\n1C) Do nothing; keep the plan as written (human 0 / CC 0)\n  \u2705 No implementation work\n  \u2705 Behavior is at least consistent with the prior handler if it did the same\n  \u274c Ordering is unspecified, so a mail outage can either roll back a real payment or send duplicate emails, and every mail failure looks like a webhook failure\nNet: a rescue with a name and a 200, versus letting Stripe retry a payment that already committed. <gstack-qid:plan-ceo-review-email-leg-rescue>",
+                    "options": [
+                      {
+                        "label": "1A) Named rescue, 200, log+trace (recommended)",
+                        "description": "Completeness 9/10. Commit -> dedup record -> email; rescue only mail classes; log correlated; return 200; tests per class."
+                      },
+                      {
+                        "label": "1B) Reorder only, no rescue",
+                        "description": "Completeness 4/10. Email after commit + dedup record; failures still 500 and page on-call."
+                      },
+                      {
+                        "label": "1C) Do nothing",
+                        "description": "Completeness 2/10. Keep inline email with no rescue and unspecified ordering."
+                      }
+                    ],
+                    "multiSelect": false
+                  }
+                ]
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "line": 108,
+      "record": {
+        "type": "user",
+        "sessionId": "d87d468e-9058-4a52-8dc8-f7d4246dc13a",
+        "cwd": "/tmp/gstack-paid-shard-zcm490/tmp/gstack-plan-count-q8859d",
+        "isSidechain": false,
+        "timestamp": "2026-09-10T03:17:27.593Z",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "content": "Your questions have been answered: \"D4 (Issue 1) \u2014 What should the handler do when the notification email fails after the payment update commits?\nProject/branch/task: gstack-plan-count-q8859d on main, PLAN.md \"Webhook fan-out\": update + email inline, no error handling on the email leg.\nELI10: The database write says \"this user paid\" and commits. Then the email call throws. Today that exception turns into a 500, which tells Stripe \"try again\". But the payment is already saved, so the retry either gets swallowed by the dedup guard (no email ever goes out) or re-runs the handler and can send a second email. Stripe's failed-webhook alert fires for a payment that actually succeeded, which the runbook says must never trigger a blind replay.\nStakes if we pick wrong: paid users get zero or two receipts, on-call gets paged for successful payments, and a permanently rejected address retries for 72 hours.\nRecommendation: 1A because it is the only option where a committed payment returns 200 and the failure is still fully visible through the mail client's existing metric, alert and runbook. Maps to your preference: every error has a name, zero silent failures.\nCompleteness: 1A=9/10, 1B=4/10, 1C=2/10\nPros / cons:\n1A) Order: commit update -> record dedup completion -> send email. Rescue only the mail client's named classes (MailDeliveryError, MailTimeoutError, MailRejectedError). Log at error with event ID, user ID, payment intent ID, exception class. Return 200. If the existing notification retry procedure has a programmatic entry point, call it in the rescue; otherwise the logged correlation feeds the runbook. Tests: one per rescued class asserting 200, update persisted, error log emitted; one asserting DB errors still propagate as 500. (recommended) (human ~3h / CC ~15 min)\n  \u2705 Committed payments never report failure to Stripe, so no false retries or alert noise\n  \u2705 Named rescues only; DB failures keep their retry-via-500 contract untouched\n  \u2705 Failure remains visible via the mail client's failure-rate metric, alert, and correlated trace\n  \u274c Adds a rescue block and ordering rule the implementer must get right; needs the tests listed\n1B) Keep no rescue, but move the email after commit and dedup record so a retry cannot double-send (human ~30 min / CC ~5 min)\n  \u2705 Tiny change; no new rescue code in the handler\n  \u2705 Double email is prevented because the retry hits the dedup guard\n  \u274c A mail failure still returns 500 and pages on-call for a successful payment; the retry acks 200 and the notification is silently never sent\n1C) Do nothing; keep the plan as written (human 0 / CC 0)\n  \u2705 No implementation work\n  \u2705 Behavior is at least consistent with the prior handler if it did the same\n  \u274c Ordering is unspecified, so a mail outage can either roll back a real payment or send duplicate emails, and every mail failure looks like a webhook failure\nNet: a rescue with a name and a 200, versus letting Stripe retry a payment that already committed. <gstack-qid:plan-ceo-review-email-leg-rescue>\"=\"1A) Named rescue, 200, log+trace (recommended)\". You can now continue with these answers in mind.",
+              "tool_use_id": "toolu_01M2hWu9BLPXb7e1wjfF23L5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "line": 122,
+      "record": {
+        "type": "assistant",
+        "sessionId": "d87d468e-9058-4a52-8dc8-f7d4246dc13a",
+        "cwd": "/tmp/gstack-paid-shard-zcm490/tmp/gstack-plan-count-q8859d",
+        "isSidechain": false,
+        "timestamp": "2026-09-10T03:18:20.407Z",
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_019pkzdAQt72RfCswrXXvvyc",
+              "name": "AskUserQuestion",
+              "input": {
+                "questions": [
+                  {
+                    "header": "SQL lookup",
+                    "question": "D5 (Issue 2) \u2014 How should the handler look up the user from `request.params.userId`?\nProject/branch/task: gstack-plan-count-q8859d on main, PLAN.md \"Database access\": userId read directly into a raw SQL fragment.\nELI10: `userId` is a string copied out of Stripe metadata. Our own server usually writes it, but the plan itself says nothing casts, escapes or validates it, and a valid Stripe signature only proves Stripe sent it, not that the string is safe. Pasting it into SQL means anyone who can set that metadata (a leaked API key, a dashboard edit, a bug in intent creation) can run their own SQL against the users table. Separately, a garbage string that fails the ID column's type cast raises a database error, which becomes a 500, which makes Stripe retry an unfixable event for three days.\nStakes if we pick wrong: data exfiltration or destruction through the payment path, plus 72 hours of retries and alerts for one malformed event.\nRecommendation: 2A because it closes injection completely and gives a malformed ID the same 200-and-warn treatment the adapter already gives a missing one. Maps to your preferences: security is not optional, explicit over clever, DRY (reuse the existing lookup helper).\nCompleteness: 2A=10/10, 2B=6/10, 2C=0/10\nPros / cons:\n2A) Validate then bind: parse userId to the users primary-key type (integer or UUID, whichever the schema uses; reject anything else including oversized or unicode strings). On parse failure log a warning with event ID and the rejected value length (not the value), ack 200 (retry cannot fix it). On success call the existing lookup helper, which uses a bound parameter; never build SQL text from the value. Tests: injection payload never reaches the DB and returns 200 + warning; wrong-type string returns 200 + warning; valid ID hits the existing lookup guard paths. (recommended) (human ~2h / CC ~10 min)\n  \u2705 No SQL text is ever built from external input, so injection is impossible by construction\n  \u2705 Malformed IDs return 200 with a correlated warning instead of 72h of retries\n  \u2705 Reuses the existing lookup helper and its not-found guard; no duplicated query\n  \u274c Needs the primary-key type confirmed and one small validation step with its tests\n2B) Bound parameter only, no shape validation (human ~1h / CC ~5 min)\n  \u2705 Closes the injection vector with a single change to how the query is built\n  \u2705 Reuses the existing lookup helper as-is\n  \u274c A non-ID string still raises a type-cast DB error, which the wrapper turns into a 500 and Stripe retries for 72 hours; the log says \"DB failure\" not \"bad input\"\n2C) Keep the raw SQL fragment as written (human 0 / CC 0)\n  \u2705 No work\n  \u2705 Matches the sketch\n  \u274c Live SQL injection on the payment path; the plan's own contract text says the input is unsanitized\nNet: reject bad input loudly and bind good input, versus trusting a string because Stripe signed the envelope. <gstack-qid:plan-ceo-review-sql-lookup>",
+                    "options": [
+                      {
+                        "label": "2A) Validate + bound lookup (recommended)",
+                        "description": "Completeness 10/10. Parse to PK type, 200+warn on failure, existing helper with bound param, injection + type tests."
+                      },
+                      {
+                        "label": "2B) Bound parameter only",
+                        "description": "Completeness 6/10. Parameterize the query; malformed IDs still cause 500 and 72h retries."
+                      },
+                      {
+                        "label": "2C) Keep raw SQL fragment",
+                        "description": "Completeness 0/10. Plan as written; injection remains open."
+                      }
+                    ],
+                    "multiSelect": false
+                  }
+                ]
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "line": 123,
+      "record": {
+        "type": "user",
+        "sessionId": "d87d468e-9058-4a52-8dc8-f7d4246dc13a",
+        "cwd": "/tmp/gstack-paid-shard-zcm490/tmp/gstack-plan-count-q8859d",
+        "isSidechain": false,
+        "timestamp": "2026-09-10T03:18:21.399Z",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "content": "Your questions have been answered: \"D5 (Issue 2) \u2014 How should the handler look up the user from `request.params.userId`?\nProject/branch/task: gstack-plan-count-q8859d on main, PLAN.md \"Database access\": userId read directly into a raw SQL fragment.\nELI10: `userId` is a string copied out of Stripe metadata. Our own server usually writes it, but the plan itself says nothing casts, escapes or validates it, and a valid Stripe signature only proves Stripe sent it, not that the string is safe. Pasting it into SQL means anyone who can set that metadata (a leaked API key, a dashboard edit, a bug in intent creation) can run their own SQL against the users table. Separately, a garbage string that fails the ID column's type cast raises a database error, which becomes a 500, which makes Stripe retry an unfixable event for three days.\nStakes if we pick wrong: data exfiltration or destruction through the payment path, plus 72 hours of retries and alerts for one malformed event.\nRecommendation: 2A because it closes injection completely and gives a malformed ID the same 200-and-warn treatment the adapter already gives a missing one. Maps to your preferences: security is not optional, explicit over clever, DRY (reuse the existing lookup helper).\nCompleteness: 2A=10/10, 2B=6/10, 2C=0/10\nPros / cons:\n2A) Validate then bind: parse userId to the users primary-key type (integer or UUID, whichever the schema uses; reject anything else including oversized or unicode strings). On parse failure log a warning with event ID and the rejected value length (not the value), ack 200 (retry cannot fix it). On success call the existing lookup helper, which uses a bound parameter; never build SQL text from the value. Tests: injection payload never reaches the DB and returns 200 + warning; wrong-type string returns 200 + warning; valid ID hits the existing lookup guard paths. (recommended) (human ~2h / CC ~10 min)\n  \u2705 No SQL text is ever built from external input, so injection is impossible by construction\n  \u2705 Malformed IDs return 200 with a correlated warning instead of 72h of retries\n  \u2705 Reuses the existing lookup helper and its not-found guard; no duplicated query\n  \u274c Needs the primary-key type confirmed and one small validation step with its tests\n2B) Bound parameter only, no shape validation (human ~1h / CC ~5 min)\n  \u2705 Closes the injection vector with a single change to how the query is built\n  \u2705 Reuses the existing lookup helper as-is\n  \u274c A non-ID string still raises a type-cast DB error, which the wrapper turns into a 500 and Stripe retries for 72 hours; the log says \"DB failure\" not \"bad input\"\n2C) Keep the raw SQL fragment as written (human 0 / CC 0)\n  \u2705 No work\n  \u2705 Matches the sketch\n  \u274c Live SQL injection on the payment path; the plan's own contract text says the input is unsanitized\nNet: reject bad input loudly and bind good input, versus trusting a string because Stripe signed the envelope. <gstack-qid:plan-ceo-review-sql-lookup>\"=\"2A) Validate + bound lookup (recommended)\". You can now continue with these answers in mind.",
+              "tool_use_id": "toolu_019pkzdAQt72RfCswrXXvvyc"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "calls": [
+    {
+      "sessionId": "d87d468e-9058-4a52-8dc8-f7d4246dc13a",
+      "toolUseId": "toolu_01M2hWu9BLPXb7e1wjfF23L5",
+      "questions": [
+        {
+          "header": "Email leg",
+          "question": "D4 (Issue 1) \u2014 What should the handler do when the notification email fails after the payment update commits?\nProject/branch/task: gstack-plan-count-q8859d on main, PLAN.md \"Webhook fan-out\": update + email inline, no error handling on the email leg.\nELI10: The database write says \"this user paid\" and commits. Then the email call throws. Today that exception turns into a 500, which tells Stripe \"try again\". But the payment is already saved, so the retry either gets swallowed by the dedup guard (no email ever goes out) or re-runs the handler and can send a second email. Stripe's failed-webhook alert fires for a payment that actually succeeded, which the runbook says must never trigger a blind replay.\nStakes if we pick wrong: paid users get zero or two receipts, on-call gets paged for successful payments, and a permanently rejected address retries for 72 hours.\nRecommendation: 1A because it is the only option where a committed payment returns 200 and the failure is still fully visible through the mail client's existing metric, alert and runbook. Maps to your preference: every error has a name, zero silent failures.\nCompleteness: 1A=9/10, 1B=4/10, 1C=2/10\nPros / cons:\n1A) Order: commit update -> record dedup completion -> send email. Rescue only the mail client's named classes (MailDeliveryError, MailTimeoutError, MailRejectedError). Log at error with event ID, user ID, payment intent ID, exception class. Return 200. If the existing notification retry procedure has a programmatic entry point, call it in the rescue; otherwise the logged correlation feeds the runbook. Tests: one per rescued class asserting 200, update persisted, error log emitted; one asserting DB errors still propagate as 500. (recommended) (human ~3h / CC ~15 min)\n  \u2705 Committed payments never report failure to Stripe, so no false retries or alert noise\n  \u2705 Named rescues only; DB failures keep their retry-via-500 contract untouched\n  \u2705 Failure remains visible via the mail client's failure-rate metric, alert, and correlated trace\n  \u274c Adds a rescue block and ordering rule the implementer must get right; needs the tests listed\n1B) Keep no rescue, but move the email after commit and dedup record so a retry cannot double-send (human ~30 min / CC ~5 min)\n  \u2705 Tiny change; no new rescue code in the handler\n  \u2705 Double email is prevented because the retry hits the dedup guard\n  \u274c A mail failure still returns 500 and pages on-call for a successful payment; the retry acks 200 and the notification is silently never sent\n1C) Do nothing; keep the plan as written (human 0 / CC 0)\n  \u2705 No implementation work\n  \u2705 Behavior is at least consistent with the prior handler if it did the same\n  \u274c Ordering is unspecified, so a mail outage can either roll back a real payment or send duplicate emails, and every mail failure looks like a webhook failure\nNet: a rescue with a name and a 200, versus letting Stripe retry a payment that already committed. <gstack-qid:plan-ceo-review-email-leg-rescue>",
+          "options": [
+            {
+              "label": "1A) Named rescue, 200, log+trace (recommended)",
+              "description": "Completeness 9/10. Commit -> dedup record -> email; rescue only mail classes; log correlated; return 200; tests per class."
+            },
+            {
+              "label": "1B) Reorder only, no rescue",
+              "description": "Completeness 4/10. Email after commit + dedup record; failures still 500 and page on-call."
+            },
+            {
+              "label": "1C) Do nothing",
+              "description": "Completeness 2/10. Keep inline email with no rescue and unspecified ordering."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 (Issue 1) \u2014 What should the handler do when the notification email fails after the payment update commits?\nProject/branch/task: gstack-plan-count-q8859d on main, PLAN.md \"Webhook fan-out\": update + email inline, no error handling on the email leg.\nELI10: The database write says \"this user paid\" and commits. Then the email call throws. Today that exception turns into a 500, which tells Stripe \"try again\". But the payment is already saved, so the retry either gets swallowed by the dedup guard (no email ever goes out) or re-runs the handler and can send a second email. Stripe's failed-webhook alert fires for a payment that actually succeeded, which the runbook says must never trigger a blind replay.\nStakes if we pick wrong: paid users get zero or two receipts, on-call gets paged for successful payments, and a permanently rejected address retries for 72 hours.\nRecommendation: 1A because it is the only option where a committed payment returns 200 and the failure is still fully visible through the mail client's existing metric, alert and runbook. Maps to your preference: every error has a name, zero silent failures.\nCompleteness: 1A=9/10, 1B=4/10, 1C=2/10\nPros / cons:\n1A) Order: commit update -> record dedup completion -> send email. Rescue only the mail client's named classes (MailDeliveryError, MailTimeoutError, MailRejectedError). Log at error with event ID, user ID, payment intent ID, exception class. Return 200. If the existing notification retry procedure has a programmatic entry point, call it in the rescue; otherwise the logged correlation feeds the runbook. Tests: one per rescued class asserting 200, update persisted, error log emitted; one asserting DB errors still propagate as 500. (recommended) (human ~3h / CC ~15 min)\n  \u2705 Committed payments never report failure to Stripe, so no false retries or alert noise\n  \u2705 Named rescues only; DB failures keep their retry-via-500 contract untouched\n  \u2705 Failure remains visible via the mail client's failure-rate metric, alert, and correlated trace\n  \u274c Adds a rescue block and ordering rule the implementer must get right; needs the tests listed\n1B) Keep no rescue, but move the email after commit and dedup record so a retry cannot double-send (human ~30 min / CC ~5 min)\n  \u2705 Tiny change; no new rescue code in the handler\n  \u2705 Double email is prevented because the retry hits the dedup guard\n  \u274c A mail failure still returns 500 and pages on-call for a successful payment; the retry acks 200 and the notification is silently never sent\n1C) Do nothing; keep the plan as written (human 0 / CC 0)\n  \u2705 No implementation work\n  \u2705 Behavior is at least consistent with the prior handler if it did the same\n  \u274c Ordering is unspecified, so a mail outage can either roll back a real payment or send duplicate emails, and every mail failure looks like a webhook failure\nNet: a rescue with a name and a 200, versus letting Stripe retry a payment that already committed. <gstack-qid:plan-ceo-review-email-leg-rescue>": "1A) Named rescue, 200, log+trace (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T03:17:27.593Z"
+    },
+    {
+      "sessionId": "d87d468e-9058-4a52-8dc8-f7d4246dc13a",
+      "toolUseId": "toolu_019pkzdAQt72RfCswrXXvvyc",
+      "questions": [
+        {
+          "header": "SQL lookup",
+          "question": "D5 (Issue 2) \u2014 How should the handler look up the user from `request.params.userId`?\nProject/branch/task: gstack-plan-count-q8859d on main, PLAN.md \"Database access\": userId read directly into a raw SQL fragment.\nELI10: `userId` is a string copied out of Stripe metadata. Our own server usually writes it, but the plan itself says nothing casts, escapes or validates it, and a valid Stripe signature only proves Stripe sent it, not that the string is safe. Pasting it into SQL means anyone who can set that metadata (a leaked API key, a dashboard edit, a bug in intent creation) can run their own SQL against the users table. Separately, a garbage string that fails the ID column's type cast raises a database error, which becomes a 500, which makes Stripe retry an unfixable event for three days.\nStakes if we pick wrong: data exfiltration or destruction through the payment path, plus 72 hours of retries and alerts for one malformed event.\nRecommendation: 2A because it closes injection completely and gives a malformed ID the same 200-and-warn treatment the adapter already gives a missing one. Maps to your preferences: security is not optional, explicit over clever, DRY (reuse the existing lookup helper).\nCompleteness: 2A=10/10, 2B=6/10, 2C=0/10\nPros / cons:\n2A) Validate then bind: parse userId to the users primary-key type (integer or UUID, whichever the schema uses; reject anything else including oversized or unicode strings). On parse failure log a warning with event ID and the rejected value length (not the value), ack 200 (retry cannot fix it). On success call the existing lookup helper, which uses a bound parameter; never build SQL text from the value. Tests: injection payload never reaches the DB and returns 200 + warning; wrong-type string returns 200 + warning; valid ID hits the existing lookup guard paths. (recommended) (human ~2h / CC ~10 min)\n  \u2705 No SQL text is ever built from external input, so injection is impossible by construction\n  \u2705 Malformed IDs return 200 with a correlated warning instead of 72h of retries\n  \u2705 Reuses the existing lookup helper and its not-found guard; no duplicated query\n  \u274c Needs the primary-key type confirmed and one small validation step with its tests\n2B) Bound parameter only, no shape validation (human ~1h / CC ~5 min)\n  \u2705 Closes the injection vector with a single change to how the query is built\n  \u2705 Reuses the existing lookup helper as-is\n  \u274c A non-ID string still raises a type-cast DB error, which the wrapper turns into a 500 and Stripe retries for 72 hours; the log says \"DB failure\" not \"bad input\"\n2C) Keep the raw SQL fragment as written (human 0 / CC 0)\n  \u2705 No work\n  \u2705 Matches the sketch\n  \u274c Live SQL injection on the payment path; the plan's own contract text says the input is unsanitized\nNet: reject bad input loudly and bind good input, versus trusting a string because Stripe signed the envelope. <gstack-qid:plan-ceo-review-sql-lookup>",
+          "options": [
+            {
+              "label": "2A) Validate + bound lookup (recommended)",
+              "description": "Completeness 10/10. Parse to PK type, 200+warn on failure, existing helper with bound param, injection + type tests."
+            },
+            {
+              "label": "2B) Bound parameter only",
+              "description": "Completeness 6/10. Parameterize the query; malformed IDs still cause 500 and 72h retries."
+            },
+            {
+              "label": "2C) Keep raw SQL fragment",
+              "description": "Completeness 0/10. Plan as written; injection remains open."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 (Issue 2) \u2014 How should the handler look up the user from `request.params.userId`?\nProject/branch/task: gstack-plan-count-q8859d on main, PLAN.md \"Database access\": userId read directly into a raw SQL fragment.\nELI10: `userId` is a string copied out of Stripe metadata. Our own server usually writes it, but the plan itself says nothing casts, escapes or validates it, and a valid Stripe signature only proves Stripe sent it, not that the string is safe. Pasting it into SQL means anyone who can set that metadata (a leaked API key, a dashboard edit, a bug in intent creation) can run their own SQL against the users table. Separately, a garbage string that fails the ID column's type cast raises a database error, which becomes a 500, which makes Stripe retry an unfixable event for three days.\nStakes if we pick wrong: data exfiltration or destruction through the payment path, plus 72 hours of retries and alerts for one malformed event.\nRecommendation: 2A because it closes injection completely and gives a malformed ID the same 200-and-warn treatment the adapter already gives a missing one. Maps to your preferences: security is not optional, explicit over clever, DRY (reuse the existing lookup helper).\nCompleteness: 2A=10/10, 2B=6/10, 2C=0/10\nPros / cons:\n2A) Validate then bind: parse userId to the users primary-key type (integer or UUID, whichever the schema uses; reject anything else including oversized or unicode strings). On parse failure log a warning with event ID and the rejected value length (not the value), ack 200 (retry cannot fix it). On success call the existing lookup helper, which uses a bound parameter; never build SQL text from the value. Tests: injection payload never reaches the DB and returns 200 + warning; wrong-type string returns 200 + warning; valid ID hits the existing lookup guard paths. (recommended) (human ~2h / CC ~10 min)\n  \u2705 No SQL text is ever built from external input, so injection is impossible by construction\n  \u2705 Malformed IDs return 200 with a correlated warning instead of 72h of retries\n  \u2705 Reuses the existing lookup helper and its not-found guard; no duplicated query\n  \u274c Needs the primary-key type confirmed and one small validation step with its tests\n2B) Bound parameter only, no shape validation (human ~1h / CC ~5 min)\n  \u2705 Closes the injection vector with a single change to how the query is built\n  \u2705 Reuses the existing lookup helper as-is\n  \u274c A non-ID string still raises a type-cast DB error, which the wrapper turns into a 500 and Stripe retries for 72 hours; the log says \"DB failure\" not \"bad input\"\n2C) Keep the raw SQL fragment as written (human 0 / CC 0)\n  \u2705 No work\n  \u2705 Matches the sketch\n  \u274c Live SQL injection on the payment path; the plan's own contract text says the input is unsanitized\nNet: reject bad input loudly and bind good input, versus trusting a string because Stripe signed the envelope. <gstack-qid:plan-ceo-review-sql-lookup>": "2A) Validate + bound lookup (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T03:18:21.399Z"
+    }
+  ],
+  "setupCalls": [
+    {
+      "sessionId": "d87d468e-9058-4a52-8dc8-f7d4246dc13a",
+      "toolUseId": "toolu_01EY1KHHBh5ps97s9uSQP4h2",
+      "questions": [
+        {
+          "header": "Routing",
+          "question": "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-q8859d on main, reviewing PLAN.md (Stripe payment webhook handler).\nELI10: gstack works best when CLAUDE.md tells the agent which skill to reach for (bugs \u2192 /investigate, scope \u2192 /plan-ceo-review, ship \u2192 /ship). Without it you invoke skills by hand every time. This is a one-time prompt per project.\nStakes if we pick wrong: nothing breaks either way; you just lose automatic skill routing or gain a CLAUDE.md section you did not want.\nRecommendation: A because routing rules are the documented default and cost one small append. Note: plan mode is active, so the CLAUDE.md edit and commit are deferred until this review exits plan mode.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Add routing rules (recommended)\n  \u2705 Future sessions pick the right gstack skill without you naming it each time\n  \u2705 One appended section, committed separately, easy to revert if unwanted\n  \u274c Adds ~20 lines to CLAUDE.md that teammates will also see and may not want\nB) No thanks, invoke skills manually\n  \u2705 CLAUDE.md stays exactly as the fixture seeded it, no repo change from setup\n  \u2705 Re-enable later with one gstack-config command if you change your mind\n  \u274c Every future skill run needs an explicit slash command from you\nNet: convenience later versus zero repo churn now.",
+          "options": [
+            {
+              "label": "A) Add routing rules (recommended)",
+              "description": "Append the routing section to CLAUDE.md and commit it after plan mode exits."
+            },
+            {
+              "label": "B) No thanks, manual",
+              "description": "Set routing_declined=true; re-enable any time via gstack-config."
+            }
+          ],
+          "multiSelect": false
+        },
+        {
+          "header": "Learnings",
+          "question": "D2 \u2014 Let gstack search learnings from your other projects on this machine?\nProject/branch/task: gstack-plan-count-q8859d on main, CEO plan review.\nELI10: gstack records small lessons per project. With cross-project search on, a lesson learned in another repo on this machine can inform this review. Nothing leaves the machine. Recommended for solo developers; skip if you work across client codebases where mixing context is a concern.\nStakes if we pick wrong: on by mistake means learnings from unrelated client work could surface here; off by mistake means you miss patterns you already learned elsewhere.\nRecommendation: A because this is a local-only lookup and the recorded default for solo work.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Enable cross-project learnings (recommended)\n  \u2705 Past pitfalls from any project on this machine can surface as prior-learning notes\n  \u2705 Stays local; a single config flag you can flip back off at any time\n  \u274c Learnings from unrelated codebases may show up where they do not apply\nB) Keep learnings project-scoped\n  \u2705 No cross-contamination between client or team codebases on this machine\n  \u2705 Simplest privacy posture for shared or multi-client machines\n  \u274c Each project starts cold and relearns the same pitfalls independently\nNet: shared memory across repos versus strict per-repo isolation.",
+          "options": [
+            {
+              "label": "A) Enable cross-project (recommended)",
+              "description": "gstack-config set cross_project_learnings true (local only)."
+            },
+            {
+              "label": "B) Project-scoped only",
+              "description": "gstack-config set cross_project_learnings false."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-q8859d on main, reviewing PLAN.md (Stripe payment webhook handler).\nELI10: gstack works best when CLAUDE.md tells the agent which skill to reach for (bugs \u2192 /investigate, scope \u2192 /plan-ceo-review, ship \u2192 /ship). Without it you invoke skills by hand every time. This is a one-time prompt per project.\nStakes if we pick wrong: nothing breaks either way; you just lose automatic skill routing or gain a CLAUDE.md section you did not want.\nRecommendation: A because routing rules are the documented default and cost one small append. Note: plan mode is active, so the CLAUDE.md edit and commit are deferred until this review exits plan mode.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Add routing rules (recommended)\n  \u2705 Future sessions pick the right gstack skill without you naming it each time\n  \u2705 One appended section, committed separately, easy to revert if unwanted\n  \u274c Adds ~20 lines to CLAUDE.md that teammates will also see and may not want\nB) No thanks, invoke skills manually\n  \u2705 CLAUDE.md stays exactly as the fixture seeded it, no repo change from setup\n  \u2705 Re-enable later with one gstack-config command if you change your mind\n  \u274c Every future skill run needs an explicit slash command from you\nNet: convenience later versus zero repo churn now.": "A) Add routing rules (recommended)",
+        "D2 \u2014 Let gstack search learnings from your other projects on this machine?\nProject/branch/task: gstack-plan-count-q8859d on main, CEO plan review.\nELI10: gstack records small lessons per project. With cross-project search on, a lesson learned in another repo on this machine can inform this review. Nothing leaves the machine. Recommended for solo developers; skip if you work across client codebases where mixing context is a concern.\nStakes if we pick wrong: on by mistake means learnings from unrelated client work could surface here; off by mistake means you miss patterns you already learned elsewhere.\nRecommendation: A because this is a local-only lookup and the recorded default for solo work.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Enable cross-project learnings (recommended)\n  \u2705 Past pitfalls from any project on this machine can surface as prior-learning notes\n  \u2705 Stays local; a single config flag you can flip back off at any time\n  \u274c Learnings from unrelated codebases may show up where they do not apply\nB) Keep learnings project-scoped\n  \u2705 No cross-contamination between client or team codebases on this machine\n  \u2705 Simplest privacy posture for shared or multi-client machines\n  \u274c Each project starts cold and relearns the same pitfalls independently\nNet: shared memory across repos versus strict per-repo isolation.": "A) Enable cross-project (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T03:14:18.643Z"
+    },
+    {
+      "sessionId": "d87d468e-9058-4a52-8dc8-f7d4246dc13a",
+      "toolUseId": "toolu_01TopSkSasMW3J5dU3bKLTWz",
+      "questions": [
+        {
+          "header": "Approach",
+          "question": "D3 \u2014 Which implementation structure should the plan adopt for the Stripe payment handler?\nProject/branch/task: gstack-plan-count-q8859d on main, PLAN.md Payment Processing Integration, HOLD SCOPE review.\nELI10: The plan says the new handler skips the existing WebhookDispatcher for a \"clean namespace\", yet also promises the existing dedup, per-user lock and unknown-user guards still protect it. Those guards sit on the dispatcher path. You can register the handler with the dispatcher (guards apply automatically), keep the bypass and re-wire each guard by hand, or ship the bypass as sketched.\nStakes if we pick wrong: a paid user could be processed twice, or reach an unguarded path where a Stripe retry re-runs the update and email with no dedup.\nRecommendation: B because the plan's retained contracts only hold if the handler sits behind the dispatcher, and it is a one-line registration.\nCompleteness: A=3/10, B=9/10, C=6/10\nPros / cons:\nA) Standalone handler, bypass dispatcher (plan as written) (human ~1 day / CC ~20 min)\n  \u2705 Smallest diff and no edits to the shared dispatcher module at all\n  \u2705 Handler file stands alone, easy to read in isolation\n  \u274c Dedup, lock and lookup guards are claimed but nothing on this path applies them\nB) Register handler inside WebhookDispatcher (recommended) (human ~1.5 days / CC ~30 min)\n  \u2705 Dedup, per-user lock, unknown-user ack and tracing apply by construction\n  \u2705 One dispatch path; namespace separation comes from module layout, not a bypass\n  \u274c Requires one registration change in the dispatcher and giving up the literal bypass\nC) Standalone handler with guards re-wired as explicit middleware (human ~2 days / CC ~45 min)\n  \u2705 Keeps the bypass the plan asked for while making each guard visible\n  \u2705 No change to the dispatcher module\n  \u274c Two dispatch paths forever; every guard change must land twice or drifts silently\nNet: one shared pipeline versus a second pipeline you maintain by hand. <gstack-qid:plan-ceo-review-approach>",
+          "options": [
+            {
+              "label": "B) Register in dispatcher (recommended)",
+              "description": "Completeness 9/10. Same class, registered for payment_intent.succeeded; reuse existing lookup helper."
+            },
+            {
+              "label": "A) Standalone bypass (as written)",
+              "description": "Completeness 3/10. Keep the plan's structure; guards must be re-verified for this path."
+            },
+            {
+              "label": "C) Standalone + explicit guards",
+              "description": "Completeness 6/10. Compose dedup, lock and lookup guards around the handler by hand."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Which implementation structure should the plan adopt for the Stripe payment handler?\nProject/branch/task: gstack-plan-count-q8859d on main, PLAN.md Payment Processing Integration, HOLD SCOPE review.\nELI10: The plan says the new handler skips the existing WebhookDispatcher for a \"clean namespace\", yet also promises the existing dedup, per-user lock and unknown-user guards still protect it. Those guards sit on the dispatcher path. You can register the handler with the dispatcher (guards apply automatically), keep the bypass and re-wire each guard by hand, or ship the bypass as sketched.\nStakes if we pick wrong: a paid user could be processed twice, or reach an unguarded path where a Stripe retry re-runs the update and email with no dedup.\nRecommendation: B because the plan's retained contracts only hold if the handler sits behind the dispatcher, and it is a one-line registration.\nCompleteness: A=3/10, B=9/10, C=6/10\nPros / cons:\nA) Standalone handler, bypass dispatcher (plan as written) (human ~1 day / CC ~20 min)\n  \u2705 Smallest diff and no edits to the shared dispatcher module at all\n  \u2705 Handler file stands alone, easy to read in isolation\n  \u274c Dedup, lock and lookup guards are claimed but nothing on this path applies them\nB) Register handler inside WebhookDispatcher (recommended) (human ~1.5 days / CC ~30 min)\n  \u2705 Dedup, per-user lock, unknown-user ack and tracing apply by construction\n  \u2705 One dispatch path; namespace separation comes from module layout, not a bypass\n  \u274c Requires one registration change in the dispatcher and giving up the literal bypass\nC) Standalone handler with guards re-wired as explicit middleware (human ~2 days / CC ~45 min)\n  \u2705 Keeps the bypass the plan asked for while making each guard visible\n  \u2705 No change to the dispatcher module\n  \u274c Two dispatch paths forever; every guard change must land twice or drifts silently\nNet: one shared pipeline versus a second pipeline you maintain by hand. <gstack-qid:plan-ceo-review-approach>": "B) Register in dispatcher (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T03:15:39.519Z"
+    }
+  ],
+  "observedFirstReviewClassifications": [
+    false,
+    false
+  ],
+  "historicalOutcome": "no_review_questions",
+  "scope": "First completed distinct attempt; whole paid job and retry were still active when fixture authored."
+}

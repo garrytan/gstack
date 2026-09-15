@@ -1,0 +1,38 @@
+{
+  "sessionId": "fe085d51-f2f2-4d26-9d49-f450afe82ade",
+  "toolUseId": "toolu_01ARahLsLhgiE5Qto8VGoQqg",
+  "answered": false,
+  "failed": false,
+  "questions": [
+    {
+      "question": "gstack works best when your project's CLAUDE.md includes skill routing rules. Add them now?",
+      "header": "Routing setup",
+      "multiSelect": false,
+      "options": [
+        {
+          "label": "Add routing rules to CLAUDE.md (Recommended)",
+          "description": "Creates CLAUDE.md in the project root with gstack skill routing rules so Claude knows when to invoke each skill automatically. One-time setup, committed to git."
+        },
+        {
+          "label": "No thanks, I'll invoke skills manually",
+          "description": "Skip CLAUDE.md setup — you'll continue invoking skills with /slash commands when needed."
+        }
+      ]
+    },
+    {
+      "question": "No design doc found for this branch. /office-hours produces a structured problem statement, premise challenge, and explored alternatives — sharper input for the review. Run it first or proceed with standard review?",
+      "header": "Prerequisite doc",
+      "multiSelect": false,
+      "options": [
+        {
+          "label": "Skip — proceed with standard review (Recommended)",
+          "description": "The plan is detailed enough (77 lines, clear scope, existing contracts documented) to run the full review pipeline now. /office-hours adds value for exploratory or ambiguous plans."
+        },
+        {
+          "label": "Run /office-hours first",
+          "description": "Produces a structured design doc with premise challenge and alternatives before the review starts. Adds ~10 min but sharpens the CEO phase significantly."
+        }
+      ]
+    }
+  ]
+}

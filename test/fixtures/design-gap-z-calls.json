@@ -1,0 +1,236 @@
+{
+  "calls": [
+    {
+      "sessionId": "775fbf0c-b6aa-4363-9927-31d7fc15f6d4",
+      "toolUseId": "toolu_01N4SZ3Q3XtSxJn6UnBvskFb",
+      "questions": [
+        {
+          "question": "Gap 1 of 8 \u2014 Save button visual hierarchy: apply DESIGN.md primary button style?",
+          "header": "Gap 1: Button",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Apply DESIGN.md fix (recommended)",
+              "description": "Add to plan: Save gets #1d4ed8 filled + white text (primary); Reset, Cancel, Export get neutral ghost style. Closes the visual hierarchy gap exactly as DESIGN.md specifies. Implementation task T1 becomes committed."
+            },
+            {
+              "label": "Defer to implementation",
+              "description": "Leave the gap named but unresolved. Engineer decides the button styles at implementation time without a spec. Risk: inconsistency with the design system or re-work after review."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Gap 1 of 8 \u2014 Save button visual hierarchy: apply DESIGN.md primary button style?": "Apply DESIGN.md fix (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T12:16:44.618Z"
+    },
+    {
+      "sessionId": "775fbf0c-b6aa-4363-9927-31d7fc15f6d4",
+      "toolUseId": "toolu_017zBFd8ifxP7MFxNBAC2TpV",
+      "questions": [
+        {
+          "question": "Gap 2 of 8 \u2014 Spacing: standardize to DESIGN.md 8px-base scale?",
+          "header": "Gap 2: Spacing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Apply DESIGN.md fix (recommended)",
+              "description": "Add to plan: sections 32px apart, field groups 24px, label-to-input 8px. Removes the 16px outlier and gives implementation a single source of truth. Implementation task T2 becomes committed."
+            },
+            {
+              "label": "Defer to implementation",
+              "description": "Leave the inconsistency noted. Engineer picks spacing values during build. Risk: the 16px outlier persists and the form feels uneven at different scroll positions."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Gap 2 of 8 \u2014 Spacing: standardize to DESIGN.md 8px-base scale?": "Apply DESIGN.md fix (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T12:17:07.703Z"
+    },
+    {
+      "sessionId": "775fbf0c-b6aa-4363-9927-31d7fc15f6d4",
+      "toolUseId": "toolu_018S3TMnN9HV9S75z8svkcUN",
+      "questions": [
+        {
+          "question": "Gap 3 of 8 \u2014 Error color contrast: apply DESIGN.md #991b1b on #fef2f2 tokens?",
+          "header": "Gap 3: Color",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Apply DESIGN.md fix (recommended)",
+              "description": "Add to plan: error text uses #991b1b on #fef2f2 surface with an icon. Brings error states to WCAG AA contrast (from the current ~3:1). Implementation task T3 becomes committed."
+            },
+            {
+              "label": "Defer to implementation",
+              "description": "Leave the contrast gap noted. Engineer resolves the color at build time. Risk: a shipped accessibility violation, since the current ~3:1 is below WCAG AA minimum of 4.5:1."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Gap 3 of 8 \u2014 Error color contrast: apply DESIGN.md #991b1b on #fef2f2 tokens?": "Apply DESIGN.md fix (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T12:17:24.757Z"
+    },
+    {
+      "sessionId": "775fbf0c-b6aa-4363-9927-31d7fc15f6d4",
+      "toolUseId": "toolu_011rznHG5hrLyBFvZ4gCmt5s",
+      "questions": [
+        {
+          "question": "Gap 4 of 8 \u2014 Typography: consolidate to two sizes per DESIGN.md (16px + 20px)?",
+          "header": "Gap 4: Type",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Apply DESIGN.md fix (recommended)",
+              "description": "Add to plan: all body text, form labels, and helper text use 16px; section headings (h2) use 20px. The rogue 14px and 18px sizes are removed. Creates stronger two-level hierarchy. Task T4 committed."
+            },
+            {
+              "label": "Defer to implementation",
+              "description": "Leave the three-size inconsistency noted. Engineer picks which sizes to use at build time. Risk: the 14px text may persist and fail WCAG AA body-text contrast at small size."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Gap 4 of 8 \u2014 Typography: consolidate to two sizes per DESIGN.md (16px + 20px)?": "Apply DESIGN.md fix (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T12:17:34.295Z"
+    },
+    {
+      "sessionId": "775fbf0c-b6aa-4363-9927-31d7fc15f6d4",
+      "toolUseId": "toolu_01BWGpyri31dDYV7Qn1ntbrq",
+      "questions": [
+        {
+          "question": "Gap 5 of 8 \u2014 Motion: add DESIGN.md spinner pattern for Save pending state?",
+          "header": "Gap 5: Motion",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Apply DESIGN.md fix (recommended)",
+              "description": "Add to plan: on Save click, disable the button, show an inline spinner beside 'Saving\u2026', set aria-busy=true. With reduced-motion: no spinner, text only. Success clears to 'Saved at HH:mm'. Task T5 committed."
+            },
+            {
+              "label": "Defer to implementation",
+              "description": "Leave the frozen-page gap noted. Engineer designs the loading state at build time. Risk: inconsistency with the established spinner pattern and a 2-5s blank page on every save."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Gap 5 of 8 \u2014 Motion: add DESIGN.md spinner pattern for Save pending state?": "Apply DESIGN.md fix (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T12:17:43.823Z"
+    },
+    {
+      "sessionId": "775fbf0c-b6aa-4363-9927-31d7fc15f6d4",
+      "toolUseId": "toolu_01LngzQi1Ukw4EmxesxaSfDc",
+      "questions": [
+        {
+          "question": "Gap 6 of 8 \u2014 Export-while-dirty: specify that Export reads saved values only?",
+          "header": "Gap 6: Export",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Export reads last-saved values (recommended)",
+              "description": "Add to plan: Export downloads the last-saved preferences, ignoring unsaved edits. No implicit save triggered. Unsaved-changes status persists. Matches the atomic-save philosophy already in the plan."
+            },
+            {
+              "label": "Export reads current (unsaved) field values",
+              "description": "Add to plan: Export includes whatever is currently in the form fields, whether saved or not. The download reflects the user's in-progress state. Simpler to implement but may surprise users who export before saving."
+            },
+            {
+              "label": "Defer to implementation",
+              "description": "Leave this scenario unspecified. Engineer decides at build time. Risk: inconsistent behavior between implementations or user confusion when exported JSON differs from what they see in the form."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Gap 6 of 8 \u2014 Export-while-dirty: specify that Export reads saved values only?": "Export reads last-saved values (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T12:17:59.395Z"
+    },
+    {
+      "sessionId": "775fbf0c-b6aa-4363-9927-31d7fc15f6d4",
+      "toolUseId": "toolu_01G1HXr6nAGLxkd2ntnqGpk7",
+      "questions": [
+        {
+          "question": "Gap 7 of 8 \u2014 Ghost button spec: reference existing component or add explicit values?",
+          "header": "Gap 7: Ghost btn",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Reference existing Button component ghost variant (recommended)",
+              "description": "Add to plan: 'Reset, Cancel, Export use the existing Button component ghost variant. No new CSS values are introduced.' Clean, DRY, ties to the component system."
+            },
+            {
+              "label": "State explicit CSS values in the plan",
+              "description": "Add to plan: ghost buttons have transparent background, 1px border #d1d5db, text #374151, hover background #f9fafb. Useful if the Button component doesn't yet have a ghost variant or its values are unclear."
+            },
+            {
+              "label": "Defer \u2014 leave ghost style unspecified",
+              "description": "Let the engineer look up or invent ghost button values at build time. Risk: visual inconsistency with other ghost buttons in the app."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Gap 7 of 8 \u2014 Ghost button spec: reference existing component or add explicit values?": "Reference existing Button component ghost variant (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T12:18:20.487Z"
+    },
+    {
+      "sessionId": "775fbf0c-b6aa-4363-9927-31d7fc15f6d4",
+      "toolUseId": "toolu_01L28TR9p37GzvWFrLsMPZbH",
+      "questions": [
+        {
+          "question": "Gap 8 of 8 \u2014 InlineStatus during validation: specify it reads 'Unsaved changes'?",
+          "header": "Gap 8: LiveRegion",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Specify 'Unsaved changes' during validation (recommended)",
+              "description": "Add to plan: when validation errors fire, InlineStatus text is 'Unsaved changes' (the normal dirty state). The live region announces once; field errors and ErrorSummary announce separately via focus. No simultaneous conflicting announcements."
+            },
+            {
+              "label": "Defer \u2014 leave live region coordination unspecified",
+              "description": "Let the engineer decide what InlineStatus reads during validation. Risk: screen reader announces conflicting states simultaneously if the live region and error summary fire at the same moment."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Gap 8 of 8 \u2014 InlineStatus during validation: specify it reads 'Unsaved changes'?": "Specify 'Unsaved changes' during validation (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T12:18:41.580Z"
+    }
+  ]
+}

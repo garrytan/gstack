@@ -1,0 +1,110 @@
+{
+  "sourceHead": "fd7698b23d0d88dfcfe8a2b0fd4c3140cdad01fa",
+  "sourceObservationSha256": "ad9228ccf39d9e3c61af56494f9a21fdc3a00d205a5021e33031e57d4b4f025d",
+  "calls": [
+    {
+      "signature": "26447393-d025-40f1-a80a-e6a34fcddf1a:toolu_01NjPQmJ7CTTEgsvqYRCT3Bs",
+      "promptSnippet": "D1 scope D1 \u2014 Reduce the class inventory before building? Project/branch/task: main \u2014 Multi-tenant Auth Refactor plan review, Step 0 scope challenge. ELI10: The plan adds five new classes (AuthBroker, SessionMint, AuthCache, TokenStore, Req",
+      "options": [
+        {
+          "index": 1,
+          "label": "A) Reduce to 2-3 classes (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "B) Proceed with 5 classes"
+        },
+        {
+          "index": 3,
+          "label": "C) Hold \u2014 state the goal first"
+        }
+      ],
+      "observedAtMs": 610937,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "26447393-d025-40f1-a80a-e6a34fcddf1a",
+        "toolUseId": "toolu_01NjPQmJ7CTTEgsvqYRCT3Bs",
+        "questions": [
+          {
+            "question": "D1 \u2014 Reduce the class inventory before building?\nProject/branch/task: main \u2014 Multi-tenant Auth Refactor plan review, Step 0 scope challenge.\nELI10: The plan adds five new classes (AuthBroker, SessionMint, AuthCache, TokenStore, RequestPolicy), and three of them are ways of holding the same cached tokens the existing adapter already holds. Every extra class is a place for bugs to hide and a thing the next engineer must learn. The question is whether the two real services can use the existing cache adapter directly through a narrow interface.\nStakes if we pick wrong: over-reduce and you re-add a class mid-build; under-reduce and you maintain three caches and 12 files for a change whose goal is not yet written down.\nRecommendation: A because the AuthCache facade adds no rule or serialization (PLAN.md:11-13) and TokenStore has no stated responsibility.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: a possible re-add later versus three overlapping abstractions now.",
+            "header": "D1 scope",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Reduce to 2-3 classes (recommended)",
+                "description": "\u2705 Same service-facing boundary with zero new runtime code to test or debug (human: saves ~2 days / CC: saves ~20min). \u2705 Removes the double/triple-caching memory and consistency question entirely. \u274c If TokenStore had a real hidden purpose it returns later as an unplanned change."
+              },
+              {
+                "label": "B) Proceed with 5 classes",
+                "description": "\u2705 No re-planning; keeps whatever design intent the author had for TokenStore and RequestPolicy. \u2705 Forces a one-sentence responsibility per class into the plan, useful either way. \u274c 12 files and three cache-shaped types before the goal of the refactor is stated."
+              },
+              {
+                "label": "C) Hold \u2014 state the goal first",
+                "description": "\u2705 The plan has no problem statement; writing it may settle D1 on its own. \u2705 Cheapest possible step before any code (human: ~30min / CC: ~5min). \u274c Delays every other decision until the goal is written."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 \u2014 Reduce the class inventory before building?\nProject/branch/task: main \u2014 Multi-tenant Auth Refactor plan review, Step 0 scope challenge.\nELI10: The plan adds five new classes (AuthBroker, SessionMint, AuthCache, TokenStore, RequestPolicy), and three of them are ways of holding the same cached tokens the existing adapter already holds. Every extra class is a place for bugs to hide and a thing the next engineer must learn. The question is whether the two real services can use the existing cache adapter directly through a narrow interface.\nStakes if we pick wrong: over-reduce and you re-add a class mid-build; under-reduce and you maintain three caches and 12 files for a change whose goal is not yet written down.\nRecommendation: A because the AuthCache facade adds no rule or serialization (PLAN.md:11-13) and TokenStore has no stated responsibility.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: a possible re-add later versus three overlapping abstractions now.": "A) Reduce to 2-3 classes (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T09:44:08.579Z"
+      }
+    },
+    {
+      "signature": "26447393-d025-40f1-a80a-e6a34fcddf1a:toolu_01Qs552AuhXqYDwihpYWqTaG",
+      "promptSnippet": "D2 DI D2 \u2014 Module-level AuthCache singleton \u2192 constructor injection with a single writer? Project/branch/task: main \u2014 Multi-tenant Auth Refactor, Architecture finding A1 (PLAN.md:19-20: \"share a global mutable AuthCache instance via module-",
+      "options": [
+        {
+          "index": 1,
+          "label": "A) Composition-root injection, single writer (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "B) Keep module export, add serializing proxy"
+        },
+        {
+          "index": 3,
+          "label": "C) Do nothing"
+        }
+      ],
+      "observedAtMs": 642080,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "26447393-d025-40f1-a80a-e6a34fcddf1a",
+        "toolUseId": "toolu_01Qs552AuhXqYDwihpYWqTaG",
+        "questions": [
+          {
+            "question": "D2 \u2014 Module-level AuthCache singleton \u2192 constructor injection with a single writer?\nProject/branch/task: main \u2014 Multi-tenant Auth Refactor, Architecture finding A1 (PLAN.md:19-20: \"share a global mutable AuthCache instance via module-level export. Both services mutate it\").\nELI10: Right now both services grab the same global cache object from a module import and both write to it. Nobody can tell who owns a write, and tests share state through that global. Building the cache once at app startup and handing it to each service makes the dependency visible and gives every test its own instance. With D1 answered, the injected thing is the existing adapter behind a narrow interface.\nStakes if we pick wrong: flaky or order-dependent tests, and a production bundle with two \"singletons\" where an invalidation clears the wrong one.\nRecommendation: A because it is the standard Layer 1 fix (composition root + DI) and costs minutes with CC; it maps to your explicit-over-clever preference.\nCompleteness: A=9/10, B=6/10, C=2/10\nNet: explicit dependencies now versus hidden coupling you debug later.",
+            "header": "D2 DI",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Composition-root injection, single writer (recommended)",
+                "description": "\u2705 Test files construct their own fake cache; no cross-file state, parallel workers safe (human: ~1 day / CC: ~15min). \u2705 SessionMint is the only session writer and AuthBroker gets a read-only port, enforced by types not convention. \u274c Touches the bootstrap file and both service constructors."
+              },
+              {
+                "label": "B) Keep module export, add serializing proxy",
+                "description": "\u2705 Smaller diff; interleaved writes on one key get serialized (human: ~0.5 day / CC: ~10min). \u2705 No bootstrap changes. \u274c Still a hidden global; test isolation and duplicate-bundle problems remain."
+              },
+              {
+                "label": "C) Do nothing",
+                "description": "\u2705 Zero effort. \u2705 Matches the plan as written. \u274c Both A1 failure scenarios stay live and the plan's own test coverage cannot isolate state."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 \u2014 Module-level AuthCache singleton \u2192 constructor injection with a single writer?\nProject/branch/task: main \u2014 Multi-tenant Auth Refactor, Architecture finding A1 (PLAN.md:19-20: \"share a global mutable AuthCache instance via module-level export. Both services mutate it\").\nELI10: Right now both services grab the same global cache object from a module import and both write to it. Nobody can tell who owns a write, and tests share state through that global. Building the cache once at app startup and handing it to each service makes the dependency visible and gives every test its own instance. With D1 answered, the injected thing is the existing adapter behind a narrow interface.\nStakes if we pick wrong: flaky or order-dependent tests, and a production bundle with two \"singletons\" where an invalidation clears the wrong one.\nRecommendation: A because it is the standard Layer 1 fix (composition root + DI) and costs minutes with CC; it maps to your explicit-over-clever preference.\nCompleteness: A=9/10, B=6/10, C=2/10\nNet: explicit dependencies now versus hidden coupling you debug later.": "A) Composition-root injection, single writer (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T09:44:39.717Z"
+      }
+    }
+  ]
+}

@@ -287,6 +287,13 @@ With --restrict (`--restrict read`, `--restrict "read,write"`):
   a trusted agent can be prompt-injected by pages it reads, and scope caps the
   blast radius (eval works over the tunnel).
 - `--restrict` never grants `control`; that scope stays behind --control.
+- To tighten an agent that is ALREADY paired, re-pair it with the **same
+  `--client` name** and the narrower `--restrict`/`--domain`. A reducing re-pair
+  revokes the previous session immediately and releases its tabs — the agent
+  must reconnect with the new key, so the old wide access does not linger.
+  Re-pairing without `--client` mints a brand-new agent and leaves the old one
+  untouched. Broadening or refreshing keeps the working session (no outage).
+- `root` is a reserved `--client` name (it would bypass all scope enforcement).
 
 With --control (--admin is the legacy alias):
 - Everything, plus browser-wide destructive ops (stop, restart, disconnect)
@@ -297,8 +304,9 @@ With --control (--admin is the legacy alias):
 **"Tab not owned by your agent"** — The remote agent tried to interact with a tab
 it didn't create. Tell it to run `newtab` first to get its own tab.
 
-**"Domain not allowed"** — The token has domain restrictions. Re-pair with broader
-domain access or no domain restrictions.
+**"Domain not allowed"** — The token has domain restrictions. Re-pair with the
+same `--client` name and broader (or no) `--domain`. A broadening re-pair keeps
+the working session; a narrowing one revokes it immediately.
 
 **"Rate limit exceeded"** — The agent is sending > 10 requests/second. It should
 wait for the Retry-After header and slow down.

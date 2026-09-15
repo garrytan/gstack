@@ -44,9 +44,16 @@ describe('terminal-agent owner lifecycle', () => {
     // process.execPath (the running bun) instead of `sleep`: coreutils are
     // not guaranteed on a bare windows-latest runner, and this test is on the
     // Windows CI curated list — the owner-orphan leak it pins is a Windows bug.
+    // The owner's lifetime is tied to this test process instead of a fixed
+    // 30s sleep: it blocks until its stdin (a pipe we hold open) hits EOF, so
+    // it is guaranteed alive until the SIGTERM below no matter how slow the
+    // runner is, and it reaps itself if the test process dies without running
+    // afterEach. Node-compatible stdin APIs, not Bun.stdin — Windows-portable.
     const owner = Bun.spawn(
-      [process.execPath, '-e', 'await Bun.sleep(30000)'],
-      { stdio: ['ignore', 'ignore', 'ignore'] },
+      [process.execPath, '-e',
+        "process.stdin.resume(); const bye = () => process.exit(0); "
+        + "process.stdin.on('end', bye); process.stdin.on('error', bye); process.stdin.on('close', bye);"],
+      { stdio: ['pipe', 'ignore', 'ignore'] },
     );
     spawned.push(owner);
     const agent = Bun.spawn(['bun', 'run', AGENT_SCRIPT], {

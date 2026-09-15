@@ -31,6 +31,7 @@ function listTrackedSkillMd(): string[] {
   const out = execFileSync("git", ["ls-files", "*SKILL.md"], {
     cwd: REPO_ROOT,
     encoding: "utf-8",
+    timeout: 30_000,
   });
   return out.split("\n").filter((line) => line.trim().length > 0);
 }

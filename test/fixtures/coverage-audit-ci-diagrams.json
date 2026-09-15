@@ -1,0 +1,23 @@
+{
+  "provenance": {
+    "runId": 34636708803,
+    "headSha": "dc0af5e44ff25e9dcee30e8f987f3d8986a05731",
+    "testName": "/review coverage audit",
+    "recordedAttemptOutcomes": [
+      "failed",
+      "failed"
+    ],
+    "paidOutcomesReclassified": false,
+    "source": "Exact first ASCII fence from each successful parent result; full captured transcripts retained under .context/ci-fixes-20260911/eval-final-dc0af5e4."
+  },
+  "diagrams": [
+    {
+      "attempt": 1,
+      "text": "```\nsrc/billing.ts                                              test/billing.test.ts\n═══════════════════════════════════════════════════════════════════════════════\n\nprocessPayment(amount, currency)                            describe('processPayment')\n│\n├─ [✓] happy path: amount > 0, currency ∈ {USD, EUR}  ───►  'processes valid payment'\n│        return { status: 'success', ... }                   (only asserts .status; USD only,\n│                                                             EUR branch never exercised)\n│\n├─ [✗] amount <= 0  → throw 'Invalid amount'         ───►  (no test)   [line 3]\n│        └─ boundary: amount === 0                          (no test)\n│        └─ negative: amount < 0                            (no test)\n│\n└─ [✗] currency ∉ {USD, EUR} → throw 'Unsupported currency' ─► (no test) [line 4]\n         └─ 'EUR' accepted branch                           (no test)\n\n\nrefundPayment(paymentId, reason)                            (no describe block —\n│                                                            not even imported)\n├─ [✗] happy path → { status: 'refunded', ... }       ───►  (no test)   [line 11]\n│\n├─ [✗] !paymentId → throw 'Payment ID required'       ───►  (no test)   [line 9]\n│\n└─ [✗] !reason    → throw 'Reason required'           ───►  (no test)   [line 10]\n\n\n═══════════════════════════════════════════════════════════════════════════════\nLegend:  [✓] covered   [✗] gap\nPaths:   1 / 7 covered  (14%)     Guard clauses: 0 / 4 tested     Functions: 1 / 2 touched\n```"
+    },
+    {
+      "attempt": 2,
+      "text": "```\nTest Coverage Map — src/billing.ts  (tests: test/billing.test.ts)\n\nLegend:  [✓] covered by a test    [✗] GAP — no test exercises this path\n\nprocessPayment(amount, currency)                        billing.ts:2\n│\n├── amount <= 0  → throw 'Invalid amount'               billing.ts:3\n│     [✗] GAP  Missing Negative-Path — guard clause never hit\n│              (no test for 0 or negative amount)\n│\n├── currency ∉ {USD, EUR} → throw 'Unsupported currency' billing.ts:4\n│     [✗] GAP  Missing Negative-Path — guard clause never hit\n│              (no test for e.g. 'GBP' / '')\n│\n└── happy path → { status:'success', amount, currency }  billing.ts:5\n      [✓] covered  'processes valid payment'             billing.test.ts:6\n          (only USD exercised; EUR branch of the\n           currency check is never taken — partial)\n\nrefundPayment(paymentId, reason)                        billing.ts:8\n│     [✗] GAP  Coverage Gaps — exported function with\n│              ZERO tests; not even imported by the test file\n│\n├── !paymentId → throw 'Payment ID required'            billing.ts:9\n│     [✗] GAP  Missing Negative-Path\n│\n├── !reason → throw 'Reason required'                   billing.ts:10\n│     [✗] GAP  Missing Negative-Path\n│\n└── happy path → { status:'refunded', paymentId, reason } billing.ts:11\n      [✗] GAP  Coverage Gaps — success path untested\n\n────────────────────────────────────────────────────────────\nSummary\n  Functions:      1 / 2 touched by tests          (50%)\n  Branches:       1 / 6 exercised                 (17%)\n  Error paths:    0 / 4 tested                    ( 0%)\n  Happy paths:    1 / 2 tested                    (50%)\n────────────────────────────────────────────────────────────\n```"
+    }
+  ]
+}

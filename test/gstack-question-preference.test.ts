@@ -31,6 +31,7 @@ function run(...args: string[]): { stdout: string; stderr: string; status: numbe
     env: { ...process.env, GSTACK_HOME: tmpHome },
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
   return {
     stdout: res.stdout ?? '',
@@ -45,6 +46,7 @@ function runWithStdin(input: string, ...args: string[]): { stdout: string; stder
     encoding: 'utf-8',
     cwd: ROOT,
     input,
+    timeout: 30_000,
   });
   return {
     stdout: res.stdout ?? '',

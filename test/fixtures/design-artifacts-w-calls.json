@@ -1,0 +1,250 @@
+[
+  {
+    "sessionId": "ce4def56-9180-4e1e-ba55-859036af9758",
+    "toolUseId": "toolu_01X8ZMvTZ76gAdUBVcBgRjNi",
+    "questions": [
+      {
+        "question": "D1 \u2014 Convert the Save button visual hierarchy gap into an implementation task? <gstack-qid:plan-design-review-ia-1>",
+        "header": "D1 Hierarchy",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A) Add as implementation task (Recommended)",
+            "description": "Convert the gap into a concrete task: 'Apply filled primary styling (#1d4ed8, white text) to Save; ghost styling to Reset, Cancel, Export per DESIGN.md.' Completeness: 10/10 \u2014 implementer has a specific, verifiable task with exact tokens."
+          },
+          {
+            "label": "B) Add token reference only",
+            "description": "Add a note in the gap section pointing to the DESIGN.md spec, but don't create a formal task. Completeness: 7/10 \u2014 the fix is findable but not surfaced for sprint planning or checklist use."
+          },
+          {
+            "label": "C) Leave as described gap",
+            "description": "Keep the gap as prose only. Completeness: 3/10 \u2014 the problem is named but implementers must cross-reference DESIGN.md to find the fix, risking it being missed or done wrong."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 \u2014 Convert the Save button visual hierarchy gap into an implementation task? <gstack-qid:plan-design-review-ia-1>": "A) Add as implementation task (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T09:50:51.334Z"
+  },
+  {
+    "sessionId": "ce4def56-9180-4e1e-ba55-859036af9758",
+    "toolUseId": "toolu_01CXhjZH4WEWPRGdmNTuAehf",
+    "questions": [
+      {
+        "question": "D2 \u2014 Add the pending-save state spec as an implementation task? <gstack-qid:plan-design-review-states-1>",
+        "header": "D2 PendingSave",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A) Add as implementation task (Recommended)",
+            "description": "Task: 'Render an inline spinner beside the text \u201cSaving\u2026\u201d inside the disabled Save button; set aria-busy=true on the button; under prefers-reduced-motion, remove the spinner but preserve disabled state and text.' Completeness: 10/10 \u2014 implementer has the full DESIGN.md spec with the a11y attribute and the motion variant."
+          },
+          {
+            "label": "B) Add note in Motion gap only",
+            "description": "Reference the DESIGN.md spinner pattern in the Motion gap section without a formal task. Completeness: 7/10 \u2014 the fix is documented but not actionable as a discrete work item."
+          },
+          {
+            "label": "C) Leave Motion gap as-is",
+            "description": "Keep the gap description as a known issue without specifying the fix. Completeness: 3/10 \u2014 ships a frozen page during 2-5s saves; users may try clicking Save again (duplicate submit)."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 \u2014 Add the pending-save state spec as an implementation task? <gstack-qid:plan-design-review-states-1>": "A) Add as implementation task (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T09:51:05.384Z"
+  },
+  {
+    "sessionId": "ce4def56-9180-4e1e-ba55-859036af9758",
+    "toolUseId": "toolu_01CbscyDZBegLpC9mhQdEtm4",
+    "questions": [
+      {
+        "question": "D3 \u2014 Add a state coverage table to the plan body for implementer reference? <gstack-qid:plan-design-review-states-2>",
+        "header": "D3 StateTable",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A) Add state table (Recommended)",
+            "description": "Insert a feature \u00d7 state table (Form load / Save / Export / Dirty state \u00d7 Loading / Empty / Error / Success / Pending). No new design decisions \u2014 all cells derive from existing specs. Completeness: 10/10 \u2014 implementers can verify each state against a single reference."
+          },
+          {
+            "label": "B) Leave states in prose only",
+            "description": "Keep the existing prose descriptions without a structured table. Completeness: 7/10 \u2014 specs are all there but scattered across paragraphs; edge cases like Export error during dirty-edit are harder to spot."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Add a state coverage table to the plan body for implementer reference? <gstack-qid:plan-design-review-states-2>": "A) Add state table (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T09:51:13.416Z"
+  },
+  {
+    "sessionId": "ce4def56-9180-4e1e-ba55-859036af9758",
+    "toolUseId": "toolu_01BwktmsUeBQpaEobh9sZdvN",
+    "questions": [
+      {
+        "question": "D4 \u2014 Add a user journey storyboard to the plan? <gstack-qid:plan-design-review-journey-1>",
+        "header": "D4 Storyboard",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A) Add storyboard (Recommended)",
+            "description": "Render the accepted journey as a step/user-does/user-feels/plan-specifies table (8 rows covering happy path, save failure, cancel with dirty state, first-time new account). No new design decisions \u2014 pure rendering of existing specs. Completeness: 10/10 \u2014 implementers understand the emotional arc and can verify the spec covers each moment."
+          },
+          {
+            "label": "B) Keep one-sentence journey description",
+            "description": "Leave the current one-sentence happy-path description. Completeness: 5/10 \u2014 the journey exists but reads like a state machine; error recovery arcs and first-time experience aren't visible without cross-referencing multiple paragraphs."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 Add a user journey storyboard to the plan? <gstack-qid:plan-design-review-journey-1>": "A) Add storyboard (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T09:51:21.443Z"
+  },
+  {
+    "sessionId": "ce4def56-9180-4e1e-ba55-859036af9758",
+    "toolUseId": "toolu_01LLaQKbCpHmntdB1qWG3x38",
+    "questions": [
+      {
+        "question": "D5 \u2014 Convert the spacing gap into an implementation task with explicit DESIGN.md scale? <gstack-qid:plan-design-review-ds-2>",
+        "header": "D5 Spacing",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A) Add as implementation task (Recommended)",
+            "description": "Task: 'Apply the 8px spacing scale: between-section gaps 32px, between-field-group gaps 24px, label-to-input gaps 8px. Remove any 16px gap \u2014 no context in DESIGN.md uses 16px here.' Completeness: 10/10 \u2014 implementer has exact values and knows which to remove."
+          },
+          {
+            "label": "B) Reference DESIGN.md scale without a task",
+            "description": "Add a note pointing to the 8px base system in DESIGN.md. Completeness: 7/10 \u2014 the scale is accessible but the erroneous 16px value isn't explicitly called out for removal, risking it staying in the implementation."
+          },
+          {
+            "label": "C) Leave as gap description",
+            "description": "Keep the spacing gap as a prose description only. Completeness: 3/10 \u2014 ships inconsistent vertical rhythm; the UI will have a subtle broken-grid feel that erodes trust without an obvious cause."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 \u2014 Convert the spacing gap into an implementation task with explicit DESIGN.md scale? <gstack-qid:plan-design-review-ds-2>": "A) Add as implementation task (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T09:51:31.485Z"
+  },
+  {
+    "sessionId": "ce4def56-9180-4e1e-ba55-859036af9758",
+    "toolUseId": "toolu_01LUq6SetnpMxG9CuiYaogRN",
+    "questions": [
+      {
+        "question": "D6 \u2014 Convert the error color gap into an implementation task with WCAG-compliant tokens? <gstack-qid:plan-design-review-ds-3>",
+        "header": "D6 ErrorColor",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A) Add as implementation task (Recommended)",
+            "description": "Task: 'Apply error.text #991b1b on error.surface #fef2f2, plus an error icon and explicit text label. Measured contrast 5.9:1 \u2014 passes WCAG AA (4.5:1 required for normal text).' Completeness: 10/10 \u2014 implementer has exact hex values, knows the icon requirement, and can verify with a contrast checker."
+          },
+          {
+            "label": "B) Note the DESIGN.md tokens only",
+            "description": "Add a note pointing to the DESIGN.md error color pair without a formal task. Completeness: 7/10 \u2014 the fix is findable but ships as a follow-up item rather than a merge requirement."
+          },
+          {
+            "label": "C) Leave as gap description",
+            "description": "Keep the ~3:1 contrast gap as prose only. Completeness: 3/10 \u2014 ships a WCAG AA violation; users with low vision miss error messages; legal and audit risk."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 \u2014 Convert the error color gap into an implementation task with WCAG-compliant tokens? <gstack-qid:plan-design-review-ds-3>": "A) Add as implementation task (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T09:51:39.521Z"
+  },
+  {
+    "sessionId": "ce4def56-9180-4e1e-ba55-859036af9758",
+    "toolUseId": "toolu_01TZCPbE7Yf39r5abjL8QRiV",
+    "questions": [
+      {
+        "question": "D7 \u2014 Convert the typography gap into an implementation task with the two-role system? <gstack-qid:plan-design-review-ds-4>",
+        "header": "D7 Typography",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A) Add as implementation task (Recommended)",
+            "description": "Task: 'Apply two font-size roles: 16px for body text, form labels, and helper text; 20px for the h2 section headings (Profile, Notifications). Remove 14px (below universal-rule minimum) and 18px (no role in the design system).' Completeness: 10/10 \u2014 implementer has both the target values and the values to remove, with the WCAG rationale for the 14px removal."
+          },
+          {
+            "label": "B) Reference two-role system only",
+            "description": "Add a note pointing to the DESIGN.md two-role spec without listing which sizes to remove. Completeness: 7/10 \u2014 the target is clear but 14px and 18px may linger without an explicit removal instruction."
+          },
+          {
+            "label": "C) Leave as gap description",
+            "description": "Keep the 3-size description as a known gap. Completeness: 3/10 \u2014 ships 14px text that violates the universal-rule body minimum; flat hierarchy where headings don't distinguish themselves from body."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D7 \u2014 Convert the typography gap into an implementation task with the two-role system? <gstack-qid:plan-design-review-ds-4>": "A) Add as implementation task (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T09:51:49.561Z"
+  },
+  {
+    "sessionId": "ce4def56-9180-4e1e-ba55-859036af9758",
+    "toolUseId": "toolu_01EAbwBxUqkGimEBVbC9iFMm",
+    "questions": [
+      {
+        "question": "D8 \u2014 Address the skip navigation link gap? <gstack-qid:plan-design-review-a11y-1>",
+        "header": "D8 SkipNav",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A) Add verification task: confirm skip link exists in app shell (Recommended)",
+            "description": "Task: 'Verify that the persistent app navigation includes a skip-to-main-content link (WCAG 2.1 SC 2.4.1 Bypass Blocks). If absent, add <a href=\"#main-content\" class=\"sr-only focus:not-sr-only\">Skip to content</a> before the nav.' Completeness: 10/10 \u2014 WCAG 2.4.1 compliance confirmed or addressed; keyboard users can bypass nav on every page load."
+          },
+          {
+            "label": "B) Note it as a known gap, defer to app shell audit",
+            "description": "Add a note that skip nav is out of this form's scope and should be verified at app shell level. Completeness: 7/10 \u2014 the question is raised but the settings page may ship with a WCAG 2.4.1 gap if the shell audit doesn't happen alongside this PR."
+          },
+          {
+            "label": "C) Out of scope \u2014 leave unaddressed",
+            "description": "The plan covers only the settings form; skip nav is a shell concern. No action. Completeness: 5/10 \u2014 risk: if no skip link exists, keyboard users must tab through all nav items on every form interaction cycle."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D8 \u2014 Address the skip navigation link gap? <gstack-qid:plan-design-review-a11y-1>": "A) Add verification task: confirm skip link exists in app shell (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T09:51:59.598Z"
+  }
+]

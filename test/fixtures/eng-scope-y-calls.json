@@ -1,0 +1,298 @@
+[
+  {
+    "sessionId": "9ed23ef7-5203-441b-a12b-3072cd2a37c3",
+    "toolUseId": "toolu_014ZtRY6HSfP2REUjjNrip1t",
+    "questions": [
+      {
+        "question": "D1 \u2014 Run /office-hours before the review, or proceed directly? <gstack-qid:plan-eng-review-office-hours>",
+        "header": "Prerequisite",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Skip \u2014 proceed with standard review (Recommended)",
+            "description": "Jump straight into the 4-section engineering review of the Multi-tenant Auth Refactor plan. The plan content in PLAN.md is sufficient to review. Recommended since the plan is already written."
+          },
+          {
+            "label": "Run /office-hours first",
+            "description": "Run /office-hours to generate a structured design doc (problem statement, premise challenge, alternatives explored) before reviewing. Takes ~10 min but gives sharper input for the review."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 \u2014 Run /office-hours before the review, or proceed directly? <gstack-qid:plan-eng-review-office-hours>": "Skip \u2014 proceed with standard review (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:10:50.391Z"
+  },
+  {
+    "sessionId": "9ed23ef7-5203-441b-a12b-3072cd2a37c3",
+    "toolUseId": "toolu_01AwzNWpnh8ZNFxJ1pv7WDWM",
+    "questions": [
+      {
+        "question": "D2 \u2014 This plan introduces 4 new classes across 12 files. Recommend scope reduction before reviewing, or accept the complexity and review as-is? <gstack-qid:plan-eng-review-scope-challenge>",
+        "header": "Scope",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Accept complexity \u2014 review as-is (Recommended)",
+            "description": "Proceed with the full review of all 4 classes across 12 files. Flag any specific overengineering during the Architecture section, but don't block on scope reduction now. Recommended: the scope smell is already called out in the plan and the review will surface whether it's justified."
+          },
+          {
+            "label": "Recommend scope reduction first",
+            "description": "Propose a minimal version (e.g. collapse SessionMint and RequestPolicy to plain modules, reduce new classes to 2) and ask the user to confirm before reviewing the full plan. This risks re-scoping before we understand the full design rationale."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 \u2014 This plan introduces 4 new classes across 12 files. Recommend scope reduction before reviewing, or accept the complexity and review as-is? <gstack-qid:plan-eng-review-scope-challenge>": "Accept complexity \u2014 review as-is (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:11:12.415Z"
+  },
+  {
+    "sessionId": "9ed23ef7-5203-441b-a12b-3072cd2a37c3",
+    "toolUseId": "toolu_01MBnBLdpxZXtFmMY1A18k23",
+    "questions": [
+      {
+        "question": "D3 \u2014 Should gstack search learnings from your other projects on this machine when reviewing? <gstack-qid:cross-project-learnings>",
+        "header": "Learnings",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Enable cross-project learnings (Recommended)",
+            "description": "Searches learnings from all your projects on this machine for patterns that might apply here. Stays local \u2014 no data leaves your machine. Best for solo devs."
+          },
+          {
+            "label": "Keep learnings project-scoped only",
+            "description": "Only searches learnings from this specific project. Best if you work on multiple client codebases where cross-contamination is a concern."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Should gstack search learnings from your other projects on this machine when reviewing? <gstack-qid:cross-project-learnings>": "Enable cross-project learnings (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:11:50.496Z"
+  },
+  {
+    "sessionId": "9ed23ef7-5203-441b-a12b-3072cd2a37c3",
+    "toolUseId": "toolu_01PtJSe9at9pWFh9ai9UkZ6b",
+    "questions": [
+      {
+        "question": "D4 \u2014 [P1] (confidence: 9/10) Architecture \u2014 AuthBroker and SessionMint share a global mutable AuthCache. How should this be fixed? <gstack-qid:plan-eng-review-arch-shared-cache>",
+        "header": "Arch: Cache",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Inject AuthCache as constructor dependency (Recommended)",
+            "description": "Pass AuthCache into AuthBroker and SessionMint at construction time. No global export. Clear ownership. Fully testable in isolation. Eliminates race window from concurrent mutations. ~30 min human / ~5 min CC. Explicit > clever, your stated preference."
+          },
+          {
+            "label": "Keep global export, add a mutex/lock wrapper",
+            "description": "Wrap the global AuthCache in an async lock or mutex so concurrent mutations are serialized. Fixes the race but preserves the shared-state design, serializes all cache ops (throughput hit), and still makes tests depend on global state. ~1h human / ~10 min CC."
+          },
+          {
+            "label": "Accept as-is \u2014 document the concurrency risk",
+            "description": "Add a comment noting the race condition and require callers to coordinate. Defers the real fix, leaves a known race in the auth path of a multi-tenant system. Not recommended for any production auth refactor."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 [P1] (confidence: 9/10) Architecture \u2014 AuthBroker and SessionMint share a global mutable AuthCache. How should this be fixed? <gstack-qid:plan-eng-review-arch-shared-cache>": "Inject AuthCache as constructor dependency (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:12:20.559Z"
+  },
+  {
+    "sessionId": "9ed23ef7-5203-441b-a12b-3072cd2a37c3",
+    "toolUseId": "toolu_01MgvhzKuPyd4Tw2SdMx131J",
+    "questions": [
+      {
+        "question": "D5 \u2014 [P1] (confidence: 9/10) Code Quality \u2014 validateAndDispatch() swallows errors in 3 nested try/catch blocks. How should this be remedied? <gstack-qid:plan-eng-review-cq-error-swallowing>",
+        "header": "CQ: Errors",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Split into focused functions + propagate errors properly (Recommended)",
+            "description": "Extract validate(), dispatch(), and per-error-class handlers as separate functions. Remove silent catches \u2014 each error propagates or is explicitly re-thrown with context. Result: testable, explicit, auditable. Auth errors are never silently absorbed. ~1h human / ~10 min CC. Explicit > clever."
+          },
+          {
+            "label": "Keep structure, add logging + re-throw on each catch",
+            "description": "Retain the 60-line function but replace bare catch swallowing with `logger.error(err); throw new AuthError(...)`. Catches remain nested but errors are no longer silent. Easier diff, but the testability and cognitive-complexity problems remain. ~30 min human / ~5 min CC."
+          },
+          {
+            "label": "Accept as-is \u2014 document that each catch is intentional",
+            "description": "Add a comment explaining why each error class is swallowed. Does not fix the silent-failure risk or the testability gap. Not recommended for auth-path code."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 \u2014 [P1] (confidence: 9/10) Code Quality \u2014 validateAndDispatch() swallows errors in 3 nested try/catch blocks. How should this be remedied? <gstack-qid:plan-eng-review-cq-error-swallowing>": "Split into focused functions + propagate errors properly (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:12:52.630Z"
+  },
+  {
+    "sessionId": "9ed23ef7-5203-441b-a12b-3072cd2a37c3",
+    "toolUseId": "toolu_01VS1G4fLtYx6UiLBBtXVr5G",
+    "questions": [
+      {
+        "question": "D6 \u2014 [P2] (confidence: 8/10) Tests \u2014 No test planned for concurrent AuthBroker + SessionMint mutations on the shared AuthCache (even after DI fix, concurrent callers with the same injected instance can race). Add a concurrency test? <gstack-qid:plan-eng-review-test-concurrent>",
+        "header": "Test: Concurrency",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add a concurrency unit test (Recommended)",
+            "description": "Write a test that fires AuthBroker.dispatch() and SessionMint.mint() simultaneously against the same AuthCache instance and asserts no phantom 401s or corrupted state. Catches races before they hit prod. ~45 min human / ~8 min CC. Completeness: 9/10."
+          },
+          {
+            "label": "Skip \u2014 rely on integration tests",
+            "description": "Trust that the multi-tenant integration tests will incidentally exercise concurrent paths. Cheaper up front, but integration tests rarely simulate true concurrency and won't catch the specific race window. Completeness: 6/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 \u2014 [P2] (confidence: 8/10) Tests \u2014 No test planned for concurrent AuthBroker + SessionMint mutations on the shared AuthCache (even after DI fix, concurrent callers with the same injected instance can race). Add a concurrency test? <gstack-qid:plan-eng-review-test-concurrent>": "Add a concurrency unit test (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:13:50.763Z"
+  },
+  {
+    "sessionId": "9ed23ef7-5203-441b-a12b-3072cd2a37c3",
+    "toolUseId": "toolu_01CL2SAu6pxMyrjn511ufZ7i",
+    "questions": [
+      {
+        "question": "D7 \u2014 [P2] (confidence: 7/10) Tests \u2014 No E2E test planned for the tenant-suspended-mid-session flow (user holds a valid token when their tenant is suspended \u2014 next request should be rejected). Add it? <gstack-qid:plan-eng-review-test-suspend-e2e>",
+        "header": "Test: Suspend",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add E2E test for suspend-mid-session (Recommended)",
+            "description": "Simulate: tenant active \u2192 valid token issued \u2192 tenant suspended \u2192 subsequent request with old token \u2192 assert 401 + session cleared. This is an auth/security flow \u2014 too important to trust unit tests alone. [E2E]. ~1h human / ~10 min CC. Completeness: 9/10."
+          },
+          {
+            "label": "Skip \u2014 the invalidation hook test covers this",
+            "description": "The existing adapter invalidation-hook tests (unchanged per plan) already verify that suspend triggers cache eviction. Trusts existing coverage for the full user-facing flow. Completeness: 7/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D7 \u2014 [P2] (confidence: 7/10) Tests \u2014 No E2E test planned for the tenant-suspended-mid-session flow (user holds a valid token when their tenant is suspended \u2014 next request should be rejected). Add it? <gstack-qid:plan-eng-review-test-suspend-e2e>": "Add E2E test for suspend-mid-session (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:13:58.776Z"
+  },
+  {
+    "sessionId": "9ed23ef7-5203-441b-a12b-3072cd2a37c3",
+    "toolUseId": "toolu_019Cq2oKpq46kjtuMF5B9VTi",
+    "questions": [
+      {
+        "question": "D8 \u2014 [P2] (confidence: 9/10) Performance \u2014 5 sequential IDP calls per validation, trivially parallelizable via Promise.all. Fix it in this PR or defer? <gstack-qid:plan-eng-review-perf-idp-parallel>",
+        "header": "Perf: IDP",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Fix it now \u2014 add Promise.all parallelization (Recommended)",
+            "description": "Replace the 5 sequential IDP calls with Promise.all([call1, call2, call3, call4, call5]). The plan already confirms they're independent. Reduces validation latency by ~4x (e.g. 250ms \u2192 ~60ms). With CC this is a 5-minute fix. No reason to defer. ~30 min human / ~5 min CC. Completeness: 10/10."
+          },
+          {
+            "label": "Defer to a follow-up PR",
+            "description": "Ship the refactor first, then optimize. Accepts the latency regression for the PR window. Only reasonable if the auth refactor is already blocked on other reviews and the 250ms is acceptable for now. Completeness: 7/10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D8 \u2014 [P2] (confidence: 9/10) Performance \u2014 5 sequential IDP calls per validation, trivially parallelizable via Promise.all. Fix it in this PR or defer? <gstack-qid:plan-eng-review-perf-idp-parallel>": "Fix it now \u2014 add Promise.all parallelization (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:14:14.818Z"
+  },
+  {
+    "sessionId": "9ed23ef7-5203-441b-a12b-3072cd2a37c3",
+    "toolUseId": "toolu_01Cxdaph2p8QL1oq6Dci4HSC",
+    "questions": [
+      {
+        "question": "D9 \u2014 TODO: Add ASCII data-flow diagrams in code comments for AuthBroker, AuthCache, and validateAndDispatch()? <gstack-qid:plan-eng-review-todo-diagrams>",
+        "header": "TODO: Diagrams",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to TODOS.md",
+            "description": "Track a TODO to add ASCII diagrams in the auth service files showing the broker \u2192 cache \u2192 adapter \u2192 IDP flow and the validateAndDispatch execution tree. Prevents future engineers from having to reconstruct this mentally."
+          },
+          {
+            "label": "Build it now in this PR instead of deferring",
+            "description": "Add the diagrams inline as part of the implementation. Diagrams are cheapest to write when the code is fresh. Same branch, minimal extra effort with CC."
+          },
+          {
+            "label": "Skip \u2014 not valuable enough",
+            "description": "The code will be readable without diagrams. Skip tracking this."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D9 \u2014 TODO: Add ASCII data-flow diagrams in code comments for AuthBroker, AuthCache, and validateAndDispatch()? <gstack-qid:plan-eng-review-todo-diagrams>": "Add to TODOS.md"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:14:48.903Z"
+  },
+  {
+    "sessionId": "9ed23ef7-5203-441b-a12b-3072cd2a37c3",
+    "toolUseId": "toolu_01M81oEinkaiFavpCYHhLqJj",
+    "questions": [
+      {
+        "question": "D10 \u2014 TODO: Add token revocation flow to the RequestPolicy class (the plan doesn't describe how RequestPolicy handles mid-flight policy version changes)? <gstack-qid:plan-eng-review-todo-policy-versioning>",
+        "header": "TODO: Policy",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add to TODOS.md",
+            "description": "Track a TODO to clarify how RequestPolicy handles a policy version bump mid-session (e.g., tenant admin upgrades policy while users are authenticated \u2014 do existing sessions get the old or new policy?). Important for multi-tenant correctness."
+          },
+          {
+            "label": "Build it now in this PR instead of deferring",
+            "description": "Define the RequestPolicy versioning semantics in the plan now. Add tests for policy version bump mid-session. Closes the ambiguity before implementation starts."
+          },
+          {
+            "label": "Skip \u2014 not valuable enough",
+            "description": "Treat this as an implementation detail \u2014 the current plan is sufficient. The existing policy version in the cache key already implies snapshot semantics."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D10 \u2014 TODO: Add token revocation flow to the RequestPolicy class (the plan doesn't describe how RequestPolicy handles mid-flight policy version changes)? <gstack-qid:plan-eng-review-todo-policy-versioning>": "Add to TODOS.md"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:14:56.920Z"
+  }
+]

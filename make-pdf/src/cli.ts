@@ -7,11 +7,12 @@
  *   stderr: progress spinner per stage, final "Done in Xs. N pages."
  *   --quiet: suppress progress. Errors still print.
  *   --verbose: per-stage timings.
- *   exit 0 success / 1 bad args / 2 render error / 3 Paged.js timeout / 4 browse unavailable.
+ *   exit 0 success / 1 bad args / 2 render error / 3 Paged.js timeout / 4 no browser
+ *   (Aside not running AND gstack's own browser not built).
  */
 
 import { COMMANDS } from "./commands";
-import { ExitCode, BrowseClientError } from "./types";
+import { ExitCode, BrowserUnavailableError } from "./types";
 import type { GenerateOptions, PreviewOptions } from "./types";
 
 interface ParsedArgs {
@@ -119,7 +120,7 @@ function printUsage(): void {
   lines.push("  $P generate --watermark DRAFT memo.md draft.pdf");
   lines.push("  $P preview letter.md");
   lines.push("");
-  lines.push("Run `$P setup` to verify browse + Chromium + pdftotext install.");
+  lines.push("Run `$P setup` to verify the browser (Aside, or gstack's own fallback) + pdftotext install.");
   console.error(lines.join("\n"));
 }
 
@@ -265,9 +266,9 @@ async function main(): Promise<void> {
         process.exit(ExitCode.BadArgs);
     }
   } catch (err: any) {
-    if (err instanceof BrowseClientError) {
+    if (err instanceof BrowserUnavailableError) {
       console.error(`$P: ${err.message}`);
-      process.exit(ExitCode.BrowseUnavailable);
+      process.exit(ExitCode.BrowserUnavailable);
     }
     if (err?.code === "ENOENT") {
       console.error(`$P: file not found: ${err.path ?? err.message}`);

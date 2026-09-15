@@ -15,6 +15,7 @@
  *   - ground truth against THIS repo via test/helpers/skill-census.ts
  */
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { canRevokeWrites } from "./helpers/fs-caps";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -419,6 +420,18 @@ describe("--budget", () => {
     expect(violations).toHaveLength(1);
     expect(violations[0].ceiling).toBe("eagerPerInvocation.ghost");
   });
+
+  // The context-budget ratchet (test/context-budget-ratchet.test.ts) made
+  // this branch load-bearing in CI; it previously had only under-budget
+  // coverage.
+  it("checkBudget flags an alwaysOnTotal violation with every skill's frontmatter listed", () => {
+    const bill = buildBill(TREE_A);
+    const violations = checkBudget(bill, { alwaysOnTotal: 0 });
+    expect(violations).toHaveLength(1);
+    expect(violations[0].ceiling).toBe("alwaysOnTotal");
+    expect(violations[0].actual).toBe(Math.round(bill.totals.alwaysOnTokens));
+    expect(violations[0].files.length).toBe(bill.skills.length);
+  });
 });
 
 describe("--exact (opt-in measurement; offline here via an injected fetch)", () => {
@@ -465,7 +478,7 @@ describe("--exact (opt-in measurement; offline here via an injected fetch)", () 
   });
 
   it("fail-open: an unwritable ledger degrades --exact to the offline estimate, sending nothing", async () => {
-    if (process.platform === "win32" || process.getuid?.() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "context-bill-refuse-"));
     fs.mkdirSync(path.join(home, "security"), { recursive: true, mode: 0o500 });
     let called = false;
@@ -705,7 +718,7 @@ describe("CLI plumbing", () => {
   });
 
   it("bin/gstack-context-bill runs standalone", () => {
-    const result = Bun.spawnSync([path.join(ROOT, "bin", "gstack-context-bill"), TREE_A]);
+    const result = Bun.spawnSync([path.join(ROOT, "bin", "gstack-context-bill"), TREE_A], { timeout: 30_000 });
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString()).toContain("ALWAYS-ON");
     expect(result.stdout.toString()).toContain("EAGER");

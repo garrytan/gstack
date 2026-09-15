@@ -9,8 +9,7 @@
  * 0.147.0: CODEX_THREAD_ID, CODEX_SANDBOX=seatbelt,
  * CODEX_SANDBOX_NETWORK_DISABLED=1, CODEX_CI=1). The shared codexPreflight
  * presence-probes those vars and yields CODEX_MODE=under_codex, skipping
- * nested spawns with a one-line notice; GSTACK_FORCE_CODEX_REVIEW=1
- * overrides.
+ * nested spawns with a repair notice, even for old force overrides.
  */
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
@@ -54,16 +53,13 @@ describe('under-codex detection bash (#2519)', () => {
     expect(out).toContain('CODEX_MODE: under_codex');
   });
 
-  test('GSTACK_FORCE_CODEX_REVIEW=1 overrides the presence probe', () => {
+  test('stale force override cannot bypass own-harness protection', () => {
     const out = runPreflight({
       CODEX_THREAD_ID: '01a00ba9-ff91-7143-b424-c2d9b0cc89ff',
       CODEX_SANDBOX: 'seatbelt',
       GSTACK_FORCE_CODEX_REVIEW: '1',
     });
-    expect(out).not.toContain('CODEX_MODE: under_codex');
-    // With codex absent from the restricted PATH, the forced probe falls
-    // through to the ordinary availability chain.
-    expect(out).toContain('CODEX_MODE: not_installed');
+    expect(out).toContain('CODEX_MODE: under_codex');
   });
 
   test('no CODEX_* env -> ordinary availability chain', () => {
@@ -74,21 +70,21 @@ describe('under-codex detection bash (#2519)', () => {
 });
 
 describe('under-codex wiring renders (#2519)', () => {
-  test('rendered adversarial section carries the probe + override + notice', () => {
+  test('rendered adversarial section carries the probe + repair notice', () => {
     const rendered = fs.readFileSync(
       path.join(ROOT, 'ship', 'sections', 'adversarial.md'),
       'utf-8',
     );
     expect(rendered).toContain('CODEX_THREAD_ID');
-    expect(rendered).toContain('GSTACK_FORCE_CODEX_REVIEW');
+    expect(rendered).toContain('setup --host codex');
     expect(rendered).toContain('under_codex');
-    expect(rendered).toContain('nested codex passes skipped');
+    expect(rendered).toContain('Missing coverage');
   });
 
   test('rendered codex skill stops with the one-line notice when under codex', () => {
     const rendered = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(rendered).toContain('UNDER_CODEX');
-    expect(rendered).toContain('GSTACK_FORCE_CODEX_REVIEW=1');
+    expect(rendered).toContain('harness mismatch');
+    expect(rendered).toContain('setup --host codex');
   });
 
   test('all three codexPreflight consumers render the probe', () => {

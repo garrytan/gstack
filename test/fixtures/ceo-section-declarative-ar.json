@@ -1,0 +1,164 @@
+{
+  "provenance": {
+    "source": ".context/ship-source-ar-delta-paid-20260910-v1/ceo-paired-first-terminal-public-native-v1/observation.json",
+    "sha256": "e89aa36f3361e0134b6459bf366e6623cc31cbb5af13bc1b040286a4a795bf76",
+    "actualOutcome": "no_review_questions",
+    "actualStep0Count": 5,
+    "actualReviewCount": 0,
+    "scope": "Five exact owned completed public native calls; paid failure remains unchanged."
+  },
+  "calls": [
+    {
+      "sessionId": "55621667-26b1-4686-acda-4bb4447905aa",
+      "toolUseId": "toolu_01PVfgJJDy9jxRrqXQnMDH2M",
+      "questions": [
+        {
+          "question": "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-kjptoZ on main, one-time gstack onboarding before the CEO review.\nELI10: gstack wants a short section in CLAUDE.md that maps request types (bugs, strategy, shipping) to its skills so future sessions route automatically. Without it you invoke skills by name every time. Because we are in plan mode, a Yes here is recorded now and the edit plus commit happen after plan mode ends.\nStakes if we pick wrong: Minor either way. Yes adds ~15 lines to a fixture CLAUDE.md; No means manual skill invocation, re-enableable any time.\nRecommendation: A because it is the gstack default and costs nothing beyond a small committed section.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Add routing rules (recommended)\n  \u2705 Future sessions auto-route to the right skill without you naming it each time\n  \u2705 One-time prompt; never asked again for this project once answered\n  \u274c Adds a committed section to a review-fixture CLAUDE.md that may not need it\nB) No thanks, invoke manually\n  \u2705 Keeps the fixture CLAUDE.md untouched and the git history minimal\n  \u2705 Re-enable later with a single gstack-config command\n  \u274c Every gstack skill needs an explicit slash command in future sessions\nNet: Convenience for future sessions versus keeping a test fixture pristine.",
+          "header": "Routing",
+          "options": [
+            {
+              "label": "A) Add routing rules (recommended)",
+              "description": "Append the gstack routing section to CLAUDE.md and commit it once plan mode ends."
+            },
+            {
+              "label": "B) No thanks, invoke manually",
+              "description": "Record routing_declined so this prompt never fires again for this project."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-kjptoZ on main, one-time gstack onboarding before the CEO review.\nELI10: gstack wants a short section in CLAUDE.md that maps request types (bugs, strategy, shipping) to its skills so future sessions route automatically. Without it you invoke skills by name every time. Because we are in plan mode, a Yes here is recorded now and the edit plus commit happen after plan mode ends.\nStakes if we pick wrong: Minor either way. Yes adds ~15 lines to a fixture CLAUDE.md; No means manual skill invocation, re-enableable any time.\nRecommendation: A because it is the gstack default and costs nothing beyond a small committed section.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Add routing rules (recommended)\n  \u2705 Future sessions auto-route to the right skill without you naming it each time\n  \u2705 One-time prompt; never asked again for this project once answered\n  \u274c Adds a committed section to a review-fixture CLAUDE.md that may not need it\nB) No thanks, invoke manually\n  \u2705 Keeps the fixture CLAUDE.md untouched and the git history minimal\n  \u2705 Re-enable later with a single gstack-config command\n  \u274c Every gstack skill needs an explicit slash command in future sessions\nNet: Convenience for future sessions versus keeping a test fixture pristine.": "A) Add routing rules (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:25:42.870Z"
+    },
+    {
+      "sessionId": "55621667-26b1-4686-acda-4bb4447905aa",
+      "toolUseId": "toolu_01HE86PMDBpbS2eFye8C3p4S",
+      "questions": [
+        {
+          "question": "D2 \u2014 Where do the two new processPayment tests live?\nProject/branch/task: gstack-plan-count-kjptoZ on main, PLAN.md adds two unit tests for processPayment().\nELI10: The plan pins two already-shipped payment behaviors with unit tests. The question is structure only: drop them into the existing processPayment suite, start a new contract-test file, or build a table-driven runner. Whatever we pick, the assertions themselves get reviewed separately in the test section.\nStakes if we pick wrong: Low. A wrong structure means an extra file or an abstraction nobody needs; it never changes what the tests prove.\nRecommendation: A because it is the smallest diff that cleanly expresses the change and reuses the suite's existing factory, mock, and sleeper wiring with zero new files.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Inline in the existing processPayment suite (recommended) (human: ~30 min / CC: ~3 min)\n  \u2705 Zero new files; the factory, Stripe mock, and virtual sleeper are already wired in this suite\n  \u2705 Reads exactly like the neighbouring tests, so reviewers need no new mental model\n  \u274c No structural marker that these two are contract-pinning tests versus ordinary cases\nB) New dedicated contract spec file (human: ~45 min / CC: ~5 min)\n  \u2705 Contract tests are discoverable as a group and can grow independently of the main suite\n  \u2705 Isolated setup means a future suite refactor cannot accidentally change these fixtures\n  \u274c Duplicates factory wiring the existing suite already has, for only two tests\nC) Table-driven runner with shared expectReceipt helper (human: ~2 h / CC: ~10 min)\n  \u2705 Adding a third or fourth contract scenario later is one table row, not a new test body\n  \u2705 Forces every scenario through identical arrange/act/assert shape\n  \u274c Abstraction over two cases; a single failing row is harder to read than a plain test\nNet: Plain tests in the existing suite versus structure we do not need yet.",
+          "header": "Approach",
+          "options": [
+            {
+              "label": "A) Inline in existing suite (recommended)",
+              "description": "Two it blocks beside the current processPayment tests, reusing the factory, Stripe mock, and virtual sleeper as PLAN.md describes."
+            },
+            {
+              "label": "B) New contract spec file",
+              "description": "Same two tests in a new processPayment contract test file with its own factory setup."
+            },
+            {
+              "label": "C) Table-driven runner",
+              "description": "Parameterized scenarios plus a shared receipt assertion helper."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Where do the two new processPayment tests live?\nProject/branch/task: gstack-plan-count-kjptoZ on main, PLAN.md adds two unit tests for processPayment().\nELI10: The plan pins two already-shipped payment behaviors with unit tests. The question is structure only: drop them into the existing processPayment suite, start a new contract-test file, or build a table-driven runner. Whatever we pick, the assertions themselves get reviewed separately in the test section.\nStakes if we pick wrong: Low. A wrong structure means an extra file or an abstraction nobody needs; it never changes what the tests prove.\nRecommendation: A because it is the smallest diff that cleanly expresses the change and reuses the suite's existing factory, mock, and sleeper wiring with zero new files.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nPros / cons:\nA) Inline in the existing processPayment suite (recommended) (human: ~30 min / CC: ~3 min)\n  \u2705 Zero new files; the factory, Stripe mock, and virtual sleeper are already wired in this suite\n  \u2705 Reads exactly like the neighbouring tests, so reviewers need no new mental model\n  \u274c No structural marker that these two are contract-pinning tests versus ordinary cases\nB) New dedicated contract spec file (human: ~45 min / CC: ~5 min)\n  \u2705 Contract tests are discoverable as a group and can grow independently of the main suite\n  \u2705 Isolated setup means a future suite refactor cannot accidentally change these fixtures\n  \u274c Duplicates factory wiring the existing suite already has, for only two tests\nC) Table-driven runner with shared expectReceipt helper (human: ~2 h / CC: ~10 min)\n  \u2705 Adding a third or fourth contract scenario later is one table row, not a new test body\n  \u2705 Forces every scenario through identical arrange/act/assert shape\n  \u274c Abstraction over two cases; a single failing row is harder to read than a plain test\nNet: Plain tests in the existing suite versus structure we do not need yet.": "A) Inline in existing suite (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:26:38.602Z"
+    },
+    {
+      "sessionId": "55621667-26b1-4686-acda-4bb4447905aa",
+      "toolUseId": "toolu_019Sdpk3Eiq9Wy9ocTGQY16i",
+      "questions": [
+        {
+          "question": "D3 \u2014 Section 6, finding 1: the success test asserts only that the receipt is truthy\nProject/branch/task: gstack-plan-count-kjptoZ on main, PLAN.md test 1 (successful charge).\nELI10: PLAN.md states the contract exactly: a 1000-cent USD charge with Stripe id ch_paid returns { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The planned assertion is just \"receipt is truthy\". An empty object, a receipt with chargeId undefined, amountCents 0, or currency EUR all pass that check. The test is green while proving none of the contract it exists to cover.\nStakes if we pick wrong: A regression that drops chargeId, mangles the amount, or swaps currency ships with a passing suite. Support sees wrong receipts; finance reconciles against a missing charge id.\nRecommendation: A because well-tested code is non-negotiable and the exact receipt is already written down in PLAN.md; asserting it is one line and rejects every wrong-shape receipt.\nCompleteness: A=10/10, B=6/10, C=3/10\nPros / cons:\nA) Assert deep equality with the stated receipt (recommended) (human: ~5 min / CC: ~1 min)\n  \u2705 Rejects a missing chargeId, a wrong amountCents, a wrong currency, and any extra field in one assertion\n  \u2705 Failure output shows the full expected-versus-actual receipt, so the regression is obvious at a glance\n  \u274c Adding a new receipt field later fails this test on purpose, so the contract line in PLAN.md must be updated too\nB) Assert the three fields individually, allow extra fields (human: ~5 min / CC: ~1 min)\n  \u2705 Still rejects wrong chargeId, amount, or currency values\n  \u2705 Tolerates additive receipt fields without a test change\n  \u274c Silently accepts unplanned fields leaking into the receipt, so the contract drifts unnoticed\nC) Keep truthy-only as planned (human: 0 / CC: 0)\n  \u2705 Zero extra work and the test can never fail on receipt shape\n  \u2705 Matches PLAN.md text verbatim\n  \u274c Proves nothing about chargeId, amountCents, or currency; a receipt of {} passes\nNet: An exact contract pin versus a test that only checks the function returned something.",
+          "header": "Test 1 assert",
+          "options": [
+            {
+              "label": "A) Deep-equal exact receipt (recommended)",
+              "description": "expect(receipt).toEqual({ chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }); update PLAN.md test 1 accordingly."
+            },
+            {
+              "label": "B) Three field assertions",
+              "description": "Assert chargeId, amountCents, currency individually; extra fields tolerated."
+            },
+            {
+              "label": "C) Keep truthy only",
+              "description": "Leave PLAN.md test 1 as written; gap recorded as accepted risk."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Section 6, finding 1: the success test asserts only that the receipt is truthy\nProject/branch/task: gstack-plan-count-kjptoZ on main, PLAN.md test 1 (successful charge).\nELI10: PLAN.md states the contract exactly: a 1000-cent USD charge with Stripe id ch_paid returns { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The planned assertion is just \"receipt is truthy\". An empty object, a receipt with chargeId undefined, amountCents 0, or currency EUR all pass that check. The test is green while proving none of the contract it exists to cover.\nStakes if we pick wrong: A regression that drops chargeId, mangles the amount, or swaps currency ships with a passing suite. Support sees wrong receipts; finance reconciles against a missing charge id.\nRecommendation: A because well-tested code is non-negotiable and the exact receipt is already written down in PLAN.md; asserting it is one line and rejects every wrong-shape receipt.\nCompleteness: A=10/10, B=6/10, C=3/10\nPros / cons:\nA) Assert deep equality with the stated receipt (recommended) (human: ~5 min / CC: ~1 min)\n  \u2705 Rejects a missing chargeId, a wrong amountCents, a wrong currency, and any extra field in one assertion\n  \u2705 Failure output shows the full expected-versus-actual receipt, so the regression is obvious at a glance\n  \u274c Adding a new receipt field later fails this test on purpose, so the contract line in PLAN.md must be updated too\nB) Assert the three fields individually, allow extra fields (human: ~5 min / CC: ~1 min)\n  \u2705 Still rejects wrong chargeId, amount, or currency values\n  \u2705 Tolerates additive receipt fields without a test change\n  \u274c Silently accepts unplanned fields leaking into the receipt, so the contract drifts unnoticed\nC) Keep truthy-only as planned (human: 0 / CC: 0)\n  \u2705 Zero extra work and the test can never fail on receipt shape\n  \u2705 Matches PLAN.md text verbatim\n  \u274c Proves nothing about chargeId, amountCents, or currency; a receipt of {} passes\nNet: An exact contract pin versus a test that only checks the function returned something.": "A) Deep-equal exact receipt (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:27:36.367Z"
+    },
+    {
+      "sessionId": "55621667-26b1-4686-acda-4bb4447905aa",
+      "toolUseId": "toolu_018heD87aUbkMno4eA8rMH2e",
+      "questions": [
+        {
+          "question": "D4 \u2014 Section 6, finding 2: the repeated-502 test never checks the retry count or the backoff\nProject/branch/task: gstack-plan-count-kjptoZ on main, PLAN.md test 2 (repeated 502).\nELI10: PLAN.md's contract says: with max_retries=1, repeated 502s cause exactly two charge attempts, one recorded 100 ms backoff between them, then PaymentUnavailable. The planned test asserts only the rejection. An implementation that gives up after one attempt, one that retries five times, or one that sleeps zero milliseconds all still reject with PaymentUnavailable and pass. The factory already exposes the Stripe mock call history and the sleeper record, so the missing checks are two lines against data the test already has.\nStakes if we pick wrong: A regression that drops the retry (customers fail on a single blip) or over-retries (extra Stripe calls, slower failures) ships green. Nobody notices until Stripe metrics or customers do.\nRecommendation: A because the contract names exact counts (two attempts, one 100 ms backoff) and the plan must translate them exactly; a lower bound or a reject-only check would weaken a stated requirement.\nCompleteness: A=10/10, B=6/10, C=3/10\nPros / cons:\nA) Assert PaymentUnavailable, exactly 2 charge calls, sleeper record exactly [100] (recommended) (human: ~10 min / CC: ~2 min)\n  \u2705 Rejects no-retry, over-retry, wrong backoff duration, and extra sleeps in one test\n  \u2705 Uses the mock call history and sleeper record the factory already exposes; no new helpers\n  \u274c Changing max_retries or the backoff constant later must update this test and PLAN.md together\nB) Assert PaymentUnavailable and exactly 2 charge calls, skip the sleeper check (human: ~5 min / CC: ~1 min)\n  \u2705 Catches the highest-impact regression: retry dropped or multiplied\n  \u2705 One fewer coupling to the sleeper record's shape\n  \u274c Leaves the 100 ms backoff unverified; a zero-delay hammer or a 10 s stall both pass\nC) Keep reject-only as planned (human: 0 / CC: 0)\n  \u2705 No extra work and no coupling to mock or sleeper internals\n  \u2705 Matches PLAN.md text verbatim\n  \u274c A single-attempt implementation with no retry passes; the retry contract is untested\nNet: Pin the whole retry contract the plan already states, or only prove the final error type.",
+          "header": "Test 2 assert",
+          "options": [
+            {
+              "label": "A) Reject + 2 calls + [100] backoff (recommended)",
+              "description": "await expect(...).rejects.toBeInstanceOf(PaymentUnavailable); expect(stripe.calls).toHaveLength(2); expect(sleeper.record).toEqual([100]). Update PLAN.md test 2."
+            },
+            {
+              "label": "B) Reject + 2 calls only",
+              "description": "Assert rejection and exact call count; leave backoff duration unasserted."
+            },
+            {
+              "label": "C) Keep reject only",
+              "description": "Leave PLAN.md test 2 as written; gap recorded as accepted risk."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Section 6, finding 2: the repeated-502 test never checks the retry count or the backoff\nProject/branch/task: gstack-plan-count-kjptoZ on main, PLAN.md test 2 (repeated 502).\nELI10: PLAN.md's contract says: with max_retries=1, repeated 502s cause exactly two charge attempts, one recorded 100 ms backoff between them, then PaymentUnavailable. The planned test asserts only the rejection. An implementation that gives up after one attempt, one that retries five times, or one that sleeps zero milliseconds all still reject with PaymentUnavailable and pass. The factory already exposes the Stripe mock call history and the sleeper record, so the missing checks are two lines against data the test already has.\nStakes if we pick wrong: A regression that drops the retry (customers fail on a single blip) or over-retries (extra Stripe calls, slower failures) ships green. Nobody notices until Stripe metrics or customers do.\nRecommendation: A because the contract names exact counts (two attempts, one 100 ms backoff) and the plan must translate them exactly; a lower bound or a reject-only check would weaken a stated requirement.\nCompleteness: A=10/10, B=6/10, C=3/10\nPros / cons:\nA) Assert PaymentUnavailable, exactly 2 charge calls, sleeper record exactly [100] (recommended) (human: ~10 min / CC: ~2 min)\n  \u2705 Rejects no-retry, over-retry, wrong backoff duration, and extra sleeps in one test\n  \u2705 Uses the mock call history and sleeper record the factory already exposes; no new helpers\n  \u274c Changing max_retries or the backoff constant later must update this test and PLAN.md together\nB) Assert PaymentUnavailable and exactly 2 charge calls, skip the sleeper check (human: ~5 min / CC: ~1 min)\n  \u2705 Catches the highest-impact regression: retry dropped or multiplied\n  \u2705 One fewer coupling to the sleeper record's shape\n  \u274c Leaves the 100 ms backoff unverified; a zero-delay hammer or a 10 s stall both pass\nC) Keep reject-only as planned (human: 0 / CC: 0)\n  \u2705 No extra work and no coupling to mock or sleeper internals\n  \u2705 Matches PLAN.md text verbatim\n  \u274c A single-attempt implementation with no retry passes; the retry contract is untested\nNet: Pin the whole retry contract the plan already states, or only prove the final error type.": "A) Reject + 2 calls + [100] backoff (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:27:56.970Z"
+    },
+    {
+      "sessionId": "55621667-26b1-4686-acda-4bb4447905aa",
+      "toolUseId": "toolu_01PizTBFvMwaq4TTQ4gyFpms",
+      "questions": [
+        {
+          "question": "D5 \u2014 Section 6, finding 3: the success test does not prove Stripe was charged exactly once\nProject/branch/task: gstack-plan-count-kjptoZ on main, PLAN.md test 1 (successful charge).\nELI10: processPayment() owns a retry loop. The worst payment bug is that loop firing after a success, which charges the customer twice and still returns a valid receipt. PLAN.md's written success contract covers the receipt shape only, so D3 alone would not catch a double charge. The Stripe mock call history is already in the factory, so the check is one line. This is beyond the letter of PLAN.md's contract, which is why it is its own decision rather than folded into D3.\nStakes if we pick wrong: A regression that double-charges on the happy path passes the whole suite. Customers see two charges; refunds and disputes follow.\nRecommendation: A because it guards the single highest-impact failure mode of the code under test at the cost of one assertion against data the test already holds, and it stays inside the planned test rather than adding a new one.\nCompleteness: A=10/10, B=7/10\nPros / cons:\nA) Also assert exactly one Stripe charge call and an empty sleeper record in test 1 (recommended) (human: ~5 min / CC: ~1 min)\n  \u2705 Rejects a double charge and a spurious backoff on the happy path, the two worst silent retry-loop regressions\n  \u2705 Reuses the same mock call history and sleeper record D4 already relies on; no new fixtures\n  \u274c Extends the written success contract in PLAN.md, so the contract text must be updated to say \"one attempt, no backoff\"\nB) Keep test 1 to the receipt contract only (human: 0 / CC: 0)\n  \u2705 Holds exactly to PLAN.md's stated success contract; no scope drift\n  \u2705 The adapter suite's 502-then-success case already exercises single-success retry handling at the adapter layer\n  \u274c A double charge from processPayment()'s own loop would pass with a perfect receipt; adapter coverage does not prove this caller's path\nNet: One extra assertion against an existing probe, or hold strictly to the receipt-only contract as written.",
+          "header": "Single charge",
+          "options": [
+            {
+              "label": "A) Add 1-call + no-backoff check (recommended)",
+              "description": "expect(stripe.calls).toHaveLength(1); expect(sleeper.record).toEqual([]); update PLAN.md's success contract line."
+            },
+            {
+              "label": "B) Receipt contract only",
+              "description": "Leave test 1 at the D3 deep-equal receipt assertion; record the double-charge gap as accepted."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 Section 6, finding 3: the success test does not prove Stripe was charged exactly once\nProject/branch/task: gstack-plan-count-kjptoZ on main, PLAN.md test 1 (successful charge).\nELI10: processPayment() owns a retry loop. The worst payment bug is that loop firing after a success, which charges the customer twice and still returns a valid receipt. PLAN.md's written success contract covers the receipt shape only, so D3 alone would not catch a double charge. The Stripe mock call history is already in the factory, so the check is one line. This is beyond the letter of PLAN.md's contract, which is why it is its own decision rather than folded into D3.\nStakes if we pick wrong: A regression that double-charges on the happy path passes the whole suite. Customers see two charges; refunds and disputes follow.\nRecommendation: A because it guards the single highest-impact failure mode of the code under test at the cost of one assertion against data the test already holds, and it stays inside the planned test rather than adding a new one.\nCompleteness: A=10/10, B=7/10\nPros / cons:\nA) Also assert exactly one Stripe charge call and an empty sleeper record in test 1 (recommended) (human: ~5 min / CC: ~1 min)\n  \u2705 Rejects a double charge and a spurious backoff on the happy path, the two worst silent retry-loop regressions\n  \u2705 Reuses the same mock call history and sleeper record D4 already relies on; no new fixtures\n  \u274c Extends the written success contract in PLAN.md, so the contract text must be updated to say \"one attempt, no backoff\"\nB) Keep test 1 to the receipt contract only (human: 0 / CC: 0)\n  \u2705 Holds exactly to PLAN.md's stated success contract; no scope drift\n  \u2705 The adapter suite's 502-then-success case already exercises single-success retry handling at the adapter layer\n  \u274c A double charge from processPayment()'s own loop would pass with a perfect receipt; adapter coverage does not prove this caller's path\nNet: One extra assertion against an existing probe, or hold strictly to the receipt-only contract as written.": "A) Add 1-call + no-backoff check (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T15:28:19.088Z"
+    }
+  ]
+}

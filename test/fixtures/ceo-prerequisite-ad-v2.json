@@ -1,0 +1,73 @@
+{
+  "provenance": {
+    "sourceHead": "7fac51e9bd8619665960657462ceab2773d142f5",
+    "sourceReceipt": ".context/ship-source-ad-full-paid-20260909-v2/mode-office-hours-header-evidence-ledger-v1/proof.json",
+    "completedCallSHA256": "1cb969cf3ffe8debed713d7f698776ac3ea1f94f01e0b0521568e8d21512b67e",
+    "requestedAt": "2026-09-09T19:06:48.582Z",
+    "completedAt": "2026-09-09T19:07:02.700Z",
+    "actualFirstAttempt": "mode_not_reached after420000ms",
+    "laterRetry": "passed",
+    "panes": "Tests project pending/active panes from exact complete public questions; no historical pending screen claim",
+    "privateThinkingInspected": false
+  },
+  "completedCall": {
+    "sessionId": "39bfb7b6-c281-4d16-ac5b-6a455c6e764a",
+    "toolUseId": "toolu_01PRrHtcPwjYRtaEVL7HBqrD",
+    "questions": [
+      {
+        "header": "Routing",
+        "question": "D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: gstack-plan-count-FDFfod on main, reviewing PLAN.md (saved project views).\nELI10: gstack skills work best when the project's CLAUDE.md tells the agent which skill to reach for (bugs \u2192 /investigate, scope \u2192 /plan-ceo-review, etc.). Without it you invoke skills by hand each time. Stakes are low either way. Note: plan mode is active, so if you say yes the CLAUDE.md edit and commit happen after this review exits plan mode.\nStakes if we pick wrong: mild friction only; reversible with one config command.\nRecommendation: A because routing rules make future sessions pick the right skill without you remembering names.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Add routing rules (recommended)\n  \u2705 Future sessions auto-route bugs, scope, ship, and QA requests to the right skill\n  \u2705 One-time, committed to the repo so teammates get it too\n  \u274c Adds ~20 lines to CLAUDE.md; must wait until plan mode exits to write it\nB) No thanks\n  \u2705 Keeps CLAUDE.md exactly as the fixture defines it right now\n  \u2705 Nothing written, nothing committed; re-enable any time via gstack-config\n  \u274c You invoke every skill manually going forward\nNet: convenience later vs an untouched CLAUDE.md now.",
+        "options": [
+          {
+            "label": "Add routing rules (recommended)",
+            "description": "Append the skill routing section to CLAUDE.md and commit once plan mode exits."
+          },
+          {
+            "label": "No thanks",
+            "description": "Set routing_declined=true; invoke skills manually."
+          }
+        ],
+        "multiSelect": false
+      },
+      {
+        "header": "Learnings",
+        "question": "D2 \u2014 Enable cross-project learnings search?\nProject/branch/task: same repo, same review.\nELI10: gstack records small lessons per project (command quirks, pitfalls). It can also search lessons from your other projects on this machine to spot patterns that apply here. Everything stays local; no data leaves the machine. Good for solo devs; skip if you juggle multiple client codebases where cross-talk would be awkward.\nStakes if we pick wrong: reversible with one config command; worst case a slightly less informed review.\nRecommendation: A because this is a solo fixture repo and more prior context only helps.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Enable cross-project learnings (recommended)\n  \u2705 Reviews get prior lessons from any project on this machine, not just this one\n  \u2705 Stays fully local; a single config flag you can flip back any time\n  \u274c Lessons from unrelated codebases may occasionally surface as noise\nB) Keep learnings project-scoped\n  \u2705 Zero chance of one client's patterns leaking into another's review\n  \u2705 Simpler mental model: what you see came from this repo only\n  \u274c This repo has zero learnings today, so the review starts cold\nNet: broader context vs strict per-project isolation.",
+        "options": [
+          {
+            "label": "Enable cross-project (recommended)",
+            "description": "Search learnings across all local projects."
+          },
+          {
+            "label": "Project-scoped only",
+            "description": "Only this repo's learnings are used."
+          }
+        ],
+        "multiSelect": false
+      },
+      {
+        "header": "Office hours",
+        "question": "D3 \u2014 Run /office-hours first, or proceed with the standard review?\nProject/branch/task: same repo; no design doc exists for this branch.\nELI10: /office-hours produces a structured problem statement, a premise challenge, and explored alternatives for this specific feature. It gives the CEO review sharper input, at the cost of roughly ten more minutes of Q&A. The plan here is short (4 approach bullets), so the review can run without it, but the premise challenge will be based on what I infer rather than what you told me.\nStakes if we pick wrong: a review built on a misread premise, or ten minutes spent restating what you already know.\nRecommendation: B because the plan's goal is concrete and well-bounded; the review's Step 0 already runs a premise challenge, and I can offer office-hours mid-review if the premise turns out to be shaky.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Run /office-hours now\n  \u2705 Produces a written design doc that later reviews and teammates can read\n  \u2705 Explores alternatives to saved views before we commit to reviewing this shape\n  \u274c About ten minutes of additional questions before the review starts (human ~10 min / CC ~10 min)\nB) Skip, standard review (recommended)\n  \u2705 Starts the review immediately on the plan as written\n  \u2705 Step 0 still challenges the premise and proposes implementation alternatives\n  \u274c No persisted design doc; premise reasoning rests on my inference from the plan text\nNet: sharper input later vs starting now on a plan that is already fairly clear.",
+        "options": [
+          {
+            "label": "Run /office-hours now",
+            "description": "Build a design doc first, then resume the review."
+          },
+          {
+            "label": "Skip, standard review (recommended)",
+            "description": "Proceed directly to Step 0 of the CEO review."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: gstack-plan-count-FDFfod on main, reviewing PLAN.md (saved project views).\nELI10: gstack skills work best when the project's CLAUDE.md tells the agent which skill to reach for (bugs \u2192 /investigate, scope \u2192 /plan-ceo-review, etc.). Without it you invoke skills by hand each time. Stakes are low either way. Note: plan mode is active, so if you say yes the CLAUDE.md edit and commit happen after this review exits plan mode.\nStakes if we pick wrong: mild friction only; reversible with one config command.\nRecommendation: A because routing rules make future sessions pick the right skill without you remembering names.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Add routing rules (recommended)\n  \u2705 Future sessions auto-route bugs, scope, ship, and QA requests to the right skill\n  \u2705 One-time, committed to the repo so teammates get it too\n  \u274c Adds ~20 lines to CLAUDE.md; must wait until plan mode exits to write it\nB) No thanks\n  \u2705 Keeps CLAUDE.md exactly as the fixture defines it right now\n  \u2705 Nothing written, nothing committed; re-enable any time via gstack-config\n  \u274c You invoke every skill manually going forward\nNet: convenience later vs an untouched CLAUDE.md now.": "Add routing rules (recommended)",
+      "D2 \u2014 Enable cross-project learnings search?\nProject/branch/task: same repo, same review.\nELI10: gstack records small lessons per project (command quirks, pitfalls). It can also search lessons from your other projects on this machine to spot patterns that apply here. Everything stays local; no data leaves the machine. Good for solo devs; skip if you juggle multiple client codebases where cross-talk would be awkward.\nStakes if we pick wrong: reversible with one config command; worst case a slightly less informed review.\nRecommendation: A because this is a solo fixture repo and more prior context only helps.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Enable cross-project learnings (recommended)\n  \u2705 Reviews get prior lessons from any project on this machine, not just this one\n  \u2705 Stays fully local; a single config flag you can flip back any time\n  \u274c Lessons from unrelated codebases may occasionally surface as noise\nB) Keep learnings project-scoped\n  \u2705 Zero chance of one client's patterns leaking into another's review\n  \u2705 Simpler mental model: what you see came from this repo only\n  \u274c This repo has zero learnings today, so the review starts cold\nNet: broader context vs strict per-project isolation.": "Enable cross-project (recommended)",
+      "D3 \u2014 Run /office-hours first, or proceed with the standard review?\nProject/branch/task: same repo; no design doc exists for this branch.\nELI10: /office-hours produces a structured problem statement, a premise challenge, and explored alternatives for this specific feature. It gives the CEO review sharper input, at the cost of roughly ten more minutes of Q&A. The plan here is short (4 approach bullets), so the review can run without it, but the premise challenge will be based on what I infer rather than what you told me.\nStakes if we pick wrong: a review built on a misread premise, or ten minutes spent restating what you already know.\nRecommendation: B because the plan's goal is concrete and well-bounded; the review's Step 0 already runs a premise challenge, and I can offer office-hours mid-review if the premise turns out to be shaky.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nA) Run /office-hours now\n  \u2705 Produces a written design doc that later reviews and teammates can read\n  \u2705 Explores alternatives to saved views before we commit to reviewing this shape\n  \u274c About ten minutes of additional questions before the review starts (human ~10 min / CC ~10 min)\nB) Skip, standard review (recommended)\n  \u2705 Starts the review immediately on the plan as written\n  \u2705 Step 0 still challenges the premise and proposes implementation alternatives\n  \u274c No persisted design doc; premise reasoning rests on my inference from the plan text\nNet: sharper input later vs starting now on a plan that is already fairly clear.": "Run /office-hours now"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T19:07:02.700Z"
+  }
+}

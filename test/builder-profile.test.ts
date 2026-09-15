@@ -16,7 +16,7 @@ function runProfile(): Record<string, string> {
     encoding: 'utf-8',
     timeout: 15000,
   };
-  const stdout = execSync(`${BIN}/gstack-builder-profile`, execOpts).trim();
+  const stdout = execSync(`${BIN}/gstack-builder-profile`, execOpts).trim(); // timeout via execOpts
   const result: Record<string, string> = {};
   for (const line of stdout.split('\n')) {
     const idx = line.indexOf(':');

@@ -56,7 +56,7 @@
       "id": "pr-body",
       "file": "pr-body.md",
       "title": "Documentation sync + PR/MR creation",
-      "trigger": "syncing docs and creating or updating the PR/MR (Steps 18-19)"
+      "trigger": "dispatching the /document-release subagent to sync docs (Step 18) and then creating or updating the PR/MR (Step 19)"
     }
   ]
 }

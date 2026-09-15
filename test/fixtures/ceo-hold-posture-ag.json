@@ -1,0 +1,58 @@
+{
+  "provenance": {
+    "source": ".context/ship-source-ag-delta-paid-20260910-v1/mode-hold-first-evidence-v1/observation.json",
+    "sha256": "b910133feb5451f3619617b04fc5aa09b94593616bdb3be1149e0de3292622c6",
+    "sourceCommit": "8d8537e5d341cc9f3d186822f06efb245ec7b8fd",
+    "actualState": "failed",
+    "projection": "Exact parsed public mode call and assistant message; surrounding setup and unrelated decisions omitted. No private blocks included."
+  },
+  "selectionStartedAt": 1789005223823,
+  "transcript": {
+    "status": "ready",
+    "calls": [
+      {
+        "sessionId": "4ed728c7-5e5f-437a-9037-a83ea82de1a6",
+        "toolUseId": "toolu_011bt3yabPDSEsPNm97EhqV4",
+        "questions": [
+          {
+            "question": "D2 \u2014 Which review mode should I apply to this plan? <gstack-qid:plan-ceo-review-mode>\nProject/branch/task: main, reviewing PLAN.md (saved project views) with approach B (canonical validated view entity) approved.\nELI10: The approach is settled. Now choose my posture for the rest of the review. I can push the plan bigger and pitch every expansion for your approval, hold the current scope as the baseline and let you cherry-pick extras one at a time, hold scope with no extras and only harden it, or strip it to the smallest version that still fixes the pain. Every scope change in every mode is your explicit opt-in.\nStakes if we pick wrong: Too ambitious and the two-week pilot ships late with features nobody asked for. Too narrow and we ship a picker that cannot be updated in place, the failure the research flags most.\nRecommendation: Selective Expansion because this is a feature added to an existing task list: the baseline scope is sound, and there are a handful of small adjacent wins (default view, deep link, shared views) worth an individual yes or no.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: how much I argue for more versus how much I only harden what is already written.",
+            "header": "Review mode",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Selective Expansion (recommended)",
+                "description": "\u2705 Baseline scope reviewed with full rigor; nothing added without your explicit yes.\n\u2705 Each expansion candidate shown individually with effort and risk, neutral posture.\n\u274c More decision prompts than Hold Scope; you must judge each cherry-pick."
+              },
+              {
+                "label": "Scope Expansion",
+                "description": "\u2705 I describe the 10x version and pitch each expansion enthusiastically.\n\u2705 Best if you want saved views to become the primary navigation model now.\n\u274c Risks a much bigger first release before the pilot proves demand."
+              },
+              {
+                "label": "Hold Scope",
+                "description": "\u2705 Maximum rigor on exactly what PLAN.md says; no expansions surfaced at all.\n\u2705 Fewest decisions; fastest path to a bulletproof baseline.\n\u274c Adjacent 30-minute wins like a default view or deep links go unmentioned."
+              },
+              {
+                "label": "Scope Reduction",
+                "description": "\u2705 Finds the smallest version that still removes the filter-rebuilding pain.\n\u2705 Fastest pilot; defers anything not essential to a follow-up.\n\u274c Approach B's validator and dirty-state UI may get cut, reintroducing silent breakage."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 \u2014 Which review mode should I apply to this plan? <gstack-qid:plan-ceo-review-mode>\nProject/branch/task: main, reviewing PLAN.md (saved project views) with approach B (canonical validated view entity) approved.\nELI10: The approach is settled. Now choose my posture for the rest of the review. I can push the plan bigger and pitch every expansion for your approval, hold the current scope as the baseline and let you cherry-pick extras one at a time, hold scope with no extras and only harden it, or strip it to the smallest version that still fixes the pain. Every scope change in every mode is your explicit opt-in.\nStakes if we pick wrong: Too ambitious and the two-week pilot ships late with features nobody asked for. Too narrow and we ship a picker that cannot be updated in place, the failure the research flags most.\nRecommendation: Selective Expansion because this is a feature added to an existing task list: the baseline scope is sound, and there are a handful of small adjacent wins (default view, deep link, shared views) worth an individual yes or no.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: how much I argue for more versus how much I only harden what is already written.": "Hold Scope"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T01:53:43.872Z"
+      }
+    ],
+    "assistantMessages": [
+      {
+        "sessionId": "4ed728c7-5e5f-437a-9037-a83ea82de1a6",
+        "text": "I'm locking scope to the four PLAN.md bullets from approach B, flagging anything beyond that (defaults, sharing, deep links) as out of scope, and hunting for silent failure modes\u2014constraints, error handling, UI edge cases, access-rule leaks\u2014that need explicit yes/no repairs. The file count (10\u201312) crosses the smell line but is justified by standard layering, so next I'll surface the implementer's hour-2 decisions one at a time, starting with whether to defer the position column.\n\n",
+        "timestamp": "2026-09-10T01:54:26.393Z"
+      }
+    ]
+  }
+}

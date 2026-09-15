@@ -106,7 +106,7 @@ export const DEFAULT_PAIR_SCOPES: readonly ScopeCategory[] = ['read', 'write', '
  */
 export class InvalidScopeError extends Error {}
 
-function assertValidTokenOptions(scopes: readonly string[], rateLimit: number): void {
+export function assertValidTokenOptions(scopes: readonly string[], rateLimit: number): void {
   const validScopes: ScopeCategory[] = ['read', 'write', 'admin', 'meta', 'control'];
   for (const s of scopes) {
     if (!validScopes.includes(s as ScopeCategory)) {
@@ -114,6 +114,26 @@ function assertValidTokenOptions(scopes: readonly string[], rateLimit: number): 
     }
   }
   if (rateLimit < 0) throw new InvalidScopeError('rateLimit must be >= 0');
+}
+
+/**
+ * Typed error for a reserved or malformed clientId. `root` is the sentinel that
+ * checkScope/checkDomain/checkRate and the server command gate use to mean "the
+ * omnipotent root caller" (validateToken:360), so a scoped token carrying it
+ * would bypass every enforcement path. Empty/non-string ids collapse distinct
+ * agents together and break revoke-by-clientId. Request-path writers throw;
+ * restoreRegistry skips-and-logs so one bad state-file entry can't drop later
+ * sessions or brick boot.
+ */
+export class ReservedClientIdError extends Error {}
+
+export function assertValidClientId(clientId: unknown): asserts clientId is string {
+  if (typeof clientId !== 'string' || clientId.trim() === '') {
+    throw new ReservedClientIdError('clientId must be a non-empty string');
+  }
+  if (clientId.trim().toLowerCase() === 'root') {
+    throw new ReservedClientIdError("clientId 'root' is reserved");
+  }
 }
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -234,6 +254,7 @@ export function createToken(opts: CreateTokenOptions): TokenInfo {
   } = opts;
 
   // Validate inputs
+  assertValidClientId(clientId);
   assertValidTokenOptions(scopes, rateLimit);
   if (expiresSeconds !== null && expiresSeconds !== undefined && expiresSeconds < 0) {
     throw new Error('expiresSeconds must be >= 0 or null');
@@ -276,6 +297,9 @@ export function createToken(opts: CreateTokenOptions): TokenInfo {
  * Setup keys expire in 5 minutes and can only be exchanged once.
  */
 export function createSetupKey(opts: Omit<CreateTokenOptions, 'clientId'> & { clientId?: string }): TokenInfo {
+  // Only validate when a clientId is supplied; an omitted one gets a safe
+  // generated `remote-<ts>` default below.
+  if (opts.clientId !== undefined) assertValidClientId(opts.clientId);
   const scopes = opts.scopes || ['read', 'write'];
   // ?? not ||: rateLimit 0 is documented as "unlimited" and must survive.
   const rateLimit = opts.rateLimit ?? 10;
@@ -472,6 +496,110 @@ export function revokeToken(clientId: string): number {
 }
 
 /**
+ * Revoke the PENDING (unspent) setup keys for a client, leaving any live
+ * session AND spent keys untouched. A re-pair always drops pending keys so a
+ * superseded broad key can never be exchanged — this closes the shadow-key
+ * hole (a reducing re-pair before the agent connects would otherwise leave the
+ * old broad key live) without touching the spent key that #2646 keeps for
+ * idempotent re-exchange on a tunnel drop. Returns the number deleted.
+ */
+export function revokeSetupKeys(clientId: string): number {
+  let deleted = 0;
+  for (const [token, info] of tokens) {
+    // usesRemaining !== 0 = still exchangeable (pending). Spent keys (0) are
+    // harmless: their session is either kept here or revoked on the reduce path.
+    if (info.clientId === clientId && info.type === 'setup' && info.usesRemaining !== 0) {
+      tokens.delete(token);
+      deleted++;
+    }
+  }
+  return deleted;
+}
+
+/** The live (non-expired) session token for a client, if any. */
+export function getClientSession(clientId: string): TokenInfo | null {
+  const now = new Date();
+  for (const info of tokens.values()) {
+    if (info.clientId !== clientId || info.type !== 'session') continue;
+    if (info.expiresAt && new Date(info.expiresAt) < now) continue;
+    return info;
+  }
+  return null;
+}
+
+/** The effective grant a re-pair is requesting, resolved to concrete values. */
+export interface ResolvedGrant {
+  scopes: ScopeCategory[];
+  domains?: string[];
+  rateLimit: number;
+  tabPolicy: 'own-only' | 'shared';
+}
+
+/**
+ * Does `grant` remove any capability the live `prior` session holds? Drives the
+ * /pair supersede decision: a reducing re-pair revokes the old session
+ * immediately (the narrowing must not wait for a reconnect that may never
+ * happen); a broaden/refresh leaves it working (no outage). Fails toward
+ * revocation on an unprovable domain superset — a spurious revoke costs one
+ * reconnect, a missed one leaves wide access live.
+ */
+export function grantReducesAccess(prior: TokenInfo, grant: ResolvedGrant): boolean {
+  return scopesReduced(prior.scopes, grant.scopes)
+    || domainsReduced(prior.domains, grant.domains)
+    || rateReduced(prior.rateLimit, grant.rateLimit)
+    || tabPolicyReduced(prior.tabPolicy, grant.tabPolicy);
+}
+
+function scopesReduced(prior: ScopeCategory[], next: ScopeCategory[]): boolean {
+  // Any scope the prior held that the new grant omits (also catches dropping 'control').
+  return prior.some(s => !next.includes(s));
+}
+
+function domainsReduced(prior: string[] | undefined, next: string[] | undefined): boolean {
+  const priorUnrestricted = !prior || prior.length === 0;
+  const nextUnrestricted = !next || next.length === 0;
+  if (priorUnrestricted) return !nextUnrestricted; // universe → restricted = reduce
+  if (nextUnrestricted) return false;              // restricted → universe = broaden
+  // Both restricted: reduced if any host the prior allowlist admits is no longer
+  // admitted by the new one. Approximate over patterns — prior is covered iff
+  // every prior pattern is covered by some next pattern; anything unprovable
+  // counts as reduced (fail toward revocation).
+  return prior!.some(p => !next!.some(n => domainGlobCovers(n, p)));
+}
+
+/** Does allowlist pattern `wide` admit every host that `narrow` admits? Mirrors
+ * matchDomainGlob's suffix/exact rules. */
+function domainGlobCovers(wide: string, narrow: string): boolean {
+  if (wide === narrow) return true;
+  const wideGlob = wide.startsWith('*.');
+  if (wideGlob) {
+    const wideSuffix = wide.slice(1); // ".example.com"
+    const wideApex = wide.slice(2);   // "example.com"
+    if (!narrow.startsWith('*.')) {
+      // narrow is an exact host; covered iff the wide glob matches it.
+      return narrow === wideApex || narrow.endsWith(wideSuffix);
+    }
+    // narrow is also a glob; its apex must fall under the wide suffix.
+    const narrowApex = narrow.slice(2);
+    return narrowApex === wideApex || narrowApex.endsWith(wideSuffix);
+  }
+  // wide is an exact host: covers only the identical host (handled by === above).
+  return false;
+}
+
+function rateReduced(prior: number, next: number): boolean {
+  const priorUnlimited = prior <= 0; // 0 = unlimited
+  const nextUnlimited = next <= 0;
+  if (priorUnlimited) return !nextUnlimited; // unlimited → capped = reduce
+  if (nextUnlimited) return false;           // capped → unlimited = broaden
+  return next < prior;                       // both capped: a lower cap = reduce
+}
+
+function tabPolicyReduced(prior: 'own-only' | 'shared', next: 'own-only' | 'shared'): boolean {
+  return prior === 'shared' && next === 'own-only';
+}
+
+/**
  * Rotate the root token. All scoped tokens are invalidated.
  * Returns the new root token.
  */
@@ -534,6 +662,16 @@ export function restoreRegistry(state: TokenRegistryState): void {
   for (const [clientId, data] of Object.entries(state.agents)) {
     // Skip expired tokens
     if (data.expiresAt && new Date(data.expiresAt) < now) continue;
+
+    // Skip-and-log rather than throw: a hand-edited or corrupt state file must
+    // not brick boot or drop every later valid session. A persisted clientId
+    // 'root' would otherwise inject a token that bypasses all scope checks.
+    try {
+      assertValidClientId(clientId);
+    } catch (err) {
+      console.warn(`[browse] restoreRegistry: skipping invalid clientId ${JSON.stringify(clientId)}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
 
     tokens.set(data.token, {
       ...data,

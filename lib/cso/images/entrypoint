@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+umask 077
+export PATH=/usr/local/bin:/usr/bin:/bin
+export HOME=/work/.cso-home
+unset BUN_OPTIONS BUN_BE_BUN NODE_OPTIONS RUBYOPT RUBYLIB PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH ENV BASH_ENV CDPATH
+if [ "$#" -eq 0 ]; then
+  echo 'CSO runtime requires an explicit command' >&2
+  exit 64
+fi
+case "$1" in
+  /*) exec "$@" ;;
+  *) echo 'CSO runtime requires an absolute executable path' >&2; exit 64 ;;
+esac

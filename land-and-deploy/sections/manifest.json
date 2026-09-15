@@ -1,0 +1,26 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "land-and-deploy",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's decision-tree prose is the ONLY place that decides WHEN to read a section; required-reads live in the E2E fixtures. No machine predicate here — see docs/designs/v2_PLAN.md:663.",
+  "sections": [
+    {
+      "id": "first-run-validation",
+      "file": "first-run-validation.md",
+      "title": "First-run dry-run validation (teacher mode)",
+      "trigger": "running the first-run dry-run validation — Step 1.5's check returned FIRST_RUN or CONFIG_CHANGED (skip on CONFIRMED)"
+    },
+    {
+      "id": "readiness-gate",
+      "file": "readiness-gate.md",
+      "title": "Pre-merge readiness gate",
+      "trigger": "the pre-merge readiness gate (Step 3.5) — the last check before the irreversible merge"
+    },
+    {
+      "id": "merge-and-deploy",
+      "file": "merge-and-deploy.md",
+      "title": "Merge the PR + deploy strategy detection",
+      "trigger": "merging the PR and detecting the deploy strategy (Steps 4-5)"
+    }
+  ]
+}

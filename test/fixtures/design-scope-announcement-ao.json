@@ -1,0 +1,61 @@
+{
+  "sourceCommit": "be36e2c57cc6bf4762b9c6a81cd4d72a6615baa7",
+  "sourceSha256": "2173d0f684c9e8bdf8d46b26513f9c0b14a2d35f5d1aafc311f48333a3fd98c0",
+  "rawScopeGateAutoSelectObserved": false,
+  "projection": {
+    "transcript": {
+      "status": "ready",
+      "calls": [],
+      "assistantMessages": [
+        {
+          "sessionId": "4e67a1cb-e68e-4557-b0ec-5416aa4d1dea",
+          "text": "Scope gate first: plan mode is active but no plan file or draft exists yet, so I need to confirm the review target before running anything.",
+          "timestamp": "2026-09-10T11:58:11.879Z"
+        },
+        {
+          "sessionId": "e59ff1ec-5088-4137-97f0-037f2e833038",
+          "text": "I'll run the plan-design-review skill against your draft plan.",
+          "timestamp": "2026-09-10T11:58:09.403Z"
+        },
+        {
+          "sessionId": "e59ff1ec-5088-4137-97f0-037f2e833038",
+          "text": "I'll auto-select option B and review the Marketing landing page draft plan you shared, running the pre-review audit, design setup probe, brain context, and base-branch detection in parallel.",
+          "timestamp": "2026-09-10T11:58:33.429Z"
+        },
+        {
+          "sessionId": "e59ff1ec-5088-4137-97f0-037f2e833038",
+          "text": "Audit done. Writing the initial plan artifact with your draft copied verbatim and the gaps recorded as pending, then Step 0.",
+          "timestamp": "2026-09-10T11:59:24.518Z"
+        }
+      ]
+    },
+    "tools": [
+      {
+        "sessionId": "e59ff1ec-5088-4137-97f0-037f2e833038",
+        "timestamp": "2026-09-10T11:58:09.449Z",
+        "toolUseId": "toolu_014KvjwrUtcrRHyC21T6gt1r",
+        "kind": "use",
+        "name": "Skill",
+        "input": {
+          "skill": "plan-design-review"
+        },
+        "messageId": "msg_011CeuieXKoLrXenEW4sJHYw",
+        "requestId": "req_011CeuieWDK9iV4Y7KdT9hGq"
+      },
+      {
+        "sessionId": "e59ff1ec-5088-4137-97f0-037f2e833038",
+        "timestamp": "2026-09-10T11:58:10.835Z",
+        "toolUseId": "toolu_014KvjwrUtcrRHyC21T6gt1r",
+        "kind": "result",
+        "content": "Launching skill: plan-design-review",
+        "isError": false
+      }
+    ],
+    "opts": {
+      "seed": "\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead; the CTA\nbutton has the same visual weight as the \"Learn more\" link beside it.\n\n## Pages\n- / (hero, 3-column features grid, testimonials carousel, footer)\n- /pricing (3 tier cards)\n\n## States\nOnly the happy path is designed. No empty states, no error states,\nno loading states. Mobile: \"stacks on mobile.\"\n",
+      "skillName": "plan-design-review",
+      "sessionId": "e59ff1ec-5088-4137-97f0-037f2e833038",
+      "commandStartedAt": 1789041478981
+    }
+  }
+}

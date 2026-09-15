@@ -15,14 +15,15 @@
  *      `description: |` block (multi-line) instead of the trim'd one-line
  *      `description: ...(gstack)` form.
  *
- * The smoke test mutates the working tree mid-run. It restores the default
- * trim'd state in a finally block so a crash mid-test still leaves a clean
- * working tree.
+ * The smoke test renders the full-catalog variant into an isolated
+ * --out-dir — the working tree is never written, so there is no restore
+ * pass (and no half-restored tree if the test crashes mid-run).
  */
 
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 const REPO_ROOT = path.resolve(import.meta.dir, '..');
@@ -58,24 +59,26 @@ describe('--catalog-mode=full opt-out wiring (static)', () => {
 
 describe('--catalog-mode=full opt-out behavior (smoke)', () => {
   test('--catalog-mode=full produces multi-line description in frontmatter', () => {
-    // Save the trim'd state so we can restore it.
-    const trimmedShip = fs.readFileSync(SHIP_SKILL, 'utf-8');
+    // The TRACKED ship/SKILL.md carries the default trim'd form (read-only check).
     // #1778: the trimmed ship description has an interior colon ("Ship workflow:")
     // and is now YAML-quoted — tolerate the optional surrounding quotes.
+    const trimmedShip = fs.readFileSync(SHIP_SKILL, 'utf-8');
     expect(trimmedShip).toMatch(/^description: "?Ship workflow:[^\n]*\(gstack\)"?\n/m);
 
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-catalog-full-'));
     try {
-      // Run with --catalog-mode=full. Mutates working tree.
-      const result = spawnSync('bun', ['run', 'gen:skill-docs', '--catalog-mode=full'], {
+      // Render --catalog-mode=full into an isolated out-dir. The working
+      // tree is never written, so no restore pass is needed.
+      const result = spawnSync('bun', ['run', 'gen:skill-docs', '--catalog-mode=full', '--out-dir', outDir], {
         cwd: REPO_ROOT,
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: 60_000,
       });
       expect(result.status).toBe(0);
 
-      // After --catalog-mode=full, frontmatter description is the legacy
+      // In the full-mode render, frontmatter description is the legacy
       // multi-line block, not the trim'd one-line form.
-      const fullShip = fs.readFileSync(SHIP_SKILL, 'utf-8');
+      const fullShip = fs.readFileSync(path.join(outDir, 'ship', 'SKILL.md'), 'utf-8');
       expect(fullShip).toMatch(/^description: \|\s*$/m); // YAML block scalar
       // Legacy multi-line content includes "Use when asked to..." in the
       // frontmatter (in trim mode this lives in the body section).
@@ -87,23 +90,12 @@ describe('--catalog-mode=full opt-out behavior (smoke)', () => {
       // (because the routing prose stayed in frontmatter).
       const body = fullShip.slice(fmEnd);
       expect(body).not.toContain('## When to invoke this skill');
+
+      // Non-mutation proof: the tracked ship/SKILL.md is byte-unchanged —
+      // a catalog-mode render must never rewrite the committed trim'd state.
+      expect(fs.readFileSync(SHIP_SKILL, 'utf-8')).toBe(trimmedShip);
     } finally {
-      // Restore default trim state regardless of test outcome.
-      const restore = spawnSync('bun', ['run', 'gen:skill-docs'], {
-        cwd: REPO_ROOT,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 60_000,
-      });
-      if (restore.status !== 0) {
-        // eslint-disable-next-line no-console
-        console.error(
-          'CRITICAL: failed to restore default trim state. Run `bun run gen:skill-docs` to clean up.',
-        );
-      }
-      // Sanity-check the restored state matches what we saw at the start.
-      const restoredShip = fs.readFileSync(SHIP_SKILL, 'utf-8');
-      // #1778: restored trim state has the YAML-quoted (interior-colon) description.
-      expect(restoredShip).toMatch(/^description: "?Ship workflow:[^\n]*\(gstack\)"?\n/m);
+      fs.rmSync(outDir, { recursive: true, force: true });
     }
   }, 180_000);
 

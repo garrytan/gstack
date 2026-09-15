@@ -14,17 +14,18 @@
 
 import { describe, it, expect } from "bun:test";
 import { execFileSync } from "child_process";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
 const ROOT = join(import.meta.dir, "..");
 
 function trackedTmplFiles(): string[] {
-  const out = execFileSync("git", ["ls-files", "*.tmpl", "**/*.tmpl"], {
+  const out = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "*.tmpl", "**/*.tmpl"], {
     cwd: ROOT,
     encoding: "utf-8",
+    timeout: 30_000,
   });
-  return out.split("\n").filter(Boolean);
+  return [...new Set(out.split("\n").filter(Boolean))].filter(rel => existsSync(join(ROOT, rel)));
 }
 
 describe("mktemp portability (#2091)", () => {
@@ -50,8 +51,9 @@ describe("mktemp portability (#2091)", () => {
     const tmp = process.env.TMPDIR || "/tmp";
     const created = execFileSync("mktemp", [`${tmp.replace(/\/$/, "")}/gstack-portability-XXXXXX`], {
       encoding: "utf-8",
+      timeout: 30_000,
     }).trim();
     expect(created.length).toBeGreaterThan(0);
-    execFileSync("rm", ["-f", created]);
+    execFileSync("rm", ["-f", created], { timeout: 30_000 });
   });
 });

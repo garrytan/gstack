@@ -29,6 +29,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS } from './helpers/eval-budgets';
 import { execFileSync } from 'child_process';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
@@ -156,7 +157,7 @@ ${body}`;
         expect(retrieved).not.toContain('page_not_found');
         expect(retrieved).not.toContain('Page not found');
       },
-      120_000,
+      JUDGE_MS,
     );
   },
 );

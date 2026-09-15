@@ -1,0 +1,256 @@
+{
+  "calls": [
+    {
+      "sessionId": "66269ec9-191f-4657-a677-80014743fbe5",
+      "toolUseId": "toolu_01CQbuRzCZwr7d2LBJ2uak26",
+      "questions": [
+        {
+          "question": "D1 — Does this empathy narrative match the real developer experience?\n\nI traced the actual getting-started path from your README and docs. Here's what I think an ML engineer experiences today:\n\n**T+0:00** — Installs `evalkit==2.0.0b1`. Two seconds, clean.\n**T+0:30** — README says run `python examples/first_eval.py`. Sets EVALKIT_API_KEY (README doesn't say how to get one). Runs the command. **FileNotFoundError** — `examples/first_eval.py` is listed in the README quickstart but absent from the published package (confirmed in docs/package-contents.txt).\n**T+3:15** — Finds the demo module lower in the README. Runs `python -m evalkit.demo`. Gets stderr progress lines every 30s for 5 full minutes.\n**T+8:00** — Finally sees scores. Total elapsed: ~8 minutes, including API key acquisition time.\n\nThis is significantly above the <2-minute target. The mandatory CI gate on the demo is the primary driver, and the broken README quickstart adds immediate friction at first contact.\n\nDoes this trace match reality? Where am I wrong? <gstack-qid:devex-empathy-narrative-confirm>",
+          "header": "Empathy check",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Accurate — proceed with this understanding (Recommended)",
+              "description": "The trace reflects the real experience. Continue to friction point questions."
+            },
+            {
+              "label": "Some of this is wrong",
+              "description": "Correct specific parts of the trace before proceeding."
+            },
+            {
+              "label": "The quickstart file issue was already known / fixed",
+              "description": "examples/first_eval.py gap is already addressed; update my understanding."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Does this empathy narrative match the real developer experience?\n\nI traced the actual getting-started path from your README and docs. Here's what I think an ML engineer experiences today:\n\n**T+0:00** — Installs `evalkit==2.0.0b1`. Two seconds, clean.\n**T+0:30** — README says run `python examples/first_eval.py`. Sets EVALKIT_API_KEY (README doesn't say how to get one). Runs the command. **FileNotFoundError** — `examples/first_eval.py` is listed in the README quickstart but absent from the published package (confirmed in docs/package-contents.txt).\n**T+3:15** — Finds the demo module lower in the README. Runs `python -m evalkit.demo`. Gets stderr progress lines every 30s for 5 full minutes.\n**T+8:00** — Finally sees scores. Total elapsed: ~8 minutes, including API key acquisition time.\n\nThis is significantly above the <2-minute target. The mandatory CI gate on the demo is the primary driver, and the broken README quickstart adds immediate friction at first contact.\n\nDoes this trace match reality? Where am I wrong? <gstack-qid:devex-empathy-narrative-confirm>": "Accurate — proceed with this understanding (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:51:25.854Z"
+    },
+    {
+      "sessionId": "66269ec9-191f-4657-a677-80014743fbe5",
+      "toolUseId": "toolu_012Y6Wv45fGFmap7aKnhvvwU",
+      "questions": [
+        {
+          "question": "D2 — Journey Stage: INSTALL/Hello World — The README quickstart command fails on arrival.\n\nYour README directs new developers to: `python examples/first_eval.py`\nBut docs/package-contents.txt shows `examples/first_eval.py` is **absent** from the published package.\n\nAn ML engineer's very first action produces a FileNotFoundError. They haven't seen a score yet. This is the hardest possible first impression.\n\nA 10/10 here is: the first command the README tells them to run succeeds on a clean install, producing meaningful output.\nCurrent: 0/10 for this specific command — it immediately fails.\n\nFix options:\n- A) **Add `examples/first_eval.py` to the published package** — create a minimal working example that runs without modification. This repairs the README quickstart. (human: ~1h / CC: ~5min)\n- B) **Update README to point to the working demo** — replace `python examples/first_eval.py` with `python -m evalkit.demo` as the primary quickstart command. The demo already works. (human: ~15min / CC: ~2min)\n- C) **Both** — ship a real examples/first_eval.py AND update the README to use the demo as the primary command. Belt and suspenders. (human: ~1.5h / CC: ~10min)\n\nDX Principle: Zero friction at T0. The first command must work.\nRecommendation: C because the demo is the right first-run experience AND a real example file closes the gap between the README contract and the package contents. <gstack-qid:devex-missing-quickstart-fix>",
+          "header": "Quickstart fix",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "C) Both — fix file + update README (Recommended)",
+              "description": "Ship examples/first_eval.py and point README to the working demo as primary."
+            },
+            {
+              "label": "B) Update README only",
+              "description": "Remove the broken reference, point to python -m evalkit.demo instead."
+            },
+            {
+              "label": "A) Add the file to the package only",
+              "description": "Ship examples/first_eval.py without changing the README reference."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Journey Stage: INSTALL/Hello World — The README quickstart command fails on arrival.\n\nYour README directs new developers to: `python examples/first_eval.py`\nBut docs/package-contents.txt shows `examples/first_eval.py` is **absent** from the published package.\n\nAn ML engineer's very first action produces a FileNotFoundError. They haven't seen a score yet. This is the hardest possible first impression.\n\nA 10/10 here is: the first command the README tells them to run succeeds on a clean install, producing meaningful output.\nCurrent: 0/10 for this specific command — it immediately fails.\n\nFix options:\n- A) **Add `examples/first_eval.py` to the published package** — create a minimal working example that runs without modification. This repairs the README quickstart. (human: ~1h / CC: ~5min)\n- B) **Update README to point to the working demo** — replace `python examples/first_eval.py` with `python -m evalkit.demo` as the primary quickstart command. The demo already works. (human: ~15min / CC: ~2min)\n- C) **Both** — ship a real examples/first_eval.py AND update the README to use the demo as the primary command. Belt and suspenders. (human: ~1.5h / CC: ~10min)\n\nDX Principle: Zero friction at T0. The first command must work.\nRecommendation: C because the demo is the right first-run experience AND a real example file closes the gap between the README contract and the package contents. <gstack-qid:devex-missing-quickstart-fix>": "C) Both — fix file + update README (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:51:41.889Z"
+    },
+    {
+      "sessionId": "66269ec9-191f-4657-a677-80014743fbe5",
+      "toolUseId": "toolu_0111jj3vBYZYCugJnkdtFWjw",
+      "questions": [
+        {
+          "question": "D3 — Journey Stage: Hello World — The 5-minute CI gate makes the <2-min TTHW target impossible.\n\nYour benchmarks.md shows: EvalKit current TTHW = 6 min. Target = <2 min.\nThe mandatory CI check in docs/current-contracts.md accounts for 5 of those 6 minutes.\nThe plan retains this gate unchanged.\n\nFor an ML engineer running `python -m evalkit.demo` with bundled sample data — which needs no external state, no real job submission, no production system — a 5-minute mandatory wait is the DEMO experience. The magic moment is buried under it.\n\nCompetitor context: Peer SDK A achieves 2-min TTHW without this gate. EvalKit is 3x slower on a good day.\n\nA 10/10 here is: `python -m evalkit.demo` produces scores in under 30 seconds using the bundled sample data, with no network dependency.\nCurrent: 3/10 — demo works but requires a full CI round-trip regardless of data source.\n\nFix options:\n- A) **Add a `--local` / `--no-ci-check` flag to the demo** — skip the CI gate for the bundled sample data run only. Production eval paths retain the gate. This closes the TTHW gap to <30s for the demo. (human: ~1 day / CC: ~20min)\n- B) **Make CI check opt-in, not mandatory, for the demo module** — the demo defaults to local evaluation; real evals still require the check. Add `EVALKIT_CI_CHECK=1` env var or `--require-ci` flag for those who want it in the demo too. (human: ~1.5 days / CC: ~30min)\n- C) **Retain the mandatory CI gate** — accept that TTHW = 6 min and the <2-min target is not achievable in this release. Document the gate prominently so developers know upfront. (human: ~30min to write docs / CC: ~5min)\n\nDX Principle: Zero friction at T0. First five minutes decide everything.\nRecommendation: A because it's the minimum viable fix — demo gets fast, prod behavior is unchanged, and it closes the competitive gap with Peer SDK A. <gstack-qid:devex-ci-gate-tthw>",
+          "header": "CI gate TTHW",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Add --local flag to demo (Recommended)",
+              "description": "Skip CI check for bundled sample data. Demo goes from 5+ min to <30s."
+            },
+            {
+              "label": "B) Make CI check opt-in for demo",
+              "description": "Demo defaults to local eval; real evals require CI check. More flexible."
+            },
+            {
+              "label": "C) Retain the gate, document prominently",
+              "description": "Accept 6-min TTHW, update docs so developers know before they start."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Journey Stage: Hello World — The 5-minute CI gate makes the <2-min TTHW target impossible.\n\nYour benchmarks.md shows: EvalKit current TTHW = 6 min. Target = <2 min.\nThe mandatory CI check in docs/current-contracts.md accounts for 5 of those 6 minutes.\nThe plan retains this gate unchanged.\n\nFor an ML engineer running `python -m evalkit.demo` with bundled sample data — which needs no external state, no real job submission, no production system — a 5-minute mandatory wait is the DEMO experience. The magic moment is buried under it.\n\nCompetitor context: Peer SDK A achieves 2-min TTHW without this gate. EvalKit is 3x slower on a good day.\n\nA 10/10 here is: `python -m evalkit.demo` produces scores in under 30 seconds using the bundled sample data, with no network dependency.\nCurrent: 3/10 — demo works but requires a full CI round-trip regardless of data source.\n\nFix options:\n- A) **Add a `--local` / `--no-ci-check` flag to the demo** — skip the CI gate for the bundled sample data run only. Production eval paths retain the gate. This closes the TTHW gap to <30s for the demo. (human: ~1 day / CC: ~20min)\n- B) **Make CI check opt-in, not mandatory, for the demo module** — the demo defaults to local evaluation; real evals still require the check. Add `EVALKIT_CI_CHECK=1` env var or `--require-ci` flag for those who want it in the demo too. (human: ~1.5 days / CC: ~30min)\n- C) **Retain the mandatory CI gate** — accept that TTHW = 6 min and the <2-min target is not achievable in this release. Document the gate prominently so developers know upfront. (human: ~30min to write docs / CC: ~5min)\n\nDX Principle: Zero friction at T0. First five minutes decide everything.\nRecommendation: A because it's the minimum viable fix — demo gets fast, prod behavior is unchanged, and it closes the competitive gap with Peer SDK A. <gstack-qid:devex-ci-gate-tthw>": "A) Add --local flag to demo (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:52:01.934Z"
+    },
+    {
+      "sessionId": "66269ec9-191f-4657-a677-80014743fbe5",
+      "toolUseId": "toolu_016dbU8GuGN26Gv11otqa4FQ",
+      "questions": [
+        {
+          "question": "D4 — Pass 3: Error Messages — Authentication failure gives the worst possible error.\n\nFrom docs/api.md: when the API key is invalid or missing, the SDK raises:\n\n    AuthError(\"request failed\")\n\nNo error code. No cause. No fix instruction. No docs link.\n\nAn ML engineer who mistyped their key, used a staging key in prod, or hasn't set EVALKIT_API_KEY yet sees: `request failed`. They don't know if it's an auth problem, a network problem, a rate limit, or a service outage. They're staring at two words and starting a Google search.\n\nThe three-tier standard (Hall of Fame, Pass 3):\n- Tier 3 (Stripe): error type + code + message + param + doc_url. Five fields, zero ambiguity.\n- EvalKit today: one message, zero of the above.\n\nA 10/10 error message tells the developer: what happened, why, and what to do next.\nCurrent: 1/10 — \"request failed\" identifies none of these.\n\nFix options:\n- A) **Improve the auth error message** in the plan — specify what it should say:\n  `AuthError(\"Invalid API key. Set EVALKIT_API_KEY to a valid key from your dashboard.\")`\n  Optionally add an error code (e.g., `auth_invalid`) and a docs link. (human: ~1h / CC: ~5min)\n- B) **Retain the current message** — accept that auth errors say \"request failed\". Plan already explicitly retains this; no change.\n\nDX Principle: Fight uncertainty. Every error = problem + cause + fix.\nRecommendation: A because an ML engineer hitting an auth error during a first-run demo will abandon the tool rather than debug a two-word message. <gstack-qid:devex-auth-error-quality>",
+          "header": "Auth error msg",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Fix the auth error message (Recommended)",
+              "description": "Specify a new message that names the cause and fix. Optionally add error code."
+            },
+            {
+              "label": "B) Retain 'request failed'",
+              "description": "Keep the existing message. Plan already retains it; explicit choice."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Pass 3: Error Messages — Authentication failure gives the worst possible error.\n\nFrom docs/api.md: when the API key is invalid or missing, the SDK raises:\n\n    AuthError(\"request failed\")\n\nNo error code. No cause. No fix instruction. No docs link.\n\nAn ML engineer who mistyped their key, used a staging key in prod, or hasn't set EVALKIT_API_KEY yet sees: `request failed`. They don't know if it's an auth problem, a network problem, a rate limit, or a service outage. They're staring at two words and starting a Google search.\n\nThe three-tier standard (Hall of Fame, Pass 3):\n- Tier 3 (Stripe): error type + code + message + param + doc_url. Five fields, zero ambiguity.\n- EvalKit today: one message, zero of the above.\n\nA 10/10 error message tells the developer: what happened, why, and what to do next.\nCurrent: 1/10 — \"request failed\" identifies none of these.\n\nFix options:\n- A) **Improve the auth error message** in the plan — specify what it should say:\n  `AuthError(\"Invalid API key. Set EVALKIT_API_KEY to a valid key from your dashboard.\")`\n  Optionally add an error code (e.g., `auth_invalid`) and a docs link. (human: ~1h / CC: ~5min)\n- B) **Retain the current message** — accept that auth errors say \"request failed\". Plan already explicitly retains this; no change.\n\nDX Principle: Fight uncertainty. Every error = problem + cause + fix.\nRecommendation: A because an ML engineer hitting an auth error during a first-run demo will abandon the tool rather than debug a two-word message. <gstack-qid:devex-auth-error-quality>": "A) Fix the auth error message (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:52:17.972Z"
+    },
+    {
+      "sessionId": "66269ec9-191f-4657-a677-80014743fbe5",
+      "toolUseId": "toolu_012vx2t4FQAfnLtbZBQMGuXP",
+      "questions": [
+        {
+          "question": "D5 — Pass 2: API Design — Two functions accept the same two args in reversed order.\n\nFrom docs/api.md, the two public evaluation functions are:\n\n    run_eval(dataset, evaluator)   — dataset first\n    run_batch(evaluator, dataset)  — evaluator first\n\nSame two concepts. Reversed positional order. Neither requires keyword arguments.\n\nAn ML engineer who uses `run_eval` daily will reach for `run_batch` and pass args in the same order. Their code runs without a TypeError — Python happily accepts both args — and silently produces wrong results because the evaluator is treated as the dataset and vice versa. This is a silent failure mode, not a caught error.\n\nDocs/api.md calls this \"intentional\" but gives no rationale for the reversal.\n\nA 10/10 API design: same conceptual args appear in the same order across all related functions. GitHub CLI, Stripe SDK — naming and arg order are consistent end-to-end.\nCurrent: 4/10 — inconsistency is a trap, not a feature.\n\nFix options:\n- A) **Standardize arg order in the plan** — recommend `run_batch(dataset, evaluator)` to match `run_eval`. This is a breaking change, but v2 is already a breaking release. (human: ~1h to update + document / CC: ~10min)\n- B) **Require keyword arguments for both functions** — add a runtime check that both args are passed as kwargs. Eliminates the silent-failure mode without reordering. (human: ~2h / CC: ~15min)\n- C) **Retain the current order, document prominently** — add a warning callout in docs/api.md and a note in the changelog. Silent failure risk remains. (human: ~30min / CC: ~5min)\n\nDX Principle: Decide for me, let me override. Consistency IS the API contract.\nRecommendation: A because v2 is already a breaking release — fixing this now costs nothing extra, and silent wrong-results bugs are worse than a breaking change you document. <gstack-qid:devex-api-arg-order>",
+          "header": "API arg order",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Standardize to dataset-first across both functions (Recommended)",
+              "description": "run_batch(dataset, evaluator) to match run_eval. Breaking but v2 already is."
+            },
+            {
+              "label": "B) Require keyword arguments for both",
+              "description": "Catch reversed args at runtime. No reorder needed, but more ceremony."
+            },
+            {
+              "label": "C) Retain inconsistency, document it",
+              "description": "Add warning to docs. Silent failure risk stays."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Pass 2: API Design — Two functions accept the same two args in reversed order.\n\nFrom docs/api.md, the two public evaluation functions are:\n\n    run_eval(dataset, evaluator)   — dataset first\n    run_batch(evaluator, dataset)  — evaluator first\n\nSame two concepts. Reversed positional order. Neither requires keyword arguments.\n\nAn ML engineer who uses `run_eval` daily will reach for `run_batch` and pass args in the same order. Their code runs without a TypeError — Python happily accepts both args — and silently produces wrong results because the evaluator is treated as the dataset and vice versa. This is a silent failure mode, not a caught error.\n\nDocs/api.md calls this \"intentional\" but gives no rationale for the reversal.\n\nA 10/10 API design: same conceptual args appear in the same order across all related functions. GitHub CLI, Stripe SDK — naming and arg order are consistent end-to-end.\nCurrent: 4/10 — inconsistency is a trap, not a feature.\n\nFix options:\n- A) **Standardize arg order in the plan** — recommend `run_batch(dataset, evaluator)` to match `run_eval`. This is a breaking change, but v2 is already a breaking release. (human: ~1h to update + document / CC: ~10min)\n- B) **Require keyword arguments for both functions** — add a runtime check that both args are passed as kwargs. Eliminates the silent-failure mode without reordering. (human: ~2h / CC: ~15min)\n- C) **Retain the current order, document prominently** — add a warning callout in docs/api.md and a note in the changelog. Silent failure risk remains. (human: ~30min / CC: ~5min)\n\nDX Principle: Decide for me, let me override. Consistency IS the API contract.\nRecommendation: A because v2 is already a breaking release — fixing this now costs nothing extra, and silent wrong-results bugs are worse than a breaking change you document. <gstack-qid:devex-api-arg-order>": "A) Standardize to dataset-first across both functions (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:52:36.013Z"
+    },
+    {
+      "sessionId": "66269ec9-191f-4657-a677-80014743fbe5",
+      "toolUseId": "toolu_01TYyNVPpE4rxifwdH3pQcri",
+      "questions": [
+        {
+          "question": "D6 — Pass 5: Upgrade Path — v1→v2 hard-removes Client.evaluate() with no migration support.\n\nFrom docs/api.md:\n- Version 1 exposes `Client.evaluate()`\n- Version 2 replaces it with `Client.run()` and **removes the old name immediately**\n- No compatibility alias, deprecation warning, migration guide, or codemod provided\n\nAn ML engineer upgrading from v1 runs `pip install --upgrade evalkit`, then sees:\n\n    AttributeError: 'Client' object has no attribute 'evaluate'\n\nEvery call site breaks at once. No warning they were coming. No instructions for what to call instead. They have to grep their codebase for all `evaluate(` calls and figure out the new API from scratch.\n\nIndustry benchmark: Python packages announce breaking changes in v1's deprecation warnings for at least one minor version before removal. Stripe, requests, Django all follow this pattern.\nCurrent: 2/10 — the hard break punishes users who trusted the v1 API.\n\nFix options:\n- A) **Add a compatibility shim + deprecation warning for this beta** — `Client.evaluate()` calls `Client.run()` internally and emits `DeprecationWarning: evaluate() is removed in v2.0 final; use run() instead`. Removed at v2.0.0 final. (human: ~2h / CC: ~10min)\n- B) **Write a migration guide** — add a MIGRATION.md or upgrade section to README: 'Replace `client.evaluate(...)` with `client.run(...)`.' No alias, no warning. (human: ~1h / CC: ~5min)\n- C) **Both** — compatibility alias with deprecation warning in beta, plus MIGRATION.md. Full upgrade support. (human: ~3h / CC: ~15min)\n- D) **Retain the hard break** — accept that v2 is a clean break. Plan already retains this; no change.\n\nDX Principle: Upgrade fear. Will this break my production app? Boring upgrades = trust.\nRecommendation: C because the beta is the last chance to smooth v1 users' upgrade before GA. A shim costs 10 lines; the goodwill is disproportionate. <gstack-qid:devex-v1-v2-migration>",
+          "header": "v1→v2 upgrade",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "C) Alias + deprecation warning + MIGRATION.md (Recommended)",
+              "description": "Full upgrade support: shim lives in beta, removed at GA. Plus a migration guide."
+            },
+            {
+              "label": "A) Compatibility shim + DeprecationWarning only",
+              "description": "Code-level warning guides developers; no written migration guide."
+            },
+            {
+              "label": "B) Migration guide only",
+              "description": "Document the rename without a compatibility shim."
+            },
+            {
+              "label": "D) Retain the hard break",
+              "description": "Keep the existing behavior. v2 is a clean break."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Pass 5: Upgrade Path — v1→v2 hard-removes Client.evaluate() with no migration support.\n\nFrom docs/api.md:\n- Version 1 exposes `Client.evaluate()`\n- Version 2 replaces it with `Client.run()` and **removes the old name immediately**\n- No compatibility alias, deprecation warning, migration guide, or codemod provided\n\nAn ML engineer upgrading from v1 runs `pip install --upgrade evalkit`, then sees:\n\n    AttributeError: 'Client' object has no attribute 'evaluate'\n\nEvery call site breaks at once. No warning they were coming. No instructions for what to call instead. They have to grep their codebase for all `evaluate(` calls and figure out the new API from scratch.\n\nIndustry benchmark: Python packages announce breaking changes in v1's deprecation warnings for at least one minor version before removal. Stripe, requests, Django all follow this pattern.\nCurrent: 2/10 — the hard break punishes users who trusted the v1 API.\n\nFix options:\n- A) **Add a compatibility shim + deprecation warning for this beta** — `Client.evaluate()` calls `Client.run()` internally and emits `DeprecationWarning: evaluate() is removed in v2.0 final; use run() instead`. Removed at v2.0.0 final. (human: ~2h / CC: ~10min)\n- B) **Write a migration guide** — add a MIGRATION.md or upgrade section to README: 'Replace `client.evaluate(...)` with `client.run(...)`.' No alias, no warning. (human: ~1h / CC: ~5min)\n- C) **Both** — compatibility alias with deprecation warning in beta, plus MIGRATION.md. Full upgrade support. (human: ~3h / CC: ~15min)\n- D) **Retain the hard break** — accept that v2 is a clean break. Plan already retains this; no change.\n\nDX Principle: Upgrade fear. Will this break my production app? Boring upgrades = trust.\nRecommendation: C because the beta is the last chance to smooth v1 users' upgrade before GA. A shim costs 10 lines; the goodwill is disproportionate. <gstack-qid:devex-v1-v2-migration>": "C) Alias + deprecation warning + MIGRATION.md (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:52:54.060Z"
+    },
+    {
+      "sessionId": "66269ec9-191f-4657-a677-80014743fbe5",
+      "toolUseId": "toolu_01CFD5jG7dC9pUP2apqnvhPB",
+      "questions": [
+        {
+          "question": "D7 — Pass 4: Documentation — README says 'set EVALKIT_API_KEY' but never says where to get one.\n\nYour README's getting-started section:\n1. Install with pip\n2. Set EVALKIT_API_KEY\n3. Run the quickstart\n\nStep 2 assumes the developer already has a key. There's no link to a dashboard, no signup path, no indication of whether keys are free or paid.\n\nAn ML engineer's first install: they set a placeholder value, hit AuthError, and don't know if the error is 'bad key format' vs 'wrong key' vs 'no account'.\n\nFix options:\n- A) **Add a one-liner to README** — 'Get your API key at https://[dashboard]. Free tier available.' (human: ~5min / CC: ~2min)\n- B) **Skip** — the key acquisition path is already documented in external onboarding materials that new developers receive before reaching the README.\n\nDX Principle: Fight uncertainty. Developers need: what to do next.\nRecommendation: A because a missing link is one line and removes a guaranteed source of confusion for cold-start developers. <gstack-qid:devex-api-key-docs>",
+          "header": "API key docs",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Add key acquisition link to README (Recommended)",
+              "description": "One-liner pointing developers to where to get their API key."
+            },
+            {
+              "label": "B) Skip",
+              "description": "Key acquisition is already covered in external onboarding, not a README concern."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Pass 4: Documentation — README says 'set EVALKIT_API_KEY' but never says where to get one.\n\nYour README's getting-started section:\n1. Install with pip\n2. Set EVALKIT_API_KEY\n3. Run the quickstart\n\nStep 2 assumes the developer already has a key. There's no link to a dashboard, no signup path, no indication of whether keys are free or paid.\n\nAn ML engineer's first install: they set a placeholder value, hit AuthError, and don't know if the error is 'bad key format' vs 'wrong key' vs 'no account'.\n\nFix options:\n- A) **Add a one-liner to README** — 'Get your API key at https://[dashboard]. Free tier available.' (human: ~5min / CC: ~2min)\n- B) **Skip** — the key acquisition path is already documented in external onboarding materials that new developers receive before reaching the README.\n\nDX Principle: Fight uncertainty. Developers need: what to do next.\nRecommendation: A because a missing link is one line and removes a guaranteed source of confusion for cold-start developers. <gstack-qid:devex-api-key-docs>": "A) Add key acquisition link to README (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:53:30.158Z"
+    },
+    {
+      "sessionId": "66269ec9-191f-4657-a677-80014743fbe5",
+      "toolUseId": "toolu_01VNhitb9VY1xFSkpH9xrV47",
+      "questions": [
+        {
+          "question": "D8 — TODO check: Real-world examples beyond the bundled sample data?\n\nThe plan ships one new file (examples/first_eval.py) in response to D2. The demo uses bundled sample data. Neither shows an ML engineer how to run EvalKit against their own dataset and evaluator in a real project.\n\n**What:** Add 1-2 additional examples/ files showing real use cases — e.g., evaluating a custom dataset, using run_batch for batch processing.\n**Why:** A developer who gets the demo working will immediately ask 'how do I run this on my own data?' If there's no example, they read the API reference alone, which is slower.\n**Pros:** Higher activation rate after first demo success; reduces support load on 'how do I start for real'\n**Cons:** Scope expansion (not in the beta plan); requires real-world data and evaluator setup\n**Context:** The plan currently adds only examples/first_eval.py (the broken quickstart repair). Real-world examples would be separate files.\n**Depends on:** D2 resolution (examples/ directory now ships)\n\nAdd to TODOS.md for post-beta? <gstack-qid:devex-todo-real-world-examples>",
+          "header": "TODO examples",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Add to TODOS.md for post-beta (Recommended)",
+              "description": "Track this as a follow-up item after beta ships."
+            },
+            {
+              "label": "B) Build it now as part of this plan",
+              "description": "Include 1-2 real-world example files in the beta scope."
+            },
+            {
+              "label": "C) Skip",
+              "description": "The demo and quickstart are sufficient. No additional examples needed."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — TODO check: Real-world examples beyond the bundled sample data?\n\nThe plan ships one new file (examples/first_eval.py) in response to D2. The demo uses bundled sample data. Neither shows an ML engineer how to run EvalKit against their own dataset and evaluator in a real project.\n\n**What:** Add 1-2 additional examples/ files showing real use cases — e.g., evaluating a custom dataset, using run_batch for batch processing.\n**Why:** A developer who gets the demo working will immediately ask 'how do I run this on my own data?' If there's no example, they read the API reference alone, which is slower.\n**Pros:** Higher activation rate after first demo success; reduces support load on 'how do I start for real'\n**Cons:** Scope expansion (not in the beta plan); requires real-world data and evaluator setup\n**Context:** The plan currently adds only examples/first_eval.py (the broken quickstart repair). Real-world examples would be separate files.\n**Depends on:** D2 resolution (examples/ directory now ships)\n\nAdd to TODOS.md for post-beta? <gstack-qid:devex-todo-real-world-examples>": "A) Add to TODOS.md for post-beta (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T06:54:02.252Z"
+    }
+  ]
+}

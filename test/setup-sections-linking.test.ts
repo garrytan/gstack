@@ -37,12 +37,13 @@ describe('setup links sections/ for cherry-pick install targets', () => {
     expect(helper).not.toMatch(/\bln -s/);
   });
 
-  test('kiro per-skill loop rewrites + copies sections/*', () => {
-    // Kiro builds from the codex output and sed-rewrites paths; sections must get
-    // the same rewrite so they resolve under ~/.kiro, not ~/.codex or ~/.claude.
+  test('Kiro per-skill loop installs native sections/* and preserves foreign files', () => {
+    // The native host render already carries Kiro paths/provider identity.
     expect(SETUP).toMatch(/if \[ -d "\$skill_dir\/sections" \]/);
     expect(SETUP).toMatch(/mkdir -p "\$target_dir\/sections"/);
     expect(SETUP).toContain('$target_dir/sections/$(basename "$section_file")');
+    expect(SETUP).toContain('_link_or_copy "$section_file" "$section_dest"');
+    expect(SETUP).toContain('_gstack_generated_header "$section_dest"');
   });
 
   test('no raw ln introduced (windows-fallback invariant still holds)', () => {

@@ -70,6 +70,7 @@ describe('windowsHide on Windows-reachable spawns (#1835)', () => {
     const EXEMPT: Array<{ file: string; needle: string; reason: string }> = [
       {
         file: 'domain-skill-commands.ts',
+        // tripwire-exempt: grep NEEDLE string for this census, not a call
         needle: 'spawnSync(editor',
         reason: "interactive $EDITOR with stdio:'inherit' — windowsHide would detach a console editor into an invisible console",
       },

@@ -1,0 +1,41 @@
+{
+  "provenance": {
+    "run": "ship-source-as-delta-paid-20260910-v1",
+    "attempt": "first",
+    "outcome": "no_review_questions",
+    "retrospectivePass": false,
+    "publicSource": "completed native AskUserQuestion and acknowledged Write"
+  },
+  "call": {
+    "sessionId": "702366df-907f-4db0-aa9f-8b1444f340c5",
+    "toolUseId": "toolu_01N6wYBzrBc23yXYTTTsy29o",
+    "questions": [
+      {
+        "question": "D4 \u2014 Issue 1 [P1] (confidence 9/10) PLAN.md:19-20: AuthBroker and SessionMint share a global mutable AuthCache via module-level export, and both mutate it.\nProject/branch/task: gstack-plan-count on main \u2014 Section 1 Architecture, Multi-tenant Auth Refactor.\nELI10: Two services write to the same cache through a global variable. The plan also says the cache 'does not serialize mutations' (PLAN.md:10). So writes can interleave: SessionMint stores a session while AuthBroker invalidates the same tenant on logout, and the last writer wins with no ordering. A module-level export also means tests share one instance, so one test's leftover token can make another pass or fail. Search check [Layer 1]: dependency injection is the standard cure; module singletons are the documented trap.\nStakes if we pick wrong: a revoked token stays valid for one tenant because a concurrent mint re-wrote it, and no test can reproduce it because the shared instance hides ordering.\nRecommendation: 1A because a single instance is fine, a global accessor is not. Inject it once from the composition root and give the facade a narrow write API that owns ordering. Maps to your 'explicit over clever' preference.\nCompleteness: A=10/10, B=6/10, C=2/10.\nNet: one extra constructor parameter per service buys deterministic writes and isolated tests.",
+        "header": "Shared cache",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "1A) Inject AuthCache; narrow write API with per-key ordering (recommended)",
+            "description": "\u2705 Both services receive the one AuthCache instance via constructor; the module export goes away (human: ~1 day / CC: ~20 min). \u2705 AuthCache exposes only get/put/invalidate keyed by a typed TenantKey and serializes writes per key, so mint-vs-revoke ordering is defined and testable. \u274c Every call site that imported the global must be threaded through the composition root."
+          },
+          {
+            "label": "1B) Keep the module export; make SessionMint read-only",
+            "description": "\u2705 Smaller change: only AuthBroker writes, so no two-writer race exists (human: ~2 hrs / CC: ~5 min). \u2705 Keeps the existing import shape for callers. \u274c Test isolation problem remains, and SessionMint still needs a write path for new sessions, which pushes the race into AuthBroker."
+          },
+          {
+            "label": "1C) Proceed as written",
+            "description": "\u2705 Zero re-planning; matches the current draft. \u2705 Fastest path to a first commit. \u274c Ships an auth cache with two unordered writers and shared test state on a multi-tenant path."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 Issue 1 [P1] (confidence 9/10) PLAN.md:19-20: AuthBroker and SessionMint share a global mutable AuthCache via module-level export, and both mutate it.\nProject/branch/task: gstack-plan-count on main \u2014 Section 1 Architecture, Multi-tenant Auth Refactor.\nELI10: Two services write to the same cache through a global variable. The plan also says the cache 'does not serialize mutations' (PLAN.md:10). So writes can interleave: SessionMint stores a session while AuthBroker invalidates the same tenant on logout, and the last writer wins with no ordering. A module-level export also means tests share one instance, so one test's leftover token can make another pass or fail. Search check [Layer 1]: dependency injection is the standard cure; module singletons are the documented trap.\nStakes if we pick wrong: a revoked token stays valid for one tenant because a concurrent mint re-wrote it, and no test can reproduce it because the shared instance hides ordering.\nRecommendation: 1A because a single instance is fine, a global accessor is not. Inject it once from the composition root and give the facade a narrow write API that owns ordering. Maps to your 'explicit over clever' preference.\nCompleteness: A=10/10, B=6/10, C=2/10.\nNet: one extra constructor parameter per service buys deterministic writes and isolated tests.": "1A) Inject AuthCache; narrow write API with per-key ordering (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-10T18:13:26.078Z"
+  }
+}

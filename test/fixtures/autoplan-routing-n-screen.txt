@@ -1,0 +1,39 @@
+│ D1 — Add skill routing rules to CLAUDE.md? <gstack-qid:routing-injection>
+│
+│ Project/branch: gstack-autoplan-chain-309S8Y / main — User Dashboard plan about to enter full review pipeline.
+│
+│ ELI10: When you type something natural like "review my plan" or "check the design," gstack can automatically pick the
+│ right skill (/autoplan, /plan-design-review, etc.) without you needing to type the exact slash command. This works
+│ through routing rules in your project's CLAUDE.md. Right now no CLAUDE.md exists here, so automatic routing isn't
+│ active. This is a one-time setup that benefits the whole team.
+│
+│ Stakes if we pick wrong: Low — you can always add routing rules later or remove them. Without routing, you manually
+│ invoke skills; with routing, natural language triggers them.
+│
+│ Recommendation: A — hands-free skill dispatch beats remembering slash commands.
+│ Note: options differ in kind, not coverage — no completeness score.
+│
+│ Pros / cons:
+│ A) Add routing to CLAUDE.md (Recommended)
+│   ✅  Natural language triggers skills automatically — type "review the plan" and the right skill fires without exact
+│ command syntax
+│   ✅  Committed to repo — teammates using gstack get the same routing with no extra setup
+│   ❌  Adds a CLAUDE.md file (and a commit) to the repo; routing opinions are baked in and would need to be updated if
+│ your skill preferences change
+│ B) Skip — invoke manually
+│   ✅  Zero new files or commits; no routing opinions imposed on the repo
+│   ✅  Explicit control — you choose which skill runs each time
+│   ❌  Must always type exact slash commands like /autoplan or /ship; natural language won't trigger skills
+│
+│ Net: Convenience vs. explicitness — routing makes gstack hands-free; skipping keeps it a consciously invoked tool.
+
+❯ 1. Add routing rules (Recommended)
+     Append skill routing section to CLAUDE.md and commit it. Enables natural language skill dispatch for you and
+     teammates.
+  2. Skip, invoke manually
+     No CLAUDE.md changes. Continue using explicit slash commands like /autoplan, /ship, /review.
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

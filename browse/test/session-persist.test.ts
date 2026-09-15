@@ -15,7 +15,8 @@
  *      shutdown, and the gate is BROWSE_PERSIST_STATE (default off).
  */
 
-import { describe, test, expect, afterAll } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { canRevokeWrites } from '../../test/helpers/fs-caps';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -24,6 +25,24 @@ import {
   isSessionPersistEnabled, persistSessionState, restoreSessionState,
 } from '../src/session-persist';
 import type { BrowserState } from '../src/browser-manager';
+
+// Per-FILE Chromium profile: this file launches an in-process persistent
+// context (BrowserManager.launch()), and sharing a profile dir with the
+// long-lived browse daemon a sibling file may have spawned kills one side's
+// Chromium (ProcessSingleton on user-data-dir). Scoped via hooks, never
+// module scope (see test/gstack-home-module-scope.test.ts's rationale).
+const ORIGINAL_CHROMIUM_PROFILE = process.env.CHROMIUM_PROFILE;
+let CHROMIUM_PROFILE_DIR: string | undefined;
+beforeAll(() => {
+  CHROMIUM_PROFILE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-profile-'));
+  process.env.CHROMIUM_PROFILE = CHROMIUM_PROFILE_DIR;
+});
+afterAll(() => {
+  if (ORIGINAL_CHROMIUM_PROFILE === undefined) delete process.env.CHROMIUM_PROFILE;
+  else process.env.CHROMIUM_PROFILE = ORIGINAL_CHROMIUM_PROFILE;
+  if (CHROMIUM_PROFILE_DIR) { try { fs.rmSync(CHROMIUM_PROFILE_DIR, { recursive: true, force: true }); } catch {} }
+});
+
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-persist-'));
 afterAll(() => { fs.rmSync(tmpRoot, { recursive: true, force: true }); });
@@ -128,7 +147,7 @@ describe('session-persist units', () => {
 
   test('a failed snapshot write preserves the previous good snapshot', async () => {
     // chmod-based read-only dirs don't bind on Windows or when running as root.
-    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     const dir = path.join(tmpRoot, 'ro');
     fs.mkdirSync(dir);
     const file = path.join(dir, 'session-state.json');

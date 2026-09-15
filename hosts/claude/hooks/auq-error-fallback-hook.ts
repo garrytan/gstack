@@ -32,6 +32,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { runBin } from './spawn-bin';
+import { SPAWNED_ESCAPE_SENTENCE } from './spawned-directive';
 
 interface HookStdin {
   tool_name?: string;
@@ -146,24 +147,40 @@ export function directiveFor(kind: 'spawned' | 'headless' | 'interactive'): stri
     'Per the AskUserQuestion failure-fallback rule: ';
   switch (kind) {
     case 'spawned':
+      // Self-contained carve-out (#2733 review): the "Spawned session block"
+      // exists in context only when a gstack preamble ran; an AUQ error
+      // outside a skill must still carry the destructive exception here.
       return (
         lead +
         'SESSION_KIND=spawned — auto-choose the recommended option per the Spawned session block. ' +
-        'Do not emit prose, do not BLOCK.'
+        'Do not emit prose, do not BLOCK. Exception: never auto-choose a destructive or ' +
+        'irreversible option — take the conservative non-destructive choice (skip/defer), ' +
+        'record it, and continue.'
       );
     case 'headless':
+      // #2733 review (multi-specialist): a spawned-marked subagent under a
+      // HEADLESS-classified parent env (CI/eval-hosted /ship) hits this branch
+      // — the shell-out sees the harness env, never the per-command marker.
+      // The self-gating escape sentence keeps the JSON contract alive there;
+      // plain headless sessions read its condition as false and still BLOCK.
       return (
         lead +
-        'SESSION_KIND=headless — report `BLOCKED — AskUserQuestion unavailable` and stop; no human can answer.'
+        'SESSION_KIND=headless — report `BLOCKED — AskUserQuestion unavailable` and stop; no human can answer. ' +
+        SPAWNED_ESCAPE_SENTENCE
       );
     case 'interactive':
     default:
+      // #2733: the shell-out above runs in the HARNESS env, so a subagent
+      // marked spawned via a per-command env prefix still classifies as
+      // interactive here — the escape sentence is the only lever for that
+      // topology (see spawned-directive.ts).
       return (
         lead +
         'SESSION_KIND=interactive — render the decision as a PROSE message now: a clear ELI10 of the issue, ' +
         'then a Recommendation line, then ONE paragraph per choice carrying its `(recommended)` marker, its ' +
         '`Completeness: X/10`, and 2-4 sentences of reasoning. Tell the user to reply with a letter, then STOP. ' +
-        '(Retry the call once first only if no answer could have surfaced.)'
+        '(Retry the call once first only if no answer could have surfaced.) ' +
+        SPAWNED_ESCAPE_SENTENCE
       );
   }
 }

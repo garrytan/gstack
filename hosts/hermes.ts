@@ -28,6 +28,13 @@ const hermes = defineHost({
     // If Hermes has GBrain as a mod, brain features activate automatically.
   ],
 
+  // No full install arm — users can hand-copy the instruction-only digest
+  // (setup's explainer arm prints this path; never auto-copied).
+  install: {
+    linkingStrategy: 'symlink-generated',
+    instructionTier: { rulesFile: 'agents-digest/gstack-AGENTS.md' },
+  },
+
   coAuthorTrailer: 'Co-Authored-By: Hermes Agent <agent@nousresearch.com>',
 });
 

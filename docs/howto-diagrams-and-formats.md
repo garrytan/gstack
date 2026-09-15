@@ -2,8 +2,13 @@
 
 This guide covers the diagram + multi-format engine that ships with
 `/make-pdf` and `/diagram` (v1.58.0.0+). Everything here runs fully offline:
-the mermaid and excalidraw runtimes are vendored in `lib/diagram-render/`,
-loaded into the browse daemon's Chromium. No CDN, no network at render time.
+the mermaid and excalidraw runtimes are vendored in `lib/diagram-render/` and
+loaded into a browser by `bin/gstack-render.ts`, which serves the bundle from
+your machine on loopback for the length of one render. No CDN, no network at
+render time. The browser is your Aside browser when it is open (macOS 15+);
+when it is not — Linux, Windows, or the app closed — the same bundle renders in
+gstack's own bundled browser, so it renders offline on every platform (PNGs
+come out at 1x on the fallback, 2x through Aside).
 
 ## Render a mermaid diagram inside a PDF
 
@@ -13,7 +18,7 @@ Put a fence in your markdown. That's it.
 ```mermaid title="Render pipeline"
 graph LR
   A[markdown] --> B[prepass]
-  B --> C[Chromium]
+  B --> C[browser]
   C --> D[PDF]
 ```
 ````
@@ -142,5 +147,5 @@ break the build.
   boundaries silently disable `direction`).
 - **"[remote image blocked]" placeholder** → remote images are never fetched
   by default (offline posture); the tag is replaced with a visible
-  placeholder so Chromium can't fetch it at print time either. Pass
+  placeholder so the browser can't fetch it at print time either. Pass
   `--allow-network` to opt in.

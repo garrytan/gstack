@@ -47,6 +47,7 @@ function run(args: string[]): { stdout: string; stderr: string; status: number }
     env: makeEnv(),
     encoding: 'utf-8',
     cwd: fixtureCwd,
+    timeout: 30_000,
   });
   return {
     stdout: res.stdout ?? '',
@@ -75,6 +76,7 @@ function writeAuqOtherEvent(text: string): void {
       env: makeEnv(),
       cwd: fixtureCwd,
       encoding: 'utf-8',
+      timeout: 30_000,
     },
   );
 }
@@ -150,7 +152,7 @@ describe('no-event paths', () => {
           tool_use_id: 'tu-x',
         }),
       ],
-      { env: makeEnv(), cwd: fixtureCwd, encoding: 'utf-8' },
+      { env: makeEnv(), cwd: fixtureCwd, encoding: 'utf-8', timeout: 30_000 },
     );
     const r = run([]);
     expect(r.status).toBe(0);
@@ -169,7 +171,7 @@ describe('--dry-run', () => {
     // Strip ANTHROPIC_API_KEY to prove no API call happens.
     const env = makeEnv();
     delete env.ANTHROPIC_API_KEY;
-    const res = spawnSync(BIN, ['--dry-run'], { env, cwd: fixtureCwd, encoding: 'utf-8' });
+    const res = spawnSync(BIN, ['--dry-run'], { env, cwd: fixtureCwd, encoding: 'utf-8', timeout: 30_000 });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain('DISTILL PROMPT');
     expect(res.stdout).toContain('always include tests');
@@ -185,7 +187,7 @@ describe('API auth', () => {
     writeAuqOtherEvent('Some free text response that needs distilling');
     const env = makeEnv();
     delete env.ANTHROPIC_API_KEY;
-    const res = spawnSync(BIN, [], { env, cwd: fixtureCwd, encoding: 'utf-8' });
+    const res = spawnSync(BIN, [], { env, cwd: fixtureCwd, encoding: 'utf-8', timeout: 30_000 });
     expect(res.status).not.toBe(0);
     expect(res.stderr).toMatch(/ANTHROPIC_API_KEY/);
     expect(res.stderr).toMatch(/separate billing/);

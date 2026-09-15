@@ -82,6 +82,7 @@ find . -maxdepth 1 -name '*.gemspec' 2>/dev/null | grep -q . && echo "PROJECT_TY
 ### Step 3: Platform-specific setup
 
 Based on what was detected, guide the user through platform-specific configuration.
+If several platforms are detected, ask which one serves this project's production target before proceeding. Detection is a hint, not a selection. Confirm whether the project is a web app, API, CLI, or library; use detected CLI/library markers as defaults.
 
 #### Fly.io
 
@@ -118,6 +119,7 @@ If vercel.json or .vercel detected:
 2. If installed: `vercel ls --prod 2>/dev/null | head -3`
 3. Vercel deploys automatically on push — preview on PR, production on merge to main
 4. Set health check: the production URL from vercel project settings
+Ask for the production URL if not available from the CLI, then confirm it before writing.
 
 #### Netlify
 
@@ -126,6 +128,11 @@ If netlify.toml detected:
 1. Extract site info from netlify.toml
 2. Netlify deploys automatically on push
 3. Set health check: the production URL
+Ask for and confirm the production URL; do not infer it from a repository name.
+
+#### Heroku / Railway
+
+These markers do not identify the production app or service reliably. Keep the detected platform as a suggestion and use the Custom / Manual questions below to collect the production URL, trigger, and status check.
 
 #### GitHub Actions only
 
@@ -161,6 +168,8 @@ Use AskUserQuestion to gather the information:
    - Commands to run after merge but before deploy verification
 
 ### Step 4: Write configuration
+
+Before writing, collect fields not already confirmed: merge method (squash/merge/rebase, constrained to methods allowed by repo settings), pre-merge command or none, deploy trigger, and status/health checks. Ask only for missing values, across every platform path. If the project does not deploy, set platform/URL/workflow/status/health/trigger to `none`, retain its CLI/library project type, and skip deploy verification. Show the complete proposed configuration and obtain confirmation.
 
 Read CLAUDE.md (or create it). Find and replace the `## Deploy Configuration` section
 if it exists, or append it at the end.

@@ -109,7 +109,16 @@ describe('stop --force-restart on a LIVE daemon', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-stop-force-'));
     const stateFile = path.join(tmpDir, 'browse.json');
     // Portable long-lived child standing in for the wedged daemon process.
-    const wedged = spawn('bun', ['-e', 'await Bun.sleep(300000)'], { stdio: 'ignore' });
+    // Its lifetime is tied to this test process instead of a fixed sleep: it
+    // blocks until its stdin (a pipe we hold open) hits EOF. That means it
+    // can never self-exit mid-test — which would let the "pid is dead"
+    // assertion below pass without the CLI having killed anything — and it
+    // reaps itself the moment the test process dies, even on a hard kill
+    // where the finally block never runs.
+    const wedged = spawn('bun', ['-e',
+      "process.stdin.resume(); const bye = () => process.exit(0); "
+      + "process.stdin.on('end', bye); process.stdin.on('error', bye); process.stdin.on('close', bye);",
+    ], { stdio: ['pipe', 'ignore', 'ignore'] });
     try {
       const port = await closedPort();
       fs.writeFileSync(stateFile, JSON.stringify({

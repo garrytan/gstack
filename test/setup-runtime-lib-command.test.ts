@@ -33,8 +33,8 @@ function extractFunction(name: string): string {
 // root assignment through the last runtime-asset link so the extracted code is
 // a complete statement list.
 function extractKiroBlock(): string {
-  const startAnchor = 'KIRO_GSTACK="$KIRO_SKILLS/gstack"';
-  const endAnchor = '_link_or_copy "$SOURCE_GSTACK_DIR/supabase/config.sh" "$KIRO_GSTACK/supabase/config.sh"\n  fi';
+  const startAnchor = 'mkdir -p "$KIRO_GSTACK" "$KIRO_GSTACK/browse" "$KIRO_GSTACK/gstack-upgrade" "$KIRO_GSTACK/review"';
+  const endAnchor = '_link_or_copy "$SOURCE_GSTACK_DIR/supabase/config.sh" "$KIRO_GSTACK/supabase/config.sh"\n    fi';
   const start = SETUP_SRC.indexOf(startAnchor);
   const end = SETUP_SRC.indexOf(endAnchor, start);
   if (start < 0 || end < 0) throw new Error('Could not locate the Kiro install block in setup');
@@ -143,6 +143,7 @@ const HOST_ROOTS: Record<string, (sandbox: string) => { script: string; rootDir:
       `HOME="${sandbox}/home"`,
       `SOURCE_GSTACK_DIR="${ROOT}"`,
       `KIRO_SKILLS="$HOME/.kiro/skills"`,
+      `KIRO_GSTACK="$KIRO_SKILLS/gstack"`,
       `mkdir -p "$KIRO_SKILLS"`,
       extractKiroBlock(),
     ].join('\n'),

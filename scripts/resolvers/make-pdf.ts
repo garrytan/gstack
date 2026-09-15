@@ -2,11 +2,11 @@ import { type TemplateContext, toShellPath } from './types';
 
 /**
  * {{MAKE_PDF_SETUP}} — emits the shell preamble that resolves $P to the
- * make-pdf binary. Mirrors generateBrowseSetup / generateDesignSetup.
+ * make-pdf binary. Mirrors generateDesignSetup.
  *
  * $P = make-pdf/dist/pdf.
  *
- * Resolution order (matches src/browseClient.ts::resolveBrowseBin):
+ * Resolution order:
  *   1. Local skill root: $_ROOT/{localSkillRoot}/make-pdf/dist/pdf
  *   2. Global: ~/{globalRoot}/make-pdf/dist/pdf
  *   3. Env override (MAKE_PDF_BIN) — for contributor dev builds
@@ -40,11 +40,13 @@ Core commands:
 - \`$P generate --cover --toc essay.md out.pdf\` — full publication layout
 - \`$P generate --watermark DRAFT memo.md draft.pdf\` — diagonal DRAFT watermark
 - \`$P preview <input.md>\` — render HTML and open in browser (fast iteration)
-- \`$P setup\` — verify browse + Chromium + pdftotext and run a smoke test
+- \`$P setup\` — verify the browser (Aside, or gstack's own headless fallback) + pdftotext and run a smoke test
 - \`$P --help\` — full flag reference
 
 Output contract:
 - \`stdout\`: ONLY the output path on success. One line.
 - \`stderr\`: progress (\`Rendering HTML... Generating PDF...\`) unless \`--quiet\`.
-- Exit 0 success / 1 bad args / 2 render error / 3 Paged.js timeout / 4 browse unavailable.`;
+- Exit 0 success / 1 bad args / 2 render error / 3 Paged.js timeout / 4 no browser available (open the Aside app, or run \`./setup\` to build gstack's own browser).
+
+PDFs print through Aside when it is running and through gstack's own headless browser otherwise; the stderr progress line says which (\`Rendering PDF through Aside\` / \`through gstack's browser\`).`;
 }

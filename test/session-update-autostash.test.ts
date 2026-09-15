@@ -15,7 +15,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const SCRIPT = path.join(ROOT, 'bin', 'gstack-session-update');
 
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  return execFileSync('git', args, { cwd, encoding: 'utf8', timeout: 30_000 }).trim();
 }
 
 function makeFixture() {
@@ -205,7 +205,7 @@ describe('gstack-session-update lock identity + TTL (#2613)', () => {
   test('a dead pid is reclaimed and the run proceeds', async () => {
     const { base, install, state } = makeFixture();
     try {
-      const dead = spawnSync('true', { encoding: 'utf8' }); // reaped by the time spawnSync returns
+      const dead = spawnSync('true', { encoding: 'utf8', timeout: 30_000 }); // reaped by the time spawnSync returns
       const lockDir = path.join(state, '.setup-lock');
       fs.mkdirSync(lockDir, { recursive: true });
       fs.writeFileSync(path.join(lockDir, 'pid'), String(dead.pid));

@@ -10,6 +10,11 @@
 #   gstack-telemetry-log --skill qa --duration 142 --outcome success \
 #     --used-browse true --session-id "12345-1710756600"
 #
+#   --no-sweep  one-shot events with no session of their own (setup's
+#               onboarding events) must not finalize OTHER sessions' in-flight
+#               .pending markers as outcome:unknown — only a skill's own
+#               epilogue may sweep.
+#
 # Env overrides (for testing):
 #   GSTACK_STATE_DIR  — override ~/.gstack state directory
 #   GSTACK_DIR        — override auto-detected gstack root
@@ -48,9 +53,11 @@ SEC_PAYLOAD_HASH=""
 SEC_CONFIDENCE=""
 SEC_LAYER=""
 SEC_VERDICT=""
+NO_SWEEP=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --no-sweep)      NO_SWEEP=1; shift ;;
     --skill)         SKILL="$2"; shift 2 ;;
     --duration)      DURATION="$2"; shift 2 ;;
     --outcome)       OUTCOME="$2"; shift 2 ;;
@@ -93,6 +100,9 @@ fi
 # ─── Finalize stale .pending markers ────────────────────────
 # Each session gets its own .pending-$SESSION_ID file to avoid races
 # between concurrent sessions. Finalize any that don't match our session.
+# --no-sweep (one-shot events from setup) skips this: a marker that is not
+# ours is another live session's, not a stale one.
+if [ -z "$NO_SWEEP" ]; then
 for PFILE in "$PENDING_DIR"/.pending-*; do
   [ -f "$PFILE" ] || continue
   # Skip our own session's marker (it's still in-flight)
@@ -117,6 +127,7 @@ for PFILE in "$PENDING_DIR"/.pending-*; do
       "$P_TS" "$P_SKILL" "$P_SID" "$P_VER" "$P_OS" "$P_ARCH" >> "$JSONL_FILE" 2>/dev/null || true
   fi
 done
+fi
 
 # Clear our own session's pending marker (we're about to log the real event)
 [ -n "$SESSION_ID" ] && rm -f "$PENDING_DIR/.pending-$SESSION_ID" 2>/dev/null || true
@@ -192,8 +203,8 @@ ERR_FIELD="null"
 # look like a JSON string, the whole message becomes null — never raw.
 ERR_MSG_FIELD="null"
 if [ -n "$ERROR_MESSAGE" ]; then
-  ERR_MSG_FIELD="$(printf '%s' "$ERROR_MESSAGE" | bun -e "
-import { redactFindingSpans } from '$SCRIPT_DIR/../lib/redact-engine.ts';
+  ERR_MSG_FIELD="$(printf '%s' "$ERROR_MESSAGE" | GSTACK_LIB_DIR="$SCRIPT_DIR/../lib" bun -e "
+const { redactFindingSpans } = await import(process.env.GSTACK_LIB_DIR + '/redact-engine.ts');
 const input = await Bun.stdin.text();
 const out = redactFindingSpans(input, { repoVisibility: 'private' });
 if (out === null) process.exit(1);

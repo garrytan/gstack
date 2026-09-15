@@ -1,0 +1,62 @@
+{
+  "provenance": {
+    "sourceHead": "04c62ac678bb7bc1a22090f72f7ed51c451c22b9",
+    "run": "ship-source-ak-delta-paid-20260910-v1",
+    "job": 3,
+    "call": "toolu_01YTWjwWXdWVKEK7bKT4eANC",
+    "session": "ca736f12-33d6-4ee1-831b-5924db71bf82",
+    "scope": "Exact public answered native question from the first attempt; paid outcome remains separate."
+  },
+  "fingerprint": {
+    "signature": "ca736f12-33d6-4ee1-831b-5924db71bf82:toolu_01YTWjwWXdWVKEK7bKT4eANC",
+    "promptSnippet": "Issue 1 D2 \u2014 Issue 1: make Save the visible primary action? Project/branch/task: main, Settings Page plan review, Pass 1 Information Architecture. ELI10: Right now Save, Reset, Cancel and Export are four identical buttons. A user has to rea",
+    "options": [
+      {
+        "index": 1,
+        "label": "1A: Save filled primary, others ghost (recommended)"
+      },
+      {
+        "index": 2,
+        "label": "1B: Save primary, Export outlined secondary"
+      },
+      {
+        "index": 3,
+        "label": "1C: Leave all four identical"
+      }
+    ],
+    "observedAtMs": 213717,
+    "preReview": true,
+    "nativeCall": {
+      "sessionId": "ca736f12-33d6-4ee1-831b-5924db71bf82",
+      "toolUseId": "toolu_01YTWjwWXdWVKEK7bKT4eANC",
+      "questions": [
+        {
+          "question": "D2 \u2014 Issue 1: make Save the visible primary action?\nProject/branch/task: main, Settings Page plan review, Pass 1 Information Architecture.\nELI10: Right now Save, Reset, Cancel and Export are four identical buttons. A user has to read every label to find the one they came for. DESIGN.md already says Save is the only filled primary button and the other three are neutral ghost buttons. Stakes if wrong: people mis-click Reset or Cancel, hit the discard dialog, and lose trust in the form.\nRecommendation: 1A because DESIGN.md prescribes the exact treatment and it reuses the existing Button variants.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\n1A) Save filled primary (#1d4ed8, white), Reset/Cancel/Export ghost (recommended) (human: ~1h / CC: ~5min)\n  \u2705 One filled button in the row means the primary action is found in the 3-second scan\n  \u2705 Reuses existing Button primary and ghost variants; zero new CSS tokens\n  \u274c Export loses visual weight, so export-heavy users find it one beat slower\n1B) Save primary plus Export as an outlined secondary; Reset/Cancel ghost (human: ~2h / CC: ~10min)\n  \u2705 Keeps Export discoverable as a distinct second tier\n  \u2705 Still gives Save the only filled treatment\n  \u274c Adds a third button tier DESIGN.md does not define; new token to maintain\n1C) Leave all four identical\n  \u2705 No implementation work\n  \u2705 Zero risk of regressing button styles elsewhere\n  \u274c Documented violation ships; primary action stays invisible\nNet: 1A trades a hair of Export prominence for an unmistakable primary action and zero new tokens.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A: Save filled primary, others ghost (recommended)",
+              "description": "Apply DESIGN.md tokens: Save #1d4ed8 filled with white text; Reset, Cancel, Export neutral ghost. Reuse existing Button variants."
+            },
+            {
+              "label": "1B: Save primary, Export outlined secondary",
+              "description": "Adds a third tier not in DESIGN.md. Requires a new token."
+            },
+            {
+              "label": "1C: Leave all four identical",
+              "description": "Decline the fix; gap stays documented and lowers the score."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Issue 1: make Save the visible primary action?\nProject/branch/task: main, Settings Page plan review, Pass 1 Information Architecture.\nELI10: Right now Save, Reset, Cancel and Export are four identical buttons. A user has to read every label to find the one they came for. DESIGN.md already says Save is the only filled primary button and the other three are neutral ghost buttons. Stakes if wrong: people mis-click Reset or Cancel, hit the discard dialog, and lose trust in the form.\nRecommendation: 1A because DESIGN.md prescribes the exact treatment and it reuses the existing Button variants.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\n1A) Save filled primary (#1d4ed8, white), Reset/Cancel/Export ghost (recommended) (human: ~1h / CC: ~5min)\n  \u2705 One filled button in the row means the primary action is found in the 3-second scan\n  \u2705 Reuses existing Button primary and ghost variants; zero new CSS tokens\n  \u274c Export loses visual weight, so export-heavy users find it one beat slower\n1B) Save primary plus Export as an outlined secondary; Reset/Cancel ghost (human: ~2h / CC: ~10min)\n  \u2705 Keeps Export discoverable as a distinct second tier\n  \u2705 Still gives Save the only filled treatment\n  \u274c Adds a third button tier DESIGN.md does not define; new token to maintain\n1C) Leave all four identical\n  \u2705 No implementation work\n  \u2705 Zero risk of regressing button styles elsewhere\n  \u274c Documented violation ships; primary action stays invisible\nNet: 1A trades a hair of Export prominence for an unmistakable primary action and zero new tokens.": "1A: Save filled primary, others ghost (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T06:42:02.231Z"
+    }
+  }
+}

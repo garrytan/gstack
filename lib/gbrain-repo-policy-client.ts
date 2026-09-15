@@ -57,8 +57,16 @@ const POLICY_SCRIPT = join(import.meta.dir, "..", "bin", "gstack-gbrain-repo-pol
  * Fast paths (no subprocess): no store on disk → `none`; no remote URL →
  * `none` (policy is keyed by origin remote, so nothing can be set for the
  * repo). Everything else shells to the script, which owns normalization.
+ *
+ * `timeoutMs` bounds that spawn (default 10 s). A caller on its own deadline
+ * (a Claude Code hook) passes what it can afford; a timeout reads as
+ * `unreadable`, and polarity stays the caller's.
  */
-export function repoPolicyTier(url: string | null, env: NodeJS.ProcessEnv = process.env): RepoPolicyResult {
+export function repoPolicyTier(
+  url: string | null,
+  env: NodeJS.ProcessEnv = process.env,
+  timeoutMs: number = 10_000,
+): RepoPolicyResult {
   if (!hasRepoPolicyStore(env)) return { tier: "none" };
   if (!url) return { tier: "none" };
   // The script is `#!/usr/bin/env bash`; win32 can't exec a shebang file, so
@@ -67,7 +75,7 @@ export function repoPolicyTier(url: string | null, env: NodeJS.ProcessEnv = proc
     process.platform === "win32" ? ["bash", [POLICY_SCRIPT, "get", url]] : [POLICY_SCRIPT, ["get", url]];
   const res = spawnSync(cmd, args, {
     encoding: "utf-8",
-    timeout: 10_000,
+    timeout: Math.max(1, timeoutMs),
     // Explicit env: Bun's spawnSync default env snapshot misses runtime
     // process.env mutations (e.g. tests redirecting GSTACK_HOME).
     env: { ...env } as NodeJS.ProcessEnv,

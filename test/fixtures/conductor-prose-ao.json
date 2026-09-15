@@ -1,0 +1,24 @@
+{
+  "publicDecisionTail": "D1—ReducethepricingtiertoStripe-nativepieces,orbuildallfourcomponents?\r\rReplywithaletter(Conductorsession,sothisbriefisinprose).Project/branch:gstackedinburgh-v1,reviewingan\rexternal pricing-tier plan.\r\rELI10:Youwantmoredeveloperstosignup,soyou'readdingacheaperplan.Thedraftbuildsfournewthingstodo\rit: a Stripe price, a custm pricing web age,r own atabse tbletht remmbers who paid fowhat, ad a fast\rn-memory copy of tht table. Strpealready ships the table (Entitlements)and th page (rcing table). Every exra\rcopy of \"wh is allowed to dowhat\" is another place that can disagre withStripe when a card fails or awebhook\rarriveslate. The stakes: a developer who paidand sees \"upgrae required,\"or ono cnelled andkeeps access.\r\rStakesifwepickwrong:threesourcesoftruthforentitlementswithnoinvalidationdesignmeanssilentaccessbugs\rtht onlyshow upas angry support tickets.\r\rRecommendation:Abecauseitkeepseveryuser-visibleoutcomeofthedraftwhiledeletingthetwocomponentsmost\rlikely to causeentitlemnt drift,and it fits \"engineered enough\" an \"smallestiff that cleanly exressethe\rchange.\"\r\rCompleteness:A=9/10,B=7/10.Cisahold,notabuildoption,sonoscore.\r\rA)Stripe-nativeslimbuild(recommended).Completeness9/10.Human:~1week/CC:~1to2hours.AddoneStripePrice\rplus a Fature-to-Product mapping, mirror active_entitlement_sumryinto a singleexisting cstomer table hrough an\ridempotent webhok, gate fetures off that olumn, ship the pricing surfacebehinda feature flag (Stripe pricin\u001b[?25h",
+  "actualFlags": {
+    "proseAUQEverObserved": false,
+    "waitingEverObserved": true,
+    "scopeGateAutoSelectObserved": true
+  },
+  "owner": {
+    "sessionId": "4e820ffc-b6dd-47d7-b074-5c4b0a3cbb68",
+    "commandStartedAt": 1789041170391,
+    "nativePolledAt": 1789041383968,
+    "captureAt": "2026-09-10T11:56:33.483Z"
+  },
+  "provenance": {
+    "observation": ".context/ship-source-ao-delta-paid-20260910-v1/conductor-first-failure-ledger-v1/observation.json",
+    "observationSha256": "da8c8a342f44ae06bfdd092f1bdb6a395765553d65ac99eecaaa35dedb34545d",
+    "visible": ".context/ship-source-ao-delta-paid-20260910-v1/conductor-first-failure-ledger-v1/terminal.visible.log",
+    "visibleSha256": "2a2fca3e8d1b51694d76a3dbcfac524626f856e4ebf38f4bd093346edb64bf82",
+    "startCharacterOffset": 78469,
+    "publicTailSha256": "e551890b1d839cee7d7dce05120b8dc05a54f27fe8f69617aa99384c49316604",
+    "limit": "Exact public partial D1 tail; no completed native prose message retained. A later second option in tests is synthetic.",
+    "offsetUnit": "Unicode code points in decoded retained bytes, without newline normalization"
+  }
+}

@@ -1,0 +1,178 @@
+[
+  {
+    "sessionId": "4cbd2d66-f875-4fcd-b4e2-6c8a6d6716cd",
+    "toolUseId": "toolu_01USNDVwq7zfQWz9TRw6tnyi",
+    "questions": [
+      {
+        "question": "D1 \u2014 Pass 1 (Getting Started): The agreed <2 min TTHW target is mathematically impossible with the retained 5-min CI block. Which resolution belongs in the plan? <gstack-qid:devex-d1-tthw-contradiction>",
+        "header": "TTHW block",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Demo-only CI bypass (Recommended)",
+            "description": "Add an offline mode specifically for `python -m evalkit.demo`. The demo runs bundled sample_responses.json with no real API submission, so the CI check has nothing to gate. This achieves the <2 min target for the agreed first-success experience without touching the real API contract. Scope impact: small \u2014 only evalkit/demo.py changes."
+          },
+          {
+            "label": "Add --offline flag to run_eval",
+            "description": "Give run_eval and run_batch an --offline=True flag that skips the CI block, enabling local dev testing. Achieves <2 min for both demo AND real usage in local mode. Broader fix, but expands scope beyond DX POLISH into API surface change."
+          },
+          {
+            "label": "Update TTHW target to reflect reality",
+            "description": "Change the agreed target from <2 min to <7 min in the plan. No code change, no scope expansion. Honest about the current experience, but drops EvalKit below all three competitors (A=2min, B=4min, C=3min) and accepts the 'Needs Work' tier explicitly."
+          },
+          {
+            "label": "Other \u2014 describe the constraint",
+            "description": "There's a constraint or design intent I haven't surfaced. Tell me what's actually going on with the CI block and the TTHW target."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D1 \u2014 Pass 1 (Getting Started): The agreed <2 min TTHW target is mathematically impossible with the retained 5-min CI block. Which resolution belongs in the plan? <gstack-qid:devex-d1-tthw-contradiction>": "Demo-only CI bypass (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:06:32.086Z"
+  },
+  {
+    "sessionId": "4cbd2d66-f875-4fcd-b4e2-6c8a6d6716cd",
+    "toolUseId": "toolu_01Gxtd2wXZEDoKo7YqnZnUi7",
+    "questions": [
+      {
+        "question": "D2 \u2014 Pass 1+4 (Getting Started + Docs): The README tells developers to run `python examples/first_eval.py`, but docs/package-contents.txt explicitly states that file is absent from both the published package and the release examples archive. A developer's first command fails with FileNotFoundError. What's the fix? <gstack-qid:devex-d2-missing-quickstart>",
+        "header": "Missing file",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Update README to point at the demo (Recommended)",
+            "description": "Replace the `python examples/first_eval.py` instruction in README with `python -m evalkit.demo`. The demo module IS in the package, produces real scored output, and is the agreed first-success vehicle. Zero new files needed, one line changes in README."
+          },
+          {
+            "label": "Add first_eval.py to the package",
+            "description": "Write examples/first_eval.py and include it in the package so the documented path works. More complete \u2014 developers have a real code file they can open and extend. But adds scope: file must be authored, tested, and maintained alongside demo.py."
+          },
+          {
+            "label": "Both: update README AND add the file",
+            "description": "Update README to use the demo command as the primary path, AND add examples/first_eval.py as a secondary reference for developers who want editable starter code. Most complete. Two deliverables instead of one."
+          },
+          {
+            "label": "Other \u2014 first_eval.py is coming from somewhere else",
+            "description": "The file exists or will exist in a place I haven't looked. Tell me where it is or where it's meant to come from."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 \u2014 Pass 1+4 (Getting Started + Docs): The README tells developers to run `python examples/first_eval.py`, but docs/package-contents.txt explicitly states that file is absent from both the published package and the release examples archive. A developer's first command fails with FileNotFoundError. What's the fix? <gstack-qid:devex-d2-missing-quickstart>": "Update README to point at the demo (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:06:46.116Z"
+  },
+  {
+    "sessionId": "4cbd2d66-f875-4fcd-b4e2-6c8a6d6716cd",
+    "toolUseId": "toolu_012wXLgrh6oDJGHipSk1x5Ti",
+    "questions": [
+      {
+        "question": "D3 \u2014 Pass 3 (Error Messages): The SDK raises `AuthError(\"request failed\")` for an invalid API key. No error code, no explanation of what failed, no instruction for how to fix it. The plan explicitly retains this message. An ML engineer with a typo in EVALKIT_API_KEY sees a two-word error and has no idea what broke. Fix or retain? <gstack-qid:devex-d3-autherror-message>",
+        "header": "AuthError msg",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Fix the error message (Recommended)",
+            "description": "Improve to: `AuthError(\"Authentication failed: EVALKIT_API_KEY is invalid or expired. Check your key at console.evalkit.com/keys and set the EVALKIT_API_KEY environment variable.\")`. Follows DX First Principle #5: every error = problem + cause + fix. One-line change in evalkit/client.py."
+          },
+          {
+            "label": "Add error code only",
+            "description": "Change to `AuthError(\"auth_invalid: request failed\")` \u2014 adds a stable machine-readable code without restructuring the message. Useful for programmatic error handling but still leaves the developer without a cause or fix."
+          },
+          {
+            "label": "Retain the current message",
+            "description": "Explicitly accept this as a known DX debt item. The plan notes it as a post-beta improvement. An ML engineer who hits this will need to consult docs or support to diagnose it."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D3 \u2014 Pass 3 (Error Messages): The SDK raises `AuthError(\"request failed\")` for an invalid API key. No error code, no explanation of what failed, no instruction for how to fix it. The plan explicitly retains this message. An ML engineer with a typo in EVALKIT_API_KEY sees a two-word error and has no idea what broke. Fix or retain? <gstack-qid:devex-d3-autherror-message>": "Fix the error message (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:07:08.170Z"
+  },
+  {
+    "sessionId": "4cbd2d66-f875-4fcd-b4e2-6c8a6d6716cd",
+    "toolUseId": "toolu_01TSTRSbuz856wiLPpNthPtD",
+    "questions": [
+      {
+        "question": "D4 \u2014 Pass 2 (API Design): `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)` have REVERSED positional order for the same concepts. The plan calls this intentional. A developer who writes `run_eval(my_dataset, my_evaluator)` then calls `run_batch` the same way silently passes wrong types \u2014 no error until runtime, potentially confusing results. Fix or keep? <gstack-qid:devex-d4-argorder-reversal>",
+        "header": "Arg order",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Standardize both to (dataset, evaluator) order (Recommended)",
+            "description": "Change run_batch signature to `run_batch(dataset, evaluator)` in the beta. Consistent with run_eval, intuitive (dataset first, evaluator second), and v2 is a beta with breaking-change latitude. Fixes the cognitive trap before the API is widely adopted."
+          },
+          {
+            "label": "Enforce keyword-only arguments on both",
+            "description": "Add `*` to both signatures: `run_eval(*, dataset, evaluator)` and `run_batch(*, evaluator, dataset)`. Callers must use keyword args; positional mistakes become TypeErrors immediately. Preserves the current positional order while making silent misuse impossible."
+          },
+          {
+            "label": "Retain reversed order, add prominent docs warning",
+            "description": "Keep the current signatures and add a big warning box in the docs: 'Note: run_eval and run_batch take arguments in reversed order.' Accepts the cognitive trap but documents it. Lowest implementation cost."
+          },
+          {
+            "label": "Retain as intentional \u2014 it mirrors the underlying evaluator API convention",
+            "description": "The reversal follows an existing convention in the underlying evaluator library. Document the rationale in the API reference so the design looks intentional, not accidental."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 \u2014 Pass 2 (API Design): `run_eval(dataset, evaluator)` and `run_batch(evaluator, dataset)` have REVERSED positional order for the same concepts. The plan calls this intentional. A developer who writes `run_eval(my_dataset, my_evaluator)` then calls `run_batch` the same way silently passes wrong types \u2014 no error until runtime, potentially confusing results. Fix or keep? <gstack-qid:devex-d4-argorder-reversal>": "Standardize both to (dataset, evaluator) order (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:07:30.245Z"
+  },
+  {
+    "sessionId": "4cbd2d66-f875-4fcd-b4e2-6c8a6d6716cd",
+    "toolUseId": "toolu_01Cnqz7g1gYHL4r6BeFYpyMV",
+    "questions": [
+      {
+        "question": "D5 \u2014 Pass 5 (Upgrade Path): v1 exposed `Client.evaluate()`. v2 removes it immediately and replaces it with `Client.run()`. No alias, no deprecation warning, no migration guide, no codemod. Every existing v1 user who runs `pip install evalkit==2.0.0b1` and calls `Client.evaluate()` gets an `AttributeError` with no guidance. The plan retains this. What bridge should the beta include? <gstack-qid:devex-d5-v1v2-migration>",
+        "header": "v1\u2192v2 upgrade",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Deprecation alias + migration guide (Recommended)",
+            "description": "Add `Client.evaluate = Client.run` with a DeprecationWarning: 'evaluate() is deprecated in v2; use run() instead.' Add one section to the changelog explaining the rename. The alias makes the upgrade non-breaking for v1 users; the warning tells them to update. Removes entirely in v3."
+          },
+          {
+            "label": "Migration guide only, no alias",
+            "description": "Write a v1\u2192v2 migration section in CHANGELOG.md (and/or README) documenting `evaluate()` \u2192 `run()`. No code change. Developers who read changelogs before upgrading are fine; developers who just run pip upgrade hit an AttributeError and must consult docs."
+          },
+          {
+            "label": "Hard break as-is, add clear error message",
+            "description": "Keep the hard break but improve the AttributeError: catch `__getattr__` and raise a descriptive error: `AttributeError: Client.evaluate() was renamed to Client.run() in v2. See CHANGELOG.md.` The developer knows exactly what to do, no alias needed."
+          },
+          {
+            "label": "Retain as-is \u2014 it's a beta, accept the break",
+            "description": "Beta users accept breaking changes. The changelog mentions it. Developers who upgrade without reading the changelog chose to take the risk. No additional bridge needed."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D5 \u2014 Pass 5 (Upgrade Path): v1 exposed `Client.evaluate()`. v2 removes it immediately and replaces it with `Client.run()`. No alias, no deprecation warning, no migration guide, no codemod. Every existing v1 user who runs `pip install evalkit==2.0.0b1` and calls `Client.evaluate()` gets an `AttributeError` with no guidance. The plan retains this. What bridge should the beta include? <gstack-qid:devex-d5-v1v2-migration>": "Deprecation alias + migration guide (Recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-09T11:07:44.259Z"
+  }
+]

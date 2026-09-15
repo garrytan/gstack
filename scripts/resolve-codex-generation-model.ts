@@ -11,7 +11,7 @@ export interface CodexGenerationModelResolution {
   warnings: string[];
 }
 
-const CODEX_DEFAULT_MODEL: Model = 'gpt';
+const CODEX_DEFAULT_MODEL: Model = 'gpt-6-astra';
 const DEFAULT_SOURCE = `default (${CODEX_DEFAULT_MODEL})`;
 
 /**

@@ -316,6 +316,15 @@ do_wireup() {
       ;;
   esac
 
+  # ZeroEntropy sunset advisory (#2365): the provider shuts down Sept 4, 2026,
+  # after which brains on gbrain's zeroentropyai recipe stop embedding new
+  # pages silently. Detection is a fail-open grep of gbrain's config — any
+  # missing/unreadable/other-provider config stays silent (grep -qs), never
+  # blocking a working setup.
+  if grep -qsi 'zeroentropyai' "$GBRAIN_CONFIG" 2>/dev/null; then
+    warn "gbrain config appears to use the ZeroEntropy embedding recipe. ZeroEntropy sunsets on September 4, 2026 — after that, new pages stop embedding silently. Migration options: https://github.com/garrytan/gstack/issues/2365"
+  fi
+
   if [ "${GSTACK_BRAIN_NO_SYNC:-0}" = "1" ]; then
     echo "source_id=$id"
     echo "worktree=$WORKTREE"
@@ -323,8 +332,21 @@ do_wireup() {
     exit 0
   fi
 
+  # #2662: `sync --repo <path>` resolves against the brain's DEFAULT source and
+  # can silently repoint that source's local_path anchor at our worktree while
+  # the source registered above gets nothing. Target the registered source by
+  # id. `--source` support is probed first (the documented floor is gbrain >=
+  # 0.18.0 and nothing proves the flag exists there): an older gbrain keeps the
+  # wrong-but-working --repo call with an upgrade warning, never a hard failure.
   local sync_out sync_redacted
-  sync_out=$(gbrain sync --repo "$WORKTREE" 2>&1) || {
+  local -a sync_cmd
+  if gbrain sync --help 2>/dev/null | grep -q -- '--source'; then
+    sync_cmd=(gbrain sync --source "$id")
+  else
+    warn "this gbrain's sync lacks --source; falling back to 'sync --repo' (upgrade gbrain so the sync targets source $id directly — #2662)"
+    sync_cmd=(gbrain sync --repo "$WORKTREE")
+  fi
+  sync_out=$("${sync_cmd[@]}" 2>&1) || {
     # Redact any postgres:// URLs from the error message in case gbrain logged
     # a connection error containing the full DSN with password. The user sees
     # "***REDACTED***" instead of credentials in their stderr or any log.

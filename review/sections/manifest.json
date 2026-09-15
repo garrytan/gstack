@@ -1,0 +1,26 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "review",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's decision-tree prose is the ONLY place that decides WHEN to read a section; required-reads live in the E2E fixtures. No machine predicate here — see docs/designs/v2_PLAN.md:663.",
+  "sections": [
+    {
+      "id": "plan-completion",
+      "file": "plan-completion.md",
+      "title": "Plan completion audit (deep pass of scope drift)",
+      "trigger": "auditing plan completion — plan file discovery, item extraction, verification-mode classification, and cross-reference against the diff (the deep pass that follows Step 1.5's scope-drift check)"
+    },
+    {
+      "id": "review-army",
+      "file": "review-army.md",
+      "title": "Review Army — specialist dispatch and findings merge",
+      "trigger": "dispatching the Review Army specialists and merging their findings after the critical pass (Step 4.5)"
+    },
+    {
+      "id": "adversarial",
+      "file": "adversarial.md",
+      "title": "Adversarial review (always-on)",
+      "trigger": "running the always-on adversarial review — Claude subagent plus Codex passes — after the staleness checks and before persisting the Eng Review result (Step 5.7)"
+    }
+  ]
+}

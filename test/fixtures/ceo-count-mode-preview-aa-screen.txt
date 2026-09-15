@@ -1,0 +1,39 @@
+         o TODO/FIXME comments.
+     … +442 lines (ctrl+o to expand)
+
+● Now I have a clear picture of the plan's critical issues. Following the skill workflow, I need to start the question
+  chain. First: no design doc was found, so I must offer /office-hours before proceeding.
+
+● User answered Claude's questions:
+  ⎿  · D1 — No design doc found for this branch. Run /office-hours first or proceed directly with the review?
+     <gstack-qid:plan-ceo-review-prereq-skill> → Skip — proceed with standard review (Recommended)
+ 
+● Skipping /office-hours — proceeding with standard review. Now the key decision: which implementation approach to use.
+
+● User answered Claude's questions:
+  ⎿  · D2 — Which implementation approach should this plan use? The current plan (Approach A) has a documented SQL
+     injection vulnerability and zero tests. <gstack-qid:plan-ceo-review-approach> → Approach B: Fix security + tests,
+     keep inline email (Recommended)
+
+● Approach B selected — fix security + tests within the existing scope. Now selecting the review mode.
+ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Review mode
+
+│ D3 — Which review mode should we use for this plan? The plan adds a new payment webhook handler (a concrete, scoped
+│ feature). We've selected Approach B (fix security within existing scope). <gstack-qid:plan-ceo-review-mode>
+
+❯ 1. HOLD SCOPE — make it         ┌─────────────────────────────────────────────────┐
+    bulletproof (Recommended)     │ Mode: HOLD SCOPE                                │
+  2. SELECTIVE EXPANSION —        │ Scope baseline: StripePaymentWebhookHandler     │
+    hold scope + surface          │ Goal: Parameterized SQL, explicit email rescue, │
+    extras                        │       handler tests, N+1 fix                    │
+  3. SCOPE REDUCTION — strip      │ No new features surfaced                        │
+    to minimum                    └─────────────────────────────────────────────────┘
+  4. SCOPE EXPANSION — dream
+    bigger                        Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel

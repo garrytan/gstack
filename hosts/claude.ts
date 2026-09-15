@@ -8,13 +8,20 @@ const claude = defineHost({
 
   frontmatter: {
     mode: 'denylist',
-    stripFields: ['sensitive', 'voice-triggers'],
+    // interactive + benefits-from are gen-time inputs (buildContext reads them
+    // from the .tmpl); no runtime or test reader consumes them from the
+    // GENERATED file (verified: e2e-harness-audit reads .tmpl; benefits-from
+    // tests assert rendered prose; the host reads name/description/
+    // allowed-tools/hooks; bin/gstack-brain-context-load reads gbrain: — which
+    // is why gbrain and hooks are NOT stripped). Stripping them trims the
+    // always-on frontmatter catalog every session loads.
+    stripFields: ['sensitive', 'voice-triggers', 'interactive', 'benefits-from'],
     descriptionLimit: null,
   },
 
   generation: {
     generateMetadata: false,
-    skipSkills: ['claude'],  // the /claude outside-voice skill is for non-Claude hosts; /codex stays (it IS a Claude skill wrapping codex exec)
+    skipSkills: ['claude-code'],  // An outside reviewer must use a different harness.
   },
 
   pathRewrites: [],  // Claude is the primary host — no rewrites needed

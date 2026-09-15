@@ -1,0 +1,488 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-11",
+  "ruby": "3.2.8",
+  "bundler": "2.6.7",
+  "command": "BUNDLE_FORCE_RUBY_PLATFORM=true BUNDLE_IGNORE_CONFIG=true bundle _2.6.7_ update --bundler=2.6.7",
+  "gemfileSha256": "f09fb9778d39ae776be3c559f7c49402cfa82b06853939e558bda81dde0dfc6c",
+  "lockSha256": "ab7c4cbb2f6f81a04cd400467bfd78cf7e7aa75fc600530d2646986f7ffaf139",
+  "archives": [
+    {
+      "name": "action_text-trix",
+      "version": "2.1.19",
+      "sha256": "7012f59421009cf284aa651294896414d653a61a2417c9b8714c8476d2f74009",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "actioncable",
+      "version": "8.1.2",
+      "sha256": "dc31efc34cca9cdefc5c691ddb8b4b214c0ea5cd1372108cbc1377767fb91969",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "actionmailbox",
+      "version": "8.1.2",
+      "sha256": "058b2fb1980e5d5a894f675475fcfa45c62631103d5a2596d9610ec81581889b",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "actionmailer",
+      "version": "8.1.2",
+      "sha256": "f4c1d2060f653bfe908aa7fdc5a61c0e5279670de992146582f2e36f8b9175e9",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "actionpack",
+      "version": "8.1.2",
+      "sha256": "ced74147a1f0daafaa4bab7f677513fd4d3add574c7839958f7b4f1de44f8423",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "actiontext",
+      "version": "8.1.2",
+      "sha256": "0bf57da22a9c19d970779c3ce24a56be31b51c7640f2763ec64aa72e358d2d2d",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "actionview",
+      "version": "8.1.2",
+      "sha256": "80455b2588911c9b72cec22d240edacb7c150e800ef2234821269b2b2c3e2e5b",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "activejob",
+      "version": "8.1.2",
+      "sha256": "908dab3713b101859536375819f4156b07bdf4c232cc645e7538adb9e302f825",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "activemodel",
+      "version": "8.1.2",
+      "sha256": "e21358c11ce68aed3f9838b7e464977bc007b4446c6e4059781e1d5c03bcf33e",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "activerecord",
+      "version": "8.1.2",
+      "sha256": "acfbe0cadfcc50fa208011fe6f4eb01cae682ebae0ef57145ba45380c74bcc44",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "activestorage",
+      "version": "8.1.2",
+      "sha256": "8a63a48c3999caeee26a59441f813f94681fc35cc41aba7ce1f836add04fba76",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "activesupport",
+      "version": "8.1.2",
+      "sha256": "88842578ccd0d40f658289b0e8c842acfe9af751afee2e0744a7873f50b6fdae",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "base64",
+      "version": "0.3.0",
+      "sha256": "27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "bigdecimal",
+      "version": "4.1.2",
+      "sha256": "ccc836eab720a525529f70ed0de26a206fdbc9a9e8ac67b3b4ac7318b03e114d",
+      "source": "RubyGems version API",
+      "platform": "java"
+    },
+    {
+      "name": "builder",
+      "version": "3.3.0",
+      "sha256": "497918d2f9dca528fdca4b88d84e4ef4387256d984b8154e9d5d3fe5a9c8835f",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "concurrent-ruby",
+      "version": "1.3.8",
+      "sha256": "b2f1be836e968ccc78ccfce277ea79c72a88633f22306782c16ff23fb415d1e1",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "connection_pool",
+      "version": "3.0.2",
+      "sha256": "33fff5ba71a12d2aa26cb72b1db8bba2a1a01823559fb01d29eb74c286e62e0a",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "crass",
+      "version": "1.0.7",
+      "sha256": "94868719948664c89ddcaf0a37c65048413dfcb1c869470a5f7a7ceb5390b295",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "date",
+      "version": "3.5.1",
+      "sha256": "12e09477dc932afe45bf768cd362bf73026804e0db1e6c314186d6cd0bee3344",
+      "source": "RubyGems version API",
+      "platform": "java"
+    },
+    {
+      "name": "drb",
+      "version": "2.2.3",
+      "sha256": "0b00d6fdb50995fe4a45dea13663493c841112e4068656854646f418fda13373",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "erb",
+      "version": "6.0.7",
+      "sha256": "ef8339f928aa33be9205534be19e9c0daf310c4cc4eb85fd409141c094c57d61",
+      "source": "RubyGems version API",
+      "platform": "java"
+    },
+    {
+      "name": "erubi",
+      "version": "1.13.1",
+      "sha256": "a082103b0885dbc5ecf1172fede897f9ebdb745a4b97a5e8dc63953db1ee4ad9",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "globalid",
+      "version": "1.4.0",
+      "sha256": "037f12fbf1d9d7a014d501c2d5c77356fd4ddd96d7a7991d6700bba96706f427",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "i18n",
+      "version": "1.15.2",
+      "sha256": "00f9eb62412fe593b2a65a97daa75300d37abb8f7202ec748e94b6d46a9dd1b5",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "io-console",
+      "version": "0.9.2",
+      "sha256": "efa74f891dd03c0939a931dfc6e74c2813d904763d456ea9762b0525e748db08",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "irb",
+      "version": "1.18.0",
+      "sha256": "de9454a0703a54704b9811a5ef31a60c86949fbf4013fcf244fabc7c775248e3",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "json",
+      "version": "3.0.2",
+      "sha256": "2afafb9c82faabfb60ed2f37707973fdcb766dba2c99f0b9ed85f073d1d4c3d0",
+      "source": "RubyGems version API",
+      "platform": "java"
+    },
+    {
+      "name": "logger",
+      "version": "1.7.0",
+      "sha256": "196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "loofah",
+      "version": "2.25.2",
+      "sha256": "2007f746959ac65552456e04b433e83deb22759ab38c838b4445c70e43425918",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "mail",
+      "version": "2.9.1",
+      "sha256": "06574eca475253d6c18145dd70af80d0eb970182d55053497c5f4d797ea160e8",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "marcel",
+      "version": "1.2.1",
+      "sha256": "1678e9360e32f9eafa917c80029e2f6d10b2715c66a4b87b6d0da9b9cd1f859f",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "mini_mime",
+      "version": "1.1.5",
+      "sha256": "8681b7e2e4215f2a159f9400b5816d85e9d8c6c6b491e96a12797e798f8bccef",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "mini_portile2",
+      "version": "2.8.9",
+      "sha256": "0cd7c7f824e010c072e33f68bc02d85a00aeb6fce05bb4819c03dfd3c140c289",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "minitest",
+      "version": "6.0.6",
+      "sha256": "153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "net-imap",
+      "version": "0.6.6",
+      "sha256": "96aa4ee50df3060203e649efc341f53480b791d49e150f2fdebf68beb141a8df",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "net-pop",
+      "version": "0.1.2",
+      "sha256": "848b4e982013c15b2f0382792268763b748cce91c9e91e36b0f27ed26420dff3",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "net-protocol",
+      "version": "0.3.0",
+      "sha256": "ba310c3d4f1cad46bb1ab20336b06669b1ff8f7c568d9cb9342b32a718547472",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "net-smtp",
+      "version": "0.5.1",
+      "sha256": "ed96a0af63c524fceb4b29b0d352195c30d82dd916a42f03c62a3a70e5b70736",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "nio4r",
+      "version": "2.7.5",
+      "sha256": "d14779d2a9b012ec0148a53344fbb2ed2a3c4d90c5dd923bf281135ab983b2c9",
+      "source": "RubyGems version API",
+      "platform": "java"
+    },
+    {
+      "name": "nokogiri",
+      "version": "1.19.4",
+      "sha256": "50c951611c92bca05c51411aef45f1cbc50f2821c4802758c5c6d34696533ab5",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "pp",
+      "version": "0.6.4",
+      "sha256": "dfcb0fce700c41456265922884f9fe195d7fbb0674a3578e6c0f69588e82b570",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "prettyprint",
+      "version": "0.2.0",
+      "sha256": "2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "prism",
+      "version": "1.9.0",
+      "sha256": "7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "puma",
+      "version": "7.2.0",
+      "sha256": "5ef97cc64c0579e6a507cded86286869b6387d58d28abe347c1dd1d7decdf6d0",
+      "source": "RubyGems version API",
+      "platform": "java"
+    },
+    {
+      "name": "racc",
+      "version": "1.8.1",
+      "sha256": "54f2e6d1e1b91c154013277d986f52a90e5ececbe91465d29172e49342732b98",
+      "source": "RubyGems version API",
+      "platform": "java"
+    },
+    {
+      "name": "rack",
+      "version": "3.2.7",
+      "sha256": "93e13e1c24f93556671d85d2d79fa228c3485815c50d7e2f265b5330c6528fb7",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "rack-session",
+      "version": "2.1.2",
+      "sha256": "595434f8c0c3473ae7d7ac56ecda6cc6dfd9d37c0b2b5255330aa1576967ffe8",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "rack-test",
+      "version": "2.2.0",
+      "sha256": "005a36692c306ac0b4a9350355ee080fd09ddef1148a5f8b2ac636c720f5c463",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "rackup",
+      "version": "2.3.1",
+      "sha256": "6c79c26753778e90983761d677a48937ee3192b3ffef6bc963c0950f94688868",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "rails",
+      "version": "8.1.2",
+      "sha256": "5069061b23dfa8706b9f0159ae8b9d35727359103178a26962b868a680ba7d95",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "rails-dom-testing",
+      "version": "2.3.0",
+      "sha256": "8acc7953a7b911ca44588bf08737bc16719f431a1cc3091a292bca7317925c1d",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "rails-html-sanitizer",
+      "version": "1.7.1",
+      "sha256": "e797a7c9b01e567307e317c576b49ab4168017e63eea4dba9ce3cb587e2f22c2",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "railties",
+      "version": "8.1.2",
+      "sha256": "1289ece76b4f7668fc46d07e55cc992b5b8751f2ad85548b7da351b8c59f8055",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "rake",
+      "version": "13.4.2",
+      "sha256": "cb825b2bd5f1f8e91ca37bddb4b9aaf345551b4731da62949be002fa89283701",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "rbs",
+      "version": "4.1.3",
+      "sha256": "193582897752597ee7cd2b9d6bf0a7014acd05490d86eb47769cdfd9f2d00ff5",
+      "source": "RubyGems version API",
+      "platform": "java"
+    },
+    {
+      "name": "rdoc",
+      "version": "8.0.0",
+      "sha256": "03bf8c08a9639658855a0cfd77c0abca8325c227693f7f33f82957811348c469",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "reline",
+      "version": "0.7.0",
+      "sha256": "5b012d8e55dbf9d450f12bde2cf7d15ff546ae80b3f8f3b30e570d431815583d",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "securerandom",
+      "version": "0.4.1",
+      "sha256": "cc5193d414a4341b6e225f0cb4446aceca8e50d5e1888743fac16987638ea0b1",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "sqlite3",
+      "version": "2.9.0",
+      "sha256": "ece9c00b32ec5f550d3a4a35c41ea8d738563589f090b9dfd0d510b7ae5f296c",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "thor",
+      "version": "1.5.0",
+      "sha256": "e3a9e55fe857e44859ce104a84675ab6e8cd59c650a49106a05f55f136425e73",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "timeout",
+      "version": "0.6.1",
+      "sha256": "78f57368a7e7bbadec56971f78a3f5ecbcfb59b7fcbb0a3ed6ddc08a5094accb",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "tsort",
+      "version": "0.2.0",
+      "sha256": "9650a793f6859a43b6641671278f79cfead60ac714148aabe4e3f0060480089f",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "tzinfo",
+      "version": "2.0.6",
+      "sha256": "8daf828cc77bcf7d63b0e3bdb6caa47e2272dcfaf4fbfe46f8c3a9df087a829b",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "uri",
+      "version": "1.1.1",
+      "sha256": "379fa58d27ffb1387eaada68c749d1426738bd0f654d812fcc07e7568f5c57c6",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "useragent",
+      "version": "0.16.11",
+      "sha256": "700e6413ad4bb954bb63547fa098dddf7b0ebe75b40cc6f93b8d54255b173844",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "websocket-driver",
+      "version": "0.8.2",
+      "sha256": "f60120d1377cccf24100bcd1ebc25ceea6f3d5a013fc8e9d16b721016200946e",
+      "source": "RubyGems version API",
+      "platform": "java"
+    },
+    {
+      "name": "websocket-extensions",
+      "version": "0.1.5",
+      "sha256": "1c6ba63092cda343eb53fc657110c71c754c56484aad42578495227d717a8241",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    },
+    {
+      "name": "zeitwerk",
+      "version": "2.8.3",
+      "sha256": "2c85125a8467ce069e20123d1e709a08955c9d29c118c25b46b7b7fafdbb92e5",
+      "source": "RubyGems version API",
+      "platform": "ruby"
+    }
+  ],
+  "qualification": "not-run; metadata resolution only, no fixture application executed"
+}

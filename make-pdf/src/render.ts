@@ -1,5 +1,5 @@
 /**
- * Markdown → HTML renderer. Pure function, no I/O, no Playwright.
+ * Markdown → HTML renderer. Pure function, no I/O, no browser.
  *
  * Pipeline:
  *   1. marked parses markdown → HTML
@@ -51,7 +51,7 @@ export interface RenderOptions {
 }
 
 export interface RenderResult {
-  html: string;                   // full HTML document, ready for $B load-html
+  html: string;                   // full HTML document, staged and printed through the browser
   printCss: string;               // for debugging / preview
   bodyHtml: string;               // just the rendered body (tests, snapshots)
   meta: {
