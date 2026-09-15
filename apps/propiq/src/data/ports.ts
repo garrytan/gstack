@@ -23,6 +23,7 @@ import type {
 import type { Developer, Project, Property } from '@/domain/property/types';
 import type { Locality } from '@/domain/locality/types';
 import type { Comparable } from '@/domain/valuation/types';
+import type { AlertDigest } from '@/domain/alerts/digest';
 
 export interface PropertySearchQuery {
   readonly text?: string;
@@ -106,4 +107,73 @@ export interface PortfolioRepository {
     asset: Omit<PortfolioAsset, 'id' | 'userId' | 'createdAt'>,
   ): Promise<PortfolioAsset>;
   remove(userId: UserId, assetId: string): Promise<void>;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Notifications and alert delivery                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Where a digest can go. `inApp` is always available because it needs nothing
+ * but the database; the other two are configuration, and their absence is
+ * reported rather than hidden.
+ */
+export const DELIVERY_CHANNELS = ['inApp', 'webhook', 'email'] as const;
+export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
+
+export const DELIVERY_CHANNEL_LABELS: Readonly<Record<DeliveryChannel, string>> = {
+  inApp: 'In-app inbox',
+  webhook: 'Webhook',
+  email: 'Email',
+};
+
+/** One row in a user's notification inbox. Mirrors an `Alert`, plus read state. */
+export interface NotificationRecord {
+  readonly id: string;
+  readonly userId: UserId;
+  readonly propertyId: PropertyId | undefined;
+  readonly kind: string;
+  readonly severity: 'info' | 'attention' | 'urgent';
+  readonly headline: string;
+  readonly detail: string;
+  /** Which published threshold fired, so a notification is always traceable. */
+  readonly rule: string;
+  readonly createdAt: string;
+  readonly readAt: string | undefined;
+}
+
+export type NewNotification = Omit<NotificationRecord, 'id' | 'userId' | 'createdAt' | 'readAt'>;
+
+export interface NotificationRepository {
+  list(userId: UserId, limit?: number): Promise<readonly NotificationRecord[]>;
+  /**
+   * Append notifications. Adapters must be idempotent on
+   * (user, propertyId, kind, rule, createdAt-day) so a scheduler that
+   * double-fires does not double-notify.
+   */
+  add(userId: UserId, records: readonly NewNotification[]): Promise<readonly NotificationRecord[]>;
+  markAllRead(userId: UserId, now: string): Promise<number>;
+  unreadCount(userId: UserId): Promise<number>;
+}
+
+/**
+ * `notConfigured` is a first-class outcome, not a failure. A channel with no
+ * credentials reports itself honestly instead of pretending to have sent
+ * something — the same rule the rest of the product follows for missing data.
+ */
+export type DeliveryOutcome = 'delivered' | 'skipped' | 'failed' | 'notConfigured';
+
+export interface DeliveryReceipt {
+  readonly channel: DeliveryChannel;
+  readonly outcome: DeliveryOutcome;
+  /** Human-readable reason. For `notConfigured`, the integration requirement. */
+  readonly detail: string;
+  readonly attemptedAt: string;
+}
+
+export interface AlertNotifier {
+  readonly channel: DeliveryChannel;
+  /** False means the channel will report `notConfigured` rather than send. */
+  isConfigured(): boolean;
+  send(userId: UserId, digest: AlertDigest): Promise<DeliveryReceipt>;
 }

@@ -37,6 +37,14 @@ const serverSchema = z.object({
    * refused outright — it never defaults open.
    */
   CRON_SECRET: z.string().min(16).optional(),
+  /**
+   * Alert delivery. A webhook URL enables the webhook channel; the secret, when
+   * present, signs each payload with HMAC-SHA256 so the receiver can verify it.
+   * Both absent means the channel reports itself unconfigured rather than
+   * silently dropping digests.
+   */
+  ALERT_WEBHOOK_URL: z.url().optional(),
+  ALERT_WEBHOOK_SECRET: z.string().min(16).optional(),
 });
 
 export type ClientEnv = z.infer<typeof clientSchema>;
