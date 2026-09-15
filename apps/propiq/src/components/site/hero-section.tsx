@@ -9,25 +9,11 @@
 
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import dynamic from 'next/dynamic';
 import { DECISION_LABELS } from '@/domain/decision/engine';
 import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
 import { GlassMetricCard } from '@/components/site/glass-metric-card';
-import { SceneFallback } from '@/components/site/property-intelligence-scene';
+import { HeroSceneSlot } from '@/components/site/hero-scene-slot';
 import type { SiteProperty } from '@/site/types';
-
-/**
- * The scene is client-only and ~150KB of Three. Loading it lazily keeps it
- * off the critical path, and the flat skyline renders in its place until it
- * arrives, so the hero is never an empty box.
- */
-const PropertyIntelligenceScene = dynamic(
-  () =>
-    import('@/components/site/property-intelligence-scene').then(
-      (m) => m.PropertyIntelligenceScene,
-    ),
-  { loading: () => <SceneFallback className="size-full" /> },
-);
 
 const CHIPS = [
   'PropIQ Score',
@@ -40,7 +26,7 @@ const CHIPS = [
 export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }) => (
   <section className="propiq-dark relative isolate overflow-hidden">
     <div className="absolute inset-0 -z-10">
-      <PropertyIntelligenceScene className="size-full" />
+      <HeroSceneSlot className="size-full" />
     </div>
     {/* The copy side needs contrast over a moving scene, so the ground is
         pulled back on the left and released on the right. */}
@@ -135,7 +121,7 @@ export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }
           </div>
 
           <div className="propiq-site-glass mt-3 rounded-xl p-4">
-            <p className="text-[9.5px] font-semibold uppercase tracking-[0.14em] text-white/55">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/55">
               Featured analysis
             </p>
             <p className="mt-1.5 text-base font-semibold text-white">{showcase.name}</p>

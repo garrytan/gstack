@@ -266,8 +266,10 @@ export const PropertyIntelligenceScene = ({ className }: { className?: string })
 };
 
 /**
- * What renders when WebGL is unavailable or refuses a context. Not a blank
- * box: the same district, drawn flat.
+ * What renders when WebGL is unavailable or refuses a context, and what the
+ * server always renders before the client decides. Not a blank box: the same
+ * district, drawn flat, at a contrast that is actually visible against the
+ * hero's own background rather than a rumour of one.
  */
 export const SceneFallback = ({ className }: { className?: string }) => (
   <div className={className} aria-hidden>
@@ -278,8 +280,8 @@ export const SceneFallback = ({ className }: { className?: string }) => (
           <stop offset="100%" stopColor="#070b16" />
         </linearGradient>
         <linearGradient id="propiq-fallback-tower" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#42c9e8" stopOpacity="0.9" />
-          <stop offset="100%" stopColor="#2f6bdd" stopOpacity="0.25" />
+          <stop offset="0%" stopColor="#42c9e8" stopOpacity="0.95" />
+          <stop offset="100%" stopColor="#2f6bdd" stopOpacity="0.45" />
         </linearGradient>
       </defs>
       <rect width="400" height="300" fill="url(#propiq-fallback-sky)" />
@@ -295,7 +297,7 @@ export const SceneFallback = ({ className }: { className?: string }) => (
             width={11}
             height={h}
             rx={1.5}
-            fill={lit ? 'url(#propiq-fallback-tower)' : '#1b2540'}
+            fill={lit ? 'url(#propiq-fallback-tower)' : '#2a3754'}
           />
         );
       })}
@@ -307,7 +309,7 @@ export const SceneFallback = ({ className }: { className?: string }) => (
           y1={182 + i * 17}
           y2={182 + i * 17}
           stroke="#2f6bdd"
-          strokeOpacity="0.12"
+          strokeOpacity="0.3"
         />
       ))}
     </svg>
