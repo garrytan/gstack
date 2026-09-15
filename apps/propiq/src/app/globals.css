@@ -52,12 +52,25 @@
   --color-paper-2: #eef2f8;
   --color-paper-line: #e2e8f1;
 
-  /* Decision semantics. One meaning each, never decorative. */
+  /* Decision semantics. One meaning each, never decorative.
+
+     Two sets, same five meanings. The first is tuned for dark surfaces, where
+     it is the one that clears 4.5:1; the second is the ink set for light ones,
+     where the first does not. A subtree picks its set once (see `.propiq-site`
+     and `.propiq-dark`) so no component has to know which ground it landed on.
+     A verdict that is legible on one half of the page and not the other is a
+     verdict the reader does not get. */
   --color-buy: #2f9e63;
   --color-negotiate: #d9a133;
   --color-watch: #4a7fb5;
   --color-avoid: #c4524b;
   --color-unknown: #6b7383;
+
+  --color-buy-ink: #1f7a4a;
+  --color-negotiate-ink: #8a6414;
+  --color-watch-ink: #3a648f;
+  --color-avoid-ink: #a83f39;
+  --color-unknown-ink: #5f6676;
 }
 
 :root {
@@ -71,6 +84,10 @@
   --text-primary: #141821;
   --text-secondary: #454d5e;
   --text-muted: #7c8598;
+  /* Brand blue as *text*. The 500 clears 4.5:1 on paper and fails on ink, so
+     dark subtrees lift it to the 400. Backgrounds keep using the 500 either
+     way — white on the 400 is the pairing that fails. */
+  --text-accent: var(--color-brand-blue-500);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -83,6 +100,7 @@
     --text-primary: #f6f7f9;
     --text-secondary: #b0b7c6;
     --text-muted: #7c8598;
+    --text-accent: var(--color-brand-blue-400);
   }
 }
 
@@ -486,6 +504,7 @@
   --text-primary: #f6f7f9;
   --text-secondary: #b0b7c6;
   --text-muted: #7c8598;
+  --text-accent: var(--color-brand-blue-400);
 
   position: relative;
   isolation: isolate;
@@ -576,6 +595,7 @@ body:has(.propiq-canvas) > footer {
   --text-primary: #f6f7f9;
   --text-secondary: #b0b7c6;
   --text-muted: #7c8598;
+  --text-accent: var(--color-brand-blue-400);
 
   color: var(--text-primary);
 }
@@ -608,10 +628,23 @@ body:has(.propiq-canvas) > footer {
   --border-strong: #cbd5e4;
   --text-primary: #0d1524;
   --text-secondary: #46536a;
-  --text-muted: #6b7a92;
+  --text-muted: #5f6e87;
+  --text-accent: var(--color-brand-blue-500);
+
+  --color-buy: var(--color-buy-ink);
+  --color-negotiate: var(--color-negotiate-ink);
+  --color-watch: var(--color-watch-ink);
+  --color-avoid: var(--color-avoid-ink);
+  --color-unknown: var(--color-unknown-ink);
 
   background: var(--surface-0);
   color: var(--text-primary);
+}
+
+/* The comparison tray and the mobile call to action are fixed to the bottom of
+   the viewport, so the page reserves their height while one is up. */
+body[data-dock='on'] .propiq-site {
+  padding-bottom: 5.5rem;
 }
 
 /* Dark sections inside the light site. Same trick as the canvas: redefine the
@@ -625,7 +658,14 @@ body:has(.propiq-canvas) > footer {
   --border-strong: #2c3a58;
   --text-primary: #f3f6fb;
   --text-secondary: #a8b4cb;
-  --text-muted: #77849d;
+  --text-muted: #8e9ab2;
+  --text-accent: var(--color-brand-blue-400);
+
+  --color-buy: #2f9e63;
+  --color-negotiate: #d9a133;
+  --color-watch: #4a7fb5;
+  --color-avoid: #c4524b;
+  --color-unknown: #8b93a3;
 
   background: var(--surface-0);
   color: var(--text-primary);

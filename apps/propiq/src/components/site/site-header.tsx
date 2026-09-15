@@ -28,7 +28,7 @@ export const SITE_NAV: readonly NavItem[] = [
 
 export const SiteHeader = () => (
   <header className="sticky top-0 z-50 border-b border-[var(--border-subtle)] bg-[var(--surface-0)]/85 backdrop-blur-xl">
-    <div className="mx-auto flex h-[78px] max-w-7xl items-center gap-8 px-4 transition-[height] duration-200">
+    <div className="mx-auto flex h-[78px] max-w-7xl items-center gap-4 px-4 transition-[height] lg:gap-8 duration-200">
       <BrandMark />
 
       <nav aria-label="Main" className="hidden items-center gap-6 lg:flex">
@@ -52,7 +52,7 @@ export const SiteHeader = () => (
         </Link>
         <Link
           href="/search"
-          className="propiq-brand-gradient inline-flex h-10 items-center rounded-md px-4 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+          className="propiq-brand-gradient inline-flex h-10 items-center whitespace-nowrap rounded-md px-3 text-[13px] font-semibold text-white shadow-sm transition-opacity hover:opacity-90 sm:px-4 sm:text-sm"
         >
           Analyze Property
         </Link>

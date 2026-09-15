@@ -12,11 +12,7 @@ import { ArrowRight, BookOpen, Check, Minus } from 'lucide-react';
 import { DECISION_LABELS } from '@/domain/decision/engine';
 import { Section, SectionHead, DemoNote } from '@/components/site/section';
 import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
-import type {
-  CommandCentreSnapshot,
-  ResearchArticle,
-  SiteProperty,
-} from '@/site/types';
+import type { CommandCentreSnapshot, ResearchArticle, SiteProperty } from '@/site/types';
 
 /* ------------------------------------------------------------- comparison */
 
@@ -111,14 +107,22 @@ export const ComparisonSection = ({ properties }: { properties: readonly SitePro
         action={
           <Link
             href="/compare"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-brand-blue-500)] hover:underline"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
           >
             Open the Decision Room <ArrowRight aria-hidden className="size-4" />
           </Link>
         }
       />
 
-      <div className="mt-10 overflow-x-auto rounded-xl border border-[var(--border-subtle)]">
+      {/* The table scrolls sideways on a narrow screen and holds nothing
+          focusable, so it needs its own tab stop or a keyboard user cannot
+          reach the columns past the fold. */}
+      <div
+        tabIndex={0}
+        role="group"
+        aria-label="Property comparison table"
+        className="mt-10 overflow-x-auto rounded-xl border border-[var(--border-subtle)]"
+      >
         <table className="w-full min-w-[640px] border-collapse text-sm">
           <caption className="sr-only">
             Three properties compared across score, price, value and risk
@@ -157,7 +161,10 @@ export const ComparisonSection = ({ properties }: { properties: readonly SitePro
                     <span className="inline-flex items-center gap-1.5">
                       {value}
                       {row.winner === i && (
-                        <Check aria-label="best on this dimension" className="size-3.5 text-[var(--color-buy)]" />
+                        <Check
+                          aria-label="best on this dimension"
+                          className="size-3.5 text-[var(--color-buy)]"
+                        />
                       )}
                     </span>
                   </td>
@@ -200,7 +207,10 @@ export const WhyPropIQ = () => (
         <h3 className="text-sm font-semibold text-[var(--text-muted)]">A property portal</h3>
         <ul className="mt-4 space-y-3">
           {PORTAL.map((item) => (
-            <li key={item} className="flex items-center gap-2.5 text-sm text-[var(--text-secondary)]">
+            <li
+              key={item}
+              className="flex items-center gap-2.5 text-sm text-[var(--text-secondary)]"
+            >
               <Minus aria-hidden className="size-4 shrink-0 text-[var(--text-muted)]" />
               {item}
             </li>

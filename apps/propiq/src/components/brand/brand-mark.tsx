@@ -56,11 +56,13 @@ export const BrandMark = ({
           className="h-8 w-auto"
         />
       ) : (
-        <span className="flex items-baseline gap-1.5">
+        <span className="flex items-baseline gap-1.5 whitespace-nowrap">
           <span className="display text-[19px] font-bold tracking-tight">
             Prop<span className="propiq-brand-text">IQ</span>
           </span>
-          <span className="text-[9.5px] font-medium uppercase tracking-[0.18em] text-[var(--text-muted)]">
+          {/* Tracking this wide wraps to three lines in a 390px header, and a
+              wordmark that wraps stops being a wordmark. */}
+          <span className="whitespace-nowrap text-[9.5px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)] sm:tracking-[0.18em]">
             by CiteRank AI
           </span>
         </span>
