@@ -9,7 +9,7 @@
  * expensive to discover in production.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FixturePropertyRepository } from '@/data/fixtures/adapter';
@@ -19,10 +19,14 @@ import { DEMO_LOCALITIES } from '@/data/fixtures/localities';
 
 const root = process.cwd();
 const schema = readFileSync(join(root, 'supabase/migrations/0001_canonical_schema.sql'), 'utf-8');
-const rls = [
-  readFileSync(join(root, 'supabase/migrations/0002_rls.sql'), 'utf-8'),
-  readFileSync(join(root, 'supabase/migrations/0003_visits_and_negotiations.sql'), 'utf-8'),
-].join('\n\n');
+// Every migration, discovered rather than listed: a new migration that adds a
+// user-owned table without RLS must fail this suite, and it cannot do that if
+// the suite only reads the files someone remembered to register here.
+const rls = readdirSync(join(root, 'supabase/migrations'))
+  .filter((f) => f.endsWith('.sql'))
+  .sort()
+  .map((f) => readFileSync(join(root, 'supabase/migrations', f), 'utf-8'))
+  .join('\n\n');
 const productionAdapter = readFileSync(
   join(root, 'src/data/supabase/property-repository.ts'),
   'utf-8',
@@ -39,6 +43,7 @@ const USER_OWNED_TABLES = [
   'admin_audit_log',
   'site_visits',
   'negotiations',
+  'notifications',
 ] as const;
 
 describe('row level security', () => {
@@ -54,6 +59,7 @@ describe('row level security', () => {
     'analysis_documents',
     'site_visits',
     'negotiations',
+    'notifications',
   ])('scopes every write verb on %s to auth.uid()', (table) => {
     const policies = rls.split('\n\n').filter((block) => block.includes(`on ${table} for`));
     const verbs = ['select', 'insert', 'update', 'delete'];
