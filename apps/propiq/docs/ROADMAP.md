@@ -1,0 +1,105 @@
+# Roadmap
+
+## Done
+
+### Milestone A — production foundation ✓
+
+Architecture docs · domain boundaries (lint-enforced) · Zod env validation with
+a production fixture guard · canonical schema with FKs, constraints and indexes
+· RLS on every user-owned table · evidence and provenance model · fixture/test
+data separation · strict TypeScript, lint and test baseline.
+
+### Milestone B — buyer intelligence vertical slice ✓
+
+The full flow works end to end:
+
+**Homepage → Search → Property Intelligence → Compare → Save → Dashboard**
+
+Typed repository port · fixture adapter · production adapter contract · PropIQ
+Score v0.1.0 · decision engine v0.1.0 · fair value with negotiation guidance ·
+evidence panel · locality intelligence · persona weighting · auth · watchlist ·
+analytics.
+
+## Next
+
+### The exact next task
+
+**Wire a Supabase project and run the migrations.**
+
+Everything downstream is blocked on this, and it is mechanical rather than
+design work:
+
+1. Create a Supabase project; set `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
+2. Apply `supabase/migrations/0001_canonical_schema.sql` and `0002_rls.sql`.
+3. Run `supabase/verify-rls.sql` — it must print `RLS verification passed.`
+4. Set `PROPIQ_DATA_ADAPTER=supabase` and confirm search returns empty (correct:
+   no real data is loaded) rather than erroring.
+5. Add a CI job that runs `verify-rls.sql` against an ephemeral database.
+
+Acceptance: sign-up, sign-in and a persisted watchlist entry all work against a
+real database, and cross-user isolation is verified by the script rather than
+only by the static tests.
+
+### Then, in order
+
+**Ingest one real source.** RERA registrations for the launch market. This is
+the highest-value integration: it is authoritative, it is public, and it turns
+the legal pillar from a contract into a measurement. Until one real source
+exists, every other feature is building on fixtures.
+
+**Buyer profile editor.** Persona weighting and buyer-fit signals are built and
+tested, but there is no UI to set a budget, a workplace or priorities. The
+scoring engine already consumes the profile, so this is presentation work with
+a large payoff: it turns a generic score into a personal one.
+
+**Rate limiting.** Before any AI endpoint is exposed.
+
+## P1
+
+| Feature | Blocked on |
+|---|---|
+| Document AI | Private storage + extraction provider |
+| Copilot UI + retrieval | AI provider configured; rate limiting |
+| Reports / PDF | Snapshot store keyed by scoring version |
+| Alerts | Scheduler + delivery channel |
+| Maps | Provider decision (abstraction exists) |
+| Floor-plan intelligence | CV provider; confidence labelling is non-negotiable |
+| Portfolio UI | Nothing — schema and arithmetic are done |
+
+## P2
+
+Advisor workspace · lead scoring · CRM · site visits · negotiation workflow ·
+offers · transaction state · billing · NRI workflows · admin.
+
+## P3 — only after product-market evidence
+
+B2B API · enterprise analytics · deeper computer vision · proprietary
+forecasting · mobile apps.
+
+**Not on the roadmap:** fractional investing. It needs a separate approved
+regulatory and business workstream, not an engineering ticket.
+
+## Geographic strategy
+
+Bengaluru first, densely. The architecture is national — `cities.coverage`
+gates what goes live, and nothing in the domain layer is city-specific — but
+the data will not be, for a while.
+
+The reasoning is not modesty. A measurement product that claims a hundred
+cities and can only source thin data for ninety of them has broken its own
+premise. Better to be undeniably right about one market.
+
+## Scoring roadmap
+
+v0.1.0 is deliberately conservative: linear normalization, published weights,
+wide bands. It will get better when there is real data to calibrate against.
+
+Sequence: ship v0.1.0 → accumulate `valuations` and `scores` rows → populate
+`valuation_backtests` from observed transactions → calibrate normalization
+against measured error → publish v0.2.0 as a **new version**, never an edit to
+v0.1.0.
+
+Confidence calibration is the metric that matters: when we say 70% confidence,
+outcomes should land inside the band about 70% of the time. Nothing else in the
+product is worth much if that number is wrong.
