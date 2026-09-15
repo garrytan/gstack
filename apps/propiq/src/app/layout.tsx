@@ -36,6 +36,7 @@ const NAV = [
   { href: '/compare', label: 'Decision Room' },
   { href: '/copilot', label: 'Copilot' },
   { href: '/document-ai', label: 'Documents' },
+  { href: '/tools', label: 'Free tools' },
   { href: '/methodology', label: 'Methodology' },
   { href: '/data-sources', label: 'Data sources' },
 ] as const;
@@ -90,7 +91,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main id="main">{children}</main>
 
         <footer className="mt-16 border-t border-[var(--border-subtle)] bg-[var(--surface-1)]">
-          <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:grid-cols-2 lg:grid-cols-5">
             <div>
               <p className="font-semibold">PropIQ by CiteRank AI</p>
               <p className="mt-2 text-xs text-[var(--text-secondary)]">
@@ -107,6 +108,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 { href: '/investment', label: 'Investment analysis' },
                 { href: '/copilot', label: 'Copilot' },
                 { href: '/document-ai', label: 'Document checks' },
+              ]}
+            />
+            <FooterColumn
+              title="Free tools"
+              links={[
+                { href: '/tools/carpet-area', label: 'Carpet vs super built-up' },
+                { href: '/tools/emi', label: 'Home loan EMI' },
+                { href: '/tools/rental-yield', label: 'Rental yield' },
+                { href: '/site-visit-checklist', label: 'Site visit checklist' },
+                { href: '/checks/encumbrance-certificate', label: 'Document guides' },
               ]}
             />
             <FooterColumn

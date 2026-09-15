@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { getPropertyRepository } from '@/data';
 import { SOURCE_TYPES, DATA_STATUSES } from '@/domain/evidence/types';
 import { statusDescription } from '@/components/propiq/data-status';
@@ -125,9 +126,9 @@ export default async function DataSourcesPage() {
         <h2 className="text-lg font-semibold tracking-tight">Source classes</h2>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">
           Each class carries its own trust weight and its own freshness window, published on the{' '}
-          <a href="/methodology" className="text-accent-500 hover:underline">
+          <Link href="/methodology" className="text-accent-500 hover:underline">
             methodology page
-          </a>
+          </Link>
           .
         </p>
         <div className="mt-4 overflow-x-auto">
