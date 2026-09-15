@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Bell, Bookmark, FileText, SlidersHorizontal, Wallet } from 'lucide-react';
+import { Bell, Bookmark, FileText, Inbox, SlidersHorizontal, Wallet } from 'lucide-react';
 import { currentUserId } from '@/server/actions';
 import { getWatchlistRepository } from '@/server/watchlist';
 import { getPropertyRepository } from '@/data';
@@ -38,6 +38,12 @@ const CARDS = [
     label: 'Reports',
     icon: FileText,
     blurb: 'Frozen intelligence reports you can print or share.',
+  },
+  {
+    href: '/dashboard/notifications',
+    label: 'Notifications',
+    icon: Inbox,
+    blurb: 'Every alert that cleared a threshold, and where alerts are delivered.',
   },
   {
     href: '/preferences',

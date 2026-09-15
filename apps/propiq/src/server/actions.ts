@@ -14,6 +14,7 @@ import type { LocalityId, PropertyId, UserId } from '@/domain/shared/types';
 import { asId } from '@/domain/shared/types';
 import { getCurrentUser } from '@/server/supabase';
 import { getWatchlistRepository } from '@/server/watchlist';
+import { getNotificationRepository } from '@/server/notifications';
 import { getBuyerProfileRepository } from '@/server/profile';
 import { getPortfolioRepository } from '@/server/portfolio';
 import { BUYER_PERSONAS } from '@/domain/buyer/types';
@@ -456,4 +457,27 @@ export const loadNegotiations = async (): Promise<readonly Negotiation[]> => {
   const userId = await resolveUserId();
   if (!userId) return [];
   return getNegotiationRepository().list(userId);
+};
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+/**
+ * Mark every unread notification read.
+ *
+ * No id list is accepted. "Mark all mine read" needs no client-supplied
+ * identifier, so there is none to validate or to forge — the acting user is
+ * resolved server-side and the repository scopes the update to them.
+ */
+export const markNotificationsRead = async (): Promise<ActionResult> => {
+  const userId = await resolveUserId();
+  if (!userId) return { ok: false, message: 'Sign in to manage your notifications.' };
+
+  const changed = await getNotificationRepository().markAllRead(userId, new Date().toISOString());
+  revalidatePath('/dashboard/notifications');
+  return {
+    ok: true,
+    message: changed === 0 ? 'Nothing was unread.' : `Marked ${changed} read.`,
+  };
 };

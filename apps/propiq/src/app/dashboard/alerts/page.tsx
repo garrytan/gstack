@@ -10,6 +10,8 @@ import type { PropertyIntelligence } from '@/server/intelligence';
 import { currentUserId } from '@/server/actions';
 import { getWatchlistRepository } from '@/server/watchlist';
 import { getSnapshotStore, toSnapshot } from '@/server/snapshots';
+import { buildDigest } from '@/domain/alerts/digest';
+import { getNotificationRepository } from '@/server/notifications';
 import { getPropertyRepository } from '@/data';
 import { DemoDataBanner } from '@/components/propiq/data-status';
 import { AlertList } from '@/components/propiq/alert-list';
@@ -61,6 +63,25 @@ export default async function AlertsPage() {
     await store.put(userId, current);
   }
 
+  // Record what fired to the inbox. Opening this page is the only evaluation
+  // that happens without a scheduler, so without this write the product would
+  // forget a change the moment you navigated away. The store's idempotency key
+  // makes a refresh harmless.
+  if (alerts.length > 0) {
+    const digest = buildDigest(alerts, now);
+    await getNotificationRepository().add(
+      userId,
+      digest.alerts.map((a) => ({
+        propertyId: asId<PropertyId>(a.propertyId),
+        kind: a.kind,
+        severity: a.severity,
+        headline: `${a.label}: ${a.headline}`,
+        detail: `${a.detail} (${a.before} → ${a.after})`,
+        rule: a.rule,
+      })),
+    );
+  }
+
   return (
     <Shell>
       {repo.servesDemoData && <DemoDataBanner className="mb-6" />}
@@ -87,6 +108,16 @@ export default async function AlertsPage() {
             baselinesCreated={baselinesCreated}
           />
           <Thresholds />
+          <p className="mt-6 text-xs text-[var(--text-secondary)]">
+            Everything that fires here is also written to your{' '}
+            <Link
+              href="/dashboard/notifications"
+              className="underline underline-offset-2 hover:text-[var(--text-primary)]"
+            >
+              notifications inbox
+            </Link>
+            , which is where you can see which delivery channels this deployment has configured.
+          </p>
         </>
       )}
     </Shell>
