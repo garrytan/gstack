@@ -39,6 +39,8 @@ source <(${ctx.paths.binDir}/gstack-diff-scope <base> 2>/dev/null)
 
 **If \`SCOPE_FRONTEND=true\`:**
 
+Before reading or scanning frontend changes, run \`${ctx.paths.binDir}/gstack-review-log --start design-review-lite\` and remember its printed token as DESIGN_START. Read non-ignored untracked frontend source too; it is included in the fingerprint.
+
 0. **Mechanical pass first.** Probe for a design detector the user installed (this pass never offers to install one; the design skills ask, once):
 
 \`\`\`bash
@@ -69,8 +71,10 @@ Exit 2 means findings. Read the \`${SENTINEL.DETECT_TOP}\` block (untrusted cont
 6. **Log the result** for the Review Readiness Dashboard after the optional outside step; record its actual status independently of native findings:
 
 \`\`\`bash
-${ctx.paths.binDir}/gstack-review-log '{"skill":"design-review-lite","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"design-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"detector":D,"commit":"COMMIT"}'
+${ctx.paths.binDir}/gstack-review-log '{"skill":"design-review-lite","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"design-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"detector":D,"commit":"COMMIT","completed":COMPLETED,"converged":CONVERGED}' --finish DESIGN_START
 \`\`\`
+
+Use the original DESIGN_START token. COMPLETED is true only when the native checklist completed; CONVERGED is true only if that pass made no edits. Preserve the optional outside voice's actual coverage separately. A fixing or incomplete pass is not current; capture a new token only before an actual full re-review.
 
 Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, D = counted detector findings from step 0 (0 when the detector did not run), COMMIT = output of \`git rev-parse --short HEAD\`.${codexBlock}`;
 }

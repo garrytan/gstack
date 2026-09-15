@@ -2,23 +2,42 @@
 # gstack-review-read — read review log and config for dashboard
 # Usage: gstack-review-read
 #
-# Emits, in order: the raw reviews JSONL, ---CONFIG--- (skip_eng_review),
+# Emits, in order: reviews JSONL with computed review_freshness, ---CONFIG--- (skip_eng_review),
 # ---HEAD--- (short sha), ---WTREE--- (current working-tree fingerprint from
 # bin/gstack-wtree, or "unknown"), ---TREE--- (HEAD tree, informational) and
 # ---DIRTY--- (tracked-file dirty flag). Consumers grade diff-scoped review
-# rows CURRENT when a record's `wtree` equals ---WTREE---; everything needed
-# for that rule ships in this one output so graders run no extra commands.
+# rows using review_freshness; legacy or uncaptured diff evidence cannot fall
+# back to HEAD equality. Plan rows are unchanged.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+esac
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-cat "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" 2>/dev/null || echo "NO_REVIEWS"
+WTREE=$("$SCRIPT_DIR/gstack-wtree" 2>/dev/null || echo "unknown")
+if [ -f "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" ]; then
+  GSTACK_REVIEW_LIB="$SCRIPT_DIR/../lib/review-evidence.ts" GSTACK_REVIEW_WTREE="$WTREE" bun -e '
+    const { reviewFreshness } = await import(process.env.GSTACK_REVIEW_LIB);
+    for (const line of (await Bun.stdin.text()).split("\n").filter(Boolean)) {
+      try {
+        const rec = JSON.parse(line);
+        delete rec.review_freshness;
+        const freshness = reviewFreshness(rec, process.env.GSTACK_REVIEW_WTREE);
+        if (freshness) rec.review_freshness = freshness;
+        console.log(JSON.stringify(rec));
+      } catch { console.error("gstack-review-read: skipping malformed review row"); }
+    }
+  ' < "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl"
+else
+  echo "NO_REVIEWS"
+fi
 echo "---CONFIG---"
 "$SCRIPT_DIR/gstack-config" get skip_eng_review 2>/dev/null || echo "false"
 echo "---HEAD---"
 git rev-parse --short HEAD 2>/dev/null || echo "unknown"
 echo "---WTREE---"
-"$SCRIPT_DIR/gstack-wtree" 2>/dev/null || echo "unknown"
+echo "$WTREE"
 echo "---TREE---"
 git rev-parse 'HEAD^{tree}' 2>/dev/null || echo "unknown"
 echo "---DIRTY---"

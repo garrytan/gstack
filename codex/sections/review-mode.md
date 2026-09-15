@@ -32,6 +32,8 @@ TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")
 2. Run the review. No prompt argument — scope comes from `--base` (or `--commit <sha>`
 when reviewing a single commit, or `--uncommitted` for the working tree).
 
+Use only one command path below. Remember its printed start token as CODEX_REVIEW_START before the review reads or receives the diff. Capture a new token only before a genuine rerun, never just to log fixes.
+
 **Sandbox is pinned read-only via config override.** Top-level `codex review` has no
 `-s`/`--sandbox` flag (verified on 0.147.0: `codex review --help` lists none), so the
 read-only sandbox is set with `-c 'sandbox_mode="read-only"'` — the same form the
@@ -42,6 +44,7 @@ contradicting this skill's read-only contract (#2496, #2524):
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
+~/.claude/skills/gstack/bin/gstack-review-log --start codex-review
 # The 330s wrapper sits BELOW the 360s Bash gate so the wrapper fires FIRST
 # and a stall surfaces as a diagnosable exit 124 with an explicit message,
 # never as a silent harness kill that downstream reads as "no findings".
@@ -76,6 +79,7 @@ adversarial:
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
+~/.claude/skills/gstack/bin/gstack-review-log --start codex-review
 _USER_INSTRUCTIONS="<everything after '/codex review ' in user input>"
 _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX")
 {
@@ -191,13 +195,14 @@ CROSS-MODEL ANALYSIS:
 
 7. Persist the review result:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED}' --finish CODEX_REVIEW_START
 ```
 
 Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL),
 GATE ("pass" or "fail" — fail-closed verdicts log as "fail"), findings (count of
 [P0] + [P1] + [P2] markers; 0 for fail-closed runs, which reviewed nothing),
 findings_fixed (count of findings that were addressed/fixed before shipping).
+CODEX_REVIEW_START is the original token from the command path that ran. COMPLETED is true only when the review completed with coverage of the branch diff and current working-tree changes; timeout, failure, refusal, or missing coverage is false. A limited `--commit`/`--uncommitted` review, or a committed-only custom prompt that omitted dirty/untracked source, does not establish whole-branch coverage: log completed false and explain the limitation. CONVERGED is true only for a completed pass with zero edits. Fixes stay stale until a genuine rerun reads the updated diff with a new start token. These evidence fields do not change the gate verdict above.
 
 8. Clean up temp files:
 ```bash

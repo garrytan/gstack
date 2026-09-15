@@ -70,6 +70,8 @@ Claude only.
 
 ### Claude adversarial subagent (always runs)
 
+Before dispatch, run `~/.claude/skills/gstack/bin/gstack-review-log --start adversarial-review` and remember the token for this native pass. Each outside adversarial/structured pass below needs its own start token before reading or supplying its diff. Capture a fresh token on each actual rerun, never while logging. Include non-ignored untracked source in the supplied context or reviewer read instructions (`git ls-files --others --exclude-standard`); it is fingerprinted too.
+
 Dispatch via the Agent tool with `run_in_background: false` (subagents default to background since Claude Code v2.1.198; the adversarial findings must land before the review concludes). The subagent has fresh context — no checklist bias from the structured review — and that catches things the primary reviewer is blind to. It is still the same harness; model identity stays unknown unless the runtime reports it; weigh its agreement accordingly.
 
 Subagent prompt:
@@ -217,8 +219,9 @@ If `DIFF_TOTAL < 200`: skip this section silently. The Claude + Codex adversaria
 
 After all passes complete, persist:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED}' --finish PASS_START
 ```
+PASS_START is this source/phase's original start token. COMPLETED is true only for a completed response (false for timeout, failure, refusal, or missing coverage). CONVERGED is true only if the completed pass made no edits. Each token is consumed once; a fixing pass cannot certify the fixed tree without a fresh full pass. Missing/disabled passes have no token: omit `--finish` and log completed/converged false. Log each source/phase separately so a clean native response cannot hide missing outside coverage.
 Substitute: PHASE = "adversarial" or "structured" for the corresponding pass. STATUS = "clean" only for a completed pass with no findings, "issues_found" if any pass found issues. SOURCE = the completed outside provider for its record; use a separate in-host record for the native subagent. GATE = the Codex structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Codex was unavailable. If all passes failed, persist status "unavailable" with outside_status "unavailable"; never persist "clean". Record the adversarial and structured phases separately if their coverage differs.
 
 ---
@@ -243,3 +246,12 @@ ADVERSARIAL REVIEW SYNTHESIS (always-on, N lines):
 High-confidence findings (agreed on by multiple sources) should be prioritized for fixes.
 
 ---
+
+### Before persisting Eng Review (Step 5.8)
+
+If this pass applied any fixes (including adversarial fixes), repeat Steps 3–5.7 against the updated diff with a new REVIEW_START. A pass converges only when it completes without edits. Allow at most 3 fix cycles; if the third still applies fixes, persist `converged:false` and stop with the remaining findings. Do not capture a new token just to log the fixed tree.
+
+For the Step 5.8 record, REVIEW_START is the token captured before this pass's Step 3 diff read. COMPLETED is true only if the checklist and dispatched specialists completed; missing coverage is false, never clean. CONVERGED is true only for a completed pass with zero edits. CYCLES counts fix cycles (0 for a first-pass completion). Preserve unavailable specialist/provider coverage in the summary; completion of one source does not imply completion of another.
+
+- `specialists` = the per-specialist stats object compiled in Step 4.6. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Include Design specialist. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
+- `findings` = array of per-finding records from Step 5. For each finding (from critical pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"` (Step 5b), `"fixed"` (user approved in Step 5d), or `"skipped"` (user chose Skip in Step 5c). Suppressed findings from Step 5.0 are NOT included (they were already recorded in a prior review entry).

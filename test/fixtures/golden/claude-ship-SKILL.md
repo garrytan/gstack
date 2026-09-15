@@ -620,17 +620,17 @@ Display:
 - **Outside Voice (default-on):** Independent plan review through the host-selected provider after /plan-ceo-review and /plan-eng-review. The codex_reviews switch disables the entire extra step. Provider failure uses the existing native fallback and reports missing outside coverage. Never gates shipping.
 
 **Verdict logic:**
-- **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`)
+- **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean"; diff review must also grade CURRENT below (or \`skip_eng_review\` is \`true\`)
 - **NOT CLEARED**: Eng Review missing, stale (>7 days), or has open issues
 - CEO, Design, and outside reviews are shown for context but never block shipping
 - If \`skip_eng_review\` config is \`true\`, Eng Review shows "SKIPPED (global)" and verdict is CLEARED
 
-**Staleness detection:** After displaying the dashboard, check if any existing reviews may be stale:
-- **Content-first rule (diff-scoped rows only: \`review\`, \`adversarial-review\`, \`codex-review\`, ship-stage entries).** Parse the \`---WTREE---\` and \`---DIRTY---\` sections from the bash output. If an entry has a \`wtree\` field AND it equals the current \`---WTREE---\` value, the review is CURRENT — identical content, regardless of commit count, rebase, amend, or whether it was committed yet (wtree equality alone proves identical content; that is the keystone property). Skip the commit-count heuristic for that entry and show no staleness note.
-- Plan-tier rows (plan-ceo-review, plan-eng-review, plan-design-review) grade a plan file, not the repo tree — never apply the wtree rule to them; they keep the 7-day freshness logic. If such an entry carries a \`plan_sha256\` field, you MAY compare it against the current plan file's sha256 and note "plan changed since review" on mismatch.
-- Fallback (no \`wtree\` on the entry, or wtree mismatch): parse the \`---HEAD---\` section to get the current HEAD commit hash. For each review entry that has a \`commit\` field: compare it against the current HEAD. If different, count elapsed commits: \`git rev-list --count STORED_COMMIT..HEAD\`. If that command FAILS (the stored commit was rebased away), grade UNKNOWN and treat as stale — do not error. Display: "Note: {skill} review from {date} may be stale — {N} commits since review"
-- For entries without a \`commit\` field (legacy entries): display "Note: {skill} review from {date} has no commit tracking — consider re-running for accurate staleness detection"
-- If all reviews grade CURRENT (wtree match or HEAD match), do not display any staleness notes
+**Staleness detection:** Grade before deciding CLEARED:
+- Ship telemetry reports metrics, not review coverage; it never satisfies a review row.
+- **Content-first rule (diff-scoped rows only: `review`, `adversarial-review`, `codex-review`, ship-stage entries, `design-review-lite`).** Use the helper's computed `review_freshness.status` and show its `reason`. CURRENT requires a completed clean pass with captured start/end wtree equal to the current `---WTREE---`. STALE or UNVERIFIED never clears Eng Review. Missing `review_freshness` is UNVERIFIED, including legacy log-only rows. Never fall back to HEAD equality or commit distance for diff evidence, even at 0 commits. Show recorded cycles, completed/converged state, and missing per-source/phase coverage; unknown is not a pass.
+- Plan-tier rows (plan-ceo-review, plan-eng-review, plan-design-review, codex-plan-review) grade a plan file, not the repo tree — never apply the wtree rule to them; they keep the 7-day freshness logic. If an entry carries `plan_sha256`, you MAY compare it with the plan file and note "plan changed since review" on mismatch.
+- Plan-tier fallback only: parse `---HEAD---`. For entries with a different `commit`, count elapsed commits: `git rev-list --count STORED_COMMIT..HEAD`. If that command FAILS, grade UNKNOWN and treat as stale. Display: "Note: {skill} review from {date} may be stale — {N} commits since review". Missing commit tracking retains the legacy note to consider re-running.
+- If all reviews grade CURRENT, do not display staleness notes
 
 If the Eng Review is NOT "CLEAR":
 

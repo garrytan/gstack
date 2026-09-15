@@ -252,6 +252,12 @@ Every review (CEO, Eng, Design) logs its result. At the end of each review, you 
 
 Eng Review is the only required gate (disable with `gstack-config set skip_eng_review true`). CEO and Design are informational — recommended for product and UI changes respectively.
 
+Diff reviews use the `review_freshness` grade computed by `gstack-review-read`, shared by `/ship` and `/land-and-deploy`. CURRENT requires a clean, reviewer-reported completed and converged pass whose captured start and finish fingerprints match the current working-tree content. Tracked edits and non-ignored untracked source both count; an identical commit hash or zero commits since review is not a fallback.
+
+A captured pass with different start/end content grades STALE, as does a previously verified pass whose fingerprint no longer matches. Missing or reused start receipts, legacy log-only records, incomplete or nonconverged passes, and unresolved findings cannot grade CURRENT; missing evidence grades UNVERIFIED. Ship telemetry is not a review pass. After fixes, run a genuine full re-review with a new start receipt rather than capturing one only to log the result. Completion remains reviewer-reported, not independent proof that a model read the source.
+
+Plan-file reviews retain their existing seven-day freshness handling and optional plan-hash comparison; repository-content rules do not apply to them. A diff review must grade CURRENT before it can clear Eng Review, in addition to the dashboard's existing age and clean-status requirements.
+
 ### Plan-to-QA flow
 
 When `/plan-eng-review` finishes the test review section, it writes a test plan artifact to `~/.gstack/projects/`. When you later run `/qa`, it picks up that test plan automatically — your engineering review feeds directly into QA testing with no manual copy-paste.
@@ -1072,6 +1078,8 @@ independent of model selection.
 ### Three modes
 
 **Review** — run `codex review` against the current diff. Codex reads every changed file, classifies findings by severity (P1 critical, P2 high, P3 medium), and returns a PASS/FAIL verdict. Any P1 finding = FAIL. The review is fully independent — Codex doesn't see Claude's review.
+
+A severity-gate PASS is separate from [review freshness](#review-readiness-dashboard): unresolved recorded findings (`findings > findings_fixed`, with missing `findings_fixed` treated as zero) prevent CURRENT even when the gate passes. This does not change the severity gate. Fixes still require a new completed, unchanged review pass before the fixed tree can grade CURRENT.
 
 **Challenge** — adversarial mode. Codex actively tries to break your code. It looks for edge cases, race conditions, security holes, and assumptions that would fail under load. Uses maximum reasoning effort (`xhigh`). Think of it as a penetration test for your logic.
 

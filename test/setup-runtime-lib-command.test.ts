@@ -3,6 +3,7 @@ import { spawnSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { gitIn } from './helpers/scratch-repo';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SETUP_SRC = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
@@ -49,6 +50,8 @@ interface CommandResult {
   learningsWritten: boolean;
   libIsSymlink: boolean | null;
   supabaseConfigPresent: boolean;
+  reviewStatus: number | null;
+  reviewFreshness?: string;
 }
 
 // Build one host runtime root inside a sandbox using the real setup shell code
@@ -80,6 +83,23 @@ function buildRootAndRunCommand(
       env: { ...process.env, HOME: home, GSTACK_HOME: path.join(home, '.gstack') },
     });
 
+    gitIn(project, 'init -q');
+    fs.writeFileSync(path.join(project, 'source.txt'), 'reviewed content\n');
+    gitIn(project, 'add source.txt');
+    gitIn(project, 'commit -qm initial');
+    const review = spawnSync('bash', ['-c', `
+set -e
+TOKEN=$("$1/bin/gstack-review-log" --start review)
+"$1/bin/gstack-review-log" '{"skill":"review","status":"clean","completed":true,"converged":true}' --finish "$TOKEN"
+"$1/bin/gstack-review-read"
+`, 'review-runtime', rootDir], {
+      cwd: project,
+      encoding: 'utf-8',
+      timeout: 30000,
+      env: { ...process.env, HOME: home, GSTACK_HOME: path.join(home, '.gstack') },
+    });
+    const reviewRow = review.stdout.split('\n').find(line => line.startsWith('{'));
+
     const projectsDir = path.join(home, '.gstack', 'projects');
     const learningsWritten = fs.existsSync(projectsDir)
       && fs.readdirSync(projectsDir).some((slug) => {
@@ -99,6 +119,8 @@ function buildRootAndRunCommand(
       // [ -f ... ] guard means a missing file degrades SILENTLY, so only a
       // presence check on the installed root catches it.
       supabaseConfigPresent: fs.existsSync(path.join(rootDir, 'supabase', 'config.sh')),
+      reviewStatus: review.status,
+      reviewFreshness: reviewRow ? JSON.parse(reviewRow).review_freshness?.status : undefined,
     };
   } finally {
     fs.rmSync(sandbox, { recursive: true, force: true });
@@ -166,6 +188,8 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
       expect(r.runStatus).toBe(0);
       expect(r.learningsWritten).toBe(true);
       expect(r.supabaseConfigPresent).toBe(true);
+      expect(r.reviewStatus).toBe(0);
+      expect(r.reviewFreshness).toBe('CURRENT');
     });
 
     test(`${host} root (Windows copy install): gstack-learnings-log imports ../lib and writes the learning`, () => {
@@ -177,6 +201,8 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
       expect(r.runStatus).toBe(0);
       expect(r.learningsWritten).toBe(true);
       expect(r.supabaseConfigPresent).toBe(true);
+      expect(r.reviewStatus).toBe(0);
+      expect(r.reviewFreshness).toBe('CURRENT');
     });
   }
 
@@ -195,5 +221,6 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
     expect(r.runStatus).not.toBe(0);
     expect(r.runStderr).toContain('lib/jsonl-store.ts');
     expect(r.learningsWritten).toBe(false);
+    expect(r.reviewStatus).not.toBe(0);
   });
 });

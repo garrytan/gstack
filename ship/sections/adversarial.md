@@ -70,6 +70,8 @@ Claude only.
 
 ### Claude adversarial subagent (always runs)
 
+Before dispatch, run `~/.claude/skills/gstack/bin/gstack-review-log --start adversarial-review` and remember the token for this native pass. Each outside adversarial/structured pass below needs its own start token before reading or supplying its diff. Capture a fresh token on each actual rerun, never while logging. Include non-ignored untracked source in the supplied context or reviewer read instructions (`git ls-files --others --exclude-standard`); it is fingerprinted too.
+
 Dispatch via the Agent tool with `run_in_background: false` (subagents default to background since Claude Code v2.1.198; the adversarial findings must land before the review concludes). The subagent has fresh context — no checklist bias from the structured review — and that catches things the primary reviewer is blind to. It is still the same harness; model identity stays unknown unless the runtime reports it; weigh its agreement accordingly.
 
 Subagent prompt:
@@ -217,8 +219,9 @@ If `DIFF_TOTAL < 200`: skip this section silently. The Claude + Codex adversaria
 
 After all passes complete, persist:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED}' --finish PASS_START
 ```
+PASS_START is this source/phase's original start token. COMPLETED is true only for a completed response (false for timeout, failure, refusal, or missing coverage). CONVERGED is true only if the completed pass made no edits. Each token is consumed once; a fixing pass cannot certify the fixed tree without a fresh full pass. Missing/disabled passes have no token: omit `--finish` and log completed/converged false. Log each source/phase separately so a clean native response cannot hide missing outside coverage.
 Substitute: PHASE = "adversarial" or "structured" for the corresponding pass. STATUS = "clean" only for a completed pass with no findings, "issues_found" if any pass found issues. SOURCE = the completed outside provider for its record; use a separate in-host record for the native subagent. GATE = the Codex structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Codex was unavailable. If all passes failed, persist status "unavailable" with outside_status "unavailable"; never persist "clean". Record the adversarial and structured phases separately if their coverage differs.
 
 ---

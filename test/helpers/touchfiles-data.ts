@@ -616,7 +616,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'plan-eng-review/**', 'plan-ceo-review/**', 'hosts/claude.ts', 'hosts/define-host.ts',
     'scripts/gen-skill-docs.ts', 'scripts/resolvers/index.ts', 'scripts/resolvers/sections.ts',
     'scripts/resolvers/review.ts', 'scripts/resolvers/outside-voice.ts', 'scripts/resolvers/constants.ts',
-    'bin/gstack-config', 'bin/gstack-codex-probe', 'bin/gstack-review-log', 'bin/gstack-slug', 'bin/gstack-wtree', 'bin/gstack-brain-enqueue', 'test/helpers/session-runner.ts',
+    'bin/gstack-config', 'bin/gstack-codex-probe', 'bin/gstack-review-log', 'bin/gstack-review-read', 'lib/review-evidence.ts', 'bin/gstack-slug', 'bin/gstack-wtree', 'bin/gstack-brain-enqueue', 'test/helpers/session-runner.ts',
     'test/helpers/hermetic-env.ts', 'test/helpers/skill-fixture.ts', 'test/helpers/outside-voice-evidence.ts',
     'test/helpers/disabled-plan-review-fixture.ts', 'test/disabled-plan-review-evidence.test.ts',
     'test/skill-e2e-outside-plan-disabled.test.ts', 'test/fixtures/disabled-plan-attribution-ad-v2.json',

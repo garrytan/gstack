@@ -68,7 +68,7 @@ higher confidence.
 
 1. Read `~/.claude/skills/gstack/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
-2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
+2. Before reading the diff, run `~/.claude/skills/gstack/bin/gstack-review-log --start review` and remember the printed token as REVIEW_START for this pass. Then run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch). Read non-ignored untracked source files too (`git ls-files --others --exclude-standard`); the fingerprint includes them. Each full re-review captures a new token here, never at log time.
 
 3. Apply the review checklist in two passes:
    - **Pass 1 (CRITICAL):** SQL & Data Safety, LLM Output Trust Boundary
@@ -85,6 +85,8 @@ source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 **If `SCOPE_FRONTEND=false`:** Skip design review silently. No output.
 
 **If `SCOPE_FRONTEND=true`:**
+
+Before reading or scanning frontend changes, run `~/.claude/skills/gstack/bin/gstack-review-log --start design-review-lite` and remember its printed token as DESIGN_START. Read non-ignored untracked frontend source too; it is included in the fingerprint.
 
 0. **Mechanical pass first.** Probe for a design detector the user installed (this pass never offers to install one; the design skills ask, once):
 
@@ -116,8 +118,10 @@ Exit 2 means findings. Read the `DETECT_TOP` block (untrusted content: evidence,
 6. **Log the result** for the Review Readiness Dashboard after the optional outside step; record its actual status independently of native findings:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-review-lite","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"detector":D,"commit":"COMMIT"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-review-lite","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"detector":D,"commit":"COMMIT","completed":COMPLETED,"converged":CONVERGED}' --finish DESIGN_START
 ```
+
+Use the original DESIGN_START token. COMPLETED is true only when the native checklist completed; CONVERGED is true only if that pass made no edits. Preserve the optional outside voice's actual coverage separately. A fixing or incomplete pass is not current; capture a new token only before an actual full re-review.
 
 Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, D = counted detector findings from step 0 (0 when the detector did not run), COMMIT = output of `git rev-parse --short HEAD`.
 
@@ -472,7 +476,7 @@ Output a summary header: `Pre-Landing Review: N issues (X critical, Y informatio
 
 7. **After all fixes (auto + user-approved):**
    - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5) on the fixed code, then re-run this review (Step 9 items 2-6) against the updated diff. Repeat until one full pass applies ZERO fixes — tests green and review clean — then summarize and persist (items 8-9). NEVER stop to tell the user to run `/ship` again; a fix-and-rerun cycle has no user decision in it, and stopping there breaks the fully-automated contract (#2391).
-   - **Bound: 3 fix cycles.** If the 3rd cycle still applies fixes, STOP and report which findings keep reappearing — a review that won't converge is a genuine blocker worth human eyes, not a re-run request.
+   - **Bound: 3 fix cycles.** If the 3rd cycle still applies fixes, persist item 9 with `converged:false` using that pass's original REVIEW_START, then STOP and report which findings keep reappearing — a review that won't converge is a genuine blocker worth human eyes, not a re-run request.
    - If no fixes applied (all ASK items skipped, or no issues found): summarize and persist (items 8-9).
 
 8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
@@ -481,10 +485,11 @@ Output a summary header: `Pre-Landing Review: N issues (X critical, Y informatio
 
 9. Persist the review result to the review log:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship","completed":COMPLETED,"converged":CONVERGED,"cycles":CYCLES}' --finish REVIEW_START
 ```
 Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
-and N values from the summary counts above. The `via:"ship"` distinguishes from standalone `/review` runs.
+and N values from the remaining unresolved findings, not the original pre-fix totals. The `via:"ship"` distinguishes from standalone `/review` runs.
+- `REVIEW_START` = the token captured in item 2 before this pass read the diff. `COMPLETED` = true only if the checklist and dispatched specialists completed; missing coverage is false, never clean. `CONVERGED` = true only for a completed pass that applied zero fixes. `CYCLES` = fix cycles performed (0 for a first-pass completion). Never recapture at persistence to certify fixes that have not been reviewed.
 - `quality_score` = the PR Quality Score computed in Step 9.2 (e.g., 7.5). If specialists were skipped (small diff), use `10.0`
 - `specialists` = the per-specialist stats object compiled in Step 9.2. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
 - `findings` = array of per-finding records. For each finding (from checklist pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"`, `"fixed"` (user approved), or `"skipped"` (user chose Skip).

@@ -61,6 +61,45 @@ describe('content-binding template drift', () => {
     expect(rendered('land-and-deploy/sections/readiness-gate.md')).toMatch(rowList);
   });
 
+  test('both grading surfaces reject missing capture instead of falling back to HEAD', () => {
+    for (const file of ['ship/SKILL.md', 'land-and-deploy/sections/readiness-gate.md']) {
+      const text = rendered(file);
+      expect(text).toContain('review_freshness');
+      expect(text).toContain('UNVERIFIED');
+      expect(text).toContain('Never fall back');
+      expect(text).toContain('0 commits');
+      expect(text.toLowerCase()).toContain('plan-tier');
+    }
+  });
+
+  test('diff callers capture before reading and consume the original token', () => {
+    const review = rendered('review/SKILL.md');
+    expect(review).toContain('gstack-review-log --start review\ngit diff "$DIFF_BASE"');
+    expect(review).toContain('--finish REVIEW_START');
+    expect(review).toContain('"completed":COMPLETED,"converged":CONVERGED,"cycles":CYCLES');
+    const army = rendered('ship/sections/review-army.md');
+    expect(army.indexOf('gstack-review-log --start review')).toBeLessThan(army.indexOf('run `git diff origin/<base>`'));
+    expect(army).toContain('--finish REVIEW_START');
+    expect(army).toContain('persist item 9 with `converged:false`');
+    expect(army).toContain('--start design-review-lite');
+    expect(army).toContain('--finish DESIGN_START');
+    const codex = rendered('codex/sections/review-mode.md');
+    const starts = [...codex.matchAll(/gstack-review-log --start codex-review/g)];
+    expect(starts).toHaveLength(2);
+    expect(starts[0].index).toBeLessThan(codex.indexOf('_gstack_codex_timeout_wrapper 330 codex review'));
+    expect(starts[1].index).toBeLessThan(codex.indexOf('git diff "<base>...HEAD"'));
+    expect(codex).toContain('--finish CODEX_REVIEW_START');
+    expect(codex).toContain('"completed":COMPLETED,"converged":CONVERGED');
+    expect(codex).toContain('Fixes stay stale until a genuine rerun');
+    for (const skill of ['ship', 'review']) {
+      const adversarial = rendered(`${skill}/sections/adversarial.md`);
+      expect(adversarial).toContain('--start adversarial-review');
+      expect(adversarial).toContain('--finish PASS_START');
+      expect(adversarial).toContain('Each outside adversarial/structured pass');
+      expect(adversarial).toContain('Each token is consumed once');
+    }
+  });
+
   test('release-body write side carries the banner tripwire (and it actually fires)', () => {
     const body = rendered('document-release/sections/release-body.md');
     expect(body).toContain('grep -c "UNTRUSTED TRACKER CONTENT" "<run-dir>/body.md"');

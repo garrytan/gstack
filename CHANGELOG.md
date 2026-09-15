@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.87.3.0] - 2026-09-15
+
+**Changed code needs another pass.**
+**Review freshness now checks both ends.**
+
+A green review now stays attached to the code that was there when the pass began. `/review` and `/ship` capture that content before reading it, then compare again when the pass finishes. If fixes changed the files, another pass has to review those fixes before the dashboard can call the result CURRENT. Older log-only records remain visible, but cannot stand in for a completed code review.
+
+A clean result requires a completed pass on unchanged content with no unresolved findings. A stopped or nonconverged run cannot clear the code-review row just because its commit has not moved.
+
+### The three numbers that matter
+
+Source: scenarios in `test/review-start-evidence.test.ts`, checked against released v1.87.0.0 and this version. Run `bun test test/review-start-evidence.test.ts` to verify current behavior. These are false CURRENT grades across five deterministic cases, not production incident estimates.
+
+| Cases incorrectly graded CURRENT | Before | After | Δ |
+|---|---:|---:|---:|
+| Mid-review edits: tracked and untracked source | 2 | 0 | -2 |
+| Log-only result without a captured review start | 1 | 0 | -1 |
+| Codex advisory findings: none or only some resolved | 2 | 0 | -2 |
+
+The old stamp could certify a review after its own fixes changed the tree. Those cases now stay STALE or UNVERIFIED, including an advisory-only Codex pass that leaves findings unresolved.
+
+### What this means for developers
+
+You can distinguish a completed, unchanged pass from a run that still needs attention before merging. Plan reviews keep their existing rules; they assess the plan rather than the checked-out source. Completion is still reviewer-reported, not proof that an LLM read every file. Run `/review` again after fixes and use the new result when preparing to ship.
+
+### Itemized changes
+
+#### Fixed
+
+- **Review freshness no longer certifies unreviewed fixes.** `/review` and `/ship` bind each diff pass to the content captured before it starts. Edits during review, incomplete passes, and older log-only records stay stale or unverified in the readiness dashboard and `/land-and-deploy`, even when HEAD has not moved. Plan-review evidence keeps its existing freshness rules.
+- **Codex readiness keeps unresolved findings visible.** Passing the critical-findings gate does not make a review CURRENT while advisory findings remain open. The gate's severity policy is unchanged.
+
 ## [1.87.2.0] - 2026-09-15
 
 **Headless commands stop closing your logged-in browser.**
