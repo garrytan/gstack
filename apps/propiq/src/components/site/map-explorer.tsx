@@ -300,7 +300,7 @@ export const MapExplorer = ({
               </div>
               <Link
                 href={`/property/${active.slug}`}
-                className="mt-2 inline-block text-xs font-medium text-[var(--color-brand-blue-500)] hover:underline"
+                className="mt-2 inline-block text-xs font-medium text-[var(--text-accent)] hover:underline"
               >
                 View intelligence →
               </Link>

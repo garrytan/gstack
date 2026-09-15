@@ -45,7 +45,7 @@ export const SectionHead = ({
 }) => (
   <div className="flex flex-wrap items-end justify-between gap-6">
     <div className="max-w-2xl">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--color-brand-blue-500)]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--text-accent)]">
         {eyebrow}
       </p>
       <h2 className="mt-3 text-[1.75rem] font-bold leading-tight tracking-tight sm:text-4xl">

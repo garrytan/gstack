@@ -13,6 +13,7 @@ import { ArrowRight } from 'lucide-react';
 import { DECISION_LABELS } from '@/domain/decision/engine';
 import type { Decision } from '@/domain/decision/engine';
 import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
+import { CardActions } from '@/components/site/card-actions';
 import type { SiteProperty } from '@/site/types';
 
 const DECISION_COLOR: Readonly<Record<Decision, string>> = {
@@ -34,7 +35,7 @@ export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
   const under = property.priceDeviationPercent < 0;
 
   return (
-    <article className="group flex flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] transition-shadow hover:shadow-[0_18px_44px_-24px_rgba(13,21,36,0.4)]">
+    <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] transition-shadow hover:shadow-[0_18px_44px_-24px_rgba(13,21,36,0.4)]">
       <div className="relative h-40" style={{ background: artFor(property.id) }} aria-hidden>
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_20%,rgba(255,255,255,0.18),transparent_60%)]" />
         <span className="absolute left-3 top-3 rounded-md bg-black/45 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
@@ -75,11 +76,7 @@ export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
         </p>
 
         <ul className="mt-3 space-y-1.5 border-t border-[var(--border-subtle)] pt-3">
-          <Signal
-            label="Verdict"
-            value={DECISION_LABELS[property.decision]}
-            colour={colour}
-          />
+          <Signal label="Verdict" value={DECISION_LABELS[property.decision]} colour={colour} />
           <Signal
             label="vs fair value"
             value={
@@ -100,7 +97,7 @@ export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
 
         <Link
           href={`/property/${property.slug}`}
-          className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-[var(--color-brand-blue-500)] hover:underline"
+          className="mt-auto pt-4 inline-flex items-center gap-1 text-sm font-medium text-[var(--text-accent)] hover:underline"
         >
           View intelligence
           <ArrowRight
@@ -108,20 +105,14 @@ export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
             className="size-4 transition-transform group-hover:translate-x-0.5"
           />
         </Link>
+
+        <CardActions propertyId={property.id} propertyName={property.name} />
       </div>
     </article>
   );
 };
 
-const Signal = ({
-  label,
-  value,
-  colour,
-}: {
-  label: string;
-  value: string;
-  colour?: string;
-}) => (
+const Signal = ({ label, value, colour }: { label: string; value: string; colour?: string }) => (
   <li className="flex items-center justify-between gap-3 text-xs">
     <span className="text-[var(--text-muted)]">{label}</span>
     <span
@@ -132,4 +123,24 @@ const Signal = ({
       {value}
     </span>
   </li>
+);
+
+/**
+ * The same cards, laid out for the device.
+ *
+ * Six cards stacked vertically is six screens of scrolling on a phone, so
+ * below `sm` the list becomes a snapping horizontal rail and the grid only
+ * takes over once there is width for two columns.
+ */
+export const SitePropertyRail = ({ properties }: { properties: readonly SiteProperty[] }) => (
+  <div className="-mx-4 mt-10 flex snap-x snap-mandatory gap-5 overflow-x-auto px-4 pb-3 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-3">
+    {properties.map((property) => (
+      <div
+        key={property.id}
+        className="w-[80vw] max-w-xs shrink-0 snap-start sm:w-auto sm:max-w-none"
+      >
+        <SitePropertyCard property={property} />
+      </div>
+    ))}
+  </div>
 );

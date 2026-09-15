@@ -51,7 +51,7 @@ export const VerdictSection = ({ property }: { property: SiteProperty }) => (
 
         <Link
           href={`/property/${property.slug}`}
-          className="mt-7 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-brand-blue-500)] hover:underline"
+          className="mt-7 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
         >
           Open the full workup <ArrowRight aria-hidden className="size-4" />
         </Link>

@@ -10,6 +10,9 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { Section, SectionHead, DemoNote } from '@/components/site/section';
+import { PriceHistoryChart } from '@/components/propiq/price-history-chart';
+import { LocalityPriceChart } from '@/components/site/locality-price-chart';
+import { LocalityAccess } from '@/components/site/locality-access';
 import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
 import type { DeveloperProfile, SiteLocality, SiteProperty } from '@/site/types';
 
@@ -18,9 +21,11 @@ import type { DeveloperProfile, SiteLocality, SiteProperty } from '@/site/types'
 export const PriceIntelligence = ({
   property,
   locality,
+  localities,
 }: {
   property: SiteProperty;
   locality: SiteLocality | undefined;
+  localities: readonly SiteLocality[];
 }) => {
   const under = property.priceDeviationPercent < 0;
   const position =
@@ -136,12 +141,38 @@ export const PriceIntelligence = ({
           </p>
           <Link
             href="/valuation"
-            className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-brand-blue-500)] hover:underline"
+            className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
           >
             How fair value is computed <ArrowRight aria-hidden className="size-4" />
           </Link>
         </div>
       </div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5">
+          <h3 className="text-sm font-semibold">
+            {locality ? `${locality.name} price trend` : 'Price trend'}
+          </h3>
+          <p className="mb-3 mt-1 text-xs text-[var(--text-muted)]">
+            Recorded median per square foot over the periods on file.
+          </p>
+          {locality && locality.priceHistory.length >= 2 ? (
+            <PriceHistoryChart history={locality.priceHistory} />
+          ) : (
+            <p className="rounded-lg border border-dashed border-[var(--border-strong)] p-6 text-center text-xs text-[var(--text-muted)]">
+              Not enough recorded history to draw a trend for this locality.
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5">
+          <h3 className="text-sm font-semibold">Across the covered market</h3>
+          <p className="mb-3 mt-1 text-xs text-[var(--text-muted)]">
+            Where this locality sits against the others we score.
+          </p>
+          <LocalityPriceChart localities={localities} highlight={locality?.slug} />
+        </div>
+      </div>
+
       <DemoNote />
     </Section>
   );
@@ -149,7 +180,13 @@ export const PriceIntelligence = ({
 
 /* ------------------------------------------------------------- investment */
 
-export const InvestmentIntelligence = ({ property }: { property: SiteProperty }) => (
+export const InvestmentIntelligence = ({
+  property,
+  locality,
+}: {
+  property: SiteProperty;
+  locality: SiteLocality | undefined;
+}) => (
   <Section>
     <SectionHead
       eyebrow="Investment intelligence"
@@ -158,7 +195,7 @@ export const InvestmentIntelligence = ({ property }: { property: SiteProperty })
       action={
         <Link
           href="/investment"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-brand-blue-500)] hover:underline"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
         >
           Full method <ArrowRight aria-hidden className="size-4" />
         </Link>
@@ -196,6 +233,39 @@ export const InvestmentIntelligence = ({ property }: { property: SiteProperty })
         value={formatPercent(property.coverage * 100, 0)}
         note="of the scoring weight"
       />
+
+      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5 sm:col-span-2 lg:col-span-4">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+          Infrastructure catalysts
+        </p>
+        {locality && locality.catalysts.length > 0 ? (
+          <>
+            <ul className="mt-3 flex flex-wrap gap-2">
+              {locality.catalysts.map((item) => (
+                <li
+                  key={item.name}
+                  className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-1.5 text-xs"
+                >
+                  {item.name}
+                  <span className="ml-2 text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                    {item.status.replace(/([A-Z])/g, ' $1').toLowerCase()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-[11px] text-[var(--text-muted)]">
+              Only funded, under construction and commissioned projects are counted. An
+              announcement is not infrastructure, and scoring it as though it were is how a
+              corridor gets priced for a metro line that never arrives.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-xs text-[var(--text-secondary)]">
+            Nothing funded or under construction on file for this locality. That is reported
+            rather than filled in with announcements.
+          </p>
+        )}
+      </div>
     </div>
     <DemoNote />
   </Section>
@@ -216,7 +286,7 @@ export const DeveloperIntelligence = ({
       action={
         <Link
           href="/developers"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-brand-blue-500)] hover:underline"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
         >
           All developers <ArrowRight aria-hidden className="size-4" />
         </Link>
@@ -326,7 +396,7 @@ export const LocalityIntelligence = ({ locality }: { locality: SiteLocality }) =
       action={
         <Link
           href={`/locality/${locality.slug}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-brand-blue-500)] hover:underline"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
         >
           Full locality workup <ArrowRight aria-hidden className="size-4" />
         </Link>
@@ -364,6 +434,10 @@ export const LocalityIntelligence = ({ locality }: { locality: SiteLocality }) =
           </div>
         ))}
       </div>
+    </div>
+
+    <div className="mt-6">
+      <LocalityAccess locality={locality} />
     </div>
     <DemoNote />
   </Section>

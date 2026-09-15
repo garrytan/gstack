@@ -8,7 +8,7 @@ import { SiteHeader } from '@/components/site/site-header';
 import { SiteFooter } from '@/components/site/site-footer';
 import { HeroSection } from '@/components/site/hero-section';
 import { SmartSearch } from '@/components/site/smart-search';
-import { SitePropertyCard } from '@/components/site/property-card';
+import { SitePropertyRail } from '@/components/site/property-card';
 import { Section, SectionHead, DemoNote } from '@/components/site/section';
 import { ScoreSection } from '@/components/site/score-section';
 import { VerdictSection } from '@/components/site/verdict-section';
@@ -28,6 +28,8 @@ import {
   TrustLayer,
   WhyPropIQ,
 } from '@/components/site/closing-sections';
+import { ShortlistProvider } from '@/components/site/shortlist';
+import { BottomDock } from '@/components/site/bottom-dock';
 import { JsonLd, ORGANIZATION } from '@/lib/structured-data';
 
 export const dynamic = 'force-dynamic';
@@ -72,83 +74,88 @@ export default async function HomePage() {
   const leadLocality = showcaseLocality ?? data.localities[0];
 
   return (
-    <div className="propiq-site">
-      <TrackView event="property_viewed" properties={{ surface: 'home' }} />
-      <JsonLd
-        data={{
-          '@context': 'https://schema.org',
-          '@type': 'WebSite',
-          name: 'PropIQ by CiteRank AI',
-          description: 'Property decision intelligence for India.',
-          publisher: ORGANIZATION(),
-        }}
-      />
+    <ShortlistProvider>
+      <div className="propiq-site">
+        <TrackView event="property_viewed" properties={{ surface: 'home' }} />
+        <JsonLd
+          data={{
+            '@context': 'https://schema.org',
+            '@type': 'WebSite',
+            name: 'PropIQ by CiteRank AI',
+            description: 'Property decision intelligence for India.',
+            publisher: ORGANIZATION(),
+          }}
+        />
 
-      <SiteHeader />
+        <SiteHeader />
 
-      <main id="main">
-        {showcase && <HeroSection showcase={showcase} />}
-        <SmartSearch />
+        <main id="main">
+          {showcase && <HeroSection showcase={showcase} />}
+          <SmartSearch />
 
-        {data.servesDemoData && (
-          <div className="mx-auto max-w-7xl px-4 pt-12">
-            <DemoDataBanner />
-          </div>
-        )}
+          {data.servesDemoData && (
+            <div className="mx-auto max-w-7xl px-4 pt-12">
+              <DemoDataBanner />
+            </div>
+          )}
 
-        {/* ---------------------------------------- recommended properties */}
-        <Section className="!border-t-0">
-          <SectionHead
-            eyebrow="Smart discovery"
-            title="Properties worth a closer look."
-            standfirst="Ranked by the engine on location, pricing, developer confidence, growth potential and risk — not by who paid to appear."
-            action={
-              <Link
-                href="/search"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-brand-blue-500)] hover:underline"
-              >
-                See all <ArrowRight aria-hidden className="size-4" />
-              </Link>
-            }
-          />
-          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {data.properties.slice(0, 6).map((property) => (
-              <SitePropertyCard key={property.id} property={property} />
-            ))}
-          </div>
-          <DemoNote />
-        </Section>
+          {/* ---------------------------------------- recommended properties */}
+          <Section className="!border-t-0">
+            <SectionHead
+              eyebrow="Smart discovery"
+              title="Properties worth a closer look."
+              standfirst="Ranked by the engine on location, pricing, developer confidence, growth potential and risk — not by who paid to appear."
+              action={
+                <Link
+                  href="/search"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
+                >
+                  See all <ArrowRight aria-hidden className="size-4" />
+                </Link>
+              }
+            />
+            <SitePropertyRail properties={data.properties.slice(0, 6)} />
+            <DemoNote />
+          </Section>
 
-        {showcase && <ScoreSection property={showcase} />}
-        {showcase && <VerdictSection property={showcase} />}
+          {showcase && <ScoreSection property={showcase} />}
+          {showcase && <VerdictSection property={showcase} />}
 
-        {/* ------------------------------------------------- map + list */}
-        <Section>
-          <SectionHead
-            eyebrow="Explore"
-            title="The covered market, on its real coordinates."
-            standfirst="No map provider is configured, so this is drawn from the coordinates already in the data rather than behind an API key. Pin colour is the verdict the engine reached, not a listing status."
-          />
-          <div className="mt-10">
-            <MapExplorer properties={data.properties} localities={data.localities} />
-          </div>
-          <DemoNote />
-        </Section>
+          {/* ------------------------------------------------- map + list */}
+          <Section>
+            <SectionHead
+              eyebrow="Explore"
+              title="The covered market, on its real coordinates."
+              standfirst="No map provider is configured, so this is drawn from the coordinates already in the data rather than behind an API key. Pin colour is the verdict the engine reached, not a listing status."
+            />
+            <div className="mt-10">
+              <MapExplorer properties={data.properties} localities={data.localities} />
+            </div>
+            <DemoNote />
+          </Section>
 
-        {leadLocality && <LocalityIntelligence locality={leadLocality} />}
-        {showcase && <PriceIntelligence property={showcase} locality={showcaseLocality} />}
-        {showcase && <InvestmentIntelligence property={showcase} />}
-        <DeveloperIntelligence developers={data.developers} />
-        {showcase && <RiskIntelligence property={showcase} />}
-        <ComparisonSection properties={data.properties} />
-        <WhyPropIQ />
-        <ResearchSection articles={data.research} />
-        <CommandCentre snapshot={data.commandCentre} />
-        <TrustLayer />
-        <FinalCTA />
-      </main>
+          {leadLocality && <LocalityIntelligence locality={leadLocality} />}
+          {showcase && (
+            <PriceIntelligence
+              property={showcase}
+              locality={showcaseLocality}
+              localities={data.localities}
+            />
+          )}
+          {showcase && <InvestmentIntelligence property={showcase} locality={showcaseLocality} />}
+          <DeveloperIntelligence developers={data.developers} />
+          {showcase && <RiskIntelligence property={showcase} />}
+          <ComparisonSection properties={data.properties} />
+          <WhyPropIQ />
+          <ResearchSection articles={data.research} />
+          <CommandCentre snapshot={data.commandCentre} />
+          <TrustLayer />
+          <FinalCTA />
+        </main>
 
-      <SiteFooter />
-    </div>
+        <SiteFooter />
+        <BottomDock />
+      </div>
+    </ShortlistProvider>
   );
 }
