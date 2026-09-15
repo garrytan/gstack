@@ -35,6 +35,7 @@ const NAV = [
   { href: '/localities', label: 'Localities' },
   { href: '/compare', label: 'Decision Room' },
   { href: '/copilot', label: 'Copilot' },
+  { href: '/document-ai', label: 'Documents' },
   { href: '/methodology', label: 'Methodology' },
   { href: '/data-sources', label: 'Data sources' },
 ] as const;
@@ -103,9 +104,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 { href: '/search', label: 'Search' },
                 { href: '/compare', label: 'Decision Room' },
                 { href: '/copilot', label: 'Copilot' },
+                { href: '/document-ai', label: 'Document checks' },
+                { href: '/document-ai', label: 'Documents' },
                 { href: '/valuation', label: 'Fair value' },
                 { href: '/investment', label: 'Investment analysis' },
                 { href: '/copilot', label: 'Copilot' },
+                { href: '/document-ai', label: 'Document checks' },
+                { href: '/document-ai', label: 'Documents' },
               ]}
             />
             <FooterColumn
