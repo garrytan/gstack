@@ -515,3 +515,67 @@ impossible.
 fails when any internal link in the header, footer, homepage or dashboard
 has no route behind it — which is the spec rule "do not show nonexistent
 routes in navigation", enforced rather than remembered.
+
+## D-026 — The free tools are the part of the product that can launch today
+
+**Context.** The engine is real and the dataset is not. Anything that
+showcases property intelligence is blocked until a real source lands, which
+left the product with nothing it could honestly put in front of anyone.
+
+**Decision.** Split the product by data dependency rather than by feature.
+Carpet-area arithmetic, EMI and amortisation, rental yield, the 22 document
+rules and the 22-item site-visit checklist depend on figures the user supplies
+and on published law, not on our dataset. They ship open — no account, no
+email, nothing stored — and they are indexable whichever adapter is running.
+
+**Why.** They are correct for any property in any Indian market today. Waiting
+for a data source before publishing arithmetic that is already right would be
+withholding a working product for no reason, and these are the highest-intent
+questions in the category.
+
+**Consequence.** `test/tools-independence.test.ts` fails CI if a tool page
+imports the property repository, calls a server action, posts anywhere, or
+grows a `DemoDataBanner`. The moment a tool reads the dataset it becomes
+demo-backed and needs a banner it does not have, so the guard is a static
+invariant rather than a convention.
+
+## D-027 — Built to be cited, not just ranked
+
+**Context.** A growing share of the questions this product answers are put to
+an answer engine rather than typed into a search box. An engine cites what it
+can parse, date and attribute.
+
+**Decision.** Expose the shape the product already produces. `llms.txt` is
+generated from the live constants — scoring version, pillar weights, decision
+thresholds, alert thresholds, document rules version — for the same reason
+`/methodology` is: a published formula that has drifted from the running one
+is worse than no published formula. Each scoring version also gets a frozen
+permalink at `/methodology/v<version>`, since a citation needs a URL whose
+content does not change and a scoring version is never mutated once released.
+AI crawlers are named explicitly in `robots.txt` rather than left to the
+wildcard, with the same disallow list as every other agent.
+
+**Why.** Every fact in this product already carries a data status, a source, an
+observation date and a decaying confidence. That is precisely what makes a
+claim citable, and it was built for honesty rather than for distribution — the
+distribution is a consequence worth collecting.
+
+**Consequence.** `llms.txt` states this deployment's data status in the file a
+model reads first, and says plainly not to cite a fixture figure as an Indian
+market fact. `test/tools-independence.test.ts` pins that disclosure, so a
+future edit cannot quietly drop it.
+
+## D-028 — JSON-LD is assembled from literals, never from a record
+
+**Context.** Structured data is a machine-readable restatement of a page, and
+the temptation is to emit property figures into it.
+
+**Decision.** `src/lib/structured-data.tsx` only describes pages: what a tool
+computes, what a term means, who published it. No helper accepts a property,
+a locality or an evidence record.
+
+**Why.** Two reasons, and the second is the stronger one. A JSON-LD block
+built from a record would put demo figures into a machine-readable claim that
+no banner covers. And a payload assembled from literals has no untrusted
+string reaching a script tag, which removes the injection question entirely
+rather than answering it.

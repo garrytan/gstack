@@ -61,6 +61,16 @@ Discover → Verify → Compare → Score → Analyze → **Visit → Negotiate*
 
 ## Next
 
+### Shipped since the last milestone
+
+- **Free tools** — carpet area vs super built-up, home loan EMI with total
+  interest, rental yield gross vs net, the document checks as a page per
+  document type, and the site-visit checklist. All open, none of them touching
+  the dataset. See D-026.
+- **Answer-engine surface** — `llms.txt` generated from the live constants,
+  frozen methodology permalinks per scoring version, JSON-LD across the tools,
+  and AI crawlers named explicitly in robots. See D-027 and D-028.
+
 ### The exact next task
 
 **Wire a Supabase project and run the migrations.**

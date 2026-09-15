@@ -102,7 +102,15 @@ have broken the host repository. See `DECISIONS.md` D-001.
 | `/property/[id]/visit` | `IMPLEMENTED` | Checklist; captured answers feed the score |
 | `/property/[id]/negotiate` | `IMPLEMENTED` | Offer tracking against a walk-away set up front |
 | `/document-ai` | `IMPLEMENTED` | Checks run in-browser on typed input; no upload needed |
-| `/sitemap.xml`, `/robots.txt` | `IMPLEMENTED` | Demo-backed pages excluded from the sitemap |
+| `/tools` | `IMPLEMENTED` | Hub for the free tools |
+| `/tools/carpet-area` | `IMPLEMENTED` | Loading, carpet efficiency, multi-quote carpet-basis comparison |
+| `/tools/emi` | `IMPLEMENTED` | Instalment, total interest, year-by-year amortisation |
+| `/tools/rental-yield` | `IMPLEMENTED` | Gross vs net yield on all capital deployed |
+| `/checks/[kind]` | `IMPLEMENTED` | Six document types, each publishing the rules we run |
+| `/site-visit-checklist` | `IMPLEMENTED` | All 22 items, free, printable, no account |
+| `/methodology/v[version]` | `IMPLEMENTED` | Frozen permalink per scoring version, for citation |
+| `/llms.txt` | `IMPLEMENTED` | Generated from live constants; declares this deployment's data status |
+| `/sitemap.xml`, `/robots.txt` | `IMPLEMENTED` | Demo-backed pages excluded; AI crawlers named explicitly |
 
 Every route in the navigation resolves. No dead CTAs.
 
@@ -131,6 +139,10 @@ Every route in the navigation resolves. No dead CTAs.
 | Alert delivery — webhook | `IMPLEMENTED` | HMAC-SHA256 signed, 5s timeout, reports non-2xx as failed |
 | Alert delivery — email | `BLOCKED BY DATA/INTEGRATION` | No transactional provider. Reports `notConfigured`; never claims a send |
 | Navigation integrity | `IMPLEMENTED` | `test/navigation.test.ts` fails CI on a link with no route behind it |
+| Free tools | `IMPLEMENTED` | No data dependency, so correct and indexable whichever adapter runs |
+| Tool independence guard | `IMPLEMENTED` | `test/tools-independence.test.ts` fails CI if a tool reads the repository, posts data, or grows a demo banner |
+| Structured data (JSON-LD) | `IMPLEMENTED` | WebApplication, FAQPage, HowTo, Article, DefinedTerm — assembled from literals only |
+| Answer-engine surface | `IMPLEMENTED` | `llms.txt`, versioned methodology permalinks, explicit AI-crawler allow |
 
 ## Not built
 
