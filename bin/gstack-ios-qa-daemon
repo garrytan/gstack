@@ -22,6 +22,39 @@
 
 set -euo pipefail
 
+print_usage() {
+  cat <<'EOF'
+Usage:
+  gstack-ios-qa-daemon [--tailnet]
+  gstack-ios-qa-daemon --help
+
+Mac-side broker for /ios-qa and /ios-design-review. By default it binds a
+loopback listener for a USB-connected iPhone running the in-app StateServer.
+Pass --tailnet to also open the Tailscale listener after the local tailscaled
+identity probe succeeds.
+
+Options:
+  --tailnet   Enable the authenticated tailnet listener in addition to loopback.
+  -h, --help  Print this help and exit without starting the daemon.
+
+Environment:
+  GSTACK_IOS_DAEMON_PORT       Loopback listener port. Default: 9099.
+  GSTACK_IOS_TARGET_UDID       Target iOS device UDID. Optional.
+  GSTACK_IOS_TARGET_BUNDLE_ID  Bundle ID hosting StateServer. Default: com.gstack.iosqa.fixture.
+
+Readiness:
+  The daemon prints "READY: port=<n> pid=<pid>" once the listener is bound.
+  Probe local health with: curl -sf http://127.0.0.1:${GSTACK_IOS_DAEMON_PORT:-9099}/healthz
+EOF
+}
+
+case "${1:-}" in
+  -h|--help)
+    print_usage
+    exit 0
+    ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GSTACK_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENTRY="$GSTACK_DIR/ios-qa/daemon/src/index.ts"
