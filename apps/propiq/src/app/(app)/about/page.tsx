@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { BrandLockup } from '@/components/brand/brand-mark';
 
 export const metadata: Metadata = {
   title: 'About',
@@ -10,6 +11,11 @@ export const metadata: Metadata = {
 export default function AboutPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
+      {/* The brand's own page is the one light surface with the room to show
+          the supplied lockup at fidelity, tagline and all. Everywhere else
+          takes the glyph cut, because everywhere else has to survive a dark
+          ground too. */}
+      <BrandLockup className="-ml-3 mb-6 block" width={200} />
       <h1 className="text-3xl font-semibold tracking-tight">About PropIQ</h1>
       <p className="mt-4 text-base leading-relaxed text-[var(--text-secondary)]">
         PropIQ is a property decision intelligence platform, built by CiteRank AI. It is not a
