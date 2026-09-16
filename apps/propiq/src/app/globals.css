@@ -59,7 +59,7 @@
   --color-brand-cyan-500: #4fd1c5;
   --color-brand-violet-400: #8b7cf0;
   --color-brand-violet-500: #6d55d9;
-  --color-brand-ink: #0a1020;
+  --color-brand-ink: #06201f;
 
   /* Light-first marketing surfaces. The app keeps its own token stack. */
   --color-paper-0: #ffffff;
@@ -758,7 +758,7 @@ body[data-dock='on'] .propiq-site {
 
 /* Selective glass, for the hero's floating metric cards only. */
 .propiq-site-glass {
-  background: color-mix(in srgb, #0a1020 62%, transparent);
+  background: color-mix(in srgb, #06201f 66%, transparent);
   border: 1px solid color-mix(in srgb, white 12%, transparent);
   box-shadow:
     inset 0 1px 0 0 color-mix(in srgb, white 10%, transparent),
@@ -767,7 +767,7 @@ body[data-dock='on'] .propiq-site {
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   .propiq-site-glass {
-    background: color-mix(in srgb, #0a1020 40%, transparent);
+    background: color-mix(in srgb, #06201f 46%, transparent);
     backdrop-filter: blur(18px) saturate(1.3);
     -webkit-backdrop-filter: blur(18px) saturate(1.3);
   }
