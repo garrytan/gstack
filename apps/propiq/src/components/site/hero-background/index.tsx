@@ -42,16 +42,18 @@ const AmbientGlow = () => (
       }}
     />
     {/* Large atmospheric bloom behind the upper right, blurred past any edge. */}
-    <div
-      className="propiq-hero-breathe absolute -right-[5%] -top-[5%] -z-[9] size-[720px] max-w-[110vw] rounded-full blur-[70px] lg:size-[820px]"
-      style={{
-        background:
-          'radial-gradient(circle, rgba(79,209,197,.28) 0%, rgba(43,167,155,.12) 30%, transparent 67%)',
-      }}
-    />
+    <div className="propiq-depth propiq-depth-far absolute -right-[5%] -top-[5%] -z-[9]">
+      <div
+        className="propiq-hero-breathe size-[720px] max-w-[110vw] rounded-full blur-[70px] lg:size-[820px]"
+        style={{
+          background:
+            'radial-gradient(circle, rgba(79,209,197,.28) 0%, rgba(43,167,155,.12) 30%, transparent 67%)',
+        }}
+      />
+    </div>
     {/* Low diffused light under the lower right. */}
     <div
-      className="absolute -bottom-[8%] right-[2%] -z-[9] size-[520px] max-w-[110vw] rounded-full blur-[90px] lg:size-[660px]"
+      className="propiq-depth propiq-depth-far absolute -bottom-[8%] right-[2%] -z-[9] size-[520px] max-w-[110vw] rounded-full blur-[90px] lg:size-[660px]"
       style={{
         background:
           'radial-gradient(circle, rgba(79,209,197,.20) 0%, rgba(43,167,155,.09) 40%, transparent 70%)',
@@ -90,7 +92,7 @@ const NoiseOverlay = () => (
 /* ------------------------------------------------------------- particles */
 
 const ParticleLayer = () => (
-  <div className="absolute inset-0 -z-[7] overflow-hidden">
+  <div className="propiq-depth propiq-depth-mid absolute inset-0 -z-[7] overflow-hidden">
     {PARTICLES.map((p, i) => (
       <span
         key={`${p.x}-${p.y}`}
@@ -123,7 +125,7 @@ const ParticleLayer = () => (
  */
 const OrbitalLines = () => (
   <svg
-    className="absolute inset-0 -z-[6] size-full"
+    className="propiq-depth propiq-depth-mid absolute inset-0 -z-[6] size-full"
     viewBox="0 0 100 100"
     preserveAspectRatio="none"
     fill="none"
@@ -153,33 +155,33 @@ const OrbitalLines = () => (
  * slate-blue planes, mostly covered by the copy.
  */
 const LeftPolygon = () => (
-  <svg
-    className="propiq-hero-float absolute left-[6%] top-[46%] -z-[5] w-[280px] opacity-95 lg:left-[9%] lg:w-[340px]"
-    viewBox="0 0 200 200"
-    fill="none"
-  >
-    <polygon points="100,18 168,62 132,104 76,84" fill="#1b5a58" fillOpacity="0.62" />
-    <polygon points="76,84 132,104 118,168 54,132" fill="#134847" fillOpacity="0.56" />
-    <polygon points="168,62 186,128 118,168 132,104" fill="#2ba79b" fillOpacity="0.5" />
-    <polygon points="100,18 76,84 22,58 58,26" fill="#3f6f5c" fillOpacity="0.34" />
-    <polygon points="22,58 76,84 54,132 14,104" fill="#0a2a2b" fillOpacity="0.62" />
-  </svg>
+  <div className="propiq-depth propiq-depth-mid absolute left-[6%] top-[46%] -z-[5] w-[280px] lg:left-[9%] lg:w-[340px]">
+    <svg className="propiq-hero-float w-full opacity-95" viewBox="0 0 200 200" fill="none">
+      <polygon points="100,18 168,62 132,104 76,84" fill="#1b5a58" fillOpacity="0.62" />
+      <polygon points="76,84 132,104 118,168 54,132" fill="#134847" fillOpacity="0.56" />
+      <polygon points="168,62 186,128 118,168 132,104" fill="#2ba79b" fillOpacity="0.5" />
+      <polygon points="100,18 76,84 22,58 58,26" fill="#3f6f5c" fillOpacity="0.34" />
+      <polygon points="22,58 76,84 54,132 14,104" fill="#0a2a2b" fillOpacity="0.62" />
+    </svg>
+  </div>
 );
 
 /**
  * The crystal at the lower right, half-dissolved into the dark.
  */
 const BottomCrystal = () => (
-  <svg
-    className="propiq-hero-float-slow absolute bottom-[5%] right-[8%] -z-[2] hidden w-[150px] opacity-80 blur-[0.4px] sm:block lg:w-[175px]"
-    viewBox="0 0 160 160"
-    fill="none"
-  >
-    <polygon points="80,10 146,54 112,92 44,68" fill="#2ba79b" fillOpacity="0.42" />
-    <polygon points="44,68 112,92 96,146 30,110" fill="#1b5a58" fillOpacity="0.34" />
-    <polygon points="146,54 154,112 96,146 112,92" fill="#4fd1c5" fillOpacity="0.26" />
-    <polygon points="80,10 44,68 8,44 40,20" fill="#134847" fillOpacity="0.3" />
-  </svg>
+  <div className="propiq-depth propiq-depth-near absolute bottom-[5%] right-[8%] -z-[2] hidden w-[150px] sm:block lg:w-[175px]">
+    <svg
+      className="propiq-hero-float-slow w-full opacity-80 blur-[0.4px]"
+      viewBox="0 0 160 160"
+      fill="none"
+    >
+      <polygon points="80,10 146,54 112,92 44,68" fill="#2ba79b" fillOpacity="0.42" />
+      <polygon points="44,68 112,92 96,146 30,110" fill="#1b5a58" fillOpacity="0.34" />
+      <polygon points="146,54 154,112 96,146 112,92" fill="#4fd1c5" fillOpacity="0.26" />
+      <polygon points="80,10 44,68 8,44 40,20" fill="#134847" fillOpacity="0.3" />
+    </svg>
+  </div>
 );
 
 /* ----------------------------------------------------------------- blob */
@@ -196,25 +198,27 @@ const BottomCrystal = () => (
  * as inflated glass rather than a flat shape with a gradient on it.
  */
 const OrganicBlob = () => (
-  <div
-    className="propiq-hero-blob absolute left-[35%] top-[18%] -z-[4] hidden size-[440px] lg:block lg:h-[450px] lg:w-[470px]"
-    style={{
-      borderRadius: '68% 32% 58% 42% / 38% 62% 38% 62%',
-      background:
-        'linear-gradient(135deg, rgba(27,90,88,.85) 0%, rgba(43,167,155,.58) 45%, rgba(79,209,197,.34) 100%)',
-      filter: 'drop-shadow(0 0 90px rgba(79,209,197,.22))',
-    }}
-  >
-    {/* Inner rim light: brighter along the upper-right surface. */}
+  <div className="propiq-depth propiq-depth-mid absolute left-[35%] top-[18%] -z-[4] hidden lg:block">
     <div
-      className="absolute inset-0"
+      className="propiq-hero-blob size-[440px] lg:h-[450px] lg:w-[470px]"
       style={{
-        borderRadius: 'inherit',
+        borderRadius: '68% 32% 58% 42% / 38% 62% 38% 62%',
         background:
-          'radial-gradient(ellipse 60% 55% at 72% 30%, rgba(150,245,235,.42), transparent 62%),' +
-          'radial-gradient(ellipse 72% 66% at 16% 70%, rgba(6,26,27,.66), transparent 68%)',
+          'linear-gradient(135deg, rgba(27,90,88,.85) 0%, rgba(43,167,155,.58) 45%, rgba(79,209,197,.34) 100%)',
+        filter: 'drop-shadow(0 0 90px rgba(79,209,197,.22))',
       }}
-    />
+    >
+      {/* Inner rim light: brighter along the upper-right surface. */}
+      <div
+        className="absolute inset-0"
+        style={{
+          borderRadius: 'inherit',
+          background:
+            'radial-gradient(ellipse 60% 55% at 72% 30%, rgba(150,245,235,.42), transparent 62%),' +
+            'radial-gradient(ellipse 72% 66% at 16% 70%, rgba(6,26,27,.66), transparent 68%)',
+        }}
+      />
+    </div>
   </div>
 );
 
@@ -226,7 +230,7 @@ const OrganicBlob = () => (
  */
 const BlobLight = () => (
   <div
-    className="absolute left-[calc(35%+318px)] top-[calc(18%+150px)] -z-[3] hidden size-[30px] rounded-full blur-[7px] lg:block"
+    className="propiq-depth propiq-depth-near absolute left-[calc(35%+318px)] top-[calc(18%+150px)] -z-[3] hidden size-[30px] rounded-full blur-[7px] lg:block"
     style={{
       background: 'rgba(230,255,250,.80)',
       boxShadow:

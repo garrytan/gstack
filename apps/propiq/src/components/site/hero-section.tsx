@@ -13,6 +13,8 @@ import { DECISION_LABELS } from '@/domain/decision/engine';
 import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
 import { GlassMetricCard } from '@/components/site/glass-metric-card';
 import { HeroBackground } from '@/components/site/hero-background';
+import { HeroParallax } from '@/components/site/hero-parallax';
+import { Tilt3D } from '@/components/site/tilt-3d';
 import type { SiteProperty } from '@/site/types';
 
 const CHIPS = [
@@ -25,7 +27,9 @@ const CHIPS = [
 
 export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }) => (
   <section className="propiq-dark relative isolate overflow-hidden">
-    <HeroBackground />
+    <HeroParallax>
+      <HeroBackground />
+    </HeroParallax>
     {/* The copy side needs contrast over a moving scene, so the ground is
         pulled back on the left and released on the right. */}
     <div
@@ -80,64 +84,74 @@ export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }
         <div className="propiq-reveal min-w-0 lg:pl-6" style={{ animationDelay: '120ms' }}>
           <div className="grid gap-3 sm:grid-cols-2">
             {showcase.propiqScore !== undefined && (
+              <Tilt3D>
+                <GlassMetricCard
+                  label="PropIQ Score"
+                  value={`${showcase.propiqScore.toFixed(0)} / 100`}
+                  note={
+                    showcase.scoreBand
+                      ? `95% band ${showcase.scoreBand.low}–${showcase.scoreBand.high}`
+                      : undefined
+                  }
+                  accent="#42c9e8"
+                  dataStatus={showcase.dataStatus}
+                />
+              </Tilt3D>
+            )}
+            <Tilt3D>
               <GlassMetricCard
-                label="PropIQ Score"
-                value={`${showcase.propiqScore.toFixed(0)} / 100`}
-                note={
-                  showcase.scoreBand
-                    ? `95% band ${showcase.scoreBand.low}–${showcase.scoreBand.high}`
-                    : undefined
-                }
-                accent="#42c9e8"
+                label="Price benchmark"
+                value={formatPsf(showcase.pricePerSqFt)}
+                note={`${formatPercent(Math.abs(showcase.priceDeviationPercent), 1)} ${
+                  showcase.priceDeviationPercent < 0 ? 'under' : 'over'
+                } our central estimate`}
                 dataStatus={showcase.dataStatus}
               />
-            )}
-            <GlassMetricCard
-              label="Price benchmark"
-              value={formatPsf(showcase.pricePerSqFt)}
-              note={`${formatPercent(Math.abs(showcase.priceDeviationPercent), 1)} ${
-                showcase.priceDeviationPercent < 0 ? 'under' : 'over'
-              } our central estimate`}
-              dataStatus={showcase.dataStatus}
-            />
-            <GlassMetricCard
-              label="Verdict"
-              value={DECISION_LABELS[showcase.decision]}
-              note={`${(showcase.verdictConfidence * 100).toFixed(0)}% confidence`}
-              dataStatus={showcase.dataStatus}
-            />
-            <GlassMetricCard
-              label="Risk"
-              value={showcase.riskBand.replace(/^\w/, (c) => c.toUpperCase())}
-              note={
-                showcase.materialRisks.length > 0
-                  ? `${showcase.materialRisks.length} material`
-                  : 'Nothing material flagged'
-              }
-              dataStatus={showcase.dataStatus}
-            />
+            </Tilt3D>
+            <Tilt3D>
+              <GlassMetricCard
+                label="Verdict"
+                value={DECISION_LABELS[showcase.decision]}
+                note={`${(showcase.verdictConfidence * 100).toFixed(0)}% confidence`}
+                dataStatus={showcase.dataStatus}
+              />
+            </Tilt3D>
+            <Tilt3D>
+              <GlassMetricCard
+                label="Risk"
+                value={showcase.riskBand.replace(/^\w/, (c) => c.toUpperCase())}
+                note={
+                  showcase.materialRisks.length > 0
+                    ? `${showcase.materialRisks.length} material`
+                    : 'Nothing material flagged'
+                }
+                dataStatus={showcase.dataStatus}
+              />
+            </Tilt3D>
           </div>
 
-          <div className="propiq-site-glass mt-3 rounded-xl p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/55">
-              Featured analysis
-            </p>
-            <p className="mt-1.5 text-base font-semibold text-white">{showcase.name}</p>
-            <p className="text-xs text-white/60">
-              {showcase.locality}, {showcase.city} · {showcase.bhk} BHK · {showcase.sizeSqFt} sqft
-            </p>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <p data-figure className="text-lg font-semibold text-white">
-                {formatINR(showcase.price)}
+          <Tilt3D className="mt-3" max={5}>
+            <div className="propiq-site-glass rounded-xl p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/55">
+                Featured analysis
               </p>
-              <Link
-                href={`/property/${showcase.slug}`}
-                className="inline-flex items-center gap-1 text-xs font-medium text-[var(--color-brand-cyan-400)] hover:underline"
-              >
-                View intelligence <ArrowRight aria-hidden className="size-3.5" />
-              </Link>
+              <p className="mt-1.5 text-base font-semibold text-white">{showcase.name}</p>
+              <p className="text-xs text-white/60">
+                {showcase.locality}, {showcase.city} · {showcase.bhk} BHK · {showcase.sizeSqFt} sqft
+              </p>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <p data-figure className="text-lg font-semibold text-white">
+                  {formatINR(showcase.price)}
+                </p>
+                <Link
+                  href={`/property/${showcase.slug}`}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-[var(--color-brand-cyan-400)] hover:underline"
+                >
+                  View intelligence <ArrowRight aria-hidden className="size-3.5" />
+                </Link>
+              </div>
             </div>
-          </div>
+          </Tilt3D>
         </div>
       )}
     </div>
