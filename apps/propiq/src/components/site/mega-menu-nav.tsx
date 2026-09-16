@@ -12,9 +12,15 @@
  *
  * The behaviour, in the order it matters:
  *
- *  - Pointer opens on hover, because a menu that needs a click to browse is a
- *    menu people stop browsing. Keyboard opens on Enter or Space, never on
- *    focus — focus-to-open makes tabbing past the bar impossible.
+ *  - Hover to peek, click to pin. Hovering opens, because a menu that needs a
+ *    click to browse is a menu people stop browsing. But a plain toggle on
+ *    click then CLOSES the menu the hover just opened — hover, then click, is
+ *    the most natural thing a pointer user does, and it snatched the panel
+ *    away. So a click pins an open menu rather than closing it, and only a
+ *    second click on a pinned menu closes. Keyboard activation pins directly,
+ *    since there was no hover to open it.
+ *  - Keyboard opens on Enter or Space, never on focus — focus-to-open makes
+ *    tabbing past the bar impossible.
  *  - The trigger is a real `button` with `aria-expanded`; the panel is
  *    labelled by it.
  *  - Escape closes and returns focus to the trigger. Tabbing out of the panel
@@ -31,6 +37,8 @@ import { cn } from '@/lib/utils';
 
 export const MegaMenuNav = () => {
   const [open, setOpen] = useState<string | undefined>(undefined);
+  /** Set once the reader commits with a click; a hover alone never pins. */
+  const [pinned, setPinned] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const bar = useRef<HTMLElement>(null);
 
@@ -38,9 +46,20 @@ export const MegaMenuNav = () => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
   }, []);
 
+  const close = useCallback(() => {
+    setOpen(undefined);
+    setPinned(false);
+  }, []);
+
   const scheduleClose = useCallback(() => {
     cancelClose();
-    closeTimer.current = setTimeout(() => setOpen(undefined), 120);
+    // A pinned menu survives the pointer leaving; that is what pinning means.
+    closeTimer.current = setTimeout(() => {
+      setPinned((isPinned) => {
+        if (!isPinned) setOpen(undefined);
+        return isPinned;
+      });
+    }, 120);
   }, [cancelClose]);
 
   useEffect(() => () => cancelClose(), [cancelClose]);
@@ -49,12 +68,21 @@ export const MegaMenuNav = () => {
     if (open === undefined) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      setOpen(undefined);
+      close();
       bar.current?.querySelector<HTMLButtonElement>(`[data-trigger="${open}"]`)?.focus();
     };
+    // A pinned menu is modal-ish: clicking anywhere else dismisses it, or it
+    // would outlive the reader's interest in it.
+    const onPointerDown = (e: PointerEvent) => {
+      if (!bar.current?.contains(e.target as Node)) close();
+    };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open]);
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [open, close]);
 
   return (
     <nav
@@ -77,7 +105,18 @@ export const MegaMenuNav = () => {
             data-trigger={group.id}
             aria-expanded={open === group.id}
             aria-controls={`nav-${group.id}`}
-            onClick={() => setOpen((v) => (v === group.id ? undefined : group.id))}
+            onClick={() => {
+              // Hover already opened this one; a plain toggle would close
+              // it under the reader's cursor. Pin instead, and let a
+              // second click be the one that closes.
+              if (open === group.id && pinned) {
+                close();
+                return;
+              }
+              cancelClose();
+              setOpen(group.id);
+              setPinned(true);
+            }}
             className={cn(
               'inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',
               open === group.id
@@ -119,7 +158,7 @@ export const MegaMenuNav = () => {
                         <li key={`${col.heading}-${link.href}-${link.label}`}>
                           <Link
                             href={link.href}
-                            onClick={() => setOpen(undefined)}
+                            onClick={close}
                             className="propiq-block-link block rounded-lg px-2.5 py-2 transition-colors hover:bg-[var(--surface-1)]"
                           >
                             <span className="block text-[13px] font-medium">{link.label}</span>
@@ -138,7 +177,7 @@ export const MegaMenuNav = () => {
                 {group.feature && (
                   <Link
                     href={group.feature.href}
-                    onClick={() => setOpen(undefined)}
+                    onClick={close}
                     className="propiq-block-link propiq-megamenu-feature flex flex-col justify-end rounded-xl p-5"
                   >
                     <span className="text-[13px] font-semibold">{group.feature.title}</span>

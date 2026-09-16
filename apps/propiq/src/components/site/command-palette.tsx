@@ -22,6 +22,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, CornerDownLeft, MapPin, Search } from 'lucide-react';
 import { NAV_GROUPS } from '@/components/site/site-nav';
@@ -37,7 +38,7 @@ interface Entry {
   readonly hint?: string;
 }
 
-export const CommandPalette = ({
+const CommandPaletteDialog = ({
   open,
   onClose,
   localities,
@@ -106,8 +107,11 @@ export const CommandPalette = ({
   const go = useCallback(
     (href: string) => {
       track('search_submitted', { query: q.trim(), length: q.trim().length });
-      onClose();
+      // Navigate first. `onClose` unmounts this component — the host renders
+      // nothing while closed — and a push issued from a tree React is already
+      // tearing down does not reliably land.
       router.push(href);
+      onClose();
     },
     [onClose, q, router],
   );
@@ -256,6 +260,19 @@ export const CommandPalette = ({
 };
 
 /**
+ * The dialog, split out and loaded on demand.
+ *
+ * Nobody sees the palette until they ask for it, so its markup, its filtering
+ * and its focus management have no business in the homepage's first load. The
+ * host below is the only eager part — two event listeners and a boolean — and
+ * the dialog arrives on the first Cmd-K or click. `ssr: false` because there is
+ * nothing to render on the server when it is closed.
+ */
+const LazyDialog = dynamic(() => Promise.resolve({ default: CommandPaletteDialog }), {
+  ssr: false,
+});
+
+/**
  * Owns the shortcut and the open state.
  *
  * It renders nothing but the dialog and listens for two ways in: Cmd/Ctrl-K,
@@ -286,5 +303,8 @@ export const CommandPaletteHost = ({
     };
   }, []);
 
-  return <CommandPalette open={open} onClose={() => setOpen(false)} localities={localities} />;
+  // Not rendered at all until it is wanted, so the import never resolves for a
+  // visitor who never opens it.
+  if (!open) return null;
+  return <LazyDialog open onClose={() => setOpen(false)} localities={localities} />;
 };

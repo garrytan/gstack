@@ -118,11 +118,27 @@ export const clientEnv: ClientEnv = (() => {
   // visitor for a mistake made at build time. And it is skipped under `next
   // build`'s own phase so `npm run build` stays runnable with no environment
   // at all, which is how CI and a fresh clone both invoke it.
+  //
+  // One opt-out, and it is deliberately awkward to set by accident:
+  // `PROPIQ_ALLOW_LOOPBACK_ORIGIN=1`. Verifying a production build is part of
+  // shipping — the E2E suite and the Lighthouse run both need `next start` on
+  // 127.0.0.1, and without an escape hatch this guard makes the one check that
+  // matters most impossible to run. A real deployment never sets it; a local
+  // one announces itself on stdout every boot, so it cannot be forgotten.
   const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
+  const loopbackAllowed = process.env.PROPIQ_ALLOW_LOOPBACK_ORIGIN === '1';
+  if (typeof window === 'undefined' && loopbackAllowed && configured && isLoopback(configured)) {
+    console.warn(
+      `[propiq] PROPIQ_ALLOW_LOOPBACK_ORIGIN=1 — serving with a loopback origin (${configured}). ` +
+        'Canonical links, the sitemap, llms.txt and auth redirects all point at it. ' +
+        'This is for local production verification only and must never be set on a deployment.',
+    );
+  }
   if (
     typeof window === 'undefined' &&
     process.env.NODE_ENV === 'production' &&
     !isBuildPhase &&
+    !loopbackAllowed &&
     (configured === undefined || isLoopback(configured))
   ) {
     throw new Error(

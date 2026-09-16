@@ -15,3 +15,8 @@ next-env.d.ts
 !public/**/*.png
 !src/**/*.png
 !docs/**/*.png
+
+# Lighthouse run artifacts
+.lighthouse/
+test-results/
+playwright-report/
