@@ -15,6 +15,11 @@ import Link from 'next/link';
 import { Search } from 'lucide-react';
 import { track } from '@/lib/analytics';
 
+/**
+ * Fallback shortcuts, used only when the caller passes none. A hardcoded list
+ * claims coverage, so the homepage passes the localities actually in the
+ * dataset and passes an empty list when there is no dataset at all.
+ */
 const LOCALITY_SHORTCUTS = [
   'Whitefield',
   'Sarjapur Road',
@@ -31,7 +36,8 @@ const BUDGETS = [
   { label: 'Under ₹3 Cr', max: '30000000' },
 ] as const;
 
-export const SmartSearch = () => {
+export const SmartSearch = ({ localities }: { localities?: readonly string[] } = {}) => {
+  const shortcuts = localities ?? LOCALITY_SHORTCUTS;
   const router = useRouter();
   const [q, setQ] = useState('');
   const [priceMax, setPriceMax] = useState('');
@@ -126,18 +132,20 @@ export const SmartSearch = () => {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-4">
-          <span className="text-xs text-[var(--text-muted)]">Popular</span>
-          {LOCALITY_SHORTCUTS.map((name) => (
-            <Link
-              key={name}
-              href={`/search?q=${encodeURIComponent(name)}`}
-              className="rounded-full border border-[var(--border-subtle)] px-3 py-1 text-xs text-[var(--text-secondary)] transition-colors hover:border-[var(--color-brand-blue-500)] hover:text-[var(--text-primary)]"
-            >
-              {name}
-            </Link>
-          ))}
-        </div>
+        {shortcuts.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-4">
+            <span className="text-xs text-[var(--text-muted)]">Covered</span>
+            {shortcuts.map((name) => (
+              <Link
+                key={name}
+                href={`/search?q=${encodeURIComponent(name)}`}
+                className="rounded-full border border-[var(--border-subtle)] px-3 py-1 text-xs text-[var(--text-secondary)] transition-colors hover:border-[var(--color-brand-blue-500)] hover:text-[var(--text-primary)]"
+              >
+                {name}
+              </Link>
+            ))}
+          </div>
+        )}
       </form>
     </div>
   );

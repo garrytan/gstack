@@ -6,7 +6,7 @@ import { buildSummaries } from '@/server/intelligence';
 import { loadBuyerProfile } from '@/server/actions';
 import { BUYER_PERSONAS } from '@/domain/buyer/types';
 import type { BuyerPersona } from '@/domain/buyer/types';
-import { DemoDataBanner } from '@/components/propiq/data-status';
+import { DemoDataBanner, NoDataNotice } from '@/components/propiq/data-status';
 import { PropertyCard } from '@/components/propiq/property-card';
 import { SearchBar } from '@/components/propiq/search-bar';
 import { SearchFilters } from '@/components/propiq/search-filters';
@@ -89,6 +89,7 @@ export default async function SearchPage({
       />
 
       {repo.servesDemoData && <DemoDataBanner className="mb-6" />}
+      {repo.servesNoData && <NoDataNotice surface="Property search" />}
 
       <h1 className="text-2xl font-semibold tracking-tight">Search</h1>
       <p className="mt-1 text-sm text-[var(--text-secondary)]">
@@ -97,14 +98,14 @@ export default async function SearchPage({
           <>
             Your saved preferences are applied, so buyer fit is scored against your budget, commute
             and requirements.{' '}
-            <Link href="/preferences" className="text-accent-500 hover:underline">
+            <Link href="/preferences" className="text-[var(--text-accent)] hover:underline">
               Edit them
             </Link>
             .
           </>
         ) : (
           <>
-            <Link href="/preferences" className="text-accent-500 hover:underline">
+            <Link href="/preferences" className="text-[var(--text-accent)] hover:underline">
               Tell PropIQ how you buy
             </Link>{' '}
             and buyer fit is scored against your budget and commute instead of being left unscored.
@@ -177,7 +178,7 @@ const EmptyState = ({ query }: { query?: string }) => (
     </p>
     <Link
       href="/search"
-      className="mt-4 inline-block text-sm font-medium text-accent-500 hover:underline"
+      className="mt-4 inline-block text-sm font-medium text-[var(--text-accent)] hover:underline"
     >
       Clear all filters
     </Link>

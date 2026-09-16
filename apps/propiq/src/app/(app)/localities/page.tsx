@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getPropertyRepository } from '@/data';
 import { priceCagrPercent, supplyOverhangMonths, bestCommute } from '@/domain/locality/types';
-import { DemoDataBanner, DataStatusBadge } from '@/components/propiq/data-status';
+import { DemoDataBanner, DataStatusBadge, NoDataNotice } from '@/components/propiq/data-status';
 import { formatPercent, formatPsf } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +21,7 @@ export default async function LocalitiesPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
       {repo.servesDemoData && <DemoDataBanner className="mb-6" />}
+      {repo.servesNoData && <NoDataNotice surface="Locality intelligence" />}
 
       <h1 className="text-2xl font-semibold tracking-tight">Localities</h1>
       <p className="mt-1 max-w-2xl text-sm text-[var(--text-secondary)]">

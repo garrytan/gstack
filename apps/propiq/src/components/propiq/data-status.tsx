@@ -6,6 +6,7 @@
  * demo data is never allowed to render without the banner.
  */
 
+import Link from 'next/link';
 import { AlertTriangle, BadgeCheck, Calculator, FlaskConical } from 'lucide-react';
 import type { DataStatus } from '@/domain/evidence/types';
 import { Badge } from '@/components/ui/badge';
@@ -88,3 +89,47 @@ export const DemoDataBanner = ({ className }: { className?: string }) => (
 );
 
 export const statusDescription = (status: DataStatus): string => STATUS_META[status].description;
+
+/**
+ * What a surface shows when no property source is connected.
+ *
+ * The distinction this draws matters: "no results" tells a buyer their filters
+ * were too narrow, which is a lie when the truth is that this deployment has no
+ * Indian property data at all. Every data-backed surface says the second thing
+ * when `servesNoData` is set, and the tools that need no dataset keep working
+ * beside it.
+ */
+export const NoDataNotice = ({ surface = 'This section' }: { surface?: string }) => (
+  <div
+    role="status"
+    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] p-6"
+  >
+    <p className="flex items-center gap-2 text-sm font-semibold">
+      <FlaskConical aria-hidden className="size-4 shrink-0 text-[var(--text-muted)]" />
+      No property data source is connected
+    </p>
+    <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--text-secondary)]">
+      {surface} needs a property database, and this deployment has not been pointed at one. Rather
+      than show invented figures or demo records dressed as market intelligence, it shows nothing.
+    </p>
+    <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[var(--text-secondary)]">
+      Everything that does not depend on our dataset still works:{' '}
+      <Link href="/tools" className="underline hover:text-[var(--text-primary)]">
+        the free tools
+      </Link>
+      ,{' '}
+      <Link href="/document-ai" className="underline hover:text-[var(--text-primary)]">
+        the document checks
+      </Link>
+      ,{' '}
+      <Link href="/site-visit-checklist" className="underline hover:text-[var(--text-primary)]">
+        the site-visit checklist
+      </Link>{' '}
+      and{' '}
+      <Link href="/methodology" className="underline hover:text-[var(--text-primary)]">
+        the published scoring method
+      </Link>
+      . Those run on figures you supply and on published law, not on ours.
+    </p>
+  </div>
+);

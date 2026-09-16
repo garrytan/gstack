@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { getPropertyRepository } from '@/data';
 import { buildSummaries } from '@/server/intelligence';
 import { toDeveloperProfile } from '@/site/data/project';
-import { DemoDataBanner } from '@/components/propiq/data-status';
+import { DemoDataBanner, NoDataNotice } from '@/components/propiq/data-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +41,7 @@ export default async function DevelopersPage() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
       {repo.servesDemoData && <DemoDataBanner className="mb-6" />}
+      {repo.servesNoData && <NoDataNotice surface="Developer intelligence" />}
 
       <h1 className="text-3xl font-semibold tracking-tight">Developer intelligence</h1>
       <p className="mt-3 max-w-2xl text-[var(--text-secondary)]">
@@ -85,7 +86,7 @@ export default async function DevelopersPage() {
 
       <p className="mt-8 text-xs text-[var(--text-secondary)]">
         How the developer pillar is weighted is set out in{' '}
-        <Link href="/methodology" className="text-accent-500 hover:underline">
+        <Link href="/methodology" className="text-[var(--text-accent)] hover:underline">
           the published methodology
         </Link>
         .

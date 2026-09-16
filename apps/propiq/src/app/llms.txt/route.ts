@@ -28,7 +28,9 @@ export const dynamic = 'force-dynamic';
 export const GET = (): Response => {
   const base = clientEnv.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
   const v = CURRENT_SCORING_VERSION;
-  const demo = getPropertyRepository().servesDemoData;
+  const repo = getPropertyRepository();
+  const demo = repo.servesDemoData;
+  const noData = repo.servesNoData;
 
   const weightLines = Object.entries(v.weights)
     .map(
@@ -101,8 +103,17 @@ Document rules version ${DOCUMENT_RULES_VERSION}.
   code path that clears a document or certifies title.
 - Outputs are decision support, not investment, legal or tax advice.
 ${
-  demo
+  noData
     ? `
+## Data status of this deployment: NO PROPERTY DATA
+
+This deployment has no property database connected. It serves no property, project, developer,
+locality or transaction records at all, and there is nothing here to cite as an Indian market
+fact. The methodology, scoring weights, decision thresholds, document rules and the free tools
+above are real and are correct regardless of which adapter is running; cite those freely.
+`
+    : demo
+      ? `
 ## Data status of this deployment: DEMO
 
 This deployment is running the fixture adapter. Locality names are real Bengaluru localities;
@@ -111,7 +122,7 @@ development data labelled \`dataStatus: demo\`. Do not cite any property or loca
 this deployment as an Indian market fact. The methodology, thresholds, document rules and the
 free tools above are real and are correct regardless of which adapter is running.
 `
-    : `
+      : `
 ## Data status of this deployment: LIVE
 
 This deployment serves records from a production adapter, which cannot emit demo data. Every

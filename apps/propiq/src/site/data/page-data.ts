@@ -33,6 +33,8 @@ export interface HomePageData {
   readonly showcase: PropertyIntelligence | undefined;
   readonly showcaseSite: SiteProperty | undefined;
   readonly servesDemoData: boolean;
+  /** No property source is connected; the data-backed sections have nothing to render. */
+  readonly servesNoData: boolean;
 }
 
 export const loadHomePageData = async (): Promise<HomePageData> => {
@@ -104,5 +106,6 @@ export const loadHomePageData = async (): Promise<HomePageData> => {
     showcase,
     showcaseSite: showcase ? toSiteProperty(showcase) : undefined,
     servesDemoData: repo.servesDemoData,
+    servesNoData: repo.servesNoData,
   };
 };
