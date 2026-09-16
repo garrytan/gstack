@@ -64,6 +64,18 @@ describe('score ramp', () => {
     const ramps = css.split('--seq-score-1:').length - 1;
     expect(ramps).toBe(grounds);
   });
+
+  /**
+   * Same rule, same reason. `.propiq-card` painted a literal `#ffffff` and
+   * every app card was unreadable under a dark OS; a ground that does not name
+   * its own card surface is that bug waiting to happen again.
+   */
+  it('gives every ground its own card surface', () => {
+    const css = fs.readFileSync(path.join(SRC, 'app', 'globals.css'), 'utf-8');
+    const grounds = css.split('--text-primary:').length - 1;
+    expect(css.split('--surface-card:').length - 1).toBe(grounds);
+    expect(css).not.toMatch(/\.propiq-card \{[^}]*background:\s*#/);
+  });
 });
 
 describe('verdict colour', () => {

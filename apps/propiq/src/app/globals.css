@@ -75,11 +75,17 @@
      where the first does not. A subtree picks its set once (see `.propiq-site`
      and `.propiq-dark`) so no component has to know which ground it landed on.
      A verdict that is legible on one half of the page and not the other is a
-     verdict the reader does not get. */
+     verdict the reader does not get.
+
+     Both sets are checked against the *lightest* surface they can reach, not
+     the ground the page sits on. Watch and avoid were tuned against
+     `--surface-0` (#0b0e14) and cleared 4.5:1 there, but cards sit on
+     `--surface-1` (#141821), where they were 4.22 and 3.94 — and 3.93 and 3.72
+     inside a verdict badge, whose 7% tint lifts the ground once more. */
   --color-buy: #2f9e63;
   --color-negotiate: #d9a133;
-  --color-watch: #4a7fb5;
-  --color-avoid: #c4524b;
+  --color-watch: #558bc1;
+  --color-avoid: #d7635b;
   --color-unknown: #6b7383;
 
   --color-buy-ink: #1f7a4a;
@@ -97,6 +103,7 @@
   --surface-2: #eceef2;
   --border-subtle: #dfe3ea;
   --border-strong: #c4cad6;
+  --surface-card: var(--surface-0);
   --text-primary: #141821;
   --text-secondary: #454d5e;
   /* #7c8598 sat at 3.45:1 on this surface — 215 failing nodes across the app
@@ -136,16 +143,16 @@
     --surface-2: #1f2430;
     --border-subtle: #262d3b;
     --border-strong: #3a4354;
-    --text-primary: #f6f7f9;
     --surface-card: var(--surface-1);
+    --text-primary: #f6f7f9;
     --text-secondary: #b0b7c6;
     --text-muted: #939cae;
     --text-accent: var(--color-brand-blue-400);
 
     --color-buy: #2f9e63;
     --color-negotiate: #d9a133;
-    --color-watch: #4a7fb5;
-    --color-avoid: #c4524b;
+    --color-watch: #558bc1;
+    --color-avoid: #d7635b;
     --color-unknown: #8b93a3;
 
     /* The ramp is re-stepped for the dark ground rather than flipped: on a
@@ -546,16 +553,16 @@
   --surface-2: #1f2430;
   --border-subtle: #262d3b;
   --border-strong: #3a4354;
-  --text-primary: #f6f7f9;
   --surface-card: var(--surface-1);
+  --text-primary: #f6f7f9;
   --text-secondary: #b0b7c6;
   --text-muted: #939cae;
   --text-accent: var(--color-brand-blue-400);
 
   --color-buy: #2f9e63;
   --color-negotiate: #d9a133;
-  --color-watch: #4a7fb5;
-  --color-avoid: #c4524b;
+  --color-watch: #558bc1;
+  --color-avoid: #d7635b;
   --color-unknown: #8b93a3;
 
   /* The ramp is re-stepped for the dark ground rather than flipped: on a
@@ -653,16 +660,16 @@ body:has(.propiq-canvas) > footer {
   --surface-2: #1f2430;
   --border-subtle: #262d3b;
   --border-strong: #3a4354;
-  --text-primary: #f6f7f9;
   --surface-card: var(--surface-1);
+  --text-primary: #f6f7f9;
   --text-secondary: #b0b7c6;
   --text-muted: #939cae;
   --text-accent: var(--color-brand-blue-400);
 
   --color-buy: #2f9e63;
   --color-negotiate: #d9a133;
-  --color-watch: #4a7fb5;
-  --color-avoid: #c4524b;
+  --color-watch: #558bc1;
+  --color-avoid: #d7635b;
   --color-unknown: #8b93a3;
 
   /* The ramp is re-stepped for the dark ground rather than flipped: on a
@@ -713,6 +720,7 @@ body:has(.propiq-canvas) > footer {
   --surface-2: var(--color-teal-700);
   --border-subtle: rgba(30, 58, 158, 0.13);
   --border-strong: rgba(30, 58, 158, 0.26);
+  --surface-card: #ffffff;
   --text-primary: #16205c;
   --text-secondary: #3f4a70;
   /* 5.0:1 on the palest card; #5a6486 dropped under 5 there. */
@@ -754,6 +762,7 @@ body[data-dock='on'] .propiq-site {
   --surface-2: #232d63;
   --border-subtle: rgba(238, 241, 255, 0.12);
   --border-strong: rgba(238, 241, 255, 0.24);
+  --surface-card: var(--surface-1);
   --text-primary: var(--color-cream);
   --text-secondary: rgba(238, 241, 255, 0.76);
   --text-muted: rgba(238, 241, 255, 0.68);
@@ -1076,6 +1085,7 @@ li a:not([class*='inline-flex']):not(.propiq-block-link) {
   --surface-2: var(--color-iris-50);
   --border-subtle: rgba(30, 58, 158, 0.12);
   --border-strong: rgba(30, 58, 158, 0.24);
+  --surface-card: #ffffff;
   --text-primary: var(--color-iris-900);
   --text-secondary: #3f4a70;
   --text-muted: #5a6486;
@@ -1196,9 +1206,19 @@ a:focus-visible > .propiq-stage-card {
    shadow on a blue-white ground reads as dirt; a blue one reads as depth.
 --------------------------------------------------------------------------- */
 
+/* `--surface-card` and not a literal white. A card is its own surface, and
+   which direction "lifted" points depends on the ground: on a light page a
+   card is the whiter thing, on a near-black one it is the lighter-grey thing.
+   So every ground declares its own card surface next to its text ramp, and the
+   component asks for it by name.
+
+   The literal white survived because the accessibility sweep only ever ran
+   light-scheme. Under a dark OS every app card painted #ffffff and then
+   printed `--text-primary` (#f6f7f9) on it at 1.05:1 — invisible, on every
+   route. `axe-app.js` runs both schemes now, so it cannot come back quietly. */
 .propiq-card {
-  background: #ffffff;
-  border: 1px solid rgba(30, 58, 158, 0.08);
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
   box-shadow:
     0 1px 2px -1px rgba(22, 32, 92, 0.1),
     0 6px 18px -10px rgba(22, 32, 92, 0.18);
