@@ -54,6 +54,11 @@ export const SiteFooter = () => (
   <footer className="border-t border-[var(--border-subtle)] bg-[var(--surface-1)]">
     <div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 lg:grid-cols-[minmax(0,1.3fr)_repeat(4,minmax(0,1fr))]">
       <div>
+        {/* The glyph cut, not the supplied lockup. This footer is light on
+            every route but the homepage, where it is deep teal — and the
+            lockup's light ground and near-black wordmark only work on the
+            first. One cut that holds on both beats two that each break
+            somewhere. */}
         <BrandMark />
         <p className="propiq-brand-text mt-3 text-sm font-semibold">Cities. Insights. Growth.</p>
         <p className="mt-3 max-w-xs text-xs leading-relaxed text-[var(--text-secondary)]">
