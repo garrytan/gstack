@@ -9,3 +9,9 @@ coverage/
 *.tsbuildinfo
 next-env.d.ts
 .DS_Store
+
+# Screenshots from local QA runs. Captures belong in a scratch dir, not the repo.
+*.png
+!public/**/*.png
+!src/**/*.png
+!docs/**/*.png
