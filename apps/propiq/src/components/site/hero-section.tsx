@@ -204,7 +204,7 @@ const StageCard = ({ stage }: { stage: Stage }) => {
       {/* `items-center` on the card shrink-wraps its children, so this needs an
           explicit full width or a long identifier runs straight past the card
           edge instead of wrapping inside it. */}
-      <p className="mt-auto w-full pt-3 text-[9px] uppercase leading-tight tracking-[0.08em] text-[var(--text-muted)] [overflow-wrap:anywhere]">
+      <p className="propiq-sourced mt-auto w-full pt-3 text-left text-[9px] uppercase leading-tight tracking-[0.08em] text-[var(--text-muted)] [overflow-wrap:anywhere]">
         <span className="block">Source:</span>
         <span className="font-medium">{stage.source}</span>
       </p>
@@ -241,7 +241,7 @@ export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }
           <BrandLockup width={230} />
         </div>
 
-        <h1 className="mt-6 text-center text-[clamp(2.1rem,5.4vw,3.6rem)] font-extrabold leading-[1.04] tracking-[-0.03em]">
+        <h1 className="propiq-display mt-6 text-center text-[clamp(2.2rem,5.8vw,4rem)] font-extrabold leading-[1.0]">
           Property Intelligence <span className="propiq-iris-text">Journey</span>
         </h1>
 

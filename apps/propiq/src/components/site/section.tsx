@@ -59,7 +59,7 @@ export const SectionHead = ({
       <p className="propiq-eyebrow-pill text-[11px] font-semibold uppercase tracking-[0.16em]">
         {eyebrow}
       </p>
-      <h2 className="mt-3 text-[2rem] font-bold leading-[1.1] tracking-[-0.02em] sm:text-[2.6rem]">
+      <h2 className="propiq-display mt-4 text-[2.15rem] font-bold leading-[1.06] sm:text-[2.9rem]">
         {title}
       </h2>
       {standfirst && (

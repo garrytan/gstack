@@ -29,29 +29,30 @@
   --color-ink-900: #141821;
   --color-ink-950: #0b0e14;
 
-  /* The app's working accent IS the brand blue. It used to be a teal, which
-     meant a visitor crossing from the marketing site to the product watched
-     the company change colour. One identity, one accent. `accent-ink` is the
-     variant for accent-as-text on a light ground, where the 500 sits at 2.6:1
-     and fails outright. */
+  /* The accent is the logo's iris blue. It was a mint for a while, which put
+     the site and its own logo in two different palettes; the logo won. The
+     ramp is ordered so 400 is the lighter hover and 500 the resting fill, and
+     white clears 4.5:1 on both. */
   --color-accent-400: #3b63ef;
   --color-accent-500: #2a49c8;
   --color-accent-600: #1e3a9e;
-  /* Mint is a light hue: on paper it sits near 1.8:1 and is unreadable as
-     text. `-ink` is the same hue taken down far enough to clear 4.5:1 there. */
+  /* Accent-as-text. Same value as the 500 here, kept as its own name because
+     every subtree points `--text-accent` at it and a future ramp change should
+     not silently move what text reads. */
   --color-accent-ink: #2a49c8;
 
-  /* The deep-teal surface ramp. The marketing surface is a single dark world
-     built on these, with mint as the only hue that ever pops. */
+  /* The surface ramp. The names are historical — this was a teal stack — but
+     the values are the light iris world the whole product runs on now. 950 and
+     900 are the two dark values left, and only the closing call uses them. */
   --color-teal-950: #101636;
   --color-teal-900: #1a2350;
   --color-teal-800: #f6f8ff;
   --color-teal-700: #e8edff;
   --color-cream: #eef1ff;
 
-  /* PropIQ brand. The ramp above is the identity now; these three names stay
-     because gradients and accents across the app reference them, and they all
-     resolve into the teal/mint world so there is still exactly one palette. */
+  /* PropIQ brand. These names stay because gradients across the app reference
+     them; they all resolve into the iris/violet ramp, so there is still
+     exactly one palette behind every gradient on the page. */
   --color-brand-blue-400: #6d8cf8;
   --color-brand-blue-500: #3b63ef;
   --color-brand-blue-600: #2a49c8;
@@ -101,9 +102,9 @@
   /* #7c8598 sat at 3.45:1 on this surface — 215 failing nodes across the app
      before anyone scanned it. */
   --text-muted: #5a6980;
-  /* The accent as *text*. Mint is a light hue: it reads on a dark ground and
-     sits near 1.8:1 on paper, so light surfaces take the ink variant and dark
-     subtrees take the 500. Mint as a *fill* always carries dark text. */
+  /* The accent as *text*. Iris is a mid-dark blue: light surfaces take the ink
+     variant, and the one dark subtree left points this at the lighter 400,
+     which is the value that carries on navy. As a *fill* it takes white. */
   --text-accent: var(--color-accent-ink);
 
   /* Verdicts on a light ground take the ink set, exactly as `.propiq-site`
@@ -425,16 +426,6 @@
   to {
     transform: translate3d(3rem, -3rem, 0) scale(1.18);
   }
-}
-
-/* Grain. Inline so it costs no request and cannot be blocked. */
-.propiq-grain {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.035;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* ---------------------------------------------------------------------------
@@ -1043,6 +1034,7 @@ li a:not([class*='inline-flex']):not(.propiq-block-link) {
      rectangle on a tinted ground. Laying white back under the mark is what
      makes the cut disappear. The colour is pushed to the edges instead. */
   background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E"),
     radial-gradient(ellipse 44% 24% at 50% 20%, #ffffff 0%, rgba(255, 255, 255, 0) 72%),
     radial-gradient(ellipse 70% 62% at 4% 34%, rgba(124, 83, 232, 0.16), transparent 62%),
     radial-gradient(ellipse 66% 58% at 96% 30%, rgba(59, 99, 239, 0.18), transparent 60%),
@@ -1234,4 +1226,116 @@ a:focus-visible > .propiq-card {
   --surface-0: #dfe6ff;
   --surface-1: #ffffff;
   --surface-2: #eef2ff;
+}
+
+/* ---------------------------------------------------------------------------
+   Craft layer.
+
+   Four things separate a competent product page from one worth looking at, and
+   none of them is more colour:
+
+     1. Texture. Flat gradients read as cheap at large sizes because real
+        surfaces have grain. One tiling noise field over the whole page, at an
+        opacity you cannot consciously see, is what stops a big wash looking
+        like a fill tool.
+     2. Motion tied to reading position, not to load. Everything arriving at
+        once is a splash screen; sections arriving as you reach them is pace.
+     3. Type that commits. Display sizes with negative tracking and optical
+        alignment, not body copy set larger.
+     4. One idea carried everywhere. Here it is the product's own thesis —
+        every figure names where it came from — drawn as a hairline tether
+        from the number to its source.
+--------------------------------------------------------------------------- */
+
+/* 1. Grain. One layer inside the hero's own background stack (see
+      `.propiq-hero-light`), which is where the big flat gradient actually is.
+
+      It is deliberately NOT a page-wide layer. As a fixed overlay above the
+      content, and again as a background on the container that paints behind
+      all the body text, it made axe compute every contrast ratio through an
+      image it cannot evaluate: 1,887 violations reporting text as near-white
+      on white, when the real computed colour was #4a5578 at 6.8:1. The
+      failures were false, but a page whose contrast can no longer be measured
+      is not a page worth shipping, so the texture stays where it composes. */
+
+/* 2. Scroll-driven reveal. `animation-timeline: view()` runs on the
+      compositor with no observer and no JS; browsers without it simply show
+      the content, which is the correct fallback rather than a hidden page. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    /* Transform only, never opacity. Fading in on scroll leaves everything
+       below the fold at `opacity: 0` in the static document — invisible to a
+       screenshot, to a crawler, and to anyone whose scroll never fires. The
+       contrast sweep caught it as 414 violations, which is the honest
+       description of a page whose content is not painted. A rise alone still
+       reads as arrival and is always legible. */
+    @keyframes propiq-enter {
+      from {
+        transform: translateY(22px);
+      }
+      to {
+        transform: none;
+      }
+    }
+
+    .propiq-seam > div > * {
+      animation: propiq-enter linear both;
+      animation-timeline: view();
+      /* Finish well before the element is centred, or the reader is looking
+         at something still moving. */
+      animation-range: entry 8% cover 26%;
+    }
+  }
+}
+
+/* 3. Display type. Section headings get optical alignment and tighter
+      tracking than body copy would ever take. */
+.propiq-display {
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+  font-feature-settings: 'ss01' on;
+}
+
+/* 4. The tether. A figure and the constant it came from, joined by a hairline
+      so the claim and its receipt read as one object. This is the product's
+      argument made visible, and it is the reason the page looks like this
+      rather than like every other analytics landing page. */
+.propiq-sourced {
+  position: relative;
+  padding-left: 0.85rem;
+}
+
+.propiq-sourced::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.35em;
+  bottom: 0.35em;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    var(--color-accent-400) 0%,
+    var(--color-brand-violet-400) 100%
+  );
+}
+
+/* Links in prose thicken on hover rather than changing colour. It has to stay
+   a real `text-decoration`: a background-image underline looks identical and
+   does NOT satisfy axe's link-in-text-block rule, which reads the computed
+   decoration. Nearly shipped that. */
+.propiq-site a:not([class*='inline-flex']):not(.propiq-block-link) {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-thickness 180ms ease;
+}
+
+.propiq-site a:not([class*='inline-flex']):not(.propiq-block-link):hover {
+  text-decoration-thickness: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-site a:not([class*='inline-flex']):not(.propiq-block-link) {
+    transition: none;
+  }
 }
