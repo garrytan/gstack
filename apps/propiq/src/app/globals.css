@@ -943,3 +943,66 @@ li a:not([class*='inline-flex']) {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ---------------------------------------------------------------------------
+   3D.
+
+   Two mechanisms, both pure CSS and both free of any runtime: a perspective
+   container that tilts its card toward the pointer, and a set of depth
+   multipliers that move the hero's background planes at different rates.
+
+   `backdrop-filter` is deliberately absent from anything inside a preserve-3d
+   subtree. It flattens the 3D context — a card with a blurred backdrop stops
+   tilting and starts sliding, which is a bug that looks like a design choice.
+--------------------------------------------------------------------------- */
+
+.propiq-tilt-host {
+  perspective: 900px;
+  perspective-origin: 50% 50%;
+}
+
+.propiq-tilt-inner {
+  height: 100%;
+  transform-style: preserve-3d;
+  /* Long enough to settle when the pointer leaves, short enough to track it. */
+  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+
+/* The hero's planes. `--px` / `--py` arrive from `HeroParallax` in roughly
+   -1..1; each layer multiplies them by its own distance. Far things barely
+   move, near things move a lot, which is the whole of parallax. */
+.propiq-depth {
+  --depth: 6;
+  transform: translate3d(
+    calc(var(--px, 0) * var(--depth) * 1px),
+    calc(var(--py, 0) * var(--depth) * 1px),
+    0
+  );
+  transition: transform 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+
+.propiq-depth-far {
+  --depth: 5;
+}
+.propiq-depth-mid {
+  --depth: 14;
+}
+.propiq-depth-near {
+  --depth: 26;
+}
+
+/* A tilted card lifts its own shadow with it, or it reads as a sticker. */
+.propiq-tilt-host:hover .propiq-tilt-inner {
+  box-shadow: 0 34px 70px -34px rgba(0, 0, 0, 0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-tilt-inner:nth-child(n),
+  .propiq-depth:nth-child(n) {
+    transform: none;
+    transition: none;
+    will-change: auto;
+  }
+}
