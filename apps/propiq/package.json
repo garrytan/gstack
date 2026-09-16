@@ -30,7 +30,6 @@
     "recharts": "^3.3.1",
     "server-only": "^0.0.1",
     "tailwind-merge": "^3.3.1",
-    "three": "^0.186.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -38,7 +37,6 @@
     "@types/node": "^22.18.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^5.0.4",
     "eslint": "^9.39.0",
     "eslint-config-next": "16.3.5",

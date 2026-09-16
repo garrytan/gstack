@@ -12,7 +12,7 @@ import { ArrowRight } from 'lucide-react';
 import { DECISION_LABELS } from '@/domain/decision/engine';
 import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
 import { GlassMetricCard } from '@/components/site/glass-metric-card';
-import { HeroSceneSlot } from '@/components/site/hero-scene-slot';
+import { HeroBackground } from '@/components/site/hero-background';
 import type { SiteProperty } from '@/site/types';
 
 const CHIPS = [
@@ -25,14 +25,12 @@ const CHIPS = [
 
 export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }) => (
   <section className="propiq-dark relative isolate overflow-hidden">
-    <div className="absolute inset-0 -z-10">
-      <HeroSceneSlot className="size-full" />
-    </div>
+    <HeroBackground />
     {/* The copy side needs contrast over a moving scene, so the ground is
         pulled back on the left and released on the right. */}
     <div
       aria-hidden
-      className="absolute inset-0 -z-10 bg-gradient-to-r from-[#070b16] via-[#070b16]/85 to-[#070b16]/25 lg:to-transparent"
+      className="absolute inset-0 -z-10 bg-gradient-to-r from-[#070b16]/72 via-[#070b16]/30 to-transparent"
     />
 
     <div className="relative mx-auto grid max-w-7xl gap-10 px-4 pb-28 pt-16 lg:min-h-[860px] lg:pb-32 lg:grid-cols-[minmax(0,44fr)_minmax(0,56fr)] lg:items-center lg:py-20">
