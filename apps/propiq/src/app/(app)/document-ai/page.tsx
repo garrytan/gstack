@@ -80,7 +80,7 @@ export default function DocumentAiPage() {
         <h2 className="text-lg font-semibold tracking-tight">Uploading a file</h2>
         <div className="mt-3 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] p-5">
           <p className="text-sm font-semibold">
-            Status: {extraction.configured ? 'available' : 'NOT BUILT'}
+            {extraction.configured ? 'Extraction available' : 'Extraction not configured here'}
           </p>
           <p className="mt-2 text-sm text-[var(--text-secondary)]">
             {extraction.configured

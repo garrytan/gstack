@@ -30,6 +30,7 @@ import {
 } from '@/components/site/closing-sections';
 import { ShortlistProvider } from '@/components/site/shortlist';
 import { BottomDock } from '@/components/site/bottom-dock';
+import { CommandPaletteHost } from '@/components/site/command-palette';
 import { JsonLd, ORGANIZATION } from '@/lib/structured-data';
 
 export const dynamic = 'force-dynamic';
@@ -88,6 +89,9 @@ export default async function HomePage() {
         />
 
         <SiteHeader />
+        <CommandPaletteHost
+          localities={data.localities.map((l) => ({ name: l.name, slug: l.slug }))}
+        />
 
         <main id="main">
           <HeroSection showcase={showcase} localities={data.localities.map((l) => l.name)} />
@@ -133,7 +137,7 @@ export default async function HomePage() {
               {showcase && <VerdictSection property={showcase} />}
 
               {/* ------------------------------------------------- map + list */}
-              <Section tone="raise">
+              <Section tone="raise" id="map">
                 <SectionHead
                   eyebrow="Explore"
                   title="The covered market, on its real coordinates."

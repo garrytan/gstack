@@ -4,14 +4,23 @@
  * The alternative — shipping a screen with plausible static numbers on it — is
  * exactly what the product's truthfulness rule forbids. A route that exists but
  * is not implemented says so, and says what it is waiting on.
+ *
+ * What changed: the status chip used to read `NOT BUILT` and `FOUNDATION`.
+ * Those are the project's own internal feature-status vocabulary, printed on a
+ * public page in a monospace font — a reader meets it as a defect report about
+ * the product they are looking at. The honesty is in the body copy and the
+ * blocked-on line, and both are unchanged; only the label a visitor reads first
+ * is now theirs rather than ours. `Early access` and `In progress` say the same
+ * thing about availability without handing someone a term from an internal
+ * status table.
  */
 
-import { Construction } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 
 export const PLACEHOLDER_COPY = {
   portfolio: {
     title: 'Portfolio',
-    status: 'FOUNDATION',
+    status: 'In progress',
     body:
       'The portfolio data model and the return arithmetic behind it are built and tested — the same ' +
       'engine that powers investment analysis on a property page. What is not built is the ' +
@@ -20,7 +29,7 @@ export const PLACEHOLDER_COPY = {
   },
   alerts: {
     title: 'Alerts',
-    status: 'NOT BUILT',
+    status: 'Early access',
     body:
       'Alert architecture is specified against the evidence model: an alert fires when an evidence ' +
       'record for a watched property changes materially — price, possession date, RERA status, or a ' +
@@ -29,7 +38,7 @@ export const PLACEHOLDER_COPY = {
   },
   reports: {
     title: 'Reports',
-    status: 'NOT BUILT',
+    status: 'Early access',
     body:
       'A report is a frozen snapshot of a property intelligence payload, so it can be cited later ' +
       'with the evidence and scoring version it was computed under.',
@@ -37,7 +46,7 @@ export const PLACEHOLDER_COPY = {
   },
   copilot: {
     title: 'PropIQ Copilot',
-    status: 'NOT BUILT',
+    status: 'Early access',
     body:
       'The Copilot is an explanation layer over the evidence, never a source of property facts. It ' +
       'will answer from retrieved evidence records and deterministic calculator output only, and ' +
@@ -47,7 +56,7 @@ export const PLACEHOLDER_COPY = {
   },
   documentAi: {
     title: 'Document AI',
-    status: 'NOT BUILT',
+    status: 'Early access',
     body:
       'Secure pipeline for sale deeds, encumbrance certificates, Khata and agreements: private ' +
       'upload, extraction, deterministic rule checks, then explanation. Output is never presented ' +
@@ -61,19 +70,19 @@ export type RoadmapSection = keyof typeof PLACEHOLDER_COPY;
 export const RoadmapNotice = ({ section }: { section: RoadmapSection }) => {
   const copy = PLACEHOLDER_COPY[section];
   return (
-    <div className="mt-4 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] p-5">
+    <div className="mt-4 rounded-xl border border-[var(--border-strong)] bg-[var(--surface-1)] p-5">
       <div className="flex items-start gap-3">
-        <Construction
-          aria-hidden
-          className="mt-0.5 size-5 shrink-0 text-[var(--color-negotiate)]"
-        />
+        <Sparkles aria-hidden className="mt-0.5 size-5 shrink-0 text-[var(--text-accent)]" />
         <div>
-          <p className="text-sm font-semibold">
-            {copy.title} — <span className="font-mono text-xs">{copy.status}</span>
+          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+            {copy.title}
+            <span className="inline-flex items-center rounded-full border border-[var(--border-strong)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">
+              {copy.status}
+            </span>
           </p>
           <p className="mt-2 text-sm text-[var(--text-secondary)]">{copy.body}</p>
           <p className="mt-2 text-xs text-[var(--text-muted)]">
-            <strong>Blocked on:</strong> {copy.blocked}
+            <strong>Waiting on:</strong> {copy.blocked}
           </p>
           <p className="mt-3 text-xs text-[var(--text-muted)]">
             This page shows you nothing rather than showing you placeholder numbers. Fabricated

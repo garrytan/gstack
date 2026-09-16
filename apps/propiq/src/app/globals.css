@@ -1825,3 +1825,86 @@ a:focus-visible > .propiq-card {
 .propiq-stage-item:last-child::after {
   display: none;
 }
+
+/* ---------------------------------------------------------------------------
+   Mega menu and command palette.
+--------------------------------------------------------------------------- */
+
+.propiq-megamenu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 60;
+  border-radius: 1rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, var(--text-primary) 6%, transparent) inset,
+    0 24px 60px -24px rgba(0, 0, 0, 0.8);
+  animation: propiq-menu-in 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes propiq-menu-in {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.propiq-megamenu-feature {
+  /* A wash from the far corner, not a flood. At 0.1 over the whole top edge
+     the card read as two halves rather than one lit panel. */
+  background:
+    radial-gradient(90% 80% at 108% -10%, rgba(111, 227, 245, 0.11), transparent 62%),
+    var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  min-height: 9rem;
+}
+
+.propiq-palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  /* Not centred vertically: a dialog that grows downward from a fixed top does
+     not jump as its result list changes length, and a centred one does. */
+  padding: max(6vh, env(safe-area-inset-top, 0px)) 1rem 1rem;
+  background: rgba(3, 6, 15, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: propiq-fade-in 140ms ease;
+}
+
+.propiq-palette {
+  width: 100%;
+  max-width: 34rem;
+  align-self: flex-start;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 30px 70px -28px rgba(0, 0, 0, 0.9);
+  animation: propiq-menu-in 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes propiq-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-megamenu,
+  .propiq-palette,
+  .propiq-palette-scrim {
+    animation: none;
+  }
+}

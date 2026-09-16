@@ -18,7 +18,7 @@ export default function PricingPage() {
       </p>
 
       <div className="mt-6 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-1)] p-5">
-        <p className="text-sm font-semibold">Status: NOT BUILT</p>
+        <p className="text-sm font-semibold">Not open yet</p>
         <p className="mt-2 text-sm text-[var(--text-secondary)]">
           The payment abstraction is designed to sit behind a provider interface so either Razorpay
           or Stripe can be dropped in without touching domain code. No provider is wired up.
