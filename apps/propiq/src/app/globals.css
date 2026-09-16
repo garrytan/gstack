@@ -1127,12 +1127,21 @@ li a:not([class*='inline-flex']):not(.propiq-block-link) {
 
 /* A stage card. Glass over the wash, with a rim that lifts on hover. */
 .propiq-stage-card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.72));
-  border: 1px solid rgba(255, 255, 255, 0.9);
+  /* Lifted off its ground, in whichever direction "lifted" points there. The
+     old rule stacked two literal whites and a white inset — correct on the
+     light page it was written for, and on the dark one it painted a white slab
+     with near-white text on it. Same failure `.propiq-card` had; this one hid
+     longer because the section it lives in moved. */
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-card) 92%, var(--text-primary)),
+    var(--surface-card)
+  );
+  border: 1px solid var(--border-subtle);
   box-shadow:
-    0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
-    0 10px 30px -14px rgba(22, 32, 92, 0.34),
-    0 2px 6px -2px rgba(22, 32, 92, 0.12);
+    0 1px 0 0 color-mix(in srgb, var(--text-primary) 8%, transparent) inset,
+    0 10px 30px -14px rgba(0, 0, 0, 0.55),
+    0 2px 6px -2px rgba(0, 0, 0, 0.3);
   transition:
     transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
     box-shadow 220ms ease;
@@ -1157,13 +1166,10 @@ a:focus-visible > .propiq-stage-card {
 /* The stage with nothing behind it. Flat, dashed, no lift — it is not a link
    and must not look like one. */
 .propiq-stage-card--empty {
-  background: rgba(255, 255, 255, 0.4);
+  background: color-mix(in srgb, var(--surface-card) 55%, transparent);
   border: 1px dashed var(--border-strong);
   box-shadow: none;
 }
-
-/* The hero's foot. Both sides of this edge are light now, so it is a settle
-   into the page ground rather than the dissolve into teal it used to be. */
 
 /* ---------------------------------------------------------------------------
    Surfaces with depth.
@@ -1750,4 +1756,72 @@ a:focus-visible > .propiq-card {
 .propiq-constellation-hit:focus-visible {
   outline: 2px solid var(--text-accent);
   outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   The journey rail.
+
+   Three columns at desktop, two at tablet, one stacked at phone — and at every
+   width it stays an <ol>, because the order IS the content. A horizontal
+   scroller was the first shape tried; it hides two thirds of a nine-step
+   argument behind a gesture most readers never make.
+--------------------------------------------------------------------------- */
+
+.propiq-journey {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+  counter-reset: stage;
+}
+
+@media (min-width: 640px) {
+  .propiq-journey {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .propiq-journey {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.propiq-stage-item {
+  position: relative;
+}
+
+/* The connector. Drawn between cards rather than around them, so a card can
+   move to a new row without dragging a line into empty space. It is hidden
+   from the last item in each row by the same media query that sets the column
+   count — one source of truth for how many there are. */
+.propiq-stage-item::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -1rem;
+  width: 1rem;
+  height: 1px;
+  background: linear-gradient(to right, var(--border-strong), transparent);
+}
+
+@media (max-width: 639px) {
+  .propiq-stage-item::after {
+    display: none;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .propiq-stage-item:nth-child(2n)::after {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .propiq-stage-item:nth-child(3n)::after {
+    display: none;
+  }
+}
+
+.propiq-stage-item:last-child::after {
+  display: none;
 }

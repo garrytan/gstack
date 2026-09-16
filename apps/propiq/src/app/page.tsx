@@ -10,6 +10,7 @@ import { HeroSection } from '@/components/site/hero-section';
 import { SitePropertyRail } from '@/components/site/property-card';
 import { Section, SectionHead, DemoNote } from '@/components/site/section';
 import { ScoreSection } from '@/components/site/score-section';
+import { JourneySection } from '@/components/site/journey-section';
 import { VerdictSection } from '@/components/site/verdict-section';
 import { MapExplorer } from '@/components/site/map-explorer';
 import {
@@ -128,6 +129,7 @@ export default async function HomePage() {
               </Section>
 
               {showcase && <ScoreSection property={showcase} />}
+              <JourneySection propertyHref={showcase ? `/property/${showcase.id}` : '/search'} />
               {showcase && <VerdictSection property={showcase} />}
 
               {/* ------------------------------------------------- map + list */}
