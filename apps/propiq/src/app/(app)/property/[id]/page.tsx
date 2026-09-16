@@ -293,24 +293,26 @@ export default async function PropertyPage({ params }: Params) {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <InfoCard icon={ScrollText} title="RERA registration">
             {phase?.rera ? (
-              <dl className="space-y-1.5 text-xs">
-                <Row label="Status" value={phase.rera.status} />
-                <Row label="Number" value={phase.rera.number || 'not issued'} />
-                <Row label="State" value={phase.rera.state} />
-                <Row label="Valid until" value={formatDate(phase.rera.validUntil)} />
+              <>
+                <dl className="space-y-1.5 text-xs">
+                  <Row label="Status" value={phase.rera.status} />
+                  <Row label="Number" value={phase.rera.number || 'not issued'} />
+                  <Row label="State" value={phase.rera.state} />
+                  <Row label="Valid until" value={formatDate(phase.rera.validUntil)} />
+                </dl>
+                {/* Outside the list: a `dl` admits only `dt`, `dd` and wrappers
+                    of them, and a verification link is neither. */}
                 {phase.rera.portalUrl && (
-                  <div className="pt-1">
-                    <a
-                      href={phase.rera.portalUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[var(--text-accent)] hover:underline"
-                    >
-                      Verify on the state RERA portal
-                    </a>
-                  </div>
+                  <a
+                    href={phase.rera.portalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-block text-xs text-[var(--text-accent)] underline underline-offset-2"
+                  >
+                    Verify on the state RERA portal
+                  </a>
                 )}
-              </dl>
+              </>
             ) : (
               <p className="text-xs text-[var(--text-muted)]">
                 No RERA record on file for this phase. That absence is itself treated as a legal
@@ -476,7 +478,7 @@ export default async function PropertyPage({ params }: Params) {
           </div>
           <Link
             href={`/compare?ids=${[property.id, ...alternatives.map((a) => a.property.id)].join(',')}`}
-            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
+            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
           >
             Open all in the Decision Room
           </Link>
@@ -522,13 +524,17 @@ const Section = ({
   </section>
 );
 
+// Only `dt` and `dd` may sit inside a `dl`'s wrapper div, so the hint rides
+// inside the `dd` rather than as a sibling paragraph.
 const HeaderStat = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
   <div>
     <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label}</dt>
-    <dd data-figure className="mt-0.5 text-sm font-semibold">
-      {value}
+    <dd className="mt-0.5">
+      <span data-figure className="block text-sm font-semibold">
+        {value}
+      </span>
+      {hint && <span className="block text-[10px] text-[var(--text-muted)]">{hint}</span>}
     </dd>
-    {hint && <p className="text-[10px] text-[var(--text-muted)]">{hint}</p>}
   </div>
 );
 

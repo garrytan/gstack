@@ -272,7 +272,7 @@ export default async function DocumentCheckPage({ params }: { params: Promise<{ 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <Link
           href={`/document-ai?kind=${documentKind}`}
-          className="inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
+          className="inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
         >
           Run these checks
         </Link>

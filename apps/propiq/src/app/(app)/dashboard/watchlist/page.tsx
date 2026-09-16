@@ -33,7 +33,7 @@ export default async function WatchlistPage() {
           </p>
           <Link
             href="/login"
-            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
+            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
           >
             Sign in
           </Link>
@@ -63,7 +63,7 @@ export default async function WatchlistPage() {
           </p>
           <Link
             href="/search"
-            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
+            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
           >
             Start searching
           </Link>

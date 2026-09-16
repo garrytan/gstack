@@ -346,7 +346,7 @@ const EmptyRoom = () => (
     </p>
     <Link
       href="/search"
-      className="mt-6 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
+      className="mt-6 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
     >
       Find properties to compare
     </Link>

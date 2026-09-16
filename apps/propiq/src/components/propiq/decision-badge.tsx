@@ -41,8 +41,10 @@ export const DecisionBadge = ({
     >
       <Icon aria-hidden className={size === 'lg' ? 'size-4' : 'size-3'} />
       {DECISION_LABELS[decision]}
+      {/* `opacity-80` dragged this figure to 3.22:1 against the badge tint. The
+          secondary token is already a tested value on this surface. */}
       {confidence !== undefined && (
-        <span data-figure className="font-normal opacity-80">
+        <span data-figure className="font-normal text-[var(--text-secondary)]">
           {Math.round(confidence * 100)}%
         </span>
       )}
