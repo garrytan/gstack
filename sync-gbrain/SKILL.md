@@ -513,6 +513,13 @@ BEFORE invoking the orchestrator:
   slow (cold pooler connection, #1964). Tell the user in one line: "Engine
   probe timed out (>15s) — proceeding; raise `GSTACK_GBRAIN_PROBE_TIMEOUT_MS`
   if your pooler is slow." Do NOT treat this as a broken config.
+- **`network-isolated`**: STOP for the local stages, but do NOT treat this as
+  a broken config. This environment has no working DNS (an agent sandbox,
+  restricted CI, or an offline laptop), so the engine is unreachable from here
+  and its real health is unknown. The code, memory, and dream stages SKIP with
+  a network-isolated reason; the brain-sync push still runs. Tell the user in
+  one line: "No DNS in this environment — local gbrain stages skipped; re-run
+  with network access. Raising `GSTACK_GBRAIN_PROBE_TIMEOUT_MS` will not help."
 - **`thin-client`**: proceed to Step 2 — this machine is a thin client of a
   remote-HTTP MCP brain (#2051): no local engine BY DESIGN, so the code,
   memory, and dream stages will SKIP with a thin-client reason (code indexing
