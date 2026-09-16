@@ -90,6 +90,12 @@ if [ -z "$FREEZE_DIR" ]; then
   exit 0
 fi
 
+# The state file may hold a Windows-native boundary (C:\dev\proj\src\) or the
+# POSIX form the /freeze setup writes via `pwd` (/c/dev/proj/src/). Canonicalize
+# it so both sides of the comparison below speak one path dialect.
+gstack_hook_normalize_path "$FREEZE_DIR"
+FREEZE_DIR="$GSTACK_HOOK_PATH"
+
 # Extract file_path from tool_input with the shared real-JSON parser.
 set +e
 FILE_PATH=$(gstack_hook_extract_field "$INPUT" file_path)
@@ -111,16 +117,31 @@ if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
 
+# Canonicalize the tool-supplied path BEFORE the absolute test below. On
+# Windows, Claude Code hands Edit/Write a native absolute path
+# (C:\dev\proj\file.py) which `/*` does not match, so the hook prepended cwd and
+# compared ".../worktrees/lane/C:\dev\proj\file.py" against the boundary —
+# denying EVERY edit, including the files inside the frozen directory.
+gstack_hook_normalize_path "$FILE_PATH"
+FILE_PATH="$GSTACK_HOOK_PATH"
+
 # Resolve file_path to absolute if it isn't already
 case "$FILE_PATH" in
-  /*) ;; # already absolute
+  /*) ;; # already absolute (a Windows drive/UNC path is now in /c/... form)
   *)
     FILE_PATH="$(pwd)/$FILE_PATH"
     ;;
 esac
 
-# Normalize: remove double slashes and trailing slash
+# Normalize: remove double slashes and trailing slash. A LEADING '//' is kept:
+# on Windows that is the host in a UNC path (//server/share), and collapsing it
+# would silently repoint the check at a local path.
+_FP_LEAD=""
+case "$FILE_PATH" in
+  //[!/]*) _FP_LEAD="/"; FILE_PATH="${FILE_PATH#/}" ;;
+esac
 FILE_PATH=$(printf '%s' "$FILE_PATH" | sed 's|/\+|/|g;s|/$||')
+FILE_PATH="$_FP_LEAD$FILE_PATH"
 
 # Resolve symlinks and .. sequences (POSIX-portable, works on macOS).
 # The FULL path is resolved, including the FINAL component: the previous
@@ -143,7 +164,15 @@ _resolve_path() {
   _dir="$(dirname "$_p")"
   _base="$(basename "$_p")"
   _dir="$(cd "$_dir" 2>/dev/null && pwd -P || printf '%s' "$_dir")"
-  printf '%s/%s' "$_dir" "$_base"
+  # `pwd -P` answers in the platform's own dialect (a Cygwin bash says
+  # /cygdrive/c/...), so canonicalize once more before the caller compares.
+  # Join without doubling the slash: dirname of "/x" is "/", and "//x" would
+  # then read as a UNC host prefix.
+  case "$_dir" in
+    */) gstack_hook_normalize_path "$_dir$_base" ;;
+    *) gstack_hook_normalize_path "$_dir/$_base" ;;
+  esac
+  printf '%s' "$GSTACK_HOOK_PATH"
 }
 FILE_PATH=$(_resolve_path "$FILE_PATH")
 FREEZE_DIR=$(_resolve_path "$FREEZE_DIR")

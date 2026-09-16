@@ -831,6 +831,94 @@ describe('check-freeze.sh', () => {
     });
   });
 
+  describe('Windows-native path forms', () => {
+    // Claude Code on Windows hands Edit/Write a drive-letter absolute path.
+    // The hook's POSIX `/*` absolute test never matched one, so cwd was
+    // prepended and the boundary check ran against the mangled
+    // ".../worktrees/lane/C:\dev\proj\validation_ui/ref_picker.py" — a hard
+    // DENY on every edit, including files sitting inside the frozen directory
+    // (freeze is fail-closed by design, so the bug had no softer failure mode).
+    // Detection of the drive-letter and UNC shapes is lexical, so all of these
+    // assertions are meaningful on POSIX CI too — which is where they must be,
+    // since this file is excluded from the curated windows-latest lane.
+    const allowed = (r: { exitCode: number; output: any }) => {
+      expect(r.exitCode).toBe(0);
+      expect(r.output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    };
+    const denied = (r: { exitCode: number; output: any }) => {
+      expect(r.exitCode).toBe(0);
+      expect(r.output.hookSpecificOutput?.permissionDecision).toBe('deny');
+    };
+    const check = (boundary: string, filePath: string, stateDir: string) =>
+      runHook(FREEZE_SCRIPT, freezeInput(filePath), { CLAUDE_PLUGIN_DATA: stateDir });
+
+    test('a drive-letter path inside a POSIX-form boundary allows', () => {
+      // The exact lane-86bbh3966 repro: /freeze writes the boundary via `pwd`
+      // (POSIX form), the tool reports the file in native form.
+      withFreezeDir('/c/dev/proj/validation_ui/', (stateDir) => {
+        allowed(check('/c/dev/proj/validation_ui/', 'C:\\dev\\proj\\validation_ui\\ref_picker.py', stateDir));
+      });
+    });
+
+    test('a drive-letter path outside a POSIX-form boundary still denies', () => {
+      withFreezeDir('/c/dev/proj/validation_ui/', (stateDir) => {
+        denied(check('/c/dev/proj/validation_ui/', 'C:\\dev\\proj\\kg\\loader.py', stateDir));
+      });
+    });
+
+    test('a boundary stored in native Windows form matches a native path', () => {
+      withFreezeDir('C:\\dev\\proj\\validation_ui\\', (stateDir) => {
+        allowed(check('C:\\dev\\proj\\validation_ui\\', 'C:\\dev\\proj\\validation_ui\\ref_picker.py', stateDir));
+        denied(check('C:\\dev\\proj\\validation_ui\\', 'C:\\dev\\proj\\kg\\loader.py', stateDir));
+      });
+    });
+
+    test('separator style and drive-letter case do not decide the outcome', () => {
+      withFreezeDir('c:/dev/proj/src/', (stateDir) => {
+        allowed(check('c:/dev/proj/src/', 'C:\\dev\\proj\\src\\a.py', stateDir));
+      });
+      withFreezeDir('C:\\dev\\proj\\src\\', (stateDir) => {
+        allowed(check('C:\\dev\\proj\\src\\', 'c:/dev/proj/src/a.py', stateDir));
+      });
+    });
+
+    test('the trailing-slash rule survives normalization (src vs src-old)', () => {
+      withFreezeDir('C:\\dev\\proj\\src\\', (stateDir) => {
+        denied(check('C:\\dev\\proj\\src\\', 'C:\\dev\\proj\\src-old\\a.py', stateDir));
+      });
+    });
+
+    test('a UNC path keeps its host: same share allows, another share denies', () => {
+      // The doubled leading slash is meaningful — collapsing it would compare a
+      // local path against a network boundary.
+      withFreezeDir('\\\\server\\share\\proj\\', (stateDir) => {
+        allowed(check('\\\\server\\share\\proj\\', '\\\\server\\share\\proj\\a.py', stateDir));
+        denied(check('\\\\server\\share\\proj\\', '\\\\server\\other\\proj\\a.py', stateDir));
+      });
+    });
+
+    test.skipIf(process.platform === 'win32')(
+      'a POSIX filename containing backslashes is NOT read as a path separator',
+      () => {
+        // On a real POSIX filesystem '\' is a legal filename character. Rewriting
+        // separators there would turn this ONE in-boundary file into
+        // <base>/etc/passwd and flip an allow into a deny (or worse, the reverse
+        // for a name that climbs back in). Only Windows bash rewrites a path with
+        // no drive-letter or UNC shape.
+        const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-bslash-'));
+        const boundary = path.join(base, 'boundary');
+        fs.mkdirSync(boundary, { recursive: true });
+        try {
+          withFreezeDir(boundary + '/', (stateDir) => {
+            allowed(check(boundary + '/', path.join(boundary, 'a\\..\\..\\etc\\passwd'), stateDir));
+          });
+        } finally {
+          fs.rmSync(base, { recursive: true, force: true });
+        }
+      },
+    );
+  });
+
   describe('no freeze file exists', () => {
     test('allows everything when no freeze file present', () => {
       const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-test-'));

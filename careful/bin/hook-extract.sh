@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hook-extract.sh — SHARED JSON helpers for gstack PreToolUse hooks.
+# hook-extract.sh — SHARED JSON + path helpers for gstack PreToolUse hooks.
 # Sourced (never executed) by careful/bin/check-careful.sh and
 # freeze/bin/check-freeze.sh via a path relative to each hook script.
 #
@@ -30,6 +30,93 @@ sys.stdout.write(c if isinstance(c, str) else "")' "$_ghef_field" 2>/dev/null &&
     printf '%s' "$_ghef_payload" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const c=(j&&j.tool_input&&j.tool_input[process.argv[1]])||"";process.stdout.write(typeof c==="string"?c:"")}catch(e){process.exit(3)}})' "$_ghef_field" 2>/dev/null && return 0
   fi
   return 1
+}
+
+# Windows bash detection, computed once at source time from bash's own OSTYPE
+# (msys / cygwin / win32). Read from the shell instead of shelling out to
+# `uname`: careful sources this file on EVERY Bash tool call, and the check
+# must not cost a fork.
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win32*) GSTACK_HOOK_IS_WINDOWS=1 ;;
+  *) GSTACK_HOOK_IS_WINDOWS=0 ;;
+esac
+
+# Static alphabet pair for zero-fork single-letter lowercasing. `${v,,}` is
+# bash 4 and macOS still ships bash 3.2, so index into these instead.
+_GSTACK_HOOK_AZ_UPPER=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+_GSTACK_HOOK_AZ_LOWER=abcdefghijklmnopqrstuvwxyz
+GSTACK_HOOK_PATH=""
+
+# gstack_hook_normalize_path PATH
+#   Canonicalizes a tool-supplied path into the POSIX form the hooks compare
+#   in, leaving the result in GSTACK_HOOK_PATH. Windows-shaped paths are
+#   rewritten; anything else is passed through untouched:
+#
+#     C:\dev\x       -> /c/dev/x     (drive letter lowercased, \ -> /)
+#     c:/dev/x       -> /c/dev/x     (mixed separators, either drive case)
+#     \\srv\sh\x     -> //srv/sh/x   (UNC host prefix preserved)
+#     /cygdrive/c/x  -> /c/x         (Cygwin mount prefix names the same drive)
+#     /C/dev/x       -> /c/dev/x     (Windows only — see below)
+#
+#   Why this exists: Claude Code on Windows always hands Edit/Write a
+#   drive-letter absolute path, which a POSIX leading-'/' test does not
+#   recognise as absolute. freeze joined it onto cwd and compared the mangled
+#   result against the boundary, so EVERY edit was denied — including files
+#   sitting inside the frozen directory.
+#
+#   Result-in-a-variable, not stdout: this runs inside a PreToolUse hook whose
+#   stdout IS the decision channel, and a `$(...)` call site would cost a fork
+#   per invocation. Process creation under Windows bash measures ~0.7s here, so
+#   the whole function is builtins-only — no tr, no cut, no subshell.
+#
+#   The drive-letter and UNC shapes are detected lexically, so that rewrite is
+#   identical on every platform (and therefore testable off Windows). A path
+#   with no Windows shape only has its separators rewritten when running on a
+#   Windows bash, because on a real POSIX filesystem '\' is a LEGAL filename
+#   character: rewriting it there would turn one in-boundary file named
+#   'b\..\..\etc\x' into the out-of-boundary path /etc/x and flip a decision
+#   this hook is supposed to make on the literal name.
+gstack_hook_normalize_path() {
+  GSTACK_HOOK_PATH="$1"
+  case "$GSTACK_HOOK_PATH" in
+    [A-Za-z]:[\\/]*|[A-Za-z]:|\\\\?*) ;; # Windows-absolute: always normalize
+    *)
+      [ "${GSTACK_HOOK_IS_WINDOWS:-0}" = 1 ] || return 0
+      ;;
+  esac
+  GSTACK_HOOK_PATH="${GSTACK_HOOK_PATH//\\//}"
+  case "$GSTACK_HOOK_PATH" in
+    //[!/]*) ;; # UNC //server/share — the doubled leading slash is meaningful
+    [A-Za-z]:/*|[A-Za-z]:)
+      _ghnp_d="${GSTACK_HOOK_PATH%%:*}"
+      # Lowercase the drive letter only when it really is an uppercase ASCII
+      # letter: a locale where [A-Z] also collates lowercase would otherwise
+      # index past the alphabet and blank the drive out of the path entirely.
+      _ghnp_pre="${_GSTACK_HOOK_AZ_UPPER%%"$_ghnp_d"*}"
+      if [ "$_ghnp_pre" != "$_GSTACK_HOOK_AZ_UPPER" ]; then
+        _ghnp_d="${_GSTACK_HOOK_AZ_LOWER:${#_ghnp_pre}:1}"
+      fi
+      GSTACK_HOOK_PATH="/$_ghnp_d${GSTACK_HOOK_PATH#?:}"
+      ;;
+  esac
+  case "$GSTACK_HOOK_PATH" in
+    /cygdrive/[A-Za-z]/*|/cygdrive/[A-Za-z]) GSTACK_HOOK_PATH="/${GSTACK_HOOK_PATH#/cygdrive/}" ;;
+  esac
+  # On Windows /C/dev and /c/dev name the same location; off Windows '/C' is an
+  # ordinary directory name and must keep its case.
+  if [ "${GSTACK_HOOK_IS_WINDOWS:-0}" = 1 ]; then
+    case "$GSTACK_HOOK_PATH" in
+      /[ABCDEFGHIJKLMNOPQRSTUVWXYZ]/*|/[ABCDEFGHIJKLMNOPQRSTUVWXYZ])
+        _ghnp_d="${GSTACK_HOOK_PATH#/}"
+        _ghnp_d="${_ghnp_d%%/*}"
+        _ghnp_pre="${_GSTACK_HOOK_AZ_UPPER%%"$_ghnp_d"*}"
+        if [ "$_ghnp_pre" != "$_GSTACK_HOOK_AZ_UPPER" ]; then
+          GSTACK_HOOK_PATH="/${_GSTACK_HOOK_AZ_LOWER:${#_ghnp_pre}:1}${GSTACK_HOOK_PATH#/?}"
+        fi
+        ;;
+    esac
+  fi
+  return 0
 }
 
 # gstack_hook_json_string TEXT
