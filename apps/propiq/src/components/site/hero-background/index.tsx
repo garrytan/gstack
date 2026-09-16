@@ -10,10 +10,8 @@
  * The composition follows the supplied reference — ambient glow top-right, a
  * large translucent organic form left-of-centre with an internal highlight, a
  * faceted polygon behind the headline, a crystal bottom-right, orbital vector
- * lines, a particle field, fine grain and an edge vignette. The reference is
- * teal with a chartreuse accent; this is PropIQ, so the same structure is
- * rendered in the brand's blue, cyan and violet on the product's own #070b16
- * ground. Structure copied, identity kept.
+ * lines, a particle field, fine grain and an edge vignette, on the deep-teal
+ * ground with mint as the only hue that pops.
  *
  * Every layer is decorative: `aria-hidden`, `pointer-events-none`, and stacked
  * on negative z-indices inside an `isolate` container so nothing escapes into
@@ -37,10 +35,10 @@ const AmbientGlow = () => (
       className="absolute inset-0 -z-10"
       style={{
         background:
-          'radial-gradient(circle at 78% 18%, rgba(66, 201, 232, 0.30), transparent 34%),' +
-          'radial-gradient(circle at 70% 72%, rgba(47, 107, 221, 0.24), transparent 36%),' +
-          'radial-gradient(circle at 27% 50%, rgba(109, 85, 217, 0.18), transparent 48%),' +
-          'linear-gradient(110deg, #070b16 0%, #070d1c 38%, #0b1730 70%, #070b16 100%)',
+          'radial-gradient(circle at 78% 18%, rgba(79, 209, 197, 0.30), transparent 34%),' +
+          'radial-gradient(circle at 70% 72%, rgba(43, 167, 155, 0.24), transparent 36%),' +
+          'radial-gradient(circle at 27% 50%, rgba(79, 209, 197, 0.12), transparent 48%),' +
+          'linear-gradient(110deg, #0a2a2b 0%, #0c3233 38%, #134847 70%, #0a2a2b 100%)',
       }}
     />
     {/* Large atmospheric bloom behind the upper right, blurred past any edge. */}
@@ -48,7 +46,7 @@ const AmbientGlow = () => (
       className="propiq-hero-breathe absolute -right-[5%] -top-[5%] -z-[9] size-[720px] max-w-[110vw] rounded-full blur-[70px] lg:size-[820px]"
       style={{
         background:
-          'radial-gradient(circle, rgba(66,201,232,.30) 0%, rgba(47,107,221,.14) 30%, transparent 67%)',
+          'radial-gradient(circle, rgba(79,209,197,.28) 0%, rgba(43,167,155,.12) 30%, transparent 67%)',
       }}
     />
     {/* Low diffused light under the lower right. */}
@@ -56,7 +54,7 @@ const AmbientGlow = () => (
       className="absolute -bottom-[8%] right-[2%] -z-[9] size-[520px] max-w-[110vw] rounded-full blur-[90px] lg:size-[660px]"
       style={{
         background:
-          'radial-gradient(circle, rgba(47,107,221,.22) 0%, rgba(20,165,201,.10) 40%, transparent 70%)',
+          'radial-gradient(circle, rgba(79,209,197,.20) 0%, rgba(43,167,155,.09) 40%, transparent 70%)',
       }}
     />
     {/* Halo behind where the intelligence cards sit, so the panel reads as lit
@@ -64,7 +62,7 @@ const AmbientGlow = () => (
     <div
       className="absolute right-[3%] top-[6%] -z-[9] hidden size-[480px] rounded-full blur-[60px] lg:block"
       style={{
-        background: 'radial-gradient(circle, rgba(35,180,220,.18), transparent 68%)',
+        background: 'radial-gradient(circle, rgba(79,209,197,.16), transparent 68%)',
       }}
     />
   </>
@@ -132,13 +130,13 @@ const OrbitalLines = () => (
   >
     <path
       d="M 15 48 C 28 40, 42 52, 57 44"
-      stroke="rgba(130,185,255,.42)"
+      stroke="rgba(120,230,220,.40)"
       strokeWidth="1"
       vectorEffect="non-scaling-stroke"
     />
     <path
       d="M 12 56 C 30 49, 46 60, 62 51"
-      stroke="rgba(100,220,250,.26)"
+      stroke="rgba(79,209,197,.24)"
       strokeWidth="0.8"
       vectorEffect="non-scaling-stroke"
     />
@@ -160,11 +158,11 @@ const LeftPolygon = () => (
     viewBox="0 0 200 200"
     fill="none"
   >
-    <polygon points="100,18 168,62 132,104 76,84" fill="#4a3f7d" fillOpacity="0.62" />
-    <polygon points="76,84 132,104 118,168 54,132" fill="#2a4676" fillOpacity="0.56" />
-    <polygon points="168,62 186,128 118,168 132,104" fill="#2c4a5e" fillOpacity="0.5" />
-    <polygon points="100,18 76,84 22,58 58,26" fill="#8a6a3c" fillOpacity="0.34" />
-    <polygon points="22,58 76,84 54,132 14,104" fill="#1c3350" fillOpacity="0.62" />
+    <polygon points="100,18 168,62 132,104 76,84" fill="#1b5a58" fillOpacity="0.62" />
+    <polygon points="76,84 132,104 118,168 54,132" fill="#134847" fillOpacity="0.56" />
+    <polygon points="168,62 186,128 118,168 132,104" fill="#2ba79b" fillOpacity="0.5" />
+    <polygon points="100,18 76,84 22,58 58,26" fill="#3f6f5c" fillOpacity="0.34" />
+    <polygon points="22,58 76,84 54,132 14,104" fill="#0a2a2b" fillOpacity="0.62" />
   </svg>
 );
 
@@ -177,10 +175,10 @@ const BottomCrystal = () => (
     viewBox="0 0 160 160"
     fill="none"
   >
-    <polygon points="80,10 146,54 112,92 44,68" fill="#2274b8" fillOpacity="0.42" />
-    <polygon points="44,68 112,92 96,146 30,110" fill="#1f5f9d" fillOpacity="0.34" />
-    <polygon points="146,54 154,112 96,146 112,92" fill="#236072" fillOpacity="0.26" />
-    <polygon points="80,10 44,68 8,44 40,20" fill="#15455f" fillOpacity="0.3" />
+    <polygon points="80,10 146,54 112,92 44,68" fill="#2ba79b" fillOpacity="0.42" />
+    <polygon points="44,68 112,92 96,146 30,110" fill="#1b5a58" fillOpacity="0.34" />
+    <polygon points="146,54 154,112 96,146 112,92" fill="#4fd1c5" fillOpacity="0.26" />
+    <polygon points="80,10 44,68 8,44 40,20" fill="#134847" fillOpacity="0.3" />
   </svg>
 );
 
@@ -203,8 +201,8 @@ const OrganicBlob = () => (
     style={{
       borderRadius: '68% 32% 58% 42% / 38% 62% 38% 62%',
       background:
-        'linear-gradient(135deg, rgba(47,107,221,.62) 0%, rgba(20,165,201,.56) 45%, rgba(109,85,217,.34) 100%)',
-      filter: 'drop-shadow(0 0 90px rgba(66,201,232,.22))',
+        'linear-gradient(135deg, rgba(27,90,88,.85) 0%, rgba(43,167,155,.58) 45%, rgba(79,209,197,.34) 100%)',
+      filter: 'drop-shadow(0 0 90px rgba(79,209,197,.22))',
     }}
   >
     {/* Inner rim light: brighter along the upper-right surface. */}
@@ -213,8 +211,8 @@ const OrganicBlob = () => (
       style={{
         borderRadius: 'inherit',
         background:
-          'radial-gradient(ellipse 60% 55% at 72% 30%, rgba(140,230,250,.42), transparent 62%),' +
-          'radial-gradient(ellipse 72% 66% at 16% 70%, rgba(5,8,18,.62), transparent 68%)',
+          'radial-gradient(ellipse 60% 55% at 72% 30%, rgba(150,245,235,.42), transparent 62%),' +
+          'radial-gradient(ellipse 72% 66% at 16% 70%, rgba(6,26,27,.66), transparent 68%)',
       }}
     />
   </div>
@@ -230,9 +228,9 @@ const BlobLight = () => (
   <div
     className="absolute left-[calc(35%+318px)] top-[calc(18%+150px)] -z-[3] hidden size-[30px] rounded-full blur-[7px] lg:block"
     style={{
-      background: 'rgba(225,248,255,.78)',
+      background: 'rgba(230,255,250,.80)',
       boxShadow:
-        '0 0 10px rgba(225,248,255,.7), 0 0 28px rgba(66,201,232,.4), 0 0 65px rgba(47,107,221,.18)',
+        '0 0 10px rgba(230,255,250,.7), 0 0 28px rgba(79,209,197,.45), 0 0 65px rgba(43,167,155,.2)',
     }}
   />
 );
@@ -264,8 +262,8 @@ const MobileBlob = () => (
     style={{
       borderRadius: '68% 32% 58% 42% / 38% 62% 38% 62%',
       background:
-        'linear-gradient(135deg, rgba(47,107,221,.46) 0%, rgba(20,165,201,.38) 45%, rgba(109,85,217,.22) 100%)',
-      filter: 'drop-shadow(0 0 50px rgba(66,201,232,.12))',
+        'linear-gradient(135deg, rgba(27,90,88,.78) 0%, rgba(43,167,155,.46) 45%, rgba(79,209,197,.24) 100%)',
+      filter: 'drop-shadow(0 0 50px rgba(79,209,197,.14))',
     }}
   />
 );

@@ -56,7 +56,7 @@ export const PARTICLES: readonly Particle[] = [
 ];
 
 export const PARTICLE_COLOR: Readonly<Record<Particle['hue'], string>> = {
-  cyan: 'rgba(91, 141, 239, 1)',
-  white: 'rgba(255, 255, 255, 1)',
-  aqua: 'rgba(66, 201, 232, 1)',
+  cyan: 'rgba(79, 209, 197, 1)',
+  white: 'rgba(238, 245, 240, 1)',
+  aqua: 'rgba(122, 231, 221, 1)',
 };

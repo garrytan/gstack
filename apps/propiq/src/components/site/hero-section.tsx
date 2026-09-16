@@ -30,7 +30,7 @@ export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }
         pulled back on the left and released on the right. */}
     <div
       aria-hidden
-      className="absolute inset-0 -z-10 bg-gradient-to-r from-[#070b16]/72 via-[#070b16]/30 to-transparent"
+      className="absolute inset-0 -z-10 bg-gradient-to-r from-[#0a2a2b]/78 via-[#0a2a2b]/34 to-transparent"
     />
 
     <div className="relative mx-auto grid max-w-7xl gap-10 px-4 pb-28 pt-16 lg:min-h-[860px] lg:pb-32 lg:grid-cols-[minmax(0,44fr)_minmax(0,56fr)] lg:items-center lg:py-20">

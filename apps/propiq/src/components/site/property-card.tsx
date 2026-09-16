@@ -24,10 +24,21 @@ const DECISION_COLOR: Readonly<Record<Decision, string>> = {
   INSUFFICIENT_EVIDENCE: 'var(--color-unknown)',
 };
 
-/** A stable, per-property gradient so cards are distinguishable at a glance. */
+/**
+ * A stable, per-property gradient so cards are distinguishable at a glance.
+ *
+ * Kept inside the teal band rather than walking the whole hue wheel. A row of
+ * cards in magenta, amber and lime was the only saturated colour on the page
+ * and it read as decoration competing with the data; varying lightness and a
+ * mint lean says "these are different properties" without introducing five
+ * more brand colours.
+ */
 const artFor = (id: string): string => {
   const hash = [...id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
-  return `linear-gradient(135deg, hsl(${hash} 55% 32%), hsl(${(hash + 48) % 360} 62% 22%))`;
+  // 168–186deg spans deep teal to mint. Lightness carries the variation.
+  const hue = 168 + (hash % 19);
+  const light = 16 + (hash % 11);
+  return `linear-gradient(135deg, hsl(${hue} 42% ${light + 9}%), hsl(${hue + 6} 55% ${light}%))`;
 };
 
 export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {

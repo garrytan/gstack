@@ -34,19 +34,29 @@
      the company change colour. One identity, one accent. `accent-ink` is the
      variant for accent-as-text on a light ground, where the 500 sits at 2.6:1
      and fails outright. */
-  --color-accent-400: #5b8def;
-  --color-accent-500: #2f6bdd;
-  --color-accent-600: #1f4fb0;
-  --color-accent-ink: #1f4fb0;
+  --color-accent-400: #6fdcd2;
+  --color-accent-500: #4fd1c5;
+  --color-accent-600: #2ba79b;
+  /* Mint is a light hue: on paper it sits near 1.8:1 and is unreadable as
+     text. `-ink` is the same hue taken down far enough to clear 4.5:1 there. */
+  --color-accent-ink: #14655e;
 
-  /* PropIQ brand: blue, cyan, violet. The infinity-loop identity reads as a
-     spectrum rather than a single hue, so the palette carries all three and
-     the gradients below move between them. */
-  --color-brand-blue-400: #5b8def;
-  --color-brand-blue-500: #2f6bdd;
-  --color-brand-blue-600: #1f4fb0;
-  --color-brand-cyan-400: #42c9e8;
-  --color-brand-cyan-500: #14a5c9;
+  /* The deep-teal surface ramp. The marketing surface is a single dark world
+     built on these, with mint as the only hue that ever pops. */
+  --color-teal-950: #0a2a2b;
+  --color-teal-900: #0f3d3e;
+  --color-teal-800: #134847;
+  --color-teal-700: #1b5a58;
+  --color-cream: #eef5f0;
+
+  /* PropIQ brand. The ramp above is the identity now; these three names stay
+     because gradients and accents across the app reference them, and they all
+     resolve into the teal/mint world so there is still exactly one palette. */
+  --color-brand-blue-400: #6fdcd2;
+  --color-brand-blue-500: #4fd1c5;
+  --color-brand-blue-600: #2ba79b;
+  --color-brand-cyan-400: #7ae7dd;
+  --color-brand-cyan-500: #4fd1c5;
   --color-brand-violet-400: #8b7cf0;
   --color-brand-violet-500: #6d55d9;
   --color-brand-ink: #0a1020;
@@ -72,7 +82,7 @@
   --color-unknown: #6b7383;
 
   --color-buy-ink: #1f7a4a;
-  --color-negotiate-ink: #8a6414;
+  --color-negotiate-ink: #6f5010;
   --color-watch-ink: #3a648f;
   --color-avoid-ink: #a83f39;
   --color-unknown-ink: #575e6d;
@@ -91,10 +101,10 @@
   /* #7c8598 sat at 3.45:1 on this surface — 215 failing nodes across the app
      before anyone scanned it. */
   --text-muted: #5a6980;
-  /* Brand blue as *text*. The 500 clears 4.5:1 on paper and fails on ink, so
-     dark subtrees lift it to the 400. Backgrounds keep using the 500 either
-     way — white on the 400 is the pairing that fails. */
-  --text-accent: var(--color-brand-blue-500);
+  /* The accent as *text*. Mint is a light hue: it reads on a dark ground and
+     sits near 1.8:1 on paper, so light surfaces take the ink variant and dark
+     subtrees take the 500. Mint as a *fill* always carries dark text. */
+  --text-accent: var(--color-accent-ink);
 
   /* Verdicts on a light ground take the ink set, exactly as `.propiq-site`
      does. The dark block below puts the bright set back. */
@@ -654,21 +664,26 @@ body:has(.propiq-canvas) > footer {
 --------------------------------------------------------------------------- */
 
 .propiq-site {
-  --surface-0: var(--color-paper-0);
-  --surface-1: var(--color-paper-1);
-  --surface-2: var(--color-paper-2);
-  --border-subtle: var(--color-paper-line);
-  --border-strong: #cbd5e4;
-  --text-primary: #0d1524;
-  --text-secondary: #46536a;
-  --text-muted: #5a6980;
-  --text-accent: var(--color-brand-blue-500);
+  --surface-0: var(--color-teal-900);
+  --surface-1: var(--color-teal-800);
+  --surface-2: var(--color-teal-700);
+  --border-subtle: rgba(238, 245, 240, 0.1);
+  --border-strong: rgba(238, 245, 240, 0.2);
+  --text-primary: var(--color-cream);
+  --text-secondary: rgba(238, 245, 240, 0.7);
+  --text-muted: rgba(238, 245, 240, 0.62);
+  --text-accent: var(--color-accent-500);
 
-  --color-buy: var(--color-buy-ink);
-  --color-negotiate: var(--color-negotiate-ink);
-  --color-watch: var(--color-watch-ink);
-  --color-avoid: var(--color-avoid-ink);
-  --color-unknown: var(--color-unknown-ink);
+  /* A third verdict set, for the teal ground.
+
+     The bright set was tuned against a near-black #070b16; teal-900 is a
+     markedly lighter ground, so the same greens and ambers land around 3.0–3.5:1
+     on it. These are the same five meanings lifted until they clear 4.5:1 here. */
+  --color-buy: #5ee6a8;
+  --color-negotiate: #f5c563;
+  --color-watch: #8cc3ef;
+  --color-avoid: #ff9189;
+  --color-unknown: #b3bdc9;
 
   background: var(--surface-0);
   color: var(--text-primary);
@@ -684,21 +699,26 @@ body[data-dock='on'] .propiq-site {
    tokens for a subtree so every component inside renders correctly without
    knowing which side of the page it landed on. */
 .propiq-dark {
-  --surface-0: #070b16;
-  --surface-1: #0d1424;
-  --surface-2: #151e33;
-  --border-subtle: #1e2942;
-  --border-strong: #2c3a58;
-  --text-primary: #f3f6fb;
-  --text-secondary: #a8b4cb;
-  --text-muted: #8e9ab2;
-  --text-accent: var(--color-brand-blue-400);
+  --surface-0: var(--color-teal-950);
+  --surface-1: var(--color-teal-900);
+  --surface-2: var(--color-teal-800);
+  --border-subtle: rgba(238, 245, 240, 0.1);
+  --border-strong: rgba(238, 245, 240, 0.2);
+  --text-primary: var(--color-cream);
+  --text-secondary: rgba(238, 245, 240, 0.7);
+  --text-muted: rgba(238, 245, 240, 0.62);
+  --text-accent: var(--color-accent-500);
 
-  --color-buy: #2f9e63;
-  --color-negotiate: #d9a133;
-  --color-watch: #4a7fb5;
-  --color-avoid: #c4524b;
-  --color-unknown: #8b93a3;
+  /* A third verdict set, for the teal ground.
+
+     The bright set was tuned against a near-black #070b16; teal-900 is a
+     markedly lighter ground, so the same greens and ambers land around 3.0–3.5:1
+     on it. These are the same five meanings lifted until they clear 4.5:1 here. */
+  --color-buy: #5ee6a8;
+  --color-negotiate: #f5c563;
+  --color-watch: #8cc3ef;
+  --color-avoid: #ff9189;
+  --color-unknown: #b3bdc9;
 
   background: var(--surface-0);
   color: var(--text-primary);
@@ -871,4 +891,55 @@ body[data-dock='on'] .propiq-site {
     animation: none;
     will-change: auto;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Frosted teal glass.
+
+   Surfaces are separated by a 1px inset hairline ring rather than a border: a
+   border draws a line, a ring reads as an edge catching light, which is what
+   keeps a stack of dark panels legible without hard edges everywhere.
+--------------------------------------------------------------------------- */
+
+.ringline {
+  box-shadow: inset 0 0 0 1px rgba(238, 245, 240, 0.08);
+}
+
+.softcard {
+  box-shadow:
+    inset 0 0 0 1px rgba(238, 245, 240, 0.08),
+    inset 0 1px 0 rgba(238, 245, 240, 0.06),
+    0 24px 60px -28px rgba(0, 0, 0, 0.7);
+}
+
+.dash-shadow {
+  box-shadow:
+    inset 0 0 0 1px rgba(238, 245, 240, 0.08),
+    inset 0 1px 0 rgba(238, 245, 240, 0.06),
+    0 40px 90px -40px rgba(0, 0, 0, 0.75);
+}
+
+.mintglow {
+  box-shadow: 0 10px 30px -10px rgba(79, 209, 197, 0.5);
+}
+
+/* The mint bloom field, reused behind the hero and the closing call. Two
+   radials of very different strength plus a top wash, so no single edge ever
+   reads as a circle sitting on a flat ground. */
+.grain {
+  background-image:
+    radial-gradient(120% 90% at 82% -12%, rgba(79, 209, 197, 0.18), transparent 60%),
+    radial-gradient(90% 70% at 6% 4%, rgba(79, 209, 197, 0.07), transparent 62%),
+    linear-gradient(to bottom, rgba(10, 42, 43, 0.55), transparent 45%);
+}
+
+/* A link inside a paragraph or list item is underlined, not merely tinted.
+   Colour alone does not distinguish it for a reader who cannot separate the
+   two hues, which is what axe's link-in-text-block rule is about. Standalone
+   links — nav items, cards, buttons — are excluded: they are not embedded in
+   a block of text, so their boundary is already obvious. */
+p a:not([class*='inline-flex']),
+li a:not([class*='inline-flex']) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
