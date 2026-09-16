@@ -1,229 +1,302 @@
 /**
- * The hero.
+ * The hero: the buyer journey, end to end.
  *
- * Copy is fixed; every figure on it is computed. The floating cards read from
- * the showcase property's real payload, so the score beside the skyline is
- * the same number its detail page renders. Where a figure cannot be computed
- * the card is not shown, rather than shown with a placeholder.
+ * Nine stages from Discover to Monitor, each carrying the one figure that says
+ * how much engine is behind it and naming the constant that figure came from.
  *
- * The proof strip under the calls to action counts the live domain constants
- * — pillars, risk dimensions, document rules — rather than carrying typed
- * numbers that would drift the first time one of those lists changed.
+ * Two rules hold it honest, and both are visible on the page:
+ *
+ *  1. Every figure is the `.length` of a live domain constant, read at render.
+ *     The source line under each card names it, so a reader can go and check.
+ *     A stage cannot advertise more than the engine behind it does, and none
+ *     of it drifts when a list changes.
+ *  2. A stage with no route gets no link and no figure. `Buy` is not built,
+ *     and its card says so in a dashed frame rather than pointing at the
+ *     nearest page that happens to exist. A flow diagram that quietly implies
+ *     coverage it does not have is a fabricated claim, drawn instead of
+ *     written.
  */
 
 import Link from 'next/link';
-import { ArrowRight, ShieldCheck } from 'lucide-react';
-import { DECISION_LABELS } from '@/domain/decision/engine';
+import {
+  ArrowRight,
+  BellRing,
+  Building2,
+  ClipboardCheck,
+  FileCheck2,
+  Gauge,
+  Handshake,
+  Home,
+  LineChart,
+  ScanSearch,
+  ShoppingCart,
+  TrendingUp,
+  Users,
+} from 'lucide-react';
+import { BrandLockup } from '@/components/brand/brand-mark';
+import { RULES } from '@/domain/documents/rules';
+import { CHECKLIST } from '@/domain/visits/checklist';
 import { SCORE_PILLARS } from '@/domain/scoring/types';
 import { RISK_DIMENSIONS } from '@/domain/risk/types';
-import { RULES } from '@/domain/documents/rules';
-import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
-import { GlassMetricCard } from '@/components/site/glass-metric-card';
-import { HeroBackground } from '@/components/site/hero-background';
-import { HeroParallax } from '@/components/site/hero-parallax';
-import { ScoreDial } from '@/components/propiq/score-dial';
-import { Tilt3D } from '@/components/site/tilt-3d';
+import { NEGOTIATION_STATUSES } from '@/domain/negotiation/types';
+import { ALERT_KINDS } from '@/domain/alerts/types';
+import { CURRENT_SCORING_VERSION } from '@/domain/scoring/weights';
+import { SHORTLIST_LIMIT } from '@/components/site/shortlist-limit';
 import type { SiteProperty } from '@/site/types';
 
-const CHIPS = [
-  'PropIQ Score',
-  'Price Intelligence',
-  'Builder Trust',
-  'Risk Analysis',
-  'Locality Insights',
+const DOCUMENT_KINDS = new Set(RULES.flatMap((r) => r.kinds)).size;
+const PERSONAS = Object.keys(CURRENT_SCORING_VERSION.weights).length;
+
+interface Stage {
+  readonly step: string;
+  readonly name: string;
+  readonly figure: string;
+  readonly unit: string;
+  /** The constant the figure was counted from, printed on the card. */
+  readonly source: string;
+  readonly icon: typeof Users;
+  /** Absent when nothing is built behind the stage. */
+  readonly href?: string;
+}
+
+const stages = (propertyHref: string): readonly Stage[] => [
+  {
+    step: '01',
+    name: 'Discover',
+    figure: String(PERSONAS),
+    unit: 'personas weighted',
+    source: 'CURRENT_SCORING_VERSION.weights',
+    icon: Users,
+    href: '/search',
+  },
+  {
+    step: '02',
+    name: 'Verify',
+    figure: String(RULES.length),
+    unit: `rules · ${DOCUMENT_KINDS} doc types`,
+    source: 'RULES',
+    icon: FileCheck2,
+    href: '/document-ai',
+  },
+  {
+    step: '03',
+    name: 'Compare',
+    figure: String(SHORTLIST_LIMIT),
+    unit: 'at once',
+    source: 'SHORTLIST_LIMIT',
+    icon: Building2,
+    href: '/compare',
+  },
+  {
+    step: '04',
+    name: 'Score',
+    figure: String(SCORE_PILLARS.length),
+    unit: 'pillars',
+    source: 'SCORE_PILLARS',
+    icon: Gauge,
+    href: '/methodology',
+  },
+  {
+    step: '05',
+    name: 'Analyze',
+    figure: String(RISK_DIMENSIONS.length),
+    unit: 'risk dimensions',
+    source: 'RISK_DIMENSIONS',
+    icon: ScanSearch,
+    href: propertyHref,
+  },
+  {
+    step: '06',
+    name: 'Visit',
+    figure: String(CHECKLIST.length),
+    unit: 'checklist items',
+    source: 'CHECKLIST',
+    icon: Home,
+    href: `${propertyHref}/visit`,
+  },
+  {
+    step: '07',
+    name: 'Negotiate',
+    figure: String(NEGOTIATION_STATUSES.length),
+    unit: 'offer states',
+    source: 'NEGOTIATION_STATUSES',
+    icon: Handshake,
+    href: `${propertyHref}/negotiate`,
+  },
+  {
+    step: '08',
+    name: 'Buy',
+    figure: '—',
+    unit: 'Not built yet',
+    source: 'no route',
+    icon: ShoppingCart,
+  },
+  {
+    step: '09',
+    name: 'Monitor',
+    figure: String(ALERT_KINDS.length),
+    unit: 'alert kinds',
+    source: 'ALERT_KINDS',
+    icon: BellRing,
+    href: '/dashboard/alerts',
+  },
+];
+
+const PROMISES = [
+  {
+    icon: LineChart,
+    title: 'Data-Driven Decisions',
+    line: 'Less guesswork. More certainty.',
+  },
+  { icon: TrendingUp, title: 'Smarter Real Estate', line: 'From insight to impact.' },
+  { icon: ClipboardCheck, title: 'Stronger Communities', line: 'Cities that grow better.' },
 ] as const;
 
-/** Counted from the engines themselves, so the strip cannot overstate them. */
-const PROOF = [
-  { figure: String(SCORE_PILLARS.length), label: 'scoring pillars' },
-  { figure: String(RISK_DIMENSIONS.length), label: 'risk dimensions' },
-  { figure: String(RULES.length), label: 'document rules' },
-  { figure: '95%', label: 'confidence band' },
-] as const;
+const StageCard = ({ stage }: { stage: Stage }) => {
+  const built = stage.href !== undefined;
+  const Icon = stage.icon;
 
-export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }) => (
-  <section className="propiq-dark relative isolate overflow-hidden">
-    <HeroParallax>
-      <HeroBackground />
-    </HeroParallax>
-    {/* The copy side needs contrast over a moving scene, so the ground is
-        pulled back on the left and released on the right. */}
+  const card = (
     <div
-      aria-hidden
-      className="absolute inset-0 -z-10 bg-gradient-to-r from-[#061c1d]/88 via-[#0a2a2b]/40 to-transparent"
-    />
+      className={[
+        'propiq-stage-card flex h-full flex-col items-center rounded-2xl px-3 pb-4 pt-5 text-center',
+        built ? '' : 'propiq-stage-card--empty',
+      ].join(' ')}
+    >
+      <span
+        className={[
+          'inline-flex size-11 items-center justify-center rounded-xl',
+          built
+            ? 'propiq-iris-gradient text-white'
+            : 'border border-[var(--border-strong)] text-[var(--text-muted)]',
+        ].join(' ')}
+      >
+        <Icon aria-hidden className="size-5" />
+      </span>
 
-    <div className="relative mx-auto grid max-w-7xl gap-12 px-4 pb-24 pt-14 lg:min-h-[820px] lg:grid-cols-[minmax(0,47fr)_minmax(0,53fr)] lg:items-center lg:gap-10 lg:pb-28 lg:pt-16">
-      <div className="propiq-reveal min-w-0">
-        <p className="inline-flex items-center gap-2 rounded-full border border-[var(--color-accent-500)]/30 bg-[var(--color-accent-500)]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-accent-400)]">
-          <ShieldCheck aria-hidden className="size-3.5" />
-          Real estate intelligence
+      <span
+        data-figure
+        className={[
+          'mt-3 inline-flex size-7 items-center justify-center rounded-full text-[11px] font-bold',
+          built
+            ? 'bg-[var(--color-iris-600)] text-white'
+            : 'bg-[var(--surface-2)] text-[var(--text-muted)]',
+        ].join(' ')}
+      >
+        {stage.step}
+      </span>
+
+      <p className="mt-2.5 text-sm font-bold text-[var(--text-primary)]">{stage.name}</p>
+
+      <p className="mt-2 text-[13px] leading-snug text-[var(--text-secondary)]">
+        {built ? (
+          <>
+            <span data-figure className="propiq-iris-text text-lg font-extrabold">
+              {stage.figure}
+            </span>{' '}
+            {stage.unit}
+          </>
+        ) : (
+          <span className="text-[var(--text-muted)]">{stage.unit}</span>
+        )}
+      </p>
+
+      {/* `items-center` on the card shrink-wraps its children, so this needs an
+          explicit full width or a long identifier runs straight past the card
+          edge instead of wrapping inside it. */}
+      <p className="mt-auto w-full pt-3 text-[9px] uppercase leading-tight tracking-[0.08em] text-[var(--text-muted)] [overflow-wrap:anywhere]">
+        <span className="block">Source:</span>
+        <span className="font-medium">{stage.source}</span>
+      </p>
+    </div>
+  );
+
+  return (
+    <li className="w-[152px] shrink-0 snap-start xl:w-auto">
+      {built ? (
+        <Link
+          href={stage.href as string}
+          className="propiq-block-link block h-full rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-iris-600)]"
+        >
+          {card}
+        </Link>
+      ) : (
+        card
+      )}
+    </li>
+  );
+};
+
+export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }) => {
+  const propertyHref = showcase ? `/property/${showcase.slug}` : '/search';
+
+  return (
+    <section className="propiq-hero-light relative isolate overflow-hidden">
+      <div className="relative mx-auto max-w-[1480px] px-4 pb-24 pt-12 sm:pt-14">
+        <p className="mx-auto max-w-2xl text-center text-[10px] font-semibold uppercase leading-relaxed tracking-[0.28em] text-[var(--text-muted)] sm:text-[11px]">
+          Real estate intelligence for a brighter tomorrow
         </p>
 
-        {/* The opening line is the one piece of type on the page that gets to
-            be loud. `clamp` rather than breakpoints so it scales with the
-            viewport instead of stepping at three widths. */}
-        <h1 className="mt-6 font-bold leading-[0.98] tracking-[-0.025em] text-[clamp(2.6rem,6.2vw,4.1rem)]">
-          <span className="block">Find the Right Property.</span>
-          <span className="propiq-hero-accent block">Understand the Opportunity.</span>
+        <div className="mt-7 flex justify-center">
+          <BrandLockup width={230} />
+        </div>
+
+        <h1 className="mt-6 text-center text-[clamp(2.1rem,5.4vw,3.6rem)] font-extrabold leading-[1.04] tracking-[-0.03em]">
+          Property Intelligence <span className="propiq-iris-text">Journey</span>
         </h1>
 
-        <p className="mt-6 max-w-xl text-lg leading-relaxed text-[var(--text-secondary)]">
-          Discover projects, compare locations, benchmark prices, evaluate developers, and uncover
-          investment potential through one intelligent real-estate platform.
+        <p className="mx-auto mt-4 max-w-2xl text-center text-base leading-relaxed text-[var(--text-secondary)] sm:text-lg">
+          From discovery to monitoring, PropIQ turns a property listing into a decision you can
+          argue with — every number sourced, every gap admitted.
         </p>
 
-        <div className="mt-9 flex flex-wrap gap-3">
+        {/* Nine across at xl, a snapping rail below it. The connectors only
+            make sense in one row, so the row is what every width gets. */}
+        <ol className="mt-12 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3 xl:grid xl:grid-cols-9 xl:overflow-visible xl:pb-0">
+          {stages(propertyHref).map((stage) => (
+            <StageCard key={stage.step} stage={stage} />
+          ))}
+        </ol>
+
+        <div className="mt-10 flex justify-center">
           <Link
             href="/search"
-            className="propiq-cta-glow propiq-brand-gradient inline-flex h-13 items-center gap-2 rounded-xl px-7 text-[15px] font-semibold text-white transition-transform hover:-translate-y-0.5"
+            className="propiq-iris-gradient inline-flex h-14 items-center gap-3 rounded-full px-9 text-base font-semibold text-white shadow-[0_18px_40px_-16px_rgba(43,73,200,0.75)] transition-transform hover:-translate-y-0.5"
           >
-            Explore Properties <ArrowRight aria-hidden className="size-4" />
-          </Link>
-          <Link
-            href={showcase ? `/property/${showcase.slug}` : '/search'}
-            className="inline-flex h-13 items-center rounded-xl border border-white/25 bg-white/[0.03] px-7 text-[15px] font-semibold text-white transition-colors hover:border-white/45 hover:bg-white/[0.08]"
-          >
-            Analyze a Property
+            Turn Property Data into Opportunity
+            <span className="inline-flex size-7 items-center justify-center rounded-full bg-white/20">
+              <ArrowRight aria-hidden className="size-4" />
+            </span>
           </Link>
         </div>
 
-        <dl className="mt-10 grid max-w-lg grid-cols-2 gap-x-6 gap-y-5 border-t border-white/10 pt-7 sm:grid-cols-4 sm:gap-x-4">
-          {PROOF.map((item) => (
-            <div key={item.label}>
-              <dt className="sr-only">{item.label}</dt>
-              <dd>
-                <span
-                  data-figure
-                  className="propiq-hero-accent block text-2xl font-bold leading-none"
-                >
-                  {item.figure}
+        <ul className="mx-auto mt-12 flex max-w-4xl flex-col items-stretch justify-center gap-4 sm:flex-row sm:items-center sm:gap-10">
+          {PROMISES.map((p) => {
+            const Icon = p.icon;
+            return (
+              <li key={p.title} className="flex items-center gap-3">
+                <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-[var(--color-iris-100)] text-[var(--color-iris-600)]">
+                  <Icon aria-hidden className="size-5" />
                 </span>
-                <span className="mt-1.5 block text-[11px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                  {item.label}
+                <span>
+                  <span className="block text-sm font-bold text-[var(--text-primary)]">
+                    {p.title}
+                  </span>
+                  <span className="block text-[13px] text-[var(--text-secondary)]">{p.line}</span>
                 </span>
-              </dd>
-            </div>
-          ))}
-        </dl>
-
-        <ul className="mt-8 flex flex-wrap gap-2">
-          {CHIPS.map((chip) => (
-            <li
-              key={chip}
-              className="rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 text-xs text-[var(--text-secondary)]"
-            >
-              {chip}
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
+
+        <p className="mt-10 text-center text-[11px] leading-relaxed text-[var(--text-muted)]">
+          Every figure above is counted from the running engine at render, not written into this
+          page. Eight stages have a surface behind them; the ninth says that it does not.
+        </p>
       </div>
 
-      {showcase && (
-        <div className="propiq-reveal min-w-0" style={{ animationDelay: '120ms' }}>
-          {/* The score leads, at the size it deserves: it is the product's
-              one headline number, and four equal cards gave it no more
-              weight than the risk band. */}
-          <Tilt3D max={5} lift={14}>
-            <div className="propiq-site-glass propiq-hero-panel rounded-2xl p-6">
-              <div className="flex items-center gap-6">
-                {showcase.propiqScore !== undefined && (
-                  <ScoreDial
-                    score={showcase.propiqScore}
-                    confidence={showcase.verdictConfidence}
-                    size={128}
-                  />
-                )}
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/55">
-                    Featured analysis
-                  </p>
-                  <p className="mt-1.5 truncate text-lg font-semibold text-white">
-                    {showcase.name}
-                  </p>
-                  <p className="mt-0.5 text-xs text-white/60">
-                    {showcase.locality}, {showcase.city} · {showcase.bhk} BHK · {showcase.sizeSqFt}{' '}
-                    sqft
-                  </p>
-                  <p data-figure className="mt-3 text-2xl font-bold text-white">
-                    {formatINR(showcase.price)}
-                  </p>
-                  {showcase.scoreBand && (
-                    <p className="mt-1 text-[11px] text-white/55">
-                      95% band {showcase.scoreBand.low}–{showcase.scoreBand.high} ·{' '}
-                      {(showcase.verdictConfidence * 100).toFixed(0)}% confidence ·{' '}
-                      {(showcase.coverage * 100).toFixed(0)}% evidence coverage
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
-                <span className="inline-flex items-center gap-2 text-sm">
-                  <span
-                    className="inline-block size-2 rounded-full"
-                    style={{ background: 'var(--color-buy)' }}
-                    aria-hidden
-                  />
-                  <span className="font-semibold text-white">
-                    {DECISION_LABELS[showcase.decision]}
-                  </span>
-                  <span className="text-white/55">
-                    · {showcase.riskBand.replace(/^\w/, (c) => c.toUpperCase())} risk
-                  </span>
-                </span>
-                <Link
-                  href={`/property/${showcase.slug}`}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-accent-400)] hover:underline"
-                >
-                  View intelligence <ArrowRight aria-hidden className="size-3.5" />
-                </Link>
-              </div>
-            </div>
-          </Tilt3D>
-
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            <Tilt3D>
-              <GlassMetricCard
-                label="Price benchmark"
-                value={formatPsf(showcase.pricePerSqFt)}
-                note={`${formatPercent(Math.abs(showcase.priceDeviationPercent), 1)} ${
-                  showcase.priceDeviationPercent < 0 ? 'under' : 'over'
-                } our central estimate`}
-                dataStatus={showcase.dataStatus}
-              />
-            </Tilt3D>
-            {showcase.carpetPricePerSqFt !== undefined && (
-              <Tilt3D>
-                <GlassMetricCard
-                  label="On carpet"
-                  value={formatPsf(showcase.carpetPricePerSqFt)}
-                  note={
-                    showcase.carpetSqFt !== undefined
-                      ? `${Math.round((showcase.carpetSqFt / showcase.sizeSqFt) * 100)}% carpet efficiency`
-                      : 'Carpet area basis'
-                  }
-                  dataStatus={showcase.dataStatus}
-                />
-              </Tilt3D>
-            )}
-            <Tilt3D>
-              <GlassMetricCard
-                label="Material risks"
-                value={
-                  showcase.materialRisks.length > 0 ? String(showcase.materialRisks.length) : 'None'
-                }
-                note={
-                  showcase.materialRisks.length > 0
-                    ? `of ${RISK_DIMENSIONS.length} dimensions flagged material`
-                    : `Nothing material across ${RISK_DIMENSIONS.length} dimensions`
-                }
-                dataStatus={showcase.dataStatus}
-              />
-            </Tilt3D>
-          </div>
-        </div>
-      )}
-    </div>
-  </section>
-);
+      {/* The light world resolves into the teal one rather than cutting to it. */}
+      <div aria-hidden className="propiq-hero-dissolve h-24 w-full" />
+    </section>
+  );
+};

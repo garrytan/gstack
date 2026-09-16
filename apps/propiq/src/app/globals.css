@@ -802,103 +802,6 @@ body[data-dock='on'] .propiq-site {
 }
 
 /* ---------------------------------------------------------------------------
-   Hero background motion.
-
-   Everything here animates `transform` or `opacity` only, so each layer stays
-   on the compositor. Nothing animates `filter`, `box-shadow` or
-   `background-position`, which force a paint on every frame and were the
-   specific thing the brief ruled out.
-
-   The loops are long and the travel is a few pixels: at these values the scene
-   reads as alive rather than animated, which is the difference between premium
-   and restless.
---------------------------------------------------------------------------- */
-
-@keyframes propiq-hero-blob {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(5px, -7px, 0) scale(1.012);
-  }
-}
-
-@keyframes propiq-hero-float {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(-6px, 9px, 0);
-  }
-}
-
-@keyframes propiq-hero-drift {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-    opacity: var(--particle-opacity, 1);
-  }
-  50% {
-    transform: translate3d(3px, -6px, 0);
-    opacity: calc(var(--particle-opacity, 1) * 0.55);
-  }
-}
-
-@keyframes propiq-hero-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.03);
-    opacity: 0.88;
-  }
-}
-
-.propiq-hero-blob {
-  animation: propiq-hero-blob 11s ease-in-out infinite;
-  will-change: transform;
-}
-
-.propiq-hero-float {
-  animation: propiq-hero-float 18s ease-in-out infinite;
-  will-change: transform;
-}
-
-.propiq-hero-float-slow {
-  animation: propiq-hero-float 22s ease-in-out infinite reverse;
-  will-change: transform;
-}
-
-.propiq-hero-drift {
-  animation-name: propiq-hero-drift;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
-}
-
-.propiq-hero-breathe {
-  animation: propiq-hero-breathe 14s ease-in-out infinite;
-  will-change: transform, opacity;
-}
-
-/* The `:nth-child(n)` bump is deliberate: a bare class selector loses to the
-   per-particle rules on specificity, which is how a previous reduced-motion
-   fix in this file silently failed. */
-@media (prefers-reduced-motion: reduce) {
-  .propiq-hero-blob:nth-child(n),
-  .propiq-hero-float:nth-child(n),
-  .propiq-hero-float-slow:nth-child(n),
-  .propiq-hero-drift:nth-child(n),
-  .propiq-hero-breathe:nth-child(n) {
-    animation: none;
-    will-change: auto;
-  }
-}
-
-/* ---------------------------------------------------------------------------
    Frosted teal glass.
 
    Surfaces are separated by a 1px inset hairline ring rather than a border: a
@@ -976,38 +879,13 @@ li a:not([class*='inline-flex']):not(.propiq-block-link) {
   will-change: transform;
 }
 
-/* The hero's planes. `--px` / `--py` arrive from `HeroParallax` in roughly
-   -1..1; each layer multiplies them by its own distance. Far things barely
-   move, near things move a lot, which is the whole of parallax. */
-.propiq-depth {
-  --depth: 6;
-  transform: translate3d(
-    calc(var(--px, 0) * var(--depth) * 1px),
-    calc(var(--py, 0) * var(--depth) * 1px),
-    0
-  );
-  transition: transform 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  will-change: transform;
-}
-
-.propiq-depth-far {
-  --depth: 5;
-}
-.propiq-depth-mid {
-  --depth: 14;
-}
-.propiq-depth-near {
-  --depth: 26;
-}
-
 /* A tilted card lifts its own shadow with it, or it reads as a sticker. */
 .propiq-tilt-host:hover .propiq-tilt-inner {
   box-shadow: 0 34px 70px -34px rgba(0, 0, 0, 0.8);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .propiq-tilt-inner:nth-child(n),
-  .propiq-depth:nth-child(n) {
+  .propiq-tilt-inner:nth-child(n) {
     transform: none;
     transition: none;
     will-change: auto;
@@ -1134,4 +1012,134 @@ li a:not([class*='inline-flex']):not(.propiq-block-link) {
     var(--color-accent-400) 0%,
     var(--color-brand-violet-400) 100%
   );
+}
+
+/* ---------------------------------------------------------------------------
+   The light hero.
+
+   One deliberately light, blue-to-violet subtree at the top of the page. It is
+   the logo's own palette, so the mark finally sits in a world that matches it
+   — and it is NOT the teal the rest of the site runs on. The hero's last band
+   dissolves into that teal so the change of world reads as a transition rather
+   than two pages stapled together. Carrying the blue further down the page, or
+   pulling the logo toward the teal, is the open question either way.
+
+   Tokens are redefined for the subtree rather than overridden per element, so
+   every child picks up a ramp that clears 4.5:1 on this ground without knowing
+   it landed somewhere light.
+--------------------------------------------------------------------------- */
+
+:root {
+  /* The logo's ramp, as real colours rather than aliases onto mint. */
+  --color-iris-50: #f4f6ff;
+  --color-iris-100: #e8edff;
+  --color-iris-400: #6d8cf8;
+  --color-iris-500: #3b63ef;
+  --color-iris-600: #2a49c8;
+  --color-iris-900: #16205c;
+  --color-iris-violet-400: #9a7cf5;
+  --color-iris-violet-500: #7c53e8;
+}
+
+.propiq-hero-light {
+  --surface-0: #f6f8ff;
+  --surface-1: #ffffff;
+  --surface-2: var(--color-iris-50);
+  --border-subtle: rgba(30, 58, 158, 0.12);
+  --border-strong: rgba(30, 58, 158, 0.24);
+  --text-primary: var(--color-iris-900);
+  --text-secondary: #3f4a70;
+  --text-muted: #5a6486;
+  --text-accent: var(--color-iris-600);
+
+  /* Verdicts take the ink set here, as on any light ground. */
+  --color-buy: var(--color-buy-ink);
+  --color-negotiate: var(--color-negotiate-ink);
+  --color-watch: var(--color-watch-ink);
+  --color-avoid: var(--color-avoid-ink);
+  --color-unknown: var(--color-unknown-ink);
+
+  color: var(--text-primary);
+  /* The white bed on top is not decoration. The supplied lockup carries a
+     near-white bloom baked into its artwork; alpha-cutting leaves that bloom
+     as a faint white film, which is invisible on white and reads as a pale
+     rectangle on a tinted ground. Laying white back under the mark is what
+     makes the cut disappear. The colour is pushed to the edges instead. */
+  background:
+    radial-gradient(ellipse 44% 24% at 50% 20%, #ffffff 0%, rgba(255, 255, 255, 0) 72%),
+    radial-gradient(ellipse 70% 62% at 4% 34%, rgba(124, 83, 232, 0.16), transparent 62%),
+    radial-gradient(ellipse 66% 58% at 96% 30%, rgba(59, 99, 239, 0.18), transparent 60%),
+    linear-gradient(180deg, #ffffff 0%, #f4f6ff 38%, #e9eeff 100%);
+}
+
+/* The headline's second word and the stage figures. */
+.propiq-iris-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-iris-500) 0%,
+    var(--color-iris-400) 45%,
+    var(--color-iris-violet-500) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  padding-bottom: 0.06em;
+}
+
+@media (forced-colors: active) {
+  .propiq-iris-text {
+    background: none;
+    color: CanvasText;
+  }
+}
+
+.propiq-iris-gradient {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-iris-500) 0%,
+    var(--color-iris-400) 48%,
+    var(--color-iris-violet-500) 100%
+  );
+}
+
+/* A stage card. Glass over the wash, with a rim that lifts on hover. */
+.propiq-stage-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.72));
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
+    0 10px 30px -14px rgba(22, 32, 92, 0.34),
+    0 2px 6px -2px rgba(22, 32, 92, 0.12);
+  transition:
+    transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 220ms ease;
+}
+
+a:hover > .propiq-stage-card,
+a:focus-visible > .propiq-stage-card {
+  transform: translateY(-3px);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.95) inset,
+    0 20px 44px -16px rgba(43, 73, 200, 0.42),
+    0 3px 10px -3px rgba(22, 32, 92, 0.16);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a:hover > .propiq-stage-card,
+  a:focus-visible > .propiq-stage-card {
+    transform: none;
+  }
+}
+
+/* The stage with nothing behind it. Flat, dashed, no lift — it is not a link
+   and must not look like one. */
+.propiq-stage-card--empty {
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px dashed var(--border-strong);
+  box-shadow: none;
+}
+
+/* The dissolve into the teal body below. */
+.propiq-hero-dissolve {
+  background: linear-gradient(180deg, transparent 0%, var(--color-teal-800) 100%);
 }

@@ -7,7 +7,6 @@ import { TrackView } from '@/components/propiq/track-view';
 import { SiteHeader } from '@/components/site/site-header';
 import { SiteFooter } from '@/components/site/site-footer';
 import { HeroSection } from '@/components/site/hero-section';
-import { JourneySection } from '@/components/site/journey-section';
 import { SmartSearch } from '@/components/site/smart-search';
 import { SitePropertyRail } from '@/components/site/property-card';
 import { Section, SectionHead, DemoNote } from '@/components/site/section';
@@ -129,8 +128,6 @@ export default async function HomePage() {
                 <SitePropertyRail properties={data.properties.slice(0, 6)} />
                 <DemoNote />
               </Section>
-
-              <JourneySection propertyHref={showcase ? `/property/${showcase.slug}` : '/search'} />
 
               {showcase && <ScoreSection property={showcase} />}
               {showcase && <VerdictSection property={showcase} />}
