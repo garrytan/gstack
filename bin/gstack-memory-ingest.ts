@@ -727,12 +727,35 @@ function resolveGitRemoteUncached(cwd: string): string {
   }
 }
 
+/**
+ * Rewrite a leading dot in a slug segment to "dot-".
+ *
+ * gbrain's import walker prunes ANY path segment beginning with a dot
+ * (isPathPruned, gbrain src/core/sync.ts). Because stagedRelPath() maps a page
+ * slug 1:1 onto its path inside the staging dir, a dot-leading segment stages a
+ * file gbrain silently never collects. The staged-vs-collected reconciliation
+ * then mismatches and the run correctly refuses to advance state — so the SAME
+ * pages re-stage and fail on EVERY subsequent run, permanently wedging ingest.
+ *
+ * Reproduced with a project slug of ".claude", which gstack mints whenever a
+ * session runs with cwd ~/.claude.
+ *
+ * Sanitizing here rather than inside stagedRelPath is deliberate: the staged
+ * path, the page slug and the slug recorded in state must stay identical, which
+ * both the reconciliation map and the resume-path reconstruction rely on.
+ */
+export function safeSlugSegment(seg: string): string {
+  return seg.replace(/^\.+/, "dot-");
+}
+
 function repoSlug(remote: string): string {
   if (!remote) return "_unattributed";
   // github.com/foo/bar → foo-bar
   const parts = remote.split("/");
-  if (parts.length >= 3) return `${parts[parts.length - 2]}-${parts[parts.length - 1]}`;
-  return remote.replace(/\//g, "-");
+  if (parts.length >= 3) {
+    return safeSlugSegment(`${parts[parts.length - 2]}-${parts[parts.length - 1]}`);
+  }
+  return safeSlugSegment(remote.replace(/\//g, "-"));
 }
 
 function dateOnly(ts: string | undefined): string {
@@ -749,7 +772,8 @@ export function buildTranscriptPage(path: string, session: ParsedSession): PageR
   const slug_repo = repoSlug(remote);
   const date = dateOnly(session.start_time);
   const sessionPrefix = session.session_id.slice(0, 12);
-  const slug = `transcripts/${session.agent}/${slug_repo}/${date}-${sessionPrefix}`;
+  const slug =
+    `transcripts/${safeSlugSegment(session.agent)}/${slug_repo}/${date}-${sessionPrefix}`;
   const title = `${session.agent} session — ${slug_repo} — ${date}`;
   const tags = [
     "transcript",
@@ -812,7 +836,7 @@ export function buildTranscriptPage(path: string, session: ParsedSession): PageR
   };
 }
 
-function buildArtifactPage(path: string, type: MemoryType): PageRecord {
+export function buildArtifactPage(path: string, type: MemoryType): PageRecord {
   const stats = statSync(path);
   const sha = fileSha256(path);
   const raw = readFileSync(path, "utf-8");
@@ -820,7 +844,7 @@ function buildArtifactPage(path: string, type: MemoryType): PageRecord {
   // Extract repo slug from path: ~/.gstack/projects/<slug>/...
   let slug_repo = "_unattributed";
   const m = path.match(/\/\.gstack\/projects\/([^/]+)\//);
-  if (m) slug_repo = m[1];
+  if (m) slug_repo = safeSlugSegment(m[1]);
 
   const date = new Date(stats.mtimeMs).toISOString().slice(0, 10);
   const baseName = basename(path, path.endsWith(".jsonl") ? ".jsonl" : ".md");
@@ -982,6 +1006,12 @@ interface StagingResult {
  * mapping gbrain's failures back to sources and failed files get marked ingested.
  */
 export function stagedRelPath(slug: string): string {
+  if (slug.split("/").some((seg) => seg.startsWith("."))) {
+    throw new Error(
+      `refusing to stage dot-leading slug segment (gbrain's walker would prune ` +
+        `it, wedging reconciliation): ${slug}`,
+    );
+  }
   return `${slug}.md`;
 }
 

@@ -454,8 +454,13 @@ Capture the JSON output. It contains: `gbrain_on_path`, `gbrain_version`,
 `gstack_brain_sync_mode`, `gstack_brain_git`, `gstack_artifacts_remote`, and
 the v1.34.0.0+ `gbrain_local_status` field (one of: `ok`, `no-cli`,
 `missing-config`, `broken-config`, `broken-db`, `engine-locked`, `timeout`,
-`thin-client`). Treat `timeout` like `ok` (slow-but-healthy engine, #1964) — it
-never triggers Step 1.5 remediation. Treat `thin-client` like `ok` too (#2051):
+`network-isolated`, `thin-client`). Treat `timeout` like `ok`
+(slow-but-healthy engine, #1964) — it never triggers Step 1.5 remediation.
+Treat `network-isolated` like `ok` too: this environment has no DNS at all
+(an agent sandbox, restricted CI, or an offline laptop), so the engine is
+unreachable from HERE and its real health is unknown. It never triggers
+Step 1.5 remediation either — re-probe with network access before believing
+anything about the engine. Treat `thin-client` like `ok` too (#2051):
 the machine is a thin client of a remote-HTTP MCP brain, no local engine by
 design — brain-aware blocks render, and the detect JSON carries
 `gbrain_thin_client: {probed: false}` (config verified; remote reachability

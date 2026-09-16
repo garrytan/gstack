@@ -785,6 +785,10 @@ function skipStageForLocalStatus(
       "PGLite is busy (often held by gbrain serve); stop the holding process or run /sync-gbrain outside the live Claude session, then retry",
     "timeout":
       "engine probe timed out; raise GSTACK_GBRAIN_PROBE_TIMEOUT_MS if your pooler is slow",
+    "network-isolated":
+      "no DNS in this environment (sandbox, restricted CI, or offline), so the engine is " +
+      "unreachable from here and its real health is unknown; re-run with network access — " +
+      "raising GSTACK_GBRAIN_PROBE_TIMEOUT_MS will not help",
     "thin-client":
       "thin client (remote-HTTP MCP brain, no local engine by design, #2051); " +
       "code indexing runs on the brain server, memory syncs via the remote " +
