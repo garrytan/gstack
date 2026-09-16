@@ -29,7 +29,7 @@ export default function Error({
       <button
         type="button"
         onClick={reset}
-        className="mt-6 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-ink-950 hover:bg-accent-400"
+        className="mt-6 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
       >
         Try again
       </button>

@@ -15,6 +15,8 @@ import { FixturePropertyRepository } from '@/data/fixtures/adapter';
 import { DEMO_LOCALITIES } from '@/data/fixtures/localities';
 import { DEMO_DEVELOPERS, DEMO_PROJECTS, DEMO_PROPERTIES } from '@/data/fixtures/properties';
 import { buildPropertyIntelligence, marketDriftFor } from '@/server/intelligence';
+import { visitToEvidence } from '@/domain/visits/engine';
+import type { SiteVisit, VisitObservation } from '@/domain/visits/types';
 
 const NOW = '2026-06-01T00:00:00.000Z';
 const repo = new FixturePropertyRepository();
@@ -275,5 +277,96 @@ describe('buyer profile changes the score', () => {
       buyer: { ...base, workplace: { label: 'ITPL', maxPeakCommuteMinutes: 20 } },
     });
     expect(buyerFit(tolerant!)!.score!).toBeGreaterThan(buyerFit(strict!)!.score!);
+  });
+});
+
+describe('site visit evidence feeds the score', () => {
+  const visit = (observations: VisitObservation[]): SiteVisit => ({
+    id: 'visit-1',
+    userId: asId<UserId>('u1'),
+    propertyId: asId<PropertyId>('prop-nm-3a'),
+    scheduledFor: '2026-05-20',
+    status: 'completed',
+    completedAt: '2026-05-20T10:00:00.000Z',
+    observations,
+    createdAt: NOW,
+  });
+
+  it('reports zero visit evidence when none is supplied', async () => {
+    const intel = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), { now: NOW });
+    expect(intel!.visitEvidenceCount).toBe(0);
+  });
+
+  it('appends visit evidence rather than replacing what we already hold', async () => {
+    const withoutVisit = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+    });
+    const evidence = visitToEvidence(visit([{ itemId: 'water.source', answer: 'concern' }]), NOW);
+    const withVisit = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+      visitEvidence: evidence,
+    });
+
+    expect(withVisit!.visitEvidenceCount).toBe(1);
+    expect(withVisit!.property.evidence.length).toBe(withoutVisit!.property.evidence.length + 1);
+    // Everything we held before is still there.
+    for (const e of withoutVisit!.property.evidence) {
+      expect(withVisit!.property.evidence.map((x) => x.id)).toContain(e.id);
+    }
+  });
+
+  it('carries the visit through as verified first-party evidence', async () => {
+    const evidence = visitToEvidence(visit([{ itemId: 'access.commute', answer: 'concern' }]), NOW);
+    const intel = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+      visitEvidence: evidence,
+    });
+    const survey = intel!.property.evidence.filter((e) => e.source.type === 'survey');
+    expect(survey).toHaveLength(1);
+    expect(survey[0]!.dataStatus).toBe('verified');
+  });
+
+  it('moves confidence when a visit adds evidence to a scored field', async () => {
+    const before = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), { now: NOW });
+    const evidence = visitToEvidence(
+      visit([
+        { itemId: 'water.source', answer: 'good' },
+        { itemId: 'access.commute', answer: 'good' },
+        { itemId: 'surroundings.waterlogging', answer: 'good' },
+      ]),
+      NOW,
+    );
+    const after = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+      visitEvidence: evidence,
+    });
+
+    expect(after!.visitEvidenceCount).toBe(3);
+    // Verified first-party evidence on a demo record raises confidence, because
+    // the fixture source is trusted at 0.8 and a site visit at 0.9.
+    expect(after!.score.confidence).toBeGreaterThan(before!.score.confidence);
+  });
+
+  it('stays deterministic with visit evidence supplied', async () => {
+    const evidence = visitToEvidence(visit([{ itemId: 'water.source', answer: 'concern' }]), NOW);
+    const a = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+      visitEvidence: evidence,
+    });
+    const b = await buildPropertyIntelligence(asId<PropertyId>('prop-nm-3a'), {
+      now: NOW,
+      visitEvidence: evidence,
+    });
+    expect(a!.score.score).toBe(b!.score.score);
+  });
+});
+
+describe('negotiation lever points read as sentences', () => {
+  it('does not double the full stop when a risk driver already ends in one', async () => {
+    const intel = await buildPropertyIntelligence(asId<PropertyId>('prop-cc-3a'), { now: NOW });
+    for (const lever of intel!.negotiation?.leverPoints ?? []) {
+      expect(lever).not.toMatch(/\.\.$/);
+      expect(lever.endsWith('.')).toBe(true);
+    }
   });
 });

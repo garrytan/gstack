@@ -8,7 +8,7 @@ const badgeVariants = cva(
     variants: {
       tone: {
         neutral: 'border-[var(--border-strong)] bg-[var(--surface-2)] text-[var(--text-secondary)]',
-        accent: 'border-accent-600 bg-accent-600/15 text-accent-400',
+        accent: 'border-accent-600 bg-accent-600/15 text-[var(--text-accent)]',
         buy: 'border-[var(--color-buy)] bg-[var(--color-buy)]/15 text-[var(--color-buy)]',
         negotiate:
           'border-[var(--color-negotiate)] bg-[var(--color-negotiate)]/15 text-[var(--color-negotiate)]',

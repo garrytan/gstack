@@ -37,7 +37,7 @@ export const RiskGrid = ({ risk }: { risk: RiskAssessment }) => (
             className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
             style={{
               color: BAND_COLOR[d.band],
-              background: `color-mix(in srgb, ${BAND_COLOR[d.band]} 16%, transparent)`,
+              background: `color-mix(in srgb, ${BAND_COLOR[d.band]} 7%, transparent)`,
             }}
           >
             {BAND_LABEL[d.band]}

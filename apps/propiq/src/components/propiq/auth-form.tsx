@@ -163,13 +163,13 @@ export const AuthForm = ({ mode }: { mode: Mode }) => {
           <>
             <p>
               No account?{' '}
-              <Link href="/signup" className="text-accent-500 hover:underline">
+              <Link href="/signup" className="text-[var(--text-accent)] hover:underline">
                 Create one
               </Link>
             </p>
             <p>
               Forgotten your password?{' '}
-              <Link href="/login?reset=1" className="text-accent-500 hover:underline">
+              <Link href="/login?reset=1" className="text-[var(--text-accent)] hover:underline">
                 Reset it
               </Link>
             </p>
@@ -178,7 +178,7 @@ export const AuthForm = ({ mode }: { mode: Mode }) => {
         {mode !== 'signin' && (
           <p>
             Already have an account?{' '}
-            <Link href="/login" className="text-accent-500 hover:underline">
+            <Link href="/login" className="text-[var(--text-accent)] hover:underline">
               Sign in
             </Link>
           </p>

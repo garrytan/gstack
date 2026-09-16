@@ -1,0 +1,177 @@
+/**
+ * A property card.
+ *
+ * Carries the verdict, the score and the two or three signals that actually
+ * separate this property from the next one — not an amenity list. The image
+ * slot is a generated gradient rather than a photograph: the dataset has no
+ * real photography, and a stock image of a building that is not this building
+ * is a fabricated fact with a picture frame around it.
+ */
+
+import Link from 'next/link';
+import Image from 'next/image';
+import { ArrowRight } from 'lucide-react';
+import { DECISION_LABELS } from '@/domain/decision/engine';
+import type { Decision } from '@/domain/decision/engine';
+import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
+import { CardActions } from '@/components/site/card-actions';
+import { Tilt3D } from '@/components/site/tilt-3d';
+import type { SiteProperty } from '@/site/types';
+
+const DECISION_COLOR: Readonly<Record<Decision, string>> = {
+  BUY: 'var(--color-buy)',
+  NEGOTIATE: 'var(--color-negotiate)',
+  WATCH: 'var(--color-watch)',
+  AVOID: 'var(--color-avoid)',
+  INSUFFICIENT_EVIDENCE: 'var(--color-unknown)',
+};
+
+/**
+ * A stable, per-property gradient so cards are distinguishable at a glance.
+ *
+ * Kept inside the teal band rather than walking the whole hue wheel. A row of
+ * cards in magenta, amber and lime was the only saturated colour on the page
+ * and it read as decoration competing with the data; varying lightness and a
+ * mint lean says "these are different properties" without introducing five
+ * more brand colours.
+ */
+const artFor = (id: string): string => {
+  const hash = [...id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
+  // 168–186deg spans deep teal to mint. Lightness carries the variation.
+  const hue = 168 + (hash % 19);
+  const light = 16 + (hash % 11);
+  return `linear-gradient(135deg, hsl(${hue} 42% ${light + 9}%), hsl(${hue + 6} 55% ${light}%))`;
+};
+
+export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
+  const colour = DECISION_COLOR[property.decision];
+  const under = property.priceDeviationPercent < 0;
+
+  return (
+    <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] transition-shadow hover:shadow-[0_18px_44px_-24px_rgba(13,21,36,0.4)]">
+      <div className="relative h-40 overflow-hidden" style={{ background: artFor(property.id) }}>
+        {property.image && (
+          <Image
+            src={property.image}
+            alt={
+              property.imageIsGenerated
+                ? `Generated architectural illustration for ${property.name}. Not a photograph of the property.`
+                : property.name
+            }
+            fill
+            sizes="(max-width: 640px) 80vw, (max-width: 1024px) 50vw, 33vw"
+            className="object-cover"
+          />
+        )}
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-gradient-to-t from-[var(--surface-0)]/70 via-transparent to-transparent"
+        />
+        <span className="absolute left-3 top-3 rounded-md bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+          {property.signal}
+        </span>
+      </div>
+
+      <div className="flex flex-1 flex-col p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold">{property.name}</h3>
+            <p className="mt-0.5 truncate text-xs text-[var(--text-muted)]">
+              {property.locality}, {property.city}
+              {property.project ? ` · ${property.project}` : ''}
+            </p>
+          </div>
+          {property.propiqScore !== undefined && (
+            <div className="shrink-0 text-right">
+              <p data-figure className="text-xl font-bold leading-none" style={{ color: colour }}>
+                {property.propiqScore.toFixed(0)}
+              </p>
+              <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Score</p>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-3 flex items-baseline gap-2">
+          <p data-figure className="text-lg font-semibold">
+            {formatINR(property.price)}
+          </p>
+          <p data-figure className="text-xs text-[var(--text-muted)]">
+            {formatPsf(property.pricePerSqFt)}
+          </p>
+        </div>
+        <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+          {property.bhk} BHK · {property.sizeSqFt} sqft
+          {property.carpetSqFt ? ` · ${property.carpetSqFt} sqft carpet` : ''}
+        </p>
+
+        <ul className="mt-3 space-y-1.5 border-t border-[var(--border-subtle)] pt-3">
+          <Signal label="Verdict" value={DECISION_LABELS[property.decision]} colour={colour} />
+          <Signal
+            label="vs fair value"
+            value={
+              property.fairValueMid === undefined
+                ? 'Not valued'
+                : `${formatPercent(Math.abs(property.priceDeviationPercent), 1)} ${under ? 'under' : 'over'}`
+            }
+            colour={
+              property.fairValueMid === undefined
+                ? undefined
+                : under
+                  ? 'var(--color-buy)'
+                  : 'var(--color-avoid)'
+            }
+          />
+          <Signal label="Risk" value={property.riskBand} />
+        </ul>
+
+        <Link
+          href={`/property/${property.slug}`}
+          className="mt-auto pt-4 inline-flex items-center gap-1 text-sm font-medium text-[var(--text-accent)] hover:underline"
+        >
+          View intelligence
+          <ArrowRight
+            aria-hidden
+            className="size-4 transition-transform group-hover:translate-x-0.5"
+          />
+        </Link>
+
+        <CardActions propertyId={property.id} propertyName={property.name} />
+      </div>
+    </article>
+  );
+};
+
+const Signal = ({ label, value, colour }: { label: string; value: string; colour?: string }) => (
+  <li className="flex items-center justify-between gap-3 text-xs">
+    <span className="text-[var(--text-muted)]">{label}</span>
+    <span
+      data-figure
+      className="font-semibold capitalize"
+      style={colour ? { color: colour } : undefined}
+    >
+      {value}
+    </span>
+  </li>
+);
+
+/**
+ * The same cards, laid out for the device.
+ *
+ * Six cards stacked vertically is six screens of scrolling on a phone, so
+ * below `sm` the list becomes a snapping horizontal rail and the grid only
+ * takes over once there is width for two columns.
+ */
+export const SitePropertyRail = ({ properties }: { properties: readonly SiteProperty[] }) => (
+  <div className="-mx-4 mt-10 flex snap-x snap-mandatory gap-5 overflow-x-auto px-4 pb-3 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-3">
+    {properties.map((property) => (
+      <div
+        key={property.id}
+        className="w-[80vw] max-w-xs shrink-0 snap-start sm:w-auto sm:max-w-none"
+      >
+        <Tilt3D max={5} lift={14} className="h-full">
+          <SitePropertyCard property={property} />
+        </Tilt3D>
+      </div>
+    ))}
+  </div>
+);

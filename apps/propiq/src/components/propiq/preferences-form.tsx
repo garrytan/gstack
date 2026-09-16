@@ -259,7 +259,7 @@ export const PreferencesForm = ({
                 aria-pressed={on}
                 className={
                   on
-                    ? 'rounded-full border border-accent-500 bg-accent-500/15 px-3 py-1 text-xs font-medium text-accent-400'
+                    ? 'rounded-full border border-accent-500 bg-accent-500/15 px-3 py-1 text-xs font-medium text-[var(--text-accent)]'
                     : 'rounded-full border border-[var(--border-strong)] px-3 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-2)]'
                 }
               >

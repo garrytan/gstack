@@ -41,7 +41,7 @@ export const EvidenceRow = ({ evidence }: { evidence: Evidence }) => (
           href={evidence.source.reference}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-accent-500 hover:underline"
+          className="inline-flex items-center gap-1 text-[var(--text-accent)] hover:underline"
         >
           Source <ExternalLink aria-hidden className="size-3" />
         </a>

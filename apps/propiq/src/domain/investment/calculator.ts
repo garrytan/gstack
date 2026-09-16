@@ -86,6 +86,50 @@ export const amortizeYear = (balanceStart: INR, annualRatePercent: number, emi: 
   };
 };
 
+export interface AmortRow {
+  readonly year: number;
+  readonly openingBalance: INR;
+  readonly interest: INR;
+  readonly principalPaid: INR;
+  readonly closingBalance: INR;
+  readonly cumulativeInterest: INR;
+}
+
+/**
+ * Year-by-year repayment for the whole tenure.
+ *
+ * Built on the same `amortizeYear` step the investment analysis uses, so the
+ * standalone EMI tool and the property page can never disagree about the same
+ * loan. Stops early when the balance clears, which is what a prepayment or a
+ * rounded final instalment produces.
+ */
+export const amortisationSchedule = (
+  principal: INR,
+  annualRatePercent: number,
+  tenureYears: number,
+): readonly AmortRow[] => {
+  if (!(principal > 0) || !(tenureYears > 0)) return [];
+  const emi = monthlyEmi(principal, annualRatePercent, tenureYears);
+  const rows: AmortRow[] = [];
+  let balance = principal;
+  let cumulative = 0;
+
+  for (let year = 1; year <= Math.ceil(tenureYears) && balance > 0; year += 1) {
+    const step = amortizeYear(balance, annualRatePercent, emi);
+    cumulative += step.interest;
+    rows.push({
+      year,
+      openingBalance: round(balance, 2),
+      interest: step.interest,
+      principalPaid: step.principalPaid,
+      closingBalance: step.balanceEnd,
+      cumulativeInterest: round(cumulative, 2),
+    });
+    balance = step.balanceEnd;
+  }
+  return rows;
+};
+
 /**
  * IRR by bisection over [-0.99, 10].
  *

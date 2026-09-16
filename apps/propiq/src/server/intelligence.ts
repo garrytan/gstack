@@ -29,8 +29,9 @@ import type { InvestmentAnalysis } from '@/domain/investment/types';
 import { computePropIQScore } from '@/domain/scoring/engine';
 import type { PropIQScore } from '@/domain/scoring/types';
 import { decide } from '@/domain/decision/engine';
-import type { DecisionResult } from '@/domain/decision/engine';
+import type { Decision, DecisionResult } from '@/domain/decision/engine';
 import { getPropertyRepository } from '@/data';
+import type { Evidence } from '@/domain/evidence/types';
 
 export interface PropertyIntelligence {
   readonly property: Property;
@@ -45,6 +46,8 @@ export interface PropertyIntelligence {
   readonly decision: DecisionResult;
   readonly freshness: FreshnessSummary;
   readonly alternatives: readonly Property[];
+  /** Count of first-party site-visit records folded into this payload. */
+  readonly visitEvidenceCount: number;
   /** True when any input to this payload was demo data. */
   readonly usesDemoData: boolean;
   readonly computedAt: string;
@@ -56,6 +59,15 @@ export interface IntelligenceOptions {
   /** Injected clock. Defaults to now; tests and replays pass a fixed instant. */
   readonly now?: string;
   readonly includeAlternatives?: boolean;
+  /**
+   * First-party evidence from the buyer's own site visit.
+   *
+   * Merged into the property's evidence before scoring, which is what closes
+   * the loop: a buyer who stands in a flat and sees a silt line on the
+   * compound wall knows something the model does not, and that observation
+   * should move the score rather than sit in a notes field.
+   */
+  readonly visitEvidence?: readonly Evidence[];
 }
 
 /**
@@ -79,8 +91,15 @@ export const buildPropertyIntelligence = async (
   const repo = getPropertyRepository();
   const now = options.now ?? new Date().toISOString();
 
-  const property = await repo.getById(id);
-  if (!property) return undefined;
+  const base = await repo.getById(id);
+  if (!base) return undefined;
+
+  // Visit evidence is appended, never substituted: it adds what the buyer saw
+  // to what we already hold rather than replacing it.
+  const property =
+    options.visitEvidence && options.visitEvidence.length > 0
+      ? { ...base, evidence: [...base.evidence, ...options.visitEvidence] }
+      : base;
 
   const [project, locality, comparables] = await Promise.all([
     repo.getProject(property.projectId),
@@ -146,7 +165,10 @@ export const buildPropertyIntelligence = async (
 
   const leverPoints: string[] = [];
   for (const material of risk.materialRisks) {
-    leverPoints.push(`${material.label}: ${material.drivers[0] ?? 'material risk on record'}.`);
+    // Drivers are written as complete sentences, so trim any trailing stop
+    // before adding our own rather than emitting "... period..".
+    const driver = (material.drivers[0] ?? 'material risk on record').replace(/\.\s*$/, '');
+    leverPoints.push(`${material.label}: ${driver}.`);
   }
 
   return {
@@ -162,6 +184,7 @@ export const buildPropertyIntelligence = async (
     decision,
     freshness: summarizeFreshness([...property.evidence, ...(locality?.evidence ?? [])], now),
     alternatives,
+    visitEvidenceCount: options.visitEvidence?.length ?? 0,
     usesDemoData:
       repo.servesDemoData ||
       property.dataStatus === 'demo' ||
@@ -185,4 +208,61 @@ export const buildSummaries = async (
     ),
   );
   return results.filter((r): r is PropertyIntelligence => r !== undefined);
+};
+
+/**
+ * Market-level aggregation over a scoring pass.
+ *
+ * The hero strip and the command rail both report these figures. They are
+ * derived here rather than in each component so the two can never disagree
+ * about the same market — the same reason every surface calls one use case
+ * for a single property's verdict.
+ *
+ * Nothing here is a vanity metric: coverage and the insufficient-evidence
+ * count are the two numbers a measurement product should be judged on.
+ */
+export interface MarketSummary {
+  readonly total: number;
+  readonly counts: ReadonlyArray<{ readonly decision: Decision; readonly count: number }>;
+  readonly meanScore: number | undefined;
+  readonly meanCoverage: number;
+  readonly materialRisks: number;
+  /** The most underpriced property we can actually value, if any can be valued. */
+  readonly bestValue: PropertyIntelligence | undefined;
+}
+
+const DECISION_ORDER: readonly Decision[] = [
+  'BUY',
+  'NEGOTIATE',
+  'WATCH',
+  'AVOID',
+  'INSUFFICIENT_EVIDENCE',
+];
+
+export const summariseMarket = (intelligence: readonly PropertyIntelligence[]): MarketSummary => {
+  const total = intelligence.length;
+  const scored = intelligence.filter((i) => i.score.score !== undefined);
+
+  return {
+    total,
+    counts: DECISION_ORDER.map((decision) => ({
+      decision,
+      count: intelligence.filter((i) => i.decision.decision === decision).length,
+    })),
+    meanScore:
+      scored.length === 0
+        ? undefined
+        : scored.reduce((a, i) => a + (i.score.score ?? 0), 0) / scored.length,
+    meanCoverage: total === 0 ? 0 : intelligence.reduce((a, i) => a + i.score.coverage, 0) / total,
+    materialRisks: intelligence.reduce((a, i) => a + i.risk.materialRisks.length, 0),
+    bestValue: intelligence
+      .filter((i) => !i.valuation.insufficientEvidence)
+      .reduce<PropertyIntelligence | undefined>(
+        (best, i) =>
+          i.valuation.askingDeviationPercent < (best?.valuation.askingDeviationPercent ?? Infinity)
+            ? i
+            : best,
+        undefined,
+      ),
+  };
 };

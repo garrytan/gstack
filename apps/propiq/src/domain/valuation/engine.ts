@@ -259,9 +259,19 @@ export const negotiationGuidance = (
 ): NegotiationGuidance | undefined => {
   if (valuation.insufficientEvidence || valuation.mid <= 0) return undefined;
   const asking = valuation.askingPrice;
-  const openingOffer = Math.round(valuation.low * 0.97);
-  const targetPrice = Math.round((valuation.low + valuation.mid) / 2);
-  const walkAwayPrice = valuation.high;
+
+  // Every number here is capped at the asking price. Where a property is
+  // already priced below fair value the raw band sits above what is being
+  // asked, and an uncapped target would advise offering more than the seller
+  // wants — which is not negotiation advice, it is a bug with a rupee sign.
+  // A below-fair-value asking price does not mean stop negotiating: the target
+  // keeps a 3% margin under asking so there is still something to ask for.
+  const walkAwayPrice = Math.min(valuation.high, asking);
+  const targetPrice = Math.min(
+    Math.round((valuation.low + valuation.mid) / 2),
+    Math.round(asking * 0.97),
+  );
+  const openingOffer = Math.min(Math.round(valuation.low * 0.97), Math.round(targetPrice * 0.97));
   return {
     askingPrice: asking,
     openingOffer,

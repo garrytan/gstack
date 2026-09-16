@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { NextConfig } from 'next';
 
 /**
@@ -19,6 +20,10 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // PropIQ is a nested app inside the gstack repository, which has its own
+  // lockfile. Without this, Next infers the repo root as the workspace root and
+  // resolves modules from there.
+  turbopack: { root: path.resolve(process.cwd()) },
   poweredByHeader: false,
   reactStrictMode: true,
   typedRoutes: false,

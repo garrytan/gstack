@@ -34,6 +34,7 @@ const DEFAULT_PAGE_SIZE = 12;
 export class SupabasePropertyRepository implements PropertyRepository {
   readonly adapterName = 'supabase';
   readonly servesDemoData = false;
+  readonly servesNoData = false;
 
   private async client() {
     return createServerClient();

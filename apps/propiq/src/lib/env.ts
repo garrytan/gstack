@@ -11,7 +11,7 @@ import { z } from 'zod';
 const clientSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(20).optional(),
-  NEXT_PUBLIC_SITE_URL: z.string().url().default('http://localhost:3000'),
+  NEXT_PUBLIC_SITE_URL: z.string().url().optional(),
   NEXT_PUBLIC_MAPS_PROVIDER: z.enum(['mapbox', 'google', 'none']).default('none'),
   NEXT_PUBLIC_MAPS_TOKEN: z.string().optional(),
   NEXT_PUBLIC_ANALYTICS_DEBUG: z.enum(['0', '1']).default('0'),
@@ -20,10 +20,17 @@ const clientSchema = z.object({
 const serverSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   /**
-   * Which property data adapter to use. `fixture` serves the labelled demo
-   * dataset; `supabase` serves real records. Production refuses `fixture`.
+   * Which property data adapter to use.
+   *
+   * `fixture` serves the labelled demo dataset, `supabase` serves real records,
+   * and `none` serves nothing at all. Production refuses `fixture` — asking for
+   * demo data on a public deployment is the one configuration this product
+   * cannot honour — but `none` is perfectly valid and is what production gets
+   * by default. A site with no property source should say so and keep serving
+   * the surfaces that need no source (the free tools, the methodology, the
+   * marketing pages), not refuse to start.
    */
-  PROPIQ_DATA_ADAPTER: z.enum(['fixture', 'supabase']).default('fixture'),
+  PROPIQ_DATA_ADAPTER: z.enum(['fixture', 'supabase', 'none']).optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20).optional(),
   /** AI provider configuration. Model IDs never appear in domain code. */
   AI_PROVIDER: z.enum(['anthropic', 'openai', 'none']).default('none'),
@@ -32,10 +39,40 @@ const serverSchema = z.object({
   AI_FALLBACK_MODEL: z.string().optional(),
   /** Requests per minute per user for AI endpoints. */
   AI_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(10),
+  /**
+   * Shared secret for scheduled endpoints. Unset means scheduled evaluation is
+   * refused outright — it never defaults open.
+   */
+  CRON_SECRET: z.string().min(16).optional(),
+  /**
+   * Alert delivery. A webhook URL enables the webhook channel; the secret, when
+   * present, signs each payload with HMAC-SHA256 so the receiver can verify it.
+   * Both absent means the channel reports itself unconfigured rather than
+   * silently dropping digests.
+   */
+  ALERT_WEBHOOK_URL: z.url().optional(),
+  ALERT_WEBHOOK_SECRET: z.string().min(16).optional(),
 });
 
-export type ClientEnv = z.infer<typeof clientSchema>;
-export type ServerEnv = z.infer<typeof serverSchema>;
+/** Where the app is served from, when nothing better is configured. */
+const DEV_SITE_URL = 'http://localhost:3000';
+
+const isLoopback = (url: string): boolean => {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
+};
+
+export type ClientEnv = Omit<z.infer<typeof clientSchema>, 'NEXT_PUBLIC_SITE_URL'> & {
+  readonly NEXT_PUBLIC_SITE_URL: string;
+};
+export type ServerEnv = Omit<z.infer<typeof serverSchema>, 'PROPIQ_DATA_ADAPTER'> & {
+  /** Always resolved: unset becomes `fixture` in development, `none` in production. */
+  readonly PROPIQ_DATA_ADAPTER: 'fixture' | 'supabase' | 'none';
+};
 
 const formatIssues = (error: z.ZodError): string =>
   error.issues.map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`).join('\n');
@@ -56,7 +93,37 @@ export const clientEnv: ClientEnv = (() => {
   if (!parsed.success) {
     throw new Error(`Invalid public environment configuration:\n${formatIssues(parsed.error)}`);
   }
-  return parsed.data;
+
+  const configured = parsed.data.NEXT_PUBLIC_SITE_URL;
+
+  // `NEXT_PUBLIC_*` is inlined into both bundles at build time, so a production
+  // build without this value bakes `localhost` into every canonical link, the
+  // sitemap, `llms.txt`, the JSON-LD `@id` and — the one that actually hurts a
+  // real user — the auth email redirect. A crawler told the canonical URL is
+  // localhost de-indexes the real page; a buyer sent to localhost after
+  // confirming their address is simply stranded. Better to refuse the build.
+  //
+  // The check runs on the server only. By the time this module evaluates in a
+  // browser the value is already baked, so throwing there would punish the
+  // visitor for a mistake made at build time. And it is skipped under `next
+  // build`'s own phase so `npm run build` stays runnable with no environment
+  // at all, which is how CI and a fresh clone both invoke it.
+  const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
+  if (
+    typeof window === 'undefined' &&
+    process.env.NODE_ENV === 'production' &&
+    !isBuildPhase &&
+    (configured === undefined || isLoopback(configured))
+  ) {
+    throw new Error(
+      "NEXT_PUBLIC_SITE_URL must be set to this deployment's public origin " +
+        `(got ${configured ?? 'nothing'}). It is baked into canonical links, the ` +
+        'sitemap, llms.txt, structured data and the auth email redirect, so a ' +
+        'loopback value silently points real users and crawlers at localhost.',
+    );
+  }
+
+  return { ...parsed.data, NEXT_PUBLIC_SITE_URL: configured ?? DEV_SITE_URL };
 })();
 
 let cachedServerEnv: ServerEnv | undefined;
@@ -77,15 +144,25 @@ export const getServerEnv = (): ServerEnv => {
   }
 
   // The truthfulness rule, enforced by configuration: production must never be
-  // able to serve fixture data as if it were live market intelligence.
+  // able to serve fixture data as if it were live market intelligence. Asking
+  // for it explicitly is refused rather than quietly downgraded, because a
+  // deployment that asked for demo data wants to know it did not get it.
   if (parsed.data.NODE_ENV === 'production' && parsed.data.PROPIQ_DATA_ADAPTER === 'fixture') {
     throw new Error(
       'PROPIQ_DATA_ADAPTER=fixture is not permitted when NODE_ENV=production. ' +
-        'The fixture adapter serves demo data and must never back a production deployment.',
+        'The fixture adapter serves demo data and must never back a production ' +
+        'deployment. Set PROPIQ_DATA_ADAPTER=supabase for real records, or leave ' +
+        'it unset to serve no property data at all.',
     );
   }
 
-  cachedServerEnv = parsed.data;
+  // Unset means "the labelled demo set" while developing and "nothing" in
+  // production. A public deployment that has not been pointed at a database
+  // has no Indian property facts, and the honest default is to have none.
+  const adapter =
+    parsed.data.PROPIQ_DATA_ADAPTER ?? (parsed.data.NODE_ENV === 'production' ? 'none' : 'fixture');
+
+  cachedServerEnv = { ...parsed.data, PROPIQ_DATA_ADAPTER: adapter };
   return cachedServerEnv;
 };
 

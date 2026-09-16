@@ -364,3 +364,343 @@ under, so a conclusion can be re-derived rather than taken on trust, and is
 
 **Cost.** No server-side generation, so reports cannot yet be emailed or
 attached. That is the trigger for revisiting this.
+
+---
+
+## D-019 — Document checks are deterministic and ship without OCR
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** The rule engine runs over a structured `ExtractedDocument`.
+Extraction is a separate, swappable step. The UI offers manual entry, so the
+checks work today with no provider.
+
+**Why.** The valuable half of document analysis is not reading the page, it is
+knowing that a B-khata is not loan-eligible, that a five-year encumbrance
+certificate proves nothing about a six-year-old charge, and that an agreement
+which forfeits your deposit but carries no delay penalty is not symmetric.
+That half is deterministic. Coupling it to OCR would have delayed all of it
+for none of it.
+
+Field presence is presence, not truthiness: an empty string means the
+extractor looked and found nothing (a finding), `undefined` means it never
+looked (a skip). Conflating them would downgrade "this deed has no
+registration number" into "we did not check whether it was registered".
+
+**Cost.** Manual entry is slower than an upload. It is also private, free and
+available now.
+
+---
+
+## D-020 — A site visit produces first-party evidence, not a notes field
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** Checklist items may declare an `evidenceField`. Answers on those
+items become `Evidence` records with source type `survey` at trust 0.9, merged
+into the property's evidence before scoring.
+
+**Why.** A buyer standing in a flat who sees a silt line on the compound wall
+knows something the model does not. That observation should move the score,
+not sit in free text nobody reads again. It is the only first-party evidence
+in the product and is weighted accordingly — above a listing, below an
+instrumented survey.
+
+A reported concern is trusted more than a reported all-clear (0.9 against
+0.7): "it looked fine" is easy to say without checking. `Didn't check` is
+excluded entirely, exactly as a missing signal is excluded from a pillar.
+
+**Cost.** Visit evidence is per user, so two buyers can hold different scores
+for the same property. That is correct — it is their observation, not a market
+fact — but it means a score is no longer globally cacheable.
+
+---
+
+## D-021 — Negotiation records the sequence, and the walk-away price up front
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Decision.** Store the offer sequence and derive state from it. `walk_away_price`
+is NOT NULL and must be at or above the target, enforced by a check constraint.
+Status transitions go through `canTransition`.
+
+**Why.** A number set while calm is worth more than one set across a table, and
+the failure mode is revising the walk-away upward because you are already in
+the room. Storing it before the first offer is the entire point of the model,
+so the schema refuses a negotiation without one.
+
+Deriving state from the offers means the summary can never disagree with the
+history it summarises. The guidance is deliberately blunt: a buyer
+mid-negotiation needs to be told the number on the table is past their own
+walk-away, not given a balanced summary of considerations.
+
+**Cost.** None worth naming.
+
+---
+
+## D-022 — Negotiation guidance is capped at the asking price
+
+**Date:** 2026-09-15 · **Status:** Accepted
+
+**Context.** Found by running the app, not by a test. For a property priced
+*below* fair value, the raw valuation band sits above the asking price, so the
+guidance suggested a target of ₹1.67 Cr against an asking price of ₹1.59 Cr —
+advising the buyer to offer more than the seller was asking.
+
+**Decision.** Cap the walk-away at the asking price and the target at 97% of
+it, then derive the opening offer under that.
+
+**Why.** An uncapped target is not negotiation advice, it is a bug with a rupee
+sign on it. The 3% margin matters too: a below-fair-value asking price is a
+reason to move quickly, not a reason to stop negotiating.
+
+**Cost.** None. Six regression tests pin the ordering invariant in both the
+overpriced and underpriced cases.
+
+## D-023 — An unconfigured delivery channel says so, rather than stubbing
+
+**Context.** Alerts evaluated correctly but went nowhere. Three delivery
+channels were candidates: an in-app inbox, a webhook, and email. Only the
+first two can be built without a third-party account.
+
+**Decision.** Every channel implements the same `AlertNotifier` port and
+reports one of four outcomes: `delivered`, `skipped`, `failed`,
+`notConfigured`. Email is implemented as a notifier that always returns
+`notConfigured`, carrying the integration requirement as its detail string.
+It does not log to the console and return success.
+
+**Why.** A stub that reports a send it did not make is the alerting version
+of a fabricated data point, and this product's central promise is that it
+does not do that. `test/alert-delivery.test.ts` asserts that the email
+notifier's source contains no `'delivered'` branch, so the stub cannot be
+reintroduced quietly.
+
+**Consequence.** The notifications page renders per-channel configuration
+state, so a deployment's real capability is visible rather than implied.
+Wiring an email provider means adding a notifier, not editing a page.
+
+## D-024 — The page view writes to the inbox, and the write is idempotent
+
+**Context.** Alerts are evaluated when `/dashboard/alerts` loads, because
+that is the only evaluation that happens without a scheduler. Without a
+write, a change detected on a page view was forgotten as soon as the user
+navigated away.
+
+**Decision.** The alerts page writes what fired to the notification inbox.
+The store's uniqueness key is `(user, property, kind, rule, day)`, so a
+refresh, a double-fired scheduler and a page view that races the cron all
+collapse to one row.
+
+**Why.** A side effect on a GET is normally a smell. Here the effect is
+idempotent by construction and the alternative is a product that detects a
+price cut and then loses it. The dedupe key is what makes it safe, so it is
+enforced by a unique index in the schema rather than by application code.
+
+**Consequence.** Three evaluations of the same unchanged alert produce one
+inbox row — verified in the browser, not only in unit tests.
+
+## D-025 — Spec-named URLs redirect; they do not become second pages
+
+**Context.** The product calls the comparison surface the "Decision Room"
+and the surface lives at `/compare`. People type and link the name.
+
+**Decision.** `/decision-room` and `/reports` are permanent redirects to
+`/compare` and `/dashboard/reports`. They are not copies.
+
+**Why.** Two pages rendering the same thing drift, and a score that differs
+between two screens is worse than no score. One canonical route keeps that
+impossible.
+
+**Consequence.** `test/navigation.test.ts` walks the App Router tree and
+fails when any internal link in the header, footer, homepage or dashboard
+has no route behind it — which is the spec rule "do not show nonexistent
+routes in navigation", enforced rather than remembered.
+
+## D-026 — The free tools are the part of the product that can launch today
+
+**Context.** The engine is real and the dataset is not. Anything that
+showcases property intelligence is blocked until a real source lands, which
+left the product with nothing it could honestly put in front of anyone.
+
+**Decision.** Split the product by data dependency rather than by feature.
+Carpet-area arithmetic, EMI and amortisation, rental yield, the 22 document
+rules and the 22-item site-visit checklist depend on figures the user supplies
+and on published law, not on our dataset. They ship open — no account, no
+email, nothing stored — and they are indexable whichever adapter is running.
+
+**Why.** They are correct for any property in any Indian market today. Waiting
+for a data source before publishing arithmetic that is already right would be
+withholding a working product for no reason, and these are the highest-intent
+questions in the category.
+
+**Consequence.** `test/tools-independence.test.ts` fails CI if a tool page
+imports the property repository, calls a server action, posts anywhere, or
+grows a `DemoDataBanner`. The moment a tool reads the dataset it becomes
+demo-backed and needs a banner it does not have, so the guard is a static
+invariant rather than a convention.
+
+## D-027 — Built to be cited, not just ranked
+
+**Context.** A growing share of the questions this product answers are put to
+an answer engine rather than typed into a search box. An engine cites what it
+can parse, date and attribute.
+
+**Decision.** Expose the shape the product already produces. `llms.txt` is
+generated from the live constants — scoring version, pillar weights, decision
+thresholds, alert thresholds, document rules version — for the same reason
+`/methodology` is: a published formula that has drifted from the running one
+is worse than no published formula. Each scoring version also gets a frozen
+permalink at `/methodology/v<version>`, since a citation needs a URL whose
+content does not change and a scoring version is never mutated once released.
+AI crawlers are named explicitly in `robots.txt` rather than left to the
+wildcard, with the same disallow list as every other agent.
+
+**Why.** Every fact in this product already carries a data status, a source, an
+observation date and a decaying confidence. That is precisely what makes a
+claim citable, and it was built for honesty rather than for distribution — the
+distribution is a consequence worth collecting.
+
+**Consequence.** `llms.txt` states this deployment's data status in the file a
+model reads first, and says plainly not to cite a fixture figure as an Indian
+market fact. `test/tools-independence.test.ts` pins that disclosure, so a
+future edit cannot quietly drop it.
+
+## D-028 — JSON-LD is assembled from literals, never from a record
+
+**Context.** Structured data is a machine-readable restatement of a page, and
+the temptation is to emit property figures into it.
+
+**Decision.** `src/lib/structured-data.tsx` only describes pages: what a tool
+computes, what a term means, who published it. No helper accepts a property,
+a locality or an evidence record.
+
+**Why.** Two reasons, and the second is the stronger one. A JSON-LD block
+built from a record would put demo figures into a machine-readable claim that
+no banner covers. And a payload assembled from literals has no untrusted
+string reaching a script tag, which removes the injection question entirely
+rather than answering it.
+
+## D-029 — The marketing surface projects the engine; it stores no numbers
+
+**Context.** A homepage needs headline figures, and the fastest way to get them
+is to write them down. The build brief for the page even supplied illustrative
+ones.
+
+**Decision.** `src/site/data/page-data.ts` runs one `buildPropertyIntelligence`
+pass and every section reads from it. `src/site/types` describes only what that
+projection produces. Three shapes are authored, because the engine has no
+concept of them — research entries, the developer profile wrapper and the
+command-centre framing — and each carries its own `dataStatus`.
+
+**Why.** Hand-written numbers on a page whose entire argument is that it does
+not invent numbers would be self-defeating. And one pass means the hero, the
+map, the cards, the comparison table and the command centre cannot disagree
+about the same property, which a second copy would eventually guarantee.
+
+**Consequence.** Changing a weight in `src/domain/scoring/weights.ts` moves the
+homepage. That is the intended coupling.
+
+## D-030 — Two verdict palettes, picked by the ground the subtree sits on
+
+**Context.** The site is light-first with dark sections inside it. A single
+`--color-buy` cannot clear 4.5:1 on both #ffffff and #070b16, and an axe sweep
+found 188 contrast failures across the page when it tried.
+
+**Decision.** `globals.css` defines each decision colour twice: the original,
+tuned for dark grounds, and an `-ink` variant for paper. `.propiq-site` points
+the five semantic tokens at the ink set; `.propiq-dark` points them back. The
+same trick already used for surfaces and text now covers verdicts, plus a
+`--text-accent` token for brand blue used as text rather than as a background.
+
+**Why.** No component should have to know which ground it landed on. The
+alternative — conditional classes at every call site — is the version that
+silently rots the first time a section changes tone.
+
+**Consequence.** A verdict is legible on both halves of the page, and the
+homepage reports zero serious or critical axe violations at 1440px and 390px.
+Adding a third ground means extending the token block, not the components.
+
+## D-031 — The comparison tray is browser-local and never calls itself a watchlist
+
+**Context.** A visitor weighing three properties needs somewhere to put them
+before they have an account.
+
+**Decision.** `src/components/site/shortlist.tsx` holds the tray in a module
+store read through `useSyncExternalStore`, persisted to `localStorage` and
+capped at four — what the Decision Room can render side by side. It hands off
+to `/compare?ids=`. Saving is a separate action that goes to the real watchlist
+repository and reports what actually happened, including "Sign in to save
+properties to your watchlist."
+
+**Why.** Comparing is a reading task; gating it behind a signup would be
+theatre. But a local list presented as a stored one is the same class of
+untruth as a demo figure presented as a market fact, so the two are never
+conflated in the copy or in the storage.
+
+**Consequence.** The tray survives a reload and reaches no server. A save that
+cannot happen says so rather than flipping the button optimistically.
+
+## D-032 — Distances are drawn on an axis, because the record has no coordinates
+
+**Context.** The locality section needed a spatial view. The first attempt was
+a radar: employment hubs and transit anchors placed around a circle at their
+true radius.
+
+**Decision.** Replaced with `LocalityAccess` — one shared horizontal scale, one
+bar per anchor, the kilometres and the peak commute printed next to each.
+
+**Why.** `Locality` stores `distanceKm`, not a position. The radar therefore
+had to invent a bearing for every anchor and then spend a paragraph explaining
+that the bearings meant nothing. A chart that needs a disclaimer to stop it
+lying is the wrong chart; the honest version of that data is one axis.
+
+**Consequence.** Nothing on the page implies a direction we do not hold. When a
+geocoded anchor set exists, a real map can replace this — and it will be a map,
+not a diagram shaped like one.
+
+## D-033 — A misconfiguration fails the process, not one route at a time
+
+**Context.** `getServerEnv()` validated lazily, on first call. A production
+server running the fixture adapter therefore booted happily and then answered
+the tool pages with 200, every data-backed route with 500, and four more routes
+with a **200** carrying a permanently stuck loading skeleton — the error was
+raised inside a Suspense boundary after the shell had already flushed its
+status. An uptime check on `/search` reported a healthy service.
+
+**Decision.** `src/instrumentation.ts` calls `getServerEnv()` from Next's
+`register()` hook, which runs once before the server accepts anything. A
+production process with an invalid configuration refuses to start. The same
+commit added a second guard: `NEXT_PUBLIC_SITE_URL` may not be missing or
+loopback in production.
+
+**Why.** Lazy validation makes the failure proportional to which route you
+happened to hit, which is the worst property a configuration error can have.
+Half-up is harder to diagnose than down, and it defeats monitoring.
+`NEXT_PUBLIC_*` is inlined at build time, so a localhost default is not a
+runtime inconvenience — it is baked into every canonical link, the sitemap,
+`llms.txt`, the JSON-LD `@id` and the auth email redirect.
+
+**Consequence.** Both checks are skipped under `next build`'s own phase, so a
+build still runs with no environment at all. The cost is that a production
+deploy now needs `NEXT_PUBLIC_SITE_URL` set; that is the correct cost.
+
+## D-034 — A link goes where its label says, or it does not exist
+
+**Context.** The footer's "Privacy" and "Terms" both pointed at `/about`, which
+carries neither. A routing test that asserts every internal link returns 200
+passes this happily, which is how it survived an audit.
+
+**Decision.** `/privacy` documents what the software actually does with data —
+which tables are RLS-scoped, where uploaded documents live, what the free tools
+transmit, what reaches an AI provider — and names what is *not* published:
+fiduciary identity, retention, lawful basis, the DPDP grievance officer,
+cross-border transfer. There is no Terms link, because there are no terms.
+
+**Why.** The truthfulness rule already forbids a fabricated figure. A privacy
+policy invented to fill a footer slot is the same failure with legal exposure
+attached. What the code does is knowable and can be stated precisely; what the
+operator commits to is not, and the honest empty state says so.
+
+**Consequence.** "Every internal link resolves" is necessary and not
+sufficient. A link's destination has to match its label, and only a human or a
+test that knows the label's meaning can check that.

@@ -185,3 +185,50 @@ describe('negotiationGuidance', () => {
     expect(g!.leverPoints.join(' ')).toContain('above our central estimate');
   });
 });
+
+describe('negotiationGuidance never suggests paying above asking', () => {
+  /** Comparables well above the asking price, so fair value exceeds it. */
+  const underpriced = () =>
+    valueProperty(
+      ctx([
+        comp({ pricePerSqFt: 17_000 }),
+        comp({ pricePerSqFt: 17_400 }),
+        comp({ pricePerSqFt: 16_800 }),
+      ]),
+    );
+
+  it('confirms the fixture is genuinely priced below fair value', () => {
+    const v = underpriced();
+    expect(v.askingDeviationPercent).toBeLessThan(0);
+    expect(v.mid).toBeGreaterThan(v.askingPrice);
+  });
+
+  it('caps the target below the asking price', () => {
+    const g = negotiationGuidance(underpriced())!;
+    expect(g.targetPrice).toBeLessThan(g.askingPrice);
+  });
+
+  it('caps the walk-away at the asking price', () => {
+    const g = negotiationGuidance(underpriced())!;
+    expect(g.walkAwayPrice).toBeLessThanOrEqual(g.askingPrice);
+  });
+
+  it('keeps opening below target below walk-away even when underpriced', () => {
+    const g = negotiationGuidance(underpriced())!;
+    expect(g.openingOffer).toBeLessThan(g.targetPrice);
+    expect(g.targetPrice).toBeLessThanOrEqual(g.walkAwayPrice);
+  });
+
+  it('still leaves room to negotiate rather than conceding the asking price', () => {
+    const g = negotiationGuidance(underpriced())!;
+    expect(g.expectedConcessionPercent).toBeGreaterThan(0);
+  });
+
+  it('reports a positive expected concession for an overpriced property too', () => {
+    const g = negotiationGuidance(
+      valueProperty(ctx([comp({ pricePerSqFt: 11_000 }), comp({ pricePerSqFt: 11_200 })])),
+    )!;
+    expect(g.targetPrice).toBeLessThan(g.askingPrice);
+    expect(g.expectedConcessionPercent).toBeGreaterThan(0);
+  });
+});

@@ -9,7 +9,7 @@
  * expensive to discover in production.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FixturePropertyRepository } from '@/data/fixtures/adapter';
@@ -19,7 +19,14 @@ import { DEMO_LOCALITIES } from '@/data/fixtures/localities';
 
 const root = process.cwd();
 const schema = readFileSync(join(root, 'supabase/migrations/0001_canonical_schema.sql'), 'utf-8');
-const rls = readFileSync(join(root, 'supabase/migrations/0002_rls.sql'), 'utf-8');
+// Every migration, discovered rather than listed: a new migration that adds a
+// user-owned table without RLS must fail this suite, and it cannot do that if
+// the suite only reads the files someone remembered to register here.
+const rls = readdirSync(join(root, 'supabase/migrations'))
+  .filter((f) => f.endsWith('.sql'))
+  .sort()
+  .map((f) => readFileSync(join(root, 'supabase/migrations', f), 'utf-8'))
+  .join('\n\n');
 const productionAdapter = readFileSync(
   join(root, 'src/data/supabase/property-repository.ts'),
   'utf-8',
@@ -34,6 +41,9 @@ const USER_OWNED_TABLES = [
   'analysis_documents',
   'document_findings',
   'admin_audit_log',
+  'site_visits',
+  'negotiations',
+  'notifications',
 ] as const;
 
 describe('row level security', () => {
@@ -41,18 +51,24 @@ describe('row level security', () => {
     expect(rls).toMatch(new RegExp(`alter table ${table}\\s+enable row level security`));
   });
 
-  it.each(['buyer_profiles', 'watchlist', 'portfolio_assets', 'alerts', 'analysis_documents'])(
-    'scopes every write verb on %s to auth.uid()',
-    (table) => {
-      const policies = rls.split('\n\n').filter((block) => block.includes(`on ${table} for`));
-      const verbs = ['select', 'insert', 'update', 'delete'];
-      for (const verb of verbs) {
-        const policy = policies.find((p) => p.includes(`for ${verb}`));
-        expect(policy, `${table} has no ${verb} policy`).toBeDefined();
-        expect(policy).toContain('auth.uid()');
-      }
-    },
-  );
+  it.each([
+    'buyer_profiles',
+    'watchlist',
+    'portfolio_assets',
+    'alerts',
+    'analysis_documents',
+    'site_visits',
+    'negotiations',
+    'notifications',
+  ])('scopes every write verb on %s to auth.uid()', (table) => {
+    const policies = rls.split('\n\n').filter((block) => block.includes(`on ${table} for`));
+    const verbs = ['select', 'insert', 'update', 'delete'];
+    for (const verb of verbs) {
+      const policy = policies.find((p) => p.includes(`for ${verb}`));
+      expect(policy, `${table} has no ${verb} policy`).toBeDefined();
+      expect(policy).toContain('auth.uid()');
+    }
+  });
 
   it('never writes a policy that grants blanket access to a user-owned table', () => {
     for (const table of USER_OWNED_TABLES) {
@@ -125,7 +141,7 @@ describe('demo data containment', () => {
 
 describe('new surfaces stay inside the security model', () => {
   const actions = readFileSync(join(root, 'src/server/actions.ts'), 'utf-8');
-  const copilotRoute = readFileSync(join(root, 'src/app/api/copilot/route.ts'), 'utf-8');
+  const copilotRoute = readFileSync(join(root, 'src/app/(app)/api/copilot/route.ts'), 'utf-8');
 
   it('resolves identity server-side in every user-scoped action', () => {
     // No action may take a user id as a parameter — it is always resolved from
@@ -178,6 +194,64 @@ describe('new surfaces stay inside the security model', () => {
     // A form cannot claim a user's own guess is a verified valuation.
     expect(actions).toContain("v.valuationSource === 'verified'");
     expect(actions).toContain("'userProvided'");
+  });
+});
+
+describe('scheduled endpoints', () => {
+  const cronRoute = readFileSync(
+    join(root, 'src/app/(app)/api/cron/evaluate-alerts/route.ts'),
+    'utf-8',
+  );
+
+  it('refuses every request when no secret is configured, rather than defaulting open', () => {
+    expect(cronRoute).toContain('if (!env.CRON_SECRET)');
+    expect(cronRoute).toContain('503');
+  });
+
+  it('compares the secret in constant time', () => {
+    expect(cronRoute).toContain('timingSafeEqual');
+    // A plain === on a secret leaks its prefix to a timing attack.
+    expect(cronRoute).not.toMatch(/provided === env\.CRON_SECRET/);
+  });
+
+  it('requires a bearer token and returns 401 without one', () => {
+    expect(cronRoute).toContain("startsWith('Bearer ')");
+    expect(cronRoute).toContain('401');
+  });
+
+  it('does not accept a secret in the query string, where it would be logged', () => {
+    expect(cronRoute).not.toMatch(/searchParams\.get\(['"]secret/);
+  });
+});
+
+describe('document intelligence stays honest', () => {
+  const extractor = readFileSync(join(root, 'src/ai/document-extractor.ts'), 'utf-8');
+  const rules = readFileSync(join(root, 'src/domain/documents/rules.ts'), 'utf-8');
+
+  it('refuses to return an empty extraction when no provider is configured', () => {
+    expect(extractor).toContain('ExtractionNotConfiguredError');
+    // An empty extraction would read as a clean document.
+    expect(extractor).not.toMatch(/return\s*\{\s*kind[\s\S]{0,120}\}\s*;?\s*\}\s*$/m);
+  });
+
+  it('validates uploads against an allowlist, not a blocklist', () => {
+    expect(extractor).toContain('ALLOWED_DOCUMENT_TYPES');
+    expect(extractor).not.toMatch(/BLOCKED_|DISALLOWED_/);
+  });
+
+  it('keeps only the extension from a user-supplied filename', () => {
+    expect(extractor).toContain('lastIndexOf');
+    expect(extractor).toContain("replace(/[^a-z.]/g, '')");
+  });
+
+  it('never lets a skipped check read as a pass', () => {
+    expect(rules).toContain('skipped.push');
+    expect(rules).toContain('passed.push');
+  });
+
+  it('always requires legal review, with no code path that clears a document', () => {
+    expect(rules).toContain('requiresLegalReview: true');
+    expect(rules).not.toMatch(/requiresLegalReview:\s*false/);
   });
 });
 

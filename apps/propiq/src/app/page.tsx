@@ -1,154 +1,179 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowRight, FileSearch, Gavel, ScanSearch, ShieldCheck } from 'lucide-react';
-import { getPropertyRepository } from '@/data';
-import { buildSummaries } from '@/server/intelligence';
-import { DemoDataBanner } from '@/components/propiq/data-status';
-import { PropertyCard } from '@/components/propiq/property-card';
-import { SearchBar } from '@/components/propiq/search-bar';
+import { ArrowRight } from 'lucide-react';
+import { loadHomePageData } from '@/site/data/page-data';
+import { DemoDataBanner, NoDataNotice } from '@/components/propiq/data-status';
 import { TrackView } from '@/components/propiq/track-view';
+import { SiteHeader } from '@/components/site/site-header';
+import { SiteFooter } from '@/components/site/site-footer';
+import { HeroSection } from '@/components/site/hero-section';
+import { JourneySection } from '@/components/site/journey-section';
+import { SmartSearch } from '@/components/site/smart-search';
+import { SitePropertyRail } from '@/components/site/property-card';
+import { Section, SectionHead, DemoNote } from '@/components/site/section';
+import { ScoreSection } from '@/components/site/score-section';
+import { VerdictSection } from '@/components/site/verdict-section';
+import { MapExplorer } from '@/components/site/map-explorer';
+import {
+  DeveloperIntelligence,
+  InvestmentIntelligence,
+  LocalityIntelligence,
+  PriceIntelligence,
+  RiskIntelligence,
+} from '@/components/site/intelligence-sections';
+import {
+  CommandCentre,
+  ComparisonSection,
+  FinalCTA,
+  ResearchSection,
+  TrustLayer,
+  WhyPropIQ,
+} from '@/components/site/closing-sections';
+import { ShortlistProvider } from '@/components/site/shortlist';
+import { BottomDock } from '@/components/site/bottom-dock';
+import { JsonLd, ORGANIZATION } from '@/lib/structured-data';
 
 export const dynamic = 'force-dynamic';
 
-const JOURNEY = [
-  { label: 'Discover', detail: 'Find the shortlist that matches how you actually buy.' },
-  { label: 'Verify', detail: 'RERA, developer record and title signals, with dates on them.' },
-  { label: 'Compare', detail: 'Side by side on the dimensions that decide it.' },
-  { label: 'Score', detail: 'Twelve pillars, persona-weighted, published formula.' },
-  { label: 'Analyze', detail: 'Fair value, yield, IRR, and what breaks the model.' },
-  { label: 'Negotiate', detail: 'An opening number and a walk-away number.' },
-] as const;
+export const metadata: Metadata = {
+  title: 'PropIQ by CiteRank AI — Find the right property. Understand the opportunity.',
+  description:
+    'Discover projects, compare locations, benchmark prices, evaluate developers and uncover ' +
+    'investment potential. Twelve scoring pillars, a published formula and the evidence behind ' +
+    'every number.',
+  alternates: { canonical: '/' },
+  openGraph: {
+    type: 'website',
+    title: 'PropIQ by CiteRank AI — Cities. Insights. Growth.',
+    description:
+      'Property decision intelligence for India. Published scoring, confidence bands, and the ' +
+      'evidence behind every number.',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'PropIQ by CiteRank AI',
+    description: 'Find the right property. Understand the opportunity.',
+  },
+};
 
+/**
+ * The homepage.
+ *
+ * Every section is fed from one scoring pass, so the hero, the map, the
+ * cards, the comparison and the command centre cannot disagree about the same
+ * property. The page owns almost no logic: it loads, then hands each section
+ * the slice it renders.
+ *
+ * It carries its own header and footer rather than the application chrome,
+ * because the marketing surface is light-first and the app is dark-led. The
+ * root layout renders neither for this route.
+ */
 export default async function HomePage() {
-  const repo = getPropertyRepository();
-  const { items } = await repo.search({ pageSize: 3, sort: 'priceDesc' });
-  const featured = await buildSummaries(items);
+  const data = await loadHomePageData();
+  const showcase = data.showcaseSite;
+  const showcaseLocality = data.localities.find((l) => l.slug === showcase?.localitySlug);
+  const leadLocality = showcaseLocality ?? data.localities[0];
 
   return (
-    <>
-      <TrackView event="property_viewed" properties={{ surface: 'home' }} />
+    <ShortlistProvider>
+      <div className="propiq-site">
+        <TrackView event="property_viewed" properties={{ surface: 'home' }} />
+        <JsonLd
+          data={{
+            '@context': 'https://schema.org',
+            '@type': 'WebSite',
+            name: 'PropIQ by CiteRank AI',
+            description: 'Property decision intelligence for India.',
+            publisher: ORGANIZATION(),
+          }}
+        />
 
-      <section className="border-b border-[var(--border-subtle)]">
-        <div className="mx-auto max-w-7xl px-4 py-14 sm:py-20">
-          {repo.servesDemoData && <DemoDataBanner className="mb-8" />}
+        <SiteHeader />
 
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-500">
-            Property decision intelligence
-          </p>
-          <h1 className="mt-4 max-w-3xl text-4xl font-semibold tracking-tight sm:text-5xl">
-            Know what it is worth before you are asked to sign.
-          </h1>
-          <p className="mt-4 max-w-2xl text-lg text-[var(--text-secondary)]">
-            PropIQ scores a property on twelve pillars, shows you the evidence behind every one of
-            them, and tells you whether to buy, negotiate, watch or walk. When the evidence is thin,
-            it says so instead of guessing.
-          </p>
+        <main id="main">
+          <HeroSection showcase={showcase} />
+          <SmartSearch localities={data.localities.map((l) => l.name)} />
 
-          <div className="mt-8 max-w-2xl">
-            <SearchBar />
-          </div>
+          {data.servesDemoData && (
+            <div className="mx-auto max-w-7xl px-4 pt-12">
+              <DemoDataBanner />
+            </div>
+          )}
 
-          <dl className="mt-10 grid max-w-3xl grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-4">
-            <Metric label="Scoring pillars" value="12" />
-            <Metric label="Risk dimensions" value="9" />
-            <Metric label="Verdicts" value="5" />
-            <Metric label="Black-box scores" value="0" />
-          </dl>
-        </div>
-      </section>
+          {/* With no source connected there is nothing truthful to put in the
+              data-backed sections, so they are not rendered at all and this
+              says why. The sections that need no dataset carry on below. */}
+          {data.servesNoData && (
+            <div className="mx-auto max-w-7xl px-4 pt-12">
+              <NoDataNotice surface="Property discovery, scoring, the market map and the comparison" />
+            </div>
+          )}
 
-      <section className="mx-auto max-w-7xl px-4 py-12">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-muted)]">
-          The journey
-        </h2>
-        <ol className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {JOURNEY.map((step, i) => (
-            <li
-              key={step.label}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4"
-            >
-              <span data-figure className="text-[10px] font-semibold text-accent-500">
-                {String(i + 1).padStart(2, '0')}
-              </span>
-              <p className="mt-1 text-sm font-semibold">{step.label}</p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">{step.detail}</p>
-            </li>
-          ))}
-        </ol>
-      </section>
+          {/* ---------------------------------------- recommended properties */}
+          {!data.servesNoData && (
+            <>
+              <Section tone="raise">
+                <SectionHead
+                  eyebrow="Smart discovery"
+                  title="Properties worth a closer look."
+                  standfirst="Ranked by the engine on location, pricing, developer confidence, growth potential and risk — not by who paid to appear."
+                  action={
+                    <Link
+                      href="/search"
+                      className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
+                    >
+                      See all <ArrowRight aria-hidden className="size-4" />
+                    </Link>
+                  }
+                />
+                <SitePropertyRail properties={data.properties.slice(0, 6)} />
+                <DemoNote />
+              </Section>
 
-      <section className="mx-auto max-w-7xl px-4 py-8">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">Properties, scored</h2>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">
-              Every card carries its verdict, its score, and the data status behind it.
-            </p>
-          </div>
-          <Link
-            href="/search"
-            className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-accent-500 hover:underline"
-          >
-            See all <ArrowRight aria-hidden className="size-4" />
-          </Link>
-        </div>
+              <JourneySection propertyHref={showcase ? `/property/${showcase.slug}` : '/search'} />
 
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {featured.map((intel) => (
-            <PropertyCard key={intel.property.id} intelligence={intel} />
-          ))}
-        </div>
-      </section>
+              {showcase && <ScoreSection property={showcase} />}
+              {showcase && <VerdictSection property={showcase} />}
 
-      <section className="mx-auto max-w-7xl px-4 py-12">
-        <h2 className="text-xl font-semibold tracking-tight">What PropIQ refuses to do</h2>
-        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Promise
-            icon={ScanSearch}
-            title="No invented facts"
-            body="If we do not have a number, the field reads unknown. The scoring engine excludes it and rescales, so a gap never reads as a zero."
-          />
-          <Promise
-            icon={ShieldCheck}
-            title="No black-box scoring"
-            body="Every pillar expands into its signals, the raw value observed, and the exact normalisation applied. The weights are published."
-          />
-          <Promise
-            icon={FileSearch}
-            title="No stale data in disguise"
-            body="Every figure carries an observation date and decays in confidence against its source's half-life. A year-old asking price is not evidence."
-          />
-          <Promise
-            icon={Gavel}
-            title="No paid verdicts"
-            body="Commercial relationships are disclosed on every property and are computed in a system that the scoring engine cannot read."
-          />
-        </div>
-      </section>
-    </>
+              {/* ------------------------------------------------- map + list */}
+              <Section tone="raise">
+                <SectionHead
+                  eyebrow="Explore"
+                  title="The covered market, on its real coordinates."
+                  standfirst="No map provider is configured, so this is drawn from the coordinates already in the data rather than behind an API key. Pin colour is the verdict the engine reached, not a listing status."
+                />
+                <div className="mt-10">
+                  <MapExplorer properties={data.properties} localities={data.localities} />
+                </div>
+                <DemoNote />
+              </Section>
+
+              {leadLocality && <LocalityIntelligence locality={leadLocality} />}
+              {showcase && (
+                <PriceIntelligence
+                  property={showcase}
+                  locality={showcaseLocality}
+                  localities={data.localities}
+                />
+              )}
+              {showcase && (
+                <InvestmentIntelligence property={showcase} locality={showcaseLocality} />
+              )}
+              <DeveloperIntelligence developers={data.developers} />
+              {showcase && <RiskIntelligence property={showcase} />}
+              <ComparisonSection properties={data.properties} />
+            </>
+          )}
+          <WhyPropIQ />
+          <ResearchSection articles={data.research} />
+          {!data.servesNoData && <CommandCentre snapshot={data.commandCentre} />}
+          <TrustLayer />
+          <FinalCTA />
+        </main>
+
+        <SiteFooter />
+        <BottomDock />
+      </div>
+    </ShortlistProvider>
   );
 }
-
-const Metric = ({ label, value }: { label: string; value: string }) => (
-  <div>
-    <dt className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">{label}</dt>
-    <dd data-figure className="mt-0.5 text-2xl font-semibold">
-      {value}
-    </dd>
-  </div>
-);
-
-const Promise = ({
-  icon: Icon,
-  title,
-  body,
-}: {
-  icon: typeof ShieldCheck;
-  title: string;
-  body: string;
-}) => (
-  <article className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
-    <Icon aria-hidden className="size-5 text-accent-500" />
-    <h3 className="mt-3 text-sm font-semibold">{title}</h3>
-    <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">{body}</p>
-  </article>
-);

@@ -39,7 +39,45 @@ Everything on the P1 list that was not blocked on a credential or a provider:
   Refuses with a 503 rather than stubbing when no provider is configured.
 - **Reports** — a frozen, versioned, printable intelligence report per property.
 
+### The buyer journey, end to end ✓
+
+Discover → Verify → Compare → Score → Analyze → **Visit → Negotiate** → Monitor.
+
+- **Document checks** — 22 deterministic rules across sale deeds, encumbrance
+  certificates, khata, agreements, RERA certificates and cost sheets. They run
+  in the browser on typed input, so they work with no OCR provider and nothing
+  ever leaves the page.
+- **Site visits** — a 22-item checklist of things you can only learn standing
+  there. Answers on mapped items become verified first-party evidence and move
+  the score, which is the loop the product was missing.
+- **Negotiation** — the offer sequence, guarded status transitions, and a
+  walk-away price recorded before the first offer, which is the whole point.
+- **Scheduled alerts** — an endpoint any cron can call, which evaluates and
+  then delivers.
+- **Alert delivery** — three channels behind one port. The in-app inbox always
+  works; the webhook signs its payloads when given a secret; email reports
+  itself unconfigured rather than pretending. Delivery is idempotent per
+  (user, property, rule, day), so a double-fired scheduler is harmless.
+
 ## Next
+
+### Shipped since the last milestone
+
+- **Free tools** — carpet area vs super built-up, home loan EMI with total
+  interest, rental yield gross vs net, the document checks as a page per
+  document type, and the site-visit checklist. All open, none of them touching
+  the dataset. See D-026.
+- **Answer-engine surface** — `llms.txt` generated from the live constants,
+  frozen methodology permalinks per scoring version, JSON-LD across the tools,
+  and AI crawlers named explicitly in robots. See D-027 and D-028.
+- **The homepage** — nineteen sections, light-first with dark where it earns
+  it, a Three.js hero with a flat fallback, a coordinate-real market plot that
+  needs no map token, price and locality charts that each carry a written
+  summary, a locality access chart, and a browser-local comparison tray that
+  hands off to the Decision Room. Every score, verdict, valuation, yield and
+  comparison on it is projected from one `buildPropertyIntelligence` pass, so
+  the page holds no second copy of any number. Verified at WCAG AA: no serious
+  or critical axe violations at 1440px or 390px. See D-029 to D-032.
 
 ### The exact next task
 
@@ -50,7 +88,8 @@ design work:
 
 1. Create a Supabase project; set `NEXT_PUBLIC_SUPABASE_URL`,
    `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
-2. Apply `supabase/migrations/0001_canonical_schema.sql` and `0002_rls.sql`.
+2. Apply all four migrations in order: `0001_canonical_schema.sql`,
+   `0002_rls.sql`, `0003_visits_and_negotiations.sql`, `0004_notifications.sql`.
 3. Run `supabase/verify-rls.sql` — it must print `RLS verification passed.`
 4. Set `PROPIQ_DATA_ADAPTER=supabase` and confirm search returns empty (correct:
    no real data is loaded) rather than erroring.
@@ -67,19 +106,28 @@ the highest-value integration: it is authoritative, it is public, and it turns
 the legal pillar from a contract into a measurement. Until one real source
 exists, every other feature is building on fixtures.
 
-**Buyer profile editor.** Persona weighting and buyer-fit signals are built and
-tested, but there is no UI to set a budget, a workplace or priorities. The
-scoring engine already consumes the profile, so this is presentation work with
-a large payoff: it turns a generic score into a personal one.
+**A real scheduler.** The endpoint exists and delivers; nothing calls it on a
+timer yet. Point a cron at it with `CRON_SECRET` set, one POST per user so a
+failure is isolated and the scheduler controls fan-out. Until then, alerts
+are evaluated when someone opens the page, which is honest but not monitoring.
 
-**Rate limiting.** Before any AI endpoint is exposed.
+**A transactional email provider.** The last unconfigured delivery channel.
+Needs address verification, unsubscribe handling and bounce processing, not
+just an API key — which is why it ships reporting `notConfigured` rather than
+half-wired. See D-023.
+
+**NRI workflows, advisor workspace, admin.** Deliberately not started. NRI
+turns on statutory TDS, FEMA and DTAA positions; those need a citable, dated
+rate table and professional review before anything renders, because asserting
+tax law from memory under a promise of verified sourced facts is exactly the
+failure this product is built to avoid.
 
 ## P1
 
 | Feature | Blocked on |
 |---|---|
-| Document AI | Private storage + extraction provider |
-| Alert scheduling and delivery | A job runner and a channel (email or webhook) |
+| Document OCR | An extraction provider. Checks already work on typed input |
+| Alert delivery | A channel (email or webhook). The cron endpoint exists |
 | Distributed rate limiting | A shared store. Needed before a second instance runs |
 | Durable snapshot store | Supabase. The in-process store loses its baseline on restart |
 | Maps | Provider decision (abstraction exists) |

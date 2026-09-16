@@ -42,7 +42,7 @@ export const PropertyCard = ({ intelligence }: { intelligence: PropertyIntellige
           >
             {score.score === undefined ? '—' : Math.round(score.score)}
           </span>
-          <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)]">
+          <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
             Score
           </span>
         </div>
@@ -66,7 +66,7 @@ export const PropertyCard = ({ intelligence }: { intelligence: PropertyIntellige
         <DataStatusBadge status={property.dataStatus} />
         <Link
           href={`/property/${property.id}`}
-          className="ml-auto text-xs font-medium text-accent-500 hover:underline"
+          className="ml-auto text-xs font-medium text-[var(--text-accent)] hover:underline"
         >
           Full intelligence
         </Link>
