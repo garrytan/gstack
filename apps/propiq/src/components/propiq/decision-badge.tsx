@@ -36,7 +36,7 @@ export const DecisionBadge = ({
       style={{
         color: meta.color,
         borderColor: meta.color,
-        background: `color-mix(in srgb, ${meta.color} 14%, transparent)`,
+        background: `color-mix(in srgb, ${meta.color} 7%, transparent)`,
       }}
     >
       <Icon aria-hidden className={size === 'lg' ? 'size-4' : 'size-3'} />

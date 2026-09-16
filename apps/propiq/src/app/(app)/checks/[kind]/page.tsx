@@ -261,7 +261,7 @@ export default async function DocumentCheckPage({ params }: { params: Promise<{ 
       />
       <JsonLd data={faqPage(copy.faq)} />
 
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-500">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-accent)]">
         Document checks
       </p>
       <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -272,12 +272,12 @@ export default async function DocumentCheckPage({ params }: { params: Promise<{ 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <Link
           href={`/document-ai?kind=${documentKind}`}
-          className="inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-ink-950 hover:bg-accent-400"
+          className="inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
         >
           Run these checks
         </Link>
         <span className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
-          <ShieldCheck aria-hidden className="size-4 text-accent-500" />
+          <ShieldCheck aria-hidden className="size-4 text-[var(--text-accent)]" />
           Runs in your browser. Nothing is uploaded or stored.
         </span>
       </div>

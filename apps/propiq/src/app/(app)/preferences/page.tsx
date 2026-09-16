@@ -34,7 +34,7 @@ export default async function PreferencesPage() {
 
       <p className="mt-8 text-xs text-[var(--text-muted)]">
         Curious what these weights do?{' '}
-        <Link href="/methodology" className="text-accent-500 hover:underline">
+        <Link href="/methodology" className="text-[var(--text-accent)] hover:underline">
           The methodology page
         </Link>{' '}
         publishes the exact weight each pillar carries for each buyer type.

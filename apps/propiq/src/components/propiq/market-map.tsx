@@ -349,7 +349,10 @@ export const MarketMap = ({
       <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
         {localities.map((l) => (
           <li key={`legend-${l.id}`} className="text-xs">
-            <Link href={`/locality/${l.slug}`} className="text-accent-500 hover:underline">
+            <Link
+              href={`/locality/${l.slug}`}
+              className="text-[var(--text-accent)] hover:underline"
+            >
               {l.name}
             </Link>
             <span data-figure className="ml-1.5 text-[var(--text-muted)]">

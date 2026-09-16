@@ -29,14 +29,19 @@
   --color-ink-900: #141821;
   --color-ink-950: #0b0e14;
 
-  --color-accent-400: #4dd0c7;
-  --color-accent-500: #1fb3a8;
-  --color-accent-600: #12908a;
+  /* The app's working accent IS the brand blue. It used to be a teal, which
+     meant a visitor crossing from the marketing site to the product watched
+     the company change colour. One identity, one accent. `accent-ink` is the
+     variant for accent-as-text on a light ground, where the 500 sits at 2.6:1
+     and fails outright. */
+  --color-accent-400: #5b8def;
+  --color-accent-500: #2f6bdd;
+  --color-accent-600: #1f4fb0;
+  --color-accent-ink: #1f4fb0;
 
   /* PropIQ brand: blue, cyan, violet. The infinity-loop identity reads as a
      spectrum rather than a single hue, so the palette carries all three and
-     the gradients below move between them. Teal above stays as the product's
-     working accent inside the app; brand colour is for the marketing surface. */
+     the gradients below move between them. */
   --color-brand-blue-400: #5b8def;
   --color-brand-blue-500: #2f6bdd;
   --color-brand-blue-600: #1f4fb0;
@@ -70,7 +75,7 @@
   --color-negotiate-ink: #8a6414;
   --color-watch-ink: #3a648f;
   --color-avoid-ink: #a83f39;
-  --color-unknown-ink: #5f6676;
+  --color-unknown-ink: #575e6d;
 }
 
 :root {
@@ -83,11 +88,21 @@
   --border-strong: #c4cad6;
   --text-primary: #141821;
   --text-secondary: #454d5e;
-  --text-muted: #7c8598;
+  /* #7c8598 sat at 3.45:1 on this surface — 215 failing nodes across the app
+     before anyone scanned it. */
+  --text-muted: #5a6980;
   /* Brand blue as *text*. The 500 clears 4.5:1 on paper and fails on ink, so
      dark subtrees lift it to the 400. Backgrounds keep using the 500 either
      way — white on the 400 is the pairing that fails. */
   --text-accent: var(--color-brand-blue-500);
+
+  /* Verdicts on a light ground take the ink set, exactly as `.propiq-site`
+     does. The dark block below puts the bright set back. */
+  --color-buy: var(--color-buy-ink);
+  --color-negotiate: var(--color-negotiate-ink);
+  --color-watch: var(--color-watch-ink);
+  --color-avoid: var(--color-avoid-ink);
+  --color-unknown: var(--color-unknown-ink);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -99,8 +114,14 @@
     --border-strong: #3a4354;
     --text-primary: #f6f7f9;
     --text-secondary: #b0b7c6;
-    --text-muted: #7c8598;
+    --text-muted: #939cae;
     --text-accent: var(--color-brand-blue-400);
+
+    --color-buy: #2f9e63;
+    --color-negotiate: #d9a133;
+    --color-watch: #4a7fb5;
+    --color-avoid: #c4524b;
+    --color-unknown: #8b93a3;
   }
 }
 
@@ -503,8 +524,14 @@
   --border-strong: #3a4354;
   --text-primary: #f6f7f9;
   --text-secondary: #b0b7c6;
-  --text-muted: #7c8598;
+  --text-muted: #939cae;
   --text-accent: var(--color-brand-blue-400);
+
+  --color-buy: #2f9e63;
+  --color-negotiate: #d9a133;
+  --color-watch: #4a7fb5;
+  --color-avoid: #c4524b;
+  --color-unknown: #8b93a3;
 
   position: relative;
   isolation: isolate;
@@ -594,8 +621,14 @@ body:has(.propiq-canvas) > footer {
   --border-strong: #3a4354;
   --text-primary: #f6f7f9;
   --text-secondary: #b0b7c6;
-  --text-muted: #7c8598;
+  --text-muted: #939cae;
   --text-accent: var(--color-brand-blue-400);
+
+  --color-buy: #2f9e63;
+  --color-negotiate: #d9a133;
+  --color-watch: #4a7fb5;
+  --color-avoid: #c4524b;
+  --color-unknown: #8b93a3;
 
   color: var(--text-primary);
 }
@@ -628,7 +661,7 @@ body:has(.propiq-canvas) > footer {
   --border-strong: #cbd5e4;
   --text-primary: #0d1524;
   --text-secondary: #46536a;
-  --text-muted: #5f6e87;
+  --text-muted: #5a6980;
   --text-accent: var(--color-brand-blue-500);
 
   --color-buy: var(--color-buy-ink);
@@ -740,5 +773,102 @@ body[data-dock='on'] .propiq-site {
 @media (prefers-reduced-motion: reduce) {
   .propiq-reveal {
     animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Hero background motion.
+
+   Everything here animates `transform` or `opacity` only, so each layer stays
+   on the compositor. Nothing animates `filter`, `box-shadow` or
+   `background-position`, which force a paint on every frame and were the
+   specific thing the brief ruled out.
+
+   The loops are long and the travel is a few pixels: at these values the scene
+   reads as alive rather than animated, which is the difference between premium
+   and restless.
+--------------------------------------------------------------------------- */
+
+@keyframes propiq-hero-blob {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(5px, -7px, 0) scale(1.012);
+  }
+}
+
+@keyframes propiq-hero-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-6px, 9px, 0);
+  }
+}
+
+@keyframes propiq-hero-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: var(--particle-opacity, 1);
+  }
+  50% {
+    transform: translate3d(3px, -6px, 0);
+    opacity: calc(var(--particle-opacity, 1) * 0.55);
+  }
+}
+
+@keyframes propiq-hero-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 0.88;
+  }
+}
+
+.propiq-hero-blob {
+  animation: propiq-hero-blob 11s ease-in-out infinite;
+  will-change: transform;
+}
+
+.propiq-hero-float {
+  animation: propiq-hero-float 18s ease-in-out infinite;
+  will-change: transform;
+}
+
+.propiq-hero-float-slow {
+  animation: propiq-hero-float 22s ease-in-out infinite reverse;
+  will-change: transform;
+}
+
+.propiq-hero-drift {
+  animation-name: propiq-hero-drift;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.propiq-hero-breathe {
+  animation: propiq-hero-breathe 14s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* The `:nth-child(n)` bump is deliberate: a bare class selector loses to the
+   per-particle rules on specificity, which is how a previous reduced-motion
+   fix in this file silently failed. */
+@media (prefers-reduced-motion: reduce) {
+  .propiq-hero-blob:nth-child(n),
+  .propiq-hero-float:nth-child(n),
+  .propiq-hero-float-slow:nth-child(n),
+  .propiq-hero-drift:nth-child(n),
+  .propiq-hero-breathe:nth-child(n) {
+    animation: none;
+    will-change: auto;
   }
 }

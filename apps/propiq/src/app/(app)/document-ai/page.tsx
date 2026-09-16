@@ -102,7 +102,7 @@ export default function DocumentAiPage() {
 
       <p className="mt-8 text-xs text-[var(--text-muted)]">
         Reading a specific property?{' '}
-        <Link href="/search" className="text-accent-500 hover:underline">
+        <Link href="/search" className="text-[var(--text-accent)] hover:underline">
           Its intelligence page
         </Link>{' '}
         already carries the RERA status, possession history and developer record these documents
@@ -114,7 +114,7 @@ export default function DocumentAiPage() {
 
 const Point = ({ icon: Icon, title, body }: { icon: typeof Lock; title: string; body: string }) => (
   <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
-    <Icon aria-hidden className="size-4 text-accent-500" />
+    <Icon aria-hidden className="size-4 text-[var(--text-accent)]" />
     <dt className="mt-2 text-sm font-semibold">{title}</dt>
     <dd className="mt-1 text-xs text-[var(--text-secondary)]">{body}</dd>
   </div>

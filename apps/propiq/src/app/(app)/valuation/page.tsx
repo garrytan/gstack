@@ -55,7 +55,7 @@ export default async function ValuationPage({
             Worked example —{' '}
             <Link
               href={`/property/${intel.property.id}`}
-              className="text-accent-500 hover:underline"
+              className="text-[var(--text-accent)] hover:underline"
             >
               {intel.property.title}
             </Link>

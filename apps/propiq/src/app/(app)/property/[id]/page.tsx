@@ -222,7 +222,7 @@ export default async function PropertyPage({ params }: Params) {
             <ScoreDial score={score.score} band={score.band} confidence={score.confidence} />
             <p className="mt-2 max-w-[180px] text-center text-[11px] text-[var(--text-muted)]">
               Scoring v{score.scoringVersion}, weighted for a {score.persona}.{' '}
-              <Link href="/preferences" className="text-accent-500 hover:underline">
+              <Link href="/preferences" className="text-[var(--text-accent)] hover:underline">
                 Change this
               </Link>
             </p>
@@ -304,7 +304,7 @@ export default async function PropertyPage({ params }: Params) {
                       href={phase.rera.portalUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-accent-500 hover:underline"
+                      className="text-[var(--text-accent)] hover:underline"
                     >
                       Verify on the state RERA portal
                     </a>
@@ -476,7 +476,7 @@ export default async function PropertyPage({ params }: Params) {
           </div>
           <Link
             href={`/compare?ids=${[property.id, ...alternatives.map((a) => a.property.id)].join(',')}`}
-            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-ink-950 hover:bg-accent-400"
+            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
           >
             Open all in the Decision Room
           </Link>
@@ -552,7 +552,7 @@ const InfoCard = ({
 }) => (
   <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
     <h3 className="flex items-center gap-2 text-sm font-semibold">
-      <Icon aria-hidden className="size-4 text-accent-500" />
+      <Icon aria-hidden className="size-4 text-[var(--text-accent)]" />
       {title}
     </h3>
     <div className="mt-3">{children}</div>

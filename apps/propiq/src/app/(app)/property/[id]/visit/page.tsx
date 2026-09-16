@@ -100,13 +100,13 @@ const SignedOut = ({ propertyId }: { propertyId: string }) => (
     </p>
     <Link
       href="/login"
-      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-ink-950 hover:bg-accent-400"
+      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
     >
       Sign in
     </Link>
     <p className="mt-4 text-xs text-[var(--text-muted)]">
       Or just{' '}
-      <Link href={`/property/${propertyId}`} className="text-accent-500 hover:underline">
+      <Link href={`/property/${propertyId}`} className="text-[var(--text-accent)] hover:underline">
         read the checklist above
       </Link>{' '}
       and take it with you.

@@ -30,7 +30,7 @@ export default function ResearchPage() {
       <div className="mt-10 space-y-10">
         {RESEARCH.map((article) => (
           <article key={article.slug} className="border-b border-[var(--border-subtle)] pb-10">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-accent-500">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-accent)]">
               {article.kicker}
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight">

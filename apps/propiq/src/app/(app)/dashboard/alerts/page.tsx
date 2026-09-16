@@ -95,7 +95,7 @@ export default async function AlertsPage() {
           </p>
           <Link
             href="/search"
-            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-ink-950 hover:bg-accent-400"
+            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
           >
             Find properties
           </Link>
@@ -144,7 +144,7 @@ const SignedOut = () => (
     </p>
     <Link
       href="/login"
-      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-ink-950 hover:bg-accent-400"
+      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
     >
       Sign in
     </Link>

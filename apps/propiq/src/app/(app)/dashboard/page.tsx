@@ -76,7 +76,7 @@ export default async function DashboardPage() {
             href={c.href}
             className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4 transition-colors hover:border-[var(--border-strong)]"
           >
-            <c.icon aria-hidden className="size-5 text-accent-500" />
+            <c.icon aria-hidden className="size-5 text-[var(--text-accent)]" />
             <p className="mt-3 text-sm font-semibold">{c.label}</p>
             <p className="mt-1 text-xs text-[var(--text-secondary)]">{c.blurb}</p>
           </Link>

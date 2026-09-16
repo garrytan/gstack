@@ -58,7 +58,9 @@ export default function ToolsPage() {
         }}
       />
 
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-500">Free tools</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-accent)]">
+        Free tools
+      </p>
       <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
         The arithmetic, for free, with no account
       </h1>
@@ -80,7 +82,7 @@ export default function ToolsPage() {
           A calculator answers a question you already know to ask. PropIQ scores a specific property
           on twelve pillars, values it against comparables with a confidence band, and tells you
           whether to buy, negotiate, watch or walk — and what to argue about.{' '}
-          <Link href="/methodology" className="text-accent-500 hover:underline">
+          <Link href="/methodology" className="text-[var(--text-accent)] hover:underline">
             The formula is published
           </Link>
           .

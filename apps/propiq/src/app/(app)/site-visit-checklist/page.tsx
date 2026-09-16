@@ -81,7 +81,7 @@ export default function SiteVisitChecklistPage() {
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-500">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-accent)]">
             Free, no account
           </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
@@ -103,7 +103,7 @@ export default function SiteVisitChecklistPage() {
       <p className="mt-4 max-w-2xl text-sm text-[var(--text-secondary)] print:hidden">
         Print it, or send this link to whoever is going with you. If you are tracking a specific
         property in PropIQ,{' '}
-        <Link href="/search" className="text-accent-500 hover:underline">
+        <Link href="/search" className="text-[var(--text-accent)] hover:underline">
           the in-app version
         </Link>{' '}
         records your answers as first-party evidence and moves that property&rsquo;s score.

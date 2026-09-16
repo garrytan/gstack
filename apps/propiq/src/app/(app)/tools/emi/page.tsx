@@ -86,7 +86,7 @@ export default function EmiToolPage() {
 
       <p className="mt-10 text-sm text-[var(--text-secondary)]">
         The same arithmetic drives PropIQ&rsquo;s{' '}
-        <Link href="/investment" className="text-accent-500 hover:underline">
+        <Link href="/investment" className="text-[var(--text-accent)] hover:underline">
           investment analysis
         </Link>
         , where the loan sits inside a full cash-flow model with yield, IRR and scenarios.

@@ -199,7 +199,7 @@ export default async function LocalityPage({ params }: Params) {
                 <span className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
                   {p.type}
                 </span>
-                <span className="text-xs font-medium text-accent-500">{p.status}</span>
+                <span className="text-xs font-medium text-[var(--text-accent)]">{p.status}</span>
                 {p.expectedCompletion && (
                   <span className="text-xs text-[var(--text-muted)]">
                     expected {formatDate(p.expectedCompletion)}

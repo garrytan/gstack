@@ -89,11 +89,11 @@ export default function CarpetAreaToolPage() {
 
       <p className="mt-10 text-sm text-[var(--text-secondary)]">
         Carpet efficiency is one of the twelve pillars PropIQ scores a property on. See{' '}
-        <Link href="/methodology" className="text-accent-500 hover:underline">
+        <Link href="/methodology" className="text-[var(--text-accent)] hover:underline">
           the published methodology
         </Link>{' '}
         for how it is weighted, or{' '}
-        <Link href="/tools" className="text-accent-500 hover:underline">
+        <Link href="/tools" className="text-[var(--text-accent)] hover:underline">
           the other free tools
         </Link>
         .

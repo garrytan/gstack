@@ -45,7 +45,7 @@ export const HeroVerdictCard = ({ intel }: { intel: PropertyIntelligence }) => {
           style={{
             color,
             borderColor: color,
-            background: `color-mix(in srgb, ${color} 15%, transparent)`,
+            background: `color-mix(in srgb, ${color} 7%, transparent)`,
           }}
         >
           {DECISION_LABELS[decision.decision]}
@@ -100,7 +100,7 @@ export const HeroVerdictCard = ({ intel }: { intel: PropertyIntelligence }) => {
         </span>
         <Link
           href={`/property/${property.id}`}
-          className="inline-flex items-center gap-1 font-medium text-accent-400 hover:text-accent-300"
+          className="inline-flex items-center gap-1 font-medium text-[var(--text-accent)] hover:text-accent-300"
         >
           Open the full workup <ArrowRight aria-hidden className="size-3.5" />
         </Link>

@@ -72,7 +72,7 @@ export default async function CopilotPage({
             Asking about{' '}
             <Link
               href={`/property/${intel.property.id}`}
-              className="text-accent-500 hover:underline"
+              className="text-[var(--text-accent)] hover:underline"
             >
               {intel.property.title}
             </Link>{' '}

@@ -88,7 +88,7 @@ export default function YieldToolPage() {
 
       <p className="mt-10 text-sm text-[var(--text-secondary)]">
         PropIQ&rsquo;s{' '}
-        <Link href="/investment" className="text-accent-500 hover:underline">
+        <Link href="/investment" className="text-[var(--text-accent)] hover:underline">
           investment analysis
         </Link>{' '}
         takes this further: levered IRR by bisection, a break-even year, and bear, base and bull

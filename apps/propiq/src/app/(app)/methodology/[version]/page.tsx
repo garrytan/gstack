@@ -70,7 +70,7 @@ export default async function FrozenMethodologyPage({
         })}
       />
 
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-500">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-accent)]">
         Frozen for citation
       </p>
       <h1 className="mt-3 text-3xl font-semibold tracking-tight">
@@ -95,7 +95,7 @@ export default async function FrozenMethodologyPage({
           <>
             This version has been superseded by v{CURRENT_SCORING_VERSION.version}. It is kept
             unchanged so that scores published under it stay explainable.{' '}
-            <Link href="/methodology" className="text-accent-500 hover:underline">
+            <Link href="/methodology" className="text-[var(--text-accent)] hover:underline">
               The current methodology
             </Link>{' '}
             is what new scores use.
@@ -104,7 +104,7 @@ export default async function FrozenMethodologyPage({
           <>
             This is the current version. It is reproduced here at a stable URL so a citation does
             not break when the next version ships.{' '}
-            <Link href="/methodology" className="text-accent-500 hover:underline">
+            <Link href="/methodology" className="text-[var(--text-accent)] hover:underline">
               The full methodology
             </Link>{' '}
             covers normalisation, evidence decay, valuation and decision rules.

@@ -59,7 +59,7 @@ export const AlertList = ({
               </div>
               <Link
                 href={`/property/${alert.propertyId}`}
-                className="shrink-0 text-xs font-medium text-accent-500 hover:underline"
+                className="shrink-0 text-xs font-medium text-[var(--text-accent)] hover:underline"
               >
                 Open
               </Link>

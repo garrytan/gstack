@@ -27,15 +27,15 @@ export default function PricingPage() {
 
       <p className="mt-6 text-sm text-[var(--text-secondary)]">
         In the meantime, everything on the site is open:{' '}
-        <Link href="/search" className="text-accent-500 hover:underline">
+        <Link href="/search" className="text-[var(--text-accent)] hover:underline">
           search
         </Link>
         ,{' '}
-        <Link href="/compare" className="text-accent-500 hover:underline">
+        <Link href="/compare" className="text-[var(--text-accent)] hover:underline">
           the Decision Room
         </Link>
         , and{' '}
-        <Link href="/methodology" className="text-accent-500 hover:underline">
+        <Link href="/methodology" className="text-[var(--text-accent)] hover:underline">
           the full methodology
         </Link>
         .

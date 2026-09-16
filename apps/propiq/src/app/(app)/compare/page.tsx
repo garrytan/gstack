@@ -107,7 +107,9 @@ export default async function ComparePage({
                 key={d.label}
                 className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
               >
-                <p className="text-[10px] uppercase tracking-wide text-accent-500">{d.label}</p>
+                <p className="text-[10px] uppercase tracking-wide text-[var(--text-accent)]">
+                  {d.label}
+                </p>
                 <p className="mt-1 text-xs leading-snug text-[var(--text-secondary)]">{d.detail}</p>
               </li>
             ))}
@@ -118,7 +120,7 @@ export default async function ComparePage({
       {/* ---------------- Trade-offs ---------------- */}
       {comparison.tradeOffs.length > 0 && (
         <section className="mt-5 rounded-lg border border-accent-600/40 bg-accent-600/10 p-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-accent-400">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-accent)]">
             What the extra money buys
           </h2>
           {comparison.tradeOffs.map((t) => (
@@ -344,7 +346,7 @@ const EmptyRoom = () => (
     </p>
     <Link
       href="/search"
-      className="mt-6 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-ink-950 hover:bg-accent-400"
+      className="mt-6 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
     >
       Find properties to compare
     </Link>

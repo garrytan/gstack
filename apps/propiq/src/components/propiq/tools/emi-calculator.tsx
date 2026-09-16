@@ -161,7 +161,7 @@ const Figure = ({
     </dt>
     <dd
       data-figure
-      className={`mt-1 font-semibold tracking-tight ${lead ? 'text-2xl text-accent-500' : 'text-xl'}`}
+      className={`mt-1 font-semibold tracking-tight ${lead ? 'text-2xl text-[var(--text-accent)]' : 'text-xl'}`}
     >
       {value}
     </dd>

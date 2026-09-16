@@ -124,7 +124,7 @@ export const VisitChecklist = ({ visit }: { visit: SiteVisit }) => {
                                   ? {
                                       color: a.color,
                                       borderColor: a.color,
-                                      background: `color-mix(in srgb, ${a.color} 14%, transparent)`,
+                                      background: `color-mix(in srgb, ${a.color} 7%, transparent)`,
                                     }
                                   : {
                                       borderColor: 'var(--border-strong)',

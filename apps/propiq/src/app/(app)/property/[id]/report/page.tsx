@@ -65,7 +65,10 @@ export default async function ReportPage({ params }: Params) {
       `}</style>
 
       <div className="mb-6 flex items-center justify-between gap-4 print:hidden">
-        <Link href={`/property/${property.id}`} className="text-sm text-accent-500 hover:underline">
+        <Link
+          href={`/property/${property.id}`}
+          className="text-sm text-[var(--text-accent)] hover:underline"
+        >
           ← Back to the property
         </Link>
         <PrintButton />

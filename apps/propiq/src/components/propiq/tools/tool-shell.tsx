@@ -21,7 +21,9 @@ export const ToolShell = ({
   children: React.ReactNode;
 }) => (
   <div className="mx-auto max-w-4xl px-4 py-10">
-    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent-500">{eyebrow}</p>
+    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-accent)]">
+      {eyebrow}
+    </p>
     <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h1>
     <p className="mt-4 max-w-2xl text-[var(--text-secondary)]">{standfirst}</p>
 

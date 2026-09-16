@@ -66,7 +66,7 @@ export const PropertyCard = ({ intelligence }: { intelligence: PropertyIntellige
         <DataStatusBadge status={property.dataStatus} />
         <Link
           href={`/property/${property.id}`}
-          className="ml-auto text-xs font-medium text-accent-500 hover:underline"
+          className="ml-auto text-xs font-medium text-[var(--text-accent)] hover:underline"
         >
           Full intelligence
         </Link>

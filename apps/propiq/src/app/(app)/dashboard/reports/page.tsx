@@ -58,7 +58,7 @@ export default async function ReportsPage() {
               key={i.property.id}
               className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4"
             >
-              <FileText aria-hidden className="size-4 shrink-0 text-accent-500" />
+              <FileText aria-hidden className="size-4 shrink-0 text-[var(--text-accent)]" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{i.property.title}</p>
                 <p className="text-xs text-[var(--text-muted)]">
@@ -68,7 +68,7 @@ export default async function ReportsPage() {
               <DecisionBadge decision={i.decision.decision} size="sm" />
               <Link
                 href={`/property/${i.property.id}/report`}
-                className="inline-flex h-9 shrink-0 items-center rounded-md bg-accent-500 px-3 text-xs font-semibold text-ink-950 hover:bg-accent-400"
+                className="inline-flex h-9 shrink-0 items-center rounded-md bg-accent-500 px-3 text-xs font-semibold text-white hover:bg-accent-400"
               >
                 Open report
               </Link>
@@ -96,7 +96,7 @@ const Empty = ({
     <p className="mx-auto mt-1 max-w-md text-xs text-[var(--text-secondary)]">{body}</p>
     <Link
       href={href}
-      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-ink-950 hover:bg-accent-400"
+      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
     >
       {cta}
     </Link>

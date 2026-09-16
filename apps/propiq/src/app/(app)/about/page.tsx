@@ -36,7 +36,7 @@ export default function AboutPage() {
         <li>
           <strong className="text-[var(--text-primary)]">No black-box scoring.</strong> The weights,
           the normalisation functions and the decision thresholds are{' '}
-          <Link href="/methodology" className="text-accent-500 hover:underline">
+          <Link href="/methodology" className="text-[var(--text-accent)] hover:underline">
             published
           </Link>
           , and read directly from the running code so they cannot drift from what produced your

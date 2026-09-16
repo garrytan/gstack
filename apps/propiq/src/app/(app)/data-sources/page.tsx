@@ -126,7 +126,7 @@ export default async function DataSourcesPage() {
         <h2 className="text-lg font-semibold tracking-tight">Source classes</h2>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">
           Each class carries its own trust weight and its own freshness window, published on the{' '}
-          <Link href="/methodology" className="text-accent-500 hover:underline">
+          <Link href="/methodology" className="text-[var(--text-accent)] hover:underline">
             methodology page
           </Link>
           .
