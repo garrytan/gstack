@@ -12,19 +12,11 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowRight } from 'lucide-react';
 import { DECISION_LABELS } from '@/domain/decision/engine';
-import type { Decision } from '@/domain/decision/engine';
 import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
 import { CardActions } from '@/components/site/card-actions';
 import { Tilt3D } from '@/components/site/tilt-3d';
 import type { SiteProperty } from '@/site/types';
-
-const DECISION_COLOR: Readonly<Record<Decision, string>> = {
-  BUY: 'var(--color-buy)',
-  NEGOTIATE: 'var(--color-negotiate)',
-  WATCH: 'var(--color-watch)',
-  AVOID: 'var(--color-avoid)',
-  INSUFFICIENT_EVIDENCE: 'var(--color-unknown)',
-};
+import { DECISION_COLOUR } from '@/components/propiq/decision-colour';
 
 /**
  * A stable, per-property gradient so cards are distinguishable at a glance.
@@ -44,7 +36,7 @@ const artFor = (id: string): string => {
 };
 
 export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
-  const colour = DECISION_COLOR[property.decision];
+  const colour = DECISION_COLOUR[property.decision];
   const under = property.priceDeviationPercent < 0;
 
   return (

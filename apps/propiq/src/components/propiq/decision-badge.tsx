@@ -1,14 +1,15 @@
 import { CircleSlash, HandCoins, ShieldAlert, ThumbsUp, Eye } from 'lucide-react';
 import type { Decision } from '@/domain/decision/engine';
 import { DECISION_LABELS } from '@/domain/decision/engine';
+import { DECISION_COLOUR } from '@/components/propiq/decision-colour';
 import { cn } from '@/lib/utils';
 
-const META: Readonly<Record<Decision, { color: string; icon: typeof ThumbsUp }>> = {
-  BUY: { color: 'var(--color-buy)', icon: ThumbsUp },
-  NEGOTIATE: { color: 'var(--color-negotiate)', icon: HandCoins },
-  WATCH: { color: 'var(--color-watch)', icon: Eye },
-  AVOID: { color: 'var(--color-avoid)', icon: ShieldAlert },
-  INSUFFICIENT_EVIDENCE: { color: 'var(--color-unknown)', icon: CircleSlash },
+const ICON: Readonly<Record<Decision, typeof ThumbsUp>> = {
+  BUY: ThumbsUp,
+  NEGOTIATE: HandCoins,
+  WATCH: Eye,
+  AVOID: ShieldAlert,
+  INSUFFICIENT_EVIDENCE: CircleSlash,
 };
 
 export const DecisionBadge = ({
@@ -22,8 +23,8 @@ export const DecisionBadge = ({
   size?: 'sm' | 'md' | 'lg';
   className?: string;
 }) => {
-  const meta = META[decision];
-  const Icon = meta.icon;
+  const colour = DECISION_COLOUR[decision];
+  const Icon = ICON[decision];
   return (
     <span
       className={cn(
@@ -34,9 +35,9 @@ export const DecisionBadge = ({
         className,
       )}
       style={{
-        color: meta.color,
-        borderColor: meta.color,
-        background: `color-mix(in srgb, ${meta.color} 7%, transparent)`,
+        color: colour,
+        borderColor: colour,
+        background: `color-mix(in srgb, ${colour} 7%, transparent)`,
       }}
     >
       <Icon aria-hidden className={size === 'lg' ? 'size-4' : 'size-3'} />

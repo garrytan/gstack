@@ -14,17 +14,9 @@
 import Link from 'next/link';
 import { summariseMarket } from '@/server/intelligence';
 import type { PropertyIntelligence } from '@/server/intelligence';
-import type { Decision } from '@/domain/decision/engine';
 import { DECISION_LABELS } from '@/domain/decision/engine';
+import { DECISION_COLOUR } from '@/components/propiq/decision-colour';
 import { formatINR, formatPercent } from '@/lib/utils';
-
-const COLOR: Readonly<Record<Decision, string>> = {
-  BUY: 'var(--color-buy)',
-  NEGOTIATE: 'var(--color-negotiate)',
-  WATCH: 'var(--color-watch)',
-  AVOID: 'var(--color-avoid)',
-  INSUFFICIENT_EVIDENCE: 'var(--color-unknown)',
-};
 
 export const CommandRail = ({
   intelligence,
@@ -53,7 +45,10 @@ export const CommandRail = ({
               <span
                 key={c.decision}
                 className="block h-full"
-                style={{ width: `${(c.count / total) * 100}%`, background: COLOR[c.decision] }}
+                style={{
+                  width: `${(c.count / total) * 100}%`,
+                  background: DECISION_COLOUR[c.decision],
+                }}
               />
             ))}
         </div>
@@ -65,7 +60,7 @@ export const CommandRail = ({
                 <span
                   aria-hidden
                   className="size-2 shrink-0 rounded-full"
-                  style={{ background: COLOR[c.decision] }}
+                  style={{ background: DECISION_COLOUR[c.decision] }}
                 />
                 <span className="text-[var(--text-secondary)]">{DECISION_LABELS[c.decision]}</span>
                 <span data-figure className="ml-auto font-semibold">

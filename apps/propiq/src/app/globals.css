@@ -114,6 +114,19 @@
   --color-watch: var(--color-watch-ink);
   --color-avoid: var(--color-avoid-ink);
   --color-unknown: var(--color-unknown-ink);
+
+  /* Sequential ramp for score magnitude (one hue, light to dark).
+     A pillar score is a magnitude, not a verdict. Painting it with the
+     buy/watch/negotiate/avoid set implied a per-pillar recommendation the
+     engine never computes — the verdict is composite-level and depends on
+     risk severity and the price gap as well as the score, so a green pillar
+     could sit under an AVOID. One hue, five even OKLCH lightness steps at
+     H=267, keeps the status palette reserved for the decision that exists. */
+  --seq-score-1: #a6bdf5;
+  --seq-score-2: #7d9dee;
+  --seq-score-3: #5c81e7;
+  --seq-score-4: #3c62e2;
+  --seq-score-5: #2848c7;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -124,6 +137,7 @@
     --border-subtle: #262d3b;
     --border-strong: #3a4354;
     --text-primary: #f6f7f9;
+    --surface-card: var(--surface-1);
     --text-secondary: #b0b7c6;
     --text-muted: #939cae;
     --text-accent: var(--color-brand-blue-400);
@@ -133,6 +147,15 @@
     --color-watch: #4a7fb5;
     --color-avoid: #c4524b;
     --color-unknown: #8b93a3;
+
+    /* The ramp is re-stepped for the dark ground rather than flipped: on a
+       near-black surface the high end has to be the light one, or the top of
+       the scale disappears into the track. */
+    --seq-score-1: #3c569e;
+    --seq-score-2: #4a6cd1;
+    --seq-score-3: #6689ea;
+    --seq-score-4: #89a8f7;
+    --seq-score-5: #adc6ff;
   }
 }
 
@@ -524,6 +547,7 @@
   --border-subtle: #262d3b;
   --border-strong: #3a4354;
   --text-primary: #f6f7f9;
+  --surface-card: var(--surface-1);
   --text-secondary: #b0b7c6;
   --text-muted: #939cae;
   --text-accent: var(--color-brand-blue-400);
@@ -533,6 +557,15 @@
   --color-watch: #4a7fb5;
   --color-avoid: #c4524b;
   --color-unknown: #8b93a3;
+
+  /* The ramp is re-stepped for the dark ground rather than flipped: on a
+       near-black surface the high end has to be the light one, or the top of
+       the scale disappears into the track. */
+  --seq-score-1: #3c569e;
+  --seq-score-2: #4a6cd1;
+  --seq-score-3: #6689ea;
+  --seq-score-4: #89a8f7;
+  --seq-score-5: #adc6ff;
 
   position: relative;
   isolation: isolate;
@@ -621,6 +654,7 @@ body:has(.propiq-canvas) > footer {
   --border-subtle: #262d3b;
   --border-strong: #3a4354;
   --text-primary: #f6f7f9;
+  --surface-card: var(--surface-1);
   --text-secondary: #b0b7c6;
   --text-muted: #939cae;
   --text-accent: var(--color-brand-blue-400);
@@ -630,6 +664,15 @@ body:has(.propiq-canvas) > footer {
   --color-watch: #4a7fb5;
   --color-avoid: #c4524b;
   --color-unknown: #8b93a3;
+
+  /* The ramp is re-stepped for the dark ground rather than flipped: on a
+       near-black surface the high end has to be the light one, or the top of
+       the scale disappears into the track. */
+  --seq-score-1: #3c569e;
+  --seq-score-2: #4a6cd1;
+  --seq-score-3: #6689ea;
+  --seq-score-4: #89a8f7;
+  --seq-score-5: #adc6ff;
 
   color: var(--text-primary);
 }
@@ -683,6 +726,15 @@ body:has(.propiq-canvas) > footer {
   --color-avoid: var(--color-avoid-ink);
   --color-unknown: var(--color-unknown-ink);
 
+  /* The sequential score ramp, re-declared for this light subtree: the :root
+     ramp flips to its dark steps under a dark OS, and this ground stays light
+     regardless. Same reason the ink verdict set is restated just above. */
+  --seq-score-1: #a6bdf5;
+  --seq-score-2: #7d9dee;
+  --seq-score-3: #5c81e7;
+  --seq-score-4: #3c62e2;
+  --seq-score-5: #2848c7;
+
   background: var(--surface-0);
   color: var(--text-primary);
 }
@@ -716,6 +768,15 @@ body[data-dock='on'] .propiq-site {
   --color-watch: #8cc3ef;
   --color-avoid: #ff9189;
   --color-unknown: #b3bdc9;
+
+  /* Re-stepped against this subtree's own track (#232d63), which is lighter
+     than the near-black used elsewhere — the generic dark ramp's low end sat
+     at 1.85:1 on it and the bottom of the scale vanished. */
+  --seq-score-1: #4261be;
+  --seq-score-2: #5178ec;
+  --seq-score-3: #7196f8;
+  --seq-score-4: #95b3ff;
+  --seq-score-5: #b9d0ff;
 
   background: var(--surface-0);
   color: var(--text-primary);
@@ -1026,6 +1087,15 @@ li a:not([class*='inline-flex']):not(.propiq-block-link) {
   --color-watch: var(--color-watch-ink);
   --color-avoid: var(--color-avoid-ink);
   --color-unknown: var(--color-unknown-ink);
+
+  /* The sequential score ramp, re-declared for this light subtree: the :root
+     ramp flips to its dark steps under a dark OS, and this ground stays light
+     regardless. Same reason the ink verdict set is restated just above. */
+  --seq-score-1: #a6bdf5;
+  --seq-score-2: #7d9dee;
+  --seq-score-3: #5c81e7;
+  --seq-score-4: #3c62e2;
+  --seq-score-5: #2848c7;
 
   color: var(--text-primary);
   /* The white bed on top is not decoration. The supplied lockup carries a
@@ -1338,4 +1408,83 @@ a:focus-visible > .propiq-card {
   .propiq-site a:not([class*='inline-flex']):not(.propiq-block-link) {
     transition: none;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   The score mark.
+
+   One mark definition for every pillar bar on the site and in the app, so the
+   same score never looks like two different things on two screens.
+
+   Three things it does that a plain div could not:
+
+   1. Quartile gridlines at 25 / 50 / 75, drawn on the track *behind* the fill.
+      They are what makes a bare bar readable without an axis — "cleared the
+      halfway mark" is a glance rather than a comparison against its neighbour.
+   2. A flat baseline and a rounded data end. The bar grows from zero, so its
+      left edge is the axis and only the right edge is data.
+   3. A 2px surface gap at the data end, so a bar near 100 still reads as a
+      length rather than as a filled track.
+--------------------------------------------------------------------------- */
+
+.propiq-scorebar {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-2);
+  /* The gap the fill is measured inside. */
+  padding-right: 2px;
+}
+
+.propiq-scorebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    to right,
+    transparent calc(25% - 0.5px),
+    var(--border-strong) calc(25% - 0.5px),
+    var(--border-strong) calc(25% + 0.5px),
+    transparent calc(25% + 0.5px),
+    transparent calc(50% - 0.5px),
+    var(--border-strong) calc(50% - 0.5px),
+    var(--border-strong) calc(50% + 0.5px),
+    transparent calc(50% + 0.5px),
+    transparent calc(75% - 0.5px),
+    var(--border-strong) calc(75% - 0.5px),
+    var(--border-strong) calc(75% + 0.5px),
+    transparent calc(75% + 0.5px)
+  );
+  opacity: 0.55;
+}
+
+.propiq-scorebar-fill {
+  position: relative;
+  display: block;
+  height: 100%;
+  /* Square at the baseline, rounded at the data end. */
+  border-radius: 0 999px 999px 0;
+  transition: width 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-scorebar-fill {
+    transition: none;
+  }
+}
+
+/* The ramp key. Five swatches, butted together, read as one continuous scale
+   rather than five categories — which is exactly what the ramp is. */
+.propiq-ramp-key {
+  display: flex;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.propiq-ramp-key > span {
+  display: block;
+  width: 1.25rem;
+  height: 0.375rem;
 }

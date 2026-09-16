@@ -10,18 +10,10 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import { ScoreDial } from '@/components/propiq/score-dial';
+import { ScoreBar, ScoreRampKey } from '@/components/propiq/score-ramp';
 import { Section, SectionHead, DemoNote } from '@/components/site/section';
 import { formatPercent } from '@/lib/utils';
 import type { SiteProperty } from '@/site/types';
-
-const barColour = (score: number): string =>
-  score >= 72
-    ? 'var(--color-buy)'
-    : score >= 55
-      ? 'var(--color-watch)'
-      : score >= 40
-        ? 'var(--color-negotiate)'
-        : 'var(--color-avoid)';
 
 export const ScoreSection = ({ property }: { property: SiteProperty }) => {
   const withheld = property.breakdown.filter((p) => p.score === undefined).length;
@@ -40,6 +32,7 @@ export const ScoreSection = ({ property }: { property: SiteProperty }) => {
             score={property.propiqScore}
             band={property.scoreBand}
             confidence={property.scoreConfidence}
+            decision={property.decision}
             size={188}
           />
           <p className="mt-4 text-center text-sm text-[var(--text-secondary)] lg:text-left">
@@ -87,17 +80,7 @@ export const ScoreSection = ({ property }: { property: SiteProperty }) => {
                     </span>
                   </span>
                 </div>
-                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--surface-2)]">
-                  {pillar.score !== undefined && (
-                    <span
-                      className="block h-full rounded-full"
-                      style={{
-                        width: `${pillar.score}%`,
-                        background: barColour(pillar.score),
-                      }}
-                    />
-                  )}
-                </div>
+                <ScoreBar score={pillar.score} className="mt-1.5" />
                 {pillar.score === undefined && (
                   <p className="mt-1 text-[11px] text-[var(--text-muted)]">
                     Withheld — no evidence. Its weight is redistributed across the rest rather than
@@ -107,6 +90,8 @@ export const ScoreSection = ({ property }: { property: SiteProperty }) => {
               </li>
             ))}
           </ul>
+
+          <ScoreRampKey className="mt-4" />
 
           <Link
             href="/methodology"

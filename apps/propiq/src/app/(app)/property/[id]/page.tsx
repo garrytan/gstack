@@ -219,7 +219,12 @@ export default async function PropertyPage({ params }: Params) {
           </div>
 
           <div className="shrink-0 lg:pl-6">
-            <ScoreDial score={score.score} band={score.band} confidence={score.confidence} />
+            <ScoreDial
+              score={score.score}
+              band={score.band}
+              confidence={score.confidence}
+              decision={decision.decision}
+            />
             <p className="mt-2 max-w-[180px] text-center text-[11px] text-[var(--text-muted)]">
               Scoring v{score.scoringVersion}, weighted for a {score.persona}.{' '}
               <Link href="/preferences" className="text-[var(--text-accent)] hover:underline">

@@ -17,9 +17,9 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { List, MapPin } from 'lucide-react';
 import { DECISION_LABELS } from '@/domain/decision/engine';
-import type { Decision } from '@/domain/decision/engine';
 import { formatINR } from '@/lib/utils';
 import type { SiteLocality, SiteProperty } from '@/site/types';
+import { DECISION_COLOUR } from '@/components/propiq/decision-colour';
 
 /**
  * Label geometry. Annotations stack *upward* from the marker so switching a
@@ -31,14 +31,6 @@ const LINE_H = 11;
 const VIEW_W = 640;
 const VIEW_H = 460;
 const PAD = 54;
-
-const DECISION_COLOR: Readonly<Record<Decision, string>> = {
-  BUY: 'var(--color-buy)',
-  NEGOTIATE: 'var(--color-negotiate)',
-  WATCH: 'var(--color-watch)',
-  AVOID: 'var(--color-avoid)',
-  INSUFFICIENT_EVIDENCE: 'var(--color-unknown)',
-};
 
 /**
  * Layers a reader can toggle. Only those the dataset can actually support.
@@ -210,7 +202,7 @@ export const MapExplorer = ({
                   <span
                     data-figure
                     className="shrink-0 text-sm font-bold"
-                    style={{ color: DECISION_COLOR[p.decision] }}
+                    style={{ color: DECISION_COLOUR[p.decision] }}
                   >
                     {p.propiqScore === undefined ? '—' : p.propiqScore.toFixed(0)}
                   </span>
@@ -319,14 +311,14 @@ export const MapExplorer = ({
                       cx={project.x(p.longitude)}
                       cy={project.y(p.latitude)}
                       r={isActive ? 15 : 10}
-                      fill={DECISION_COLOR[p.decision]}
+                      fill={DECISION_COLOUR[p.decision]}
                       fillOpacity={isActive ? 0.28 : 0.16}
                     />
                     <circle
                       cx={project.x(p.longitude)}
                       cy={project.y(p.latitude)}
                       r={isActive ? 7 : 5}
-                      fill={DECISION_COLOR[p.decision]}
+                      fill={DECISION_COLOUR[p.decision]}
                       stroke="var(--surface-1)"
                       strokeWidth="1.6"
                     />
@@ -337,7 +329,7 @@ export const MapExplorer = ({
                         textAnchor="middle"
                         fontSize="10"
                         fontWeight="700"
-                        fill={DECISION_COLOR[p.decision]}
+                        fill={DECISION_COLOUR[p.decision]}
                         style={{ fontVariantNumeric: 'tabular-nums' }}
                       >
                         {p.propiqScore.toFixed(0)}
@@ -368,7 +360,7 @@ export const MapExplorer = ({
                 <span
                   data-figure
                   className="shrink-0 text-xl font-bold"
-                  style={{ color: DECISION_COLOR[active.decision] }}
+                  style={{ color: DECISION_COLOUR[active.decision] }}
                 >
                   {active.propiqScore === undefined ? '—' : active.propiqScore.toFixed(0)}
                 </span>
