@@ -1,302 +1,268 @@
 /**
- * The hero: the buyer journey, end to end.
+ * The hero: the property intelligence command centre.
  *
- * Nine stages from Discover to Monitor, each carrying the one figure that says
- * how much engine is behind it and naming the constant that figure came from.
+ * The composition is a split — argument on the left, evidence on the right —
+ * and the right-hand side is the product's actual output, not a picture of it.
+ * Every figure in a floating readout is read off the showcase property that
+ * the rest of the page is built from: the same scoring pass, the same verdict,
+ * the same 95% band. So the hero cannot say 86 while the score section says 76,
+ * and there is no second set of numbers to keep in sync.
  *
- * Two rules hold it honest, and both are visible on the page:
+ * When no property source is connected there is nothing to read, and the
+ * readouts are simply absent. The scene and the argument stand on their own —
+ * what does not happen is a fallback set of plausible figures, which is the
+ * one thing this product will not draw.
  *
- *  1. Every figure is the `.length` of a live domain constant, read at render.
- *     The source line under each card names it, so a reader can go and check.
- *     A stage cannot advertise more than the engine behind it does, and none
- *     of it drifts when a list changes.
- *  2. A stage with no route gets no link and no figure. `Buy` is not built,
- *     and its card says so in a dashed frame rather than pointing at the
- *     nearest page that happens to exist. A flow diagram that quietly implies
- *     coverage it does not have is a fabricated claim, drawn instead of
- *     written.
+ * The scene is SVG and CSS. See `intelligence-nodes.tsx` for why there is no
+ * WebGL path, and therefore no low-power fallback to keep working.
  */
 
 import Link from 'next/link';
-import {
-  ArrowRight,
-  BellRing,
-  Building2,
-  ClipboardCheck,
-  FileCheck2,
-  Gauge,
-  Handshake,
-  Home,
-  LineChart,
-  ScanSearch,
-  ShoppingCart,
-  TrendingUp,
-  Users,
-} from 'lucide-react';
-import { BrandLockup } from '@/components/brand/brand-mark';
-import { RULES } from '@/domain/documents/rules';
-import { CHECKLIST } from '@/domain/visits/checklist';
+import { ArrowRight, MessageSquareText, ShieldCheck } from 'lucide-react';
+import { NodeField } from '@/components/site/intelligence-nodes';
+import { HeroSearch } from '@/components/site/hero-search';
 import { SCORE_PILLARS } from '@/domain/scoring/types';
 import { RISK_DIMENSIONS } from '@/domain/risk/types';
-import { NEGOTIATION_STATUSES } from '@/domain/negotiation/types';
-import { ALERT_KINDS } from '@/domain/alerts/types';
-import { CURRENT_SCORING_VERSION } from '@/domain/scoring/weights';
-import { SHORTLIST_LIMIT } from '@/components/site/shortlist-limit';
+import { RULES } from '@/domain/documents/rules';
+import { formatINR, formatPercent } from '@/lib/utils';
 import type { SiteProperty } from '@/site/types';
 
-const DOCUMENT_KINDS = new Set(RULES.flatMap((r) => r.kinds)).size;
-const PERSONAS = Object.keys(CURRENT_SCORING_VERSION.weights).length;
-
-interface Stage {
-  readonly step: string;
-  readonly name: string;
-  readonly figure: string;
-  readonly unit: string;
-  /** The constant the figure was counted from, printed on the card. */
-  readonly source: string;
-  readonly icon: typeof Users;
-  /** Absent when nothing is built behind the stage. */
-  readonly href?: string;
-}
-
-const stages = (propertyHref: string): readonly Stage[] => [
-  {
-    step: '01',
-    name: 'Discover',
-    figure: String(PERSONAS),
-    unit: 'personas weighted',
-    source: 'CURRENT_SCORING_VERSION.weights',
-    icon: Users,
-    href: '/search',
-  },
-  {
-    step: '02',
-    name: 'Verify',
-    figure: String(RULES.length),
-    unit: `rules · ${DOCUMENT_KINDS} doc types`,
-    source: 'RULES',
-    icon: FileCheck2,
-    href: '/document-ai',
-  },
-  {
-    step: '03',
-    name: 'Compare',
-    figure: String(SHORTLIST_LIMIT),
-    unit: 'at once',
-    source: 'SHORTLIST_LIMIT',
-    icon: Building2,
-    href: '/compare',
-  },
-  {
-    step: '04',
-    name: 'Score',
-    figure: String(SCORE_PILLARS.length),
-    unit: 'pillars',
-    source: 'SCORE_PILLARS',
-    icon: Gauge,
-    href: '/methodology',
-  },
-  {
-    step: '05',
-    name: 'Analyze',
-    figure: String(RISK_DIMENSIONS.length),
-    unit: 'risk dimensions',
-    source: 'RISK_DIMENSIONS',
-    icon: ScanSearch,
-    href: propertyHref,
-  },
-  {
-    step: '06',
-    name: 'Visit',
-    figure: String(CHECKLIST.length),
-    unit: 'checklist items',
-    source: 'CHECKLIST',
-    icon: Home,
-    href: `${propertyHref}/visit`,
-  },
-  {
-    step: '07',
-    name: 'Negotiate',
-    figure: String(NEGOTIATION_STATUSES.length),
-    unit: 'offer states',
-    source: 'NEGOTIATION_STATUSES',
-    icon: Handshake,
-    href: `${propertyHref}/negotiate`,
-  },
-  {
-    step: '08',
-    name: 'Buy',
-    figure: '—',
-    unit: 'Not built yet',
-    source: 'no route',
-    icon: ShoppingCart,
-  },
-  {
-    step: '09',
-    name: 'Monitor',
-    figure: String(ALERT_KINDS.length),
-    unit: 'alert kinds',
-    source: 'ALERT_KINDS',
-    icon: BellRing,
-    href: '/dashboard/alerts',
-  },
-];
-
-const PROMISES = [
-  {
-    icon: LineChart,
-    title: 'Data-Driven Decisions',
-    line: 'Less guesswork. More certainty.',
-  },
-  { icon: TrendingUp, title: 'Smarter Real Estate', line: 'From insight to impact.' },
-  { icon: ClipboardCheck, title: 'Stronger Communities', line: 'Cities that grow better.' },
+/** Counted from the engine, phrased for a reader. Never the constant's name. */
+const PROOF = [
+  { figure: String(SCORE_PILLARS.length), label: 'scoring pillars' },
+  { figure: String(RISK_DIMENSIONS.length), label: 'risk dimensions' },
+  { figure: String(RULES.length), label: 'document checks' },
 ] as const;
 
-const StageCard = ({ stage }: { stage: Stage }) => {
-  const built = stage.href !== undefined;
-  const Icon = stage.icon;
+const RISK_WORD = {
+  low: 'Low',
+  moderate: 'Moderate',
+  elevated: 'Elevated',
+  high: 'High',
+  unknown: 'Unknown',
+} as const;
 
-  const card = (
-    <div
-      className={[
-        'propiq-stage-card flex h-full flex-col items-center rounded-2xl px-3 pb-4 pt-5 text-center',
-        built ? '' : 'propiq-stage-card--empty',
-      ].join(' ')}
+/**
+ * One floating readout.
+ *
+ * `caption` is not decoration — it is the thing that stops a number being a
+ * claim. A score with no band and a fair value with no confidence are both
+ * assertions the evidence does not support.
+ */
+const Readout = ({
+  label,
+  value,
+  caption,
+  tone,
+  className,
+}: {
+  label: string;
+  value: string;
+  caption?: string;
+  tone?: string;
+  className?: string;
+}) => (
+  <div className={`propiq-glass propiq-readout rounded-xl px-4 py-3 ${className ?? ''}`}>
+    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+      {label}
+    </p>
+    <p
+      data-figure
+      className="mt-1 text-2xl font-semibold leading-none"
+      style={tone ? { color: tone } : undefined}
     >
-      <span
-        className={[
-          'inline-flex size-11 items-center justify-center rounded-xl',
-          built
-            ? 'propiq-iris-gradient text-white'
-            : 'border border-[var(--border-strong)] text-[var(--text-muted)]',
-        ].join(' ')}
+      {value}
+    </p>
+    {caption && <p className="mt-1.5 text-[11px] text-[var(--text-secondary)]">{caption}</p>}
+  </div>
+);
+
+export const HeroSection = ({
+  showcase,
+  localities,
+}: {
+  showcase: SiteProperty | undefined;
+  localities: readonly string[];
+}) => (
+  <section className="propiq-hero relative isolate overflow-hidden">
+    {/* ------------------------------------------------------------- scene */}
+    <div aria-hidden className="propiq-cityplate">
+      <svg
+        viewBox="0 0 1200 240"
+        preserveAspectRatio="none"
+        className="propiq-skyline"
+        aria-hidden
+        focusable="false"
       >
-        <Icon aria-hidden className="size-5" />
-      </span>
-
-      <span
-        data-figure
-        className={[
-          'mt-3 inline-flex size-7 items-center justify-center rounded-full text-[11px] font-bold',
-          built
-            ? 'bg-[var(--color-iris-600)] text-white'
-            : 'bg-[var(--surface-2)] text-[var(--text-muted)]',
-        ].join(' ')}
-      >
-        {stage.step}
-      </span>
-
-      <p className="mt-2.5 text-sm font-bold text-[var(--text-primary)]">{stage.name}</p>
-
-      <p className="mt-2 text-[13px] leading-snug text-[var(--text-secondary)]">
-        {built ? (
-          <>
-            <span data-figure className="propiq-iris-text text-lg font-extrabold">
-              {stage.figure}
-            </span>{' '}
-            {stage.unit}
-          </>
-        ) : (
-          <span className="text-[var(--text-muted)]">{stage.unit}</span>
-        )}
-      </p>
-
-      {/* `items-center` on the card shrink-wraps its children, so this needs an
-          explicit full width or a long identifier runs straight past the card
-          edge instead of wrapping inside it. */}
-      <p className="propiq-sourced mt-auto w-full pt-3 text-left text-[9px] uppercase leading-tight tracking-[0.08em] text-[var(--text-muted)] [overflow-wrap:anywhere]">
-        <span className="block">Source:</span>
-        <span className="font-medium">{stage.source}</span>
-      </p>
+        <defs>
+          <linearGradient id="propiq-tower" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-iris-300)" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="var(--color-iris-300)" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {/* Hand-placed blocks: a generated skyline clusters and reads as noise. */}
+        {[
+          [40, 96],
+          [86, 148],
+          [132, 64],
+          [174, 182],
+          [226, 112],
+          [272, 208],
+          [326, 88],
+          [368, 140],
+          [414, 172],
+          [468, 74],
+          [512, 196],
+          [566, 118],
+          [612, 160],
+          [660, 92],
+          [706, 214],
+          [758, 130],
+          [806, 68],
+          [852, 178],
+          [904, 104],
+          [950, 152],
+          [998, 82],
+          [1044, 190],
+          [1096, 124],
+          [1144, 156],
+        ].map(([x, h]) => (
+          <rect
+            key={x}
+            x={x}
+            y={240 - (h ?? 0)}
+            width="30"
+            height={h}
+            rx="2"
+            fill="url(#propiq-tower)"
+          />
+        ))}
+      </svg>
+      <NodeField />
     </div>
-  );
 
-  return (
-    <li className="w-[152px] shrink-0 snap-start xl:w-auto">
-      {built ? (
-        <Link
-          href={stage.href as string}
-          className="propiq-block-link block h-full rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-iris-600)]"
-        >
-          {card}
-        </Link>
-      ) : (
-        card
-      )}
-    </li>
-  );
-};
+    {/* The page ground, faded up under the scene so the section below joins it
+        rather than butting against a hard edge. */}
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-[var(--surface-0)]"
+    />
 
-export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }) => {
-  const propertyHref = showcase ? `/property/${showcase.slug}` : '/search';
+    <div className="relative mx-auto grid max-w-7xl items-start gap-12 px-4 pb-20 pt-14 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-12 lg:pb-24 lg:pt-16">
+      {/* --------------------------------------------------------- argument */}
+      <div className="max-w-2xl">
+        <p className="propiq-eyebrow-pill">Property decision intelligence</p>
 
-  return (
-    <section className="propiq-hero-light relative isolate overflow-hidden">
-      <div className="relative mx-auto max-w-[1480px] px-4 pb-24 pt-12 sm:pt-14">
-        <p className="mx-auto max-w-2xl text-center text-[10px] font-semibold uppercase leading-relaxed tracking-[0.28em] text-[var(--text-muted)] sm:text-[11px]">
-          Real estate intelligence for a brighter tomorrow
-        </p>
-
-        <div className="mt-7 flex justify-center">
-          <BrandLockup width={230} />
-        </div>
-
-        <h1 className="propiq-display mt-6 text-center text-[clamp(2.2rem,5.8vw,4rem)] font-extrabold leading-[1.0]">
-          Property Intelligence <span className="propiq-iris-text">Journey</span>
+        {/* `balance` and not a hand-placed break: the two clauses are the
+            structure, and inside each one the browser knows the measure
+            better than a hardcoded <br> does at every width. */}
+        <h1 className="propiq-display mt-5 text-balance text-[2.5rem] leading-[1.04] tracking-[-0.03em] sm:text-[3.2rem] lg:text-[3.1rem] xl:text-[3.45rem]">
+          <span className="block">Find the right property.</span>
+          <span className="propiq-iris-text block">Understand the opportunity.</span>
         </h1>
 
-        <p className="mx-auto mt-4 max-w-2xl text-center text-base leading-relaxed text-[var(--text-secondary)] sm:text-lg">
-          From discovery to monitoring, PropIQ turns a property listing into a decision you can
-          argue with — every number sourced, every gap admitted.
+        <p className="mt-6 max-w-xl text-base leading-relaxed text-[var(--text-secondary)] sm:text-lg">
+          Discover projects, understand locations, benchmark prices, evaluate developers and weigh
+          risk against return — through one engine whose formula is published and whose every number
+          carries its evidence.
         </p>
 
-        {/* Nine across at xl, a snapping rail below it. The connectors only
-            make sense in one row, so the row is what every width gets. */}
-        <ol className="mt-12 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3 xl:grid xl:grid-cols-9 xl:overflow-visible xl:pb-0">
-          {stages(propertyHref).map((stage) => (
-            <StageCard key={stage.step} stage={stage} />
-          ))}
-        </ol>
+        <div className="mt-8">
+          <HeroSearch localities={localities} />
+        </div>
 
-        <div className="mt-10 flex justify-center">
+        <div className="mt-7 flex flex-wrap items-center gap-3">
           <Link
             href="/search"
-            className="propiq-iris-gradient inline-flex h-14 items-center gap-3 rounded-full px-9 text-base font-semibold text-white shadow-[0_18px_40px_-16px_rgba(43,73,200,0.75)] transition-transform hover:-translate-y-0.5"
+            className="propiq-btn-primary inline-flex h-12 items-center gap-2 rounded-lg px-6 text-sm font-semibold text-white"
           >
-            Turn Property Data into Opportunity
-            <span className="inline-flex size-7 items-center justify-center rounded-full bg-white/20">
-              <ArrowRight aria-hidden className="size-4" />
-            </span>
+            Explore properties <ArrowRight aria-hidden className="size-4" />
+          </Link>
+          <Link
+            href="/valuation"
+            className="inline-flex h-12 items-center gap-2 rounded-lg border border-[var(--border-strong)] px-5 text-sm font-medium transition-colors hover:bg-[var(--surface-1)]"
+          >
+            Analyze a property
+          </Link>
+          <Link
+            href="/copilot"
+            className="inline-flex h-12 items-center gap-2 rounded-lg px-4 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+          >
+            <MessageSquareText aria-hidden className="size-4" /> Ask PropIQ
           </Link>
         </div>
 
-        <ul className="mx-auto mt-12 flex max-w-4xl flex-col items-stretch justify-center gap-4 sm:flex-row sm:items-center sm:gap-10">
-          {PROMISES.map((p) => {
-            const Icon = p.icon;
-            return (
-              <li key={p.title} className="flex items-center gap-3">
-                <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-[var(--color-iris-100)] text-[var(--color-iris-600)]">
-                  <Icon aria-hidden className="size-5" />
+        <dl className="mt-10 flex flex-wrap gap-x-8 gap-y-4 border-t border-[var(--border-subtle)] pt-6">
+          {PROOF.map((p) => (
+            <div key={p.label}>
+              <dt className="sr-only">{p.label}</dt>
+              <dd>
+                <span data-figure className="text-2xl font-semibold">
+                  {p.figure}
                 </span>
-                <span>
-                  <span className="block text-sm font-bold text-[var(--text-primary)]">
-                    {p.title}
-                  </span>
-                  <span className="block text-[13px] text-[var(--text-secondary)]">{p.line}</span>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-
-        <p className="mt-10 text-center text-[11px] leading-relaxed text-[var(--text-muted)]">
-          Every figure above is counted from the running engine at render, not written into this
-          page. Eight stages have a surface behind them; the ninth says that it does not.
-        </p>
+                <span className="ml-2 text-sm text-[var(--text-muted)]">{p.label}</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
       </div>
 
-      {/* The light world resolves into the teal one rather than cutting to it. */}
-      <div aria-hidden className="propiq-hero-dissolve h-24 w-full" />
-    </section>
-  );
-};
+      {/* -------------------------------------------------------- readouts */}
+      {/* Absent, not faked, when there is no property to read them off. */}
+      {showcase && (
+        <div className="lg:pt-6">
+          {/* An offset stack rather than a scatter. Absolute placement put the
+              last readout below the section and let the middle two collide at
+              awkward widths; stepping them across a flow column keeps the
+              floating feel and cannot overflow the box at any size. */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 lg:gap-4">
+            <Readout
+              className="lg:mr-[22%]"
+              label="PropIQ Score"
+              value={
+                showcase.propiqScore === undefined ? '—' : String(Math.round(showcase.propiqScore))
+              }
+              caption={
+                showcase.scoreBand
+                  ? `95% band ${showcase.scoreBand.low}–${showcase.scoreBand.high} · ${formatPercent(showcase.coverage * 100, 0)} evidence coverage`
+                  : 'Withheld — not enough evidence'
+              }
+            />
+            <Readout
+              className="lg:ml-[16%]"
+              label="Fair value"
+              value={showcase.fairValueMid === undefined ? '—' : formatINR(showcase.fairValueMid)}
+              caption={
+                showcase.fairValueLow !== undefined && showcase.fairValueHigh !== undefined
+                  ? `Range ${formatINR(showcase.fairValueLow)} – ${formatINR(showcase.fairValueHigh)}`
+                  : 'No comparable set'
+              }
+            />
+            <Readout
+              className="lg:mr-[28%]"
+              label="Risk profile"
+              value={RISK_WORD[showcase.riskBand]}
+              caption={`Across ${RISK_DIMENSIONS.length} dimensions, each with its own evidence`}
+            />
+            <Readout
+              className="lg:ml-[10%]"
+              label="Asking vs fair value"
+              value={
+                showcase.priceDeviationPercent >= 0
+                  ? `${formatPercent(showcase.priceDeviationPercent, 1)} over`
+                  : `${formatPercent(Math.abs(showcase.priceDeviationPercent), 1)} under`
+              }
+              tone={showcase.priceDeviationPercent >= 0 ? 'var(--color-avoid)' : 'var(--color-buy)'}
+              caption={`${showcase.name} · ${showcase.locality}`}
+            />
+          </div>
+
+          <p className="mt-4 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+            <ShieldCheck aria-hidden className="size-3.5 shrink-0" />
+            Computed live by the scoring engine — not a mock-up.
+          </p>
+        </div>
+      )}
+    </div>
+  </section>
+);

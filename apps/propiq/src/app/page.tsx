@@ -7,7 +7,6 @@ import { TrackView } from '@/components/propiq/track-view';
 import { SiteHeader } from '@/components/site/site-header';
 import { SiteFooter } from '@/components/site/site-footer';
 import { HeroSection } from '@/components/site/hero-section';
-import { SmartSearch } from '@/components/site/smart-search';
 import { SitePropertyRail } from '@/components/site/property-card';
 import { Section, SectionHead, DemoNote } from '@/components/site/section';
 import { ScoreSection } from '@/components/site/score-section';
@@ -90,8 +89,7 @@ export default async function HomePage() {
         <SiteHeader />
 
         <main id="main">
-          <HeroSection showcase={showcase} />
-          <SmartSearch localities={data.localities.map((l) => l.name)} />
+          <HeroSection showcase={showcase} localities={data.localities.map((l) => l.name)} />
 
           {data.servesDemoData && (
             <div className="mx-auto max-w-7xl px-4 pt-12">

@@ -51,29 +51,30 @@ describe('score ramp', () => {
 
   /**
    * A block that declares its own `--text-primary` is claiming a ground of its
-   * own polarity, and it owes the ramp its own steps. Without that, a reader on
-   * a dark OS gets the dark ramp painted onto `.propiq-site`'s white cards,
-   * where the low end of the scale disappears — the same class of bug the ink
-   * verdict sets already exist to prevent. Bands that only shift surfaces
-   * within a polarity (`.propiq-band-deep`) inherit correctly and are not
-   * counted, which is why the test keys on the text ramp and not the track.
+   * own polarity, and it owes the ramp and the card surface its own values.
+   * Without that, a reader on a dark OS gets the dark ramp painted onto white
+   * cards, and `.propiq-card` paints a colour from the wrong world — the same
+   * class of bug the ink verdict sets already exist to prevent.
+   *
+   * The check parses blocks rather than counting declarations: a band that
+   * shifts surfaces within one polarity may declare a card surface without
+   * owing a text ramp, and counting cannot tell that apart from a ground that
+   * forgot one.
    */
-  it('re-declares the ramp on every ground with its own text ramp', () => {
+  it('gives every ground its own ramp and card surface', () => {
     const css = fs.readFileSync(path.join(SRC, 'app', 'globals.css'), 'utf-8');
-    const grounds = css.split('--text-primary:').length - 1;
-    const ramps = css.split('--seq-score-1:').length - 1;
-    expect(ramps).toBe(grounds);
-  });
+    const grounds = [...css.matchAll(/\{([^{}]*)\}/g)]
+      .map((m) => m[1] ?? '')
+      .filter((body) => body.includes('--text-primary:'));
 
-  /**
-   * Same rule, same reason. `.propiq-card` painted a literal `#ffffff` and
-   * every app card was unreadable under a dark OS; a ground that does not name
-   * its own card surface is that bug waiting to happen again.
-   */
-  it('gives every ground its own card surface', () => {
-    const css = fs.readFileSync(path.join(SRC, 'app', 'globals.css'), 'utf-8');
-    const grounds = css.split('--text-primary:').length - 1;
-    expect(css.split('--surface-card:').length - 1).toBe(grounds);
+    // A floor, so deleting every ground cannot make the loop below pass
+    // vacuously. The exact count moves whenever a subtree is added or retired.
+    expect(grounds.length).toBeGreaterThanOrEqual(5);
+    for (const body of grounds) {
+      expect(body).toContain('--seq-score-1:');
+      expect(body).toContain('--surface-card:');
+    }
+    // And the component never reaches past the token for a literal.
     expect(css).not.toMatch(/\.propiq-card \{[^}]*background:\s*#/);
   });
 });

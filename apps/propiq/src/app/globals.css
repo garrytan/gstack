@@ -715,33 +715,42 @@ body:has(.propiq-canvas) > footer {
    not just the darkest — a token that passes on `--surface-0` and fails on
    `--surface-2` is a token that fails, because cards sit on `--surface-2`. */
 .propiq-site {
-  --surface-0: #ffffff;
-  --surface-1: var(--color-teal-800);
-  --surface-2: var(--color-teal-700);
-  --border-subtle: rgba(30, 58, 158, 0.13);
-  --border-strong: rgba(30, 58, 158, 0.26);
-  --surface-card: #ffffff;
-  --text-primary: #16205c;
-  --text-secondary: #3f4a70;
-  /* 5.0:1 on the palest card; #5a6486 dropped under 5 there. */
-  --text-muted: #4a5578;
-  --text-accent: var(--color-accent-ink);
+  /* The marketing surface is the command centre: near-black midnight navy, one
+     electric-blue accent, and light only where it carries information.
 
-  /* A light ground takes the ink verdict set, as everywhere else light does. */
-  --color-buy: var(--color-buy-ink);
-  --color-negotiate: var(--color-negotiate-ink);
-  --color-watch: var(--color-watch-ink);
-  --color-avoid: var(--color-avoid-ink);
-  --color-unknown: var(--color-unknown-ink);
+     The bands are stepped by OKLCH lightness, not by contrast ratio. Down here
+     the ratio compresses — deep to card is 1.16:1 and looks identical on paper
+     — while ΔL stays perceptually honest at ~0.035 a step, which is what makes
+     the chapters read as chapters. Every text token below is checked against
+     the lightest ground it can reach (a glass panel over `raise`, #161e33),
+     not against the page. */
+  --surface-0: #070c1a;
+  --surface-1: #0d1426;
+  --surface-2: #16203a;
+  --surface-card: #111931;
+  --border-subtle: rgba(143, 176, 255, 0.13);
+  --border-strong: rgba(143, 176, 255, 0.26);
+  --text-primary: #f2f5fa;
+  --text-secondary: #aeb9d0;
+  --text-muted: #9aa6c0;
+  /* The 400 disappears on this ground; the 300 is the value that carries. */
+  --text-accent: var(--color-iris-300);
 
-  /* The sequential score ramp, re-declared for this light subtree: the :root
-     ramp flips to its dark steps under a dark OS, and this ground stays light
-     regardless. Same reason the ink verdict set is restated just above. */
-  --seq-score-1: #a6bdf5;
-  --seq-score-2: #7d9dee;
-  --seq-score-3: #5c81e7;
-  --seq-score-4: #3c62e2;
-  --seq-score-5: #2848c7;
+  /* The bright verdict set, re-measured on the darkest and the lightest
+     surface a badge can land on. Worst case is 7.5:1. */
+  --color-buy: #4ade94;
+  --color-negotiate: #f5c563;
+  --color-watch: #7fb8f0;
+  --color-avoid: #ff8f86;
+  --color-unknown: #a8b2c6;
+
+  /* The score ramp, re-stepped for this ground: light is high, because on a
+     near-black track the dark end of a light-to-dark ramp is the track. */
+  --seq-score-1: #2a61b1;
+  --seq-score-2: #317ae3;
+  --seq-score-3: #5898f6;
+  --seq-score-4: #84b6ff;
+  --seq-score-5: #afd3ff;
 
   background: var(--surface-0);
   color: var(--text-primary);
@@ -999,21 +1008,22 @@ li a:not([class*='inline-flex']):not(.propiq-block-link) {
    flat hairline.
 --------------------------------------------------------------------------- */
 
-/* The three section grounds. `deep` and `raise` sit either side of the base
-   teal so consecutive sections never share a value. */
+/* The three section grounds, one ΔL step apart either side of the page. */
 .propiq-band-deep {
-  --surface-0: var(--color-teal-700);
-  --surface-1: #ffffff;
-  --surface-2: var(--color-teal-800);
+  --surface-0: #03060f;
+  --surface-1: #0b1120;
+  --surface-2: #121a30;
+  --surface-card: #0d1528;
   background: var(--surface-0);
 }
 
-/* The lifted band. In the light world "raise" means toward white rather than
-   toward a lighter dark, so it inherits the site's text ramps unchanged. */
+/* The lifted band. "Raise" means toward light on either ground; here that is
+   one ΔL step up from the page rather than toward white. */
 .propiq-band-raise {
-  --surface-0: var(--color-teal-800);
-  --surface-1: #ffffff;
-  --surface-2: var(--color-teal-700);
+  --surface-0: #0d1426;
+  --surface-1: #141d33;
+  --surface-2: #1b2442;
+  --surface-card: #16203a;
   background: var(--surface-0);
 }
 
@@ -1071,54 +1081,18 @@ li a:not([class*='inline-flex']):not(.propiq-block-link) {
   /* The logo's ramp, as real colours rather than aliases onto mint. */
   --color-iris-50: #f4f6ff;
   --color-iris-100: #e8edff;
+  /* The steps the dark ground needs: 300 for accent text (7.75:1 on the
+     lightest glass panel), cyan and violet for the intelligence gradient. */
+  --color-iris-300: #8fb0ff;
+  --color-iris-cyan-300: #6fe3f5;
+  --color-iris-cyan-400: #3fd3ec;
+  --color-iris-violet-300: #b6a5ff;
   --color-iris-400: #6d8cf8;
   --color-iris-500: #3b63ef;
   --color-iris-600: #2a49c8;
   --color-iris-900: #16205c;
   --color-iris-violet-400: #9a7cf5;
   --color-iris-violet-500: #7c53e8;
-}
-
-.propiq-hero-light {
-  --surface-0: #f6f8ff;
-  --surface-1: #ffffff;
-  --surface-2: var(--color-iris-50);
-  --border-subtle: rgba(30, 58, 158, 0.12);
-  --border-strong: rgba(30, 58, 158, 0.24);
-  --surface-card: #ffffff;
-  --text-primary: var(--color-iris-900);
-  --text-secondary: #3f4a70;
-  --text-muted: #5a6486;
-  --text-accent: var(--color-iris-600);
-
-  /* Verdicts take the ink set here, as on any light ground. */
-  --color-buy: var(--color-buy-ink);
-  --color-negotiate: var(--color-negotiate-ink);
-  --color-watch: var(--color-watch-ink);
-  --color-avoid: var(--color-avoid-ink);
-  --color-unknown: var(--color-unknown-ink);
-
-  /* The sequential score ramp, re-declared for this light subtree: the :root
-     ramp flips to its dark steps under a dark OS, and this ground stays light
-     regardless. Same reason the ink verdict set is restated just above. */
-  --seq-score-1: #a6bdf5;
-  --seq-score-2: #7d9dee;
-  --seq-score-3: #5c81e7;
-  --seq-score-4: #3c62e2;
-  --seq-score-5: #2848c7;
-
-  color: var(--text-primary);
-  /* The white bed on top is not decoration. The supplied lockup carries a
-     near-white bloom baked into its artwork; alpha-cutting leaves that bloom
-     as a faint white film, which is invisible on white and reads as a pale
-     rectangle on a tinted ground. Laying white back under the mark is what
-     makes the cut disappear. The colour is pushed to the edges instead. */
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E"),
-    radial-gradient(ellipse 44% 24% at 50% 20%, #ffffff 0%, rgba(255, 255, 255, 0) 72%),
-    radial-gradient(ellipse 70% 62% at 4% 34%, rgba(124, 83, 232, 0.16), transparent 62%),
-    radial-gradient(ellipse 66% 58% at 96% 30%, rgba(59, 99, 239, 0.18), transparent 60%),
-    linear-gradient(180deg, #ffffff 0%, #f4f6ff 38%, #e9eeff 100%);
 }
 
 /* The headline's second word and the stage figures. */
@@ -1190,9 +1164,6 @@ a:focus-visible > .propiq-stage-card {
 
 /* The hero's foot. Both sides of this edge are light now, so it is a settle
    into the page ground rather than the dissolve into teal it used to be. */
-.propiq-hero-dissolve {
-  background: linear-gradient(180deg, transparent 0%, #ffffff 100%);
-}
 
 /* ---------------------------------------------------------------------------
    Surfaces with depth.
@@ -1271,20 +1242,26 @@ a:focus-visible > .propiq-card {
   padding: 0.3rem 0.75rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-accent-400) 14%, transparent);
-  color: var(--color-accent-ink);
+  /* `--text-accent`, not the ink literal. The ink value is a mid blue picked
+     for a white ground; on the dark bands it landed at 2.39:1 on six section
+     headers at once. The token is whatever each ground already decided reads
+     as accent text there. */
+  color: var(--text-accent);
   border: 1px solid color-mix(in srgb, var(--color-accent-400) 26%, transparent);
 }
 
 /* Bands get a wash rather than a flat fill, so an edge never reads as a seam
-   across an otherwise uniform field. */
+   across an otherwise uniform field. On a near-black ground the wash has to be
+   light rather than saturated: a blue glow over blue-black just reads as a
+   dirty patch, where a lifted luminance reads as depth. */
 .propiq-band-raise {
-  background-image: radial-gradient(120% 90% at 50% 0%, rgba(59, 99, 239, 0.07), transparent 62%);
+  background-image: radial-gradient(120% 90% at 50% 0%, rgba(111, 227, 245, 0.05), transparent 62%);
 }
 
 .propiq-band-deep {
   background-image:
-    radial-gradient(90% 70% at 12% 0%, rgba(124, 83, 232, 0.12), transparent 60%),
-    radial-gradient(90% 70% at 88% 100%, rgba(59, 99, 239, 0.12), transparent 60%);
+    radial-gradient(90% 70% at 12% 0%, rgba(143, 176, 255, 0.07), transparent 60%),
+    radial-gradient(90% 70% at 88% 100%, rgba(182, 165, 255, 0.06), transparent 60%);
 }
 
 /* The primary action. A flat fill on a pale page is the one thing a reader's
@@ -1307,15 +1284,6 @@ a:focus-visible > .propiq-card {
 .propiq-btn-primary:hover {
   filter: saturate(1.12) brightness(0.96);
   box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--color-accent-500) 95%, transparent);
-}
-
-/* The bands needed more separation than 6 points of luminance apiece. `deep`
-   drops far enough to read as a different chapter without leaving the light
-   world, and its own text ramps are re-checked against it below. */
-.propiq-band-deep {
-  --surface-0: #dfe6ff;
-  --surface-1: #ffffff;
-  --surface-2: #eef2ff;
 }
 
 /* ---------------------------------------------------------------------------
@@ -1507,4 +1475,233 @@ a:focus-visible > .propiq-card {
   display: block;
   width: 1.25rem;
   height: 0.375rem;
+}
+
+/* ---------------------------------------------------------------------------
+   The intelligence node motif.
+
+   One vocabulary — a luminous point, and the inference drawn between two of
+   them — used in the hero, behind the score and at section seams. Only
+   `transform` and `opacity` animate, so every frame is composited and the
+   scene costs no JavaScript at all. That is also why there is no low-power
+   branch: this IS the low-power path.
+--------------------------------------------------------------------------- */
+
+.propiq-nodefield {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.propiq-nodefield-path {
+  /* The dash travels the line rather than the line moving, so the geometry is
+     static and only the paint animates. */
+  stroke-dasharray: 8 92;
+  animation: propiq-trace 7s linear infinite;
+}
+
+@keyframes propiq-trace {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.propiq-nodefield-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: propiq-breathe 5.5s ease-in-out infinite;
+}
+
+@keyframes propiq-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+
+.propiq-nodefield-halo {
+  fill: none;
+  stroke: var(--color-iris-cyan-300);
+  stroke-width: 0.18;
+  opacity: 0.35;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: propiq-pulse 4.5s ease-out infinite;
+}
+
+@keyframes propiq-pulse {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.5;
+  }
+  70%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-nodefield-path,
+  .propiq-nodefield-node,
+  .propiq-nodefield-halo {
+    animation: none;
+  }
+  /* Stopped, not hidden: the constellation is the composition, and removing it
+     leaves a hole where the scene was. */
+  .propiq-nodefield-path {
+    stroke-dasharray: none;
+    opacity: 0.4;
+  }
+  .propiq-nodefield-halo {
+    transform: scale(1.6);
+    opacity: 0.25;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Glass. Used on the hero's floating readouts and nowhere a solid card would
+   do — a page of glass panels is a page with no hierarchy left to spend.
+--------------------------------------------------------------------------- */
+
+.propiq-glass {
+  background: rgba(143, 176, 255, 0.07);
+  border: 1px solid rgba(143, 176, 255, 0.16);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.07),
+    0 18px 40px -28px rgba(0, 0, 0, 0.9);
+}
+
+/* The city plate the scene sits on: a horizon wash plus a ground grid in
+   perspective. Two gradients and a repeating one — cheaper than any geometry
+   and it reads as depth at a glance, which is all the hero needs from it. */
+.propiq-cityplate {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* On a wide screen the scene belongs to the right-hand half. Left of that
+     sit the headline, the search field and three select controls, and a
+     breathing node landing on "Any budget" is not atmosphere, it is a smudge
+     on a control someone is trying to use. Below `lg` the layout stacks and
+     the scene is the whole backdrop again, where nothing overlaps it. */
+  background-image:
+    radial-gradient(70% 55% at 62% 38%, rgba(63, 211, 236, 0.13), transparent 68%),
+    radial-gradient(60% 50% at 88% 78%, rgba(182, 165, 255, 0.11), transparent 70%),
+    radial-gradient(90% 60% at 20% 8%, rgba(143, 176, 255, 0.09), transparent 66%);
+}
+
+.propiq-cityplate::after {
+  content: '';
+  position: absolute;
+  inset: 42% -40% -18% -40%;
+  background-image:
+    repeating-linear-gradient(to right, rgba(143, 176, 255, 0.16) 0 1px, transparent 1px 82px),
+    repeating-linear-gradient(to bottom, rgba(143, 176, 255, 0.13) 0 1px, transparent 1px 58px);
+  transform: perspective(620px) rotateX(64deg);
+  transform-origin: top center;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85), transparent 72%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85), transparent 72%);
+}
+
+@media (min-width: 1024px) {
+  .propiq-cityplate {
+    mask-image: linear-gradient(
+      to right,
+      transparent 4%,
+      rgba(0, 0, 0, 0.35) 30%,
+      rgba(0, 0, 0, 1) 52%
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 4%,
+      rgba(0, 0, 0, 0.35) 30%,
+      rgba(0, 0, 0, 1) 52%
+    );
+  }
+}
+
+/* A skyline of blocks, drawn as one element. The heights are a hand-tuned
+   stepped gradient rather than geometry: at this scale and this opacity the
+   silhouette is all that reads, and a real mesh would cost a megabyte to say
+   the same thing. */
+.propiq-skyline {
+  position: absolute;
+  right: 0;
+  bottom: 28%;
+  left: 0;
+  height: 30%;
+  opacity: 0.5;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    rgba(0, 0, 0, 1) 18%,
+    rgba(0, 0, 0, 1) 82%,
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    rgba(0, 0, 0, 1) 18%,
+    rgba(0, 0, 0, 1) 82%,
+    transparent
+  );
+}
+
+/* The hero box. Sized to what it holds rather than to the viewport: a 100vh
+   opener pushes the rest of the page out of the first frame, and the first
+   frame is what a share card and a skimming reader both get. */
+.propiq-hero {
+  min-height: 640px;
+}
+
+@media (min-width: 1024px) {
+  .propiq-hero {
+    min-height: 760px;
+  }
+}
+
+/* A floating readout settles into place once, then stays put. Movement that
+   never stops is movement a reader learns to ignore. */
+.propiq-readout {
+  animation: propiq-settle 700ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.propiq-readout:nth-of-type(2) {
+  animation-delay: 110ms;
+}
+.propiq-readout:nth-of-type(3) {
+  animation-delay: 220ms;
+}
+.propiq-readout:nth-of-type(4) {
+  animation-delay: 330ms;
+}
+
+@keyframes propiq-settle {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-readout {
+    animation: none;
+  }
 }
