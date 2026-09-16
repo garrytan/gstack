@@ -27,7 +27,8 @@ const seeded = (seed: number) => () => {
   return seed / 4294967296;
 };
 
-const hashOf = (s: string): number => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 99991, 7);
+const hashOf = (s: string): number =>
+  [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 99991, 7);
 
 const W = 800;
 const H = 480;
@@ -41,28 +42,33 @@ const build = (p: Property): string => {
   parts.push(
     `<defs>`,
     `<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">` +
-      `<stop offset="0%" stop-color="hsl(${hue} 34% 13%)"/>` +
-      `<stop offset="100%" stop-color="hsl(${hue + 6} 40% 7%)"/></linearGradient>`,
-    `<linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">` +
-      `<stop offset="0%" stop-color="#4fd1c5" stop-opacity="0.22"/>` +
-      `<stop offset="100%" stop-color="#4fd1c5" stop-opacity="0"/></linearGradient>`,
+      `<stop offset="0%" stop-color="hsl(${hue + 10} 42% 26%)"/>` +
+      `<stop offset="55%" stop-color="hsl(${hue} 44% 16%)"/>` +
+      `<stop offset="100%" stop-color="hsl(${hue - 4} 46% 10%)"/></linearGradient>`,
+    `<radialGradient id="glow">` +
+      `<stop offset="0%" stop-color="#6fdcd2" stop-opacity="0.55"/>` +
+      `<stop offset="100%" stop-color="#6fdcd2" stop-opacity="0"/></radialGradient>`,
+    `<radialGradient id="glow2">` +
+      `<stop offset="0%" stop-color="#8b7cf0" stop-opacity="0.34"/>` +
+      `<stop offset="100%" stop-color="#8b7cf0" stop-opacity="0"/></radialGradient>`,
     `<linearGradient id="face" x1="0" y1="0" x2="1" y2="0">` +
-      `<stop offset="0%" stop-color="hsl(${hue} 26% 17%)"/>` +
-      `<stop offset="100%" stop-color="hsl(${hue} 30% 26%)"/></linearGradient>`,
+      `<stop offset="0%" stop-color="hsl(${hue} 30% 22%)"/>` +
+      `<stop offset="100%" stop-color="hsl(${hue} 36% 40%)"/></linearGradient>`,
     `<linearGradient id="side" x1="0" y1="0" x2="1" y2="0">` +
-      `<stop offset="0%" stop-color="hsl(${hue} 30% 11%)"/>` +
-      `<stop offset="100%" stop-color="hsl(${hue} 28% 15%)"/></linearGradient>`,
+      `<stop offset="0%" stop-color="hsl(${hue} 34% 14%)"/>` +
+      `<stop offset="100%" stop-color="hsl(${hue} 32% 23%)"/></linearGradient>`,
     `</defs>`,
   );
 
   parts.push(`<rect width="${W}" height="${H}" fill="url(#sky)"/>`);
-  parts.push(`<circle cx="${W * 0.78}" cy="${H * 0.2}" r="210" fill="url(#glow)"/>`);
+  parts.push(`<circle cx="${W * 0.78}" cy="${H * 0.2}" r="250" fill="url(#glow)"/>`);
+  parts.push(`<circle cx="${W * 0.14}" cy="${H * 0.62}" r="200" fill="url(#glow2)"/>`);
 
   // Three towers: the subject in front, two neighbours receding.
   const towers = [
-    { x: 96, w: 128, h: 150 + floors * 9, depth: 34, lit: 0.18 },
-    { x: 300, w: 176, h: 190 + floors * 12, depth: 44, lit: 0.42 },
-    { x: 540, w: 142, h: 160 + floors * 10, depth: 38, lit: 0.24 },
+    { x: 96, w: 128, h: 150 + floors * 9, depth: 34, lit: 0.34 },
+    { x: 300, w: 176, h: 190 + floors * 12, depth: 44, lit: 0.6 },
+    { x: 540, w: 142, h: 160 + floors * 10, depth: 38, lit: 0.42 },
   ];
 
   const ground = H - 58;
@@ -80,7 +86,7 @@ const build = (p: Property): string => {
     for (let f = 0; f < floors; f += 1) {
       const y = top + f * bandH;
       parts.push(
-        `<rect x="${t.x}" y="${(y + bandH - 2).toFixed(1)}" width="${t.w}" height="1.4" fill="hsl(${hue} 22% 9%)" opacity="0.7"/>`,
+        `<rect x="${t.x}" y="${(y + bandH - 2).toFixed(1)}" width="${t.w}" height="1.4" fill="hsl(${hue} 26% 11%)" opacity="0.55"/>`,
       );
       const cols = Math.max(3, Math.round(t.w / 30));
       for (let c = 0; c < cols; c += 1) {
@@ -89,7 +95,7 @@ const build = (p: Property): string => {
         const ww = (t.w - 18) / cols - 7;
         parts.push(
           `<rect x="${wx.toFixed(1)}" y="${(y + 5).toFixed(1)}" width="${ww.toFixed(1)}" height="${(bandH - 12).toFixed(1)}" rx="1" ` +
-            `fill="${lit ? '#4fd1c5' : `hsl(${hue} 24% 12%)`}" opacity="${lit ? (0.35 + rnd() * 0.45).toFixed(2) : '0.85'}"/>`,
+            `fill="${lit ? '#a8f2e9' : `hsl(${hue} 30% 15%)`}" opacity="${lit ? (0.6 + rnd() * 0.4).toFixed(2) : '0.7'}"/>`,
         );
       }
     }
@@ -97,13 +103,13 @@ const build = (p: Property): string => {
 
   // ground plane and a horizon rule
   parts.push(
-    `<rect x="0" y="${ground}" width="${W}" height="${H - ground}" fill="hsl(${hue} 30% 6%)"/>`,
-    `<rect x="0" y="${ground}" width="${W}" height="1" fill="#4fd1c5" opacity="0.18"/>`,
+    `<rect x="0" y="${ground}" width="${W}" height="${H - ground}" fill="hsl(${hue} 34% 9%)"/>`,
+    `<rect x="0" y="${ground}" width="${W}" height="1" fill="#6fdcd2" opacity="0.4"/>`,
   );
 
   // The label is part of the image: wherever it travels, it says what it is.
   parts.push(
-    `<text x="20" y="${H - 18}" font-family="system-ui, sans-serif" font-size="13" fill="#eef5f0" opacity="0.5">` +
+    `<text x="20" y="${H - 18}" font-family="system-ui, sans-serif" font-size="13" fill="#eef5f0" opacity="0.62">` +
       `Generated illustration · not a photograph of this property</text>`,
   );
 
