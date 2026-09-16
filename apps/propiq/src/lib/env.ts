@@ -20,10 +20,17 @@ const clientSchema = z.object({
 const serverSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   /**
-   * Which property data adapter to use. `fixture` serves the labelled demo
-   * dataset; `supabase` serves real records. Production refuses `fixture`.
+   * Which property data adapter to use.
+   *
+   * `fixture` serves the labelled demo dataset, `supabase` serves real records,
+   * and `none` serves nothing at all. Production refuses `fixture` — asking for
+   * demo data on a public deployment is the one configuration this product
+   * cannot honour — but `none` is perfectly valid and is what production gets
+   * by default. A site with no property source should say so and keep serving
+   * the surfaces that need no source (the free tools, the methodology, the
+   * marketing pages), not refuse to start.
    */
-  PROPIQ_DATA_ADAPTER: z.enum(['fixture', 'supabase']).default('fixture'),
+  PROPIQ_DATA_ADAPTER: z.enum(['fixture', 'supabase', 'none']).optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20).optional(),
   /** AI provider configuration. Model IDs never appear in domain code. */
   AI_PROVIDER: z.enum(['anthropic', 'openai', 'none']).default('none'),
@@ -62,7 +69,10 @@ const isLoopback = (url: string): boolean => {
 export type ClientEnv = Omit<z.infer<typeof clientSchema>, 'NEXT_PUBLIC_SITE_URL'> & {
   readonly NEXT_PUBLIC_SITE_URL: string;
 };
-export type ServerEnv = z.infer<typeof serverSchema>;
+export type ServerEnv = Omit<z.infer<typeof serverSchema>, 'PROPIQ_DATA_ADAPTER'> & {
+  /** Always resolved: unset becomes `fixture` in development, `none` in production. */
+  readonly PROPIQ_DATA_ADAPTER: 'fixture' | 'supabase' | 'none';
+};
 
 const formatIssues = (error: z.ZodError): string =>
   error.issues.map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`).join('\n');
@@ -134,15 +144,25 @@ export const getServerEnv = (): ServerEnv => {
   }
 
   // The truthfulness rule, enforced by configuration: production must never be
-  // able to serve fixture data as if it were live market intelligence.
+  // able to serve fixture data as if it were live market intelligence. Asking
+  // for it explicitly is refused rather than quietly downgraded, because a
+  // deployment that asked for demo data wants to know it did not get it.
   if (parsed.data.NODE_ENV === 'production' && parsed.data.PROPIQ_DATA_ADAPTER === 'fixture') {
     throw new Error(
       'PROPIQ_DATA_ADAPTER=fixture is not permitted when NODE_ENV=production. ' +
-        'The fixture adapter serves demo data and must never back a production deployment.',
+        'The fixture adapter serves demo data and must never back a production ' +
+        'deployment. Set PROPIQ_DATA_ADAPTER=supabase for real records, or leave ' +
+        'it unset to serve no property data at all.',
     );
   }
 
-  cachedServerEnv = parsed.data;
+  // Unset means "the labelled demo set" while developing and "nothing" in
+  // production. A public deployment that has not been pointed at a database
+  // has no Indian property facts, and the honest default is to have none.
+  const adapter =
+    parsed.data.PROPIQ_DATA_ADAPTER ?? (parsed.data.NODE_ENV === 'production' ? 'none' : 'fixture');
+
+  cachedServerEnv = { ...parsed.data, PROPIQ_DATA_ADAPTER: adapter };
   return cachedServerEnv;
 };
 

@@ -53,6 +53,12 @@ export interface PropertyRepository {
   readonly adapterName: string;
   /** True when this adapter serves development fixtures. */
   readonly servesDemoData: boolean;
+  /**
+   * True when no property source is connected at all. Distinguishes "your
+   * filters matched nothing" from "this deployment has no data", which are
+   * different sentences to show a buyer.
+   */
+  readonly servesNoData: boolean;
 
   search(query: PropertySearchQuery): Promise<Page<Property>>;
   getById(id: PropertyId): Promise<Property | undefined>;

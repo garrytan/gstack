@@ -30,6 +30,7 @@ const matchesText = (property: Property, project: Project | undefined, text: str
 export class FixturePropertyRepository implements PropertyRepository {
   readonly adapterName = 'fixture';
   readonly servesDemoData = true;
+  readonly servesNoData = false;
 
   async search(query: PropertySearchQuery): Promise<Page<Property>> {
     const page = Math.max(1, query.page ?? 1);
