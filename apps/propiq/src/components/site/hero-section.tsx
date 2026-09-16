@@ -151,7 +151,8 @@ export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }
                   {showcase.scoreBand && (
                     <p className="mt-1 text-[11px] text-white/55">
                       95% band {showcase.scoreBand.low}–{showcase.scoreBand.high} ·{' '}
-                      {(showcase.verdictConfidence * 100).toFixed(0)}% confidence
+                      {(showcase.verdictConfidence * 100).toFixed(0)}% confidence ·{' '}
+                      {(showcase.coverage * 100).toFixed(0)}% evidence coverage
                     </p>
                   )}
                 </div>
@@ -181,7 +182,7 @@ export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }
             </div>
           </Tilt3D>
 
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
             <Tilt3D>
               <GlassMetricCard
                 label="Price benchmark"
@@ -192,6 +193,20 @@ export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }
                 dataStatus={showcase.dataStatus}
               />
             </Tilt3D>
+            {showcase.carpetPricePerSqFt !== undefined && (
+              <Tilt3D>
+                <GlassMetricCard
+                  label="On carpet"
+                  value={formatPsf(showcase.carpetPricePerSqFt)}
+                  note={
+                    showcase.carpetSqFt !== undefined
+                      ? `${Math.round((showcase.carpetSqFt / showcase.sizeSqFt) * 100)}% carpet efficiency`
+                      : 'Carpet area basis'
+                  }
+                  dataStatus={showcase.dataStatus}
+                />
+              </Tilt3D>
+            )}
             <Tilt3D>
               <GlassMetricCard
                 label="Material risks"
