@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { ArrowRight, BookOpen, Check, Minus } from 'lucide-react';
 import { DECISION_LABELS } from '@/domain/decision/engine';
 import { Section, SectionHead, DemoNote } from '@/components/site/section';
+import { Tilt3D } from '@/components/site/tilt-3d';
 import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
 import type { CommandCentreSnapshot, ResearchArticle, SiteProperty } from '@/site/types';
 
@@ -286,72 +287,74 @@ export const CommandCentre = ({ snapshot }: { snapshot: CommandCentreSnapshot })
         standfirst="Everything you track in one place, re-scored on every visit, with what moved since you last looked."
       />
 
-      <div className="mt-10 overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)]">
-        <div className="grid lg:grid-cols-[180px_minmax(0,1fr)]">
-          <nav
-            aria-label="Command centre preview"
-            className="hidden border-r border-[var(--border-subtle)] p-4 lg:block"
-          >
-            <ul className="space-y-1">
-              {nav.map((item, i) => (
-                <li key={item}>
-                  <span
-                    className={`block rounded-md px-3 py-2 text-sm ${
-                      i === 0
-                        ? 'bg-[var(--surface-2)] font-medium text-[var(--text-primary)]'
-                        : 'text-[var(--text-muted)]'
-                    }`}
+      <Tilt3D className="mt-10" max={4} lift={16}>
+        <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+          <div className="grid lg:grid-cols-[180px_minmax(0,1fr)]">
+            <nav
+              aria-label="Command centre preview"
+              className="hidden border-r border-[var(--border-subtle)] p-4 lg:block"
+            >
+              <ul className="space-y-1">
+                {nav.map((item, i) => (
+                  <li key={item}>
+                    <span
+                      className={`block rounded-md px-3 py-2 text-sm ${
+                        i === 0
+                          ? 'bg-[var(--surface-2)] font-medium text-[var(--text-primary)]'
+                          : 'text-[var(--text-muted)]'
+                      }`}
+                    >
+                      {item}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+
+            <div className="p-5 sm:p-6">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <Tile
+                  label="Mean PropIQ Score"
+                  value={snapshot.meanScore === undefined ? '—' : snapshot.meanScore.toFixed(0)}
+                />
+                <Tile label="Properties tracked" value={String(snapshot.tracked)} />
+                <Tile label="Under fair value" value={String(snapshot.opportunities)} />
+                <Tile label="Material risks" value={String(snapshot.materialRisks)} />
+              </div>
+
+              <div className="mt-5 rounded-xl border border-[var(--border-subtle)] p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                  How the verdicts fall
+                </p>
+                <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
+                  {snapshot.verdictCounts
+                    .filter((c) => c.count > 0)
+                    .map((c) => (
+                      <li key={c.decision} className="text-xs text-[var(--text-secondary)]">
+                        {DECISION_LABELS[c.decision]}{' '}
+                        <span data-figure className="font-semibold text-[var(--text-primary)]">
+                          {c.count}
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+
+              <ul className="mt-5 space-y-2">
+                {snapshot.alerts.map((alert) => (
+                  <li
+                    key={alert.label}
+                    className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)]/60 p-3"
                   >
-                    {item}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </nav>
-
-          <div className="p-5 sm:p-6">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Tile
-                label="Mean PropIQ Score"
-                value={snapshot.meanScore === undefined ? '—' : snapshot.meanScore.toFixed(0)}
-              />
-              <Tile label="Properties tracked" value={String(snapshot.tracked)} />
-              <Tile label="Under fair value" value={String(snapshot.opportunities)} />
-              <Tile label="Material risks" value={String(snapshot.materialRisks)} />
-            </div>
-
-            <div className="mt-5 rounded-xl border border-[var(--border-subtle)] p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                How the verdicts fall
-              </p>
-              <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
-                {snapshot.verdictCounts
-                  .filter((c) => c.count > 0)
-                  .map((c) => (
-                    <li key={c.decision} className="text-xs text-[var(--text-secondary)]">
-                      {DECISION_LABELS[c.decision]}{' '}
-                      <span data-figure className="font-semibold text-[var(--text-primary)]">
-                        {c.count}
-                      </span>
-                    </li>
-                  ))}
+                    <p className="text-sm font-medium">{alert.label}</p>
+                    <p className="mt-0.5 text-xs text-[var(--text-muted)]">{alert.detail}</p>
+                  </li>
+                ))}
               </ul>
             </div>
-
-            <ul className="mt-5 space-y-2">
-              {snapshot.alerts.map((alert) => (
-                <li
-                  key={alert.label}
-                  className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)]/60 p-3"
-                >
-                  <p className="text-sm font-medium">{alert.label}</p>
-                  <p className="mt-0.5 text-xs text-[var(--text-muted)]">{alert.detail}</p>
-                </li>
-              ))}
-            </ul>
           </div>
         </div>
-      </div>
+      </Tilt3D>
 
       <div className="mt-6 flex flex-wrap gap-3">
         <Link
@@ -415,7 +418,7 @@ export const TrustLayer = () => (
       {CAPABILITIES.map((c) => (
         <div
           key={c.title}
-          className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5"
+          className="h-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5"
         >
           <h3 className="text-sm font-semibold">{c.title}</h3>
           <p className="mt-2 text-xs leading-relaxed text-[var(--text-secondary)]">{c.body}</p>

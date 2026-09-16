@@ -15,6 +15,7 @@ import { DECISION_LABELS } from '@/domain/decision/engine';
 import type { Decision } from '@/domain/decision/engine';
 import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
 import { CardActions } from '@/components/site/card-actions';
+import { Tilt3D } from '@/components/site/tilt-3d';
 import type { SiteProperty } from '@/site/types';
 
 const DECISION_COLOR: Readonly<Record<Decision, string>> = {
@@ -66,7 +67,7 @@ export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
           aria-hidden
           className="absolute inset-0 bg-gradient-to-t from-[var(--surface-0)]/70 via-transparent to-transparent"
         />
-        <span className="absolute left-3 top-3 rounded-md bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
+        <span className="absolute left-3 top-3 rounded-md bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
           {property.signal}
         </span>
       </div>
@@ -167,7 +168,9 @@ export const SitePropertyRail = ({ properties }: { properties: readonly SiteProp
         key={property.id}
         className="w-[80vw] max-w-xs shrink-0 snap-start sm:w-auto sm:max-w-none"
       >
-        <SitePropertyCard property={property} />
+        <Tilt3D max={5} lift={14} className="h-full">
+          <SitePropertyCard property={property} />
+        </Tilt3D>
       </div>
     ))}
   </div>
