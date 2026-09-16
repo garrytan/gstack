@@ -34,6 +34,9 @@ export const Section = ({
 }) => (
   <section
     id={id}
+    /* The header is sticky, so an anchor jump would otherwise drop the section
+       heading underneath it. */
+    style={id === undefined ? undefined : { scrollMarginTop: '4.5rem' }}
     className={['propiq-seam', TONE_CLASS[tone], className ?? ''].filter(Boolean).join(' ')}
   >
     <div className="mx-auto max-w-7xl px-4 py-20 sm:py-24">{children}</div>
