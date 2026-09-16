@@ -756,18 +756,23 @@ body[data-dock='on'] .propiq-site {
   );
 }
 
-/* Selective glass, for the hero's floating metric cards only. */
+/* Selective glass, for the hero's floating metric cards only.
+
+   The card is one hue away from the ground it floats on, so separation has to
+   come from value and edge rather than colour: a ground darker than the hero
+   behind it, and a rim bright enough to trace the card's shape. Glass tinted
+   to match its backdrop stops reading as an object at all. */
 .propiq-site-glass {
-  background: color-mix(in srgb, #06201f 66%, transparent);
-  border: 1px solid color-mix(in srgb, white 12%, transparent);
+  background: color-mix(in srgb, #04181a 78%, transparent);
+  border: 1px solid color-mix(in srgb, white 16%, transparent);
   box-shadow:
-    inset 0 1px 0 0 color-mix(in srgb, white 10%, transparent),
-    0 20px 44px -22px rgba(4, 8, 18, 0.9);
+    inset 0 1px 0 0 color-mix(in srgb, white 14%, transparent),
+    0 24px 50px -24px rgba(2, 10, 12, 0.95);
 }
 
 @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
   .propiq-site-glass {
-    background: color-mix(in srgb, #06201f 46%, transparent);
+    background: color-mix(in srgb, #04181a 62%, transparent);
     backdrop-filter: blur(18px) saturate(1.3);
     -webkit-backdrop-filter: blur(18px) saturate(1.3);
   }
