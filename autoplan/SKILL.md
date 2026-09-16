@@ -524,12 +524,14 @@ _LOCALDOC=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | h
 [ -z "$_LOCALDOC" ] && _LOCALDOC=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
 # Repo-local docs win when at least as fresh (#703): office-hours dual-writes
 # docs/designs/ alongside ~/.gstack, and the committed copy is what teammates
-# see. A stale old repo doc never shadows a newer private session.
+# see. A stale old repo doc never shadows a newer private session. Only
+# docs/designs/ is a design doc: a root DESIGN.md is the design system that
+# /design-consultation writes, and reading it here reviews a plan against a
+# token file while printing "Design doc found" (#2839).
 _REPOTOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 _REPODOC=""
 if [ -n "$_REPOTOP" ]; then
-  [ -f "$_REPOTOP/DESIGN.md" ] && _REPODOC="$_REPOTOP/DESIGN.md"
-  [ -z "$_REPODOC" ] && _REPODOC=$(ls -t "$_REPOTOP"/docs/designs/*.md 2>/dev/null | head -1)
+  _REPODOC=$(ls -t "$_REPOTOP"/docs/designs/*.md 2>/dev/null | head -1)
 fi
 DESIGN="$_LOCALDOC"
 if [ -n "$_REPODOC" ] && { [ -z "$_LOCALDOC" ] || [ "$_REPODOC" -nt "$_LOCALDOC" ]; }; then

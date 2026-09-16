@@ -2095,6 +2095,18 @@ describe('DESIGN_DETECTOR resolver', () => {
   });
 });
 
+// --- {{DESIGN_DOC_DISCOVERY}}: a root DESIGN.md is the design system, never the design doc (#2839) ---
+
+describe('design-doc discovery never takes a root DESIGN.md (#2839)', () => {
+  for (const skill of ['plan-ceo-review', 'plan-eng-review', 'plan-devex-review', 'autoplan']) {
+    test(`${skill} looks for a repo-local design doc in docs/designs/ only`, () => {
+      const c = readSkillUnion(skill);
+      expect(c).toContain('docs/designs/*.md');
+      expect(c).not.toContain('_REPOTOP/DESIGN.md');
+    });
+  }
+});
+
 // --- {{DESIGN_MD_CHECK}} resolver + open DESIGN.md adoption ---
 
 describe('DESIGN_MD_CHECK resolver and open DESIGN.md adoption', () => {
