@@ -18,7 +18,7 @@ import { priceCagrPercent } from '@/domain/locality/types';
 import type { Developer } from '@/domain/property/types';
 import { carpetPricePerSqFt, pricePerSqFt } from '@/domain/property/types';
 import { PILLAR_LABELS } from '@/domain/scoring/types';
-import { formatPercent } from '@/lib/utils';
+import { formatDate, formatPercent } from '@/lib/utils';
 import type { DeveloperProfile, LocalityAnchor, SiteLocality, SiteProperty } from '@/site/types';
 
 /**
@@ -72,6 +72,27 @@ export const toSiteProperty = (intel: PropertyIntelligence): SiteProperty => {
       label: PILLAR_LABELS[p.pillar],
       score: p.score,
       weight: score.weights[p.pillar],
+      coverage: p.coverage,
+      confidence: p.confidence,
+      signalCount: p.signals.length,
+      signalsWithData: p.signals.filter((s) => s.normalized !== undefined).length,
+      // The three heaviest signals that actually had a value. A driver with no
+      // observation did not drive anything, and listing it would imply it did.
+      drivers: [...p.signals]
+        .filter((s) => s.normalized !== undefined)
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 3)
+        .map((s) => {
+          if (s.raw === undefined) return s.label;
+          // A signal's raw value is whatever the evidence recorded, and some
+          // of it is an ISO instant. "2027-09-30T00:00:00.000Z" is a correct
+          // answer to a question nobody asked on a marketing page.
+          const raw =
+            typeof s.raw === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(s.raw)
+              ? formatDate(s.raw)
+              : String(s.raw);
+          return `${s.label}: ${raw}${s.unit ? ` ${s.unit}` : ''}`;
+        }),
     })),
 
     decision: decision.decision,

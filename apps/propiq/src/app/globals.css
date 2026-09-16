@@ -1705,3 +1705,49 @@ a:focus-visible > .propiq-card {
     animation: none;
   }
 }
+
+/* The score constellation. Type inside an SVG does not inherit the page's
+   font stack or its tokens, so both are restated here rather than per node. */
+.propiq-constellation-label {
+  /* Sized in the SVG's own units against a 724-unit box, so the rendered size
+     is roughly 0.9x this. 11 came out at about 9.5px on screen. */
+  font-size: 13px;
+  font-weight: 500;
+  fill: var(--text-secondary);
+}
+
+.propiq-constellation-score {
+  font-size: 54px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  fill: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.propiq-constellation-cap {
+  font-size: 11.5px;
+  fill: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The hit target. A <circle> with a click handler is invisible to a keyboard
+   and unreachable by a screen reader, so the interactive layer is real buttons
+   laid over the drawing — 44px square, which is bigger than every node. */
+.propiq-constellation-hit {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 999px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.propiq-constellation-hit:hover {
+  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
+}
+
+.propiq-constellation-hit:focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 2px;
+}

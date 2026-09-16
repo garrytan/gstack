@@ -88,6 +88,11 @@ export const ScoreRampKey = ({ className }: { className?: string }) => (
       ))}
     </span>
     <span data-figure>100</span>
-    <span>pillar score. Darker is higher; it is not a verdict.</span>
+    {/* No "darker is higher": the ramp inverts per ground — it runs light to
+        dark on a white card and dark to light on the near-black one — so a
+        sentence naming a direction is wrong on half the site. The swatches
+        already show the direction; the words only have to say what the hue
+        means, which is the part a reader cannot see. */}
+    <span>pillar score, low to high. It is a magnitude, not a verdict.</span>
   </p>
 );

@@ -9,10 +9,9 @@
 
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import { ScoreDial } from '@/components/propiq/score-dial';
-import { ScoreBar, ScoreRampKey } from '@/components/propiq/score-ramp';
+import { ChevronRight } from 'lucide-react';
+import { ConstellationTable, ScoreConstellation } from '@/components/site/score-constellation';
 import { Section, SectionHead, DemoNote } from '@/components/site/section';
-import { formatPercent } from '@/lib/utils';
 import type { SiteProperty } from '@/site/types';
 
 export const ScoreSection = ({ property }: { property: SiteProperty }) => {
@@ -26,85 +25,48 @@ export const ScoreSection = ({ property }: { property: SiteProperty }) => {
         standfirst="Twelve pillars, weighted for who is buying, each one expanding into the signals behind it. The formula and the weights are published, so the number can be argued with."
       />
 
-      <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] lg:gap-14">
-        <div className="flex flex-col items-center lg:items-start">
-          <ScoreDial
-            score={property.propiqScore}
-            band={property.scoreBand}
-            confidence={property.scoreConfidence}
-            decision={property.decision}
-            size={188}
-          />
-          <p className="mt-4 text-center text-sm text-[var(--text-secondary)] lg:text-left">
-            <span className="font-semibold text-[var(--text-primary)]">{property.name}</span>
-            <br />
-            {property.locality}, {property.city}
-          </p>
-          <dl className="mt-5 grid w-full grid-cols-2 gap-4">
-            <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                Evidence coverage
-              </dt>
-              <dd data-figure className="mt-1 text-lg font-semibold">
-                {formatPercent(property.coverage * 100, 0)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-                Pillars withheld
-              </dt>
-              <dd data-figure className="mt-1 text-lg font-semibold">
-                {withheld}
-              </dd>
-            </div>
-          </dl>
-        </div>
+      <div className="mt-12">
+        <ScoreConstellation
+          score={property.propiqScore}
+          band={property.scoreBand}
+          confidence={property.scoreConfidence}
+          coverage={property.coverage}
+          breakdown={property.breakdown}
+          propertyName={property.name}
+          locality={`${property.locality}, ${property.city}`}
+        />
 
-        <div>
-          <ul className="space-y-3.5">
-            {property.breakdown.map((pillar) => (
-              <li key={pillar.key}>
-                <div className="flex items-baseline justify-between gap-3 text-sm">
-                  <span className="text-[var(--text-secondary)]">{pillar.label}</span>
-                  <span className="flex items-baseline gap-2.5">
-                    {pillar.weight !== undefined && (
-                      <span
-                        data-figure
-                        className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]"
-                      >
-                        {(pillar.weight * 100).toFixed(0)}% weight
-                      </span>
-                    )}
-                    <span data-figure className="w-9 text-right font-semibold">
-                      {pillar.score === undefined ? '—' : pillar.score.toFixed(0)}
-                    </span>
-                  </span>
-                </div>
-                <ScoreBar score={pillar.score} className="mt-1.5" />
-                {pillar.score === undefined && (
-                  <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                    Withheld — no evidence. Its weight is redistributed across the rest rather than
-                    scored as zero.
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
+        {/* Always rendered, never a fallback. The diagram is the argument; the
+            table is what a keyboard, a screen reader, a printout and anyone
+            who just wants the numbers all get. */}
+        <details className="group mt-10">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+            <ChevronRight
+              aria-hidden
+              className="size-4 transition-transform group-open:rotate-90"
+            />
+            All {property.breakdown.length} pillars as a table
+          </summary>
+          <ConstellationTable breakdown={property.breakdown} className="mt-4" />
+        </details>
 
-          <ScoreRampKey className="mt-4" />
-
+        <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
           <Link
             href="/methodology"
-            className="mt-7 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
           >
             How PropIQ Score works <ArrowRight aria-hidden className="size-4" />
           </Link>
-          <DemoNote>
-            This is a live computation over a labelled development dataset, not an illustrative
-            mock-up: the bars are the property&rsquo;s actual pillar scores under the published
-            v0.1.0 weights, and they reconcile to the score on the left.
-          </DemoNote>
+          <p className="text-[13px] text-[var(--text-muted)]">
+            Withheld pillars: {withheld}. Their weight is redistributed, never scored as zero.
+          </p>
         </div>
+
+        <DemoNote>
+          This is a live computation over a labelled development dataset, not an illustrative
+          mock-up: the pillar scores are the property&rsquo;s actual values under the published
+          v0.1.0 weights, and they reconcile to the composite at the centre.
+        </DemoNote>
       </div>
     </Section>
   );
