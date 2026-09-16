@@ -9,6 +9,7 @@
  */
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { ArrowRight } from 'lucide-react';
 import { DECISION_LABELS } from '@/domain/decision/engine';
 import type { Decision } from '@/domain/decision/engine';
@@ -47,9 +48,25 @@ export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
 
   return (
     <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] transition-shadow hover:shadow-[0_18px_44px_-24px_rgba(13,21,36,0.4)]">
-      <div className="relative h-40" style={{ background: artFor(property.id) }} aria-hidden>
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_20%,rgba(255,255,255,0.18),transparent_60%)]" />
-        <span className="absolute left-3 top-3 rounded-md bg-black/45 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
+      <div className="relative h-40 overflow-hidden" style={{ background: artFor(property.id) }}>
+        {property.image && (
+          <Image
+            src={property.image}
+            alt={
+              property.imageIsGenerated
+                ? `Generated architectural illustration for ${property.name}. Not a photograph of the property.`
+                : property.name
+            }
+            fill
+            sizes="(max-width: 640px) 80vw, (max-width: 1024px) 50vw, 33vw"
+            className="object-cover"
+          />
+        )}
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-gradient-to-t from-[var(--surface-0)]/70 via-transparent to-transparent"
+        />
+        <span className="absolute left-3 top-3 rounded-md bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
           {property.signal}
         </span>
       </div>

@@ -93,6 +93,10 @@ export const toSiteProperty = (intel: PropertyIntelligence): SiteProperty => {
     monthlyRent: property.expectedRentPerMonth,
 
     dataStatus: property.dataStatus,
+    image: property.images[0],
+    // The generated stand-in lives under /property-art/. Anything else on the
+    // record is the property's own image and is presented as one.
+    imageIsGenerated: (property.images[0] ?? '').startsWith('/property-art/'),
     signal: signalFor(intel),
   };
 };

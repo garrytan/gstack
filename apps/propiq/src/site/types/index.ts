@@ -78,6 +78,14 @@ export interface SiteProperty {
   readonly monthlyRent: number | undefined;
 
   readonly dataStatus: DataStatus;
+  /** First image on the record, when it has one. */
+  readonly image: string | undefined;
+  /**
+   * True when `image` is the generated stand-in rather than a photograph of
+   * the property. A record that carries its own image keeps it; this only
+   * marks the fallback, so the caption never mislabels a real photo.
+   */
+  readonly imageIsGenerated: boolean;
   /** Short badge for a card: "Strong investment signal", "Low-risk shortlist". */
   readonly signal: string;
 }
