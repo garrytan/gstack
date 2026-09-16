@@ -6,7 +6,9 @@
  */
 
 import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
 import { BrandMark } from '@/components/brand/brand-mark';
+import { NodeField } from '@/components/site/intelligence-nodes';
 
 const COLUMNS = [
   {
@@ -51,7 +53,30 @@ const COLUMNS = [
 ] as const;
 
 export const SiteFooter = () => (
-  <footer className="border-t border-[var(--border-subtle)] bg-[var(--surface-1)]">
+  <footer className="relative isolate overflow-hidden border-t border-[var(--border-subtle)] bg-[var(--surface-1)]">
+    {/* ---------------------------------------------------- the last word */}
+    <div className="relative border-b border-[var(--border-subtle)]">
+      {/* The motif's last appearance, at its quietest. It opens the page and
+          closes it, and in between it earns its keep behind the score. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.45]">
+        <NodeField />
+      </div>
+
+      <div className="relative mx-auto max-w-7xl px-4 py-20 sm:py-24">
+        <p className="propiq-display max-w-3xl text-balance text-[2.1rem] leading-[1.06] tracking-[-0.03em] sm:text-[3rem] lg:text-[3.4rem]">
+          Don&rsquo;t just find a property.
+          <br />
+          <span className="propiq-iris-text">Understand it.</span>
+        </p>
+        <Link
+          href="/valuation"
+          className="propiq-btn-primary mt-8 inline-flex h-12 items-center gap-2 rounded-lg px-6 text-sm font-semibold text-white"
+        >
+          Start your property analysis <ArrowRight aria-hidden className="size-4" />
+        </Link>
+      </div>
+    </div>
+
     <div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 lg:grid-cols-[minmax(0,1.3fr)_repeat(4,minmax(0,1fr))]">
       <div>
         {/* The glyph cut, not the supplied lockup. This footer is light on

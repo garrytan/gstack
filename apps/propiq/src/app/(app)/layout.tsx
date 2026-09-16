@@ -2,9 +2,12 @@
  * Application chrome.
  *
  * The header, the skip link and the footer for every route except the
- * homepage. The marketing surface is light-first with its own navigation, and
- * a route group is how one page opts out of a layout without every other page
- * learning about it.
+ * homepage, which carries its own.
+ *
+ * `.propiq-app` is the same ground the marketing surface uses — literally the
+ * same rule, not a copy — so a reader who clicks through from the homepage
+ * stays in one world. Before this the site was a dark command centre that
+ * handed you off to a light workspace halfway down the journey.
  */
 
 import Link from 'next/link';
@@ -23,7 +26,7 @@ const NAV = [
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
+    <div className="propiq-app min-h-screen">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-accent-500 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
@@ -124,7 +127,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </p>
         </div>
       </footer>
-    </>
+    </div>
   );
 }
 

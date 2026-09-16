@@ -22,7 +22,7 @@ import { WatchlistButton } from '@/components/propiq/watchlist-button';
 import { PropertyCard } from '@/components/propiq/property-card';
 import { TrackView } from '@/components/propiq/track-view';
 import { buildSummaries } from '@/server/intelligence';
-import { DECISION_DESCRIPTIONS } from '@/domain/decision/engine';
+import { DECIDING_RULE_LABELS, DECISION_DESCRIPTIONS } from '@/domain/decision/engine';
 import { formatDate, formatINR, formatPercent, formatPsf, formatRelative } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -163,10 +163,15 @@ export default async function PropertyPage({ params }: Params) {
             </p>
 
             <p className="mt-4 max-w-2xl text-base leading-relaxed">{decision.headline}</p>
+            {/* The rule id stays — it names the exact branch that produced
+                this verdict and someone auditing the call needs it — but it is
+                no longer the explanation. `score.buyBand` in a monospace font
+                tells a buyer nothing; the sentence beside it does. */}
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              {DECISION_DESCRIPTIONS[decision.decision]} Rule{' '}
-              <code className="font-mono">{decision.decidingRule}</code>, decision rules v
-              {decision.rulesVersion}.
+              {DECISION_DESCRIPTIONS[decision.decision]}{' '}
+              {DECIDING_RULE_LABELS[decision.decidingRule] ?? 'Decided by rule'} (
+              <code className="font-mono">{decision.decidingRule}</code>, rules v
+              {decision.rulesVersion}).
             </p>
 
             <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">

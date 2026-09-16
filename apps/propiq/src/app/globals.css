@@ -714,7 +714,13 @@ body:has(.propiq-canvas) > footer {
    Every value below was checked against the lightest surface it can land on,
    not just the darkest — a token that passes on `--surface-0` and fails on
    `--surface-2` is a token that fails, because cards sit on `--surface-2`. */
-.propiq-site {
+/* One ground, two selectors. The marketing surface and the application were
+   two worlds — a dark command centre that handed you off to a light workspace
+   mid-journey, which made the product feel like two products stapled together.
+   They share a definition rather than two copies, because two copies of a
+   palette drift and the drift is invisible until someone screenshots both. */
+.propiq-site,
+.propiq-app {
   /* The marketing surface is the command centre: near-black midnight navy, one
      electric-blue accent, and light only where it carries information.
 
@@ -1387,7 +1393,23 @@ a:focus-visible > .propiq-card {
 /* Links in prose thicken on hover rather than changing colour. It has to stay
    a real `text-decoration`: a background-image underline looks identical and
    does NOT satisfy axe's link-in-text-block rule, which reads the computed
-   decoration. Nearly shipped that. */
+   decoration. Nearly shipped that.
+
+   A link inside a `nav` is exempt. The rule it satisfies is about links that
+   sit INSIDE a block of text, where losing the underline leaves colour as the
+   only thing marking them — a list of destinations under a heading is not that,
+   and underlining forty of them at once turns the footer into a wall of rules.
+   The exemption is verified, not assumed: `axe-app.js` sweeps every route in
+   both schemes and link-in-text-block stays clean. */
+.propiq-site nav a {
+  text-decoration: none;
+}
+
+.propiq-site nav a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .propiq-site a:not([class*='inline-flex']):not(.propiq-block-link) {
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;

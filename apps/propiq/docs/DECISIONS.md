@@ -704,3 +704,100 @@ operator commits to is not, and the honest empty state says so.
 **Consequence.** "Every internal link resolves" is necessary and not
 sufficient. A link's destination has to match its label, and only a human or a
 test that knows the label's meaning can check that.
+
+---
+
+## D-035 — Data mode is declared, never inferred
+
+**Context.** The production deployment served nothing. `PROPIQ_DATA_ADAPTER`
+unset resolved to `none`, so every data-backed surface rendered "no property
+data source is connected" — a working scoring engine with nothing to score.
+`getServerEnv()` additionally threw on `fixture` under `NODE_ENV=production`,
+which left exactly one production configuration reachable without a database:
+empty. A visitor read that as an unfinished product rather than an honest one.
+
+**Decision.** `NEXT_PUBLIC_DATA_MODE=live|demo|empty` picks the adapter.
+Production may serve the labelled demo set, and only by declaring it. Reaching
+for `PROPIQ_DATA_ADAPTER=fixture` alone in production still throws, and a
+declaration that disagrees with the adapter under it is a startup error.
+
+**Why.** The rule is "never present sample data *as live* Indian property
+intelligence", not "never show sample data". The old guard read it as the
+second. Making the mode public is what closes the gap the first reading leaves:
+`NEXT_PUBLIC_*` is inlined into the client bundle, so choosing `demo` is the
+same act as badging every surface — the badge is not a second switch someone
+can forget to flip.
+
+**Consequence.** There is no quiet path to demo data. `empty` stays the default
+for an unconfigured production deployment, because a site with no source still
+has none.
+
+---
+
+## D-036 — A component asks for a surface token; the ground decides
+
+**Context.** Twice the same bug shipped. `.propiq-card` hardcoded
+`background: #ffffff`, so under a dark OS every card on every app route painted
+white and printed `--text-primary` (#f6f7f9) on it at 1.05:1 — invisible.
+`.propiq-stage-card` stacked two literal whites and did the same thing to the
+whole journey section the moment the marketing surface went dark. Neither was
+caught: the accessibility sweep ran light-scheme only, and by the time the
+second one landed the section had moved and nothing was looking at it.
+
+**Decision.** Every ground that declares its own `--text-primary` also declares
+`--surface-card` and its own `--seq-score-*` ramp. No `.propiq-*` rule may name
+a literal near-white background or border. `ground-literals.test.ts` parses the
+stylesheet and fails on either.
+
+**Why.** "Remember to check both themes" is not a mechanism. The failure mode is
+a rule written correctly for the ground it was written against, surviving a
+ground change — which is invisible in review and invisible to a sweep that only
+looks at one theme. A static check sees it every time.
+
+**Consequence.** `axe-app.js` sweeps both colour schemes across 13 routes.
+Adding a subtree means adding its card surface and its ramp, or the test fails.
+
+---
+
+## D-037 — The score is a constellation, not a gauge
+
+**Context.** The PropIQ Score rendered as a ring gauge, which communicates one
+thing: how far round the number got. The score is twelve weighted pillars, each
+with its own evidence coverage and its own confidence.
+
+**Decision.** The composite sits at the centre; the twelve pillars orbit it.
+Distance is the pillar's score, node size is its weight in the composite, fill
+is the sequential ramp. A withheld pillar is an open dashed ring on the outer
+track. Selecting one opens its weight, coverage, confidence and drivers. The
+same numbers are always rendered as a table below it, never as a fallback.
+
+**Why.** A product whose argument is that its formula is published should not
+throw away eleven of its twelve dimensions at the moment of presentation. The
+three visual channels carry three real facts rather than one fact and two
+decorations.
+
+**Consequence.** The interactive layer is real buttons laid over the drawing —
+a `<circle>` with a click handler is unreachable by keyboard. Coordinates are
+rounded before they reach an attribute; unrounded trigonometry serialises as
+`230.00000000000003` and made the server and client render disagree.
+
+---
+
+## D-038 — Verifying a production build needs one loopback opt-out
+
+**Context.** The loopback guard refuses to start a production server whose
+`NEXT_PUBLIC_SITE_URL` points at localhost, because that value is baked into
+canonical links, the sitemap, `llms.txt` and the auth email redirect. It also
+made `next start` on 127.0.0.1 impossible — which is how the E2E suite and the
+Lighthouse run both work.
+
+**Decision.** `PROPIQ_ALLOW_LOOPBACK_ORIGIN=1`, opt-in, warning on every boot,
+set by the Playwright config and by nothing else.
+
+**Why.** The alternative was weakening the guard for everyone, or not verifying
+the production build at all. A verification step nobody can run is not a
+verification step. An opt-out that announces itself on stdout every time cannot
+be left on by accident and forgotten.
+
+**Consequence.** No deployment sets it. If one ever does, the log says so on
+the first line.
