@@ -942,9 +942,11 @@ body[data-dock='on'] .propiq-site {
    Colour alone does not distinguish it for a reader who cannot separate the
    two hues, which is what axe's link-in-text-block rule is about. Standalone
    links — nav items, cards, buttons — are excluded: they are not embedded in
-   a block of text, so their boundary is already obvious. */
-p a:not([class*='inline-flex']),
-li a:not([class*='inline-flex']) {
+   a block of text, so their boundary is already obvious. A card whose whole
+   body is the link marks itself `.propiq-block-link`; matching on utility
+   classes alone underlined every paragraph inside one. */
+p a:not([class*='inline-flex']):not(.propiq-block-link),
+li a:not([class*='inline-flex']):not(.propiq-block-link) {
   text-decoration: underline;
   text-underline-offset: 2px;
 }

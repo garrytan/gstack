@@ -18,8 +18,8 @@
 
 import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 
-/** The Decision Room renders at most four columns; the tray must not exceed it. */
-export const SHORTLIST_LIMIT = 4;
+export { SHORTLIST_LIMIT } from '@/components/site/shortlist-limit';
+import { SHORTLIST_LIMIT } from '@/components/site/shortlist-limit';
 
 const STORAGE_KEY = 'propiq.shortlist.v1';
 
