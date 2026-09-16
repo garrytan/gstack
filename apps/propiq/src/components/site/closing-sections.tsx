@@ -225,10 +225,7 @@ export const WhyPropIQ = () => (
           <ul className="mt-4 grid gap-3 sm:grid-cols-2">
             {PROPIQ.map((item) => (
               <li key={item} className="flex items-start gap-2.5 text-sm">
-                <Check
-                  aria-hidden
-                  className="mt-0.5 size-4 shrink-0 text-[var(--color-brand-cyan-500)]"
-                />
+                <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-[var(--text-accent)]" />
                 {item}
               </li>
             ))}
@@ -437,7 +434,7 @@ export const FinalCTA = () => (
       className="pointer-events-none absolute inset-0 opacity-70"
       style={{
         background:
-          'radial-gradient(ellipse 70% 60% at 25% 0%, rgba(79,209,197,0.28), transparent 65%),' +
+          'radial-gradient(ellipse 70% 60% at 25% 0%, rgba(59,99,239,0.34), transparent 65%),' +
           'radial-gradient(ellipse 60% 60% at 80% 100%, rgba(139,124,240,0.30), transparent 68%)',
       }}
     />

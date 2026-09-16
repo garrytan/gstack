@@ -68,7 +68,7 @@ export default async function ReportsPage() {
               <DecisionBadge decision={i.decision.decision} size="sm" />
               <Link
                 href={`/property/${i.property.id}/report`}
-                className="inline-flex h-9 shrink-0 items-center rounded-md bg-accent-500 px-3 text-xs font-semibold text-[#0a2a2b] hover:bg-accent-400"
+                className="inline-flex h-9 shrink-0 items-center rounded-md bg-accent-500 px-3 text-xs font-semibold text-white hover:bg-accent-400"
               >
                 Open report
               </Link>
@@ -96,7 +96,7 @@ const Empty = ({
     <p className="mx-auto mt-1 max-w-md text-xs text-[var(--text-secondary)]">{body}</p>
     <Link
       href={href}
-      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
+      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
     >
       {cta}
     </Link>

@@ -42,7 +42,7 @@ export default function OpengraphImage() {
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
-        background: '#06201f',
+        background: '#101636',
         padding: 72,
         fontFamily: 'sans-serif',
       }}
@@ -55,12 +55,12 @@ export default function OpengraphImage() {
         )}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 16 }}>
           <div style={{ display: 'flex', fontSize: 46, fontWeight: 700, letterSpacing: -1 }}>
-            <span style={{ color: '#eef5f0' }}>Prop</span>
-            <span style={{ color: '#6fdcd2' }}>IQ</span>
+            <span style={{ color: '#eef1ff' }}>Prop</span>
+            <span style={{ color: '#6d8cf8' }}>IQ</span>
           </div>
           <div
             style={{
-              color: '#9fb3ad',
+              color: '#a9b2d8',
               fontSize: 19,
               letterSpacing: 4,
               textTransform: 'uppercase',
@@ -74,7 +74,7 @@ export default function OpengraphImage() {
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         <div
           style={{
-            color: '#eef5f0',
+            color: '#eef1ff',
             fontSize: 68,
             fontWeight: 700,
             lineHeight: 1.08,
@@ -85,7 +85,7 @@ export default function OpengraphImage() {
         </div>
         <div
           style={{
-            color: '#6fdcd2',
+            color: '#6d8cf8',
             fontSize: 68,
             fontWeight: 700,
             lineHeight: 1.08,
@@ -94,7 +94,7 @@ export default function OpengraphImage() {
         >
           Understand the Opportunity.
         </div>
-        <div style={{ color: '#a9bcb6', fontSize: 26, marginTop: 26 }}>
+        <div style={{ color: '#b4bce0', fontSize: 26, marginTop: 26 }}>
           Cities. Insights. Growth.
         </div>
       </div>
@@ -104,10 +104,10 @@ export default function OpengraphImage() {
           style={{
             height: 5,
             width: '100%',
-            background: 'linear-gradient(100deg, #2ba79b 0%, #4fd1c5 48%, #6d55d9 100%)',
+            background: 'linear-gradient(100deg, #3b63ef 0%, #6d8cf8 48%, #7c53e8 100%)',
           }}
         />
-        <div style={{ color: '#9fb3ad', fontSize: 21 }}>
+        <div style={{ color: '#a9b2d8', fontSize: 21 }}>
           Published scoring · 95% confidence bands · the evidence behind every number
         </div>
       </div>

@@ -34,32 +34,32 @@
      the company change colour. One identity, one accent. `accent-ink` is the
      variant for accent-as-text on a light ground, where the 500 sits at 2.6:1
      and fails outright. */
-  --color-accent-400: #6fdcd2;
-  --color-accent-500: #4fd1c5;
-  --color-accent-600: #2ba79b;
+  --color-accent-400: #3b63ef;
+  --color-accent-500: #2a49c8;
+  --color-accent-600: #1e3a9e;
   /* Mint is a light hue: on paper it sits near 1.8:1 and is unreadable as
      text. `-ink` is the same hue taken down far enough to clear 4.5:1 there. */
-  --color-accent-ink: #14655e;
+  --color-accent-ink: #2a49c8;
 
   /* The deep-teal surface ramp. The marketing surface is a single dark world
      built on these, with mint as the only hue that ever pops. */
-  --color-teal-950: #0a2a2b;
-  --color-teal-900: #0f3d3e;
-  --color-teal-800: #134847;
-  --color-teal-700: #1b5a58;
-  --color-cream: #eef5f0;
+  --color-teal-950: #101636;
+  --color-teal-900: #1a2350;
+  --color-teal-800: #f6f8ff;
+  --color-teal-700: #e8edff;
+  --color-cream: #eef1ff;
 
   /* PropIQ brand. The ramp above is the identity now; these three names stay
      because gradients and accents across the app reference them, and they all
      resolve into the teal/mint world so there is still exactly one palette. */
-  --color-brand-blue-400: #6fdcd2;
-  --color-brand-blue-500: #4fd1c5;
-  --color-brand-blue-600: #2ba79b;
-  --color-brand-cyan-400: #7ae7dd;
-  --color-brand-cyan-500: #4fd1c5;
+  --color-brand-blue-400: #6d8cf8;
+  --color-brand-blue-500: #3b63ef;
+  --color-brand-blue-600: #2a49c8;
+  --color-brand-cyan-400: #6d8cf8;
+  --color-brand-cyan-500: #3b63ef;
   --color-brand-violet-400: #8b7cf0;
   --color-brand-violet-500: #6d55d9;
-  --color-brand-ink: #06201f;
+  --color-brand-ink: #101636;
 
   /* Light-first marketing surfaces. The app keeps its own token stack. */
   --color-paper-0: #ffffff;
@@ -663,27 +663,34 @@ body:has(.propiq-canvas) > footer {
    routes, which keep their own dark-led token stack.
 --------------------------------------------------------------------------- */
 
+/* The marketing surface is light now, in the logo's own blue.
+
+   It used to be a deep-teal world with mint as the only hue that popped, which
+   put the site and its own logo in two different palettes. One palette wins,
+   and it is the logo's: the page is white to pale iris, accents are iris blue
+   through violet, and the only dark band left is the closing call.
+
+   Every value below was checked against the lightest surface it can land on,
+   not just the darkest — a token that passes on `--surface-0` and fails on
+   `--surface-2` is a token that fails, because cards sit on `--surface-2`. */
 .propiq-site {
-  --surface-0: var(--color-teal-900);
+  --surface-0: #ffffff;
   --surface-1: var(--color-teal-800);
   --surface-2: var(--color-teal-700);
-  --border-subtle: rgba(238, 245, 240, 0.1);
-  --border-strong: rgba(238, 245, 240, 0.2);
-  --text-primary: var(--color-cream);
-  --text-secondary: rgba(238, 245, 240, 0.7);
-  --text-muted: rgba(238, 245, 240, 0.62);
-  --text-accent: var(--color-accent-500);
+  --border-subtle: rgba(30, 58, 158, 0.13);
+  --border-strong: rgba(30, 58, 158, 0.26);
+  --text-primary: #16205c;
+  --text-secondary: #3f4a70;
+  /* 5.0:1 on the palest card; #5a6486 dropped under 5 there. */
+  --text-muted: #4a5578;
+  --text-accent: var(--color-accent-ink);
 
-  /* A third verdict set, for the teal ground.
-
-     The bright set was tuned against a near-black #070b16; teal-900 is a
-     markedly lighter ground, so the same greens and ambers land around 3.0–3.5:1
-     on it. These are the same five meanings lifted until they clear 4.5:1 here. */
-  --color-buy: #5ee6a8;
-  --color-negotiate: #f5c563;
-  --color-watch: #8cc3ef;
-  --color-avoid: #ff9189;
-  --color-unknown: #b3bdc9;
+  /* A light ground takes the ink verdict set, as everywhere else light does. */
+  --color-buy: var(--color-buy-ink);
+  --color-negotiate: var(--color-negotiate-ink);
+  --color-watch: var(--color-watch-ink);
+  --color-avoid: var(--color-avoid-ink);
+  --color-unknown: var(--color-unknown-ink);
 
   background: var(--surface-0);
   color: var(--text-primary);
@@ -701,19 +708,18 @@ body[data-dock='on'] .propiq-site {
 .propiq-dark {
   --surface-0: var(--color-teal-950);
   --surface-1: var(--color-teal-900);
-  --surface-2: var(--color-teal-800);
-  --border-subtle: rgba(238, 245, 240, 0.1);
-  --border-strong: rgba(238, 245, 240, 0.2);
+  --surface-2: #232d63;
+  --border-subtle: rgba(238, 241, 255, 0.12);
+  --border-strong: rgba(238, 241, 255, 0.24);
   --text-primary: var(--color-cream);
-  --text-secondary: rgba(238, 245, 240, 0.7);
-  --text-muted: rgba(238, 245, 240, 0.62);
-  --text-accent: var(--color-accent-500);
+  --text-secondary: rgba(238, 241, 255, 0.76);
+  --text-muted: rgba(238, 241, 255, 0.68);
+  /* The 500 is a mid blue: it reads as text on white and disappears on navy.
+     The 400 is the one that carries here. */
+  --text-accent: var(--color-accent-400);
 
-  /* A third verdict set, for the teal ground.
-
-     The bright set was tuned against a near-black #070b16; teal-900 is a
-     markedly lighter ground, so the same greens and ambers land around 3.0–3.5:1
-     on it. These are the same five meanings lifted until they clear 4.5:1 here. */
+  /* The bright verdict set. Tuned against a near-black; the iris navy is close
+     enough in value that these still clear 4.5:1 on it. */
   --color-buy: #5ee6a8;
   --color-negotiate: #f5c563;
   --color-watch: #8cc3ef;
@@ -754,28 +760,6 @@ body[data-dock='on'] .propiq-site {
     var(--color-brand-cyan-400) 46%,
     var(--color-brand-violet-400) 100%
   );
-}
-
-/* Selective glass, for the hero's floating metric cards only.
-
-   The card is one hue away from the ground it floats on, so separation has to
-   come from value and edge rather than colour: a ground darker than the hero
-   behind it, and a rim bright enough to trace the card's shape. Glass tinted
-   to match its backdrop stops reading as an object at all. */
-.propiq-site-glass {
-  background: color-mix(in srgb, #04181a 78%, transparent);
-  border: 1px solid color-mix(in srgb, white 16%, transparent);
-  box-shadow:
-    inset 0 1px 0 0 color-mix(in srgb, white 14%, transparent),
-    0 24px 50px -24px rgba(2, 10, 12, 0.95);
-}
-
-@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  .propiq-site-glass {
-    background: color-mix(in srgb, #04181a 62%, transparent);
-    backdrop-filter: blur(18px) saturate(1.3);
-    -webkit-backdrop-filter: blur(18px) saturate(1.3);
-  }
 }
 
 /* Reveal on scroll. Starts visible and settles, never parked at zero opacity:
@@ -957,25 +941,18 @@ li a:not([class*='inline-flex']):not(.propiq-block-link) {
 /* The three section grounds. `deep` and `raise` sit either side of the base
    teal so consecutive sections never share a value. */
 .propiq-band-deep {
-  --surface-0: var(--color-teal-950);
-  --surface-1: var(--color-teal-900);
+  --surface-0: var(--color-teal-700);
+  --surface-1: #ffffff;
   --surface-2: var(--color-teal-800);
   background: var(--surface-0);
 }
 
-/* The lifted band is the one ground the base text tokens were NOT tuned for.
-   Cream at 0.7 lands at 3.97:1 on its lightest surface, so the secondary and
-   muted ramps are re-cut here against that surface rather than against the
-   band's own background — a token that passes on surface-0 and fails on
-   surface-2 is a token that fails, because a card sits on surface-2. */
+/* The lifted band. In the light world "raise" means toward white rather than
+   toward a lighter dark, so it inherits the site's text ramps unchanged. */
 .propiq-band-raise {
   --surface-0: var(--color-teal-800);
-  --surface-1: var(--color-teal-700);
-  --surface-2: #1e6461;
-  --text-secondary: rgba(238, 245, 240, 0.88);
-  --text-muted: rgba(238, 245, 240, 0.82);
-  --border-subtle: rgba(238, 245, 240, 0.14);
-  --border-strong: rgba(238, 245, 240, 0.26);
+  --surface-1: #ffffff;
+  --surface-2: var(--color-teal-700);
   background: var(--surface-0);
 }
 
@@ -993,7 +970,7 @@ li a:not([class*='inline-flex']):not(.propiq-block-link) {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in srgb, var(--color-accent-400) 42%, transparent) 50%,
+    color-mix(in srgb, var(--color-accent-400) 34%, transparent) 50%,
     transparent 100%
   );
   pointer-events: none;
@@ -1139,7 +1116,8 @@ a:focus-visible > .propiq-stage-card {
   box-shadow: none;
 }
 
-/* The dissolve into the teal body below. */
+/* The hero's foot. Both sides of this edge are light now, so it is a settle
+   into the page ground rather than the dissolve into teal it used to be. */
 .propiq-hero-dissolve {
-  background: linear-gradient(180deg, transparent 0%, var(--color-teal-800) 100%);
+  background: linear-gradient(180deg, transparent 0%, #ffffff 100%);
 }

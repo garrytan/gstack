@@ -478,7 +478,7 @@ export default async function PropertyPage({ params }: Params) {
           </div>
           <Link
             href={`/compare?ids=${[property.id, ...alternatives.map((a) => a.property.id)].join(',')}`}
-            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
+            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
           >
             Open all in the Decision Room
           </Link>

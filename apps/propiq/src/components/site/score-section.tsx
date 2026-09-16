@@ -110,7 +110,7 @@ export const ScoreSection = ({ property }: { property: SiteProperty }) => {
 
           <Link
             href="/methodology"
-            className="mt-7 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-brand-cyan-400)] hover:underline"
+            className="mt-7 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--text-accent)] hover:underline"
           >
             How PropIQ Score works <ArrowRight aria-hidden className="size-4" />
           </Link>

@@ -26,7 +26,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <>
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-accent-500 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-[#0a2a2b]"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-accent-500 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
       >
         Skip to content
       </a>
@@ -57,7 +57,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Link>
             <Link
               href="/login"
-              className="rounded-md bg-accent-500 px-3 py-1.5 text-sm font-semibold text-[#0a2a2b] transition-colors hover:bg-accent-400"
+              className="rounded-md bg-accent-500 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-400"
             >
               Sign in
             </Link>
