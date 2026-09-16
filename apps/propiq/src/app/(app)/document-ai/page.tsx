@@ -62,10 +62,7 @@ export default function DocumentAiPage() {
         <h2 className="text-lg font-semibold tracking-tight">What each document is checked for</h2>
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {checkedKinds.map((kind) => (
-            <div
-              key={kind}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4"
-            >
+            <div key={kind} className="rounded-lg propiq-card p-4">
               <h3 className="text-sm font-semibold">{DOCUMENT_LABELS[kind]}</h3>
               <ul className="mt-2 space-y-1">
                 {rulesFor(kind).map((r) => (
@@ -113,7 +110,7 @@ export default function DocumentAiPage() {
 }
 
 const Point = ({ icon: Icon, title, body }: { icon: typeof Lock; title: string; body: string }) => (
-  <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+  <div className="rounded-lg propiq-card p-4">
     <Icon aria-hidden className="size-4 text-[var(--text-accent)]" />
     <dt className="mt-2 text-sm font-semibold">{title}</dt>
     <dd className="mt-1 text-xs text-[var(--text-secondary)]">{body}</dd>

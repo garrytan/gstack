@@ -178,7 +178,7 @@ export const MarketMap = ({
 
   return (
     <figure className="m-0">
-      <div className="relative overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+      <div className="relative overflow-hidden rounded-lg propiq-card">
         <svg
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           className="block h-auto w-full"
@@ -318,7 +318,7 @@ export const MarketMap = ({
         </svg>
 
         {/* Legend sits over the map so the drawing keeps its full width. */}
-        <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-x-3 gap-y-1 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-0)]/85 px-2.5 py-1.5 backdrop-blur">
+        <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-x-3 gap-y-1 rounded-md propiq-card/85 px-2.5 py-1.5 backdrop-blur">
           {(['BUY', 'NEGOTIATE', 'WATCH', 'AVOID'] as const).map((d) => (
             <span
               key={d}

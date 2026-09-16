@@ -14,7 +14,7 @@ export const InvestmentPanel = ({ analysis }: { analysis: InvestmentAnalysis }) 
   const noRent = base.assumptions.monthlyRent <= 0;
 
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+    <div className="rounded-lg propiq-card p-4">
       {noRent ? (
         <p className="text-sm text-[var(--text-secondary)]">
           We have no rent estimate for this unit, so yield, cash flow and IRR would be arithmetic on

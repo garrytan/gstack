@@ -92,7 +92,7 @@ export default async function CopilotPage({
               <li key={p.id}>
                 <Link
                   href={`/copilot?property=${p.id}`}
-                  className="block rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3 text-sm hover:border-[var(--border-strong)]"
+                  className="block rounded-lg propiq-card p-3 text-sm hover:border-[var(--border-strong)]"
                 >
                   {p.title}
                 </Link>

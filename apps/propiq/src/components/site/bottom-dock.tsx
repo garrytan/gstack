@@ -114,7 +114,7 @@ const Dock = ({
     aria-label={label}
     className={`fixed inset-x-0 bottom-0 z-40 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 ${className ?? ''}`}
   >
-    <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-0)]/95 p-2 shadow-[0_18px_44px_-20px_rgba(13,21,36,0.45)] backdrop-blur">
+    <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl propiq-card/95 p-2 shadow-[0_18px_44px_-20px_rgba(13,21,36,0.45)] backdrop-blur">
       {children}
     </div>
   </div>

@@ -8,7 +8,18 @@
  */
 
 import Link from 'next/link';
-import { ArrowRight, BookOpen, Check, Minus } from 'lucide-react';
+import {
+  ArrowRight,
+  BookOpen,
+  Check,
+  Database,
+  FlaskConical,
+  Layers,
+  MapPin,
+  Minus,
+  Plug,
+  Scale,
+} from 'lucide-react';
 import { DECISION_LABELS } from '@/domain/decision/engine';
 import { Section, SectionHead, DemoNote } from '@/components/site/section';
 import { Tilt3D } from '@/components/site/tilt-3d';
@@ -204,7 +215,7 @@ export const WhyPropIQ = () => (
     />
 
     <div className="mt-10 grid gap-4 lg:grid-cols-2">
-      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-6">
+      <div className="rounded-xl propiq-card p-6">
         <h3 className="text-sm font-semibold text-[var(--text-muted)]">A property portal</h3>
         <ul className="mt-4 space-y-3">
           {PORTAL.map((item) => (
@@ -285,7 +296,7 @@ export const CommandCentre = ({ snapshot }: { snapshot: CommandCentreSnapshot })
       />
 
       <Tilt3D className="mt-10" max={4} lift={16}>
-        <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+        <div className="overflow-hidden rounded-2xl propiq-card">
           <div className="grid lg:grid-cols-[180px_minmax(0,1fr)]">
             <nav
               aria-label="Command centre preview"
@@ -339,10 +350,7 @@ export const CommandCentre = ({ snapshot }: { snapshot: CommandCentreSnapshot })
 
               <ul className="mt-5 space-y-2">
                 {snapshot.alerts.map((alert) => (
-                  <li
-                    key={alert.label}
-                    className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)]/60 p-3"
-                  >
+                  <li key={alert.label} className="rounded-lg propiq-card/60 p-3">
                     <p className="text-sm font-medium">{alert.label}</p>
                     <p className="mt-0.5 text-xs text-[var(--text-muted)]">{alert.detail}</p>
                   </li>
@@ -379,26 +387,32 @@ export const CommandCentre = ({ snapshot }: { snapshot: CommandCentreSnapshot })
 
 const CAPABILITIES = [
   {
+    icon: Database,
     title: 'Structured property intelligence',
     body: 'Every material fact carries a status, a source, an observation date and a confidence that decays with age.',
   },
   {
+    icon: Layers,
     title: 'Multi-factor analysis',
     body: 'Twelve scoring pillars and nine risk dimensions, each scored separately before anything is combined.',
   },
   {
+    icon: Scale,
     title: 'Transparent scoring',
     body: 'The formula and the weights are published in-product and rendered from the running code, so they cannot drift.',
   },
   {
+    icon: MapPin,
     title: 'Locality-level insight',
     body: 'Commute, supply overhang, environment and the funded infrastructure pipeline, separate from the building.',
   },
   {
+    icon: FlaskConical,
     title: 'Decision-focused research',
     body: 'Free tools and document checks that work on what you type, with nothing uploaded and nothing stored.',
   },
   {
+    icon: Plug,
     title: 'Built for verified data',
     body: 'Ports and adapters throughout: point it at a live feed and every screen works unchanged.',
   },
@@ -413,10 +427,10 @@ export const TrustLayer = () => (
     />
     <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {CAPABILITIES.map((c) => (
-        <div
-          key={c.title}
-          className="h-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5"
-        >
+        <div key={c.title} className="propiq-card h-full rounded-xl p-5">
+          <span className="propiq-icon-tile mb-3 inline-flex size-10 items-center justify-center rounded-xl">
+            <c.icon aria-hidden className="size-5" />
+          </span>
           <h3 className="text-sm font-semibold">{c.title}</h3>
           <p className="mt-2 text-xs leading-relaxed text-[var(--text-secondary)]">{c.body}</p>
         </div>
@@ -469,7 +483,7 @@ export const FinalCTA = () => (
 );
 
 const Tile = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-2)]/50 p-4">
+  <div className="rounded-xl propiq-card/50 p-4">
     <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
       {label}
     </p>

@@ -63,7 +63,7 @@ export const EmiCalculator = () => {
         </p>
       ) : (
         <>
-          <dl className="mt-6 grid gap-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5 sm:grid-cols-4">
+          <dl className="mt-6 grid gap-4 rounded-lg propiq-card p-5 sm:grid-cols-4">
             <Figure label="Monthly EMI" value={formatINR(result.emi)} lead />
             <Figure label="You borrow" value={formatINR(result.principal)} />
             <Figure label="Total interest" value={formatINR(result.totalInterest)} />

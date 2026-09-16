@@ -73,10 +73,7 @@ const DeliveryChannels = ({
     </h2>
     <ul className="mt-3 grid gap-2 sm:grid-cols-3">
       {channels.map(({ channel, configured }) => (
-        <li
-          key={channel}
-          className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
-        >
+        <li key={channel} className="rounded-lg propiq-card p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-semibold">{DELIVERY_CHANNEL_LABELS[channel]}</span>
             <span

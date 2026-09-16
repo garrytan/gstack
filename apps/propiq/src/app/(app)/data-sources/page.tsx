@@ -102,10 +102,7 @@ export default async function DataSourcesPage() {
         <h2 className="text-lg font-semibold tracking-tight">How every figure is classified</h2>
         <dl className="mt-3 space-y-3">
           {DATA_STATUSES.map((status) => (
-            <div
-              key={status}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
-            >
+            <div key={status} className="rounded-lg propiq-card p-3">
               <dt>
                 <DataStatusBadge status={status} />
               </dt>

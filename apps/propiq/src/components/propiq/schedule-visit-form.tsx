@@ -26,7 +26,7 @@ export const ScheduleVisitForm = ({
           setMessage({ ok: result.ok, text: result.message ?? '' });
         });
       }}
-      className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5"
+      className="rounded-lg propiq-card p-5"
     >
       <h2 className="text-sm font-semibold">Plan the visit</h2>
       <p className="mt-1 text-xs text-[var(--text-muted)]">

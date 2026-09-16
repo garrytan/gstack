@@ -47,7 +47,7 @@ export const NegotiationTracker = ({ negotiation }: { negotiation: Negotiation }
 
   return (
     <div className="space-y-8">
-      <section className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5">
+      <section className="rounded-lg propiq-card p-5">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={state.aboveWalkAway ? 'avoid' : 'accent'}>
             {STATUS_LABELS[negotiation.status]}
@@ -105,7 +105,7 @@ export const NegotiationTracker = ({ negotiation }: { negotiation: Negotiation }
               .map((offer) => (
                 <li
                   key={offer.id}
-                  className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
+                  className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg propiq-card p-3"
                 >
                   {offer.party === 'buyer' ? (
                     <ArrowUp
@@ -144,7 +144,7 @@ export const NegotiationTracker = ({ negotiation }: { negotiation: Negotiation }
       )}
 
       {!terminal && (
-        <section className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5">
+        <section className="rounded-lg propiq-card p-5">
           <h2 className="text-sm font-semibold">Record what just happened</h2>
           <form onSubmit={submitOffer} className="mt-4 space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

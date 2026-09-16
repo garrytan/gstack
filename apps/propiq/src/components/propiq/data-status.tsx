@@ -100,10 +100,7 @@ export const statusDescription = (status: DataStatus): string => STATUS_META[sta
  * beside it.
  */
 export const NoDataNotice = ({ surface = 'This section' }: { surface?: string }) => (
-  <div
-    role="status"
-    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] p-6"
-  >
+  <div role="status" className="rounded-xl propiq-card p-6">
     <p className="flex items-center gap-2 text-sm font-semibold">
       <FlaskConical aria-hidden className="size-4 shrink-0 text-[var(--text-muted)]" />
       No property data source is connected

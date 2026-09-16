@@ -36,10 +36,7 @@ export const CommandRail = ({
     summariseMarket(intelligence);
 
   return (
-    <aside
-      aria-label="Market status"
-      className="flex flex-col gap-5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5"
-    >
+    <aside aria-label="Market status" className="flex flex-col gap-5 rounded-lg propiq-card p-5">
       <div className="flex items-center gap-2">
         <span aria-hidden className="propiq-live-dot size-1.5 rounded-full bg-accent-400" />
         <h2 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">

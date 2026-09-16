@@ -53,7 +53,7 @@ export const PriceIntelligence = ({
       />
 
       <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5 sm:p-6">
+        <div className="rounded-xl propiq-card p-5 sm:p-6">
           {property.fairValueMid === undefined ? (
             <p className="text-sm text-[var(--text-secondary)]">
               Not enough comparable transactions to publish a fair-value band for this property.
@@ -125,7 +125,7 @@ export const PriceIntelligence = ({
           </dl>
         </div>
 
-        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5 sm:p-6">
+        <div className="rounded-xl propiq-card p-5 sm:p-6">
           <h3 className="text-sm font-semibold">What the gap means</h3>
           <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
             {property.fairValueMid === undefined
@@ -148,7 +148,7 @@ export const PriceIntelligence = ({
         </div>
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5">
+        <div className="rounded-xl propiq-card p-5">
           <h3 className="text-sm font-semibold">
             {locality ? `${locality.name} price trend` : 'Price trend'}
           </h3>
@@ -164,7 +164,7 @@ export const PriceIntelligence = ({
           )}
         </div>
 
-        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5">
+        <div className="rounded-xl propiq-card p-5">
           <h3 className="text-sm font-semibold">Across the covered market</h3>
           <p className="mb-3 mt-1 text-xs text-[var(--text-muted)]">
             Where this locality sits against the others we score.
@@ -234,7 +234,7 @@ export const InvestmentIntelligence = ({
         note="of the scoring weight"
       />
 
-      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5 sm:col-span-2 lg:col-span-4">
+      <div className="rounded-xl propiq-card p-5 sm:col-span-2 lg:col-span-4">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
           Infrastructure catalysts
         </p>
@@ -242,10 +242,7 @@ export const InvestmentIntelligence = ({
           <>
             <ul className="mt-3 flex flex-wrap gap-2">
               {locality.catalysts.map((item) => (
-                <li
-                  key={item.name}
-                  className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-1.5 text-xs"
-                >
+                <li key={item.name} className="rounded-full propiq-card px-3 py-1.5 text-xs">
                   {item.name}
                   <span className="ml-2 text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
                     {item.status.replace(/([A-Z])/g, ' $1').toLowerCase()}
@@ -295,10 +292,7 @@ export const DeveloperIntelligence = ({
 
     <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {developers.slice(0, 3).map((d) => (
-        <article
-          key={d.id}
-          className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5"
-        >
+        <article key={d.id} className="rounded-xl propiq-card p-5">
           <h3 className="text-base font-semibold">{d.name}</h3>
           <p className="mt-0.5 text-xs text-[var(--text-muted)]">
             {d.headquarters ?? 'Headquarters not recorded'}
@@ -345,7 +339,7 @@ export const RiskIntelligence = ({ property }: { property: SiteProperty }) => (
     />
 
     <div className="mt-10 flex flex-wrap items-center gap-4">
-      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] px-6 py-5">
+      <div className="rounded-xl propiq-card px-6 py-5">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
           Composite risk
         </p>
@@ -370,7 +364,7 @@ export const RiskIntelligence = ({ property }: { property: SiteProperty }) => (
       {property.watchItems.slice(0, 6).map((item) => (
         <li
           key={item}
-          className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-0)] p-4 text-xs leading-relaxed text-[var(--text-secondary)]"
+          className="rounded-lg propiq-card p-4 text-xs leading-relaxed text-[var(--text-secondary)]"
         >
           {item}
         </li>
@@ -416,10 +410,7 @@ export const LocalityIntelligence = ({ locality }: { locality: SiteLocality }) =
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {locality.indicators.map((ind) => (
-          <div
-            key={ind.label}
-            className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-4"
-          >
+          <div key={ind.label} className="rounded-xl propiq-card p-4">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
               {ind.label}
             </p>
@@ -484,7 +475,7 @@ const Bento = ({
     // `justify-between` keeps figures on a baseline across a row of equal
     // tiles, but on the tall spanning tile it strands the label at the top of
     // a half-empty box. That one reads top-down instead.
-    className={`flex flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5 ${large ? 'justify-start' : 'justify-between'} ${span ?? ''}`}
+    className={`flex flex-col rounded-xl propiq-card p-5 ${large ? 'justify-start' : 'justify-between'} ${span ?? ''}`}
   >
     <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
       {label}

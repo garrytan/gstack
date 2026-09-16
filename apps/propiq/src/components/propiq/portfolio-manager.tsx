@@ -172,7 +172,7 @@ export const PortfolioManager = ({ summary }: { summary: PortfolioSummary }) => 
       )}
 
       {open ? (
-        <section className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5">
+        <section className="rounded-lg propiq-card p-5">
           <h2 className="text-sm font-semibold">Add an asset</h2>
           <form onSubmit={submit} className="mt-4 space-y-4">
             <div className="space-y-1">

@@ -62,7 +62,7 @@ export const ToolCard = ({
 }) => (
   <Link
     href={href}
-    className="block rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5 transition-colors hover:border-[var(--border-strong)]"
+    className="block rounded-lg propiq-card p-5 transition-colors hover:border-[var(--border-strong)]"
   >
     <h3 className="text-sm font-semibold">{title}</h3>
     <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">{blurb}</p>

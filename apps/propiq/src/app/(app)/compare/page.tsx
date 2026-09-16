@@ -103,10 +103,7 @@ export default async function ComparePage({
           </h2>
           <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {comparison.biggestDifferences.map((d) => (
-              <li
-                key={d.label}
-                className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
-              >
+              <li key={d.label} className="rounded-lg propiq-card p-3">
                 <p className="text-[10px] uppercase tracking-wide text-[var(--text-accent)]">
                   {d.label}
                 </p>

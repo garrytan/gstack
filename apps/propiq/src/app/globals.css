@@ -1121,3 +1121,117 @@ a:focus-visible > .propiq-stage-card {
 .propiq-hero-dissolve {
   background: linear-gradient(180deg, transparent 0%, #ffffff 100%);
 }
+
+/* ---------------------------------------------------------------------------
+   Surfaces with depth.
+
+   Twenty-two cards across the page all carried the same white fill and 1px
+   hairline, which is why a light page reads as flat: nothing sits above
+   anything else. These give a card an edge made of light rather than a drawn
+   line, and let it lift when it is interactive.
+
+   Shadows are tinted with the page's own blue rather than neutral grey. A grey
+   shadow on a blue-white ground reads as dirt; a blue one reads as depth.
+--------------------------------------------------------------------------- */
+
+.propiq-card {
+  background: #ffffff;
+  border: 1px solid rgba(30, 58, 158, 0.08);
+  box-shadow:
+    0 1px 2px -1px rgba(22, 32, 92, 0.1),
+    0 6px 18px -10px rgba(22, 32, 92, 0.18);
+  transition:
+    transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 200ms ease,
+    border-color 200ms ease;
+}
+
+/* Only cards that are themselves a link or hold one should move. A static
+   panel that lifts under the pointer is noise. */
+.propiq-card-interactive:hover,
+a:hover > .propiq-card,
+a:focus-visible > .propiq-card {
+  transform: translateY(-2px);
+  border-color: rgba(43, 73, 200, 0.24);
+  box-shadow:
+    0 2px 4px -2px rgba(22, 32, 92, 0.12),
+    0 18px 38px -16px rgba(43, 73, 200, 0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-card,
+  .propiq-card-interactive:hover,
+  a:hover > .propiq-card,
+  a:focus-visible > .propiq-card {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* The gradient tile behind an icon. The page's strongest recurring motif, and
+   the one thing carrying real colour outside the hero. */
+.propiq-icon-tile {
+  background-image: linear-gradient(
+    135deg,
+    var(--color-accent-400) 0%,
+    var(--color-brand-violet-400) 100%
+  );
+  color: #ffffff;
+  box-shadow: 0 8px 18px -8px color-mix(in srgb, var(--color-accent-400) 65%, transparent);
+}
+
+/* A section eyebrow, as a tinted pill rather than bare tracking. Reads as a
+   chapter marker instead of a stray line of small caps. */
+.propiq-eyebrow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent-400) 14%, transparent);
+  color: var(--color-accent-ink);
+  border: 1px solid color-mix(in srgb, var(--color-accent-400) 26%, transparent);
+}
+
+/* Bands get a wash rather than a flat fill, so an edge never reads as a seam
+   across an otherwise uniform field. */
+.propiq-band-raise {
+  background-image: radial-gradient(120% 90% at 50% 0%, rgba(59, 99, 239, 0.07), transparent 62%);
+}
+
+.propiq-band-deep {
+  background-image:
+    radial-gradient(90% 70% at 12% 0%, rgba(124, 83, 232, 0.12), transparent 60%),
+    radial-gradient(90% 70% at 88% 100%, rgba(59, 99, 239, 0.12), transparent 60%);
+}
+
+/* The primary action. A flat fill on a pale page is the one thing a reader's
+   eye should land on and it was not earning that; the gradient and a lifted
+   shadow make it the brightest object on the screen. Hover deepens rather than
+   lightens, so the label keeps its contrast. */
+.propiq-btn-primary {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-accent-400) 0%,
+    var(--color-accent-500) 52%,
+    var(--color-brand-violet-500) 100%
+  );
+  box-shadow: 0 10px 24px -12px color-mix(in srgb, var(--color-accent-500) 85%, transparent);
+  transition:
+    box-shadow 200ms ease,
+    filter 200ms ease;
+}
+
+.propiq-btn-primary:hover {
+  filter: saturate(1.12) brightness(0.96);
+  box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--color-accent-500) 95%, transparent);
+}
+
+/* The bands needed more separation than 6 points of luminance apiece. `deep`
+   drops far enough to read as a different chapter without leaving the light
+   world, and its own text ramps are re-checked against it below. */
+.propiq-band-deep {
+  --surface-0: #dfe6ff;
+  --surface-1: #ffffff;
+  --surface-2: #eef2ff;
+}

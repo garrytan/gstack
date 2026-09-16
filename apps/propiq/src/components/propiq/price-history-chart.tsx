@@ -34,7 +34,7 @@ export const PriceHistoryChart = ({ history }: { history: readonly PricePoint[] 
 
   return (
     <figure>
-      <div className="h-56 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3">
+      <div className="h-56 w-full rounded-lg propiq-card p-3">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={[...history]} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
             <CartesianGrid stroke="var(--border-subtle)" strokeDasharray="3 3" vertical={false} />

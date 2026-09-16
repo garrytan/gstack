@@ -48,7 +48,7 @@ export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
   const under = property.priceDeviationPercent < 0;
 
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] transition-shadow hover:shadow-[0_18px_44px_-24px_rgba(13,21,36,0.4)]">
+    <article className="group flex h-full flex-col overflow-hidden rounded-xl propiq-card transition-shadow hover:shadow-[0_18px_44px_-24px_rgba(13,21,36,0.4)]">
       <div className="relative h-40 overflow-hidden" style={{ background: artFor(property.id) }}>
         {property.image && (
           <Image

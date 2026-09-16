@@ -20,7 +20,7 @@ export const ValuationBand = ({
 }) => {
   if (valuation.insufficientEvidence) {
     return (
-      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+      <div className="rounded-lg propiq-card p-4">
         <h3 className="text-sm font-semibold">Fair value unavailable</h3>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">{valuation.adjustmentNotes[0]}</p>
         <p className="mt-2 text-xs text-[var(--text-muted)]">
@@ -41,7 +41,7 @@ export const ValuationBand = ({
   const above = valuation.askingDeviationPercent > 0;
 
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+    <div className="rounded-lg propiq-card p-4">
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Fair value &amp; negotiation</h3>
         <div className="flex items-center gap-2">
@@ -91,7 +91,7 @@ export const ValuationBand = ({
       </dl>
 
       {negotiation && (
-        <div className="mt-4 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3">
+        <div className="mt-4 rounded-md propiq-card p-3">
           <p className="text-xs font-semibold">Where to open, where to stop</p>
           <dl className="mt-2 grid grid-cols-3 gap-2">
             <Stat label="Open at" value={formatINR(negotiation.openingOffer)} />

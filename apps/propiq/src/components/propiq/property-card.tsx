@@ -21,7 +21,7 @@ export const PropertyCard = ({ intelligence }: { intelligence: PropertyIntellige
   const { property, project, locality, score, decision, valuation } = intelligence;
 
   return (
-    <article className="flex flex-col rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] transition-colors hover:border-[var(--border-strong)]">
+    <article className="flex flex-col rounded-lg propiq-card transition-colors hover:border-[var(--border-strong)]">
       <div className="flex items-start justify-between gap-3 p-4 pb-3">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold">

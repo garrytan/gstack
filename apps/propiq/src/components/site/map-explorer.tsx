@@ -224,7 +224,7 @@ export const MapExplorer = ({
         </ol>
 
         <div
-          className={`relative overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] ${
+          className={`relative overflow-hidden rounded-xl propiq-card ${
             mobileView === 'list' ? 'hidden lg:block' : ''
           }`}
         >
@@ -354,7 +354,7 @@ export const MapExplorer = ({
           </svg>
 
           {active && (
-            <div className="absolute inset-x-3 bottom-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-0)]/95 p-3 backdrop-blur">
+            <div className="absolute inset-x-3 bottom-3 rounded-lg propiq-card/95 p-3 backdrop-blur">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">{active.name}</p>

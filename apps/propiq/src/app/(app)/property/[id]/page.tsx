@@ -132,7 +132,7 @@ export default async function PropertyPage({ params }: Params) {
       </nav>
 
       {/* ---------------- Header ---------------- */}
-      <header className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5">
+      <header className="rounded-lg propiq-card p-5">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -274,7 +274,7 @@ export default async function PropertyPage({ params }: Params) {
         id="score"
         description="Every pillar expands into the signals behind it, the raw value we observed, and the exact normalisation applied."
       >
-        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-4">
+        <div className="rounded-lg propiq-card px-4">
           <PillarBars pillars={score.pillars} weights={score.weights} />
         </div>
       </Section>
@@ -343,7 +343,7 @@ export default async function PropertyPage({ params }: Params) {
       {/* ---------------- Developer ---------------- */}
       {developer && (
         <Section title="Developer" id="developer">
-          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+          <div className="rounded-lg propiq-card p-4">
             <h3 className="text-sm font-semibold">{developer.name}</h3>
             <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-5">
               <HeaderStat
@@ -378,7 +378,7 @@ export default async function PropertyPage({ params }: Params) {
       {/* ---------------- Locality ---------------- */}
       {locality && (
         <Section title="Locality & infrastructure" id="locality">
-          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+          <div className="rounded-lg propiq-card p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold">
@@ -556,7 +556,7 @@ const InfoCard = ({
   title: string;
   children: React.ReactNode;
 }) => (
-  <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+  <div className="rounded-lg propiq-card p-4">
     <h3 className="flex items-center gap-2 text-sm font-semibold">
       <Icon aria-hidden className="size-4 text-[var(--text-accent)]" />
       {title}
@@ -576,7 +576,7 @@ const FactorList = ({
   factors: ReadonlyArray<{ label: string; detail: string; rule: string }>;
   empty: string;
 }) => (
-  <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+  <div className="rounded-lg propiq-card p-4">
     <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: tone }}>
       {title}
     </h3>

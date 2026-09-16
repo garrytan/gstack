@@ -21,7 +21,7 @@ export const AlertList = ({
 }) => {
   if (alerts.length === 0) {
     return (
-      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-8 text-center">
+      <div className="rounded-lg propiq-card p-8 text-center">
         <p className="text-sm font-medium">Nothing has moved</p>
         <p className="mx-auto mt-1 max-w-md text-xs text-[var(--text-secondary)]">
           {baselinesCreated > 0
@@ -42,7 +42,7 @@ export const AlertList = ({
         return (
           <li
             key={`${alert.propertyId}-${alert.rule}-${i}`}
-            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4"
+            className="rounded-lg propiq-card p-4"
             style={{ borderLeftWidth: 3, borderLeftColor: meta.color }}
           >
             <div className="flex items-start gap-3">

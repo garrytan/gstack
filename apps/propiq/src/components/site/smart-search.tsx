@@ -61,7 +61,7 @@ export const SmartSearch = ({ localities }: { localities?: readonly string[] } =
         onSubmit={submit}
         role="search"
         aria-label="Find properties"
-        className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-4 shadow-[0_24px_60px_-28px_rgba(13,21,36,0.35)] sm:p-5"
+        className="rounded-2xl propiq-card p-4 shadow-[0_24px_60px_-28px_rgba(13,21,36,0.35)] sm:p-5"
       >
         <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
           <Field label="City or locality" htmlFor="ss-q">

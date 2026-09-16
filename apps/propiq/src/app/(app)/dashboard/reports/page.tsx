@@ -56,7 +56,7 @@ export default async function ReportsPage() {
           {intel.map((i) => (
             <li
               key={i.property.id}
-              className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4"
+              className="flex flex-wrap items-center gap-3 rounded-lg propiq-card p-4"
             >
               <FileText aria-hidden className="size-4 shrink-0 text-[var(--text-accent)]" />
               <div className="min-w-0 flex-1">

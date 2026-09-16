@@ -74,7 +74,7 @@ export default async function DashboardPage() {
           <Link
             key={c.href}
             href={c.href}
-            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4 transition-colors hover:border-[var(--border-strong)]"
+            className="rounded-lg propiq-card p-4 transition-colors hover:border-[var(--border-strong)]"
           >
             <c.icon aria-hidden className="size-5 text-[var(--text-accent)]" />
             <p className="mt-3 text-sm font-semibold">{c.label}</p>

@@ -107,7 +107,7 @@ const Column = ({
   items: readonly string[];
   empty: string;
 }) => (
-  <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-4">
+  <div className="rounded-xl propiq-card p-4">
     <div className="flex items-center gap-2">
       <Icon aria-hidden className="size-4" style={{ color: tone }} />
       <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">

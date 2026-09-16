@@ -82,10 +82,7 @@ export const CarpetCalculator = () => {
     <div>
       <div className="space-y-4">
         {rows.map((row, i) => (
-          <fieldset
-            key={row.key}
-            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4"
-          >
+          <fieldset key={row.key} className="rounded-lg propiq-card p-4">
             <legend className="sr-only">Quote {i + 1}</legend>
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,1fr))_auto] sm:items-end">
               <div>

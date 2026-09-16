@@ -86,7 +86,7 @@ export const CopilotChat = ({
   };
 
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+    <div className="rounded-lg propiq-card">
       <div
         ref={logRef}
         role="log"

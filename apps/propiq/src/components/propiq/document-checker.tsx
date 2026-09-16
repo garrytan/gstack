@@ -238,7 +238,7 @@ export const DocumentChecker = () => {
           )}
 
           {(kind === 'sanctionedPlan' || kind === 'loanSanction') && (
-            <p className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3 text-xs text-[var(--text-secondary)]">
+            <p className="rounded-md propiq-card p-3 text-xs text-[var(--text-secondary)]">
               PropIQ has no deterministic checks for this document type yet. Rather than run an
               empty check and imply it passed, it says so.
             </p>
@@ -278,7 +278,7 @@ export const DocumentChecker = () => {
                   return (
                     <li
                       key={f.ruleId}
-                      className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
+                      className="rounded-lg propiq-card p-3"
                       style={{ borderLeftWidth: 3, borderLeftColor: meta.color }}
                     >
                       <div className="flex items-start gap-2">
@@ -305,7 +305,7 @@ export const DocumentChecker = () => {
             )}
 
             {analysis.passed.length > 0 && (
-              <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3">
+              <div className="rounded-lg propiq-card p-3">
                 <p className="flex items-center gap-1.5 text-xs font-semibold">
                   <CheckCircle2
                     aria-hidden
@@ -325,7 +325,7 @@ export const DocumentChecker = () => {
             )}
 
             {analysis.skipped.length > 0 && (
-              <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3">
+              <div className="rounded-lg propiq-card p-3">
                 <p className="flex items-center gap-1.5 text-xs font-semibold">
                   <CircleHelp aria-hidden className="size-3.5 text-[var(--text-muted)]" />
                   Could not check

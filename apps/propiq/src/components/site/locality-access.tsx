@@ -63,7 +63,7 @@ export const LocalityAccess = ({ locality }: { locality: SiteLocality }) => {
   const commute = anchors.find((a) => a.peakCommuteMinutes !== undefined);
 
   return (
-    <figure className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5 sm:p-6">
+    <figure className="rounded-2xl propiq-card p-5 sm:p-6">
       <figcaption className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
         Access from {locality.name}
       </figcaption>
