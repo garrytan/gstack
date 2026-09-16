@@ -6,29 +6,37 @@
  * nineteen places.
  */
 
+/**
+ * Four grounds, not one.
+ *
+ * `base` is the page's own teal; `deep` drops below it and `raise` lifts above
+ * it. Alternating them down the page is what stops nineteen sections reading
+ * as a single undifferentiated column — the previous `tint` differed from its
+ * neighbour by about two percent of lightness, which is to say not at all.
+ */
+const TONE_CLASS: Readonly<Record<'base' | 'deep' | 'raise' | 'dark', string>> = {
+  base: '',
+  deep: 'propiq-band-deep',
+  raise: 'propiq-band-raise',
+  dark: 'propiq-dark',
+};
+
 export const Section = ({
   id,
-  tone = 'light',
+  tone = 'base',
   className,
   children,
 }: {
   id?: string;
-  tone?: 'light' | 'dark' | 'tint';
+  tone?: 'base' | 'deep' | 'raise' | 'dark';
   className?: string;
   children: React.ReactNode;
 }) => (
   <section
     id={id}
-    className={[
-      tone === 'dark' ? 'propiq-dark' : '',
-      tone === 'tint' ? 'bg-[var(--surface-1)]' : '',
-      'border-t border-[var(--border-subtle)]',
-      className ?? '',
-    ]
-      .filter(Boolean)
-      .join(' ')}
+    className={['propiq-seam', TONE_CLASS[tone], className ?? ''].filter(Boolean).join(' ')}
   >
-    <div className="mx-auto max-w-7xl px-4 py-16 sm:py-20">{children}</div>
+    <div className="mx-auto max-w-7xl px-4 py-20 sm:py-24">{children}</div>
   </section>
 );
 
@@ -45,14 +53,16 @@ export const SectionHead = ({
 }) => (
   <div className="flex flex-wrap items-end justify-between gap-6">
     <div className="max-w-2xl">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--text-accent)]">
+      <p className="propiq-eyebrow-rule text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--text-accent)]">
         {eyebrow}
       </p>
-      <h2 className="mt-3 text-[1.75rem] font-bold leading-tight tracking-tight sm:text-4xl">
+      <h2 className="mt-3 text-[2rem] font-bold leading-[1.1] tracking-[-0.02em] sm:text-[2.6rem]">
         {title}
       </h2>
       {standfirst && (
-        <p className="mt-3 text-base leading-relaxed text-[var(--text-secondary)]">{standfirst}</p>
+        <p className="mt-4 text-[17px] leading-relaxed text-[var(--text-secondary)]">
+          {standfirst}
+        </p>
       )}
     </div>
     {action}

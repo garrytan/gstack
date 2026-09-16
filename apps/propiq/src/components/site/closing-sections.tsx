@@ -100,7 +100,7 @@ export const ComparisonSection = ({ properties }: { properties: readonly SitePro
   ];
 
   return (
-    <Section>
+    <Section tone="deep">
       <SectionHead
         eyebrow="Comparison"
         title="Compare properties beyond price."
@@ -196,7 +196,7 @@ const PROPIQ = [
 ] as const;
 
 export const WhyPropIQ = () => (
-  <Section tone="tint">
+  <Section tone="base">
     <SectionHead
       eyebrow="Why PropIQ"
       title="Property portals show you listings. PropIQ helps you decide."
@@ -242,7 +242,7 @@ export const WhyPropIQ = () => (
 /* ----------------------------------------------------------------- research */
 
 export const ResearchSection = ({ articles }: { articles: readonly ResearchArticle[] }) => (
-  <Section>
+  <Section tone="raise">
     <SectionHead
       eyebrow="Research"
       title="Intelligence for better property decisions."
@@ -280,7 +280,7 @@ export const CommandCentre = ({ snapshot }: { snapshot: CommandCentreSnapshot })
   const nav = ['Overview', 'Discover', 'Saved', 'Compare', 'Localities', 'Developers', 'Reports'];
 
   return (
-    <Section tone="dark">
+    <Section tone="deep">
       <SectionHead
         eyebrow="Command centre"
         title="Your real-estate intelligence command centre."
@@ -408,7 +408,7 @@ const CAPABILITIES = [
 ] as const;
 
 export const TrustLayer = () => (
-  <Section tone="tint">
+  <Section tone="base">
     <SectionHead
       eyebrow="What this is built on"
       title="Capability, not customer logos."
@@ -437,8 +437,8 @@ export const FinalCTA = () => (
       className="pointer-events-none absolute inset-0 opacity-70"
       style={{
         background:
-          'radial-gradient(ellipse 70% 60% at 25% 0%, rgba(47,107,221,0.35), transparent 65%),' +
-          'radial-gradient(ellipse 60% 60% at 80% 100%, rgba(109,85,217,0.32), transparent 68%)',
+          'radial-gradient(ellipse 70% 60% at 25% 0%, rgba(79,209,197,0.28), transparent 65%),' +
+          'radial-gradient(ellipse 60% 60% at 80% 100%, rgba(139,124,240,0.30), transparent 68%)',
       }}
     />
     <div className="relative mx-auto max-w-3xl px-4 py-24 text-center sm:py-28">

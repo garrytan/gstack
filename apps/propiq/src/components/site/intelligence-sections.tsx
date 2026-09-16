@@ -45,7 +45,7 @@ export const PriceIntelligence = ({
   const at = (v: number) => ((v - from) / (to - from)) * 100;
 
   return (
-    <Section tone="tint">
+    <Section tone="deep">
       <SectionHead
         eyebrow="Price intelligence"
         title="Is the property fairly priced?"
@@ -187,7 +187,7 @@ export const InvestmentIntelligence = ({
   property: SiteProperty;
   locality: SiteLocality | undefined;
 }) => (
-  <Section>
+  <Section tone="base">
     <SectionHead
       eyebrow="Investment intelligence"
       title="See the investment case clearly."
@@ -278,7 +278,7 @@ export const DeveloperIntelligence = ({
 }: {
   developers: readonly DeveloperProfile[];
 }) => (
-  <Section tone="tint">
+  <Section tone="raise">
     <SectionHead
       eyebrow="Developer intelligence"
       title="Know who is building it."
@@ -337,7 +337,7 @@ const RISK_TONE: Readonly<Record<string, string>> = {
 };
 
 export const RiskIntelligence = ({ property }: { property: SiteProperty }) => (
-  <Section>
+  <Section tone="base">
     <SectionHead
       eyebrow="Risk intelligence"
       title="Understand what could go wrong."
@@ -388,7 +388,7 @@ export const RiskIntelligence = ({ property }: { property: SiteProperty }) => (
 /* --------------------------------------------------------------- locality */
 
 export const LocalityIntelligence = ({ locality }: { locality: SiteLocality }) => (
-  <Section tone="tint">
+  <Section tone="base">
     <SectionHead
       eyebrow="Locality intelligence"
       title="Understand the location before the property."

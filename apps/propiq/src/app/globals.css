@@ -1063,3 +1063,73 @@ li a:not([class*='inline-flex']) {
 .h-13 {
   height: 3.25rem;
 }
+
+/* ---------------------------------------------------------------------------
+   Section rhythm.
+
+   The page was one continuous teal: every section sat on `--surface-0` of
+   `.propiq-site`, so nineteen sections read as one undifferentiated column.
+   Three grounds now alternate down it with enough value between them to
+   actually register, and each section edge carries a lit seam rather than a
+   flat hairline.
+--------------------------------------------------------------------------- */
+
+/* The three section grounds. `deep` and `raise` sit either side of the base
+   teal so consecutive sections never share a value. */
+.propiq-band-deep {
+  --surface-0: var(--color-teal-950);
+  --surface-1: var(--color-teal-900);
+  --surface-2: var(--color-teal-800);
+  background: var(--surface-0);
+}
+
+/* The lifted band is the one ground the base text tokens were NOT tuned for.
+   Cream at 0.7 lands at 3.97:1 on its lightest surface, so the secondary and
+   muted ramps are re-cut here against that surface rather than against the
+   band's own background — a token that passes on surface-0 and fails on
+   surface-2 is a token that fails, because a card sits on surface-2. */
+.propiq-band-raise {
+  --surface-0: var(--color-teal-800);
+  --surface-1: var(--color-teal-700);
+  --surface-2: #1e6461;
+  --text-secondary: rgba(238, 245, 240, 0.88);
+  --text-muted: rgba(238, 245, 240, 0.82);
+  --border-subtle: rgba(238, 245, 240, 0.14);
+  --border-strong: rgba(238, 245, 240, 0.26);
+  background: var(--surface-0);
+}
+
+/* A lit seam at the top of every band, brightest at the centre. Cheaper and
+   quieter than a divider graphic, and it survives any background behind it. */
+.propiq-seam {
+  position: relative;
+}
+.propiq-seam::before {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-accent-400) 42%, transparent) 50%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* The accent rule above a section eyebrow. */
+.propiq-eyebrow-rule::before {
+  content: '';
+  display: block;
+  width: 34px;
+  height: 2px;
+  margin-bottom: 14px;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--color-accent-400) 0%,
+    var(--color-brand-violet-400) 100%
+  );
+}

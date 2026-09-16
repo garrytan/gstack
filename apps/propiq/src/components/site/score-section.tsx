@@ -27,7 +27,7 @@ export const ScoreSection = ({ property }: { property: SiteProperty }) => {
   const withheld = property.breakdown.filter((p) => p.score === undefined).length;
 
   return (
-    <Section tone="dark">
+    <Section tone="deep">
       <SectionHead
         eyebrow="PropIQ Score"
         title="One score. The full property picture."

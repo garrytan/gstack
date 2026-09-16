@@ -111,7 +111,7 @@ export default async function HomePage() {
           {/* ---------------------------------------- recommended properties */}
           {!data.servesNoData && (
             <>
-              <Section className="!border-t-0">
+              <Section tone="raise">
                 <SectionHead
                   eyebrow="Smart discovery"
                   title="Properties worth a closer look."
@@ -133,7 +133,7 @@ export default async function HomePage() {
               {showcase && <VerdictSection property={showcase} />}
 
               {/* ------------------------------------------------- map + list */}
-              <Section>
+              <Section tone="raise">
                 <SectionHead
                   eyebrow="Explore"
                   title="The covered market, on its real coordinates."

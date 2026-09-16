@@ -15,7 +15,7 @@ import { formatINR, formatPercent } from '@/lib/utils';
 import type { SiteProperty } from '@/site/types';
 
 export const VerdictSection = ({ property }: { property: SiteProperty }) => (
-  <Section tone="tint">
+  <Section tone="base">
     <SectionHead
       eyebrow="Explainable verdict"
       title="Every call, with its reasons attached."
