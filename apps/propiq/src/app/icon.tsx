@@ -2,9 +2,10 @@
  * The browser tab icon.
  *
  * The same typographic treatment as the wordmark, cropped to the half that
- * survives at 32px. This is not a logo: no logo asset has been supplied and
- * none is being approximated here. Replace it along with the wordmark when one
- * arrives — see `public/brand/README.md`.
+ * survives at 32px. The supplied logo is deliberately NOT used here: its glyph
+ * is a three-dimensional ribbon threading a skyline, and at 32px that resolves
+ * to a coloured smudge with no recognisable shape. A favicon has to survive one
+ * square centimetre; two letters do, that drawing does not.
  */
 
 import { ImageResponse } from 'next/og';
@@ -21,8 +22,8 @@ export default function Icon() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#070b16',
-        color: '#42c9e8',
+        background: '#06201f',
+        color: '#6fdcd2',
         fontSize: 19,
         fontWeight: 700,
         letterSpacing: -1,
