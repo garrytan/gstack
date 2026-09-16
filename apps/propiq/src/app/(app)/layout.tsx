@@ -8,6 +8,7 @@
  */
 
 import Link from 'next/link';
+import { BrandMark } from '@/components/brand/brand-mark';
 
 const NAV = [
   { href: '/search', label: 'Search' },
@@ -32,12 +33,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       <header className="sticky top-0 z-40 border-b border-[var(--border-subtle)] bg-[var(--surface-0)]/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4">
-          <Link href="/" className="flex items-baseline gap-1.5 font-semibold tracking-tight">
-            <span>PropIQ</span>
-            <span className="text-[10px] font-normal uppercase tracking-widest text-[var(--text-muted)]">
-              by CiteRank AI
-            </span>
-          </Link>
+          {/* One component, not a second hand-rolled wordmark. The inline copy
+              that used to live here drifted the moment the brand grew a glyph:
+              the marketing header picked it up and this one did not. */}
+          <BrandMark />
           <nav aria-label="Main" className="hidden items-center gap-5 md:flex">
             {NAV.map((item) => (
               <Link
