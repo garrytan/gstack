@@ -71,9 +71,9 @@ for (const l of DEMO_LOCALITIES) {
 // set or the foreign key fails on the project insert.
 for (const p of DEMO_PROJECTS) {
   if (p.microMarketId && !microMarkets.has(p.microMarketId)) {
-    const derived = p.microMarketId.replace(/^mm-/, '').replace(/(^|-)(\w)/g, (_m, sep, c) =>
-      (sep ? ' ' : '') + c.toUpperCase(),
-    );
+    const derived = p.microMarketId
+      .replace(/^mm-/, '')
+      .replace(/(^|-)(\w)/g, (_m, sep, c) => (sep ? ' ' : '') + c.toUpperCase());
     microMarkets.set(p.microMarketId, derived);
   }
 }
@@ -123,7 +123,9 @@ w('');
 // module, so it is reconstructed from the property's own measurements.
 for (const p of DEMO_PROPERTIES) {
   if (!p.unitTypeId) continue;
-  w(`insert into unit_types (id, project_id, label, bedrooms, carpet_area_sqft, super_built_up_area_sqft)`);
+  w(
+    `insert into unit_types (id, project_id, label, bedrooms, carpet_area_sqft, super_built_up_area_sqft)`,
+  );
   w(
     `values (${q(p.unitTypeId)}, ${q(p.projectId)}, ${q(`${p.bedrooms} BHK`)}, ${n(p.bedrooms)}, ${n(p.carpetAreaSqFt ?? p.areaSqFt)}, ${n(p.areaSqFt)})`,
   );
