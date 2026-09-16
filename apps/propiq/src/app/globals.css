@@ -1011,3 +1011,55 @@ li a:not([class*='inline-flex']) {
     will-change: auto;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Hero emphasis.
+
+   The opening is the one place on the page where type and light are allowed
+   to be loud. Everything here is scoped to the hero so the rest of the page
+   keeps its quieter register.
+--------------------------------------------------------------------------- */
+
+/* The headline's second line and the proof figures. A gradient plus a bloom,
+   rather than flat mint, so the one loud piece of type on the page reads as
+   deliberate emphasis. */
+.propiq-hero-accent {
+  background: linear-gradient(
+    96deg,
+    var(--color-accent-400) 0%,
+    #7ce8dd 42%,
+    var(--color-brand-violet-400) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* Safari drops the descender's last row on a clipped gradient without this. */
+  padding-bottom: 0.06em;
+}
+
+/* Forced-colours users get no gradient at all, so the text must not be
+   transparent there. */
+@media (forced-colors: active) {
+  .propiq-hero-accent {
+    background: none;
+    color: CanvasText;
+  }
+}
+
+.propiq-cta-glow {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-accent-400) 35%, transparent),
+    0 14px 38px -14px color-mix(in srgb, var(--color-accent-500) 70%, transparent);
+}
+
+.propiq-hero-panel {
+  box-shadow:
+    inset 0 1px 0 0 color-mix(in srgb, white 16%, transparent),
+    0 30px 60px -28px rgba(2, 10, 12, 0.98),
+    0 0 90px -40px color-mix(in srgb, var(--color-accent-500) 55%, transparent);
+}
+
+/* h-13 is not in the default scale, and the CTAs want a size between 48 and 56. */
+.h-13 {
+  height: 3.25rem;
+}
