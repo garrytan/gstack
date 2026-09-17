@@ -125,19 +125,29 @@ _FREEZE_SCRIPT="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
 [ -x "$_FREEZE_SCRIPT" ] && echo "FREEZE_AVAILABLE" || echo "FREEZE_UNAVAILABLE"
 ```
 
-**If FREEZE_AVAILABLE:** Identify the narrowest directory containing the affected files. Write it to the freeze state file:
+**If FREEZE_AVAILABLE:** Identify the narrowest directory containing the affected files. Resolve it to an absolute path, then write it to the freeze state file:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-STATE_DIR="$GSTACK_STATE_ROOT"
-mkdir -p "$STATE_DIR"
-echo "<detected-directory>/" > "$STATE_DIR/freeze-dir.txt"
-echo "Debug scope locked to: <detected-directory>/"
+# Absolute, like /freeze and /guard (#2845): freeze-dir.txt is one machine-global
+# file and check-freeze.sh resolves a relative boundary against whatever
+# directory the NEXT tool call runs in, so a relative `src/` written here would
+# govern <other-repo>/src/ in every later session on the machine.
+FREEZE_DIR=$(cd "<detected-directory>" 2>/dev/null && pwd)
+if [ -z "$FREEZE_DIR" ]; then
+  echo "SCOPE_LOCK_SKIPPED: <detected-directory> does not resolve from $(pwd)"
+else
+  FREEZE_DIR="${FREEZE_DIR%/}/"
+  eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+  STATE_DIR="$GSTACK_STATE_ROOT"
+  mkdir -p "$STATE_DIR"
+  echo "$FREEZE_DIR" > "$STATE_DIR/freeze-dir.txt"
+  echo "Debug scope locked to: $FREEZE_DIR"
+fi
 ```
 
-Substitute `<detected-directory>` with the actual directory path (e.g., `src/auth/`). Tell the user: "Edits restricted to `<dir>/` for this debug session. This prevents changes to unrelated code. Run `/unfreeze` to remove the restriction."
+Substitute `<detected-directory>` with the directory path as you found it (e.g., `src/auth/`); the block resolves it. Remember the absolute path it prints: Phase 5 releases exactly that lock. Tell the user: "Edits restricted to `<absolute-dir>/` for this debug session. This prevents changes to unrelated code. The lock is released when this run reports; run `/unfreeze` to remove it sooner."
 
-If the bug spans the entire repo or the scope is genuinely unclear, skip the lock and note why.
+If the block prints `SCOPE_LOCK_SKIPPED`, if the bug spans the entire repo, or if the scope is genuinely unclear, skip the lock and note why.
 
 **If FREEZE_UNAVAILABLE:** Skip scope lock. Edits are unrestricted.
 
@@ -244,6 +254,23 @@ Status:          DONE | DONE_WITH_CONCERNS | BLOCKED
 ════════════════════════════════════════
 ```
 
+**Release the scope lock.** If the Scope Lock step wrote a boundary in this run, remove it now, whatever the completion status. The state file outlives the session (#2845): a lock left behind here is enforced on every later session on the machine until someone runs `/unfreeze`. The block compares before deleting, so a boundary the user set with `/freeze` before invoking this skill is left alone. Substitute the absolute path the Scope Lock step printed:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+STATE_DIR="$GSTACK_STATE_ROOT"
+LOCKED="<locked-directory>"; LOCKED="${LOCKED%/}/"
+CURRENT=$(head -n 1 "$STATE_DIR/freeze-dir.txt" 2>/dev/null)
+if [ -n "$CURRENT" ] && [ "${CURRENT%/}/" = "$LOCKED" ]; then
+  rm -f "$STATE_DIR/freeze-dir.txt"
+  echo "Debug scope lock released: $LOCKED"
+else
+  echo "No debug scope lock from this run to release (state file holds: ${CURRENT:-nothing})."
+fi
+```
+
+If the Scope Lock step was skipped, skip this too.
+
 Log the investigation as a learning for future sessions. Use `type: "investigation"` and include the affected files so future investigations on the same area can find this:
 
 ```bash
@@ -262,6 +289,7 @@ Log the investigation as a learning for future sessions. Use `type: "investigati
 - **Never apply a fix you cannot verify.** If you can't reproduce and confirm, don't ship it.
 - **Never say "this should fix it."** Verify and prove it. Run the tests.
 - **If fix touches >5 files → AskUserQuestion** about blast radius before proceeding.
+- **The scope lock is per run.** Phase 5 releases the boundary the Scope Lock step wrote, on DONE, DONE_WITH_CONCERNS and BLOCKED alike. `freeze-dir.txt` is machine-global and survives the session, so a lock left behind governs every later session until `/unfreeze`.
 - **Completion status:**
   - DONE — root cause found, fix applied, regression test written, all tests pass
   - DONE_WITH_CONCERNS — fixed but cannot fully verify (e.g., intermittent bug, requires staging)
