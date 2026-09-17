@@ -18,6 +18,24 @@ import * as os from 'os';
 import { resolveClaudeCommand } from '../../../lib/claude-bin';
 import { resolveEvalModel } from '../../../lib/eval-model';
 
+const CLAUDE_AUTH_STATUS_TIMEOUT_MS = 2_000;
+
+function parseClaudeAuthStatus(stdout: string): boolean | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+
+  const linesNewestFirst = trimmed.split(/\r?\n/).reverse();
+  for (const candidate of new Set([trimmed, ...linesNewestFirst])) {
+    try {
+      const status = JSON.parse(candidate) as { loggedIn?: unknown };
+      if (typeof status.loggedIn === 'boolean') return status.loggedIn;
+    } catch {
+      // Try individual lines in case the CLI printed a notice around the JSON.
+    }
+  }
+  return null;
+}
+
 /**
  * Claude adapter — wraps the `claude` CLI via claude -p.
  *
@@ -38,19 +56,35 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (!resolved) {
       return { ok: false, reason: 'claude CLI not found on PATH. Install from https://claude.ai/download or npm i -g @anthropic-ai/claude-code (or set GSTACK_CLAUDE_BIN)' };
     }
-    // Auth sniff: ~/.claude/.credentials.json OR ANTHROPIC_API_KEY OR (macOS)
-    // the Keychain entry subscription installs use instead of the creds file.
-    // #1890: the default macOS install stores OAuth under the generic-password
-    // service "Claude Code-credentials" and never writes .credentials.json,
-    // so the file-or-env sniff reported "No Claude auth found" while
-    // `claude -p` worked fine. Metadata probe only (no -w — never reads the
-    // secret), and any failure of `security` itself falls through to the
-    // not-found reason rather than throwing.
+    const hasKey = !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN);
+    if (hasKey) return { ok: true };
+
+    // Ask Claude Code for its auth state instead of guessing where OAuth is
+    // stored. Fall back to the legacy checks for older CLI versions that do
+    // not support `auth status --json`. Producer runs resolve to the sandboxed
+    // launcher, so only the local CLI path can be probed this way.
+    if (!opts?.csoProducer) {
+      try {
+        const probe = spawnSync(
+          resolved.command,
+          [...resolved.argsPrefix, 'auth', 'status', '--json'],
+          { encoding: 'utf-8', timeout: CLAUDE_AUTH_STATUS_TIMEOUT_MS },
+        );
+        const loggedIn = parseClaudeAuthStatus(probe.stdout);
+        if (loggedIn !== null) {
+          return loggedIn
+            ? { ok: true }
+            : { ok: false, reason: 'No Claude auth found. Log in via `claude` interactive session, or export ANTHROPIC_API_KEY.' };
+        }
+      } catch {
+        // Probe launch/capture failure: use the legacy checks below.
+      }
+    }
+
     const credsPath = path.join(os.homedir(), '.claude', '.credentials.json');
     const hasCreds = !opts?.csoProducer && fs.existsSync(credsPath);
-    const hasKey = !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN);
     let hasKeychain = false;
-    if (!hasCreds && !hasKey && process.platform === 'darwin') {
+    if (!hasCreds && process.platform === 'darwin') {
       try {
         const probe = spawnSync('security', ['find-generic-password', '-s', 'Claude Code-credentials'], {
           stdio: 'ignore',
@@ -61,7 +95,7 @@ export class ClaudeAdapter implements ProviderAdapter {
         hasKeychain = false;
       }
     }
-    if (!hasCreds && !hasKey && !hasKeychain) {
+    if (!hasCreds && !hasKeychain) {
       return { ok: false, reason: opts?.csoProducer
         ? 'No Claude producer auth found. Export ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN; macOS Keychain auth is also supported.'
         : 'No Claude auth found. Log in via `claude` interactive session, or export ANTHROPIC_API_KEY.' };
