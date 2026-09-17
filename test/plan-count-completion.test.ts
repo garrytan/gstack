@@ -343,10 +343,11 @@ process.stdin.on('data', data => {
   process.stdout.write('407 +NO UNRESOLVED DECISIONS\n●' + text.replace(/ /g, '') + '\nCrunched for 10m 9s ·done 5:49PM\n❯ ');
 });
 process.stdin.resume();
+process.stdout.write('PTY_READY:'+process.env.PROBE_INPUTS+'\x1b[2J\x1b[H');
 `);
     fs.chmodSync(fake, 0o755);
     fs.writeFileSync(worker, `import { runPlanSkillCounting } from ${JSON.stringify(runner)};\n` +
-      `const result = await runPlanSkillCounting({skillName:'plan-devex-review',slashCommand:'/plan-devex-review',followUpPrompt:'# Native completion fixture',expectedPlanPath:${JSON.stringify(output)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:8,timeoutMs:33000,env:${JSON.stringify({PROBE_PLAN:output,PROBE_INPUTS:record,PROBE_REPORT:REPORT})}});\n` +
+      `const result = await runPlanSkillCounting({skillName:'plan-devex-review',slashCommand:'/plan-devex-review',followUpPrompt:'# Native completion fixture',expectedPlanPath:${JSON.stringify(output)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:8,timeoutMs:33000,startupReadyMarker:${JSON.stringify('PTY_READY:'+record)},env:${JSON.stringify({PROBE_PLAN:output,PROBE_INPUTS:record,PROBE_REPORT:REPORT})}});\n` +
       `await Bun.write(${JSON.stringify(result)},JSON.stringify(result));\n`);
     const child = Bun.spawn([process.execPath, worker], {
       env: { ...process.env, EVALS_HERMETIC: '1', EVALS_RUN_ID: '', BROWSE_TERMINAL_BINARY: fake },
@@ -595,10 +596,11 @@ process.stdin.on('data', data => {
   } else if (stage === 2) event('unexpected-plan-approval-input');
 });
 process.stdin.resume();
+process.stdout.write('PTY_READY:'+process.env.PROBE_INPUTS+'\x1b[2J\x1b[H');
 `);
     fs.chmodSync(fake, 0o755);
     fs.writeFileSync(worker, `import { runPlanSkillCounting } from ${JSON.stringify(runner)};\n` +
-      `const result = await runPlanSkillCounting({skillName:'plan-eng-review',slashCommand:'/plan-eng-review',followUpPrompt:'# Completion fixture',expectedPlanPath:${JSON.stringify(output)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:8,timeoutMs:43000,env:${JSON.stringify({PROBE_PLAN:output,PROBE_INPUTS:record,PROBE_EVENTS:events,PROBE_REPORT:REPORT,PROBE_TERMINAL:terminal})}});\n` +
+      `const result = await runPlanSkillCounting({skillName:'plan-eng-review',slashCommand:'/plan-eng-review',followUpPrompt:'# Completion fixture',expectedPlanPath:${JSON.stringify(output)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:8,timeoutMs:43000,startupReadyMarker:${JSON.stringify('PTY_READY:'+record)},env:${JSON.stringify({PROBE_PLAN:output,PROBE_INPUTS:record,PROBE_EVENTS:events,PROBE_REPORT:REPORT,PROBE_TERMINAL:terminal})}});\n` +
       `await Bun.write(${JSON.stringify(result)},JSON.stringify(result));\n`);
     const child = Bun.spawn([process.execPath, worker], { env: { ...process.env,
       EVALS_HERMETIC: '1', EVALS_RUN_ID: '', BROWSE_TERMINAL_BINARY: fake }, stdout: 'pipe', stderr: 'pipe' });

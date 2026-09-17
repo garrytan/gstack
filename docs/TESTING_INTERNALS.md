@@ -131,6 +131,19 @@ host, so all former mutators render into mkdtemps and the trailing serial
 shard is gone. The map remains a mechanism — a test that genuinely must write
 shared artifacts in place earns a reasoned entry and is serialized again.
 
+**PTY fixture timing.** Plan-count sessions wake on terminal output or exit,
+with at least 250ms between expensive observations and a 2s fallback for
+transcript or hook changes that produce no terminal output. New output batches
+settle for 250ms before observation so split terminal redraws cannot route input
+from their first chunk. Input debounces,
+permission guards, and the real CLI's 8s startup grace are unchanged. Synthetic
+CLIs can pass `startupReadyMarker` to `runPlanSkillCounting` and emit that exact
+marker after installing their input handlers; a missing marker fails before
+any command is sent. The marker wait stays inside the existing startup and
+total-run deadlines. `test/pty-output-wake.test.ts` covers output, silent waits,
+exit, close, missing readiness, split redraws, and continuous redraws. Close and output waits
+cancel their losing deadlines so completed workers can exit immediately.
+
 **Paid suite (sharded runner, local AND CI).** `scripts/test-paid-shards.ts`
 is the single selection engine: 1 file per shard, `EVALS_JOBS` shard
 processes × `EVALS_CONCURRENCY` within-shard, per-shard `GSTACK_EVAL_DIR`,

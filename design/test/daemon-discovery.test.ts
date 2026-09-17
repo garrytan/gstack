@@ -11,7 +11,7 @@
  * they're kept in a separate file to keep the in-process suite fast.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { spawn } from "child_process";
 import fs from "fs";
 import os from "os";
@@ -94,6 +94,22 @@ describe("daemon-state helpers", () => {
 
   test("verifyIdentity returns false for dead pids", async () => {
     expect(verifyIdentity(999_999_999, CMDLINE_MARKER)).toBe(false);
+  });
+
+  test.each(["SIGTERM", "SIGKILL"] as const)("fixture cleanup does not signal an already-exited %s child", async (signal) => {
+    const d = await spawn1();
+    const exited = new Promise<void>((resolve) => d.proc.once("exit", () => resolve()));
+    d.proc.kill(signal);
+    await exited;
+    expect(isProcessAlive(d.proc.pid!)).toBe(false);
+
+    const kill = spyOn(d.proc, "kill");
+    try {
+      await d.stop();
+      expect(kill).not.toHaveBeenCalled();
+    } finally {
+      kill.mockRestore();
+    }
   });
 });
 

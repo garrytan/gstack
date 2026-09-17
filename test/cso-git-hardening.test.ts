@@ -117,7 +117,7 @@ describe('CSO Git metadata hardening',()=>{
   test.skipIf(process.platform==='win32')('does not follow a worktree .git pointer swapped between lstat and open',async()=>{
     const {root,repo,runDir}=fixture(),gitDir=path.join(root,'git-data'),marker=path.join(repo,'.git'),oversized=path.join(root,'oversized-git-pointer');
     fs.renameSync(marker,gitDir);fs.writeFileSync(marker,'gitdir: ../git-data\n');fs.writeFileSync(oversized,'gitdir: '+'.'.repeat(16*1024));
-    const race=replaceWithSymlinkAfterLstat(marker,oversized,2);
+    const race=replaceWithSymlinkAfterLstat(marker,oversized);
     try{await expect(capture(repo,runDir)).rejects.toMatchObject({code:'SNAPSHOT_RACE'});}finally{race.patched.mockRestore();}
     expect(race.wasSwapped()).toBe(true);
   });

@@ -6,8 +6,18 @@
  * CORS headers, and JSON response formats.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { afterAll, describe, test, expect } from 'bun:test';
 import { handleCookiePickerRoute, generatePickerCode, hasActivePicker } from '../src/cookie-picker-routes';
+
+afterAll(() => {
+  const realNow = Date.now;
+  Date.now = () => realNow() + 3_700_000;
+  try {
+    expect(hasActivePicker()).toBe(false);
+  } finally {
+    Date.now = realNow;
+  }
+});
 
 // ─── Mock BrowserManager ──────────────────────────────────────
 

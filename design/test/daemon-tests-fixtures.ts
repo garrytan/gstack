@@ -115,9 +115,14 @@ export async function spawnDaemonForTest(
     port,
     stateFile,
     stop: async () => {
-      proc.kill("SIGTERM");
+      if (proc.exitCode !== null || proc.signalCode !== null) return;
       await new Promise<void>((r) => {
+        const onExit = () => {
+          clearTimeout(t);
+          r();
+        };
         const t = setTimeout(() => {
+          proc.removeListener("exit", onExit);
           try {
             proc.kill("SIGKILL");
           } catch {
@@ -125,10 +130,8 @@ export async function spawnDaemonForTest(
           }
           r();
         }, 2000);
-        proc.on("exit", () => {
-          clearTimeout(t);
-          r();
-        });
+        proc.once("exit", onExit);
+        proc.kill("SIGTERM");
       });
     },
   };

@@ -22,7 +22,7 @@ jobs:
     # Dependabot-triggered pull_request runs get a read-only GITHUB_TOKEN, so
     # a lockfile bump = new hash = failed ghcr push = permanently red check
     # (EV6, fork port wave 2). Skip the build for dependabot; the evals job's
-    # needs-chain tolerates it because no eval test selects on a lockfile-only
+    # explicit actor guard mirrors it because no eval test selects on a lockfile-only
     # diff — a maintainer's next push rebuilds the image with real perms.
     if: github.actor != 'dependabot[bot]'
     runs-on: ubicloud-standard-8
@@ -103,35 +103,26 @@ jobs:
   # branch (see CLAUDE.md's garrytan-agents workflow).
   plan-slices:
     runs-on: ubicloud-standard-8
-    needs: build-image
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     timeout-minutes: 10
     permissions:
       contents: read
-      packages: read
-    container:
-      image: ${{ needs.build-image.outputs.image-tag }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      options: --user runner
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # The planner is the ONE place that needs history: diff selection
-          # resolves a merge-base. Executors run from the manifest and stay
-          # shallow. Selection fails OPEN (run-all) if resolution fails — the
-          # documented posture; a planner bug can only run extra work.
+          # Preserve full history for merge-base diff selection. Moving the
+          # planner off the eval image must not change its selection inputs.
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Restore deps
-        uses: ./.github/actions/restore-deps
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
 
       - name: Emit run manifest
         env:
           EVALS_ALL: ${{ (github.event_name == 'workflow_dispatch' && inputs.evals_all) && '1' || '' }}
-        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slices 6
+        run: EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slices 6
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -142,7 +133,7 @@ jobs:
   eval-slices:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
-    if: always() && needs.plan-slices.result == 'success'
+    if: always() && needs.build-image.result == 'success' && needs.plan-slices.result == 'success'
     # Aggregate spawn-concurrency budget: 6 slices x EVALS_JOBS=2 x
     # EVALS_CONCURRENCY=2 = 24 concurrent tests lane-wide (the old matrix's
     # 40-way per row queued claude session STARTUP behind 39 siblings and ate
@@ -242,8 +233,8 @@ jobs:
     # missing slice artifact reading as green is the class this lane kills.
     if: always() && needs.plan-slices.result == 'success'
     timeout-minutes: 5
-    # contents:read ONLY — this job executes PR-authored code (bun install
-    # lifecycle scripts + the reconcile runner from the PR checkout), so it
+    # contents:read ONLY — this job executes the PR-authored reconcile
+    # runner from the PR checkout, so it
     # must never hold a write-scoped token. The PR comment lives in the
     # separate slices-comment job below, which runs NO repo code: a
     # $GITHUB_ENV/BASH_ENV persistence trick is job-scoped, so the split is
@@ -263,8 +254,6 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - run: bun install --frozen-lockfile
-
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: paid-plan
@@ -280,7 +269,7 @@ jobs:
         id: reconcile
         run: |
           set +e
-          EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --report /tmp/paid-report | tee /tmp/report.txt
+          EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --report /tmp/paid-report | tee /tmp/report.txt
           # PIPESTATUS[0], NOT $?: GitHub's default run-step shell is
           # `bash -e {0}` with NO pipefail, so $? after the pipe is tee's
           # exit (always 0) — the fail-closed gate was silently fail-open

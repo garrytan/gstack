@@ -114,10 +114,11 @@ describe('bun-polyfill', () => {
         const p = Bun.spawn(['this-binary-does-not-exist-zzz-' + Date.now()], {
           stdio: ['ignore', 'pipe', 'pipe']
         });
+        let deadline;
         const code = await Promise.race([
           p.exited,
-          new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
-        ]).catch(() => 'TIMEOUT');
+          new Promise((_, r) => { deadline = setTimeout(() => r(new Error('timeout')), 3000); })
+        ]).catch(() => 'TIMEOUT').finally(() => clearTimeout(deadline));
         console.log('exit:' + code);
       })();
     `], { stdout: 'pipe', stderr: 'pipe', timeout: 30_000 });
@@ -159,10 +160,11 @@ describe('bun-polyfill', () => {
           ['node', '-e', 'process.stdout.write("y".repeat(10 * 1024)); process.exit(0)'],
           { stdio: ['ignore', 'pipe', 'ignore'] }
         );
+        let deadline;
         const code = await Promise.race([
           p.exited,
-          new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000))
-        ]).catch(() => 'TIMEOUT');
+          new Promise((_, r) => { deadline = setTimeout(() => r(new Error('timeout')), 3000); })
+        ]).catch(() => 'TIMEOUT').finally(() => clearTimeout(deadline));
         const out = await new Response(p.stdout).text();
         console.log(out.length + ':' + code);
       })();
@@ -190,10 +192,11 @@ describe('bun-polyfill', () => {
           ['node', '-e', 'process.stdout.write("x".repeat(' + ONE_MB + '), () => process.exit(0))'],
           { stdio: ['ignore', 'pipe', 'ignore'] }
         );
+        let deadline;
         const code = await Promise.race([
           p.exited,
-          new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 10000))
-        ]).catch(e => 'TIMEOUT');
+          new Promise((_, r) => { deadline = setTimeout(() => r(new Error('timeout')), 10000); })
+        ]).catch(e => 'TIMEOUT').finally(() => clearTimeout(deadline));
         const out = await new Response(p.stdout).text();
         console.log(out.length + ':' + code);
       })().catch((e) => { console.log('THREW:' + e.message); });

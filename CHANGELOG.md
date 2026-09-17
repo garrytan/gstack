@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.87.5.0] - 2026-09-17
+
+**Tests finish sooner without dropping checks.**
+**CI stops waiting on unused tooling.**
+
+This release speeds up gstack's development feedback loop. Terminal-driven checks react to new output instead of waiting through a fixed polling interval. Synthetic CLIs can announce when their input handlers are ready, while real CLI sessions retain their startup grace and input debounces. Completed processes no longer stay alive just to finish unused timeout timers.
+
+### The three numbers that matter
+
+Measured on the same Linux machine with Bun 1.4.0. Run each named file with `bun test <file>` on the previous release and this version. The polyfill and daemon numbers are three-run wall-time medians on both sides; the permission baseline is one observed run, and its after value is a three-run median. These are individual test-file measurements, not whole-suite or production latency claims.
+
+| Test file | Before | After | Δ |
+|---|---:|---:|---:|
+| `browse/test/bun-polyfill.test.ts` | 17.30s | 1.29s | −93% |
+| `design/test/daemon-discovery.test.ts` | 17.78s | 11.99s | −33% |
+| `test/plan-count-file-permission.test.ts` | 97.05s | 30.92s | −68% |
+
+The permission suite still makes all 115 assertions, including its deliberate stale-prompt delay. Terminal observations are capped at four per second so animated output cannot turn faster responses into a busy loop.
+
+### What this means for contributors
+
+Local test runs spend less time waiting after work is already complete. CI planning no longer pulls the execution image or waits for image lookup before producing its manifest; executors still require both prerequisites, and missing or failed results still fail reconciliation. Run `bun run test` for the complete free suite.
+
+### Itemized changes
+
+#### For contributors
+
+- Wake plan-count checks on output and exit, retain a silent metadata fallback, and settle output bursts before reading split redraws. Three synthetic CLI suites use explicit startup readiness without changing real-CLI startup behavior.
+- Cancel unused PTY and Node deadlines, stop already-exited daemon fixtures immediately, clear cookie-picker fixture sessions between suites, and await watchdog shutdown with a bounded completion signal.
+- Run gate and periodic CI planners directly on pinned Bun without dependency installation. Reports also skip unused installs; fork restrictions, executor images, and failure checks remain intact.
+- Inject the CSO Git-pointer race at its first bounded read, preserving the original rejection assertion.
+
 ## [1.87.4.0] - 2026-09-16
 
 **Failed checks stay failed.**

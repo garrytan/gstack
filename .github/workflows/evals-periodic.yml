@@ -78,29 +78,22 @@ jobs:
 
   plan-slices:
     runs-on: ubicloud-standard-8
-    needs: build-image
     timeout-minutes: 10
     permissions:
       contents: read
-      packages: read
-    container:
-      image: ${{ needs.build-image.outputs.image-tag }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      options: --user runner
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      - name: Restore deps
-        uses: ./.github/actions/restore-deps
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
 
       - name: Emit run manifest (ALL periodic tests minus reasoned excludes)
         env:
           EVALS_ALL: "1"
-        run: EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slices 7 --autoplan-slice
+        run: EVALS_TIER=periodic bun --no-install run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slices 7 --autoplan-slice
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -275,8 +268,6 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      - run: bun install --frozen-lockfile
-
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: paid-plan
@@ -292,7 +283,7 @@ jobs:
         id: reconcile
         run: |
           set +e
-          EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --report /tmp/paid-report | tee /tmp/report.txt
+          EVALS_TIER=periodic bun --no-install run scripts/test-paid-shards.ts --tier periodic --report /tmp/paid-report | tee /tmp/report.txt
           # PIPESTATUS[0], NOT $?: GitHub's default run-step shell is
           # `bash -e {0}` with NO pipefail, so $? after the pipe is tee's
           # exit (always 0) — the fail-closed gate was silently fail-open

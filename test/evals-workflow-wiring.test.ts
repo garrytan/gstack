@@ -61,9 +61,9 @@ describe('evals.yml sliced-lane wiring (post-matrix)', () => {
   });
 
   test('planner, executors, and report all run tier=gate on the shared runner', () => {
-    expect(evalsYml).toMatch(/EVALS_TIER=gate bun run scripts\/test-paid-shards\.ts --tier gate --emit-plan/);
+    expect(evalsYml).toMatch(/EVALS_TIER=gate bun --no-install run scripts\/test-paid-shards\.ts --tier gate --emit-plan/);
     expect(evalsYml).toMatch(/EVALS_TIER=gate bun run scripts\/test-paid-shards\.ts --tier gate --plan .* --slice /);
-    expect(evalsYml).toMatch(/EVALS_TIER=gate bun run scripts\/test-paid-shards\.ts --tier gate --report /);
+    expect(evalsYml).toMatch(/EVALS_TIER=gate bun --no-install run scripts\/test-paid-shards\.ts --tier gate --report /);
   });
 
   test('executor matrix slice list matches the planner --slices count', () => {
@@ -124,9 +124,9 @@ describe('evals.yml sliced-lane wiring (post-matrix)', () => {
 
 describe('evals-periodic.yml sliced-lane wiring', () => {
   test('planner/executor/report tier=periodic and slice counts agree', () => {
-    expect(periodicYml).toMatch(/EVALS_TIER=periodic bun run scripts\/test-paid-shards\.ts --tier periodic --emit-plan/);
+    expect(periodicYml).toMatch(/EVALS_TIER=periodic bun --no-install run scripts\/test-paid-shards\.ts --tier periodic --emit-plan/);
     expect(periodicYml).toMatch(/EVALS_TIER=periodic bun run scripts\/test-paid-shards\.ts --tier periodic --plan .* --slice /);
-    expect(periodicYml).toMatch(/EVALS_TIER=periodic bun run scripts\/test-paid-shards\.ts --tier periodic --report /);
+    expect(periodicYml).toMatch(/EVALS_TIER=periodic bun --no-install run scripts\/test-paid-shards\.ts --tier periodic --report /);
     const planned = plannedSlices(periodicYml);
     const matrices = matrixSlices(periodicYml);
     expect(planned).toHaveLength(1);
