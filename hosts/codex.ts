@@ -18,8 +18,9 @@ const codex = defineHost({
 
   // generateMetadata emits agents/openai.yaml (the format is hardcoded in
   // gen-skill-docs.ts). Codex also gets a repo-local sidecar at
-  // .agents/skills/gstack (symlinked runtime assets: bin, browse, review, qa,
-  // ETHOS.md) — that behavior lives in setup's create_agents_sidecar, not here.
+  // .agents/skills/gstack (symlinked runtime assets: bin, lib, browse, review,
+  // qa, design/dist, make-pdf/dist, ETHOS.md) — that behavior lives in setup's
+  // create_agents_sidecar, not here.
   generation: {
     generateMetadata: true,
     skipSkills: ['codex'],
@@ -35,6 +36,15 @@ const codex = defineHost({
     { from: '.claude/skills', to: '.agents/skills' },
     { from: 'CLAUDE.md', to: 'AGENTS.md' },
   ],
+
+  // Mirrors create_codex_runtime_root in setup. design/dist and make-pdf/dist
+  // back the $GSTACK_DESIGN / $GSTACK_MAKE_PDF fallbacks (#1159).
+  runtimeRoot: {
+    globalSymlinks: ['bin', 'lib', 'browse/dist', 'browse/bin', 'design/dist', 'make-pdf/dist', 'gstack-upgrade', 'ETHOS.md'],
+    globalFiles: {
+      'review': ['checklist.md', 'design-checklist.md', 'greptile-triage.md', 'TODOS-format.md'],
+    },
+  },
 
   // Outside-review resolvers route to Claude Code; Review Army has its own restriction.
   suppressedResolvers: ['REVIEW_ARMY', ...GBRAIN_RESOLVERS],
