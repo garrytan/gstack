@@ -121,12 +121,23 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     // Opt-out short-circuits to NEEDS_ASIDE before `command -v aside` is even consulted.
     expect(setupProbe).toMatch(/if \[ "\$\{GSTACK_SKIP_ASIDE:-\}" = "1" \] \|\| ! command -v aside >\/dev\/null 2>&1; then\n\s*echo "NEEDS_ASIDE"/);
     // Deadline chain: gtimeout (coreutils on macOS) → timeout (Linux) → perl alarm (stock macOS ships neither).
-    expect(setupProbe).toContain('_T="gtimeout 30"');
-    expect(setupProbe).toContain('_T="timeout 30"');
-    expect(setupProbe).toContain('_T="perl -e alarm(shift);exec(@ARGV) 30"');
-    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e alarm'));
-    // The bounded call is the readiness probe itself, and READY quotes the version.
-    expect(setupProbe).toContain('$_T aside repl \'console.log("ASIDE_READY " + pwd)\'');
+    expect(setupProbe).toContain('gtimeout 30 "$@"');
+    expect(setupProbe).toContain('timeout 30 "$@"');
+    expect(setupProbe).toContain('perl -e \'alarm(shift);exec(@ARGV)\' 30 "$@"');
+    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e'));
+    // …and a 4th arm: with none of the three present the call still runs, unbounded.
+    expect(setupProbe).toContain('else "$@"');
+    // The deadline is a FUNCTION, not a string in a variable. A string has to be expanded
+    // unquoted to become several words, and zsh does not word-split unquoted expansions:
+    // `$_T aside repl …` looked for one command named "gtimeout 30" and the probe answered
+    // ASIDE_NOT_RUNNING with Aside ready. A function takes "$@", already split.
+    // It must NOT come back as a variable, and must NOT be routed through `eval` either:
+    // eval re-parses the string, so the parens and `;` of the perl arm become syntax.
+    expect(setupProbe).toContain('_gs_bounded() {');
+    expect(setupProbe).toContain("elif _gs_bounded aside repl 'console.log(\"ASIDE_READY \" + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then");
+    expect(setupProbe).not.toContain('$_T aside repl');
+    expect(setupProbe).not.toContain('_T="gtimeout 30"');
+    expect(setupProbe).not.toMatch(/eval .*aside repl/);
     expect(setupProbe).toContain('echo "READY: aside $(aside --version 2>/dev/null)"');
   });
 

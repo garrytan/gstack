@@ -68,17 +68,37 @@ export function generateUntrustedContentWarning(_ctx: TemplateContext): string {
   return UNTRUSTED_CONTENT_WARNING;
 }
 
+/**
+ * The probe's deadline is a shell FUNCTION, not a command prefix parked in a
+ * variable. A prefix has to be expanded unquoted to become several words, and zsh
+ * does not word-split unquoted expansions: `$_T aside repl …` looked for one command
+ * named "gtimeout 30", so the probe answered ASIDE_NOT_RUNNING with Aside installed
+ * and ready — on zsh, the macOS default shell and the only OS Aside ships for. A
+ * function receives the call as "$@", already split, in sh, bash and zsh alike.
+ *
+ * Not `eval` either: eval re-parses the string, so the parens and `;` of the perl arm
+ * stop being data and become syntax. perl is the arm a stock Mac actually takes (no
+ * coreutils gtimeout, no GNU timeout), so eval would trade the zsh bug for a
+ * regression on the default macOS install — and take bash down with it.
+ *
+ * The rationale lives here, not in the emitted bash: every browsing skill carries
+ * this block and the rendered skeletons are on a byte budget.
+ */
 export function generateAsideSetup(_ctx: TemplateContext): string {
   return `## BROWSER SETUP (Aside — run this check BEFORE any browser step)
 
 gstack drives the Aside AI browser first. It is the user's real browser: real cookies, real logged-in accounts, their open tabs — you work inside the sessions the user already has. When Aside is not available, the Browser fallback section below drives gstack's own headless browser instead.
 
 \`\`\`bash
-_T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-[ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+_gs_bounded() {
+  if command -v gtimeout >/dev/null 2>&1; then gtimeout 30 "$@"
+  elif command -v timeout >/dev/null 2>&1; then timeout 30 "$@"
+  elif command -v perl >/dev/null 2>&1; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"
+  else "$@"; fi
+}
 if [ "\${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
+elif _gs_bounded aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
   echo "READY: aside $(aside --version 2>/dev/null)"
 else
   echo "ASIDE_NOT_RUNNING"
