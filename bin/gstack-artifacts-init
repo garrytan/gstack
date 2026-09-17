@@ -379,7 +379,10 @@ set -uo pipefail
 python3 -c "
 import sys, re, subprocess
 try:
-    out = subprocess.check_output(['git', 'diff', '--cached'], stderr=subprocess.DEVNULL).decode('utf-8', 'replace')
+    # Pure removals publish nothing; scanning their old text would refuse, forever,
+    # a manual removal of an already-published file.
+    # --no-renames: a moved file is scanned as the addition it is.
+    out = subprocess.check_output(['git', 'diff', '--cached', '--no-renames', '--diff-filter=d'], stderr=subprocess.DEVNULL).decode('utf-8', 'replace')
 except Exception:
     sys.exit(0)
 

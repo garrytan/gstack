@@ -7,12 +7,26 @@
 #   gstack-brain-sync --skip-file <p>  add <p> to ~/.gstack/.brain-skip.txt
 #   gstack-brain-sync --drop-queue --yes   clear queue without committing
 #   gstack-brain-sync --discover-new   scan allowlist dirs, enqueue changed files
+#                                      (and removals, when publishing them is on)
+#   gstack-brain-sync --list-removals  files the repo tracks that are gone from disk
+#   gstack-brain-sync --publish-removals [--yes] [<path>...]
+#                                      publish those removals now (dry run without --yes)
 #
 # Invoked by the preamble at skill START and END boundaries. No persistent
 # daemon. Typical run <1s when queue empty; ~200-800ms with network push.
 #
-# Singleton enforcement: flock on ~/.gstack/.brain-sync.lock. Concurrent
-# invocations queue and serialize.
+# Removals (config artifacts_sync_removals, default off): a file deleted from
+# ~/.gstack, or a project directory moved by a slug migration, stays tracked
+# and published until its removal is committed. With the setting on, the sync
+# publishes removals too, one commit of removals only, and every machine that
+# pulls loses the file. Removals that look like a loss rather than a cleanup are
+# HELD for review (listed by --list-removals, published by --publish-removals):
+# more than artifacts_sync_removals_max in one run, a quarter or more of the
+# synced files once more than 5, every synced file of a directory that holds
+# several, or any removal while a merge or rebase runs or git fails.
+#
+# Singleton enforcement: an atomic mkdir lock, ~/.gstack/.brain-sync.lock.d.
+# --once skips when it is held (the next boundary catches up); --publish-removals exits 1.
 #
 # Env:
 #   GSTACK_HOME — override ~/.gstack (aligns with writers).
@@ -45,6 +59,9 @@ STATUS_FILE="$GSTACK_HOME/.brain-sync-status.json"
 LAST_PUSH_FILE="$GSTACK_HOME/.brain-last-push"
 LOCK_FILE="$GSTACK_HOME/.brain-sync.lock"
 DISCOVER_CURSOR="$GSTACK_HOME/.brain-discover-cursor"
+HELD_FILE="$GSTACK_HOME/.brain-held-removals.json"
+# Why the last merge after a rejected push failed, while its commits wait.
+DIVERGED_FILE="$GSTACK_HOME/.brain-sync-diverged"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_BIN="$SCRIPT_DIR/gstack-config"
@@ -135,6 +152,157 @@ for name, rx in patterns:
         sys.exit(1)
 sys.exit(0)
 "
+}
+
+# Inventory of publishable removals, as one JSON object on stdout:
+#   ok            git answered and the privacy map is readable (false: publish
+#                 nothing; "error" says why)
+#   pending       tracked paths gone from disk that gstack syncs today:
+#                 allowlisted, not skip-listed, not .brain-* sync state, and of
+#                 a privacy class the current artifacts_sync_mode publishes
+#   pending_group the group of each pending path: projects/<slug> for project
+#                 files, the first directory otherwise, null for a top-level file
+#   busy          a merge, rebase, cherry-pick or revert is in progress
+#   tracked       how many of those syncable paths the repo tracks
+#   groups        the same count per group
+# `ls-files --deleted` (not ls-files + a stat) keeps sparse-checkout entries
+# out, and it uses lstat, so a dangling symlink is not a removal either.
+# The JSON grows with the pending list, past what one argv string may hold
+# (131072 bytes on Linux), so callers read it from a pipe or a file.
+IFS= read -r -d '' REMOVALS_SCAN_PY <<'PYEOF' || true
+import sys, os, json, fnmatch
+gstack_home, allowlist_path, skip_path, privacy_path, mode = sys.argv[1:6]
+
+def load_lines(path):
+    try:
+        with open(path) as f:
+            return [l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")]
+    except FileNotFoundError:
+        return []
+
+def fail(error):
+    print(json.dumps({"ok": False, "error": error, "pending": [], "pending_group": {},
+                      "busy": False, "tracked": 0, "groups": {}}))
+    sys.exit(0)
+
+# The privacy rule of compute_paths_to_stage: off syncs nothing,
+# artifacts-only syncs the artifact class (the first matching pattern decides,
+# artifact by default), any other mode syncs everything.
+try:
+    with open(privacy_path) as f:
+        privacy = json.load(f)
+except FileNotFoundError:
+    privacy = []
+except ValueError:
+    fail("privacy map malformed")
+if not isinstance(privacy, list) or not all(isinstance(e, dict) for e in privacy):
+    fail("privacy map malformed")
+
+def mode_allows(path):
+    if mode == "off":
+        return False
+    if mode != "artifacts-only":
+        return True
+    for entry in privacy:
+        pat = entry.get("pattern")
+        if pat and fnmatch.fnmatchcase(path, pat):
+            return entry.get("class", "artifact") == "artifact"
+    return True
+
+allowlist = load_lines(allowlist_path)
+skip = {s.replace(os.sep, "/") for s in load_lines(skip_path)}
+
+def eligible(path):
+    return (not path.startswith(".brain-") and path not in skip
+            and any(fnmatch.fnmatchcase(path, g) for g in allowlist)
+            and mode_allows(path))
+
+def group_of(path):
+    parts = path.split("/")
+    if parts[0] == "projects" and len(parts) >= 3:
+        return "/".join(parts[:2])
+    return parts[0] if len(parts) >= 2 else None
+
+def names(chunk):
+    # A name that is not valid UTF-8 cannot travel through the JSON queue
+    # records, so it is never a removal candidate (it stays published).
+    out = []
+    for raw in chunk:
+        try:
+            out.append(raw.decode("utf-8"))
+        except UnicodeDecodeError:
+            pass
+    return out
+
+# stdin: git dir NUL, tracked paths (each NUL-terminated), NUL, deleted
+# paths (each NUL-terminated), NUL, then "OK" only if every git call succeeded.
+parts = sys.stdin.buffer.read().split(b"\0")
+if len(parts) < 4 or parts[-1] != b"OK" or not parts[0] or parts[-2] != b"":
+    fail("git failed")
+gitdir = parts[0].decode("utf-8", "surrogateescape")
+body = parts[1:-2]
+cut = body.index(b"") if b"" in body else -1
+if cut < 0:
+    fail("git failed")
+tracked = [p for p in names(body[:cut]) if eligible(p)]
+deleted = [p for p in names(body[cut + 1:]) if eligible(p)]
+
+groups = {}
+for p in tracked:
+    g = group_of(p)
+    if g is not None:
+        groups[g] = groups.get(g, 0) + 1
+# lexists: a path restored since git listed it is not a removal.
+pending = sorted({p for p in deleted if not os.path.lexists(os.path.join(gstack_home, p))})
+busy = any(os.path.exists(os.path.join(gitdir, n))
+           for n in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"))
+print(json.dumps({"ok": True, "mode": mode, "pending": pending, "pending_group": {p: group_of(p) for p in pending},
+                  "busy": busy, "tracked": len(tracked), "groups": groups}))
+PYEOF
+removals_scan() {
+  if [ ! -e "$GSTACK_HOME/.git" ]; then
+    echo '{"ok": false, "error": "not an artifacts repo", "pending": []}'
+    return 0
+  fi
+  local mode gitdir
+  mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
+  gitdir=$(git -C "$GSTACK_HOME" rev-parse --absolute-git-dir 2>/dev/null) || gitdir=""
+  # git runs here and streams to python, which never runs a process itself
+  # (see the Windows exec invariants test).
+  {
+    [ -n "$gitdir" ] \
+      && printf '%s\0' "$gitdir" \
+      && git -C "$GSTACK_HOME" ls-files -z 2>/dev/null \
+      && printf '\0' \
+      && git -C "$GSTACK_HOME" ls-files -z --deleted 2>/dev/null \
+      && printf '\0OK'
+  } | python3 -c "$REMOVALS_SCAN_PY" "$GSTACK_HOME" "$ALLOWLIST" "$SKIP_FILE" "$PRIVACY_MAP" "$mode"
+}
+
+removals_setting() {
+  local v
+  v=$("$CONFIG_BIN" get artifacts_sync_removals 2>/dev/null || echo off)
+  [ "$v" = "on" ] && echo on || echo off
+}
+
+# Take the run lock (an atomic mkdir; flock is not on macOS by default).
+# Returns 1 while a live run holds it. A lock whose pidfile names a dead
+# process is stale: it is cleared and taken, once.
+take_run_lock() {
+  local lock_dir="${LOCK_FILE}.d" lock_pid
+  if ! mkdir "$lock_dir" 2>/dev/null; then
+    # Lock dir without pidfile — treat as held; don't touch.
+    [ -f "$lock_dir/pid" ] || return 1
+    lock_pid=$(cat "$lock_dir/pid" 2>/dev/null || echo "")
+    # Lock is held by a live process.
+    if [ -z "$lock_pid" ] || kill -0 "$lock_pid" 2>/dev/null; then
+      return 1
+    fi
+    # Stale lock — clear and retry once.
+    rm -rf "$lock_dir" 2>/dev/null || true
+    mkdir "$lock_dir" 2>/dev/null || return 1
+  fi
+  echo "$$" > "$lock_dir/pid" 2>/dev/null || true
 }
 
 # True (0) if the spool holds at least one record file.
@@ -243,10 +411,32 @@ compute_paths_to_stage() {
   local mode="$1"
   local class_file="${2:-}"
   local snapshot_file="${3:-}"
-  python3 - "$GSTACK_HOME" "$QUEUE_DIR" "$ALLOWLIST" "$PRIVACY_MAP" "$SKIP_FILE" "$mode" "$class_file" "$snapshot_file" <<'PYEOF'
+  local removals="${4:-off}"          # artifacts_sync_removals
+  local removals_max="${5:-0}"        # artifacts_sync_removals_max
+  local scan_file="${6:-}"            # file holding removals_scan's JSON (read when on)
+  local removals_file="${7:-}"        # approved removals are written here
+  python3 - "$GSTACK_HOME" "$QUEUE_DIR" "$ALLOWLIST" "$PRIVACY_MAP" "$SKIP_FILE" "$mode" "$class_file" "$snapshot_file" \
+      "$removals" "$removals_max" "$scan_file" "$removals_file" "$HELD_FILE" <<'PYEOF'
 import sys, json, os, fnmatch, glob
 
 gstack_home, spool_dir, allowlist_path, privacy_path, skip_path, mode, class_file, snapshot_file = sys.argv[1:9]
+removals_on = sys.argv[9] == "on"
+try:
+    removals_max = int(sys.argv[10])
+    if removals_max < 0:
+        raise ValueError
+except ValueError:
+    removals_max = 0          # an unreadable cap holds every removal
+scan = {}
+if removals_on:
+    try:
+        with open(sys.argv[11]) as f:
+            scan = json.load(f)
+    except (OSError, ValueError):
+        scan = {}
+    if not isinstance(scan, dict):
+        scan = {}
+removals_file, held_file = sys.argv[12], sys.argv[13]
 
 def load_lines(path):
     try:
@@ -333,7 +523,7 @@ def privacy_class(path, mapping):
     return "artifact"
 
 # mode filter: 'off' → nothing; 'artifacts-only' → only artifact class;
-# 'full' → both classes.
+# 'full' → both classes. removals_scan applies the same rule: change both.
 def mode_allows(cls, mode):
     if mode == "off":
         return False
@@ -342,7 +532,11 @@ def mode_allows(cls, mode):
     return True  # full
 
 final = []
-classified = {"retained": [], "dropped": {"skipped": [], "invalid": [], "unmatched": [], "missing": []}}
+candidates = []
+held = {}
+classified = {"retained": [], "dropped": {"skipped": [], "invalid": [], "unmatched": [], "missing": []},
+              "removed": [], "held_removals": []}
+pending = set(scan.get("pending") or []) if scan.get("ok") else set()
 if privacy_corrupt:
     # Fail-safe: with an untrustworthy privacy map, stage NOTHING and drop
     # NOTHING — retain every queued record until the map is fixed. The next
@@ -370,11 +564,68 @@ for p in sorted(queue_paths):
     if not mode_allows(cls, mode):
         classified["retained"].append(p)
         continue
-    # Must exist on disk — can't stage what isn't there.
+    # Not on disk: nothing to stage, unless publishing removals is on and the
+    # repo tracks the path (see removals_scan). With git unreadable, hold the
+    # record rather than drop it: dropping loses the removal for good.
     if not os.path.exists(os.path.join(gstack_home, p)):
-        classified["dropped"]["missing"].append(p)
+        if removals_on and not scan.get("ok"):
+            held[p] = "git state unreadable"
+        elif removals_on and p in pending:
+            candidates.append(p)
+        else:
+            classified["dropped"]["missing"].append(p)
         continue
     final.append(p)
+
+# Valves: removals that look like a loss rather than a cleanup are held (they
+# stay queued and are listed with a reason) until a human publishes them with
+# --publish-removals. Every removal reaches every machine that pulls.
+if candidates:
+    groups = scan.get("groups") or {}
+    tracked_total = int(scan.get("tracked") or 0)
+    if scan.get("busy"):
+        for p in candidates:
+            held[p] = "a merge or rebase is in progress"
+        candidates = []
+    elif len(candidates) > removals_max:
+        for p in candidates:
+            held[p] = f"more than {removals_max} removals in one run"
+        candidates = []
+    elif len(candidates) > 5 and len(candidates) * 4 >= tracked_total:
+        for p in candidates:
+            held[p] = f"{len(candidates)} of {tracked_total} synced files at once"
+        candidates = []
+    else:
+        # A directory of several synced files emptied at once looks like a
+        # move or a loss (a slug migration does exactly that). A top-level
+        # file, or the only file of a directory, is an ordinary delete.
+        pending_group = scan.get("pending_group") or {}
+        per_group = {}
+        for p in candidates:
+            g = pending_group.get(p)
+            if g is not None:
+                per_group.setdefault(g, []).append(p)
+        for g, members in per_group.items():
+            synced = int(groups.get(g, 0))
+            if synced > 1 and len(members) >= synced:
+                for p in members:
+                    held[p] = f"would remove every synced file of {g}"
+        candidates = [p for p in candidates if p not in held]
+
+classified["removed"] = sorted(candidates)
+classified["held_removals"] = sorted(held)
+if removals_file:
+    with open(removals_file, "w") as f:
+        for p in classified["removed"]:
+            f.write(p + "\n")
+# The held list is what --list-removals and --status report. 0600: it names
+# paths, like the drops sidecar.
+if held:
+    fd = os.open(held_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"held": held}, f, indent=1, sort_keys=True)
+elif os.path.exists(held_file):
+    os.unlink(held_file)
 
 if class_file:
     with open(class_file, "w") as f:
@@ -501,8 +752,301 @@ if r: parts.append(f"{r} privacy-held retained")
 for k in ("skipped", "unmatched", "missing", "invalid"):
     n = len(d.get(k, []))
     if n: parts.append(f"{n} {k} dropped")
+h = len(c.get("held_removals", []) or [])
+if h: parts.append(f"{h} removal(s) held for review (gstack-brain-sync --list-removals)")
 print("; ".join(parts))
 PYEOF
+}
+
+# "N file(s)", "R removal(s)", or both: what a drain committed.
+drain_what() {
+  if [ "$2" -eq 0 ]; then
+    echo "$1 file(s)"
+  elif [ "$1" -eq 0 ]; then
+    echo "$2 removal(s)"
+  else
+    echo "$1 file(s) and $2 removal(s)"
+  fi
+}
+
+# The held-removal part of the classification alone, for success messages.
+held_removals_note() {
+  python3 - "$1" <<'PYEOF' 2>/dev/null || true
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        h = len(json.load(f).get("held_removals", []) or [])
+except Exception:
+    h = 0
+if h:
+    print(f"{h} removal(s) held for review (gstack-brain-sync --list-removals)")
+PYEOF
+}
+
+# 0 when the removals staged in the index (GIT_INDEX_FILE when set) are
+# exactly the paths listed in $1, one per line. With "strict" as $2, nothing
+# else may be staged either. Renames are listed as a removal plus an addition.
+IFS= read -r -d '' STAGED_EXACTLY_PY <<'PYEOF' || true
+import sys
+approved_file, strict = sys.argv[1], sys.argv[2]
+with open(approved_file) as f:
+    approved = {l.rstrip("\r\n") for l in f if l.strip()}
+parts = [x.decode("utf-8", "surrogateescape") for x in sys.stdin.buffer.read().split(b"\0") if x]
+entries = [(parts[i], parts[i + 1]) for i in range(0, len(parts) - 1, 2)]
+if strict and any(status != "D" for status, _ in entries):
+    sys.exit(1)
+staged = {path for status, path in entries if status == "D"}
+sys.exit(0 if staged == approved else 1)
+PYEOF
+removals_staged_exactly() {
+  git -C "$GSTACK_HOME" diff --cached --no-renames --name-status -z 2>/dev/null \
+    | python3 -c "$STAGED_EXACTLY_PY" "$1" "${2:-}"
+}
+
+# Commit the removal of exactly the paths listed in $1 (one per line) on top of
+# HEAD, from a private index. The commit can only remove: it never reads the
+# working tree, so a file that comes back meanwhile is not published by it.
+# That is also why it skips the pre-commit hook: a hook written before removal
+# support scans the removed text and would refuse the commit forever.
+# The private index lives in the git dir (the run lock makes it ours), so an
+# interrupted run leaves nothing in /tmp. On failure, prints git's reason.
+commit_removals() {
+  local list="$1" msg="$2" gitdir idx err rc=1
+  if ! gitdir=$(git -C "$GSTACK_HOME" rev-parse --absolute-git-dir 2>&1); then
+    printf '%s\n' "$gitdir" | sed -n '/./{p;q;}' | cut -c1-200
+    return 1
+  fi
+  idx="$gitdir/brain-sync-removals.index"
+  rm -f "$idx"
+  if ! err=$(GIT_INDEX_FILE="$idx" git -C "$GSTACK_HOME" read-tree HEAD 2>&1); then
+    :
+  elif ! err=$(tr -d '\r' < "$list" | tr '\n' '\0' \
+      | GIT_INDEX_FILE="$idx" git -C "$GSTACK_HOME" update-index --force-remove -z --stdin 2>&1); then
+    :
+  elif ! GIT_INDEX_FILE="$idx" removals_staged_exactly "$list" strict; then
+    err="the removal index does not match the approved list"
+  elif ! err=$(GIT_INDEX_FILE="$idx" git -C "$GSTACK_HOME" -c user.email="gstack@localhost" -c user.name="gstack-brain-sync" \
+      commit -q --no-verify -m "$msg" 2>&1); then
+    :
+  else
+    rc=0
+  fi
+  rm -f "$idx"
+  [ "$rc" -eq 0 ] || printf '%s\n' "${err:-no message}" | sed -n '/./{p;q;}' | cut -c1-200
+  return "$rc"
+}
+
+# Restore the index entries of the paths listed in the given files (one per
+# line) to HEAD: undoes this drain's staging, additions and removals alike.
+# One literal path at a time: reading pathspecs from a file needs git 2.25+.
+unstage_listed() {
+  local list p
+  for list in "$@"; do
+    [ -s "$list" ] || continue
+    while IFS= read -r p || [ -n "$p" ]; do
+      p="${p%$'\r'}"
+      [ -z "$p" ] && continue
+      GIT_LITERAL_PATHSPECS=1 git -C "$GSTACK_HOME" reset -q HEAD -- "$p" >/dev/null 2>&1 || true
+    done < "$list"
+  done
+}
+
+# `git ls-files -u -z` on stdin ("<mode> <oid> <stage>TAB<path>" entries).
+# Exits 1, printing nothing, unless EVERY unmerged path is a modify/delete
+# conflict: the common base (stage 1) plus exactly one side (2 or 3). With
+# "paths", prints those paths, one per line; with "index-info", a stage-0
+# entry per path holding the side that kept the file, for
+# `update-index -z --index-info`.
+IFS= read -r -d '' MODIFY_DELETE_PY <<'PYEOF' || true
+import sys
+entries = {}
+for rec in sys.stdin.buffer.read().split(b"\0"):
+    if not rec:
+        continue
+    meta, path = rec.split(b"\t", 1)
+    fmode, oid, stage = meta.split(b" ")
+    entries.setdefault(path, {})[int(stage)] = (fmode, oid)
+if not entries or not all(set(s) in ({1, 2}, {1, 3}) for s in entries.values()):
+    sys.exit(1)
+if sys.argv[1] == "paths":
+    for path in entries:
+        sys.stdout.buffer.write(path + b"\n")
+else:
+    for path, stages in entries.items():
+        fmode, oid = stages.get(2) or stages[3]
+        sys.stdout.buffer.write(fmode + b" " + oid + b" 0\t" + path + b"\0")
+PYEOF
+
+# After a failed merge: when EVERY unmerged path is a modify/delete conflict
+# (edited on one side, removed on the other), keep the edited file and
+# conclude the merge, printing the kept paths. The kept content is the
+# side's recorded blob, never the working tree, so the merge publishes only
+# what this machine committed (and scanned) or the remote already holds; a
+# later local write stays for the next drain. --no-verify: the merge brings in
+# the remote's changes, which an old hook could refuse forever. Returns 1 for
+# any other kind of conflict, and the caller aborts the merge.
+resolve_modify_delete() {
+  local kept
+  kept=$(git -C "$GSTACK_HOME" ls-files -u -z 2>/dev/null | python3 -c "$MODIFY_DELETE_PY" paths) || return 1
+  git -C "$GSTACK_HOME" ls-files -u -z 2>/dev/null | python3 -c "$MODIFY_DELETE_PY" index-info \
+    | git -C "$GSTACK_HOME" update-index -z --index-info >/dev/null 2>&1 || return 1
+  git -C "$GSTACK_HOME" -c user.email="gstack@localhost" -c user.name="gstack-brain-sync" \
+    commit -q --no-verify --no-edit >/dev/null 2>&1 || return 1
+  printf '%s\n' "$kept"
+}
+
+# EXIT-trap helper for a run stopped between staging and committing: put the
+# listed paths back to HEAD in the index, and drop a private removal index
+# commit_removals may have left.
+abandon_staging() {
+  local g
+  unstage_listed "$@"
+  g=$(git -C "$GSTACK_HOME" rev-parse --absolute-git-dir 2>/dev/null) && rm -f "$g/brain-sync-removals.index"
+  return 0
+}
+
+# The line of a failed push's stderr that says why ("! [rejected] ...",
+# "error: ..."), else its first line.
+push_reason() {
+  local line
+  line=$(printf '%s\n' "$1" | grep -m1 -E '^ *(!|error:|fatal:)' || true)
+  [ -n "$line" ] || line=$(printf '%s\n' "$1" | sed -n '/./{p;q;}')
+  printf '%s' "$line" | sed 's/^ *//' | cut -c1-200
+}
+
+# After a rejected push: fetch, merge the remote (merge drivers handle JSONL
+# and markdown; resolve_modify_delete keeps an edit over a removal) and push
+# again. The fetch and the retry push are their own attempted-egress ops, each
+# receipted fail-closed. Returns 0 when the retry landed, 2 when the merge
+# failed (aborted; MERGE_REASON says why), 1 otherwise. MERGE_KEPT_LIST names
+# the files kept over a removal (MERGE_KEPT counts them); MERGE_MOVED is 1
+# when the merge brought anything in.
+MERGE_KEPT=""
+MERGE_KEPT_LIST=""
+MERGE_REASON=""
+MERGE_MOVED=0
+merge_and_retry_push() {
+  local host="$1" branch merge_err before
+  MERGE_KEPT=""
+  MERGE_KEPT_LIST=""
+  MERGE_REASON=""
+  MERGE_MOVED=0
+  GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$host" curated-memory-git-fetch "artifacts_sync_mode!=off" \
+    bash -c 'GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 -C "$1" fetch origin 2>/dev/null' _ "$GSTACK_HOME" || return 1
+  branch=$(git -C "$GSTACK_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)
+  before=$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null || true)
+  # The merge commit is the sync's own, like its other commits (and a
+  # machine with no git identity could not merge at all).
+  if ! merge_err=$(git -C "$GSTACK_HOME" -c user.email="gstack@localhost" -c user.name="gstack-brain-sync" \
+      merge --no-edit "origin/$branch" 2>&1 >/dev/null); then
+    # A removal on one machine and an edit on another is a modify/delete
+    # conflict, which no merge driver sees. Keep the edit. Any other
+    # failure is aborted, so no half-done merge blocks later commits.
+    if ! MERGE_KEPT_LIST=$(resolve_modify_delete); then
+      MERGE_KEPT_LIST=""
+      MERGE_REASON=$(git -C "$GSTACK_HOME" diff --name-only --diff-filter=U 2>/dev/null | sed -n '1,3p' | tr '\n' ',' | sed 's/,$//; s/,/, /g')
+      if [ -n "$MERGE_REASON" ]; then
+        MERGE_REASON="conflict in $MERGE_REASON"
+      else
+        MERGE_REASON="merge failed: $(printf '%s' "$merge_err" | sed -n '/./{p;q;}' | cut -c1-200)"
+      fi
+      git -C "$GSTACK_HOME" merge --abort >/dev/null 2>&1 || true
+      printf '%s\n' "$MERGE_REASON" > "$DIVERGED_FILE" 2>/dev/null || true
+      return 2
+    fi
+    MERGE_KEPT=$(printf '%s\n' "$MERGE_KEPT_LIST" | grep -c . || true)
+  fi
+  [ "$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null || true)" != "$before" ] && MERGE_MOVED=1
+  GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$host" curated-memory-git-push "artifacts_sync_mode!=off" \
+    bash -c 'GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME" || return 1
+  rm -f "$DIVERGED_FILE"
+}
+
+# The status of a run that pushed nothing ($1), naming commits still waiting
+# to land on branch $2: the last merge after a rejected push failed (its
+# reason is kept in DIVERGED_FILE until the commits land), or they wait for
+# the run-start detector's next attempt, or, when not all are
+# gstack-brain-sync's own (the detector never pushes those), for the next
+# synced change. Files a detector merge kept over a removal are named too.
+DET_MRC=0
+report_idle() {
+  local msg="$1$(kept_note)" branch="$2" total="" bot=""
+  if [ -n "$branch" ]; then
+    total=$(git -C "$GSTACK_HOME" rev-list --count "origin/$branch..HEAD" 2>/dev/null || true)
+    bot=$(git -C "$GSTACK_HOME" rev-list --count --author="gstack-brain-sync" "origin/$branch..HEAD" 2>/dev/null || true)
+  fi
+  case "$total" in
+    ''|*[!0-9]*) write_status "idle" "$msg" ;;
+    0)
+      rm -f "$DIVERGED_FILE"
+      write_status "idle" "$msg"
+      ;;
+    *)
+      if [ -s "$DIVERGED_FILE" ]; then
+        write_status "push_failed" "diverged from the remote ($(head -1 "$DIVERGED_FILE")); merge aborted, $total commit(s) kept locally. $(resolve_hint)"
+      elif [ "$bot" = "$total" ]; then
+        write_status "push_failed" "$msg; $total local commit(s) not on the remote yet (retried every 10 minutes)"
+      else
+        write_status "idle" "$msg; $total local commit(s) not on the remote yet, not all gstack-brain-sync's own: they go out with the next synced change"
+      fi
+      ;;
+  esac
+}
+
+# What to do about a merge the sync aborted.
+resolve_hint() {
+  echo "Resolve in $GSTACK_HOME: git merge origin/<branch>, fix the conflict, commit, git push"
+}
+
+# The status suffix for files merge_and_retry_push kept over a removal.
+kept_note() {
+  [ -n "$MERGE_KEPT" ] && [ "$MERGE_KEPT" != "0" ] && echo "; kept $MERGE_KEPT file(s) that one side edited and the other removed"
+  return 0
+}
+
+# Commit what the drain staged: approved removals first, in a commit of their
+# own, then everything else. Appends the finished paths to $done_file. Returns
+# 1 when nothing needed committing; on a refusal it reports and EXITS.
+commit_drain() {
+  local paths_file="$1" removals_file="$2" done_file="$3" snapshot_file="$4" class_file="$5"
+  local n="$6" r="$7" ts="$8" made=0
+  # Removals first, in a commit of their own (commit_removals). The index
+  # already holds them too, so the commit below carries additions only.
+  if [ "$r" -gt 0 ]; then
+    local why_rm
+    if ! why_rm=$(commit_removals "$removals_file" "sync: remove $r file(s) | $ts"); then
+      unstage_listed "$paths_file" "$removals_file"
+      write_status "blocked" "removal commit failed (${why_rm:-no message}); nothing committed (queue preserved)"
+      echo "BRAIN_SYNC: blocked: removal commit failed: ${why_rm:-no message}" >&2
+      exit 0
+    fi
+    made=1
+    cat "$removals_file" >> "$done_file"
+  fi
+
+  # Commit with template message.
+  if [ "$n" -gt 0 ] && ! git -C "$GSTACK_HOME" diff --cached --quiet 2>/dev/null; then
+    local commit_err
+    if ! commit_err=$(git -C "$GSTACK_HOME" -c user.email="gstack@localhost" -c user.name="gstack-brain-sync" \
+        commit -q -m "sync: $n file(s) | $ts" 2>&1); then
+      # A REFUSED commit (the defense-in-depth pre-commit hook, a signing
+      # failure) is not "nothing to commit": finalizing would drop these
+      # records while their changes stay staged, and that staged diff would
+      # refuse every later commit. Unstage what this drain staged, keep those
+      # records; removals already committed leave the spool and the run-start
+      # detector pushes their commit.
+      unstage_listed "$paths_file"
+      finalize_queue "$snapshot_file" "$class_file" "$done_file"
+      local why
+      why=$(printf '%s' "$commit_err" | head -1 | cut -c1-200)
+      write_status "blocked" "commit refused (${why:-no message}); changes unstaged, queue preserved"
+      echo "BRAIN_SYNC: blocked: commit refused: ${why:-no message}" >&2
+      exit 0
+    fi
+    made=1
+  fi
+  cat "$paths_file" >> "$done_file"
+  [ "$made" -eq 1 ]
 }
 
 subcmd_once() {
@@ -511,38 +1055,21 @@ subcmd_once() {
     exit 0
   fi
 
-  # Singleton lock via atomic mkdir. `flock(1)` isn't on macOS by default;
-  # `mkdir` is atomic on every POSIX filesystem. If another --once is already
-  # running, skip (don't wait) — the next skill boundary will catch up.
+  # Singleton lock (take_run_lock). If another --once is already running,
+  # skip (don't wait) — the next skill boundary will catch up.
   local lock_dir="${LOCK_FILE}.d"
-  if ! mkdir "$lock_dir" 2>/dev/null; then
-    # Is the lock stale? Check the pidfile inside. If process is dead, clear it.
-    if [ -f "$lock_dir/pid" ]; then
-      local lock_pid
-      lock_pid=$(cat "$lock_dir/pid" 2>/dev/null || echo "")
-      if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
-        # Stale lock — clear and retry once.
-        rm -rf "$lock_dir" 2>/dev/null || true
-        if ! mkdir "$lock_dir" 2>/dev/null; then
-          exit 0
-        fi
-      else
-        # Lock is held by a live process.
-        exit 0
-      fi
-    else
-      # Lock dir without pidfile — treat as held; don't touch.
-      exit 0
-    fi
-  fi
-  echo "$$" > "$lock_dir/pid" 2>/dev/null || true
+  take_run_lock || exit 0
   # Release the lock on EVERY exit from here on — including the empty-queue
   # fast path and an INT during the detector's network push. Leaking it would
   # rely on next-run stale-pid detection, which PID reuse can defeat (kill -0
   # matching an unrelated live process wedges sync at every boundary). The
   # mktemp block below re-traps with tempfile cleanup added; both traps keep
-  # the lock removal.
-  trap 'rm -rf "$lock_dir" 2>/dev/null || true' EXIT INT TERM
+  # the lock removal. INT and TERM END the run (the EXIT trap then cleans up):
+  # a handler that cleaned up and returned let the run go on without its lock
+  # and its temp files.
+  trap 'trap "" INT TERM; rm -rf "$lock_dir" 2>/dev/null || true' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   # Convert any legacy single-file queue lines into spool records before the
   # drain reads the spool (transition window for pre-spool writers).
@@ -622,9 +1149,20 @@ subcmd_once() {
       echo "$det_now" > "$GSTACK_HOME/.brain-last-push-attempt" 2>/dev/null || true
       local det_host
       det_host=$(remote_host)
-      if GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$det_host" curated-memory-git-push "artifacts_sync_mode!=off" \
-          bash -c 'GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME"; then
+      local det_rc=0
+      GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$det_host" curated-memory-git-push "artifacts_sync_mode!=off" \
+        bash -c 'GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME" || det_rc=$?
+      # A rejected retry (git exits 1: another machine pushed first, or a run
+      # stopped before its merge) is merged and retried as the drain does;
+      # otherwise these commits would wait for the next change. Other
+      # failures (unreachable, auth: 128; receipt refused: 3) are not.
+      if [ "$det_rc" -eq 1 ]; then
+        merge_and_retry_push "$det_host" || DET_MRC=$?
+        [ "$DET_MRC" -eq 2 ] && echo "BRAIN_SYNC: push failed: diverged: $MERGE_REASON" >&2
+      fi
+      if [ "$det_rc" -eq 0 ] || { [ "$det_rc" -eq 1 ] && [ "$DET_MRC" -eq 0 ]; }; then
         date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
+        rm -f "$DIVERGED_FILE"
       fi
     fi
   fi
@@ -641,57 +1179,110 @@ subcmd_once() {
   # the queue is empty.) The lock-release trap installed at acquisition
   # covers this exit.
   if ! spool_has_records && [ ! -s "$QUEUE" ] && [ ! -s "$QUEUE.migrating" ]; then
-    write_status "idle" "queue empty"
+    # Held removals are queued records, so nothing is held either.
+    rm -f "$HELD_FILE"
+    report_idle "queue empty" "$det_branch"
     exit 0
   fi
 
-  local paths_file class_file snapshot_file
+  local paths_file class_file snapshot_file removals_file done_file scan_file staged=0
   paths_file=$(mktemp /tmp/brain-sync-paths.XXXXXX) || { rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
   class_file=$(mktemp /tmp/brain-sync-class.XXXXXX) || { rm -f "$paths_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
   snapshot_file=$(mktemp /tmp/brain-sync-snapshot.XXXXXX) || { rm -f "$paths_file" "$class_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
-  # Single trap covers all: lock cleanup AND tempfile cleanup.
-  trap 'rm -f "$paths_file" "$class_file" "$snapshot_file" 2>/dev/null; rm -rf "$lock_dir" 2>/dev/null || true' EXIT INT TERM
+  removals_file=$(mktemp /tmp/brain-sync-removals.XXXXXX) || { rm -f "$paths_file" "$class_file" "$snapshot_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
+  done_file=$(mktemp /tmp/brain-sync-done.XXXXXX) || { rm -f "$paths_file" "$class_file" "$snapshot_file" "$removals_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
+  scan_file=$(mktemp /tmp/brain-sync-scan.XXXXXX) || { rm -f "$paths_file" "$class_file" "$snapshot_file" "$removals_file" "$done_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
+  # Single trap covers all: lock cleanup AND tempfile cleanup. A run stopped
+  # between staging and committing first unstages what it staged (staged=1),
+  # so the next run starts from the index it would have left.
+  trap 'trap "" INT TERM; [ "$staged" = 1 ] && abandon_staging "$paths_file" "$removals_file"; rm -f "$paths_file" "$class_file" "$snapshot_file" "$removals_file" "$done_file" "$scan_file" 2>/dev/null; rm -rf "$lock_dir" 2>/dev/null || true' EXIT
+
+  # Removal inventory, only when publishing removals is on (removals_scan).
+  local removals removals_max
+  removals=$(removals_setting)
+  removals_max=$("$CONFIG_BIN" get artifacts_sync_removals_max 2>/dev/null || echo 0)
+  if [ "$removals" = "on" ]; then
+    removals_scan > "$scan_file" 2>/dev/null || echo '{"ok": false, "error": "git failed"}' > "$scan_file"
+  fi
 
   # Fail-safe (G1): a classifier that dies mid-run (ENOSPC/OOM/SIGKILL, or a
   # shape the defensive filters don't cover) may have already written the
   # snapshot manifest but no classification. Finalizing on that state is what
   # used to wipe the queue — so on a nonzero exit, warn loudly, do NOT call
   # finalize_queue, and leave everything queued for the next drain.
-  if ! compute_paths_to_stage "$mode" "$class_file" "$snapshot_file" > "$paths_file"; then
+  if ! compute_paths_to_stage "$mode" "$class_file" "$snapshot_file" \
+      "$removals" "$removals_max" "$scan_file" "$removals_file" > "$paths_file"; then
     echo "BRAIN_SYNC: warning: queue classification failed — no records consumed; next run re-drains" >&2
     write_status "error" "classification failed; queue preserved (next run retries)"
     exit 0
   fi
-  if [ ! -s "$paths_file" ]; then
-    # Nothing stageable. Finalize the snapshot (retained entries survive;
-    # classified drops removed; records created after the snapshot untouched).
+  if [ ! -s "$paths_file" ] && [ ! -s "$removals_file" ]; then
+    # Nothing stageable. Finalize the snapshot (retained and held entries
+    # survive; classified drops removed; records created after the snapshot
+    # untouched).
     finalize_queue "$snapshot_file" "$class_file" "$paths_file"
     local summary
     summary=$(queue_summary "$class_file")
-    write_status "idle" "no stageable changes${summary:+ ($summary)}"
+    report_idle "no stageable changes${summary:+ ($summary)}" "$det_branch"
     exit 0
   fi
 
   # Stage with git add -f (forces past .gitignore=*) explicit paths only.
+  # GIT_LITERAL_PATHSPECS: a queued name is a path, never a pattern, so a `*`,
+  # `?`, `[` or leading `:` in a file name cannot stage other files.
+  # --ignore-removal: a queued file deleted since classification is not
+  # staged as a removal here; only approved removals are, below.
+  local p
+  staged=1
   while IFS= read -r p; do
     p="${p%$'\r'}"   # Windows: compute_paths_to_stage's python print() emits CRLF;
                      # a trailing CR makes the pathspec match nothing (silent no-stage).
     [ -z "$p" ] && continue
-    git -C "$GSTACK_HOME" add -f -- "$p" 2>/dev/null || true
+    GIT_LITERAL_PATHSPECS=1 git -C "$GSTACK_HOME" add -f --ignore-removal -- "$p" 2>/dev/null || true
   done < "$paths_file"
+  # An approved removal (tracked, gone from disk): git add stages the removal.
+  while IFS= read -r p; do
+    p="${p%$'\r'}"
+    [ -z "$p" ] && continue
+    GIT_LITERAL_PATHSPECS=1 git -C "$GSTACK_HOME" add -f -- "$p" 2>/dev/null || true
+  done < "$removals_file"
 
-  # Secret-scan staged diff.
+  # With removals on, the staged removals must be exactly the approved ones:
+  # one staged by hand would bypass the valves, and an approved one whose file
+  # came back is not a removal any more. (With the setting off, a removal
+  # staged by hand is committed as it always was.)
+  if [ "$removals" = "on" ] && ! removals_staged_exactly "$removals_file"; then
+    unstage_listed "$paths_file" "$removals_file"
+    staged=0
+    write_status "blocked" "staged removals differ from the approved set; nothing committed (queue preserved)"
+    echo "BRAIN_SYNC: blocked: staged removals differ from the approved set" >&2
+    exit 0
+  fi
+
+  # Secret-scan the staged diff. Pure removals are excluded (--diff-filter=d):
+  # they publish no bytes, and scanning their old text would refuse, forever,
+  # the removal of an already-published file that matches a pattern.
+  # --no-renames: a removal staged with a similar new file would otherwise
+  # show as a rename, whose diff omits the new file's content.
   local scan_out
-  scan_out=$(git -C "$GSTACK_HOME" diff --cached 2>/dev/null | secret_scan_stdin || true)
+  scan_out=$(git -C "$GSTACK_HOME" diff --cached --no-renames --diff-filter=d 2>/dev/null | secret_scan_stdin || true)
   if [ -n "$scan_out" ]; then
     # Hit — unstage, preserve queue, write loud status.
     git -C "$GSTACK_HOME" reset HEAD -- . >/dev/null 2>&1 || true
+    staged=0
     local hint
     hint="secret pattern detected ($scan_out). Remediation: review the staged file, then run: gstack-brain-sync --skip-file <path> OR edit the content."
     write_status "blocked" "$hint"
     echo "BRAIN_SYNC: blocked: $scan_out" >&2
     exit 0
   fi
+
+  local n r ts what held_note
+  n=$(grep -c . "$paths_file" || true)
+  r=$(grep -c . "$removals_file" || true)
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  what=$(drain_what "$n" "$r")
+  held_note=$(held_removals_note "$class_file")
 
   # Egress receipt for the push, written BEFORE the commit consumes the
   # queue (amendment C7 ordering): a refused receipt exits HERE, before any
@@ -703,24 +1294,23 @@ subcmd_once() {
   if ! receipt_err=$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-egress-receipt" write \
       --sink brain-sync --host "$push_host" --class curated-memory-git-push \
       --no-payload --consent "artifacts_sync_mode!=off" 2>&1 >/dev/null); then
+    unstage_listed "$paths_file" "$removals_file"
+    staged=0
     write_status "push_failed" "EGRESS_RECEIPT_FAILED: receipt not writable; push refused (queue preserved)"
     _gstack_egress_refusal "brain-sync push" "$(printf '%s' "$receipt_err" | head -c 300)"
     exit 1
   fi
 
-  # Commit with template message.
-  local n ts
-  n=$(wc -l < "$paths_file" | tr -d ' ')
-  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  local msg="sync: $n file(s) | $ts"
-  git -C "$GSTACK_HOME" -c user.email="gstack@localhost" -c user.name="gstack-brain-sync" \
-    commit -q -m "$msg" 2>/dev/null || {
-      # Nothing to commit (e.g. all files already committed). The drained
-      # records leave the spool; retained + post-snapshot records survive.
-      finalize_queue "$snapshot_file" "$class_file" "$paths_file"
-      write_status "idle" "queue drained but no new changes to commit"
-      exit 0
-    }
+  if ! commit_drain "$paths_file" "$removals_file" "$done_file" "$snapshot_file" "$class_file" "$n" "$r" "$ts"; then
+    # Nothing to commit (e.g. all files already committed). The drained
+    # records leave the spool; retained + post-snapshot records survive.
+    staged=0
+    finalize_queue "$snapshot_file" "$class_file" "$done_file"
+    report_idle "queue drained but no new changes to commit" "$det_branch"
+    exit 0
+  fi
+
+  staged=0
 
   # Push. On reject, fetch + merge (merge driver handles JSONL) + retry once.
   local push_err
@@ -734,39 +1324,59 @@ subcmd_once() {
       # Drained records leave the spool — they live in the local commit, which
       # the run-start detector re-pushes next time (#2549). Retained +
       # post-snapshot records survive the finalize.
-      finalize_queue "$snapshot_file" "$class_file" "$paths_file"
+      finalize_queue "$snapshot_file" "$class_file" "$done_file"
       exit 0
     fi
 
-    # Try a fetch-and-merge + retry. The fetch and the retry push are their
-    # own attempted-egress ops, each receipted fail-closed (a refusal falls
-    # through to the push_failed path below).
-    if GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$push_host" curated-memory-git-fetch "artifacts_sync_mode!=off" \
-        bash -c 'git -C "$1" fetch origin 2>/dev/null' _ "$GSTACK_HOME"; then
-      local branch
-      branch=$(git -C "$GSTACK_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)
-      if git -C "$GSTACK_HOME" merge --no-edit "origin/$branch" >/dev/null 2>&1; then
-        if GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$push_host" curated-memory-git-push "artifacts_sync_mode!=off" \
-            bash -c 'git -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME"; then
-          finalize_queue "$snapshot_file" "$class_file" "$paths_file"
-          date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
-          write_status "ok" "pushed $n file(s) after rebase"
-          exit 0
-        fi
-      fi
+    # Try a fetch-and-merge + retry (merge_and_retry_push).
+    local mrc=0
+    merge_and_retry_push "$push_host" || mrc=$?
+    if [ "$mrc" -eq 0 ]; then
+      finalize_queue "$snapshot_file" "$class_file" "$done_file"
+      date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
+      local how=""
+      [ "$MERGE_MOVED" = 1 ] && how=" after merging the remote's changes"
+      write_status "ok" "pushed $what$how$(kept_note)${held_note:+ ($held_note)}"
+      exit 0
+    fi
+    if [ "$mrc" -eq 2 ]; then
+      write_status "push_failed" "diverged from the remote ($MERGE_REASON); merge aborted, commits kept locally. $(resolve_hint)"
+      echo "BRAIN_SYNC: push failed: diverged: $MERGE_REASON" >&2
+      finalize_queue "$snapshot_file" "$class_file" "$done_file"
+      exit 0
     fi
     # Commit exists locally; the run-start detector re-pushes it next time.
-    write_status "push_failed" "push failed: $(printf '%s' "$push_err" | head -1); commit retained locally, will retry next run"
-    finalize_queue "$snapshot_file" "$class_file" "$paths_file"
+    write_status "push_failed" "push failed: $(push_reason "$push_err"); commit retained locally, will retry next run"
+    finalize_queue "$snapshot_file" "$class_file" "$done_file"
     exit 0
   }
 
   # Success: drained records leave the spool (retained + post-snapshot survive).
-  finalize_queue "$snapshot_file" "$class_file" "$paths_file"
+  rm -f "$DIVERGED_FILE"
+  finalize_queue "$snapshot_file" "$class_file" "$done_file"
   date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
-  write_status "ok" "pushed $n file(s)"
+  write_status "ok" "pushed $what${held_note:+ ($held_note)}"
   exit 0
 }
+
+IFS= read -r -d '' STATUS_FIELDS_PY <<'PYEOF' || true
+import json, sys
+held_path, setting = sys.argv[1:3]
+try:
+    scan = json.load(sys.stdin)
+except ValueError:
+    scan = {}
+ok = isinstance(scan, dict) and scan.get("ok") and scan.get("mode") != "off"
+pending = set(scan.get("pending") or []) if ok else None
+try:
+    with open(held_path) as f:
+        held = set(json.load(f).get("held", {}))
+except (OSError, ValueError, AttributeError, TypeError):
+    held = set()
+print(json.dumps({"removals": setting,
+                  "removals_pending": None if pending is None else len(pending),
+                  "removals_held": 0 if pending is None else len(held & pending)})[1:-1])
+PYEOF
 
 subcmd_status() {
   if [ -f "$STATUS_FILE" ]; then
@@ -787,7 +1397,248 @@ subcmd_status() {
   [ -f "$LAST_PUSH_FILE" ] && last_push=$(cat "$LAST_PUSH_FILE" 2>/dev/null || echo never)
   local mode
   mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
-  printf '{"queue_depth":%s,"last_push":"%s","mode":"%s"}\n' "$queue_depth" "$last_push" "$mode"
+  # Removals, reported whether or not publishing is on: how many tracked
+  # files are gone from disk (null when that cannot be read), and how many of
+  # those a sync holds for review.
+  local removal_fields
+  removal_fields=$(removals_scan 2>/dev/null \
+    | python3 -c "$STATUS_FIELDS_PY" "$HELD_FILE" "$(removals_setting)" 2>/dev/null) || removal_fields=""
+  printf '{"queue_depth":%s,"last_push":"%s","mode":"%s"%s}\n' "$queue_depth" "$last_push" "$mode" "${removal_fields:+,$removal_fields}"
+}
+
+IFS= read -r -d '' LIST_REMOVALS_PY <<'PYEOF' || true
+import json, os, sys
+held_path, spool_dir, setting = sys.argv[1:4]
+try:
+    scan = json.load(sys.stdin)
+except ValueError:
+    scan = {}
+if not isinstance(scan, dict) or not scan.get("ok"):
+    error = scan.get("error") if isinstance(scan, dict) else None
+    print(f"cannot list removals ({error or 'git failed'}); nothing listed", file=sys.stderr)
+    sys.exit(1)
+try:
+    with open(held_path) as f:
+        held = json.load(f).get("held", {})
+except (OSError, ValueError, AttributeError):
+    held = {}
+if not isinstance(held, dict):
+    held = {}
+queued = set()
+try:
+    names = os.listdir(spool_dir)
+except OSError:
+    names = []
+for name in names:
+    if name.endswith(".json"):
+        try:
+            with open(os.path.join(spool_dir, name)) as f:
+                rec = json.loads(f.readline())
+            if isinstance(rec, dict) and isinstance(rec.get("file"), str):
+                queued.add(rec["file"])
+        except (OSError, ValueError):
+            pass
+if scan.get("mode") == "off":
+    print("artifacts sync is off (artifacts_sync_mode=off): nothing is listed or published")
+    sys.exit(0)
+pending = scan.get("pending") or []
+if not pending:
+    print("no removals pending")
+    sys.exit(0)
+print(f"{len(pending)} tracked file(s) gone from disk (artifacts_sync_removals={setting}):")
+for p in pending:
+    if p in held and p in queued:
+        state = "held: " + str(held[p])
+    elif setting != "on":
+        state = "not published (artifacts_sync_removals=off)"
+    elif p in queued:
+        state = "queued"
+    else:
+        state = "queued at the next --discover-new"
+    print(f"  {p}  [{state}]")
+print("publish: gstack-brain-sync --publish-removals --yes [<path>...]")
+PYEOF
+
+subcmd_list_removals() {
+  if [ ! -d "$GSTACK_HOME/.git" ]; then
+    echo "artifacts sync is not initialized (no $GSTACK_HOME/.git)"
+    exit 0
+  fi
+  removals_scan | python3 -c "$LIST_REMOVALS_PY" "$HELD_FILE" "$QUEUE_DIR" "$(removals_setting)"
+}
+
+IFS= read -r -d '' PUBLISH_SELECT_PY <<'PYEOF' || true
+import json, sys
+want_path, list_path = sys.argv[1:3]
+try:
+    scan = json.load(sys.stdin)
+except ValueError:
+    scan = {}
+if not isinstance(scan, dict) or not scan.get("ok"):
+    error = scan.get("error") if isinstance(scan, dict) else None
+    print(f"cannot list removals ({error or 'git failed'}); nothing published", file=sys.stderr)
+    sys.exit(1)
+if scan.get("busy"):
+    print("a merge or rebase is in progress in the artifacts repo; finish it first", file=sys.stderr)
+    sys.exit(1)
+pending = scan.get("pending") or []
+with open(want_path) as f:
+    want = list(dict.fromkeys(l.rstrip("\r\n") for l in f if l.strip()))
+pending_set = set(pending)
+unknown = [w for w in want if w not in pending_set]
+if unknown:
+    print("not a pending removal: " + ", ".join(unknown), file=sys.stderr)
+    sys.exit(2)
+chosen = want or pending
+if not chosen:
+    print("no removals pending")
+    sys.exit(3)
+with open(list_path, "w") as f:
+    f.write("".join(p + "\n" for p in chosen))
+print(f"{len(chosen)} removal(s):")
+for p in chosen:
+    print("  " + p)
+PYEOF
+
+# After a publish commit: drop the queue records and held entries of the
+# paths it removed.
+IFS= read -r -d '' PUBLISH_DONE_PY <<'PYEOF' || true
+import json, os, sys
+spool_dir, held_path, list_path = sys.argv[1:4]
+with open(list_path) as f:
+    done = {l.rstrip("\r\n") for l in f if l.strip()}
+try:
+    names = os.listdir(spool_dir)
+except OSError:
+    names = []
+for name in names:
+    full = os.path.join(spool_dir, name)
+    if not name.endswith(".json"):
+        continue
+    try:
+        with open(full) as f:
+            rec = json.loads(f.readline())
+        if isinstance(rec, dict) and rec.get("file") in done:
+            os.unlink(full)
+    except (OSError, ValueError):
+        pass
+try:
+    with open(held_path) as f:
+        held = json.load(f).get("held", {})
+except (OSError, ValueError, AttributeError):
+    held = None
+if isinstance(held, dict):
+    left = {k: v for k, v in held.items() if k not in done}
+    if left:
+        with open(held_path, "w") as f:
+            json.dump({"held": left}, f, indent=1, sort_keys=True)
+    else:
+        os.unlink(held_path)
+PYEOF
+
+# Publish removals now, bypassing the valves: an explicit, reviewed action.
+# Without --yes it only lists what it would remove.
+subcmd_publish_removals() {
+  local yes=0 want list rc lock_dir="${LOCK_FILE}.d" staged=0
+  want=$(mktemp /tmp/brain-sync-want.XXXXXX) || exit 1
+  list=$(mktemp /tmp/brain-sync-publish.XXXXXX) || { rm -f "$want"; exit 1; }
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --yes) yes=1 ;;
+      --) shift; while [ $# -gt 0 ]; do printf '%s\n' "$1" >> "$want"; shift; done; break ;;
+      -*) echo "Unknown option: $1" >&2; rm -f "$want" "$list"; exit 2 ;;
+      *) printf '%s\n' "$1" >> "$want" ;;
+    esac
+    shift
+  done
+  if ! sync_active; then
+    echo "artifacts sync is off or not initialized; nothing to publish" >&2
+    rm -f "$want" "$list"
+    exit 1
+  fi
+  if ! take_run_lock; then
+    echo "another gstack-brain-sync run holds $lock_dir; try again" >&2
+    rm -f "$want" "$list"
+    exit 1
+  fi
+  # As in --once: INT and TERM end the run, and a run stopped between staging
+  # and committing unstages what it staged.
+  trap 'trap "" INT TERM; [ "$staged" = 1 ] && abandon_staging "$list"; rm -f "$want" "$list" 2>/dev/null; rm -rf "$lock_dir" 2>/dev/null || true' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  removals_scan | python3 -c "$PUBLISH_SELECT_PY" "$want" "$list"
+  rc=$?
+  [ "$rc" -eq 3 ] && exit 0
+  [ "$rc" -ne 0 ] && exit "$rc"
+  if [ "$yes" -ne 1 ]; then
+    echo "dry run: re-run with --yes to publish these removals"
+    exit 0
+  fi
+  if ! git -C "$GSTACK_HOME" diff --cached --quiet 2>/dev/null; then
+    echo "the artifacts repo has staged changes; commit or unstage them first" >&2
+    exit 1
+  fi
+  local host receipt_id n ts why push_err push_rc=0 mrc=0 how=""
+  host=$(remote_host)
+  n=$(grep -c . "$list" || true)
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  # Egress receipt before anything is committed, as --once does (C7): a
+  # refusal exits here with nothing staged, committed or dequeued.
+  # Its id gets the push's outcome below ($want is spent: it takes stderr).
+  if ! receipt_id=$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-egress-receipt" write \
+      --sink brain-sync --host "$host" --class curated-memory-git-push \
+      --no-payload --consent "artifacts_sync_mode!=off" 2>"$want") || [ -z "$receipt_id" ]; then
+    write_status "push_failed" "EGRESS_RECEIPT_FAILED: receipt not writable; removals not published"
+    _gstack_egress_refusal "brain-sync publish-removals" "$(head -c 300 "$want" 2>/dev/null)"
+    exit 1
+  fi
+  # Stage them in the index as well, so it agrees with the commit below; a
+  # file that came back is staged as a change and stops everything.
+  # update-index takes literal paths, and one process for any number.
+  staged=1
+  tr -d '\r' < "$list" | tr '\n' '\0' | git -C "$GSTACK_HOME" update-index --remove -z --stdin >/dev/null 2>&1 || true
+  if ! removals_staged_exactly "$list" strict; then
+    unstage_listed "$list"
+    staged=0
+    echo "the staged removals do not match the list; nothing published" >&2
+    exit 1
+  fi
+  if ! why=$(commit_removals "$list" "sync: remove $n file(s) | $ts"); then
+    unstage_listed "$list"
+    staged=0
+    echo "commit failed (${why:-no message}); nothing published" >&2
+    exit 1
+  fi
+  staged=0
+  # Committed: their queue records and held entries are done.
+  python3 -c "$PUBLISH_DONE_PY" "$QUEUE_DIR" "$HELD_FILE" "$list" 2>/dev/null || true
+  push_err=$(GIT_TERMINAL_PROMPT=0 git -C "$GSTACK_HOME" push origin HEAD 2>&1 >/dev/null) || push_rc=$?
+  GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-egress-receipt" outcome "$receipt_id" "exit:$push_rc" >/dev/null 2>&1 || true
+  if [ "$push_rc" -ne 0 ]; then
+    merge_and_retry_push "$host" || mrc=$?
+    [ "$MERGE_MOVED" = 1 ] && how=" after merging the remote's changes"
+  fi
+  if [ "$mrc" -eq 0 ]; then
+    rm -f "$DIVERGED_FILE"
+    # Only this run's removals count: the merge may also settle older ones.
+    local back="" came
+    came=$(printf '%s\n' "$MERGE_KEPT_LIST" | grep -Fxc -f "$list" || true)
+    case "$came" in ''|0) ;; *) back="; $came of them came back, edited on another machine" ;; esac
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
+    write_status "ok" "published $n removal(s)$how$back"
+    echo "published $n removal(s)$how$back"
+    exit 0
+  fi
+  if [ "$mrc" -eq 2 ]; then
+    write_status "push_failed" "committed $n removal(s) locally; diverged from the remote ($MERGE_REASON); merge aborted. $(resolve_hint)"
+    echo "committed $n removal(s); diverged from the remote ($MERGE_REASON); merge aborted. $(resolve_hint)" >&2
+    exit 1
+  fi
+  write_status "push_failed" "committed $n removal(s) locally; push failed ($(push_reason "$push_err")); a later sync retries it"
+  echo "committed $n removal(s); push failed ($(push_reason "$push_err")); a later gstack-brain-sync --once retries it" >&2
+  # Exit here, never return: the EXIT trap names this function's locals.
+  exit 1
 }
 
 subcmd_skip_file() {
@@ -834,12 +1685,73 @@ subcmd_drop_queue() {
     n=$(( n + mig_n ))
     rm -f "$QUEUE.migrating" 2>/dev/null || true
   fi
+  # Held removals are queued records: none are held any more.
+  rm -f "$HELD_FILE"
   if [ "$n" -eq 0 ]; then
     echo "queue already empty"
     exit 0
   fi
   echo "dropped $n queue entries"
 }
+
+IFS= read -r -d '' ENQUEUE_REMOVALS_PY <<'PYEOF' || true
+import json, os, sys, time
+from datetime import datetime, timezone
+# Removals are level-triggered, not edge-triggered: every run makes sure each
+# pending removal has one queued record, so a record lost to --drop-queue or a
+# failed drain comes back, and a held one is never duplicated. Its cursor
+# entry goes, so a file that returns is picked up again as a change.
+spool_dir, cursor_path = sys.argv[1:3]
+try:
+    scan = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+pending = (scan.get("pending") or []) if isinstance(scan, dict) and scan.get("ok") else []
+if not pending:
+    sys.exit(0)
+queued = set()
+try:
+    names = os.listdir(spool_dir)
+except OSError:
+    names = []
+for name in names:
+    if not name.endswith(".json"):
+        continue
+    try:
+        with open(os.path.join(spool_dir, name)) as f:
+            rec = json.loads(f.readline())
+        if isinstance(rec, dict) and isinstance(rec.get("file"), str):
+            queued.add(rec["file"])
+    except (OSError, ValueError):
+        pass
+ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+try:
+    os.makedirs(spool_dir, exist_ok=True)
+    for i, rel in enumerate(p for p in pending if p not in queued):
+        # Same record shape and tmp + os.replace write as the walk above.
+        rec = json.dumps({"file": rel, "ts": ts}, separators=(",", ":"))
+        tmp = os.path.join(spool_dir, f".tmp-{os.getpid()}-r{i}")
+        with open(tmp, "w") as f:
+            f.write(rec + "\n")
+        os.replace(tmp, os.path.join(spool_dir, f"{int(time.time())}-{os.getpid()}-r{i}.json"))
+        queued.add(rel)
+except OSError:
+    pass
+try:
+    with open(cursor_path) as f:
+        cursor = json.load(f)
+except (OSError, ValueError):
+    cursor = None
+if isinstance(cursor, dict) and any(p in cursor and p in queued for p in pending):
+    for p in pending:
+        if p in queued:
+            cursor.pop(p, None)
+    try:
+        with open(cursor_path, "w") as f:
+            json.dump(cursor, f)
+    except OSError:
+        pass
+PYEOF
 
 subcmd_discover_new() {
   if ! sync_active; then
@@ -943,6 +1855,11 @@ if to_enqueue:
 
 save_cursor(cursor_path, new_cursor)
 PYEOF
+  # With artifacts_sync_removals on, also queue the pending removals.
+  if [ "$(removals_setting)" = "on" ]; then
+    removals_scan 2>/dev/null \
+      | python3 -c "$ENQUEUE_REMOVALS_PY" "$QUEUE_DIR" "$DISCOVER_CURSOR" 2>/dev/null || true
+  fi
 }
 
 # -------- dispatch --------
@@ -952,8 +1869,10 @@ case "${1:-}" in
   --skip-file) shift; subcmd_skip_file "${1:-}" ;;
   --drop-queue) shift; subcmd_drop_queue "${1:-}" ;;
   --discover-new) subcmd_discover_new ;;
+  --list-removals) subcmd_list_removals ;;
+  --publish-removals) shift; subcmd_publish_removals "$@" ;;
   --help|-h)
-    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
     ;;
   *)
     echo "Unknown subcommand: $1" >&2

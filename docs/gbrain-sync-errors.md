@@ -93,6 +93,102 @@ your local commit still exists — the next skill run will retry the push.
 
 ---
 
+## `BRAIN_SYNC: push failed: diverged: <reason>`
+
+**Problem.** The push was rejected and the automatic merge with the remote
+failed. `<reason>` is `conflict in <paths>` (up to three), or
+`merge failed: <git's message>` when git stopped before merging anything
+(for example, local changes the merge would overwrite). A plain removal
+against an edit is not reported here: it is resolved by keeping the edit.
+
+**Cause.** Two machines changed the same file in ways the merge drivers can't
+reconcile, or the working tree is not in a state git can merge into.
+
+**Fix.** The merge was aborted and your commits are still local. The status
+keeps saying so, with the reason, until they reach the remote:
+```bash
+cd ~/.gstack && git fetch origin && git merge origin/main
+# resolve, commit, then:
+git push
+```
+Push it yourself: a merge commit you make is yours, and syncs never push
+commits that are not all their own.
+
+---
+
+## `BRAIN_SYNC: blocked: commit refused: <message>`
+
+**Problem.** Git refused the sync commit, usually because of the pre-commit
+hook in `~/.gstack/.git/hooks/pre-commit` or a signing failure.
+
+**Cause.** The message after the colon is git's own first line.
+
+**Fix.** The drain unstaged its changes and kept the queue, so nothing is
+lost and nothing stays half-staged. Fix the cause (edit the file the hook
+flags, or `gstack-brain-sync --skip-file <path>`), then run any skill.
+Removals don't go through this hook. A hook written before removal support
+(it scans removed text) only matters for manual `git rm` commits. Re-running
+`gstack-artifacts-init` refreshes it.
+
+---
+
+## `BRAIN_SYNC: blocked: removal commit failed: <message>`
+
+**Problem.** Git refused the commit that publishes removals. Removals skip
+the pre-commit hook, so the usual cause is commit signing
+(`commit.gpgsign`) failing. `gstack-brain-sync --publish-removals` reports
+the same refusal as `commit failed (<message>); nothing published`.
+
+**Fix.** Nothing was committed and the queue was kept. Fix the cause named
+after the colon, then run any skill (or re-run `--publish-removals`).
+
+---
+
+## `BRAIN_SYNC: blocked: staged removals differ from the approved set`
+
+**Problem.** With `artifacts_sync_removals` on, a sync found removals in the
+index that it did not approve (someone staged them by hand), or a file it was
+about to remove came back.
+
+**Fix.** Nothing was committed. Check `cd ~/.gstack && git status` and
+unstage what you don't want (`git reset -q HEAD -- <path>`). To publish a
+removal the valves hold, use `gstack-brain-sync --publish-removals --yes
+<path>`. Then run any skill.
+
+---
+
+## `queue empty; N local commit(s) not on the remote yet`
+
+**Not an error by itself.** Commits exist locally that the remote does not
+have yet, usually because a push was rejected or interrupted.
+
+- `(retried every 10 minutes)`: all of them are gstack-brain-sync's own, and
+  every run retries them (merging the remote's changes first) at most once
+  per 10 minutes.
+- `not all gstack-brain-sync's own: they go out with the next synced change`:
+  a commit you made by hand is among them. Syncs never push it on their own;
+  the next sync that commits something pushes everything. To send them now:
+  `cd ~/.gstack && git push`.
+
+If a retry's merge fails, the status says `diverged from the remote` instead
+(see above).
+
+---
+
+## `N removal(s) held for review`
+
+**Not an error.** With `artifacts_sync_removals` on, a removal that looks like
+a loss rather than a cleanup is held (see "Deleted and moved files" in
+`gbrain-sync.md`). Review and publish:
+```bash
+gstack-brain-sync --list-removals
+gstack-brain-sync --publish-removals --yes [<path>...]
+```
+If the files were lost by accident, restore them instead:
+`cd ~/.gstack && git checkout -- <path>`.
+
+---
+
 ## `gstack: brain-sync push NOT sent — the egress receipt could not be written`
 
 **Problem.** The push was refused before anything left your machine. Every
