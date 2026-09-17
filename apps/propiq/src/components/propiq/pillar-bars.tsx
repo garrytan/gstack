@@ -11,16 +11,8 @@
 import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { PillarScore } from '@/domain/scoring/types';
+import { ScoreBar, ScoreRampKey } from '@/components/propiq/score-ramp';
 import { cn } from '@/lib/utils';
-
-const barColor = (score: number): string =>
-  score >= 72
-    ? 'var(--color-buy)'
-    : score >= 55
-      ? 'var(--color-watch)'
-      : score >= 40
-        ? 'var(--color-negotiate)'
-        : 'var(--color-avoid)';
 
 const PillarRow = ({ pillar, weight }: { pillar: PillarScore; weight?: number }) => {
   const [open, setOpen] = useState(false);
@@ -32,7 +24,7 @@ const PillarRow = ({ pillar, weight }: { pillar: PillarScore; weight?: number })
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center gap-3 py-2.5 text-left"
+        className="-mx-2 flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-[var(--surface-1)]"
       >
         <ChevronRight
           aria-hidden
@@ -42,14 +34,7 @@ const PillarRow = ({ pillar, weight }: { pillar: PillarScore; weight?: number })
           )}
         />
         <span className="w-36 shrink-0 truncate text-xs font-medium sm:w-44">{pillar.label}</span>
-        <span className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--surface-2)]">
-          {scored && (
-            <span
-              className="block h-full rounded-full"
-              style={{ width: `${pillar.score}%`, background: barColor(pillar.score!) }}
-            />
-          )}
-        </span>
+        <ScoreBar score={pillar.score} className="flex-1" />
         <span
           data-figure
           className={cn(
@@ -137,9 +122,12 @@ export const PillarBars = ({
   pillars: readonly PillarScore[];
   weights?: Readonly<Partial<Record<string, number>>>;
 }) => (
-  <ul>
-    {pillars.map((p) => (
-      <PillarRow key={p.pillar} pillar={p} weight={weights?.[p.pillar]} />
-    ))}
-  </ul>
+  <>
+    <ul>
+      {pillars.map((p) => (
+        <PillarRow key={p.pillar} pillar={p} weight={weights?.[p.pillar]} />
+      ))}
+    </ul>
+    <ScoreRampKey className="mt-3" />
+  </>
 );

@@ -64,7 +64,7 @@ export const EvidencePanel = ({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <section className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+    <section className="rounded-lg propiq-card">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -117,7 +117,7 @@ export const CommercialDisclosure = ({ commercial }: { commercial: CommercialRel
     { label: 'Commission possible', value: commercial.commissionPossible },
   ];
   return (
-    <div className="mt-4 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3">
+    <div className="mt-4 rounded-md propiq-card p-3">
       <p className="text-xs font-semibold">Commercial disclosure</p>
       <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-3">
         {rows.map((r) => (

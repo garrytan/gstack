@@ -12,19 +12,11 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowRight } from 'lucide-react';
 import { DECISION_LABELS } from '@/domain/decision/engine';
-import type { Decision } from '@/domain/decision/engine';
 import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
 import { CardActions } from '@/components/site/card-actions';
 import { Tilt3D } from '@/components/site/tilt-3d';
 import type { SiteProperty } from '@/site/types';
-
-const DECISION_COLOR: Readonly<Record<Decision, string>> = {
-  BUY: 'var(--color-buy)',
-  NEGOTIATE: 'var(--color-negotiate)',
-  WATCH: 'var(--color-watch)',
-  AVOID: 'var(--color-avoid)',
-  INSUFFICIENT_EVIDENCE: 'var(--color-unknown)',
-};
+import { DECISION_COLOUR } from '@/components/propiq/decision-colour';
 
 /**
  * A stable, per-property gradient so cards are distinguishable at a glance.
@@ -44,11 +36,11 @@ const artFor = (id: string): string => {
 };
 
 export const SitePropertyCard = ({ property }: { property: SiteProperty }) => {
-  const colour = DECISION_COLOR[property.decision];
+  const colour = DECISION_COLOUR[property.decision];
   const under = property.priceDeviationPercent < 0;
 
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] transition-shadow hover:shadow-[0_18px_44px_-24px_rgba(13,21,36,0.4)]">
+    <article className="group flex h-full flex-col overflow-hidden rounded-xl propiq-card transition-shadow hover:shadow-[0_18px_44px_-24px_rgba(13,21,36,0.4)]">
       <div className="relative h-40 overflow-hidden" style={{ background: artFor(property.id) }}>
         {property.image && (
           <Image

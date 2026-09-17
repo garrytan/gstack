@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: 2026-09-15 · Milestones A and B complete; P1 delivered bar its providers; the buyer journey now runs end to end.
+Last updated: 2026-09-16 · Milestones A and B complete; P1 delivered bar its providers; the buyer journey runs end to end. The presentation layer has since been rebuilt as a dark intelligence surface — see `docs/UPGRADE_AUDIT.md` for the entry state of that pass and D-035…D-038 for what it decided.
 
 Status vocabulary: `IMPLEMENTED` · `FOUNDATION` · `PARTIAL` · `MOCK/DEMO` ·
 `NOT BUILT` · `BLOCKED BY DATA/INTEGRATION`.

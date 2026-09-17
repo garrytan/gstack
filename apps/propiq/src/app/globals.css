@@ -29,37 +29,38 @@
   --color-ink-900: #141821;
   --color-ink-950: #0b0e14;
 
-  /* The app's working accent IS the brand blue. It used to be a teal, which
-     meant a visitor crossing from the marketing site to the product watched
-     the company change colour. One identity, one accent. `accent-ink` is the
-     variant for accent-as-text on a light ground, where the 500 sits at 2.6:1
-     and fails outright. */
-  --color-accent-400: #6fdcd2;
-  --color-accent-500: #4fd1c5;
-  --color-accent-600: #2ba79b;
-  /* Mint is a light hue: on paper it sits near 1.8:1 and is unreadable as
-     text. `-ink` is the same hue taken down far enough to clear 4.5:1 there. */
-  --color-accent-ink: #14655e;
+  /* The accent is the logo's iris blue. It was a mint for a while, which put
+     the site and its own logo in two different palettes; the logo won. The
+     ramp is ordered so 400 is the lighter hover and 500 the resting fill, and
+     white clears 4.5:1 on both. */
+  --color-accent-400: #3b63ef;
+  --color-accent-500: #2a49c8;
+  --color-accent-600: #1e3a9e;
+  /* Accent-as-text. Same value as the 500 here, kept as its own name because
+     every subtree points `--text-accent` at it and a future ramp change should
+     not silently move what text reads. */
+  --color-accent-ink: #2a49c8;
 
-  /* The deep-teal surface ramp. The marketing surface is a single dark world
-     built on these, with mint as the only hue that ever pops. */
-  --color-teal-950: #0a2a2b;
-  --color-teal-900: #0f3d3e;
-  --color-teal-800: #134847;
-  --color-teal-700: #1b5a58;
-  --color-cream: #eef5f0;
+  /* The surface ramp. The names are historical — this was a teal stack — but
+     the values are the light iris world the whole product runs on now. 950 and
+     900 are the two dark values left, and only the closing call uses them. */
+  --color-teal-950: #101636;
+  --color-teal-900: #1a2350;
+  --color-teal-800: #f6f8ff;
+  --color-teal-700: #e8edff;
+  --color-cream: #eef1ff;
 
-  /* PropIQ brand. The ramp above is the identity now; these three names stay
-     because gradients and accents across the app reference them, and they all
-     resolve into the teal/mint world so there is still exactly one palette. */
-  --color-brand-blue-400: #6fdcd2;
-  --color-brand-blue-500: #4fd1c5;
-  --color-brand-blue-600: #2ba79b;
-  --color-brand-cyan-400: #7ae7dd;
-  --color-brand-cyan-500: #4fd1c5;
+  /* PropIQ brand. These names stay because gradients across the app reference
+     them; they all resolve into the iris/violet ramp, so there is still
+     exactly one palette behind every gradient on the page. */
+  --color-brand-blue-400: #6d8cf8;
+  --color-brand-blue-500: #3b63ef;
+  --color-brand-blue-600: #2a49c8;
+  --color-brand-cyan-400: #6d8cf8;
+  --color-brand-cyan-500: #3b63ef;
   --color-brand-violet-400: #8b7cf0;
   --color-brand-violet-500: #6d55d9;
-  --color-brand-ink: #06201f;
+  --color-brand-ink: #101636;
 
   /* Light-first marketing surfaces. The app keeps its own token stack. */
   --color-paper-0: #ffffff;
@@ -74,11 +75,17 @@
      where the first does not. A subtree picks its set once (see `.propiq-site`
      and `.propiq-dark`) so no component has to know which ground it landed on.
      A verdict that is legible on one half of the page and not the other is a
-     verdict the reader does not get. */
+     verdict the reader does not get.
+
+     Both sets are checked against the *lightest* surface they can reach, not
+     the ground the page sits on. Watch and avoid were tuned against
+     `--surface-0` (#0b0e14) and cleared 4.5:1 there, but cards sit on
+     `--surface-1` (#141821), where they were 4.22 and 3.94 — and 3.93 and 3.72
+     inside a verdict badge, whose 7% tint lifts the ground once more. */
   --color-buy: #2f9e63;
   --color-negotiate: #d9a133;
-  --color-watch: #4a7fb5;
-  --color-avoid: #c4524b;
+  --color-watch: #558bc1;
+  --color-avoid: #d7635b;
   --color-unknown: #6b7383;
 
   --color-buy-ink: #1f7a4a;
@@ -96,14 +103,15 @@
   --surface-2: #eceef2;
   --border-subtle: #dfe3ea;
   --border-strong: #c4cad6;
+  --surface-card: var(--surface-0);
   --text-primary: #141821;
   --text-secondary: #454d5e;
   /* #7c8598 sat at 3.45:1 on this surface — 215 failing nodes across the app
      before anyone scanned it. */
   --text-muted: #5a6980;
-  /* The accent as *text*. Mint is a light hue: it reads on a dark ground and
-     sits near 1.8:1 on paper, so light surfaces take the ink variant and dark
-     subtrees take the 500. Mint as a *fill* always carries dark text. */
+  /* The accent as *text*. Iris is a mid-dark blue: light surfaces take the ink
+     variant, and the one dark subtree left points this at the lighter 400,
+     which is the value that carries on navy. As a *fill* it takes white. */
   --text-accent: var(--color-accent-ink);
 
   /* Verdicts on a light ground take the ink set, exactly as `.propiq-site`
@@ -113,6 +121,19 @@
   --color-watch: var(--color-watch-ink);
   --color-avoid: var(--color-avoid-ink);
   --color-unknown: var(--color-unknown-ink);
+
+  /* Sequential ramp for score magnitude (one hue, light to dark).
+     A pillar score is a magnitude, not a verdict. Painting it with the
+     buy/watch/negotiate/avoid set implied a per-pillar recommendation the
+     engine never computes — the verdict is composite-level and depends on
+     risk severity and the price gap as well as the score, so a green pillar
+     could sit under an AVOID. One hue, five even OKLCH lightness steps at
+     H=267, keeps the status palette reserved for the decision that exists. */
+  --seq-score-1: #a6bdf5;
+  --seq-score-2: #7d9dee;
+  --seq-score-3: #5c81e7;
+  --seq-score-4: #3c62e2;
+  --seq-score-5: #2848c7;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -122,6 +143,7 @@
     --surface-2: #1f2430;
     --border-subtle: #262d3b;
     --border-strong: #3a4354;
+    --surface-card: var(--surface-1);
     --text-primary: #f6f7f9;
     --text-secondary: #b0b7c6;
     --text-muted: #939cae;
@@ -129,9 +151,18 @@
 
     --color-buy: #2f9e63;
     --color-negotiate: #d9a133;
-    --color-watch: #4a7fb5;
-    --color-avoid: #c4524b;
+    --color-watch: #558bc1;
+    --color-avoid: #d7635b;
     --color-unknown: #8b93a3;
+
+    /* The ramp is re-stepped for the dark ground rather than flipped: on a
+       near-black surface the high end has to be the light one, or the top of
+       the scale disappears into the track. */
+    --seq-score-1: #3c569e;
+    --seq-score-2: #4a6cd1;
+    --seq-score-3: #6689ea;
+    --seq-score-4: #89a8f7;
+    --seq-score-5: #adc6ff;
   }
 }
 
@@ -427,16 +458,6 @@
   }
 }
 
-/* Grain. Inline so it costs no request and cannot be blocked. */
-.propiq-grain {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.035;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
 /* ---------------------------------------------------------------------------
    Glass.
 
@@ -532,6 +553,7 @@
   --surface-2: #1f2430;
   --border-subtle: #262d3b;
   --border-strong: #3a4354;
+  --surface-card: var(--surface-1);
   --text-primary: #f6f7f9;
   --text-secondary: #b0b7c6;
   --text-muted: #939cae;
@@ -539,9 +561,18 @@
 
   --color-buy: #2f9e63;
   --color-negotiate: #d9a133;
-  --color-watch: #4a7fb5;
-  --color-avoid: #c4524b;
+  --color-watch: #558bc1;
+  --color-avoid: #d7635b;
   --color-unknown: #8b93a3;
+
+  /* The ramp is re-stepped for the dark ground rather than flipped: on a
+       near-black surface the high end has to be the light one, or the top of
+       the scale disappears into the track. */
+  --seq-score-1: #3c569e;
+  --seq-score-2: #4a6cd1;
+  --seq-score-3: #6689ea;
+  --seq-score-4: #89a8f7;
+  --seq-score-5: #adc6ff;
 
   position: relative;
   isolation: isolate;
@@ -629,6 +660,7 @@ body:has(.propiq-canvas) > footer {
   --surface-2: #1f2430;
   --border-subtle: #262d3b;
   --border-strong: #3a4354;
+  --surface-card: var(--surface-1);
   --text-primary: #f6f7f9;
   --text-secondary: #b0b7c6;
   --text-muted: #939cae;
@@ -636,9 +668,18 @@ body:has(.propiq-canvas) > footer {
 
   --color-buy: #2f9e63;
   --color-negotiate: #d9a133;
-  --color-watch: #4a7fb5;
-  --color-avoid: #c4524b;
+  --color-watch: #558bc1;
+  --color-avoid: #d7635b;
   --color-unknown: #8b93a3;
+
+  /* The ramp is re-stepped for the dark ground rather than flipped: on a
+       near-black surface the high end has to be the light one, or the top of
+       the scale disappears into the track. */
+  --seq-score-1: #3c569e;
+  --seq-score-2: #4a6cd1;
+  --seq-score-3: #6689ea;
+  --seq-score-4: #89a8f7;
+  --seq-score-5: #adc6ff;
 
   color: var(--text-primary);
 }
@@ -663,27 +704,59 @@ body:has(.propiq-canvas) > footer {
    routes, which keep their own dark-led token stack.
 --------------------------------------------------------------------------- */
 
-.propiq-site {
-  --surface-0: var(--color-teal-900);
-  --surface-1: var(--color-teal-800);
-  --surface-2: var(--color-teal-700);
-  --border-subtle: rgba(238, 245, 240, 0.1);
-  --border-strong: rgba(238, 245, 240, 0.2);
-  --text-primary: var(--color-cream);
-  --text-secondary: rgba(238, 245, 240, 0.7);
-  --text-muted: rgba(238, 245, 240, 0.62);
-  --text-accent: var(--color-accent-500);
+/* The marketing surface is light now, in the logo's own blue.
 
-  /* A third verdict set, for the teal ground.
+   It used to be a deep-teal world with mint as the only hue that popped, which
+   put the site and its own logo in two different palettes. One palette wins,
+   and it is the logo's: the page is white to pale iris, accents are iris blue
+   through violet, and the only dark band left is the closing call.
 
-     The bright set was tuned against a near-black #070b16; teal-900 is a
-     markedly lighter ground, so the same greens and ambers land around 3.0–3.5:1
-     on it. These are the same five meanings lifted until they clear 4.5:1 here. */
-  --color-buy: #5ee6a8;
+   Every value below was checked against the lightest surface it can land on,
+   not just the darkest — a token that passes on `--surface-0` and fails on
+   `--surface-2` is a token that fails, because cards sit on `--surface-2`. */
+/* One ground, two selectors. The marketing surface and the application were
+   two worlds — a dark command centre that handed you off to a light workspace
+   mid-journey, which made the product feel like two products stapled together.
+   They share a definition rather than two copies, because two copies of a
+   palette drift and the drift is invisible until someone screenshots both. */
+.propiq-site,
+.propiq-app {
+  /* The marketing surface is the command centre: near-black midnight navy, one
+     electric-blue accent, and light only where it carries information.
+
+     The bands are stepped by OKLCH lightness, not by contrast ratio. Down here
+     the ratio compresses — deep to card is 1.16:1 and looks identical on paper
+     — while ΔL stays perceptually honest at ~0.035 a step, which is what makes
+     the chapters read as chapters. Every text token below is checked against
+     the lightest ground it can reach (a glass panel over `raise`, #161e33),
+     not against the page. */
+  --surface-0: #070c1a;
+  --surface-1: #0d1426;
+  --surface-2: #16203a;
+  --surface-card: #111931;
+  --border-subtle: rgba(143, 176, 255, 0.13);
+  --border-strong: rgba(143, 176, 255, 0.26);
+  --text-primary: #f2f5fa;
+  --text-secondary: #aeb9d0;
+  --text-muted: #9aa6c0;
+  /* The 400 disappears on this ground; the 300 is the value that carries. */
+  --text-accent: var(--color-iris-300);
+
+  /* The bright verdict set, re-measured on the darkest and the lightest
+     surface a badge can land on. Worst case is 7.5:1. */
+  --color-buy: #4ade94;
   --color-negotiate: #f5c563;
-  --color-watch: #8cc3ef;
-  --color-avoid: #ff9189;
-  --color-unknown: #b3bdc9;
+  --color-watch: #7fb8f0;
+  --color-avoid: #ff8f86;
+  --color-unknown: #a8b2c6;
+
+  /* The score ramp, re-stepped for this ground: light is high, because on a
+     near-black track the dark end of a light-to-dark ramp is the track. */
+  --seq-score-1: #2a61b1;
+  --seq-score-2: #317ae3;
+  --seq-score-3: #5898f6;
+  --seq-score-4: #84b6ff;
+  --seq-score-5: #afd3ff;
 
   background: var(--surface-0);
   color: var(--text-primary);
@@ -701,24 +774,33 @@ body[data-dock='on'] .propiq-site {
 .propiq-dark {
   --surface-0: var(--color-teal-950);
   --surface-1: var(--color-teal-900);
-  --surface-2: var(--color-teal-800);
-  --border-subtle: rgba(238, 245, 240, 0.1);
-  --border-strong: rgba(238, 245, 240, 0.2);
+  --surface-2: #232d63;
+  --border-subtle: rgba(238, 241, 255, 0.12);
+  --border-strong: rgba(238, 241, 255, 0.24);
+  --surface-card: var(--surface-1);
   --text-primary: var(--color-cream);
-  --text-secondary: rgba(238, 245, 240, 0.7);
-  --text-muted: rgba(238, 245, 240, 0.62);
-  --text-accent: var(--color-accent-500);
+  --text-secondary: rgba(238, 241, 255, 0.76);
+  --text-muted: rgba(238, 241, 255, 0.68);
+  /* The 500 is a mid blue: it reads as text on white and disappears on navy.
+     The 400 is the one that carries here. */
+  --text-accent: var(--color-accent-400);
 
-  /* A third verdict set, for the teal ground.
-
-     The bright set was tuned against a near-black #070b16; teal-900 is a
-     markedly lighter ground, so the same greens and ambers land around 3.0–3.5:1
-     on it. These are the same five meanings lifted until they clear 4.5:1 here. */
+  /* The bright verdict set. Tuned against a near-black; the iris navy is close
+     enough in value that these still clear 4.5:1 on it. */
   --color-buy: #5ee6a8;
   --color-negotiate: #f5c563;
   --color-watch: #8cc3ef;
   --color-avoid: #ff9189;
   --color-unknown: #b3bdc9;
+
+  /* Re-stepped against this subtree's own track (#232d63), which is lighter
+     than the near-black used elsewhere — the generic dark ramp's low end sat
+     at 1.85:1 on it and the bottom of the scale vanished. */
+  --seq-score-1: #4261be;
+  --seq-score-2: #5178ec;
+  --seq-score-3: #7196f8;
+  --seq-score-4: #95b3ff;
+  --seq-score-5: #b9d0ff;
 
   background: var(--surface-0);
   color: var(--text-primary);
@@ -756,28 +838,6 @@ body[data-dock='on'] .propiq-site {
   );
 }
 
-/* Selective glass, for the hero's floating metric cards only.
-
-   The card is one hue away from the ground it floats on, so separation has to
-   come from value and edge rather than colour: a ground darker than the hero
-   behind it, and a rim bright enough to trace the card's shape. Glass tinted
-   to match its backdrop stops reading as an object at all. */
-.propiq-site-glass {
-  background: color-mix(in srgb, #04181a 78%, transparent);
-  border: 1px solid color-mix(in srgb, white 16%, transparent);
-  box-shadow:
-    inset 0 1px 0 0 color-mix(in srgb, white 14%, transparent),
-    0 24px 50px -24px rgba(2, 10, 12, 0.95);
-}
-
-@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-  .propiq-site-glass {
-    background: color-mix(in srgb, #04181a 62%, transparent);
-    backdrop-filter: blur(18px) saturate(1.3);
-    -webkit-backdrop-filter: blur(18px) saturate(1.3);
-  }
-}
-
 /* Reveal on scroll. Starts visible and settles, never parked at zero opacity:
    the first still frame of the page has to be readable. */
 @keyframes propiq-rise {
@@ -798,103 +858,6 @@ body[data-dock='on'] .propiq-site {
 @media (prefers-reduced-motion: reduce) {
   .propiq-reveal {
     animation: none;
-  }
-}
-
-/* ---------------------------------------------------------------------------
-   Hero background motion.
-
-   Everything here animates `transform` or `opacity` only, so each layer stays
-   on the compositor. Nothing animates `filter`, `box-shadow` or
-   `background-position`, which force a paint on every frame and were the
-   specific thing the brief ruled out.
-
-   The loops are long and the travel is a few pixels: at these values the scene
-   reads as alive rather than animated, which is the difference between premium
-   and restless.
---------------------------------------------------------------------------- */
-
-@keyframes propiq-hero-blob {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(5px, -7px, 0) scale(1.012);
-  }
-}
-
-@keyframes propiq-hero-float {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(-6px, 9px, 0);
-  }
-}
-
-@keyframes propiq-hero-drift {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-    opacity: var(--particle-opacity, 1);
-  }
-  50% {
-    transform: translate3d(3px, -6px, 0);
-    opacity: calc(var(--particle-opacity, 1) * 0.55);
-  }
-}
-
-@keyframes propiq-hero-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.03);
-    opacity: 0.88;
-  }
-}
-
-.propiq-hero-blob {
-  animation: propiq-hero-blob 11s ease-in-out infinite;
-  will-change: transform;
-}
-
-.propiq-hero-float {
-  animation: propiq-hero-float 18s ease-in-out infinite;
-  will-change: transform;
-}
-
-.propiq-hero-float-slow {
-  animation: propiq-hero-float 22s ease-in-out infinite reverse;
-  will-change: transform;
-}
-
-.propiq-hero-drift {
-  animation-name: propiq-hero-drift;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
-}
-
-.propiq-hero-breathe {
-  animation: propiq-hero-breathe 14s ease-in-out infinite;
-  will-change: transform, opacity;
-}
-
-/* The `:nth-child(n)` bump is deliberate: a bare class selector loses to the
-   per-particle rules on specificity, which is how a previous reduced-motion
-   fix in this file silently failed. */
-@media (prefers-reduced-motion: reduce) {
-  .propiq-hero-blob:nth-child(n),
-  .propiq-hero-float:nth-child(n),
-  .propiq-hero-float-slow:nth-child(n),
-  .propiq-hero-drift:nth-child(n),
-  .propiq-hero-breathe:nth-child(n) {
-    animation: none;
-    will-change: auto;
   }
 }
 
@@ -942,9 +905,11 @@ body[data-dock='on'] .propiq-site {
    Colour alone does not distinguish it for a reader who cannot separate the
    two hues, which is what axe's link-in-text-block rule is about. Standalone
    links — nav items, cards, buttons — are excluded: they are not embedded in
-   a block of text, so their boundary is already obvious. */
-p a:not([class*='inline-flex']),
-li a:not([class*='inline-flex']) {
+   a block of text, so their boundary is already obvious. A card whose whole
+   body is the link marks itself `.propiq-block-link`; matching on utility
+   classes alone underlined every paragraph inside one. */
+p a:not([class*='inline-flex']):not(.propiq-block-link),
+li a:not([class*='inline-flex']):not(.propiq-block-link) {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -974,38 +939,13 @@ li a:not([class*='inline-flex']) {
   will-change: transform;
 }
 
-/* The hero's planes. `--px` / `--py` arrive from `HeroParallax` in roughly
-   -1..1; each layer multiplies them by its own distance. Far things barely
-   move, near things move a lot, which is the whole of parallax. */
-.propiq-depth {
-  --depth: 6;
-  transform: translate3d(
-    calc(var(--px, 0) * var(--depth) * 1px),
-    calc(var(--py, 0) * var(--depth) * 1px),
-    0
-  );
-  transition: transform 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  will-change: transform;
-}
-
-.propiq-depth-far {
-  --depth: 5;
-}
-.propiq-depth-mid {
-  --depth: 14;
-}
-.propiq-depth-near {
-  --depth: 26;
-}
-
 /* A tilted card lifts its own shadow with it, or it reads as a sticker. */
 .propiq-tilt-host:hover .propiq-tilt-inner {
   box-shadow: 0 34px 70px -34px rgba(0, 0, 0, 0.8);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .propiq-tilt-inner:nth-child(n),
-  .propiq-depth:nth-child(n) {
+  .propiq-tilt-inner:nth-child(n) {
     transform: none;
     transition: none;
     will-change: auto;
@@ -1074,28 +1014,22 @@ li a:not([class*='inline-flex']) {
    flat hairline.
 --------------------------------------------------------------------------- */
 
-/* The three section grounds. `deep` and `raise` sit either side of the base
-   teal so consecutive sections never share a value. */
+/* The three section grounds, one ΔL step apart either side of the page. */
 .propiq-band-deep {
-  --surface-0: var(--color-teal-950);
-  --surface-1: var(--color-teal-900);
-  --surface-2: var(--color-teal-800);
+  --surface-0: #03060f;
+  --surface-1: #0b1120;
+  --surface-2: #121a30;
+  --surface-card: #0d1528;
   background: var(--surface-0);
 }
 
-/* The lifted band is the one ground the base text tokens were NOT tuned for.
-   Cream at 0.7 lands at 3.97:1 on its lightest surface, so the secondary and
-   muted ramps are re-cut here against that surface rather than against the
-   band's own background — a token that passes on surface-0 and fails on
-   surface-2 is a token that fails, because a card sits on surface-2. */
+/* The lifted band. "Raise" means toward light on either ground; here that is
+   one ΔL step up from the page rather than toward white. */
 .propiq-band-raise {
-  --surface-0: var(--color-teal-800);
-  --surface-1: var(--color-teal-700);
-  --surface-2: #1e6461;
-  --text-secondary: rgba(238, 245, 240, 0.88);
-  --text-muted: rgba(238, 245, 240, 0.82);
-  --border-subtle: rgba(238, 245, 240, 0.14);
-  --border-strong: rgba(238, 245, 240, 0.26);
+  --surface-0: #0d1426;
+  --surface-1: #141d33;
+  --surface-2: #1b2442;
+  --surface-card: #16203a;
   background: var(--surface-0);
 }
 
@@ -1113,7 +1047,7 @@ li a:not([class*='inline-flex']) {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in srgb, var(--color-accent-400) 42%, transparent) 50%,
+    color-mix(in srgb, var(--color-accent-400) 34%, transparent) 50%,
     transparent 100%
   );
   pointer-events: none;
@@ -1132,4 +1066,867 @@ li a:not([class*='inline-flex']) {
     var(--color-accent-400) 0%,
     var(--color-brand-violet-400) 100%
   );
+}
+
+/* ---------------------------------------------------------------------------
+   The light hero.
+
+   One deliberately light, blue-to-violet subtree at the top of the page. It is
+   the logo's own palette, so the mark finally sits in a world that matches it
+   — and it is NOT the teal the rest of the site runs on. The hero's last band
+   dissolves into that teal so the change of world reads as a transition rather
+   than two pages stapled together. Carrying the blue further down the page, or
+   pulling the logo toward the teal, is the open question either way.
+
+   Tokens are redefined for the subtree rather than overridden per element, so
+   every child picks up a ramp that clears 4.5:1 on this ground without knowing
+   it landed somewhere light.
+--------------------------------------------------------------------------- */
+
+:root {
+  /* The logo's ramp, as real colours rather than aliases onto mint. */
+  --color-iris-50: #f4f6ff;
+  --color-iris-100: #e8edff;
+  /* The steps the dark ground needs: 300 for accent text (7.75:1 on the
+     lightest glass panel), cyan and violet for the intelligence gradient. */
+  --color-iris-300: #8fb0ff;
+  --color-iris-cyan-300: #6fe3f5;
+  --color-iris-cyan-400: #3fd3ec;
+  --color-iris-violet-300: #b6a5ff;
+  --color-iris-400: #6d8cf8;
+  --color-iris-500: #3b63ef;
+  --color-iris-600: #2a49c8;
+  --color-iris-900: #16205c;
+  --color-iris-violet-400: #9a7cf5;
+  --color-iris-violet-500: #7c53e8;
+}
+
+/* The headline's second word and the stage figures. */
+.propiq-iris-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-iris-500) 0%,
+    var(--color-iris-400) 45%,
+    var(--color-iris-violet-500) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  padding-bottom: 0.06em;
+}
+
+@media (forced-colors: active) {
+  .propiq-iris-text {
+    background: none;
+    color: CanvasText;
+  }
+}
+
+.propiq-iris-gradient {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-iris-500) 0%,
+    var(--color-iris-400) 48%,
+    var(--color-iris-violet-500) 100%
+  );
+}
+
+/* A stage card. Glass over the wash, with a rim that lifts on hover. */
+.propiq-stage-card {
+  /* Lifted off its ground, in whichever direction "lifted" points there. The
+     old rule stacked two literal whites and a white inset — correct on the
+     light page it was written for, and on the dark one it painted a white slab
+     with near-white text on it. Same failure `.propiq-card` had; this one hid
+     longer because the section it lives in moved. */
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-card) 92%, var(--text-primary)),
+    var(--surface-card)
+  );
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, var(--text-primary) 8%, transparent) inset,
+    0 10px 30px -14px rgba(0, 0, 0, 0.55),
+    0 2px 6px -2px rgba(0, 0, 0, 0.3);
+  transition:
+    transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 220ms ease;
+}
+
+a:hover > .propiq-stage-card,
+a:focus-visible > .propiq-stage-card {
+  transform: translateY(-3px);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.95) inset,
+    0 20px 44px -16px rgba(43, 73, 200, 0.42),
+    0 3px 10px -3px rgba(22, 32, 92, 0.16);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a:hover > .propiq-stage-card,
+  a:focus-visible > .propiq-stage-card {
+    transform: none;
+  }
+}
+
+/* The stage with nothing behind it. Flat, dashed, no lift — it is not a link
+   and must not look like one. */
+.propiq-stage-card--empty {
+  background: color-mix(in srgb, var(--surface-card) 55%, transparent);
+  border: 1px dashed var(--border-strong);
+  box-shadow: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Surfaces with depth.
+
+   Twenty-two cards across the page all carried the same white fill and 1px
+   hairline, which is why a light page reads as flat: nothing sits above
+   anything else. These give a card an edge made of light rather than a drawn
+   line, and let it lift when it is interactive.
+
+   Shadows are tinted with the page's own blue rather than neutral grey. A grey
+   shadow on a blue-white ground reads as dirt; a blue one reads as depth.
+--------------------------------------------------------------------------- */
+
+/* `--surface-card` and not a literal white. A card is its own surface, and
+   which direction "lifted" points depends on the ground: on a light page a
+   card is the whiter thing, on a near-black one it is the lighter-grey thing.
+   So every ground declares its own card surface next to its text ramp, and the
+   component asks for it by name.
+
+   The literal white survived because the accessibility sweep only ever ran
+   light-scheme. Under a dark OS every app card painted #ffffff and then
+   printed `--text-primary` (#f6f7f9) on it at 1.05:1 — invisible, on every
+   route. `axe-app.js` runs both schemes now, so it cannot come back quietly. */
+.propiq-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    0 1px 2px -1px rgba(22, 32, 92, 0.1),
+    0 6px 18px -10px rgba(22, 32, 92, 0.18);
+  transition:
+    transform 200ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 200ms ease,
+    border-color 200ms ease;
+}
+
+/* Only cards that are themselves a link or hold one should move. A static
+   panel that lifts under the pointer is noise. */
+.propiq-card-interactive:hover,
+a:hover > .propiq-card,
+a:focus-visible > .propiq-card {
+  transform: translateY(-2px);
+  border-color: rgba(43, 73, 200, 0.24);
+  box-shadow:
+    0 2px 4px -2px rgba(22, 32, 92, 0.12),
+    0 18px 38px -16px rgba(43, 73, 200, 0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-card,
+  .propiq-card-interactive:hover,
+  a:hover > .propiq-card,
+  a:focus-visible > .propiq-card {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* The gradient tile behind an icon. The page's strongest recurring motif, and
+   the one thing carrying real colour outside the hero. */
+.propiq-icon-tile {
+  background-image: linear-gradient(
+    135deg,
+    var(--color-accent-400) 0%,
+    var(--color-brand-violet-400) 100%
+  );
+  color: #ffffff;
+  box-shadow: 0 8px 18px -8px color-mix(in srgb, var(--color-accent-400) 65%, transparent);
+}
+
+/* A section eyebrow, as a tinted pill rather than bare tracking. Reads as a
+   chapter marker instead of a stray line of small caps. */
+.propiq-eyebrow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent-400) 14%, transparent);
+  /* `--text-accent`, not the ink literal. The ink value is a mid blue picked
+     for a white ground; on the dark bands it landed at 2.39:1 on six section
+     headers at once. The token is whatever each ground already decided reads
+     as accent text there. */
+  color: var(--text-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent-400) 26%, transparent);
+}
+
+/* Bands get a wash rather than a flat fill, so an edge never reads as a seam
+   across an otherwise uniform field. On a near-black ground the wash has to be
+   light rather than saturated: a blue glow over blue-black just reads as a
+   dirty patch, where a lifted luminance reads as depth. */
+.propiq-band-raise {
+  background-image: radial-gradient(120% 90% at 50% 0%, rgba(111, 227, 245, 0.05), transparent 62%);
+}
+
+.propiq-band-deep {
+  background-image:
+    radial-gradient(90% 70% at 12% 0%, rgba(143, 176, 255, 0.07), transparent 60%),
+    radial-gradient(90% 70% at 88% 100%, rgba(182, 165, 255, 0.06), transparent 60%);
+}
+
+/* The primary action. A flat fill on a pale page is the one thing a reader's
+   eye should land on and it was not earning that; the gradient and a lifted
+   shadow make it the brightest object on the screen. Hover deepens rather than
+   lightens, so the label keeps its contrast. */
+.propiq-btn-primary {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-accent-400) 0%,
+    var(--color-accent-500) 52%,
+    var(--color-brand-violet-500) 100%
+  );
+  box-shadow: 0 10px 24px -12px color-mix(in srgb, var(--color-accent-500) 85%, transparent);
+  transition:
+    box-shadow 200ms ease,
+    filter 200ms ease;
+}
+
+.propiq-btn-primary:hover {
+  filter: saturate(1.12) brightness(0.96);
+  box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--color-accent-500) 95%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   Craft layer.
+
+   Four things separate a competent product page from one worth looking at, and
+   none of them is more colour:
+
+     1. Texture. Flat gradients read as cheap at large sizes because real
+        surfaces have grain. One tiling noise field over the whole page, at an
+        opacity you cannot consciously see, is what stops a big wash looking
+        like a fill tool.
+     2. Motion tied to reading position, not to load. Everything arriving at
+        once is a splash screen; sections arriving as you reach them is pace.
+     3. Type that commits. Display sizes with negative tracking and optical
+        alignment, not body copy set larger.
+     4. One idea carried everywhere. Here it is the product's own thesis —
+        every figure names where it came from — drawn as a hairline tether
+        from the number to its source.
+--------------------------------------------------------------------------- */
+
+/* 1. Grain. One layer inside the hero's own background stack (see
+      `.propiq-hero-light`), which is where the big flat gradient actually is.
+
+      It is deliberately NOT a page-wide layer. As a fixed overlay above the
+      content, and again as a background on the container that paints behind
+      all the body text, it made axe compute every contrast ratio through an
+      image it cannot evaluate: 1,887 violations reporting text as near-white
+      on white, when the real computed colour was #4a5578 at 6.8:1. The
+      failures were false, but a page whose contrast can no longer be measured
+      is not a page worth shipping, so the texture stays where it composes. */
+
+/* 2. Scroll-driven reveal. `animation-timeline: view()` runs on the
+      compositor with no observer and no JS; browsers without it simply show
+      the content, which is the correct fallback rather than a hidden page. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    /* Transform only, never opacity. Fading in on scroll leaves everything
+       below the fold at `opacity: 0` in the static document — invisible to a
+       screenshot, to a crawler, and to anyone whose scroll never fires. The
+       contrast sweep caught it as 414 violations, which is the honest
+       description of a page whose content is not painted. A rise alone still
+       reads as arrival and is always legible. */
+    @keyframes propiq-enter {
+      from {
+        transform: translateY(22px);
+      }
+      to {
+        transform: none;
+      }
+    }
+
+    .propiq-seam > div > * {
+      animation: propiq-enter linear both;
+      animation-timeline: view();
+      /* Finish well before the element is centred, or the reader is looking
+         at something still moving. */
+      animation-range: entry 8% cover 26%;
+    }
+  }
+}
+
+/* 3. Display type. Section headings get optical alignment and tighter
+      tracking than body copy would ever take. */
+.propiq-display {
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+  font-feature-settings: 'ss01' on;
+}
+
+/* 4. The tether. A figure and the constant it came from, joined by a hairline
+      so the claim and its receipt read as one object. This is the product's
+      argument made visible, and it is the reason the page looks like this
+      rather than like every other analytics landing page. */
+.propiq-sourced {
+  position: relative;
+  padding-left: 0.85rem;
+}
+
+.propiq-sourced::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.35em;
+  bottom: 0.35em;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    var(--color-accent-400) 0%,
+    var(--color-brand-violet-400) 100%
+  );
+}
+
+/* Links in prose thicken on hover rather than changing colour. It has to stay
+   a real `text-decoration`: a background-image underline looks identical and
+   does NOT satisfy axe's link-in-text-block rule, which reads the computed
+   decoration. Nearly shipped that.
+
+   A link inside a `nav` is exempt. The rule it satisfies is about links that
+   sit INSIDE a block of text, where losing the underline leaves colour as the
+   only thing marking them — a list of destinations under a heading is not that,
+   and underlining forty of them at once turns the footer into a wall of rules.
+   The exemption is verified, not assumed: `axe-app.js` sweeps every route in
+   both schemes and link-in-text-block stays clean. */
+.propiq-site nav a {
+  text-decoration: none;
+}
+
+.propiq-site nav a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.propiq-site a:not([class*='inline-flex']):not(.propiq-block-link) {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-thickness 180ms ease;
+}
+
+.propiq-site a:not([class*='inline-flex']):not(.propiq-block-link):hover {
+  text-decoration-thickness: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-site a:not([class*='inline-flex']):not(.propiq-block-link) {
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The score mark.
+
+   One mark definition for every pillar bar on the site and in the app, so the
+   same score never looks like two different things on two screens.
+
+   Three things it does that a plain div could not:
+
+   1. Quartile gridlines at 25 / 50 / 75, drawn on the track *behind* the fill.
+      They are what makes a bare bar readable without an axis — "cleared the
+      halfway mark" is a glance rather than a comparison against its neighbour.
+   2. A flat baseline and a rounded data end. The bar grows from zero, so its
+      left edge is the axis and only the right edge is data.
+   3. A 2px surface gap at the data end, so a bar near 100 still reads as a
+      length rather than as a filled track.
+--------------------------------------------------------------------------- */
+
+.propiq-scorebar {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-2);
+  /* The gap the fill is measured inside. */
+  padding-right: 2px;
+}
+
+.propiq-scorebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    to right,
+    transparent calc(25% - 0.5px),
+    var(--border-strong) calc(25% - 0.5px),
+    var(--border-strong) calc(25% + 0.5px),
+    transparent calc(25% + 0.5px),
+    transparent calc(50% - 0.5px),
+    var(--border-strong) calc(50% - 0.5px),
+    var(--border-strong) calc(50% + 0.5px),
+    transparent calc(50% + 0.5px),
+    transparent calc(75% - 0.5px),
+    var(--border-strong) calc(75% - 0.5px),
+    var(--border-strong) calc(75% + 0.5px),
+    transparent calc(75% + 0.5px)
+  );
+  opacity: 0.55;
+}
+
+.propiq-scorebar-fill {
+  position: relative;
+  display: block;
+  height: 100%;
+  /* Square at the baseline, rounded at the data end. */
+  border-radius: 0 999px 999px 0;
+  transition: width 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-scorebar-fill {
+    transition: none;
+  }
+}
+
+/* The ramp key. Five swatches, butted together, read as one continuous scale
+   rather than five categories — which is exactly what the ramp is. */
+.propiq-ramp-key {
+  display: flex;
+  overflow: hidden;
+  border-radius: 999px;
+}
+
+.propiq-ramp-key > span {
+  display: block;
+  width: 1.25rem;
+  height: 0.375rem;
+}
+
+/* ---------------------------------------------------------------------------
+   The intelligence node motif.
+
+   One vocabulary — a luminous point, and the inference drawn between two of
+   them — used in the hero, behind the score and at section seams. Only
+   `transform` and `opacity` animate, so every frame is composited and the
+   scene costs no JavaScript at all. That is also why there is no low-power
+   branch: this IS the low-power path.
+--------------------------------------------------------------------------- */
+
+.propiq-nodefield {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.propiq-nodefield-path {
+  /* The dash travels the line rather than the line moving, so the geometry is
+     static and only the paint animates. */
+  stroke-dasharray: 8 92;
+  animation: propiq-trace 7s linear infinite;
+}
+
+@keyframes propiq-trace {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.propiq-nodefield-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: propiq-breathe 5.5s ease-in-out infinite;
+}
+
+@keyframes propiq-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+
+.propiq-nodefield-halo {
+  fill: none;
+  stroke: var(--color-iris-cyan-300);
+  stroke-width: 0.18;
+  opacity: 0.35;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: propiq-pulse 4.5s ease-out infinite;
+}
+
+@keyframes propiq-pulse {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.5;
+  }
+  70%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-nodefield-path,
+  .propiq-nodefield-node,
+  .propiq-nodefield-halo {
+    animation: none;
+  }
+  /* Stopped, not hidden: the constellation is the composition, and removing it
+     leaves a hole where the scene was. */
+  .propiq-nodefield-path {
+    stroke-dasharray: none;
+    opacity: 0.4;
+  }
+  .propiq-nodefield-halo {
+    transform: scale(1.6);
+    opacity: 0.25;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Glass. Used on the hero's floating readouts and nowhere a solid card would
+   do — a page of glass panels is a page with no hierarchy left to spend.
+--------------------------------------------------------------------------- */
+
+.propiq-glass {
+  background: rgba(143, 176, 255, 0.07);
+  border: 1px solid rgba(143, 176, 255, 0.16);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.07),
+    0 18px 40px -28px rgba(0, 0, 0, 0.9);
+}
+
+/* The city plate the scene sits on: a horizon wash plus a ground grid in
+   perspective. Two gradients and a repeating one — cheaper than any geometry
+   and it reads as depth at a glance, which is all the hero needs from it. */
+.propiq-cityplate {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* On a wide screen the scene belongs to the right-hand half. Left of that
+     sit the headline, the search field and three select controls, and a
+     breathing node landing on "Any budget" is not atmosphere, it is a smudge
+     on a control someone is trying to use. Below `lg` the layout stacks and
+     the scene is the whole backdrop again, where nothing overlaps it. */
+  background-image:
+    radial-gradient(70% 55% at 62% 38%, rgba(63, 211, 236, 0.13), transparent 68%),
+    radial-gradient(60% 50% at 88% 78%, rgba(182, 165, 255, 0.11), transparent 70%),
+    radial-gradient(90% 60% at 20% 8%, rgba(143, 176, 255, 0.09), transparent 66%);
+}
+
+.propiq-cityplate::after {
+  content: '';
+  position: absolute;
+  inset: 42% -40% -18% -40%;
+  background-image:
+    repeating-linear-gradient(to right, rgba(143, 176, 255, 0.16) 0 1px, transparent 1px 82px),
+    repeating-linear-gradient(to bottom, rgba(143, 176, 255, 0.13) 0 1px, transparent 1px 58px);
+  transform: perspective(620px) rotateX(64deg);
+  transform-origin: top center;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85), transparent 72%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.85), transparent 72%);
+}
+
+@media (min-width: 1024px) {
+  .propiq-cityplate {
+    mask-image: linear-gradient(
+      to right,
+      transparent 4%,
+      rgba(0, 0, 0, 0.35) 30%,
+      rgba(0, 0, 0, 1) 52%
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 4%,
+      rgba(0, 0, 0, 0.35) 30%,
+      rgba(0, 0, 0, 1) 52%
+    );
+  }
+}
+
+/* A skyline of blocks, drawn as one element. The heights are a hand-tuned
+   stepped gradient rather than geometry: at this scale and this opacity the
+   silhouette is all that reads, and a real mesh would cost a megabyte to say
+   the same thing. */
+.propiq-skyline {
+  position: absolute;
+  right: 0;
+  bottom: 28%;
+  left: 0;
+  height: 30%;
+  opacity: 0.5;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    rgba(0, 0, 0, 1) 18%,
+    rgba(0, 0, 0, 1) 82%,
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    rgba(0, 0, 0, 1) 18%,
+    rgba(0, 0, 0, 1) 82%,
+    transparent
+  );
+}
+
+/* The hero box. Sized to what it holds rather than to the viewport: a 100vh
+   opener pushes the rest of the page out of the first frame, and the first
+   frame is what a share card and a skimming reader both get. */
+.propiq-hero {
+  min-height: 640px;
+}
+
+@media (min-width: 1024px) {
+  .propiq-hero {
+    min-height: 760px;
+  }
+}
+
+/* A floating readout settles into place once, then stays put. Movement that
+   never stops is movement a reader learns to ignore. */
+.propiq-readout {
+  animation: propiq-settle 700ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.propiq-readout:nth-of-type(2) {
+  animation-delay: 110ms;
+}
+.propiq-readout:nth-of-type(3) {
+  animation-delay: 220ms;
+}
+.propiq-readout:nth-of-type(4) {
+  animation-delay: 330ms;
+}
+
+@keyframes propiq-settle {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-readout {
+    animation: none;
+  }
+}
+
+/* The score constellation. Type inside an SVG does not inherit the page's
+   font stack or its tokens, so both are restated here rather than per node. */
+.propiq-constellation-label {
+  /* Sized in the SVG's own units against a 724-unit box, so the rendered size
+     is roughly 0.9x this. 11 came out at about 9.5px on screen. */
+  font-size: 13px;
+  font-weight: 500;
+  fill: var(--text-secondary);
+}
+
+.propiq-constellation-score {
+  font-size: 54px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  fill: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.propiq-constellation-cap {
+  font-size: 11.5px;
+  fill: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The hit target. A <circle> with a click handler is invisible to a keyboard
+   and unreachable by a screen reader, so the interactive layer is real buttons
+   laid over the drawing — 44px square, which is bigger than every node. */
+.propiq-constellation-hit {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 999px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.propiq-constellation-hit:hover {
+  background: color-mix(in srgb, var(--text-accent) 12%, transparent);
+}
+
+.propiq-constellation-hit:focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   The journey rail.
+
+   Three columns at desktop, two at tablet, one stacked at phone — and at every
+   width it stays an <ol>, because the order IS the content. A horizontal
+   scroller was the first shape tried; it hides two thirds of a nine-step
+   argument behind a gesture most readers never make.
+--------------------------------------------------------------------------- */
+
+.propiq-journey {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+  counter-reset: stage;
+}
+
+@media (min-width: 640px) {
+  .propiq-journey {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .propiq-journey {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.propiq-stage-item {
+  position: relative;
+}
+
+/* The connector. Drawn between cards rather than around them, so a card can
+   move to a new row without dragging a line into empty space. It is hidden
+   from the last item in each row by the same media query that sets the column
+   count — one source of truth for how many there are. */
+.propiq-stage-item::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -1rem;
+  width: 1rem;
+  height: 1px;
+  background: linear-gradient(to right, var(--border-strong), transparent);
+}
+
+@media (max-width: 639px) {
+  .propiq-stage-item::after {
+    display: none;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .propiq-stage-item:nth-child(2n)::after {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .propiq-stage-item:nth-child(3n)::after {
+    display: none;
+  }
+}
+
+.propiq-stage-item:last-child::after {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Mega menu and command palette.
+--------------------------------------------------------------------------- */
+
+.propiq-megamenu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 60;
+  border-radius: 1rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, var(--text-primary) 6%, transparent) inset,
+    0 24px 60px -24px rgba(0, 0, 0, 0.8);
+  animation: propiq-menu-in 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes propiq-menu-in {
+  from {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.propiq-megamenu-feature {
+  /* A wash from the far corner, not a flood. At 0.1 over the whole top edge
+     the card read as two halves rather than one lit panel. */
+  background:
+    radial-gradient(90% 80% at 108% -10%, rgba(111, 227, 245, 0.11), transparent 62%),
+    var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  min-height: 9rem;
+}
+
+.propiq-palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  /* Not centred vertically: a dialog that grows downward from a fixed top does
+     not jump as its result list changes length, and a centred one does. */
+  padding: max(6vh, env(safe-area-inset-top, 0px)) 1rem 1rem;
+  background: rgba(3, 6, 15, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: propiq-fade-in 140ms ease;
+}
+
+.propiq-palette {
+  width: 100%;
+  max-width: 34rem;
+  align-self: flex-start;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 30px 70px -28px rgba(0, 0, 0, 0.9);
+  animation: propiq-menu-in 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes propiq-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .propiq-megamenu,
+  .propiq-palette,
+  .propiq-palette-scrim {
+    animation: none;
+  }
 }

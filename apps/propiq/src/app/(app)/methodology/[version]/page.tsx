@@ -78,7 +78,7 @@ export default async function FrozenMethodologyPage({
       </h1>
       <p className="mt-3 max-w-2xl text-[var(--text-secondary)]">{v.summary}</p>
 
-      <dl className="mt-6 grid gap-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5 sm:grid-cols-3">
+      <dl className="mt-6 grid gap-4 rounded-lg propiq-card p-5 sm:grid-cols-3">
         <Fact label="Effective from" value={v.effectiveFrom} />
         <Fact
           label="Reporting floor — coverage"

@@ -6,6 +6,9 @@
  * When the score is withheld, the dial says so rather than showing a zero.
  */
 
+import type { Decision } from '@/domain/decision/engine';
+import { DECISION_LABELS } from '@/domain/decision/engine';
+import { DECISION_COLOUR } from '@/components/propiq/decision-colour';
 import { cn } from '@/lib/utils';
 
 /** The size the type was drawn against. Everything scales from here. */
@@ -31,25 +34,25 @@ export const dialTypography = (
   };
 };
 
-const bandColor = (score: number): string =>
-  score >= 72
-    ? 'var(--color-buy)'
-    : score >= 55
-      ? 'var(--color-watch)'
-      : score >= 40
-        ? 'var(--color-negotiate)'
-        : 'var(--color-avoid)';
-
 export const ScoreDial = ({
   score,
   band,
   confidence,
+  decision,
   size = 132,
   className,
 }: {
   score: number | undefined;
   band?: { low: number; high: number };
   confidence: number;
+  /**
+   * The verdict the engine actually reached. The ring used to pick a verdict
+   * colour off the score with its own thresholds, which is not how
+   * `decideProperty` works — it weighs risk severity and the price gap too, so
+   * the ring could read BUY-green beside a badge saying NEGOTIATE. Without a
+   * decision to show, the ring is brand-coloured and claims nothing.
+   */
+  decision?: Decision;
   size?: number;
   className?: string;
 }) => {
@@ -57,7 +60,22 @@ export const ScoreDial = ({
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const pct = score === undefined ? 0 : score / 100;
-  const color = score === undefined ? 'var(--color-unknown)' : bandColor(score);
+  /* The ring is a fill and the number is text, so they take different tokens
+     even when they carry the same verdict: the verdict set is already cut into
+     a bright half and an ink half per ground, and the brand accent's text
+     equivalent is `--text-accent`. */
+  const ringColor =
+    score === undefined
+      ? 'var(--color-unknown)'
+      : decision !== undefined
+        ? DECISION_COLOUR[decision]
+        : 'var(--color-accent-500)';
+  const figureColor =
+    score === undefined
+      ? 'var(--color-unknown)'
+      : decision !== undefined
+        ? DECISION_COLOUR[decision]
+        : 'var(--text-accent)';
   const type = dialTypography(size);
 
   return (
@@ -71,7 +89,9 @@ export const ScoreDial = ({
           aria-label={
             score === undefined
               ? 'PropIQ Score not published: insufficient evidence'
-              : `PropIQ Score ${score} out of 100${band ? `, 95% band ${band.low} to ${band.high}` : ''}`
+              : `PropIQ Score ${score} out of 100${band ? `, 95% band ${band.low} to ${band.high}` : ''}${
+                  decision ? `, verdict ${DECISION_LABELS[decision]}` : ''
+                }`
           }
         >
           <circle
@@ -88,7 +108,7 @@ export const ScoreDial = ({
               cy={size / 2}
               r={radius}
               fill="none"
-              stroke={color}
+              stroke={ringColor}
               strokeWidth={stroke}
               strokeLinecap="round"
               strokeDasharray={circumference}
@@ -110,7 +130,7 @@ export const ScoreDial = ({
               <span
                 data-figure
                 className="font-semibold leading-none"
-                style={{ color, fontSize: `${type.scoreFontPx}px` }}
+                style={{ color: figureColor, fontSize: `${type.scoreFontPx}px` }}
               >
                 {Math.round(score)}
               </span>

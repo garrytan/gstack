@@ -14,21 +14,13 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import type { PropertyIntelligence } from '@/server/intelligence';
 import { DECISION_LABELS } from '@/domain/decision/engine';
-import type { Decision } from '@/domain/decision/engine';
 import { ScoreDial } from '@/components/propiq/score-dial';
 import { formatINR, formatPercent, formatSignedPercent } from '@/lib/utils';
-
-const DECISION_COLOR: Readonly<Record<Decision, string>> = {
-  BUY: 'var(--color-buy)',
-  NEGOTIATE: 'var(--color-negotiate)',
-  WATCH: 'var(--color-watch)',
-  AVOID: 'var(--color-avoid)',
-  INSUFFICIENT_EVIDENCE: 'var(--color-unknown)',
-};
+import { DECISION_COLOUR } from '@/components/propiq/decision-colour';
 
 export const HeroVerdictCard = ({ intel }: { intel: PropertyIntelligence }) => {
   const { property, score, decision, valuation, negotiation, locality, freshness } = intel;
-  const color = DECISION_COLOR[decision.decision];
+  const color = DECISION_COLOUR[decision.decision];
   const underpriced = valuation.askingDeviationPercent < 0;
 
   return (
@@ -71,6 +63,7 @@ export const HeroVerdictCard = ({ intel }: { intel: PropertyIntelligence }) => {
           score={score.score}
           band={score.band}
           confidence={score.confidence}
+          decision={decision.decision}
           size={96}
           className="shrink-0"
         />

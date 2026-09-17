@@ -22,7 +22,7 @@ import { WatchlistButton } from '@/components/propiq/watchlist-button';
 import { PropertyCard } from '@/components/propiq/property-card';
 import { TrackView } from '@/components/propiq/track-view';
 import { buildSummaries } from '@/server/intelligence';
-import { DECISION_DESCRIPTIONS } from '@/domain/decision/engine';
+import { DECIDING_RULE_LABELS, DECISION_DESCRIPTIONS } from '@/domain/decision/engine';
 import { formatDate, formatINR, formatPercent, formatPsf, formatRelative } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -132,7 +132,7 @@ export default async function PropertyPage({ params }: Params) {
       </nav>
 
       {/* ---------------- Header ---------------- */}
-      <header className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5">
+      <header className="rounded-lg propiq-card p-5">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -163,10 +163,15 @@ export default async function PropertyPage({ params }: Params) {
             </p>
 
             <p className="mt-4 max-w-2xl text-base leading-relaxed">{decision.headline}</p>
+            {/* The rule id stays — it names the exact branch that produced
+                this verdict and someone auditing the call needs it — but it is
+                no longer the explanation. `score.buyBand` in a monospace font
+                tells a buyer nothing; the sentence beside it does. */}
             <p className="mt-1 text-xs text-[var(--text-muted)]">
-              {DECISION_DESCRIPTIONS[decision.decision]} Rule{' '}
-              <code className="font-mono">{decision.decidingRule}</code>, decision rules v
-              {decision.rulesVersion}.
+              {DECISION_DESCRIPTIONS[decision.decision]}{' '}
+              {DECIDING_RULE_LABELS[decision.decidingRule] ?? 'Decided by rule'} (
+              <code className="font-mono">{decision.decidingRule}</code>, rules v
+              {decision.rulesVersion}).
             </p>
 
             <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -219,7 +224,12 @@ export default async function PropertyPage({ params }: Params) {
           </div>
 
           <div className="shrink-0 lg:pl-6">
-            <ScoreDial score={score.score} band={score.band} confidence={score.confidence} />
+            <ScoreDial
+              score={score.score}
+              band={score.band}
+              confidence={score.confidence}
+              decision={decision.decision}
+            />
             <p className="mt-2 max-w-[180px] text-center text-[11px] text-[var(--text-muted)]">
               Scoring v{score.scoringVersion}, weighted for a {score.persona}.{' '}
               <Link href="/preferences" className="text-[var(--text-accent)] hover:underline">
@@ -274,7 +284,7 @@ export default async function PropertyPage({ params }: Params) {
         id="score"
         description="Every pillar expands into the signals behind it, the raw value we observed, and the exact normalisation applied."
       >
-        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-4">
+        <div className="rounded-lg propiq-card px-4">
           <PillarBars pillars={score.pillars} weights={score.weights} />
         </div>
       </Section>
@@ -343,7 +353,7 @@ export default async function PropertyPage({ params }: Params) {
       {/* ---------------- Developer ---------------- */}
       {developer && (
         <Section title="Developer" id="developer">
-          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+          <div className="rounded-lg propiq-card p-4">
             <h3 className="text-sm font-semibold">{developer.name}</h3>
             <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-5">
               <HeaderStat
@@ -378,7 +388,7 @@ export default async function PropertyPage({ params }: Params) {
       {/* ---------------- Locality ---------------- */}
       {locality && (
         <Section title="Locality & infrastructure" id="locality">
-          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+          <div className="rounded-lg propiq-card p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold">
@@ -478,7 +488,7 @@ export default async function PropertyPage({ params }: Params) {
           </div>
           <Link
             href={`/compare?ids=${[property.id, ...alternatives.map((a) => a.property.id)].join(',')}`}
-            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
+            className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
           >
             Open all in the Decision Room
           </Link>
@@ -556,7 +566,7 @@ const InfoCard = ({
   title: string;
   children: React.ReactNode;
 }) => (
-  <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+  <div className="rounded-lg propiq-card p-4">
     <h3 className="flex items-center gap-2 text-sm font-semibold">
       <Icon aria-hidden className="size-4 text-[var(--text-accent)]" />
       {title}
@@ -576,7 +586,7 @@ const FactorList = ({
   factors: ReadonlyArray<{ label: string; detail: string; rule: string }>;
   empty: string;
 }) => (
-  <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+  <div className="rounded-lg propiq-card p-4">
     <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: tone }}>
       {title}
     </h3>

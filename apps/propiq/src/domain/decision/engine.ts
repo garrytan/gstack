@@ -31,6 +31,25 @@ export const DECISION_LABELS: Readonly<Record<Decision, string>> = {
   INSUFFICIENT_EVIDENCE: 'Insufficient evidence',
 };
 
+/**
+ * What each deciding rule means, in a sentence a buyer can use.
+ *
+ * The rule id is a real commitment — it names exactly which branch of
+ * `decideProperty` produced this verdict, and it belongs in the report, the
+ * API and the methodology page. It does not belong as the only explanation on
+ * a property page, where a reader meets `score.buyBand` in a monospace font
+ * and learns nothing from it. The id is still shown; this is what goes next
+ * to it.
+ */
+export const DECIDING_RULE_LABELS: Readonly<Record<string, string>> = {
+  'risk.absent': 'Too little risk evidence to reach a verdict',
+  'risk.heavyComposite': 'A severe risk outweighed the score',
+  'price.aboveFairValue': 'Priced above what the comparables support',
+  'score.buyBand': 'Scored in the buy band with no blocking risk',
+  'score.watchBand': 'Scored in the watch band',
+  'score.avoidBand': 'Scored below the watch band',
+};
+
 export const DECISION_DESCRIPTIONS: Readonly<Record<Decision, string>> = {
   BUY: 'The evidence supports buying at or near the asking price.',
   NEGOTIATE: 'Worth buying, but not at this price. Go in with a number.',

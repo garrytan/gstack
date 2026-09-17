@@ -104,7 +104,7 @@ export const YieldCalculator = () => {
         />
       </div>
 
-      <dl className="mt-6 grid gap-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5 sm:grid-cols-4">
+      <dl className="mt-6 grid gap-4 rounded-lg propiq-card p-5 sm:grid-cols-4">
         <Figure
           label="Gross yield"
           value={r.grossYieldPercent === undefined ? '—' : formatPercent(r.grossYieldPercent, 2)}

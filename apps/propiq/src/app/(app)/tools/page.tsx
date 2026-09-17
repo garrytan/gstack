@@ -76,7 +76,7 @@ export default function ToolsPage() {
         ))}
       </div>
 
-      <div className="mt-10 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5">
+      <div className="mt-10 rounded-lg propiq-card p-5">
         <h2 className="text-sm font-semibold">Where the tools stop and the product starts</h2>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-[var(--text-secondary)]">
           A calculator answers a question you already know to ask. PropIQ scores a specific property

@@ -58,10 +58,7 @@ export default async function DevelopersPage() {
       ) : (
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
           {developers.map(({ profile, properties }) => (
-            <article
-              key={profile.id}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-5"
-            >
+            <article key={profile.id} className="rounded-lg propiq-card p-5">
               <h2 className="text-base font-semibold">{profile.name}</h2>
               <p className="mt-0.5 text-xs text-[var(--text-muted)]">
                 {profile.headquarters ?? 'Headquarters not recorded'}

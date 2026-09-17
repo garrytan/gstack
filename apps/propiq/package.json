@@ -2,7 +2,7 @@
   "name": "propiq",
   "version": "0.1.0",
   "private": true,
-  "description": "PropIQ by CiteRank AI — India's Property Decision Intelligence Platform",
+  "description": "PropIQ by CiteRank AI \u2014 India's Property Decision Intelligence Platform",
   "type": "module",
   "scripts": {
     "dev": "next dev",
@@ -15,7 +15,10 @@
     "test:coverage": "vitest run --coverage",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"test/**/*.ts\"",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"test/**/*.ts\"",
-    "verify": "npm run typecheck && npm run lint && npm run format:check && npm run test"
+    "verify": "npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "lighthouse": "node scripts/lighthouse.mjs"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",
@@ -34,6 +37,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^22.18.0",
     "@types/react": "^19.3.0",
@@ -41,6 +45,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "eslint": "^9.39.0",
     "eslint-config-next": "16.3.5",
+    "lighthouse": "^13.4.1",
     "prettier": "^3.6.2",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",

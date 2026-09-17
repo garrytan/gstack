@@ -51,6 +51,15 @@ describe('startup configuration guards', () => {
     expect(env).toMatch(/typeof window === 'undefined'/);
   });
 
+  it('offers exactly one opt-out, and says what it costs', () => {
+    // Verifying a production build needs `next start` on 127.0.0.1, so the
+    // guard has an escape hatch. It is opt-in, it is loud, and a deployment
+    // never sets it.
+    expect(env).toMatch(/PROPIQ_ALLOW_LOOPBACK_ORIGIN === '1'/);
+    expect(env).toMatch(/console\.warn/);
+    expect(env).toMatch(/must never be set on a deployment/);
+  });
+
   it('treats every loopback spelling as unset', () => {
     for (const host of ['localhost', '127.0.0.1', '[::1]']) {
       expect(env).toContain(host);

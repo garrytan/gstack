@@ -34,6 +34,9 @@ export const Section = ({
 }) => (
   <section
     id={id}
+    /* The header is sticky, so an anchor jump would otherwise drop the section
+       heading underneath it. */
+    style={id === undefined ? undefined : { scrollMarginTop: '4.5rem' }}
     className={['propiq-seam', TONE_CLASS[tone], className ?? ''].filter(Boolean).join(' ')}
   >
     <div className="mx-auto max-w-7xl px-4 py-20 sm:py-24">{children}</div>
@@ -53,10 +56,10 @@ export const SectionHead = ({
 }) => (
   <div className="flex flex-wrap items-end justify-between gap-6">
     <div className="max-w-2xl">
-      <p className="propiq-eyebrow-rule text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--text-accent)]">
+      <p className="propiq-eyebrow-pill text-[11px] font-semibold uppercase tracking-[0.16em]">
         {eyebrow}
       </p>
-      <h2 className="mt-3 text-[2rem] font-bold leading-[1.1] tracking-[-0.02em] sm:text-[2.6rem]">
+      <h2 className="propiq-display mt-4 text-[2.15rem] font-bold leading-[1.06] sm:text-[2.9rem]">
         {title}
       </h2>
       {standfirst && (

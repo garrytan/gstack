@@ -101,7 +101,9 @@ describe('no-source disclosure', () => {
   it('drives the search shortcuts from real coverage, not a hardcoded list', () => {
     // A fixed "Popular: Whitefield, Hebbal…" row claims coverage the deployment
     // may not have.
-    expect(read('src/app/page.tsx')).toMatch(/<SmartSearch localities=/);
-    expect(read('src/components/site/smart-search.tsx')).toMatch(/shortcuts\.length > 0/);
+    // The search lives in the hero now; the invariant is unchanged — the
+    // shortcut row is fed from the dataset, and is empty when there isn't one.
+    expect(read('src/app/page.tsx')).toMatch(/<HeroSection[\s\S]{0,120}localities=\{/);
+    expect(read('src/components/site/hero-search.tsx')).toMatch(/localities\.length > 0/);
   });
 });

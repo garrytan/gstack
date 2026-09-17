@@ -10,7 +10,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-accent-500 text-[#0a2a2b] hover:bg-accent-400 font-semibold',
+        primary: 'propiq-btn-primary text-white font-semibold',
         secondary:
           'border border-[var(--border-strong)] bg-[var(--surface-1)] text-[var(--text-primary)] hover:bg-[var(--surface-2)]',
         ghost:

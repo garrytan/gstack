@@ -36,7 +36,9 @@ const H = 480;
 const build = (p: Property): string => {
   const rnd = seeded(hashOf(p.id));
   const floors = Math.max(6, p.totalFloors ?? 12);
-  const hue = 168 + Math.floor(rnd() * 16);
+  // The iris band: 218 is the logo's blue, 252 its violet. Each property
+  // lands somewhere between them, so a rail of cards reads as one family.
+  const hue = 218 + Math.floor(rnd() * 34);
 
   const parts: string[] = [];
   parts.push(
@@ -46,11 +48,11 @@ const build = (p: Property): string => {
       `<stop offset="55%" stop-color="hsl(${hue} 44% 16%)"/>` +
       `<stop offset="100%" stop-color="hsl(${hue - 4} 46% 10%)"/></linearGradient>`,
     `<radialGradient id="glow">` +
-      `<stop offset="0%" stop-color="#6fdcd2" stop-opacity="0.55"/>` +
-      `<stop offset="100%" stop-color="#6fdcd2" stop-opacity="0"/></radialGradient>`,
+      `<stop offset="0%" stop-color="#6d8cf8" stop-opacity="0.55"/>` +
+      `<stop offset="100%" stop-color="#6d8cf8" stop-opacity="0"/></radialGradient>`,
     `<radialGradient id="glow2">` +
-      `<stop offset="0%" stop-color="#8b7cf0" stop-opacity="0.34"/>` +
-      `<stop offset="100%" stop-color="#8b7cf0" stop-opacity="0"/></radialGradient>`,
+      `<stop offset="0%" stop-color="#9a7cf5" stop-opacity="0.38"/>` +
+      `<stop offset="100%" stop-color="#9a7cf5" stop-opacity="0"/></radialGradient>`,
     `<linearGradient id="face" x1="0" y1="0" x2="1" y2="0">` +
       `<stop offset="0%" stop-color="hsl(${hue} 30% 22%)"/>` +
       `<stop offset="100%" stop-color="hsl(${hue} 36% 40%)"/></linearGradient>`,
@@ -95,7 +97,7 @@ const build = (p: Property): string => {
         const ww = (t.w - 18) / cols - 7;
         parts.push(
           `<rect x="${wx.toFixed(1)}" y="${(y + 5).toFixed(1)}" width="${ww.toFixed(1)}" height="${(bandH - 12).toFixed(1)}" rx="1" ` +
-            `fill="${lit ? '#a8f2e9' : `hsl(${hue} 30% 15%)`}" opacity="${lit ? (0.6 + rnd() * 0.4).toFixed(2) : '0.7'}"/>`,
+            `fill="${lit ? '#cfdcff' : `hsl(${hue} 30% 15%)`}" opacity="${lit ? (0.6 + rnd() * 0.4).toFixed(2) : '0.7'}"/>`,
         );
       }
     }
@@ -104,12 +106,12 @@ const build = (p: Property): string => {
   // ground plane and a horizon rule
   parts.push(
     `<rect x="0" y="${ground}" width="${W}" height="${H - ground}" fill="hsl(${hue} 34% 9%)"/>`,
-    `<rect x="0" y="${ground}" width="${W}" height="1" fill="#6fdcd2" opacity="0.4"/>`,
+    `<rect x="0" y="${ground}" width="${W}" height="1" fill="#6d8cf8" opacity="0.45"/>`,
   );
 
   // The label is part of the image: wherever it travels, it says what it is.
   parts.push(
-    `<text x="20" y="${H - 18}" font-family="system-ui, sans-serif" font-size="13" fill="#eef5f0" opacity="0.62">` +
+    `<text x="20" y="${H - 18}" font-family="system-ui, sans-serif" font-size="13" fill="#eef1ff" opacity="0.62">` +
       `Generated illustration · not a photograph of this property</text>`,
   );
 

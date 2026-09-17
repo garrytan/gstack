@@ -31,6 +31,14 @@ export interface SiteScoreBreakdown {
   /** `undefined` when the pillar had no evidence. Never zero for want of data. */
   readonly score: number | undefined;
   readonly weight: number | undefined;
+  /** Share of this pillar's weight that had usable evidence, 0..1. */
+  readonly coverage: number;
+  readonly confidence: number;
+  /** How many signals fed it, and how many of those actually had a value. */
+  readonly signalCount: number;
+  readonly signalsWithData: number;
+  /** The signals that moved it most, already phrased for a reader. */
+  readonly drivers: readonly string[];
 }
 
 export interface SiteProperty {

@@ -191,10 +191,7 @@ export default function MethodologyPage() {
         </p>
         <dl className="mt-4 space-y-2">
           {DECISIONS.map((d) => (
-            <div
-              key={d}
-              className="rounded-md border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
-            >
+            <div key={d} className="rounded-md propiq-card p-3">
               <dt className="text-sm font-semibold">{d.replace('_', ' ')}</dt>
               <dd className="mt-0.5 text-xs text-[var(--text-secondary)]">
                 {DECISION_DESCRIPTIONS[d]}

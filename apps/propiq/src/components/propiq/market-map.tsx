@@ -16,6 +16,7 @@
 import Link from 'next/link';
 import type { Decision } from '@/domain/decision/engine';
 import { DECISION_LABELS } from '@/domain/decision/engine';
+import { DECISION_COLOUR } from '@/components/propiq/decision-colour';
 import type { Locality } from '@/domain/locality/types';
 import { formatINR, formatPsf } from '@/lib/utils';
 
@@ -32,14 +33,6 @@ export interface MapProperty {
 const VIEW_W = 800;
 const VIEW_H = 470;
 const PAD = 74;
-
-const DECISION_COLOR: Readonly<Record<Decision, string>> = {
-  BUY: 'var(--color-buy)',
-  NEGOTIATE: 'var(--color-negotiate)',
-  WATCH: 'var(--color-watch)',
-  AVOID: 'var(--color-avoid)',
-  INSUFFICIENT_EVIDENCE: 'var(--color-unknown)',
-};
 
 const PLATE_H = 31;
 
@@ -178,7 +171,7 @@ export const MarketMap = ({
 
   return (
     <figure className="m-0">
-      <div className="relative overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+      <div className="relative overflow-hidden rounded-lg propiq-card">
         <svg
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           className="block h-auto w-full"
@@ -282,7 +275,7 @@ export const MarketMap = ({
           {properties.map((p) => {
             const cx = project.x(p.lng);
             const cy = project.y(p.lat);
-            const color = DECISION_COLOR[p.decision];
+            const color = DECISION_COLOUR[p.decision];
             return (
               <g key={p.id} className="propiq-pin">
                 <circle cx={cx} cy={cy} r="13" fill={color} opacity="0.16" />
@@ -318,7 +311,7 @@ export const MarketMap = ({
         </svg>
 
         {/* Legend sits over the map so the drawing keeps its full width. */}
-        <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-x-3 gap-y-1 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-0)]/85 px-2.5 py-1.5 backdrop-blur">
+        <div className="pointer-events-none absolute bottom-3 left-3 flex flex-wrap gap-x-3 gap-y-1 rounded-md propiq-card/85 px-2.5 py-1.5 backdrop-blur">
           {(['BUY', 'NEGOTIATE', 'WATCH', 'AVOID'] as const).map((d) => (
             <span
               key={d}
@@ -327,7 +320,7 @@ export const MarketMap = ({
               <span
                 aria-hidden
                 className="size-2 rounded-full"
-                style={{ background: DECISION_COLOR[d] }}
+                style={{ background: DECISION_COLOUR[d] }}
               />
               {DECISION_LABELS[d]}
             </span>

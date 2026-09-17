@@ -193,7 +193,7 @@ export default async function LocalityPage({ params }: Params) {
             {locality.pipeline.map((p) => (
               <li
                 key={p.name}
-                className="flex flex-wrap items-baseline gap-x-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
+                className="flex flex-wrap items-baseline gap-x-3 rounded-lg propiq-card p-3"
               >
                 <span className="text-sm font-medium">{p.name}</span>
                 <span className="text-xs uppercase tracking-wide text-[var(--text-muted)]">
@@ -244,7 +244,7 @@ const Stat = ({ label, value, hint }: { label: string; value: string; hint?: str
 );
 
 const Panel = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+  <div className="rounded-lg propiq-card p-4">
     <h3 className="text-sm font-semibold">{title}</h3>
     <dl className="mt-3 space-y-1.5 text-xs">{children}</dl>
   </div>

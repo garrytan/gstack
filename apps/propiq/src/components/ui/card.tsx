@@ -2,13 +2,7 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 
 export const Card = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div
-    className={cn(
-      'rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]',
-      className,
-    )}
-    {...props}
-  />
+  <div className={cn('rounded-lg propiq-card', className)} {...props} />
 );
 
 export const CardHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (

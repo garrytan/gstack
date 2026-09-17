@@ -44,8 +44,13 @@ records as live Indian property intelligence.
 - Every material fact carries `dataStatus`: `verified` | `derived` | `estimated` | `demo`.
 - A missing fact is `undefined`. Never `?? 0`, never a plausible default.
 - Demo data renders only behind a visible `DemoDataBanner`.
-- `getServerEnv()` throws if `PROPIQ_DATA_ADAPTER=fixture` under
-  `NODE_ENV=production`. A production adapter must never emit `dataStatus: 'demo'`.
+- **Data mode is declared, never inferred.** `NEXT_PUBLIC_DATA_MODE=live|demo|empty`
+  (`src/lib/data-mode.ts`) picks the adapter and is public on purpose: choosing `demo`
+  is the same act as badging every surface. A production deployment may serve the
+  labelled demo set — the rule is "never present sample data *as live*", not "never
+  show sample data" — but only that way. `getServerEnv()` still throws on
+  `PROPIQ_DATA_ADAPTER=fixture` in production without `NEXT_PUBLIC_DATA_MODE=demo`,
+  because that is the quiet path, and it throws if the two disagree.
 - An LLM never produces a property fact or a score. It explains what the
   deterministic engines computed.
 

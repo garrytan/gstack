@@ -4,24 +4,14 @@ import type { PropertyIntelligence } from '@/server/intelligence';
 import { pricePerSqFt } from '@/domain/property/types';
 import { DecisionBadge } from './decision-badge';
 import { DataStatusBadge } from './data-status';
+import { DECISION_COLOUR } from '@/components/propiq/decision-colour';
 import { formatINR, formatPsf, formatSignedPercent } from '@/lib/utils';
-
-const scoreColor = (score: number | undefined): string =>
-  score === undefined
-    ? 'var(--color-unknown)'
-    : score >= 72
-      ? 'var(--color-buy)'
-      : score >= 55
-        ? 'var(--color-watch)'
-        : score >= 40
-          ? 'var(--color-negotiate)'
-          : 'var(--color-avoid)';
 
 export const PropertyCard = ({ intelligence }: { intelligence: PropertyIntelligence }) => {
   const { property, project, locality, score, decision, valuation } = intelligence;
 
   return (
-    <article className="flex flex-col rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] transition-colors hover:border-[var(--border-strong)]">
+    <article className="flex flex-col rounded-lg propiq-card transition-colors hover:border-[var(--border-strong)]">
       <div className="flex items-start justify-between gap-3 p-4 pb-3">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold">
@@ -38,7 +28,7 @@ export const PropertyCard = ({ intelligence }: { intelligence: PropertyIntellige
           <span
             data-figure
             className="block text-xl font-semibold leading-none"
-            style={{ color: scoreColor(score.score) }}
+            style={{ color: DECISION_COLOUR[decision.decision] }}
           >
             {score.score === undefined ? '—' : Math.round(score.score)}
           </span>

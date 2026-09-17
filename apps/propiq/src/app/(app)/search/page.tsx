@@ -131,7 +131,7 @@ export default async function SearchPage({
           </div>
 
           {scored.length === 0 ? (
-            <EmptyState query={params.q} />
+            <EmptyState query={params.q} localities={localities} />
           ) : (
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {scored.map((intel) => (
@@ -168,19 +168,68 @@ export default async function SearchPage({
   );
 }
 
-const EmptyState = ({ query }: { query?: string }) => (
-  <div className="mt-4 rounded-lg border border-dashed border-[var(--border-strong)] p-10 text-center">
-    <p className="text-sm font-medium">No properties match those filters</p>
-    <p className="mx-auto mt-1 max-w-md text-xs text-[var(--text-secondary)]">
+/**
+ * No results is not no data.
+ *
+ * The distinction matters enough to be two components: `NoDataNotice` says the
+ * deployment has no source connected, this says the filters were too narrow.
+ * Telling a buyer "no properties match" when the truth is "there is no
+ * database" sends them off to widen a price range that was never the problem.
+ *
+ * And an empty state that only says "nothing here" makes the reader do the
+ * work of guessing what would have worked. This one offers the ways out it
+ * actually has: the localities the deployment really covers, and a filter
+ * reset. The locality list is passed in rather than written down, so it can
+ * never advertise coverage that is not there.
+ */
+const EmptyState = ({
+  query,
+  localities,
+}: {
+  query?: string;
+  localities: readonly { readonly name: string; readonly slug: string }[];
+}) => (
+  <div className="mt-4 rounded-xl border border-dashed border-[var(--border-strong)] p-8 text-center sm:p-10">
+    <p className="text-base font-semibold">No properties match those filters</p>
+    <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-[var(--text-secondary)]">
       {query
         ? `Nothing in the current coverage matches “${query}”. PropIQ covers Bengaluru densely rather than every city thinly, so a property outside that market will not appear here.`
-        : 'Try widening the price range or clearing the locality filter.'}
+        : 'Nothing matched this combination. Widening the price range or clearing the locality usually brings results back.'}
     </p>
-    <Link
-      href="/search"
-      className="mt-4 inline-block text-sm font-medium text-[var(--text-accent)] hover:underline"
-    >
-      Clear all filters
-    </Link>
+
+    {localities.length > 0 && (
+      <>
+        <p className="mt-7 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+          Covered localities
+        </p>
+        <ul className="mx-auto mt-3 flex max-w-2xl flex-wrap justify-center gap-2">
+          {localities.slice(0, 8).map((l) => (
+            <li key={l.slug}>
+              <Link
+                href={`/search?q=${encodeURIComponent(l.name)}`}
+                className="inline-flex rounded-full border border-[var(--border-subtle)] px-3 py-1.5 text-[13px] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
+              >
+                {l.name}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </>
+    )}
+
+    <div className="mt-7 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+      <Link
+        href="/search"
+        className="text-sm font-medium text-[var(--text-accent)] hover:underline"
+      >
+        Clear all filters
+      </Link>
+      <Link
+        href="/localities"
+        className="text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+      >
+        Browse by locality
+      </Link>
+    </div>
   </div>
 );

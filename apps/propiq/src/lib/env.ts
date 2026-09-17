@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { ADAPTER_FOR_MODE, DATA_MODES, MODE_FOR_ADAPTER, type DataMode } from './data-mode';
 
 const clientSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
@@ -14,6 +15,12 @@ const clientSchema = z.object({
   NEXT_PUBLIC_SITE_URL: z.string().url().optional(),
   NEXT_PUBLIC_MAPS_PROVIDER: z.enum(['mapbox', 'google', 'none']).default('none'),
   NEXT_PUBLIC_MAPS_TOKEN: z.string().optional(),
+  /**
+   * The declared data mode — see `data-mode.ts`. Public on purpose: it is what
+   * lets the demo badge render on every surface, so a deployment serving
+   * synthetic figures cannot do it quietly.
+   */
+  NEXT_PUBLIC_DATA_MODE: z.enum(DATA_MODES).optional(),
   NEXT_PUBLIC_ANALYTICS_DEBUG: z.enum(['0', '1']).default('0'),
 });
 
@@ -72,6 +79,8 @@ export type ClientEnv = Omit<z.infer<typeof clientSchema>, 'NEXT_PUBLIC_SITE_URL
 export type ServerEnv = Omit<z.infer<typeof serverSchema>, 'PROPIQ_DATA_ADAPTER'> & {
   /** Always resolved: unset becomes `fixture` in development, `none` in production. */
   readonly PROPIQ_DATA_ADAPTER: 'fixture' | 'supabase' | 'none';
+  /** The public name for the same thing. Always agrees with the adapter. */
+  readonly DATA_MODE: DataMode;
 };
 
 const formatIssues = (error: z.ZodError): string =>
@@ -88,6 +97,7 @@ export const clientEnv: ClientEnv = (() => {
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     NEXT_PUBLIC_MAPS_PROVIDER: process.env.NEXT_PUBLIC_MAPS_PROVIDER,
     NEXT_PUBLIC_MAPS_TOKEN: process.env.NEXT_PUBLIC_MAPS_TOKEN,
+    NEXT_PUBLIC_DATA_MODE: process.env.NEXT_PUBLIC_DATA_MODE,
     NEXT_PUBLIC_ANALYTICS_DEBUG: process.env.NEXT_PUBLIC_ANALYTICS_DEBUG,
   });
   if (!parsed.success) {
@@ -108,11 +118,27 @@ export const clientEnv: ClientEnv = (() => {
   // visitor for a mistake made at build time. And it is skipped under `next
   // build`'s own phase so `npm run build` stays runnable with no environment
   // at all, which is how CI and a fresh clone both invoke it.
+  //
+  // One opt-out, and it is deliberately awkward to set by accident:
+  // `PROPIQ_ALLOW_LOOPBACK_ORIGIN=1`. Verifying a production build is part of
+  // shipping — the E2E suite and the Lighthouse run both need `next start` on
+  // 127.0.0.1, and without an escape hatch this guard makes the one check that
+  // matters most impossible to run. A real deployment never sets it; a local
+  // one announces itself on stdout every boot, so it cannot be forgotten.
   const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
+  const loopbackAllowed = process.env.PROPIQ_ALLOW_LOOPBACK_ORIGIN === '1';
+  if (typeof window === 'undefined' && loopbackAllowed && configured && isLoopback(configured)) {
+    console.warn(
+      `[propiq] PROPIQ_ALLOW_LOOPBACK_ORIGIN=1 — serving with a loopback origin (${configured}). ` +
+        'Canonical links, the sitemap, llms.txt and auth redirects all point at it. ' +
+        'This is for local production verification only and must never be set on a deployment.',
+    );
+  }
   if (
     typeof window === 'undefined' &&
     process.env.NODE_ENV === 'production' &&
     !isBuildPhase &&
+    !loopbackAllowed &&
     (configured === undefined || isLoopback(configured))
   ) {
     throw new Error(
@@ -143,26 +169,56 @@ export const getServerEnv = (): ServerEnv => {
     throw new Error(`Invalid server environment configuration:\n${formatIssues(parsed.error)}`);
   }
 
-  // The truthfulness rule, enforced by configuration: production must never be
-  // able to serve fixture data as if it were live market intelligence. Asking
-  // for it explicitly is refused rather than quietly downgraded, because a
-  // deployment that asked for demo data wants to know it did not get it.
-  if (parsed.data.NODE_ENV === 'production' && parsed.data.PROPIQ_DATA_ADAPTER === 'fixture') {
+  // Where the mode comes from, in order.
+  //
+  // `NEXT_PUBLIC_DATA_MODE` is the declaration and wins. It is public, so
+  // choosing `demo` is the same act as telling every visitor the figures are
+  // synthetic — the badge is not a separate thing someone can forget to switch
+  // on. `PROPIQ_DATA_ADAPTER` still works for tests and for a deployment that
+  // pins the adapter directly; when both are present they must agree, because
+  // a silent winner between "what we serve" and "what we say we serve" is
+  // exactly the failure this product cannot have.
+  const declared = clientEnv.NEXT_PUBLIC_DATA_MODE;
+  const pinned = parsed.data.PROPIQ_DATA_ADAPTER;
+
+  if (declared && pinned && ADAPTER_FOR_MODE[declared] !== pinned) {
+    throw new Error(
+      `NEXT_PUBLIC_DATA_MODE=${declared} expects the ${ADAPTER_FOR_MODE[declared]} adapter, ` +
+        `but PROPIQ_DATA_ADAPTER=${pinned} was also set. The declared mode and the adapter ` +
+        'backing it must agree — set one or the other, not two that disagree.',
+    );
+  }
+
+  // The truthfulness rule, enforced by configuration. The rule is "never
+  // present sample data as live intelligence", not "never show sample data",
+  // so a production deployment MAY serve the labelled demo set — but only by
+  // declaring it publicly, which is what renders the badge. Reaching for the
+  // fixture adapter alone in production is still refused: that is the quiet
+  // path, and the quiet path is the one that ships synthetic prices to a buyer
+  // with nothing on screen to tell them.
+  if (parsed.data.NODE_ENV === 'production' && pinned === 'fixture' && declared !== 'demo') {
     throw new Error(
       'PROPIQ_DATA_ADAPTER=fixture is not permitted when NODE_ENV=production. ' +
         'The fixture adapter serves demo data and must never back a production ' +
-        'deployment. Set PROPIQ_DATA_ADAPTER=supabase for real records, or leave ' +
-        'it unset to serve no property data at all.',
+        'deployment unless the deployment says so: set NEXT_PUBLIC_DATA_MODE=demo, ' +
+        'which labels every figure on every surface. For real records set ' +
+        'PROPIQ_DATA_ADAPTER=supabase, or leave it unset to serve no property data.',
     );
   }
 
   // Unset means "the labelled demo set" while developing and "nothing" in
   // production. A public deployment that has not been pointed at a database
   // has no Indian property facts, and the honest default is to have none.
-  const adapter =
-    parsed.data.PROPIQ_DATA_ADAPTER ?? (parsed.data.NODE_ENV === 'production' ? 'none' : 'fixture');
+  const adapter: 'fixture' | 'supabase' | 'none' =
+    declared !== undefined
+      ? ADAPTER_FOR_MODE[declared]
+      : (pinned ?? (parsed.data.NODE_ENV === 'production' ? 'none' : 'fixture'));
 
-  cachedServerEnv = { ...parsed.data, PROPIQ_DATA_ADAPTER: adapter };
+  cachedServerEnv = {
+    ...parsed.data,
+    PROPIQ_DATA_ADAPTER: adapter,
+    DATA_MODE: MODE_FOR_ADAPTER[adapter],
+  };
   return cachedServerEnv;
 };
 

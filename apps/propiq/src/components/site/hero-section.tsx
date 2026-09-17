@@ -1,212 +1,266 @@
 /**
- * The hero.
+ * The hero: the property intelligence command centre.
  *
- * Copy is fixed; every figure on it is computed. The floating cards read from
- * the showcase property's real payload, so the score beside the skyline is
- * the same number its detail page renders. Where a figure cannot be computed
- * the card is not shown, rather than shown with a placeholder.
+ * The composition is a split — argument on the left, evidence on the right —
+ * and the right-hand side is the product's actual output, not a picture of it.
+ * Every figure in a floating readout is read off the showcase property that
+ * the rest of the page is built from: the same scoring pass, the same verdict,
+ * the same 95% band. So the hero cannot say 86 while the score section says 76,
+ * and there is no second set of numbers to keep in sync.
  *
- * The proof strip under the calls to action counts the live domain constants
- * — pillars, risk dimensions, document rules — rather than carrying typed
- * numbers that would drift the first time one of those lists changed.
+ * When no property source is connected there is nothing to read, and the
+ * readouts are simply absent. The scene and the argument stand on their own —
+ * what does not happen is a fallback set of plausible figures, which is the
+ * one thing this product will not draw.
+ *
+ * The scene is SVG and CSS. See `intelligence-nodes.tsx` for why there is no
+ * WebGL path, and therefore no low-power fallback to keep working.
  */
 
 import Link from 'next/link';
-import { ArrowRight, ShieldCheck } from 'lucide-react';
-import { DECISION_LABELS } from '@/domain/decision/engine';
+import { ArrowRight, MessageSquareText, ShieldCheck } from 'lucide-react';
+import { NodeField } from '@/components/site/intelligence-nodes';
+import { HeroSearch } from '@/components/site/hero-search';
 import { SCORE_PILLARS } from '@/domain/scoring/types';
 import { RISK_DIMENSIONS } from '@/domain/risk/types';
 import { RULES } from '@/domain/documents/rules';
-import { formatINR, formatPercent, formatPsf } from '@/lib/utils';
-import { GlassMetricCard } from '@/components/site/glass-metric-card';
-import { HeroBackground } from '@/components/site/hero-background';
-import { HeroParallax } from '@/components/site/hero-parallax';
-import { ScoreDial } from '@/components/propiq/score-dial';
-import { Tilt3D } from '@/components/site/tilt-3d';
+import { formatINR, formatPercent } from '@/lib/utils';
 import type { SiteProperty } from '@/site/types';
 
-const CHIPS = [
-  'PropIQ Score',
-  'Price Intelligence',
-  'Builder Trust',
-  'Risk Analysis',
-  'Locality Insights',
-] as const;
-
-/** Counted from the engines themselves, so the strip cannot overstate them. */
+/** Counted from the engine, phrased for a reader. Never the constant's name. */
 const PROOF = [
   { figure: String(SCORE_PILLARS.length), label: 'scoring pillars' },
   { figure: String(RISK_DIMENSIONS.length), label: 'risk dimensions' },
-  { figure: String(RULES.length), label: 'document rules' },
-  { figure: '95%', label: 'confidence band' },
+  { figure: String(RULES.length), label: 'document checks' },
 ] as const;
 
-export const HeroSection = ({ showcase }: { showcase: SiteProperty | undefined }) => (
-  <section className="propiq-dark relative isolate overflow-hidden">
-    <HeroParallax>
-      <HeroBackground />
-    </HeroParallax>
-    {/* The copy side needs contrast over a moving scene, so the ground is
-        pulled back on the left and released on the right. */}
+const RISK_WORD = {
+  low: 'Low',
+  moderate: 'Moderate',
+  elevated: 'Elevated',
+  high: 'High',
+  unknown: 'Unknown',
+} as const;
+
+/**
+ * One floating readout.
+ *
+ * `caption` is not decoration — it is the thing that stops a number being a
+ * claim. A score with no band and a fair value with no confidence are both
+ * assertions the evidence does not support.
+ */
+const Readout = ({
+  label,
+  value,
+  caption,
+  tone,
+  className,
+}: {
+  label: string;
+  value: string;
+  caption?: string;
+  tone?: string;
+  className?: string;
+}) => (
+  <div className={`propiq-glass propiq-readout rounded-xl px-4 py-3 ${className ?? ''}`}>
+    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+      {label}
+    </p>
+    <p
+      data-figure
+      className="mt-1 text-2xl font-semibold leading-none"
+      style={tone ? { color: tone } : undefined}
+    >
+      {value}
+    </p>
+    {caption && <p className="mt-1.5 text-[11px] text-[var(--text-secondary)]">{caption}</p>}
+  </div>
+);
+
+export const HeroSection = ({
+  showcase,
+  localities,
+}: {
+  showcase: SiteProperty | undefined;
+  localities: readonly string[];
+}) => (
+  <section className="propiq-hero relative isolate overflow-hidden">
+    {/* ------------------------------------------------------------- scene */}
+    <div aria-hidden className="propiq-cityplate">
+      <svg
+        viewBox="0 0 1200 240"
+        preserveAspectRatio="none"
+        className="propiq-skyline"
+        aria-hidden
+        focusable="false"
+      >
+        <defs>
+          <linearGradient id="propiq-tower" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-iris-300)" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="var(--color-iris-300)" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {/* Hand-placed blocks: a generated skyline clusters and reads as noise. */}
+        {[
+          [40, 96],
+          [86, 148],
+          [132, 64],
+          [174, 182],
+          [226, 112],
+          [272, 208],
+          [326, 88],
+          [368, 140],
+          [414, 172],
+          [468, 74],
+          [512, 196],
+          [566, 118],
+          [612, 160],
+          [660, 92],
+          [706, 214],
+          [758, 130],
+          [806, 68],
+          [852, 178],
+          [904, 104],
+          [950, 152],
+          [998, 82],
+          [1044, 190],
+          [1096, 124],
+          [1144, 156],
+        ].map(([x, h]) => (
+          <rect
+            key={x}
+            x={x}
+            y={240 - (h ?? 0)}
+            width="30"
+            height={h}
+            rx="2"
+            fill="url(#propiq-tower)"
+          />
+        ))}
+      </svg>
+      <NodeField />
+    </div>
+
+    {/* The page ground, faded up under the scene so the section below joins it
+        rather than butting against a hard edge. */}
     <div
       aria-hidden
-      className="absolute inset-0 -z-10 bg-gradient-to-r from-[#061c1d]/88 via-[#0a2a2b]/40 to-transparent"
+      className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-[var(--surface-0)]"
     />
 
-    <div className="relative mx-auto grid max-w-7xl gap-12 px-4 pb-24 pt-14 lg:min-h-[820px] lg:grid-cols-[minmax(0,47fr)_minmax(0,53fr)] lg:items-center lg:gap-10 lg:pb-28 lg:pt-16">
-      <div className="propiq-reveal min-w-0">
-        <p className="inline-flex items-center gap-2 rounded-full border border-[var(--color-accent-500)]/30 bg-[var(--color-accent-500)]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-accent-400)]">
-          <ShieldCheck aria-hidden className="size-3.5" />
-          Real estate intelligence
-        </p>
+    <div className="relative mx-auto grid max-w-7xl items-start gap-12 px-4 pb-20 pt-14 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-12 lg:pb-24 lg:pt-16">
+      {/* --------------------------------------------------------- argument */}
+      <div className="max-w-2xl">
+        <p className="propiq-eyebrow-pill">Property decision intelligence</p>
 
-        {/* The opening line is the one piece of type on the page that gets to
-            be loud. `clamp` rather than breakpoints so it scales with the
-            viewport instead of stepping at three widths. */}
-        <h1 className="mt-6 font-bold leading-[0.98] tracking-[-0.025em] text-[clamp(2.6rem,6.2vw,4.1rem)]">
-          <span className="block">Find the Right Property.</span>
-          <span className="propiq-hero-accent block">Understand the Opportunity.</span>
+        {/* `balance` and not a hand-placed break: the two clauses are the
+            structure, and inside each one the browser knows the measure
+            better than a hardcoded <br> does at every width. */}
+        <h1 className="propiq-display mt-5 text-balance text-[2.5rem] leading-[1.04] tracking-[-0.03em] sm:text-[3.2rem] lg:text-[3.1rem] xl:text-[3.45rem]">
+          <span className="block">Find the right property.</span>
+          <span className="propiq-iris-text block">Understand the opportunity.</span>
         </h1>
 
-        <p className="mt-6 max-w-xl text-lg leading-relaxed text-[var(--text-secondary)]">
-          Discover projects, compare locations, benchmark prices, evaluate developers, and uncover
-          investment potential through one intelligent real-estate platform.
+        <p className="mt-6 max-w-xl text-base leading-relaxed text-[var(--text-secondary)] sm:text-lg">
+          Discover projects, understand locations, benchmark prices, evaluate developers and weigh
+          risk against return — through one engine whose formula is published and whose every number
+          carries its evidence.
         </p>
 
-        <div className="mt-9 flex flex-wrap gap-3">
+        <div className="mt-8">
+          <HeroSearch localities={localities} />
+        </div>
+
+        <div className="mt-7 flex flex-wrap items-center gap-3">
           <Link
             href="/search"
-            className="propiq-cta-glow propiq-brand-gradient inline-flex h-13 items-center gap-2 rounded-xl px-7 text-[15px] font-semibold text-white transition-transform hover:-translate-y-0.5"
+            className="propiq-btn-primary inline-flex h-12 items-center gap-2 rounded-lg px-6 text-sm font-semibold text-white"
           >
-            Explore Properties <ArrowRight aria-hidden className="size-4" />
+            Explore properties <ArrowRight aria-hidden className="size-4" />
           </Link>
           <Link
-            href={showcase ? `/property/${showcase.slug}` : '/search'}
-            className="inline-flex h-13 items-center rounded-xl border border-white/25 bg-white/[0.03] px-7 text-[15px] font-semibold text-white transition-colors hover:border-white/45 hover:bg-white/[0.08]"
+            href="/valuation"
+            className="inline-flex h-12 items-center gap-2 rounded-lg border border-[var(--border-strong)] px-5 text-sm font-medium transition-colors hover:bg-[var(--surface-1)]"
           >
-            Analyze a Property
+            Analyze a property
+          </Link>
+          <Link
+            href="/copilot"
+            className="inline-flex h-12 items-center gap-2 rounded-lg px-4 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+          >
+            <MessageSquareText aria-hidden className="size-4" /> Ask PropIQ
           </Link>
         </div>
 
-        <dl className="mt-10 grid max-w-lg grid-cols-2 gap-x-6 gap-y-5 border-t border-white/10 pt-7 sm:grid-cols-4 sm:gap-x-4">
-          {PROOF.map((item) => (
-            <div key={item.label}>
-              <dt className="sr-only">{item.label}</dt>
+        <dl className="mt-10 flex flex-wrap gap-x-8 gap-y-4 border-t border-[var(--border-subtle)] pt-6">
+          {PROOF.map((p) => (
+            <div key={p.label}>
+              <dt className="sr-only">{p.label}</dt>
               <dd>
-                <span
-                  data-figure
-                  className="propiq-hero-accent block text-2xl font-bold leading-none"
-                >
-                  {item.figure}
+                <span data-figure className="text-2xl font-semibold">
+                  {p.figure}
                 </span>
-                <span className="mt-1.5 block text-[11px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
-                  {item.label}
-                </span>
+                <span className="ml-2 text-sm text-[var(--text-muted)]">{p.label}</span>
               </dd>
             </div>
           ))}
         </dl>
-
-        <ul className="mt-8 flex flex-wrap gap-2">
-          {CHIPS.map((chip) => (
-            <li
-              key={chip}
-              className="rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5 text-xs text-[var(--text-secondary)]"
-            >
-              {chip}
-            </li>
-          ))}
-        </ul>
       </div>
 
+      {/* -------------------------------------------------------- readouts */}
+      {/* Absent, not faked, when there is no property to read them off. */}
       {showcase && (
-        <div className="propiq-reveal min-w-0" style={{ animationDelay: '120ms' }}>
-          {/* The score leads, at the size it deserves: it is the product's
-              one headline number, and four equal cards gave it no more
-              weight than the risk band. */}
-          <Tilt3D max={5} lift={14}>
-            <div className="propiq-site-glass propiq-hero-panel rounded-2xl p-6">
-              <div className="flex items-center gap-6">
-                {showcase.propiqScore !== undefined && (
-                  <ScoreDial
-                    score={showcase.propiqScore}
-                    confidence={showcase.verdictConfidence}
-                    size={128}
-                  />
-                )}
-                <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/55">
-                    Featured analysis
-                  </p>
-                  <p className="mt-1.5 truncate text-lg font-semibold text-white">
-                    {showcase.name}
-                  </p>
-                  <p className="mt-0.5 text-xs text-white/60">
-                    {showcase.locality}, {showcase.city} · {showcase.bhk} BHK · {showcase.sizeSqFt}{' '}
-                    sqft
-                  </p>
-                  <p data-figure className="mt-3 text-2xl font-bold text-white">
-                    {formatINR(showcase.price)}
-                  </p>
-                  {showcase.scoreBand && (
-                    <p className="mt-1 text-[11px] text-white/55">
-                      95% band {showcase.scoreBand.low}–{showcase.scoreBand.high} ·{' '}
-                      {(showcase.verdictConfidence * 100).toFixed(0)}% confidence
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
-                <span className="inline-flex items-center gap-2 text-sm">
-                  <span
-                    className="inline-block size-2 rounded-full"
-                    style={{ background: 'var(--color-buy)' }}
-                    aria-hidden
-                  />
-                  <span className="font-semibold text-white">
-                    {DECISION_LABELS[showcase.decision]}
-                  </span>
-                  <span className="text-white/55">
-                    · {showcase.riskBand.replace(/^\w/, (c) => c.toUpperCase())} risk
-                  </span>
-                </span>
-                <Link
-                  href={`/property/${showcase.slug}`}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-accent-400)] hover:underline"
-                >
-                  View intelligence <ArrowRight aria-hidden className="size-3.5" />
-                </Link>
-              </div>
-            </div>
-          </Tilt3D>
-
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <Tilt3D>
-              <GlassMetricCard
-                label="Price benchmark"
-                value={formatPsf(showcase.pricePerSqFt)}
-                note={`${formatPercent(Math.abs(showcase.priceDeviationPercent), 1)} ${
-                  showcase.priceDeviationPercent < 0 ? 'under' : 'over'
-                } our central estimate`}
-                dataStatus={showcase.dataStatus}
-              />
-            </Tilt3D>
-            <Tilt3D>
-              <GlassMetricCard
-                label="Material risks"
-                value={
-                  showcase.materialRisks.length > 0 ? String(showcase.materialRisks.length) : 'None'
-                }
-                note={
-                  showcase.materialRisks.length > 0
-                    ? `of ${RISK_DIMENSIONS.length} dimensions flagged material`
-                    : `Nothing material across ${RISK_DIMENSIONS.length} dimensions`
-                }
-                dataStatus={showcase.dataStatus}
-              />
-            </Tilt3D>
+        <div className="lg:pt-6">
+          {/* An offset stack rather than a scatter. Absolute placement put the
+              last readout below the section and let the middle two collide at
+              awkward widths; stepping them across a flow column keeps the
+              floating feel and cannot overflow the box at any size. */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 lg:gap-4">
+            <Readout
+              className="lg:mr-[22%]"
+              label="PropIQ Score"
+              value={
+                showcase.propiqScore === undefined ? '—' : String(Math.round(showcase.propiqScore))
+              }
+              caption={
+                showcase.scoreBand
+                  ? `95% band ${showcase.scoreBand.low}–${showcase.scoreBand.high} · ${formatPercent(showcase.coverage * 100, 0)} evidence coverage`
+                  : 'Withheld — not enough evidence'
+              }
+            />
+            <Readout
+              className="lg:ml-[16%]"
+              label="Fair value"
+              value={showcase.fairValueMid === undefined ? '—' : formatINR(showcase.fairValueMid)}
+              caption={
+                showcase.fairValueLow !== undefined && showcase.fairValueHigh !== undefined
+                  ? `Range ${formatINR(showcase.fairValueLow)} – ${formatINR(showcase.fairValueHigh)}`
+                  : 'No comparable set'
+              }
+            />
+            <Readout
+              className="lg:mr-[28%]"
+              label="Risk profile"
+              value={RISK_WORD[showcase.riskBand]}
+              caption={`Across ${RISK_DIMENSIONS.length} dimensions, each with its own evidence`}
+            />
+            <Readout
+              className="lg:ml-[10%]"
+              label="Asking vs fair value"
+              value={
+                showcase.priceDeviationPercent >= 0
+                  ? `${formatPercent(showcase.priceDeviationPercent, 1)} over`
+                  : `${formatPercent(Math.abs(showcase.priceDeviationPercent), 1)} under`
+              }
+              tone={showcase.priceDeviationPercent >= 0 ? 'var(--color-avoid)' : 'var(--color-buy)'}
+              caption={`${showcase.name} · ${showcase.locality}`}
+            />
           </div>
+
+          <p className="mt-4 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+            <ShieldCheck aria-hidden className="size-3.5 shrink-0" />
+            Computed live by the scoring engine — not a mock-up.
+          </p>
         </div>
       )}
     </div>

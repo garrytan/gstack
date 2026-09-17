@@ -73,10 +73,7 @@ const DeliveryChannels = ({
     </h2>
     <ul className="mt-3 grid gap-2 sm:grid-cols-3">
       {channels.map(({ channel, configured }) => (
-        <li
-          key={channel}
-          className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
-        >
+        <li key={channel} className="rounded-lg propiq-card p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-semibold">{DELIVERY_CHANNEL_LABELS[channel]}</span>
             <span
@@ -159,7 +156,7 @@ const Empty = () => (
     </p>
     <Link
       href="/dashboard/alerts"
-      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
+      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
     >
       Check alerts now
     </Link>
@@ -174,7 +171,7 @@ const SignedOut = () => (
     </p>
     <Link
       href="/login"
-      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-[#0a2a2b] hover:bg-accent-400"
+      className="mt-4 inline-flex h-10 items-center rounded-md bg-accent-500 px-4 text-sm font-semibold text-white hover:bg-accent-400"
     >
       Sign in
     </Link>

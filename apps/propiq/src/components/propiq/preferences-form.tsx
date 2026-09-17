@@ -87,7 +87,7 @@ export const PreferencesForm = ({
           <p className="text-[11px] text-[var(--text-muted)]">{PERSONA_COPY[persona]}</p>
         </div>
 
-        <dl className="grid grid-cols-2 gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-2)] p-3 sm:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-2 rounded-md propiq-card p-3 sm:grid-cols-4">
           {(['legalCertainty', 'commute', 'appreciation', 'rentalIncome'] as const).map((k) => (
             <div key={k}>
               <dt className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">

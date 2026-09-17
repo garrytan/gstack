@@ -27,10 +27,7 @@ const BAND_LABEL: Readonly<Record<RiskBand, string>> = {
 export const RiskGrid = ({ risk }: { risk: RiskAssessment }) => (
   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
     {risk.dimensions.map((d) => (
-      <article
-        key={d.dimension}
-        className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
-      >
+      <article key={d.dimension} className="rounded-lg propiq-card p-3">
         <header className="flex items-start justify-between gap-2">
           <h3 className="text-xs font-semibold">{d.label}</h3>
           <span

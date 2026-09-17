@@ -88,7 +88,7 @@ export const VisitChecklist = ({ visit }: { visit: SiteVisit }) => {
                 return (
                   <li
                     key={item.id}
-                    className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4"
+                    className="rounded-lg propiq-card p-4"
                     style={
                       answer === 'concern' && item.material
                         ? { borderLeftWidth: 3, borderLeftColor: 'var(--color-avoid)' }
@@ -177,7 +177,7 @@ export const VisitChecklist = ({ visit }: { visit: SiteVisit }) => {
         />
       </section>
 
-      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+      <div className="rounded-lg propiq-card p-4">
         <p className="flex items-center gap-2 text-xs font-semibold">
           <CheckCircle2 aria-hidden className="size-3.5" style={{ color: 'var(--color-buy)' }} />
           What happens to this

@@ -33,7 +33,7 @@ export const SearchFilters = ({
   };
 
   return (
-    <form className="space-y-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-4">
+    <form className="space-y-4 rounded-lg propiq-card p-4">
       <fieldset className="space-y-1">
         <Label htmlFor="filter-persona">Score for</Label>
         <Select

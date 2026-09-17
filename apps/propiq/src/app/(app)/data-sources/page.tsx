@@ -91,9 +91,10 @@ export default async function DataSourcesPage() {
         </dl>
         {repo.servesDemoData && (
           <p className="mt-2 text-xs text-[var(--text-secondary)]">
-            Everything you can see in this environment is a development fixture. The fixture adapter
-            is refused outright when NODE_ENV is production, so these records cannot reach a live
-            deployment.
+            Every property, project and developer on this deployment is invented. The locality names
+            are real Bengaluru localities; every figure attached to them is synthetic. A deployment
+            can only serve this set by declaring it publicly, which is what puts the demo banner on
+            every screen — there is no configuration that serves these records quietly.
           </p>
         )}
       </div>
@@ -102,10 +103,7 @@ export default async function DataSourcesPage() {
         <h2 className="text-lg font-semibold tracking-tight">How every figure is classified</h2>
         <dl className="mt-3 space-y-3">
           {DATA_STATUSES.map((status) => (
-            <div
-              key={status}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] p-3"
-            >
+            <div key={status} className="rounded-lg propiq-card p-3">
               <dt>
                 <DataStatusBadge status={status} />
               </dt>
