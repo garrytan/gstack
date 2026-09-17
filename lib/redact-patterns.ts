@@ -253,6 +253,30 @@ export function looksLikeParcelId(span: string, match: RegExpExecArray): boolean
   return false;
 }
 
+/**
+ * Decimal coordinates read as a phone number to pii.phone.e164 when the
+ * fractional parts happen to be 3-4 digits long: `37.6188 101.694` parses as
+ * 37 · 6188 · 101 · 694, and `100 64.5326 100` as 100 · 64 · 5326 · 100. That
+ * is the shape of every coordinate run there is — SVG path data, mesh
+ * vertices, lat/long — and a repo that commits one hand-drawn icon carries
+ * dozens per path, on every branch that touches it. Same collision class as
+ * the parcel ID above.
+ *
+ * Exempt on shape alone. The shape: space-separated tokens, at least one of
+ * which is a decimal number (digits, ONE dot, digits), and none of which has
+ * two dots. Phone conventions put the dot BETWEEN groups, so a dotted phone
+ * has two of them in one token (415.555.0123, +1 415.555.0123) and a spaced
+ * phone has none — neither is a decimal token, and both stay flagged. The one
+ * shape this concedes is a lone dotted pair beside a spaced group
+ * (415 555.0123), which no convention writes; the test file pins the rest.
+ */
+export function looksLikeDecimalCoordinates(span: string): boolean {
+  const tokens = span.split(" ");
+  if (tokens.length < 2) return false;
+  if (tokens.some((t) => t.split(".").length > 2)) return false;
+  return tokens.some((t) => /^\d+\.\d+$/.test(t));
+}
+
 // ── Placeholder suppression (per-matched-span, NOT per-line) ─────────────────
 
 /**
@@ -721,12 +745,14 @@ export const PATTERNS: RedactPattern[] = [
     autoRedactable: true,
     redactToken: "<REDACTED-PHONE>",
     // A digit-only UUID's hyphen groups read as national phone formatting, and
-    // so does a county tax-map parcel ID (see looksLikeParcelId).
+    // so does a county tax-map parcel ID (see looksLikeParcelId) or a run of
+    // decimal coordinates (see looksLikeDecimalCoordinates).
     validate: (span, match) =>
       !insideUuid(match) &&
       span.replace(/\D/g, "").length >= 10 &&
       !looksLikeCompactTimestamp(span) &&
-      !looksLikeParcelId(span, match),
+      !looksLikeParcelId(span, match) &&
+      !looksLikeDecimalCoordinates(span),
   },
   {
     id: "pii.ssn",
