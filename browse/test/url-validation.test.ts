@@ -133,6 +133,35 @@ describe('validateNavigationUrl', () => {
     await expect(validateNavigationUrl('https://fcustomer.com/')).resolves.toBe('https://fcustomer.com/');
   });
 
+  it('blocks AWS ECS/Fargate container-credentials endpoint (169.254.170.2)', async () => {
+    await expect(validateNavigationUrl('http://169.254.170.2/v2/credentials/')).rejects.toThrow(/link-local|cloud metadata/i);
+  });
+
+  it('blocks EKS Pod Identity credentials endpoint (169.254.170.23)', async () => {
+    await expect(validateNavigationUrl('http://169.254.170.23/')).rejects.toThrow(/link-local|cloud metadata/i);
+  });
+
+  it('blocks the whole IPv4 link-local /16, not just the metadata IP (169.254.1.2)', async () => {
+    await expect(validateNavigationUrl('http://169.254.1.2/')).rejects.toThrow(/link-local|cloud metadata/i);
+  });
+
+  it('blocks a link-local IPv4 address given in hex form (0xA9FEAA02 = 169.254.170.2)', async () => {
+    await expect(validateNavigationUrl('http://0xA9FEAA02/')).rejects.toThrow(/link-local|cloud metadata/i);
+  });
+
+  it('blocks the IPv4-mapped IPv6 form of a link-local address ([::ffff:169.254.170.2])', async () => {
+    await expect(validateNavigationUrl('http://[::ffff:169.254.170.2]/')).rejects.toThrow(/link-local|cloud metadata/i);
+  });
+
+  it('does not block real hostnames that merely start with 169.254. (e.g. 169.254.example.com)', async () => {
+    await expect(validateNavigationUrl('https://169.254.example.com/')).resolves.toBe('https://169.254.example.com/');
+  });
+
+  it('still allows private-network dev servers (192.168.x, 10.x)', async () => {
+    await expect(validateNavigationUrl('http://192.168.1.50:3000/app')).resolves.toBe('http://192.168.1.50:3000/app');
+    await expect(validateNavigationUrl('http://10.0.0.5/health')).resolves.toBe('http://10.0.0.5/health');
+  });
+
   it('throws on malformed URLs', async () => {
     await expect(validateNavigationUrl('not-a-url')).rejects.toThrow(/Invalid URL/i);
   });
