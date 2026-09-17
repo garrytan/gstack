@@ -69,6 +69,7 @@ if [ "$FORCE" -eq 0 ]; then
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
   [ -d "$HOME/.cursor/skills" ] && echo "  ~/.cursor/skills/gstack*"
+  [ -d "$HOME/.gemini/config/skills" ] && echo "  ~/.gemini/config/skills/gstack*"
   [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
 
   if [ -n "$_GIT_ROOT" ]; then
@@ -76,6 +77,7 @@ if [ "$FORCE" -eq 0 ]; then
     [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports)"
     [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
     [ -d "$_GIT_ROOT/.agents/skills" ] && echo "  $_GIT_ROOT/.agents/skills/gstack*"
+    [ -d "$_GIT_ROOT/.gemini/skills" ] && echo "  $_GIT_ROOT/.gemini/skills/gstack*"
     [ -d "$_GIT_ROOT/.cursor/skills" ] && echo "  $_GIT_ROOT/.cursor/skills/gstack*"
   fi
 
@@ -330,6 +332,16 @@ if [ -d "$CURSOR_SKILLS" ]; then
     else
       _SKIPPED_DIRS+=("$_ITEM")
     fi
+  done
+fi
+
+# ─── Remove Google Antigravity skills ────────────────────────
+ANTIGRAVITY_SKILLS="$HOME/.gemini/config/skills"
+if [ -d "$ANTIGRAVITY_SKILLS" ]; then
+  for _ITEM in "$ANTIGRAVITY_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("antigravity/$(basename "$_ITEM")")
   done
 fi
 
