@@ -458,6 +458,7 @@ Before reviewing code quality, check: **did they build what was requested — no
    - Files changed that are unrelated to the stated intent
    - New features or refactors not mentioned in the plan
    - "While I was in there..." changes that expand blast radius
+   - New negative assertions (\`not in\`, \`assertNotIn\`, \`pytest.raises\` on a passing call) freeze a behavior removal — cite the intent line authorizing each, or it is scope creep
 
    **MISSING REQUIREMENTS detection:**
    - Requirements from TODOS.md/PR description not addressed in the diff
