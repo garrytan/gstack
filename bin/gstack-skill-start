@@ -359,7 +359,7 @@ if [ "$_SESSION_KIND" != "spawned" ]; then
 # Upgrade flow (gated: update-check emitted something above).
 if [ -n "$_UPD" ]; then
   _emit_block upgrade-flow <<EOI
-The update-check output above applies. If it shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`$_ROOT_DIR/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If it shows \`JUST_UPGRADED <from> <to>\`: print "Running gstack v{to} (just updated!)". If \`SPAWNED_SESSION\` is true, skip feature discovery. After upgrade prompts, continue the workflow.
+The update-check output above applies. If it shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`$_ROOT_DIR/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If it shows \`UPGRADE_COMMITS <version> <local_sha7> <remote_sha7>\`: same flow, plus read \`$_ROOT_DIR/gstack-upgrade/COMMIT-CLOCK.md\` — the version does not change in that case, so never render it as \`<old> → <new>\`. If it shows \`JUST_UPGRADED <from> <to>\`: print "Running gstack v{to} (just updated!)". If \`SPAWNED_SESSION\` is true, skip feature discovery. After upgrade prompts, continue the workflow.
 EOI
 fi
 # Feature discovery (one prompt per session, marker-gated). These are
