@@ -23,6 +23,7 @@ import {
   slate,
   cursor,
   openclaw,
+  antigravity,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { RESOLVERS } from '../scripts/resolvers';
@@ -33,8 +34,8 @@ const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 10 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(10);
+  test('ALL_HOST_CONFIGS has 11 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(11);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -56,6 +57,7 @@ describe('hosts/index.ts', () => {
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
+    expect(antigravity.name).toBe('antigravity');
   });
 
   test('getHostConfig returns correct config', () => {
@@ -77,6 +79,7 @@ describe('hosts/index.ts', () => {
   test('resolveHostArg resolves aliases', () => {
     expect(resolveHostArg('agents')).toBe('codex');
     expect(resolveHostArg('droid')).toBe('factory');
+    expect(resolveHostArg('agy')).toBe('antigravity');
   });
 
   test('resolveHostArg throws on unknown alias', () => {
@@ -500,9 +503,10 @@ describe('golden-file regression', () => {
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
-  test('Codex host renders with generic GPT overlay while existing hosts retain Claude overlay', () => {
+  test('Codex renders with generic GPT overlay and Antigravity with Gemini while existing hosts retain Claude overlay', () => {
     expect(codex.defaultModel).toBe('gpt');
-    for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex')) {
+    expect(antigravity.defaultModel).toBe('gemini');
+    for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex' && h.name !== 'antigravity')) {
       expect(host.defaultModel).toBe('claude');
     }
   });
