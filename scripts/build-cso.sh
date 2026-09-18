@@ -272,7 +272,7 @@ else
     # ad-hoc dylib. This section makes dyld prune DYLD_* before constructors.
     Darwin) CSO_LAUNCHER_FLAGS="-Wl,-sectcreate,__RESTRICT,__restrict,/dev/null" ;;
   esac
-  # shellcheck disable=SC2086 -- the optional platform flags are fixed literals.
+  # shellcheck disable=SC2086 # the optional platform flags are fixed literals.
   "$CSO_CC" -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra $CSO_LAUNCHER_FLAGS \
     "-DGSTACK_CSO_CORE_SHA256=\"$CSO_CORE_SHA256\"" lib/cso/launcher.c -o "$CSO_STAGE_LAUNCHER"
   "$CSO_CC" -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra lib/cso/publish-lock.c -o "$CSO_STAGE_LOCKER"
