@@ -30,6 +30,12 @@ describe("gstack-global-discover", () => {
       );
     });
 
+    test("converts URL-style SSH to HTTPS", () => {
+      expect(normalizeRemoteUrl("ssh://git@github.com/user/repo.git")).toBe(
+        "https://github.com/user/repo"
+      );
+    });
+
     test("converts SSH without .git to HTTPS", () => {
       expect(normalizeRemoteUrl("git@github.com:user/repo")).toBe(
         "https://github.com/user/repo"
@@ -44,9 +50,11 @@ describe("gstack-global-discover", () => {
 
     test("SSH and HTTPS for same repo normalize to same URL", () => {
       const ssh = normalizeRemoteUrl("git@github.com:garrytan/gstack.git");
+      const sshUrl = normalizeRemoteUrl("ssh://git@github.com/garrytan/gstack.git");
       const https = normalizeRemoteUrl("https://github.com/garrytan/gstack.git");
       const httpsNoDotGit = normalizeRemoteUrl("https://github.com/garrytan/gstack");
       expect(ssh).toBe(https);
+      expect(sshUrl).toBe(https);
       expect(https).toBe(httpsNoDotGit);
     });
 
@@ -58,6 +66,12 @@ describe("gstack-global-discover", () => {
 
     test("handles GitLab SSH URLs", () => {
       expect(normalizeRemoteUrl("git@gitlab.com:org/project.git")).toBe(
+        "https://gitlab.com/org/project"
+      );
+    });
+
+    test("handles GitLab URL-style SSH URLs", () => {
+      expect(normalizeRemoteUrl("ssh://git@gitlab.com/org/project.git")).toBe(
         "https://gitlab.com/org/project"
       );
     });
