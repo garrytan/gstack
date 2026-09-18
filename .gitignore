@@ -27,6 +27,7 @@ lib/cso/images/gstack-cso-preparation
 .claude/scheduled_tasks.lock
 .claude/*.lock
 .agents/
+.ainative/
 .factory/
 .kiro/
 .opencode/
