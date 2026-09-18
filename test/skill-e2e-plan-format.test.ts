@@ -20,12 +20,14 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
+import { runRecordedOfficeHoursAttempt, OFFICE_HOURS_BUN_GRACE_MS } from './helpers/office-hours-attempt';
 import {
   ROOT, runId,
   describeIfSelected, testConcurrentIfSelected,
   logCost, assertRecommendationQuality,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import type { EvalTestEntry } from './helpers/eval-store';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -123,45 +125,55 @@ describeIfSelected('Plan Format — CEO Mode Selection', ['plan-ceo-review-forma
   });
 
   testConcurrentIfSelected('plan-ceo-review-format-mode', async () => {
-    const result = await runSkillTest({
-      prompt: `Read plan-ceo-review/SKILL.md for the review workflow.
+    const judgeMetadata: Pick<EvalTestEntry, 'judge_scores' | 'judge_reasoning'> = {};
+    await runRecordedOfficeHoursAttempt({
+      collector: evalCollector, name: '/plan-ceo-review-format-mode', suite: 'Plan Format — CEO Mode Selection',
+      model: 'claude-opus-4-7', budgetMs: CAPTURE_MS,
+      judgeMetadata,
+      run: signal => runSkillTest({
+        signal,
+        prompt: `Read plan-ceo-review/SKILL.md for the review workflow.
 
 Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration or system audit steps.
 
-Proceed to Step 0F (Mode Selection). This is where the skill presents 4 mode options (SCOPE EXPANSION, SELECTIVE EXPANSION, HOLD SCOPE, SCOPE REDUCTION) to the user via AskUserQuestion. These options differ in kind (review posture), not in coverage.
+Proceed to Mode Selection. This is where the skill presents 4 mode options (SCOPE EXPANSION, SELECTIVE EXPANSION, HOLD SCOPE, SCOPE REDUCTION) to the user via AskUserQuestion. These options differ in kind (review posture), not in coverage.
 
 ${captureInstruction(outFile)}
 
 After writing the file, stop. Do not continue the review.`,
-      workingDirectory: planDir,
-      maxTurns: 10,
-      timeout: CAPTURE_MS,
-      testName: 'plan-ceo-review-format-mode',
-      runId,
-      model: 'claude-opus-4-7',
+        workingDirectory: planDir,
+        maxTurns: 10,
+        timeout: CAPTURE_MS,
+        testName: 'plan-ceo-review-format-mode',
+        runId,
+        model: 'claude-opus-4-7',
+      }),
+      validate: async (result, signal) => {
+        logCost('/plan-ceo-review format (mode)', result);
+        expect(['success', 'error_max_turns']).toContain(result.exitReason);
+
+        expect(fs.existsSync(outFile)).toBe(true);
+        const captured = fs.readFileSync(outFile, 'utf-8');
+        expect(captured.length).toBeGreaterThan(100);
+
+        // Kind-differentiated: Completeness: N/10 must NOT appear, "options differ
+        // in kind" note must appear. Recommendation presence is checked by the judge.
+        expect(captured).not.toMatch(COMPLETENESS_RE);
+        expect(captured).toMatch(KIND_NOTE_RE);
+
+        await assertRecommendationQuality({
+          captured,
+          signal,
+          record: metadata => Object.assign(judgeMetadata, metadata),
+          evalCollector,
+          evalId: '/plan-ceo-review-format-mode',
+          evalTitle: 'Plan Format — CEO Mode Selection',
+          result,
+          passed: ['success', 'error_max_turns'].includes(result.exitReason),
+        });
+      },
     });
-
-    logCost('/plan-ceo-review format (mode)', result);
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(100);
-
-    // Kind-differentiated: Completeness: N/10 must NOT appear, "options differ
-    // in kind" note must appear. Recommendation presence is checked by the judge.
-    expect(captured).not.toMatch(COMPLETENESS_RE);
-    expect(captured).toMatch(KIND_NOTE_RE);
-
-    await assertRecommendationQuality({
-      captured,
-      evalCollector,
-      evalId: '/plan-ceo-review-format-mode',
-      evalTitle: 'Plan Format — CEO Mode Selection',
-      result,
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
 });
 
 // --- Case 2: plan-ceo-review approach menu (coverage-differentiated) ---
@@ -180,44 +192,54 @@ describeIfSelected('Plan Format — CEO Approach Menu', ['plan-ceo-review-format
   });
 
   testConcurrentIfSelected('plan-ceo-review-format-approach', async () => {
-    const result = await runSkillTest({
-      prompt: `Read plan-ceo-review/SKILL.md for the review workflow.
+    const judgeMetadata: Pick<EvalTestEntry, 'judge_scores' | 'judge_reasoning'> = {};
+    await runRecordedOfficeHoursAttempt({
+      collector: evalCollector, name: '/plan-ceo-review-format-approach', suite: 'Plan Format — CEO Approach Menu',
+      model: 'claude-opus-4-7', budgetMs: CAPTURE_MS,
+      judgeMetadata,
+      run: signal => runSkillTest({
+        signal,
+        prompt: `Read plan-ceo-review/SKILL.md for the review workflow.
 
 Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration or system audit steps.
 
-Proceed to Step 0C-bis (Implementation Alternatives / Approach Menu). This is where the skill generates 2-3 approaches (minimal viable vs ideal architecture) and presents them via AskUserQuestion. These options differ in coverage (complete vs shortcut), so Completeness: N/10 applies.
+Proceed to Alternatives (the implementation approach menu). This is where the skill generates 2-3 approaches (minimal viable vs ideal architecture) and presents them via AskUserQuestion. These options differ in coverage (complete vs shortcut), so Completeness: N/10 applies.
 
 ${captureInstruction(outFile)}
 
 After writing the file, stop. Do not continue the review.`,
-      workingDirectory: planDir,
-      maxTurns: 10,
-      timeout: CAPTURE_MS,
-      testName: 'plan-ceo-review-format-approach',
-      runId,
-      model: 'claude-opus-4-7',
+        workingDirectory: planDir,
+        maxTurns: 10,
+        timeout: CAPTURE_MS,
+        testName: 'plan-ceo-review-format-approach',
+        runId,
+        model: 'claude-opus-4-7',
+      }),
+      validate: async (result, signal) => {
+        logCost('/plan-ceo-review format (approach)', result);
+        expect(['success', 'error_max_turns']).toContain(result.exitReason);
+
+        expect(fs.existsSync(outFile)).toBe(true);
+        const captured = fs.readFileSync(outFile, 'utf-8');
+        expect(captured.length).toBeGreaterThan(100);
+
+        // Coverage-differentiated: Completeness: N/10 required. Recommendation
+        // presence checked by the judge.
+        expect(captured).toMatch(COMPLETENESS_RE);
+
+        await assertRecommendationQuality({
+          captured,
+          signal,
+          record: metadata => Object.assign(judgeMetadata, metadata),
+          evalCollector,
+          evalId: '/plan-ceo-review-format-approach',
+          evalTitle: 'Plan Format — CEO Approach Menu',
+          result,
+          passed: ['success', 'error_max_turns'].includes(result.exitReason),
+        });
+      },
     });
-
-    logCost('/plan-ceo-review format (approach)', result);
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(100);
-
-    // Coverage-differentiated: Completeness: N/10 required. Recommendation
-    // presence checked by the judge.
-    expect(captured).toMatch(COMPLETENESS_RE);
-
-    await assertRecommendationQuality({
-      captured,
-      evalCollector,
-      evalId: '/plan-ceo-review-format-approach',
-      evalTitle: 'Plan Format — CEO Approach Menu',
-      result,
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
 });
 
 // --- Case 3: plan-eng-review coverage-differentiated per-issue AskUserQuestion ---
@@ -236,8 +258,14 @@ describeIfSelected('Plan Format — Eng Coverage Issue', ['plan-eng-review-forma
   });
 
   testConcurrentIfSelected('plan-eng-review-format-coverage', async () => {
-    const result = await runSkillTest({
-      prompt: `Read plan-eng-review/SKILL.md for the review workflow.
+    const judgeMetadata: Pick<EvalTestEntry, 'judge_scores' | 'judge_reasoning'> = {};
+    await runRecordedOfficeHoursAttempt({
+      collector: evalCollector, name: '/plan-eng-review-format-coverage', suite: 'Plan Format — Eng Coverage Issue',
+      model: 'claude-opus-4-7', budgetMs: CAPTURE_MS,
+      judgeMetadata,
+      run: signal => runSkillTest({
+        signal,
+        prompt: `Read plan-eng-review/SKILL.md for the review workflow.
 
 Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
 
@@ -249,34 +277,38 @@ During your review (Section 3 Test Review is the natural place), generate ONE As
 ${captureInstruction(outFile)}
 
 After writing the file with that ONE question, stop. Do not continue the review.`,
-      workingDirectory: planDir,
-      maxTurns: 10,
-      timeout: CAPTURE_MS,
-      testName: 'plan-eng-review-format-coverage',
-      runId,
-      model: 'claude-opus-4-7',
+        workingDirectory: planDir,
+        maxTurns: 10,
+        timeout: CAPTURE_MS,
+        testName: 'plan-eng-review-format-coverage',
+        runId,
+        model: 'claude-opus-4-7',
+      }),
+      validate: async (result, signal) => {
+        logCost('/plan-eng-review format (coverage)', result);
+        expect(['success', 'error_max_turns']).toContain(result.exitReason);
+
+        expect(fs.existsSync(outFile)).toBe(true);
+        const captured = fs.readFileSync(outFile, 'utf-8');
+        expect(captured.length).toBeGreaterThan(100);
+
+        // Coverage-differentiated: Completeness: N/10 required. Recommendation
+        // presence checked by the judge.
+        expect(captured).toMatch(COMPLETENESS_RE);
+
+        await assertRecommendationQuality({
+          captured,
+          signal,
+          record: metadata => Object.assign(judgeMetadata, metadata),
+          evalCollector,
+          evalId: '/plan-eng-review-format-coverage',
+          evalTitle: 'Plan Format — Eng Coverage Issue',
+          result,
+          passed: ['success', 'error_max_turns'].includes(result.exitReason),
+        });
+      },
     });
-
-    logCost('/plan-eng-review format (coverage)', result);
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(100);
-
-    // Coverage-differentiated: Completeness: N/10 required. Recommendation
-    // presence checked by the judge.
-    expect(captured).toMatch(COMPLETENESS_RE);
-
-    await assertRecommendationQuality({
-      captured,
-      evalCollector,
-      evalId: '/plan-eng-review-format-coverage',
-      evalTitle: 'Plan Format — Eng Coverage Issue',
-      result,
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
 });
 
 // --- Case 4: plan-eng-review kind-differentiated per-issue AskUserQuestion ---
@@ -295,8 +327,14 @@ describeIfSelected('Plan Format — Eng Kind Issue', ['plan-eng-review-format-ki
   });
 
   testConcurrentIfSelected('plan-eng-review-format-kind', async () => {
-    const result = await runSkillTest({
-      prompt: `Read plan-eng-review/SKILL.md for the review workflow.
+    const judgeMetadata: Pick<EvalTestEntry, 'judge_scores' | 'judge_reasoning'> = {};
+    await runRecordedOfficeHoursAttempt({
+      collector: evalCollector, name: '/plan-eng-review-format-kind', suite: 'Plan Format — Eng Kind Issue',
+      model: 'claude-opus-4-7', budgetMs: CAPTURE_MS,
+      judgeMetadata,
+      run: signal => runSkillTest({
+        signal,
+        prompt: `Read plan-eng-review/SKILL.md for the review workflow.
 
 Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
 
@@ -305,35 +343,39 @@ During your review (Section 1 Architecture), generate ONE AskUserQuestion about 
 ${captureInstruction(outFile)}
 
 After writing the file with that ONE question, stop. Do not continue the review.`,
-      workingDirectory: planDir,
-      maxTurns: 10,
-      timeout: CAPTURE_MS,
-      testName: 'plan-eng-review-format-kind',
-      runId,
-      model: 'claude-opus-4-7',
+        workingDirectory: planDir,
+        maxTurns: 10,
+        timeout: CAPTURE_MS,
+        testName: 'plan-eng-review-format-kind',
+        runId,
+        model: 'claude-opus-4-7',
+      }),
+      validate: async (result, signal) => {
+        logCost('/plan-eng-review format (kind)', result);
+        expect(['success', 'error_max_turns']).toContain(result.exitReason);
+
+        expect(fs.existsSync(outFile)).toBe(true);
+        const captured = fs.readFileSync(outFile, 'utf-8');
+        expect(captured.length).toBeGreaterThan(100);
+
+        // Kind-differentiated: Completeness: N/10 must NOT appear, "options differ
+        // in kind" note must appear. Recommendation presence checked by the judge.
+        expect(captured).not.toMatch(COMPLETENESS_RE);
+        expect(captured).toMatch(KIND_NOTE_RE);
+
+        await assertRecommendationQuality({
+          captured,
+          signal,
+          record: metadata => Object.assign(judgeMetadata, metadata),
+          evalCollector,
+          evalId: '/plan-eng-review-format-kind',
+          evalTitle: 'Plan Format — Eng Kind Issue',
+          result,
+          passed: ['success', 'error_max_turns'].includes(result.exitReason),
+        });
+      },
     });
-
-    logCost('/plan-eng-review format (kind)', result);
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(100);
-
-    // Kind-differentiated: Completeness: N/10 must NOT appear, "options differ
-    // in kind" note must appear. Recommendation presence checked by the judge.
-    expect(captured).not.toMatch(COMPLETENESS_RE);
-    expect(captured).toMatch(KIND_NOTE_RE);
-
-    await assertRecommendationQuality({
-      captured,
-      evalCollector,
-      evalId: '/plan-eng-review-format-kind',
-      evalTitle: 'Plan Format — Eng Kind Issue',
-      result,
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
 });
 
 afterAll(async () => {

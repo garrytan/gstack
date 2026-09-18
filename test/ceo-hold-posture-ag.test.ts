@@ -210,3 +210,40 @@ test('ambiguity posture stays bound to the approved plan and its actual native a
     expect(matches(transcript), to).toBe(false);
   }
 });
+
+import retainedPreservationCaptures from './fixtures/ceo-hold-preservation-f359.json';
+{
+const captures = retainedPreservationCaptures;
+const posture=/\b(rigor|bulletproof|hold\s*scope|maximum\s+rigor)\b/i;
+const clone=(i=0)=>structuredClone(captures[i]) as any;
+const check=(x:any)=>hasNativePostAnswerCeoPosture(x.transcript,'HOLD SCOPE',posture,x.selectionStartedAt,x.tools,x.source);
+const decision=(x:any)=>x.transcript.calls.find((c:any)=>c.questions[0]?.question.match(/^D\d+ — Keep/));
+function editQuestion(x:any,change:(q:any)=>void){const c=decision(x);const before=c.questions[0].question;change(c.questions[0]);const after=c.questions[0].question;if(before!==after){c.answers[after]=c.answers[before];delete c.answers[before]};x.tools.find((t:any)=>t.kind==='use'&&t.toolUseId===c.toolUseId).input.questions=structuredClone(c.questions)}
+for(let i=0;i<2;i++)test(`actual acknowledged preserve decision ${i+1}`,()=>{const x=clone(i);expect(check(x)).toBe(true)});
+const mutations:Record<string,(x:any)=>void>={
+ 'unanswered':x=>{decision(x).answered=false},
+ 'failed answer':x=>{x.tools.find((t:any)=>t.kind==='result'&&t.toolUseId===decision(x).toolUseId).isError=true},
+ 'unmatched native request':x=>{x.tools.find((t:any)=>t.kind==='use'&&t.toolUseId===decision(x).toolUseId).input.questions=[]},
+ 'foreign decision session':x=>{decision(x).sessionId='foreign'},
+ 'foreign source path':x=>{x.source.path='/foreign/PLAN.md'},
+ 'altered source bytes':x=>{x.source.content=x.source.content.replace('update,','share,')},
+ 'different named source':x=>{editQuestion(x,q=>q.question=q.question.replace('PLAN.md','OTHER.md'))},
+ 'unrelated choice':x=>{editQuestion(x,q=>{q.question=q.question.replaceAll('update','sharing');q.options=q.options.map((o:any)=>({...o,label:o.label.replaceAll('update','sharing')}))});const c=decision(x);c.answers[c.questions[0].question]=c.questions[0].options[0].label},
+ 'expanding description':x=>{editQuestion(x,q=>q.options[0].description+=' Also add shared team views outside the plan.')},
+ 'mere mode label':x=>{editQuestion(x,q=>{q.question=q.question.replace(/ELI10:[\s\S]*?Stakes if/,'ELI10: Keep it.\nStakes if').replace(/Stakes if[\s\S]*?Recommendation:/,'Stakes if we pick wrong: None.\nRecommendation:');q.options.forEach((o:any)=>o.description='Fine.')})},
+ 'historical decision':x=>{editQuestion(x,q=>q.question='Historical example: '+q.question)},
+ 'quoted decision':x=>{editQuestion(x,q=>q.question=q.question.split('\n').map((l:string)=>'> '+l).join('\n'))},
+ 'withdrawn decision':x=>{editQuestion(x,q=>q.question=q.question.replace('HOLD SCOPE review','withdrawn HOLD SCOPE review'))},
+ 'later withdrawal':x=>{x.transcript.assistantMessages.push({sessionId:decision(x).sessionId,timestamp:new Date().toISOString(),text:'I withdraw this decision.'})},
+ 'later scope expansion':x=>{x.transcript.assistantMessages.push({sessionId:decision(x).sessionId,timestamp:new Date().toISOString(),text:'I expand the scope.'})},
+ 'missing source ACK':x=>{x.tools=x.tools.filter((t:any)=>!(t.kind==='result'&&x.tools.some((u:any)=>u.kind==='use'&&u.toolUseId===t.toolUseId&&u.name==='Read'&&u.input?.file_path===x.source.path)))},
+ 'wrong actual choice':x=>{const c=decision(x);c.answers[c.questions[0].question]=c.questions[0].options[1].label},
+};
+for(const [name,mutate] of Object.entries(mutations))test(name,()=>{const x=clone();mutate(x);expect(check(x)).toBe(false)});
+test('later quoted withdrawal is not current withdrawal',()=>{const x=clone();x.transcript.assistantMessages.push({sessionId:decision(x).sessionId,timestamp:new Date().toISOString(),text:'Example: "I withdraw this decision."'});expect(check(x)).toBe(true)});
+test('new proof path is unavailable without explicit fixture source binding',()=>{const x=clone();expect(hasNativePostAnswerCeoPosture(x.transcript,'HOLD SCOPE',posture,x.selectionStartedAt,x.tools)).toBe(false)});
+
+test('retry source cat requires the actual owned project',()=>{const x=clone(1);x.tools.find((t:any)=>t.kind==='use'&&t.input?.command?.includes('cat PLAN.md')).input.command=x.tools.find((t:any)=>t.kind==='use'&&t.input?.command?.includes('cat PLAN.md')).input.command.replace(x.source.path.replace('/PLAN.md',''),'/foreign');expect(check(x)).toBe(false)});
+test('retry source read ACK cannot be missing',()=>{const x=clone(1);const use=x.tools.find((t:any)=>t.kind==='use'&&t.input?.command?.includes('cat PLAN.md'));x.tools=x.tools.filter((t:any)=>!(t.kind==='result'&&t.toolUseId===use.toolUseId));expect(check(x)).toBe(false)});
+
+}

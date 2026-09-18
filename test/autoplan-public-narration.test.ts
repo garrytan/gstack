@@ -126,9 +126,15 @@ test('phase ordering and duplicate collapse use native time rather than polling 
 });
 
 test('public narration changes select every existing shared native-reader consumer',()=>{
+ const expected=[
+  'auto-decide-preserved','autoplan-chain-pty','conductor-prose',
+  'plan-ceo-finding-count','plan-ceo-mode-routing','plan-ceo-split-overflow',
+  'plan-design-finding-count','plan-design-review-plan-mode','plan-design-with-ui-scope',
+  'plan-devex-finding-count','plan-eng-finding-count','plan-eng-multi-finding-batching',
+  'plan-eng-review-plan-mode',
+ ].sort();
  const reader=selectTests(['test/helpers/plan-count-transcript.ts'],E2E_TOUCHFILES).selected.sort();
- expect(reader).toHaveLength(8);expect(reader).toContain('autoplan-chain-pty');
- expect(reader).toContain('plan-ceo-mode-routing');
+ expect(reader).toEqual(expected);
  for(const file of ['test/autoplan-public-narration.test.ts','test/fixtures/autoplan-public-narration-ad.json'])
   expect(selectTests([file],E2E_TOUCHFILES).selected.sort()).toEqual(reader);
 });

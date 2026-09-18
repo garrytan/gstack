@@ -10,8 +10,8 @@
  *   5. resize control message — terminal accepts and stays alive.
  *   6. close behavior — sending close terminates the PTY child.
  *
- * Uses /bin/bash via BROWSE_TERMINAL_BINARY override so CI doesn't need
- * the `claude` binary installed.
+ * Uses a CLI-compatible wrapper around /bin/bash via BROWSE_TERMINAL_BINARY
+ * so CI doesn't need the `claude` binary installed.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -54,12 +54,25 @@ beforeAll(() => {
   const stateFile = path.join(stateDir, 'browse.json');
   // browse.json must exist so the agent's readBrowseToken doesn't throw.
   fs.writeFileSync(stateFile, JSON.stringify({ token: 'test-browse-token' }));
+  const terminalCli = path.join(stateDir, 'terminal-cli');
+  // Production supplies Claude's CLI arguments. Validate that contract before
+  // handing the real PTY to Bash; bare Bash rejects --append-system-prompt.
+  fs.writeFileSync(terminalCli, [
+    `#!${BASH}`,
+    'if [ "$#" -ne 2 ] || [ "$1" != "--append-system-prompt" ] || [ -z "$2" ]; then',
+    '  echo "unexpected terminal CLI arguments" >&2; exit 64',
+    'fi',
+    'shift 2',
+    `exec ${BASH} --noprofile --norc "$@"`,
+    '',
+  ].join('\n'));
+  fs.chmodSync(terminalCli, 0o755);
   agentProc = Bun.spawn(['bun', 'run', AGENT_SCRIPT], {
     env: {
       ...process.env,
       BROWSE_STATE_FILE: stateFile,
       BROWSE_SERVER_PORT: '0', // not used in this test
-      BROWSE_TERMINAL_BINARY: BASH,
+      BROWSE_TERMINAL_BINARY: terminalCli,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -158,8 +171,10 @@ describe('terminal-agent: PTY round-trip via real WebSocket (Cookie auth)', () =
 
     ws.addEventListener('close', () => { closed = true; });
 
-    // Lazy-spawn trigger: any binary frame causes the agent to spawn /bin/bash.
-    ws.send(new TextEncoder().encode('echo hello-pty-world\nexit\n'));
+    // Lazy-spawn trigger: any binary frame causes the agent to spawn the fixture CLI.
+    // The expected token must not occur in the input: PTY echo alone is not
+    // proof that the child accepted its arguments and executed the command.
+    ws.send(new TextEncoder().encode("printf 'hello-%s-world\\n' pty\nexit\n"));
 
     // Wait up to 5s for output and shutdown.
     await new Promise<void>((resolve) => {
@@ -308,5 +323,169 @@ describe('terminal-agent: PTY round-trip via real WebSocket (Cookie auth)', () =
     expect([WebSocket.OPEN, WebSocket.CLOSED]).toContain(ws.readyState);
 
     try { ws.close(); } catch {}
+  });
+});
+
+// Route-level lifecycle regressions use the same owned Bash CLI fixture and
+// real PTY/WS transport above. Every expected result is absent from typed input.
+describe('terminal-agent: owned PTY completion and restart', () => {
+  async function internal(route: string, body: unknown) {
+    return fetch(`http://127.0.0.1:${agentPort}/internal/${route}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${internalToken}` },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function until(check: () => boolean | Promise<boolean>, label: string) {
+    const deadline = Date.now() + 5000;
+    while (!(await check())) {
+      if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`);
+      await Bun.sleep(10);
+    }
+  }
+
+  async function attach(sessionId: string, token: string) {
+    const granted = await internal('grant', { token, sessionId });
+    expect(granted.status).toBe(200);
+    const ws = new WebSocket(`ws://127.0.0.1:${agentPort}/ws`, {
+      headers: { Origin: 'chrome-extension://test-extension-id', Cookie: `gstack_pty=${token}` },
+    } as any);
+    const events: Array<{ type: string; [key: string]: any }> = [];
+    let output = '';
+    let closed: number | null = null;
+    ws.addEventListener('message', (event: any) => {
+      if (typeof event.data === 'string') events.push(JSON.parse(event.data));
+      else {
+        const chunk = new TextDecoder().decode(event.data);
+        output += chunk;
+        events.push({ type: 'output', text: chunk });
+      }
+    });
+    ws.addEventListener('close', event => { closed = event.code; events.push({ type: 'closed', code: event.code }); });
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('ws never opened')), 5000);
+      ws.addEventListener('open', () => { clearTimeout(timer); resolve(); });
+      ws.addEventListener('error', () => { clearTimeout(timer); reject(new Error('ws error')); });
+    });
+    return { ws, events, output: () => output, closed: () => closed };
+  }
+
+  test('restart closes the old socket and grants a fresh child only to its replacement', async () => {
+    const sessionId = 'owned-restart-session';
+    const old = await attach(sessionId, 'owned-restart-old-token-long-enough');
+    let replacement: Awaited<ReturnType<typeof attach>> | undefined;
+    try {
+      old.ws.send(new TextEncoder().encode("printf 'restart-%s:%s\\n' old $$\n"));
+      await until(() => /restart-old:\d+\r?\n/.test(old.output()), 'old child output');
+      const oldPid = /restart-old:(\d+)\r?\n/.exec(old.output())![1];
+      const response = await internal('restart', { sessionId });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ killed: 1 });
+      // A message can already be queued while the close handshake completes.
+      try { old.ws.send(new TextEncoder().encode("printf 'restart-%s\\n' forbidden\n")); } catch {}
+      await until(() => old.closed() !== null, 'old socket close');
+      expect(old.closed()).toBe(4001);
+      expect(old.output()).not.toContain('restart-forbidden');
+
+      replacement = await attach(sessionId, 'owned-restart-new-token-long-enough');
+      replacement.ws.send(new TextEncoder().encode("printf 'restart-%s:%s\\n' new $$\nexit\n"));
+      await until(() => replacement!.closed() !== null, 'replacement completion');
+      expect(replacement.output()).toContain('restart-new:');
+      const newPid = /restart-new:(\d+)/.exec(replacement.output())?.[1];
+      expect(newPid).toBeDefined();
+      expect(newPid).not.toBe(oldPid);
+      expect(replacement.events.find(event => event.type === 'pty-exit')?.process.exitCode).toBe(0);
+      expect(old.output()).not.toContain('restart-new:');
+    } finally {
+      try { old.ws.close(1000); } catch {}
+      try { replacement?.ws.close(1000); } catch {}
+      await internal('restart', { sessionId });
+    }
+  });
+
+  test('replacement attachment ignores stale input and survives the old socket close', async () => {
+    const sessionId = 'owned-overlapping-attachment-session';
+    const oldToken = 'owned-overlapping-old-token-long-enough';
+    const old = await attach(sessionId, oldToken);
+    let replacement: Awaited<ReturnType<typeof attach>> | undefined;
+    try {
+      old.ws.send(new TextEncoder().encode("printf 'overlap-%s:%s\\n' original $$\n"));
+      await until(() => /overlap-original:\d+\r?\n/.test(old.output()), 'original child output');
+      const pid = /overlap-original:(\d+)\r?\n/.exec(old.output())![1];
+
+      // Reattach while the original is still open. The replay proves open()
+      // has replaced liveWs before we deliver the stale socket's final input.
+      replacement = await attach(sessionId, 'owned-overlapping-new-token-long-enough');
+      await until(() => replacement!.events.some(event => event.type === 'reattach-begin')
+        && replacement!.output().includes(`overlap-original:${pid}`), 'replacement replay');
+      expect(old.ws.readyState).toBe(WebSocket.OPEN);
+      old.ws.send(new TextEncoder().encode("printf 'overlap-%s\\n' forbidden\n"));
+      old.ws.close(1000);
+      // Frames on the old connection are ordered: its close follows the late
+      // input. No guessed sleep is needed before probing replacement ownership.
+      await until(() => old.closed() !== null, 'stale socket close');
+      expect(old.closed()).toBe(1000);
+      expect(replacement.closed()).toBeNull();
+      const revoked = await fetch(`http://127.0.0.1:${agentPort}/ws`, {
+        headers: { Origin: 'chrome-extension://test-extension-id', Cookie: `gstack_pty=${oldToken}` },
+      });
+      expect(revoked.status).toBe(401);
+
+      replacement.ws.send(new TextEncoder().encode("printf 'overlap-%s:%s\\n' current $$\nexit\n"));
+      await until(() => replacement!.closed() !== null, 'replacement child completion');
+      expect(replacement.output()).toContain(`overlap-current:${pid}`);
+      expect(replacement.output()).not.toContain('overlap-forbidden');
+      expect(replacement.events.find(event => event.type === 'pty-exit')?.process.exitCode).toBe(0);
+      expect(replacement.closed()).toBe(1000);
+      expect(old.output()).not.toContain('overlap-current:');
+    } finally {
+      try { old.ws.close(1000); } catch {}
+      try { replacement?.ws.close(1000); } catch {}
+      await internal('restart', { sessionId });
+    }
+  });
+
+  test('completion while detached replays final output before closing without a new child', async () => {
+    const sessionId = 'owned-detached-completion-session';
+    const release = path.join(stateDir, 'release-detached-child');
+    const quotedRelease = `'${release.replace(/'/g, "'\\''")}'`;
+    const old = await attach(sessionId, 'owned-detached-old-token-long-enough');
+    let replacement: Awaited<ReturnType<typeof attach>> | undefined;
+    try {
+      const command = `printf 'detached-%s:%s\\n' start $$; while [ ! -e ${quotedRelease} ]; do sleep 0.01; done; printf 'detached-%s:%s\\n' final $$; exit\n`;
+      old.ws.send(new TextEncoder().encode(command));
+      await until(() => /detached-start:\d+\r?\n/.test(old.output()), 'child waiting at release barrier');
+      const pid = /detached-start:(\d+)\r?\n/.exec(old.output())![1];
+      old.ws.close(1001);
+      await until(() => old.closed() !== null, 'detach handshake');
+      fs.writeFileSync(release, 'release\n');
+      // Authenticated completion state proves BOTH native callbacks happened
+      // while detached; no guessed post-exit sleep or early reattachment.
+      await until(async () => {
+        const health = await fetch(`http://127.0.0.1:${agentPort}/internal/healthz`, {
+          headers: { Authorization: `Bearer ${internalToken}` },
+        });
+        return (await health.json()).completedSessions === 1;
+      }, 'detached completion');
+
+      replacement = await attach(sessionId, 'owned-detached-new-token-long-enough');
+      await until(() => replacement!.closed() !== null, 'replayed completion close');
+      const kinds = replacement.events.map(event => event.type);
+      expect(kinds).toEqual(['reattach-begin', 'output', 'pty-exit', 'closed']);
+      expect(replacement.output()).toContain(`detached-start:${pid}`);
+      expect(replacement.output()).toContain(`detached-final:${pid}`);
+      const completion = replacement.events.find(event => event.type === 'pty-exit')!;
+      expect(completion.process.exitCode).toBe(0);
+      expect(completion.drainTimedOut).toBe(false);
+      expect(completion.exitTimedOut).toBe(false);
+      expect(completion.reader).not.toBeNull();
+      expect(replacement.closed()).toBe(1000);
+    } finally {
+      fs.writeFileSync(release, 'release\n');
+      try { old.ws.close(1000); } catch {}
+      try { replacement?.ws.close(1000); } catch {}
+      await internal('restart', { sessionId });
+    }
   });
 });

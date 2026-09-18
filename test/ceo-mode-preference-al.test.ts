@@ -8,7 +8,11 @@ import {E2E_TOUCHFILES} from './helpers/touchfiles-data';
 import {CARVE_GUARDS} from './helpers/carve-guards';
 const root=path.resolve(import.meta.dir,'..');
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'gstack-ceo-mode-preference-'));
-const section=(s:string)=>s.split('### 0F. Mode Selection\n')[1]!.split('\n### 0D-prelude.')[0]!;
+function section(s:string){
+ const match=s.match(/^### 0[A-Z]\. Mode Selection\n([\s\S]*?)(?=^### |$(?![\s\S]))/m);
+ if(!match)throw new Error('CEO Mode Selection section missing');
+ return match[1]!;
+}
 const rendered=new Map<string,string>();
 const env=(state:string)=>({...process.env,GSTACK_HOME:state,GSTACK_STATE_ROOT:state});
 beforeAll(()=>{
@@ -50,8 +54,28 @@ test('source and both isolated host renders bind the shared check, marker and lo
  for(const document of [source,...rendered.values()]){
   const id=modeId(document),s=section(document);
   expect(getQuestion(id)).toMatchObject({id:'plan-ceo-review-mode',skill:'plan-ceo-review',category:'routing',door_type:'two-way'});
-  expect(s).toContain("preamble's Question Tuning check, marker and log");
-  expect(s).toContain('`auto_decided: true` when automatic');
+  expect(s).toContain('check `question_id=plan-ceo-review-mode` through the preamble');
+  const automatic=s.split('Select the recommendation automatically')[1]!.split('\n')[0]!;
+  expect(automatic).toContain('only if that check exits 0 with `AUTO_DECIDE`');
+  expect(automatic).toContain('use the automatic handoff in step 4');
+  const handoff=s.split('**Mode handoff:**')[1]!;
+  expect(handoff).toContain('`'+id+': AUTO_DECIDE`');
+  expect(handoff).toContain('Auto-decided review mode → <selected mode> (your preference)');
+  const asked=s.split('Without that successful check,')[1]!.split('\n')[0]!;
+  expect(asked).toContain('offer all four modes in one AskUserQuestion');
+  expect(asked).toContain('**STOP for the answer**');
+  expect(asked).toContain('When `QUESTION_TUNING: true`');
+  expect(asked).toContain('`<gstack-qid:'+id+'>`');
+  const logging=handoff.split('Record mode provenance after the handoff')[1]!.split('If 0D')[0]!.replace(/\s+/g,' ');
+  expect(logging).toContain('no question log because none was asked');
+  expect(logging).toContain('`'+id+'`, `auto_decided: true`');
+  expect(logging).toContain('`auto_decided: false`, including the question ID only when `QUESTION_TUNING: true`');
+  expect(s.indexOf('4. **Mode handoff:**')).toBeGreaterThan(s.indexOf('3. Resolve that recommendation:'));
+  expect(handoff).toContain('After selection');
+  expect(handoff).toContain('send brief chat before tools or further questions');
+  expect(s.slice(0,s.indexOf('4. **Mode handoff:**'))).not.toMatch(/\blog (?:with|that ID)\b/);
+  expect(handoff.indexOf('Record mode provenance after the handoff')).toBeGreaterThan(handoff.indexOf('- Other selections:'));
+  expect(handoff.indexOf("Follow the selected mode's route:")).toBeGreaterThan(handoff.indexOf('Record mode provenance after the handoff'));
   expect(s).not.toContain('plan-ceo-review-mode-selection');
  }
  for(const document of rendered.values()){
@@ -77,19 +101,26 @@ test('absent, always-ask and foreign preferences do not authorize either host to
 test('only an explicit user selection or enabled successful mode check bypasses asking',()=>{
  for(const document of rendered.values()){
   const s=section(document),q=tuning(document);
-  expect(s).toContain('Ask and wait unless the user explicitly selected a mode or tuning is enabled and the actual mode check exits 0 with `AUTO_DECIDE`');
+  expect(s).toContain('An explicit choice skips steps 2–3');
+  expect(s).toContain('When `QUESTION_TUNING: false`, skip the lookup and ask below');
+  expect(s).toContain('Otherwise check `question_id=plan-ceo-review-mode` through the preamble');
+  expect(s).toContain('Select the recommendation automatically only if that check exits 0 with `AUTO_DECIDE`');
+  expect(s).toContain('**STOP for the answer**');
   expect(document).toContain('Question Tuning (skip entirely if `QUESTION_TUNING: false`)');
   expect(q).toContain('`AUTO_DECIDE` means choose the recommended option');
   expect(q).toContain('Auto-decided [summary] → [option] (your preference). Change with /plan-tune.');
   expect(q).toContain('`ASK_NORMALLY` means ask.');
-  expect(s).toContain('This settles only the mode, not approach or scope approval.');
-  expect(document).toContain('Do NOT proceed to mode selection (0F) without user approval of the chosen approach.');
-  expect(s).toContain('Every mode requires explicit user approval for scope changes.');
-  expect(s).toContain('Keep the approved 0C-bis approach; explain and obtain approval for any mode-required change.');
+  expect(s).toContain('Selecting a mode does not approve changes');
+  expect(document).toContain('Initial pass after 0C: proceed to 0E once required choices are settled');
+  expect(s.replace(/\s+/g,' ')).toContain('Preserve 0D approvals and ask about each proposed addition or cut');
   expect(s).toContain('offer all four modes in one AskUserQuestion');
-  expect(s).toContain('context defaults for RECOMMENDATION');
-  expect(s).toContain('Do NOT emit `Completeness: N/10` per option');
-  expect(s).toContain('Note: options differ in kind, not coverage — no completeness score.');
+  expect(s).toContain("using step 2's recommendation");
+  expect(s).toContain('For >15 planned changed files, recommend SCOPE REDUCTION');
+  expect(document).toContain('more than 8 files or more than 2 new classes/services');
+  expect(s.replace(/\s+/g,' ')).toContain('ask about each proposed addition or cut, including those prompted by file-count thresholds');
+  expect(s).toContain('Count distinct planned file additions, edits and deletions, labeling estimates');
+  expect(s).toContain('These modes differ in kind, not coverage; do NOT score completeness');
+  expect(document).toContain('Note: options differ in kind, not coverage — no completeness score.');
  }
 });
 test('the new render/runtime regression belongs to the existing auto-decide owner',()=>{

@@ -13,6 +13,8 @@ import { describe, test, expect, afterAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execFileSync } from 'node:child_process';
+import { seedCeoFindingProject } from './ceo-finding-fixture';
 import {
   buildHermeticEnv,
   buildSeedConfig,
@@ -20,6 +22,8 @@ import {
   getHermeticDirs,
   gcStaleHermeticDirs,
   hermeticChildEnv,
+  hermeticCeoPlanReadArgs,
+  hermeticDesignReadArgs,
 } from './hermetic-env';
 
 const CONTAMINATED: NodeJS.ProcessEnv = {
@@ -154,6 +158,7 @@ describe('buildSeedConfig', () => {
       trustedDirs: ['/repo/root'],
     }) as any;
     expect(seed.hasCompletedOnboarding).toBe(true);
+    expect(seed.diffSidebarOpen).toBe(false);
     const approved = seed.customApiKeyResponses.approved;
     expect(approved).toHaveLength(1);
     expect(approved[0]).toHaveLength(20);
@@ -193,6 +198,7 @@ describe('getHermeticDirs lifecycle', () => {
     const dirs = getHermeticDirs();
     const seed = JSON.parse(fs.readFileSync(path.join(dirs.configDir, '.claude.json'), 'utf-8'));
     expect(seed.hasCompletedOnboarding).toBe(true);
+    expect(seed.diffSidebarOpen).toBe(false);
     const root = path.resolve(__dirname, '..', '..');
     expect(seed.projects[root].hasTrustDialogAccepted).toBe(true);
   });
@@ -266,4 +272,146 @@ describe('hermeticChildEnv composition', () => {
 
 afterAll(() => {
   // The singleton's own exit hook handles runRoot; nothing else to clean.
+});
+
+
+describe('split CEO artifact Read scope', () => {
+  function fixture(check: (cwd: string, env: Record<string, string>) => void): void {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-e2e-plan-ceo-split-overflow-'));
+    try {
+      seedCeoFindingProject(cwd, 'Review the supplied scope.');
+      check(cwd, hermeticChildEnv());
+    } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
+  }
+
+  test('grants only this fixture\'s generated markdown Read rules', () => {
+    fixture((cwd, env) => {
+      const scope = path.join(getHermeticDirs().gstackHome, 'projects', path.basename(cwd), 'ceo-plans');
+      const args = hermeticCeoPlanReadArgs(cwd, env);
+      expect(args).toEqual(['--allowedTools', ...new Set([scope, fs.realpathSync(scope)].map(directory =>
+        `Read(${directory.startsWith('/') ? '/' : ''}${directory.split(path.sep).join('/')}/*.md)`))]);
+      expect(args.join(' ')).not.toContain('/**');
+      expect(args.join(' ')).not.toMatch(/Write\(|Edit\(|Bash\(|--add-dir/);
+      expect(hermeticCeoPlanReadArgs(cwd, env)).toEqual(args);
+    });
+  });
+
+  test('refuses operator/foreign homes and a project-slug override', () => {
+    fixture((cwd, env) => {
+      for (const home of [path.join(os.homedir(), '.gstack'), path.dirname(env.GSTACK_HOME!), env.GSTACK_HOME! + '-other']) {
+        expect(() => hermeticCeoPlanReadArgs(cwd, { ...env, GSTACK_HOME: home })).toThrow('private split fixture');
+      }
+      expect(() => hermeticCeoPlanReadArgs(cwd, { ...env, GSTACK_PROJECT_SLUG: 'another-fixture' })).toThrow('private split fixture');
+    });
+  });
+
+  test('refuses a remote-derived foreign project slug', () => {
+    fixture((cwd, env) => {
+      execFileSync('git', ['remote', 'add', 'origin', 'https://example.invalid/foreign/repo.git'], { cwd, timeout: 10_000 });
+      expect(() => hermeticCeoPlanReadArgs(cwd, env)).toThrow('exact fixture project slug');
+      expect(fs.existsSync(path.join(env.GSTACK_HOME!, 'projects', 'foreign-repo'))).toBe(false);
+    });
+  });
+
+  test('refuses another fixture kind and nested or symlinked working directories', () => {
+    fixture((cwd, env) => {
+      const other = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-e2e-plan-ceo-finding-'));
+      const nested = path.join(cwd, path.basename(cwd));
+      const link = cwd + 'link';
+      try {
+        fs.mkdirSync(nested); fs.symlinkSync(cwd, link, 'dir');
+        for (const target of [other, nested, link]) expect(() => hermeticCeoPlanReadArgs(target, env)).toThrow();
+      } finally { fs.rmSync(other, { recursive: true, force: true }); fs.unlinkSync(link); }
+    });
+  });
+
+  test('refuses a substituted scope or project without reading its target', () => {
+    fixture((cwd, env) => {
+      const project = path.join(env.GSTACK_HOME!, 'projects', path.basename(cwd));
+      const foreign = fs.mkdtempSync(path.join(os.tmpdir(), 'foreign-ceo-documents-'));
+      fs.writeFileSync(path.join(foreign, 'sentinel.md'), 'foreign evidence');
+      try {
+        fs.mkdirSync(path.dirname(project), { recursive: true });
+        fs.symlinkSync(foreign, project, 'dir');
+        expect(() => hermeticCeoPlanReadArgs(cwd, env)).toThrow('substituted directories');
+        fs.unlinkSync(project); fs.mkdirSync(project);
+        fs.symlinkSync(foreign, path.join(project, 'ceo-plans'), 'dir');
+        expect(() => hermeticCeoPlanReadArgs(cwd, env)).toThrow('substituted directories');
+        expect(fs.readdirSync(foreign)).toEqual(['sentinel.md']);
+        expect(fs.readFileSync(path.join(foreign, 'sentinel.md'), 'utf8')).toBe('foreign evidence');
+      } finally { fs.rmSync(project, { recursive: true, force: true }); fs.rmSync(foreign, { recursive: true, force: true }); }
+    });
+  });
+
+  test('refuses non-hermetic launches', () => {
+    fixture((cwd, env) => {
+      const before = process.env.EVALS_HERMETIC;
+      try {
+        process.env.EVALS_HERMETIC = '0';
+        expect(() => hermeticCeoPlanReadArgs(cwd, env)).toThrow('requires hermetic mode');
+      } finally {
+        if (before === undefined) delete process.env.EVALS_HERMETIC;
+        else process.env.EVALS_HERMETIC = before;
+      }
+    });
+  });
+});
+
+
+
+describe('Design artifact Read scope', () => {
+  function fixture(prefix: string, check: (cwd: string, env: Record<string, string>) => void): void {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    try {
+      seedCeoFindingProject(cwd, 'Review the supplied design.');
+      check(cwd, hermeticChildEnv());
+    } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
+  }
+
+  for (const prefix of ['gstack-e2e-plan-design-', 'design-ui-project-']) {
+    test(`grants only generated PNG Read for ${prefix}`, () => fixture(prefix, (cwd, env) => {
+      const scope = path.join(getHermeticDirs().gstackHome, 'projects', path.basename(cwd), 'designs');
+      const args = hermeticDesignReadArgs(cwd, env);
+      expect(args).toEqual(['--allowedTools', ...new Set([scope, fs.realpathSync(scope)].map(directory =>
+        `Read(${directory.startsWith('/') ? '/' : ''}${directory.split(path.sep).join('/')}/*/*.png)`))]);
+      expect(args.join(' ')).not.toContain('/**');
+      expect(args.join(' ')).not.toMatch(/Write\(|Edit\(|Bash\(|--add-dir|\.md\)/);
+      expect(hermeticDesignReadArgs(cwd, env)).toEqual(args);
+    }));
+  }
+
+  test('refuses operator/foreign roots, slug overrides and another fixture kind', () => {
+    fixture('gstack-e2e-plan-design-', (cwd, env) => {
+      for (const home of [path.join(os.homedir(), '.gstack'), path.dirname(env.GSTACK_HOME!), env.GSTACK_HOME! + '-other']) {
+        expect(() => hermeticDesignReadArgs(cwd, { ...env, GSTACK_HOME: home })).toThrow('private Design fixture');
+      }
+      expect(() => hermeticDesignReadArgs(cwd, { ...env, GSTACK_PROJECT_SLUG: 'foreign' })).toThrow('private Design fixture');
+      execFileSync('git', ['remote', 'add', 'origin', 'https://example.invalid/foreign/repo.git'], { cwd, timeout: 5000 });
+      expect(() => hermeticDesignReadArgs(cwd, env)).toThrow('exact fixture project slug');
+    });
+    fixture('gstack-e2e-plan-ceo-split-overflow-', (cwd, env) => {
+      expect(() => hermeticDesignReadArgs(cwd, env)).toThrow('private Design fixture');
+    });
+  });
+
+  test('refuses substituted working directories, projects and image roots without touching the target', () => {
+    fixture('gstack-e2e-plan-design-', (cwd, env) => {
+      const project = path.join(env.GSTACK_HOME!, 'projects', path.basename(cwd));
+      const foreign = fs.mkdtempSync(path.join(os.tmpdir(), 'foreign-design-images-'));
+      const link = cwd + 'link';
+      fs.writeFileSync(path.join(foreign, 'sentinel.png'), 'foreign image');
+      try {
+        fs.symlinkSync(cwd, link, 'dir');
+        expect(() => hermeticDesignReadArgs(link, env)).toThrow();
+        fs.mkdirSync(path.dirname(project), { recursive: true });
+        fs.symlinkSync(foreign, project, 'dir');
+        expect(() => hermeticDesignReadArgs(cwd, env)).toThrow('substituted directories');
+        fs.unlinkSync(project); fs.mkdirSync(project);
+        fs.symlinkSync(foreign, path.join(project, 'designs'), 'dir');
+        expect(() => hermeticDesignReadArgs(cwd, env)).toThrow('substituted directories');
+        expect(fs.readdirSync(foreign)).toEqual(['sentinel.png']);
+        expect(fs.readFileSync(path.join(foreign, 'sentinel.png'), 'utf8')).toBe('foreign image');
+      } finally { fs.rmSync(project, { recursive: true, force: true }); fs.unlinkSync(link); fs.rmSync(foreign, { recursive: true, force: true }); }
+    });
+  });
 });

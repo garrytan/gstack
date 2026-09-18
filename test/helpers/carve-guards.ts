@@ -11,7 +11,7 @@
  *
  * Consumers:
  *   - test/carve-section-ordering.test.ts   (E2, gate)  → staticInvariants
- *   - test/carve-section-loading.test.ts    (T2, periodic) → requiredReads + scenario
+ *   - test/carve-section-loading-*.test.ts    (T2, periodic) → requiredReads + scenario
  *   - test/carve-guard-completeness.test.ts (E1, gate)  → the set must equal the
  *                                                          filesystem carved set
  *   - test/carve-guards-negative.test.ts    (ET1, gate) → injects a broken fixture
@@ -181,7 +181,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
         // Fork port wave 2 (#703): the repo-doc-preference block in the design
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
-    maxSkeletonBytes: 79_744, // Exact 744-byte anti-shortcut move: main 79,739 + section 75,559 = unchanged 155,298-byte union; retains 5-byte slack.
+    maxSkeletonBytes: 80_100, // + depth-specific output and 0H/0I feasibility boundary clarity; measured 80,073.
     minUnionBytes: 123_600, // token-reduction Phases 1-2 (v1.69.x branch): preamble bash -> bin/gstack-skill-start, onboarding -> gated emission; measured union 137,346
     mustContain: ['SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'HOLD SCOPE', 'SCOPE REDUCTION'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -218,7 +218,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // 1.08 → 1.10: the scope-gate exceptions block (+ its adversarial-review
     // hardening: host-anchored mode signal, precedence, passing-mention
     // guards) and the plan-mode preamble reword land the union at 1.092.
-    maxSizeRatio: 1.12, // measured 1.103
+    maxSizeRatio: 1.15, // + clarity rules for saved decisions/setup gates; measured 1.146
   },
   'plan-design-review': {
     skill: 'plan-design-review',
@@ -274,18 +274,68 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
   'office-hours': {
     skill: 'office-hours',
     expectedSections: ['design-and-handoff.md', 'phase-2a-startup-diagnostic.md', 'phase-2b-builder-brainstorm.md'],
-    // Phase sections are mode-exclusive (a session runs exactly one of 2A/2B),
-    // so only the always-reached design/handoff section is a deterministic read.
-    requiredReads: ['design-and-handoff.md'],
-    scenario:
-      'Run office hours for this product idea through to the end: have the diagnostic conversation, explore alternatives, then write the design doc and run the relationship handoff (Phases 5-6).',
+    // This fixture fixes startup mode; both its diagnostic and closing must run.
+    requiredReads: ['phase-2a-startup-diagnostic.md', 'design-and-handoff.md'],
+    scenario: `Run office hours in STARTUP mode through the diagnostic, premise challenge,
+alternatives, design document, spec review, approval, and relationship closing.
+This is a synthetic interview fixture, not a supplied implementation plan.
+
+Product idea: RosterCheck, a simpler way for adult craft-class organizers to turn
+registrations from two CSV exports into a correct printable check-in list.
+
+Use these founder answers for the diagnostic conversation. Challenge them, but do
+not invent customers, quotes, payments, or usage, or present proposed requirements
+as established founder answers. Anything not established below is unknown and can
+remain an open question or an assignment.
+- I run weekend ceramics workshops and can code. I have two weeks of evenings,
+  a $100 budget, and no team. There is no product or existing implementation.
+- I interviewed seven independent workshop organizers. Three shared redacted
+  sample exports and two asked to try a pilot at their next event. Nobody has
+  paid, committed to a price, or used a prototype. Interest is not proven demand.
+- Lee, the owner/instructor at Clay Room, is the first pilot candidate. Lee runs
+  classes of 10-30 adults and combines marketplace bookings with direct bookings
+  recorded in a spreadsheet. Lee said: "I just want to know nobody's missing
+  when I print the list." One booking was missed last month; no refund or lost
+  revenue has been established.
+- Today Lee copies the two exports into a spreadsheet, sorts names, checks
+  duplicates manually, and prints it. Lee reports about 30 minutes per event.
+  I have not watched this unaided or timed it myself; that baseline is unverified.
+- The initial pilot can use manual CSV exports for one organizer/event at a
+  time. Ambiguous duplicates need a human decision, never silent merging.
+  No provider API, payments, automatic emails, customer accounts, or hosted
+  customer data in this pilot. Keep attendee data local to the organizer.
+- Success to test: a correct list in under five minutes at three pilot events,
+  with every source booking accounted for and discrepancies checked by Lee.
+  Willingness to pay and repeat usage are unknown. The seven interview contacts
+  are my only distribution channel; no invented acquisition metrics.
+
+Use the available Agent tool for the independent opinion and spec review when
+the workflow calls for them. The independent opinion is read-only. The spec
+reviewer may use Write only for the exact JSON verdict path assigned by prepare;
+all other reviewer mutations remain prohibited. An automated test is not a reason
+to skip them. This fixture checks separate real tool calls: obtain the independent
+opinion on RosterCheck before writing the design, then have a reviewer read the
+written design. A self-authored "second opinion" is not a subagent result.
+Keep the normal revision/convergence rules and report any unresolved concerns
+honestly. Save the design to docs/designs/roster-check.md in this fixture;
+keep all artifacts inside the fixture. After the review, choose the recommended
+design approval and mark the design APPROVED before the relationship closing.
+Include the assignment and concise "Spec Review" and "Handoff" sections in the
+final REPORT.md with the review disposition and next-skill recommendation.
+In "Spec Review", write one terminal field, "Disposition: COMPLETED",
+"Disposition: CONCERNS_RECORDED", or "Disposition: UNREVIEWED", followed by what
+happened (including unresolved concerns or a failed review attempt, if any).
+The user has already answered the final handoff choice: "Not now — I'll run a
+review later." Complete the office-hours closing, then stop;
+do not launch the downstream skill or open a browser.`,
     staticInvariants: {
       mustStayInSkeleton: [],
       mustMoveToSection: ['### The Six Forcing Questions', '### Pushback Patterns', 'Anti-Sycophancy Rules', 'Wild exemplar'],
       mustPrecedeStop: ['**Mode mapping:**'],
       gateAfterStop: '## Section self-check',
     },
-    behavioral: 'prompt',
+    behavioral: 'external',
+    externalTest: 'test/skill-e2e-office-hours-section-loading.test.ts',
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble,
     // plus the P1 office-hours closing handoff (AUQ that launches the next skill).
     // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
@@ -452,7 +502,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: 'EXIT PLAN MODE GATE',
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 59_300, // + v1.78 AUQ spawned-trigger objectivity (explicit declaration + interactive fence); measured 58_867
+    maxSkeletonBytes: 59_350, // + v1.78 AUQ spawned-trigger objectivity; generated Codex overlay measured 59,307
     minUnionBytes: 83_400, // Phase 4 wave 1; measured union 84,304
     mustContain: ['GATE: PASS', 'CROSS-MODEL ANALYSIS', 'codex exec resume', 'sandbox_mode="read-only"', 'mktemp'],
     maxSizeRatio: 1.06, // measured 1.040 vs the v1.64.1.0 parity baseline
@@ -486,8 +536,8 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
   // ── Token-reduction Phase 4 wave 2 (v1.69.x branch) ──────────────────────
   autoplan: {
     skill: 'autoplan',
-    expectedSections: ['ceo-phase.md', 'design-phase.md', 'eng-phase.md', 'dx-phase.md', 'tasks-aggregator.md'],
-    requiredReads: ['ceo-phase.md', 'eng-phase.md', 'tasks-aggregator.md'],
+    expectedSections: ['ceo-phase.md', 'design-phase.md', 'eng-phase.md', 'dx-phase.md', 'phase-close.md', 'tasks-aggregator.md'],
+    requiredReads: ['ceo-phase.md', 'eng-phase.md', 'phase-close.md', 'tasks-aggregator.md'],
     scenario:
       'Run the /autoplan pipeline against the plan in PLAN.md. Codex and subagent tools are unavailable — note both voices unavailable (single-reviewer mode) and keep going. The plan has no UI scope and no developer-facing scope, so Phase 2 and Phase 2.5 are skipped (do not read their sections). Execute Phase 1 (CEO) and Phase 3 (Eng) at full depth, run the Phase 4 aggregator step, and produce the Final Approval Gate summary as the report.',
     staticInvariants: {

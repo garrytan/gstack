@@ -1,0 +1,255 @@
+{
+  "source": "749df4446b5a1abd24a590bed745efa7a5fcd43b",
+  "paidOutcome": "cancelled",
+  "transcript": {
+    "status": "ready",
+    "calls": [],
+    "assistantMessages": [
+      {
+        "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+        "text": "Received. I have the draft plan — deterministic skill-list ordering: sort registered skill names before rendering in the existing listing path; keep membership, aliases, metadata, and text/JSON output unchanged; test mixed-case names and differing directory enumeration order. Noted that this draft (not the current branch) is the review target, no review mode has been selected yet, and you want only the review-mode decision for this invocation.\n\nStanding by for your slash command.",
+        "timestamp": "2026-09-16T12:21:20.215Z"
+      },
+      {
+        "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+        "text": "Starting `/plan-ceo-review`. Running the preamble first.",
+        "timestamp": "2026-09-16T12:21:26.089Z"
+      },
+      {
+        "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+        "text": "The mode preference check returned `AUTO_DECIDE` (exit 0) for `plan-ceo-review-mode`. Quick read-only look at what preference is on file so the handoff cites it accurately.",
+        "timestamp": "2026-09-16T12:22:54.154Z"
+      },
+      {
+        "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+        "text": "**Mode decision: HOLD SCOPE**, auto-decided from the recommendation via your stored `plan-ceo-review-mode: never-ask` preference. No question was asked; the choice is logged with `auto_decided: true`.\n\n**Why HOLD SCOPE.** The draft fixes existing behavior (nondeterministic listing order) inside the existing listing path. Estimated footprint is 2–3 files: one edit to the listing module, one edit/add for tests, maybe a fixture for enumeration-order cases. No new classes or services. Under the skill's rules that is a fix, not an enhancement or greenfield build, and it is far below the 15-file reduction threshold.\n\n**Recorded, not decided.** The working plan at `.claude/plans/keep-this-draft-plan-polished-karp.md` holds the audit, the 0A–0C evidence, and the ledger with one row (MODE-1, approved). Approach choices stay pending for the substantive review: sort key and case handling for mixed-case names, whether text and JSON renderers share one iteration point, and tie behavior.\n\n**Stopped here on your instruction.** Not run: `/office-hours` offer, CLAUDE.md routing-rules setup (will re-fire next run; not declined), landscape web check, 0G/0I, Sections 1–11, and the GSTACK REVIEW REPORT. Because the report does not exist, the exit-plan-mode gate is not passed and I have not called ExitPlanMode. Telemetry logged with outcome `abort` to reflect the intentional partial run.\n\nNo durable learnings this session.\n\nSTATUS: DONE_WITH_CONCERNS\nREASON: Mode decision delivered as requested; full review deliberately deferred.\nATTEMPTED: Preamble, platform detection, system audit, design-doc/handoff/learnings/brain checks, 0A–0E, ledger write, question + skill-end logging.\nRECOMMENDATION: Re-invoke `/plan-ceo-review` when ready; it should pick up MODE-1 from the working plan and proceed 0G → 0I → review sections without re-asking the mode.",
+        "timestamp": "2026-09-16T12:24:18.372Z"
+      }
+    ]
+  },
+  "tools": [
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:21:27.971Z",
+      "toolUseId": "toolu_01JHByyrs5L5kxzqczJMVkQD",
+      "kind": "use",
+      "name": "Bash",
+      "input": {
+        "command": "_SS=\"$HOME/.claude/skills/gstack/bin/gstack-skill-start\"\n[ -x \"$_SS\" ] || _SS=\".claude/skills/gstack/bin/gstack-skill-start\"\n\"$_SS\" --skill \"plan-ceo-review\" --model \"claude\" --parent-pid \"$PPID\" \\\n  || echo \"SKILL_START: unavailable — stale install; run ./setup or /gstack-upgrade (preamble degraded, continue the user's task)\"",
+        "description": "Run gstack skill-start preamble"
+      },
+      "messageId": "msg_011Cf77H8MYxxiicUgSEqJm3",
+      "requestId": "req_011Cf77H7wkSnoxNWBmfJ5Gx"
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:21:29.715Z",
+      "toolUseId": "toolu_01JHByyrs5L5kxzqczJMVkQD",
+      "kind": "result",
+      "content": "SKILL_START_PROTO: 1\nBRANCH: main\nPROACTIVE: true\nPROACTIVE_PROMPTED: yes\nSKILL_PREFIX: false\nREPO_MODE: unknown\nSESSION_KIND: interactive\nCONDUCTOR_SESSION: true\nACTIVATED: yes\nFIRST_LOOP_SHOWN: yes\nFIRST_TASK: \nLAKE_INTRO: yes\nTELEMETRY: off\nTEL_PROMPTED: yes\nSESSION_ID: 350938-1789561289-189dbdd1\nTEL_START: 1789561289\nEXPLAIN_LEVEL: default\nQUESTION_TUNING: true\nUPDATE_CHECK: false\nLEARNINGS: 0\nHAS_ROUTING: no\nROUTING_DECLINED: false\nVENDORED_GSTACK: no\nMODEL_OVERLAY: claude\nCHECKPOINT_MODE: explicit\nCHECKPOINT_PUSH: false\nGSTACK_PLAN_MODE: active\nARTIFACTS_SYNC: off\nGSTACK_INSTRUCTION_BEGIN: routing-injection 350938-1789561289-189dbdd1\ngstack works best when the project CLAUDE.md includes skill routing rules. If no CLAUDE.md exists in the project root, create it. Use AskUserQuestion:\n\n> gstack works best when your project's CLAUDE.md includes skill routing rules.\n\nOptions: A) Add routing rules to CLAUDE.md (recommended)  B) No thanks, I'll invoke skills manually\n\nIf A: append this section to the end of CLAUDE.md, then commit it (`git add CLAUDE.md && git commit -m \"chore: add gstack skill routing rules to CLAUDE.md\"`):\n\n## Skill routing\n\nWhen the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.\n\nKey routing rules:\n- Product ideas/brainstorming → invoke /office-hours\n- Strategy/scope → invoke /plan-ceo-review\n- Architecture → invoke /plan-eng-review\n- Design system/plan review → invoke /design-consultation or /plan-design-review\n- Full review pipeline → invoke /autoplan\n- Bugs/errors → invoke /investigate\n- QA/testing site behavior → invoke /qa or /qa-only\n- Code review/diff check → invoke /review\n- Visual polish → invoke /design-review\n- Ship/deploy/PR → invoke /ship or /land-and-deploy\n- Save progress → invoke /context-save\n- Resume context → invoke /context-restore\n- Author a backlog-ready spec/issue → invoke /spec\n\nIf B: run `/tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-hermetic-303389-yR1x9K/skill-home-51TBrH/.claude/skills/gstack/bin/gstack-config set routing_declined true` and say they can re-enable with `/tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-hermetic-303389-yR1x9K/skill-home-51TBrH/.claude/skills/gstack/bin/gstack-config set routing_declined false`. This only happens once per project.\nGSTACK_INSTRUCTION_END",
+      "isError": false
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:21:52.565Z",
+      "toolUseId": "toolu_01YU7byZxJV4FZLm85Esj75k",
+      "kind": "use",
+      "name": "Bash",
+      "input": {
+        "command": "cd /tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-plan-count-gUPCya\necho \"--- REMOTE ---\"; git remote get-url origin 2>/dev/null || echo \"no remote\"\necho \"--- HEAD ---\"; git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null || echo \"no origin/HEAD\"\necho \"--- LOG ---\"; git log --oneline -30\necho \"--- STASH ---\"; git stash list\necho \"--- FILES ---\"; git ls-files\necho \"--- TODO MARKERS ---\"; grep -r \"TODO\\|FIXME\\|HACK\\|XXX\" -l --exclude-dir=node_modules --exclude-dir=vendor --exclude-dir=.git . | head -30\necho \"--- TODOS.md ---\"; [ -f TODOS.md ] && cat TODOS.md || echo \"none\"",
+        "description": "Detect platform and audit repo state"
+      },
+      "messageId": "msg_011Cf77Hp8iGj9nrqGRvTwEU",
+      "requestId": "req_011Cf77HomtJQGAzVHt6hcef"
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:21:54.127Z",
+      "toolUseId": "toolu_01YU7byZxJV4FZLm85Esj75k",
+      "kind": "result",
+      "content": "--- REMOTE ---\nno remote\n--- HEAD ---\nno origin/HEAD\n--- LOG ---\n89ae671 Seed review plan\n--- STASH ---\n--- FILES ---\nCLAUDE.md\nPLAN.md\n--- TODO MARKERS ---\n--- TODOS.md ---\nnone",
+      "isError": false
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:21:59.580Z",
+      "toolUseId": "toolu_01DwLqgGzLbfzy7FtYoCqzQQ",
+      "kind": "use",
+      "name": "Read",
+      "input": {
+        "file_path": "/tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-plan-count-gUPCya/PLAN.md"
+      },
+      "messageId": "msg_011Cf77KcKN9C7e8fCNUGswQ",
+      "requestId": "req_011Cf77Kc21K4JXQcWuDmPsG"
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:21:59.606Z",
+      "toolUseId": "toolu_01DwLqgGzLbfzy7FtYoCqzQQ",
+      "kind": "result",
+      "content": "1\t# Draft: deterministic skill-list ordering\n2\t\n3\tUsers compare skill listings in scripts and reviews. Make the existing listing\n4\tpath sort registered skill names deterministically before rendering them.\n5\tKeep skill membership, aliases, metadata and text/JSON output formats unchanged.\n6\tCover mixed-case names and differing directory enumeration order with tests.\n7\t\n8\tThis draft is the review target, not the current branch. For this invocation,\n9\tI want only the review-mode decision; I will handle optional Office Hours and\n10\tsetup separately, and run the substantive review later. No review mode has\n11\tbeen selected.",
+      "file": {
+        "filePath": "/tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-plan-count-gUPCya/PLAN.md",
+        "content": "# Draft: deterministic skill-list ordering\n\nUsers compare skill listings in scripts and reviews. Make the existing listing\npath sort registered skill names deterministically before rendering them.\nKeep skill membership, aliases, metadata and text/JSON output formats unchanged.\nCover mixed-case names and differing directory enumeration order with tests.\n\nThis draft is the review target, not the current branch. For this invocation,\nI want only the review-mode decision; I will handle optional Office Hours and\nsetup separately, and run the substantive review later. No review mode has\nbeen selected.",
+        "numLines": 11,
+        "startLine": 1,
+        "totalLines": 11
+      },
+      "isError": false
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:22:23.302Z",
+      "toolUseId": "toolu_01WGVjHDsXEYPTXKNVGrjcTa",
+      "kind": "use",
+      "name": "Bash",
+      "input": {
+        "command": "cd /tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-plan-count-gUPCya\nsetopt +o nomatch 2>/dev/null || true\nG=\"$HOME/.claude/skills/gstack\"\nSLUG=$(\"$G/browse/bin/remote-slug\" 2>/dev/null || basename \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\")\nBRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')\necho \"SLUG=$SLUG BRANCH=$BRANCH\"\n_LOCALDOC=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)\n[ -z \"$_LOCALDOC\" ] && _LOCALDOC=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)\n_REPOTOP=$(git rev-parse --show-toplevel 2>/dev/null || echo \"\")\n_REPODOC=\"\"\nif [ -n \"$_REPOTOP\" ]; then\n  [ -f \"$_REPOTOP/DESIGN.md\" ] && _REPODOC=\"$_REPOTOP/DESIGN.md\"\n  [ -z \"$_REPODOC\" ] && _REPODOC=$(ls -t \"$_REPOTOP\"/docs/designs/*.md 2>/dev/null | head -1)\nfi\nDESIGN=\"$_LOCALDOC\"\nif [ -n \"$_REPODOC\" ] && { [ -z \"$_LOCALDOC\" ] || [ \"$_REPODOC\" -nt \"$_LOCALDOC\" ]; }; then DESIGN=\"$_REPODOC\"; fi\n[ -n \"$DESIGN\" ] && echo \"Design doc found: $DESIGN\" || echo \"No design doc found\"\nHANDOFF=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null | head -1)\n[ -n \"$HANDOFF\" ] && echo \"HANDOFF_FOUND: $HANDOFF\" || echo \"NO_HANDOFF\"\necho \"--- CONTEXT RECOVERY ---\"\n_PROJ=\"${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}\"\n[ -d \"$_PROJ\" ] && { ls -t \"$_PROJ\" 2>/dev/null | head -5; [ -f \"$_PROJ/decisions.active.json\" ] && \"$G/bin/gstack-decision-search\" --recent 5 2>/dev/null; } || echo \"no project dir\"\necho \"--- LEARNINGS ---\"\n_CROSS_PROJ=$(\"$G/bin/gstack-config\" get cross_project_learnings 2>/dev/null || echo \"unset\")\necho \"CROSS_PROJECT: $_CROSS_PROJ\"\nif [ \"$_CROSS_PROJ\" = \"true\" ]; then \"$G/bin/gstack-learnings-search\" --limit 10 --cross-project 2>/dev/null || true; else \"$G/bin/gstack-learnings-search\" --limit 10 2>/dev/null || true; fi\necho \"--- BRAIN ---\"\nfor d in product goals recent-decisions; do echo \"### $d\"; \"$G/bin/gstack-brain-cache\" get $d --project \"$SLUG\" 2>/dev/null || echo \"(no $d digest available yet)\"; done\necho \"### user-profile\"; \"$G/bin/gstack-brain-cache\" get user-profile 2>/dev/null || echo \"(no user-profile digest available yet)\"\necho \"--- MODE PREF CHECK ---\"\nprintf '%s' \"Select plan-ceo-review mode: expansion / selective / hold / reduction\" | \"$G/bin/gstack-question-preference\" --check \"plan-ceo-review-mode\" --summary-stdin; echo \"exit=$?\"",
+        "description": "Design doc, handoff, learnings, brain context, mode preference check"
+      },
+      "messageId": "msg_011Cf77L25NDMnrrsrzszaYq",
+      "requestId": "req_011Cf77L1d5D3u9iYZbY6KfR"
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:22:28.251Z",
+      "toolUseId": "toolu_01WGVjHDsXEYPTXKNVGrjcTa",
+      "kind": "result",
+      "content": "SLUG=gstack-plan-count-gUPCya BRANCH=main\nNo design doc found\nNO_HANDOFF\n--- CONTEXT RECOVERY ---\ntimeline.jsonl\nquestion-events.jsonl\nquestion-preferences.json\nno project dir\n--- LEARNINGS ---\nCROSS_PROJECT: false\n--- BRAIN ---\n### product\n(no product digest available yet)\n### goals\n(no goals digest available yet)\n### recent-decisions\n(no recent-decisions digest available yet)\n### user-profile\n(no user-profile digest available yet)\n--- MODE PREF CHECK ---\nAUTO_DECIDE\nexit=0",
+      "isError": false
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:22:55.694Z",
+      "toolUseId": "toolu_01VmLdH4skyZ6vyx6CYSa4Yk",
+      "kind": "use",
+      "name": "Bash",
+      "input": {
+        "command": "cat ~/.gstack/projects/gstack-plan-count-gUPCya/question-preferences.json 2>/dev/null; echo; echo \"--- events ---\"; tail -3 ~/.gstack/projects/gstack-plan-count-gUPCya/question-events.jsonl 2>/dev/null",
+        "description": "Show stored question preferences and recent events"
+      },
+      "messageId": "msg_011Cf77N8Seqhi9jErqRM6Ep",
+      "requestId": "req_011Cf77N84LHt5bpfD3ue1zo"
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:22:55.737Z",
+      "toolUseId": "toolu_01VmLdH4skyZ6vyx6CYSa4Yk",
+      "kind": "result",
+      "content": "Exit code 1\n\n--- events ---",
+      "isError": true
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:23:00.267Z",
+      "toolUseId": "toolu_017T2kwkTFRHSCvQA1KfuHEj",
+      "kind": "use",
+      "name": "Bash",
+      "input": {
+        "command": "ls -la ~/.gstack/projects/gstack-plan-count-gUPCya/ 2>&1; echo \"---\"; find ~/.gstack -name \"question-preferences.json\" 2>/dev/null | head; echo \"---\"; for f in $(find ~/.gstack -name \"question-preferences.json\" 2>/dev/null | head -3); do echo \"== $f\"; cat \"$f\"; echo; done",
+        "description": "Locate question preference files"
+      },
+      "messageId": "msg_011Cf77QA6vVhgCxU56exmf8",
+      "requestId": "req_011Cf77Q9aRUg9Mv3dMjFKEf"
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:23:02.535Z",
+      "toolUseId": "toolu_017T2kwkTFRHSCvQA1KfuHEj",
+      "kind": "result",
+      "content": "ls: cannot access '/tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-hermetic-303389-yR1x9K/skill-home-51TBrH/.gstack/projects/gstack-plan-count-gUPCya/': No such file or directory\n---\n---",
+      "isError": false
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:23:08.654Z",
+      "toolUseId": "toolu_014ehAY8ZQeFJ7tzayR1kzKL",
+      "kind": "use",
+      "name": "Bash",
+      "input": {
+        "command": "G=\"$HOME/.claude/skills/gstack\"; eval \"$(\"$G/bin/gstack-paths\" 2>/dev/null)\"; echo \"STATE_ROOT=$GSTACK_STATE_ROOT HOME=$HOME\"; ls -la \"${GSTACK_STATE_ROOT:-$HOME/.gstack}\" 2>&1 | head; echo \"--- prefs anywhere ---\"; find \"${GSTACK_STATE_ROOT:-$HOME/.gstack}\" /tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-hermetic-303389-yR1x9K -maxdepth 6 -name \"question-preferences.json\" 2>/dev/null | while read f; do echo \"== $f\"; cat \"$f\"; echo; done",
+        "description": "Find gstack state root and preference files"
+      },
+      "messageId": "msg_011Cf77QfXjPQsdkPausbB5m",
+      "requestId": "req_011Cf77QeykLem8kDuK8NKGD"
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:23:09.862Z",
+      "toolUseId": "toolu_014ehAY8ZQeFJ7tzayR1kzKL",
+      "kind": "result",
+      "content": "STATE_ROOT=/tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-auto-decide-mVSIAV HOME=/tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-hermetic-303389-yR1x9K/skill-home-51TBrH\ntotal 4\ndrwx------ 7 vercel-sandbox vercel-sandbox 330 Sep 16 12:22 .\ndrwx------ 7 vercel-sandbox vercel-sandbox 143 Sep 16 12:23 ..\n-rw-r--r-- 1 vercel-sandbox vercel-sandbox   0 Sep 16 12:21 .activated\n-rw-r--r-- 1 vercel-sandbox vercel-sandbox   0 Sep 16 12:21 .completeness-intro-seen\n-rw-r--r-- 1 vercel-sandbox vercel-sandbox   0 Sep 16 12:21 .feature-prompted-continuous-checkpoint\n-rw-r--r-- 1 vercel-sandbox vercel-sandbox   0 Sep 16 12:21 .feature-prompted-model-overlay\n-rw-r--r-- 1 vercel-sandbox vercel-sandbox   0 Sep 16 12:21 .first-loop-tip-shown\n-rw-r--r-- 1 vercel-sandbox vercel-sandbox   0 Sep 16 12:21 .proactive-prompted\n-rw-r--r-- 1 vercel-sandbox vercel-sandbox   0 Sep 16 12:21 .telemetry-prompted\n--- prefs anywhere ---\n== /tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-auto-decide-mVSIAV/projects/gstack-plan-count-gUPCya/question-preferences.json\n{\n  \"plan-ceo-review-mode\": \"never-ask\"\n}",
+      "isError": false
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:23:52.864Z",
+      "toolUseId": "toolu_015XgZoGBW2bNGRi38Q76t73",
+      "kind": "use",
+      "name": "Write",
+      "input": {
+        "file_path": "/tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-hermetic-303389-yR1x9K/with-skills/.claude/plans/keep-this-draft-plan-polished-karp.md",
+        "content": "# Working plan: deterministic skill-list ordering\n\nStatus: /plan-ceo-review Step 0 complete through 0E (mode selected). Substantive\nreview (0G, 0I, Sections 1–11, GSTACK REVIEW REPORT) NOT yet run, per user\ninstruction for this invocation.\n\n## Context\n\nUsers compare skill listings in scripts and reviews. Today the listing path\nrenders registered skill names in whatever order the registry yields them,\nwhich follows directory enumeration order and so varies by filesystem, OS and\nrun. That makes diffs of listings noisy and script comparisons flaky.\n\nDraft under review (repo `PLAN.md`, lines 1–6):\n- Make the existing listing path sort registered skill names deterministically\n  before rendering them.\n- Keep skill membership, aliases, metadata and text/JSON output formats\n  unchanged.\n- Cover mixed-case names and differing directory enumeration order with tests.\n\nThe draft is the review target; the current branch (`main`, one seed commit) is\nnot. The listing code itself is not in this checkout.\n\n## Pre-review system audit (2026-09-16)\n\n| Check | Result |\n|---|---|\n| Platform / base branch | No remote; unknown platform; base = `main` (fallback) |\n| Recent history | 1 commit: `89ae671 Seed review plan` |\n| Changed vs base / stash | none / none |\n| TODO/FIXME/HACK markers | none |\n| TODOS.md | absent |\n| Design doc / handoff note | none / none (office-hours deferred by user) |\n| Prior learnings | 0 (`CROSS_PROJECT: false`, already set) |\n| Brain digests | product, goals, recent-decisions, user-profile all cold |\n| Retrospective (prior review cycles / reverts) | none in log |\n| Frontend/UI scope | none. Text/JSON CLI output only; DESIGN_SCOPE not set |\n\nSetup item deferred: the skill-start `routing-injection` block (add skill\nrouting rules to CLAUDE.md) was not asked, per user instruction to handle setup\nseparately. Not declined; will re-fire on next healthy run.\n\n## Step 0 evidence\n\n### 0A. Premise Challenge\n1. Right problem? Yes. Unstable ordering of a list humans and scripts diff is a\n   correctness defect in the output contract, not a cosmetic one. Sorting at the\n   single render point is the simplest framing; alternatives (sort at\n   registration, sort in every consumer) spread the invariant.\n2. Outcome: identical listing output for identical registered skill sets,\n   regardless of enumeration order. The draft reaches it directly.\n3. Do nothing: listing diffs stay noisy; any snapshot test or script comparison\n   of the listing stays flaky. Pain is real and recurs on every environment\n   change.\n\n### 0B. Existing Code Leverage\n- The draft explicitly reuses \"the existing listing path\" and adds one sort\n  step before rendering. No parallel flow is built.\n- Sub-problem map: enumerate skills → existing registry (unchanged);\n  order names → new sort step (the only addition); render text/JSON → existing\n  renderers (unchanged). Sorting belongs to the standard library (reuse ladder\n  rung 2); no new dependency.\n- Open until code is inspected: whether text and JSON renderers share one\n  name-iteration point (sort once) or two (sort must be applied to both).\n\n### 0C. Dream State Mapping\n```\n  CURRENT STATE                    THIS PLAN                       12-MONTH IDEAL\n  Listing order follows   --->     Sort names once at the   --->   Listing output is a\n  dir enumeration; varies          existing render point;          stable contract: byte-\n  by FS/OS; diffs noisy            tests pin mixed-case and        identical for identical\n                                   enumeration-order cases         skill sets, snapshot-\n                                                                   tested, safe to diff\n```\nThe plan moves toward the ideal and leaves nothing to unwind later.\n\n### 0D. Alternatives\nNo new approach decision was needed for this invocation. The user requested\nonly the review-mode decision; approach/implementation choices (sort key,\ncase handling, where the sort lives) stay pending for the substantive review.\nNo alternatives or approvals invented.\n\n### 0E. Mode Selection\nPlanned change count (estimate; listing code not in this checkout):\n- 1 edit: the listing module (add sort before render)\n- 1 edit or add: listing tests (mixed-case names; differing enumeration order)\n- 0–1 add: test fixture(s) for enumeration-order cases\nTotal: ~2–3 files, 0 new classes/services. Well under the 15-file reduction\nthreshold.\n\nGoal classification: correcting existing behavior in an existing path\n(fix/refactor) → recommendation HOLD SCOPE.\n\nPreference check: `gstack-question-preference --check plan-ceo-review-mode`\nexited 0 with `AUTO_DECIDE`; stored preference `never-ask` at\n`$GSTACK_STATE_ROOT/projects/gstack-plan-count-gUPCya/question-preferences.json`.\n\n**Selected mode: HOLD SCOPE** (auto-decided from the recommendation).\n\nMode provenance: successful preference check → recommendation HOLD SCOPE\nselected automatically; question `plan-ceo-review-mode` logged with\n`auto_decided: true`. No AskUserQuestion was asked.\n\n## Decision ledger\n\n| ID and owner | Contract and evidence | Current | Proposed | Status | Exact approval and scope |\n|---|---|---|---|---|---|\n| MODE-1 (user, via stored preference) | Review mode for /plan-ceo-review. Evidence: draft is a fix to existing behavior; ~2–3 files; preference `plan-ceo-review-mode: never-ask` | none selected | HOLD SCOPE (recommended) / SELECTIVE / EXPANSION / REDUCTION | approved | Auto-decided per `AUTO_DECIDE` (exit 0) on 2026-09-16; scope: review mode only. Change with /plan-tune |\n\n## Remaining route (HOLD SCOPE)\n\n0G (complexity check, minimum change, invariants) → 0I (temporal\ninterrogation) → `sections/review-sections.md` (Sections 1–11, required\noutputs, GSTACK REVIEW REPORT). Not run in this invocation.\n\n## NOT in scope (per draft)\n- Changing skill membership, aliases, metadata, or text/JSON output formats.\n"
+      },
+      "messageId": "msg_011Cf77RCCDASs3x63xgoG4d",
+      "requestId": "req_011Cf77RBqNwqWNej5LHAmPu"
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:23:52.899Z",
+      "toolUseId": "toolu_015XgZoGBW2bNGRi38Q76t73",
+      "kind": "result",
+      "content": "File created successfully at: /tmp/g-tdzc6ak8/gstack-paid-shard-xYN4Cc/tmp/gstack-hermetic-303389-yR1x9K/with-skills/.claude/plans/keep-this-draft-plan-polished-karp.md (file state is current in your context — no need to Read it back)",
+      "isError": false
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:24:04.647Z",
+      "toolUseId": "toolu_01U1wW11UNCTAvCsbL4MH5AR",
+      "kind": "use",
+      "name": "Bash",
+      "input": {
+        "command": "G=\"$HOME/.claude/skills/gstack\"\n\"$G/bin/gstack-question-log\" '{\"skill\":\"plan-ceo-review\",\"question_id\":\"plan-ceo-review-mode\",\"question_summary\":\"Select plan-ceo-review mode: expansion / selective / hold / reduction\",\"category\":\"routing\",\"door_type\":\"two-way\",\"options_count\":4,\"user_choice\":\"C\",\"recommended\":\"C\",\"auto_decided\":true,\"session_id\":\"350938-1789561289-189dbdd1\"}' 2>/dev/null && echo \"question logged\" || echo \"question log unavailable (best-effort)\"\n\"$G/bin/gstack-skill-end\" --skill \"plan-ceo-review\" --outcome abort \\\n  --session-id \"350938-1789561289-189dbdd1\" --tel-start \"1789561289\" --used-browse no \\\n  --error-message \"\" --failed-step \"\" 2>/dev/null && echo \"skill-end logged\" || echo \"skill-end unavailable\"",
+        "description": "Log auto-decided mode question and skill-end telemetry"
+      },
+      "messageId": "msg_011Cf77UNShCmHfuoEYuwYBV",
+      "requestId": "req_011Cf77UN6c58Xs2PjfgRXro"
+    },
+    {
+      "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+      "timestamp": "2026-09-16T12:24:06.367Z",
+      "toolUseId": "toolu_01U1wW11UNCTAvCsbL4MH5AR",
+      "kind": "result",
+      "content": "question logged\nSKILL_END: recorded outcome=abort duration_s=157\nskill-end logged",
+      "isError": false
+    }
+  ],
+  "options": {
+    "skillName": "plan-ceo-review",
+    "sessionId": "94776752-bd6c-452e-97b3-448fcd6b9360",
+    "commandStartedAt": 1789561280390,
+    "now": 1789561820989,
+    "stateEvidence": {
+      "questionId": "plan-ceo-review-mode",
+      "preference": "never-ask",
+      "records": [
+        {
+          "skill": "plan-ceo-review",
+          "question_id": "plan-ceo-review-mode",
+          "question_summary": "Select plan-ceo-review mode: expansion / selective / hold / reduction",
+          "category": "routing",
+          "door_type": "two-way",
+          "options_count": 4,
+          "user_choice": "C",
+          "recommended": "C",
+          "auto_decided": true,
+          "session_id": "350938-1789561289-189dbdd1",
+          "source": "agent",
+          "followed_recommendation": true,
+          "ts": "2026-09-16T12:24:06.265Z"
+        }
+      ]
+    }
+  },
+  "timingQualification": "Invocation start is bracketed by native seed acknowledgment (12:21:20.215Z) and slash message (12:21:20.390Z); both bounds reproduce the same outcomes. now is the authenticated cancellation time. No outcome is promoted."
+}

@@ -1,0 +1,43 @@
+{
+  "source": "8525fd4abad1e54de1aaaa9a5692202d4b13bd25",
+  "sourceReportSha256": "7b544cd80c6065ed16682992585f2cc5ed47e6991e7f9c7cda1d2b0913734ad1",
+  "sourceReportBytes": 31255,
+  "originalPaidOutcomesReclassified": false,
+  "complexityCall": {
+    "sessionId": "7fc6f0ff-3d9a-4068-81bb-9de165c5444b",
+    "toolUseId": "toolu_01QFEkQBQVepysKAUuMLP5ny",
+    "questions": [
+      {
+        "question": "D8 \u2014 Class arrangement: keep the AuthCache facade, or have services use the existing adapter directly?\nProject/branch/task: gstack-plan-count-wB30y0 on `main`, Scope Challenge structure gate for PLAN.md (TokenStore cut per D6, RequestPolicy kept per D7).\nELI10: After D6/D7 the plan has four new classes: AuthBroker, SessionMint, RequestPolicy and AuthCache. The plan describes AuthCache (PLAN.md:10-13) as a facade over the existing adapter that keeps every rule unchanged and adds no serialization: a pass-through. This question is structure only: same features either way. Whether the shared cache stays a module-level mutable export or becomes an injected dependency is Section 1's decision and stays pending in both options.\nStakes if we pick wrong: Keep a pass-through facade and you maintain a class that forwards calls forever; drop it and, if the adapter's API is wide or awkward for services, both services grow their own adapter-wrangling code.\nRecommendation: B because the plan itself says the facade changes nothing; three classes over an already-tested adapter is enough engineering. If the adapter's API is genuinely hostile for services, say so and A becomes right.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: fewer moving parts now vs a seam you might want later (and can add later when a real need shows up).",
+        "header": "Structure",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "B) Drop the facade: 3 classes over the adapter (recommended)",
+            "description": "\u2705 AuthBroker and SessionMint depend on the existing, tested adapter interface directly; ~8 files, 3 new classes. \u2705 No pass-through layer to keep in sync when the adapter grows a method. \u274c If Section 1 later wants a narrow auth-only surface to serialize mutations behind, that seam must be introduced then. (human: ~0 / CC: ~0 to remove from plan)"
+          },
+          {
+            "label": "A) Keep AuthCache facade: 4 classes",
+            "description": "\u2705 Gives services a narrow, auth-specific API instead of the whole adapter surface. \u2705 Ready-made home if Section 1 decides mutations need coordinating in one place. \u274c As written it is a pure forwarder (PLAN.md:10-13): a class, tests and a file that add no behavior today. (human: ~1 day / CC: ~15 min)"
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D8 \u2014 Class arrangement: keep the AuthCache facade, or have services use the existing adapter directly?\nProject/branch/task: gstack-plan-count-wB30y0 on `main`, Scope Challenge structure gate for PLAN.md (TokenStore cut per D6, RequestPolicy kept per D7).\nELI10: After D6/D7 the plan has four new classes: AuthBroker, SessionMint, RequestPolicy and AuthCache. The plan describes AuthCache (PLAN.md:10-13) as a facade over the existing adapter that keeps every rule unchanged and adds no serialization: a pass-through. This question is structure only: same features either way. Whether the shared cache stays a module-level mutable export or becomes an injected dependency is Section 1's decision and stays pending in both options.\nStakes if we pick wrong: Keep a pass-through facade and you maintain a class that forwards calls forever; drop it and, if the adapter's API is wide or awkward for services, both services grow their own adapter-wrangling code.\nRecommendation: B because the plan itself says the facade changes nothing; three classes over an already-tested adapter is enough engineering. If the adapter's API is genuinely hostile for services, say so and A becomes right.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: fewer moving parts now vs a seam you might want later (and can add later when a real need shows up).": "B) Drop the facade: 3 classes over the adapter (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-15T10:06:09.513Z"
+  },
+  "legacyPlan": "# Current reviewed plan\n\n## Decision ledger\n\n### R7: legacyAuthFlow() regression contract (REGRESSION RULE)\nFinding: Test #1, CRITICAL/P1, confidence 9/10, PLAN.md:27-28 (\"will get rewritten as part of this work; no regression test for the prior behavior is planned\") and PLAN.md:14-16 (\"does not exercise legacyAuthFlow() or assert compatibility\"), reviewer: plan-eng-review (Claude)\nPlan baseline: rewrite without regression coverage (original proposal)\nRuntime evidence: unknown (source not in repo); callers of legacyAuthFlow() unknown, to be enumerated at build (grep) and listed in the plan\nState: pending\n\nComparison grid:\n\n| Choice | Current | A: characterization matrix | B: happy path + one error |\n|---|---|---|---|\n| R7 behavior to preserve | unstated, pending | full matrix: valid token; expired; revoked; wrong tenant; wrong issuer; wrong audience; policy-version mismatch; IDP unreachable; malformed token; suspended tenant | valid token; one rejection (expired) |\n| R7 intentional changes | unstated, pending | listed explicitly in the plan; each asserted as new behavior in the new suite, not carried from old | listed for the two covered cases only |\n| R7 acceptance assertions | none | for each matrix row: same accept/reject outcome and same error class/HTTP status as legacyAuthFlow() produced, captured as golden tests BEFORE the rewrite, then run against the new path | outcome equality for the two cases |\n| R7 caller coverage | none | every caller of legacyAuthFlow() enumerated; one integration test per caller path [\u2192E2E] | none |\n| Other approved rows (R1\u2013R6) | fixed | fixed | fixed |\n\nQuestion D12:\nD12 \u2014 How do we protect legacyAuthFlow()'s behavior through the rewrite? (Not whether: the Regression Rule requires coverage.)\nRecommendation: A because the matrix is ten cases and CC writes them in minutes; B leaves eight rejection paths unprotected in an auth rewrite.\nCompleteness: A=10/10, B=7/10\nA) Characterization matrix captured before the rewrite + per-caller integration tests (recommended)\nB) Happy path + one rejection case\n\nActual answer: **A, characterization matrix before rewrite + per-caller integration tests** (D12)\nAccepted scope: before any rewrite, capture golden tests from the running `legacyAuthFlow()` for: valid token; expired; revoked; wrong tenant; wrong issuer; wrong audience; policy-version mismatch; IDP unreachable; malformed token; suspended tenant. Assert accept/reject outcome and error class/status per case. Replay the suite against the new path. Enumerate every caller of `legacyAuthFlow()` (grep at build) and add one integration test per caller path [\u2192E2E]. Intentional behavior differences must be listed in the plan and asserted as new behavior, not inherited.\nHistory: none\n\n## Implementation Tasks\n\n- [ ] **T1 (P1, human: ~1.5 days / CC: ~20 min)** \u2014 tests/legacy \u2014 Capture the 10-case characterization matrix from `legacyAuthFlow()` and add one integration test per caller\n  - Surfaced by: Test review \u2014 T1 CRITICAL, PLAN.md:27-28; R7/D12\n  - Files: new `legacyAuthFlow.characterization.test.*`, one integration test per enumerated caller\n  - Verify: matrix green against legacy; replayed green against new path before swap\n- [ ] **T9 (P2, human: ~1 day / CC: ~15 min)** \u2014 auth/legacy \u2014 Swap callers to the new path, delete `legacyAuthFlow()` only after T1 replays green; update or delete any stale diagrams nearby\n  - Surfaced by: Test review T1; Code quality C3\n  - Files: every enumerated caller, `legacyAuthFlow` module\n  - Verify: T1 suite + per-caller integration tests green on the new path\n\n## GSTACK REVIEW REPORT\nEng: clear\n",
+  "legacyNativeApprovalProvenance": {
+    "toolUseId": "toolu_014W89sqynpkpkQCR7Hkbq17",
+    "sessionId": "7fc6f0ff-3d9a-4068-81bb-9de165c5444b",
+    "answeredAt": "2026-09-15T10:10:38.609Z",
+    "actualAnswer": "A) Characterization matrix before rewrite + per-caller integration tests (recommended)",
+    "completeOriginalPublicProjection": ".context/sep15-eng-terminal-8525-diagnosis/capture-fixture.json",
+    "completeOriginalProjectionSha256": "89a8a97fb03eee7daf292b9695d99ba42fecfc5b9c246f63b1a78e13a1cb88e6"
+  }
+}

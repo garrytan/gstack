@@ -1,0 +1,377 @@
+{
+  "provenance": {
+    "source": "0bcd44ee9cf60a8736e9409a9bf43a9138b9595d",
+    "attempt": "plan-ceo-review-1789633849352-oLlDBg",
+    "originalOutcome": "timeout",
+    "originalReviewCount": 5,
+    "originalReviewCountCeiling": 8,
+    "completeAt": "2026-09-17T08:40:27.694Z",
+    "observationSha256": "be85074cef63b5e171db2524ff7eeb75c2a47373494453481ee45bbba5257a3c",
+    "publicTranscriptSha256": "bcb2fb01cd046b9f207164f09e5a5c7ac48bbf6b8b97570ee9f1985ef7a3a0e0",
+    "qualification": "Exact first six published native calls and their captured fingerprints through the final E5 ACK. NativeCall is stored once and reattached by index. The complete original timeout artifacts remain retained; this fixture grants no paid semantic or full-review credit."
+  },
+  "calls": [
+    {
+      "sessionId": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb",
+      "toolUseId": "toolu_013RRSCNo7obx5J9DrMj4nmr",
+      "questions": [
+        {
+          "question": "D1 — Which review mode should govern this scope decision?\nProject/branch/task: gstack-plan-count-sIEkYl on main, deciding which of 5 chat integrations ship this quarter.\nELI10: Review mode sets my posture for the rest of the session. The plan's own goal is to shrink 5 candidates to 2-3, so the natural fit is a mode built around deciding what NOT to do. Expansion modes would instead have me pitch extra ideas on top of the five, which is the opposite of the constraint you gave.\nStakes if we pick wrong: an expansion mode adds noise to a decision that is about subtraction; a hold mode skips the cut/defer analysis you asked for.\nRecommendation: SCOPE REDUCTION because the plan's stated goal is a bandwidth-capped cut from 5 to 2-3, and all 5 built is an estimated 20-30 files (>15 threshold).\nNote: options differ in kind, not coverage — no completeness score.",
+          "header": "Review mode",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "SCOPE REDUCTION (recommended)",
+              "description": "✅ Matches the plan's actual job: propose minimum scope, then resolve each candidate one at a time with include/defer/cut. ✅ Keeps the 2-3 integration cap and ~12 total weeks visible in every question. ❌ No delight scan or platform-potential pitch; if you wanted ideas beyond the five, this mode won't volunteer them."
+            },
+            {
+              "label": "HOLD SCOPE",
+              "description": "✅ Maximum rigor on the five as written: complexity check, minimum-change trace, per-item defer/keep. ✅ Still runs the per-candidate chain. ❌ Treats 'all five' as the baseline to preserve, which fights the bandwidth cap you stated; the cut framing is weaker."
+            },
+            {
+              "label": "SELECTIVE EXPANSION",
+              "description": "✅ Runs the hold checks and then neutrally offers extra opportunities (e.g. a shared adapter layer, alert routing rules) for cherry-picking. ✅ Good if you suspect the candidate list itself is incomplete. ❌ Adds a second decision chain on top of the five, longer session, and the plan explicitly wants a smaller set, not a bigger one."
+            },
+            {
+              "label": "SCOPE EXPANSION",
+              "description": "✅ Cathedral mode: what would the best chat-integration platform look like, all five plus shared infra plus routing. ✅ Useful only if the bandwidth cap is negotiable. ❌ Directly contradicts the 2-3 integration limit and the 'no shared infrastructure' premise; would spend the session arguing against your constraints."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Which review mode should govern this scope decision?\nProject/branch/task: gstack-plan-count-sIEkYl on main, deciding which of 5 chat integrations ship this quarter.\nELI10: Review mode sets my posture for the rest of the session. The plan's own goal is to shrink 5 candidates to 2-3, so the natural fit is a mode built around deciding what NOT to do. Expansion modes would instead have me pitch extra ideas on top of the five, which is the opposite of the constraint you gave.\nStakes if we pick wrong: an expansion mode adds noise to a decision that is about subtraction; a hold mode skips the cut/defer analysis you asked for.\nRecommendation: SCOPE REDUCTION because the plan's stated goal is a bandwidth-capped cut from 5 to 2-3, and all 5 built is an estimated 20-30 files (>15 threshold).\nNote: options differ in kind, not coverage — no completeness score.": "HOLD SCOPE"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T08:33:19.165Z"
+    },
+    {
+      "sessionId": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb",
+      "toolUseId": "toolu_013m3rxMYboLrJdCdjTgZCrJ",
+      "questions": [
+        {
+          "question": "D2.1 — E1: Slack DM bot for incident alerts: include, defer, or cut?\nProject/branch/task: gstack-plan-count-sIEkYl on main, first of five per-candidate scope decisions (chain D2.1-D2.5, then D2.final).\nELI10: Slack is the top customer request from the Q2 survey, about 40% of all asks, and it is the cheapest of the big three because the Slack auth flow already exists. Two weeks buys the most demand of anything on the list. Independent of the other four; no dependency either way.\nStakes if we pick wrong: skipping it leaves the single loudest request unanswered another quarter and makes the other picks look like we ignored customers.\nRecommendation: Include because ~40% of asks for ~2 weeks with reused auth is the best demand-per-week on the list and it anchors any 2-3 pick.\nNote: options differ in kind, not coverage — no completeness score.\nNet: E1 is the anchor; the real question is what goes next to it.",
+          "header": "E1 Slack",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Include (recommended)",
+              "description": "Ship Slack DM incident alerts this quarter. Effort M (human: ~2 weeks / CC: ~1-2 days). Risk low. Reuse: existing Slack auth flow. Verification: alert delivery + auth happy/expired-token/rate-limit paths. ✅ Answers the top Q2 request (~40% of asks) in one shot. ✅ Cheapest weeks-per-demand on the list thanks to reused auth. ❌ Uses 1 of your 2-3 slots and ~2 of ~4-8 available weeks."
+            },
+            {
+              "label": "Defer",
+              "description": "Push Slack to next quarter, record in TODOS with context. Effort S now (zero build). Risk high. Reuse: n/a. Verification: none this quarter. ✅ Frees the full cap for enterprise-revenue picks (E3/E5) if that is the quarter's goal. ✅ Nothing is lost permanently; auth reuse still exists next quarter. ❌ The loudest 40% of customers wait another quarter for the top request."
+            },
+            {
+              "label": "Cut",
+              "description": "Drop Slack entirely, no TODO. Effort S (zero work). Risk high. Reuse: n/a. Verification: none. ✅ Cleanest possible scope statement if Slack is off-strategy. ✅ Zero engineering weeks spent. ❌ Refuses the top customer request with no stated path back."
+            },
+            {
+              "label": "Hold",
+              "description": "Stop the chain here and discuss E1 before deciding anything else. Effort S (zero work). Risk low. Reuse: n/a. Verification: n/a. ✅ Lets you challenge the 40% figure or the 2-week estimate before committing. ✅ No disposition recorded, nothing to unwind. ❌ Remaining four candidates wait until you say continue."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2.1 — E1: Slack DM bot for incident alerts: include, defer, or cut?\nProject/branch/task: gstack-plan-count-sIEkYl on main, first of five per-candidate scope decisions (chain D2.1-D2.5, then D2.final).\nELI10: Slack is the top customer request from the Q2 survey, about 40% of all asks, and it is the cheapest of the big three because the Slack auth flow already exists. Two weeks buys the most demand of anything on the list. Independent of the other four; no dependency either way.\nStakes if we pick wrong: skipping it leaves the single loudest request unanswered another quarter and makes the other picks look like we ignored customers.\nRecommendation: Include because ~40% of asks for ~2 weeks with reused auth is the best demand-per-week on the list and it anchors any 2-3 pick.\nNote: options differ in kind, not coverage — no completeness score.\nNet: E1 is the anchor; the real question is what goes next to it.": "Include (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T08:34:42.383Z"
+    },
+    {
+      "sessionId": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb",
+      "toolUseId": "toolu_01Kyp6QMmDwirvrDdGUbkyfa",
+      "questions": [
+        {
+          "question": "D2.2 — E2: Discord guild bot for community channels: include, defer, or cut?\nProject/branch/task: gstack-plan-count-sIEkYl on main, second of five per-candidate decisions; E1 Slack is already Included (1 slot, ~2 weeks used).\nELI10: Discord is a community channel, not an ops channel. It has real demand (about 15% of asks, and the people asking are loud) but it is the most expensive mid-tier option at 3 weeks because there is no existing auth to reuse. With Slack in, adding Discord uses a second slot and brings you to ~5 weeks, leaving room for at most one more small item.\nStakes if we pick wrong: including it can crowd out an enterprise pick (Teams or Mattermost) that pays more per account; cutting it outright tells a vocal community there is no path, which they will say publicly.\nRecommendation: Defer because 3 greenfield weeks for ~15% of asks is the weakest weeks-per-demand of the mid-tier, and deferring keeps the slot open for a revenue-weighted pick while leaving a visible path back next quarter.\nNote: options differ in kind, not coverage — no completeness score.\nNet: loud demand versus expensive build; defer keeps the door open without spending the slot.",
+          "header": "E2 Discord",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Include",
+              "description": "Ship Discord guild bot this quarter alongside Slack. Effort L (human: ~3 weeks / CC: ~2-3 days). Risk medium. Reuse: none, greenfield OAuth + guild permissions. Verification: bot install, channel post, permission-denied, rate-limit, guild-removed paths. ✅ Answers the loudest community segment (~15% of asks) while they are still engaged. ✅ Slack + Discord together cover ~55% of all asks. ❌ Takes slot 2 and brings the quarter to ~5 weeks, leaving little room for Teams or Mattermost."
+            },
+            {
+              "label": "Defer (recommended)",
+              "description": "Push Discord to next quarter, record in TODOS with the 15%/loud-community context. Effort S now (zero build). Risk medium. Reuse: n/a. Verification: none this quarter. ✅ Keeps slot 2 available for a higher revenue-per-account pick (E3/E5) or a cheap win (E4). ✅ Explicit path back next quarter, so the community gets a date rather than a no. ❌ The vocal 15% wait, and they will notice."
+            },
+            {
+              "label": "Cut",
+              "description": "Drop Discord entirely, no TODO. Effort S (zero work). Risk medium. Reuse: n/a. Verification: none. ✅ Clear statement that community-chat is not the product's channel. ✅ Zero weeks spent, no greenfield auth to maintain. ❌ Publicly closes the door on a vocal segment with real (if minority) demand."
+            },
+            {
+              "label": "Hold",
+              "description": "Stop the chain and discuss E2 before deciding E3-E5. Effort S (zero work). Risk low. Reuse: n/a. Verification: n/a. ✅ Lets you weigh community goodwill against the 3-week estimate before committing. ✅ E1's Include stays approved; nothing to unwind. ❌ Remaining three candidates wait until you say continue."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2.2 — E2: Discord guild bot for community channels: include, defer, or cut?\nProject/branch/task: gstack-plan-count-sIEkYl on main, second of five per-candidate decisions; E1 Slack is already Included (1 slot, ~2 weeks used).\nELI10: Discord is a community channel, not an ops channel. It has real demand (about 15% of asks, and the people asking are loud) but it is the most expensive mid-tier option at 3 weeks because there is no existing auth to reuse. With Slack in, adding Discord uses a second slot and brings you to ~5 weeks, leaving room for at most one more small item.\nStakes if we pick wrong: including it can crowd out an enterprise pick (Teams or Mattermost) that pays more per account; cutting it outright tells a vocal community there is no path, which they will say publicly.\nRecommendation: Defer because 3 greenfield weeks for ~15% of asks is the weakest weeks-per-demand of the mid-tier, and deferring keeps the slot open for a revenue-weighted pick while leaving a visible path back next quarter.\nNote: options differ in kind, not coverage — no completeness score.\nNet: loud demand versus expensive build; defer keeps the door open without spending the slot.": "Defer (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T08:35:55.602Z"
+    },
+    {
+      "sessionId": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb",
+      "toolUseId": "toolu_01C5FgpC5d66cQ2rAQgeihDD",
+      "questions": [
+        {
+          "question": "D2.3 — E3: Microsoft Teams webhook + bot framework: include, defer, or cut?\nProject/branch/task: gstack-plan-count-sIEkYl on main, third of five; E1 Slack Included (slot 1, ~2 wk), E2 Discord Deferred.\nELI10: Teams is the opposite of Slack on this list: few people ask for it (about 5%) but the ones who do are enterprise accounts that pay the most per seat, and they asked by name. It is also the most expensive build at 4 weeks because the Teams bot framework is its own world. Slack plus Teams is the standard pairing every incident-alerting vendor ships first, and together they use 2 slots and ~6 weeks, leaving one slot for a 1-2 week item.\nStakes if we pick wrong: including it and slipping the 4-week estimate can eat the whole quarter; deferring it leaves enterprise revenue riding on Mattermost alone (E5, still to decide) or nothing.\nRecommendation: Include because it is the only candidate that directly serves the highest revenue-per-user segment, E1+E3 is the proven breadth+revenue pairing, and 6 weeks still leaves a slot for a small third pick.\nNote: options differ in kind, not coverage — no completeness score.\nNet: most expensive build on the list, but it is the revenue pick; the alternative enterprise path is E5, decided at D2.5.",
+          "header": "E3 Teams",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Include (recommended)",
+              "description": "Ship Teams webhook + bot this quarter alongside Slack. Effort XL (human: ~4 weeks / CC: ~3-4 days). Risk medium. Reuse: none stated; Teams bot framework registration, Azure AD app, adaptive cards. Verification: webhook delivery, bot install, tenant-consent-denied, token-refresh, card-render, rate-limit paths. ✅ Directly serves the enterprise accounts that asked by name and pay the most per user. ✅ Slack + Teams is the proven first pairing in this category; covers most enterprise ARR. ❌ 4 weeks is the longest estimate on the list and the most likely to slip; brings the quarter to ~6 weeks with one slot left."
+            },
+            {
+              "label": "Defer",
+              "description": "Push Teams to next quarter, record in TODOS with the enterprise-asked-by-name context. Effort S now (zero build). Risk medium. Reuse: n/a. Verification: none this quarter. ✅ Frees 4 weeks and slot 2 for two cheaper picks (E4 + E5 = 3 weeks, both fit). ✅ Enterprise path can still be served this quarter via E5 Mattermost if Included at D2.5. ❌ The accounts that asked by name wait another quarter, and they are the ones with procurement cycles and renewal dates."
+            },
+            {
+              "label": "Cut",
+              "description": "Drop Teams entirely, no TODO. Effort S (zero work). Risk high. Reuse: n/a. Verification: none. ✅ Avoids committing to the Teams bot framework's ongoing maintenance and Azure AD churn. ✅ Zero weeks spent. ❌ Tells named enterprise customers there is no path to Teams; the highest revenue-per-user segment has nowhere to go."
+            },
+            {
+              "label": "Hold",
+              "description": "Stop the chain and discuss E3 before deciding E4-E5. Effort S (zero work). Risk low. Reuse: n/a. Verification: n/a. ✅ Lets you pressure-test the 4-week estimate or name the specific accounts before committing. ✅ E1 Include and E2 Defer stay approved; nothing to unwind. ❌ Remaining two candidates wait until you say continue."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2.3 — E3: Microsoft Teams webhook + bot framework: include, defer, or cut?\nProject/branch/task: gstack-plan-count-sIEkYl on main, third of five; E1 Slack Included (slot 1, ~2 wk), E2 Discord Deferred.\nELI10: Teams is the opposite of Slack on this list: few people ask for it (about 5%) but the ones who do are enterprise accounts that pay the most per seat, and they asked by name. It is also the most expensive build at 4 weeks because the Teams bot framework is its own world. Slack plus Teams is the standard pairing every incident-alerting vendor ships first, and together they use 2 slots and ~6 weeks, leaving one slot for a 1-2 week item.\nStakes if we pick wrong: including it and slipping the 4-week estimate can eat the whole quarter; deferring it leaves enterprise revenue riding on Mattermost alone (E5, still to decide) or nothing.\nRecommendation: Include because it is the only candidate that directly serves the highest revenue-per-user segment, E1+E3 is the proven breadth+revenue pairing, and 6 weeks still leaves a slot for a small third pick.\nNote: options differ in kind, not coverage — no completeness score.\nNet: most expensive build on the list, but it is the revenue pick; the alternative enterprise path is E5, decided at D2.5.": "Include (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T08:37:41.016Z"
+    },
+    {
+      "sessionId": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb",
+      "toolUseId": "toolu_01GDgL6zPBVNDcDyzZvwFQps",
+      "questions": [
+        {
+          "question": "D2.4 — E4: Telegram bot API integration: include, defer, or cut?\nProject/branch/task: gstack-plan-count-sIEkYl on main, fourth of five; E1 Slack + E3 Teams Included (2 slots, ~6 wk), E2 Discord Deferred. One slot left.\nELI10: Telegram is the cheapest item on the list, about one week with the simplest API, and it serves ~8% of asks, mostly international users. The plan itself calls it low strategic value. The catch is the cap: with Slack and Teams already in, Telegram and Mattermost (E5, next question) are competing for the last slot. Including Telegram here means E5 has to be deferred or cut at D2.5, or the set exceeds your 2-3 limit.\nStakes if we pick wrong: including it spends the last slot on the lowest-strategic-value item and squeezes out the high-ARR Mattermost accounts; cutting it closes a one-week goodwill win that could land any quarter.\nRecommendation: Defer because the quarter is already shaped as breadth (Slack) + enterprise revenue (Teams), and the last slot is better spent extending the enterprise story with E5 than on a low-strategic-value channel; one week of Telegram fits easily next quarter.\nNote: options differ in kind, not coverage — no completeness score.\nNet: cheapest build versus lowest strategic value; the real trade is Telegram or Mattermost for slot 3.",
+          "header": "E4 Telegram",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Include",
+              "description": "Ship Telegram bot this quarter as the third integration. Effort S (human: ~1 week / CC: ~half a day). Risk low. Reuse: none needed; bot-token auth, simplest API surface. Verification: message send, bot-blocked-by-user, chat-not-found, rate-limit paths. ✅ Cheapest win on the list; ~8% of asks for one week. ✅ Low slip risk, good filler if Teams runs long. ❌ Fills the cap at 3, so E5 Mattermost (all high-ARR accounts) must be deferred or cut at D2.5."
+            },
+            {
+              "label": "Defer (recommended)",
+              "description": "Push Telegram to next quarter, record in TODOS with the international-users context. Effort S now (zero build). Risk low. Reuse: n/a. Verification: none this quarter. ✅ Keeps slot 3 open for E5, the high-ARR enterprise segment. ✅ One-week item slots into any future quarter without planning. ❌ International users (~8% of asks) wait a quarter for a one-week feature."
+            },
+            {
+              "label": "Cut",
+              "description": "Drop Telegram entirely, no TODO. Effort S (zero work). Risk low. Reuse: n/a. Verification: none. ✅ Consistent with the plan's own \"low strategic value\" label. ✅ Zero weeks, one fewer bot surface to maintain long-term. ❌ Refuses a cheap request from ~8% of users with no stated path back."
+            },
+            {
+              "label": "Hold",
+              "description": "Stop the chain and discuss E4 before deciding E5. Effort S (zero work). Risk low. Reuse: n/a. Verification: n/a. ✅ Lets you decide the E4-vs-E5 slot-3 trade explicitly before either question. ✅ E1/E3 Include and E2 Defer stay approved; nothing to unwind. ❌ E5 waits until you say continue."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2.4 — E4: Telegram bot API integration: include, defer, or cut?\nProject/branch/task: gstack-plan-count-sIEkYl on main, fourth of five; E1 Slack + E3 Teams Included (2 slots, ~6 wk), E2 Discord Deferred. One slot left.\nELI10: Telegram is the cheapest item on the list, about one week with the simplest API, and it serves ~8% of asks, mostly international users. The plan itself calls it low strategic value. The catch is the cap: with Slack and Teams already in, Telegram and Mattermost (E5, next question) are competing for the last slot. Including Telegram here means E5 has to be deferred or cut at D2.5, or the set exceeds your 2-3 limit.\nStakes if we pick wrong: including it spends the last slot on the lowest-strategic-value item and squeezes out the high-ARR Mattermost accounts; cutting it closes a one-week goodwill win that could land any quarter.\nRecommendation: Defer because the quarter is already shaped as breadth (Slack) + enterprise revenue (Teams), and the last slot is better spent extending the enterprise story with E5 than on a low-strategic-value channel; one week of Telegram fits easily next quarter.\nNote: options differ in kind, not coverage — no completeness score.\nNet: cheapest build versus lowest strategic value; the real trade is Telegram or Mattermost for slot 3.": "Defer (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T08:39:04.292Z"
+    },
+    {
+      "sessionId": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb",
+      "toolUseId": "toolu_016sXSCQ3C8AxvZVRKPxHbgK",
+      "questions": [
+        {
+          "question": "D2.5 — E5: Mattermost REST plugin: include, defer, or cut?\nProject/branch/task: gstack-plan-count-sIEkYl on main, last of five; E1 Slack + E3 Teams Included (2 slots, ~6 wk), E2 Discord + E4 Telegram Deferred. One slot open.\nELI10: Mattermost is the smallest segment by headcount (about 3% of asks) but every one of those asks comes from a high-ARR, self-hosted enterprise account, the kind that is locked in and expensive to lose. It costs 2 weeks as a REST plugin. With Telegram deferred, this is the only candidate left for slot 3, and including it lands the quarter at 3 integrations and ~8 weeks, inside your cap. Leaving the slot empty is also allowed: the cap is \"at most\" 3.\nStakes if we pick wrong: including it stretches the quarter to ~8 weeks on top of a 4-week Teams build that may slip; deferring it leaves your highest-ARR self-hosted accounts as the only segment with nothing this quarter.\nRecommendation: Include because slot 3 is open, 2 weeks is affordable, and it completes the enterprise story (Teams for cloud, Mattermost for self-hosted) for the accounts most costly to churn.\nNote: options differ in kind, not coverage — no completeness score.\nNet: small user count, big accounts; the only real cost is quarter length (~8 weeks) with Teams slip risk stacked underneath.",
+          "header": "E5 Mattermost",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Include (recommended)",
+              "description": "Ship Mattermost REST plugin this quarter as the third integration. Effort M (human: ~2 weeks / CC: ~1-2 days). Risk medium. Reuse: none stated; plugin manifest, per-host webhook config, admin install flow. Verification: plugin install, alert post, host-unreachable, version-mismatch, token-revoked paths. ✅ Covers the self-hosted enterprise segment where every ask is a high-ARR locked-in account. ✅ Completes cloud (Teams) + self-hosted (Mattermost) enterprise coverage in one quarter. ❌ Brings the quarter to ~8 weeks and 3 of 3 slots, with Teams slip risk underneath it."
+            },
+            {
+              "label": "Defer",
+              "description": "Push Mattermost to next quarter, record in TODOS with the high-ARR self-hosted context. Effort S now (zero build). Risk medium. Reuse: n/a. Verification: none this quarter. ✅ Leaves slack in the quarter (~6 weeks, 2 slots) to absorb a Teams overrun. ✅ Explicit path back next quarter for the affected accounts. ❌ The highest-ARR self-hosted accounts get nothing this quarter while every other segment has a date."
+            },
+            {
+              "label": "Cut",
+              "description": "Drop Mattermost entirely, no TODO. Effort S (zero work). Risk high. Reuse: n/a. Verification: none. ✅ Avoids maintaining a plugin against self-hosted version drift indefinitely. ✅ Zero weeks spent. ❌ Tells locked-in high-ARR accounts there is no path; that is churn risk with no offsetting demand gain."
+            },
+            {
+              "label": "Hold",
+              "description": "Stop the chain and discuss E5 before the final set is assembled. Effort S (zero work). Risk low. Reuse: n/a. Verification: n/a. ✅ Lets you weigh quarter length (~8 wk) against the high-ARR retention argument before committing. ✅ E1-E4 dispositions stay approved; nothing to unwind. ❌ D2.final and the rest of the review wait until you say continue."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2.5 — E5: Mattermost REST plugin: include, defer, or cut?\nProject/branch/task: gstack-plan-count-sIEkYl on main, last of five; E1 Slack + E3 Teams Included (2 slots, ~6 wk), E2 Discord + E4 Telegram Deferred. One slot open.\nELI10: Mattermost is the smallest segment by headcount (about 3% of asks) but every one of those asks comes from a high-ARR, self-hosted enterprise account, the kind that is locked in and expensive to lose. It costs 2 weeks as a REST plugin. With Telegram deferred, this is the only candidate left for slot 3, and including it lands the quarter at 3 integrations and ~8 weeks, inside your cap. Leaving the slot empty is also allowed: the cap is \"at most\" 3.\nStakes if we pick wrong: including it stretches the quarter to ~8 weeks on top of a 4-week Teams build that may slip; deferring it leaves your highest-ARR self-hosted accounts as the only segment with nothing this quarter.\nRecommendation: Include because slot 3 is open, 2 weeks is affordable, and it completes the enterprise story (Teams for cloud, Mattermost for self-hosted) for the accounts most costly to churn.\nNote: options differ in kind, not coverage — no completeness score.\nNet: small user count, big accounts; the only real cost is quarter length (~8 weeks) with Teams slip risk stacked underneath.": "Include (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T08:40:27.694Z"
+    }
+  ],
+  "fingerprints": [
+    {
+      "signature": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb:toolu_013RRSCNo7obx5J9DrMj4nmr",
+      "promptSnippet": "Review mode D1 — Which review mode should govern this scope decision? Project/branch/task: gstack-plan-count-sIEkYl on main, deciding which of 5 chat integrations ship this quarter. ELI10: Review mode sets my posture for the rest of the ses",
+      "options": [
+        {
+          "index": 1,
+          "label": "SCOPE REDUCTION (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "HOLD SCOPE"
+        },
+        {
+          "index": 3,
+          "label": "SELECTIVE EXPANSION"
+        },
+        {
+          "index": 4,
+          "label": "SCOPE EXPANSION"
+        }
+      ],
+      "observedAtMs": 183948,
+      "preReview": true
+    },
+    {
+      "signature": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb:toolu_013m3rxMYboLrJdCdjTgZCrJ",
+      "promptSnippet": "E1 Slack D2.1 — E1: Slack DM bot for incident alerts: include, defer, or cut? Project/branch/task: gstack-plan-count-sIEkYl on main, first of five per-candidate scope decisions (chain D2.1-D2.5, then D2.final). ELI10: Slack is the top custo",
+      "options": [
+        {
+          "index": 1,
+          "label": "Include (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "Defer"
+        },
+        {
+          "index": 3,
+          "label": "Cut"
+        },
+        {
+          "index": 4,
+          "label": "Hold"
+        }
+      ],
+      "observedAtMs": 267167,
+      "preReview": false
+    },
+    {
+      "signature": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb:toolu_01Kyp6QMmDwirvrDdGUbkyfa",
+      "promptSnippet": "E2 Discord D2.2 — E2: Discord guild bot for community channels: include, defer, or cut? Project/branch/task: gstack-plan-count-sIEkYl on main, second of five per-candidate decisions; E1 Slack is already Included (1 slot, ~2 weeks used). ELI",
+      "options": [
+        {
+          "index": 1,
+          "label": "Include"
+        },
+        {
+          "index": 2,
+          "label": "Defer (recommended)"
+        },
+        {
+          "index": 3,
+          "label": "Cut"
+        },
+        {
+          "index": 4,
+          "label": "Hold"
+        }
+      ],
+      "observedAtMs": 340392,
+      "preReview": false
+    },
+    {
+      "signature": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb:toolu_01C5FgpC5d66cQ2rAQgeihDD",
+      "promptSnippet": "E3 Teams D2.3 — E3: Microsoft Teams webhook + bot framework: include, defer, or cut? Project/branch/task: gstack-plan-count-sIEkYl on main, third of five; E1 Slack Included (slot 1, ~2 wk), E2 Discord Deferred. ELI10: Teams is the opposite ",
+      "options": [
+        {
+          "index": 1,
+          "label": "Include (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "Defer"
+        },
+        {
+          "index": 3,
+          "label": "Cut"
+        },
+        {
+          "index": 4,
+          "label": "Hold"
+        }
+      ],
+      "observedAtMs": 445758,
+      "preReview": false
+    },
+    {
+      "signature": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb:toolu_01GDgL6zPBVNDcDyzZvwFQps",
+      "promptSnippet": "E4 Telegram D2.4 — E4: Telegram bot API integration: include, defer, or cut? Project/branch/task: gstack-plan-count-sIEkYl on main, fourth of five; E1 Slack + E3 Teams Included (2 slots, ~6 wk), E2 Discord Deferred. One slot left. ELI10: Te",
+      "options": [
+        {
+          "index": 1,
+          "label": "Include"
+        },
+        {
+          "index": 2,
+          "label": "Defer (recommended)"
+        },
+        {
+          "index": 3,
+          "label": "Cut"
+        },
+        {
+          "index": 4,
+          "label": "Hold"
+        }
+      ],
+      "observedAtMs": 529077,
+      "preReview": false
+    },
+    {
+      "signature": "1b245cdb-3c71-44d5-a8c6-c69bd63e4afb:toolu_016sXSCQ3C8AxvZVRKPxHbgK",
+      "promptSnippet": "E5 Mattermost D2.5 — E5: Mattermost REST plugin: include, defer, or cut? Project/branch/task: gstack-plan-count-sIEkYl on main, last of five; E1 Slack + E3 Teams Included (2 slots, ~6 wk), E2 Discord + E4 Telegram Deferred. One slot open. E",
+      "options": [
+        {
+          "index": 1,
+          "label": "Include (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "Defer"
+        },
+        {
+          "index": 3,
+          "label": "Cut"
+        },
+        {
+          "index": 4,
+          "label": "Hold"
+        }
+      ],
+      "observedAtMs": 612468,
+      "preReview": false
+    }
+  ]
+}

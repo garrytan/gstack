@@ -1,0 +1,78 @@
+{
+  "source": "cab3edc8b24f873b55f6edc6d98b60981eda52cb",
+  "provenance": "Complete public D4/D5 native questions and acknowledgments from actual first DX attempt. Historical paid failure remains a failure; free replay confers no paid credit.",
+  "calls": [
+    {
+      "sessionId": "8d685f5b-82af-4def-811d-615bd465ce90",
+      "toolUseId": "toolu_01XZxtcyAq9dRMxfaPcDewyj",
+      "questions": [
+        {
+          "question": "D4 — Journey stage DISCOVER/INSTALL: the README quickstart points at a file that isn't shipped. Which remedy?\nProject/branch/task: EvalKit SDK beta polish on main, DX POLISH.\nEvidence: README.md line 11 says \"follow the quickstart's command: `python examples/first_eval.py`\". docs/package-contents.txt lines 8-9: that file \"is absent from both the published package and the release examples archive\". The working command, `python -m evalkit.demo`, appears three lines later and IS shipped (package-contents.txt lines 4-5, 10).\nELI10: The very first command the developer copies fails with a file-not-found. That is a T0 failure on the settled persona's first minute. The fix is either point the README at the command that exists, or ship the file the README promises.\nStakes if we pick wrong: Ship as-is and every fresh install opens with `python: can't open file 'examples/first_eval.py'`.\nRecommendation: A because the demo is the approved delivery vehicle and already works; shipping a second quickstart script adds a parallel path to maintain and both paths hit the same CI gate.\nCompleteness: A=9/10, B=10/10, C=8/10\nA) Make `python -m evalkit.demo` the quickstart command; drop the `first_eval.py` reference (recommended)\n  ✅ Zero packaging change; README edit plus a release-checklist check that every README command resolves in the built wheel\n  ✅ One first-run path, the one the benchmark study and README already call the chosen experience\n  ❌ Developers who want a from-scratch script (not a module) get no shipped example until later\nB) Ship `examples/first_eval.py` in the wheel and examples archive, and keep both commands\n  ✅ README becomes true without editing it; developers get an editable starting script\n  ✅ Gives a real-code template for the `run_eval` call, not just a canned demo\n  ❌ Two first-run paths to keep in sync; adds a packaging item to the beta (human: ~half day / CC: ~10 min)\nC) Rewrite the README to name only the demo, and add a one-line note that an example script is coming\n  ✅ Honest about the gap and sets expectations\n  ❌ \"Coming soon\" in a quickstart reads as unfinished to a chef-for-chefs audience\nNet: one true command now, versus a second shipped artifact.",
+          "header": "Quickstart",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Point README at python -m evalkit.demo (recommended)",
+              "description": "Remove the first_eval.py reference; add a release-check that README commands resolve in the built package."
+            },
+            {
+              "label": "B) Ship examples/first_eval.py too",
+              "description": "Add the file to the wheel and examples archive; keep both commands."
+            },
+            {
+              "label": "C) Demo only, plus a 'coming soon' note",
+              "description": "README names only the demo and flags the example script as future work."
+            },
+            {
+              "label": "D) Acceptable friction, skip",
+              "description": "Leave the README as written."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Journey stage DISCOVER/INSTALL: the README quickstart points at a file that isn't shipped. Which remedy?\nProject/branch/task: EvalKit SDK beta polish on main, DX POLISH.\nEvidence: README.md line 11 says \"follow the quickstart's command: `python examples/first_eval.py`\". docs/package-contents.txt lines 8-9: that file \"is absent from both the published package and the release examples archive\". The working command, `python -m evalkit.demo`, appears three lines later and IS shipped (package-contents.txt lines 4-5, 10).\nELI10: The very first command the developer copies fails with a file-not-found. That is a T0 failure on the settled persona's first minute. The fix is either point the README at the command that exists, or ship the file the README promises.\nStakes if we pick wrong: Ship as-is and every fresh install opens with `python: can't open file 'examples/first_eval.py'`.\nRecommendation: A because the demo is the approved delivery vehicle and already works; shipping a second quickstart script adds a parallel path to maintain and both paths hit the same CI gate.\nCompleteness: A=9/10, B=10/10, C=8/10\nA) Make `python -m evalkit.demo` the quickstart command; drop the `first_eval.py` reference (recommended)\n  ✅ Zero packaging change; README edit plus a release-checklist check that every README command resolves in the built wheel\n  ✅ One first-run path, the one the benchmark study and README already call the chosen experience\n  ❌ Developers who want a from-scratch script (not a module) get no shipped example until later\nB) Ship `examples/first_eval.py` in the wheel and examples archive, and keep both commands\n  ✅ README becomes true without editing it; developers get an editable starting script\n  ✅ Gives a real-code template for the `run_eval` call, not just a canned demo\n  ❌ Two first-run paths to keep in sync; adds a packaging item to the beta (human: ~half day / CC: ~10 min)\nC) Rewrite the README to name only the demo, and add a one-line note that an example script is coming\n  ✅ Honest about the gap and sets expectations\n  ❌ \"Coming soon\" in a quickstart reads as unfinished to a chef-for-chefs audience\nNet: one true command now, versus a second shipped artifact.": "A) Point README at python -m evalkit.demo (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T19:12:12.308Z"
+    },
+    {
+      "sessionId": "8d685f5b-82af-4def-811d-615bd465ce90",
+      "toolUseId": "toolu_01DY2MywHTAaZ4FKKfvqRayc",
+      "questions": [
+        {
+          "question": "D5 — Journey stage HELLO WORLD: the mandatory 5-minute CI check makes the approved < 2 min target arithmetically impossible. What ships in the beta?\nProject/branch/task: EvalKit SDK beta polish on main, DX POLISH.\nEvidence: docs/current-contracts.md lines 3-5: first local evaluation \"requires a successful remote CI check and blocks for five minutes\", \"no skip flag or offline first-run path\", \"the beta plan retains this gate\". README lines 20-23: the demo uses the mock transport, needs no key, yet \"still waits for that CI check\". docs/benchmarks.md: EvalKit 6 min vs peers 2-4 min; approved target under 2 min. 300s > 120s, so the gate alone busts the target. This is a concrete contradiction between two approved values, which is why I'm reopening it rather than treating the gate as fixed.\nELI10: The demo evaluates bundled sample data through a mock transport; the CI check verifies a sample-project binding the demo's own scores don't depend on. Developers wait five minutes staring at 'Waiting for CI check: 90s elapsed of 300s' for numbers the SDK could print instantly. Peers print theirs in 2-4 minutes end to end.\nStakes if we pick wrong: Keep the gate and the beta ships at 3x the target; per the TTHW table a > 5 min hello world loses a large share of first-run developers.\nRecommendation: A because it uses only existing capabilities (mock transport, sample data), keeps the CI check where it verifies something real (the first live evaluation), and is the only option that reaches the approved target.\nCompleteness: A=9/10, B=7/10, C=8/10, D=3/10\nA) Exempt the bundled demo from the CI check; keep the check on the first live (keyed) evaluation (recommended)\n  ✅ Demo returns real scores in seconds; install + demo lands well under 2 min on the study's own clock\n  ✅ The check still runs where the binding matters, before any real result leaves the machine; existing progress and EVALKIT_CI_TIMEOUT messages stay as-is\n  ❌ The benchmark endpoint 'first real evaluation result' must be restated: demo result (< 2 min) vs first live result (still gated); docs/benchmarks.md needs that split recorded\nB) Add an explicit `--skip-ci-check` / `EVALKIT_SKIP_CI_CHECK=1` escape hatch, default still blocks\n  ✅ Opt-in, smallest change to the documented contract\n  ✅ Also useful for air-gapped or offline first runs\n  ❌ Default path still misses the target; developers only find the flag after they've already waited or read docs (human: ~1 day / CC: ~15 min)\nC) Make the check non-blocking: print demo scores immediately, run the check in the background and report its result at exit\n  ✅ Scores in seconds and the binding is still verified on first run\n  ❌ Changes 'success required before first local result' into 'reported after'; needs a documented state for 'demo printed, check failed' (human: ~2 days / CC: ~30 min)\nD) Keep the gate as documented and formally lower the target to 'current trajectory' (~6 min)\n  ✅ No runtime change\n  ❌ Abandons the approved < 2 min target and ships 3x slower than the slowest peer measured\nNet: where the CI check runs decides whether the approved target is reachable at all.",
+          "header": "CI gate",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Exempt the demo; gate the first live eval (recommended)",
+              "description": "Keyless mock-transport demo skips the CI check; the check runs before the first keyed evaluation, with today's progress/timeout messages."
+            },
+            {
+              "label": "B) Add an opt-in skip flag/env var",
+              "description": "Default still blocks 5 min; --skip-ci-check and EVALKIT_SKIP_CI_CHECK=1 bypass it."
+            },
+            {
+              "label": "C) Non-blocking background check",
+              "description": "Print demo scores immediately; verify the binding in the background and report at exit."
+            },
+            {
+              "label": "D) Keep the gate, lower the target",
+              "description": "Retain the 5-min block and revise the target to current trajectory."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Journey stage HELLO WORLD: the mandatory 5-minute CI check makes the approved < 2 min target arithmetically impossible. What ships in the beta?\nProject/branch/task: EvalKit SDK beta polish on main, DX POLISH.\nEvidence: docs/current-contracts.md lines 3-5: first local evaluation \"requires a successful remote CI check and blocks for five minutes\", \"no skip flag or offline first-run path\", \"the beta plan retains this gate\". README lines 20-23: the demo uses the mock transport, needs no key, yet \"still waits for that CI check\". docs/benchmarks.md: EvalKit 6 min vs peers 2-4 min; approved target under 2 min. 300s > 120s, so the gate alone busts the target. This is a concrete contradiction between two approved values, which is why I'm reopening it rather than treating the gate as fixed.\nELI10: The demo evaluates bundled sample data through a mock transport; the CI check verifies a sample-project binding the demo's own scores don't depend on. Developers wait five minutes staring at 'Waiting for CI check: 90s elapsed of 300s' for numbers the SDK could print instantly. Peers print theirs in 2-4 minutes end to end.\nStakes if we pick wrong: Keep the gate and the beta ships at 3x the target; per the TTHW table a > 5 min hello world loses a large share of first-run developers.\nRecommendation: A because it uses only existing capabilities (mock transport, sample data), keeps the CI check where it verifies something real (the first live evaluation), and is the only option that reaches the approved target.\nCompleteness: A=9/10, B=7/10, C=8/10, D=3/10\nA) Exempt the bundled demo from the CI check; keep the check on the first live (keyed) evaluation (recommended)\n  ✅ Demo returns real scores in seconds; install + demo lands well under 2 min on the study's own clock\n  ✅ The check still runs where the binding matters, before any real result leaves the machine; existing progress and EVALKIT_CI_TIMEOUT messages stay as-is\n  ❌ The benchmark endpoint 'first real evaluation result' must be restated: demo result (< 2 min) vs first live result (still gated); docs/benchmarks.md needs that split recorded\nB) Add an explicit `--skip-ci-check` / `EVALKIT_SKIP_CI_CHECK=1` escape hatch, default still blocks\n  ✅ Opt-in, smallest change to the documented contract\n  ✅ Also useful for air-gapped or offline first runs\n  ❌ Default path still misses the target; developers only find the flag after they've already waited or read docs (human: ~1 day / CC: ~15 min)\nC) Make the check non-blocking: print demo scores immediately, run the check in the background and report its result at exit\n  ✅ Scores in seconds and the binding is still verified on first run\n  ❌ Changes 'success required before first local result' into 'reported after'; needs a documented state for 'demo printed, check failed' (human: ~2 days / CC: ~30 min)\nD) Keep the gate as documented and formally lower the target to 'current trajectory' (~6 min)\n  ✅ No runtime change\n  ❌ Abandons the approved < 2 min target and ships 3x slower than the slowest peer measured\nNet: where the CI check runs decides whether the approved target is reachable at all.": "A) Exempt the demo; gate the first live eval (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T19:12:36.853Z"
+    }
+  ]
+}

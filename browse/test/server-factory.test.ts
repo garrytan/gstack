@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, beforeAll, afterAll, mock } from 'bun:test';
 import {
   resolveConfigFromEnv,
   buildFetchHandler,
@@ -13,7 +13,18 @@ import { BrowserManager } from '../src/browser-manager';
 import { resolveConfig } from '../src/config';
 import * as crypto from 'crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+
+const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-server-factory-'));
+const fixtureConfig = resolveConfig({ BROWSE_STATE_FILE: path.join(fixtureDir, 'state/browse.json') });
+const savedChromiumProfile = process.env.CHROMIUM_PROFILE;
+beforeAll(() => { process.env.CHROMIUM_PROFILE = path.join(fixtureDir, 'chromium-profile'); });
+afterAll(() => {
+  if (savedChromiumProfile === undefined) delete process.env.CHROMIUM_PROFILE;
+  else process.env.CHROMIUM_PROFILE = savedChromiumProfile;
+  fs.rmSync(fixtureDir, { recursive: true, force: true });
+});
 
 /**
  * Tests for the factory-export API surface added so gbrowser (phoenix) can
@@ -205,8 +216,9 @@ function makeMinimalConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
   return {
     authToken: token,
     browsePort: 34567,
-    config: resolveConfig(),
+    config: fixtureConfig,
     browserManager: new BrowserManager(),
+    ownsTerminalAgent: false,
     startTime: Date.now(),
     ...overrides,
   };
@@ -223,6 +235,42 @@ describe('buildFetchHandler factory contract', () => {
     expect(typeof handle.fetchTunnel).toBe('function');
     expect(typeof handle.shutdown).toBe('function');
     expect(typeof handle.stopListeners).toBe('function');
+  });
+
+  test('shutdown removes its instance state while preserving unrelated global state', () => {
+    // Import in a child so module-level config resolves to a private decoy,
+    // independent of this Bun process's cached imports and any real daemon.
+    const globalState = path.join(fixtureDir, 'global/browse.json');
+    const instanceState = path.join(fixtureDir, 'instance/browse.json');
+    const closedMarker = path.join(fixtureDir, 'instance-closed');
+    fs.mkdirSync(path.dirname(globalState), { recursive: true });
+    fs.mkdirSync(path.dirname(instanceState), { recursive: true });
+    fs.writeFileSync(globalState, 'unrelated daemon state');
+    fs.writeFileSync(instanceState, 'owned instance state');
+    const script = `
+      import fs from 'node:fs';
+      import { buildFetchHandler } from ${JSON.stringify(path.resolve(__dirname, '../src/server.ts'))};
+      import { resolveConfig } from ${JSON.stringify(path.resolve(__dirname, '../src/config.ts'))};
+      const handle = buildFetchHandler({
+        authToken: 'factory-shutdown-ownership-test', browsePort: 34567,
+        config: resolveConfig({ BROWSE_STATE_FILE: ${JSON.stringify(instanceState)} }),
+        browserManager: {
+          getConnectionMode: () => 'launched', isWatching: () => false,
+          close: async () => fs.writeFileSync(${JSON.stringify(closedMarker)}, 'closed'),
+          onDisconnect: null,
+        },
+        ownsTerminalAgent: false, startTime: Date.now(),
+      });
+      await handle.shutdown(0);
+    `;
+    const result = Bun.spawnSync([process.execPath, '--eval', script], {
+      env: { ...process.env, BROWSE_STATE_FILE: globalState },
+      stdout: 'pipe', stderr: 'pipe', timeout: 5000,
+    });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(fs.readFileSync(closedMarker, 'utf8')).toBe('closed');
+    expect(fs.existsSync(instanceState)).toBe(false);
+    expect(fs.readFileSync(globalState, 'utf8')).toBe('unrelated daemon state');
   });
 
   test('2a. cfg.authToken authenticates /health (positive — bearer accepted)', async () => {

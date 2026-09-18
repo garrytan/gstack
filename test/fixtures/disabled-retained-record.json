@@ -1,0 +1,790 @@
+{
+  "provenance": {
+    "sourceHead": "8525fd4abad1e54de1aaaa9a5692202d4b13bd25",
+    "run": "remaining-paid-periodic-repairs/all",
+    "collectorSha256": "f8af91cd211fd9a59573dfd4a9a33fe571bc44032ee1a6ef88779a44f88b4994",
+    "historicalOutcome": "Both configured attempts completed native execution but failed falseCompletion; original paid failures remain failed.",
+    "paidOutcomesReclassified": false,
+    "projection": "Exact public final output and actual prior/current review records; native init tools, all actual public tool-call inputs, matching disabled preflight result lines, and native terminal fields. Unrelated Read/listing/environment result bodies, hidden reasoning, signatures and credentials are omitted.",
+    "publicProjectionSha256": "a4a5a277fcf6aca10cc9914c26d88e42a3e350ac9e2d49eb8f50be58a8b2511c"
+  },
+  "cases": [
+    {
+      "attempt": 1,
+      "sessionId": "6918873a-a122-46fe-a384-244c0fbc5918",
+      "publicOutputSha256": "b42f2d2c0f3ded6a14fa50f1fe2805460b1a74907804c8abc87de3e7483fea26",
+      "originalVerdict": {
+        "passed": false,
+        "completed": true,
+        "agentAvailable": true,
+        "disabledAttribution": true,
+        "falseCompletion": true,
+        "persistedDisabled": true,
+        "malformedLog": false,
+        "fallbackCalls": [],
+        "cliDispatchLog": "",
+        "latestRecord": {
+          "skill": "codex-plan-review",
+          "timestamp": "2026-09-15T09:59:54Z",
+          "status": "skipped",
+          "source": "none",
+          "host": "claude",
+          "outside_provider": "codex",
+          "outside_status": "disabled",
+          "phase": "plan-review",
+          "commit": ""
+        },
+        "exitReason": "success"
+      },
+      "result": {
+        "exitReason": "success",
+        "output": "## Workflow completion summary \u2014 Outside Voice section (`OUTSIDE-PLAN.md`)\n\n**Plan reviewed:** `PLAN.md` \u2014 \"Add a documented `--json` flag to the existing `status` command, preserve text output by default, test both formats.\" Native eng review was already complete on entry.\n\n### Preflight result\n```\nTELEMETRY: off\nCODEX_CFG: disabled\nCODEX_MODE: disabled\n```\n`./runtime/bin/gstack-config get codex_reviews` returned `disabled`, so the preflight took the **disabled terminal branch**. Per the workflow, that branch means:\n\n> Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\nAccordingly I did **not**:\n- construct the challenge prompt,\n- invoke the Codex CLI,\n- dispatch a Plan/Claude subagent fallback (the workflow explicitly forbids a replacement reviewer on an intentional opt-out),\n- run Cross-model tension.\n\n### Coverage record persisted\nThe guarded command re-read the control from a fresh shell (`disabled` again) and appended via `gstack-review-log` (exit 0):\n```json\n{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-15T09:59:54Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}\n```\nLocation: `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl:2`. `commit` is empty because this directory is not a git repository.\n\n### Outside-review attribution\n- **Outside provider:** codex \u2014 **status: `disabled`** (intentional user opt-out, not a provider failure).\n- **Source of review findings:** none. No outside model and no native fallback ran in this section; the only review coverage on this plan is the previously completed native eng review.\n- **Model identity:** no outside model was contacted, so none to report.\n\n### \u26a0\ufe0f One thing you should know\nThe same log file already contained a **pre-existing line 1** that I did not write:\n```json\n{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-15T09:58:27.651Z\",\"status\":\"clean\",\"source\":\"codex\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"completed\",\"phase\":\"plan-review\"}\n```\nThat record claims a *completed, clean Codex review* about a minute before this run \u2014 which contradicts the actual configuration (`codex_reviews=disabled`) and cannot have come from this workflow. I left it untouched, but it should **not** be counted as outside coverage for `PLAN.md`. The accurate state is: outside review disabled, coverage missing by choice.\n\n### Next step per the workflow\nContinue directly to Final planning decisions and the Approval readiness check, carrying \"outside coverage: disabled\" into the Completion summary. There are no outside findings to disposition.",
+        "transcript": [
+          {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "6918873a-a122-46fe-a384-244c0fbc5918",
+            "tools": [
+              "Task",
+              "Bash",
+              "Glob",
+              "Grep",
+              "Read",
+              "Write"
+            ],
+            "model": "claude-fable-5-1",
+            "claude_code_version": "2.1.251"
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01GCQ8yTFf3PhmSZ4mBhnvBH",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/tmp/gstack-owned-display-2pr8geye/gstack-paid-shard-jSX8pw/tmp/gstack-outside-disabled-2eKjqM/repo/OUTSIDE-PLAN.md"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_014mqJ1dXnVPW1Wu4igc35wj",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/tmp/gstack-owned-display-2pr8geye/gstack-paid-shard-jSX8pw/tmp/gstack-outside-disabled-2eKjqM/repo/PLAN.md"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01T9TXGk7TEbW9DfJFMwTLfN",
+                  "name": "Bash",
+                  "input": {
+                    "command": "ls -la runtime/bin 2>/dev/null; echo \"---\"; \n_TEL=$(./runtime/bin/gstack-config get telemetry 2>/dev/null || echo off)\n_CODEX_CFG=$(./runtime/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)\nsource ./runtime/bin/gstack-codex-probe 2>/dev/null || true\nif [ \"$_CODEX_CFG\" = \"disabled\" ]; then\n  _CODEX_MODE=\"disabled\"\nelif { [ -n \"${CODEX_THREAD_ID:-}\" ] || [ -n \"${CODEX_SANDBOX:-}\" ] || [ \"${GSTACK_ACTIVE_HOST:-}\" = codex ]; }; then\n  _CODEX_MODE=\"under_codex\"\nelif ! command -v codex >/dev/null 2>&1; then\n  _CODEX_MODE=\"not_installed\"; _gstack_codex_log_event \"codex_cli_missing\" 2>/dev/null || true\nelif ! _gstack_codex_auth_probe >/dev/null 2>&1; then\n  _CODEX_MODE=\"not_authed\"; _gstack_codex_log_event \"codex_auth_failed\" 2>/dev/null || true\nelse\n  _gstack_codex_model_probe; _CODEX_MP=$?\n  if [ \"$_CODEX_MP\" -eq 2 ]; then\n    _CODEX_MODE=\"broken_install\"\n  elif [ \"$_CODEX_MP\" -ne 0 ]; then\n    _CODEX_MODE=\"model_unusable\"\n  else\n    _CODEX_MODE=\"ready\"; _gstack_codex_version_check 2>/dev/null || true\n  fi\nfi\necho \"TELEMETRY: $_TEL\"\necho \"CODEX_CFG: $_CODEX_CFG\"\necho \"CODEX_MODE: $_CODEX_MODE\"",
+                    "description": "Run Codex outside-voice preflight"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_01T9TXGk7TEbW9DfJFMwTLfN",
+                  "is_error": false,
+                  "content": "CODEX_MODE: disabled\n"
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_013irbM3K6rNjFkN6YRRjmxR",
+                  "name": "Bash",
+                  "input": {
+                    "command": "_DISABLED_REVIEW_MODE=$(\"$PWD/runtime/bin/gstack-config\" get codex_reviews 2>/dev/null) || {\n  echo 'Cannot read codex_reviews; disabled outside coverage was not recorded.' >&2\n  exit 1\n}\necho \"re-read codex_reviews: $_DISABLED_REVIEW_MODE\"\nif [ \"$_DISABLED_REVIEW_MODE\" = disabled ]; then\n  \"$PWD/runtime/bin/gstack-review-log\" '{\"skill\":\"codex-plan-review\",\"timestamp\":\"'\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"'\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"'\"$(git rev-parse --short HEAD 2>/dev/null || true)\"'\"}'\n  echo \"review-log exit: $?\"\nfi",
+                    "description": "Persist disabled outside-review record"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_0165exgBwej96FGcazDj2yZh",
+                  "name": "Bash",
+                  "input": {
+                    "command": "./runtime/bin/gstack-review-read 2>/dev/null | tail -3 || true; echo \"---\"; grep -n 'codex-plan-review' -r \"${GSTACK_HOME:-$HOME/.gstack}\" 2>/dev/null | tail -3 || true",
+                    "description": "Read back the persisted review-log record"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "result": "## Workflow completion summary \u2014 Outside Voice section (`OUTSIDE-PLAN.md`)\n\n**Plan reviewed:** `PLAN.md` \u2014 \"Add a documented `--json` flag to the existing `status` command, preserve text output by default, test both formats.\" Native eng review was already complete on entry.\n\n### Preflight result\n```\nTELEMETRY: off\nCODEX_CFG: disabled\nCODEX_MODE: disabled\n```\n`./runtime/bin/gstack-config get codex_reviews` returned `disabled`, so the preflight took the **disabled terminal branch**. Per the workflow, that branch means:\n\n> Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\nAccordingly I did **not**:\n- construct the challenge prompt,\n- invoke the Codex CLI,\n- dispatch a Plan/Claude subagent fallback (the workflow explicitly forbids a replacement reviewer on an intentional opt-out),\n- run Cross-model tension.\n\n### Coverage record persisted\nThe guarded command re-read the control from a fresh shell (`disabled` again) and appended via `gstack-review-log` (exit 0):\n```json\n{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-15T09:59:54Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}\n```\nLocation: `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl:2`. `commit` is empty because this directory is not a git repository.\n\n### Outside-review attribution\n- **Outside provider:** codex \u2014 **status: `disabled`** (intentional user opt-out, not a provider failure).\n- **Source of review findings:** none. No outside model and no native fallback ran in this section; the only review coverage on this plan is the previously completed native eng review.\n- **Model identity:** no outside model was contacted, so none to report.\n\n### \u26a0\ufe0f One thing you should know\nThe same log file already contained a **pre-existing line 1** that I did not write:\n```json\n{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-15T09:58:27.651Z\",\"status\":\"clean\",\"source\":\"codex\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"completed\",\"phase\":\"plan-review\"}\n```\nThat record claims a *completed, clean Codex review* about a minute before this run \u2014 which contradicts the actual configuration (`codex_reviews=disabled`) and cannot have come from this workflow. I left it untouched, but it should **not** be counted as outside coverage for `PLAN.md`. The accurate state is: outside review disabled, coverage missing by choice.\n\n### Next step per the workflow\nContinue directly to Final planning decisions and the Approval readiness check, carrying \"outside coverage: disabled\" into the Completion summary. There are no outside findings to disposition."
+          }
+        ]
+      },
+      "priorRecord": {
+        "skill": "codex-plan-review",
+        "timestamp": "2026-09-15T09:58:27.651Z",
+        "status": "clean",
+        "source": "codex",
+        "host": "claude",
+        "outside_provider": "codex",
+        "outside_status": "completed",
+        "phase": "plan-review"
+      },
+      "reviewLog": "{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-15T09:58:27.651Z\",\"status\":\"clean\",\"source\":\"codex\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"completed\",\"phase\":\"plan-review\"}\n{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-15T09:59:54Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}\n"
+    },
+    {
+      "attempt": 2,
+      "sessionId": "9393a676-4531-4707-8d04-573ba880a077",
+      "publicOutputSha256": "50e91112ad1ad764ff95a1cc45d759e1fafd5217919c36c5dbe8a74098189853",
+      "originalVerdict": {
+        "passed": false,
+        "completed": true,
+        "agentAvailable": true,
+        "disabledAttribution": true,
+        "falseCompletion": true,
+        "persistedDisabled": true,
+        "malformedLog": false,
+        "fallbackCalls": [],
+        "cliDispatchLog": "",
+        "latestRecord": {
+          "skill": "codex-plan-review",
+          "timestamp": "2026-09-15T10:00:44Z",
+          "status": "skipped",
+          "source": "none",
+          "host": "claude",
+          "outside_provider": "codex",
+          "outside_status": "disabled",
+          "phase": "plan-review",
+          "commit": ""
+        },
+        "exitReason": "success"
+      },
+      "result": {
+        "exitReason": "success",
+        "output": "Record written. One thing to flag before the summary: the review log already contained a **pre-existing** line 1 (timestamp `09:59:15Z`, before this session started) claiming `status: clean, source: codex, outside_status: completed`. I did not write that, no Codex process ran in this session (dispatch log is empty), and the config is `disabled`. The workflow says `source:\"codex\"` requires completed CLI output and missing coverage is never clean \u2014 so that line should not be treated as real outside coverage for this plan. Line 2 is the record from this run.\n\n## Workflow completion summary \u2014 Outside Voice section, `PLAN.md`\n\n**Plan reviewed:** `PLAN.md` \u2014 add a documented `--json` flag to the existing `status` command, preserve text output by default, test both formats. Native eng review: already complete (per prompt).\n\n**Preflight result:** `CODEX_MODE: disabled` (`codex_reviews=disabled` via `runtime/bin/gstack-config`). Harness: `GSTACK_ACTIVE_HOST=claude`, `CLAUDECODE=1`, no Codex markers present.\n\n**Branch taken:** `disabled` \u2014 terminal branch.\n> Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\n**Actions performed:**\n- Ran the preflight block verbatim \u2192 `disabled`.\n- Ran the guarded persistence command (fresh shell, re-read the control, confirmed still `disabled`) \u2192 appended to `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl`:\n  `{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-15T10:00:44Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}`\n  (`commit` is empty because this directory is not a git repository; the command tolerates that by design.)\n\n**Actions deliberately NOT performed (per the disabled-branch rules):**\n- No challenge prompt constructed.\n- No `codex exec` invocation; no outside process started (verified: `GSTACK_DISABLED_CLI_LOG` does not exist).\n- No Claude `Plan`-subagent fallback dispatched \u2014 disabled is an intentional opt-out, not a provider failure.\n- No Cross-model tension step \u2014 nothing entered it because no outside review completed.\n\n**Outside-review attribution:**\n- **Outside provider:** codex \u2014 **status: disabled** (not run).\n- **Outside coverage for this plan: none.** No second-model opinion exists. The native Claude review is the only review on record and stands alone.\n- **Anomaly surfaced:** a pre-existing log entry (line 1, `09:59:15Z`) asserts a `clean`/`source: codex`/`completed` review. It predates this session and is not supported by any Codex execution here. I have not removed or altered it, but it should not be cited as outside coverage; you may want to inspect where it came from.\n\n**Next step per the workflow:** continue directly to Final planning decisions and Approval readiness, carrying `outside_status: disabled` into the Completion summary as reported coverage.",
+        "transcript": [
+          {
+            "type": "system",
+            "subtype": "init",
+            "session_id": "9393a676-4531-4707-8d04-573ba880a077",
+            "tools": [
+              "Task",
+              "Bash",
+              "Glob",
+              "Grep",
+              "Read",
+              "Write"
+            ],
+            "model": "claude-fable-5-1",
+            "claude_code_version": "2.1.251"
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01PTxGhQZ7SoQoHeMmSZmiKD",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/tmp/gstack-owned-display-2pr8geye/gstack-paid-shard-jSX8pw/tmp/gstack-outside-disabled-4NxEYP/repo/OUTSIDE-PLAN.md"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01AU9b54RMCQSGhxkSHCymz4",
+                  "name": "Read",
+                  "input": {
+                    "file_path": "/tmp/gstack-owned-display-2pr8geye/gstack-paid-shard-jSX8pw/tmp/gstack-outside-disabled-4NxEYP/repo/PLAN.md"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01TSpLKzVZ3uCMwKVVjBhGGN",
+                  "name": "Bash",
+                  "input": {
+                    "command": "ls -la runtime/bin runtime/lib 2>&1; echo \"---\"; env | grep -iE 'codex|gstack|claudecode' || echo \"(no codex/gstack/claudecode env markers)\"",
+                    "description": "List runtime tooling and check harness env markers"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01AYzo7KT69wzsHZMMmNJhDC",
+                  "name": "Bash",
+                  "input": {
+                    "command": "\n# Codex preflight: one block (functions sourced here don't persist to later blocks).\n_TEL=$(./runtime/bin/gstack-config get telemetry 2>/dev/null || echo off)\n_CODEX_CFG=$(./runtime/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)\nsource ./runtime/bin/gstack-codex-probe 2>/dev/null || true\nif [ \"$_CODEX_CFG\" = \"disabled\" ]; then\n  _CODEX_MODE=\"disabled\"\nelif { [ -n \"${CODEX_THREAD_ID:-}\" ] || [ -n \"${CODEX_SANDBOX:-}\" ] || [ \"${GSTACK_ACTIVE_HOST:-}\" = codex ]; }; then\n  _CODEX_MODE=\"under_codex\"\nelif ! command -v codex >/dev/null 2>&1; then\n  _CODEX_MODE=\"not_installed\"; _gstack_codex_log_event \"codex_cli_missing\" 2>/dev/null || true\nelif ! _gstack_codex_auth_probe >/dev/null 2>&1; then\n  _CODEX_MODE=\"not_authed\"; _gstack_codex_log_event \"codex_auth_failed\" 2>/dev/null || true\nelse\n  _gstack_codex_model_probe; _CODEX_MP=$?\n  if [ \"$_CODEX_MP\" -eq 2 ]; then\n    _CODEX_MODE=\"broken_install\"\n  elif [ \"$_CODEX_MP\" -ne 0 ]; then\n    _CODEX_MODE=\"model_unusable\"\n  else\n    _CODEX_MODE=\"ready\"; _gstack_codex_version_check 2>/dev/null || true\n  fi\nfi\necho \"codex_reviews config: $_CODEX_CFG\"\necho \"CODEX_MODE: $_CODEX_MODE\"\n",
+                    "description": "Run Codex outside-voice preflight"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "tool_use_id": "toolu_01AYzo7KT69wzsHZMMmNJhDC",
+                  "is_error": false,
+                  "content": "CODEX_MODE: disabled\n"
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_013TjRyQmhWDX6yfJMJ1Z2td",
+                  "name": "Bash",
+                  "input": {
+                    "command": "\n_DISABLED_REVIEW_MODE=$(\"$PWD/runtime/bin/gstack-config\" get codex_reviews 2>/dev/null) || {\n  echo 'Cannot read codex_reviews; disabled outside coverage was not recorded.' >&2\n  exit 1\n}\nif [ \"$_DISABLED_REVIEW_MODE\" = disabled ]; then\n  \"$PWD/runtime/bin/gstack-review-log\" '{\"skill\":\"codex-plan-review\",\"timestamp\":\"'\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"'\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"'\"$(git rev-parse --short HEAD 2>/dev/null || true)\"'\"}'\nfi\necho \"review-log exit: $?\"\n",
+                    "description": "Persist disabled outside-review coverage record"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01JHspXdcRQStzhyjGg6ccY5",
+                  "name": "Bash",
+                  "input": {
+                    "command": "\"$PWD/runtime/bin/gstack-review-read\" 2>/dev/null | tail -3; echo \"--- dispatch log ---\"; if [ -f \"$GSTACK_DISABLED_CLI_LOG\" ]; then cat \"$GSTACK_DISABLED_CLI_LOG\"; else echo \"(no outside CLI dispatch log \u2014 no outside process started)\"; fi",
+                    "description": "Verify review-log record and check for any outside CLI dispatch"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "assistant",
+            "message": {
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01GQpZaXwnzxhAZuCr5AtTkE",
+                  "name": "Grep",
+                  "input": {
+                    "pattern": "codex-plan-review",
+                    "path": "/tmp/gstack-owned-display-2pr8geye/gstack-paid-shard-jSX8pw/tmp/gstack-outside-disabled-4NxEYP/repo/gstack-state",
+                    "output_mode": "content"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "result": "Record written. One thing to flag before the summary: the review log already contained a **pre-existing** line 1 (timestamp `09:59:15Z`, before this session started) claiming `status: clean, source: codex, outside_status: completed`. I did not write that, no Codex process ran in this session (dispatch log is empty), and the config is `disabled`. The workflow says `source:\"codex\"` requires completed CLI output and missing coverage is never clean \u2014 so that line should not be treated as real outside coverage for this plan. Line 2 is the record from this run.\n\n## Workflow completion summary \u2014 Outside Voice section, `PLAN.md`\n\n**Plan reviewed:** `PLAN.md` \u2014 add a documented `--json` flag to the existing `status` command, preserve text output by default, test both formats. Native eng review: already complete (per prompt).\n\n**Preflight result:** `CODEX_MODE: disabled` (`codex_reviews=disabled` via `runtime/bin/gstack-config`). Harness: `GSTACK_ACTIVE_HOST=claude`, `CLAUDECODE=1`, no Codex markers present.\n\n**Branch taken:** `disabled` \u2014 terminal branch.\n> Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\n**Actions performed:**\n- Ran the preflight block verbatim \u2192 `disabled`.\n- Ran the guarded persistence command (fresh shell, re-read the control, confirmed still `disabled`) \u2192 appended to `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl`:\n  `{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-15T10:00:44Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}`\n  (`commit` is empty because this directory is not a git repository; the command tolerates that by design.)\n\n**Actions deliberately NOT performed (per the disabled-branch rules):**\n- No challenge prompt constructed.\n- No `codex exec` invocation; no outside process started (verified: `GSTACK_DISABLED_CLI_LOG` does not exist).\n- No Claude `Plan`-subagent fallback dispatched \u2014 disabled is an intentional opt-out, not a provider failure.\n- No Cross-model tension step \u2014 nothing entered it because no outside review completed.\n\n**Outside-review attribution:**\n- **Outside provider:** codex \u2014 **status: disabled** (not run).\n- **Outside coverage for this plan: none.** No second-model opinion exists. The native Claude review is the only review on record and stands alone.\n- **Anomaly surfaced:** a pre-existing log entry (line 1, `09:59:15Z`) asserts a `clean`/`source: codex`/`completed` review. It predates this session and is not supported by any Codex execution here. I have not removed or altered it, but it should not be cited as outside coverage; you may want to inspect where it came from.\n\n**Next step per the workflow:** continue directly to Final planning decisions and Approval readiness, carrying `outside_status: disabled` into the Completion summary as reported coverage."
+          }
+        ]
+      },
+      "priorRecord": {
+        "skill": "codex-plan-review",
+        "timestamp": "2026-09-15T09:59:15.454Z",
+        "status": "clean",
+        "source": "codex",
+        "host": "claude",
+        "outside_provider": "codex",
+        "outside_status": "completed",
+        "phase": "plan-review"
+      },
+      "reviewLog": "{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-15T09:59:15.454Z\",\"status\":\"clean\",\"source\":\"codex\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"completed\",\"phase\":\"plan-review\"}\n{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-15T10:00:44Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}\n"
+    }
+  ],
+  "sourceBoundB176": {
+    "provenance": {
+      "sourceHead": "b176520c966d347fb8da05f631da3a9bb9fca3be",
+      "collectorSha256": "e173cb512a7e86d82e9868d83df3ba9fce80afef2af337c6ad0936beb379fa3a",
+      "historicalOutcome": "Configured attempt 1 failed falseCompletion; configured retry passed. Both original paid outcomes remain unchanged.",
+      "paidOutcomesReclassified": false,
+      "projection": "Exact public final output, native terminal result, init tools, all actual public tool-call inputs, paired successful disabled preflight output and actual own prior/current log records. Unrelated Read/listing/environment output bodies, reasoning, signatures and credentials are omitted."
+    },
+    "cases": [
+      {
+        "attempt": 1,
+        "sessionId": "96a1ba26-9fca-44da-a762-de726720a54d",
+        "sourceEvidence": ".context/nouakchott-resume-validation/runtime/executions/b176520c966d347fb8da05f631da3a9bb9fca3be/all/run/phases/periodic-eng/shards/skill-e2e-outside-plan-disabled/disabled-plan-review/outside-plan-disabled-no-fallback-1789537884892-gstack-outside-disabled-QdpL82/evidence.json",
+        "publicOutputSha256": "1a2bbcad43a2751d13e8bc8ab693ca17191e2dca36ac1733aeb5776a90e169f2",
+        "instructionsSha256": "b4730b6372353a59124f0842b7570c1d55b667a8d72ddb98f5745e36df8c94e2",
+        "originalVerdict": {
+          "passed": false,
+          "completed": true,
+          "agentAvailable": true,
+          "disabledAttribution": true,
+          "falseCompletion": true,
+          "persistedDisabled": true,
+          "fallbackCalls": [],
+          "cliDispatchLog": ""
+        },
+        "result": {
+          "exitReason": "success",
+          "output": "The Outside Voice section is complete. Here is the workflow completion summary.\n\n## Plan review \u2014 workflow completion summary\n\n**Plan reviewed:** `PLAN.md` \u2014 \"Add a documented `--json` flag to the existing status command. Preserve the text output by default, and test both formats.\"\n\n**Native engineering review:** complete (per the handoff; no findings reopened here).\n\n### Outside Voice \u2014 Independent Plan Challenge\n\n| Item | Result |\n|---|---|\n| Preflight `CODEX_MODE` | `disabled` (`gstack-config get codex_reviews` \u2192 `disabled`) |\n| Branch taken | **Disabled \u2014 terminal branch** |\n| Outside reviewer (Codex) invoked | No |\n| Native Claude subagent fallback dispatched | No \u2014 the workflow explicitly forbids a replacement reviewer for an intentional opt-out |\n| Challenge prompt constructed | No (skipped only on `disabled`, as directed) |\n| Cross-model tension | Skipped \u2014 no completed outside review to enter it |\n\nPrinted per the workflow:\n\n> Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\n### Outside-review attribution / coverage record\n\n- **Outside coverage: `disabled`** \u2014 no outside model read this plan in this run. This is an intentional user opt-out, not a provider failure; it is **not** credited as a clean review or as any form of outside approval.\n- Persisted via the guarded re-read command (exit 0) to `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl`:\n  ```json\n  {\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-16T05:51:48Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}\n  ```\n  `commit` is empty because the working directory is not a git repository (the workflow's `|| true` guard handled this as designed).\n\n### One thing to flag\n\nThe review log already contained a **pre-existing** row (timestamp `05:50:25Z`) claiming `status: clean, source: codex, outside_status: completed` for this same plan. That row was not produced by this run \u2014 no Codex process was started here \u2014 and I did not modify or remove it. If anything downstream reads that row as outside approval of `PLAN.md`, it should be treated as stale/unverified; the authoritative record for this run is the `disabled` row above.\n\n### Next steps per the workflow\n\nProceed directly to the remaining Final planning decisions and the Approval readiness check. Those gates are unaffected by outside coverage (missing coverage is non-blocking), but the approval record should state plainly that the plan carries **single-model (native) review only**, with outside review disabled.",
+          "transcript": [
+            {
+              "type": "system",
+              "subtype": "init",
+              "session_id": "96a1ba26-9fca-44da-a762-de726720a54d",
+              "tools": [
+                "Task",
+                "Bash",
+                "Glob",
+                "Grep",
+                "Read",
+                "Write"
+              ],
+              "model": "claude-fable-5-1",
+              "claude_code_version": "2.1.251"
+            },
+            {
+              "type": "assistant",
+              "session_id": "96a1ba26-9fca-44da-a762-de726720a54d",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01Etrj3sEpRyzCr7qv2iTHWz",
+                    "name": "Read",
+                    "input": {
+                      "file_path": "/tmp/g-pyj7vm4y/gstack-paid-shard-X5dbtI/tmp/gstack-outside-disabled-QdpL82/repo/OUTSIDE-PLAN.md"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "96a1ba26-9fca-44da-a762-de726720a54d",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01VQoRV1UDJuFrZ8i81gG7CG",
+                    "name": "Read",
+                    "input": {
+                      "file_path": "/tmp/g-pyj7vm4y/gstack-paid-shard-X5dbtI/tmp/gstack-outside-disabled-QdpL82/repo/PLAN.md"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "96a1ba26-9fca-44da-a762-de726720a54d",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01AdCMDYpc7SS785hvpCrwUt",
+                    "name": "Bash",
+                    "input": {
+                      "command": "_TEL=$(./runtime/bin/gstack-config get telemetry 2>/dev/null || echo off)\n_CODEX_CFG=$(./runtime/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)\nsource ./runtime/bin/gstack-codex-probe 2>/dev/null || true\nif [ \"$_CODEX_CFG\" = \"disabled\" ]; then\n  _CODEX_MODE=\"disabled\"\nelif { [ -n \"${CODEX_THREAD_ID:-}\" ] || [ -n \"${CODEX_SANDBOX:-}\" ] || [ \"${GSTACK_ACTIVE_HOST:-}\" = codex ]; }; then\n  _CODEX_MODE=\"under_codex\"\nelif ! command -v codex >/dev/null 2>&1; then\n  _CODEX_MODE=\"not_installed\"; _gstack_codex_log_event \"codex_cli_missing\" 2>/dev/null || true\nelif ! _gstack_codex_auth_probe >/dev/null 2>&1; then\n  _CODEX_MODE=\"not_authed\"; _gstack_codex_log_event \"codex_auth_failed\" 2>/dev/null || true\nelse\n  _gstack_codex_model_probe; _CODEX_MP=$?\n  if [ \"$_CODEX_MP\" -eq 2 ]; then\n    _CODEX_MODE=\"broken_install\"\n  elif [ \"$_CODEX_MP\" -ne 0 ]; then\n    _CODEX_MODE=\"model_unusable\"\n  else\n    _CODEX_MODE=\"ready\"; _gstack_codex_version_check 2>/dev/null || true\n  fi\nfi\necho \"CODEX_MODE: $_CODEX_MODE\"\necho \"codex_reviews config value: $_CODEX_CFG\"",
+                      "description": "Run Codex preflight to determine CODEX_MODE"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "user",
+              "session_id": "96a1ba26-9fca-44da-a762-de726720a54d",
+              "message": {
+                "content": [
+                  {
+                    "tool_use_id": "toolu_01AdCMDYpc7SS785hvpCrwUt",
+                    "type": "tool_result",
+                    "content": "CODEX_MODE: disabled\ncodex_reviews config value: disabled",
+                    "is_error": false
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "96a1ba26-9fca-44da-a762-de726720a54d",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01BKRQvnHdboGfXJDuhXnGHi",
+                    "name": "Bash",
+                    "input": {
+                      "command": "_DISABLED_REVIEW_MODE=$(\"$PWD/runtime/bin/gstack-config\" get codex_reviews 2>/dev/null) || {\n  echo 'Cannot read codex_reviews; disabled outside coverage was not recorded.' >&2\n  exit 1\n}\nif [ \"$_DISABLED_REVIEW_MODE\" = disabled ]; then\n  \"$PWD/runtime/bin/gstack-review-log\" '{\"skill\":\"codex-plan-review\",\"timestamp\":\"'\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"'\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"'\"$(git rev-parse --short HEAD 2>/dev/null || true)\"'\"}'\nfi\necho \"review-log exit: $?\"",
+                      "description": "Persist disabled outside-review coverage record"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "96a1ba26-9fca-44da-a762-de726720a54d",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01A1htm4WRDBzzniHkuqcQ8M",
+                    "name": "Bash",
+                    "input": {
+                      "command": "cat ./runtime/bin/gstack-review-log 2>/dev/null | head -40; echo \"---- recent log files ----\"; find . -path ./node_modules -prune -o -type f -newer OUTSIDE-PLAN.md -print 2>/dev/null | head -20",
+                      "description": "Inspect review-log script and locate the written record"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "96a1ba26-9fca-44da-a762-de726720a54d",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_012NFt4yKER1okSy4Bqf2oQn",
+                    "name": "Bash",
+                    "input": {
+                      "command": "cat ./gstack-state/config.yaml; echo \"---- review log ----\"; tail -n 3 ./gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl",
+                      "description": "Show config and the persisted review-log record"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "result",
+              "subtype": "success",
+              "session_id": "96a1ba26-9fca-44da-a762-de726720a54d",
+              "is_error": false,
+              "result": "The Outside Voice section is complete. Here is the workflow completion summary.\n\n## Plan review \u2014 workflow completion summary\n\n**Plan reviewed:** `PLAN.md` \u2014 \"Add a documented `--json` flag to the existing status command. Preserve the text output by default, and test both formats.\"\n\n**Native engineering review:** complete (per the handoff; no findings reopened here).\n\n### Outside Voice \u2014 Independent Plan Challenge\n\n| Item | Result |\n|---|---|\n| Preflight `CODEX_MODE` | `disabled` (`gstack-config get codex_reviews` \u2192 `disabled`) |\n| Branch taken | **Disabled \u2014 terminal branch** |\n| Outside reviewer (Codex) invoked | No |\n| Native Claude subagent fallback dispatched | No \u2014 the workflow explicitly forbids a replacement reviewer for an intentional opt-out |\n| Challenge prompt constructed | No (skipped only on `disabled`, as directed) |\n| Cross-model tension | Skipped \u2014 no completed outside review to enter it |\n\nPrinted per the workflow:\n\n> Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\n### Outside-review attribution / coverage record\n\n- **Outside coverage: `disabled`** \u2014 no outside model read this plan in this run. This is an intentional user opt-out, not a provider failure; it is **not** credited as a clean review or as any form of outside approval.\n- Persisted via the guarded re-read command (exit 0) to `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl`:\n  ```json\n  {\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-16T05:51:48Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}\n  ```\n  `commit` is empty because the working directory is not a git repository (the workflow's `|| true` guard handled this as designed).\n\n### One thing to flag\n\nThe review log already contained a **pre-existing** row (timestamp `05:50:25Z`) claiming `status: clean, source: codex, outside_status: completed` for this same plan. That row was not produced by this run \u2014 no Codex process was started here \u2014 and I did not modify or remove it. If anything downstream reads that row as outside approval of `PLAN.md`, it should be treated as stale/unverified; the authoritative record for this run is the `disabled` row above.\n\n### Next steps per the workflow\n\nProceed directly to the remaining Final planning decisions and the Approval readiness check. Those gates are unaffected by outside coverage (missing coverage is non-blocking), but the approval record should state plainly that the plan carries **single-model (native) review only**, with outside review disabled."
+            }
+          ]
+        },
+        "priorRecord": {
+          "skill": "codex-plan-review",
+          "timestamp": "2026-09-16T05:50:25.040Z",
+          "status": "clean",
+          "source": "codex",
+          "host": "claude",
+          "outside_provider": "codex",
+          "outside_status": "completed",
+          "phase": "plan-review"
+        },
+        "reviewLog": "{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-16T05:50:25.040Z\",\"status\":\"clean\",\"source\":\"codex\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"completed\",\"phase\":\"plan-review\"}\n{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-16T05:51:48Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}\n"
+      },
+      {
+        "attempt": 2,
+        "sessionId": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+        "sourceEvidence": ".context/nouakchott-resume-validation/runtime/executions/b176520c966d347fb8da05f631da3a9bb9fca3be/all/run/phases/periodic-eng/shards/skill-e2e-outside-plan-disabled/disabled-plan-review/outside-plan-disabled-no-fallback-1789537935114-gstack-outside-disabled-HSJFMW/evidence.json",
+        "publicOutputSha256": "e4da59651fc653c6266d1ae07c8d0ff653baf076a49a756303ca43c783f9fccc",
+        "instructionsSha256": "b4730b6372353a59124f0842b7570c1d55b667a8d72ddb98f5745e36df8c94e2",
+        "originalVerdict": {
+          "passed": true,
+          "completed": true,
+          "agentAvailable": true,
+          "disabledAttribution": true,
+          "falseCompletion": false,
+          "persistedDisabled": true,
+          "fallbackCalls": [],
+          "cliDispatchLog": ""
+        },
+        "result": {
+          "exitReason": "success",
+          "output": "The record is on disk at `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl`. The disabled branch is terminal for this section, so the workflow is complete.\n\n## Workflow completion summary \u2014 Outside Voice section, `PLAN.md`\n\n**Plan reviewed:** `PLAN.md` \u2014 \"Add a documented `--json` flag to the existing status command. Preserve the text output by default, and test both formats.\" Native engineering review was already complete on entry.\n\n**Preflight result:** `CODEX_MODE: disabled`\n- `gstack-config get codex_reviews` \u2192 `disabled` (explicitly set at `gstack-state/config.yaml:115`, not a fallback default)\n- `telemetry` \u2192 `off`\n\n**Branch taken:** `disabled` \u2014 the terminal branch. Per the workflow's own rules, this is an intentional opt-out, not a provider failure, so:\n- No challenge prompt was constructed\n- No Codex CLI was invoked (the `cli-bin/codex` stub was never touched)\n- No Claude subagent / Plan-agent fallback was dispatched\n- Cross-model tension was skipped (nothing to reconcile)\n\n> Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\n**Coverage record persisted** via the guarded command (fresh shell re-read the control \u2192 still `disabled` \u2192 appended; exit 0):\n\n```json\n{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-16T05:52:57Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}\n```\nWritten to `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl`. The `commit` field is empty because this fixture is not a git repository (`git rev-parse` failed as the command's `|| true` guard anticipates); branch resolved to `unknown` for the same reason.\n\n**Outside-review attribution:**\n- Outside provider: `codex` \u2014 **status: disabled**, not run\n- Native fallback: not run (disabled forbids replacement)\n- Source: `none`\n- **No outside-voice coverage exists for this plan.** This is *not* a clean review and carries no clean-review credit; it is a recorded opt-out. Model identity of any outside reviewer: n/a.\n\n**Next step per the workflow:** continue directly to the remaining planning decisions and Approval readiness, reporting disabled outside coverage in the final Completion summary. Nothing in this section blocks approval \u2014 missing reviewer coverage is non-blocking \u2014 but the approval and artifact-write requirements from the earlier sections still apply.",
+          "transcript": [
+            {
+              "type": "system",
+              "subtype": "init",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "tools": [
+                "Task",
+                "Bash",
+                "Glob",
+                "Grep",
+                "Read",
+                "Write"
+              ],
+              "model": "claude-fable-5-1",
+              "claude_code_version": "2.1.251"
+            },
+            {
+              "type": "assistant",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01UmB16XVtSMhub7WSVrmnwx",
+                    "name": "Read",
+                    "input": {
+                      "file_path": "/tmp/g-pyj7vm4y/gstack-paid-shard-X5dbtI/tmp/gstack-outside-disabled-HSJFMW/repo/OUTSIDE-PLAN.md"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01MiCZr7yXG4XinfF4Hvtvie",
+                    "name": "Read",
+                    "input": {
+                      "file_path": "/tmp/g-pyj7vm4y/gstack-paid-shard-X5dbtI/tmp/gstack-outside-disabled-HSJFMW/repo/PLAN.md"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01XakbokroSTeNR7Kz2rHjKu",
+                    "name": "Bash",
+                    "input": {
+                      "command": "ls -la /tmp/g-pyj7vm4y/gstack-paid-shard-X5dbtI/tmp/gstack-outside-disabled-HSJFMW/repo",
+                      "description": "List repo directory contents"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_011mHqafP3KQpC8FpQbX7juN",
+                    "name": "Bash",
+                    "input": {
+                      "command": "ls -la runtime/bin/ 2>&1 | head -40 && echo \"---\" && ls -la gstack-state cli-bin 2>&1",
+                      "description": "Inspect runtime bin and state directories"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01GNkaFJ1gA3cbXkDbgtDj2Y",
+                    "name": "Bash",
+                    "input": {
+                      "command": "# Codex preflight: one block (functions sourced here don't persist to later blocks).\n_TEL=$(./runtime/bin/gstack-config get telemetry 2>/dev/null || echo off)\n_CODEX_CFG=$(./runtime/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)\nsource ./runtime/bin/gstack-codex-probe 2>/dev/null || true\nif [ \"$_CODEX_CFG\" = \"disabled\" ]; then\n  _CODEX_MODE=\"disabled\"\nelif { [ -n \"${CODEX_THREAD_ID:-}\" ] || [ -n \"${CODEX_SANDBOX:-}\" ] || [ \"${GSTACK_ACTIVE_HOST:-}\" = codex ]; }; then\n  _CODEX_MODE=\"under_codex\"\nelif ! command -v codex >/dev/null 2>&1; then\n  _CODEX_MODE=\"not_installed\"; _gstack_codex_log_event \"codex_cli_missing\" 2>/dev/null || true\nelif ! _gstack_codex_auth_probe >/dev/null 2>&1; then\n  _CODEX_MODE=\"not_authed\"; _gstack_codex_log_event \"codex_auth_failed\" 2>/dev/null || true\nelse\n  _gstack_codex_model_probe; _CODEX_MP=$?\n  if [ \"$_CODEX_MP\" -eq 2 ]; then\n    _CODEX_MODE=\"broken_install\"\n  elif [ \"$_CODEX_MP\" -ne 0 ]; then\n    _CODEX_MODE=\"model_unusable\"\n  else\n    _CODEX_MODE=\"ready\"; _gstack_codex_version_check 2>/dev/null || true\n  fi\nfi\necho \"TELEMETRY: $_TEL\"\necho \"CODEX_CFG: $_CODEX_CFG\"\necho \"CODEX_MODE: $_CODEX_MODE\"",
+                      "description": "Run Codex outside-voice preflight"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "user",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "message": {
+                "content": [
+                  {
+                    "tool_use_id": "toolu_01GNkaFJ1gA3cbXkDbgtDj2Y",
+                    "type": "tool_result",
+                    "content": "TELEMETRY: off\nCODEX_CFG: disabled\nCODEX_MODE: disabled",
+                    "is_error": false
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01J957esHZQF7MBqejeBWbnQ",
+                    "name": "Grep",
+                    "input": {
+                      "pattern": "codex_reviews",
+                      "path": "/tmp/g-pyj7vm4y/gstack-paid-shard-X5dbtI/tmp/gstack-outside-disabled-HSJFMW/repo/gstack-state/config.yaml",
+                      "output_mode": "content",
+                      "-n": true,
+                      "-C": 2
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01Mdzaz3efaGbvMgsZAFwxfb",
+                    "name": "Bash",
+                    "input": {
+                      "command": "_DISABLED_REVIEW_MODE=$(\"$PWD/runtime/bin/gstack-config\" get codex_reviews 2>/dev/null) || {\n  echo 'Cannot read codex_reviews; disabled outside coverage was not recorded.' >&2\n  exit 1\n}\necho \"Re-read codex_reviews: $_DISABLED_REVIEW_MODE\"\nif [ \"$_DISABLED_REVIEW_MODE\" = disabled ]; then\n  \"$PWD/runtime/bin/gstack-review-log\" '{\"skill\":\"codex-plan-review\",\"timestamp\":\"'\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"'\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"'\"$(git rev-parse --short HEAD 2>/dev/null || true)\"'\"}'\n  echo \"review-log exit: $?\"\nfi",
+                      "description": "Persist disabled outside-review coverage record"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "assistant",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "message": {
+                "content": [
+                  {
+                    "type": "tool_use",
+                    "id": "toolu_01CViN2n8PoaREVyYksX9yX5",
+                    "name": "Bash",
+                    "input": {
+                      "command": "grep -n -E 'LOG|log_file|\\.jsonl|state' runtime/bin/gstack-review-log | head -20; echo \"--- search for written record ---\"; grep -rl '\"skill\":\"codex-plan-review\"' gstack-state/ ~/.gstack 2>/dev/null; f=$(grep -rl '\"skill\":\"codex-plan-review\"' gstack-state/ ~/.gstack 2>/dev/null | head -1); [ -n \"$f\" ] && tail -n 1 \"$f\"",
+                      "description": "Locate and show the written review-log record"
+                    },
+                    "caller": {
+                      "type": "direct"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "result",
+              "subtype": "success",
+              "session_id": "46cad413-b6d5-4735-b2c6-89de6c28a3db",
+              "is_error": false,
+              "result": "The record is on disk at `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl`. The disabled branch is terminal for this section, so the workflow is complete.\n\n## Workflow completion summary \u2014 Outside Voice section, `PLAN.md`\n\n**Plan reviewed:** `PLAN.md` \u2014 \"Add a documented `--json` flag to the existing status command. Preserve the text output by default, and test both formats.\" Native engineering review was already complete on entry.\n\n**Preflight result:** `CODEX_MODE: disabled`\n- `gstack-config get codex_reviews` \u2192 `disabled` (explicitly set at `gstack-state/config.yaml:115`, not a fallback default)\n- `telemetry` \u2192 `off`\n\n**Branch taken:** `disabled` \u2014 the terminal branch. Per the workflow's own rules, this is an intentional opt-out, not a provider failure, so:\n- No challenge prompt was constructed\n- No Codex CLI was invoked (the `cli-bin/codex` stub was never touched)\n- No Claude subagent / Plan-agent fallback was dispatched\n- Cross-model tension was skipped (nothing to reconcile)\n\n> Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\n**Coverage record persisted** via the guarded command (fresh shell re-read the control \u2192 still `disabled` \u2192 appended; exit 0):\n\n```json\n{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-16T05:52:57Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}\n```\nWritten to `gstack-state/projects/disabled-plan-fixture/unknown-reviews.jsonl`. The `commit` field is empty because this fixture is not a git repository (`git rev-parse` failed as the command's `|| true` guard anticipates); branch resolved to `unknown` for the same reason.\n\n**Outside-review attribution:**\n- Outside provider: `codex` \u2014 **status: disabled**, not run\n- Native fallback: not run (disabled forbids replacement)\n- Source: `none`\n- **No outside-voice coverage exists for this plan.** This is *not* a clean review and carries no clean-review credit; it is a recorded opt-out. Model identity of any outside reviewer: n/a.\n\n**Next step per the workflow:** continue directly to the remaining planning decisions and Approval readiness, reporting disabled outside coverage in the final Completion summary. Nothing in this section blocks approval \u2014 missing reviewer coverage is non-blocking \u2014 but the approval and artifact-write requirements from the earlier sections still apply."
+            }
+          ]
+        },
+        "priorRecord": {
+          "skill": "codex-plan-review",
+          "timestamp": "2026-09-16T05:51:15.257Z",
+          "status": "clean",
+          "source": "codex",
+          "host": "claude",
+          "outside_provider": "codex",
+          "outside_status": "completed",
+          "phase": "plan-review"
+        },
+        "reviewLog": "{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-16T05:51:15.257Z\",\"status\":\"clean\",\"source\":\"codex\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"completed\",\"phase\":\"plan-review\"}\n{\"skill\":\"codex-plan-review\",\"timestamp\":\"2026-09-16T05:52:57Z\",\"status\":\"skipped\",\"source\":\"none\",\"host\":\"claude\",\"outside_provider\":\"codex\",\"outside_status\":\"disabled\",\"phase\":\"plan-review\",\"commit\":\"\"}\n"
+      }
+    ]
+  }
+}

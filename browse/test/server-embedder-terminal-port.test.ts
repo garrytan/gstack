@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import * as crypto from 'crypto';
 import {
   buildFetchHandler,
@@ -33,7 +34,11 @@ import { resolveConfig } from '../src/config';
 // Use isProcessAlive's false branch by also testing with a PID that does
 // not exist (negative PID rejected by the OS).
 
-const stateDir = resolveConfig().stateDir;
+const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-server-embedder-'));
+const fixtureConfig = resolveConfig({ BROWSE_STATE_FILE: path.join(fixtureDir, 'state/browse.json') });
+const stateDir = fixtureConfig.stateDir;
+const savedChromiumProfile = process.env.CHROMIUM_PROFILE;
+beforeAll(() => { process.env.CHROMIUM_PROFILE = path.join(fixtureDir, 'chromium-profile'); });
 const PORT_FILE = path.join(stateDir, 'terminal-port');
 const TOKEN_FILE = path.join(stateDir, 'terminal-internal-token');
 const AGENT_RECORD_FILE = path.join(stateDir, 'terminal-agent-pid');
@@ -49,7 +54,7 @@ function makeMinimalConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
   return {
     authToken: token,
     browsePort: 34568,
-    config: resolveConfig(),
+    config: fixtureConfig,
     browserManager: new BrowserManager(),
     startTime: Date.now(),
     ...overrides,
@@ -97,6 +102,9 @@ afterAll(async () => {
   // suite died at file 47 with exit 0 and no summary — twice).
   await new Promise((r) => setTimeout(r, 3500));
   (process as any).exit = TRUE_EXIT;
+  if (savedChromiumProfile === undefined) delete process.env.CHROMIUM_PROFILE;
+  else process.env.CHROMIUM_PROFILE = savedChromiumProfile;
+  fs.rmSync(fixtureDir, { recursive: true, force: true });
 });
 
 async function withStubs(
@@ -143,43 +151,6 @@ function terminationCalls(
 }
 
 describe('buildFetchHandler ownsTerminalAgent gate', () => {
-  // shutdown() reads `path.dirname(config.stateFile)` from module-level config
-  // (composition gap — see TODOS T9). So unlinks target the real state dir,
-  // not a per-test temp dir. If a real gstack daemon is running on this host,
-  // its terminal-port + terminal-internal-token + terminal-agent-pid live
-  // where this test writes. Save + restore real-daemon file contents around
-  // the whole suite so the test never clobbers a developer's running session.
-  let realPortBackup: string | null = null;
-  let realTokenBackup: string | null = null;
-  let realAgentRecordBackup: string | null = null;
-
-  beforeAll(() => {
-    realPortBackup = readIfExists(PORT_FILE);
-    realTokenBackup = readIfExists(TOKEN_FILE);
-    realAgentRecordBackup = readIfExists(AGENT_RECORD_FILE);
-  });
-
-  afterAll(() => {
-    if (realPortBackup !== null) {
-      fs.mkdirSync(stateDir, { recursive: true });
-      fs.writeFileSync(PORT_FILE, realPortBackup);
-    } else {
-      try { fs.unlinkSync(PORT_FILE); } catch {}
-    }
-    if (realTokenBackup !== null) {
-      fs.mkdirSync(stateDir, { recursive: true });
-      fs.writeFileSync(TOKEN_FILE, realTokenBackup);
-    } else {
-      try { fs.unlinkSync(TOKEN_FILE); } catch {}
-    }
-    if (realAgentRecordBackup !== null) {
-      fs.mkdirSync(stateDir, { recursive: true });
-      fs.writeFileSync(AGENT_RECORD_FILE, realAgentRecordBackup);
-    } else {
-      try { fs.unlinkSync(AGENT_RECORD_FILE); } catch {}
-    }
-  });
-
   beforeEach(() => {
     __resetRegistry();
     __resetShuttingDown();

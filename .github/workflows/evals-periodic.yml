@@ -108,13 +108,23 @@ jobs:
           path: /tmp/paid-plan/manifest.json
           retention-days: 30
 
+      - name: Emit gate census manifest (ALL gate tests)
+        env:
+          EVALS_ALL: "1"
+        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/gate-census-plan/manifest.json --slices 6
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gate-census-plan
+          path: /tmp/gate-census-plan/manifest.json
+          retention-days: 30
+
   eval-slices:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
-    # Six ordinary slices retain their existing walls and concurrency. Slice 7
-    # runs only Autoplan: its specified 172min two-attempt wall leaves 28min
-    # for setup/upload. This is not a measured latency bound for ordinary work.
-    timeout-minutes: 200
+    # Seven slices retain every registered case and retry. The complete
+    # census needs at most 331m20 per slice, plus 20 minutes setup/upload.
+    timeout-minutes: 355
     permissions:
       contents: read
       packages: read
@@ -204,8 +214,9 @@ jobs:
   # selector logic has free synthetic-diff contract tests.
   gate-census:
     runs-on: ubicloud-standard-8
-    needs: build-image
-    timeout-minutes: 300
+    needs: [build-image, plan-slices]
+    # Six slices need at most 313m20 each, plus 20 minutes setup/upload.
+    timeout-minutes: 335
     permissions:
       contents: read
       packages: read
@@ -215,6 +226,12 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user runner
+    strategy:
+      # Four file workers total, each retaining two in-file case workers.
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        slice: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -234,23 +251,27 @@ jobs:
 
       - run: bun run build
 
-      - name: Run full gate census
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: gate-census-plan
+          path: /tmp/gate-census-plan
+
+      - name: Run gate census slice ${{ matrix.slice }}/6
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
-          EVALS_ALL: "1"
-          EVALS_JOBS: "4"
+          EVALS_JOBS: "1"
           EVALS_CONCURRENCY: "2"
           GSTACK_EVAL_DIR: /tmp/gate-census-results
-        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate
+        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --plan /tmp/gate-census-plan/manifest.json --slice ${{ matrix.slice }}
 
       - name: Upload census results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: gate-census
+          name: gate-census-${{ matrix.slice }}
           path: /tmp/gate-census-results
           retention-days: 90
 
@@ -288,8 +309,20 @@ jobs:
           path: /tmp/paid-report
           merge-multiple: true
 
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: gate-census-plan
+          path: /tmp/gate-census-report
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: gate-census-[0-9]*
+          path: /tmp/gate-census-report
+          merge-multiple: true
+
       - name: Reconcile slices against the manifest (fail-closed)
         id: reconcile
+        if: always()
         run: |
           set +e
           EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --report /tmp/paid-report | tee /tmp/report.txt
@@ -299,11 +332,19 @@ jobs:
           # (caught by the ship review army; the wiring test now pins this).
           echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
+      - name: Reconcile gate census against the manifest (fail-closed)
+        id: gate-reconcile
+        if: always()
+        run: |
+          set +e
+          EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --report /tmp/gate-census-report | tee /tmp/gate-report.txt
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
       # A red weekly lane nobody must action is waste — upsert ONE tracking
       # issue (never a new issue per week) with the reconciliation output, so
       # failures have an owner-visible artifact with history in one place.
       - name: Upsert tracking issue on failure
-        if: steps.reconcile.outputs.exit != '0' || needs.gate-census.result == 'failure'
+        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || needs.eval-slices.result != 'success' || needs.gate-census.result != 'success')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -314,10 +355,16 @@ jobs:
             echo "Automated weekly report — run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo
             echo "- periodic reconciliation exit: ${{ steps.reconcile.outputs.exit }}"
+            echo "- periodic slices job: ${{ needs.eval-slices.result }}"
+            echo "- gate census reconciliation exit: ${{ steps.gate-reconcile.outputs.exit }}"
             echo "- gate census job: ${{ needs.gate-census.result }}"
             echo
             echo '```'
             tail -c 6000 /tmp/report.txt 2>/dev/null || echo "(no reconciliation output)"
+            echo '```'
+            echo
+            echo '```'
+            tail -c 6000 /tmp/gate-report.txt 2>/dev/null || echo "(no gate census reconciliation output)"
             echo '```'
             echo
             echo "Exclusion policy: test/helpers/periodic-exclude-data.ts (every entry needs reason + tracking; removal re-activates the file next week)."
@@ -331,5 +378,5 @@ jobs:
           fi
 
       - name: Fail the workflow when reconciliation failed
-        if: steps.reconcile.outputs.exit != '0'
+        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || needs.eval-slices.result != 'success' || needs.gate-census.result != 'success')
         run: exit 1

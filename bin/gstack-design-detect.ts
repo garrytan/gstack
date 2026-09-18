@@ -106,7 +106,7 @@ function gstackStateDir(): string {
   return ENV.GSTACK_STATE_ROOT || ENV.GSTACK_HOME || ENV.GSTACK_STATE_DIR || path.join(HOME, '.gstack');
 }
 
-/** Where projects/<slug>/designs/ lives: the `${GSTACK_HOME:-$HOME/.gstack}` rule the skill templates and gstack-slug render. */
+/** Existing local analytics location; design artifacts resolve separately below. */
 function gstackHome(): string {
   return ENV.GSTACK_HOME || path.join(HOME, '.gstack');
 }
@@ -660,7 +660,12 @@ function refuse(target: string, why: string) {
 }
 
 function designsRoot(): string {
-  return path.join(gstackHome(), 'projects');
+  // Match the artifact producer's bin/gstack-paths precedence without changing
+  // config or analytics roots. Plugin data belongs to gstack only with its marker.
+  const stateRoot = ENV.GSTACK_HOME
+    || (ENV.CLAUDE_PLUGIN_DATA && /gstack/i.test(ENV.CLAUDE_PLUGIN_ROOT || '') ? ENV.CLAUDE_PLUGIN_DATA : '')
+    || (ENV.HOME ? path.join(ENV.HOME, '.gstack') : '.gstack');
+  return path.join(stateRoot, 'projects');
 }
 
 type TargetClass = 'project' | 'artifact' | 'dom-dump';

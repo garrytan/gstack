@@ -38,6 +38,36 @@ let tmpDir: string;
 let boardHtmlPath: string;
 let serverState: string;
 
+// Failure-only evidence for intermittent reload connection refusals; never retry.
+const serverStopCalls: Array<{ at: string; stack?: string }> = [];
+function listenerSnapshot() {
+  try {
+    const port = Number(new URL(baseUrl).port);
+    const suffix = ':' + port.toString(16).toUpperCase().padStart(4, '0');
+    const sockets = ['/proc/net/tcp', '/proc/net/tcp6'].map(file => {
+      try {
+        const rows = fs.readFileSync(file, 'utf8').trim().split('\n').slice(1)
+          .filter(row => row.trim().split(/\s+/)[1]?.endsWith(suffix));
+        return { file, rows };
+      } catch (error) { return { file, unavailable: String(error) }; }
+    });
+    const inodes = new Set(sockets.flatMap(table => (table.rows || []).map(row => row.trim().split(/\s+/)[9])));
+    const ownSocketFds: Record<string, string> = {};
+    let fdUnavailable: string | undefined;
+    try {
+      for (const fd of fs.readdirSync('/proc/self/fd')) {
+        try {
+          const link = fs.readlinkSync('/proc/self/fd/' + fd);
+          const inode = /^socket:\[(\d+)\]$/.exec(link)?.[1];
+          if (inode && inodes.has(inode)) ownSocketFds[fd] = link;
+        } catch { /* A descriptor may close between list and read. */ }
+      }
+    } catch (error) { fdUnavailable = String(error); }
+    return { at: new Date().toISOString(), pid: process.pid, port, reportedPort: server.port,
+      hostname: server.hostname, sockets, ownSocketFds, fdUnavailable };
+  } catch (error) { return { unavailable: String(error) }; }
+}
+
 function createTestPng(filePath: string): void {
   const png = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/58BAwAI/AL+hc2rNAAAAABJRU5ErkJggg==',
@@ -132,6 +162,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  try { serverStopCalls.push({ at: new Date().toISOString(), stack: new Error().stack }); } catch {}
   try { server.stop(); } catch {}
   fs.rmSync(tmpDir, { recursive: true, force: true });
   // Close only this file's own browser — never process.exit(): bun test runs
@@ -334,11 +365,22 @@ describe('Full regeneration round-trip: regen → reload → submit', () => {
     fs.writeFileSync(newBoardPath, newHtml);
 
     // Step 3: Agent POSTs /api/reload to swap the board
-    const reloadRes = await fetch(`${baseUrl}/api/reload`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ html: newBoardPath }),
-    });
+    const beforeReload = listenerSnapshot();
+    let reloadRes: Response;
+    try {
+      reloadRes = await fetch(`${baseUrl}/api/reload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: newBoardPath }),
+      });
+    } catch (error) {
+      try {
+        console.error('[feedback-reload-listener]', JSON.stringify({
+          before: beforeReload, rejected: listenerSnapshot(), stopCalls: serverStopCalls,
+        }));
+      } catch { /* Diagnostics must not replace the original fetch error. */ }
+      throw error;
+    }
     const reloadData = await reloadRes.json();
     expect(reloadData.reloaded).toBe(true);
     expect(serverState).toBe('serving');

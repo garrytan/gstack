@@ -1,0 +1,14 @@
+{
+  "provenance": {
+    "sourceHead": "8525fd4abad1e54de1aaaa9a5692202d4b13bd25",
+    "sessionId": "b1ebeb5c-9717-421c-8c27-de206a97fd2a",
+    "originalPaidAttempt": 1,
+    "originalPaidOutcome": "failed: hasStaleFillRaceFinding returned false after completion/report checks passed",
+    "paidOutcomesReclassified": false,
+    "publicWriteSha256": "2f70ae416722bc98073dcaa290222da10de8adc43f59679a35b7b9a99adb27a3",
+    "publicWriteBytes": 36404,
+    "projection": "Exact current fill-lifetime paragraph and ambiguous F1 row from completed public Write. The paragraph establishes the independent finding; the isolated row remains rejected."
+  },
+  "claim": "**[Amended: D1, D2, D3, D5]** The original sketch stated \"no additional version\nchecks or coordination between a cache fill and a write are proposed\". That\nstatement is withdrawn: without coordination, a fill that started before a write\nand stored after it caches the pre-write snapshot for up to 30 s, violating the\nretained read-after-write rule (evidence: F1 schedule in the review record).\nThese are the complete read/write ordering rules:",
+  "ambiguousFinding": "### Findings register\n\n| F1 | CRITICAL GAP \u2192 fixed | Fill/write race. Schedule: R1 miss, `await read` returns v1 \u00b7 W commits v2, `delete` (no entry), settles \u00b7 R1 `set(v1)` \u00b7 R2 begun after W hits v1 for \u226430 s. Violates \"every read begun after that write completes must observe the committed version\". Single-flight excludes writes so it cannot prevent this | D1-A: epoch guard | Global epoch skips a fill for any concurrent write to any key (correct, lower hit rate under write bursts). Upgrade to per-key (D1-B) if `cache_fill_skipped_total` exceeds 5% of misses | Race tests order 1 & 2; skip counter on dashboard |\n"
+}

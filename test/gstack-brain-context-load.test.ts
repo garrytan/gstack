@@ -11,6 +11,7 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync 
 import { tmpdir } from "os";
 import { delimiter, join } from "path";
 import { spawnSync } from "child_process";
+import { parseSkillManifest } from "../lib/gstack-memory-helpers";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-brain-context-load.ts");
 
@@ -404,4 +405,163 @@ fi
     // Either OK (gbrain available) or SKIP (gbrain missing or query timeout) — both fine
     expect(r.stderr).toMatch(/(OK|SKIP)/);
   });
+});
+
+
+describe("gstack-brain-context-load — configured Design artifact root", () => {
+  for (const storage of ["configured", "plugin", "default"]) it(`discovers real nested approvals in the ${storage} literal root`, () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-design-context-"));
+    const suffix = process.platform === "win32" ? "space $ [x]" : "space $ [x]*?";
+    const home = join(dir, "operator " + suffix);
+    const configured = join(dir, "configured " + suffix);
+    const plugin = join(dir, "plugin " + suffix);
+    const expected = storage === "configured" ? configured : storage === "plugin" ? plugin : join(home, ".gstack");
+    try {
+      mkdirSync(home, { recursive: true });
+      for (const screen of ["settings", "profile"]) {
+        const target = join(expected, "projects", "test-repo", "designs", screen);
+        mkdirSync(target, { recursive: true });
+        writeFileSync(join(target, "approved.json"), "{}\n");
+      }
+      // Nearby files and another project cannot become this query's approvals.
+      mkdirSync(join(expected, "projects", "other-repo", "designs", "settings"), { recursive: true });
+      writeFileSync(join(expected, "projects", "other-repo", "designs", "settings", "approved.json"), "{}\n");
+      writeFileSync(join(expected, "projects", "test-repo", "designs", "settings", "feedback.json"), "{}\n");
+      const source = join(import.meta.dir, "..", "design-shotgun", "SKILL.md.tmpl");
+      const query = parseSkillManifest(source)!.context_queries.find(item => item.id === "prior-approved-variants")!;
+      const skillFile = join(dir, "SKILL.md");
+      writeFileSync(skillFile, `---
+name: design-context-fixture
+gbrain:
+  schema: 1
+  context_queries:
+    - id: ${query.id}
+      kind: filesystem
+      glob: "${query.glob}"
+      sort: ${query.sort}
+      limit: ${query.limit}
+      render_as: "${query.render_as}"
+---
+`);
+      const r = runScript(["--skill-file", skillFile, "--repo", "test-repo", "--explain"], {
+        HOME: home, USERPROFILE: home, GSTACK_HOME: storage === "configured" ? configured : "",
+        CLAUDE_PLUGIN_DATA: storage === "default" ? "" : plugin,
+        CLAUDE_PLUGIN_ROOT: storage === "default" ? "" : "/plugins/gstack",
+      });
+      expect(r.exitCode).toBe(0);
+      expect(r.stderr).toContain("OK    prior-approved-variants");
+      expect(r.stdout.match(/— approved\.json/g)).toHaveLength(2);
+      expect(r.stdout).not.toContain("feedback.json");
+      expect(r.stdout).toContain("USER_TRANSCRIPT_DATA");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+
+it("state-root resolver failure preserves diagnostics and continues a legacy filesystem query", () => {
+  const dir = mkdtempSync(join(tmpdir(), "gstack-state-resolve-failure-"));
+  try {
+    const binDir = join(dir, "bin");
+    mkdirSync(binDir);
+    // Override only the local resolver process; no gbrain/provider command is used.
+    const bash = join(binDir, process.platform === "win32" ? "bash.cmd" : "bash");
+    writeFileSync(bash, process.platform === "win32"
+      ? "@echo off\r\necho fixture-root-resolution-failure 1>&2\r\nexit /b 23\r\n"
+      : "#!/bin/sh\nprintf 'fixture-root-resolution-failure\\n' >&2\nexit 23\n");
+    chmodSync(bash, 0o755);
+    const note = join(dir, "legacy.txt");
+    writeFileSync(note, "legacy evidence\n");
+    const skillFile = join(dir, "SKILL.md");
+    writeFileSync(skillFile, `---
+name: root-failure-fixture
+gbrain:
+  schema: 1
+  context_queries:
+    - id: configured-approvals
+      kind: filesystem
+      glob: "{gstack_state_root}/projects/{repo_slug}/designs/*/approved.json"
+      render_as: "## Configured approvals"
+    - id: legacy-note
+      kind: filesystem
+      glob: "${note}"
+      render_as: "## Legacy note"
+---
+`);
+    const r = runScript(["--skill-file", skillFile, "--repo", "test-repo", "--explain"], {
+      ...prependPath(binDir), HOME: dir, USERPROFILE: dir, GSTACK_HOME: join(dir, "state"),
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr).toContain("SKIP  configured-approvals");
+    expect(r.stderr).toContain('"status":23');
+    expect(r.stderr).toContain("fixture-root-resolution-failure");
+    expect(r.stderr).toContain("OK    legacy-note");
+    expect(r.stdout).toContain("legacy.txt");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+describe("gstack-brain-context-load — CEO plan reader uses its writer's root", () => {
+  for (const source of ["SKILL.md.tmpl", "SKILL.md"]) {
+    for (const storage of ["configured", "plugin", "default"]) {
+      it(`${source}: prior CEO plans use only the ${storage} root`, () => {
+        const dir = mkdtempSync(join(tmpdir(), "gstack-ceo-context-"));
+        const suffix = process.platform === "win32" ? "space $ [x]" : "space $ [x]*?";
+        const home = join(dir, "operator " + suffix);
+        const configured = join(dir, "configured " + suffix);
+        const plugin = join(dir, "plugin " + suffix);
+        const expected = storage === "configured" ? configured : storage === "plugin" ? plugin : join(home, ".gstack");
+        try {
+          mkdirSync(home, { recursive: true });
+          const plans = join(expected, "projects", "test-repo", "ceo-plans");
+          mkdirSync(plans, { recursive: true });
+          const selectedPlan = join(plans, "2026-09-14-selected-ceo.md");
+          writeFileSync(selectedPlan, "# Selected CEO plan\n");
+          const otherProject = join(expected, "projects", "other-repo", "ceo-plans");
+          mkdirSync(otherProject, { recursive: true });
+          writeFileSync(join(otherProject, "2099-other-project.md"), "# Other project\n");
+          if (storage !== "default") {
+            const legacy = join(home, ".gstack", "projects", "test-repo", "ceo-plans");
+            mkdirSync(legacy, { recursive: true });
+            writeFileSync(join(legacy, "2099-wrong-root.md"), "# Wrong root\n");
+          }
+          const query = parseSkillManifest(join(import.meta.dir, "..", "plan-ceo-review", source))!
+            .context_queries.find(item => item.id === "prior-ceo-plans")!;
+          // Load the real shipped query alone so unrelated gbrain queries do
+          // not need a provider. Preserve its sorting, limit and presentation.
+          const skillFile = join(dir, "SKILL.md");
+          writeFileSync(skillFile, `---
+name: ceo-context-fixture
+gbrain:
+  schema: 1
+  context_queries:
+    - id: ${query.id}
+      kind: filesystem
+      glob: "${query.glob}"
+      sort: ${query.sort}
+      limit: ${query.limit}
+      render_as: "${query.render_as}"
+---
+`);
+          const env = {
+            HOME: home, USERPROFILE: home, GSTACK_HOME: storage === "configured" ? configured : "",
+            CLAUDE_PLUGIN_DATA: storage === "default" ? "" : plugin,
+            CLAUDE_PLUGIN_ROOT: storage === "default" ? "" : "/plugins/gstack",
+            TMPDIR: join(dir, "tmp"),
+          };
+          const r = runScript(["--skill-file", skillFile, "--repo", "test-repo", "--explain"], env);
+          expect(r.exitCode).toBe(0);
+          expect(r.stderr).toContain("OK    prior-ceo-plans");
+          expect(r.stdout).toContain("2026-09-14-selected-ceo.md");
+          expect(r.stdout).not.toContain("2099-wrong-root.md");
+          expect(r.stdout).not.toContain("2099-other-project.md");
+          rmSync(selectedPlan);
+          const empty = runScript(["--skill-file", skillFile, "--repo", "test-repo", "--explain"], env);
+          expect(empty.exitCode).toBe(0);
+          expect(empty.stderr).toContain("SKIP  prior-ceo-plans");
+          expect(empty.stderr).toContain("no matches");
+          expect(empty.stdout.trim()).toBe("");
+        } finally { rmSync(dir, { recursive: true, force: true }); }
+      });
+    }
+  }
 });

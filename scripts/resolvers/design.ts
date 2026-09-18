@@ -551,7 +551,7 @@ AI Slop is 5% of Design Score but also graded independently as a headline metric
 ### Regression Output
 
 When previous \`design-baseline.json\` exists or \`--regression\` flag is used:
-- Previous baseline = the newest readable \`design-baseline*.json\` under \`${'${GSTACK_HOME:-$HOME/.gstack}'}/projects/$SLUG/designs/design-audit-*/\` older than this run; unreadable → "previous baseline unreadable (first scan)"
+- Previous baseline = the newest readable \`design-baseline*.json\` under \`$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-audit-*/\` older than this run; unreadable → "previous baseline unreadable (first scan)"
 - Load baseline grades; compare per-category deltas, new findings, resolved findings
 - Detector delta only when \`detector.mode\` and \`targetSet\` both match: ids appeared, ids disappeared, totals, per page (\`+ kicker-above-heading (2)  - gradient-text (1)  total 14 → 9\`). Otherwise say "detector modes differ, no delta" or "target set changed, no delta"; a different \`engine\` prints the delta with \`engine changed X → Y; rule set may differ\`; no \`detector\` field → "no detector baseline (first scan)", never \`+N\`. Live pages jitter, so counts are advisory and id appear/disappear is the signal
 - Append regression table to report
@@ -763,12 +763,14 @@ Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own
 
 End with Recommendation: <direction> because <product-specific reason>.`;
 
-    subagentPrompt = `Given this product context, propose a design direction that would SURPRISE. What would the cool indie studio do that the enterprise UI team wouldn't?
+    subagentPrompt = `Read the complete product brief at [the absolute DESIGN_BRIEF path printed above].
+
+Propose a surprising indie-studio direction beyond conventional enterprise UI.
 - Propose an aesthetic direction, typography stack (specific font names), color palette (hex values)
 - 2 deliberate departures from category norms
 - What emotional reaction should the user have in the first 3 seconds?
 
-Be bold. Be specific. No hedging.`;
+Be bold and specific.`;
   } else {
     // Unknown skill — return empty
     return '';
@@ -822,7 +824,14 @@ Merge findings into the triage with \`[${outsideVoiceFor(ctx).id}]\` / \`[subage
 
 
   return `## Design Outside Voices (independent)
-${optInSection}
+${optInSection}${isDesignConsultation ? `
+
+**Before Phase 3, if accepted:** Create a private shared brief:
+\`\`\`bash
+_DESIGN_BRIEF=$(mktemp /tmp/gstack-design-brief-XXXXXXXX) || exit 1
+printf 'DESIGN_BRIEF=%s\\n' "$_DESIGN_BRIEF"
+\`\`\`
+Write confirmed product/users, project type, memorable-thing answer, constraints and research (or skipped/unavailable) to that path. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file; give the native Agent its absolute path. Rebind \`$_DESIGN_BRIEF\` per Bash call. Keep your draft direction out of both prompts. Never paste brief text into shell source.` : ''}
 
 **Check ${outsideVoiceFor(ctx).label} availability:**
 ${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
@@ -849,8 +858,8 @@ ${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort, ...(isDesign
 - On any ${outsideVoiceFor(ctx).label} error: proceed with ${outsideVoiceFor(ctx).nativeLabel} subagent output only${isDesignConsultation ? '; identify it as the only completed independent proposal' : ', tagged \`[single-model]\`'}.
 - If ${outsideVoiceFor(ctx).nativeLabel} subagent also fails: "Outside voices unavailable — ${isDesignConsultation ? 'continuing to Phase 3 with my draft direction' : 'continuing with primary review'}."
 
-Output headers: \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` and \`${outsideVoiceFor(ctx).nativeLabel.toUpperCase()} SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\`.
-${synthesisSection}
+${isDesignConsultation ? 'Present only completed, available voice outputs with their actual source and status.\n' : ''}Output headers: \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` and \`${outsideVoiceFor(ctx).nativeLabel.toUpperCase()} SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\`.
+${synthesisSection}${isDesignConsultation ? '\nAfter both voices finish (including failure), remove the private brief with `rm -f -- "$_DESIGN_BRIEF"`.' : ''}
 
 **Log the result:**${isDesignConsultation ? ' If the user accepted, run the command twice: one record for each voice, including any unavailable voice. If the user declined, run it once with STATUS=skipped, SOURCE=none, OUTSIDE_STATUS=skipped.' : ''}
 \`\`\`bash
@@ -993,6 +1002,7 @@ export function generateDesignSlopBullets(_ctx: TemplateContext): string {
 // three-looks calibration are derived from pbakaus/impeccable reference/craft-floor.md
 // + new-work.md (Apache-2.0), rewritten in gstack's voice. See NOTICE.md.
 export function generateDesignHardRules(ctx: TemplateContext): string {
+  const isPlanReview = ctx.skillName === 'plan-design-review';
   const slopItems = AI_SLOP_BLACKLIST.map((item, i) => `${i + 1}. ${item}`).join('\n');
   const rejectionItems = OPENAI_HARD_REJECTIONS.map((item, i) => `${i + 1}. ${item}`).join('\n');
   const litmusItems = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join('\n');
@@ -1019,10 +1029,9 @@ Judgment tells with no detector rule: ${judgmentTells.map(e => e.name.toLowerCas
   // design-review's Methodology categories 5 and 7 already carry the first two.
   const reflexBlock = (ctx.skillName === 'design-review' ? reflexes.slice(2) : reflexes).join('\n');
 
-  const heading = ctx.skillName === 'plan-design-review' ? '####' : '###';
-  return `${heading} Design Hard Rules
+  return `${isPlanReview ? '####' : '###'} Design Hard Rules
 
-**Classifier: name the mode before you judge a pixel.** The mode is what the visitor's win looks like on THIS surface, not what the product is. A dev tool's landing page is Persuade. A fashion house's docs are Read.
+${isPlanReview ? 'Review these as UI requirements in the plan, approved mockups, and referenced existing contracts. Inspect pixels or computed values when a rendered surface is available; otherwise assess what the plan specifies and identify concrete gaps.\n\n' : ''}**Classifier: name the mode before you ${isPlanReview ? 'apply the rules' : 'judge a pixel'}.** The mode is what the visitor's win looks like on THIS surface, not what the product is. A dev tool's landing page is Persuade. A fashion house's docs are Read.
 - **PERSUADE** (MARKETING/LANDING PAGE: hero-driven, brand-forward, pricing, campaigns) → they decide and act. Design IS the product. Apply Landing Page Rules.
 - **OPERATE** (APP UI: dashboards, admin, settings, editors, tools) → they finish a task. Scanability and native expectations beat expression; the brand lives in the details. Apply App UI Rules.
 - **READ** (docs, articles, guides, changelogs) → they understand something. Structure for comprehension, then make staying worth it. Apply Read Rules.
@@ -1032,14 +1041,14 @@ Judgment tells with no detector rule: ${judgmentTells.map(e => e.name.toLowerCas
 **Hard rejection criteria** (instant-fail patterns — flag if ANY apply):
 ${rejectionItems}
 
-**Litmus checks** (answer YES/NO for each — used for cross-model consensus scoring):
+**Litmus checks** (${isPlanReview ? 'answer YES/NO for each with evidence; compare with the outside-voice litmus scorecard when available. These support findings, not an additional numeric score' : 'answer YES/NO for each — used for cross-model consensus scoring'}):
 ${litmusItems}
 
 **Landing page rules** (apply when classifier = PERSUADE / MARKETING/LANDING):
 - First viewport reads as one composition, not a dashboard
 - Brand-first hierarchy: brand > headline > body > CTA
 - Typography: expressive, purposeful — no default stacks (Inter, Roboto, Arial, system)
-- No flat single-color backgrounds by default: texture from the brand or a real asset, never a halo, spotlight, stripe, or grid-paper gradient (the catalog names each)
+- No flat single-color backgrounds by default: texture from the brand or a real asset, never a halo, spotlight, stripe, or grid-paper gradient (${isPlanReview ? 'see the AI Slop blacklist and detector rule ids below' : 'the catalog names each'})
 - Hero: full-bleed, edge-to-edge, no inset/tiled/rounded variants
 - Hero budget: brand, one headline, one supporting sentence, one CTA group, one image
 - No cards in hero. Cards only when card IS the interaction
@@ -1070,7 +1079,7 @@ ${litmusItems}
 
 **Universal rules** (apply to ALL types):
 - Define CSS variables for color system
-- No default font stacks as the display voice (Inter, Roboto, Arial, system); body/UI use on an Operate or Read surface follows the role-scoped list (${FONTS_BODY_UI_OK.join(', ')} pass when the proposal says so)
+- No default font stacks as the display voice (Inter, Roboto, Arial, system); ${isPlanReview ? `${FONTS_BODY_UI_OK.join(', ')} are allowed for body/UI on an Operate or Read surface when the proposal explicitly assigns that role` : `body/UI use on an Operate or Read surface follows the role-scoped list (${FONTS_BODY_UI_OK.join(', ')} pass when the proposal says so)`}
 - One job per section
 - "If deleting 30% of the copy improves it, keep deleting"
 - Cards earn their existence — no decorative card grids
@@ -1120,10 +1129,10 @@ Commands:
 - \`$D check --image /path.png --brief "..."\` — vision quality gate
 - \`$D iterate --session /path/session.json --feedback "..." --output /path.png\` — iterate
 
-**CRITICAL PATH RULE:** All design artifacts (mockups, comparison boards, approved.json)
-MUST be saved to \`~/.gstack/projects/$SLUG/designs/\`, NEVER to \`.context/\`,
-\`docs/designs/\`, \`/tmp/\`, or any project-local directory. Design artifacts are USER
-data, not project files. They persist across branches, conversations, and workspaces.`;
+**CRITICAL PATH RULE:** Design artifacts belong in \`$GSTACK_STATE_ROOT/projects/$SLUG/designs/\`.
+Use \`bin/gstack-paths\`: GSTACK_HOME → plugin storage → ~/.gstack. Keep it even if temporary; never substitute
+.context/, docs/designs/ or another directory.
+These are user files, not application source.`;
 }
 
 export function generateDesignMockup(ctx: TemplateContext): string {
@@ -1148,7 +1157,8 @@ Generating visual mockups of the proposed design... (say "skip" if you don't nee
 
 \`\`\`bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-_DESIGN_DIR="$HOME/.gstack/projects/$SLUG/designs/mockup-$(date +%Y%m%d)"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+_DESIGN_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/designs/mockup-$(date +%Y%m%d)"
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
 \`\`\`

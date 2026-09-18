@@ -33,11 +33,11 @@ The output of this skill is a better plan, not a document about the plan.
 
 ## Scope gate (FIRST — overrides everything below). This is a hard STOP.
 
-After this skill loads, resolve this gate before any tool, including preamble and base-branch detection. Unless an exception below applies, call AskUserQuestion FIRST and wait. Announce plan-mode auto-selection before review tools. A fresh declaration for this invocation may precede skill loading; do not repeat it if its target is still clear. Name the plan, or say "this draft" when the user pasted exactly one plan. Ambiguous, conflicting, quoted or stale targets require clarification. After resolution: preamble → base branch → audit → mockups → Step 0. Preamble “run first” is subordinate to this gate.
+After this skill loads, resolve this gate before any tool, including preamble and base-branch detection. Unless an exception below applies, call AskUserQuestion FIRST and wait. Announce plan-mode auto-selection before review tools. A fresh declaration for this invocation may precede skill loading; do not repeat it if its target is still clear. Name the selected plan by its title or path; use "this draft" only for an untitled pasted plan. Ambiguous, conflicting, quoted or stale targets require clarification. After resolution: preamble → base branch → audit → mockups → Step 0. Preamble “run first” is subordinate to this gate.
 
 **Exceptions — check in this order, BEFORE asking:**
 1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the pre-review audit, mockups, and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
-2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a page, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A passing mention is not naming. When in doubt, ask — the gate is the default.
+2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a page, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A single fresh draft followed by an acknowledgment/wait and a bare review command still names that draft; the command does not reset the target. A passing mention is not naming. When in doubt, ask — the gate is the default.
 
 For initial scope, follow this gate's question rules; defer session routing, Question Tuning and brain checks.
 Whenever this gate does ask — in any mode — it is a hard STOP.
@@ -61,12 +61,10 @@ Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C.
 
 ## Design Philosophy
 
-You are not here to rubber-stamp this plan's UI. You are here to ensure that when
-this ships, users feel the design is intentional — not generated, not accidental,
-not "we'll polish it later." Your posture is opinionated but collaborative: find
-every gap, explain why it matters, recommend a concrete fix, and get a decision
-on each unresolved issue before editing the plan. An obvious fix still needs its
-own decision; DESIGN.md supplies the recommendation, not the user's approval.
+Review for intentional UI with an opinionated, collaborative posture. Find every
+gap, explain why it matters, recommend a concrete fix, and get its individual
+decision before editing. Even obvious fixes need approval; DESIGN.md supplies
+the recommendation, not the user's approval.
 
 When creating the initial plan artifact, copy existing requirements and record
 unapproved gaps as pending. A gap-to-token mapping is a proposed fix, not a
@@ -78,9 +76,7 @@ is to review and improve the plan's design decisions with maximum rigor.
 
 ### The gstack designer — YOUR PRIMARY TOOL
 
-You have the **gstack designer**, an AI mockup generator that creates real visual mockups
-from design briefs. This is your signature capability. Use it by default, not as an
-afterthought.
+Use the **gstack designer** by default to turn design briefs into real visual mockups.
 
 **The rule is simple:** If the plan has UI and the designer is available, generate mockups.
 Don't ask permission. Don't write text descriptions of what a homepage "could look like."
@@ -214,13 +210,13 @@ The ONLY time you skip mockups is when:
 If the user explicitly says "skip mockups" or "text only", respect that. Otherwise, generate.
 
 **PLAN MODE EXCEPTION — ALWAYS RUN:** These commands write design artifacts to
-`~/.gstack/projects/$SLUG/designs/` (user config directory, not project files).
+`$GSTACK_STATE_ROOT/projects/$SLUG/designs/` (the configured state directory).
 Mockups are design artifacts that inform the plan, not code changes. The gstack
 designer outputs PNGs and HTML comparison boards for human review during the
 planning phase. Generating mockups during planning is the whole point.
 
 Allowed commands under this exception:
-- `mkdir -p ~/.gstack/projects/$SLUG/designs/...`
+- `mkdir -p "$GSTACK_STATE_ROOT/projects/$SLUG/designs/..."`
 - `$D generate`, `$D variants`, `$D compare`, `$D iterate`, `$D evolve`, `$D check`
 - `open` (viewing comparison boards in the default browser)
 
@@ -228,7 +224,8 @@ First, set up the output directory. Name it after the screen/feature being desig
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-_DESIGN_DIR="$HOME/.gstack/projects/$SLUG/designs/<screen-name>-$(date +%Y%m%d)"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+_DESIGN_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/designs/<screen-name>-$(date +%Y%m%d)"
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
 ```
@@ -273,14 +270,14 @@ Note which direction was approved. This becomes the visual reference for all sub
 
 ## The 0-10 Rating Method
 
-For each design section, rate the plan 0-10 on that dimension. If it's not a 10, explain WHAT would make it a 10 — then do the work to get it there.
+For each design section, rate the plan 0-10 on that dimension. If it's not a 10, explain WHAT would make it a 10 — then resolve each gap with the user.
 
 Pattern:
 1. Rate: "Information Architecture: 4/10"
 2. Gap: "It's a 4 because the plan doesn't define content hierarchy. A 10 would have clear primary/secondary/tertiary for every screen."
 3. Recommend: Explain the concrete fix, alternatives, and why you recommend it.
 4. AskUserQuestion once for this issue and wait for the user's decision.
-5. Apply the selected fix, then re-rate: "Now 8/10 — still missing mobile nav hierarchy"
+5. Apply only the selected fix; it does not authorize other amendments. Then re-rate: "Now 8/10 — still missing mobile nav hierarchy"
 6. Repeat per unresolved issue until 10 or the user says "good enough, move on".
 
 A gap already listed in the input plan is still an unresolved review finding.
@@ -300,7 +297,15 @@ If `DESIGN_READY` was printed during setup AND a dimension rates below 7/10,
 offer to generate a visual mockup showing what the improved version would look like:
 
 ```bash
-$D generate --brief "<description of what 10/10 looks like for this dimension>" --output /tmp/gstack-ideal-<dimension>.png
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+_DESIGN_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/designs/ideal-$(date +%Y%m%d)"
+mkdir -p "$_DESIGN_DIR"
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+D="$_ROOT/.claude/skills/gstack/design/dist/design"
+[ -x "$D" ] || D=~/.claude/skills/gstack/design/dist/design
+"$D" generate --brief "<description of what 10/10 looks like for this dimension>" --output "$_DESIGN_DIR/ideal-<dimension>.png"
+echo "IDEAL_IMAGE: $_DESIGN_DIR/ideal-<dimension>.png"
 ```
 
 Show the mockup to the user via the Read tool. This makes the gap between

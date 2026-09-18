@@ -2,30 +2,6 @@
 
 ## NEXT PRIORITY
 
-### Reconcile the registered Opus 4.7 overlay efficacy gates
-
-**What:** Revisit the two registered fanout experiments against the current overlay
-and record an evidence-based decision about their intended effect before release.
-
-**Why:** The paid gates require a fanout lift of at least 0.5, but the overlay's
-fanout nudge was removed in v1.10.1.0 after it reduced parallel tool use. Keeping
-an unsupported effect expectation makes the periodic suite fail without showing
-a regression in harness-aware outside reviews.
-
-**Context:** Found on `edinburgh-v1` during the 2026-09-09 ship eval. Both selected
-`overlay-harness-opus-4-7-fanout-{toy,realistic}` cases failed through their retry
-(`Expected: true; Received: false`). Correcting fragmented SDK message counting
-still yields zero lift: toy ON/OFF = 3/3 tools; realistic ON/OFF = 4/4, across
-10 saved trials per arm. The selected experiment inputs match `origin/main`
-`71f6048e8ada25180e61438abc1d98cb151fe9a7`; no paid base-branch run was performed.
-See the completed "Overlay efficacy harness + Opus 4.7 fanout nudge removal"
-entry below and `test/fixtures/overlay-nudges.ts`. The current failure remains
-reported; no effect threshold, model, overlay text, or pass result was changed.
-
-**Effort:** M
-**Priority:** P0
-**Depends on:** None
-
 ### P2/P3: impeccable interop deferrals (filed 2026-09-08, from the CEO + eng reviews of docs/designs/IMPECCABLE_INTEROP.md)
 
 Each item was weighed during the review and deferred with a reason; none blocks
@@ -3607,6 +3583,38 @@ needs one paid run to validate, so it didn't ride the ship.
 **Effort:** S (human ~2h, CC ~15min + one paid run).
 
 ## Completed
+
+### Reconcile the registered Opus 4.7 overlay efficacy gates
+
+**What:** Revisit the two registered fanout experiments against the current overlay
+and record an evidence-based decision about their intended effect before release.
+
+**Why:** The paid gates require a fanout lift of at least 0.5, but the overlay's
+fanout nudge was removed in v1.10.1.0 after it reduced parallel tool use. Keeping
+an unsupported effect expectation makes the periodic suite fail without showing
+a regression in harness-aware outside reviews.
+
+**Context:** Found on `edinburgh-v1` during the 2026-09-09 ship eval. Both selected
+`overlay-harness-opus-4-7-fanout-{toy,realistic}` cases failed through their retry
+(`Expected: true; Received: false`). Correcting fragmented SDK message counting
+still yields zero lift: toy ON/OFF = 3/3 tools; realistic ON/OFF = 4/4, across
+10 saved trials per arm. The selected experiment inputs match `origin/main`
+`71f6048e8ada25180e61438abc1d98cb151fe9a7`; no paid base-branch run was performed.
+See the completed "Overlay efficacy harness + Opus 4.7 fanout nudge removal"
+entry below and `test/fixtures/overlay-nudges.ts`. The current failure remains
+reported; no effect threshold, model, overlay text, or pass result was changed.
+
+**Effort:** M
+**Priority:** P0
+**Depends on:** None
+
+**Completed:** v1.87.5.0 (2026-09-15)
+
+**Policy disposition:** Contract v2 retires the unsupported fanout experiments and
+records comparative efficacy separately from supported behavior checks. Historical
+failures retain their original verdicts; this closes policy reconciliation only,
+without claiming positive efficacy or paid acceptance. See
+`docs/OVERLAY_BENCHMARK_CONTRACT.md`.
 
 ### Codex→Claude reverse buddy check skill
 

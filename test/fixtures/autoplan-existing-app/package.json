@@ -1,0 +1,6 @@
+{
+  "name": "workspace-app-fixture", "private": true, "type": "module",
+  "scripts": { "start": "bun src/server.ts", "css": "tailwindcss -i src/styles.css -o public/styles.css" },
+  "dependencies": { "react": "19.1.1", "react-dom": "19.1.1" },
+  "devDependencies": { "tailwindcss": "3.4.17" }
+}

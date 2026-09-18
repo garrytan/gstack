@@ -52,7 +52,8 @@ test('entry binds a current target and delays bootstrap until scope resolves', (
 
 test('the unique draft is a valid current target without rewriting earlier paid observations', () => {
   expect(scope).toContain(announcement);
-  expect(scope).toContain('Name the plan, or say "this draft" when the user pasted exactly one plan.');
+  expect(scope).toContain('Name the selected plan by its title or path; use "this draft" only for an untitled pasted plan.');
+  expect(scope).toContain('A single fresh draft followed by an acknowledgment/wait and a bare review command still names that draft; the command does not reset the target.');
   expect(scope).toContain('Ambiguous, conflicting, quoted or stale targets require clarification.');
   expect(scope).not.toContain('After this skill finishes loading');
   for (const row of failedScopes) {

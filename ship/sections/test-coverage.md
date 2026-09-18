@@ -2,7 +2,7 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 ## Step 7: Test Coverage Audit
 
-**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent runs the coverage audit in a fresh context window — the parent only sees the conclusion, not intermediate file reads. This is context-rot defense.
+**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The fresh-context subagent runs the audit; the parent only needs the conclusion.
 
 **Foreground required:** pass `run_in_background: false` on the Agent call — subagents run in the BACKGROUND by default since Claude Code v2.1.198. (Merely omitting the flag no longer produces a foreground run; it must be explicitly false.) The dispatch happens ONLY via the Agent tool: invoking the target as a Skill, or executing its workflow inline in your own context, is WRONG even though the skill may appear in your available-skills list — inline execution forfeits the fresh-context isolation this dispatch exists for, and the explicit flag already makes the Agent call block. (Where a step defines an inline FALLBACK, it applies only after a dispatched subagent has failed.) The parent needs this audit's LAST-line JSON before continuing.
 
@@ -25,7 +25,7 @@ setopt +o nomatch 2>/dev/null || true  # zsh compat
 # Detect project runtime (markers are evidence, not commands to run blind)
 [ -f manage.py ] && echo "RUNTIME:python FRAMEWORK:django"
 { [ -f pyproject.toml ] || [ -f pytest.ini ] || [ -f tox.ini ] || [ -f setup.cfg ] || [ -f requirements.txt ]; } && echo "RUNTIME:python"
-[ -f Gemfile ] || [ -f Rakefile ] || [ -f .rspec ] && echo "RUNTIME:ruby"
+{ [ -f Gemfile ] || [ -f Rakefile ] || [ -f .rspec ]; } && echo "RUNTIME:ruby"
 [ -f package.json ] && echo "RUNTIME:node"
 [ -f go.mod ] && echo "RUNTIME:go"
 [ -f Cargo.toml ] && echo "RUNTIME:rust"
@@ -54,6 +54,15 @@ Store this number for the PR body.
 Read every changed file. For each one, trace how data flows through the code — don't just list functions, actually follow the execution:
 
 1. **Read the diff.** For each changed file, read the full file (not just the diff hunk) to understand context.
+Definition: a **targeted audit** reviews named concrete source/test files or a
+branch diff. A **prototype** is existing runnable code referenced by the plan,
+not a proposed future component.
+
+When grounded in concrete source and test files, read them in a dedicated tool
+call before drawing the diagram. For targeted audits only, do this after Scope
+Challenge resolves and before Step 2. Map user flows. Do not mix diff, grep,
+package/config, git, or commentary into that read; use separate calls for
+context. Base the diagram on that read.
 2. **Trace data flow.** Starting from each entry point (route handler, exported function, event listener, component render), follow the data through every branch:
    - Where does input come from? (request params, props, database, API call)
    - What transforms it? (validation, mapping, computation)
@@ -134,6 +143,10 @@ When uncertain whether a change is a regression, err on the side of writing the 
 
 **4. Output ASCII coverage diagram:**
 
+For targeted audits, start Test review output with the coverage diagram. In full
+plan reviews, put it inside the normal Test review section. Required outputs
+keep the final terminal report order.
+
 Include BOTH code paths and user flows in the same diagram. Mark E2E-worthy and eval-worthy paths:
 
 ```
@@ -155,6 +168,10 @@ QUALITY: ★★★:2 ★★:2 ★:1  |  GAPS: 8 (2 E2E, 1 eval)
 
 Legend: ★★★ behavior + edge + error  |  ★★ happy path  |  ★ smoke check
 [→E2E] = needs integration test  |  [→EVAL] = needs LLM eval
+
+Avoid bare `[ ]` or `[x]` in diagrams unless the block includes
+`Legend: [x] tested | [ ] no test`. Prefer `[GAP]`, `[★★ TESTED]`,
+`[→E2E]`, `[→EVAL]`; keep user-flow markers off code-path rows.
 
 **Fast path:** All paths covered → "Step 7: All new code paths have test coverage ✓" Continue.
 
@@ -229,7 +246,7 @@ Use null for an undetermined or skipped coverage percentage, not zero. Include e
 3. Embed `diagram` verbatim in the PR body's `## Test Coverage` section (Step 19).
 4. Print a one-line summary: `Coverage: {coverage_pct}%, {gaps} gaps. {tests_added.length} tests added.`
 
-**If the subagent fails, times out, returns invalid JSON, or never completes (backgrounded despite the flag, or no final output after ~10 minutes — stop waiting; if a backgrounded task is still running, stop it first so a late result never races the fallback):** Fall back to running the audit inline in the parent. Do not block /ship on subagent failure — partial results are better than none.
+**If the subagent fails, times out, returns invalid JSON, or never completes after ~10 minutes:** stop any live backgrounded task, then run the audit inline in the parent. Do not block /ship on subagent failure — partial results are better than none.
 
 
 **7. Coverage gate:**

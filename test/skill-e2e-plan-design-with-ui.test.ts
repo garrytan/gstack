@@ -1,155 +1,88 @@
 /**
  * /plan-design-review with UI scope (gate, paid, real-PTY).
  *
- * Counterpart to the existing no-UI early-exit test. When the input plan
- * DOES describe UI changes, /plan-design-review must NOT early-exit and
- * must reach a real skill numbered-option AskUserQuestion (its first design-rating
- * question), with the captured evidence NOT echoing the early-exit phrase.
- *
- * Why: today we only test the negative path (no-UI → early-exit). A
- * regression that flips the UI-detection logic — making EVERY plan early-
- * exit — would pass the no-UI test (vacuously) and ship undetected. This
- * test is the positive coverage.
- *
- * How: launch claude in plan mode in the gstack repo cwd (so the skill
- * registry is loaded). Send /plan-design-review with the fixture path
- * inline so the skill reviews the UI-heavy plan rather than git diff or
- * .claude/plans/. Drive past permission dialogs. Wait for a numbered-
- * option list that is NOT a permission dialog. Assert evidence does NOT
- * contain "no UI scope".
+ * The exact UI-heavy plan is committed before the first model turn. Observe
+ * an acknowledged Design focus/rating question and a subsequent review
+ * question using the existing native counting driver. An initial target menu
+ * or a no-UI early exit cannot satisfy this positive path. Option descriptions
+ * are proposals, so mentioning "no UI scope" there is not an exit verdict.
  */
 
 import { test } from 'bun:test';
 import { PTY_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
-import * as path from 'path';
+import { createDesignReviewPicker, DESIGN_BOARD_ACTOR_PROTOCOL } from './helpers/plan-review-board-feedback';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
-  launchClaudePty,
-  isNumberedOptionListVisible,
-  isPermissionDialogVisible,
-  parseNumberedOptions,
-  isPlanReadyVisible,
+  runPlanSkillCounting,
+  type AskUserQuestionFingerprint,
 } from './helpers/claude-pty-runner';
 
 const describeE2E = describeE2ETier('gate');
-
 const ROOT = path.resolve(import.meta.dir, '..');
 const FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'ui-heavy-feature.md');
 
+const designFocusBoundary = (fp: AskUserQuestionFingerprint): boolean =>
+  fp.nativeCall?.answered === true && !fp.nativeCall.failed && fp.nativeCall.questions.some(({ question }) => {
+    const text = question.trim().replace(/^D\d+(?:\.\d+)?\s*[—–:-]\s*/i, '');
+    // Require the source Step 0D question or its retained native paraphrase.
+    // A target menu can mention a design system without reviewing this plan.
+    return /^I(?:['’]ve| have) rated this plan (?:10(?:\.0+)?|[0-9](?:\.\d+)?)\/10 on design completeness\.[\s\S]*\bWant me to focus on specific areas instead of all 7\?/i.test(text)
+      || /^Review all 7 design (?:dimensions|passes), or focus(?: on specific areas)?\?$/i.test(text.split(/\r?\n/, 1)[0]!);
+  });
+
+// Require a choice about the supplied UI, not a workflow offer after focus.
+// Both the question and an offered remedy must describe concrete UI behavior.
+const uiChoice = /\b(?:layout|compos(?:e|ed|ition)|anchor|regions?|panels?|notifications?|activity|quick actions?|loading|skeletons?|empty|errors?|success|modals?|toasts?|buttons?|links?|copy|typography|fonts?|spacing|contrast|colors?|breakpoints?|responsive|keyboard|focus (?:order|trap|management)|aria|a11y|accessibility)\b/i;
+const designReviewFinding = (fp: AskUserQuestionFingerprint): boolean =>
+  fp.nativeCall?.answered === true && !fp.nativeCall.failed && !designFocusBoundary(fp) && fp.nativeCall.questions.some(({ question, options }) => {
+    const title = question.split(/\r?\n/, 1)[0]!.trim().replace(/^D\d+(?:\.\d+)?\s*[—–:-]\s*/i, '');
+    const setup = /\b(?:outside (?:design )?voices|cross[ -]project learnings|review (?:target|scope|mode)|what should I (?:design[ -])?review|which (?:artifact|plan|file))\b/i;
+    return !setup.test(title) && uiChoice.test(title)
+      && options.some(option => uiChoice.test(`${option.label} ${option.description}`));
+  });
+
 describeE2E('/plan-design-review with UI scope (gate)', () => {
   test(
-    'reaches a real skill AskUserQuestion (or plan_ready) without echoing the no-UI early-exit phrase',
+    'reviews the supplied UI plan through an acknowledged Design finding',
     async () => {
-      const fixtureRelPath = path.relative(ROOT, FIXTURE);
-
-      const session = await launchClaudePty({
-        permissionMode: 'plan',
-        // LIVE-REPO CWD: PTY session needs the repo cwd — skill registry,
-        // hermetic pre-trusted dir, and the repo-relative fixture path above.
-        cwd: ROOT,
-        timeoutMs: PTY_MS,
-        seedSkills: true,
+      const startedAt = Date.now();
+      const plan = fs.readFileSync(FIXTURE, 'utf8');
+      let picker: ReturnType<typeof createDesignReviewPicker> | undefined;
+      let pickerCwd: string | undefined;
+      const obs = await runPlanSkillCounting({
+        skillName: 'plan-design-review', slashCommand: '/plan-design-review',
+        followUpPrompt: ['Review the supplied UI plan in review-input.md. Read it before',
+          'choosing review scope.', '', plan, '', DESIGN_BOARD_ACTOR_PROTOCOL].join('\n'),
+        fixtureFiles: {'review-input.md': plan},
+        isLastStep0AUQ: designFocusBoundary,
+        isReviewAUQ: designReviewFinding,
+        reviewCountCeiling: 1,
+        observeSetupQuestions: true,
+        bindDesignBoardState: true,
+        pickAUQ: (_routing, active, context) => {
+          const call = active.nativeCall;
+          const index = active.nativeQuestionIndex ?? (call?.questions.length === 1 ? 0 : -1);
+          if (!call && (/\/boards\//.test(active.promptSnippet) || active.options.some(option => /\bSubmitted\b/.test(option.label)))) {
+            throw new Error('Design board choice requires an owned native question');
+          }
+          if (!call || call.answered || call.failed || index < 0 || !call.questions[index]) return null;
+          if (pickerCwd && pickerCwd !== context.cwd) throw new Error('Design board picker fixture changed');
+          pickerCwd = context.cwd;
+          picker ??= createDesignReviewPicker(context);
+          const question = call.questions[index];
+          return picker({...question, multiSelect: question.multiSelect ?? false,
+            options: question.options.map(option => ({...option, description: option.description ?? ''}))});
+        },
+        timeoutMs: 600_000 - (Date.now() - startedAt),
       });
-
-      let outcome: 'real_question' | 'plan_ready' | 'timeout' | 'exited' = 'timeout';
-      let evidence = '';
-      let debugBuffer = ''; // captured at end so timeout error has data
-
-      try {
-        await Bun.sleep(8000);
-        const since = session.mark();
-        // Send the slash command alone first; then provide the UI-heavy
-        // plan content as a follow-up message. Claude Code rejects slash
-        // commands with trailing arguments unless the skill defines them.
-        session.send('/plan-design-review\r');
-        await Bun.sleep(3000);
-        session.send(
-          `Please review this plan for UI scope:\n\n` +
-          `Title: User Dashboard Page\n` +
-          `New React page UserDashboard.tsx with three subcomponents: ` +
-          `ActivityFeed, NotificationsPanel, QuickActions. ` +
-          `Tailwind CSS responsive layout (mobile/desktop breakpoints), ` +
-          `loading skeletons, empty states, hover states on every interactive element, ` +
-          `modal dialog for "mark all read", toast notifications for action feedback. ` +
-          `Reference plan file: ${fixtureRelPath}\r`
-        );
-
-        // 600s, not 360s: the skill preamble (update-check, session bookkeeping,
-        // learnings) plus extended model thinking can take ~6 minutes before the
-        // scope-gate AskUserQuestion renders — a 360s budget expired seconds
-        // before the (correct) AUQ appeared in the observed failure transcript.
-        const budgetMs = 600_000;
-        const start = Date.now();
-        let lastPermSig = '';
-        while (Date.now() - start < budgetMs) {
-          await Bun.sleep(2500);
-          if (session.exited()) {
-            outcome = 'exited';
-            evidence = session.visibleSince(since).slice(-3000);
-            break;
-          }
-          const visible = session.visibleSince(since);
-
-          // Classify the recent tail only — old permission text persists
-          // in visibleSince(since) and would otherwise re-trigger forever.
-          // 5KB window: plan-design-review Step 0 renders a numbered AUQ with
-          // box dividers + per-option descriptions + footer prompt. The full
-          // rendering frequently exceeds 2.5KB, especially after TTY cursor-
-          // positioning escapes resolve through stripAnsi. A 2.5KB tail can
-          // capture the cursor `❯1.` line without capturing the line that has
-          // `2.`, defeating isNumberedOptionListVisible. 5KB comfortably
-          // covers the full AUQ block without including stale scrollback.
-          const recentTail = visible.slice(-5000);
-
-          // Real skill AskUserQuestion visible (not a permission dialog)?
-          if (
-            isNumberedOptionListVisible(recentTail) &&
-            parseNumberedOptions(recentTail).length >= 2 &&
-            !isPermissionDialogVisible(recentTail)
-          ) {
-            outcome = 'real_question';
-            evidence = visible.slice(-3000);
-            break;
-          }
-
-          // Permission dialog: grant once per unique rendering.
-          if (isPermissionDialogVisible(recentTail)) {
-            const sig = visible.slice(-500);
-            if (sig !== lastPermSig) {
-              lastPermSig = sig;
-              session.send('1\r');
-              await Bun.sleep(1500);
-              continue;
-            }
-          }
-
-          // Plan-ready terminal — also acceptable (skill ran end-to-end
-          // and surfaced claude's "Ready to execute" prompt).
-          if (isPlanReadyVisible(visible)) {
-            outcome = 'plan_ready';
-            evidence = visible.slice(-3000);
-            break;
-          }
-        }
-        // Capture buffer state at end so a timeout error has diagnostic data.
-        debugBuffer = session.visibleSince(since).slice(-4000);
-      } finally {
-        await session.close();
-      }
-
-      // PASS: real_question or plan_ready, AND evidence does NOT echo the
-      // early-exit phrase.
-      if (outcome === 'exited' || outcome === 'timeout') {
+      const focus = obs.fingerprints.findIndex(designFocusBoundary);
+      const postFocus = focus >= 0 && obs.fingerprints.slice(focus + 1).some(fp => !fp.preReview && designReviewFinding(fp));
+      if (obs.outcome !== 'ceiling_reached' || !postFocus) {
         throw new Error(
-          `plan-design-review with UI scope FAILED: outcome=${outcome}\n` +
-            `--- buffer at timeout (last 4KB) ---\n${debugBuffer || evidence}`,
-        );
-      }
-      const NO_UI_PHRASE = /no\s+UI\s+scope|isn'?t\s+applicable/i;
-      if (NO_UI_PHRASE.test(evidence)) {
-        throw new Error(
-          `plan-design-review early-exited despite UI-heavy fixture.\n` +
-            `--- evidence (last 3KB) ---\n${evidence}`,
+          `plan-design-review with UI scope FAILED: outcome=${obs.outcome}; no acknowledged Design focus and subsequent review question\n` +
+          `--- evidence (last 3KB) ---\n${obs.evidence}`,
         );
       }
     },

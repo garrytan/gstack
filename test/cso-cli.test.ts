@@ -116,3 +116,51 @@ describe('compiled CSO command workflow',()=>{
   });
   test('state configured inside the audited repository is rejected before changing it',()=>{const before=git('status','--porcelain=v1','-z'),r=command(['start','--repo',repo],{GSTACK_HOME:path.join(repo,'.private-state')});expect(r.status).not.toBe(0);expect(r.stderr).toContain('UNSAFE_PATH');expect(fs.existsSync(path.join(repo,'.private-state'))).toBe(false);expect(git('status','--porcelain=v1','-z')).toBe(before);});
 });
+
+
+test('native public reports conceal the source root while private snapshots retain their identity', () => {
+  const canonicalRepo = fs.realpathSync(repo), statusBefore = git('status', '--porcelain=v1', '--untracked-files=all');
+  const sourceFiles = git('ls-files', '-z').split('\0').filter(Boolean);
+  const sourceHashes = () => Object.fromEntries(sourceFiles.map(file => [file, sha256(fs.readFileSync(path.join(repo, file)))]));
+  const before = sourceHashes(), maskedRoot = '<REDACTED-internal.user_path>';
+  const started = command(['start', '--repo', repo, '--scope', 'auth', '--offline', '--base', 'HEAD']);
+  expect(started.status).toBe(0);
+  expect(started.stdout).not.toContain(canonicalRepo);
+  expect(started.stdout).not.toContain(CREDENTIAL_CANARY);
+  const run = JSON.parse(started.stdout);
+  expect(run.source.root).toBe(maskedRoot);
+  const dir = path.join(state, 'security', 'cso', run.repoId, run.runId);
+  const manifestPath = path.join(dir, 'snapshot.json'), manifestBytes = fs.readFileSync(manifestPath, 'utf8');
+  const manifest = JSON.parse(manifestBytes);
+  expect(manifest.root).toBe(canonicalRepo);
+  expect(manifest.executionHash).toBe(run.source.snapshotHash);
+  expect(manifest.originalHash).toBe(run.source.originalHash);
+  const reportPath = path.join(dir, 'report.json');
+  const persisted = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  expect(persisted.source.root).toBe(maskedRoot);
+  // An older retained report may still contain the root. Public inspection
+  // must mask it without rewriting the private snapshot or the old report.
+  const legacy = JSON.stringify({ ...persisted, source: { ...persisted.source, root: canonicalRepo } }, null, 2) + '\n';
+  fs.writeFileSync(reportPath, legacy, { mode: 0o600 });
+  const inspected = command(['inspect', run.runId]);
+  expect(inspected.status).toBe(0);
+  expect(inspected.stdout).not.toContain(canonicalRepo);
+  expect(inspected.stdout).not.toContain(CREDENTIAL_CANARY);
+  const view = JSON.parse(inspected.stdout);
+  expect(view.report.source.root).toBe(maskedRoot);
+  expect(view.manifest.root).toBe(maskedRoot);
+  expect(view.manifest.executionHash).toBe(manifest.executionHash);
+  expect(view.manifest.originalHash).toBe(manifest.originalHash);
+  expect(fs.readFileSync(reportPath, 'utf8')).toBe(legacy);
+  const finished = command(['finish', run.runId]);
+  expect(finished.status).toBe(0);
+  expect(JSON.parse(finished.stdout).status).toBe('finished');
+  const raw = fs.readFileSync(reportPath, 'utf8');
+  expect(raw).not.toContain(canonicalRepo);
+  expect(raw).not.toContain(CREDENTIAL_CANARY);
+  expect(JSON.parse(raw).source.root).toBe(maskedRoot);
+  expect(fs.readFileSync(path.join(dir, 'report.md'), 'utf8')).not.toContain(canonicalRepo);
+  expect(fs.readFileSync(manifestPath, 'utf8')).toBe(manifestBytes);
+  expect(sourceHashes()).toEqual(before);
+  expect(git('status', '--porcelain=v1', '--untracked-files=all')).toBe(statusBefore);
+});

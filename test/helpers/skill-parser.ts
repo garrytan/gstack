@@ -34,6 +34,13 @@ export interface ValidationResult {
   warnings: string[];
 }
 
+/** External-host prose must not retain Claude install paths. Bash examples
+ * may legitimately describe fallback paths, matching the host smoke tests. */
+export function externalHostPathLeaks(content: string): string[] {
+  return content.replace(/```bash\n[\s\S]*?```/g, '').split('\n')
+    .filter(line => line.includes('.claude/skills'));
+}
+
 /**
  * Extract all $B invocations from bash code blocks in a SKILL.md file.
  */

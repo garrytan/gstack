@@ -35,9 +35,17 @@ function loadTerminal(): Promise<any> {
   })();
 }
 
+export interface PtyScreenFrame {
+  text: string;
+  /** JS string offset of the same writes consumed by the viewport. */
+  inputOffset: number;
+  styledText: Array<{ row: number; start: number; text: string; dim: boolean; inverse: boolean }>;
+}
+
 export interface PtyScreen {
   write(text: string): void;
   read(): Promise<string>;
+  readFrame(): Promise<PtyScreenFrame>;
   dispose(): Promise<void>;
 }
 
@@ -57,8 +65,9 @@ export async function createPtyScreen(cols: number, rows: number): Promise<PtySc
   });
   terminal.unicode.activeVersion = 'bun-scalar';
   let pending = 0;
+  let inputOffset = 0;
   let failure: unknown;
-  let final: string | undefined;
+  let final: PtyScreenFrame | undefined;
   let closing: Promise<void> | undefined;
   const waiting = new Set<() => void>();
   const settled = () => { if (pending === 0) { for (const done of waiting) done(); waiting.clear(); } };
@@ -68,21 +77,41 @@ export async function createPtyScreen(cols: number, rows: number): Promise<PtySc
   };
   const viewport = () => {
     const buffer = terminal.buffer.active;
-    return Array.from({ length: rows }, (_, i) => buffer.getLine(buffer.baseY + i)?.translateToString(true) ?? '').join('\n');
+    const styledText: PtyScreenFrame['styledText'] = [];
+    const lines = Array.from({ length: rows }, (_, row) => {
+      const line = buffer.getLine(buffer.baseY + row);
+      let start = 0, previous = '';
+      for (let col = 0; col <= cols; col++) {
+        const cell = col < cols ? line?.getCell(col) : undefined;
+        const key = cell && (cell.getChars() || cell.getWidth() === 0)
+          ? `${Number(!!cell.isDim())}${Number(!!cell.isInverse())}` : '';
+        if (key === previous) continue;
+        if (previous && previous !== '00') styledText.push({row, start,
+          text: line!.translateToString(false, start, col), dim: previous[0] === '1', inverse: previous[1] === '1'});
+        start = col; previous = key;
+      }
+      return line?.translateToString(true) ?? '';
+    });
+    return {text: lines.join('\n'), inputOffset, styledText};
+  };
+  const readFrame = async () => {
+    if (closing) { await closing; return final!; }
+    await drain();
+    return viewport();
   };
   return {
     write(text) {
       if (closing) throw new Error('Cannot write to a disposed PTY screen.');
       if (!text) return;
       pending++;
+      inputOffset += text.length;
       try { terminal.write(text, () => { pending--; settled(); }); }
       catch (error) { failure = error; pending--; settled(); }
     },
     async read() {
-      if (closing) { await closing; return final!; }
-      await drain();
-      return viewport();
+      return (await readFrame()).text;
     },
+    readFrame,
     dispose() {
       return closing ??= (async () => {
         try { await drain(); final = viewport(); }

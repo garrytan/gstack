@@ -2,7 +2,9 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, sep } from 'node:path';
-import type { NativePublicToolEvent } from './plan-count-transcript';
+import type { NativePublicToolEvent, PlanCountTranscript } from './plan-count-transcript';
+import { autoplanPhaseCompletions } from './autoplan-phase-observer';
+import { boundAutoplanPhaseConsumption, autoplanReadRange } from '../../autoplan/bin/phase-publication-hook.ts';
 
 export interface MethodologyReadBinding {
   phase: string;
@@ -141,4 +143,122 @@ export function auditAutoplanMethodReads(
     } catch (error) { audit.error = String(error); }
   }
   return audits;
+}
+
+export interface AutoplanPhaseInstruction {
+  phase: 'design' | 'dx' | 'eng';
+  requiredPhase: 1 | 2 | 2.5;
+  /** Exact canonical source plus installed aliases verified by the fixture. */
+  paths: string[];
+  content: string;
+}
+
+/** Bind only supported installed aliases to this instruction's frozen source. */
+export function registerAutoplanPhaseInstructionAliases(instructions: AutoplanPhaseInstruction[], configDir: string,
+  ownedSkillStateRoot?: string): void {
+  const registries = [join(configDir, 'skills')];
+  if (ownedSkillStateRoot) try {
+    // This is the state root returned by the same seeded launcher, not ambient
+    // HOME. Its sibling skill registry and config share one physical run root.
+    const home = dirname(ownedSkillStateRoot), runRoot = dirname(dirname(configDir));
+    const registry = join(home, '.claude', 'skills');
+    if (basename(ownedSkillStateRoot) === '.gstack' && dirname(home) === runRoot &&
+        basename(home).startsWith('skill-home-') &&
+        [runRoot, configDir, home, ownedSkillStateRoot, dirname(registry), registry].every(path =>
+          lstatSync(path).isDirectory() && realpathSync(path) === path)) registries.push(registry);
+  } catch { /* Missing, foreign or substituted ownership establishes no alias. */ }
+  for (const instruction of instructions) for (const registry of registries)
+    for (const skill of [['autoplan'], ['gstack', 'autoplan']]) {
+    const installed = join(registry, ...skill, 'sections', `${instruction.phase}-phase.md`);
+    try {
+      if (realpathSync(installed) === instruction.paths[0] && readFileSync(installed, 'utf8') === instruction.content &&
+          !instruction.paths.includes(installed)) instruction.paths.push(installed);
+    } catch { /* Missing or unreadable aliases establish no source identity. */ }
+  }
+}
+
+export interface AutoplanPhaseEntryViolation {
+  phase: AutoplanPhaseInstruction['phase'];
+  requiredPhase: AutoplanPhaseInstruction['requiredPhase'];
+  sessionId: string;
+  readToolUseId: string;
+  readAt: string;
+  resultAt: string;
+  reportAt?: string;
+}
+
+/**
+ * Fail early only on demonstrated entry before publication. The caller supplies
+ * owned parent records and exact frozen source bindings. Equal timestamps cannot
+ * establish block order: they cause no early abort and supply no ordering credit.
+ */
+export function prematureAutoplanPhaseEntry(
+  events: NativePublicToolEvent[],
+  transcript: PlanCountTranscript,
+  instructions: AutoplanPhaseInstruction[],
+  commandStartedAt: number,
+): AutoplanPhaseEntryViolation | null {
+  if (transcript.status !== 'ready' || !Number.isFinite(commandStartedAt)) return null;
+  const seen = new Set<string>();
+  for (const request of events) {
+    if (request.kind !== 'use' || !identity(request.sessionId) || !identity(request.toolUseId)) continue;
+    const at = Date.parse(request.timestamp);
+    if (!Number.isFinite(at) || at < commandStartedAt) continue;
+    const key = `${request.sessionId}:${request.toolUseId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const pair = events.filter(event => event.sessionId === request.sessionId && event.toolUseId === request.toolUseId);
+    const uses = [...new Map(pair.filter(event => event.kind === 'use').map(event => [JSON.stringify(event), event])).values()];
+    const results = [...new Map(pair.filter(event => event.kind === 'result').map(event => [JSON.stringify(event), event])).values()];
+    if (uses.length !== 1 || results.length !== 1) continue;
+    const result = results[0]!;
+    const resultAt = Date.parse(result.timestamp);
+    if (events.indexOf(result) < events.indexOf(request) || !Number.isFinite(resultAt) || resultAt < at || result.isError !== false) continue;
+    let instruction = request.name === 'Read'
+      ? instructions.find(item => item.paths.includes(request.input?.file_path as string)) : undefined;
+    let content = instruction?.content;
+    if (!instruction && request.name === 'Bash') {
+      // Delivery of the complete frozen driver is entry regardless of shell
+      // spelling. This observes output; it does not authorize arbitrary Bash.
+      const texts = typeof result.content === 'string' ? [result.content] : Array.isArray(result.content)
+        ? result.content.filter(item => object(item) && item.type === 'text' && typeof item.text === 'string').map(item => item.text as string) : [];
+      instruction = instructions.find(item => item.content.trimEnd().length > 0 && texts.some(text => {
+        // Native Bash may strip terminal whitespace. Keep every meaningful byte,
+        // including leading/internal whitespace and whole-line source boundaries.
+        const expected = item.content.trimEnd(), actual = text.trimEnd();
+        const start = actual.indexOf(expected), end = start + expected.length;
+        return start >= 0 && (start === 0 || actual[start - 1] === '\n') &&
+          (end === actual.length || actual[end] === '\n');
+      }));
+    }
+    if (!instruction && ['Read', 'Agent'].includes(request.name ?? '')) {
+      // No new caller authority: derive the canonical installation from the
+      // existing exact driver binding; the production classifier authenticates
+      // init, restore, active plan and immutable source/dispatch identities.
+      for (const item of instructions) try {
+        const canonical = item.paths[0];
+        if (!canonical || basename(dirname(canonical)) !== 'sections' || basename(dirname(dirname(canonical))) !== 'autoplan') continue;
+        const root = dirname(dirname(dirname(canonical)));
+        const ordered = events.filter(e => e.sessionId === request.sessionId).map((e, order) => ({ ...e, order }));
+        const use = ordered.find(e => e.kind === 'use' && e.toolUseId === request.toolUseId)!;
+        const bound = boundAutoplanPhaseConsumption(ordered, use as any, root, root);
+        if (bound?.phase === item.phase) { instruction = item; content = bound.content; break; }
+      } catch { /* An unbound path/prompt supplies no consumed-phase evidence. */ }
+    }
+    if (!instruction) continue;
+    if (request.name === 'Read') {
+      const ordered = events.filter(e => e.sessionId === request.sessionId).map((e, order) => ({ ...e, order }));
+      const use = ordered.find(e => e.kind === 'use' && e.toolUseId === request.toolUseId)!;
+      const ack = ordered.find(e => e.kind === 'result' && e.toolUseId === request.toolUseId)!;
+      if (!autoplanReadRange(use as any, ack as any, content!, ordered as any)) continue;
+    }
+    const report = autoplanPhaseCompletions({ ...transcript,
+      assistantMessages: transcript.assistantMessages.filter(message => message.sessionId === request.sessionId) },
+    commandStartedAt).find(hit => hit.phase === instruction.requiredPhase);
+    if (report && report.ts <= at) continue;
+    return { phase: instruction.phase, requiredPhase: instruction.requiredPhase, sessionId: request.sessionId,
+      readToolUseId: request.toolUseId, readAt: request.timestamp, resultAt: result.timestamp,
+      ...(report ? { reportAt: new Date(report.ts).toISOString() } : {}) };
+  }
+  return null;
 }

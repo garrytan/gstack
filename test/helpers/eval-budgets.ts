@@ -62,6 +62,71 @@ export const AUTOPLAN_CHAIN_BUDGET = {
   reason: 'One command must complete CEO, Design, DX and Eng, including native reviews and amendment handoffs.',
 } as const;
 
+/** Whole-file supervision must cover each existing attempt and its retry.
+ * These six fixtures already allow 25 minutes per case; the old 30-minute
+ * wall could kill a second attempt after five minutes. No case budget grows.
+ * Reserve the sequential upper bound even when Bun runs sibling cases together.
+ */
+export const FINDING_RETRY_BUDGETS = [
+  { file: 'test/skill-e2e-plan-ceo-finding-count.test.ts', cases: 2 },
+  { file: 'test/skill-e2e-plan-ceo-split-overflow.test.ts', cases: 1 },
+  { file: 'test/skill-e2e-plan-design-finding-count.test.ts', cases: 1 },
+  { file: 'test/skill-e2e-plan-devex-finding-count.test.ts', cases: 1 },
+  { file: 'test/skill-e2e-plan-eng-finding-count.test.ts', cases: 1 },
+  { file: 'test/skill-e2e-plan-eng-multi-finding-batching.test.ts', cases: 1 },
+].map(({ file, cases }) => ({
+  file, cases,
+  id: `${file.slice('test/skill-e2e-'.length, -'.test.ts'.length)}-existing-retry-v1`,
+  testMs: 1_500_000,
+  retries: 1,
+  shardReserveMs: AUTOPLAN_CHAIN_BUDGET.shardReserveMs,
+  shardMs: cases * 1_500_000 * 2 + AUTOPLAN_CHAIN_BUDGET.shardReserveMs,
+}));
+
+/** Three existing captures and one configured retry; only supervision grows. */
+export const AUQ_CONSISTENCY_RETRY_BUDGET = {
+  file: 'test/skill-e2e-auq-consistency.test.ts',
+  id: 'auq-consistency-existing-retry-v1',
+  cases: 1,
+  testMs: 3 * CAPTURE_MS + 60_000,
+  retries: 1,
+  shardReserveMs: AUTOPLAN_CHAIN_BUDGET.shardReserveMs,
+  shardMs: (3 * CAPTURE_MS + 60_000) * 2 + AUTOPLAN_CHAIN_BUDGET.shardReserveMs,
+} as const;
+
+/** These fixtures have a fixed case count in every supported tier. */
+export const STRICT_RETRY_CASE_BUDGETS = [...FINDING_RETRY_BUDGETS, AUQ_CONSISTENCY_RETRY_BUDGET];
+
+/** Whole-file walls cover all existing cases and retries, even if Bun runs them
+ * sequentially. Mixed-tier files reserve their larger complete tier, never a
+ * currently selected subset. These rows add no case-count or model-work policy.
+ * The 10-second terms preserve the existing Codex/recording finalization grace.
+ */
+export const FILE_RETRY_BUDGETS = [
+  ...STRICT_RETRY_CASE_BUDGETS,
+  ...[
+    { file: 'test/codex-e2e-plan-format.test.ts', attemptMs: 4 * (CAPTURE_LONG_MS + 10_000), retries: 1 },
+    { file: 'test/skill-e2e-auq-matrix.test.ts', attemptMs: 6 * CAPTURE_MS, retries: 1 },
+    { file: 'test/skill-e2e-plan-format.test.ts', attemptMs: 4 * (CAPTURE_MS + 10_000), retries: 1 },
+    { file: 'test/skill-e2e-auto-decide-preserved.test.ts', attemptMs: PTY_MS, retries: 1 },
+    { file: 'test/skill-e2e-plan-ceo-finding-floor.test.ts', attemptMs: PTY_MS, retries: 1 },
+    { file: 'test/skill-e2e-plan-eng-finding-floor.test.ts', attemptMs: PTY_MS, retries: 1 },
+    { file: 'test/skill-e2e-plan-design-finding-floor.test.ts', attemptMs: PTY_MS, retries: 1 },
+    { file: 'test/skill-e2e-plan-devex-finding-floor.test.ts', attemptMs: PTY_MS, retries: 1 },
+    { file: 'test/skill-e2e-plan-mode-no-op.test.ts', attemptMs: 5 * CAPTURE_LONG_MS, retries: 2 },
+    { file: 'test/skill-e2e-plan-ceo-mode-routing.test.ts', attemptMs: 2 * CAPTURE_LONG_MS, retries: 1 },
+    { file: 'test/skill-e2e-plan-eng-plan-mode.test.ts', attemptMs: 2 * CAPTURE_LONG_MS, retries: 1 },
+    { file: 'test/skill-e2e-plan-prosons.test.ts', attemptMs: 4 * (CAPTURE_MS + 10_000), retries: 1 },
+    // Gate: six 300s cases + one 610s case; periodic: two 900s + three 600s.
+    { file: 'test/skill-e2e-plan.test.ts', attemptMs: Math.max(6 * CAPTURE_MS + CAPTURE_LONG_MS + 10_000, 2 * PTY_MS + 3 * CAPTURE_LONG_MS), retries: 1 },
+  ].map(({ file, attemptMs, retries }) => ({
+    file, attemptMs, retries,
+    id: `${file.slice('test/'.length, -'.test.ts'.length)}-existing-retry-v1`,
+    shardReserveMs: AUTOPLAN_CHAIN_BUDGET.shardReserveMs,
+    shardMs: attemptMs * (retries + 1) + AUTOPLAN_CHAIN_BUDGET.shardReserveMs,
+  })),
+];
+
 /** The only registered over-tier test budget; arbitrary per-file escapes fail. */
 export function assertPaidTestBudget(file: string, ms: number): void {
   if (!Number.isSafeInteger(ms) || ms <= 0 ||

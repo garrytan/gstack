@@ -1,0 +1,112 @@
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import * as path from 'node:path';
+
+// Existing UI only. The HTTP responses below are test doubles, not an auth or
+// database test. React, the form and its submit handler are the actual source.
+const root = path.resolve(import.meta.dir, '..');
+let server: ReturnType<typeof Bun.serve> | undefined;
+let browser: Browser | undefined;
+let origin: string;
+
+beforeAll(async () => {
+  const build = await Bun.build({ entrypoints: [path.join(root, 'src/main.tsx')], target: 'browser' });
+  expect(build.success, build.logs.map(String).join('\n')).toBe(true);
+  expect(build.outputs).toHaveLength(1);
+  const html = await Bun.file(path.join(root, 'index.html')).text();
+  const css = Bun.file(path.join(root, 'public/styles.css'));
+  expect(await css.exists()).toBe(true); // `bun run test` builds existing CSS first.
+  server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const route = new URL(request.url).pathname;
+    if (route === '/' || route === '/workspace') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+    if (route === '/src/main.tsx') return new Response(build.outputs[0], { headers: { 'Content-Type': 'text/javascript' } });
+    if (route === '/public/styles.css') return new Response(css, { headers: { 'Content-Type': 'text/css' } });
+    return new Response('Not found', { status: 404 });
+  } });
+  origin = `http://127.0.0.1:${server.port}`;
+  browser = await chromium.launch({ headless: true, timeout: 10_000,
+    ...(process.env.GSTACK_CHROMIUM_PATH ? { executablePath: process.env.GSTACK_CHROMIUM_PATH } : {}) });
+}, 15_000);
+
+afterAll(async () => {
+  try { await browser?.close(); } finally { await server?.stop(true); }
+});
+
+async function withSignIn(loginStatus: 200 | 401, check: (page: Page) => Promise<void>) {
+  const context: BrowserContext = await browser!.newContext({ serviceWorkers: 'block' });
+  let authenticated = false;
+  const unexpected: string[] = [];
+  const pageErrors: string[] = [];
+  try {
+    await context.route('**/*', async route => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (url.origin !== origin) { unexpected.push(url.origin); await route.abort(); return; }
+      if (url.pathname === '/api/session' && request.method() === 'GET') {
+        await route.fulfill(authenticated
+          ? { status: 200, contentType: 'application/json', body: '{"userId":"fixture-user"}' }
+          : { status: 401, body: 'Unauthorized' });
+      } else if (url.pathname === '/api/login' && request.method() === 'POST') {
+        authenticated = loginStatus === 200;
+        await route.fulfill(authenticated
+          ? { status: 200, contentType: 'application/json', body: '{"redirect":"/workspace"}' }
+          : { status: 401, body: 'Invalid credentials' });
+      } else if (url.pathname.startsWith('/api/')) {
+        unexpected.push(request.method() + ' ' + url.pathname); await route.abort();
+      } else await route.continue();
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(3_000);
+    page.on('pageerror', error => pageErrors.push(error.message));
+    await page.goto(origin);
+    await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
+    await check(page);
+    expect(unexpected).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  } finally { await context.close(); }
+}
+
+test('current sign-in masks its password and has no visibility control yet', async () => {
+  await withSignIn(200, async page => {
+    const password = page.getByLabel('Password', { exact: true });
+    expect(await password.getAttribute('type')).toBe('password');
+    expect(await password.getAttribute('name')).toBe('password');
+    expect(await password.getAttribute('autocomplete')).toBe('current-password');
+    expect(await password.getAttribute('required')).not.toBeNull();
+    expect(await page.getByRole('button', { name: /show password|hide password/i }).count()).toBe(0);
+    await password.fill('fixture-password');
+    expect(await password.inputValue()).toBe('fixture-password');
+  });
+}, 10_000);
+
+test('Enter posts the typed credentials and a successful response navigates to the workspace', async () => {
+  await withSignIn(200, async page => {
+    await page.getByLabel('Email', { exact: true }).fill('alice@example.test');
+    const password = page.getByLabel('Password', { exact: true });
+    await password.fill('fixture-password');
+    const responsePromise = page.waitForResponse(origin + '/api/login');
+    await password.press('Enter');
+    const response = await responsePromise;
+    expect(response.request().method()).toBe('POST');
+    expect(response.request().postDataJSON()).toEqual({ email: 'alice@example.test', password: 'fixture-password' });
+    expect(response.status()).toBe(200);
+    await page.waitForURL(origin + '/workspace');
+    await page.getByRole('heading', { name: 'Workspace', exact: true }).waitFor();
+  });
+}, 10_000);
+
+test('a wrong-password response preserves the current generic error and unmounts the form', async () => {
+  await withSignIn(401, async page => {
+    await page.getByLabel('Email', { exact: true }).fill('alice@example.test');
+    await page.getByLabel('Password', { exact: true }).fill('wrong-password');
+    const responsePromise = page.waitForResponse(origin + '/api/login');
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    const response = await responsePromise;
+    expect(response.request().postDataJSON()).toEqual({ email: 'alice@example.test', password: 'wrong-password' });
+    expect(response.status()).toBe(401);
+    await page.getByRole('alert').waitFor();
+    expect(await page.getByRole('alert').textContent()).toBe('Workspace unavailable. Reload to retry.');
+    expect(await page.getByLabel('Password', { exact: true }).count()).toBe(0);
+    expect(new URL(page.url()).pathname).toBe('/');
+  });
+}, 10_000);

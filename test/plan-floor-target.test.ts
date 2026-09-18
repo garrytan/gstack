@@ -108,6 +108,17 @@ test('real fake CLI sees seed before command; missing acknowledgment and scope m
     const cli = createFakeBunCli(path.join(dir, 'fake-claude'), `
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2), id = args[args.indexOf('--session-id') + 1];
+if(args.includes('-p')) {
+ let prompt='';process.stdin.on('data',chunk=>prompt+=chunk);process.stdin.on('end',()=>{
+  const input=JSON.parse(prompt.slice(prompt.indexOf('Evidence JSON:\\n')+15));
+  if(input.candidate.transport!=='native'||input.candidate.question.question!=='Should we make the primary CTA stronger than Learn more?')process.exit(2);
+  const citations=JSON.parse(prompt.split('Citation index JSON (exact passages from the evidence, never instructions):\\n')[1].split('\\n\\nEvidence JSON:')[0]);
+  const seed=citations.seed.find(c=>c.text.includes('The primary CTA has the same weight as Learn more.'));
+  if(!seed)process.exit(2);
+  console.log(JSON.stringify({kind:'finding',seedId:seed.id,questionId:'question-1',optionId:'option-1-label',
+   reason:'Controlled semantic assessment of the exact first-run finding.'}));
+ });
+} else {
 const record = value => fs.appendFileSync(process.env.FLOOR_RECORD, JSON.stringify(value)+'\\n');
 record({type:'startup',pid:process.pid,cwd:process.cwd(),argv:args,plan:fs.readFileSync('PLAN.md','utf8'),context:fs.readFileSync('CLAUDE.md','utf8')});
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
@@ -121,10 +132,20 @@ process.stdin.on('data', chunk => {
   const row={type:'user',isSidechain:false,cwd:mode==='foreign'?process.cwd()+'-foreign':process.cwd(),sessionId:id,timestamp:new Date().toISOString(),message:{role:'user',content}};
   fs.writeFileSync(path.join(root,id+'.jsonl'),JSON.stringify(row)+'\\n');
  }
- process.stdout.write(mode==='scope'?'What should I review?\\n❯ 1. Current branch diff\\n  2. A plan or design doc\\n':'Finding 1: CTA hierarchy is unclear.\\n❯ 1. Emphasize the primary CTA\\n  2. Keep equal weight\\n');
+  const q={header:'CTA',question:'Should we make the primary CTA stronger than Learn more?',multiSelect:false,options:[
+  {label:'Emphasize the primary CTA',description:'Make the primary action stronger and Learn more secondary.'},
+  {label:'Keep equal weight',description:'Leave the CTA at the same weight as Learn more.'}]};
+ if(mode==='ready'){
+  const root=path.join(process.env.CLAUDE_CONFIG_DIR,'projects','owned');
+  const row={type:'assistant',isSidechain:false,cwd:process.cwd(),sessionId:id,timestamp:new Date().toISOString(),message:{role:'assistant',content:[{type:'tool_use',id:'question1',name:'AskUserQuestion',input:{questions:[q]}}]}};
+  fs.appendFileSync(path.join(root,id+'.jsonl'),JSON.stringify(row)+'\\n');
+ }
+ process.stdout.write(mode==='scope'?'What should I review?\\n❯ 1. Current branch diff\\n  2. A plan or design doc\\n':
+  '☐ CTA\\n'+q.question+'\\n❯ 1. '+q.options[0].label+'\\n'+q.options[0].description+'\\n  2. '+q.options[1].label+'\\n'+q.options[1].description+'\\nEnter to select · ↑/↓ to navigate · Esc to cancel\\n');
 });
 process.on('SIGINT',()=>process.exit(0));
 process.stdin.resume();
+}
 `);
     fs.writeFileSync(worker, `
 import {runPlanSkillFloorCheck} from ${JSON.stringify(pathToFileURL(path.join(ROOT, 'test/helpers/claude-pty-runner.ts')).href)};
@@ -155,13 +176,15 @@ fs.writeFileSync(${JSON.stringify(output)},JSON.stringify(results));
       for (const result of JSON.parse(fs.readFileSync(output, 'utf8'))) {
         const events = fs.readFileSync(path.join(dir, result.mode + '.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
         const startup = events[0];
-        expect(startup.plan).toBe(SEED); expect(startup.context).toContain(SEED); expect(startup.cwd).not.toBe(ROOT);
+        expect(startup.plan.endsWith('\n\n'+SEED)).toBe(true); expect(startup.context).toContain(SEED);
+        expect(startup.plan).toContain('skip the optional /office-hours prerequisite');
+        expect(startup.plan).toContain('Preserve the supplied product scope'); expect(startup.cwd).not.toBe(ROOT);
         expect(startup.argv[startup.argv.indexOf('--permission-mode') + 1]).toBe('plan');
         expect(startup.argv[startup.argv.indexOf('--model') + 1]).toBe('claude-fable-5-1');
         expect(events.filter(e => e.type === 'input').map(e => e.input).join('')).toBe('/plan-design-review PLAN.md\r');
         expect(events.at(-1)).toEqual({type:'closed',pid:startup.pid}); expect(fs.existsSync(startup.cwd)).toBe(false);
         expect(() => process.kill(startup.pid, 0)).toThrow();
-        expect(result.observation.auqObserved).toBe(result.mode === 'ready');
+        expect(result.observation.auqObserved,JSON.stringify(result.observation)).toBe(result.mode === 'ready');
         expect(result.observation.outcome).toBe(result.mode === 'ready' ? 'auq_observed' : 'timeout');
         expect(result.observation.targetDelivery.status).toBe(['ready','scope'].includes(result.mode) ? 'ready' : 'missing');
         const retained=JSON.parse(fs.readFileSync(path.join(result.observation.artifactDir,'observation.json'),'utf8'));

@@ -36,6 +36,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { promotedEnv } from '../../lib/conductor-env-shim';
+import { execFileSync } from 'node:child_process';
 import { isProcessAlive, safeUnlink } from '../../lib/error-handling';
 import { skillCensus, frontmatterName } from './skill-census';
 
@@ -150,6 +151,7 @@ export interface SeedConfigOpts {
 export function buildSeedConfig(opts: SeedConfigOpts): Record<string, unknown> {
   const seed: Record<string, unknown> = {
     hasCompletedOnboarding: true,
+    diffSidebarOpen: false,
     projects: Object.fromEntries(
       opts.trustedDirs.map((dir) => [
         dir,
@@ -179,6 +181,44 @@ let cachedDirs: HermeticDirs | null = null;
 /** Repo root for the trusted-dir seed: test files live in <root>/test/helpers. */
 function repoRoot(): string {
   return path.resolve(__dirname, '..', '..');
+}
+
+/** Seed a private, existing empty directory owned by the calling test.
+ * Never apply this automatically to a caller-supplied GSTACK_HOME: tests for
+ * onboarding and upgrades intentionally supply their own state. The caller
+ * owns cleanup if a write fails. Refuse existing state or a symlink root so
+ * this helper cannot silently reset operator configuration.
+ */
+export function seedHermeticGstackHome(gstackHome: string): void {
+  const existing = fs.lstatSync(gstackHome, { throwIfNoEntry: false });
+  if (!existing?.isDirectory() || fs.readdirSync(gstackHome).length !== 0) {
+    throw new Error('Hermetic GStack seed requires a private, existing empty directory');
+  }
+  // Seed one-time onboarding markers into the CHILD's GSTACK_HOME.
+  // bin/gstack-skill-start reads ${GSTACK_HOME:-$HOME/.gstack} (EOV7), so
+  // the operator-HOME seeding in e2e-helpers.ts no longer reaches hermetic
+  // children — without these, the emission layer fires lake-intro/telemetry
+  // prompts that burn turns and can stall PTY tests waiting on an answer.
+  // Tests that exercise onboarding itself override GSTACK_HOME per-test.
+  for (const f of [
+    '.activated',
+    '.completeness-intro-seen',
+    '.telemetry-prompted',
+    '.proactive-prompted',
+    '.first-loop-tip-shown',
+    '.feature-prompted-continuous-checkpoint',
+    '.feature-prompted-model-overlay',
+  ]) {
+    fs.writeFileSync(path.join(gstackHome, f), '');
+  }
+  // The privacy stop-gate is config-keyed, not marker-keyed: on machines
+  // with gbrain installed it fires whenever artifacts_sync_mode is off and
+  // the consent prompt is unrecorded — same PTY-stall class as the markers.
+  // HOME still exposes the operator's installed runtime to literal skill
+  // preambles. Its older VERSION or update cache must not turn a scope-gate
+  // eval into an upgrade prompt. Update-flow tests opt in with their own
+  // GSTACK_HOME config through the existing per-test override.
+  fs.writeFileSync(path.join(gstackHome, 'config.yaml'), 'artifacts_sync_mode_prompted: true\nupdate_check: false\n');
 }
 
 /**
@@ -211,27 +251,7 @@ export function getHermeticDirs(): HermeticDirs {
       trustedDirs: [repoRoot()],
     });
     fs.writeFileSync(path.join(configDir, '.claude.json'), JSON.stringify(seed, null, 2));
-    // Seed one-time onboarding markers into the CHILD's GSTACK_HOME.
-    // bin/gstack-skill-start reads ${GSTACK_HOME:-$HOME/.gstack} (EOV7), so
-    // the operator-HOME seeding in e2e-helpers.ts no longer reaches hermetic
-    // children — without these, the emission layer fires lake-intro/telemetry
-    // prompts that burn turns and can stall PTY tests waiting on an answer.
-    // Tests that exercise onboarding itself override GSTACK_HOME per-test.
-    for (const f of [
-      '.activated',
-      '.completeness-intro-seen',
-      '.telemetry-prompted',
-      '.proactive-prompted',
-      '.first-loop-tip-shown',
-      '.feature-prompted-continuous-checkpoint',
-      '.feature-prompted-model-overlay',
-    ]) {
-      fs.writeFileSync(path.join(gstackHome, f), '');
-    }
-    // The privacy stop-gate is config-keyed, not marker-keyed: on machines
-    // with gbrain installed it fires whenever artifacts_sync_mode is off and
-    // the consent prompt is unrecorded — same PTY-stall class as the markers.
-    fs.writeFileSync(path.join(gstackHome, 'config.yaml'), 'artifacts_sync_mode_prompted: true\n');
+    seedHermeticGstackHome(gstackHome);
   } catch (err) {
     try { fs.rmSync(runRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
     throw err;
@@ -245,6 +265,65 @@ export function getHermeticDirs(): HermeticDirs {
 
   cachedDirs = { configDir, gstackHome, runRoot };
   return cachedDirs;
+}
+
+/** The caller owns a private fixture and its generated artifact subtree.
+ * Only the two fixed wrappers below choose the admitted fixture and file types. */
+function hermeticArtifactReadArgs(cwd: string, childEnv: Record<string, string>, scopeSpec: {
+  label: string; fixturePattern: RegExp; fixtureDescription: string;
+  artifactDirectory: string; filePattern: string;
+}): string[] {
+  const { label, fixturePattern, fixtureDescription, artifactDirectory, filePattern } = scopeSpec;
+  if (!isHermeticEnabled()) throw new Error(`${label} artifact Read requires hermetic mode`);
+  const dirs = getHermeticDirs();
+  const fixture = path.resolve(cwd);
+  const slug = path.basename(fixture);
+  if (childEnv.GSTACK_HOME !== dirs.gstackHome || childEnv.GSTACK_PROJECT_SLUG
+    || !fixturePattern.test(slug)
+    || !fs.lstatSync(fixture).isDirectory()
+    || fs.realpathSync(path.dirname(fixture)) !== fs.realpathSync(os.tmpdir())) {
+    throw new Error(`${label} artifact Read requires this ${fixtureDescription} and hermetic home`);
+  }
+  for (const directory of [dirs.runRoot, dirs.gstackHome, path.join(fixture, '.git')]) {
+    if (!fs.lstatSync(directory).isDirectory()) throw new Error(`${label} artifact Read refuses substituted directories`);
+  }
+  // Use the same native slug resolver before granting anything; never allow
+  // an ancestor project or a foreign remote to redirect this fixture's scope.
+  const resolved = execFileSync('bash', [path.join(repoRoot(), 'bin', 'gstack-slug')], {
+    cwd: fixture, env: childEnv, encoding: 'utf8', timeout: 10_000,
+  }).match(/^SLUG=([^\r\n]+)$/m)?.[1];
+  if (resolved !== slug) throw new Error(`${label} artifact Read requires the exact fixture project slug`);
+  const project = path.join(dirs.gstackHome, 'projects', slug);
+  const scope = path.join(project, artifactDirectory);
+  for (const directory of [path.dirname(project), project, scope]) {
+    const existing = fs.lstatSync(directory, { throwIfNoEntry: false });
+    if (existing && !existing.isDirectory()) throw new Error(`${label} artifact Read refuses substituted directories`);
+    if (!existing) fs.mkdirSync(directory, { mode: 0o700 });
+  }
+  const scopes = new Set([scope, fs.realpathSync(scope)]);
+  const rules = [...scopes].map(directory => {
+    const absolute = directory.split(path.sep).join('/');
+    if (/[\x00-\x1f\x7f\\*?\[\]{}()|+^$,]/.test(absolute)) {
+      throw new Error(`${label} artifact path contains unsupported permission-pattern syntax`);
+    }
+    return `Read(${absolute.startsWith('/') ? '/' : ''}${absolute}/${filePattern})`;
+  });
+  return ['--allowedTools', ...rules];
+}
+
+/** Only split's own generated CEO review documents need child-agent Read. */
+export function hermeticCeoPlanReadArgs(cwd: string, childEnv: Record<string, string>): string[] {
+  return hermeticArtifactReadArgs(cwd, childEnv, { label: 'CEO',
+    fixturePattern: /^gstack-e2e-plan-ceo-split-overflow-[A-Za-z0-9]+$/, fixtureDescription: 'private split fixture',
+    artifactDirectory: 'ceo-plans', filePattern: '*.md' });
+}
+
+/** Only the two Design fixtures may read their own generated PNG mockups.
+ * No operator-home, other-project, document, shell or write permission is added. */
+export function hermeticDesignReadArgs(cwd: string, childEnv: Record<string, string>): string[] {
+  return hermeticArtifactReadArgs(cwd, childEnv, { label: 'Design',
+    fixturePattern: /^(?:gstack-e2e-plan-design-|design-ui-project-)[A-Za-z0-9]+$/, fixtureDescription: 'private Design fixture',
+    artifactDirectory: 'designs', filePattern: '*/*.png' });
 }
 
 let cachedSkillsConfigDir: string | null = null;
@@ -336,52 +415,69 @@ export function seedHermeticRuntimeView(root: string, destination: string): void
  * this registration helper itself does not change their environment.
  */
 export function hermeticSkillsConfigDir(): string {
-  if (cachedSkillsConfigDir) return cachedSkillsConfigDir;
+  if (cachedSkillsConfigDir) {
+    let intact = false;
+    try {
+      const stat = fs.lstatSync(cachedSkillsConfigDir);
+      intact = stat.isDirectory() && !stat.isSymbolicLink();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (intact) return cachedSkillsConfigDir;
+    // A substituted config must never redirect seeding into operator state.
+    safeUnlink(cachedSkillsConfigDir);
+    cachedSkillsConfigDir = null;
+  }
   const { runRoot } = getHermeticDirs();
   const configDir = path.join(runRoot, 'with-skills', '.claude');
   const skillsDir = path.join(configDir, 'skills');
-  fs.mkdirSync(skillsDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(configDir, '.claude.json'),
-    JSON.stringify(buildSeedConfig({
-      apiKey: process.env.ANTHROPIC_API_KEY ?? process.env.GSTACK_ANTHROPIC_API_KEY,
-      trustedDirs: [repoRoot()],
-    }), null, 2),
-  );
-  const root = repoRoot();
-  for (const rel of skillCensus(root).physicalSkillFiles) {
-    const skillMd = path.join(root, rel);
-    const skillDir = path.dirname(rel);
-    const registryName = rel === 'SKILL.md'
-      ? '_gstack-command'
-      : frontmatterName(skillMd) || skillDir;
-    const target = path.join(skillsDir, registryName);
-    // Idempotent overwrite mirrors setup's re-link: connect-chrome (a dir
-    // symlink to open-gstack-browser) shares its target's frontmatter name,
-    // so the two walk entries collapse to one registry dir.
-    fs.mkdirSync(target, { recursive: true });
-    safeUnlink(path.join(target, 'SKILL.md'));
-    fs.symlinkSync(skillMd, path.join(target, 'SKILL.md'));
-    if (rel !== 'SKILL.md') {
-      // Mirror setup's _link_skill_runtime_assets, including references and
-      // helpers beside sections. Missing assets can send a live agent looking
-      // outside its installed fixture and into the operator's stale checkout.
-      const source = path.join(root, skillDir);
-      for (const name of fs.readdirSync(source)) {
-        if (name.startsWith('.') || ['SKILL.md', 'node_modules', 'dist', 'test'].includes(name) || name.endsWith('.tmpl')) continue;
-        const asset = path.join(source, name);
-        if (!fs.existsSync(asset)) continue;
-        const destination = path.join(target, name);
-        safeUnlink(destination);
-        fs.symlinkSync(asset, destination, fs.statSync(asset).isDirectory() ? 'dir' : 'file');
+  try {
+    fs.mkdirSync(skillsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, '.claude.json'),
+      JSON.stringify(buildSeedConfig({
+        apiKey: process.env.ANTHROPIC_API_KEY ?? process.env.GSTACK_ANTHROPIC_API_KEY,
+        trustedDirs: [repoRoot()],
+      }), null, 2),
+    );
+    const root = repoRoot();
+    for (const rel of skillCensus(root).physicalSkillFiles) {
+      const skillMd = path.join(root, rel);
+      const skillDir = path.dirname(rel);
+      const registryName = rel === 'SKILL.md'
+        ? '_gstack-command'
+        : frontmatterName(skillMd) || skillDir;
+      const target = path.join(skillsDir, registryName);
+      // Idempotent overwrite mirrors setup's re-link: connect-chrome (a dir
+      // symlink to open-gstack-browser) shares its target's frontmatter name,
+      // so the two walk entries collapse to one registry dir.
+      fs.mkdirSync(target, { recursive: true });
+      safeUnlink(path.join(target, 'SKILL.md'));
+      fs.symlinkSync(skillMd, path.join(target, 'SKILL.md'));
+      if (rel !== 'SKILL.md') {
+        // Mirror setup's _link_skill_runtime_assets, including references and
+        // helpers beside sections. Missing assets can send a live agent looking
+        // outside its installed fixture and into the operator's stale checkout.
+        const source = path.join(root, skillDir);
+        for (const name of fs.readdirSync(source)) {
+          if (name.startsWith('.') || ['SKILL.md', 'node_modules', 'dist', 'test'].includes(name) || name.endsWith('.tmpl')) continue;
+          const asset = path.join(source, name);
+          if (!fs.existsSync(asset)) continue;
+          const destination = path.join(target, name);
+          safeUnlink(destination);
+          fs.symlinkSync(asset, destination, fs.statSync(asset).isDirectory() ? 'dir' : 'file');
+        }
       }
     }
+    // Canonical lazy paths remain available without letting native file-index
+    // discovery recursively read the source checkout's historical artifacts.
+    seedHermeticRuntimeView(root, path.join(skillsDir, 'gstack'));
+    cachedSkillsConfigDir = configDir;
+    return configDir;
+  } catch (error) {
+    try { fs.rmSync(path.join(runRoot, 'with-skills'), { recursive: true, force: true }); } catch { /* preserve the original seeding error */ }
+    throw error;
   }
-  // Canonical lazy paths remain available without letting native file-index
-  // discovery recursively read the source checkout's historical artifacts.
-  seedHermeticRuntimeView(root, path.join(skillsDir, 'gstack'));
-  cachedSkillsConfigDir = configDir;
-  return configDir;
 }
 
 /** A dir younger than this is never GC'd even if its pid looks dead — guards

@@ -1,9 +1,10 @@
-import { designFirstReviewAUQ } from './claude-pty-runner';
+import { designFirstReviewAUQ, designReviewSetupAUQ } from './claude-pty-runner';
 import type { AskUserQuestionFingerprint } from './claude-pty-runner';
 import { pickDesignCountOutsideVoices } from './design-count-outside';
 
 /** Choosing reviewer participation is setup, even when numbered or asked late. */
 export function isDesignCountSetup(fp: AskUserQuestionFingerprint): boolean {
+  if (designReviewSetupAUQ(fp)) return true;
   const call = fp.nativeCall;
   if (!call?.answered || call.failed || call.questions.length !== 1 ||
       call.unansweredQuestionIndices?.length || fp.signature !== `${call.sessionId}:${call.toolUseId}`) return false;
@@ -99,7 +100,13 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
     (distinguishedPrimaryIssue && /^How should ([A-Za-z][A-Za-z0-9 _-]{0,39}) (?:be distinguished|stand out) from /i.exec(issue[2]!)) ??
     (headerActionIssue && new RegExp(`^Issue ${issue[1]}: ([A-Za-z][A-Za-z0-9 _-]{0,39})$`, 'i').exec(q.header.trim()));
   if (declaredPrimaryIssue && (!primary || q.options.length > 4 || Object.keys(call.answers ?? {}).length !== 1)) return false;
-  const primaryEmphasisIssue = !!signaledPrimaryIssue || !!distinguishedPrimaryIssue || !!declaredPrimaryIssue || /^Give [A-Za-z][A-Za-z0-9 _-]{0,39} primary emphasis in the header action group$/i.test(issue[2]!);
+  // An attributed native option can put the fill before or after its color.
+  // It still names the primary, every ghost peer and DESIGN.md in one action.
+  const namedTokenStyle = primary && new RegExp(`^(?:✅\\s*)?(?:Matches DESIGN\\.md exactly|(?:Apply|Use) DESIGN\\.md(?: tokens)?): ${primary[1]} ` +
+    '(?:#[0-9a-f]{6} filled(?: with)? (?:white|black) text|filled #[0-9a-f]{6}(?: with)? (?:white|black) text); ' +
+    '([A-Za-z][A-Za-z0-9 ,/_-]{0,99}) (?:as )?neutral ghost(?: buttons)?\\.', 'i');
+  const namedTokenIssue = !!namedTokenStyle && q.options.some(o => namedTokenStyle.test(o.description ?? ''));
+  const primaryEmphasisIssue = namedTokenIssue || !!signaledPrimaryIssue || !!distinguishedPrimaryIssue || !!declaredPrimaryIssue || /^Give [A-Za-z][A-Za-z0-9 _-]{0,39} primary emphasis in the header action group$/i.test(issue[2]!);
   const scopedPrimaryStatus = !!headerActionIssue || primaryEmphasisIssue;
   const explicitStyle = primary && `${primary[1]} filled (?:primary )?#[0-9a-f]{6}(?:/| with )(?:white|black)(?: text)?; ` +
     '[A-Za-z][A-Za-z0-9 ,/_-]{0,99} neutral ghost(?: buttons)?\\.';
@@ -234,7 +241,32 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
         new RegExp(`^(?:✅\\s*)?${primary[1]} is #[0-9a-f]{6} with (?:white|black) text; ([A-Za-z][A-Za-z0-9 ,_-]{0,119}) are neutral ghost buttons per DESIGN\\.md\\.`, 'i').exec(body) ??
         new RegExp(`^(?:✅\\s*)?${primary[1]} becomes the only filled button \\(#[0-9a-f]{6}, (?:white|black) text\\); ([A-Za-z][A-Za-z0-9 ,/_-]{0,119}) use the existing neutral ghost variant` +
           '(?: \\(human: ~?[0-9]+(?:\\.[0-9]+)?(?:h|min) / CC: ~?[0-9]+(?:\\.[0-9]+)?(?:h|min)\\))?\\. (?:✅\\s*)?Matches DESIGN\\.md exactly\\b', 'i').exec(body) ?? roleStyle);
-      const style = declaredPrimaryIssue ? declaredStyle?.[0] : distinguishedPrimaryIssue ? distinguishedStyle?.[0] : headerActionIssue ? headerStyle?.[0] : amendments.map(pattern => pattern.exec(body)).find(Boolean)?.[0];
+      const attributedStyle = namedTokenStyle?.exec(body);
+      let namedTokenValid = false;
+      if (namedTokenIssue) {
+        const peers = primaryAssessment?.replace(new RegExp(`^(?:Right now|Today) ${primary![1]},\\s*`, 'i'), '')
+          .replace(/\s+(?:(?:all )?look (?:the same|identical)|are (?:all )?(?:(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) )?identical buttons)$/, '');
+        const sources = (prefix.join(' ') + ' ' + assessment).match(/[\w./-]+\.md\b/g) ?? [];
+        const sourceRoles = [...assessment.matchAll(new RegExp(`(?:^|[.!?]\\s+)DESIGN\\.md (?:already )?(?:says|states|specifies|requires|defines|names the treatment):? ${primary![1]} is the (?:only|single) filled button ` +
+          '\\((#[0-9a-f]{6})(?:,| with) (white|black) text(?:, (?:~|about )?[0-9]+(?:\\.[0-9]+)?:1 contrast)?\\)(?:,| and) (?:the )?other ' +
+          '(two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) are neutral ghost(?:s| buttons)\\.', 'gi'))];
+        const assertedRoles = sourceRoles.length === 1 ? sourceRoles[0] : undefined;
+        // Additional imperative work cannot borrow this styling decision's ACK.
+        // Explanatory subjects, negated work and quoted history are not commands.
+        const extraAction = /(?:^|[.!?;]\s+|\n|[✅❌]\s*|\b(?:and|but|while)\s+)(?:(?:also|then|now|first|next|please)\s+)*(?:approve|add|build|create|implement|replace|remove|delete|deploy|install|configure|rewrite|migrate|launch|fix|repair|resolve)\b/i;
+        const wrongTokens = !assertedRoles || !attributedStyle ||
+            numberValue(assertedRoles[3]!) !== otherControls ||
+            attributedStyle[0].match(/#[0-9a-f]{6}/i)?.[0].toLowerCase() !== assertedRoles[1]!.toLowerCase() ||
+            attributedStyle[0].match(/\b(?:white|black) text\b/i)?.[0].toLowerCase() !== assertedRoles[2]!.toLowerCase() + ' text' ||
+            extraAction.test(questionText) || q.options.some(o => extraAction.test(currentText(o.label + '\n' + (o.description ?? ''))));
+        namedTokenValid = Boolean(!wrongTokens && attributedStyle && peers && q.options.length <= 4 && Object.keys(call.answers ?? {}).length === 1 &&
+            (questionText.match(/^Project\/branch\/task:/gm)?.length ?? 0) === 1 &&
+            !conditionalHeader(questionText) && !conditionalHeader(body) &&
+            sources.includes('DESIGN.md') && sources.every(source => ['PLAN.md', 'DESIGN.md'].includes(source)) &&
+            JSON.stringify(controlNames(attributedStyle[1]!.replaceAll('/', ','))) === JSON.stringify(controlNames(peers)) &&
+            new Set(controlNames(peers)).size === otherControls && !invalidContract.test(body));
+      }
+      const style = declaredPrimaryIssue ? declaredStyle?.[0] : distinguishedPrimaryIssue ? distinguishedStyle?.[0] : headerActionIssue ? headerStyle?.[0] : (namedTokenValid ? attributedStyle?.[0] : undefined) ?? amendments.map(pattern => pattern.exec(body)).find(Boolean)?.[0];
       if ((declaredPrimaryIssue || distinguishedPrimaryIssue) &&
           /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:the|this) (?:current )?(?:amendment|fix) keeps (?:all )?(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:header )?buttons identical\b/i.test(body)) return false;
       if (distinguishedPrimaryIssue && (!distinguishedStyle || conditionalHeader(body) || invalidContract.test(body) ||
@@ -260,7 +292,8 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
           sourceAssessment.test(body) || withdrawn.test(body) || closedGap.test(body) || cancelledStyle.test(body) || withdrawnStyles.test(body)) return false;
       return opposed.some(defer => {
         const declined = currentText(defer.description ?? '');
-        if (pendingPrimaryApproval(declined)) return false;
+        if (pendingPrimaryApproval(declined) || (namedTokenIssue && (conditionalHeader(declined) ||
+          /(?:^|[.!?;]\s+|\n)(?:this|the) (?:option|deferral) (?:(?:now|already|actually) )?(?:fixes|resolves|closes) (?:the |this )?(?:hierarchy |primary-action )?gap\b/i.test(declined)))) return false;
         if (declaredPrimaryIssue) return defer !== amendment &&
           new RegExp(`^${issue[1]}[A-Z][).:]?\\s+Defer(?: \\(recommended\\))?$`, 'i').test(defer.label) &&
           new RegExp(`^Leave ${declaredGap ? `G${declaredGap}` : `Issue ${issue[1]}`} open and record it as unresolved\\.`, 'i').test(declined) &&
@@ -292,7 +325,8 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
             /^(?:❌\s*)?Ships a (?:known|documented) DESIGN\.md violation; the review score stays capped and users keep scanning a flat row\./i.test(remaining);
         }
         return defer !== amendment && !sourceAssessment.test(declined) && !withdrawn.test(declined) && !closedGap.test(declined) && !cancelledHeaderDeferral &&
-          ((retainedButtons && numberValue(retainedButtons[1]!) === otherControls + 1 &&
+          ((namedTokenValid && /^(?:Leaves|Keeps|Retains) (?:a documented|the(?: documented)?) DESIGN\.md violation (?:in place|unresolved|open)\b/i.test(remaining)) ||
+            (retainedButtons && numberValue(retainedButtons[1]!) === otherControls + 1 &&
               (!cancelledRetainedButtons || numberValue(cancelledRetainedButtons[1]!) !== otherControls + 1)) ||
             /^(?:❌\s*)?(?:Leaves a documented DESIGN\.md violation in place|Keeps the documented DESIGN\.md violation and the scan problem|Violates DESIGN\.md and leaves the mis-click on [A-Za-z][A-Za-z /_-]{0,79} unaddressed|Ships a (?:known|documented) DESIGN\.md violation and the primary action (?:stays|remains) undiscoverable|Ships a header with no primary action; PLAN\.md['’]s own gap stays open|Ships the documented violation;[^.\n]*\bthe gap remains open|Primary-action ambiguity ships; documented DESIGN\.md violation remains|Decline the fix; gap stays documented and lowers the score|Decline the fix; document the violation as accepted|Keep all (?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) identical; record as an open DESIGN\.md violation)\b/i.test(remaining) ||
             (variantRepair && /^(?:Violates DESIGN\.md and leaves users guessing which action is primary; Pass [1-7] stays at [0-9](?:\.[0-9]+)?\/10|Documented DESIGN\.md violation ships and Pass [1-7] stays at [0-9](?:\.[0-9]+)?\/10)\.$/i.test(remaining)));
@@ -311,6 +345,154 @@ function designSystemChoiceIssue(fp: AskUserQuestionFingerprint): boolean {
       !call.answeredAt || !Number.isFinite(Date.parse(call.answeredAt))) return false;
   const q = call.questions[0]!;
   const lines = q.question.trim().split('\n');
+  const namedGap = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*) \(G([1-9]\d*)\): ([^?]+)\?$/.exec(lines[0]!);
+  const findingIssue = /^([1-9]\d*)\s*[—–:-]\s*Finding ([1-9]\d*) \(([A-Za-z][A-Za-z &/-]*)\): ([^?]+)\?$/i.exec(lines[0]!);
+  const fieldIssue = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*)(?: \(Pass ([1-7])(?:, [A-Za-z][A-Za-z &/-]*)?\))?: ([^?]+)\?$/.exec(lines[0]!) ??
+    (findingIssue ? [findingIssue[0], findingIssue[1], undefined, `${findingIssue[3]}: ${findingIssue[4]}`] : null);
+  const source = /^Project\/branch\/task: (.+)$/m.exec(q.question)?.[1] ?? '';
+  const sourceGaps = [...source.matchAll(/\bgap G([1-9]\d*)\b/gi)];
+  const ownGap = sourceGaps[0]?.[1];
+  const nativeIssue = fieldIssue && (q.header.trim() === `Issue ${fieldIssue[1]}` || findingIssue);
+  // The native Issue/option IDs own the current decision. A pass can be in
+  // its title or source field, and a G label is optional. If a G is present,
+  // another source row cannot lend this question its identity or evidence.
+  const scopedIssue = fieldIssue && (fieldIssue[2] || /\bPass [1-7]\b/.test(source) || nativeIssue) && sourceGaps.length <= 1 &&
+    [...q.question.matchAll(/\bG([1-9]\d*)\b/g)].every(m => m[1] === ownGap)
+    ? [fieldIssue[0], fieldIssue[1], ownGap, fieldIssue[3]] : null;
+  const gapIssue = namedGap ?? scopedIssue;
+  if (gapIssue && (() => {
+    const [, issueNumber, gapNumber, subject] = gapIssue;
+    const headerIssue = /\bIssue ([1-9]\d*)\b/i.exec(q.header);
+    if (!q.header.trim() || (headerIssue && headerIssue[1] !== issueNumber) ||
+        /^(?:focus|scope|setup|routing|learnings|outside(?: design)? voices|next steps?)\b/i.test(q.header.trim()) ||
+        /<gstack-qid:/i.test(q.question) || q.multiSelect || q.options.length < 2 || q.options.length > 4 ||
+        fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+        !q.options.some(o => o.label === call.answers?.[q.question])) return false;
+
+    // The issue and option IDs bind a decision; its descriptive menu header
+    // and the wording/line count of each decision field do not supply evidence.
+    const ids = q.options.map(o => new RegExp(`^(${issueNumber}[A-Z])(?:[).:]?\\s+)`).exec(o.label)?.[1]);
+    if (ids.some(id => !id) || new Set(ids).size !== ids.length) return false;
+    // Count the acknowledged design decision, not optional summary formatting.
+    const fields = ['Project/branch/task:', 'ELI10:', 'Stakes if we pick wrong:', 'Recommendation:', 'Completeness:'];
+    if (q.question.includes('Net:')) fields.push('Net:');
+    const positions = fields.map(field => q.question.indexOf(field));
+    if (positions.some((position, i) => position < 0 || q.question.lastIndexOf(fields[i]!) !== position ||
+        (i > 0 && position <= positions[i - 1]!)) || q.question.slice(0, positions[0]).trim() !== lines[0]) return false;
+    const values = fields.map((field, i) => q.question.slice(positions[i]! + field.length, positions[i + 1] ?? q.question.length).trim());
+    const sourceOnly = /^(?:[>"“`]|Historical|Previously|Hypothetical|Quoted|Source|Archived|Earlier|Example|If|When|Once|Unless|Assuming|Provided|Pending approval)\b|^[>"“`]/i;
+    const inactive = /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:(?:this|the) (?:finding|gap|issue|amendment|fix|decision)|G[1-9]\d*|Issue [1-9]\d*) (?:is|was|has been) (?:already |now )?["'‘“`]*(?:withdrawn|resolved|closed|superseded|hypothetical|not current|no longer current)\b|\bno current (?:defect|gap|finding|issue)\b/i;
+    const namedOwner = findingIssue ? `Finding ${findingIssue[2]}` : /^D[1-9]\d*/.exec(lines[0]!)?.[0];
+    const namedStatusPrefix = new RegExp(`(?:^|[.!?;]\\s+|\\n)(?:Correction:\\s*)?${namedOwner ?? '(?!)'} (?:is|was|has been) (?:already |now )?$`, 'i');
+    const namedInactive = new RegExp(namedStatusPrefix.source.replace(/\$$/, '') +
+      '["\'‘“`]*(?:withdrawn|resolved|closed|superseded|hypothetical|not current|no longer current)\\b', 'i');
+    const inactiveCurrent = (text: string) => inactive.test(text) || namedInactive.test(text);
+    const current = (value: string) => value.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
+      .replace(/^\s*>.*$/gm, '').replace(/"[^"\n]+"|“[^”\n]+”|`[^`\n]+`|'[^'\n]+'|‘[^’\n]+’/g,
+        (quoted, index, source) => /^(?:withdrawn|resolved|closed|superseded|hypothetical|not current|no longer current)$/i.test(quoted.slice(1, -1)) &&
+          (/\b(?:(?:this|the) (?:finding|gap|issue|amendment|fix|decision)|G[1-9]\d*|Issue [1-9]\d*) (?:is|was|has been) (?:already |now )?$/i.test(source.slice(0, index)) || namedStatusPrefix.test(source.slice(0, index)))
+          ? quoted.slice(1, -1) : '');
+    const sourceText = current(values[0]!.replace(/`PLAN\.md`/g, 'PLAN.md'));
+    // A review can name its current plan instead of repeating PLAN.md. Treat
+    // the title as a title only inside the review's own provenance field; a
+    // pass number corroborates that ownership but cannot supply it by itself.
+    const namedPlan = /(?:^|[,;]\s*)(?:\/plan-design-review of|reviewing|design review of)\s+(?:"([^"\n]+)"|“([^”\n]+)”|`([^`\n]+)`)(?=[,;.\s]|$)/i.exec(values[0]!);
+    const title = namedPlan?.slice(1).find(Boolean);
+    const namedCurrentPlan = !!title && !/\b[\w.-]+\.md\b/i.test(title) &&
+      !/\b(?:other|another|different|unrelated|foreign|historical|archived|quoted|copied|example)\b/i.test(title) &&
+      /\bPass [1-7]\s*\([A-Za-z][A-Za-z &/-]*\)/.test(sourceText);
+    const ownedSource = /\bPLAN\.md\b/.test(sourceText) ||
+      (!/\b[\w.-]+\.md\b/i.test(values[0]!) && (namedCurrentPlan ||
+        /\bPass [1-7]\s*\([A-Za-z][A-Za-z &/-]*\) of the [A-Za-z][A-Za-z -]* plan\.$/.test(sourceText)));
+    if (values.some(value => !value || sourceOnly.test(value)) || inactiveCurrent(current(q.question)) ||
+        !ownedSource || /\b(?:other|another|different|unrelated|foreign|historical|archived|quoted|copied) (?:[A-Za-z-]+ )?(?:plan|review|source)\b/i.test(sourceText) ||
+        /\b(?:planning|review|workflow) setup\b|\b(?:setup|onboarding|routing|posture|learnings) (?:stage|phase|step|decision)\b/i.test(current(values[0]!)) ||
+        (scopedIssue && !ownedSource) ||
+        !ids.some(id => values[3]!.startsWith(`${id} `))) return false;
+    const assessment = current(values[1]!);
+    if (/\b(?:historical|archived|hypothetical|quoted)\b|\b(?:not|isn't) (?:the )?current\b/i.test(assessment) ||
+        (!nativeIssue && !/\b(?:now|today|currently|proposed)\b/i.test(assessment))) return false;
+
+    // The complete comparison may live in the current native brief while
+    // the rendered menu uses short captions. Keep each detail block bound
+    // to its own native option ID; never pool evidence across alternatives.
+    const detailedOptions = new Map<string, string>();
+    const details = values[4]!.split(/\n(?:Pros\s*\/\s*cons|Options):\s*\n/i);
+    if (nativeIssue && details.length === 2) {
+      const body = details[1]!;
+      const starts = [...body.matchAll(/^([1-9]\d*[A-Z])[).:]\s+\S/gm)];
+      if (starts.length === ids.length && starts.every(start => ids.includes(start[1])) &&
+          new Set(starts.map(start => start[1])).size === ids.length &&
+          !body.split('\n').some(line => sourceOnly.test(line.trim()))) {
+        for (const [index, start] of starts.entries()) {
+          detailedOptions.set(start[1]!, body.slice(start.index, starts[index + 1]?.index ?? body.length));
+        }
+      }
+    }
+
+    // Recognize the fixture's design-defect classes, not a G-number or a
+    // prescribed sentence: ambiguous hierarchy, absent pending feedback,
+    // inconsistent type/spacing, or unreadable error contrast. Every class
+    // still needs a concrete native remedy and its own opposed open gap.
+    const classes: Array<{ subject: RegExp; defect: RegExp; remedy: RegExp }> = [
+      { subject: /\b(?:distinguished|primary|header|hierarchy)\b/i,
+        defect: /\b(?:look (?:the )?(?:same|identical)|share (?:the )?same visual weight|visually identical)\b/i,
+        remedy: /\bfilled\b[^;\n]*#[0-9a-f]{6}[^;\n]*(?:white|black)\b[^\n]*\bghost\b/i },
+      { subject: /\b(?:pending|request|loading)\b/i,
+        defect: /\b(?:page|request|button)\b[^.!?]*(?:just sits|freezes|no (?:visible )?(?:feedback|signal|indicator))|\b(?:shows?|gives?) no (?:pending |visible )?(?:feedback|signal|indicator)\b|\bnothing changes\b/i,
+        remedy: /\b(?:inline )?spinner\b[^\n]*\baria-busy\s*=\s*true\b[^\n]*\breduced.motion\b/i },
+      { subject: /\b(?:type|typography|labels|headings)\b/i,
+        defect: /\b(?:form|labels?|type)\b[^.!?]*(?:no (?:consistent )?(?:rule|role)|inconsisten\w*|accidental|(?:three|[3-9]\d*) sizes)/i,
+        remedy: /\b\d+px\b[^\n]*\blabels?\b[^\n]*\b\d+px\b[^\n]*\b(?:headings?|h[1-6])\b/i },
+      { subject: /\b(?:spacing|rhythm|gaps)\b/i,
+        defect: /\b(?:form|gaps?|spacing)\b[^.!?]*(?:no rule|without a spacing rule|random|inconsisten\w*)|\b(?:uneven|mixed|inconsistent|random) (?:spacing|gaps)\b/i,
+        remedy: /\bsections?\s+\d+px\b[^\n]*\bfield groups?\s+\d+px\b[^\n]*\blabel(?:\W*to\W*|\W+)(?:input|control)\s+\d+px\b/i },
+      { subject: /\b(?:errors?|contrast|colou?rs?)\b/i,
+        defect: /\b(?:error|text|contrast)\b[^.!?]*(?:fails? WCAG|below (?:WCAG|AA)|cannot read|can't read)/i,
+        remedy: /#[0-9a-f]{6}\b[^\n]*#[0-9a-f]{6}\b[^\n]*\b(?:icon|text)\b/i },
+    ];
+    // A numbered current Issue may state its gap in the title, then explain
+    // its impact in ELI10. Source/status/field ownership still apply to both.
+    const assertedGap = nativeIssue ? `${current(subject!)}\n${assessment}` : assessment;
+    const lowContrast = nativeIssue && /\b(?:error|contrast|message|text)\b/i.test(subject!) &&
+      [...assertedGap.matchAll(/(?:\bat\b|\babout\b|\bapproximately\b|~)\s*([0-9]+(?:\.[0-9]+)?)\s*:\s*1\b/gi)]
+        .some(match => Number(match[1]) < 4.5) && /\b(?:WCAG|AA)\b/.test(assessment);
+    const kind = classes.find((kind, index) => kind.subject.test(subject!) &&
+      (kind.defect.test(assertedGap) || index === 4 && lowContrast));
+    if (!kind || /\b(?:do not|don't|does not|doesn't) look identical\b/i.test(assessment)) return false;
+    return q.options.some((option, index) => {
+      const body = option.description?.trim() ?? '';
+      const detail = detailedOptions.get(ids[index]!) ?? '';
+      const remedy = nativeIssue ? current(`${option.label}\n${body}\n${detail}`) : current(body);
+      if (sourceOnly.test(body) || inactiveCurrent(remedy) || !kind.remedy.test(remedy) ||
+          !values[3]!.startsWith(`${ids[index]} `)) return false;
+      return q.options.some((other, otherIndex) => {
+        const declined = `${other.description?.trim() ?? ''}\n${detailedOptions.get(ids[otherIndex]!) ?? ''}`.trim();
+        const opposed = current(declined);
+        const ownedOpposition = !/\b(?:other|another|different|unrelated|foreign) (?:gap|issue|finding|decision)\b/i.test(opposed) &&
+          [...opposed.matchAll(/\bIssue ([1-9]\d*)\b/gi)].every(match => match[1] === issueNumber);
+        return ownedOpposition && other !== option && /^(?:Keep|Leave|Defer|Decline|No)\b/i.test(other.label.replace(new RegExp(`^${ids[otherIndex]}[).:]?\\s+`), '')) &&
+          !sourceOnly.test(declined) && !inactiveCurrent(current(declined)) &&
+          !/\b(?:(?:does?|did) not|no longer|never) violates? DESIGN\.md\b/i.test(opposed) &&
+          (new RegExp(`\\b(?:gap\\s+)?G${gapNumber}\\s+(?:stays|remains|is)\\s+(?:open|unresolved)\\b`, 'i').test(current(declined)) ||
+            (!!scopedIssue && (/\b(?:the |[a-z-]+ )?gap (?:stays|remains|is) (?:open|unresolved)\b/i.test(current(declined)) ||
+              (!!nativeIssue && /\b(?:known|documented) (?:WCAG )?AA failure ships\b/i.test(current(declined)) && /\bstays open\b/i.test(current(declined))) ||
+              (!!nativeIssue && /\b(?:stays|remains) (?:open|unresolved)\b/i.test(current(declined)) &&
+                !/\b(?:other|another|different|unrelated) (?:gap|issue|finding|decision)\b/i.test(current(declined)) &&
+                [...current(declined).matchAll(/\bIssue ([1-9]\d*)\b/gi)].every(match => match[1] === issueNumber)) ||
+              (!!nativeIssue && /^Record as unresolved[.;]/i.test(current(declined))) ||
+              // A kept violation may name the relevant contract, rather than
+              // use the exact phrase "gap remains open". It still belongs to
+              // this issue and the same design-defect class as the remedy.
+              (!!nativeIssue && /\bviolates DESIGN\.md(?:'s)?\b/i.test(opposed) && kind.subject.test(opposed) &&
+                !/\b(?:(?:does?|did) not|no longer|never) violates?\b|\b(?:historical|previous|earlier|example|quoted|hypothetical)\b/i.test(opposed)) ||
+              (!!nativeIssue && /\bviolates DESIGN\.md(?:'s)? (?:stated |existing |documented )?(?:primary treatment|two-role rule|spacing scale|contrast requirement)\b/i.test(current(declined))) ||
+              /\b(?:plan|design|page|header)\b[^.!?]*\b(?:keeps|retains|leaves|ships)\b[^.!?]*\bDESIGN\.md violation\b/i.test(current(declined))) &&
+              [...q.options.flatMap(o => [...`${o.label} ${o.description ?? ''}`.matchAll(/\bG([1-9]\d*)\b/g)])]
+                .every(m => m[1] === gapNumber)));
+      });
+    });
+  })()) return true;
   const issue = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*): (.+)\?$/.exec(lines[0]!);
   if (!issue || q.header.trim() !== `Issue ${issue[1]}` || lines.length !== 7 ||
       !/^Project\/branch\/task: [^\n,]+ on [^\n,]+, PLAN\.md design review, Pass [1-7] [A-Za-z][A-Za-z &()-]+\.$/.test(lines[1]!) ||

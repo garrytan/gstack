@@ -281,10 +281,14 @@ export async function assertRecommendationQuality(opts: {
   evalTitle: string;
   result: SkillTestResult;
   passed: boolean;
+  signal?: AbortSignal;
+  /** Let a bounded attempt defer its one terminal record until all assertions settle. */
+  record?: (extra: Pick<EvalTestEntry, 'judge_scores' | 'judge_reasoning'>) => void;
 }): Promise<RecommendationScore> {
-  const recScore = await judgeRecommendation(opts.captured);
-  recordE2E(opts.evalCollector, opts.evalId, opts.evalTitle, opts.result, {
-    passed: opts.passed,
+  opts.signal?.throwIfAborted();
+  const recScore = await judgeRecommendation(opts.captured, opts.signal);
+  opts.signal?.throwIfAborted();
+  const metadata = {
     judge_scores: {
       rec_present: recScore.present ? 1 : 0,
       rec_commits: recScore.commits ? 1 : 0,
@@ -292,7 +296,9 @@ export async function assertRecommendationQuality(opts: {
       rec_substance: recScore.reason_substance,
     },
     judge_reasoning: `${recScore.reasoning} | reason: "${recScore.reason_text}"`,
-  });
+  };
+  if (opts.record) opts.record(metadata);
+  else recordE2E(opts.evalCollector, opts.evalId, opts.evalTitle, opts.result, { passed: opts.passed, ...metadata });
   expect(recScore.present, recScore.reasoning).toBe(true);
   expect(recScore.commits, recScore.reasoning).toBe(true);
   expect(recScore.has_because, recScore.reasoning).toBe(true);

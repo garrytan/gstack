@@ -99,7 +99,7 @@ export function generatePreamble(ctx: TemplateContext): string {
     ...(tier >= 2 ? [generateAskUserFormat(ctx)] : []),
     generateBrainSyncBlock(ctx),
     generateModelOverlay(ctx),
-    generateVoiceDirective(tier),
+    generateVoiceDirective(ctx, tier),
     ...(tier >= 2 ? [
       generateContextRecovery(ctx),
       generateWritingStyle(ctx),

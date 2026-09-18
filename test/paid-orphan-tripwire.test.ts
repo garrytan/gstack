@@ -31,6 +31,7 @@ const SCANNER_EXEMPT = new Map<string, string>([
   // Meta-tests that quote gate-pattern strings to test classification:
   ['test/helpers/e2e-gate.unit.test.ts', 'free unit test OF the gate predicates (env stubbed)'],
   ['test/paid-shards.test.ts', 'quotes tier-guard strings as classification fixtures'],
+  ['test/carve-section-sharding.test.ts', 'free registry census quotes tier guards to verify each paid wrapper'],
   ['test/evals-workflow-wiring.test.ts', 'pins the sliced-lane yml wiring (successor to the matrix test)'],
   ['test/e2e-tier-alignment.test.ts', 'parses tier guards to enforce alignment'],
   ['test/paid-orphan-tripwire.test.ts', 'this scanner'],

@@ -1,31 +1,372 @@
-## Review Sections (after scope is agreed)
+## Review preparation
 
-**Anti-skip rule:** Never condense, abbreviate, or skip any review section (1-4) regardless of plan type (strategy, spec, code, infra). Every section in this skill exists for a reason. "This is a strategy doc so implementation sections don't apply" is always wrong — implementation details are where strategy breaks down. If a section genuinely has zero findings, say "No issues found" and move on — but you must evaluate it.
+After startup, follow the preparation sections below through Confidence
+Calibration. Read Decision procedure as the rule for later choices. Start the
+review at Scope Challenge, then complete Sections 1–4 in order.
 
-{{ANTI_SHORTCUT_CLAUSE}}
+## Review record and write policy
+
+Use these terms throughout the review:
+- **Target:** the plan, diff or code path selected at the Scope gate. It stays fixed.
+- **Working plan:** the proposed work and its current approvals. For a plan target,
+  start with that plan; for code, build a remedy plan from the findings. This is
+  review content, not permission to edit implementation or create another file.
+- **Report file:** the one destination for the working plan, findings, decision
+  ledger and final structured report. It may be the selected plan or a separate file.
+
+| Target | Evidence to examine |
+|---|---|
+| Plan or design document | Proposed paths, checked against existing interfaces and tests |
+| Branch diff | Changed behavior and surrounding code, traced from entry points |
+| Specific file or directory | Existing behavior and relevant callers/tests |
+
+When Test review or Outside Voice refers to the plan, use the current working
+plan and this target evidence. Trace current behavior and proposed changes
+separately. Include actual decisions in Outside Voice's bounded input.
+
+Choose the **report file** before any ledger write:
+1. Use the output/report path explicitly requested by the user.
+2. Otherwise use the selected plan file, if there is one.
+3. Otherwise use `$GSTACK_STATE_ROOT/projects/$SLUG/$BRANCH-eng-review-{YYYYMMDD-HHMMSS}.md`, adding a suffix on collision. Run `~/.claude/skills/gstack/bin/gstack-paths` and `~/.claude/skills/gstack/bin/gstack-slug` and construct the literal path from their returned assignments. A failed command or missing value makes this destination unavailable.
+
+Name the target in the report header. Never substitute an unrelated active plan
+or silently replace a requested destination.
+
+**Check each artifact and parent directory's permission before writing.** Honor
+user and host limits, including active-plan-only restrictions. Permission for one
+path authorizes no other; implementation edits require explicit authority.
+
+| Artifact | Destination | If writing is forbidden |
+|---|---|---|
+| Working plan, ledger and complete review report | Selected report file | Ask for a permitted destination if the user can supply one; wait without completion telemetry. If none is permitted, complete the review in chat as **not persisted**, then use **Blocked outcome**. |
+| QA Test Plan and task JSONL | Discovery paths below | Present each completely as **not persisted** and continue. |
+| TODOS.md | The project's TODO file | Present accepted TODO content as **not persisted** and continue. |
+| Required Review Log | The helper's state location | Present its fields as **not persisted**; the final gate cannot pass without this log. |
+| Best-effort metadata/learning logs | Helper-defined locations | Skip forbidden writes; otherwise keep their best-effort behavior. |
+
+The QA Test Plan and task JSONL intentionally use legacy discovery paths under
+`~/.gstack/projects/{slug}/`: `{user}-{branch}-eng-review-test-plan-{datetime}.md`
+and `tasks-eng-review-{datetime}.jsonl`. QA and /autoplan look there, even when the
+report uses a different state root. Keep these paths; do not relocate the artifacts
+beside the report. Their sections below specify the formats and write commands.
+
+A failed permitted save is different from forbidden writing. Use the failed
+step's stated recovery; if saving or read-back still fails, take **Blocked
+outcome**. Do not ask from an unsaved record or convert a failed save into the
+chat-only route. Forbidden auxiliary writes allow the review to continue;
+unrecovered attempted writes block it. Apply this policy at every later write.
 
 {{LEARNINGS_SEARCH}}
 
 ## Retrospective learning
-Check the git log for this branch. If there are prior commits suggesting a previous review cycle (e.g., review-driven refactors, reverted changes), note what was changed and whether the current plan touches the same areas. Be more aggressive reviewing areas that were previously problematic.
+For selected paths, run `git log --oneline -- <paths>` and
+`git log --grep=revert --oneline -- <paths>`; branch diff uses changed files.
+Plan target with no files: use named future paths or record `not available`.
+Check recurring issues or reversals.
 
-**Present complete remedies.** Before asking about one issue, include the
-validation and failure handling needed to make that remedy work in its options.
-Record the individually approved remedy in the plan. Later sections verify and
-reference that decision; they do not ask again for work already included in it.
-A new failure mode or tradeoff still requires its own decision. Scope approval
-alone does not approve individual findings, and approving one remedy does not
-approve independent issues or new TODOs. Keep those approvals separate.
+**Plan-review evidence:** Implementation/validation steps are proposals. Calibrate
+findings below: quote the motivating plan requirement (file:line) and check existing interfaces
+where applicable. Do not require future code or call a proposed regression observed.
+Code-specific examples concern existing code.
 
-**Plan-review evidence:** Apply the calibration gate below before Section 1. For proposed work, quote the motivating plan requirement (plan file:line); verify it against existing interfaces where applicable. Do not require nonexistent future code or describe a proposed regression as an observed one. Code-specific examples apply when critiquing existing code. Put suppressed findings in a `Suppressed findings` appendix to the review report.
+Bounded probes answer named uncertainties about current behavior/interfaces;
+report evidence and limits. Record unknowns, unmeasured results and future
+verification. Complete all sections, approvals and outputs without building
+proposed code to settle unknowns. Keep suppressed findings for the output appendix.
 
 {{CONFIDENCE_CALIBRATION}}
 
-## Formatting rules
-* NUMBER issues (1, 2, 3...) and LETTERS for options (A, B, C...).
-* Label with NUMBER + LETTER (e.g., "3A", "3B"). These issue IDs are separate from the preamble's `D<N>` question sequence; cite the issue ID in the question title.
-* Keep each option label to one sentence; include the preamble's full reasoning and pros/cons below it.
-* Follow the per-issue approval rule in **CRITICAL RULE — How to ask questions**: wait for each finding's answer; zero-finding sections proceed as specified there.
+## Decision procedure
+
+Use this six-step loop for findings from Scope Challenge, Sections 1–4, Outside
+Voice and late changes. Finish one choice before starting another. It also covers
+TODO choices. Setup gates are target/prerequisite choices before findings:
+Context Recovery/prerequisite prompts, initial target selector and Scope
+Challenge complexity selector. They use local rules, no pre-answer ledger.
+
+Flow: issue -> compare -> save/read -> ask/wait -> apply -> next issue.
+
+One question for one choice per AskUserQuestion call. Use the preamble for
+question transport/fallback and authorized auto-decisions. Use Review
+record/write policy only for saved records, reports and logs.
+
+### 1. Establish current state
+
+Read the request, source and actual answers. Give each finding a number, severity,
+confidence, file:line and reviewer. Record two separate facts:
+- **Plan baseline:** the last approved value, exact scope and answer reference;
+  if nothing was approved, record the original proposal.
+- **Runtime evidence:** what existing code or a probe shows. Mark unverified
+  behavior unknown.
+
+Approval does not prove deployed behavior, and observed behavior does not grant
+approval. Drafts, recommendations and reviewer agreement grant neither. For a
+factual correction that changes no behavior, record the correction and evidence;
+no question or comparison grid is needed.
+
+If an exact prior approval covers the work, cite its answer and disposition.
+Carry its necessary code, tests, documentation and later-discovered required
+proof forward without asking again. Otherwise leave the remedy pending. Reopen
+an approved choice only for a concrete new risk, contradictory evidence or a
+changed assumption. Explain the reason and retain earlier values, complete
+briefs and answers in History. Record remaining unknowns and uncertain risks.
+
+### 2. Separate independent choices
+
+Before drafting options, list each current value and proposed change: behavior,
+approach, guarantee or bound. Include response timing, resources, lifetimes and
+optional verification method or depth. Give each bound a measure and unit.
+
+Give independently selectable changes separate IDs. If the user can accept one
+while another stays approved or undecided, they are separate choices even in the
+same finding, function or patch. A reopened choice keeps its ID and receives the
+next continuous `D<N>` question number.
+
+Keep one behavior with its necessary code, tests and documentation. Alternative
+mechanisms for that fixed behavior belong in one question; independently
+selectable runtime outcomes do not. Optional depths of one verification form
+one choice. Separate instrumentation, follow-ups, guarantees and policies need
+their own choices, and their tests wait for approval.
+
+### 3. Compare one choice
+
+Build one question for one choice per AskUserQuestion call: Select one pending
+ID and build `currentDecision`:
+- `question`: the complete D-numbered preamble brief, including Project, ELI10,
+  Stakes, Recommendation and applicable completeness/net fields.
+- `header`: the exact native header.
+- `options`: every exact label and full description.
+
+Fit headers and labels to host limits now, before saving. Put the problem and
+file:line in the native fields. Offer 2–3 options, including do-nothing when
+reasonable; Outside Voice retains its four-option menu. Each option must explain
+human/CC effort, risk and maintenance. Tie the recommendation to the engineering
+preferences and prefer complete coverage when extra CC effort is marginal.
+If the host does not state limits, keep headers under 5 words and option labels
+under 5 words; put details in descriptions.
+
+For one fixed approved contract, coverage choices vary implementation or proof
+depth. Use `Completeness: N/10`: 10 covers all relevant in-scope edges, 7 covers
+the happy path, 3 is a shortcut. For different approaches, use
+`Note: options differ in kind, not coverage — no completeness score.`
+Completeness is only coverage depth for one approved contract. If options bundle
+unrelated policies, split them. Test-review scores rate existing/proposed tests,
+not answer status.
+
+Build a separate **comparison grid** for the whole brief. Give every selectable
+behavior, approach, guarantee or bound a row. Show its concrete current value,
+each option's value and work, and any approval citation. Include shared, fixed
+and pending choices.
+If the grid exposes another independent change, return to step 2 and split it before sending the question. Put all deliberation in the native
+question/descriptions; a saved-only Pros/cons block cannot supply missing
+decision context.
+
+Compare each option's full label and description with every row in its grid
+column. They must make the same commitments and retain the same conditions:
+- Vary only this choice. Keep other approved values fixed and pending choices
+  undecided. A value shared by all options still needs approval if it is new.
+- Treat necessary implementation and proof of an approved contract as common
+  work. Cite its answer instead of creating another approval row. Never cut an
+  established contract or its required proof.
+- An Investigate/Defer option must bound the investigation and name what stays
+  unchanged or pending. It approves no implementation, including a conditional
+  fix. Keep that remedy pending.
+
+Resolve any contradiction here. If you discover another independent choice,
+return to step 2 before sending the question.
+
+For example, jitter and a delay cap can be chosen independently. A menu of “both / cap only / neither” bundles them by omitting “jitter only.” Ask about jitter first:
+
+| Choice | Current | A | B |
+|---|---|---|---|
+| R1 jitter | unspecified, pending | on | off |
+| R2 delay cap | unspecified, pending | unspecified, pending | unspecified, pending |
+
+After the jitter answer, carry that value into both options of the later cap question.
+
+### 4. Save the pending record
+
+Invariant for this step: save one complete current record, Read that record
+back, then ask the exact saved question. Do not ask from memory.
+
+Save the record, complete grid and exact `currentDecision` in the report file,
+before `## GSTACK REVIEW REPORT`. Include every native field, the recommendation
+and all options. A–D record selectors are ledger notation only: if a saved label
+already starts `A)`/`B)`/`C)`/`D)`, keep that one prefix; otherwise add it. Compare
+the label separately from that notation by removing the selector before matching.
+
+When revising, replace the whole current payload for this record: comparison
+grid, question, header, options, state, actual answer and accepted scope. Keep
+other choices' headings, content and approvals intact; move superseded payloads
+to History. Do not leave duplicate Question, Header or Options fields.
+
+```markdown
+## Decision ledger
+
+### R1: <one independently selectable choice>
+Finding: <number, severity, confidence, file:line and reviewer>
+Plan baseline: <last approved value, exact scope and answer reference; otherwise the original proposal>
+Runtime evidence: <observed value and source/probe; unknown if unverified>
+Comparison grid: <complete grid from step 3>
+Question D2:
+<currentDecision.question in full, including its D2 title and recommendation>
+Header: <currentDecision.header>
+Options:
+<first option's exact label, with one A) record selector>
+<first option's full description>
+<second option's exact label, with one B) record selector>
+<second option's full description>
+
+State: <pending, or approved>
+Actual answer: <unanswered, or actual option and answer reference>
+Accepted scope: <exact approved work; none if no change approved>
+History: <earlier values, briefs, answers and reason for reopening>
+```
+
+Check the Write/Edit result, then use Read to fetch the entire saved record.
+Compare every native field with `currentDecision` and the whole grid with step 3.
+Read after the final edit, even if Edit says the content is current in context.
+Grep, chat references, summaries and planned writes do not verify the record.
+Repair any difference and repeat the complete Read before asking. A failed save
+blocks the question; an unreadable or unverifiable record follows the write
+policy's recovery and then **Blocked outcome** if still unresolved.
+
+On the permitted read-only route, present the complete record and grid as **not
+persisted** and compare them with `currentDecision`. This can support the chat
+review, but cannot pass the saved-report gate.
+
+If any payload field changes, including a shortened label or formatting edit,
+repeat step 3, replace the whole saved payload and Read it again. An older
+comparison or a critic's advice cannot substitute for this verification.
+
+### 5. Ask and wait
+
+Use the preamble's tool resolution, failure fallback and authorized auto-decision
+rules. The initial target selector and Scope Challenge complexity selector are
+setup gates with local rules and no pre-answer ledger rows because they choose
+scope first. Every later engineering remedy uses this Decision procedure.
+
+Send `AskUserQuestion({ questions: [currentDecision] })` after step 4. Send one
+question object for one choice; other IDs wait. Copy the verified question,
+header, labels and descriptions literally. Do not add or strip brief paragraphs
+or rebuild options. Authorized prose and auto-decisions use this same verified
+brief with the preamble's rendering and answer rules.
+When Question Tuning is enabled, copying the verified question preserves its
+`<gstack-qid:{question_id}>` marker.
+
+**STOP until the actual answer arrives.** Do not apply a remedy, make another
+call, start the next section or call ExitPlanMode while the choice awaits an
+answer. An obvious fix still needs an answer unless exact prior approval covers it.
+
+### 6. Apply and refresh
+
+Invariant for this step: apply the selected option as one complete resolution
+block, Read it back, then continue. Do not update only the answer line.
+
+Read the selected saved label, full description and grid column together. Carry
+all commitments, conditions, unchanged values and pending choices forward. If
+they conflict or bundle independent choices, preserve the actual answer, explain
+the conflict and repeat steps 2–5 for another answer. Do not reinterpret a caption,
+drop a commitment or advance with conflicting approvals.
+
+Replace the whole adjacent `State` / `Actual answer` / `Accepted scope` block
+after the options. Use the actual option and answer reference. Set State to
+`approved` for accepted scope or `pending` for an unresolved remedy. Each field
+must occur once outside History. Preserve the options and move superseded states
+to History. If older fields are separated, consolidate all three and remove their
+old occurrences in the same edit; never update only the answer/scope tail.
+
+Use a scoped Edit to save this record and only the authorized working-plan
+amendments. Leave other choices unchanged. On the read-only route, present both
+completely as **not persisted**.
+
+Check the save result, then Read the entire resolution block, including State.
+Verify that its unique state, actual answer and accepted scope match the complete
+selected option and grid column. An answer-only search or current-in-context hint
+cannot replace Read. In read-only mode, verify the presentation instead. Correct
+any discrepancy before advancing; apply the write policy to failures.
+
+Return to step 1 with the updated working plan and answer. Keep chosen values
+fixed in later questions, and explain when a choice has become irrelevant rather
+than asking it again. Start the next section only when no answer is pending in
+this section. Keep unresolved risks and verification visible; resolve risk and
+safety choices before readiness. /autoplan uses its authorized decisions and
+audit trail, leaving User Challenges for its final gate.
+
+## Scope Challenge
+
+Before reviewing, answer:
+1. **What existing code partly or fully solves each sub-problem?** Can existing outputs replace parallel flows?
+2. **What minimum changes achieve the goal?** Flag work deferrable without blocking it; challenge scope creep.
+3. **Complexity check:** Count touched files and new classes/services; consider whether the same goal needs fewer moving parts. Apply the complexity gate below.
+4. **Search check:** For each new architectural pattern, infrastructure component
+   or concurrency approach, research built-ins, current practice and pitfalls
+   through Aside (entrypoint readiness), one read-only request per pattern:
+
+   ```bash
+   {{ASIDE_EXEC_PRELUDE}}
+   _aside_exec "Search the web for {framework} {pattern} built-in, {pattern} best practice {current year}, and {framework} {pattern} pitfalls. Read-only: do not sign in, submit, or change anything. Reply with up to 8 bullets, each with its source URL, then stop."
+   ```
+
+   If Aside is unavailable, use host WebSearch for these queries. With neither,
+   skip and note: "Search unavailable — proceeding with in-distribution knowledge only."
+
+   Flag custom work with an available built-in as a reduction opportunity. Label
+   recommendations **[Layer 1]**, **[Layer 2]**, **[Layer 3]** or **[EUREKA]** per
+   Search Before Building. Explain a case against standard practice as an architectural insight.
+5. **TODOS cross-reference:** Read existing `TODOS.md`: what blocks this plan,
+   fits this PR without expanding scope, or needs a new TODO?
+
+6. **Completeness check:** Full tests, edges and error paths cost 10-100x less
+   with AI. Recommend completeness over shortcuts saving human-hours but only
+   CC+gstack minutes. Boil the ocean.
+
+7. **Distribution check:** For new CLIs, libraries, containers or mobile apps,
+   verify build/publish CI/CD, target OS/architectures and user download/install
+   channels. Record deferred distribution explicitly in "NOT in scope".
+
+At 8+ files or 2+ new classes/services, STOP before Section 1. Use the
+preamble's decision-brief format for this complexity gate.
+
+Initial scope selectors need no grid or **pre-answer** ledger write. Ask and
+wait before changes.
+
+1. Explain complexity; ask each feature cut/deferral separately first. Ask and
+   wait before changing scope.
+2. Structure choice: after feature scope is fixed, compare only the file/class
+   arrangement. Compare original/smaller class/module arrangements with identical feature
+   choices, contracts and approved security/error/test/performance fixes.
+   Unapproved fixes stay pending.
+3. structure only menu:
+   `A) Original arrangement: <files/classes>; fixed features: <approved list>`
+   `B) Smaller arrangement: <files/classes>; fixed features: same list`
+   `Pending remedies not decided here: <ids>`.
+   These labels decide only file/class arrangement, not pending remedies.
+4. Save the actual feature and structure answers as one scope record: `feature
+   answers: <refs>; structure: <A/B + ref>; accepted scope: <exact scope>;
+   pending remedies: <ids or none>`.
+
+After all complexity answers, save actual answers and accepted scope under the
+write policy; no retroactive pending record.
+
+Other remedies need separate accept/reject/defer answers through Decision
+procedure after findings exist.
+
+Once the gate resolves, apply only accepted scope changes. Without a complexity gate, proceed directly to findings.
+
+**Commit to actual scope answers.** Do not re-argue reduction later, silently cut
+scope or skip planned components.
+
+Present numbered Scope Challenge findings with calibrated severity, confidence,
+source and accepted/rejected/deferred/pending disposition; use "No issues found"
+for an empty list. Carry scope answers forward; findings approve no remedies.
+
+## Review Sections (after scope is agreed)
+
+Before Section 1, resolve Scope Challenge remedies through Decision procedure;
+reuse exact answers. Evaluate Architecture → Code Quality → Tests → Performance,
+at most 8 top issues each. Never condense, abbreviate or skip a section, including
+strategy/spec/infra plans. With zero findings, report "No issues found" and continue.
 
 ### 1. Architecture review
 Evaluate:
@@ -38,9 +379,7 @@ Evaluate:
 * For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it.
 * **Distribution architecture:** If this introduces a new artifact (binary, package, container), how does it get built, published, and updated? Is the CI/CD pipeline part of the plan or deferred?
 
-For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Use the preamble's AskUserQuestion Format section. The AskUserQuestion call is a tool_use, not prose — call the tool directly.
-
-**STOP.** Do NOT proceed to the next review section, edit the plan file with the proposed fix, or call ExitPlanMode until the user responds. An issue with an "obvious fix" is still an issue and still needs explicit user approval before it lands in the plan. Loading the AskUserQuestion schema via ToolSearch and then writing the recommendation as chat prose is the failure mode this gate exists to prevent.
+Resolve this section's new or reopened choices through the Decision procedure. Then report its findings and dispositions and continue.
 
 ### 2. Code quality review
 Evaluate:
@@ -48,22 +387,20 @@ Evaluate:
 * DRY violations—be aggressive here.
 * Error handling patterns and missing edge cases (call these out explicitly).
 * Technical debt hotspots.
-* Areas that are over-engineered or under-engineered relative to my preferences.
+* Areas that are fragile or unnecessarily complex, using the entrypoint's engineering preferences.
 * Existing ASCII diagrams in touched files — are they still accurate after this change?
 
-For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Use the preamble's AskUserQuestion Format section. The AskUserQuestion call is a tool_use, not prose — call the tool directly.
-
-**STOP.** Do NOT proceed to the next review section, edit the plan file with the proposed fix, or call ExitPlanMode until the user responds. An issue with an "obvious fix" is still an issue and still needs explicit user approval before it lands in the plan. Loading the AskUserQuestion schema via ToolSearch and then writing the recommendation as chat prose is the failure mode this gate exists to prevent.
+Resolve this section's new or reopened choices through the Decision procedure. Then report its findings and dispositions and continue.
 
 ### 3. Test review
 
+For a plan target, review proposed coverage against proposed paths. For a
+branch-diff target, diagram changed code paths plus callers/tests; the working
+plan is the remedy plan from diff findings.
+
 {{TEST_COVERAGE_AUDIT_PLAN}}
 
-For LLM/prompt changes: check the "Prompt/LLM changes" file patterns listed in CLAUDE.md. If this plan touches ANY of those patterns, state which eval suites must be run, which cases should be added, and what baselines to compare against. Then use AskUserQuestion to confirm the eval scope with the user.
-
-For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Use the preamble's AskUserQuestion Format section. The AskUserQuestion call is a tool_use, not prose — call the tool directly.
-
-**STOP.** Do NOT proceed to the next review section, edit the plan file with the proposed fix, or call ExitPlanMode until the user responds. An issue with an "obvious fix" is still an issue and still needs explicit user approval before it lands in the plan. Loading the AskUserQuestion schema via ToolSearch and then writing the recommendation as chat prose is the failure mode this gate exists to prevent.
+After the Test Plan Artifact is saved or presented, report the Test review findings and their dispositions and continue to Performance review. The Test review's **Add missing tests to the plan** step resolves test and eval decisions before that artifact is written.
 
 ### 4. Performance review
 Evaluate:
@@ -72,46 +409,20 @@ Evaluate:
 * Caching opportunities.
 * Slow or high-complexity code paths.
 
-For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Use the preamble's AskUserQuestion Format section. The AskUserQuestion call is a tool_use, not prose — call the tool directly.
-
-**STOP.** Do NOT proceed to the next review section, edit the plan file with the proposed fix, or call ExitPlanMode until the user responds. An issue with an "obvious fix" is still an issue and still needs explicit user approval before it lands in the plan. Loading the AskUserQuestion schema via ToolSearch and then writing the recommendation as chat prose is the failure mode this gate exists to prevent.
+Resolve this section's new or reopened choices through the Decision procedure. Then report its findings and dispositions and continue.
 
 {{CODEX_PLAN_REVIEW}}
 
-### Outside Voice Integration Rule
+### Continue after Outside Voice
 
-Outside voice findings are INFORMATIONAL until the user explicitly approves each one.
-Do NOT incorporate outside voice recommendations into the plan without presenting each
-finding via AskUserQuestion and getting explicit approval. This applies even when you
-agree with the outside voice. Cross-model consensus is a strong signal — present it as
-such — but the user makes the decision.
+Complete the chosen Outside Voice branch, including its accurate coverage record. Only completed reviews enter Cross-model tension. Continue to Final planning decisions and the approval check before Required outputs; report disabled or unavailable coverage in the Completion summary.
 
-## CRITICAL RULE — How to ask questions
-Follow the AskUserQuestion format from the Preamble above. Additional rules for plan reviews:
-* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
-* Describe the problem concretely, with file and line references.
-* Present 2-3 options, including "do nothing" where that's reasonable.
-* For each option, specify in one line: effort (human: ~X / CC: ~Y), risk, and maintenance burden. If the complete option is only marginally more effort than the shortcut with CC, recommend the complete option.
-* **Map the reasoning to my engineering preferences above.** One sentence connecting your recommendation to a specific preference (DRY, explicit > clever, minimal diff, etc.).
-* Label with issue NUMBER + option LETTER (e.g., "3A", "3B").
-* **Coverage vs kind:** for every per-issue AskUserQuestion you raise in this review, decide whether the options differ in coverage or in kind. If coverage (e.g., more tests vs fewer, complete error handling vs happy-path-only, full edge-case coverage vs shortcut), include `Completeness: N/10` on each option. If kind (e.g., architectural choice between two different systems, posture-over-posture, A/B/C where each is a different kind of thing), skip the score and add one line: `Note: options differ in kind, not coverage — no completeness score.` Do NOT fabricate scores on kind-differentiated questions — filler scores are worse than no score.
-* **Zero findings:** if a section has zero findings, state "No issues, moving on" and proceed. Otherwise, use AskUserQuestion for each finding — a finding with an "obvious fix" is still a finding and still needs user approval before any change lands in the plan.
+## Final planning decisions
 
-## Unresolved decisions
-If the user does not respond to an AskUserQuestion or interrupts to move on, note which decisions were left unresolved. At the end of the review, list these as "Unresolved decisions that may bite you later" — never silently default to an option.
-
-## Required outputs
-
-Write the narrative outputs below to the active plan file, or to the review response when no plan file is present. Display the Completion Summary to the user and write separately named artifacts to their specified paths. Update TODOS.md only through its individual approval step below.
-
-### "NOT in scope" section
-Every plan review MUST produce a "NOT in scope" section listing work that was considered and explicitly deferred, with a one-line rationale for each item.
-
-### "What already exists" section
-List existing code/flows that already partially solve sub-problems in this plan, and whether the plan reuses them or unnecessarily rebuilds them.
+After Sections 1–4 and the Outside Voice path, resolve the TODO choices below. Then run the approval check before preparing final outputs.
 
 ### TODOS.md updates
-After all review sections are complete, present each potential TODO as its own individual AskUserQuestion. Never batch TODOs — one per question. Never silently skip this step. Follow the format in `~/.claude/skills/gstack/review/TODOS-format.md`.
+Review every potential TODO. Reuse an exact prior disposition under Decision procedure; ask about each unanswered proposal in its own AskUserQuestion. Never batch TODOs or silently skip them. Use `~/.claude/skills/gstack/review/TODOS-format.md`.
 
 For each TODO, describe:
 * **What:** One-line description of the work.
@@ -123,13 +434,59 @@ For each TODO, describe:
 
 Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
 
-Do NOT just append vague bullet points. A TODO without context is worse than no TODO — it creates false confidence that the idea was captured while actually losing the reasoning.
+Option C records accepted implementation scope; still do not edit product code.
+
+Record this context with each accepted TODO; a vague bullet is insufficient.
+
+{{PLAN_REVIEW_APPROVAL_CHECK}}
+
+## Required outputs
+
+Run this finish sequence after Approval readiness passes. The reference sections
+below supply content, formats and commands for the named step; they do not start
+another review cycle.
+
+1. **Prepare the review body.** Use the output reference below to complete the
+   working plan, Implementation Tasks and Completion summary. Derive unresolved
+   choices from each record's current State, actual answer and accepted scope;
+   leave them pending. Save permitted auxiliary artifacts under the write policy.
+2. **Save and Read back.** Use Plan File Review Report to save the complete body
+   and append its terminal `## GSTACK REVIEW REPORT`. Pass that writer's Read-back
+   gate. If report persistence is forbidden or the save cannot be recovered,
+   follow **Blocked outcome**; do not continue to logging.
+3. **Log the saved review.** Run Review Log with the saved Completion summary's
+   values. If the required log is forbidden, show its fields as not persisted
+   and take **Blocked outcome**. If it fails, apply the write policy's recovery.
+   Neither case supplies completion or saved-dashboard credit.
+4. **Publish.** Display the Review Readiness Dashboard, then present the saved
+   Completion summary to the user.
+5. **Choose navigation.** Use Next Steps — Review Chaining and wait for its answer.
+   Navigation grants no implementation authority. If a substantive change arises,
+   resolve it through Decision procedure, repeat Approval readiness, and redo the
+   affected outputs from step 1 through publication before asking navigation again.
+6. **Finish.** Run Learning hooks, then return to the entrypoint's Section
+   self-check and read-only EXIT PLAN MODE GATE. Run these checks in every host
+   mode. Brain Calibration Write-Back is one gated Learning hook. Only after
+   both pass, run success telemetry and cache refresh; call ExitPlanMode only in
+   host plan mode.
+
+### Output reference — review body
+
+Keep the working plan, findings, ledger and the sections below together in the
+report file. Place `Suppressed findings` as a body appendix before the terminal
+`## GSTACK REVIEW REPORT`; nothing follows that terminal report.
+
+### "NOT in scope" section
+List considered work that was explicitly deferred, with one sentence explaining each deferral.
+
+### "What already exists" section
+List existing code or flows that partly solve the problem. Say whether the working plan reuses them or unnecessarily rebuilds them.
 
 ### Diagrams
-The plan itself should use ASCII diagrams for any non-trivial data flow, state machine, or processing pipeline. Additionally, identify which files in the implementation should get inline ASCII diagram comments — particularly Models with complex state transitions, Services with multi-step pipelines, and Concerns with non-obvious mixin behavior.
+Use ASCII diagrams for non-trivial data flows, state machines and pipelines. Name implementation files that need inline diagrams, especially complex model transitions, service pipelines and non-obvious mixin behavior.
 
 ### Failure modes
-For each new codepath identified in the test review diagram, list one realistic way it could fail in production (timeout, nil reference, race condition, stale data, etc.) and whether:
+For each new path in the test diagram, name a realistic production failure and whether:
 1. A test covers that failure
 2. Error handling exists for it
 3. The user would see a clear error or a silent failure
@@ -138,9 +495,11 @@ If any failure mode has no test AND no error handling AND would be silent, flag 
 
 ### Worktree parallelization strategy
 
-Analyze the plan's implementation steps for parallel execution opportunities. This helps the user split work across git worktrees (via Claude Code's Agent tool with `isolation: "worktree"` or parallel workspaces).
+Group implementation steps for parallel git worktrees (`isolation: "worktree"`
+or parallel workspaces).
 
-**Skip if:** all steps touch the same primary module, or the plan has fewer than 2 independent workstreams. In that case, write: "Sequential implementation, no parallelization opportunity."
+With one primary module or fewer than 2 independent workstreams, write:
+"Sequential implementation, no parallelization opportunity."
 
 **Otherwise, produce:**
 
@@ -150,26 +509,25 @@ Analyze the plan's implementation steps for parallel execution opportunities. Th
 |------|----------------|------------|
 | (step name) | (directories/modules, NOT specific files) | (other steps, or —) |
 
-Work at the module/directory level, not file level. Plans describe intent ("add API endpoints"), not specific files. Module-level ("controllers/, models/") is reliable; file-level is guesswork.
+Use modules/directories, not guessed files: plans describe intent.
 
-2. **Parallel lanes** — group steps into lanes:
-   - Steps with no shared modules and no dependency go in separate lanes (parallel)
-   - Steps sharing a module directory go in the same lane (sequential)
-   - Steps depending on other steps go in later lanes
+2. **Parallel lanes:** separate independent, disjoint modules; sequence shared
+   modules together and dependencies later.
 
 Format: `Lane A: step1 → step2 (sequential, shared models/)` / `Lane B: step3 (independent)`
 
-3. **Execution order** — which lanes launch in parallel, which wait. Example: "Launch A + B in parallel worktrees. Merge both. Then C."
+3. **Execution order:** name launch/wait points: "Launch A + B in parallel worktrees. Merge both. Then C."
 
-4. **Conflict flags** — if two parallel lanes touch the same module directory, flag it: "Lanes X and Y both touch module/ — potential merge conflict. Consider sequential execution or careful coordination."
+4. **Conflict flags:** name shared modules across parallel lanes and recommend
+   sequential execution or coordination to avoid merge conflicts.
 
 {{TASKS_SECTION_EMIT:eng-review}}
 
+### Unresolved decisions
+List unanswered or interrupted choices as "Unresolved decisions that may bite you later", with their IDs and missing answers. Never default silently. Count each open choice once, separately from prior reviews; the terminal report adds those independently.
+
 ### Completion summary
-At the end of the review, fill in and display this summary so the user can see all findings at a glance:
-
-"Lake Score" counts complete options chosen out of decisions that compared a complete option with a shortcut; use `N/A` when there were no such decisions.
-
+Use the final decision record and outputs. The finish sequence publishes this summary after the report Read-back and Review Log:
 - Step 0: Scope Challenge — ___ (scope accepted as-is / scope reduced per recommendation)
 - Architecture Review: ___ issues found
 - Code Quality Review: ___ issues found
@@ -179,66 +537,68 @@ At the end of the review, fill in and display this summary so the user can see a
 - What already exists: written
 - TODOS.md updates: ___ items proposed to user
 - Failure modes: ___ critical gaps flagged
-- Outside voice: ran (codex/claude) / skipped
+- Unresolved decisions: ___ in this review
+- Outside voice: recorded provider, completed / unavailable / disabled / skipped (reason)
 - Parallelization: ___ lanes, ___ parallel / ___ sequential
-- Lake Score: X/Y recommendations chose complete option
-- Unresolved decisions: ___
+- Lake Score: X/Y. Y counts answered coverage choices; X counts those selecting 10/10. Exclude choices that differ in kind; use N/A when Y is zero.
+
+{{PLAN_FILE_REVIEW_REPORT}}
 
 ## Review Log
 
-After producing the Completion Summary above, persist the review result.
-
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
-`~/.gstack/` (user config directory, not project files). The skill preamble
-already writes to `~/.gstack/sessions/` and `~/.gstack/analytics/` — this is
-the same pattern. The review dashboard depends on this data. Skipping this
-command breaks the review readiness dashboard in /ship.
+Use these commands in finish step 3, after successful Read-back. The required review log and best-effort decision log each follow the write policy.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"issues_found":N,"mode":"MODE","commit":"COMMIT"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"issues_found":N,"mode":"MODE","commit":"COMMIT"}' || exit $?
 ~/.claude/skills/gstack/bin/gstack-decision-log '{"decision":"Eng review (MODE): ARCH_SUMMARY","rationale":"KEY_DECISION","scope":"branch","source":"skill","confidence":8}' 2>/dev/null || true
 ```
 
-The second command records the architecture verdict as a durable cross-session decision (so a future session inherits the chosen approach and what was hardened, not just the count). Same `~/.gstack/` write pattern as review-log, non-interactive, best-effort (`|| true`). Substitute `ARCH_SUMMARY` (e.g. "N findings, all folded" or "M unresolved") and `KEY_DECISION` (the load-bearing architecture call from the report, one line — omit if the review found nothing durable).
+The second command records a durable architecture decision and is best-effort.
+Use the finding/disposition summary for `ARCH_SUMMARY` and the key architecture
+choice for `KEY_DECISION`. Omit it if the review found nothing durable.
 
 Substitute values from the Completion Summary:
 - **TIMESTAMP**: current ISO 8601 datetime
-- **STATUS**: "clean" if 0 unresolved decisions AND 0 critical gaps; otherwise "issues_open"
-- **unresolved**: number from "Unresolved decisions" count
+- **STATUS**: "clean" when `issues_found=0`, `unresolved=0` and `critical_gaps=0`; otherwise "issues_open". Resolved findings still count in `issues_found`, so "issues_open" can mean mapped work, not a failed review.
+- **unresolved**: this review's "Unresolved decisions" count; do not include prior reviews
 - **critical_gaps**: number from "Failure modes: ___ critical gaps flagged"
 - **issues_found**: total issues found across all review sections (Architecture + Code Quality + Performance + Test gaps)
-- **MODE**: FULL_REVIEW / SCOPE_REDUCED
+- **MODE**: FULL_REVIEW for the Scope Challenge result "scope accepted as-is"; SCOPE_REDUCED for "scope reduced per recommendation".
 - **COMMIT**: output of `git rev-parse --short HEAD`
 
 {{REVIEW_DASHBOARD}}
 
-{{PLAN_FILE_REVIEW_REPORT}}
+## Next Steps — Review Chaining
+
+In finish step 5, use the published dashboard to offer only applicable routes:
+- **A) Run /plan-design-review:** UI scope exists and no design review ran. Detect
+  UI scope from frontend components, CSS, views or user-facing interactions found
+  in the diagram or review sections.
+- **B) Run /plan-ceo-review:** a significant product change has no CEO review.
+  Mention it as an optional suggestion for new user-facing features, changed
+  product direction or substantial scope expansion.
+- **C) Ready to implement — run /ship when done**
+
+Note when existing CEO or design reviews may be stale because this review found
+contradictory assumptions or significant commit drift. If no additional review
+is needed, or dashboard config has `skip_eng_review: true`, state
+"All relevant reviews complete. Run /ship when ready."
+
+AskUserQuestion with only the applicable options. This is **navigation only**:
+copy the working plan's task prerequisites, dependencies and execution order
+without adding or strengthening them in the question or descriptions. A test
+required before editing one function does not make every independent lane wait.
+A next-step answer approves no implementation change.
+
+For a substantive late change, follow the repeat path in finish step 5. Refresh
+affected tasks, dependencies and parallelization along with the other outputs.
+
+## Learning hooks
+
+Use these hooks in finish step 6 without changing the working plan or approval record. Review durable operational learnings as required by the preamble, and use the Capture Learnings format below for other discoveries; do not log the same learning twice.
 
 {{LEARNINGS_LOG}}
 
 {{GBRAIN_SAVE_RESULTS}}
 
 {{BRAIN_WRITE_BACK}}
-
-{{BRAIN_CACHE_REFRESH}}
-
-## Next Steps — Review Chaining
-
-After displaying the Review Readiness Dashboard, check if additional reviews would be valuable. Read the dashboard output to see which reviews have already been run and whether they are stale.
-
-**Suggest /plan-design-review if UI changes exist and no design review has been run** — detect from the test diagram, architecture review, or any section that touched frontend components, CSS, views, or user-facing interaction flows. If an existing design review's commit hash shows it predates significant changes found in this eng review, note that it may be stale.
-
-**Mention /plan-ceo-review if this is a significant product change and no CEO review exists** — this is a soft suggestion, not a push. CEO review is optional. Only mention it if the plan introduces new user-facing features, changes product direction, or expands scope substantially.
-
-**Note staleness** of existing CEO or design reviews if this eng review found assumptions that contradict them, or if the commit hash shows significant drift.
-
-**If no additional reviews are needed** (or `skip_eng_review` is `true` in the dashboard config, meaning this eng review was optional): state "All relevant reviews complete. Run /ship when ready."
-
-**Navigation only.** Match task prerequisites, dependencies and execution order to the written plan; do not add or strengthen them in this question or its option descriptions. A test required before editing one function does not make every independent lane wait for it.
-
-If a substantive late change is needed, return to the individual issue-approval loop. After the answer, update the plan's tasks and dependency/parallelization sections, refresh the review report and log, then Read the updated plan and rerun the exit gate before ExitPlanMode. A next-step answer alone approves no implementation change.
-
-Use AskUserQuestion with only the applicable options:
-- **A)** Run /plan-design-review (only if UI scope detected and no design review exists)
-- **B)** Run /plan-ceo-review (only if significant product change and no CEO review exists)
-- **C)** Ready to implement — run /ship when done

@@ -1,0 +1,127 @@
+{
+  "sourceRevision": "fd620d368a494d65ca53952b4117ea3d3337c7d3",
+  "sourceEvidence": ".context/sep12-independent-native-validation/dx-acknowledged-decisions-compact.json",
+  "originalOutcome": "FAILED at final handoff before semantic judge",
+  "cases": [
+    {
+      "name": "TODO 1/5",
+      "nativeId": "toolu_01Ndeg4UM5CWnkTxSntFvAFP",
+      "question": {
+        "header": "TODO 1/5",
+        "multiSelect": false,
+        "options": [
+          {
+            "description": "✅ Captured with context for whoever picks it up after the beta announce. ✅ Does not extend release checks now; the beta plan stays docs plus the D7 change. ❌ Nothing alarms on a first-run time regression until someone builds it.",
+            "label": "Add to TODOS.md (recommended)"
+          },
+          {
+            "description": "✅ No new release-check policy, now or later. ✅ Keeps measurement to the single approved human study. ❌ A regression in install or first-run time goes unnoticed until a developer reports it.",
+            "label": "Skip"
+          },
+          {
+            "description": "✅ Regression alarm ships with the beta. ✅ Calibrated immediately against the D11 baseline. ❌ Extends the release checks inside this change, which the review input scoped as not otherwise redesign work.",
+            "label": "Build it now"
+          }
+        ],
+        "question": "TODO 1 of 5 — Add a fresh-virtualenv scripted first-run timer to the existing release checks, as a labeled proxy?\nProject/branch/task: eval-sdk public beta onboarding plan on main, DX POLISH review, TODOS.md phase.\nWhat: a release-check step that creates a fresh venv, installs the built package, runs the two-case quick start, and records wall-clock time, labeled as an automated proxy.\nWhy: the D11 human study runs once; nothing afterwards notices if install or first-run time regresses (for example if the conformance check creeps back onto the path).\nPros: catches first-run time regressions on every release; cheap; gives /devex-review a trend line.\nCons: measures the warm automated path only, never the human clock; extends the existing release checks, which the plan otherwise leaves alone; needs a threshold policy someone must own.\nContext: D5 fixed the human clock; D11 measures it once. This proxy was offered in D11 and not chosen as the measurement, so it can only ever be a regression alarm, never the benchmark. The plan's fixture cannot run the real SDK, so the step lands in the product's own release checks.\nDepends on / blocked by: D7 shipped; D11 baseline recorded so the proxy can be calibrated against a real number.\nRecommendation: A because a one-time study with no follow-up alarm lets the gate quietly return; adding it to TODOS.md keeps it out of the beta's critical path.\nNote: options differ in kind, not coverage — no completeness score.\nNet: A future regression alarm versus keeping release checks untouched."
+      },
+      "originalAnswer": "Add to TODOS.md (recommended)"
+    },
+    {
+      "name": "TODO 2/5",
+      "nativeId": "toolu_01Xi5cHNoWvAhoJXPqxkcQTR",
+      "question": {
+        "header": "TODO 2/5",
+        "multiSelect": false,
+        "options": [
+          {
+            "description": "✅ Preserves the idea with its dependency spelled out for after the beta. ✅ Keeps D6's approved JSON output contract stable for this change. ❌ The quick start stays three lines longer than it needs to be through beta.",
+            "label": "Add to TODOS.md (recommended)"
+          },
+          {
+            "description": "✅ The JSON projection is deterministic and honest about not assuming the repr. ✅ No dependency on capturing runtime output. ❌ Developers never see the SDK's own readable output in docs.",
+            "label": "Skip"
+          },
+          {
+            "description": "✅ Shortest possible hello world ships with the beta. ✅ Docs and pytest failures show the same text. ❌ Cannot be done in this fixture; blocks the D6 docs change on capturing output the release checks do not produce today.",
+            "label": "Build it now"
+          }
+        ],
+        "question": "TODO 2 of 5 — Capture the real print(result) text in release checks and show it in the quick start instead of the manual JSON projection?\nProject/branch/task: eval-sdk public beta onboarding plan on main, DX POLISH review, TODOS.md phase.\nWhat: have the product's offline release checks capture Result.__str__ output for the two-case example, then replace the two-line json.dumps projection in README and getting-started with print(result) and the captured text.\nWhy: the review input says Result and Failure already print readable per-case scores and expected/actual summaries. The quick start hides that behind a json.dumps projection because this fixture could not capture the real repr. Three of the fourteen quick-start lines exist only to work around that.\nPros: shorter hello world; the developer sees the SDK's own output, which is what they will see in pytest failures too; Speed is a feature.\nCons: depends on capturing runtime output the fixture cannot produce; the readable summary truncates, so the doc must say where full values live; changes the documented output contract that the release checks verify today.\nContext: Deferred at the Hello World stage of the journey trace. D6's two-case output is currently specified as the JSON projection; this TODO would swap the display form only, not the two-case content.\nDepends on / blocked by: access to the SDK release checks; D6 landed first.\nRecommendation: A because it is a real simplification of the first five minutes but cannot be written until the real output is captured, so it belongs in TODOS.md rather than the beta change.\nNote: options differ in kind, not coverage — no completeness score.\nNet: A shorter hello world later versus keeping today's deterministic projection."
+      },
+      "originalAnswer": "Add to TODOS.md (recommended)"
+    },
+    {
+      "name": "TODO 3/5",
+      "nativeId": "toolu_01W3AYZWjXYpH5HVQUFQeS1w",
+      "question": {
+        "header": "TODO 3/5",
+        "multiSelect": false,
+        "options": [
+          {
+            "description": "✅ Lands as a verification plus one README line inside the beta docs change. ✅ The persona sees platform support next to the install command on first read. ❌ Blocked until someone with access reads the release matrix; the line cannot be written from this fixture.",
+            "label": "Build it now (recommended)"
+          },
+          {
+            "description": "✅ Captured for after the beta with the verification step spelled out. ✅ Keeps the beta docs change smaller. ❌ Beta developers on Windows or in containers still guess.",
+            "label": "Add to TODOS.md"
+          },
+          {
+            "description": "✅ No verification work. ✅ README stays as short as it is. ❌ Platform support stays unstated for the whole beta.",
+            "label": "Skip"
+          }
+        ],
+        "question": "TODO 3 of 5 — Verify the supported operating systems from the existing release matrix and state them in README?\nProject/branch/task: eval-sdk public beta onboarding plan on main, DX POLISH review, TODOS.md phase.\nWhat: confirm which platforms the existing release checks actually run on (macOS, Linux, Windows, containers) and add one line to README next to the Python 3.10+ requirement.\nWhy: Python 3.10+ is the only stated requirement. A Python app developer on Windows, or one running CI in a slim container, cannot tell from the docs whether the first run will work. Pass 6 recorded this as unknown, not assumed.\nPros: one verified line removes a whole class of first-run surprise; zero behavior change; cheap.\nCons: needs access to the product's release matrix, which this fixture does not include; if the matrix is narrower than expected, stating it may surface a gap the beta has to own.\nContext: Cross-platform support is a Pass 6 checklist item. The bounded-client example uses subprocess and sys.executable, which behave the same across platforms, so no example needs to change.\nDepends on / blocked by: read access to the release-check configuration.\nRecommendation: C because it is a one-line factual statement once verified, belongs beside the install command the persona reads first, and fits inside the beta docs change.\nNote: options differ in kind, not coverage — no completeness score.\nNet: State the platforms in this change, park it, or leave the requirement as Python-version-only."
+      },
+      "originalAnswer": "Build it now (recommended)"
+    },
+    {
+      "name": "TODO 4/5",
+      "nativeId": "toolu_01PGpg9ey8fX3pA8wYjaERgB",
+      "question": {
+        "header": "TODO 4/5",
+        "multiSelect": false,
+        "options": [
+          {
+            "description": "✅ One verified README line lands inside the beta docs change. ✅ Employed developers clear their dependency check without leaving README. ❌ Cannot be written from this fixture; needs the real LICENSE file.",
+            "label": "Build it now (recommended)"
+          },
+          {
+            "description": "✅ Captured with the verification step for later. ✅ Keeps the beta change minimal. ❌ Beta developers still hunt for the license outside README.",
+            "label": "Add to TODOS.md"
+          },
+          {
+            "description": "✅ PyPI classifiers may already answer it. ✅ No verification work. ❌ The README the persona reads first stays silent on a common adoption gate.",
+            "label": "Skip"
+          }
+        ],
+        "question": "TODO 4 of 5 — Verify the open-source license and surface it in README?\nProject/branch/task: eval-sdk public beta onboarding plan on main, DX POLISH review, TODOS.md phase.\nWhat: confirm the license the repository already ships under and name it in one README line with a link to the LICENSE file.\nWhy: the review input says the SDK is already open source, but no inspected doc names the license. A Python app developer at a company checks the license before adding a dependency to a production repo; if they cannot find it in thirty seconds they move on or open a ticket with legal.\nPros: removes a silent adoption blocker for employed developers; zero behavior change; one line.\nCons: needs the real repository to verify; if the license is unusual, naming it prominently may prompt questions the beta must be ready to answer.\nContext: Pass 7 recorded license as a verification item. PyPI usually shows the classifier, but the persona reads README first and the plan's docs never mention it.\nDepends on / blocked by: read access to the repository's LICENSE file and package metadata.\nRecommendation: C because it is a verified one-liner beside the install command, and Credible is one of the seven DX characteristics this beta is judged on.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Name the license in this change, park it, or rely on PyPI metadata alone."
+      },
+      "originalAnswer": "Build it now (recommended)"
+    },
+    {
+      "name": "TODO 5/5",
+      "nativeId": "toolu_01JaG92uCzwTMoMsomoBB8tb",
+      "question": {
+        "header": "TODO 5/5",
+        "multiSelect": false,
+        "options": [
+          {
+            "description": "✅ One verified README line under the beta compatibility paragraph, inside the beta docs change. ✅ Developers find the scheme and changelog where they read about compatibility. ❌ If no changelog exists, this task stops and raises a separate policy question instead of shipping a link.",
+            "label": "Build it now (recommended)"
+          },
+          {
+            "description": "✅ Captured with its verification and the possible changelog policy question. ✅ Keeps the beta docs change smaller. ❌ Beta developers infer the version scheme from the reference prose.",
+            "label": "Add to TODOS.md"
+          },
+          {
+            "description": "✅ The reference already states the notice period and migration rule. ✅ No verification work. ❌ Changelog discoverability stays at zero in the docs.",
+            "label": "Skip"
+          }
+        ],
+        "question": "TODO 5 of 5 — State the version scheme explicitly and link the CHANGELOG from README, once both are verified?\nProject/branch/task: eval-sdk public beta onboarding plan on main, DX POLISH review, TODOS.md phase.\nWhat: confirm whether the existing release policy is semantic versioning and whether a CHANGELOG exists, then add one README line under the beta compatibility paragraph naming the scheme and linking the changelog.\nWhy: the upgrade contract says two minor releases of notice and a breaking release, which implies semver without saying it, and no doc mentions a changelog. Upgrade fear is what stops a Python app developer from bumping a beta dependency in a production repo; a changelog link is the first thing they look for.\nPros: makes the already strong upgrade contract discoverable; zero behavior change; one line.\nCons: needs the real repository to verify; if no CHANGELOG exists, maintaining one is a separate policy the beta must decide on, not a docs line.\nContext: Pass 5 scored 8/10 on the strength of the deprecation and migration policy; the only gaps are that the scheme is implied and the changelog is unmentioned. Changelog exists and is maintained is a checklist item in the DX implementation checklist.\nDepends on / blocked by: read access to the repository; if no changelog exists, a separate decision about starting one.\nRecommendation: C because the line itself is a verified factual statement that fits the beta docs change; if the changelog turns out not to exist, that returns as its own finding rather than being invented here.\nNote: options differ in kind, not coverage — no completeness score.\nNet: Surface the upgrade contract in README now, park it, or leave it implied in the reference."
+      },
+      "originalAnswer": "Build it now (recommended)"
+    }
+  ]
+}

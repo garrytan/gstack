@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createFakeBunCli } from './helpers/fake-bun-cli';
+import { fakePlanSeedPrelude } from './helpers/fake-plan-seed';
 import fixture from './fixtures/eng-seeded-completion-ai.json';
 import { classifyVisible, extractPlanFilePath } from './helpers/claude-pty-runner';
 import * as predicates from './helpers/claude-pty-runner';
@@ -59,12 +60,12 @@ test('real PTY waits past old TODO, stale, partial and mismatched panels but acc
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeded-completion-'));
     const working = path.join(dir, 'repo');
     fs.mkdirSync(working);
-    const cli = createFakeBunCli(path.join(dir, 'fake-claude'), `
+    const cli = createFakeBunCli(path.join(dir, 'fake-claude'), fakePlanSeedPrelude() + `
 const fs = require('node:fs');
 fs.writeFileSync(process.env.COMPLETION_ARGV, JSON.stringify(process.argv.slice(2)));
 let sent = false;
 const render = text => process.stdout.write('\\x1b[2J\\x1b[H' + text.replace(/\\n/g, '\\r\\n'));
-process.stdin.on('data', chunk => {
+process.on('gstack-seeded-slash', chunk => {
   if (sent || !chunk.toString().includes('/plan-eng-review')) return;
   sent = true;
   fs.writeFileSync(process.env.COMPLETION_PHASE, 'initial');
@@ -72,7 +73,7 @@ process.stdin.on('data', chunk => {
   if (${JSON.stringify(scenario.expected)} === 'asked') setTimeout(() => {
     fs.writeFileSync(process.env.COMPLETION_PHASE, 'question');
     render(${JSON.stringify(question)});
-  }, 4500);
+  }, 2500);
 });
 setInterval(() => {}, 1000);
 `);
@@ -135,6 +136,8 @@ async function mockedObservation(frames: string[], verdict: 'waiting' | 'working
       visibleSince: current, rawOutput: current, currentScreen: async () => current(), hermeticConfigDir: null,
       close: async () => { closed++; } }),
     createPlanCountSnapshotWriter: () => () => ({}), logPtySnapshot: () => {},
+    submitPlanSeed: async () => {}, PlanSeedTimeout: class extends Error {},
+    isRejectedSlashCommand: predicates.isRejectedSlashCommand,
     isProseAUQVisible: predicates.isProseAUQVisible, isPlanReadyVisible: predicates.isPlanReadyVisible,
     isScopeGateQuestionVisible: predicates.isScopeGateQuestionVisible,
     isScopeGateAutoSelectVisible: predicates.isScopeGateAutoSelectVisible,
@@ -175,4 +178,65 @@ test('completion evidence dependencies select exactly the seeded observation own
   for (const file of ['test/eng-seeded-completion-ai.test.ts', 'test/fixtures/eng-seeded-completion-ai.json']) {
     expect(selectTests([file], E2E_TOUCHFILES).selected.sort()).toEqual(owners);
   }
+});
+
+import c6fcCurrent from './fixtures/eng-count-c6fc-public.json';
+import { isEngCompletionHandoff } from './helpers/eng-completion-handoff';
+import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
+
+test('complete native navigation preserves conflicting current states and accepts explicitly scoped history only', () => {
+  const calls = c6fcCurrent.transcript.calls as NativePlanQuestionCall[];
+  const call = calls.at(-1)!;
+  const check = (plan: string, selected = call, prior = calls.slice(0, -1)) => isEngCompletionHandoff(predicates.nativePlanCallFingerprint(selected, 1, false), plan, prior);
+  // This is a synthetic repair control. Original paid cancellation is immutable.
+  const corrected = c6fcCurrent.report.split(/\n(?=### R[1-9]\d*:)/).map(row => row.includes('\nState: pending\n')
+    ? row.replace('\nState: pending\n', '\n').replace('History: none', 'History: superseded pre-answer state\n  State: pending') : row).join('\n');
+  expect(check(c6fcCurrent.report)).toBe(false);
+  expect(check(corrected)).toBe(true);
+  for (const bad of [
+    corrected.replace('R1 (D3), R2 (D4), R3 (D5), R4 (D6)', 'R1 (D6), R2 (D4), R3 (D5), R4 (D3)'),
+    corrected.replace('Question D3:', 'Question D3: duplicate current question\nQuestion D3:'),
+    corrected.replace('Question D3:', 'Question D99: conflicting current question\nQuestion D3:'),
+    corrected.replace(/^Reviewed target:.*$/m, target => '```markdown\n' + target + '\n```'),
+    corrected.replace(/^Reviewed target:.*$/m, target => '## History\n' + target + '\n## Current plan'),
+    corrected.replace(/^Reviewed target:.*$/m, target => target + '\n' + target.replace('PLAN.md', 'FOREIGN.md')),
+    corrected.replace('State: approved', 'State: pending'),
+    corrected.replace('State: approved', 'State: approved\nState: pending'),
+    corrected.replace('State: approved', 'State: approved\nState: approved'),
+    corrected.replace('  State: pending', 'State: pending'),
+    corrected.replace('State: approved', 'State: rejected'),
+    corrected.replace('State: approved', 'State: approved\nR1 approval: revoked'),
+    corrected.replace('Approval readiness: PASS', 'Approval readiness: pending'),
+    corrected.replace('Actual answer: "Split into follow-up PR (recommended)" (D3)', 'Actual answer: "Not offered" (D3)'),
+    corrected.replace('Reviewed target: `PLAN.md`', 'Reviewed target: `FOREIGN.md`'),
+    corrected.replace(/^Reviewed target:.*$/m, ''),
+    corrected.replace('## Decision ledger', '## Archived decision ledger'),
+    corrected.replace('# Reviewed Plan: Multi-tenant Auth Refactor', '# Reviewed Plan: Another task'),
+    corrected.replace('NO UNRESOLVED DECISIONS', '1 UNRESOLVED DECISION'),
+    corrected.replace('**T1 (', '**T99 ('),
+    corrected.replace('Accepted scope: remove parallelization', 'Accepted scope: pending; remove parallelization'),
+  ]) expect(check(bad)).toBe(false);
+  for (const edit of [
+    (c: NativePlanQuestionCall) => { c.answered = false; },
+    (c: NativePlanQuestionCall) => { c.failed = true; },
+    (c: NativePlanQuestionCall) => { c.answers = {}; },
+    (c: NativePlanQuestionCall) => { c.sessionId += '-foreign'; },
+    (c: NativePlanQuestionCall) => { const q = c.questions[0]!; const old = q.question; q.question += '\nAlso delete the authentication cache.'; c.answers = { [q.question]: c.answers![old]! }; },
+    (c: NativePlanQuestionCall) => { const q = c.questions[0]!; const old = q.question; q.question += '\nThe decision is reopened.'; c.answers = { [q.question]: c.answers![old]! }; },
+  ]) { const copy = structuredClone(call); edit(copy); expect(check(corrected, copy)).toBe(false); }
+  expect(check(corrected, call, calls.slice(0, -2))).toBe(false);
+  for (const transform of [
+    (text: string) => text.replace('ELI10:', 'Summary:'),
+    (text: string) => text.replace(/^ELI10:.*$/m, ''),
+    (text: string) => text.replace('ELI10:', 'ELI10: duplicate assessment\nELI10:'),
+    (text: string) => text.replace('Project/branch/task:', 'Reviewed scope:'),
+    (text: string) => text.replace(/^Project\/branch\/task:.*$/m, ''),
+    (text: string) => text.replace('Project/branch/task:', 'Project/branch/task: foreign, FOREIGN.md "Another task"; unrelated\nProject/branch/task:'),
+  ]) {
+    const copy = structuredClone(call), q = copy.questions[0]!, answer = copy.answers![q.question]!;
+    q.question = transform(q.question); copy.answers = { [q.question]: answer };
+    expect(check(c6fcCurrent.report, copy)).toBe(false);
+    expect(check(corrected, copy)).toBe(false);
+  }
+  expect(c6fcCurrent.actualOutcome).toBe('CANCELLED');
 });

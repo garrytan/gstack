@@ -148,7 +148,9 @@ jobs:
     # 40-way per row queued claude session STARTUP behind 39 siblings and ate
     # per-test budgets — the documented timeout-flake family). Tune with
     # parity data before raising.
-    timeout-minutes: 35
+    # The complete gate census needs at most 182 minutes per slice; keep
+    # 20 minutes for setup/upload without preempting configured retries.
+    timeout-minutes: 205
     permissions:
       contents: read
       packages: read

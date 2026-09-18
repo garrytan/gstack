@@ -64,6 +64,8 @@ export const STARTUP_GRACE_MS = 90_000;
  *  before 300s in CI converts ordinary queueing into false failures.
  *  Pinned by test/session-runner-startup-grace.test.ts. */
 export const STARTUP_GRACE_CI_FLOOR_MS = 300_000;
+/** Existing pipe-drain allowance; never adds model work time. */
+export const SESSION_DRAIN_GRACE_MS = 5_000;
 
 const BROWSE_ERROR_PATTERNS = [
   /Unknown command: \w+/,
@@ -83,6 +85,13 @@ export interface ParsedNDJSON {
   toolCalls: Array<{ tool: string; input: any; output: string }>;
 }
 
+function toolResultText(content: unknown): string | null {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return null;
+  return content.flatMap(block => block?.type === 'text' && typeof block.text === 'string'
+    ? [block.text] : []).join('\n');
+}
+
 /**
  * Parse an array of NDJSON lines into structured transcript data.
  * Pure function — no I/O, no side effects. Used by both the streaming
@@ -94,6 +103,7 @@ export function parseNDJSON(lines: string[]): ParsedNDJSON {
   let turnCount = 0;
   let toolCallCount = 0;
   const toolCalls: ParsedNDJSON['toolCalls'] = [];
+  const callsByParent = new Map<string | null, Map<string, ParsedNDJSON['toolCalls'][number]>>();
 
   for (const line of lines) {
     if (!line.trim()) continue;
@@ -108,12 +118,34 @@ export function parseNDJSON(lines: string[]): ParsedNDJSON {
         for (const item of content) {
           if (item.type === 'tool_use') {
             toolCallCount++;
-            toolCalls.push({
+            const call = {
               tool: item.name || 'unknown',
               input: item.input || {},
               output: '',
-            });
+            };
+            toolCalls.push(call);
+            if (typeof item.id === 'string') {
+              // Forwarded subagent events may reuse a parent's tool-use ID.
+              const parent = event.parent_tool_use_id ?? null;
+              let calls = callsByParent.get(parent);
+              if (!calls) callsByParent.set(parent, calls = new Map());
+              calls.set(item.id, call);
+            }
           }
+        }
+      }
+
+      if (event.type === 'user' && Array.isArray(event.message?.content)) {
+        const results = event.message.content.filter((item: any) => item?.type === 'tool_result');
+        const calls = callsByParent.get(event.parent_tool_use_id ?? null);
+        for (const result of results) {
+          const call = calls?.get(result.tool_use_id);
+          if (!call) continue;
+          // A sole Agent/Task result also carries the clean verdict separately
+          // from the message's agentId/usage wrapper. Keep only public text.
+          const verdict = results.length === 1 && ['Agent', 'Task'].includes(call.tool)
+            ? toolResultText(event.tool_use_result?.content) : null;
+          call.output = verdict ?? toolResultText(result.content) ?? '';
         }
       }
 
@@ -186,6 +218,10 @@ export async function runSkillTest(options: {
   prompt: string;
   workingDirectory: string;
   maxTurns?: number;
+  /** Optional harness contract appended to the native system prompt. */
+  appendSystemPrompt?: string;
+  /** Opt-in section completion reserve; describes the existing entry deadline. */
+  completionReserveMs?: number;
   /** Approval allowlist; does not restrict which tools the model can see. */
   allowedTools?: string[];
   /** Optional built-in tool availability. Omit to preserve the CLI defaults. */
@@ -206,11 +242,14 @@ export async function runSkillTest(options: {
    *  burning the whole work budget waiting on an API that is not answering
    *  (the recurring '0 turns / $0.00' class — four budget-bump receipts).
    *  Defaults to min(STARTUP_GRACE_MS, timeout); the CI floor is higher
-   *  because CI queueing is real. Total wall stays <= timeout either way —
-   *  bun-level tier budgets are sized to the runner timeout with no margin,
-   *  so this phase split must never extend the envelope. */
+   *  because CI queueing is real. Startup and model work share timeout;
+   *  only pipe cleanup may use the separate SESSION_DRAIN_GRACE_MS. */
   startupGraceMs?: number;
+  /** Cancel the owned process group when an enclosing attempt expires. */
+  signal?: AbortSignal;
 }): Promise<SkillTestResult> {
+  const startTime = Date.now();
+  options.signal?.throwIfAborted();
   const {
     prompt,
     workingDirectory,
@@ -220,6 +259,7 @@ export async function runSkillTest(options: {
     testName,
     runId,
     env: extraEnv,
+    signal,
   } = options;
   // The CI floor is a FLOOR, not a default: an explicit startupGraceMs below
   // 300s in CI would re-open the queueing-becomes-false-red hole the floor
@@ -232,8 +272,25 @@ export async function runSkillTest(options: {
   );
   const model = options.model ?? process.env.EVALS_MODEL ?? resolveEvalModel('capture');
 
-  const startTime = Date.now();
+  const deadline = startTime + timeout;
   const startedAt = new Date().toISOString();
+  let systemPrompt = options.appendSystemPrompt;
+  if (options.completionReserveMs !== undefined) {
+    const reserve = options.completionReserveMs;
+    if (!Number.isFinite(timeout) || timeout <= 0 || !Number.isFinite(reserve) || reserve <= 0 || reserve >= timeout) {
+      throw new Error('Section completion reserve must be positive and smaller than the existing work timeout');
+    }
+    if (!allowedTools.includes('Bash') || (options.tools !== undefined && !options.tools.includes('Bash'))) {
+      throw new Error('Section completion clock requires Bash in the declared tools and approval allowlist');
+    }
+    const notice = `Section completion clock (fixture contract):
+Runner entry UTC: ${new Date(startTime).toISOString()}
+Hard deadline UTC: ${new Date(deadline).toISOString()}
+Completion reserve starts UTC: ${new Date(deadline - reserve).toISOString()}
+Setup, CLI startup and API queueing consume this same window; it never resets.
+Before source Reads and after each saved checkpoint, use Bash to run exactly \`date -u +%Y-%m-%dT%H:%M:%SZ\`. Compare that observed UTC time with the times above. When remaining time is at most ${reserve / 1000} seconds, prioritize the remaining required completion outputs and verification. No required content or gate may be skipped. If the clock read fails, report timing unavailable; do not invent remaining time or restart the deadline.`;
+    systemPrompt = systemPrompt ? `${systemPrompt}\n\n${notice}` : notice;
+  }
 
   // Set up per-run log directory if runId is provided
   let runDir: string | null = null;
@@ -256,6 +313,7 @@ export async function runSkillTest(options: {
     '--max-turns', String(maxTurns),
     '--allowed-tools', ...allowedTools,
   ];
+  if (systemPrompt) args.push('--append-system-prompt', systemPrompt);
   // --allowed-tools controls approval, including when permissions are skipped;
   // only --tools removes unrelated built-ins such as Agent, Bash, and Skill.
   // Keep this opt-in: existing workflow evals intentionally use CLI defaults.
@@ -273,6 +331,16 @@ export async function runSkillTest(options: {
   // claude itself — tool subprocesses claude spawned survived as orphans
   // burning shared API rate for the rest of the shard's lifetime.
   // Prompt is piped via stdin to avoid temp files and shell escaping.
+  const childEnv = hermeticChildEnv({ GSTACK_HEADLESS: '1', ...extraEnv });
+  signal?.throwIfAborted();
+  // Entry, logging, and hermetic setup consume the same startup/work budget.
+  if (Date.now() >= Math.min(deadline, startTime + startupGraceMs)) {
+    return {
+      toolCalls: [], browseErrors: [], exitReason: 'timeout_startup', duration: Date.now() - startTime,
+      output: '', transcript: [], model, firstResponseMs: 0, maxInterTurnMs: 0,
+      costEstimate: { inputChars: prompt.length, outputChars: 0, estimatedTokens: 0, estimatedCost: 0, turnsUsed: 0 },
+    };
+  }
   const proc = spawn('claude', args, {
     cwd: workingDirectory,
     // Hermetic by default (see test/helpers/hermetic-env.ts): operator
@@ -282,39 +350,60 @@ export async function runSkillTest(options: {
     // AskUserQuestion failure rather than emit a prose question no human reads). A
     // suite exercising the INTERACTIVE prose-fallback path opts out by passing
     // `env: { GSTACK_HEADLESS: '' }` — extraEnv wins because it spreads last.
-    env: hermeticChildEnv({ GSTACK_HEADLESS: '1', ...extraEnv }),
+    env: childEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   });
-  proc.stdin!.on('error', () => { /* child died before reading the prompt — exit handling reports it */ });
-  proc.stdin!.write(prompt);
-  proc.stdin!.end();
   const stdoutWeb = Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>;
-  const stderrWeb = Readable.toWeb(proc.stderr!) as ReadableStream<Uint8Array>;
-  // 'exit' vs 'close' matters here: 'close' waits for stdout/stderr to
-  // drain, which an orphaned grandchild can hold open long after claude
-  // itself died with a REAL exit code — labeling must key off 'exit' or an
-  // auth failure gets triaged as 'timeout_startup' availability noise
-  // (claude adversarial finding). procExited stays 'close'-based (streams
-  // complete) for the drain race below.
-  let childExited = false;
-  const procExited: Promise<number> = new Promise((resolve) => {
-    proc.on('exit', () => { childExited = true; });
-    proc.on('close', (code) => { childExited = true; resolve(code ?? 1); });
-    proc.on('error', () => { childExited = true; resolve(1); });
-  });
+  const reader = stdoutWeb.getReader();
+  // Exit is independent of descendant-held pipes. Both stream drains and a
+  // failed kill that never emits exit have a bounded completion path.
+  let exitCode: number | undefined;
+  let stdoutDone = false;
+  let stderrDone = false;
+  let stderrEnded = false;
+  let drainExpired = false;
+  let streamError: Error | undefined;
+  let processError: Error | undefined;
+  let drainTimer: ReturnType<typeof setTimeout> | undefined;
+  let drainDeadline = Infinity;
+  let releaseDrain!: () => void;
+  const forcedDrain = new Promise<void>(resolve => { releaseDrain = resolve; });
+  let releaseExit!: () => void;
+  const procExited = new Promise<void>(resolve => { releaseExit = resolve; });
+  let releaseStderr!: () => void;
+  const stderrClosed = new Promise<void>(resolve => { releaseStderr = resolve; });
 
   // Two-phase timeout. Phase 1 (startup): no NDJSON byte yet — a shorter
   // deadline kills a non-answering API run EARLY and names it, instead of
   // the old single timer burning the full work budget to produce an opaque
   // '0 turns / $0.00' failure. Phase 2 (work): armed by the read loop when
-  // the FIRST byte arrives, for the REMAINING budget — total wall is always
-  // <= timeout (tier envelopes are margin-free by convention).
+  // the FIRST byte arrives, for the REMAINING budget — model work always
+  // stays inside timeout; pipe cleanup has a separate bounded allowance.
   let stderr = '';
   let exitReason = 'unknown';
   let timedOut = false;
   let timedOutInStartup = false;
   let phaseTimer: ReturnType<typeof setTimeout>;
+
+  const closePipes = () => {
+    reader.cancel().catch(() => { /* already closed */ });
+    proc.stdin!.destroy();
+    proc.stdout!.destroy();
+    proc.stderr!.destroy();
+  };
+  const expireDrain = () => {
+    drainExpired ||= !stdoutDone || !stderrDone;
+    killProcessGroup(proc, 'SIGKILL');
+    closePipes();
+    releaseDrain();
+  };
+  const armDrain = () => {
+    // Exit after cancellation must not restart the five-second allowance.
+    drainDeadline = Math.min(drainDeadline, Date.now() + SESSION_DRAIN_GRACE_MS);
+    clearTimeout(drainTimer);
+    drainTimer = setTimeout(expireDrain, Math.max(0, drainDeadline - Date.now()));
+  };
 
   const killRun = (startupPhase: boolean): void => {
     // Labeling and unblocking are SEPARATE concerns: a timer firing after
@@ -323,10 +412,10 @@ export async function runSkillTest(options: {
     // reader, or an orphan holding the pipes re-creates the exact
     // blocked-drain hang this runner fixed (an early `return` here was the
     // bug the adversarial pass caught in the first version of this guard).
-    if (!childExited) {
+    if (exitCode === undefined) {
+      if (!timedOut) timedOutInStartup = startupPhase;
       timedOut = true;
-      timedOutInStartup = startupPhase;
-    }
+    } else drainExpired ||= !stdoutDone || !stderrDone;
     // Group SIGKILL (mirrors runShardChild): claude AND every tool
     // subprocess it spawned die together — a bare proc.kill() left orphans
     // that inherited our stdout/stderr pipes and kept the API burning
@@ -335,13 +424,50 @@ export async function runSkillTest(options: {
     killProcessGroup(proc, 'SIGKILL');
     // Belt and braces with the group kill: even if an orphan survives (EPERM
     // fallback path), cancel() unblocks the read loop below.
-    reader.cancel().catch(() => { /* stream already closed */ });
+    closePipes();
+    armDrain();
   };
-  phaseTimer = setTimeout(() => killRun(true), startupGraceMs);
+  const onAbort = () => killRun(false);
+  const onExit = (code: number | null, exitSignal: NodeJS.Signals | null) => {
+    exitCode = code ?? (exitSignal ? 128 + (os.constants.signals[exitSignal] ?? 0) : 1);
+    clearTimeout(phaseTimer);
+    armDrain();
+    releaseExit();
+  };
+  const onError = (error: Error) => {
+    processError = error;
+    stderr += error.message;
+    exitCode = 1;
+    closePipes();
+    releaseExit();
+    releaseDrain();
+  };
+  const onStderr = (chunk: string) => { stderr += chunk; };
+  const onStderrDone = () => { stderrDone = true; releaseStderr(); };
+  const onStderrEnd = () => { stderrEnded = true; onStderrDone(); };
+  const onStderrClose = () => {
+    // Close releases the drain, but only end proves stderr reached EOF.
+    if (!stderrEnded) streamError ??= new Error('stderr closed before EOF');
+    onStderrDone();
+  };
+  const onStreamError = (error: Error) => { streamError = error; };
+  proc.on('exit', onExit);
+  proc.on('error', onError);
+  proc.stderr!.setEncoding('utf8');
+  proc.stderr!.on('data', onStderr);
+  proc.stderr!.on('end', onStderrEnd).on('close', onStderrClose).on('error', onStreamError);
+  proc.stdout!.on('error', onStreamError);
+  signal?.addEventListener('abort', onAbort, { once: true });
+  phaseTimer = setTimeout(() => killRun(true), Math.max(0, startTime + startupGraceMs - Date.now()));
+  proc.stdin!.on('error', () => { /* exit handling reports early child failure */ });
+  if (signal?.aborted || Date.now() >= deadline) onAbort();
+  else proc.stdin!.end(prompt);
   /** Called once by the read loop on the first NDJSON byte. */
   const armWorkPhase = (elapsedMs: number): void => {
     clearTimeout(phaseTimer);
-    phaseTimer = setTimeout(() => killRun(false), Math.max(0, timeout - elapsedMs));
+    if (exitCode === undefined && !timedOut) {
+      phaseTimer = setTimeout(() => killRun(false), Math.max(0, timeout - elapsedMs));
+    }
   };
 
   // Stream NDJSON from stdout for real-time progress
@@ -352,116 +478,111 @@ export async function runSkillTest(options: {
   let workPhaseArmed = false;
   let lastToolTime = 0;
   let maxInterTurnMs = 0;
-  const stderrPromise = new Response(stderrWeb).text();
-
-  const reader = stdoutWeb.getReader();
   const decoder = new TextDecoder();
   let buf = '';
   const projectLine = options.publicStreamDiagnostics ? publicStreamProjection(startTime) : (line: string) => line;
 
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop() || '';
-      for (const rawLine of lines) {
-        if (!rawLine.trim()) continue;
-        const line = projectLine(rawLine);
-        collectedLines.push(line);
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (const rawLine of lines) {
+          if (!rawLine.trim()) continue;
+          const line = projectLine(rawLine);
+          collectedLines.push(line);
 
-        // Track time to first NDJSON line (measures latency from spawn to first Claude response)
-        if (!workPhaseArmed) {
-          // Flag, not `firstResponseMs === 0`: a first line landing in the
-          // same millisecond as spawn would read as "not yet seen" and leave
-          // the startup timer live for the whole run (claude adversarial).
-          workPhaseArmed = true;
-          firstResponseMs = Date.now() - startTime;
-          // First byte: startup phase over — arm the work phase for the
-          // REMAINING budget (total wall stays <= timeout).
-          armWorkPhase(firstResponseMs);
-        }
+          // Track time to first NDJSON line (measures latency from spawn to first Claude response)
+          if (!workPhaseArmed) {
+            // Flag, not `firstResponseMs === 0`: a first line landing in the
+            // same millisecond as spawn would read as "not yet seen" and leave
+            // the startup timer live for the whole run (claude adversarial).
+            workPhaseArmed = true;
+            firstResponseMs = Date.now() - startTime;
+            // First byte: startup phase over — arm the work phase for the
+            // REMAINING budget (total wall stays <= timeout).
+            armWorkPhase(firstResponseMs);
+          }
 
-        // Real-time progress to stderr + persistent logs
-        try {
-          const event = JSON.parse(line);
-          if (event.type === 'assistant') {
-            liveTurnCount++;
-            const content = event.message?.content || [];
-            for (const item of content) {
-              if (item.type === 'tool_use') {
-                liveToolCount++;
-                const now = Date.now();
-                const elapsed = Math.round((now - startTime) / 1000);
-                // Track inter-turn latency (tool call to tool call)
-                if (lastToolTime > 0) {
-                  const interTurn = now - lastToolTime;
-                  if (interTurn > maxInterTurnMs) maxInterTurnMs = interTurn;
-                }
-                lastToolTime = now;
-                const progressLine = `  [${elapsed}s] turn ${liveTurnCount} tool #${liveToolCount}: ${item.name}(${truncate(JSON.stringify(item.input || {}), 80)})\n`;
-                process.stderr.write(progressLine);
+          // Real-time progress to stderr + persistent logs
+          try {
+            const event = JSON.parse(line);
+            if (event.type === 'assistant') {
+              liveTurnCount++;
+              const content = event.message?.content || [];
+              for (const item of content) {
+                if (item.type === 'tool_use') {
+                  liveToolCount++;
+                  const now = Date.now();
+                  const elapsed = Math.round((now - startTime) / 1000);
+                  // Track inter-turn latency (tool call to tool call)
+                  if (lastToolTime > 0) {
+                    const interTurn = now - lastToolTime;
+                    if (interTurn > maxInterTurnMs) maxInterTurnMs = interTurn;
+                  }
+                  lastToolTime = now;
+                  const progressLine = `  [${elapsed}s] turn ${liveTurnCount} tool #${liveToolCount}: ${item.name}(${truncate(JSON.stringify(item.input || {}), 80)})\n`;
+                  process.stderr.write(progressLine);
 
-                // Persist progress.log
-                if (runDir) {
-                  try { fs.appendFileSync(path.join(runDir, 'progress.log'), progressLine); } catch { /* non-fatal */ }
-                }
+                  // Persist progress.log
+                  if (runDir) {
+                    try { fs.appendFileSync(path.join(runDir, 'progress.log'), progressLine); } catch { /* non-fatal */ }
+                  }
 
-                // Write heartbeat (atomic)
-                if (runId && testName) {
-                  try {
-                    const toolDesc = `${item.name}(${truncate(JSON.stringify(item.input || {}), 60)})`;
-                    atomicWriteSync(HEARTBEAT_PATH, JSON.stringify({
-                      runId,
-                      pid: proc.pid,
-                      startedAt,
-                      currentTest: testName,
-                      status: 'running',
-                      turn: liveTurnCount,
-                      toolCount: liveToolCount,
-                      lastTool: toolDesc,
-                      lastToolAt: new Date().toISOString(),
-                      elapsedSec: elapsed,
-                    }, null, 2) + '\n');
-                  } catch { /* non-fatal */ }
+                  // Write heartbeat (atomic)
+                  if (runId && testName) {
+                    try {
+                      const toolDesc = `${item.name}(${truncate(JSON.stringify(item.input || {}), 60)})`;
+                      atomicWriteSync(HEARTBEAT_PATH, JSON.stringify({
+                        runId,
+                        pid: proc.pid,
+                        startedAt,
+                        currentTest: testName,
+                        status: 'running',
+                        turn: liveTurnCount,
+                        toolCount: liveToolCount,
+                        lastTool: toolDesc,
+                        lastToolAt: new Date().toISOString(),
+                        elapsedSec: elapsed,
+                      }, null, 2) + '\n');
+                    } catch { /* non-fatal */ }
+                  }
                 }
               }
             }
-          }
-        } catch { /* skip — parseNDJSON will handle it later */ }
+          } catch { /* skip — parseNDJSON will handle it later */ }
 
-        // Append raw NDJSON line to per-test transcript file
-        if (runDir && safeName) {
-          try { fs.appendFileSync(path.join(runDir, `${safeName}.ndjson`), line + '\n'); } catch { /* non-fatal */ }
+          // Append raw NDJSON line to per-test transcript file
+          if (runDir && safeName) {
+            try { fs.appendFileSync(path.join(runDir, `${safeName}.ndjson`), line + '\n'); } catch { /* non-fatal */ }
+          }
         }
       }
-    }
-  } catch { /* stream read error — fall through to exit code handling */ }
+    } catch (error) { streamError = error as Error; }
+    stdoutDone = true;
 
-  // Flush remaining buffer
-  if (buf.trim()) {
-    const line = projectLine(buf);
-    collectedLines.push(line);
-    if (options.publicStreamDiagnostics && runDir && safeName) {
-      try { fs.appendFileSync(path.join(runDir, `${safeName}.ndjson`), line + '\n'); } catch { /* non-fatal */ }
+    // Flush remaining buffer
+    if (buf.trim()) {
+      const line = projectLine(buf);
+      collectedLines.push(line);
+      if (options.publicStreamDiagnostics && runDir && safeName) {
+        try { fs.appendFileSync(path.join(runDir, `${safeName}.ndjson`), line + '\n'); } catch { /* non-fatal */ }
+      }
     }
+
+    await Promise.race([Promise.all([procExited, stderrClosed]), forcedDrain]);
+  } finally {
+    clearTimeout(phaseTimer);
+    clearTimeout(drainTimer);
+    signal?.removeEventListener('abort', onAbort);
+    killProcessGroup(proc, 'SIGKILL');
+    closePipes();
+    proc.removeListener('exit', onExit);
+    proc.stderr!.removeListener('data', onStderr);
   }
-
-  // Same orphan hazard as stdout: an orphaned grandchild holding stderr open
-  // would block the drain forever. Race it against child exit + a short grace
-  // window; the normal path (pipes close with the child) still wins the race
-  // and keeps full stderr.
-  stderr = await Promise.race([
-    stderrPromise,
-    (async () => {
-      await procExited;
-      await new Promise((r) => setTimeout(r, 5_000));
-      return '';
-    })(),
-  ]);
-  const exitCode = await procExited;
-  clearTimeout(phaseTimer);
 
   if (timedOut) {
     // 'timeout_startup' = the API never sent a byte inside the grace — an
@@ -470,9 +591,11 @@ export async function runSkillTest(options: {
     // key off it without receipts archaeology.
     exitReason = timedOutInStartup ? 'timeout_startup' : 'timeout';
   } else if (exitCode === 0) {
-    exitReason = 'success';
+    exitReason = drainExpired ? 'error_output_drain' : streamError ? 'error_output_stream' : 'success';
+    if (drainExpired) stderr += `\nOutput drain exceeded ${SESSION_DRAIN_GRACE_MS}ms after exit 0`;
+    else if (streamError) stderr += `\nOutput stream failed: ${streamError.message}`;
   } else {
-    exitReason = `exit_code_${exitCode}`;
+    exitReason = `exit_code_${exitCode ?? 1}`;
   }
 
   const duration = Date.now() - startTime;
@@ -491,8 +614,15 @@ export async function runSkillTest(options: {
     }
   }
 
-  // Use resultLine for structured result data
-  if (resultLine) {
+  // Native Claude uses exit 1 for its structured max-turns result. Preserve
+  // that existing semantic outcome only after a complete, uncancelled drain;
+  // success-shaped payloads must never override a process/stream failure.
+  const maxTurnsExit = exitCode === 1 && resultLine?.subtype === 'error_max_turns'
+    && resultLine.is_error === true && !timedOut && !signal?.aborted
+    && stdoutDone && stderrDone && !drainExpired && !streamError && !processError;
+  if (maxTurnsExit) {
+    exitReason = 'error_max_turns';
+  } else if (resultLine && exitReason === 'success') {
     if (resultLine.subtype === 'success' && resultLine.is_error) {
       // claude -p can return subtype=success with is_error=true (e.g. API connection failure)
       exitReason = 'error_api';

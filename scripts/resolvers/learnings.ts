@@ -65,7 +65,7 @@ else
 fi
 \`\`\`
 
-If \`CROSS_PROJECT\` is \`unset\` (first time): Use AskUserQuestion:
+If \`CROSS_PROJECT\` is \`unset\` (first time): ${ctx.skillName === 'plan-eng-review' ? 'Build a full decision brief from these facts and options using the preamble format, then ask and wait:' : 'Use AskUserQuestion:'}
 
 > gstack can search learnings from your other projects on this machine to find
 > patterns that might apply here. This stays local (no data leaves your machine).

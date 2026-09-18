@@ -1,29 +1,8 @@
 /**
- * Scope-gate floor-exclusion regression pins (free, static).
- *
- * runPlanSkillFloorCheck's acceptance condition changed with the plan-mode
- * auto-select-B work: a render only satisfies the finding floor when
- *
- *   (isNumberedOptionListVisible(visible) || isProseAUQVisible(visible))
- *     && !isPermissionDialogVisible(tail)
- *     && !isScopeGateQuestionVisible(tail)      // <- new exclusion
- *
- * where tail = visible.slice(-TAIL_SCAN_BYTES). The composition lives inline
- * in the paid PTY loop, so these tests pin the load-bearing behavior of each
- * detector on the exact render shapes the floor passes them:
- *
- *  1. Both scope-gate render forms (native numbered UI, prose lettered
- *     fallback) trip the acceptance detectors — WITHOUT the exclusion the
- *     gate would trivially satisfy the floor inside the 3s pre-target
- *     window. The exclusion must catch both forms.
- *  2. A genuine finding-driven AskUserQuestion must NOT trip the exclusion,
- *     or the floor becomes unsatisfiable.
- *  3. The exclusion is TAIL-scoped by design: an early gate render that has
- *     scrolled past TAIL_SCAN_BYTES must not suppress a later real finding
- *     AskUserQuestion.
- *
- * Also closes the untested OR-branch of isScopeGateAutoSelectVisible: the
- * fully-collapsed hyphen-less 'autoselectedb' form.
+ * Shared scope-gate render controls retained from the original floor observer.
+ * These classify native/prose shapes and scrollback; they do not establish
+ * finding coverage. The complete current floor, owned native identity and
+ * semantic assessment are exercised in plan-floor-permission.test.ts.
  */
 
 import { describe, test, expect } from 'bun:test';
@@ -65,13 +44,37 @@ Finding 1: the plan reimplements test sharding that Bun provides natively.
     3. Defer this decision to implementation
 `;
 
-describe('floor-check scope-gate exclusion (acceptance-condition regression)', () => {
+describe('shared scope-gate render exclusions', () => {
   test('native gate render trips the acceptance detector — the exclusion is load-bearing', () => {
     // Pre-exclusion, this render satisfied the floor by itself.
     expect(isNumberedOptionListVisible(GATE_NATIVE_RENDER)).toBe(true);
     expect(isPermissionDialogVisible(GATE_NATIVE_RENDER)).toBe(false);
     // The new exclusion catches it.
     expect(isScopeGateQuestionVisible(GATE_NATIVE_RENDER)).toBe(true);
+  });
+
+  test('captured native gate still counts when option B mentions the already-pasted draft', () => {
+    // Public card captured from Claude Code 2.1.251 on 2026-09-15, attempt 3.
+    // Mentioning the acknowledged draft does not make a real scope question disappear.
+    const capturedCard = [
+      '☐ Scope ',
+      '',
+      'What should I review?',
+      '',
+      '❯1.A) Branch diff',
+      'The current branch diff — the work in progress on this branch.',
+      '2.B)Plan/designdoc',
+      "A plan or design doc I'll paste or point you to (e.g. the ZephyrLedgerWidget draft above).",
+      ' 3. C) Specific path',
+      '     A specific file,directory, or path.',
+      '4. Type something.',
+      '────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────',
+      '  5.Chataboutthis',
+      '',
+      'Enter to select· ↑/↓ tonavgate · Escto cancel',
+    ].join('\n');
+
+    expect(isScopeGateQuestionVisible(capturedCard)).toBe(true);
   });
 
   test('prose gate render trips the prose-AUQ arm — the exclusion catches that form too', () => {

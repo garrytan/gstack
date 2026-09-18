@@ -98,7 +98,7 @@ test('the native reader cannot promote foreign cwd, child, user or tool-result t
 });
 
 test('new native annotation dependencies retain all existing observation caller owners',()=>{
-  const expected=['plan-ceo-review-plan-mode','plan-eng-review-plan-mode','plan-design-review-plan-mode','plan-devex-review-plan-mode','plan-mode-no-op','auto-decide-preserved','conductor-prose'];
+  const expected=['plan-ceo-review-plan-mode','plan-eng-review-plan-mode','plan-design-review-plan-mode','plan-devex-review-plan-mode','plan-mode-no-op','office-hours-auto-mode','auto-decide-preserved','conductor-prose'];
   for(const file of ['test/helpers/native-auto-decide.ts','test/native-auto-decide.test.ts','test/native-auto-decide-pty.test.ts','test/fixtures/native-auto-decide-ag.json']){
     const owners=Object.entries(E2E_TOUCHFILES).filter(([,paths])=>paths.includes(file)).map(([name])=>name);expect(owners).toEqual(expected);
     expect(selectTests([file],E2E_TOUCHFILES).selected).toContain('auto-decide-preserved');

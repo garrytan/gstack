@@ -29,6 +29,10 @@ import { safeUnlink } from './error-handling';
 import { writeAgentRecord, clearAgentRecord } from './terminal-agent-control';
 import { findAvailablePort } from './port-allocator';
 import { extractPtyCookie } from './pty-session-cookie';
+import {
+  createPtyLifecycle, disposePtyProcess, ptyCompletionReason,
+  type PtyCompletion, type PtyLifecycle,
+} from './terminal-pty-lifecycle';
 
 const STATE_FILE = process.env.BROWSE_STATE_FILE || path.join(process.env.HOME || '/tmp', '.gstack', 'browse.json');
 const PORT_FILE = path.join(path.dirname(STATE_FILE), 'terminal-port');
@@ -87,6 +91,9 @@ process.on('unhandledRejection', (reason) => {
 
 export interface PtySession {
   proc: any | null;        // Bun.Subprocess once spawned
+  lifecycle?: PtyLifecycle | null;
+  completion?: PtyCompletion;
+  disposed?: boolean;
   cols: number;
   rows: number;
   cookie: string;
@@ -320,7 +327,7 @@ function buildTabAwarenessHint(stateDir: string): string {
 }
 
 /** Spawn claude in a PTY. Returns null if claude not on PATH. */
-function spawnClaude(cols: number, rows: number, onData: (chunk: Buffer) => void) {
+function spawnClaude(cols: number, rows: number, lifecycle: PtyLifecycle) {
   const claudePath = findClaude();
   if (!claudePath) return null;
 
@@ -351,7 +358,10 @@ function spawnClaude(cols: number, rows: number, onData: (chunk: Buffer) => void
     terminal: {
       rows,
       cols,
-      data(_terminal: any, chunk: Buffer) { onData(chunk); },
+      data(_terminal: any, chunk: Buffer) { lifecycle.data(chunk); },
+      exit(_terminal: any, code: number, signal: string | null) {
+        lifecycle.readerEnded(code, signal);
+      },
     },
     env,
   });
@@ -360,17 +370,24 @@ function spawnClaude(cols: number, rows: number, onData: (chunk: Buffer) => void
 
 /** Cleanup a PTY session: SIGINT, then SIGKILL after 3s. */
 function disposeSession(session: PtySession): void {
-  try { session.proc?.terminal?.close?.(); } catch {}
-  if (session.proc?.pid) {
-    try { session.proc.kill?.('SIGINT'); } catch {}
-    setTimeout(() => {
-      try {
-        if (session.proc && !session.proc.killed) session.proc.kill?.('SIGKILL');
-      } catch {}
-    }, 3000);
-  }
+  // Suppress callbacks caused by explicit close, and cancel any drain deadline.
+  session.disposed = true;
+  session.lifecycle?.dispose();
+  session.lifecycle = null;
+  const proc = session.proc;
   session.proc = null;
   session.spawned = false;
+  disposePtyProcess(proc);
+}
+
+function sendPtyCompletion(session: PtySession): void {
+  if (!session.completion || !session.liveWs) return;
+  // Keep process status and reader status distinct. Linux PTY shutdown can
+  // report reader status 1; Bun exposes no errno to distinguish it from other
+  // I/O errors. Keep completeness unknown for that status, rather than claiming
+  // clean EOF or loss; only a missing reader callback proves drain timeout.
+  try { session.liveWs.send(JSON.stringify({ type: 'pty-exit', ...session.completion })); } catch {}
+  try { session.liveWs.close(1000, ptyCompletionReason(session.completion)); } catch {}
 }
 
 /**
@@ -444,37 +461,49 @@ async function internalHandler<T>(
  * surfaced the error to the client (or will via the next frame).
  */
 function maybeSpawnPty(ws: any, session: PtySession): boolean {
+  if (session.disposed || session.completion) return false;
   if (session.spawned) return true;
   session.spawned = true;
   let leftover = Buffer.alloc(0);
-  const proc = spawnClaude(session.cols, session.rows, (chunk) => {
-    const combined = Buffer.concat([leftover, Buffer.from(chunk)]);
-    // UTF-8 boundary detection (issue #1272). Look back at most 3 bytes
-    // for the start of an incomplete multibyte sequence and defer it.
-    let safeEnd = combined.length;
-    for (let i = combined.length - 1; i >= Math.max(0, combined.length - 3); i--) {
-      const b = combined[i];
-      if ((b & 0x80) === 0) { safeEnd = i + 1; break; }
-      if ((b & 0xC0) === 0x80) continue;
-      const expected = (b & 0xE0) === 0xC0 ? 2 : (b & 0xF0) === 0xE0 ? 3 : 4;
-      safeEnd = (combined.length - i >= expected) ? combined.length : i;
-      break;
+  const forward = (flush: Buffer) => {
+    if (!flush.length) return;
+    appendToRingBuffer(session, flush);
+    if (session.liveWs) {
+      try { session.liveWs.sendBinary(flush); } catch {}
     }
-    const flush = combined.slice(0, safeEnd);
-    leftover = combined.slice(safeEnd);
-    if (flush.length) {
-      // Always record into the ring buffer (Commit 3) so re-attach can
-      // replay. session.liveWs is what changes across re-attaches — we
-      // close over `session`, not the original `ws`, so the write always
-      // goes to whichever ws is currently attached (or is skipped when
-      // detached and liveWs is null).
-      appendToRingBuffer(session, flush);
-      if (session.liveWs) {
-        try { session.liveWs.sendBinary(flush); } catch {}
+  };
+  const lifecycle = createPtyLifecycle({
+    onData(chunk) {
+      const combined = Buffer.concat([leftover, Buffer.from(chunk)]);
+      // UTF-8 boundary detection (issue #1272). Look back at most 3 bytes
+      // for the start of an incomplete multibyte sequence and defer it.
+      let safeEnd = combined.length;
+      for (let i = combined.length - 1; i >= Math.max(0, combined.length - 3); i--) {
+        const b = combined[i];
+        if ((b & 0x80) === 0) { safeEnd = i + 1; break; }
+        if ((b & 0xC0) === 0x80) continue;
+        const expected = (b & 0xE0) === 0xC0 ? 2 : (b & 0xF0) === 0xE0 ? 3 : 4;
+        safeEnd = (combined.length - i >= expected) ? combined.length : i;
+        break;
       }
-    }
+      const flush = combined.slice(0, safeEnd);
+      leftover = combined.slice(safeEnd);
+      forward(flush);
+    },
+    onComplete(completion) {
+      // Preserve a final incomplete UTF-8 sequence as bytes as well. A reader
+      // error/deadline remains explicit in the completion record.
+      forward(leftover);
+      leftover = Buffer.alloc(0);
+      session.completion = completion;
+      disposeSession(session);
+      sendPtyCompletion(session);
+    },
   });
+  session.lifecycle = lifecycle;
+  const proc = spawnClaude(session.cols, session.rows, lifecycle);
   if (!proc) {
+    lifecycle.dispose();
     try {
       ws.send(JSON.stringify({
         type: 'error',
@@ -486,9 +515,10 @@ function maybeSpawnPty(ws: any, session: PtySession): boolean {
     return false;
   }
   session.proc = proc;
-  proc.exited?.then?.(() => {
-    try { session.liveWs?.close(1000, 'pty exited'); } catch {}
-  });
+  proc.exited.then(
+    (code: number) => lifecycle.exited(code, proc.signalCode ?? null),
+    () => lifecycle.exited(null, proc.signalCode ?? null, true),
+  );
   return true;
 }
 
@@ -550,6 +580,15 @@ function buildServer(port: number) {
           }
           disposeSession(session);
           sessionsById.delete(sid);
+          // Disposal no longer closes the socket through proc.exited. Retire
+          // its heartbeat and grant explicitly; late input cannot respawn this
+          // disposed session while the close handshake is in progress.
+          if (session.pingInterval) {
+            clearInterval(session.pingInterval);
+            session.pingInterval = null;
+          }
+          if (session.cookie) validTokens.delete(session.cookie);
+          try { session.liveWs?.close(4001, 'pty restarted'); } catch {}
           return { killed: 1 };
         });
       }
@@ -566,6 +605,7 @@ function buildServer(port: number) {
           pid: process.pid,
           gen: CURRENT_GEN,
           sessions: validTokens.size,
+          completedSessions: [...sessionsById.values()].filter(session => session.completion).length,
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
@@ -691,6 +731,9 @@ function buildServer(port: number) {
             // immediately after this text frame IS the replay.
             try { ws.send(JSON.stringify({ type: 'reattach-begin', sessionId })); } catch {}
             try { ws.sendBinary(buildReplayPayload(existing)); } catch {}
+            // A child can finish while detached. Replay its final bytes before
+            // reporting completion; never spawn a replacement into that lease.
+            sendPtyCompletion(existing);
             return;
           }
         }
@@ -724,6 +767,7 @@ function buildServer(port: number) {
 
       message(ws, raw) {
         let session = sessions.get(ws);
+        if (session && (session.disposed || session.liveWs !== ws)) return;
         if (!session) {
           // Fallback for any path where open() didn't fire (shouldn't happen
           // in Bun.serve but keeps the spawn path safe). No keepalive on
@@ -812,7 +856,11 @@ function buildServer(port: number) {
         // Always drop the WS-keyed map entry and the per-attach
         // attachToken — the attach grant was single-use.
         sessions.delete(ws);
-        if (session.cookie) validTokens.delete(session.cookie);
+        const cookie = (ws.data as any)?.cookie;
+        if (cookie) validTokens.delete(cookie);
+        // A reattach can replace liveWs before the old socket's close arrives.
+        // That stale callback must not retire the new socket, grant or child.
+        if (session.liveWs !== ws) return;
         // Keepalive lives with the WS — every attach starts a fresh one.
         if (session.pingInterval) {
           clearInterval(session.pingInterval);
@@ -832,7 +880,9 @@ function buildServer(port: number) {
         const intentional = code === 4001 || code === 4404 || code === 1000;
         if (intentional || !session.sessionId) {
           disposeSession(session);
-          if (session.sessionId) sessionsById.delete(session.sessionId);
+          if (session.sessionId && sessionsById.get(session.sessionId) === session) {
+            sessionsById.delete(session.sessionId);
+          }
           return;
         }
 
@@ -844,7 +894,9 @@ function buildServer(port: number) {
         session.detachTimer = setTimeout(() => {
           if (!session.detached) return; // re-attached in the meantime
           disposeSession(session);
-          if (session.sessionId) sessionsById.delete(session.sessionId);
+          if (session.sessionId && sessionsById.get(session.sessionId) === session) {
+            sessionsById.delete(session.sessionId);
+          }
         }, DETACH_WINDOW_MS);
         // setTimeout returns a Bun Timer; unref so the detach window
         // doesn't keep the process alive past natural shutdown.

@@ -1,0 +1,136 @@
+{
+  "source": "361c4dd7642ac03f4a35d720d263905d41db318f",
+  "provenance": "Exact public current viewports and native calls from four false-positive floor acceptances; no questions or answers reconstructed. Tests can transport the retained fields into a synthetic owned PTY boundary without paid credit.",
+  "captures": [
+    {
+      "skill": "ceo",
+      "attempt": "plan-ceo-review-1789612386358-Xim9om",
+      "observationSha256": "a87643ebdace153f27c2eb9da541f98126dd6cb640628204e5668a744e93cd53",
+      "screenSha256": "0a47e729e876968bb9860244e8b4843e16a3115c3671104b8e3e05c39643d478",
+      "viewport": "\n\n● I'll start with the skill preamble.\n\n  Read 1 file, ran 3 shell commands \n\n● Preamble surfaced a one-time onboarding directive, and the audit found no design doc and an unset cross-project\n  learnings preference. Three setup questions in one call before the review proper.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\nPlanning: /tmp/g-58_o3060/gstack-paid-shard-KyOTy4/tmp/gstack-hermetic-1635724-3nnAGL/with-skills/.claude/plans/plan-md-\ndeep-stream.md\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n←  ☐ Routing  ☐ Design doc  ☐ Learnings  ✔ Submit  → \n\n│ D1 — Add gstack skill routing rules to this project's CLAUDE.md?\n│ Project/branch/task: gstack-plan-count-LjvfDb on main, reviewing PLAN.md (pricing tier).\n│ ELI10: gstack has a dozen skills (/office-hours, /ship, /investigate...). A short routing table in CLAUDE.md tells \n│ Claude which one to reach for when you say things like 'this is broken' or 'ship it', so you don't have to remember \n│ slash names. Without it, you invoke skills by hand.\n│ Stakes if we pick wrong: Low either way. Miss out on auto-routing, or get a ~15-line block in CLAUDE.md you didn't \n│ want.\n│ Recommendation: A because auto-routing is the default gstack experience and the block is small and reversible.\n│ Note: options differ in kind, not coverage — no completeness score.\n│ Note: plan mode is active, so if you pick A the CLAUDE.md edit + commit will be queued until plan mode exits; only the\n│ plan file is editable right now.\n│ Net: convenience vs. one extra block in CLAUDE.md.\n\n❯ 1. Add routing rules to CLAUDE.md (recommended)\n     ✅ Natural-language requests ('fix this bug', 'review scope') route to the right skill automatically�✅ One-time \n     setup; the block is ~15 lines and trivially deletable�❌ Adds gstack-specific text to a shared project file; \n     applied after plan mode exits, not now\n  2. No thanks, I'll invoke skills manually\n     ✅ CLAUDE.md stays exactly as your team wrote it, no tool-specific content�✅ Full control over when a skill runs; \n     nothing fires proactively�❌ You must remember and type slash names; sets routing_declined=true (re-enable via \n     gstack-config)\n  3. Type something.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  4. Chat about this\n\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel",
+      "calls": [
+        {
+          "sessionId": "99bc7817-2d4b-48c9-abc8-1ab4acc2b96a",
+          "toolUseId": "toolu_01FyGosedXWtjRiN3J6Eoz8G",
+          "questions": [
+            {
+              "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-LjvfDb on main, reviewing PLAN.md (pricing tier).\nELI10: gstack has a dozen skills (/office-hours, /ship, /investigate...). A short routing table in CLAUDE.md tells Claude which one to reach for when you say things like 'this is broken' or 'ship it', so you don't have to remember slash names. Without it, you invoke skills by hand.\nStakes if we pick wrong: Low either way. Miss out on auto-routing, or get a ~15-line block in CLAUDE.md you didn't want.\nRecommendation: A because auto-routing is the default gstack experience and the block is small and reversible.\nNote: options differ in kind, not coverage — no completeness score.\nNote: plan mode is active, so if you pick A the CLAUDE.md edit + commit will be queued until plan mode exits; only the plan file is editable right now.\nNet: convenience vs. one extra block in CLAUDE.md.",
+              "header": "Routing",
+              "options": [
+                {
+                  "label": "Add routing rules to CLAUDE.md (recommended)",
+                  "description": "✅ Natural-language requests ('fix this bug', 'review scope') route to the right skill automatically\n✅ One-time setup; the block is ~15 lines and trivially deletable\n❌ Adds gstack-specific text to a shared project file; applied after plan mode exits, not now"
+                },
+                {
+                  "label": "No thanks, I'll invoke skills manually",
+                  "description": "✅ CLAUDE.md stays exactly as your team wrote it, no tool-specific content\n✅ Full control over when a skill runs; nothing fires proactively\n❌ You must remember and type slash names; sets routing_declined=true (re-enable via gstack-config)"
+                }
+              ]
+            },
+            {
+              "question": "D2 — No design doc found. Run /office-hours first, or proceed with the standard review?\nProject/branch/task: gstack-plan-count-LjvfDb on main, reviewing PLAN.md (pricing tier).\nELI10: /office-hours is a structured 'what problem are we really solving' session: problem statement, premise challenge, explored alternatives. It produces a design doc this review can lean on. Your plan already admits its premise is untested (nobody has talked to developers), which is exactly what /office-hours is built to sharpen. Takes ~10 minutes.\nStakes if we pick wrong: Skip it and the review challenges the premise itself, but with thinner input. Run it and you spend 10 minutes before the review starts.\nRecommendation: A because this plan is 3 lines with an unvalidated premise; the review will spend most of its time on premise anyway, and /office-hours does that better.\nNote: options differ in kind, not coverage — no completeness score.\nNet: 10 minutes of upfront problem framing vs. jumping straight into review of a plan that mostly lacks a problem statement.",
+              "header": "Design doc",
+              "options": [
+                {
+                  "label": "Run /office-hours now (recommended)",
+                  "description": "✅ Produces a problem statement and alternatives the review can grade against, not just the 3-line PLAN.md\n✅ Directly addresses the plan's own admitted gap: no developer input, no evidence pricing is the barrier\n❌ ~10 minutes of Q&A before the review starts (human: ~10 min / CC: ~10 min, it's conversational)"
+                },
+                {
+                  "label": "Skip — proceed with standard review",
+                  "description": "✅ Review starts immediately; Step 0 premise challenge still runs at full depth\n✅ Fine if you already have the problem framing in your head and just want the critique\n❌ Review works from a 3-line plan; more findings will be 'unknown, go find out' rather than concrete"
+                }
+              ]
+            },
+            {
+              "question": "D3 — Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-LjvfDb on main, reviewing PLAN.md (pricing tier).\nELI10: gstack logs small lessons per project (command quirks, pitfalls). With this on, reviews can also search lessons from your other projects on this machine. Everything stays local; nothing leaves your machine. Good for solo devs; skip if you work across client codebases where mixing context is a concern.\nStakes if we pick wrong: Low. Either miss a few reusable lessons, or see a lesson from an unrelated codebase.\nRecommendation: A because it is local-only and the current project has zero learnings, so any signal has to come from elsewhere.\nNote: options differ in kind, not coverage — no completeness score.\nNet: more recall vs. strict project isolation.",
+              "header": "Learnings",
+              "options": [
+                {
+                  "label": "Enable cross-project learnings (recommended)",
+                  "description": "✅ Reviews can apply patterns already learned on your other local projects\n✅ Local only; no data leaves the machine, and it can be turned off any time\n❌ A lesson from an unrelated codebase could surface where it doesn't apply"
+                },
+                {
+                  "label": "Keep learnings project-scoped only",
+                  "description": "✅ Strict isolation between codebases; nothing from client A shows up in client B\n✅ Zero chance of a misapplied cross-project pattern\n❌ This project has 0 learnings today, so the search returns nothing until some accumulate"
+                }
+              ]
+            }
+          ],
+          "answered": false,
+          "failed": false
+        }
+      ],
+      "originalOutcome": "auq_observed",
+      "originalAuqObserved": true
+    },
+    {
+      "skill": "devex",
+      "attempt": "plan-devex-review-1789612067021-E40KFO",
+      "observationSha256": "32d3121c9ddf54fced37eacf21fba5c68c37d104f2240b2fc232d414b0dc785a",
+      "screenSha256": "71029e730d8c9bb9d06f7f8aa9b8bc0d5c1100eb6013d53fcc3e38786908f49c",
+      "viewport": "  Read 1 file (ctrl+o to expand)\n\n● Bash(cat ~/.gstack/projects/gstack-plan-count-M30WEF/timeline.jsonl; echo \"--- BRAIN ---\"; eval\n      \"$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)\" 2>/dev/null…)\n  ⎿  cat: /tmp/g-58_o3060/gstack-paid-shard-QuJlSl/tmp/gstack-hermetic-1650825-6mYbDN/skill-home-pdbU1b/.gstack/pro\n     jects/gstack-plan-count-M30WEF/timeline.jsonl: No such file or directory\n     --- BRAIN ---\n     … +27 lines (ctrl+o to expand)\n  ⎿  Allowed by auto mode classifier\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\nPlanning: /tmp/g-58_o3060/gstack-paid-shard-QuJlSl/tmp/gstack-hermetic-1650825-6mYbDN/with-skills/.claude/plans/plan-md-\ntidy-clover.md\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n ☐ Routing \n\n│ D1 — Add gstack skill routing rules to this project's CLAUDE.md?\n│ Project/branch/task: gstack-plan-count-M30WEF on main, running /plan-devex-review on PLAN.md.\n│ ELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so requests like \"review this\n│ diff\" or \"why is this failing\" route to the right skill automatically instead of you typing the slash command. This is\n│ a one-time setup prompt per project. Note: plan mode is active, so if you pick A the CLAUDE.md edit and commit happen\n│ after this review finishes and plan mode exits.\n│ Stakes if we pick wrong: pick A on a throwaway fixture and you get a commit you don't want; pick B and you invoke\n│ skills by hand from now on (re-enable any time via gstack-config).\n│ Recommendation: A because routing rules cost one short section and save a slash command on every future request.\n│ Note: options differ in kind, not coverage — no completeness score.\n│ Net: automatic skill routing vs. keeping CLAUDE.md untouched.\n\n❯ 1. Add routing rules to CLAUDE.md (recommended)\n     ✅ Future requests auto-route to /investigate, /review, /ship etc. without typing the command. ✅ One short\n     appended section plus one chore commit, applied after plan mode exits. ❌ Adds a commit to this repo, which may be\n     unwanted on a review fixture.\n  2. No thanks, I'll invoke skills manually\n     ✅ CLAUDE.md and git history stay exactly as they are. ✅ Nothing to review or revert later; re-enable any time\n     with gstack-config. ❌ Every skill has to be invoked by hand with its slash command.\n  3. Type something.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n",
+      "calls": [],
+      "originalOutcome": "auq_observed",
+      "originalAuqObserved": true
+    },
+    {
+      "skill": "eng",
+      "attempt": "plan-eng-review-1789612289870-ByEv53",
+      "observationSha256": "8d21d35b2e0b8289fbcfb70727b7a10089faf673d5500131607687395bc12ded",
+      "screenSha256": "0aa05d3d046f8b3995a9af8fd881101fd8ffa7bca2db42961b5e09dc68095b14",
+      "viewport": "  ⎿  Allowed by auto mode classifier\n\n● Bash(eval \"$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)\"\n      _BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-') || :; _BRANCH=${_BRANCH:…)\n  ⎿  SLUG=gstack-plan-count-oD4pMy BRANCH=main PROJ=/tmp/g-58_o3060/gstack-paid-shard-dU0lDN/tmp/gstack-hermetic-16\n     63362-fQtsSz/gstack-home/projects/gstack-plan-count-oD4pMy\n     --- RECENT ARTIFACTS ---\n     … +23 lines (ctrl+o to expand)\n  ⎿  Allowed by auto mode classifier\n\n  Read 1 file (ctrl+o to expand)\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\nPlanning: /tmp/g-58_o3060/gstack-paid-shard-dU0lDN/tmp/gstack-hermetic-1663362-fQtsSz/with-skills/.claude/plans/plan-md-\nsorted-sonnet.md\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n←  ☐ Routing  ☐ Prereq  ✔ Submit  →\n\n│ D1 — Add gstack skill routing rules to CLAUDE.md?\n│ Project/branch/task: gstack-plan-count-oD4pMy on main, reviewing PLAN.md (request-id propagation).\n│ ELI10: gstack skills work best when the project's CLAUDE.md tells Claude which skill to reach for (bugs → \n│ /investigate, architecture → /plan-eng-review, etc). Without it you type skill names by hand each time. This is a\n│ one-time per-project prompt.\n│ Stakes if we pick wrong: Low either way. Skipping means manual skill invocation; adding means one extra section in\n│ CLAUDE.md (plan mode is active, so the append + commit would happen after you exit plan mode).\n│ Recommendation: A because routing rules cost one small CLAUDE.md section and save repeated manual skill picks.\n│ Note: options differ in kind, not coverage — no completeness score.\n│ Net: convenience of auto-routing vs keeping CLAUDE.md minimal.\n\n❯ 1. Add routing rules (recommended)\n     ✅ Future requests auto-route to the right gstack skill without typing names�✅ One small appended section,\n     committed separately as a chore commit�❌ Adds ~15 lines to CLAUDE.md; deferred until plan mode exits\n  2. No thanks, manual\n     ✅ CLAUDE.md stays exactly as it is, no extra commit on this branch�✅ You keep full control of when skills run�❌\n     You must invoke /skill-name by hand every time; prompt never repeats\n  3. Type something.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  4. Chat about this\n\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel\n",
+      "calls": [
+        {
+          "sessionId": "da007205-86d1-4137-9d3a-4d479c4e75d3",
+          "toolUseId": "toolu_018KvyonBnmwzZkbx7nkxzMo",
+          "questions": [
+            {
+              "question": "D1 — Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: gstack-plan-count-oD4pMy on main, reviewing PLAN.md (request-id propagation).\nELI10: gstack skills work best when the project's CLAUDE.md tells Claude which skill to reach for (bugs → /investigate, architecture → /plan-eng-review, etc). Without it you type skill names by hand each time. This is a one-time per-project prompt.\nStakes if we pick wrong: Low either way. Skipping means manual skill invocation; adding means one extra section in CLAUDE.md (plan mode is active, so the append + commit would happen after you exit plan mode).\nRecommendation: A because routing rules cost one small CLAUDE.md section and save repeated manual skill picks.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience of auto-routing vs keeping CLAUDE.md minimal.",
+              "header": "Routing",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Add routing rules (recommended)",
+                  "description": "✅ Future requests auto-route to the right gstack skill without typing names\n✅ One small appended section, committed separately as a chore commit\n❌ Adds ~15 lines to CLAUDE.md; deferred until plan mode exits"
+                },
+                {
+                  "label": "No thanks, manual",
+                  "description": "✅ CLAUDE.md stays exactly as it is, no extra commit on this branch\n✅ You keep full control of when skills run\n❌ You must invoke /skill-name by hand every time; prompt never repeats"
+                }
+              ]
+            },
+            {
+              "question": "D2 — Run /office-hours first, or proceed with the standard engineering review?\nProject/branch/task: gstack-plan-count-oD4pMy on main, reviewing PLAN.md (request-id propagation).\nELI10: No design doc was found for this branch. /office-hours produces a structured problem statement, a premise challenge, and explored alternatives, which gives this review much sharper input. Takes about 10 minutes. The design doc is per-feature, not per-product.\nStakes if we pick wrong: Skipping means the review reasons from a 4-line plan with no stated problem or constraints; running it costs ~10 minutes before any findings land.\nRecommendation: B because the plan is 4 lines with one clear architectural call (custom UUIDv7 vs crypto.randomUUID) and the review can challenge that directly; a design doc would help more once the plan has real scope.\nCompleteness: A=9/10, B=7/10\nNet: sharper inputs vs faster findings on a tiny plan.",
+              "header": "Prereq",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Skip — standard review (recommended)",
+                  "description": "✅ Findings on the custom-UUID decision land immediately, no detour\n✅ The plan is small enough that the review can state the missing problem statement itself\n❌ Review works from a 4-line plan with no constraints or alternatives written down"
+                },
+                {
+                  "label": "Run /office-hours now",
+                  "description": "✅ Produces a written problem statement, premise challenge, and alternatives before review\n✅ Later reviews and the eventual implementer inherit that context\n❌ ~10 minutes (human: ~1 hr / CC: ~10 min) before any engineering findings"
+                }
+              ]
+            }
+          ],
+          "answered": false,
+          "failed": false
+        }
+      ],
+      "originalOutcome": "auq_observed",
+      "originalAuqObserved": true
+    },
+    {
+      "skill": "design",
+      "attempt": "plan-design-review-1789612520372-VESW04",
+      "observationSha256": "eaf5bcacbe2d660d0b731c885539c6804ee5fe8f5e7e9322c2411f72a75d23a3",
+      "screenSha256": "b603382ee05b8ca21ec9df98ba5baafa84338ae4ba8ec7a3a4d0100ffbab34a5",
+      "viewport": "● Scope gate: plan mode — reviewing PLAN.md (the target you named). Running the preamble next.\n\n● Bash(_SS=\"$HOME/.claude/skills/gstack/bin/gstack-skill-start\"\n      [ -x \"$_SS\" ] || _SS=\".claude/skills/gstack/bin/gstack-skill-start\"…)\n  ⎿  SKILL_START_PROTO: 1\n     BRANCH: main\n     PROACTIVE: true \n     … +54 lines (ctrl+o to expand)\n  ⎿  Allowed by auto mode classifier\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\nPlanning: /tmp/g-58_o3060/gstack-paid-shard-9IOSJ1/tmp/gstack-hermetic-1674775-RbMZ5l/with-skills/.claude/plans/plan-md-\nparallel-crab.md\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n ☐ Routing \n\n│ D1 — Add gstack skill routing rules to CLAUDE.md?\n│ Project/branch/task: main branch of the plan-review fixture repo; one-time gstack setup prompt before I start the\n│ design review.\n│ ELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so future requests like \"review\n│ this diff\" or \"fix this bug\" automatically hit the right skill. This is a one-time prompt per project. Note: we're in\n│ plan mode, so if you pick A the append + commit happens after we leave plan mode.\n│ Stakes if we pick wrong: Without routing, you invoke skills by name manually; with it, a short section is appended to\n│ CLAUDE.md and committed.\n│ Recommendation: A because routing removes friction on every future session for one small commit.\n│ Note: options differ in kind, not coverage — no completeness score.\n│ Net: a small CLAUDE.md section now vs. manual /skill invocations forever.\n\n❯ 1. Add routing rules (recommended)\n     ✅ Future requests auto-route to the right skill (/investigate, /review, /ship, etc.) without remembering names. ✅\n     One short section appended to CLAUDE.md and committed; nothing else changes. ❌ Adds ~15 lines to CLAUDE.md that\n     the team must keep in sync with installed skills.\n  2. No thanks, manual invocation\n     ✅ CLAUDE.md stays exactly as it is; no new commit on main. ✅ Full control over when a skill runs. ❌ You must\n     remember and type skill names for every workflow; re-enable later via gstack-config.\n  3. Type something.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n",
+      "calls": [],
+      "originalOutcome": "auq_observed",
+      "originalAuqObserved": true
+    }
+  ]
+}

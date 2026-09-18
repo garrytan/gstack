@@ -25,23 +25,29 @@ import { resolveEvalModel } from '../../lib/eval-model';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { stripVTControlCharacters } from 'node:util';
+import { stripVTControlCharacters, isDeepStrictEqual } from 'node:util';
 import { hermeticChildEnv, hermeticSkillsConfigDir, isHermeticEnabled } from './hermetic-env';
 import { withHermeticSkillRuntime } from './hermetic-skill-runtime';
-import { createPlanCountFixture } from './plan-count-fixture';
+import { createPlanCountFixture, ownedNativeReviewStateRoot, type NativeReviewState } from './plan-count-fixture';
 import { createPlanCountSnapshotWriter } from './plan-count-artifacts';
 import { nativeSeededPlanSelection } from './plan-scope-selection';
 import { readPlanFloorTarget, type PlanFloorTargetDelivery } from './plan-floor-target';
+import { judgePlanFloorReview, pickPlanFloorMode, pickPlanFloorProductType, type PlanFloorReview, type PlanFloorAssessment } from './plan-floor-review';
+import { bindAutoDecisionState } from './auto-decision-state';
 import { findNativeAutoDecision, type NativeAutoDecision } from './native-auto-decide';
 import { readPlanCountTranscript, unresolvedPlanQuestionCalls, type NativePlanQuestionCall, type PlanCountTranscript, type NativePublicToolEvent } from './plan-count-transcript';
 import { createPendingExitRecorder, withPendingExit, isCurrentPlanApprovalScreen } from './plan-count-pending-exit';
-import { createPendingQuestionRecorder } from './plan-count-pending-question';
-import { createFilePermissionRecorder, currentFilePermissionBinding, type FilePermissionEpoch } from './plan-count-file-permission';
-import { createAutoplanArtifactRecorder } from './autoplan-artifact-recorder';
+import { createPendingQuestionRecorder, readPendingQuestion, pendingQuestionRecorderStatus } from './plan-count-pending-question';
+import { createFilePermissionRecorder, currentFilePermissionBinding, readPendingWriteInput, isCroppedEditPermissionVisible, type FilePermissionEpoch } from './plan-count-file-permission';
+import { createAutoplanArtifactRecorder, autoplanArtifactRecorderStatus, autoplanArtifactApprovalBoundary } from './autoplan-artifact-recorder';
 import { trustDialogInput } from './pty-trust-dialog';
 import { createPtyScreen } from './pty-screen';
 import { isRecordedDxManualNavigation } from './dx-selected-navigation';
 import { engCacheWriterDecision } from './eng-cache-writer-decision';
+import { submitPlanSeed, PlanSeedTimeout } from './plan-seed-submission';
+import { currentFilePermissionTarget, currentBashPermissionCard, currentReadPermissionCard,
+  currentWebFetchPermissionCard, hasCurrentBashPermissionHeading, hasCurrentReadPermissionHeading,
+  hasCurrentWebFetchPermissionHeading } from './plan-skill-questions';
 
 /** Strip ANSI escapes for pattern-matching against visible text. */
 export function stripAnsi(s: string): string {
@@ -50,6 +56,17 @@ export function stripAnsi(s: string): string {
     .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
     .replace(/\x1b[()][AB012]/g, '')
     .replace(/\x1b[78=>]/g, '');
+}
+
+/** Only consider rejection text naming the invoked slash command. */
+export function isRejectedSlashCommand(visible: string, slashCommand: string): boolean {
+  if (!/^\/[A-Za-z0-9][A-Za-z0-9:_.-]*$/.test(slashCommand)) return false;
+  const message = `Unknown command: ${slashCommand}`;
+  return stripAnsi(visible).split(/\r?\n/).some(line => {
+    const text = line.trim();
+    return text === message || text.startsWith(`${message}. Did you mean /`)
+      && /^\/[A-Za-z0-9][A-Za-z0-9:_.-]*\?$/.test(text.slice(`${message}. Did you mean `.length));
+  });
 }
 
 /** Find claude on PATH, with fallback locations. Mirrors terminal-agent.ts. */
@@ -116,6 +133,10 @@ export interface ClaudePtyOptions {
   observeAutoplanArtifacts?: boolean;
   /** AP-only exact artifact Edit approvals; inactive until the owner starts its command. */
   approveAutoplanArtifactEdits?: boolean;
+  /** Restrict an opted-in artifact approval hook to the owned Eng QA test plan. */
+  engTestPlanArtifactOnly?: boolean;
+  /** Explicit disposable state from createNativeReviewState; ambient env grants no ownership. */
+  autoplanArtifactState?: NativeReviewState;
   /** Working directory. Default: process.cwd(). The repo cwd has the gstack
    *  skill registry and trusted-folder cookie, so most tests want this. */
   cwd?: string;
@@ -136,6 +157,9 @@ export interface ClaudePtySession {
   visibleText(): string;
   /** Flush the opted-in terminal parser and return only its current viewport. */
   currentScreen(): Promise<string>;
+  /** Same decoded viewport with styles and input epoch for acknowledged paste. */
+  currentScreenFrame(): Promise<{ text: string; rawEnd: number;
+    styledText: Array<{ row: number; start: number; text: string; dim: boolean; inverse: boolean }> }>;
   /**
    * Mark the current buffer position. Subsequent waitForAny / visibleSince
    * calls only look at output AFTER this mark. Use to scope assertions to
@@ -178,6 +202,10 @@ export interface ClaudePtySession {
   pendingPlanReadyFile?: string;
   pendingQuestionFile?: string;
   pendingAutoplanArtifactFile?: string;
+  /** The same validated root bound into the artifact hook, distinct from legacy HOME/.gstack. */
+  autoplanArtifactStateRoot?: string;
+  /** Legacy QA namespace from this launcher; native artifacts retain their own root. */
+  autoplanEngTestPlanStateRoot?: string;
   startAutoplanArtifactEditApproval?: (commandStartedAt: number) => void;
   pendingFilePermissionFiles?: Array<{ expected: string; file: string }>;
   /**
@@ -232,11 +260,16 @@ export function isPlanReadyVisible(visible: string): boolean {
  * isPlanReadyVisible.
  */
 export function isAutoDecidedVisible(visible: string): boolean {
+  const collapsed = visible.replace(/\s+/g, '');
+  // The public CLI transcript can attribute the completed choice inside
+  // parentheses instead of repeating the canonical template annotation.
+  // Keep the complete attribution so negated/future choices do not match.
+  if (/\(auto-decidedfromplan-tunepreference\)/i.test(collapsed)) return true;
   const stemMatch =
-    /Auto-decided\b/i.test(visible) || /Auto-decided/i.test(visible.replace(/\s+/g, ''));
+    /Auto-decided\b/i.test(visible) || /Auto-decided/i.test(collapsed);
   if (!stemMatch) return false;
   if (/\(your preference\)/i.test(visible)) return true;
-  return /\(yourpreference\)/i.test(visible.replace(/\s+/g, ''));
+  return /\(yourpreference\)/i.test(collapsed);
 }
 
 /**
@@ -355,25 +388,40 @@ function isNativeEditPermissionVisible(visible: string): boolean {
   if (fence) return false;
   const tail = text.slice(panel.index + panel[0].length);
   const prompt = [...tail.matchAll(/^ {0,3}Do you want to make this edit to ([^\n?]+)\?[ \t]*\n([\s\S]*)$/gm)].at(-1);
-  if (!prompt || prompt[1]!.trim() !== panel[1]!.trim()) return false;
+  const target = currentFilePermissionTarget(text);
+  const currentPanel = target?.operation === 'edit' && target.filePath === panel[1]!.trim();
+  if (!prompt || prompt[1]!.trim() !== panel[1]!.trim() && !currentPanel) return false;
+  // Current nested/settings cards show the basename in the question. Their
+  // parsed full header still needs this pane's provenance and complete footer.
+  if (currentPanel && /3\.NoEsctocancel[·•]Tabtoamend$/.test(prompt[2]!.replace(/\s+/g, ''))) return true;
   return /^ {0,3}❯[ \t]*1\.[ \t]*Yes[ \t]*\n {0,3}2\.[ \t]*Yes, and switch to accept edits[^\n]*\n {0,3}3\.[ \t]*No[ \t]*\n\s*Esc to cancel [·•] Tab to amend\s*$/.test(prompt[2]!);
 }
 
-export function isPermissionDialogVisible(visible: string): boolean {
+export function isPermissionDialogVisible(visible: string, includeBoundPermission = false): boolean {
+  // Current cards must satisfy their complete controls before legacy phrases
+  // can classify them. Read and directory access remain ownership-bound opt-ins.
+  if (includeBoundPermission && hasCurrentReadPermissionHeading(visible)) return currentReadPermissionCard(visible) !== null;
+  if (hasCurrentWebFetchPermissionHeading(visible)) return currentWebFetchPermissionCard(visible) !== null;
+  if (hasCurrentBashPermissionHeading(visible)) return currentBashPermissionCard(visible, includeBoundPermission) !== null;
   // Cursor-positioning escapes supply spaces visually, but stripping those
   // escapes leaves labels such as "alwaysallowaccessto" in captured frames.
   const compact = visible.replace(/\s+/g, '');
+  const file = currentFilePermissionTarget(visible);
+  const cursor = [...visible.matchAll(/❯\s*1\./g)].at(-1);
+  const bareEdit = cursor && /^Do\s*you\s*want\s*to\s*(?:edit|make\s+this\s+edit\s+to)\s+[^\r\n?]+\?\s*$/.test(visible.slice(0, cursor.index).trim());
+  // A scoped target parser may recover only an Edit basename below a cropped
+  // preview. Generic callers need the full native pane, or a bare current
+  // menu with no preview/history prefix; ownership remains the scoped caller's.
+  if (file && /3\.NoEsctocancel[·•]Tabtoamend$/.test(compact) &&
+      (file.operation !== 'edit' || bareEdit)) return true;
   if (isNativeEditPermissionVisible(visible)) return true;
   if (/requestedpermissions?to|allowalledits|alwaysallowaccessto|Bashcommand.*requirespermission/i.test(compact)) {
     return true;
   }
-  // Native Write/Edit confirmation captured during the design-count eval.
-  // Require the native footer as well as the file question so an AUQ about
-  // whether the plan should overwrite a file remains a real skill question.
-  if (/Doyouwantto(?:overwrite|create|edit)\S+\?/i.test(compact) &&
-      /Esctocancel[·•]Tabtoamend/i.test(compact)) {
-    return true;
-  }
+  // Main's cursor-positioning capture can collapse the path separator too.
+  // Classification still requires the complete current choices and footer;
+  // this projection never establishes native path ownership for a grant.
+  if (/(?:^|\n)Doyouwantto(?:overwrite|create|edit)[^\s?]+\?\n❯1\.Yes\n(?:2\.No|2\.Yes,andswitchtoacceptedits\(auto-approvefileeditsandcommonfilecommands\)forthissession\n3\.No)\nEsctocancel[·•]Tabtoamend\s*$/.test(visible.replace(/[ \t\r]/g, ''))) return true;
   // Standalone signatures — high specificity, never appear in skill questions.
   if (/requested\s+permissions?\s+to/i.test(visible)) return true;
   // "Yes / Yes, allow all edits / No" shape — file-edit permission grants.
@@ -825,9 +873,15 @@ export function parseNumberedOptions(
   // last `1.` line. Allow leading `  ` or `❯ ` prefixes; do NOT include `❯`
   // in the leading character class because greedy matching would eat the
   // sigil and prevent the literal-cursor anchor above from finding it.
+  // Cursor-positioning residue can omit the space in the cursor's slot
+  // (`❯1.`) while peer rows still retain their ordinary two-space prefix.
+  const numberColumn = (row: RegExpExecArray) => row[0].replace(/❯(?=[1-9]\.)/, '❯ ').length - 2;
   if (cursorLineIdx < 0) {
+    const selectedRow = lines.map(line => /^[ \t]*❯[ \t]*[1-9]\./.exec(line)).findLast(Boolean);
+    const selectedColumn = selectedRow ? numberColumn(selectedRow) : null;
     for (let i = lines.length - 1; i >= 0; i--) {
-      if (/^(?:\s*|\s*❯\s+)1\./.test(lines[i] ?? '')) {
+      const firstRow = /^(?:\s*|\s*❯\s+)1\./.exec(lines[i] ?? '');
+      if (firstRow && (selectedColumn === null || firstRow[0].length - 2 <= selectedColumn)) {
         cursorLineIdx = i;
         break;
       }
@@ -847,6 +901,11 @@ export function parseNumberedOptions(
   // ascending indices starting from the cursor's option, and take each
   // label as the text between successive number tokens.
   const cursorLine = lines[cursorLineIdx] ?? '';
+  // A standalone row supplies its number's column. Wrapped descriptions
+  // start farther right and may themselves begin with "4." or another
+  // number. Inline/reflowed cursor lines have no such column constraint.
+  const standaloneRow = /^[ \t]*(?:❯[ \t]*)?1\./.exec(cursorLine);
+  const optionColumn = standaloneRow ? numberColumn(standaloneRow) : null;
   const cursorStart = cursorLine.indexOf('❯');
   const cursorSegment = cursorStart >= 0 ? cursorLine.slice(cursorStart) : cursorLine;
   const tokenRe = /(?:^|[^0-9])([1-9])\.(?!\d)\s*/g;
@@ -886,11 +945,15 @@ export function parseNumberedOptions(
 
   // Subsequent lines: standard start-of-line option parsing.
   for (let i = cursorLineIdx + 1; i < lines.length; i++) {
-    const m = optionRe.exec(lines[i] ?? '');
+    const line = lines[i] ?? '';
+    const m = optionRe.exec(line);
     if (!m) continue;
+    if (optionColumn !== null && line.indexOf(m[1]!) > optionColumn) continue;
     const idx = Number(m[1]);
     const label = (m[2] ?? '').trim();
-    if (seenIndices.has(idx)) continue;
+    // Two peer rows with the same number are ambiguous, even if their
+    // labels agree. A nested description was excluded by geometry above.
+    if (seenIndices.has(idx)) return [];
     if (label.length === 0) continue;
     seenIndices.add(idx);
     found.push({ index: idx, label });
@@ -921,7 +984,9 @@ export function parseNumberedOptions(
  */
 // Cursor-positioning escapes render inter-word spaces that stripAnsi removes.
 // Recognize both the spaced labels and their captured HOLDSCOPE-style forms.
-export const MODE_RE = /HOLD\s*SCOPE|SCOPE\s*EXPANSION|SELECTIVE\s*EXPANSION|SCOPE\s*REDUCTION/i;
+// Match the leading option title; a description or prose mention of a mode
+// cannot establish the Step-0 boundary or supply a missing mode choice.
+export const MODE_RE = /^\s*(?:\*\*)?(?:[A-D]\s*[—)]\s*)?(HOLD\s*SCOPE|SCOPE\s*EXPANSION|SELECTIVE\s*EXPANSION|SCOPE\s*REDUCTION)\b/i;
 
 /**
  * Stable signature for a parsed numbered-option list — used by tests to detect
@@ -931,6 +996,16 @@ export const MODE_RE = /HOLD\s*SCOPE|SCOPE\s*EXPANSION|SELECTIVE\s*EXPANSION|SCO
  * Defensive sort means the signature is order-independent at the input level,
  * even though `parseNumberedOptions` already returns indices in ascending order.
  */
+export function findModeOption(
+  options: Array<{ index: number; label: string }>,
+  targetMode: string,
+): { index: number; label: string } | undefined {
+  const target = targetMode.replace(/\s+/g, '').toUpperCase();
+  return options.find(option =>
+    MODE_RE.exec(option.label)?.[1]?.replace(/\s+/g, '').toUpperCase() === target,
+  );
+}
+
 export function optionsSignature(
   opts: Array<{ index: number; label: string }>,
 ): string {
@@ -1300,7 +1375,7 @@ export function auqFingerprint(
 }
 
 /** Permission and question capture inspect the same cursor-anchored window. */
-function planCountPermissionMenu(visible: string): {
+function planCountPermissionMenu(visible: string, boundEdit = false): {
   normalized: string; cursorAt: number; prompt: string; menu: string;
 } | null {
   const normalized = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
@@ -1319,7 +1394,16 @@ function planCountPermissionMenu(visible: string): {
   // the preceding menu's footer must not change a permission signature.
   const prompt = [...before.matchAll(/^[^\n]*\?[^\n]*$/gm)].at(-1)?.[0].trim()
     ?? parseQuestionPrompt(normalized);
-  if (!prompt || !(isPermissionDialogVisible(prompt + '\n' + menu) || isNativeEditPermissionVisible(before + menu))) return null;
+  const selected = prompt + '\n' + menu;
+  // An Edit's preview/header belongs to its current identity. Reducing that
+  // pane to a bare question would erase a crop, mismatch, or quoted prefix.
+  // Other legacy permissions stay prompt-local so old labels cannot grant.
+  const context = currentFilePermissionTarget(selected)?.operation === 'edit' ? before + menu : selected;
+  // The cursor window can cut through a long diff while its complete native
+  // heading is still on screen. Validate that original pane, including its
+  // provenance and footer; the cropped window cannot replace those checks.
+  if (!prompt || !(isPermissionDialogVisible(context) || isNativeEditPermissionVisible(normalized) ||
+      (boundEdit && isCroppedEditPermissionVisible(normalized)))) return null;
   return { normalized, cursorAt, prompt, menu };
 }
 
@@ -1328,19 +1412,26 @@ function matchesClippedNativeQuestion(visible: string, call: NativePlanQuestionC
   const cursor = [...visible.matchAll(/❯\s*1\./g)].at(-1);
   if (!cursor) return false;
   const before = visible.slice(0, cursor.index);
-  // This is the top of the actual viewport, not a selected historical
-  // snippet. A header, preceding menu or blank top is not clipped identity.
-  if (!before.split('\n')[0]?.trim() || /[☐□❯]/.test(before)) return false;
+  // Blank viewport padding carries no identity. Every nonblank pre-menu
+  // line must still match the native question suffix below; a header or
+  // preceding menu cannot become a clipped question.
+  if (/[☐□❯]/.test(before)) return false;
   const suffix = before.replace(/^[ \t]*[│┃] ?|[│┃][ \t]*$/gm, '').trim();
   const exact = (value: string) => value.replace(/\s+/g, '');
   const question = call.questions[0]!;
   const native = exact(question.question);
   const displayed = exact(suffix);
+  // The ordinary native renderer first elides at 2,000 UTF-16 units; a
+  // short viewport can then crop that displayed prefix's header and start.
+  // Authenticate its whole visible suffix against that exact rendering too.
+  const prefix = question.question.slice(0, 2000);
+  const bounded = /[\uD800-\uDBFF]$/.test(prefix) ? prefix.slice(0, -1) : prefix;
+  const elided = question.question.length > 2000 ? exact(bounded.replace(/\t/g, ' ') + '…') : null;
   // Require substantial positive question text, including all visible
   // pre-menu lines. Shared option labels or a generic short tail cannot
   // borrow an unrelated pending call's routing policy.
   if (suffix.split('\n').filter(line => line.trim()).length < 2 || displayed.length < 160 ||
-      displayed.length > native.length || !native.endsWith(displayed)) return false;
+      displayed.length > native.length || !(native.endsWith(displayed) || elided?.endsWith(displayed))) return false;
   const menu = visible.slice(cursor.index);
   const footer = /Enter\s*to\s*select\s*·\s*(?:↑\/↓\s*to\s*navigate(?:\s*·\s*n\s*to\s*add\s*notes)?|Tab\/Arrow\s*keys\s*to\s*navigate)\s*·\s*Esc\s*to\s*cancel/i.exec(menu);
   if (!footer || !/^[\s│┃─━└┘]*$/.test(menu.slice(footer.index + footer[0].length))) return false;
@@ -1425,12 +1516,47 @@ export function planCountQuestionInput(visible: string, fp: AskUserQuestionFinge
 }
 
 /** A native single-question pane can elide its tail to leave room for choices. */
-function matchesTruncatedNativeQuestion(visible: string, call: NativePlanQuestionCall): boolean {
+function matchesTruncatedNativeQuestion(visible: string, call: NativePlanQuestionCall, planningDirectory?: string): boolean {
   if (call.questions.length !== 1) return false;
+  const rows = visible.split('\n');
+  let start = 0;
+  while (/^[\t ]*$/.test(rows[start] ?? '#')) start++;
+  const leadingRule = /^[ \t]*[─━]{10,}[ \t]*$/.test(rows[start] ?? '') ? rows[start++]!.trim() : undefined;
+  if (rows[start] === 'Planning:' || rows[start]?.startsWith('Planning: ')) {
+    // Native plan-mode chrome precedes the question's rule/header. The CLI
+    // soft-wraps this path; only its owned directory is independently known.
+    // Do not infer a basename, trust an ambient plans path, or strip prose.
+    if (!planningDirectory || !path.isAbsolute(planningDirectory) ||
+        path.resolve(planningDirectory) !== planningDirectory) return false;
+    const end = rows.findIndex((row, index) => index > start && /^[ \t]*[─━]{10,}[ \t]*$/.test(row));
+    if (end < 0) return false;
+    const displayed = rows.slice(start, end).join('\n');
+    const ownedPrefix = 'Planning: ' + planningDirectory + '/';
+    // Paint removes a soft row's first space; viewport reads trim right padding.
+    // Recover directory spaces from owned context, then require its exact native
+    // reflow. Never treat whitespace-insensitive prefix matching as authority.
+    const joined = rows.slice(start, end).join('');
+    let offset = 0;
+    for (const character of ownedPrefix.replaceAll(' ', '')) {
+      while (joined[offset] === ' ') offset++;
+      if (!joined.startsWith(character, offset)) return false;
+      offset += character.length;
+    }
+    const file = planningDirectory + '/' + joined.slice(offset);
+    const rule = rows[end]!.trim();
+    if ((leadingRule && leadingRule !== rule) || /[\x00-\x1f\x7f\\]/.test(file) ||
+        path.resolve(file) !== file || path.dirname(file) !== planningDirectory ||
+        !/^[^/]+\.md$/.test(path.basename(file)) ||
+        Bun.wrapAnsi('Planning: ' + file, rule.length, {hard:true,trim:false}).split('\n').map((row, index) =>
+          (index && row.startsWith(' ') && Bun.stringWidth(row.slice(1)) > 0 ? row.slice(1) : row).trimEnd()).join('\n') !== displayed) return false;
+    visible = rows.slice(end).join('\n');
+  }
   const cursor = [...visible.matchAll(/❯\s*1\./g)].at(-1);
   if (!cursor) return false;
   const before = visible.slice(0, cursor.index);
-  const header = /^(?:[\t │┃]*\n)*[\t │┃]*[☐□]([^\n│]*)\n/.exec(before);
+  // Claude's single-question card can start with its native horizontal rule.
+  // Accept only that optional border, leaving arbitrary prose outside the pane.
+  const header = /^(?:[\t │┃]*\n)*(?:[ \t]*[─━]{10,}[ \t]*\n)?[\t │┃]*[☐□]([^\n│]*)\n/.exec(before);
   if (!header || /[☐□❯]/.test(before.slice(header[0].length))) return false;
   const exact = (value: string) => value.replace(/\s+/g, '');
   const question = call.questions[0]!;
@@ -1457,7 +1583,7 @@ function matchesTruncatedNativeQuestion(visible: string, call: NativePlanQuestio
 }
 
 /** Match native question identity before permission text can choose an answer. */
-export function matchesNativePlanQuestion(visible: string, call: NativePlanQuestionCall): boolean {
+export function matchesNativePlanQuestion(visible: string, call: NativePlanQuestionCall, planningDirectory?: string): boolean {
   if (call.failed) return false;
   if (call.questions.length !== 1) return nativePacketQuestionIndex(visible, call) !== null;
   const normalized = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
@@ -1471,7 +1597,38 @@ export function matchesNativePlanQuestion(visible: string, call: NativePlanQuest
   if (!header) return matchesClippedNativeQuestion(normalized, call);
   if (compact(header[1]!) !== compact(question.header) || /❯\s*[1-9]\./.test(before.slice(header.index))) return false;
   const identity = question.question.match(/<gstack-qid:[^>]+>/i)?.[0] ?? question.question;
-  if (!compact(before.slice(header.index)).includes(compact(identity))) return matchesTruncatedNativeQuestion(normalized, call);
+  if (!compact(before.slice(header.index)).includes(compact(identity))) {
+    // Complete native question bodies can prefix each wrapped line with a UI rail.
+    // Remove exactly one rail, as the clipped/truncated body paths do; retain
+    // any second or interior rail that belongs to the native question text.
+    const body = before.slice(header.index + header[0].length).trim();
+    const rows = body.split('\n').filter(line => line.trim());
+    const unboxed = body.replace(/^[ \t]*[\u2502\u2503] ?/gm, '');
+    if (!rows.length || !rows.every(line => /^[ \t]*[\u2502\u2503](?: |$)/.test(line)) ||
+        compact(unboxed) !== compact(question.question)) return matchesTruncatedNativeQuestion(normalized, call, planningDirectory);
+    // The boxed body belongs to a current pane at viewport top or below
+    // native pane chrome. Plain prose immediately introducing a copy does not.
+    const preceding = normalized.slice(0, normalized.length - tail.length + header.index).trimEnd();
+    if (preceding && !/(?:^|\n)[ \t]*[─━]{10,}[ \t]*$/.test(preceding)) return false;
+    let fence: string | undefined;
+    for (const line of preceding.split('\n')) {
+      const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (!marker) continue;
+      if (!fence) fence = marker[1];
+      else if (marker[1]![0] === fence[0] && marker[1]!.length >= fence.length && !marker[2]!.trim()) fence = undefined;
+    }
+    if (fence) return false;
+    const menu = tail.slice(cursor.index);
+    const footer = /Enter\s*to\s*select\s*\u00B7\s*\u2191\/\u2193\s*to\s*navigate\s*\u00B7\s*(?:n\s*to\s*add\s*notes\s*\u00B7\s*)?Esc\s*to\s*cancel/i.exec(menu);
+    if (!footer || !/^[\s\u2502\u2503\u2500\u2501\u2514\u2518]*$/.test(menu.slice(footer.index + footer[0].length))) return false;
+    const options = parseNumberedOptions(visible);
+    const offered = options.slice(0, question.options.length);
+    const controls = options.slice(question.options.length);
+    return offered.length === question.options.length && offered.every((option, index) =>
+      option.index === index + 1 && compact(option.label) === compact(question.options[index]!.label)) &&
+      controls.length <= 2 && controls.every((option, index) => option.index === question.options.length + index + 1 &&
+        (index === 0 ? /^Typesomething\.?$/i : /^Chataboutthis$/i).test(compact(option.label)));
+  }
   // Preserve the captured damaged-option path when the native panel's
   // complete footer is intact, including the optional native preview notes key.
   // With a damaged footer, require the full
@@ -1491,6 +1648,7 @@ export function capturePlanCountQuestion(
   observedAtMs: number,
   preReview: boolean,
   pending?: NativePlanQuestionCall,
+  planningDirectory?: string,
 ): AskUserQuestionFingerprint | null {
   const tail = stripPtyResidue(visible).replace(/\r+\n?/g, '\n').slice(-4096);
   const cursor = [...tail.matchAll(/❯\s*1\./g)].at(-1);
@@ -1499,7 +1657,7 @@ export function capturePlanCountQuestion(
   // parser's still-visible historical question and queue spurious input.
   if (!cursor) return null;
 
-  if (pending && !pending.answered && !pending.failed && matchesNativePlanQuestion(visible, pending)) {
+  if (pending && !pending.answered && !pending.failed && matchesNativePlanQuestion(visible, pending, planningDirectory)) {
     const activeIndex = pending.questions.length === 1 ? 0 : nativePacketQuestionIndex(visible, pending)!;
     const fp = nativePlanCallFingerprint(pending, observedAtMs, preReview);
     fp.nativeQuestionIndex = activeIndex;
@@ -1547,8 +1705,13 @@ export function createPlanCountPermissionGuard(): (visible: string, completionHi
   return (visible, completionHistory = visible, native) => {
     // Only the current viewport can establish an actionable permission.
     // Historical file results release a later identical grant, never a menu.
-    const candidate = planCountPermissionMenu(visible);
-    if (!candidate) return null;
+    const candidate = planCountPermissionMenu(visible, Boolean(native));
+    if (!candidate) {
+      // A completed tool row can remain below its old controls. Suppress that
+      // stale menu without making a trailing result an actionable permission.
+      const completed = /\n[\t ]*⎿[\t \u00a0]*(?:Wrote\s*\d+\s*lines?|Added\s*\d+\s*lines?|Removed\s*\d+\s*lines?|Updated\b|Edited\b)[^\n]*\s*$/.exec(visible);
+      return completed && planCountPermissionMenu(visible.slice(0, completed.index)) ? 'handled' : null;
+    }
     const { normalized, cursorAt, prompt, menu } = candidate;
     // A whole quoted pane is source text, even if it contains a native cursor.
     // Returning handled also suppresses the dispatcher's default permission input.
@@ -1614,17 +1777,36 @@ export function planCountPrerequisitePick(fp: AskUserQuestionFingerprint, active
       const nativeSkip = q.options.findIndex(option =>
         /^Skip(?:\s*[—–-]\s*proceed)?(?:\s*\(recommended\))?$/i.test(option.label) &&
         /^(?:(?:The\s+)?plan\s+(?:scope\s+)?is\s+(?:already\s+)?(?:precise|clear|well-defined|explicit)\.\s*)?Proceed\s+(?:with\s+standard(?:\s+DX(?:\s+(?:POLISH|EXPANSION|TRIAGE))?)?\s+review|straight\s+to\s+Step\s*0\s+premise\s+challenge\s+and\s+approach\s+alternatives)\.?$/i.test((option.description ?? '').trim()));
-      // A full Skip label can use a comma. Admit that form only from the
-      // bound active tab's direct opposed offer and unconditional review action.
+      // A complete native decision brief can express the option meaning as
+      // pros/cons rather than a single imperative sentence. The owned active
+      // offer and its two opposed actions still define the only allowed skip.
       const offer = q.question.split('?', 1)[0]!.replace(/^D[1-9]\d*\s*[—–:-]\s*/, '').trim();
-      const commaSkip = q.options.findIndex(option =>
-        /^Skip\s*,\s*(?:proceed\s+with\s+)?standard\s+review(?:\s*\(recommended\))?$/i.test(option.label) &&
-        /^Proceed\s+(?:(?:directly|straight)\s+)?(?:with\s+(?:the\s+)?standard\s+review|to\s+Step\s*0\s+of\s+(?:the\s+)?(?:CEO\s+)?review)\.?$/i.test((option.description ?? '').trim()));
-      if (nativeRun >= 0 && commaSkip >= 0 && nativeRun !== commaSkip && call.sessionId && call.toolUseId &&
+      const fullSkip = q.options.findIndex(option =>
+        /^Skip\s*[,—–-]\s*(?:proceed\s+with\s+)?standard\s+review(?:\s*\(recommended\))?$/i.test(option.label));
+      const plainRun = nativeRun >= 0 && /^(?:Build|Create|Produce)\s+(?:a|the)\s+design\s+doc(?:ument)?\s+first[,;]\s*then\s+resume\s+(?:the|standard|CEO)\s+review\.?$/i.test((q.options[nativeRun]!.description ?? '').trim());
+      const plainSkip = fullSkip >= 0 && /^Proceed\s+(?:(?:directly|straight)\s+)?(?:with\s+(?:the\s+)?standard\s+review|to\s+Step\s*0\s+of\s+(?:the\s+)?(?:CEO\s+)?review)\.?$/i.test((q.options[fullSkip]!.description ?? '').trim());
+      const briefMeaning = (description: string, meaning: RegExp, skip: boolean): boolean => {
+        const rows = description.trim().replace(/(^|\s)[-*]\s+(?=[✅❌])/g, '$1')
+          .split(/\r?\n|\s+(?=[✅❌])/).map(row => row.trim()).filter(Boolean);
+        // Source quotations, appended imperatives and changed/conditional
+        // actions cannot borrow the unconditional meaning of an earlier pro.
+        if (rows.length < 2 || rows.some(row => !/^(?:[-*]\s+)?[✅❌]\s+\S/.test(row)) ||
+            !rows.some(row => /^(?:[-*]\s+)?❌/.test(row))) return false;
+        const body = rows.map(row => row.replace(/^(?:[-*]\s+)?[✅❌]\s+/, '')).join('\n');
+        if (/(?:^|[.!?;]\s*|\n|\b(?:and|then|while)\s+(?:(?:also|then)\s+)?)(?:Do\s+not|Don't|Never|No\s+review\b|(?:Accept|Approv|Remov|Delet|Deploy|Ignor|Rewrit|Disabl)[a-z]*\b|First\s+run\b)/im.test(body) ||
+            /\b(?:will\s+not|won't|cannot|does\s+not|doesn't)\s+(?:run|proceed|continue|produce|create|build|review)\b/i.test(body) ||
+            (skip && /\b(?:after|before|unless|only\s+if|if)\b|\brun\s*\/office-hours\b/i.test(body))) return false;
+        return rows.some(row => /^(?:[-*]\s+)?✅/.test(row) && meaning.test(row.replace(/^(?:[-*]\s+)?✅\s+/, '')));
+      };
+      const runBrief = nativeRun >= 0 && briefMeaning(q.options[nativeRun]!.description ?? '',
+        /^(?:Produce|Create|Build)s?\s+(?:a|the)\s+(?:structured\s+)?(?:design\s+doc(?:ument)?|problem\s+statement)\b/i, false);
+      const skipBrief = fullSkip >= 0 && briefMeaning(q.options[fullSkip]!.description ?? '',
+        /^(?:Proceed|Continue)s?\s+(?:(?:directly|straight)\s+)?with\s+(?:the\s+)?standard\s+review\b|^Goes\s+(?:directly|straight)\s+to\s+(?:the\s+)?(?:engineering\s+)?findings\b/i, true);
+      if (nativeRun >= 0 && fullSkip >= 0 && nativeRun !== fullSkip && call.sessionId && call.toolUseId &&
           q.question.split('?').length === 2 &&
-          /^Run\s*\/office-hours\s+(?:now|first),?\s+or\s+proceed\s+with\s+(?:the\s+)?standard\s+review$/i.test(offer) &&
-          /^(?:Build|Create|Produce)\s+(?:a|the)\s+design\s+doc(?:ument)?\s+first[,;]\s*then\s+resume\s+(?:the|standard|CEO)\s+review\.?$/i.test((q.options[nativeRun]!.description ?? '').trim()) &&
-          !/\b(?:must|need\s+to|have\s+to)\s+(?:run|complete|finish)\s*\/office-hours\b|(?:\/office-hours|design\s+doc(?:ument)?)\s+(?:is\s+)?(?:required|mandatory)\b|\breview\s+is\s+(?:forbidden|blocked)\b/i.test(q.question)) return commaSkip + 1;
+          /^(?:No\s+design\s+doc\s+(?:found|exists)(?:\s+for\s+(?:this|the)\s+(?:branch|project))?[.:]\s*)?Run\s*\/office-hours\s+(?:now|first),?\s+or\s+proceed\s+with\s+(?:the\s+)?standard\s+review$/i.test(offer) &&
+          ((plainRun && plainSkip) || (runBrief && skipBrief)) &&
+          !/\b(?:must|need\s+to|have\s+to)\s+(?:run|complete|finish)\s*\/office-hours\b|(?:\/office-hours|design\s+doc(?:ument)?)\s+(?:is\s+)?(?:required|mandatory)\b|\breview\s+is\s+(?:forbidden|blocked)\b/i.test(q.question)) return fullSkip + 1;
       if (nativeRun >= 0 && nativeSkip >= 0 && nativeRun !== nativeSkip) return nativeSkip + 1;
     }
   }
@@ -1822,7 +2004,7 @@ function designClosureText(text: string, expectedPlanPath: string): string {
       state.test(value.slice(1, -1)) ? value.slice(1, -1) : '');
 }
 function conflictingDesignClosure(text: string): boolean {
-  const owner = '(?:(?:the )?Design review(?: of PLAN\\.md)?|DESIGN CLEARED|(?:the )?(?:Design review )?exit gate|(?:the |this )?(?:review|report|gate|verdict|reviewed plan)|(?:(?:this|the|one|a|[1-9]\\d*) )?(?:design )?(?:decision|issue|finding)s?)';
+  const owner = '(?:(?:the )?Design review(?: of PLAN\\.md)?|DESIGN CLEARED|(?:the )?(?:Design review )?exit gate|(?:the |this )?(?:review(?: report)?|report|gate|verdict|reviewed plan)|(?:(?:this|the|one|a|[1-9]\\d*) )?(?:design )?(?:decision|issue|finding)s?)';
   return new RegExp(`(?:^|[.!?;]\\s+|\\n)(?:Correction:\\s*)?${owner} (?:(?:is|are|remains?|was|were|has been|have been) (?:(?:still|now) )?(?:not (?:the )?(?:complete|passed|current)|incomplete|unfinished|pending|failed|unresolved|open|withdrawn|superseded|cancelled|canceled|historical)|failed|did not pass|has not passed)\\b|${owner} (?:requires approval|applies only if approved)\\b|${owner}[^.!?\\n]*\\b(?:only if|conditional on|subject to)\\b|${owner} (?:belongs to|applies only to) (?:an? )?(?:another|different) (?:plan|project|review)\\b`, 'i').test(text) ||
     new RegExp(`(?:^|[.!?;]\\s+|\\n)(?:If|When|Once|Unless|Assuming|Provided)\\b[^.!?\\n]*\\b${owner}\\b`, 'i').test(text);
 }
@@ -1920,6 +2102,66 @@ export function isQuestionlessNativePlanExit(
     hasCompletePlanReport(expectedPlanPath, startedAt, at, true);
 }
 
+export interface NativePlanTerminalReview {
+  transcript: PlanCountTranscript;
+  report: string;
+  reportMtimeMs: number;
+  startedAt: number;
+  finishedAt: number;
+  deadlineAt: number;
+}
+export interface NativePlanTerminalAssessment {
+  administrativeCallIds: readonly string[];
+  substantiveCallIds: readonly string[];
+}
+export type NativePlanTerminalEvaluator = (input: NativePlanTerminalReview) => Promise<NativePlanTerminalAssessment>;
+
+/** The opt-in semantic assessment runs once at a real owned Exit, before the
+ * existing freshness gate. It may exclude only native calls it has assessed;
+ * the unchanged terminal check then requires a later report for all other ACKs. */
+export async function evaluateOwnedNativePlanTerminal(transcript: PlanCountTranscript, expectedPlanPath: string,
+  startedAt: number, deadlineAt: number, evaluate: NativePlanTerminalEvaluator): Promise<{ administrative: ReadonlySet<string>; substantive: ReadonlySet<string> } | undefined> {
+  const finishedAt = Date.now();
+  if (!Number.isFinite(deadlineAt) || finishedAt >= deadlineAt) throw new Error('Native terminal assessment: absolute case deadline exhausted');
+  const snapshot = structuredClone(transcript), calls = snapshot.calls;
+  const identities = calls.map(call => `${call.sessionId}:${call.toolUseId}`);
+  const sessions = new Set([...calls.map(call => call.sessionId), ...snapshot.assistantMessages.map(m => m.sessionId),
+    ...(snapshot.planReadyRequests ?? []).map(r => r.sessionId)]);
+  const ready = [...(snapshot.planReadyRequests ?? [])].sort((a,b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)).at(-1);
+  if (snapshot.status !== 'ready' || !calls.length || sessions.size !== 1 || new Set(identities).size !== calls.length
+    || !ready?.sessionId || !ready.toolUseId || ready.failed !== false || identities.includes(`${ready.sessionId}:${ready.toolUseId}`) || !Number.isFinite(Date.parse(ready.timestamp))
+    || Date.parse(ready.timestamp) <= startedAt || Date.parse(ready.timestamp) > finishedAt
+    || calls.some(call => !call.sessionId || !call.toolUseId || call.answered !== true || call.failed !== false
+      || !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length
+      || !call.questions.length || Object.keys(call.answers ?? {}).length !== call.questions.length
+      || !Number.isFinite(Date.parse(call.answeredAt ?? '')) || Date.parse(call.answeredAt!) < startedAt
+      || Date.parse(call.answeredAt!) >= Date.parse(ready.timestamp)
+      || call.questions.some(q => q.multiSelect || new Set(q.options.map(o => o.label)).size !== q.options.length
+        || !q.options.some(o => o.label === call.answers?.[q.question])))) return undefined;
+  if (!hasCompletePlanReport(expectedPlanPath, startedAt, Date.parse(ready.timestamp))) return undefined;
+  const stat = fs.lstatSync(expectedPlanPath), report = fs.readFileSync(expectedPlanPath, 'utf8');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([evaluate({ transcript: structuredClone(snapshot), report, reportMtimeMs: stat.mtimeMs,
+      startedAt, finishedAt, deadlineAt }), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Native terminal assessment: absolute case deadline exhausted')), Math.max(1, deadlineAt - Date.now()));
+    })]);
+    if (Date.now() >= deadlineAt) throw new Error('Native terminal assessment: absolute case deadline exhausted');
+    const validIds = (ids: readonly string[]) => Array.isArray(ids) && new Set(ids).size === ids.length && ids.every(id => identities.includes(id));
+    if (!result || !validIds(result.administrativeCallIds) || !validIds(result.substantiveCallIds)
+      || !result.substantiveCallIds.length || result.administrativeCallIds.some(id => result.substantiveCallIds.includes(id)))
+      throw new Error('Native terminal assessment returned foreign, duplicate, overlapping or empty substantive identities');
+    const after = fs.lstatSync(expectedPlanPath);
+    if (!after.isFile() || after.dev !== stat.dev || after.ino !== stat.ino || after.size !== stat.size
+      || after.mtimeMs !== stat.mtimeMs || fs.readFileSync(expectedPlanPath, 'utf8') !== report)
+      throw new Error('Native terminal report changed during assessment');
+    const administrative = new Set(result.administrativeCallIds);
+    if (!hasNativePlanTerminal(snapshot, expectedPlanPath, startedAt, 'plan_ready', administrative))
+      throw new Error('Native terminal report is not fresh after every substantive native answer');
+    return { administrative, substantive: new Set(result.substantiveCallIds) };
+  } finally { clearTimeout(timer); }
+}
+
 /** Native report completion is independent of the terminal's streamed headings. */
 export function hasNativePlanTerminal(
   transcript: PlanCountTranscript,
@@ -2002,6 +2244,58 @@ export function hasNativePlanTerminal(
       Date.parse(final.timestamp) <= Date.now() &&
       hasCompletePlanReport(expectedPlanPath, Math.max(startedAt, ...modifyingAnswers),
         Date.parse(final.timestamp), false, 'Design')) return true;
+  // Typed Design completion owns a current status and saved artifact. Markdown
+  // headings/field emphasis and explanatory prose are presentation, not a
+  // second approval or a substitute for the strict native/report checks.
+  const completionHeadings = lines.map((line, index) =>
+    /^(?:#{1,6}\s+)?(?:\*\*)?(?:Completion(?:\s+(?:summary|report))?|(?:Design\s+)?Review\s+(?:complete|completion(?:\s+summary)?))(?:\*\*)?:?\s*$/i.test(line.replace(/\*\*/g, '').trim()) ? index : -1)
+    .filter(index => index >= 0);
+  if (completionHeadings.length === 1) {
+    const start = completionHeadings[0]!;
+    const preceding = lines.slice(0, start).filter(line => line.trim()).at(-1) ?? '';
+    const section = lines.slice(start + 1);
+    const plain = section.map(line => line.replace(/\*\*/g, '').trim());
+    const status = plain.filter(line => /^(?:[-*]\s+)?STATUS:/i.test(line));
+    const done = /^(?:[-*]\s+)?STATUS:\s*DONE(?:\s+[—–:-]\s+(.+)|[.!](?:\s+(.*))?)?\s*$/i.exec(status[0] ?? '');
+    // A punctuated status may close with resolved-decision/read-only facts.
+    // These clauses establish no new permission, next action or plan-mode exit.
+    const harmlessClosure = !done?.[2] || done[2].split(/[.;!]\s*/).filter(Boolean).every(clause =>
+      /^(?:No (?:unresolved|open|pending) (?:design )?(?:decisions|issues|findings)|(?:(?:I am|We are) )?(?:Staying|Remaining) in plan mode|Nothing outside (?:the )?(?:plan|report) file (?:was|has been) (?:edited|changed|modified)|No implementation (?:was|has been) (?:started|performed)|Implementation (?:has not started|was not started))$/i.test(clause.trim()));
+    const pathFields = plain.filter(line => /^(?:[-*]\s+)?(?:Plan (?:written|saved)(?: to\b|:)|(?:What changed|Plan|Report|Output|Artifact):)/i.test(line));
+    const saved = pathFields.filter(line => {
+      const value = line.replace(/^[-*]\s+/, '').replace(/^Plan (written|saved):\s*/i, 'Plan $1 to ').replace(/^(?:What changed|Plan|Report|Output|Artifact):\s*/i, '').trim();
+      if (DESIGN_CLOSURE_PROVISIONAL.test(value) || /^(?:[>"“'‘]|`{3}|~{3})/.test(value)) return false;
+      // The expected absolute path or its exact basename identifies this one
+      // caller-owned report. Reject foreign/ambiguous paths before stripping
+      // Markdown; a filename hidden in quoted prose supplies no authority.
+      const paths = [...value.matchAll(/[^\s`"'<>()[\]{};,]+\.md(?=$|[\s`"'.,;:)])/g)].map(m => m[0]);
+      if (paths.length !== 1 || ![expectedPlanPath, path.basename(expectedPlanPath)].includes(paths[0]!)) return false;
+      const current = value.replace(/`([^`\n]+)`/g, (_, v: string) => paths.includes(v) ? v : '')
+        .replace(/"[^"\n]*"|“[^”\n]*”|(?<!\w)'[^'\n]*'(?!\w)|‘[^’\n]*’/g, '');
+      const token = paths[0]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const annotation = new RegExp(`^${token}\\s+\\(([^()\\n]+)\\)[.!]?$`, 'i').exec(current)?.[1];
+      const verifiedAnnotation = annotation && annotation.split(/[,;]\s*/).every(clause =>
+        /^(?:(?:review )?report is (?:the )?(?:last|final) (?:section|heading)|saved|written|read[- ]?back verified|verified by read[- ]?back)$/i.test(clause.trim()));
+      return new RegExp(`^Plan (?:written|saved) to ${token}(?:[.!](?:\\s|$)|\\s|$)`, 'i').test(current) ||
+        Boolean(verifiedAnnotation) ||
+        new RegExp(`^${token}\\s+(?:now\\s+)?(?:contains|carries|includes|records)\\s+`, 'i').test(current) &&
+          /\b(?:review report|reviewed plan)\b/i.test(current);
+    });
+    // A typed completion's status cannot substitute for the actual answers.
+    // Failed calls retain the shared later-answer resolution rule above.
+    const ownedAnswers = answered.every(call => call.sessionId && call.toolUseId &&
+      call.questions.length > 0 && new Set(call.questions.map(q => q.question)).size === call.questions.length &&
+      Object.keys(call.answers ?? {}).length === call.questions.length &&
+      Array.isArray(call.unansweredQuestionIndices) && call.unansweredQuestionIndices.length === 0 &&
+      call.questions.every(q => q.options.some(o => o.label === call.answers?.[q.question])));
+    if (ownedAnswers && !section.some(line => /^#{1,6}\s/.test(line)) &&
+        !/\b(?:example|sample|template|historical|previous|earlier|quote|source|emit|print)\b.*[:：]\s*$/i.test(preceding) &&
+        status.length === 1 && done && harmlessClosure && !DESIGN_CLOSURE_PROVISIONAL.test(done[1] ?? '') &&
+        pathFields.length === 1 && saved.length === 1 &&
+        !conflictingDesignClosure(designText) && Date.parse(final.timestamp) <= Date.now() &&
+        hasCompletePlanReport(expectedPlanPath, Math.max(startedAt, ...modifyingAnswers),
+          Date.parse(final.timestamp), false, 'Design')) return true;
+  }
   const summary = lines.findIndex(line => /^(?:#{1,6}\s*)?(?:\*\*)?Completion\s+summary(?:\*\*)?\s*:?[ \t]*$/i.test(line.trim()));
   const preceding = lines.slice(0, summary).filter(line => line.trim()).at(-1) ?? '';
   if (summary < 0 || /\b(?:example|sample|template|quote|emit|print)\b.*[:：]\s*$/i.test(preceding)) return false;
@@ -3626,10 +3920,66 @@ export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
   // plan-eng-review-idempotency, plan-eng-review-todos-e2e-concurrent.
   /gstack-qid:\s*(?:plan-)?eng-review-/i.test(fp.promptSnippet);
 
-export const designStep0Boundary: Step0BoundaryPredicate = (fp) =>
-  /design\s*(?:system|posture|score|completeness)|first\s*dimension/i.test(
-    fp.promptSnippet,
-  );
+/** Completed plan-wide focus and local-learnings choices remain setup, even when asked late. */
+export const designReviewSetupAUQ: Step0BoundaryPredicate = (fp) => {
+  const call = fp.nativeCall;
+  if (call?.answered !== true || call.failed !== false || !call.sessionId || !call.toolUseId ||
+      call.questions.length !== 1 || !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
+      !Number.isFinite(Date.parse(call.answeredAt ?? '')) || fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
+      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0)) return false;
+  const q = call.questions[0]!;
+  if (q.multiSelect || q.options.length !== 2 || new Set(q.options.map(o => o.label)).size !== 2 ||
+      Object.keys(call.answers ?? {}).length !== 1 || q.options.filter(o => o.label === call.answers?.[q.question]).length !== 1 ||
+      fp.options.length !== 2 || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label)) return false;
+  const text = q.question.trim();
+  const title = text.split(/\r?\n/, 1)[0]!.replace(/^D[1-9]\d*\s*[—–:-]\s*/i, '');
+  const sources = [...text.matchAll(/^Project\/branch\/task:\s*([^\n]+)$/gm)];
+  const source = sources[0]?.[1] ?? '';
+  // Setup never approves another product action. Quoted examples and negative
+  // consequences are explanatory; current imperative clauses remain decisions.
+  const explanatory = [text, ...q.options.map(o => o.description ?? '')].join('\n')
+    .replace(/`+[^`]*`+|"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’/g, '')
+    .replace(/[✅❌*]/g, '');
+  if (/(?:^|[.!?;:\n]|\b(?:and|while))\s*(?:(?:also|please|then|now)\s+)*(?:approv(?:e|ing)|deploy(?:ing)?|implement(?:ing)?|ship(?:ping)?|merg(?:e|ing)|delet(?:e|ing))\b/im.test(explanatory)) return false;
+  if (sources.length !== 1 || (text.match(/\?/g)?.length ?? 0) !== 1 || /```|~~~|^\s*>/m.test(text) ||
+      !/\bplan-design-review of PLAN\.md\b/i.test(source) ||
+      /\b(?:historical|archived|quoted|example|foreign|other|another|previous)\b/i.test(source)) return false;
+  const labels = q.options.map(o => o.label.trim().replace(/^[A-Z][).:]\s+/i, '')
+    .replace(/\s*\(recommended\)\s*$/i, ''));
+  if (/^(?:Learnings|Cross-project)$/i.test(q.header.trim()) &&
+      /^Enable cross[- ]project learnings(?: search)?\?$/i.test(title) &&
+      labels.some(label => /^Enable cross[- ]project learnings$/i.test(label)) &&
+      labels.some(label => /^Keep learnings project[- ]scoped(?: only)?$/i.test(label))) {
+    // Reuse the existing native cross-project premise/owned answer classifier.
+    return engSetupAUQ(fp);
+  }
+  return /^(?:Focus|Review focus)$/i.test(q.header.trim()) &&
+    /^Review all 7 (?:design )?(?:dimensions|passes),? or focus(?: on (?:specific areas|a subset))?\?$/i.test(title) &&
+    /^ELI10:\s*I['’]ve rated this plan (?:10(?:\.0+)?|[0-9](?:\.\d+)?)\/10 on design completeness\./mi.test(text) &&
+    labels.some(label => /^(?:Review )?All 7 (?:design )?(?:dimensions|passes)$/i.test(label)) &&
+    labels.some(label => /^(?:Only (?:the )?[1-6](?: listed)? (?:gaps|areas|dimensions|passes)|Focus on (?:specific areas|a subset))$/i.test(label));
+};
+
+export const designStep0Boundary: Step0BoundaryPredicate = (fp) => {
+  const call = fp.nativeCall;
+  // Recognized native setup owns both acceptance and rejection. An invalid
+  // packet cannot borrow "design system" or "first dimension" from its body.
+  if (call?.questions.some(q => /^(?:Focus|Review focus|Learnings|Cross-project)$/i.test(q.header.trim()) &&
+      /Review all 7 (?:design )?(?:dimensions|passes),? or focus|Enable cross[- ]project learnings/i.test(q.question))) {
+    return designReviewSetupAUQ(fp);
+  }
+  const questions = call
+    ? call.questions.filter(q => !call.answered || call.answers?.[q.question]).map(q => q.question)
+    : [fp.promptSnippet];
+  return questions.some(question => {
+    if (/design\s*(?:system|posture|score)|first\s*dimension/i.test(question)) return true;
+    // A plan-wide initial rating and the scope choice must belong to the
+    // same complete question. A later finding can mention completeness,
+    // and separate native tabs must not lend each other missing clauses.
+    return /I['’]ve\s*rated\s*this\s+(?:[^.!?\n]*\s+)?plan\s*(?:10|[0-9])\/10\s*on\s*design\s*completeness\./i.test(question) &&
+      /(?:Want\s*me\s*to\s*focus\s*on\s*specific\s*areas(?:\s*instead\s*of\s*all\s*7)?|Review\s*all\s*7\s*dimensions)\?/i.test(question);
+  });
+};
 
 /** Positive review identity when a design run goes directly to findings without a focus AUQ. */
 export const designFirstReviewAUQ: Step0BoundaryPredicate = (fp) => {
@@ -3698,6 +4048,9 @@ export async function launchClaudePty(
   // Hermetic by default (test/helpers/hermetic-env.ts): operator session
   // context never reaches the child; per-test opts.env merges last.
   let childEnv = hermeticChildEnv(opts.env);
+  // The opted-in viewport emulates xterm; placeholder styles are required to
+  // distinguish an empty suggestion from text the user has actually entered.
+  if (opts.observeScreen) childEnv.TERM = 'xterm-256color';
   let hermeticSkillStateRoot: string | undefined;
   if (opts.seedSkills && hermetic && !opts.env?.CLAUDE_CONFIG_DIR) {
     childEnv.CLAUDE_CONFIG_DIR = hermeticSkillsConfigDir();
@@ -3713,6 +4066,16 @@ export async function launchClaudePty(
         '--add-dir', path.join(childEnv.CLAUDE_CONFIG_DIR, 'skills'));
     }
   }
+
+  let autoplanArtifactStateRoot = hermeticSkillStateRoot;
+  if (opts.autoplanArtifactState !== undefined) {
+    if (!opts.observeAutoplanArtifacts || !hermeticSkillStateRoot)
+      throw new Error('Explicit Autoplan artifact state requires the seeded hermetic launcher');
+    autoplanArtifactStateRoot = ownedNativeReviewStateRoot(opts.autoplanArtifactState, childEnv);
+  }
+
+  const autoplanEngTestPlanStateRoot = opts.approveAutoplanArtifactEdits && opts.autoplanArtifactState !== undefined
+    ? hermeticSkillStateRoot : undefined;
 
   // Construction must succeed before any CLI can be spawned.
   const screen = opts.observeScreen ? await createPtyScreen(cols, rows) : undefined;
@@ -3733,9 +4096,9 @@ export async function launchClaudePty(
     if (opts.observeSetupQuestions && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
       pendingQuestion = createPendingQuestionRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR);
     }
-    if (opts.observeAutoplanArtifacts && hermetic && childEnv.CLAUDE_CONFIG_DIR && hermeticSkillStateRoot) {
-      pendingArtifact = createAutoplanArtifactRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR, hermeticSkillStateRoot,
-        opts.approveAutoplanArtifactEdits === true);
+    if (opts.observeAutoplanArtifacts && hermetic && childEnv.CLAUDE_CONFIG_DIR && autoplanArtifactStateRoot) {
+      pendingArtifact = createAutoplanArtifactRecorder(cwd, childEnv.CLAUDE_CONFIG_DIR, autoplanArtifactStateRoot,
+        opts.approveAutoplanArtifactEdits === true, opts.engTestPlanArtifactOnly === true, autoplanEngTestPlanStateRoot);
     }
     if (opts.observeFilePermissions && hermetic && childEnv.CLAUDE_CONFIG_DIR) {
       for (const expected of new Set(opts.observeFilePermissions)) {
@@ -3927,6 +4290,13 @@ export async function launchClaudePty(
       if (screenFailure) throw new Error('PTY screen observation failed.', { cause: screenFailure });
       return screen.read();
     },
+    currentScreenFrame: async () => {
+      if (!screen) throw new Error('PTY screen observation was not enabled for this session.');
+      if (screenClosing) await screenClosing;
+      if (screenFailure) throw new Error('PTY screen observation failed.', { cause: screenFailure });
+      const frame = await screen.readFrame();
+      return {text: frame.text, rawEnd: frame.inputOffset, styledText: frame.styledText};
+    },
     mark,
     visibleSince,
     waitForAny,
@@ -3939,6 +4309,8 @@ export async function launchClaudePty(
     pendingPlanReadyFile: pendingExit?.file,
     pendingQuestionFile: pendingQuestion?.file,
     pendingAutoplanArtifactFile: pendingArtifact?.file,
+    autoplanArtifactStateRoot: pendingArtifact ? autoplanArtifactStateRoot : undefined,
+    autoplanEngTestPlanStateRoot: pendingArtifact ? autoplanEngTestPlanStateRoot : undefined,
     startAutoplanArtifactEditApproval: pendingArtifact?.startEditApproval,
     pendingFilePermissionFiles: pendingFiles.map(({ expected, recorder }) => ({ expected, file: recorder.file })),
     close,
@@ -4127,6 +4499,8 @@ export async function runPlanSkillObservation(opts: {
    * a rendered prose choice list. Deterministic terminal outcomes retain
    * precedence; this does not grant prose credit to a judge verdict. */
   requireProseEvidence?: boolean;
+  /** Optional witness in this attempt's explicit child state. */
+  autoDecisionState?: { stateRoot: string; projectSlug: string };
   /** Extra CLI args appended after --permission-mode. Used by the v1.22+
    *  AskUserQuestion-blocked regression tests to pass
    *  `['--disallowedTools', 'AskUserQuestion']` (the flag set Conductor
@@ -4164,45 +4538,67 @@ export async function runPlanSkillObservation(opts: {
   trackTokens?: string[];
 }): Promise<PlanSkillObservation> {
   const startedAt = Date.now();
+  const budgetMs = opts.timeoutMs ?? 180_000;
+  const deadlineAt = startedAt + budgetMs;
   // Explicitly identify only a new seeded plan-mode session. Caller-owned
   // resume/session arguments retain their existing behavior.
   const scopeSessionId = opts.initialPlanContent && opts.inPlanMode !== false &&
     !opts.extraArgs?.some(arg => /^(?:--session-id|--resume|--continue|-r|-c)(?:=|$)/.test(arg))
     ? randomUUID() : undefined;
+  const readAutoDecisionState = opts.autoDecisionState
+    ? bindAutoDecisionState(opts.autoDecisionState, opts.env, opts.skillName) : undefined;
+  const saveSnapshot = createPlanCountSnapshotWriter();
   const session = await launchClaudePty({
     permissionMode: opts.inPlanMode === false ? null : 'plan',
     cwd: opts.cwd,
     timeoutMs: (opts.timeoutMs ?? 180_000) + 30_000,
     extraArgs: [...(opts.extraArgs ?? []), ...(scopeSessionId ? ['--session-id', scopeSessionId] : [])],
-    env: opts.env,
+    env: {
+      ...(opts.inPlanMode !== false && !opts.extraArgs?.some(arg => /^--permission-mode(?:=|$)/.test(arg))
+        ? { GSTACK_PLAN_MODE: 'active' } : {}),
+      ...opts.env,
+    },
     model: opts.model,
     seedSkills: true,
     observeScreen: !!opts.initialPlanContent,
   });
 
   try {
-    // Boot grace + trust-dialog auto-handle.
-    await Bun.sleep(8000);
+    const preflightTimeout = async (summary: string): Promise<PlanSkillObservation> => {
+      let viewport: string | undefined, viewportError: string | undefined;
+      try { viewport = (await session.currentScreenFrame())?.text; } catch (error) { viewportError = String(error); }
+      const artifacts = saveSnapshot({ skillName: opts.skillName, cwd: path.resolve(opts.cwd ?? process.cwd()),
+        claudeConfigDir: session.hermeticConfigDir, raw: session.rawOutput(), visible: session.visibleText(), viewport,
+        observation: { state: 'plan_skill_preflight_timeout', summary, scopeSessionId, startedAt, deadlineAt, viewportError } });
+      return {
+        outcome: 'timeout', summary, evidence: session.visibleText().slice(-2000),
+        elapsedMs: Date.now() - startedAt,
+        proseAUQEverObserved: false, waitingEverObserved: false,
+        scopeGateQuestionObserved: false, scopeGateAutoSelectObserved: false,
+        ...(opts.trackTokens?.length ? { tokensObserved: Object.fromEntries(opts.trackTokens.map(t => [t, false])) } : {}),
+        ...artifacts,
+      };
+    };
+    // Entry deadline → boot → owned paste/receipt/ack → slash → observation.
+    // Setup consumes the existing case budget; cleanup has its separate grace.
+    await Bun.sleep(Math.min(8000, Math.max(0, deadlineAt - Date.now())));
     if (opts.initialPlanContent) {
-      // Pre-pump the draft as a user message so the skill's Step 0 has
-      // concrete content to scope-challenge. The trailing `\r` submits
-      // the message; embedded `\n` are preserved as line breaks within
-      // the message (claude-code uses Enter to send, Shift+Enter for
-      // newlines, but raw `\r` from a PTY just submits whatever's in
-      // the input buffer).
-      const seed = `Please review the following draft plan when I run the skill below:\n\n${opts.initialPlanContent}`;
-      session.send(`${seed}\r`);
-      // Wait for the seed message to render before sending the skill
-      // command. Without this gap the two messages can fuse and the
-      // skill name becomes part of the user prompt instead of a slash
-      // command.
-      await Bun.sleep(3000);
+      const seed = `Keep this draft plan as context. Briefly acknowledge receipt, then wait for my next message containing a slash command. Do not start the review or call tools yet.\n\n${opts.initialPlanContent}`;
+      try {
+        await submitPlanSeed({...session, currentScreen: session.currentScreenFrame}, seed, {
+          cwd: opts.cwd ?? process.cwd(), launchedAt: startedAt, deadlineAt,
+          isQuestionOrPermission: text => isProseAUQVisible(text) || isNumberedOptionListVisible(text) || isPermissionDialogVisible(text),
+        });
+      } catch (error) {
+        if (!(error instanceof PlanSeedTimeout)) throw error;
+        return await preflightTimeout(`Plan seed submission failed: ${error.message}`);
+      }
     }
+    if (Date.now() >= deadlineAt) return await preflightTimeout('Boot or seed preflight exhausted the existing case budget');
     const commandStartedAt = Date.now();
     const since = session.mark();
     session.send(`/${opts.skillName}\r`);
 
-    const budgetMs = opts.timeoutMs ?? 180_000;
     const start = Date.now();
     let lastJudgeAt = 0;
     let lastJudgeVerdict: PtyStateVerdict | null = null;
@@ -4219,7 +4615,6 @@ export async function runPlanSkillObservation(opts: {
     let scopeTools: NativePublicToolEvent[] = [];
     let nativeAutoDecide: NativeAutoDecision | null = null;
     let nativePolledAt: number | null = null;
-    const saveSnapshot = createPlanCountSnapshotWriter();
     const tokensObserved: Record<string, boolean> = {};
     for (const t of opts.trackTokens ?? []) tokensObserved[t] = false;
     // Single source for the high-water flags at EVERY return site. Hand-
@@ -4243,8 +4638,8 @@ export async function runPlanSkillObservation(opts: {
     };
     const JUDGE_AFTER_MS = 60_000;
     const JUDGE_INTERVAL_MS = 30_000;
-    while (Date.now() - start < budgetMs) {
-      await Bun.sleep(2000);
+    while (Date.now() < deadlineAt) {
+      await Bun.sleep(Math.min(2000, Math.max(0, deadlineAt - Date.now())));
       const visible = session.visibleSince(since);
 
       if (session.exited()) {
@@ -4256,7 +4651,7 @@ export async function runPlanSkillObservation(opts: {
           ...highWaterFlags(),
         };
       }
-      if (visible.includes('Unknown command:')) {
+      if (isRejectedSlashCommand(visible, `/${opts.skillName}`)) {
         return {
           outcome: 'exited',
           summary: `claude rejected /${opts.skillName} as unknown command (skill not registered in this cwd)`,
@@ -4327,14 +4722,15 @@ export async function runPlanSkillObservation(opts: {
       }
 
       // Terminal classification retains precedence (including actual questions
-      // and writes). Only an unclassified frame may use exact owned native prose.
+      // and writes). Only an unclassified frame may use owned native auto-decision evidence.
       if (scopeSessionId) {
         nativeAutoDecide = findNativeAutoDecision(scopeTranscript, scopeTools, {
-          skillName: opts.skillName, sessionId: scopeSessionId, commandStartedAt, now: Date.now(),
+          skillName: opts.skillName, sessionId: scopeSessionId, commandStartedAt, now: Date.now(), proseQuestionObserved: proseAUQEverObserved,
+          stateEvidence: readAutoDecisionState?.(),
         });
         if (nativeAutoDecide) return {
           outcome: 'auto_decided',
-          summary: 'owned native session emitted the exact AUTO_DECIDE preference annotation after loading the invoked skill',
+          summary: 'owned native session completed the saved-preference auto-decision',
           evidence: visible.slice(-2000), elapsedMs: Date.now() - startedAt,
           ...highWaterFlags(),
         };
@@ -4400,6 +4796,9 @@ export async function runPlanSkillObservation(opts: {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+/** Legacy caller outer finalization allowance; native counting reserves cleanup internally. */
+export const PLAN_SKILL_COUNT_FINALIZE_MS = 10_000;
+
 // runPlanSkillCounting — drives a plan-* skill end-to-end through Step 0 then
 // counts completed review-phase AskUserQuestion calls. The actual
 // product asserted by the per-finding-count tests.
@@ -4417,9 +4816,11 @@ export interface PlanSkillCountObservation {
   outcome:
     | 'plan_ready'
     | 'completion_summary'
+    | 'collection_complete'
     | 'ceiling_reached'
     | 'silent_write'
     | 'transcript_unavailable'
+    | 'artifact_permission_failed'
     | 'no_review_questions'
     | 'exited'
     | 'timeout';
@@ -4494,6 +4895,8 @@ export async function runPlanSkillCounting(opts: {
   /** Observe this caller-owned disposable plan for permission identity only.
    * Does not impose the expectedPlanPath terminal-report contract. */
   permissionPlanPath?: string;
+  /** Declared actor support for the required QA artifact; no other state path gains approval. */
+  approveEngTestPlanEdits?: boolean;
   /** Per-skill predicate: which answered AUQ is the last Step-0 question. */
   isLastStep0AUQ: Step0BoundaryPredicate;
   /** Optional positive identity for a first finding when no final setup AUQ was emitted. */
@@ -4502,19 +4905,35 @@ export async function runPlanSkillCounting(opts: {
   isSetupAUQ?: Step0BoundaryPredicate;
   /** Optional native completed-review handoff identity, excluded from both count bands. */
   isCompletionHandoffAUQ?: Step0BoundaryPredicate;
+  /** Opt-in one-shot semantic assessment at a real native Exit. Existing callers
+   * retain their synchronous navigation and terminal policy. */
+  evaluateTerminal?: NativePlanTerminalEvaluator;
   /** Accepted artifact rendering is not a finding; its answer still requires a fresh report. */
   isArtifactGenerationAUQ?: Step0BoundaryPredicate;
   /** Optional issue classifier across phases; receives full native call metadata. */
   isReviewAUQ?: (fp: AskUserQuestionFingerprint, priorCalls?: readonly NativePlanQuestionCall[]) => boolean;
+  /** Stop a collection-only fixture once its acknowledged inputs are complete.
+   * This is not review completion or a passing verdict; the caller still validates them. */
+  isCollectionComplete?: (transcript: PlanCountTranscript, fingerprints: readonly AskUserQuestionFingerprint[]) => boolean;
   /** Narrow caller-specific selection; null retains the normal answer policy.
    * The first argument retains full pending metadata for existing callers.
    * Native-bound selection uses activeCapture, whose metadata is present only
    * when capturePlanCountQuestion matched the currently visible native question. */
-  pickAUQ?: (fp: AskUserQuestionFingerprint, activeCapture: AskUserQuestionFingerprint) => number | null;
+  pickAUQ?: (fp: AskUserQuestionFingerprint, activeCapture: AskUserQuestionFingerprint,
+    context: Readonly<{ cwd: string; deadlineAt: number }>) => number | null;
+  /** Opt-in declared actor: wait for a complete current native tab, then require
+   * its picker answer. Unbound redraws never consume seen state or default to 1. */
+  requireNativePicker?: boolean;
+  /** Observe owned pending AUQs for callers that need identity before answering. */
+  observeSetupQuestions?: boolean;
+  /** Bind the declared Design board actor and renderer to one fixture-owned daemon state. */
+  bindDesignBoardState?: boolean;
   /** Require native completion plus this caller-owned final report before accepting a soft terminal. */
   expectedPlanPath?: string;
   /** Additional versioned files available in the isolated fixture before the skill starts. */
   fixtureFiles?: Record<string, string>;
+  /** Fixture actor already declined routing setup and cross-project learnings. */
+  preconfiguredReviewActor?: boolean;
   /** Hard cap on review-phase count; helper returns when reached. Should be
    *  set ABOVE the test's assertion ceiling so the test sees the cap as a
    *  failure rather than a silent stop. */
@@ -4541,6 +4960,14 @@ export async function runPlanSkillCounting(opts: {
   /** Override the spawned model. Defaults via launchClaudePty's chain. */
   model?: string;
 }): Promise<PlanSkillCountObservation> {
+  if (opts.requireNativePicker && !opts.pickAUQ)
+    throw Error('Native picker binding requires a declared picker');
+  if (opts.bindDesignBoardState && (opts.skillName !== 'plan-design-review' || !opts.pickAUQ))
+    throw Error('Design board state binding requires the Design caller and its declared picker');
+  if (opts.approveEngTestPlanEdits && (opts.skillName !== 'plan-eng-review' || !opts.expectedPlanPath))
+    throw Error('Eng test-plan approval requires the Eng caller and its explicit report');
+  if (opts.isCollectionComplete && opts.expectedPlanPath)
+    throw Error('Collection-only completion cannot replace the final report contract');
   const budgetStarted = performance.now();
   const startedAt = Date.now();
   const defaultPick = opts.defaultPick ?? 1;
@@ -4564,7 +4991,9 @@ export async function runPlanSkillCounting(opts: {
     return !clipped && remainingWork() > 0;
   }
 
-  const fixture = createPlanCountFixture(opts.followUpPrompt, { nativeReviewOnly: true, files: opts.fixtureFiles });
+  const fixture = createPlanCountFixture(opts.followUpPrompt, { nativeReviewOnly: true,
+    files: opts.fixtureFiles, preconfiguredReviewActor: opts.preconfiguredReviewActor });
+  const pickerContext = Object.freeze({cwd: fixture.cwd, deadlineAt: startedAt + timeoutMs - cleanupReserveMs});
   const permissionPaths = [
     ...(opts.expectedPlanPath ? [opts.expectedPlanPath, path.join(fixture.cwd, 'PLAN.md')] : []),
     ...(opts.permissionPlanPath ? [opts.permissionPlanPath] : []),
@@ -4577,12 +5006,17 @@ export async function runPlanSkillCounting(opts: {
       // Stop new output at the work cutoff so screen drain cannot consume
       // the reserve while the CLI continues streaming.
       timeoutMs: Math.max(1, remainingWork()),
-      env: { ...opts.env, ...fixture.env },
+      env: { ...opts.env, ...fixture.env,
+        // The renderer may cd into its artifact directory before starting the daemon.
+        ...(opts.bindDesignBoardState ? { DESIGN_DAEMON_STATE_FILE: path.join(fixture.cwd, '.gstack', 'design.json') } : {}),
+      },
       model: opts.model,
       seedSkills: true,
       observeScreen: true,
       observePlanReady: true,
+      observeSetupQuestions: opts.observeSetupQuestions,
       observeFilePermissions: permissionPaths.length ? [...new Set(permissionPaths)] : undefined,
+      ...(opts.approveEngTestPlanEdits ? { observeAutoplanArtifacts: true, approveAutoplanArtifactEdits: true, engTestPlanArtifactOnly: true } : {}),
     });
   } catch (error) {
     fixture.cleanup();
@@ -4590,6 +5024,7 @@ export async function runPlanSkillCounting(opts: {
   }
 
   const fingerprints: AskUserQuestionFingerprint[] = [];
+  const planningDirectory = session.hermeticConfigDir ? path.join(session.hermeticConfigDir, 'plans') : undefined;
   const seen = new Set<string>();
   const countedCalls = new Set<string>();
   const filePermission = createPlanCountPermissionGuard();
@@ -4609,7 +5044,11 @@ export async function runPlanSkillCounting(opts: {
   let viewport = '';
 
   const capture = (observation: object) => saveSnapshot({
-    skillName: opts.skillName, observation, raw: session.rawOutput(), visible: session.visibleText(), viewport,
+    skillName: opts.skillName, observation: { ...observation,
+      pendingWriteInputs: ownedFilePermissions.flatMap(binding => {
+        const input = readPendingWriteInput(binding.file, binding.expected, fixture.cwd, session.hermeticConfigDir, startedAt);
+        return input ? [input] : [];
+      }) }, raw: session.rawOutput(), visible: session.visibleText(), viewport,
     cwd: fixture.cwd, claudeConfigDir: session.hermeticConfigDir,
   });
 
@@ -4645,6 +5084,10 @@ export async function runPlanSkillCounting(opts: {
   try {
     if (await waitForWork(8000)) { // boot grace is part of the total budget
       session.mark();
+      if (opts.approveEngTestPlanEdits) {
+        if (!session.startAutoplanArtifactEditApproval) throw Error('Owned Eng test-plan approval hook unavailable');
+        session.startAutoplanArtifactEditApproval(Date.now());
+      }
       session.send(`${opts.slashCommand}\r`);
     }
 
@@ -4657,6 +5100,24 @@ export async function runPlanSkillCounting(opts: {
         : { status: 'error', calls: [], assistantMessages: [], error: 'Claude count session has no isolated transcript directory' };
       transcript = withPendingExit(transcript, session.pendingPlanReadyFile, fixture.cwd,
         session.hermeticConfigDir, startedAt, visible);
+      if (opts.approveEngTestPlanEdits) {
+        const status = autoplanArtifactRecorderStatus(session.pendingAutoplanArtifactFile, fixture.cwd,
+          session.hermeticConfigDir, session.autoplanArtifactStateRoot);
+        const boundary = autoplanArtifactApprovalBoundary(status);
+        if (boundary === 'failed') return snapshot('artifact_permission_failed',
+          `Owned Eng QA test-plan approval failed: ${JSON.stringify(status)}`, visible);
+        // Native approval owns this Edit. Never answer its repaint or count a
+        // metadata-only pending request; resume only after its actual result.
+        if (boundary === 'pending') {
+          if (Date.now() - lastCheckpointAt >= 30_000) {
+            lastCheckpointAt = Date.now();
+            const saved = capture({ state: 'artifact_pending', elapsedMs: Date.now() - startedAt,
+              fingerprints, step0Count, reviewCount, administrativeCount, transcript, artifactStatus: status });
+            if (saved.artifactError) console.error(`PTY artifact write failed: ${saved.artifactError}`);
+          }
+          continue;
+        }
+      }
       if (transcript.status === 'error') {
         return snapshot('transcript_unavailable', transcript.error!, visible);
       }
@@ -4703,7 +5164,7 @@ export async function runPlanSkillCounting(opts: {
         );
       }
 
-      if (visible.includes('Unknown command:')) {
+      if (isRejectedSlashCommand(visible, opts.slashCommand)) {
         return snapshot(
           'exited',
           `claude rejected ${opts.slashCommand} as unknown command (skill not registered in this cwd)`,
@@ -4711,11 +5172,43 @@ export async function runPlanSkillCounting(opts: {
         );
       }
 
-      const pending = transcript.calls.find(c => !c.answered && !c.failed);
-      const newlyMatched = pending && matchesNativePlanQuestion(visible, pending);
+      // A native AUQ can render before its JSONL tool-use record is flushed.
+      // The opt-in hook supplies pending identity only; answered counts above
+      // still come exclusively from the published native transcript.
+      const pending = transcript.calls.find(c => !c.answered && !c.failed)
+        ?? readPendingQuestion(session.pendingQuestionFile, fixture.cwd,
+          session.hermeticConfigDir, startedAt, transcript);
+      // Native ACKs → complete collection → caller validation. A process failure
+      // above or a pending native question still prevents this early collection stop.
+      if (opts.isCollectionComplete && !pending && transcript.status === 'ready' &&
+          transcript.calls.length > 0 && transcript.calls.every(call => call.answered && !call.failed) &&
+          !unresolvedPlanQuestionCalls(transcript.calls).length && remainingWork() > 0 &&
+          opts.isCollectionComplete(transcript, fingerprints) && remainingWork() > 0) {
+        return snapshot('collection_complete', 'Caller-defined native collection is complete; final validation remains required', visible);
+      }
+      const newlyMatched = pending && matchesNativePlanQuestion(visible, pending, planningDirectory);
       if (newlyMatched) lastMatchedNativeQuestion = pending;
       const renderedFrame = classifyPlanCountFrame(visible);
       const administrative = new Set(fingerprints.filter(fp => fp.administrative === 'completion-handoff').map(fp => fp.signature));
+      if (opts.evaluateTerminal && opts.expectedPlanPath && renderedFrame === 'plan_ready' && !newlyMatched) {
+        const reviewed = await evaluateOwnedNativePlanTerminal(transcript, opts.expectedPlanPath, startedAt,
+          startedAt + timeoutMs - cleanupReserveMs, opts.evaluateTerminal);
+        if (reviewed) {
+          // Once semantics are validated, lexical phase labels have no veto.
+          // The earlier progress snapshots remain unchanged diagnostic evidence.
+          administrative.clear();
+          for (const identity of reviewed.administrative) administrative.add(identity);
+          for (const fp of fingerprints) {
+            fp.preReview = !reviewed.substantive.has(fp.signature) && !administrative.has(fp.signature);
+            if (administrative.has(fp.signature)) fp.administrative = 'completion-handoff';
+            else delete fp.administrative;
+          }
+          reviewCount = reviewed.substantive.size;
+          administrativeCount = administrative.size;
+          step0Count = fingerprints.length - reviewCount - administrativeCount;
+        }
+      }
+
       // A long completed summary may scroll its heading off the viewport.
       // With no active input UI, retain the existing native/report validator;
       // neither display text nor a missing heading supplies completion evidence.
@@ -4736,7 +5229,7 @@ export async function runPlanSkillCounting(opts: {
       // permission wording inside that question could queue a stray answer.
       const acceptedTerminal = isTerminalHint && (!opts.expectedPlanPath || verifiedTerminal);
       const nativeQuestionVisible = newlyMatched || (!acceptedTerminal &&
-        lastMatchedNativeQuestion && matchesNativePlanQuestion(visible, lastMatchedNativeQuestion));
+        lastMatchedNativeQuestion && matchesNativePlanQuestion(visible, lastMatchedNativeQuestion, planningDirectory));
       const terminalHint = nativeQuestionVisible ? null : terminalFrame;
       let frame = terminalHint;
       // Clear unverified hints before routing active permissions and Submit.
@@ -4833,8 +5326,12 @@ export async function runPlanSkillCounting(opts: {
 
       // Dedupe the complete question, not just its answer labels: separate
       // findings often reuse the same Add to plan / Defer / Skip menu.
-      const fp = capturePlanCountQuestion(visible, seen, Date.now() - startedAt, !boundaryFired, pending);
+      if (opts.requireNativePicker && !newlyMatched) continue;
+      const capturedSeen = opts.requireNativePicker ? new Set(seen) : seen;
+      const fp = capturePlanCountQuestion(visible, capturedSeen, Date.now() - startedAt, !boundaryFired, pending, planningDirectory);
       if (!fp) continue;
+      const boundNativeTab = pending && fp.nativeCall === pending && fp.nativeQuestionIndex !== undefined;
+      if (opts.requireNativePicker && !boundNativeTab) continue;
       // Press to advance — first AUQ may use the override pick.
       const routing = pending?.questions.length === 1
         ? nativePlanCallFingerprint(pending, fp.observedAtMs, fp.preReview) : fp;
@@ -4844,11 +5341,16 @@ export async function runPlanSkillCounting(opts: {
       // matched active tab before a caller can change that tab's choice.
       // The captured fingerprint alone proves whether native metadata matched
       // this active UI; an unrelated pending record is not a routing identity.
-      const boundNativeTab = pending && fp.nativeCall === pending && fp.nativeQuestionIndex !== undefined;
-      const callerPick = !pending || pending.questions.length === 1 || boundNativeTab
-        ? opts.pickAUQ?.(routing, fp) ?? null : null;
+      let callerPick: number | null = null;
+      if ((!opts.requireNativePicker || prerequisitePick === null) &&
+          (!pending || pending.questions.length === 1 || boundNativeTab)) {
+        callerPick = opts.pickAUQ?.(routing, fp, pickerContext) ?? null;
+      }
+      if (opts.requireNativePicker && prerequisitePick === null && callerPick === null)
+        throw Error('Declared native picker returned no authorized choice');
       const pickIdx = prerequisitePick ?? callerPick ??
         (isFirstAUQ && opts.firstAUQPick ? opts.firstAUQPick(routing) : defaultPick);
+      if (opts.requireNativePicker) for (const signature of capturedSeen) seen.add(signature);
       isFirstAUQ = false;
       const questionInput = planCountQuestionInput(visible, fp, pickIdx);
       if (remainingWork() <= 0) break;
@@ -4869,6 +5371,21 @@ export async function runPlanSkillCounting(opts: {
       `no terminal outcome within ${timeoutMs}ms total budget (including startup and ${cleanupReserveMs}ms cleanup reserve; step0=${step0Count}, review=${reviewCount})`,
       viewport,
     );
+  } catch (error) {
+    // Caller/actor errors used to leave only the preceding 30s checkpoint.
+    // Retain the actual throw frame and public native state before close()
+    // removes the hook and fixture, without replacing the original failure.
+    try {
+      // Keep the exact frame/transcript that the throwing caller observed;
+      // awaiting a redraw here would erase that ordering evidence.
+      const saved = capture({ state: 'threw', error: error instanceof Error ? error.message : String(error),
+        elapsedMs: Date.now() - startedAt, fingerprints, step0Count, reviewCount, administrativeCount, transcript,
+        pendingQuestion: readPendingQuestion(session.pendingQuestionFile, fixture.cwd,
+          session.hermeticConfigDir, startedAt, transcript) });
+      if (saved.artifactDir) console.error(`Full PTY artifacts: ${saved.artifactDir}`);
+      if (saved.artifactError) console.error(`PTY artifact write failed: ${saved.artifactError}`);
+    } catch (captureError) { console.error(`PTY failure capture failed: ${String(captureError)}`); }
+    throw error;
   } finally {
     try {
       await session.close();
@@ -4879,29 +5396,11 @@ export async function runPlanSkillCounting(opts: {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// runPlanSkillFloorCheck — minimal "did the agent fire ANY AskUserQuestion?"
-// observer for gate-tier floor tests catching the May 2026 transcript bug
-// (model wrote plan + ExitPlanMode'd with reviewCount=0).
-//
-// Why this exists separately from runPlanSkillCounting: plan-mode AUQs render
-// every option on a single logical line via cursor-positioning escapes that
-// stripAnsi can't simulate. parseNumberedOptions therefore returns < 2 options
-// from those frames and never records a fingerprint. The full counting helper
-// works for periodic finding-count tests because their 25-min budgets give the
-// agent enough redraws that one frame eventually parses cleanly. Gate-tier
-// floor tests don't have that wall-time budget and need to exit early on the
-// first observation. This helper trades fingerprint precision for early-exit
-// reliability.
-//
-// Contract:
-//   - PASS  → outcome === 'auq_observed' (agent rendered any non-permission
-//             numbered-option list; we exit immediately and report success)
-//   - FAIL  → outcome === 'plan_ready' | 'completion_summary' | 'silent_write'
-//             (agent reached a terminal state without ever firing an AUQ —
-//             this IS the transcript bug)
-//   - SOFT  → outcome === 'timeout' (neither happened in budget; agent may
-//             just be slow — test should retry with a larger budget rather
-//             than treat as a hard regression)
+// runPlanSkillFloorCheck — stop at the first substantive seeded question.
+// Current owned input → complete question → evidence-backed assessment → outcome.
+// Setup answers advance only the predeclared review interface. Findings are
+// observed without answering them; permissions and generic waiting never count.
+// The existing model-work deadline also bounds the replacement waiting judge.
 // ────────────────────────────────────────────────────────────────────────────
 
 export interface PlanSkillFloorObservation {
@@ -4914,18 +5413,92 @@ export interface PlanSkillFloorObservation {
     | 'plan_ready'
     | 'silent_write'
     | 'exited'
-    | 'timeout';
+    | 'timeout'
+    | 'assessment_error';
   summary: string;
-  /** Visible TTY tail (last 3KB) at terminal time. */
+  /** Public current viewport for an accepted finding; terminal tail otherwise. */
   evidence: string;
   /** Wall time (ms) until the outcome was decided. */
   elapsedMs: number;
 }
 
 /**
- * Drive a plan-* skill in plan mode and exit at the first non-permission
- * numbered-option render. See block comment above for the contract.
+ * Drive a plan-* skill and qualify its first current seeded finding question.
+ * The actor answers only its declared optional-prerequisite, mode and product-type choices.
  */
+/** DX's long empathy prompt needs its whole native pane, not an interior crop.
+ * Retain the actual header and complete pinned renderer prefix; the shared
+ * matcher still authenticates the pending question and native menu. */
+export function planFloorDXPane(visible: string, call: NativePlanQuestionCall): string | null {
+  if (call.answered || call.failed || call.questions.length !== 1) return null;
+  const text = stripPtyResidue(visible).replace(/\r+\n?/g, '\n');
+  const headers = [...text.matchAll(/(?:^|\n)[\t ]*[☐□][^\n]*\n/g)];
+  const header = headers.at(-1);
+  if (!header) return null;
+  const preceding = text.slice(0, header.index).trimEnd();
+  if (preceding && !/(?:^|\n)[ \t]*[─━]{10,}[ \t]*$/.test(preceding)) return null;
+  let fence: string | undefined;
+  for (const line of preceding.split('\n')) {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (!marker) continue;
+    if (!fence) fence = marker[1];
+    else if (marker[1]![0] === fence[0] && marker[1]!.length >= fence.length && !marker[2]!.trim()) fence = undefined;
+  }
+  if (fence) return null;
+  const pane = text.slice(header.index).trimStart();
+  const cursor = /(?:^|\n)❯\s*1\./.exec(pane);
+  if (!cursor) return null;
+  const body = pane.slice(pane.indexOf('\n') + 1, cursor.index)
+    .replace(/^[ \t]*[│┃] ?|[│┃][ \t]*$/gm, '').trim();
+  const compact = (value: string) => value.replace(/\s+/g, '');
+  const q = call.questions[0]!;
+  const displayed = q.question.length > 2000 ? q.question.slice(0, 2000) + '…' : q.question;
+  if (compact(body) !== compact(displayed) || !matchesNativePlanQuestion(pane, call)) return null;
+  return pane;
+}
+
+export interface PlanFloorDXReply {
+  call: NativePlanQuestionCall;
+  pane: string;
+  reply: string;
+  stage: 'focus' | 'paste' | 'submit' | 'done';
+}
+
+/** The native custom field focuses first, then accepts literal bracketed paste.
+ * Each step binds the same unanswered call and unchanged complete pane. */
+export function planFloorDXReplyInput(visible: string, call: NativePlanQuestionCall,
+  state: PlanFloorDXReply): { input: string; stage: PlanFloorDXReply['stage'] } | null {
+  if (state.stage === 'done' || call.answered || call.failed || call.questions.length !== 1 ||
+      call.questions[0]!.multiSelect || call.sessionId !== state.call.sessionId || call.toolUseId !== state.call.toolUseId ||
+      !isDeepStrictEqual(call.questions, state.call.questions) || !state.reply.trim() || state.reply.length > 1400 ||
+      /[\x00-\x1f\x7f]/.test(state.reply)) return null;
+  const compact = (value: string) => value.replace(/\s+/g, '');
+  const index = call.questions[0]!.options.length + 1;
+  if (state.stage === 'focus') {
+    const pane = planFloorDXPane(visible, call);
+    if (!pane || compact(pane) !== compact(state.pane) ||
+        !new RegExp(`(?:^|\\n)  ${index}\\. Type something\\.[ \\t]*(?:\\n|$)`).test(pane)) return null;
+    return { input: String(index), stage: 'paste' };
+  }
+  const lines = stripPtyResidue(visible).replace(/\r+\n?/g, '\n').split('\n');
+  const start = lines.findIndex(line => new RegExp(`^❯ ${index}\\. `).test(line));
+  if (start < 0 || lines.filter(line => /^❯ [1-9]\. /.test(line)).length !== 1) return null;
+  let end = start + 1;
+  while (end < lines.length && /^ {5}\S|^ {5,}\S/.test(lines[end]!)) end++;
+  const field = [lines[start]!.replace(new RegExp(`^❯ ${index}\\. `), ''),
+    ...lines.slice(start + 1, end).map(line => line.trim())].join(' ').trim();
+  if (field !== (state.stage === 'paste' ? 'Type something.' : state.reply)) return null;
+  lines.splice(start, end - start, `  ${index}. Type something.`);
+  const first = lines.findIndex(line => /^  1\. /.test(line));
+  if (first < 0) return null;
+  lines[first] = lines[first]!.replace(/^  1\./, '❯ 1.');
+  const pane = planFloorDXPane(lines.join('\n'), call);
+  if (!pane || compact(pane) !== compact(state.pane)) return null;
+  return state.stage === 'paste'
+    ? { input: '\x1b[200~' + state.reply + '\x1b[201~', stage: 'submit' }
+    : { input: '\r', stage: 'done' };
+}
+
 export async function runPlanSkillFloorCheck(opts: {
   /** Skill name, e.g. 'plan-eng-review'. Used for diagnostic strings only. */
   skillName: string;
@@ -4933,6 +5506,12 @@ export async function runPlanSkillFloorCheck(opts: {
   slashCommand: string;
   /** Complete request seeded in an isolated project before the command starts. */
   followUpPrompt: string;
+  /** Explicit working-plan request relocated into the owned fixture before launch. */
+  requestedPlanPath?: string;
+  /** Predeclared DX fixture classification; never inferred from a recommendation. */
+  productType?: 'sdk-documentation';
+  /** Literal persona/journey correction declared before DX setup; approves no offered remedy. */
+  devexSetupContext?: string;
   /** Installation cwd retained for caller compatibility; review uses an owned seeded project. */
   cwd?: string;
   /** Total budget. Default 600000 (10 min). Tests exit early on AUQ. */
@@ -4944,8 +5523,24 @@ export async function runPlanSkillFloorCheck(opts: {
 }): Promise<PlanSkillFloorObservation> {
   const startedAt = Date.now();
   const timeoutMs = opts.timeoutMs ?? 600_000;
+  const dxContext = opts.devexSetupContext;
+  if (dxContext !== undefined && (opts.skillName !== 'plan-devex-review' || opts.productType !== 'sdk-documentation' ||
+      !dxContext.trim() || dxContext.length > 1400 || /[\x00-\x1f\x7f]/.test(dxContext)))
+    throw Error('DX setup context requires the declared SDK-documentation actor and a bounded literal single line');
 
-  const fixture = createPlanCountFixture(opts.followUpPrompt);
+  const request = [
+    'Proceed directly to the requested review; skip the optional /office-hours prerequisite.',
+    'This actor has already declined routing setup, cross-project recall and outside reviewers.',
+    'Preserve the supplied product scope. For review-mode questions choose HOLD SCOPE (CEO), DX POLISH (DX), or the full BIG CHANGE review (Eng). Design: review all seven dimensions.',
+    ...(opts.productType === 'sdk-documentation' ? [
+      'Product type is confirmed: SDK quickstart documentation, with the complete journey to the first SDK call as context. If asked to classify, choose SDK + Docs when offered, otherwise Documentation. This confirms the review lens; it does not expand the plan.',
+      'Target persona is confirmed: a hands-on developer integrating this SDK for the first time, trying to make one successful call. Product type and persona setup are already answered; proceed to reviewing the supplied plan.',
+    ] : []),
+    ...(dxContext ? ['For setup confirmations, this actor can supply only the following persona/journey correction through the native custom answer. It does not approve a proposed narrative, remedy, or scope change: ' + dxContext] : []),
+    opts.followUpPrompt,
+  ].join('\n\n');
+  const fixture = createPlanCountFixture(request, { requestedPlanPath: opts.requestedPlanPath,
+    nativeReviewOnly: true, preconfiguredReviewActor: true });
   const sessionId = randomUUID();
   let session: ClaudePtySession;
   try {
@@ -4956,6 +5551,10 @@ export async function runPlanSkillFloorCheck(opts: {
       env: { ...opts.env, ...fixture.env },
       model: opts.model,
       seedSkills: true,
+      observeScreen: true,
+      observeSetupQuestions: true,
+      ...(dxContext ? { rows: 80 } : {}),
+      observeFilePermissions: fixture.workingPlanPath ? [fixture.workingPlanPath] : undefined,
       extraArgs: ['--session-id', sessionId],
     });
   } catch (error) {
@@ -4963,54 +5562,86 @@ export async function runPlanSkillFloorCheck(opts: {
     throw error;
   }
 
+  const ownedFilePermissions = (session.pendingFilePermissionFiles ?? []).map(binding =>
+    ({ ...binding, guard: createPlanCountPermissionGuard() }));
+  const planningDirectory = session.hermeticConfigDir ? path.join(session.hermeticConfigDir, 'plans') : undefined;
+  let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
+  let viewport = '';
+  let publicTools: NativePublicToolEvent[] = [];
+  let pendingQuestion: NativePlanQuestionCall | undefined;
+  let floorReview: PlanFloorReview | undefined;
+  let floorAssessment: PlanFloorAssessment | undefined;
+  const setupChoices = new Map<string, Set<number>>();
+  const submittedSetup = new Set<string>();
+  const assessed = new Map<string, PlanFloorAssessment>();
+  const dxReplies = new Map<string, PlanFloorDXReply>();
+  let captureBeforeClose: (() => void) | undefined;
   try {
     await Bun.sleep(8000); // boot grace + auto-trust handler window
     const since = session.mark();
     const commandStartedAt = Date.now();
     session.send(`${opts.slashCommand} PLAN.md\r`);
-    const deliveryOptions = { seed: opts.followUpPrompt, sessionId,
+    const deliveryOptions = { seed: fixture.seed, sessionId,
       slashCommand: opts.slashCommand, startedAt: commandStartedAt };
     let targetDelivery = readPlanFloorTarget(session.hermeticConfigDir, fixture.cwd,
       { ...deliveryOptions, now: Date.now() });
     const saveSnapshot = createPlanCountSnapshotWriter();
-    const finish = (observation: PlanSkillFloorObservation): PlanSkillFloorObservation => {
+    let nativeCandidates: NativePlanQuestionCall[] = [];
+    let validatedPendingQuestion: ReturnType<typeof readPendingQuestion>;
+    let sampledAt: number | undefined;
+    let lastCheckpointAt = 0, lastCheckpointState = '';
+    let artifactError: string | undefined;
+    let finished = false;
+    const capture = (observation: object) => {
+      const recorderStatus = pendingQuestionRecorderStatus(session.pendingQuestionFile, fixture.cwd, session.hermeticConfigDir);
       const artifacts = saveSnapshot({ skillName: opts.skillName, cwd: fixture.cwd,
         claudeConfigDir: session.hermeticConfigDir, raw: session.rawOutput(),
-        visible: session.visibleSince(since), observation: { ...observation, targetDelivery, commandStartedAt } });
+        visible: session.visibleSince(since), viewport,
+        observation: { ...observation, transcript, publicTools, pendingQuestion, floorReview, floorAssessment, targetDelivery, commandStartedAt,
+          pendingWriteInputs: ownedFilePermissions.flatMap(binding => {
+            const input = readPendingWriteInput(binding.file, binding.expected, fixture.cwd, session.hermeticConfigDir, startedAt);
+            return input ? [input] : [];
+          }),
+          questionDiagnostics: { sampledAt, parentSessionId: sessionId, recorderStatus, recorderStatusAt: Date.now(), nativeCandidates, validatedPendingQuestion },
+          ...(dxContext ? { setupContextReplies: [...dxReplies.values()] } : {}), artifactError } });
+      if (artifacts.artifactError) {
+        artifactError ??= artifacts.artifactError;
+        console.error(`PTY artifact write failed: ${artifacts.artifactError}`);
+      }
+      return { ...artifacts, ...(artifactError ? { artifactError } : {}) };
+    };
+    const checkpoint = () => {
+      const state = JSON.stringify([pendingQuestionRecorderStatus(session.pendingQuestionFile, fixture.cwd, session.hermeticConfigDir),
+        targetDelivery.status, nativeCandidates, validatedPendingQuestion, pendingQuestion, [...dxReplies.values()]]);
+      if (state === lastCheckpointState && Date.now() - lastCheckpointAt < 15_000) return;
+      lastCheckpointState = state; lastCheckpointAt = Date.now();
+      capture({ state: 'in_progress', elapsedMs: Date.now() - startedAt });
+    };
+    captureBeforeClose = () => {
+      if (!finished) capture({ state: 'in_progress', captureReason: 'before_cleanup', elapsedMs: Date.now() - startedAt });
+    };
+    const finish = (observation: PlanSkillFloorObservation): PlanSkillFloorObservation => {
+      const artifacts = capture(observation);
+      finished = true;
       return { ...observation, targetDelivery, ...artifacts };
     };
 
     const start = Date.now();
-    let lastJudgeAt = 0;
-    let lastJudgeVerdict: PtyStateVerdict | null = null;
-    // Positional anchor for the scope-gate exclusion. The visible buffer is
-    // append-only (old renders never leave scrollback), so a gate question
-    // rendered in the 3s pre-target window would keep satisfying the
-    // full-buffer acceptance checks forever while a tail-only exclusion
-    // stops seeing it after ~TAIL_SCAN_BYTES of output — a vacuous
-    // auq_observed (found independently by 4 review passes). Once the gate
-    // render is seen, acceptance only counts AUQ renders in content APPENDED
-    // after that point.
-    let gateSeenIdx = -1;
-    const JUDGE_AFTER_MS = 60_000;
-    const JUDGE_INTERVAL_MS = 30_000;
+    const deadlineAt = start + timeoutMs;
     while (Date.now() - start < timeoutMs) {
       await Bun.sleep(2000);
       const visible = session.visibleSince(since);
-      if (gateSeenIdx === -1 && isScopeGateQuestionVisible(visible)) {
-        gateSeenIdx = visible.length;
-      }
 
       if (session.exited()) {
         return finish({
           auqObserved: false,
           outcome: 'exited',
-          summary: `claude exited (code=${session.exitCode()}) before any AUQ render`,
+          summary: `claude exited (code=${session.exitCode()}) before a qualifying finding`,
           evidence: visible.slice(-3000),
           elapsedMs: Date.now() - startedAt,
         });
       }
-      if (visible.includes('Unknown command:')) {
+      if (isRejectedSlashCommand(visible, opts.slashCommand)) {
         return finish({
           auqObserved: false,
           outcome: 'exited',
@@ -5023,76 +5654,128 @@ export async function runPlanSkillFloorCheck(opts: {
       if (targetDelivery.status !== 'ready') {
         targetDelivery = readPlanFloorTarget(session.hermeticConfigDir, fixture.cwd,
           { ...deliveryOptions, now: Date.now() });
-        if (targetDelivery.status !== 'ready') continue;
-      }
-
-      // Success: ANY non-permission numbered-option list is an AUQ render —
-      // either via the native numbered-prompt UI (isNumberedOptionListVisible)
-      // OR via prose-rendered options under --disallowedTools when no MCP
-      // variant is callable (isProseAUQVisible). Both surface the question
-      // to the user; the bug we're catching is "fired zero AUQs."
-      //
-      // Scope-gate renders do NOT count: the gate's "What should I review?"
-      // can fire inside the 3s pre-target window and would trivially satisfy
-      // the floor, but the floor measures FINDING-driven questions. Once a
-      // gate render has been seen, acceptance scans only the content APPENDED
-      // after it (positional anchor above) — the buffer is append-only, so a
-      // whole-buffer acceptance would keep matching the stale gate render
-      // forever.
-      //
-      // The gate veto is ACTIVE-RENDER-aware, not blanket-tail: when a
-      // numbered menu is up, parseNumberedOptions anchors on the LAST cursor
-      // line, so we veto only when the pending menu IS the gate — a finding
-      // AUQ that renders within TAIL_SCAN_BYTES of the gate (model waiting,
-      // no further output) still satisfies the floor. Prose renders have no
-      // cursor anchor, so the prose path falls back to the tail check
-      // (accepted residual: prose gate + prose finding inside one tail can
-      // suppress until timeout; floors run the native-menu path in practice).
-      const tail = visible.slice(-TAIL_SCAN_BYTES);
-      const acceptWindow = gateSeenIdx === -1 ? visible : visible.slice(gateSeenIdx);
-      const activeMenu = parseNumberedOptions(visible);
-      const gateIsActiveRender =
-        activeMenu.length > 0
-          ? activeMenu.some((o) => /current\s*branch\s*diff/i.test(o.label))
-          : isScopeGateQuestionVisible(tail);
-      if (
-        (isNumberedOptionListVisible(acceptWindow) || isProseAUQVisible(acceptWindow)) &&
-        !isPermissionDialogVisible(tail) &&
-        !gateIsActiveRender
-      ) {
-        return finish({
-          auqObserved: true,
-          outcome: 'auq_observed',
-          summary: 'agent rendered an AskUserQuestion (floor met)',
-          evidence: visible.slice(-3000),
-          elapsedMs: Date.now() - startedAt,
-        });
-      }
-
-      // LLM judge fallback: same shape as runPlanSkillObservation. After 60s
-      // of polling without a regex hit, ask Haiku to classify the snapshot.
-      // 'waiting' verdict counts as floor met (model surfaced a question via
-      // prose the regex couldn't catch). 'working' / 'hung' / 'unknown' don't
-      // change the outcome — they enrich the eventual timeout summary so the
-      // failure diagnostic is more actionable than "no AUQ render."
-      const elapsed = Date.now() - start;
-      if (elapsed > JUDGE_AFTER_MS && Date.now() - lastJudgeAt > JUDGE_INTERVAL_MS) {
-        lastJudgeAt = Date.now();
-        logPtySnapshot(visible, { testName: opts.skillName, elapsedMs: elapsed, tag: 'floor-judge-tick' });
-        lastJudgeVerdict = judgePtyState(visible, { testName: opts.skillName });
-        // The judge can't tell a scope-gate question from a finding question,
-        // so a 'waiting' verdict while the gate menu is the pending render
-        // must NOT satisfy the floor — same active-render exclusion as the
-        // regex path.
-        if (lastJudgeVerdict.state === 'waiting' && !gateIsActiveRender) {
-          return finish({
-            auqObserved: true,
-            outcome: 'auq_observed',
-            summary: `LLM judge: ${lastJudgeVerdict.reasoning} (state=waiting after ${Math.round(elapsed / 1000)}s; floor met)`,
-            evidence: visible.slice(-3000),
-            elapsedMs: Date.now() - startedAt,
-          });
+        if (targetDelivery.status !== 'ready') {
+          viewport = await session.currentScreen();
+          checkpoint();
+          continue;
         }
+      }
+
+      // Current native identity precedes permission handling and finding assessment.
+      floorReview = undefined; floorAssessment = undefined;
+      viewport = await session.currentScreen();
+      publicTools = [];
+      transcript = session.hermeticConfigDir
+        ? readPlanCountTranscript(session.hermeticConfigDir, fixture.cwd, event => publicTools.push(event))
+        : { status: 'missing', calls: [], assistantMessages: [] };
+      const hook = readPendingQuestion(session.pendingQuestionFile, fixture.cwd,
+        session.hermeticConfigDir, commandStartedAt, transcript);
+      const currentCalls = transcript.status === 'ready' ? transcript.calls.filter(call =>
+        call.sessionId === sessionId && !call.answered && !call.failed && publicTools.filter(event =>
+          event.sessionId === sessionId && event.kind === 'use' && event.name === 'AskUserQuestion' &&
+          event.toolUseId === call.toolUseId && Date.parse(event.timestamp) >= commandStartedAt &&
+          Date.parse(event.timestamp) <= Date.now() && isDeepStrictEqual(event.input?.questions, call.questions)).length === 1) : [];
+      nativeCandidates = currentCalls.slice();
+      validatedPendingQuestion = hook;
+      sampledAt = Date.now();
+      if (hook?.sessionId === sessionId && !transcript.calls.some(call => call.toolUseId === hook.toolUseId)) currentCalls.push(hook);
+      const activeReply = currentCalls.length === 1 && dxReplies.get(`${currentCalls[0]!.sessionId}:${currentCalls[0]!.toolUseId}`);
+      if (activeReply) {
+        pendingQuestion = undefined;
+        const next = planFloorDXReplyInput(viewport, currentCalls[0]!, activeReply);
+        if (next) { session.send(next.input); activeReply.stage = next.stage; }
+        checkpoint();
+        continue;
+      }
+      const matching = currentCalls.filter(call => dxContext
+        ? planFloorDXPane(viewport, call) !== null : matchesNativePlanQuestion(viewport, call, planningDirectory));
+      pendingQuestion = matching.length === 1 ? matching[0] : undefined;
+      checkpoint();
+      const nativeQuestionVisible = Boolean(pendingQuestion);
+      const permissionIsActiveRender = !nativeQuestionVisible &&
+        (isPermissionDialogVisible(viewport) || isCroppedEditPermissionVisible(viewport));
+      if (permissionIsActiveRender) {
+        // An authorized file write enables the review, but never supplies its
+        // finding question. Exclude the permission's old render after approval.
+        const owned = currentFilePermissionBinding(ownedFilePermissions, fixture.cwd,
+          session.hermeticConfigDir, startedAt, transcript, viewport);
+        let ordinaryOwnedTarget = false;
+        if (fixture.workingPlanPath) try {
+          const parent = fs.realpathSync(path.dirname(fixture.workingPlanPath));
+          let target: fs.Stats | undefined;
+          try { target = fs.lstatSync(fixture.workingPlanPath); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+          ordinaryOwnedTarget = parent === fs.realpathSync(fixture.cwd) && (!target || target.isFile());
+        } catch { /* No authority for a linked, foreign, or unreadable target. */ }
+        if (owned && ordinaryOwnedTarget && owned.binding.guard(viewport, session.visibleText(), owned.epoch) === 'grant')
+          session.send('1\r');
+      }
+      if (permissionIsActiveRender) continue;
+
+      const questionViewport = dxContext && pendingQuestion ? planFloorDXPane(viewport, pendingQuestion)! : viewport;
+      const fp = pendingQuestion && capturePlanCountQuestion(questionViewport, new Set(), Date.now() - start, true, pendingQuestion, planningDirectory);
+      if (fp && pendingQuestion) {
+        const index = fp.nativeQuestionIndex ?? 0;
+        const question = pendingQuestion.questions[index]!;
+        const key = `${pendingQuestion.sessionId}:${pendingQuestion.toolUseId}`;
+        const chosen = setupChoices.get(key) ?? new Set<number>();
+        const allDesign = opts.skillName === 'plan-design-review' && designReviewSetupAUQ(fp)
+          ? question.options.flatMap((option, i) => /^(?:Review )?All 7 (?:design )?(?:dimensions|passes)(?:\s*\(recommended\))?$/i.test(option.label.trim()) ? [i + 1] : []) : [];
+        const pick = pickPlanFloorMode(opts.skillName, question) ?? planCountPrerequisitePick(fp, fp)
+          ?? (opts.skillName === 'plan-devex-review' ? pickPlanFloorProductType(question, opts.productType) : null)
+          ?? (allDesign.length === 1 ? allDesign[0]! : null);
+        if (pick !== null) {
+          if (!chosen.has(index)) {
+            session.send(planCountQuestionInput(viewport, fp, pick));
+            chosen.add(index); setupChoices.set(key, chosen);
+          }
+          continue;
+        }
+        floorReview = { seed: fixture.seed, candidate: { transport: 'native', identity: `${key}:question:${index}`,
+          question: structuredClone(question) } };
+      } else {
+        // Public fallback must be a complete current question, not scrollback,
+        // a generic idle prompt, permission, tool result or quoted example.
+        floorReview = undefined;
+        const message = transcript.assistantMessages.filter(m => m.sessionId === sessionId &&
+          Date.parse(m.timestamp) >= commandStartedAt && Date.parse(m.timestamp) <= Date.now()).at(-1);
+        const compact = (text: string) => text.replace(/\s+/g, '');
+        if (!currentCalls.length && message && isProseAUQVisible(viewport) && isProseAUQVisible(message.text) &&
+            !/^\s*(?:>|`{3,}|~{3,})/m.test(message.text) && compact(viewport).includes(compact(message.text)))
+          floorReview = { seed: fixture.seed, candidate: { transport: 'prose',
+            identity: `${message.sessionId}:${message.timestamp}`, text: message.text } };
+        const submit = planCountSubmissionInput(viewport);
+        const packet = currentCalls.find(call => setupChoices.get(`${call.sessionId}:${call.toolUseId}`)?.size === call.questions.length);
+        if (submit && packet) {
+          const key = `${packet.sessionId}:${packet.toolUseId}`;
+          if (!submittedSetup.has(key)) { session.send(submit); submittedSetup.add(key); }
+          continue;
+        }
+      }
+      if (floorReview) {
+        const key = JSON.stringify(floorReview);
+        floorAssessment = assessed.get(key);
+        if (!floorAssessment) {
+          try {
+            floorAssessment = judgePlanFloorReview(floorReview, {
+              binary: resolveClaudeBinary() ?? 'claude', model: resolveEvalModel('warmup'), deadlineAt });
+          } catch (error) {
+            return finish({ auqObserved: false, outcome: 'assessment_error',
+              summary: `Finding assessment failed: ${error instanceof Error ? error.message : String(error)}`,
+              evidence: viewport, elapsedMs: Date.now() - startedAt });
+          }
+          assessed.set(key, floorAssessment);
+        }
+        if (dxContext && floorAssessment.kind === 'setup' && pendingQuestion?.questions.length === 1 &&
+            !pendingQuestion.questions[0]!.multiSelect && floorReview.candidate.transport === 'native') {
+          const key = `${pendingQuestion.sessionId}:${pendingQuestion.toolUseId}`;
+          dxReplies.set(key, { call: structuredClone(pendingQuestion), pane: questionViewport, reply: dxContext, stage: 'focus' });
+        }
+        if (floorAssessment.kind === 'finding') return finish({
+          auqObserved: true, outcome: 'auq_observed',
+          summary: `Current ${floorReview.candidate.transport} question addresses the owned seeded finding: ${floorAssessment.reason}`,
+          evidence: viewport, elapsedMs: Date.now() - startedAt,
+        });
       }
 
       // Silent write outside sanctioned dirs is the transcript-bug shape.
@@ -5123,7 +5806,7 @@ export async function runPlanSkillFloorCheck(opts: {
         return finish({
           auqObserved: false,
           outcome: 'plan_ready',
-          summary: 'agent reached plan_ready without firing any AskUserQuestion',
+          summary: 'agent reached plan_ready without a qualifying finding question',
           evidence: visible.slice(-3000),
           elapsedMs: Date.now() - startedAt,
         });
@@ -5134,12 +5817,14 @@ export async function runPlanSkillFloorCheck(opts: {
       auqObserved: false,
       outcome: 'timeout',
       summary: targetDelivery.status === 'ready'
-        ? `no AUQ render and no terminal outcome within ${timeoutMs}ms`
+        ? `no qualifying finding question within ${timeoutMs}ms`
         : `seeded target delivery unavailable within ${timeoutMs}ms: ${targetDelivery.reason ?? targetDelivery.status}`,
       evidence: session.visibleSince(since).slice(-3000),
       elapsedMs: Date.now() - startedAt,
     });
   } finally {
-    try { await session.close(); } finally { fixture.cleanup(); }
+    try { captureBeforeClose?.(); } finally {
+      try { await session.close(); } finally { fixture.cleanup(); }
+    }
   }
 }

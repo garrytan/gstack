@@ -4,6 +4,7 @@ import path from 'node:path';
 import * as predicates from './helpers/claude-pty-runner';
 import { E2E_TOUCHFILES } from './helpers/touchfiles-data';
 import fixture from './fixtures/conductor-prose-ao.json';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 
 const partial=fixture.publicDecisionTail;
 // This next frame is synthetic; the retained live attempt ended during A.
@@ -19,6 +20,8 @@ async function observe(frames:string[],verdict:'waiting'|'working',required?:boo
     Bun:{sleep:async(ms:number)=>{if(ms===2000){tick++;clock+=61000;}else clock+=ms;}},
     launchClaudePty:async()=>({send:()=>{},mark:()=>0,exited:()=>false,visibleSince:current,rawOutput:current,currentScreen:async()=>current(),hermeticConfigDir:null,close:async()=>{closed++;}}),
     createPlanCountSnapshotWriter:()=>()=>({}),logPtySnapshot:()=>{},
+    submitPlanSeed: async () => {}, PlanSeedTimeout: class extends Error {},
+    isRejectedSlashCommand:predicates.isRejectedSlashCommand,
     isProseAUQVisible:predicates.isProseAUQVisible,isPlanReadyVisible:predicates.isPlanReadyVisible,
     isScopeGateQuestionVisible:predicates.isScopeGateQuestionVisible,isScopeGateAutoSelectVisible:predicates.isScopeGateAutoSelectVisible,
     classifyVisible:predicates.classifyVisible,extractPlanFilePath:predicates.extractPlanFilePath,findNativeAutoDecision:()=>null,
@@ -56,9 +59,44 @@ test('other callers retain the original judge waiting behavior',async()=>{
   const working=await observe([partial],'working',true);
   expect(working.obs.outcome).toBe('timeout');expect(working.obs.waitingEverObserved).toBe(false);
 });
-test('the actual Conductor caller requests prose evidence and retains its independent assertion',()=>{
+async function exerciseCaller(outcome: string, proseAUQEverObserved: boolean) {
   const caller=fs.readFileSync(path.join(import.meta.dir,'skill-e2e-conductor-prose.test.ts'),'utf8');
-  expect(caller).toContain('requireProseEvidence: true');
-  expect(caller).toContain('expect(obs.proseAUQEverObserved).toBe(true)');
+  const callbacks: Array<() => Promise<void>> = [];
+  let calls = 0;
+  const bindings = {
+    expect, CAPTURE_MS, CAPTURE_LONG_MS,
+    describeE2ETier: (tier: string) => {
+      expect(tier).toBe('periodic');
+      return (_title: string, register: () => void) => register();
+    },
+    test: (_title: string, callback: () => Promise<void>, timeout: number) => {
+      expect(timeout).toBe(CAPTURE_LONG_MS); callbacks.push(callback);
+    },
+    runPlanSkillObservation: async (opts: Record<string, unknown>) => {
+      calls++;
+      expect(opts).toMatchObject({skillName: 'plan-eng-review', inPlanMode: true,
+        requireProseEvidence: true, timeoutMs: CAPTURE_MS,
+        env: {CONDUCTOR_WORKSPACE_PATH: '/tmp/conductor-prose-e2e'},
+        extraArgs: ['--disallowedTools', 'AskUserQuestion']});
+      return {outcome, proseAUQEverObserved, summary: 'controlled caller', evidence: partial};
+    },
+  };
+  const body = caller.replace(/^import[\s\S]*?;\n/gm, '');
+  new Function(...Object.keys(bindings), new Bun.Transpiler({loader: 'ts'}).transformSync(body))(...Object.values(bindings));
+  expect(callbacks).toHaveLength(1);
+  try { await callbacks[0]!(); }
+  finally { expect(calls).toBe(1); }
+}
+test('the actual Conductor caller requests prose evidence and accepts a completed decision', async () => {
+  await exerciseCaller('asked', true);
+});
+test.each(['asked', 'auto_decided', 'plan_ready'])('the actual Conductor caller rejects %s without independent prose evidence', async outcome => {
+  await expect(exerciseCaller(outcome, false)).rejects.toThrow('Conductor prose decision not observed');
+});
+test.each(['silent_write', 'timeout', 'exited'])('the actual Conductor caller preserves the %s failure even with earlier prose evidence', async outcome => {
+  await expect(exerciseCaller(outcome, true)).rejects.toThrow(outcome === 'silent_write'
+    ? 'skill wrote findings without surfacing a decision' : `outcome=${outcome}`);
+});
+test('the Conductor regression and public fixture select their existing owner',()=>{
   for(const p of ['test/conductor-prose-observation-ao.test.ts','test/fixtures/conductor-prose-ao.json'])expect(Object.entries(E2E_TOUCHFILES).filter(([,paths])=>paths.includes(p)).map(([owner])=>owner)).toEqual(['conductor-prose']);
 });

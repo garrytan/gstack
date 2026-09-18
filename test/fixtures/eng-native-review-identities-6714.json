@@ -1,0 +1,214 @@
+{
+  "source": "67147822f55b911c033617f759dc472d0d348e72",
+  "provenance": "Exact public native calls/ACKs; no hidden reasoning. Retained projection /home/vercel-sandbox/gstack/.context/sep15-ship-consolidation/eng-67147822-monitor/skill-e2e-plan-eng-finding-count/plan-eng-review-1789475406848-PQYQYI/2026-09-15T12-36-42.857Z/public-events.json",
+  "calls": [
+    {
+      "sessionId": "d7c58dab-1247-4669-9f5b-2665e78e7a58",
+      "toolUseId": "toolu_0132opRveDK8ZM38A4MJEx4Q",
+      "questions": [
+        {
+          "question": "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch of the plan-review fixture repo; this is a one-time gstack setup prompt before the review starts.\nELI10: gstack has a bunch of slash-command skills (review, ship, investigate, etc.). Routing rules in CLAUDE.md tell the assistant which skill to reach for when you say things like \"review this\" or \"fix this bug\", so you don't have to remember the names. Without them you invoke skills by hand.\nStakes if we pick wrong: Low either way. Choosing A adds a short section to CLAUDE.md and a commit; choosing B means manual skill invocation until re-enabled.\nRecommendation: A because routing makes skills discoverable with zero ongoing cost, and it's a one-line config flip to undo.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: convenience now vs. keeping CLAUDE.md untouched. Note: plan mode is active, so if you pick A the CLAUDE.md edit and commit will be deferred until we leave plan mode.",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "\u2705 Natural-language requests auto-route to the right gstack skill without memorizing names\n\u2705 Single reversible commit; team sees the same routing when they pull\n\u274c Touches CLAUDE.md and adds a commit (deferred until plan mode exits)"
+            },
+            {
+              "label": "No thanks, invoke manually",
+              "description": "\u2705 CLAUDE.md stays exactly as-is, no extra commit on this branch\n\u2705 Re-enable any time with one gstack-config command\n\u274c You must remember and type each /skill name yourself"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch of the plan-review fixture repo; this is a one-time gstack setup prompt before the review starts.\nELI10: gstack has a bunch of slash-command skills (review, ship, investigate, etc.). Routing rules in CLAUDE.md tell the assistant which skill to reach for when you say things like \"review this\" or \"fix this bug\", so you don't have to remember the names. Without them you invoke skills by hand.\nStakes if we pick wrong: Low either way. Choosing A adds a short section to CLAUDE.md and a commit; choosing B means manual skill invocation until re-enabled.\nRecommendation: A because routing makes skills discoverable with zero ongoing cost, and it's a one-line config flip to undo.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: convenience now vs. keeping CLAUDE.md untouched. Note: plan mode is active, so if you pick A the CLAUDE.md edit and commit will be deferred until we leave plan mode.": "Add routing rules (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:30:12.869Z"
+    },
+    {
+      "sessionId": "d7c58dab-1247-4669-9f5b-2665e78e7a58",
+      "toolUseId": "toolu_01CNpyfxZe3N5xooQgvgGr4B",
+      "questions": [
+        {
+          "question": "D2 \u2014 No design doc found. Run /office-hours first, or go straight into the engineering review?\nProject/branch/task: main branch; reviewing PLAN.md \"Multi-tenant Auth Refactor\" with no design doc on disk.\nELI10: A design doc is the \"why\" behind the plan: the problem statement, the premise challenge, and the alternatives that were considered and rejected. /office-hours produces one in about 10 minutes and gives this review sharper input. Without it I review the plan on its own terms, using what it states and what I can infer.\nStakes if we pick wrong: Skipping risks reviewing a plan whose premise is off (e.g. a shared mutable cache was never the right shape). Running it costs ~10 minutes before any review output lands.\nRecommendation: B because you asked for the reviewed plan as a concrete deliverable at a named path, the plan already states its architecture and known smells, and the repo holds no source to ground a premise challenge against.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: 10 minutes of upstream thinking vs. getting the review you asked for now. Skipping is not fatal; the Scope Challenge still questions the premise.",
+          "header": "Design doc",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Skip \u2014 standard review (recommended)",
+              "description": "\u2705 Review starts now against the plan as written; deliverable lands sooner\n\u2705 Scope Challenge still questions the shared-cache premise and the 4-class footprint\n\u274c No structured record of alternatives considered before this architecture was picked"
+            },
+            {
+              "label": "Run /office-hours now",
+              "description": "\u2705 Produces a design doc with problem statement, premise challenge, explored alternatives\n\u2705 Later reviews and teammates get the reasoning, not just the plan\n\u274c ~10 minutes of interactive Q&A before the engineering review begins"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 No design doc found. Run /office-hours first, or go straight into the engineering review?\nProject/branch/task: main branch; reviewing PLAN.md \"Multi-tenant Auth Refactor\" with no design doc on disk.\nELI10: A design doc is the \"why\" behind the plan: the problem statement, the premise challenge, and the alternatives that were considered and rejected. /office-hours produces one in about 10 minutes and gives this review sharper input. Without it I review the plan on its own terms, using what it states and what I can infer.\nStakes if we pick wrong: Skipping risks reviewing a plan whose premise is off (e.g. a shared mutable cache was never the right shape). Running it costs ~10 minutes before any review output lands.\nRecommendation: B because you asked for the reviewed plan as a concrete deliverable at a named path, the plan already states its architecture and known smells, and the repo holds no source to ground a premise challenge against.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: 10 minutes of upstream thinking vs. getting the review you asked for now. Skipping is not fatal; the Scope Challenge still questions the premise.": "Skip \u2014 standard review (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:31:43.051Z"
+    },
+    {
+      "sessionId": "d7c58dab-1247-4669-9f5b-2665e78e7a58",
+      "toolUseId": "toolu_01A2VPbDNvcHLa4dz1pBwoLY",
+      "questions": [
+        {
+          "question": "D3 \u2014 Scope: keep the legacyAuthFlow() rewrite in this change, or defer it to a follow-up?\nProject/branch/task: main; PLAN.md Multi-tenant Auth Refactor, Scope Challenge finding S3 (PLAN.md:27-28).\nELI10: The plan builds new auth services AND rewrites the existing legacyAuthFlow() onto them in one go. That's the whole refactor landing at once. The alternative is two steps: land the new services plus characterization tests of the legacy path now, then rewrite legacy in a second change. Fewer moving parts per change, but the new services sit unused until step two.\nStakes if we pick wrong: Bundle it and a regression in the legacy path lands in the same diff as five new units, making bisecting painful. Defer it and you ship dead code plus a second risky PR that still has all the same exposure.\nRecommendation: A because the rewrite IS the refactor; deferring it produces unused services and moves the risk rather than reducing it. How to land it safely (new path behind a flag, legacy kept until parity) is an Architecture question I'll ask separately, not a scope cut.\nCompleteness: A=10/10, B=6/10\nNet: one complete change with staged rollout vs. two changes where the first has no user-visible effect. This chooses scope only; the flag/strangler mechanics and regression tests are still pending.",
+          "header": "Scope",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Keep rewrite in scope (recommended)",
+              "description": "\u2705 Delivers the actual refactor; new services get a real caller in the same change (human: ~3 days / CC: ~1h for the rewrite itself)\n\u2705 One review, one bisect target, one rollout to babysit\n\u274c Largest single diff; regression coverage of legacy becomes non-negotiable before merge"
+            },
+            {
+              "label": "Defer rewrite to follow-up",
+              "description": "\u2705 Smaller first change: new services + characterization tests only, legacy untouched\n\u2705 Legacy tests exist before any rewrite starts\n\u274c New services are dead code until PR2; PR2 carries identical regression risk plus drift from PR1"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Scope: keep the legacyAuthFlow() rewrite in this change, or defer it to a follow-up?\nProject/branch/task: main; PLAN.md Multi-tenant Auth Refactor, Scope Challenge finding S3 (PLAN.md:27-28).\nELI10: The plan builds new auth services AND rewrites the existing legacyAuthFlow() onto them in one go. That's the whole refactor landing at once. The alternative is two steps: land the new services plus characterization tests of the legacy path now, then rewrite legacy in a second change. Fewer moving parts per change, but the new services sit unused until step two.\nStakes if we pick wrong: Bundle it and a regression in the legacy path lands in the same diff as five new units, making bisecting painful. Defer it and you ship dead code plus a second risky PR that still has all the same exposure.\nRecommendation: A because the rewrite IS the refactor; deferring it produces unused services and moves the risk rather than reducing it. How to land it safely (new path behind a flag, legacy kept until parity) is an Architecture question I'll ask separately, not a scope cut.\nCompleteness: A=10/10, B=6/10\nNet: one complete change with staged rollout vs. two changes where the first has no user-visible effect. This chooses scope only; the flag/strangler mechanics and regression tests are still pending.": "Keep rewrite in scope (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:33:19.301Z"
+    },
+    {
+      "sessionId": "d7c58dab-1247-4669-9f5b-2665e78e7a58",
+      "toolUseId": "toolu_01WbHgsjLnfoYvd6RLmsdPce",
+      "questions": [
+        {
+          "question": "D4 \u2014 Structure: keep all five new units, or fold two of them?\nProject/branch/task: main; PLAN.md Multi-tenant Auth Refactor, Scope Challenge findings S1/S2 (PLAN.md:11-12, :19, :35-36).\nELI10: The plan adds five new units: AuthBroker, SessionMint, TokenStore, AuthCache, RequestPolicy, across 12 files. Two look foldable. AuthCache already fronts the one existing backing cache, so a separate TokenStore is a second layer over the same storage unless it holds something the adapter can't. RequestPolicy sounds like a decision (\"is this request allowed under this tenant's policy\"), which is a pure function, not a class with state. Fewer units means fewer places a 3am bug can hide.\nStakes if we pick wrong: Keep everything and you maintain two token layers and a class that wraps a function. Fold too far and you jam minting and brokering into one object with mixed failure modes.\nRecommendation: B because it removes the two units with the weakest justification while keeping the real seams (broker vs. mint vs. cache). If TokenStore holds data the existing adapter does not (refresh tokens at rest, opaque session blobs), pick Other and say so; then A is right.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: this chooses class/module arrangement only. Both options keep the cache contract at PLAN.md:7-13 unchanged and leave the shared-singleton fix, validateAndDispatch cleanup, Promise.all, and regression tests pending for their own decisions.",
+          "header": "Structure",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Fold TokenStore + RequestPolicy (recommended)",
+              "description": "\u2705 3 new classes (AuthBroker, SessionMint, AuthCache) + requestPolicy.ts as pure functions; ~8-9 files (human: ~1 day less / CC: ~10 min less)\n\u2705 One token layer over the existing adapter; policy logic testable as pure input\u2192output\n\u274c If TokenStore was meant to hold non-cache state, that need resurfaces later as a new class"
+            },
+            {
+              "label": "Keep original five units",
+              "description": "\u2705 Matches the plan as drafted; no re-scoping of TokenStore or RequestPolicy responsibilities\n\u2705 Safe if TokenStore genuinely stores something the adapter does not\n\u274c Two token-holding layers over one backing cache; 12 files and 5 units for a 3am on-call to learn"
+            },
+            {
+              "label": "Fold SessionMint into AuthBroker too",
+              "description": "\u2705 Smallest footprint: AuthBroker + AuthCache, ~6 files, 2 classes\n\u2705 One entry point for all auth decisions\n\u274c Minting and brokering have different failure modes (IDP down vs. policy denied); one class mixes them and grows fast"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Structure: keep all five new units, or fold two of them?\nProject/branch/task: main; PLAN.md Multi-tenant Auth Refactor, Scope Challenge findings S1/S2 (PLAN.md:11-12, :19, :35-36).\nELI10: The plan adds five new units: AuthBroker, SessionMint, TokenStore, AuthCache, RequestPolicy, across 12 files. Two look foldable. AuthCache already fronts the one existing backing cache, so a separate TokenStore is a second layer over the same storage unless it holds something the adapter can't. RequestPolicy sounds like a decision (\"is this request allowed under this tenant's policy\"), which is a pure function, not a class with state. Fewer units means fewer places a 3am bug can hide.\nStakes if we pick wrong: Keep everything and you maintain two token layers and a class that wraps a function. Fold too far and you jam minting and brokering into one object with mixed failure modes.\nRecommendation: B because it removes the two units with the weakest justification while keeping the real seams (broker vs. mint vs. cache). If TokenStore holds data the existing adapter does not (refresh tokens at rest, opaque session blobs), pick Other and say so; then A is right.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: this chooses class/module arrangement only. Both options keep the cache contract at PLAN.md:7-13 unchanged and leave the shared-singleton fix, validateAndDispatch cleanup, Promise.all, and regression tests pending for their own decisions.": "Fold TokenStore + RequestPolicy (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:33:39.362Z"
+    },
+    {
+      "sessionId": "d7c58dab-1247-4669-9f5b-2665e78e7a58",
+      "toolUseId": "toolu_01MQbujxXhSK3giNdDb6xX43",
+      "questions": [
+        {
+          "question": "D5 (R1) \u2014 How should AuthBroker and SessionMint get their AuthCache?\nProject/branch/task: main; PLAN.md Multi-tenant Auth Refactor, finding A1 (PLAN.md:19-20).\nELI10: Right now both services grab one cache object that lives at the top of a module, like a global variable. Anyone who imports the module gets the same object and can change it. That makes tests leak state into each other and makes it impossible to run two isolated caches (per test, per region) without hacks. The fix is boring: build the one cache at startup and hand it to each service's constructor.\nStakes if we pick wrong: Flaky auth tests that pass alone and fail together; no way to swap a fake cache in integration tests; a future \"one cache per region\" requirement forces a rewrite of both services.\nRecommendation: A because it's the standard [Layer 1] fix, costs about the same as the singleton with CC, and is the difference between testable and untestable auth code.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: a constructor parameter now vs. monkey-patching forever. Still one backing cache in production either way; contract at PLAN.md:7-13 unchanged. R2 (write ordering) stays pending regardless.",
+          "header": "R1 cache DI",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Constructor injection (recommended)",
+              "description": "\u2705 One AuthCache built at the composition root and passed to both services; tests pass a fresh one (human: ~2h / CC: ~10min)\n\u2705 Enables per-test isolation and future per-region instances with zero service changes\n\u274c Composition root / wiring file must exist or be added; every call site constructing a service changes"
+            },
+            {
+              "label": "Keep export, add test reset hook",
+              "description": "\u2705 Smallest diff: singleton stays, add `__resetForTests()` to clear state between tests\n\u2705 No wiring changes at call sites\n\u274c Test-only API leaks into production code; still cannot run two isolated instances; hidden coupling remains"
+            },
+            {
+              "label": "Do nothing",
+              "description": "\u2705 Zero work, plan ships as written\n\u2705 Works fine as long as there is exactly one process and no test isolation is needed\n\u274c Every test shares mutable auth state; a production bug in one service can corrupt the other's view"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 (R1) \u2014 How should AuthBroker and SessionMint get their AuthCache?\nProject/branch/task: main; PLAN.md Multi-tenant Auth Refactor, finding A1 (PLAN.md:19-20).\nELI10: Right now both services grab one cache object that lives at the top of a module, like a global variable. Anyone who imports the module gets the same object and can change it. That makes tests leak state into each other and makes it impossible to run two isolated caches (per test, per region) without hacks. The fix is boring: build the one cache at startup and hand it to each service's constructor.\nStakes if we pick wrong: Flaky auth tests that pass alone and fail together; no way to swap a fake cache in integration tests; a future \"one cache per region\" requirement forces a rewrite of both services.\nRecommendation: A because it's the standard [Layer 1] fix, costs about the same as the singleton with CC, and is the difference between testable and untestable auth code.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: a constructor parameter now vs. monkey-patching forever. Still one backing cache in production either way; contract at PLAN.md:7-13 unchanged. R2 (write ordering) stays pending regardless.": "Constructor injection (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:35:07.124Z"
+    },
+    {
+      "sessionId": "d7c58dab-1247-4669-9f5b-2665e78e7a58",
+      "toolUseId": "toolu_01RuM42bTnr5o5VmbjkeAqqX",
+      "questions": [
+        {
+          "question": "D6 (R2) \u2014 Guard against a mint completing after the tenant was revoked or suspended?\nProject/branch/task: main; PLAN.md Multi-tenant Auth Refactor, finding A2 (PLAN.md:8-10).\nELI10: Minting a session takes a round trip to the identity provider. If an admin suspends the tenant (or a user logs out) during that round trip, the cache gets wiped for them, and then the mint finishes and writes a brand-new valid token back in. The suspended tenant keeps working until the token expires. Nobody sees an error. The plan says mutations are not serialized, so this can happen today as designed.\nStakes if we pick wrong: A revoked or suspended tenant retains access for up to a full token TTL, silently. For an auth system that is the worst kind of bug: no crash, no log line, wrong answer.\nRecommendation: A because it closes a silent security hole with a small, testable change inside the AuthCache facade (a per-tenant invalidation marker the write compares against) without touching the adapter's contract.\nCompleteness: A=10/10, B=5/10, C=2/10\nNet: a compare-before-write in one facade method vs. documenting that suspension is best-effort. Keeps R1 (injection) and the PLAN.md:7-13 contract fixed.",
+          "header": "R2 race",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Stale-write guard in AuthCache (recommended)",
+              "description": "\u2705 SessionMint reads the tenant's invalidation marker before the IDP call; AuthCache.set drops the write if the marker moved; unit test for the interleaving (human: ~1 day / CC: ~20min)\n\u2705 Adapter untouched; marker is facade state keyed by tenant, cleared with the existing invalidation hooks\n\u274c A dropped write means the user re-mints once; needs a metric so silent drops are visible"
+            },
+            {
+              "label": "Investigate adapter first",
+              "description": "\u2705 Bounded probe: does the existing adapter already expose a version or compare-and-set on write?\n\u2705 Avoids building a marker if the adapter already has one\n\u274c Decision stays open; the race remains in the plan until the probe reports back"
+            },
+            {
+              "label": "Accept race, document TTL bound",
+              "description": "\u2705 No new code; plan ships as written\n\u2705 Fine if token TTLs are seconds, not hours\n\u274c Suspended tenants retain access for up to one TTL with no signal; hard to explain in a security review"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 (R2) \u2014 Guard against a mint completing after the tenant was revoked or suspended?\nProject/branch/task: main; PLAN.md Multi-tenant Auth Refactor, finding A2 (PLAN.md:8-10).\nELI10: Minting a session takes a round trip to the identity provider. If an admin suspends the tenant (or a user logs out) during that round trip, the cache gets wiped for them, and then the mint finishes and writes a brand-new valid token back in. The suspended tenant keeps working until the token expires. Nobody sees an error. The plan says mutations are not serialized, so this can happen today as designed.\nStakes if we pick wrong: A revoked or suspended tenant retains access for up to a full token TTL, silently. For an auth system that is the worst kind of bug: no crash, no log line, wrong answer.\nRecommendation: A because it closes a silent security hole with a small, testable change inside the AuthCache facade (a per-tenant invalidation marker the write compares against) without touching the adapter's contract.\nCompleteness: A=10/10, B=5/10, C=2/10\nNet: a compare-before-write in one facade method vs. documenting that suspension is best-effort. Keeps R1 (injection) and the PLAN.md:7-13 contract fixed.": "Stale-write guard in AuthCache (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:35:38.731Z"
+    },
+    {
+      "sessionId": "d7c58dab-1247-4669-9f5b-2665e78e7a58",
+      "toolUseId": "toolu_01VeqZfywTYXLgCsM4dh2qeH",
+      "questions": [
+        {
+          "question": "D7 (R3) \u2014 How does the legacyAuthFlow() rewrite reach production?\nProject/branch/task: main; PLAN.md Multi-tenant Auth Refactor, finding A3 (PLAN.md:27-28, D3).\nELI10: You decided the rewrite ships in this change (D3). Now: does every tenant switch to the new path in one deploy, or does a per-tenant flag route traffic to the new path while the old one stays alive until you've watched it work? The flag version is the strangler pattern: new code grows around the old until the old can be cut out.\nStakes if we pick wrong: Hard cutover means an auth regression hits all tenants at once and the only rollback is a redeploy under pressure. A flag means one more code path to maintain for a few weeks and a deletion task you must actually do.\nRecommendation: A because this is authentication for every tenant; a per-tenant flag turns a 3am incident into a config flip, and the deletion follow-up is cheap with CC.\nCompleteness: A=10/10, B=5/10\nNet: a flag and a soak period vs. one deploy and a prayer. Regression tests (R6) are needed in both cases and stay pending.",
+          "header": "R3 rollout",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Per-tenant flag, strangler (recommended)",
+              "description": "\u2705 New path behind a per-tenant flag; legacy retained; ramp internal -> canary tenants -> 100%; delete legacy after soak (human: ~1 day / CC: ~30min plus soak time)\n\u2705 Rollback is a flag flip, no deploy; canary tenants surface parity gaps before everyone sees them\n\u274c Two live code paths during the ramp; a deletion follow-up that must be tracked or it rots"
+            },
+            {
+              "label": "Hard cutover",
+              "description": "\u2705 One code path from day one; nothing to delete later\n\u2705 Simplest diff and simplest mental model\n\u274c All tenants exposed simultaneously; rollback is a revert deploy during an auth outage"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 (R3) \u2014 How does the legacyAuthFlow() rewrite reach production?\nProject/branch/task: main; PLAN.md Multi-tenant Auth Refactor, finding A3 (PLAN.md:27-28, D3).\nELI10: You decided the rewrite ships in this change (D3). Now: does every tenant switch to the new path in one deploy, or does a per-tenant flag route traffic to the new path while the old one stays alive until you've watched it work? The flag version is the strangler pattern: new code grows around the old until the old can be cut out.\nStakes if we pick wrong: Hard cutover means an auth regression hits all tenants at once and the only rollback is a redeploy under pressure. A flag means one more code path to maintain for a few weeks and a deletion task you must actually do.\nRecommendation: A because this is authentication for every tenant; a per-tenant flag turns a 3am incident into a config flip, and the deletion follow-up is cheap with CC.\nCompleteness: A=10/10, B=5/10\nNet: a flag and a soak period vs. one deploy and a prayer. Regression tests (R6) are needed in both cases and stay pending.": "Per-tenant flag, strangler (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:36:12.350Z"
+    }
+  ]
+}

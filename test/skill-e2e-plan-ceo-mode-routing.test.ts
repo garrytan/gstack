@@ -31,6 +31,7 @@
  */
 
 import { test } from 'bun:test';
+import * as path from 'node:path';
 import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import {
@@ -43,11 +44,12 @@ import {
   type AskUserQuestionFingerprint,
   type ClaudePtySession,
 } from './helpers/claude-pty-runner';
-import { hasNativePostAnswerCeoPosture, nextCeoModeNavigation, nextCeoPostureContinuation } from './helpers/ceo-mode-option';
+import { ceoExpansionPacingChoice, ceoExpansionPacingReady, ceoModeSubmissionInput, hasNativePostAnswerCeoPosture, nextCeoModeNavigation, nextCeoPostureContinuation } from './helpers/ceo-mode-option';
 import { createPlanCountFixture } from './helpers/plan-count-fixture';
 import { readPlanCountTranscript, type NativePublicToolEvent, type PlanCountTranscript } from './helpers/plan-count-transcript';
 import { readPendingQuestion, pendingQuestionRecorderStatus } from './helpers/plan-count-pending-question';
 import { createPlanCountSnapshotWriter } from './helpers/plan-count-artifacts';
+import { buildCeoHoldPostureReview, evaluateCeoHoldPostureReview } from './helpers/ceo-hold-posture-review';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -64,6 +66,10 @@ const CASES: ModeCase[] = [
 
 // Both cases review the same plan, available before the slash command starts.
 // The checkout supplying skills must not become the implicit review target.
+// The EXPANSION actor may preserve a full independent per-item walkthrough once.
+// It never chooses narrowing/batching or grants scope through this pacing control.
+const EXPANSION_PACING_CALLS = 1;
+
 const PLAN = [
   '# Plan: Add saved project views',
   '',
@@ -167,6 +173,7 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
       `mode "${c.mode}" routes to its distinctive posture`,
       async () => {
         const fixture = createPlanCountFixture(PLAN);
+        const postureSource = { path: path.join(fixture.cwd, 'PLAN.md'), content: PLAN };
         let session: ClaudePtySession | undefined;
         const saveSnapshot = createPlanCountSnapshotWriter();
         let lastSnapshotAt = 0;
@@ -218,7 +225,12 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
           let downstreamSnapshot = '';
           let transcript: PlanCountTranscript = { status: 'missing', calls: [], assistantMessages: [] };
           let continuedQuestion = false;
+          let continuedCallId: string | undefined;
+          let holdAssessmentAttempted = false;
+          let pacingChoice: ReturnType<typeof ceoExpansionPacingChoice> = null;
+          let pacingCalls = 0;
           const seenDownstream = new Set<string>();
+          const submittedModePackets = new Set<string>();
           while (Date.now() - start < budgetMs) {
             await Bun.sleep(2500);
             if (session.exited()) {
@@ -232,14 +244,39 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             transcript = session.hermeticConfigDir
               ? readPlanCountTranscript(session.hermeticConfigDir, fixture.cwd, event => publicTools.push(event))
               : { status: 'error', calls: [], assistantMessages: [], error: 'No isolated mode transcript directory' };
-            if (hasNativePostAnswerCeoPosture(transcript, c.mode, c.postureRe, selectionStartedAt, publicTools)) {
+            if (hasNativePostAnswerCeoPosture(transcript, c.mode, c.postureRe, selectionStartedAt, publicTools, postureSource)) {
               postureMatched = true;
               break;
             }
+            if (c.mode === 'HOLD SCOPE' && continuedCallId && !holdAssessmentAttempted) {
+              const review = buildCeoHoldPostureReview({ transcript, publicTools, source: postureSource,
+                selectionStartedAt, deadlineAt: start + budgetMs, continuedCallId });
+              if (review) {
+                holdAssessmentAttempted = true;
+                await evaluateCeoHoldPostureReview(review);
+                postureMatched = true;
+                break;
+              }
+            }
             const currentInput = await session.currentScreen();
             capture('awaiting_posture', currentInput, transcript);
+            const modeSubmit = ceoModeSubmissionInput(currentInput, question.nativeCall, c.mode, transcript, submittedModePackets);
+            if (modeSubmit !== null) { session.send(modeSubmit); continue; }
             const pendingQuestion = readPendingQuestion(session.pendingQuestionFile, fixture.cwd,
               session.hermeticConfigDir, selectionStartedAt, transcript);
+            if (pacingChoice && !ceoExpansionPacingReady(currentInput, transcript, pacingChoice, publicTools)) continue;
+            if (c.mode === 'SCOPE EXPANSION' && !continuedQuestion) {
+              const choice = ceoExpansionPacingChoice(currentInput, transcript, selectionStartedAt, pendingQuestion);
+              if (choice) {
+                if (!choice.index || pacingCalls >= EXPANSION_PACING_CALLS) throw new Error('Unsupported or repeated CEO pacing menu; no additional answer authorized');
+                pacingChoice = choice; pacingCalls++;
+                const question = capturePlanCountQuestion(currentInput, new Set(), 0, false, choice.call)!;
+                const input = planCountQuestionInput(currentInput, question, choice.index);
+                if (input.includes('\r')) await selectPtyNumberedOption(session, choice.index);
+                else session.send(input);
+                continue;
+              }
+            }
             const continuation = nextCeoPostureContinuation(currentInput, transcript,
               c.mode, selectionStartedAt, seenDownstream, continuedQuestion, session.visibleText(), pendingQuestion);
             if (continuation !== null) {
@@ -249,6 +286,8 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
               else {
                 const pending = transcript.calls.find(call => !call.answered && !call.failed) ?? pendingQuestion;
                 const question = capturePlanCountQuestion(currentInput, new Set(), 0, false, pending)!;
+                if (c.mode === 'HOLD SCOPE' && question.nativeCall)
+                  continuedCallId ??= `${question.nativeCall.sessionId}:${question.nativeCall.toolUseId}`;
                 const input = planCountQuestionInput(currentInput, question, 1);
                 if (input.includes('\r')) await selectPtyNumberedOption(session, 1);
                 else session.send(input);
@@ -261,7 +300,7 @@ describeE2E('/plan-ceo-review mode routing (gate)', () => {
             if (
               isPlanReadyVisible(downstreamSnapshot) &&
               isNumberedOptionListVisible(downstreamSnapshot) &&
-              !hasNativePostAnswerCeoPosture(transcript, c.mode, c.postureRe, selectionStartedAt, publicTools)
+              !hasNativePostAnswerCeoPosture(transcript, c.mode, c.postureRe, selectionStartedAt, publicTools, postureSource)
             ) {
               // Plan-ready AND a follow-up AskUserQuestion are both visible but
               // posture text has not appeared yet. Keep polling for a bit.

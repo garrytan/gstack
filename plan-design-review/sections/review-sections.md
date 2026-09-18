@@ -68,7 +68,13 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
-**Pass protocol (1-6):** Record the initial 0-10 score. Every `FIX TO 10` below is a proposal: ask about each issue, wait for approval, then edit the plan and re-rate that pass with the reason for the score change. A declined fix remains documented and lowers the final score. Never edit first and ask afterward. Pass 7 is the unscored decision register, not a seventh rating.
+Evaluate every pass using the plan and referenced existing contracts. An explicitly excluded artifact is not a missing requirement: assess the same dimension with permitted evidence. Reopen that exclusion only for a concrete design gap, and ask before changing it.
+
+**Pass protocol (1-6):** Record the initial 0-10 score. Every `FIX TO 10` below is a proposal: ask about each issue, wait for approval, then edit the plan and re-rate that pass with the reason for the score change. Never edit first and ask afterward.
+
+A declined fix remains documented: the unresolved gap keeps the rating below 10. Carry each pass's before/after scores and remaining gaps into the Completion Summary below. Compute the overall score as specified in the Completion Summary; do not treat litmus answers or Pass 7's decision counts as numeric ratings. Pass 7 is the unscored decision register, not a seventh rating.
+
+A faithful restatement of an existing or already approved contract, such as a wireframe of the unchanged layout, is review evidence rather than a new design choice. Record it directly; ask if producing it would introduce or change a design decision. Finish with the Required Outputs and terminal Plan File Review Report below, including any unanswered decisions.
 
 ### Pass 1: Information Architecture
 Rate 0-10: Does the plan define what the user sees first, second, third?
@@ -106,7 +112,9 @@ Use plan text and any available mockups as evidence for the rules below.
 
 #### Design Hard Rules
 
-**Classifier: name the mode before you judge a pixel.** The mode is what the visitor's win looks like on THIS surface, not what the product is. A dev tool's landing page is Persuade. A fashion house's docs are Read.
+Review these as UI requirements in the plan, approved mockups, and referenced existing contracts. Inspect pixels or computed values when a rendered surface is available; otherwise assess what the plan specifies and identify concrete gaps.
+
+**Classifier: name the mode before you apply the rules.** The mode is what the visitor's win looks like on THIS surface, not what the product is. A dev tool's landing page is Persuade. A fashion house's docs are Read.
 - **PERSUADE** (MARKETING/LANDING PAGE: hero-driven, brand-forward, pricing, campaigns) → they decide and act. Design IS the product. Apply Landing Page Rules.
 - **OPERATE** (APP UI: dashboards, admin, settings, editors, tools) → they finish a task. Scanability and native expectations beat expression; the brand lives in the details. Apply App UI Rules.
 - **READ** (docs, articles, guides, changelogs) → they understand something. Structure for comprehension, then make staying worth it. Apply Read Rules.
@@ -122,7 +130,7 @@ Use plan text and any available mockups as evidence for the rules below.
 6. Carousel with no narrative purpose
 7. App UI made of stacked cards instead of layout
 
-**Litmus checks** (answer YES/NO for each — used for cross-model consensus scoring):
+**Litmus checks** (answer YES/NO for each with evidence; compare with the outside-voice litmus scorecard when available. These support findings, not an additional numeric score):
 1. Brand/product unmistakable in first screen?
 2. One strong visual anchor present?
 3. Page understandable by scanning headlines only?
@@ -135,7 +143,7 @@ Use plan text and any available mockups as evidence for the rules below.
 - First viewport reads as one composition, not a dashboard
 - Brand-first hierarchy: brand > headline > body > CTA
 - Typography: expressive, purposeful — no default stacks (Inter, Roboto, Arial, system)
-- No flat single-color backgrounds by default: texture from the brand or a real asset, never a halo, spotlight, stripe, or grid-paper gradient (the catalog names each)
+- No flat single-color backgrounds by default: texture from the brand or a real asset, never a halo, spotlight, stripe, or grid-paper gradient (see the AI Slop blacklist and detector rule ids below)
 - Hero: full-bleed, edge-to-edge, no inset/tiled/rounded variants
 - Hero budget: brand, one headline, one supporting sentence, one CTA group, one image
 - No cards in hero. Cards only when card IS the interaction
@@ -166,7 +174,7 @@ Use plan text and any available mockups as evidence for the rules below.
 
 **Universal rules** (apply to ALL types):
 - Define CSS variables for color system
-- No default font stacks as the display voice (Inter, Roboto, Arial, system); body/UI use on an Operate or Read surface follows the role-scoped list (DM Sans, Instrument Sans, IBM Plex Sans pass when the proposal says so)
+- No default font stacks as the display voice (Inter, Roboto, Arial, system); DM Sans, Instrument Sans, IBM Plex Sans are allowed for body/UI on an Operate or Read surface when the proposal explicitly assigns that role
 - One job per section
 - "If deleting 30% of the copy improves it, keep deleting"
 - Cards earn their existence — no decorative card grids
@@ -225,6 +233,8 @@ FIX TO 10: Add responsive specs per viewport — not "stacked on mobile" but int
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 7: Unresolved Design Decisions
+Start from unresolved choices recorded in earlier passes. For each new item, cite an actual in-scope element and the missing decision in the plan, source, DESIGN.md, or approved mockup. Page/section names and outside-review suggestions do not establish that a control exists. Check the available artifacts first; if its existence is unknown, keep the item conditional and state what must be verified. Do not invent controls or reopen accepted treatments for a hypothetical element. Surface real missing decisions and concrete conflicts; approval of one treatment does not settle a different known element.
+
 Preserve accepted user-facing outcomes. Choosing implementation mechanics does not
 reopen them; ask only if a concrete constraint exposes a new design requirement
 or tradeoff. Surface the remaining ambiguities that will haunt implementation:
@@ -251,7 +261,7 @@ If yes, use `$D iterate` with feedback summarizing the changes, or `$D variants`
 
 ## CRITICAL RULE — How to ask questions
 Follow the AskUserQuestion format from the Preamble above. Additional rules for plan design reviews:
-* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
+* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question. Each call contains exactly one question; multiple question tabs in one call are also batching. If a user could choose either remedy without choosing the other, ask separately, even when both affect the same component or token file. Shared implementation work does not make independent design choices inseparable.
 * Describe the design gap concretely — what's missing, what the user will experience if it's not specified.
 * Present 2-3 options. For each: effort to specify now, risk if deferred.
 * **Map to Design Principles above.** One sentence connecting your recommendation to a specific principle.
@@ -362,6 +372,7 @@ this run (an empty file means "ran, no findings" — distinct from "didn't run")
 
 
 ### Completion Summary
+Prepare this for the saved review; announce completion after the Read-back gate below.
 
 **Overall design score:** use the lowest of the six rated pass scores (1-6),
 separately before and after approved fixes. Pass 7 is unscored. Keep Step 0's
@@ -392,7 +403,7 @@ pass is 8+; unresolved findings still prevent a clean review log.
   +====================================================================+
 ```
 
-If all passes 8+: "Plan is design-complete. Run /design-review after implementation for visual QA."
+After Read-back, if all passes 8+: "Plan is design-complete. Run /design-review after implementation for visual QA."
 If any below 8: note what's unresolved and why (user chose to defer).
 
 ### Unresolved Decisions
@@ -407,20 +418,116 @@ If visual mockups were generated during this review, add to the plan file:
 
 | Screen/Section | Mockup Path | Direction | Notes |
 |----------------|-------------|-----------|-------|
-| [screen name]  | ~/.gstack/projects/$SLUG/designs/[folder]/[filename].png | [brief description] | [constraints from review] |
+| [screen name]  | [absolute $_DESIGN_DIR]/[filename].png | [brief description] | [constraints from review] |
 ```
 
 Include the full path to each approved mockup (the variant the user chose), a one-line description of the direction, and any constraints. The implementer reads this to know exactly which visual to build from. These persist across conversations and workspaces. If no mockups were generated, omit this section.
 
+## Plan File Review Report
+
+Save the accepted plan changes and full review output, including the report below, before logging or announcing completion.
+
+### Detect the plan file
+
+Use an explicitly requested output/report file first. Otherwise use the reviewed plan named by the user, then the host active plan. If no file is in scope, skip this section; ordinary no-file review logging still applies.
+
+### Generate the report
+
+Run `~/.claude/skills/gstack/bin/gstack-review-read` for prior review entries.
+Use the current Completion Summary or DX Scorecard for this review's status and findings;
+apply the Review Log field rules below and add exactly one to its prior run count.
+Do not pre-log this run to populate the report.
+Use prior entries for other reviews, retaining their status, attribution and freshness.
+
+Parse each JSONL entry using recorded provenance. Historical source "claude" is a native Claude subagent; "claude-code" is the external CLI. Keep historical codex identifiers and never relabel old records from the current harness. Unknown model identity remains unknown. For new records, show host, outside_provider, outside_status, and phase. Only completed external records establish outside coverage; native fallbacks do not.
+
+Each skill logs different fields:
+
+- **plan-ceo-review**: \`status\`, \`unresolved\`, \`critical_gaps\`, \`mode\`, \`scope_proposed\`, \`scope_accepted\`, \`scope_deferred\`, \`commit\`
+  → Findings: "{scope_proposed} proposals, {scope_accepted} accepted, {scope_deferred} deferred"
+  → If scope fields are 0 or missing (HOLD/REDUCTION mode): "mode: {mode}, {critical_gaps} critical gaps"
+- **plan-eng-review**: \`status\`, \`unresolved\`, \`critical_gaps\`, \`issues_found\`, \`mode\`, \`commit\`
+  → Findings: "{issues_found} issues, {critical_gaps} critical gaps"
+- **plan-design-review**: \`status\`, \`initial_score\`, \`overall_score\`, \`unresolved\`, \`decisions_made\`, \`commit\`
+  → Findings: "score: {initial_score}/10 → {overall_score}/10, {decisions_made} decisions"
+- **plan-devex-review**: \`status\`, \`initial_score\`, \`overall_score\`, \`product_type\`, \`tthw_current\`, \`tthw_target\`, \`mode\`, \`persona\`, \`competitive_tier\`, \`unresolved\`, \`commit\`
+  → Findings: "score: {initial_score}/10 → {overall_score}/10, TTHW: {tthw_current} → {tthw_target}"
+- **devex-review**: \`status\`, \`overall_score\`, \`product_type\`, \`tthw_measured\`, \`dimensions_tested\`, \`dimensions_inferred\`, \`boomerang\`, \`commit\`
+  → Findings: "score: {overall_score}/10, TTHW: {tthw_measured}, {dimensions_tested} tested/{dimensions_inferred} inferred"
+- **codex-review**: \`status\`, \`gate\`, \`findings\`, \`findings_fixed\`
+  → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
+
+The current row and its later log must describe the same saved review.
+
+Produce this markdown table:
+
+\`\`\`markdown
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
+| Outside Review | {recorded provider and trigger} | Independent 2nd opinion | {runs} | {outside_status} | {findings} |
+| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
+| Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
+| DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
+\`\`\`
+
+Below the table, add these lines. **OUTSIDE COVERAGE** and **CROSS-MODEL** are conditional:
+include them when the phase ran, was disabled/skipped/unavailable, or has findings;
+omit them only when no such phase applies. **VERDICT** is always present:
+
+- **OUTSIDE COVERAGE:** provider, phase, completion state, and findings. Include unavailable, disabled, and skipped phases; never infer completion from another phase.
+- **CROSS-MODEL:** only when native and completed external reviews exist — overlap analysis with recorded providers and known model identity. Do not infer distinct model families from harness names.
+- **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
+  If Eng Review is not CLEAR and not skipped globally, append "eng review required".
+
+**Unresolved-decisions status (MANDATORY — never omitted; the report's final non-whitespace
+line).** After VERDICT, end the report (content under the \`## GSTACK REVIEW REPORT\`
+heading — a bold label, never a new \`## \` heading; exempt from the "omit when empty"
+rule) with exactly one: the exact unbolded line \`NO UNRESOLVED DECISIONS\` (a bolded one
+does NOT count), OR a \`**UNRESOLVED DECISIONS:**\` header + one bullet per open item
+(last bullet = final line; add \`+ N unresolved from prior reviews\` only when N > 0).
+This avoids double-counting: list THIS review's open items from context; for prior reviews
+sum \`unresolved\` over the latest fresh row per skill (dashboard 7-day window) after you
+DROP the current skill's row; emit the sentinel only when both are zero.
+
+### Write to the plan file
+
+**PLAN MODE EXCEPTION — ALWAYS RUN:** Save the complete reviewed plan/report with only accepted changes applied; keep unresolved choices pending.
+
+The report must always be the LAST section of the plan file — never mid-file.
+Use a single delete-then-append flow:
+
+1. Read the existing plan/report, if present. Preserve its content and apply only
+   accepted changes; include the full review output. Locate any existing
+   `## GSTACK REVIEW REPORT` section.
+2. If found, use the Edit tool to DELETE the entire existing section. Match from
+   \`## GSTACK REVIEW REPORT\` through either the next \`## \` heading or end of
+   file, whichever comes first. Replace with the empty string. This applies
+   regardless of where the section currently lives — mid-file deletion is
+   intentional, not a special case. If the Edit fails (e.g., concurrent edit
+   changed the content), re-read the plan file and retry once.
+3. If a report was deleted, Read the updated file. Append the new
+   \`## GSTACK REVIEW REPORT\` at EOF. Use Edit to match the suffix
+   confirmed by the latest Read, or Write the full file with the report last. Append whether or not a prior report existed.
+   "Unresolved Decisions" is not an EOF anchor when other sections follow it.
+4. **Read-back gate:** Read the saved file. Verify the accepted changes, full review
+   output, current review row, verdict and final unresolved-decisions status, with
+   `## GSTACK REVIEW REPORT` as the last section. If writing or verification fails,
+   report the error and stop before Review Log or decision logging.
+
+Do NOT replace the section in place. The "replace mid-file" path is what allowed
+prior versions to leave the report mid-file when an older report already lived
+there — the user then sees a plan whose review report is not at the bottom and
+(correctly) rejects it.
+
 ## Review Log
 
-After producing the Completion Summary above, persist the review result.
-
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
-`~/.gstack/` (user config directory, not project files). The skill preamble
-already writes to `~/.gstack/sessions/` and `~/.gstack/analytics/` — this is
-the same pattern. The review dashboard depends on this data. Skipping this
-command breaks the review readiness dashboard in /ship.
+When a plan/report file is in scope, persist only after its successful write and Read-back
+above. On failure, report the error and stop; do not log completion or an accepted decision.
+**PLAN MODE EXCEPTION — ALWAYS RUN after verification:** these commands write review
+metadata to `~/.gstack/`; the following dashboard reads the saved result.
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-design-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"unresolved":N,"decisions_made":N,"commit":"COMMIT"}'
@@ -449,7 +556,7 @@ Parse the output. Find the most recent entry for each skill (plan-ceo-review, pl
 
 **Source attribution:** If the most recent entry for a skill has a \`"via"\` field, append it to the status label in parentheses. Examples: `plan-eng-review` with `via:"autoplan"` shows as "CLEAR (PLAN via /autoplan)". `review` with `via:"ship"` shows as "CLEAR (DIFF via /ship)". Entries without a `via` field show as "CLEAR (PLAN)" or "CLEAR (DIFF)" as before.
 
-Read `autoplan-voices` and `design-outside-voices` for the coverage detail below the dashboard. Group by workflow run and phase, not merely skill. Show each phase’s recorded provider and outside_status; partial coverage must remain partial. These records do not change the engineering gate.
+From gstack-review-read output, use entries whose skill is `autoplan-voices` or `design-outside-voices` for the coverage detail below the dashboard. Group by workflow run and phase, not merely skill. Show each phase’s recorded provider and outside_status; partial coverage must remain partial. These records do not change the engineering gate.
 
 Display:
 
@@ -489,104 +596,6 @@ Display:
 - Plan-tier fallback only: parse `---HEAD---`. For entries with a different `commit`, count elapsed commits: `git rev-list --count STORED_COMMIT..HEAD`. If that command FAILS, grade UNKNOWN and treat as stale. Display: "Note: {skill} review from {date} may be stale — {N} commits since review". Missing commit tracking retains the legacy note to consider re-running.
 - If all reviews grade CURRENT, do not display staleness notes
 
-## Plan File Review Report
-
-After displaying the Review Readiness Dashboard in conversation output, also update the
-**plan file** itself so review status is visible to anyone reading the plan.
-
-### Detect the plan file
-
-1. Check if there is an active plan file in this conversation (the host provides plan file
-   paths in system messages — look for plan file references in the conversation context).
-2. If not found, skip this section silently — not every review runs in plan mode.
-
-### Generate the report
-
-Read the review log output you already have from the Review Readiness Dashboard step above.
-Parse each JSONL entry using recorded provenance. Historical source "claude" is a native Claude subagent; "claude-code" is the external CLI. Keep historical codex identifiers and never relabel old records from the current harness. Unknown model identity remains unknown. For new records, show host, outside_provider, outside_status, and phase. Only completed external records establish outside coverage; native fallbacks do not.
-
-Each skill logs different fields:
-
-- **plan-ceo-review**: \`status\`, \`unresolved\`, \`critical_gaps\`, \`mode\`, \`scope_proposed\`, \`scope_accepted\`, \`scope_deferred\`, \`commit\`
-  → Findings: "{scope_proposed} proposals, {scope_accepted} accepted, {scope_deferred} deferred"
-  → If scope fields are 0 or missing (HOLD/REDUCTION mode): "mode: {mode}, {critical_gaps} critical gaps"
-- **plan-eng-review**: \`status\`, \`unresolved\`, \`critical_gaps\`, \`issues_found\`, \`mode\`, \`commit\`
-  → Findings: "{issues_found} issues, {critical_gaps} critical gaps"
-- **plan-design-review**: \`status\`, \`initial_score\`, \`overall_score\`, \`unresolved\`, \`decisions_made\`, \`commit\`
-  → Findings: "score: {initial_score}/10 → {overall_score}/10, {decisions_made} decisions"
-- **plan-devex-review**: \`status\`, \`initial_score\`, \`overall_score\`, \`product_type\`, \`tthw_current\`, \`tthw_target\`, \`mode\`, \`persona\`, \`competitive_tier\`, \`unresolved\`, \`commit\`
-  → Findings: "score: {initial_score}/10 → {overall_score}/10, TTHW: {tthw_current} → {tthw_target}"
-- **devex-review**: \`status\`, \`overall_score\`, \`product_type\`, \`tthw_measured\`, \`dimensions_tested\`, \`dimensions_inferred\`, \`boomerang\`, \`commit\`
-  → Findings: "score: {overall_score}/10, TTHW: {tthw_measured}, {dimensions_tested} tested/{dimensions_inferred} inferred"
-- **codex-review**: \`status\`, \`gate\`, \`findings\`, \`findings_fixed\`
-  → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
-
-All fields needed for the Findings column are now present in the JSONL entries.
-For the review you just completed, you may use richer details from your own Completion
-Summary. For prior reviews, use the JSONL fields directly — they contain all required data.
-
-Produce this markdown table:
-
-\`\`\`markdown
-## GSTACK REVIEW REPORT
-
-| Review | Trigger | Why | Runs | Status | Findings |
-|--------|---------|-----|------|--------|----------|
-| CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
-| Outside Review | {recorded provider and trigger} | Independent 2nd opinion | {runs} | {outside_status} | {findings} |
-| Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
-| Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
-| DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
-\`\`\`
-
-Below the table, add these lines. **OUTSIDE COVERAGE** and **CROSS-MODEL** are optional (omit when
-empty); **VERDICT** is always present:
-
-- **OUTSIDE COVERAGE:** provider, phase, completion state, and findings. Include unavailable, disabled, and skipped phases; never infer completion from another phase.
-- **CROSS-MODEL:** only when native and completed external reviews exist — overlap analysis with recorded providers and known model identity. Do not infer distinct model families from harness names.
-- **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
-  If Eng Review is not CLEAR and not skipped globally, append "eng review required".
-
-**Unresolved-decisions status (MANDATORY — never omitted; the report's final non-whitespace
-line).** After VERDICT, end the report (content under the \`## GSTACK REVIEW REPORT\`
-heading — a bold label, never a new \`## \` heading; exempt from the "omit when empty"
-rule) with exactly one: the exact unbolded line \`NO UNRESOLVED DECISIONS\` (a bolded one
-does NOT count), OR a \`**UNRESOLVED DECISIONS:**\` header + one bullet per open item
-(last bullet = final line; add \`+ N unresolved from prior reviews\` only when N > 0).
-This avoids double-counting: list THIS review's open items from context; for prior reviews
-sum \`unresolved\` over the latest fresh row per skill (dashboard 7-day window) after you
-DROP the current skill's row; emit the sentinel only when both are zero.
-
-### Write to the plan file
-
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes to the plan file, which is the one
-file you are allowed to edit in plan mode. The plan file review report is part of the
-plan's living status.
-
-The report must always be the LAST section of the plan file — never mid-file.
-Use a single delete-then-append flow:
-
-1. Read the plan file (Read tool) to see its full current content. Search the read
-   output for a \`## GSTACK REVIEW REPORT\` heading anywhere in the file.
-2. If found, use the Edit tool to DELETE the entire existing section. Match from
-   \`## GSTACK REVIEW REPORT\` through either the next \`## \` heading or end of
-   file, whichever comes first. Replace with the empty string. This applies
-   regardless of where the section currently lives — mid-file deletion is
-   intentional, not a special case. If the Edit fails (e.g., concurrent edit
-   changed the content), re-read the plan file and retry once.
-3. After the delete (or skipped, if no section existed), append the new
-   \`## GSTACK REVIEW REPORT\` section at the END of the file. Use the Edit
-   tool to match the file's current last paragraph and add the section after it,
-   or use Write to re-emit the whole file with the section at the end.
-4. Verify with the Read tool that \`## GSTACK REVIEW REPORT\` is the last
-   \`## \` heading in the file before continuing. If it isn't, repeat steps
-   2-3 once.
-
-Do NOT replace the section in place. The "replace mid-file" path is what allowed
-prior versions to leave the report mid-file when an older report already lived
-there — the user then sees a plan whose review report is not at the bottom and
-(correctly) rejects it.
-
 ## Capture Learnings
 
 If you discovered a non-obvious pattern, pitfall, or architectural insight during
@@ -614,25 +623,15 @@ already knows. A good test: would this insight save time in a future session? If
 
 
 
-## Brain Calibration Write-Back (Phase 2 / gated)
+## Brain Calibration Write-Back (gated)
 
-When the skill makes a typed prediction worth tracking (scope decision,
-TTHW target, architectural bet, wedge commitment), it MAY write a
-`kind=bet` take to the brain so a calibration profile builds over time.
+Skip unless `BRAIN_CALIBRATION_WRITEBACK` is set and the preamble/brain-health
+output or gstack config shows `brain_trust_policy@<endpoint-hash>=personal`.
+If unknown, skip. If both gates pass, record one durable
+typed prediction with `mcp__gbrain__takes_add`; if unavailable, use
+`mcp__gbrain__put_page` with a gstack:takes fence block.
 
-**Gated on two things:**
-1. Brain trust policy for the active endpoint is `personal` (check via
-   `~/.claude/skills/gstack/bin/gstack-config get brain_trust_policy@<endpoint-hash>`).
-   Shared brains skip write-back to avoid polluting team calibration.
-2. Feature flag `BRAIN_CALIBRATION_WRITEBACK` is set (today: false; flips
-   to true when upstream gbrain v0.42+ ships `takes_add` MCP op).
-
-When both gates pass, the write-back path uses `mcp__gbrain__takes_add`
-to record a take with weight 0.5 (per SKILL_CALIBRATION_WEIGHTS).
-If the MCP op is unavailable, fall back to `mcp__gbrain__put_page` with
-a gstack:takes fence block (documented but uglier path).
-
-Mandatory take frontmatter shape:
+Take frontmatter:
 ```yaml
 kind: bet
 holder: <user identity from whoami>
@@ -643,14 +642,12 @@ expected_resolution: <date in 1-3 months depending on skill>
 source_skill: plan-design-review
 ```
 
-After write, invalidate the affected digests so the next preflight reflects
-the new state:
+After write, invalidate affected digests:
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
   ~/.claude/skills/gstack/bin/gstack-brain-cache invalidate brand --project "$SLUG" 2>/dev/null || true
 ```
-
 
 ## Brain Cache Background Refresh
 

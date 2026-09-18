@@ -7,6 +7,7 @@ import {createFilePermissionRecorder,recordFilePermission,currentFilePermissionE
 import {createPlanCountPermissionGuard,classifyPlanCountFrame} from './helpers/claude-pty-runner';
 import captured from './fixtures/plan-count-edit-permission-t.json';
 import capturedAc from './fixtures/plan-count-permission-ac.json';
+import largeCeo from './fixtures/ceo-report-permission-fb10.json';
 
 function fixture() {
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'count-file-epoch-'));const cwd=path.join(dir,'cwd');fs.mkdirSync(cwd);
@@ -60,11 +61,41 @@ describe('native repeated report permission identity',()=>{
    }
    fs.writeFileSync(f.recorder.file,valid);
    expect(currentFilePermissionEpoch(f.recorder.file,f.expected,f.cwd,f.config,f.startedAt,f.transcript,'Do you want to create OTHER.md?')).toBeUndefined();
-   const guard=createPlanCountPermissionGuard();expect(guard('Do you want to create OTHER.md?\n❯1.Yes\n2.Yes, and switch to accept edits\n3.No\nEsc to cancel · Tab to amend')).toBe('grant');
+   const guard=createPlanCountPermissionGuard();expect(guard('Do you want to create OTHER.md?\n❯1.Yes\n2.Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)\n3.No\nEsc to cancel · Tab to amend')).toBe('grant');
    fs.unlinkSync(f.recorder.file);fs.symlinkSync(f.expected,f.recorder.file);expect(f.read()).toBeNull();
    expect(createFilePermissionRecorder(f.cwd,f.config,path.parse(f.dir).root+'not-disposable.md')).toBeUndefined();
   }finally{f.close();}
  });
+});
+
+test('large report crop verifies only a complete bounded source line and the current owned epoch',()=>{
+ const f=fixture();try{
+  const screen=largeCeo.viewport.replaceAll(path.dirname(largeCeo.expectedPath),path.dirname(f.expected))
+   .replaceAll(path.basename(largeCeo.expectedPath),path.basename(f.expected));
+  const prefix=Array.from({length:largeCeo.sourceLine-1},(_,i)=>`preceding line ${i+1}\n`).join('');
+  const complete=prefix+largeCeo.priorLine+'\n';
+  const report=complete+'tail\n'.repeat(Math.ceil((largeCeo.originalReportBytes-Buffer.byteLength(complete))/5));
+  expect(Buffer.byteLength(report)).toBeGreaterThan(64*1024);
+  fs.writeFileSync(f.expected,report);f.record('PreToolUse','first');
+  const check=()=>currentFilePermissionEpoch(f.recorder.file,f.expected,f.cwd,f.config,f.startedAt,f.transcript,screen);
+  expect(check()?.pendingId).toBe('main:first');
+  const guard=createPlanCountPermissionGuard();expect(guard(screen,'',check())).toBe('grant');
+  expect(guard(screen,'',check())).toBe('handled');
+  const valid=fs.readFileSync(f.recorder.file,'utf8');
+  for(const delta of [{cwd:'/foreign'},{expected:'/foreign/report.md'},{sessionId:'foreign'},{pendingId:null},{timestamp:new Date(f.startedAt-1).toISOString()}]){
+   fs.writeFileSync(f.recorder.file,JSON.stringify({...JSON.parse(valid),...delta}));expect(check()).toBeNull();
+  }
+  fs.writeFileSync(f.recorder.file,valid);
+  for(const content of [
+   report.replace(largeCeo.priorLine,'different prior line'),
+   'no requested line\n'.repeat(2),
+   prefix+'x'.repeat(64*1024)+largeCeo.priorLine+'\n',
+   prefix+'x'.repeat(64*1024-Buffer.byteLength(prefix)-Buffer.byteLength(largeCeo.priorLine))+largeCeo.priorLine+'\n',
+  ]){fs.writeFileSync(f.expected,content);expect(check()).toBeNull();}
+  fs.writeFileSync(f.expected,report);
+  const target=f.expected+'.real';fs.renameSync(f.expected,target);fs.symlinkSync(target,f.expected);
+  expect(check()).toBeNull();
+ }finally{f.close();}
 });
 
 for (const variant of ['basic', 'intervening', 'cropped', 'same-basename', 'path-cropped']) test.skipIf(process.platform==='win32')(`real fake CLI grants each current request once: ${variant}`,async()=>{

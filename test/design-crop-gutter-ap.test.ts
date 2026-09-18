@@ -79,7 +79,7 @@ const negatives:Array<[string,(f:any)=>void]>=[
   ['zero next line',f=>{f.screen=f.screen.replace(/^ 62  $/m,' 00  ');}],
   ['missing current file',f=>{f.fileKind='missing';}],
   ['directory instead of current file',f=>{f.fileKind='directory';}],
-  ['oversized current file',f=>{f.before+='x'.repeat(65537);}],
+  ['required source line beyond the bounded prefix',f=>{f.before='x'.repeat(65537)+f.before;}],
   ['foreign displayed directory',f=>{f.screen=f.screen.replace(path.dirname(f.expected)+' for this session',path.join(path.dirname(f.expected),'foreign')+' for this session');}],
   ['foreign hook target',f=>{f.state.expected+='.foreign';}],
   ['foreign hook cwd',f=>{f.state.cwd+='.foreign';}],

@@ -1,0 +1,177 @@
+{
+  "source": "cab3edc8b24f873b55f6edc6d98b60981eda52cb",
+  "captureAt": "2026-09-15T19:33:27.540Z",
+  "note": "Complete public completed native decisions only; original paid timeout and missing evidence preserved separately. No earlier approvals needed to count the current four-to-three choice.",
+  "calls": [
+    {
+      "sessionId": "a5bd9ed4-796f-4d5d-9bea-ab180502c903",
+      "toolUseId": "toolu_01TapUQ8xuvA9xXgVB1nAWtm",
+      "questions": [
+        {
+          "question": "D6 \u2014 Component arrangement: keep TokenStore as a separate class, or fold it into AuthCache?\nProject/branch/task: `main`, PLAN.md Multi-tenant Auth Refactor; Scope Challenge structure choice (feature choices held fixed: legacy rewrite deferred behind a flag per D4, RequestPolicy deferred per D5).\nELI10: With RequestPolicy deferred, the plan still adds four components: AuthBroker, SessionMint, AuthCache, and TokenStore. The plan says AuthCache is a facade over the existing cache adapter, which already stores tokens keyed by tenant/issuer/audience/policy and already handles eviction and invalidation (PLAN.md:7-13). That makes TokenStore a third layer doing the adapter's job. This question picks structure only: how many boxes. Whether the shared AuthCache stays a module-level global (Section 1) and how errors and IDP calls are handled are separate decisions and stay pending in every option.\nStakes if we pick wrong: too many layers means three places to look when a tenant's revoked token still validates at 3am; too few means AuthBroker and SessionMint tangle if their responsibilities really are distinct.\nRecommendation: A because it removes the one component whose job the existing adapter already does, keeps the two services whose names describe distinct work, and preserves every retained contract from PLAN.md:6-13 unchanged. (human: ~0.5 day less / CC: ~5 min less.)\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: the existing adapter is already the token store; the question is whether you want a second one.",
+          "header": "Structure",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3 components: AuthBroker, SessionMint, AuthCache; drop TokenStore (recommended)",
+              "description": "\u2705 AuthCache facade + existing adapter is the single token store; one place for invalidation bugs\n\u2705 Two services with distinct names keep brokering and minting separable and testable\n\u274c If TokenStore was meant to hold something the adapter cannot (e.g. refresh-token secrets), that need has to be named and added to AuthCache"
+            },
+            {
+              "label": "4 components: keep TokenStore separate (original)",
+              "description": "\u2705 Matches the plan as written; no re-scoping of what AuthCache owns\n\u2705 Room for TokenStore to own a distinct persistence concern if one exists\n\u274c Three storage layers (adapter, AuthCache, TokenStore) with no stated boundary between the last two"
+            },
+            {
+              "label": "2 components: one AuthService (broker+mint) + AuthCache",
+              "description": "\u2705 Fewest moving parts; one service to inject the cache into\n\u2705 Simplest wiring for the D4 flag routing\n\u274c Merges two responsibilities the plan deliberately separated; AuthService grows into the next 60-line validateAndDispatch()"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 \u2014 Component arrangement: keep TokenStore as a separate class, or fold it into AuthCache?\nProject/branch/task: `main`, PLAN.md Multi-tenant Auth Refactor; Scope Challenge structure choice (feature choices held fixed: legacy rewrite deferred behind a flag per D4, RequestPolicy deferred per D5).\nELI10: With RequestPolicy deferred, the plan still adds four components: AuthBroker, SessionMint, AuthCache, and TokenStore. The plan says AuthCache is a facade over the existing cache adapter, which already stores tokens keyed by tenant/issuer/audience/policy and already handles eviction and invalidation (PLAN.md:7-13). That makes TokenStore a third layer doing the adapter's job. This question picks structure only: how many boxes. Whether the shared AuthCache stays a module-level global (Section 1) and how errors and IDP calls are handled are separate decisions and stay pending in every option.\nStakes if we pick wrong: too many layers means three places to look when a tenant's revoked token still validates at 3am; too few means AuthBroker and SessionMint tangle if their responsibilities really are distinct.\nRecommendation: A because it removes the one component whose job the existing adapter already does, keeps the two services whose names describe distinct work, and preserves every retained contract from PLAN.md:6-13 unchanged. (human: ~0.5 day less / CC: ~5 min less.)\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: the existing adapter is already the token store; the question is whether you want a second one.": "3 components: AuthBroker, SessionMint, AuthCache; drop TokenStore (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T19:12:46.916Z"
+    },
+    {
+      "sessionId": "a5bd9ed4-796f-4d5d-9bea-ab180502c903",
+      "toolUseId": "toolu_01ELUcYLwUeDZm9Qrw1cLb6c",
+      "questions": [
+        {
+          "question": "D10 \u2014 Rewrite validateAndDispatch() with explicit error outcomes, or just add logging to the three catches?\nProject/branch/task: `main`, PLAN.md Multi-tenant Auth Refactor; Code quality finding C1 (PLAN.md:23-24), ledger row R4.\nELI10: Today three nested try/catch blocks each quietly eat one kind of error. An expired token, a revoked one, and an unreachable identity provider all vanish into the same silence, and whatever runs after the catches may proceed as if nothing happened. The fix is to split the function: `validate()` returns a typed result (ok / expired / revoked / idp_unreachable) and rethrows anything it does not recognize, then `dispatch()` branches on that result. The user gets a specific failure, and an unknown bug crashes loudly instead of being swallowed.\nStakes if we pick wrong: with swallowed errors, an IDP outage can look like \"everyone's token is invalid\" (or worse, dispatch runs on an unvalidated request) and nobody finds out until a tenant complains.\nRecommendation: A because it is explicit over clever, kills the error-hiding anti-pattern at the root, and each outcome gets its own test. The plan's own 5-call IDP path (Section 4) needs the idp_unreachable variant anyway. (A: human ~1 day / CC ~20 min. B: human ~1h / CC ~5 min.)\nCompleteness: A=10/10, B=5/10, C=1/10\nNet: typed outcomes and loud unknowns vs. the same silence with log lines.",
+          "header": "R4 errors",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Split into validate() + dispatch() with a typed AuthResult (recommended)",
+              "description": "\u2705 Every known error class becomes a visible outcome the caller and the user can act on\n\u2705 Unknown errors propagate, so a real bug surfaces in monitoring instead of being eaten\n\u274c Touches every caller of validateAndDispatch() to branch on the result (bounded: it is one function)"
+            },
+            {
+              "label": "Keep the nesting, add a log line per catch",
+              "description": "\u2705 Smallest diff; the swallowed errors at least show up in logs\n\u2705 No caller changes\n\u274c Behavior still silently continues after failure; three nested blocks remain the next person's problem"
+            },
+            {
+              "label": "Do nothing (as planned)",
+              "description": "\u2705 Zero effort now\n\u2705 No risk of changing current caller behavior\n\u274c Error hiding stays in the auth path; failures are invisible to users and operators"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D10 \u2014 Rewrite validateAndDispatch() with explicit error outcomes, or just add logging to the three catches?\nProject/branch/task: `main`, PLAN.md Multi-tenant Auth Refactor; Code quality finding C1 (PLAN.md:23-24), ledger row R4.\nELI10: Today three nested try/catch blocks each quietly eat one kind of error. An expired token, a revoked one, and an unreachable identity provider all vanish into the same silence, and whatever runs after the catches may proceed as if nothing happened. The fix is to split the function: `validate()` returns a typed result (ok / expired / revoked / idp_unreachable) and rethrows anything it does not recognize, then `dispatch()` branches on that result. The user gets a specific failure, and an unknown bug crashes loudly instead of being swallowed.\nStakes if we pick wrong: with swallowed errors, an IDP outage can look like \"everyone's token is invalid\" (or worse, dispatch runs on an unvalidated request) and nobody finds out until a tenant complains.\nRecommendation: A because it is explicit over clever, kills the error-hiding anti-pattern at the root, and each outcome gets its own test. The plan's own 5-call IDP path (Section 4) needs the idp_unreachable variant anyway. (A: human ~1 day / CC ~20 min. B: human ~1h / CC ~5 min.)\nCompleteness: A=10/10, B=5/10, C=1/10\nNet: typed outcomes and loud unknowns vs. the same silence with log lines.": "Split into validate() + dispatch() with a typed AuthResult (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T19:15:49.638Z"
+    }
+  ],
+  "wholeCandidateRetry": {
+    "captureAt": "2026-09-15T19:58:22.814Z",
+    "call": {
+      "sessionId": "604c616f-edb2-4d04-bf37-deef45a62a4b",
+      "toolUseId": "toolu_01NSY8J9owjma5iAZPpaXjmb",
+      "questions": [
+        {
+          "question": "D4 — TokenStore: keep it in this PR, or defer/cut it?\nProject/branch/task: `main`, PLAN.md Multi-tenant Auth Refactor; complexity gate (12 files, 4-5 new classes).\nELI10: The plan lists `TokenStore` as one of 4 new classes (PLAN.md:35) but never says what it does. The existing cache adapter already stores tokens keyed by tenant/issuer/audience/policy version and handles expiry and invalidation (PLAN.md:7-13). A second token-holding class next to it is either a duplicate or an unstated new responsibility. Either way it should not ship on an undefined spec.\nStakes if we pick wrong: include it undefined and you get a class that overlaps the adapter, two sources of truth for tokens, and a new place for the revocation race to hide; cut it if it is actually load-bearing and the broker has nowhere to put minted tokens.\nRecommendation: B (Defer) because nothing else in the plan references TokenStore, the adapter already covers token storage, and deferring keeps the door open once its responsibility is written down.\nNote: options differ in kind, not coverage — no completeness score.\nNet: trade one undefined class now for a plan that only builds things it can describe. Whole-candidate scope; other candidates unchanged.",
+          "header": "TokenStore",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "B) Defer (recommended)",
+              "description": "✅ Removes an undefined class from this PR; nothing else in the plan depends on it (human: ~0 / CC: ~0)\n✅ Adapter remains the single source of truth for cached tokens, so the revocation path stays one-hop\n❌ If TokenStore was meant to hold something the adapter cannot (e.g. refresh tokens), that gap resurfaces mid-implementation"
+            },
+            {
+              "label": "A) Include",
+              "description": "✅ Preserves the original plan shape if you already know its responsibility (tell me what it is)\n✅ No re-planning; the class count stays as written\n❌ Ships a class with no written contract; reviewers cannot check it against anything, and it likely duplicates the adapter"
+            },
+            {
+              "label": "C) Cut",
+              "description": "✅ Cleanest plan: token storage is the adapter's job, full stop\n✅ One fewer file/class in the 12-file diff\n❌ Harder to revive later than a deferral if a real need appears"
+            },
+            {
+              "label": "D) Hold",
+              "description": "✅ Stops the chain so you can explain what TokenStore is before any structure decision\n✅ No disposition changes until we talk\n❌ Review pauses here until you reply"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — TokenStore: keep it in this PR, or defer/cut it?\nProject/branch/task: `main`, PLAN.md Multi-tenant Auth Refactor; complexity gate (12 files, 4-5 new classes).\nELI10: The plan lists `TokenStore` as one of 4 new classes (PLAN.md:35) but never says what it does. The existing cache adapter already stores tokens keyed by tenant/issuer/audience/policy version and handles expiry and invalidation (PLAN.md:7-13). A second token-holding class next to it is either a duplicate or an unstated new responsibility. Either way it should not ship on an undefined spec.\nStakes if we pick wrong: include it undefined and you get a class that overlaps the adapter, two sources of truth for tokens, and a new place for the revocation race to hide; cut it if it is actually load-bearing and the broker has nowhere to put minted tokens.\nRecommendation: B (Defer) because nothing else in the plan references TokenStore, the adapter already covers token storage, and deferring keeps the door open once its responsibility is written down.\nNote: options differ in kind, not coverage — no completeness score.\nNet: trade one undefined class now for a plan that only builds things it can describe. Whole-candidate scope; other candidates unchanged.": "B) Defer (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T19:37:23.037Z"
+    }
+  }
+,
+  "currentCountCf74": {
+    "source": "cf74db538a2f4c4361f2573316abb91e01663564",
+    "startedAt": 1789522030257,
+    "finishedAt": 1789522274613.0,
+    "calls": [
+      {
+        "sessionId": "594a8522-7239-4615-a26d-d819aad1794c",
+        "toolUseId": "toolu_01SWGy7L6rVbJVwb4XzkB81i",
+        "questions": [
+          {
+            "header": "Scope cut",
+            "question": "D4 — Does TokenStore stay in this refactor, or is it cut/deferred?\nProject/branch/task: main; Scope Challenge complexity gate on PLAN.md \"Multi-tenant Auth Refactor\" (12 files, 4 new classes + AuthBroker).\nELI10: The plan already says the existing cache adapter stores tokens keyed by tenant, issuer, audience and policy version, evicts expired ones, and invalidates on logout/revocation/suspension (PLAN.md:7-13). Then it adds a brand-new class called TokenStore (PLAN.md:35) without saying what it stores that the adapter does not. Two places that hold tokens means two places that can disagree about whether a token is still valid. That is the exact bug class a multi-tenant auth system cannot afford.\nStakes if we pick wrong: keep it with no defined role and you ship a second token source of truth; cut it and it turns out to hold something the adapter cannot (say, refresh tokens with a different lifetime) and SessionMint has nowhere to put them.\nRecommendation: B (defer) because nothing in the plan names a TokenStore responsibility the retained adapter lacks; if a real one surfaces during implementation it comes back as its own scoped decision with a stated contract.\nNote: options differ in kind, not coverage — no completeness score.\nNet: fewer moving parts and one token source of truth vs keeping a slot open for a responsibility the plan has not written down.",
+            "options": [
+              {
+                "label": "Defer TokenStore (recommended)",
+                "description": "✅ One token source of truth: the retained adapter behind the AuthCache facade. ✅ Drops one of the 4 new classes and its file(s) from a 12-file diff. ❌ If refresh tokens or non-cache token state truly need a home, that comes back as a follow-up decision (human: ~1 day / CC: ~20 min later)."
+              },
+              {
+                "label": "Keep TokenStore",
+                "description": "✅ Keeps the plan's original shape; no re-planning of SessionMint's storage. ✅ Room for token state the cache adapter does not model, if that exists. ❌ Second token holder with undefined contract next to an adapter that already keys, evicts and invalidates tokens; drift and stale-token bugs live in that gap."
+              },
+              {
+                "label": "Cut TokenStore entirely",
+                "description": "✅ Cleanest scope: the name disappears from the plan and cannot creep back silently. ✅ Same simplification win as deferring. ❌ If a real need appears mid-implementation you re-open scope instead of picking up a recorded deferral."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — Does TokenStore stay in this refactor, or is it cut/deferred?\nProject/branch/task: main; Scope Challenge complexity gate on PLAN.md \"Multi-tenant Auth Refactor\" (12 files, 4 new classes + AuthBroker).\nELI10: The plan already says the existing cache adapter stores tokens keyed by tenant, issuer, audience and policy version, evicts expired ones, and invalidates on logout/revocation/suspension (PLAN.md:7-13). Then it adds a brand-new class called TokenStore (PLAN.md:35) without saying what it stores that the adapter does not. Two places that hold tokens means two places that can disagree about whether a token is still valid. That is the exact bug class a multi-tenant auth system cannot afford.\nStakes if we pick wrong: keep it with no defined role and you ship a second token source of truth; cut it and it turns out to hold something the adapter cannot (say, refresh tokens with a different lifetime) and SessionMint has nowhere to put them.\nRecommendation: B (defer) because nothing in the plan names a TokenStore responsibility the retained adapter lacks; if a real one surfaces during implementation it comes back as its own scoped decision with a stated contract.\nNote: options differ in kind, not coverage — no completeness score.\nNet: fewer moving parts and one token source of truth vs keeping a slot open for a responsibility the plan has not written down.": "Defer TokenStore (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:30:25.299Z"
+      },
+      {
+        "sessionId": "594a8522-7239-4615-a26d-d819aad1794c",
+        "toolUseId": "toolu_01MeFnELpenLJp1CQAaUHNrz",
+        "questions": [
+          {
+            "header": "Structure",
+            "question": "D6 — Which class arrangement for the remaining scope: AuthBroker + SessionMint + RequestPolicy + AuthCache facade, or drop the facade?\nProject/branch/task: main; Scope Challenge structure gate on PLAN.md with TokenStore deferred (D4) and RequestPolicy kept (D5).\nELI10: After D4/D5 the plan adds four new types: two services (AuthBroker, SessionMint), RequestPolicy, and AuthCache. AuthCache is described as a facade over the existing cache adapter that 'retains unchanged validity and tenant-key rules' (PLAN.md:9-13), so it adds no behavior of its own; it is a thin wrapper that gives the two services one narrow cache API. The alternative is to have both services call the existing adapter directly and skip the wrapper. This question is about shape only. How the services obtain the cache (the shared mutable global in PLAN.md:19-20) is a separate architecture decision that stays pending in both options.\nStakes if we pick wrong: keep a pass-through layer nobody needed and every cache change touches two files forever; drop it and the two services each grow their own adapter glue, which is the DRY violation you asked me to flag aggressively.\nRecommendation: A because two consumers of the same adapter is exactly when a shared facade pays for itself, and the facade is the natural seam for whatever we decide about the shared-instance problem in Section 1.\nNote: options differ in kind, not coverage — no completeness score.\nNet: one thin extra file that centralizes cache access for two services vs one fewer type at the cost of duplicated adapter glue.",
+            "options": [
+              {
+                "label": "Keep AuthCache facade (recommended)",
+                "description": "✅ AuthBroker and SessionMint share one narrow cache API; adapter details live in one place. ✅ Gives Section 1 a clean seam for fixing the shared mutable instance without touching the adapter. ❌ One more type in a diff already carrying 3 new ones; a pure pass-through until it earns behavior (human: ~half day / CC: ~10 min)."
+              },
+              {
+                "label": "Drop the facade, use adapter directly",
+                "description": "✅ Three new types instead of four; the adapter's existing tests are the only cache tests needed. ✅ No pass-through layer to keep in sync with the adapter. ❌ Two services each carry their own adapter calls and key construction; a cache contract change means editing both."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 — Which class arrangement for the remaining scope: AuthBroker + SessionMint + RequestPolicy + AuthCache facade, or drop the facade?\nProject/branch/task: main; Scope Challenge structure gate on PLAN.md with TokenStore deferred (D4) and RequestPolicy kept (D5).\nELI10: After D4/D5 the plan adds four new types: two services (AuthBroker, SessionMint), RequestPolicy, and AuthCache. AuthCache is described as a facade over the existing cache adapter that 'retains unchanged validity and tenant-key rules' (PLAN.md:9-13), so it adds no behavior of its own; it is a thin wrapper that gives the two services one narrow cache API. The alternative is to have both services call the existing adapter directly and skip the wrapper. This question is about shape only. How the services obtain the cache (the shared mutable global in PLAN.md:19-20) is a separate architecture decision that stays pending in both options.\nStakes if we pick wrong: keep a pass-through layer nobody needed and every cache change touches two files forever; drop it and the two services each grow their own adapter glue, which is the DRY violation you asked me to flag aggressively.\nRecommendation: A because two consumers of the same adapter is exactly when a shared facade pays for itself, and the facade is the natural seam for whatever we decide about the shared-instance problem in Section 1.\nNote: options differ in kind, not coverage — no completeness score.\nNet: one thin extra file that centralizes cache access for two services vs one fewer type at the cost of duplicated adapter glue.": "Keep AuthCache facade (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:31:13.613Z"
+      }
+    ],
+    "note": "Exact complete public cf74 retry D4 and D6 requests, selected labels and successful ACKs. No standalone or combined replay grants paid acceptance."
+  }
+}

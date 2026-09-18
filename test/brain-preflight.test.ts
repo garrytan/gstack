@@ -29,6 +29,11 @@ function buildCtx(skillName: string): TemplateContext {
 }
 
 describe('generateBrainPreflight', () => {
+  test('Eng scope selection precedes brain lookup without changing other planning entrypoints', () => {
+    expect(generateBrainPreflight(buildCtx('plan-eng-review'))).toContain('After the Scope gate, before later review questions');
+    expect(generateBrainPreflight(buildCtx('plan-eng-review'))).not.toContain('Before asking any clarifying questions');
+    expect(generateBrainPreflight(buildCtx('plan-ceo-review'))).toContain('Before asking any clarifying questions');
+  });
   test('emits content for every registered preflight skill', () => {
     for (const skill of Object.keys(SKILL_DIGEST_SUBSETS)) {
       const out = generateBrainPreflight(buildCtx(skill));

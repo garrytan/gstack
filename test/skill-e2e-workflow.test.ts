@@ -1,4 +1,3 @@
-import { coverageAuditReadEvidence, type CoverageAuditFiles } from './helpers/coverage-audit-evidence';
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
@@ -9,11 +8,17 @@ import {
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
 import { spawnSync } from 'child_process';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { extractSkillBody } from './helpers/skill-fixture';
+import { createCoverageAuditFixture } from './fixtures/coverage-audit-fixture';
+import { validateCoverageAudit, type CoverageFile } from './helpers/coverage-audit';
+import { runRecordedOfficeHoursAttempt, OFFICE_HOURS_BUN_GRACE_MS } from './helpers/office-hours-attempt';
+import { resolveEvalModel } from '../lib/eval-model';
 
-const evalCollector = createEvalCollector('e2e-workflow');
+const evalCollector = createEvalCollector('e2e');
 
 // --- Document-Release skill E2E ---
 
@@ -325,135 +330,63 @@ IMPORTANT: The install directory is at ./.claude/skills/gstack — use that exac
 // --- Test Coverage Audit E2E ---
 
 describeIfSelected('Test Coverage Audit E2E', ['ship-coverage-audit'], () => {
-  let coverageDir: string;
-  let coverageFiles: CoverageAuditFiles;
-
-  beforeAll(() => {
-    coverageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-coverage-'));
-
-    // Copy ship skill files
-    copyDirSync(path.join(ROOT, 'ship'), path.join(coverageDir, 'ship'));
-    copyDirSync(path.join(ROOT, 'review'), path.join(coverageDir, 'review'));
-
-    // Create a Node.js project WITH test framework but coverage gaps
-    fs.writeFileSync(path.join(coverageDir, 'package.json'), JSON.stringify({
-      name: 'test-coverage-app',
-      version: '1.0.0',
-      type: 'module',
-      scripts: { test: 'echo "no tests yet"' },
-      devDependencies: { vitest: '^1.0.0' },
-    }, null, 2));
-
-    // Create vitest config
-    fs.writeFileSync(path.join(coverageDir, 'vitest.config.ts'),
-      `import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: {} });\n`);
-
-    fs.writeFileSync(path.join(coverageDir, 'VERSION'), '0.1.0.0\n');
-    fs.writeFileSync(path.join(coverageDir, 'CHANGELOG.md'), '# Changelog\n');
-
-    // Create source file with multiple code paths
-    fs.mkdirSync(path.join(coverageDir, 'src'), { recursive: true });
-    fs.writeFileSync(path.join(coverageDir, 'src', 'billing.ts'), `
-export function processPayment(amount: number, currency: string) {
-  if (amount <= 0) throw new Error('Invalid amount');
-  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');
-  return { status: 'success', amount, currency };
-}
-
-export function refundPayment(paymentId: string, reason: string) {
-  if (!paymentId) throw new Error('Payment ID required');
-  if (!reason) throw new Error('Reason required');
-  return { status: 'refunded', paymentId, reason };
-}
-`);
-
-    // Create a test directory with ONE test (partial coverage)
-    fs.mkdirSync(path.join(coverageDir, 'test'), { recursive: true });
-    fs.writeFileSync(path.join(coverageDir, 'test', 'billing.test.ts'), `
-import { describe, test, expect } from 'vitest';
-import { processPayment } from '../src/billing';
-
-describe('processPayment', () => {
-  test('processes valid payment', () => {
-    const result = processPayment(100, 'USD');
-    expect(result.status).toBe('success');
-  });
-  // GAP: no test for invalid amount
-  // GAP: no test for unsupported currency
-  // GAP: refundPayment not tested at all
-});
-`);
-
-    coverageFiles = {
-      cwd: coverageDir,
-      source: { path: path.join(coverageDir, 'src/billing.ts'), content: fs.readFileSync(path.join(coverageDir, 'src/billing.ts'), 'utf8') },
-      tests: { path: path.join(coverageDir, 'test/billing.test.ts'), content: fs.readFileSync(path.join(coverageDir, 'test/billing.test.ts'), 'utf8') },
-    };
-
-    // Init git repo with main branch
-    const run = (cmd: string, args: string[]) =>
-      spawnSync(cmd, args, { cwd: coverageDir, stdio: 'pipe', timeout: 5000 });
-    run('git', ['init', '-b', 'main']);
-    run('git', ['config', 'user.email', 'test@test.com']);
-    run('git', ['config', 'user.name', 'Test']);
-    run('git', ['add', '.']);
-    run('git', ['commit', '-m', 'initial commit']);
-
-    // Create feature branch
-    run('git', ['checkout', '-b', 'feature/billing']);
-  });
-
-  afterAll(() => {
-    try { fs.rmSync(coverageDir, { recursive: true, force: true }); } catch {}
-  });
-
   testConcurrentIfSelected('ship-coverage-audit', async () => {
-    const result = await runSkillTest({
-      prompt: `Read the file ship/SKILL.md for the ship workflow instructions.
+    let coverageDir: string | undefined;
+    let files: CoverageFile[] = [];
+    try {
+      await runRecordedOfficeHoursAttempt({
+        collector: evalCollector, name: 'ship-coverage-audit', suite: 'Test Coverage Audit E2E',
+        model: process.env.EVALS_MODEL ?? resolveEvalModel('capture'),
+        // Keep the original 300s Bun cap and 120s runner work budget, including
+        // the existing helper's bounded abort/drain/record reserve in that cap.
+        budgetMs: CAPTURE_MS - OFFICE_HOURS_BUN_GRACE_MS,
+        run: async signal => {
+          coverageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-coverage-'));
+          copyDirSync(path.join(ROOT, 'ship'), path.join(coverageDir, 'ship'));
+          copyDirSync(path.join(ROOT, 'review'), path.join(coverageDir, 'review'));
+          fs.writeFileSync(path.join(coverageDir, 'ship', 'SKILL.md'), extractSkillBody(path.join(ROOT, 'ship')));
+          createCoverageAuditFixture(coverageDir);
+          files = ['src/billing.ts', 'test/billing.test.ts'].map(relative => {
+            const file = path.join(coverageDir!, relative);
+            // The complete contents and fresh marker must occur in successful
+            // native tool output; the prompt does not disclose the marker.
+            fs.appendFileSync(file, `\n// coverage-read-evidence: ${randomUUID()}\n`);
+            return { path: file, content: fs.readFileSync(file, 'utf8') };
+          });
+          return runSkillTest({
+            prompt: `Read ship/SKILL.md and ship/sections/test-coverage.md for the current ship workflow.
 
 You are on the feature/billing branch. The base branch is main.
 This is a test project — there is no remote, no PR to create.
 
-ONLY run Step 3.4 (Test Coverage Audit) from the ship workflow.
+Run ONLY Step 7 (Test Coverage Audit), applying the section's audit instructions directly
+to the two supplied billing functions. This is a targeted audit with no branch diff.
+Run the audit inline; do not dispatch subagents.
 Skip all other steps (tests, evals, review, version, changelog, commit, push, PR).
 
 The source code is in ${coverageDir}/src/billing.ts.
 Existing tests are in ${coverageDir}/test/billing.test.ts.
-The test command is: echo "tests pass" (mocked — just pretend tests pass).
 
 Produce the ASCII coverage diagram showing which code paths are tested and which have gaps.
-Do NOT generate new tests — just produce the diagram and coverage summary.
-Output the diagram directly.`,
-      workingDirectory: coverageDir,
-      maxTurns: 15,
-      allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
-      timeout: JUDGE_MS,
-      testName: 'ship-coverage-audit',
-      runId,
-    });
-
-    logCost('/ship coverage audit', result);
-    let passed = false;
-    try {
-      expect(result.exitReason).toBe('success');
-
-      // Check output contains coverage diagram elements
-      const output = result.output || '';
-      const hasGap = output.includes('GAP') || output.includes('gap') || output.includes('NO TEST');
-      const hasTested = output.includes('TESTED') || output.includes('tested') || output.includes('✓');
-      const hasCoverage = output.includes('COVERAGE') || output.includes('coverage') || output.includes('paths tested');
-
-      console.log(`Output has GAP markers: ${hasGap}`);
-      console.log(`Output has TESTED markers: ${hasTested}`);
-      console.log(`Output has coverage summary: ${hasCoverage}`);
-
-      // At minimum, the agent should have read the source and test files
-      const reads = coverageAuditReadEvidence(result.transcript, coverageFiles);
-      expect(reads.sourceRead).toBe(true);
-      expect(reads.testsRead).toBe(true);
-      passed = true;
+Output the diagram directly, name both billing functions, and include a coverage summary.
+Do not generate tests or modify the supplied source or tests.`,
+            workingDirectory: coverageDir,
+            maxTurns: 15,
+            allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
+            timeout: JUDGE_MS,
+            testName: 'ship-coverage-audit',
+            runId, signal,
+          });
+        },
+        validate: result => {
+          logCost('/ship coverage audit', result);
+          validateCoverageAudit(result, coverageDir!, files);
+        },
+      });
     } finally {
-      recordE2E(evalCollector, '/ship Step 3.4 coverage audit', 'Test Coverage Audit E2E', result, { passed });
+      // Native retries retain this case's original registration and own fresh
+      // fixtures, so each attempt must prove its own source and test reads.
+      if (coverageDir) try { fs.rmSync(coverageDir, { recursive: true, force: true }); } catch {}
     }
   }, CAPTURE_MS);
 });

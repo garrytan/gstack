@@ -1,0 +1,71 @@
+{
+  "source": "90f099817ac7e56cddafbd6fdac4c12dfd70f4a4",
+  "kind": "captured-public-native-input",
+  "originalPaidOutcome": "pending at capture; this fixture assigns no paid result",
+  "observationSha256": "85ff4bf39ec87b38ca8bd3f47fe64f93fe80b01e450e8103d8724fa513d89c05",
+  "captureAt": "2026-09-15T16:05:07.348Z",
+  "plan": "Please review this plan thoroughly. Write the full reviewed implementation plan, including its final ## GSTACK REVIEW REPORT section, to /tmp/gstack-owned-display-5rq8vgtz/gstack-paid-shard-ZkxGCU/tmp/gstack-e2e-plan-eng-SEQbYK/gstack-test-plan-eng.md (use Edit/Write to that exact path).\nThe separate QA Test Plan artifact belongs at the skill-prescribed test-plan path; keep this requested deliverable as the full reviewed implementation plan.\n\n# Plan: Multi-tenant Auth Refactor\n\n## Existing contracts retained\nThe existing cache adapter keys entries by tenant ID, issuer, audience,\nand policy version. It evicts expired tokens and invalidates entries on\nlogout, token revocation, or tenant suspension. AuthCache retains these\nunchanged validity and tenant-key rules; they do not serialize mutations.\nAuthCache is a service-facing facade over that same existing adapter,\nwith one backing cache. The adapter, its invalidation hooks, and their\nexisting tests remain in use unchanged.\nUnit and integration coverage is planned for the new components and their\nsuccess/error paths. That coverage does not exercise legacyAuthFlow() or\nassert compatibility with its prior behavior.\n\n## Architecture\nTwo new services (`AuthBroker` and `SessionMint`) share a global mutable\n`AuthCache` instance via module-level export. Both services mutate it.\n\n## Code quality\nThe `validateAndDispatch()` function is 60 lines with three nested\ntry/catch blocks; each catch swallows a different error class.\n\n## Tests\nThe existing `legacyAuthFlow()` will get rewritten as part of this work;\nno regression test for the prior behavior is planned.\n\n## Performance\nToken validation issues 5 sequential API calls to the IDP; they could be\nparallelized via Promise.all trivially (calls are independent).\n\n## Architecture (scope smell)\nThis touches 12 files and introduces 4 new classes (TokenStore,\nSessionMint, AuthCache, RequestPolicy). Worth flagging the complexity check.",
+  "planSha256": "9b7790eef8c77ae904c85387896bf53bae6b1dbbccc1a26469fabb425d72e2f0",
+  "calls": [
+    {
+      "sessionId": "8cb0e220-9725-4e5f-a661-26a09d18a235",
+      "toolUseId": "toolu_01D5eTfE8V19aRE7ZqKQaTqZ",
+      "questions": [
+        {
+          "question": "D5 — Keep TokenStore as a separate new class, or fold its role into AuthCache?\nProject/branch/task: Multi-tenant Auth Refactor on `main`; PLAN.md:35 introduces TokenStore alongside AuthCache, which PLAN.md:11-12 already defines as the facade over the one existing cache adapter.\nELI10: The plan ends up with three places that hold tokens: the existing cache adapter (keyed by tenant/issuer/audience/policy version), AuthCache (a new wrapper over that same adapter), and TokenStore (a new class the plan never describes). If TokenStore is just another wrapper for the same tokens, it is a duplicate layer that every bug fix has to be applied to twice. If it holds something genuinely different (refresh tokens? IDP signing keys?), it deserves its own home but the plan needs to say so.\nStakes if we pick wrong: Folding it when it holds a different kind of data forces it back out later; keeping it when it duplicates AuthCache means two invalidation paths that can drift (a revoked token evicted from one but not the other).\nRecommendation: B because the plan gives TokenStore no responsibility distinct from AuthCache, and PLAN.md:12 already commits to \"one backing cache\"; a second store contradicts that contract unless it is justified.\nNote: options differ in kind, not coverage — no completeness score.\nNet: fewer moving parts and one invalidation path vs. a possible future re-split if TokenStore turns out to hold distinct data.",
+          "header": "TokenStore",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Fold TokenStore into AuthCache: one storage facade (recommended)",
+              "description": "✅ One invalidation path: logout/revocation/suspension hooks (PLAN.md:8-9) have a single place to hit.\n✅ Honors the stated \"one backing cache\" contract at PLAN.md:12; drops one class and its tests from the 12-file diff.\n❌ If TokenStore was meant to hold non-token material (keys, refresh grants), that role must be re-homed later (human: ~half day / CC: ~10 min)."
+            },
+            {
+              "label": "Keep TokenStore as its own class (original plan)",
+              "description": "✅ Matches the plan as written; no re-scoping of the storage layer now.\n✅ Leaves room for TokenStore to own a distinct data type if that was the unstated intent.\n❌ Plan must gain a one-paragraph responsibility statement and an explanation of how it stays consistent with AuthCache's invalidation."
+            },
+            {
+              "label": "Hold: I'll state what TokenStore holds before deciding",
+              "description": "✅ Avoids guessing about an undocumented component's purpose.\n✅ Lets the structure question (D6) wait for a grounded answer.\n❌ Pauses the scope gate; Section 1 cannot start until this resolves."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Keep TokenStore as a separate new class, or fold its role into AuthCache?\nProject/branch/task: Multi-tenant Auth Refactor on `main`; PLAN.md:35 introduces TokenStore alongside AuthCache, which PLAN.md:11-12 already defines as the facade over the one existing cache adapter.\nELI10: The plan ends up with three places that hold tokens: the existing cache adapter (keyed by tenant/issuer/audience/policy version), AuthCache (a new wrapper over that same adapter), and TokenStore (a new class the plan never describes). If TokenStore is just another wrapper for the same tokens, it is a duplicate layer that every bug fix has to be applied to twice. If it holds something genuinely different (refresh tokens? IDP signing keys?), it deserves its own home but the plan needs to say so.\nStakes if we pick wrong: Folding it when it holds a different kind of data forces it back out later; keeping it when it duplicates AuthCache means two invalidation paths that can drift (a revoked token evicted from one but not the other).\nRecommendation: B because the plan gives TokenStore no responsibility distinct from AuthCache, and PLAN.md:12 already commits to \"one backing cache\"; a second store contradicts that contract unless it is justified.\nNote: options differ in kind, not coverage — no completeness score.\nNet: fewer moving parts and one invalidation path vs. a possible future re-split if TokenStore turns out to hold distinct data.": "Fold TokenStore into AuthCache: one storage facade (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T16:01:20.021Z"
+    },
+    {
+      "sessionId": "8cb0e220-9725-4e5f-a661-26a09d18a235",
+      "toolUseId": "toolu_01Nw558ayvDbXxrmAs76VYSz",
+      "questions": [
+        {
+          "question": "D6 — Which class/module arrangement for the remaining new units?\nProject/branch/task: Multi-tenant Auth Refactor on `main`; after D4 (strangler) and D5 (TokenStore folded), the plan still introduces AuthBroker, SessionMint, AuthCache and RequestPolicy (PLAN.md:19, :35-36).\nELI10: Both options keep the same features: the two services, the AuthCache facade over the existing adapter, the per-tenant cutover flag, and all retained contracts at PLAN.md:7-13. The only difference is whether RequestPolicy is a class with its own lifecycle or a plain immutable data type plus a pure function (input: tenant + request, output: the policy to apply). Policies are lookups, not things with behavior over time, so a class adds ceremony without adding safety. How AuthCache is shared between the two services (module global vs. injected) is NOT decided here; that is the first Architecture question.\nStakes if we pick wrong: A class-shaped RequestPolicy tends to accrete mutable state and becomes a fourth thing to mock in every test; a plain type is trivially testable but if policy later needs caching or hot-reload it would grow a wrapper.\nRecommendation: A because RequestPolicy's only stated input is the existing \"policy version\" key (PLAN.md:8); a pure function over that is explicit, DRY, and drops the new-unit count from 5 to 3.\nNote: options differ in kind, not coverage — no completeness score.\nNet: three new units and a pure policy function vs. four units with a policy class that has no stated state yet.",
+          "header": "Structure",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3 units: AuthBroker, SessionMint, AuthCache; RequestPolicy as plain type + resolvePolicy() (recommended)",
+              "description": "✅ New-unit count goes 5 → 3; RequestPolicy becomes an immutable type and one pure function that unit-tests in a table.\n✅ No lifecycle or mocking for policy; both services call resolvePolicy() directly and stay explicit.\n❌ If policy resolution later needs its own cache or hot reload, a small wrapper gets added then (human: ~2h / CC: ~5 min)."
+            },
+            {
+              "label": "4 units: AuthBroker, SessionMint, AuthCache, RequestPolicy class (original minus TokenStore)",
+              "description": "✅ Closest to the plan as written; only the D5 fold changes the class list.\n✅ A class gives policy an obvious extension point if it grows behavior.\n❌ A fourth stateful unit to construct, inject and mock in every service test, with no stated state today."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Which class/module arrangement for the remaining new units?\nProject/branch/task: Multi-tenant Auth Refactor on `main`; after D4 (strangler) and D5 (TokenStore folded), the plan still introduces AuthBroker, SessionMint, AuthCache and RequestPolicy (PLAN.md:19, :35-36).\nELI10: Both options keep the same features: the two services, the AuthCache facade over the existing adapter, the per-tenant cutover flag, and all retained contracts at PLAN.md:7-13. The only difference is whether RequestPolicy is a class with its own lifecycle or a plain immutable data type plus a pure function (input: tenant + request, output: the policy to apply). Policies are lookups, not things with behavior over time, so a class adds ceremony without adding safety. How AuthCache is shared between the two services (module global vs. injected) is NOT decided here; that is the first Architecture question.\nStakes if we pick wrong: A class-shaped RequestPolicy tends to accrete mutable state and becomes a fourth thing to mock in every test; a plain type is trivially testable but if policy later needs caching or hot-reload it would grow a wrapper.\nRecommendation: A because RequestPolicy's only stated input is the existing \"policy version\" key (PLAN.md:8); a pure function over that is explicit, DRY, and drops the new-unit count from 5 to 3.\nNote: options differ in kind, not coverage — no completeness score.\nNet: three new units and a pure policy function vs. four units with a policy class that has no stated state yet.": "3 units: AuthBroker, SessionMint, AuthCache; RequestPolicy as plain type + resolvePolicy() (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T16:01:44.116Z"
+    }
+  ]
+}

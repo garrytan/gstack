@@ -22,6 +22,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { buildRunManifest, parseCliOptions, isOverlayTestFile, OVERLAY_MAX_ACTIVE_SHARDS, paidShardWallUpperBoundMs } from '../scripts/test-paid-shards';
 
 const ROOT = path.join(import.meta.dir, '..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf-8');
@@ -123,15 +124,73 @@ describe('evals.yml sliced-lane wiring (post-matrix)', () => {
 });
 
 describe('evals-periodic.yml sliced-lane wiring', () => {
+  test('the CI job cap covers the live periodic slice census plus setup', () => {
+    type Env = Record<string, string>;
+    const workflow = Bun.YAML.parse(periodicYml) as {
+      env?: Env;
+      jobs: Record<string, {
+        env?: Env;
+        'timeout-minutes': number;
+        strategy?: { matrix: { slice: number[] } };
+        steps: Array<{ run?: string; env?: Env }>;
+      }>;
+    };
+    const planner = workflow.jobs['plan-slices'];
+    const executor = workflow.jobs['eval-slices'];
+    const plannerSteps = planner.steps.filter(step => step.run?.includes('EVALS_TIER=periodic ') && step.run.includes('--emit-plan '));
+    const executorSteps = executor.steps.filter(step => step.run?.includes('--plan '));
+    expect(plannerSteps).toHaveLength(1);
+    expect(executorSteps).toHaveLength(1);
+    const cliArgs = (run: string) => {
+      const command = 'bun run scripts/test-paid-shards.ts ';
+      expect(run).toContain(command);
+      return run.slice(run.indexOf(command) + command.length)
+        .replace(/\$\{\{\s*matrix\.slice\s*\}\}/g, '1').trim().split(/\s+/);
+    };
+    const plannerEnv = { ...workflow.env, ...planner.env, ...plannerSteps[0].env };
+    const plannerOptions = parseCliOptions(cliArgs(plannerSteps[0].run!), plannerEnv);
+    const executorOptions = parseCliOptions(cliArgs(executorSteps[0].run!), {
+      ...workflow.env, ...executor.env, ...executorSteps[0].env,
+    });
+    expect(plannerEnv.EVALS_ALL).toBe('1');
+    expect(plannerOptions.tier).toBe('periodic');
+    expect(executorOptions.tier).toBe('periodic');
+    const slices = executor.strategy!.matrix.slice;
+    expect(slices).toEqual(Array.from({ length: plannerOptions.slices }, (_, i) => i + 1));
+    const manifest = buildRunManifest({
+      tier: plannerOptions.tier, sliceCount: plannerOptions.slices,
+      dedicatedAutoplanSlice: plannerOptions.dedicatedAutoplanSlice,
+      evalsAll: true, env: plannerEnv, rootDir: ROOT,
+    });
+    // Resolve the same per-file walls and overlay admission limit as execution.
+    const explicitWall = executorOptions.timeoutExplicit ? executorOptions.timeoutMs : undefined;
+    const setupAllowanceMinutes = 20;
+    const allowances = slices.map(slice => {
+      const files = manifest.entries.filter(entry => entry.status === 'planned' && entry.slice === slice).map(entry => entry.file);
+      const normal = files.filter(file => !isOverlayTestFile(file));
+      const overlay = files.filter(isOverlayTestFile);
+      const bound = (group: string[], jobs: number) => paidShardWallUpperBoundMs(group, jobs, explicitWall);
+      return (bound(normal, executorOptions.jobs) + bound(overlay, Math.min(executorOptions.jobs, OVERLAY_MAX_ACTIVE_SHARDS))) / 60_000;
+    });
+    expect(Math.max(...allowances)).toBeGreaterThan(0);
+    const requiredMinutes = Math.max(...allowances) + setupAllowanceMinutes;
+    expect(executor['timeout-minutes'],
+      `periodic slice allowances ${allowances.join(', ')} minutes + ${setupAllowanceMinutes} minutes setup require ${requiredMinutes} CI minutes`,
+    ).toBeGreaterThanOrEqual(requiredMinutes);
+  });
+
   test('planner/executor/report tier=periodic and slice counts agree', () => {
     expect(periodicYml).toMatch(/EVALS_TIER=periodic bun run scripts\/test-paid-shards\.ts --tier periodic --emit-plan/);
     expect(periodicYml).toMatch(/EVALS_TIER=periodic bun run scripts\/test-paid-shards\.ts --tier periodic --plan .* --slice /);
     expect(periodicYml).toMatch(/EVALS_TIER=periodic bun run scripts\/test-paid-shards\.ts --tier periodic --report /);
     const planned = plannedSlices(periodicYml);
     const matrices = matrixSlices(periodicYml);
-    expect(planned).toHaveLength(1);
-    expect(matrices).toHaveLength(1);
-    expect(matrices[0]).toEqual(Array.from({ length: planned[0] }, (_, i) => i + 1));
+    // Periodic work and the full gate census have distinct immutable plans.
+    expect(planned).toHaveLength(2);
+    expect(matrices).toHaveLength(2);
+    for (const [index, count] of planned.entries()) {
+      expect(matrices[index]).toEqual(Array.from({ length: count }, (_, i) => i + 1));
+    }
   });
 });
 

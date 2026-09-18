@@ -71,9 +71,9 @@ Conventions:
 Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 
 ### Extraction
-- `archive [path]`: Save complete page as MHTML via CDP
+- `archive [path]`: Save complete page as MHTML via CDP.
 - `download <url|@ref> [path] [--base64] [--navigate]`: Download URL or media element to disk using browser cookies.
-- `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]`: Bulk download all media from page.
+- `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]`: Bulk download all media from page to --dir (default: <temp>/browse-scrape-<timestamp>).
 
 ### Inspection
 - `attrs <sel|@ref>`: Element attributes as JSON
@@ -81,22 +81,22 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `console [--clear|--errors]`: Console messages (--errors filters to error/warning)
 - `cookies`: All cookies as JSON
 - `css <sel> <prop>`: Computed CSS value
-- `dialog [--clear]`: Dialog messages
+- `dialog [--clear]`: Captured alert/confirm/prompt messages as text/JSON events.
 - `eval <file> [--out <file>] [--raw]`: Run JavaScript from a file in the page context and return result as string.
-- `inspect [selector] [--all] [--history]`: Deep CSS inspection via CDP — full rule cascade, box model, computed styles
+- `inspect [selector] [--all] [--history]`: Deep CSS inspection via CDP.
 - `is <prop> <sel|@ref>`: State check on element.
 - `js <expr> [--out <file>] [--raw]`: Run inline JavaScript expression in the page context and return result as string.
-- `network [--clear]`: Network requests
-- `perf`: Page load timings
+- `network [--clear]`: Captured network requests as lines with method, status, resource type, and URL.
+- `perf`: Page load timings as JSON-ish milliseconds for navigation/load phases
 - `storage  |  storage set <key> <value>`: Read both localStorage and sessionStorage as JSON.
 - `ux-audit`: Extract page structure for UX behavioral analysis — site ID, nav, headings, text blocks, interactive elements.
 
 ### Interaction
-- `cleanup [--ads] [--cookies] [--sticky] [--social] [--all]`: Remove page clutter (ads, cookie banners, sticky elements, social widgets)
+- `cleanup [--ads] [--cookies] [--sticky] [--social] [--overlays] [--clutter] [--all]`: Remove page clutter by hiding matched elements.
 - `click <sel>`: Click element
 - `cookie <name>=<value>`: Set cookie on current page domain
 - `cookie-import <json>`: Import cookies from JSON file
-- `cookie-import-browser [browser] [--domain d]`: Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import)
+- `cookie-import-browser [browser] [--domain d] [--profile p] [--all]`: Import cookies from installed Chromium-family browsers.
 - `dialog-accept [text]`: Auto-accept next alert/confirm/prompt.
 - `dialog-dismiss`: Auto-dismiss next dialog
 - `fill <sel> <val>`: Fill input
@@ -115,10 +115,10 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 ### Meta
 - `chain  (JSON via stdin)`: Run a sequence of commands from JSON on stdin.
 - `domain-skill save|list|show|edit|promote-to-global|rollback|rm <host?>`: Per-site notes the agent writes for itself.
-- `frame <sel|@ref|--name n|--url pattern|main>`: Switch to iframe context (or main to return)
-- `inbox [--clear]`: List messages from sidebar scout inbox
+- `frame <sel|@ref|--name n|--url pattern|main>`: Switch command context to an iframe, or `main` to return to the top page.
+- `inbox [--clear]`: List sidebar inbox messages from the visible browser extension as JSON/text; --clear removes them after reading.
 - `skill list|show|run|test|rm <name?> [--arg k=v]... [--timeout=Ns]`: Run a browser-skill: deterministic Playwright script that drives the daemon over loopback HTTP.
-- `watch [stop]`: Passive observation — periodic snapshots while user browses
+- `watch [stop]`: Start passive observation mode: records periodic snapshots while the user browses and blocks mutation commands.
 
 ### Navigation
 - `back`: History back
@@ -135,7 +135,7 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `html [selector]`: innerHTML of selector (throws if not found), or full page HTML if no selector given
 - `links`: All links as "text → href"
 - `media [--images|--videos|--audio] [selector]`: All media elements (images, videos, audio) with URLs, dimensions, types
-- `text`: Cleaned page text
+- `text [selector|@ref]`: Cleaned visible page text, or cleaned text for a CSS selector/@ref when one is provided
 
 ### Server
 - `connect`: Launch headed Chromium with Chrome extension

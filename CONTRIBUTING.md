@@ -179,10 +179,17 @@ Bun auto-loads `.env` — no extra config. Conductor workspaces inherit `.env` f
 | 2+3 | `bun run test:evals` | ~$4 combined | E2E + LLM-as-judge (runs both) |
 
 ```bash
-bun run test                 # Tier 1 only (run before every commit, ~90-100s for the full ~8,700-test suite)
+bun run test                 # Final full free acceptance after focused repairs and source freeze
 bun run test:e2e             # Tier 2: E2E only (needs EVALS=1, can't run inside Claude Code)
 bun run test:evals           # Tier 2 + 3 combined (~$4.35/run)
 ```
+
+Follow [Validation discipline in AGENTS.md](AGENTS.md#validation-discipline):
+reproduce known failures with focused checks, verify adjacent source and
+generation contracts, then run the affected and remaining required selected
+evaluations. Finish review fixes and release preparation before running the
+full free suite once on the frozen code. During repairs, focused checks replace
+a full-suite run before every commit.
 
 ### Tier 1: Static validation (free)
 
@@ -328,7 +335,7 @@ Each dimension is scored 1-5. Threshold: every dimension must score **≥ 4**. T
 
 ### CI
 
-A GitHub Action (`.github/workflows/skill-docs.yml`) runs `bun run gen:skill-docs --dry-run` on every push and PR. If the generated SKILL.md files differ from what's committed, CI fails. This catches stale docs before they merge.
+A GitHub Action (`.github/workflows/skill-docs.yml`) generates all hosts on pushes to main and on PRs, then rejects tracked differences and nonignored untracked output. Generation errors also fail the job. Optional ignored host caches are not compared against Git.
 
 Supply-chain gates run alongside it:
 
@@ -358,6 +365,13 @@ bun run skill:check
 # Or use watch mode — auto-regenerates on save
 bun run dev:skill
 ```
+
+`skill:check` renders all hosts into temporary storage using canonical content
+paths and host defaults, validates the complete generated content, and compares
+expected tracked artifacts against the checkout. Missing, changed, or nonignored
+untracked output fails. Local ignored host caches, including symlinked caches,
+are left untouched; the checker works without them. A generation failure cannot
+produce a successful check of partial output.
 
 For template authoring best practices (natural language over bash-isms, dynamic branch detection, `{{BASE_BRANCH_DETECT}}` usage), see CLAUDE.md's "Writing SKILL templates" section.
 

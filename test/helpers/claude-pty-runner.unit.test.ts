@@ -31,6 +31,7 @@ import {
   isScopeGateQuestionVisible,
   isScopeGateAutoSelectVisible,
   isPlanReadyVisible,
+  isAutoDecidedVisible,
   parseNumberedOptions,
   classifyVisible,
   TAIL_SCAN_BYTES,
@@ -39,6 +40,8 @@ import {
   stripAnsi,
   auqFingerprint,
   COMPLETION_SUMMARY_RE,
+  MODE_RE,
+  findModeOption,
   classifyPlanCountFrame,
   capturePlanCountQuestion,
   matchesNativePlanQuestion,
@@ -58,6 +61,102 @@ import {
   type ClaudePtyOptions,
   type AskUserQuestionFingerprint,
 } from './claude-pty-runner';
+
+describe('saved preference annotation', () => {
+  test('recognizes the explicit preference attribution from the timed-out CEO capture', () => {
+    const visible = 'Now I have a clear picture of the branch. Let me proceed with the full review. ' +
+      'Mode is HOLD SCOPE (auto-decided from plan-tune preference).';
+    expect(isAutoDecidedVisible(visible)).toBe(true);
+    expect(classifyVisible(visible)?.outcome).toBe('auto_decided');
+    expect(classifyVisible(visible.replace(/\s+/g, ''))?.outcome).toBe('auto_decided');
+  });
+
+  test('retains the canonical annotation and its precedence over plan-ready', () => {
+    const visible = 'Auto-decided review mode → HOLD SCOPE (your preference). Change with /plan-tune.\nReady to execute?';
+    expect(classifyVisible(visible)?.outcome).toBe('auto_decided');
+  });
+
+  test('does not equate an unrequested choice or plan-tune advice with a saved preference', () => {
+    for (const visible of [
+      'Mode is HOLD SCOPE (AUTO_DECIDED).',
+      'I auto-decided HOLD SCOPE because this is a refactor.',
+      'I auto-decided HOLD SCOPE. You can set a plan-tune preference later.',
+      'Mode is HOLD SCOPE (not auto-decided from plan-tune preference).',
+      'Mode is HOLD SCOPE (will be auto-decided from plan-tune preference).',
+    ]) expect(isAutoDecidedVisible(visible)).toBe(false);
+  });
+});
+
+describe('mode option rendering', () => {
+  test('letter-prefixed native mode labels retain their actual target indices', () => {
+    const options = ['C — HOLD SCOPE (Recommended)', 'B — SELECTIVE EXPANSION', 'A — SCOPE EXPANSION', 'D — SCOPE REDUCTION']
+      .map((label, i) => ({ index: i + 1, label }));
+    expect(options.every(option => MODE_RE.test(option.label))).toBe(true);
+    for (const [mode, index] of [['HOLD SCOPE', 1], ['SELECTIVE EXPANSION', 2], ['SCOPE EXPANSION', 3], ['SCOPE REDUCTION', 4]] as const) {
+      expect(findModeOption(options, mode)?.index).toBe(index);
+    }
+    expect(findModeOption(options.filter(option => option.index !== 3), 'SCOPE EXPANSION')).toBeUndefined();
+  });
+  test('letter-prefixed matching excludes prose, unrelated choices and unsupported framing', () => {
+    for (const label of ['Choose C — HOLD SCOPE', 'Approach C — HOLD SCOPE', 'C — Keep this approach\nHOLD SCOPE',
+      'B — Ideal Architecture (Recommended)', 'A — Fix-Only (Minimal Viable)', 'CC — HOLD SCOPE', 'E — HOLD SCOPE',
+      '1 — HOLD SCOPE', 'C: HOLD SCOPE', 'C - HOLD SCOPE', 'C — SCOPE EXPANSIONIST']) {
+      expect(MODE_RE.test(label), label).toBe(false);
+      expect(findModeOption([{ index: 1, label }], 'HOLD SCOPE'), label).toBeUndefined();
+    }
+    expect(findModeOption([{ index: 1, label: 'C — HOLD SCOPE\nPrefer this over A — SCOPE EXPANSION.' }], 'SCOPE EXPANSION')).toBeUndefined();
+  });
+  test('parenthesized native modes preserve capture group and actual target indices', () => {
+    const options = ['A) SCOPE EXPANSION', 'B) SELECTIVE EXPANSION (recommended)', 'C) HOLD SCOPE', 'D) SCOPE REDUCTION']
+      .map((label, i) => ({ index: i + 1, label }));
+    for (const [mode, index] of [['SCOPE EXPANSION', 1], ['SELECTIVE EXPANSION', 2], ['HOLD SCOPE', 3], ['SCOPE REDUCTION', 4]] as const) {
+      expect(MODE_RE.exec(options[index - 1]!.label)?.[1]).toBe(mode);
+      expect(findModeOption(options, mode)?.index).toBe(index);
+    }
+    expect(findModeOption(options.filter(option => option.index !== 1), 'SCOPE EXPANSION')).toBeUndefined();
+    expect(findModeOption([{ index: 3, label: '**C) HOLD SCOPE**' }], 'HOLD SCOPE')?.index).toBe(3);
+  });
+  test('parenthesized mode recognition rejects prose, descriptions and unrelated framing', () => {
+    for (const label of ['Discuss C) HOLD SCOPE', 'Approach C) HOLD SCOPE', 'C) Keep this approach\nHOLD SCOPE',
+      'B) Ideal Architecture (Recommended)', 'A) Fix-Only (Minimal Viable)', 'CC) HOLD SCOPE', 'E) HOLD SCOPE',
+      '1) HOLD SCOPE', '(C) HOLD SCOPE', 'C: HOLD SCOPE', 'C - HOLD SCOPE', 'C) SCOPE EXPANSIONIST']) {
+      expect(MODE_RE.test(label), label).toBe(false);
+      expect(findModeOption([{ index: 1, label }], 'HOLD SCOPE'), label).toBeUndefined();
+    }
+    expect(findModeOption([{ index: 1, label: 'C) HOLD SCOPE\nPrefer this over A) SCOPE EXPANSION.' }], 'SCOPE EXPANSION')).toBeUndefined();
+  });
+  test('selects the actual collapsed-space mode from the failed periodic menu', () => {
+    const options = [
+      { index: 1, label: 'HOLDSCOPE(recommended)\rMake the reliability wave bulletproof.' },
+      { index: 2, label: 'SELECTIVEEXPANSION\rKeep the current scope as the baseline.' },
+      { index: 3, label: 'SCOPEREDUCTION\rFind the minimum subset.' },
+      { index: 4, label: 'SCOPEEXPANSION\rDream up adjacent reliability improvements.' },
+      { index: 5, label: 'Type something.' },
+      { index: 6, label: 'Chat about this\rUser answered → HOLD SCOPE (recommended)' },
+    ];
+    expect(options.slice(0, 4).every(option => MODE_RE.test(option.label))).toBe(true);
+    expect(findModeOption(options, 'SCOPE EXPANSION')?.index).toBe(4);
+    expect(findModeOption(options, 'HOLD SCOPE')?.index).toBe(1);
+  });
+
+  test('retains ordinary, wrapped, and emphasized mode labels', () => {
+    for (const label of ['SCOPE EXPANSION (Recommended)', 'scope\t expansion', 'SCOPE\r\nEXPANSION', '**SCOPE EXPANSION**']) {
+      expect(findModeOption([{ index: 2, label }], 'SCOPE EXPANSION')?.index).toBe(2);
+    }
+  });
+
+  test('an omitted target remains missing, including when another mode mentions it', () => {
+    const options = [
+      { index: 1, label: 'HOLD SCOPE\rPrefer this over SCOPE EXPANSION.' },
+      { index: 2, label: 'SELECTIVE EXPANSION' },
+      { index: 3, label: 'SCOPE REDUCTION' },
+      { index: 4, label: 'Chat about this\rSCOPEEXPANSION (old screen)' },
+    ];
+    expect(findModeOption(options, 'SCOPE EXPANSION')).toBeUndefined();
+    expect(MODE_RE.test(options[3]!.label)).toBe(false);
+    expect(MODE_RE.test('Scope expansionist')).toBe(false);
+  });
+});
 
 describe('isPermissionDialogVisible', () => {
   test('matches "Bash command requires permission" prompts', () => {
@@ -1767,6 +1866,22 @@ describe('Step0BoundaryPredicate per-skill', () => {
   });
 
   describe('ceoStep0Boundary', () => {
+    test('FIRES on retained letter-prefixed mode labels, not letter-prefixed architecture', () => {
+      expect(ceoStep0Boundary(fp('D3 — Which review mode should this CEO review run in?', [
+        'C — HOLD SCOPE (Recommended)', 'B — SELECTIVE EXPANSION', 'A — SCOPE EXPANSION', 'D — SCOPE REDUCTION',
+      ]))).toBe(true);
+      expect(ceoStep0Boundary(fp('D2 — Which implementation approach should this plan follow?', [
+        'B — Ideal Architecture (Recommended)', 'A — Fix-Only (Minimal Viable)',
+      ]))).toBe(false);
+      expect(ceoStep0Boundary(fp('Prefer HOLD SCOPE for this decision?', ['C — Keep the dispatcher', 'A — Replace it']))).toBe(false);
+    });
+    test('parenthesized mode labels end setup, while approach labels and mode mentions do not', () => {
+      expect(ceoStep0Boundary(fp('D1 — Which CEO review mode should I run?', [
+        'A) SCOPE EXPANSION', 'B) SELECTIVE EXPANSION (recommended)', 'C) HOLD SCOPE', 'D) SCOPE REDUCTION',
+      ]))).toBe(true);
+      expect(ceoStep0Boundary(fp('D2 — Which implementation approach?', ['B) Ideal Architecture', 'A) Fix-Only']))).toBe(false);
+      expect(ceoStep0Boundary(fp('Prefer HOLD SCOPE?', ['Discuss C) HOLD SCOPE', 'A) Replace it']))).toBe(false);
+    });
     test('FIRES on Step 0F mode-pick AUQ (HOLD SCOPE in options)', () => {
       const f = fp('Pick a mode', ['HOLD SCOPE', 'SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'SCOPE REDUCTION']);
       expect(ceoStep0Boundary(f)).toBe(true);
@@ -1976,6 +2091,55 @@ describe('Step0BoundaryPredicate per-skill', () => {
   });
 
   describe('designStep0Boundary', () => {
+    const focusTemplate = readFileSync(new URL('../../plan-design-review/SKILL.md.tmpl', import.meta.url), 'utf8')
+      .match(/### 0D\. Focus Areas\nAskUserQuestion: "([^\n]+)"/)?.[1] ?? '';
+    const focusQuestion = (gaps: string) => focusTemplate.replace('{N}', '4').replace('{X, Y, Z}', gaps);
+    const focusOptions = ['Review all 7 dimensions', 'Focus on specific areas'];
+    const nativeFocus = (question: string): AskUserQuestionFingerprint => {
+      const fingerprint = nativePlanCallFingerprint({
+        sessionId: 'design-focus-session', toolUseId: 'toolu-design-focus',
+        answered: true, failed: false, answers: { [question]: focusOptions[0]! },
+        unansweredQuestionIndices: [],
+        questions: [{ question, header: 'Focus areas', multiSelect: false,
+          options: focusOptions.map(label => ({ label, description: label })) }],
+      }, 0, true);
+      fingerprint.promptSnippet = question.slice(0, 240);
+      return fingerprint;
+    };
+
+    test('FIRES on the current template Step 0D focus-area question', () => {
+      expect(focusTemplate).toContain('Want me to focus on specific areas instead of all 7?');
+      const question = focusQuestion('hierarchy, spacing, contrast');
+      expect(question.length).toBeLessThanOrEqual(240);
+      expect(designStep0Boundary(fp(question, focusOptions))).toBe(true);
+    });
+
+    test('reads the owned full focus question when its gap list exceeds the diagnostic snippet', () => {
+      const question = focusQuestion('primary-action hierarchy, inconsistent vertical rhythm, inaccessible error contrast, label-size drift, absent loading feedback, and missing recovery states');
+      const fingerprint = nativeFocus(question);
+      expect(fingerprint.promptSnippet).not.toContain('Want me to focus');
+      expect(question.length).toBeGreaterThan(240);
+      expect(designStep0Boundary(fingerprint)).toBe(true);
+    });
+
+    test.each([
+      "I've rated this plan 4/10 on design completeness. Should we add a loading state?",
+      'Want me to focus on specific areas instead of all 7?',
+      "I've rated the error message 4/10 on design completeness. Want me to focus on specific areas instead of all 7?",
+      "I've rated this plan 4/10 on design completeness. Should we focus on correcting error contrast?",
+    ])('does NOT turn a later finding into setup from a partial focus match: %s', question => {
+      expect(designStep0Boundary(nativeFocus(question))).toBe(false);
+    });
+
+    test('does NOT combine partial focus matches across separate native question tabs', () => {
+      const fingerprint = nativeFocus("I've rated this plan 4/10 on design completeness. Should we add a loading state?");
+      const call = fingerprint.nativeCall!;
+      const secondQuestion = 'Want me to focus on specific areas instead of all 7?';
+      call.questions.push({ ...call.questions[0]!, question: secondQuestion });
+      call.answers![secondQuestion] = focusOptions[0]!;
+      expect(designStep0Boundary(fingerprint)).toBe(false);
+    });
+
     test('FIRES on design system / posture mention', () => {
       const f = fp('Pick a design posture for this review', ['Polish', 'Triage', 'Expansion']);
       expect(designStep0Boundary(f)).toBe(true);
@@ -2677,7 +2841,7 @@ describe('native question identity outranks permission wording', () => {
       frame.replace('Should we create a file', 'Should we delete the file'),
       frame.replace('2.Keep current policy', '2.Allow all edits'),
       frame.replace(question.question, 'A different question with the same header?'),
-      frame + '\nDo you want to create actual.md?\n❯1.Yes\n2.Yes, and switch to accept edits\n3.No\nEsc to cancel · Tab to amend',
+      frame + '\nDo you want to create actual.md?\n❯1.Yes\n2.Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)\n3.No\nEsc to cancel · Tab to amend',
     ]) expect(matchesNativePlanQuestion(different, pending)).toBe(false);
     expect(capturePlanCountQuestion(frame, new Set(), 0, false, { ...pending, failed: true })).toBeNull();
     expect(capturePlanCountQuestion(frame, new Set(), 0, false)).toBeNull();

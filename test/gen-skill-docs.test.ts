@@ -1,11 +1,14 @@
 import { describe, test, expect, afterAll } from 'bun:test';
 import { assertSinglePreamble } from '../scripts/gen-skill-docs';
+import { validateSkillFrontmatter } from '../scripts/skill-check';
+import { externalHostPathLeaks } from './helpers/skill-parser';
 import { COMMAND_DESCRIPTIONS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
+import { runCapturedCommand } from './helpers/sync-command-capture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
@@ -233,22 +236,11 @@ describe('gen-skill-docs', () => {
   // whose plain `description:` scalar contains an interior ": " (read as a nested
   // mapping). Parse EVERY generated frontmatter block with a strict YAML parser,
   // not just string-check that name:/description: exist.
-  function frontmatterBlock(content: string): string {
-    expect(content.startsWith('---\n')).toBe(true);
-    const end = content.indexOf('\n---', 4);
-    expect(end).toBeGreaterThan(0);
-    return content.slice(4, end);
-  }
-
   test('every generated SKILL.md frontmatter parses as strict YAML', () => {
     for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
-      const fm = frontmatterBlock(content);
-      let parsed: any;
-      expect(() => { parsed = Bun.YAML.parse(fm); },
-        `frontmatter for ${skill.dir} must be valid YAML`).not.toThrow();
-      expect(typeof parsed?.name).toBe('string');
-      expect(typeof parsed?.description).toBe('string');
+      expect(validateSkillFrontmatter(content),
+        `frontmatter for ${skill.dir} must be valid YAML with string name/description`).toEqual([]);
     }
   });
 
@@ -260,9 +252,8 @@ describe('gen-skill-docs', () => {
       if (!entry.isDirectory()) continue;
       const mdPath = path.join(agentsDir, entry.name, 'SKILL.md');
       if (!fs.existsSync(mdPath)) continue;
-      const fm = frontmatterBlock(fs.readFileSync(mdPath, 'utf-8'));
-      expect(() => Bun.YAML.parse(fm),
-        `Codex frontmatter for ${entry.name} must be valid YAML`).not.toThrow();
+      expect(validateSkillFrontmatter(fs.readFileSync(mdPath, 'utf-8')),
+        `Codex frontmatter for ${entry.name} must be valid YAML with string name/description`).toEqual([]);
     }
   });
 
@@ -897,17 +888,29 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
 
   test('plan and ship modes share codepath tracing methodology', () => {
     // Review mode delegates test coverage to the Testing specialist subagent (Review Army)
+    const normalizedPlanSkill = planSkill.replace(/\s+/g, ' ');
+    const normalizedShipSkill = shipSkill.replace(/\s+/g, ' ');
     const sharedPhrases = [
       'Trace data flow',
       'Diagram the execution',
+      'concrete source and test files',
+      'dedicated tool call before drawing the diagram',
+      'after Scope Challenge resolves and before Step 2. Map user flows',
+      'use separate calls for',
+      'context. Base the diagram on that read',
+      'start Test review output with the coverage diagram',
+      'In full plan reviews, put it inside the normal Test review section',
+      'Required outputs keep the final terminal report order',
+      'Avoid bare `[ ]` or `[x]` in diagrams',
+      'keep user-flow markers off code-path rows',
       'Quality scoring rubric',
       '★★★',
       '★★',
       'GAP',
     ];
     for (const phrase of sharedPhrases) {
-      expect(planSkill).toContain(phrase);
-      expect(shipSkill).toContain(phrase);
+      expect(normalizedPlanSkill).toContain(phrase);
+      expect(normalizedShipSkill).toContain(phrase);
     }
     // Plan mode traces the plan, not a git diff
     expect(planSkill).toContain('Trace every codepath in the plan');
@@ -939,6 +942,50 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     }
   });
 
+  test('all five plan audit subheadings stay inside Test review while ship keeps its existing depth', () => {
+    const tests = planSkill.split('\n### 3. Test review\n')[1]!.split('\n### 4. Performance review\n')[0]!;
+    const instructions = tests.replace(/```[\s\S]*?```/g, '');
+    const headings = ['Test Framework Detection', 'E2E Test Decision Matrix', 'REGRESSION RULE (mandatory)',
+      'LLM/eval scope', 'Test Plan Artifact'];
+    expect([...instructions.matchAll(/^#### (.+)$/gm)].map(match => match[1])).toEqual(headings);
+    expect(instructions).not.toMatch(/^#{1,3} /m);
+    for (const heading of headings.filter(heading => heading !== 'LLM/eval scope')) {
+      expect(shipSkill).toContain(`\n### ${heading}\n`);
+      expect(shipSkill).not.toContain(`\n#### ${heading}\n`);
+    }
+  });
+
+  test('planned regression coverage gets its own approved contract without making coverage optional', () => {
+    const regression = planSkill.split('\n#### REGRESSION RULE (mandatory)\n')[1]!.split('**Step 4.')[0]!;
+    expect(regression).toContain('critical requirement');
+    expect(regression).toContain('Carry forward an exact approved regression contract; otherwise use one dedicated AskUserQuestion');
+    expect(regression).toContain('behavior to preserve, intentional changes, and acceptance assertions');
+    expect(regression).toContain('Ask how to cover it, not whether to skip it');
+    expect(regression).toContain('before adding the approved contract to the plan');
+    expect(regression).not.toContain('No AskUserQuestion');
+    expect(regression).not.toContain('the diff broke');
+    expect(regression).toContain('not proof that running code already broke');
+  });
+
+  test('plan gap additions wait for their test-contract decision', () => {
+    const action = planSkill.split('**Step 5. Add missing tests to the plan:**')[1]!.split('\n#### Test Plan Artifact\n')[0]!;
+    expect(action).toContain('Collect the requirements for each GAP and the LLM/eval scope above');
+    expect(action).toContain('Carry forward required proof of approved behavior');
+    expect(action).toContain('Mark new contracts and optional depth choices pending until the decision gate below resolves them');
+    expect(action).toContain('**STOP for each pending decision.**');
+    expect(action).toContain('Wait for its answer before applying that remedy');
+    expect(action).not.toContain('report the findings and their dispositions and continue');
+    expect(action).not.toContain('For each GAP identified in the diagram, add a test requirement');
+    expect(action).not.toContain('explain what broke');
+  });
+
+  test('implemented regressions still require an immediate test without a question', () => {
+    const regression = shipSkill.split('### REGRESSION RULE (mandatory)')[1]!.split('**4.')[0]!;
+    expect(regression).toContain('code that previously worked but the diff broke');
+    expect(regression).toContain('written immediately. No AskUserQuestion. No skipping.');
+    expect(regression).toContain('The change introduces a new failure mode for existing callers');
+  });
+
   test('plan and ship modes include test framework detection', () => {
     // Review mode delegates to Testing specialist
     for (const skill of [planSkill, shipSkill]) {
@@ -947,10 +994,28 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     }
   });
 
+  test('plan framework absence keeps requirements without offering test generation', () => {
+    const detection = planSkill.split('\n#### Test Framework Detection\n')[1]!.split('**Step 1.')[0]!;
+    expect(detection).toContain('still produce the coverage diagram and planned test assertions');
+    expect(detection).toContain('State that the framework is unknown');
+    expect(detection).toContain('use the decision gate if selecting one needs approval');
+    expect(detection).toContain('Do not install a framework or write the proposed tests during this review');
+    expect(detection).not.toContain('skip test generation');
+    expect(shipSkill).toContain('use the bootstrap decision already made in Step 4');
+  });
+
   test('plan mode adds tests to plan + includes test plan artifact', () => {
     expect(planSkill).toContain('Add missing tests to the plan');
     expect(planSkill).toContain('eng-review-test-plan');
     expect(planSkill).toContain('Test Plan Artifact');
+    const artifact = planSkill.split('\n#### Test Plan Artifact\n')[1]!;
+    expect(artifact).toContain('After resolving the Test review decisions');
+    expect(artifact).toContain('List any unresolved choices separately as pending, not required implementation');
+    expect(artifact).toContain('Update this artifact if later approved decisions change the tests');
+    expect(artifact).toContain('Use the Review record and write policy above.');
+    expect(artifact).toContain('TEST_PLAN_USER=$(whoami)');
+    expect(artifact).toContain('sanitized `BRANCH` from gstack-slug');
+    expect(artifact).toContain('without an origin, write `local-only`');
   });
 
   test('ship mode auto-generates tests + includes before/after count', () => {
@@ -1118,6 +1183,59 @@ describe('TEST_FAILURE_TRIAGE resolver', () => {
 describe('PLAN_FILE_REVIEW_REPORT resolver', () => {
   const REVIEW_SKILLS = ['plan-ceo-review', 'plan-eng-review', 'plan-design-review', 'codex'];
 
+  for (const [label, skill] of [['Eng', 'plan-eng-review'], ['CEO', 'plan-ceo-review']]) {
+  test(`${label} report example is fenced Markdown, and the original escaped fence is rejected`, async () => {
+    const { marked } = await import('marked');
+    const content = readSkillUnion(skill!);
+    const tokens = marked.lexer(content);
+    const headings = tokens.filter(token => token.type === 'heading' && token.depth === 2);
+    expect(headings.map(token => token.text)).not.toContain('GSTACK REVIEW REPORT');
+    const example = tokens.find(token => token.type === 'code'
+      && token.lang === 'markdown' && token.text.startsWith('## GSTACK REVIEW REPORT\n'));
+    expect(example).toBeDefined();
+    if (example?.type !== 'code') throw new Error('Missing fenced report example');
+    expect(example.text).toContain('| Review | Trigger | Why | Runs | Status | Findings |');
+    expect(example.text).toContain('`/' + skill + '`');
+    // Reproduce the observed literal-backslash delimiters without changing
+    // the parser or preprocessing malformed Markdown into valid fences.
+    const broken = content.replace(example.raw, example.raw.replaceAll('`', '\\`'));
+    expect(broken).not.toBe(content);
+    const brokenTokens = marked.lexer(broken);
+    expect(brokenTokens.some(token => token.type === 'code' && token.lang === 'markdown'
+      && token.text.startsWith('## GSTACK REVIEW REPORT\n'))).toBe(false);
+    expect(brokenTokens.filter(token => token.type === 'heading' && token.depth === 2)
+      .map(token => token.text)).toContain('GSTACK REVIEW REPORT');
+  });
+  }
+
+  test('Eng renderers use real code delimiters without changing confidence rules or report fields', async () => {
+    const {generateConfidenceCalibration} = await import('../scripts/resolvers/confidence');
+    const {generateReviewDashboard, generatePlanFileReviewReport, generateCodexPlanReview} = await import('../scripts/resolvers/review');
+    const {HOST_PATHS} = await import('../scripts/resolvers/types');
+    for (const host of ALL_HOST_CONFIGS) {
+      const ctx = {skillName: 'plan-eng-review', tmplPath: 'plan-eng-review/SKILL.md.tmpl',
+        host: host.name, paths: HOST_PATHS[host.name]!};
+      const confidence = generateConfidenceCalibration(ctx);
+      const dashboard = generateReviewDashboard(ctx);
+      const report = generatePlanFileReviewReport(ctx);
+      const outside = generateCodexPlanReview(ctx);
+      // These four resolver fragments contain no intentional escaped-backtick
+      // example; the preamble does, and is deliberately outside this check.
+      for (const output of [confidence, dashboard, report, outside]) expect(output).not.toContain('\\`');
+      expect(confidence).toBe(generateConfidenceCalibration({...ctx, skillName: 'plan-ceo-review'}).replaceAll('\\`', '`'));
+      const ceoDashboard = generateReviewDashboard({...ctx, skillName: 'plan-ceo-review'}).replaceAll('\\`', '`');
+      const ceoVoiceSource = 'From gstack-review-read output, use entries whose skill is `autoplan-voices` or `design-outside-voices` for the coverage detail below the dashboard.';
+      expect(dashboard).toContain(ceoVoiceSource);
+      expect(ceoDashboard).toContain(ceoVoiceSource);
+      expect(ceoDashboard).toBe(dashboard);
+      for (const field of ['status', 'unresolved', 'critical_gaps', 'issues_found', 'mode', 'commit']) {
+        expect(report).toContain('`' + field + '`');
+      }
+      expect(outside).toContain(host.name === 'codex' ? 'claude auth login' : 'codex login');
+      expect(outside).toContain('A native result never supplies outside coverage');
+    }
+  });
+
   for (const skill of REVIEW_SKILLS) {
     test(`plan file review report appears in ${skill} generated file`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
@@ -1134,6 +1252,17 @@ describe('PLAN_FILE_REVIEW_REPORT resolver', () => {
     expect(content).toContain('/plan-eng-review');
     expect(content).toContain('/plan-design-review');
     expect(content).toContain('/codex review');
+  });
+
+  test('Eng task output follows the same write policy as its report', () => {
+    const content = readSkillUnion('plan-eng-review');
+    // The task example itself has an H2; bound by the following real section.
+    const tasks = content.slice(content.indexOf('## Implementation Tasks'), content.indexOf('## Plan File Review Report'));
+    expect(tasks).toContain('only when the Review record and write policy permits it');
+    expect(tasks).toContain('label the complete task output not persisted');
+    expect(tasks).toContain('write when permitted, including zero tasks');
+    expect(tasks).toContain('When writes are permitted and zero tasks were identified');
+    expect(tasks).not.toContain('always write');
   });
 });
 
@@ -1353,6 +1482,190 @@ describe('Skill invocation during plan mode in preamble', () => {
 
 describe('SPEC_REVIEW_LOOP resolver', () => {
   const content = readSkillUnion('office-hours'); // carved: Phase 5/6 prose moved to section
+  const { generateSpecReviewLoop } = require('../scripts/resolvers/review');
+  const { HOST_PATHS } = require('../scripts/resolvers/types');
+  const render = (skillName: string, host = 'claude') => generateSpecReviewLoop({
+    skillName,
+    tmplPath: `${skillName}/SKILL.md.tmpl`,
+    host,
+    paths: HOST_PATHS[host],
+  });
+
+  test('office-hours prepares a complete reviewer prompt on every host', () => {
+    const { renderOfficeHoursReviewerPrompt } = require('../lib/office-hours-review');
+    for (const host of Object.keys(HOST_PATHS)) {
+      const output = render('office-hours', host);
+      expect(output).toContain('gstack-office-hours-review prepare --design');
+      expect(output).toContain('Before EACH dispatch');
+      expect(output).toContain('all preceding valid round files in order');
+      expect(output).toContain('string unchanged as the prompt');
+      expect(output).toContain('Read the entire prepared prompt');
+      expect(output).toContain('A parent Read does not deliver the file to the reviewer');
+      const prompt = renderOfficeHoursReviewerPrompt({ document: '/tmp/design.md', verdictPath: '/tmp/round-1.json' });
+      expect(prompt).toContain('design and coaching document, produced before engineering');
+      expect(prompt).toContain("startup-mode 'The Assignment'");
+      expect(prompt).toContain("both modes' 'What I noticed about how you think'");
+      expect(prompt).toContain('evaluate their evidence and usefulness');
+      expect(prompt).toContain('do not remove them merely because they are coaching content');
+      expect(prompt).toContain('Unknown customer facts may remain explicit Open Questions or assignments; do not invent answers');
+      expect(prompt).toContain('unsupported claims, contradictions, safety/correctness risks');
+      expect(prompt).toContain('missing behavior needed by the approach the document actually commits to');
+      expect(prompt).toContain('a contradiction or a required behavior an open question does not resolve it');
+      expect(prompt).toContain('clear enough for user approval and the next engineering review');
+      expect(prompt).toContain('Are open discovery questions distinguished from committed behavior?');
+      expect(prompt).toContain('Flag ambiguous or missing behavior in the chosen approach');
+      expect(prompt).not.toContain('Could an engineer implement this without asking questions?');
+      expect(prompt).toContain('return that identical JSON as your entire response');
+      expect(prompt).toContain('include every unresolved problem and necessary remedy, including minor findings');
+      expect(prompt).toContain('classify EVERY preceding finding as resolved, persisting, or unverified');
+      expect(prompt).toContain('Absence from the new findings list is not confirmation');
+      expect(prompt).toContain('specific document decision/behavior proving the status');
+      expect(prompt).toContain('Never invent customer answers');
+      expect(prompt).toContain('"version": 1');
+      expect(prompt).toContain('"prior": []');
+    }
+  });
+
+  test('office-hours checks stop conditions before edits and preserves concerns mechanically', () => {
+    const output = render('office-hours');
+    const step2 = output.slice(output.indexOf('**Step 2:'), output.indexOf('**Step 3:'));
+    expect(step2).toContain('BEFORE fixing any findings or dispatching again');
+    expect(step2).toContain('gstack-office-hours-review check');
+    expect(step2).toContain('PASS: no unresolved findings');
+    expect(step2).toContain('CONVERGENCE: the reviewer explicitly marked a prior obligation persisting');
+    expect(step2).toContain('concrete prior/current finding pair and document evidence');
+    expect(step2).toContain('Shared topic labels or new refinements alone are insufficient');
+    expect(step2).toContain('MAX_ITERATIONS: round 3 completed; stop');
+    expect(step2).toContain('CONTINUE: fix the listed findings');
+    expect(step2).toContain('On a stop, do not fix again or re-dispatch');
+    expect(step2).toContain('finalizer before approval');
+    expect(step2).toContain('gstack-office-hours-review finalize --design');
+    expect(step2).toContain('Recording concerns does not mark them fixed');
+    expect(step2).toContain('Do not edit that generated section');
+    expect(step2).toContain('Then proceed to Step 3 and the existing user approval');
+    expect(step2.indexOf('gstack-office-hours-review check')).toBeLessThan(step2.indexOf('CONTINUE: fix'));
+  });
+
+  test('office-hours finalizes the report after writing it and labels derivable metrics', () => {
+    const output = render('office-hours');
+    expect(output).toContain('with `--report "<report-path>"` after the report exists');
+    expect(output).toContain('Disposition mechanically');
+    expect(output).toContain('Do not\nsummarize or replace that section afterward');
+    expect(output).toContain('Preserve the Assignment, coaching, approval, and Handoff');
+    expect(output).toContain('Confirmed resolutions require explicit later reviewer evidence');
+    expect(output).toContain('finding observations across rounds');
+    expect(output).toContain('attempted fix\nrounds are counted separately');
+    expect(output).toContain('An unavailable score is null, never invented');
+    expect(output).not.toContain('M issues caught and fixed');
+  });
+
+  test('office-hours errors stay explicit and preserve preceding valid evidence', () => {
+    const output = render('office-hours');
+    expect(output).toContain('A missing or invalid verdict is an explicit review failure, never PASS');
+    expect(output).toContain('Preserve the\nfailed output and its error');
+    expect(output).toContain('--unreviewed');
+    expect(output).toContain('preceding valid round files');
+    expect(output).toContain('Do not fabricate JSON or hide a completed verdict');
+    expect(output).toContain('quality bonus, not an approval gate');
+  });
+
+  test('CEO keeps its loop limits, scoring, failure handling, and reporting', () => {
+    const ceo = render('plan-ceo-review');
+    const report = ceo.split('**Step 3:')[1]!;
+    expect(report).toContain('For an unavailable review or missing/invalid grade, use JSON `null`');
+    expect(ceo).toContain('implementable without follow-up questions');
+    expect(ceo).not.toContain('design and coaching document');
+    expect(ceo).not.toContain('gstack-office-hours-review');
+    const dispatch = ceo.slice(ceo.indexOf('**Step 1:'), ceo.indexOf('**Step 2:'));
+    expect(dispatch).toContain("Read Agent's tool definition");
+    expect(dispatch).toContain('Set `run_in_background: false` if that field is available; omit it otherwise');
+    expect(dispatch).toContain('If the result contains a completed review, consume it');
+    expect(dispatch).toContain("If it returns a pending task, use the host's wait tool");
+    expect(dispatch).toContain('With no wait tool, end this response and resume on its completion notification');
+    expect(dispatch).toContain('While waiting, do not advance, edit either input or launch another reviewer');
+    expect(dispatch).toContain('both complete labeled texts');
+    expect(dispatch).toContain('all five dimensions');
+    const fixes = ceo.slice(ceo.indexOf('**Step 2:'), ceo.indexOf('**Step 3:'));
+    const stages = ['use 0D for new or reopened choices', 'amend the working plan',
+      're-dispatch with both updated inputs and the same instructions'].map(text => fixes.indexOf(text));
+    expect(stages.every(index => index >= 0)).toBe(true);
+    expect(stages).toEqual([...stages].sort((a, b) => a - b));
+    expect(fixes).toContain('Keep both consistent');
+    expect(fixes).toContain('Make at most three reviewer launches');
+    expect(fixes).toContain('Stop after the third review, or when consecutive reviews repeat the same unresolved issues');
+    expect(fixes).toContain('If launch or review fails, times out, or cannot review both complete inputs, stop the loop');
+    expect(fixes).toContain('Preserve the failure and all prior findings');
+    expect(fixes).toContain('quality bonus, not a gate');
+    expect(fixes).toContain('A missing score alone does not require another review');
+    expect(ceo).toContain('Spec review unavailable — presenting unreviewed doc.');
+    expect(report).toContain('List unresolved issues under "## Reviewer Concerns"');
+    expect(report).toContain('citing the owning input');
+    expect(report).toContain("SCORE is the latest attempt's reported 1–10 grade after reviewing both full inputs");
+    expect(report).toContain('Label earlier grades "prior review score"');
+    expect(report).toContain('reviewer-confirmed fixes');
+    expect(report).toContain('Use actual counts, never estimates');
+    expect(report).toContain('otherwise show these fields as not persisted');
+    expect(report).toContain('mkdir -p ~/.gstack/analytics || exit 1');
+    expect(report).toContain('>> ~/.gstack/analytics/spec-review.jsonl || exit 1');
+    expect(report).not.toContain('Your doc survived');
+  });
+
+  test('CEO spec report separates findings, confirmed fixes, and unresolved concerns', () => {
+    const report = render('plan-ceo-review').split('**Step 3: Report and persist metrics**')[1]!.replace(/\s+/g, ' ');
+    expect(report).toContain('ITERATIONS counts actual reviewer launches');
+    expect(report).toContain('FOUND, FIXED and REMAINING count reported issues, reviewer-confirmed fixes and reported unresolved issues');
+    expect(report).toContain('Use actual counts, never estimates');
+    expect(report).not.toContain('M issues caught and fixed');
+    expect(report).toContain('List unresolved issues under "## Reviewer Concerns"');
+  });
+
+  test('CEO spec review receives the full source plan as well as the scope artifact on every host', () => {
+    for (const host of Object.keys(HOST_PATHS)) {
+      const output = render('plan-ceo-review', host).replace(/\s+/g, ' ');
+      expect(output).toContain('Both saved absolute paths, or both complete labeled texts if either input is not persisted: CEO scope summary and current amended working plan');
+      expect(output).toContain('Read both inputs in full');
+      expect(output).toContain('Evaluate them together on all five dimensions');
+      expect(output).toContain('Flag contradictions, unsupported accepted expansions and required behavior missing from both');
+      expect(output).toContain('report that failure instead of grading partial input');
+    }
+    const source = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md.tmpl'), 'utf8');
+    expect(source).toContain('## Plan under review\n{working plan path, or');
+    const template = source.replace(/\s+/g, ' ');
+    expect(template).toContain('the complete amended working plan');
+    expect(template).toContain('Prepare the complete amended working plan and the CEO scope summary below');
+    expect(template).toContain('Keep behavior, requirements and scope consistent');
+    expect(template).toContain('the summary cannot replace or reference itself as the plan');
+  });
+
+  test('CEO shares both inputs after spec review and owns unresolved concerns in its scope document', () => {
+    const template = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md.tmpl'), 'utf8');
+    const persist = template.split('### 0H.')[1]?.split('### 0I.')[0] ?? '';
+    const review = persist.indexOf('{{SPEC_REVIEW_LOOP}}');
+    const sharing = persist.indexOf('present both inputs for final scope-document approval');
+    expect(review).toBeGreaterThanOrEqual(0);
+    expect(sharing).toBeGreaterThan(review);
+    const output = render('plan-ceo-review');
+    const processing = output.split('**Step 2:')[1]!.split('**Step 3:')[0]!;
+    const report = output.split('**Step 3:')[1] ?? '';
+    expect(processing).toContain('consecutive reviews repeat the same unresolved issues');
+    expect(processing).toContain('Preserve the failure and all prior findings');
+    expect(report).toContain('CEO summary');
+    expect(report).toContain('Reviewer Concerns');
+    expect(report).toMatch(/owning\s+input/);
+  });
+
+  test('CEO reviewer receives one complete prompt without duplicate scoring instructions', () => {
+    const output = render('plan-ceo-review');
+    const dispatch = output.split('**Step 1: Dispatch reviewer subagent**')[1]?.split('**Step 2:')[0] ?? '';
+    expect(dispatch.match(/Read both inputs in full/g)).toHaveLength(1);
+    expect(dispatch).not.toContain('Read these documents and review them');
+    expect(dispatch.match(/quality score/g)).toHaveLength(1);
+    expect(dispatch).toContain('A quality score (1-10) across all dimensions');
+    expect(dispatch).toContain('Overall PASS only if all dimensions pass');
+    expect(dispatch).toContain('For each dimension, PASS or numbered issues with suggested fixes');
+    expect(dispatch).toContain('Cite input and requirement for each finding');
+    expect(dispatch).toContain('report that failure instead of grading');
+  });
 
   test('contains all 5 review dimensions', () => {
     for (const dim of ['Completeness', 'Consistency', 'Clarity', 'Scope', 'Feasibility']) {
@@ -1540,6 +1853,63 @@ describe('BENEFITS_FROM resolver', () => {
   test('plan-eng-review contains prerequisite skill offer', () => {
     expect(engContent).toContain('Prerequisite Skill Offer');
     expect(engContent).toContain('/office-hours');
+  });
+
+  test('the optional Eng prerequisite ends before mandatory engineering review', () => {
+    const offer = extractMarkdownSection(engContent, '## Prerequisite Skill Offer');
+    expect(offer).toContain('Build the next full decision brief from these facts and options, using the preamble transport, numbering and format');
+    expect(offer).toContain('B) Skip — proceed with standard review');
+    expect(offer).toContain('Then proceed normally. Do not re-offer later in the session');
+    expect(offer).not.toContain('### Step 0: Scope Challenge');
+    const review = extractMarkdownSection(engContent, '## Engineering review');
+    expect(review).toContain('### Step 0: Scope Challenge');
+    expect(review).toContain('Scope Challenge is mandatory before Section 1');
+    expect(review).toContain('sections/review-sections.md');
+  });
+
+  test('Eng initial and prerequisite recheck both discover the canonical override and fall back on slug failure', () => {
+    const initial = extractMarkdownSection(engContent, '### Design Doc Check').match(/```bash\n([\s\S]*?)\n```/)![1]!;
+    const offer = extractMarkdownSection(engContent, '## Prerequisite Skill Offer');
+    expect(offer).toContain('After /office-hours completes, rerun the complete **Design Doc Check** block above');
+    expect(offer).toContain('This is a fresh execution');
+    expect(offer).toContain('Do not rerun the preamble or re-offer the prerequisite');
+    expect(offer).not.toContain('_REVIEW_SLUG=');
+    const recheck = initial; // Execute the one canonical block again after the prerequisite.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-design-slug-'));
+    try {
+      const home = path.join(dir, 'home'), cwd = path.join(dir, 'project');
+      const helper = path.join(home, '.claude/skills/gstack/bin/gstack-slug');
+      fs.mkdirSync(path.dirname(helper), {recursive: true});
+      fs.mkdirSync(cwd);
+      fs.copyFileSync(path.join(ROOT, 'bin/gstack-slug'), helper);
+      fs.chmodSync(helper, 0o755);
+      const expected = path.join(home, '.gstack/projects/canonical-override/session-unknown-design-current.md');
+      const wrong = path.join(home, '.gstack/projects/project/session-unknown-design-wrong.md');
+      for (const file of [expected, wrong]) {
+        fs.mkdirSync(path.dirname(file), {recursive: true});
+        fs.writeFileSync(file, '# Design fixture\n');
+      }
+      const env = {...process.env, HOME: home, GSTACK_HOME: path.join(home, '.gstack'),
+        GSTACK_PROJECT_SLUG: 'canonical-override', GIT_CEILING_DIRECTORIES: dir};
+      for (const command of [initial, recheck]) {
+        expect(command).toContain('if _REVIEW_SLUG=$(~/.claude/skills/gstack/bin/gstack-slug); then');
+        expect(command).toContain('eval "$_REVIEW_SLUG"');
+        expect(command).toContain('echo "No design doc found"');
+        expect(command).not.toContain('remote-slug');
+        const result = runCapturedCommand('bash', ['-c', command], {cwd, env, timeout: 5000, captureStdout: true});
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain(`Design doc found: ${expected}`);
+        expect(result.stdout).not.toContain(wrong);
+      }
+      fs.writeFileSync(helper, '#!/usr/bin/env bash\necho "slug fixture failed" >&2\nexit 23\n', {mode: 0o755});
+      for (const command of [initial, recheck]) {
+        const result = runCapturedCommand('bash', ['-c', command], {cwd, env, timeout: 5000, captureStdout: true});
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain('slug fixture failed');
+        expect(result.stdout).not.toContain('Design doc found:');
+        expect(result.stdout).toContain('No design doc found');
+      }
+    } finally { fs.rmSync(dir, {recursive: true, force: true}); }
   });
 
   test('offer includes graceful decline', () => {
@@ -1758,14 +2128,55 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
   });
 
   test('design-consultation contains outside voices section', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'design-consultation', 'SKILL.md'), 'utf-8');
+    const content = readSkillUnion('design-consultation');
     expect(content).toContain('Design Outside Voices');
     expect(content).toContain('design direction');
   });
 
+  test('consultation dispatch shares the complete brief without executing product text', () => {
+    const content = readSkillUnion('design-consultation');
+    const command = [...content.matchAll(/```bash\n([\s\S]*?)```/g)]
+      .map(match => match[1]).find(block => block.includes('codex exec'))!;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'design-brief-contract-'));
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    try {
+      const brief = path.join(dir, 'product.md');
+      const capture = path.join(dir, 'argv.json');
+      const marker = path.join(dir, 'must-not-execute');
+      const product = `A product with $(touch ${marker}), \`touch ${marker}\`, and "quotes".\nUsers: builders.\n`;
+      fs.writeFileSync(brief, product);
+      fs.writeFileSync(path.join(dir, 'codex'), `#!${process.execPath}\nrequire('fs').writeFileSync(process.env.CAPTURE, JSON.stringify(process.argv.slice(2)));\nconsole.log('Recommendation: choose a clear hierarchy because builders need to find their work.');\n`, { mode: 0o700 });
+      const prepare = (file: string) => command.replace("'<prepared-prompt-file>'", quote(file))
+        .replaceAll('$HOME/.claude/skills/gstack', ROOT);
+      const env = { ...process.env, PATH: dir + path.delimiter + process.env.PATH, CAPTURE: capture,
+        CODEX_THREAD_ID: '', CODEX_SANDBOX: '', CLAUDECODE: '1', GSTACK_ACTIVE_HOST: 'claude' };
+      const result = spawnSync('bash', ['-c', prepare(brief)], { cwd: ROOT, env, encoding: 'utf8', timeout: 5_000 });
+      expect(result.status, result.stderr).toBe(0);
+      const args = JSON.parse(fs.readFileSync(capture, 'utf8'));
+      expect(args[0]).toBe('exec');
+      expect(args[1]).toBe(product.trimEnd());
+      expect(args).toContain('read-only');
+      expect(fs.readFileSync(brief, 'utf8')).toBe(product);
+      expect(fs.existsSync(marker)).toBe(false);
+      fs.unlinkSync(capture);
+      const missing = spawnSync('bash', ['-c', prepare(path.join(dir, 'absent'))], { cwd: ROOT, env, encoding: 'utf8', timeout: 5_000 });
+      expect(missing.status).not.toBe(0);
+      expect(missing.stderr).toContain('No such file');
+      expect(fs.existsSync(capture)).toBe(false);
+      expect(content).toContain('Neither voice inherits context: give both the same brief');
+      expect(content).toContain('await both before synthesis');
+      expect(content).toContain('use only the native voice');
+      expect(content).toContain('give the native Agent its absolute path');
+      expect(content).toContain('Read the complete product brief at [the absolute DESIGN_BRIEF path printed above]');
+      expect(content).toContain('Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files/licenses; omit unverified faces');
+      expect(content).toContain('a face may serve multiple roles');
+      expect(content).not.toContain('a single question that covers everything');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test('branches correctly per skillName — different prompts', () => {
     const planContent = readSkillUnion('plan-design-review');
-    const consultContent = fs.readFileSync(path.join(ROOT, 'design-consultation', 'SKILL.md'), 'utf-8');
+    const consultContent = readSkillUnion('design-consultation');
     // plan-design-review uses analytical prompt (high reasoning)
     expect(planContent).toContain('model_reasoning_effort="high"');
     // design-consultation uses creative prompt (medium reasoning)
@@ -1917,48 +2328,123 @@ describe('Design approval reconciliation', () => {
     expect(gate).toContain('preamble-authorized');
     expect(gate).toContain('record why. Deferrals remain unresolved.');
     expect(gate).toContain('If missing, reset drafts to pending, ask and wait.');
-    expect(gate).toContain('refresh the plan, report and review log; rerun this gate.');
+    expect(gate).toContain('refresh the plan and report, pass the Read-back gate, then update the review');
+    expect(gate).toContain('log and rerun this gate.');
     expect(gate).toContain('after your most recent write to it');
   });
 
-  test('CEO blocking Exit checklist rejects setup and approach as issue approval', () => {
+  test('CEO readiness binds actual approvals before its read-only exit verification', () => {
     const main = fs.readFileSync(path.join(ROOT, 'plan-ceo-review/SKILL.md'), 'utf8');
     const check = extractMarkdownSection(main, '## Section self-check');
-    expect(check).toContain('Before summaries, review logs or next-step menus, run approval check 0 below.');
-    const gate = extractMarkdownSection(main, '## EXIT PLAN MODE GATE (BLOCKING)');
-    expect(gate.indexOf('0. Approvals:')).toBeGreaterThanOrEqual(0);
-    expect(gate.indexOf('0. Approvals:')).toBeLessThan(gate.indexOf('1. Read the plan file'));
-    expect(gate).toContain("each issue's remedy needs its own AskUserQuestion call and answer.");
-    expect(gate).toContain("Never group distinct issues.");
-    expect(gate).toContain('Never group distinct issues. Setup, mode, approach and navigation are not approval.');
-    expect(gate).toContain('Honor prior exact decisions and preamble-authorized per-issue auto-decisions;');
-    expect(gate).toContain('preamble-authorized');
-    expect(gate).toContain('record why. Deferrals remain unresolved.');
-    expect(gate).toContain('If missing, reset drafts to pending, ask and wait.');
-    expect(gate).toContain('refresh the plan, report and review log; rerun this gate.');
-    expect(check).toContain('Read and execute every section and output');
-    expect(check).toContain('STOP, Read it and redo the review');
-    expect(main).toContain('one tool_use per issue, no batching');
-    expect(main).toContain('even obvious fixes');
-    expect(main).toContain('wait for approval before changing the plan');
-    expect(main).toContain('Zero findings: state "No issues, moving on"');
+    const gate = extractMarkdownSection(main, '## EXIT PLAN MODE GATE (BLOCKING)').replace(/\s+/g, ' ');
+    const section = fs.readFileSync(path.join(ROOT, 'plan-ceo-review/sections/review-sections.md'), 'utf8');
+    const readiness = extractMarkdownSection(section, '## Approval readiness').replace(/\s+/g, ' ');
+    expect(section.indexOf('## Approval readiness')).toBeLessThan(section.indexOf('## Required Outputs'));
+    expect(readiness).toContain('No report or completion log is needed to run this check');
+    expect(readiness).toContain('For each approved remedy:');
+    expect(readiness).toContain('its actual answer, exact prior approval or preamble-authorized per-issue auto-decision');
+    expect(readiness).toContain('Setup, mode and navigation are not remedy approvals');
+    expect(readiness).toContain('an approach approves only its explicit commitments and their directly required tests');
+    expect(readiness).toContain("the plan applies only that answer's scope");
+    expect(readiness).toContain('Independent remedies and additional verification choices need their own rows and answers');
+    expect(readiness).toContain('Keep declined, deferred and unanswered changes out of accepted work');
+    expect(readiness).toContain('Deferrals remain unresolved');
+    expect(readiness).toContain('If a draft lacks approval, mark it pending and use 0D; repeat this check after its answer');
+    expect(readiness).toContain('At the end of the six-column decision ledger, record `Approval readiness: PASS`');
+    expect(readiness).toContain('the checked row IDs and their actual answer or approval references');
+    expect(readiness).toContain('Save or present the updated plan under Step 0');
+    expect(readiness).toContain('A substantive change invalidates this result; navigation alone does not');
+    const normalizedMain = main.replace(/\s+/g, ' ');
+    expect(normalizedMain).toContain('Default to implementation-ready');
+    expect(normalizedMain).toContain('Use strategy-only only when the user asks for');
+    expect(normalizedMain).toContain('Use one narrow decision only when the user names a single choice');
+    expect(gate).toContain('Verify `Approval readiness: PASS` against current row IDs and answer references');
+    expect(gate).toContain('Read-only verification');
+    expect(gate.indexOf('Verify `Approval readiness: PASS`')).toBeLessThan(gate.indexOf('1. Read the plan file'));
+    expect(gate).toContain('If stale because a choice changed');
+    expect(gate.replace(/\s+/g, ' ')).toContain('return to 0D for that choice only; then repeat readiness, affected outputs, report Read-back, Review Log and dashboard');
+    expect(gate).toContain('Failed checks use **Gate outcome: Blocked**');
+    expect(main).toContain('**Pass with log-only gaps:**');
+    expect(gate).toContain('end without success telemetry, ExitPlanMode or the queued handoff');
+    expect(check).toContain('Confirm you Read `sections/review-sections.md` and executed its review, required');
+    expect(check).toContain('outputs and report from the file, not memory: Sections 1–10 and Section 11');
+    expect(check).toContain('findings or no-UI skip.');
+    expect(check).toContain('stop here, read the file and redo the review.');
+    const decisions = main.slice(main.indexOf('### 0D.'), main.indexOf('### 0E.')).replace(/\s+/g, ' ');
+    expect(decisions).toMatch(/Ask one row per call with that object unchanged, without recomposing/);
+    expect(decisions).toContain('0D has two cases');
+    expect(decisions).toContain('**Admin question:** mode selection, setup, navigation and document promotion');
+    expect(decisions).toContain('This does not approve implementation, scope, TODO remedies or outside-review findings');
+    expect(decisions).toContain('**Plan decision:** scope additions/cuts, approach choices, TODOs, specs and review/outside findings');
+    expect(decisions).toContain('Use each menu only for its step');
+    expect(decisions).toContain('handle it as a Plan decision');
+    expect(decisions).toContain('compare its actual question, header, labels and full descriptions literally with the saved fields');
+    expect(decisions).toContain('`D<N> — <ROW-ID>: <one-line question>`');
+    const row = decisions.slice(decisions.indexOf('**Row.**'), decisions.indexOf('**Fields.**'));
+    expect(row).toMatch(/Find exactly one (?:ledger )?row/);
+    for (const field of ['ID', 'step 2', 'owner', 'Current/Proposed', 'Status', 'Exact approval and scope']) expect(row).toContain(field);
+    expect(decisions).toContain('**STOP for the actual answer, even for a lone option.**');
+    expect(decisions).toMatch(/amend only (?:what it authorizes|authorized work)/);
+    expect(decisions).toMatch(/Reuse exact approvals; reopen only for contradictions, changed assumptions or user instructions, not speculation or reviewer agreement/);
+    expect(decisions).toMatch(/reopen only|requires reopening it/);
+    expect(decisions).toContain('When returning, carry both resolved findings and genuine no-issue outcomes');
+    expect(decisions).toContain('Say "No issues, moving on." only when there are none');
+    const outside = extractMarkdownSection(section, '**Cross-model tension:**').replace(/\s+/g, ' ');
+    expect(outside).toContain('If the only reviewer is same-harness/native fallback');
+    expect(outside).toContain('do not synthesize cross-model agreement');
+    expect(outside).toContain('Native fallback findings still count as review findings');
+    expect(outside).toContain('Apply Outside Voice Integration Rule to any concrete finding');
   });
 
   test('Eng cannot exit with unasked findings listed only in an unresolved-decisions report', () => {
     const main = fs.readFileSync(path.join(ROOT, 'plan-eng-review/SKILL.md'), 'utf8');
     const check = extractMarkdownSection(main, '## Section self-check');
-    expect(check).toContain('Before summaries, review logs or next-step menus, run approval check 0 below.');
-    const gate = extractMarkdownSection(main, '## EXIT PLAN MODE GATE (BLOCKING)');
-    expect(gate.indexOf('0. Approvals:')).toBeGreaterThanOrEqual(0);
-    expect(gate.indexOf('0. Approvals:')).toBeLessThan(gate.indexOf('1. Read the plan file'));
-    expect(gate).toContain("each issue's remedy needs its own AskUserQuestion call and answer.");
-    expect(gate).toContain('Never group distinct issues. Setup, mode, approach and navigation are not approval.');
-    expect(gate).toContain('Honor prior exact decisions and preamble-authorized per-issue auto-decisions;');
-    expect(gate).toContain('record why. Deferrals remain unresolved.');
-    expect(gate).toContain('The coverage-audit REGRESSION test is already authorized; cite that rule.');
-    expect(gate).toContain('This exception covers only the regression test, not other findings.');
-    expect(gate).toContain('If missing, reset drafts to pending, ask and wait.');
-    expect(gate).toContain('refresh the plan, report and review log; rerun this gate.');
+    const rawGate = extractMarkdownSection(main, '## EXIT PLAN MODE GATE (BLOCKING)');
+    const gate = rawGate.replace(/\s+/g, ' ');
+    const section = fs.readFileSync(path.join(ROOT, 'plan-eng-review/sections/review-sections.md'), 'utf8');
+    const readiness = extractMarkdownSection(section, '## Approval readiness');
+    const normalizedReadiness = readiness.replace(/\s+/g, ' ');
+    expect(section.indexOf('## Approval readiness')).toBeLessThan(section.indexOf('## Required outputs'));
+    expect(normalizedReadiness).toContain('Only the ledger is needed here; completion outputs and logs come next');
+    expect(normalizedReadiness).toContain('At the end of `## Decision ledger`, record `Approval readiness: PASS`');
+    expect(normalizedReadiness).toContain('checked IDs and actual answer references');
+    expect(normalizedReadiness).toContain('A substantive change invalidates this result; navigation alone does not');
+    expect(readiness).not.toMatch(/^ {3}\S/m);
+    expect(gate).toContain('Confirm Approval readiness passed for the current decisions');
+    expect(gate).toContain('read-only verification, not a new approval or output-writing step');
+    const approvalParagraph = rawGate.slice(rawGate.indexOf('Confirm Approval readiness'), rawGate.indexOf('Verify all five checks'));
+    expect(approvalParagraph).not.toMatch(/^ {3}\S/m);
+    expect([...rawGate.matchAll(/^([1-5])\. /gm)].map(match => match[1])).toEqual(['1', '2', '3', '4', '5']);
+    expect(gate.indexOf('Confirm Approval readiness')).toBeLessThan(gate.indexOf('1. Read the report file'));
+    expect(normalizedReadiness).toContain('check the ledger against every accepted remedy');
+    expect(normalizedReadiness).toContain('Each must cite its own actual answer, exact prior approval or authorized auto-decision');
+    expect(normalizedReadiness).toContain('setup, mode, approach and navigation do not count');
+    expect(normalizedReadiness).toContain('Deferrals remain unresolved');
+    expect(normalizedReadiness).toContain('Carry forward an exact approved regression contract');
+    expect(normalizedReadiness).toContain('Otherwise, its behavior and assertions need one dedicated decision');
+    expect(readiness).not.toContain('REGRESSION test is already authorized');
+    expect(normalizedReadiness).toContain('If approval is missing, mark that draft pending, resolve the choice through Decision procedure and repeat this check');
+    expect(normalizedReadiness).toContain('Continue to Required outputs, preserving unresolved decisions in the report');
+    // Readiness verifies evidence; the one procedure owns asking and applying.
+    // The procedure contains a fenced H2 ledger example; use its real next step.
+    const decisionStart = section.indexOf('\n## Decision procedure\n');
+    const decisionEnd = section.indexOf('\n## Scope Challenge\n', decisionStart);
+    expect(decisionStart).toBeGreaterThan(0);
+    expect(decisionEnd).toBeGreaterThan(decisionStart);
+    const decisions = section.slice(decisionStart, decisionEnd).replace(/\s+/g, ' ');
+    expect(decisions).toContain('AskUserQuestion({ questions: [currentDecision] })');
+    expect(decisions).toContain('one question object for one choice; other IDs wait');
+    expect(decisions).toContain("If you discover another independent choice, return to step 2 before sending the question");
+    expect(decisions.indexOf("**STOP until the actual answer arrives.**")).toBeLessThan(decisions.indexOf('### 6. Apply and refresh'));
+    expect(decisions).toContain("Return to step 1 with the updated working plan and answer");
+    expect(gate).toContain('report the stale verification and stop');
+    expect(gate).toContain('starts at Decision procedure for changed choices, then Approval readiness, then repeats affected outputs, Read-back,');
+    expect(gate).toContain('Review Log and dashboard');
+    expect(gate).toContain('all six columns: Review / Trigger / Why / Runs / Status / Findings');
+    expect(gate).toContain('follow **Blocked outcome**');
+    const report = extractMarkdownSection(section, '### Write to the report file');
+    expect(report).toContain('Then follow **Blocked outcome** in the entrypoint.');
+    expect(report).toContain('report the error and follow **Blocked outcome** before Review Log or decision logging');
   });
 
   test('approval entry does not alter other review Exit checklists', () => {
@@ -2006,7 +2492,7 @@ describe('DESIGN_DETECTOR resolver', () => {
     expect(c).toContain('DOM_DUMP_OK');
     expect(c).toContain('DOM_DUMP_REDACTION_BLOCKED');
     expect(c).toContain('DOM_DUMP_TOO_LARGE');
-    expect(c).toContain('REPORT_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/designs/design-audit-$(date +%Y%m%d)"');
+    expect(c).toContain('REPORT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-audit-$(date +%Y%m%d)"');
     expect(c).toContain('RUN_ID="$(date +%H%M%S)-$$"');
     expect(c).toContain('"schemaVersion": 2');
     expect(c).toContain('engine changed X → Y; rule set may differ');
@@ -2760,9 +3246,7 @@ describe('Parameterized host smoke tests', () => {
           const skillMd = path.join(hostDir, skill, 'SKILL.md');
           if (!fs.existsSync(skillMd)) continue;
           const content = fs.readFileSync(skillMd, 'utf-8');
-          // Strip bash blocks (which have legitimate fallback paths)
-          const noBash = content.replace(/```bash\n[\s\S]*?```/g, '');
-          const leaks = noBash.split('\n').filter(l => l.includes('.claude/skills'));
+          const leaks = externalHostPathLeaks(content);
           if (leaks.length > 0) {
             throw new Error(`${skill}: .claude/skills leakage:\n${leaks.slice(0, 3).join('\n')}`);
           }
@@ -3578,6 +4062,30 @@ describe('LEARNINGS_SEARCH resolver', () => {
     expect(content).toContain('project-scoped only');
   });
 
+  test('Eng clarifies its full brief without changing any host options or other skills', async () => {
+    const { generateLearningsSearch } = await import('../scripts/resolvers/learnings');
+    const { ALL_HOST_CONFIGS } = await import('../hosts');
+    const { HOST_PATHS } = await import('../scripts/resolvers/types');
+    const fullBrief = 'Build a full decision brief from these facts and options using the preamble format, then ask and wait:';
+    for (const host of ALL_HOST_CONFIGS) {
+      const ctx = { skillName: 'plan-eng-review', tmplPath: 'plan-eng-review/SKILL.md.tmpl', host: host.name, paths: HOST_PATHS[host.name]! };
+      const eng = generateLearningsSearch(ctx);
+      const standard = generateLearningsSearch({ ...ctx, skillName: 'review' });
+      expect(generateLearningsSearch({ ...ctx, skillName: 'plan-ceo-review' })).toBe(standard);
+      if (host.learningsMode === 'basic') {
+        expect(eng).toBe(standard);
+        expect(eng).not.toContain('CROSS_PROJECT');
+      } else {
+        expect(eng).toContain(fullBrief);
+        expect(eng.replace(fullBrief, 'Use AskUserQuestion:')).toBe(standard);
+        expect(eng).toContain('A) Enable cross-project learnings (recommended)');
+        expect(eng).toContain('B) Keep learnings project-scoped only');
+        expect(eng).toContain('gstack-config set cross_project_learnings true');
+        expect(eng).toContain('gstack-config set cross_project_learnings false');
+      }
+    }
+  });
+
   test('learnings search mentions prior learning applied display format', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Prior learning applied');
@@ -3818,14 +4326,14 @@ describe('CEO accepted requirement preservation', () => {
 
   test('loaded sections keep requirement conflicts unresolved until an authorized decision', () => {
     const section = fs.readFileSync(path.join(ROOT, 'plan-ceo-review/sections/review-sections.md'), 'utf8');
-    const policy = section.slice(section.indexOf('**Preserve accepted requirements.**'), section.indexOf('### Section 1:'));
-    expect(policy).toContain('report an implementation\ngap and propose a remedy that meets the requirement');
-    expect(policy).toContain('it does not authorize weakening the required behavior');
-    expect(policy).toContain('changing a test to expect the prohibited result');
-    expect(policy).toContain('keep that proposal pending and the original gap unresolved');
-    expect(policy).toContain('Earlier explicitly approved requirement changes and explicit authority to change\nthat scope remain valid');
-    expect(policy).toContain('Routine auto-decide permission alone cannot override an\nexplicit user constraint or non-goal');
-    expect(policy).toContain('Preserve the distinction in findings, tasks,\nand the completion report');
+    const policy = section.slice(section.indexOf('**Preserve accepted requirements.**'), section.indexOf('### Section 1:')).replace(/\s+/g, ' ');
+    expect(policy).toContain('Report gaps and propose remedies, including omitted mechanisms in HOLD SCOPE');
+    expect(policy).toContain('Never weaken a guarantee, accept its violation or change a test to expect it');
+    expect(policy).toContain('Low frequency, bounded impact and documentation do not meet stricter requirements');
+    expect(policy).toContain('keep both the proposal and original gap unresolved');
+    expect(policy).toContain('Changing a requirement needs explicit authority');
+    expect(policy).toContain('Routine auto-decide cannot override user constraints or non-goals');
+    expect(policy).toContain('Carry prior approvals into findings, tasks and the report');
   });
 });
 
@@ -3913,15 +4421,42 @@ describe('plan-mode-info resolver (handshake-replacement)', () => {
     expect(planModeIdx).toBeLessThan(upgradeIdx);
   });
 
-  test('0C-bis STOP block present in plan-ceo-review/SKILL.md', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
-    const presentIdx = content.indexOf('Present these approach options via AskUserQuestion');
-    const preludeIdx = content.indexOf('### 0D-prelude');
-    expect(presentIdx).toBeGreaterThan(0);
-    expect(preludeIdx).toBeGreaterThan(presentIdx);
-    const between = content.slice(presentIdx, preludeIdx);
-    expect(between).toContain('**STOP.**');
-    expect(between).toContain('Do NOT proceed to Step 0D or 0F until the user responds to 0C-bis');
+  test('0D authority and fresh-approval paths precede mode selection', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8').replace(/\s+/g, ' ');
+    const approachIdx = content.indexOf('### 0D.');
+    const constructIdx = content.indexOf('Build one `currentDecision`', approachIdx);
+    const saveIdx = content.indexOf('**Pre-question checkpoint:**', constructIdx);
+    const presentIdx = content.indexOf('Ask one row per call', saveIdx);
+    const stopIdx = content.indexOf('**STOP for the actual answer, even for a lone option.**', presentIdx);
+    const modeIdx = content.indexOf('### 0E. Mode Selection');
+    const preludeIdx = content.indexOf('### 0F');
+    const positions = [approachIdx, constructIdx, saveIdx, presentIdx, stopIdx, modeIdx, preludeIdx];
+    expect(positions.every(position => position > 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    const approach = content.slice(approachIdx, modeIdx);
+    expect(approach).toMatch(/Compare input, source and actual answers/);
+    expect(approach).toMatch(/correct facts, flag approval conflicts[, ]+(?:and )?preserve unknowns/i);
+    expect(approach).toMatch(/Reuse (?:an )?exact approvals?/);
+    expect(content).toMatch(/(?:the actual instruction\/answer|Cite actual instructions\/answers) and exact scope/);
+    const reopenRule = approach.match(/Reuse exact approvals; reopen only for contradictions, changed assumptions or user instructions, not speculation or reviewer agreement/)?.[0];
+    expect(reopenRule).toBeDefined();
+    expect(reopenRule!).toMatch(/reopen only|requires reopening it/);
+    expect(content.indexOf(reopenRule!)).toBeGreaterThan(approachIdx);
+    expect(content.indexOf(reopenRule!)).toBeLessThan(presentIdx);
+    const gate = content.slice(stopIdx, modeIdx);
+    expect(approach).toContain("Initial 0D after 0C scans for unresolved approach");
+    expect(approach).toContain("If unresolved, compare: A) current/requested plan as written");
+    expect(gate).toContain("Initial pass after 0C: proceed to 0E once required choices are settled");
+    expect(gate).toContain("Do not ask here. Return to the step or section that invoked 0D");
+    expect(gate).not.toContain("When this step's required decisions are settled, go to 0E if you came from 0C");
+    expect(gate).toContain('even for a lone option');
+    expect(approach).toContain('Recommendations are not approval');
+    expect(approach).toMatch(/Ask one row per call with that object unchanged, without recomposing/);
+    expect(approach).toContain('compare its actual question, header, labels and full descriptions literally with the saved fields');
+    expect(gate).toMatch(/(?:Record its reference|Save the answer reference) and scope in Exact approval and scope/);
+    expect(gate).toMatch(/update Status,? and amend only (?:what it authorizes|authorized work)/);
+    expect(gate).toContain('storage policy before taking another row');
+    expect(approach).not.toContain('Do NOT proceed to Step 0D or 0F until the user responds to 0C-bis');
   });
 });
 
@@ -4029,14 +4564,43 @@ describe('EXIT PLAN MODE GATE placement', () => {
   // and the gate text itself shows `## GSTACK REVIEW REPORT` inside a fence too.
   const stripFences = (md: string) => md.replace(/```[\s\S]*?```/g, '');
 
-  test('gate is the terminal ## heading in every plan-* review SKILL.md', () => {
+  test('gate follows review work, with only the declared cache hook after CEO and Eng verification', () => {
     for (const skill of planSkills) {
       const md = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
       const stripped = stripFences(md);
       const headings = [...stripped.matchAll(/^## .+$/gm)].map(m => m[0]);
       const lastH2 = headings.at(-1);
-      expect(lastH2, `${skill}/SKILL.md last ## heading (fences stripped)`).toBe('## EXIT PLAN MODE GATE (BLOCKING)');
-      expect(md, `${skill}/SKILL.md gate body`).toContain('Failing this gate and calling ExitPlanMode anyway is a contract violation');
+      if (['plan-ceo-review', 'plan-eng-review'].includes(skill)) {
+        const gate = headings.indexOf('## EXIT PLAN MODE GATE (BLOCKING)');
+        expect(gate).toBeGreaterThan(headings.indexOf('## Section self-check (before you finish)'));
+        expect(headings.slice(gate)).toEqual(['## EXIT PLAN MODE GATE (BLOCKING)', '## Brain Cache Background Refresh']);
+        const tail = md.slice(md.indexOf('## EXIT PLAN MODE GATE (BLOCKING)'));
+        const telemetry = tail.indexOf('**Telemetry (run last)**');
+        expect(telemetry).toBeGreaterThan(0);
+        expect(telemetry).toBeLessThan(tail.indexOf('## Brain Cache Background Refresh'));
+        expect(tail).toContain(skill === 'plan-ceo-review' ? 'Passed with a verified persisted report' : 'After the gate passes');
+        const finalHandoff = tail.slice(tail.indexOf('## Brain Cache Background Refresh'));
+        expect(finalHandoff).toContain(skill === 'plan-ceo-review' ? 'Only after a passing gate: call ExitPlanMode' : 'After success telemetry and cache dispatch, call ExitPlanMode');
+        expect(tail).not.toContain('short-circuit when no plan file exists');
+        if (skill === 'plan-eng-review') {
+          expect(tail.replace(/\s+/g, ' ')).toContain('forbidden report/log persistence or an unrecovered save cannot pass');
+          expect(finalHandoff).toContain('only when the host is in plan mode');
+          expect(finalHandoff).toContain('Outside plan mode, finish the review in the current conversation; do not call ExitPlanMode');
+        } else {
+          expect(tail.replace(/\s+/g, ' ')).toContain('**Pass with log-only gaps:**');
+          expect(tail.replace(/\s+/g, ' ')).toContain('Label only unwritten artifacts **not persisted**; a verified report stays persisted if only its log is forbidden');
+          expect(tail.replace(/\s+/g, ' ')).toContain('end without success telemetry, ExitPlanMode or the queued handoff');
+        }
+      } else {
+        expect(lastH2, `${skill}/SKILL.md last ## heading (fences stripped)`).toBe('## EXIT PLAN MODE GATE (BLOCKING)');
+      }
+      if (skill === 'plan-eng-review') {
+        const gate = extractMarkdownSection(md, '## EXIT PLAN MODE GATE (BLOCKING)').replace(/\s+/g, ' ');
+        expect(gate).toContain('Run this final verification for every review target, in every host mode');
+        expect(gate).toContain('If any check fails, follow **Blocked outcome** without success telemetry or ExitPlanMode');
+      } else expect(md, `${skill}/SKILL.md gate body`).toContain(skill === 'plan-ceo-review'
+        ? 'Failed checks use **Gate outcome: Blocked**'
+        : 'Failing this gate and calling ExitPlanMode anyway is a contract violation');
     }
   });
 
@@ -4051,15 +4615,14 @@ describe('scope-gate exceptions drift-guard', () => {
   // The plan-mode auto-select-B exceptions block is hand-duplicated in the
   // plan-eng-review and plan-design-review templates (matching the gate
   // around it, which predates this block). The two copies must stay
-  // byte-identical modulo exactly two known variant slots:
-  //   1. the plan-mode bullet's action tail (Design Doc Check vs pre-review
-  //      audit + mockups),
-  //   2. the named-target vocabulary ("a path, a doc" vs "a path, a page, a doc").
+  // identical in their target-selection policy. Eng resolves that policy
+  // before announcing its target and has a separate bootstrap transport;
+  // Design retains its own startup sequence and page vocabulary.
   // A future edit to one copy that silently misses the other fails here
   // instead of drifting. The real fix (shared {{SCOPE_GATE}} resolver) is a
   // filed TODO — this guard is the stopgap that makes the duplication safe.
   const START_MARKER = '**Exceptions — check in this order, BEFORE asking:**';
-  const END_MARKER = 'in any mode — it is a hard STOP.';
+  const END_MARKER = 'When no exception above applied:';
 
   function extractExceptionsBlock(skill: string): string {
     const md = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
@@ -4070,19 +4633,25 @@ describe('scope-gate exceptions drift-guard', () => {
     return md.slice(start, end + END_MARKER.length);
   }
 
-  const normalizeVariantSlots = (block: string) =>
-    block
-      .replace('Then run the Design Doc Check and Step 0 against that plan.', '<ACTION_TAIL>')
-      .replace('Then run the pre-review audit, mockups, and Step 0 against that plan.', '<ACTION_TAIL>')
-      .replace('a path, a page, a doc they pasted,', 'a path, a doc they pasted,');
+  const normalizeTargetPolicy = (block: string) => block
+    .split('\n').filter(line => /^[12]\. /.test(line)).join('\n')
+    .replace(/ Announce (?:it|an auto-selected plan) in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B \(reviewing <target>\)\."/g, '')
+    .replace(' Then run the pre-review audit, mockups, and Step 0 against that plan.', '')
+    .replace('a path, a page, a doc they pasted,', 'a path, a doc they pasted,');
 
-  test('eng and design exceptions blocks are identical modulo the two variant slots', () => {
-    const eng = normalizeVariantSlots(extractExceptionsBlock('plan-eng-review'));
-    const design = normalizeVariantSlots(extractExceptionsBlock('plan-design-review'));
+  test('eng and design retain the same target-selection policy across distinct startup sequences', () => {
+    const engRaw = extractExceptionsBlock('plan-eng-review');
+    const eng = normalizeTargetPolicy(engRaw);
+    const design = normalizeTargetPolicy(extractExceptionsBlock('plan-design-review'));
     expect(eng).toBe(design);
-    // The action tail must actually have been normalized in both (guards
-    // against a rewording that bypasses the normalizer and vacuously passes).
-    expect(eng).toContain('<ACTION_TAIL>');
+    expect(eng).toContain('their choice wins — use it instead');
+    expect(eng).toContain('still ambiguous — ask');
+    expect(eng).toContain('When in doubt, ask — the gate is the default');
+    expect(engRaw.indexOf('their choice wins')).toBeLessThan(engRaw.indexOf('Announce an auto-selected plan'));
+    const engMd = fs.readFileSync(path.join(ROOT, 'plan-eng-review/SKILL.md'), 'utf8');
+    const transport = engMd.indexOf('Choose listed, enabled MCP AskUserQuestion, otherwise listed native');
+    expect(transport).toBeGreaterThan(engMd.indexOf(END_MARKER));
+    expect(transport).toBeLessThan(engMd.indexOf('## Preamble (after scope gate)'));
   });
 
   test('exceptions block carries the announcement string the PTY detectors pin', () => {
@@ -4135,7 +4704,7 @@ describe('GSTACK REVIEW REPORT mandatory unresolved-decisions status', () => {
       expect(content).toContain('NO UNRESOLVED DECISIONS');
       // The "never omit / always final" contract must be present, not just the phrase.
       expect(content).toContain('Unresolved-decisions status (MANDATORY');
-      expect(content).toMatch(/never omitted/);
+      expect(content).toMatch(skill === 'plan-ceo-review' ? /Never omit this status/ : /never omitted/);
       // \s+ tolerates prose line-wraps within "final non-whitespace line".
       expect(content).toMatch(/final\s+non-whitespace\s+line/);
     });
@@ -4146,8 +4715,18 @@ describe('GSTACK REVIEW REPORT mandatory unresolved-decisions status', () => {
       const md = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
       // Gate check #4 — present, sentinel named, and explicitly blocking (no escape).
       expect(md).toContain('NO UNRESOLVED DECISIONS');
-      expect(md).toContain('FINAL non-whitespace line is the unresolved-decisions');
-      expect(md).toContain('FAILS the gate');
+      if (['plan-ceo-review', 'plan-eng-review'].includes(skill)) {
+        const gate = md.split('## EXIT PLAN MODE GATE (BLOCKING)')[1]!.replace(/\s+/g, ' ');
+        expect(gate).toContain('final non-whitespace line is the exact unbolded `NO UNRESOLVED DECISIONS`');
+        expect(gate).toContain('or the last bullet under `**UNRESOLVED DECISIONS:**`');
+        expect(gate).toMatch(/A bolded sentinel, missing status or (?:any )?trailing prose fails this check/);
+        expect(gate).toContain(skill === 'plan-eng-review'
+          ? 'If any check fails, follow **Blocked outcome** without success telemetry or ExitPlanMode'
+          : 'Failed checks use **Gate outcome: Blocked**');
+      } else {
+        expect(md).toContain('FINAL non-whitespace line is the unresolved-decisions');
+        expect(md).toContain('FAILS the gate');
+      }
     });
   }
 

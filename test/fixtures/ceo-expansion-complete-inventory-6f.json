@@ -1,0 +1,226 @@
+{
+  "sourceCommit": "6f6730f478e20235b3266d56253d097d02dcdf46",
+  "originalOutcome": "First mode attempt hit unchanged240000ms posture deadline after pacing consumed its one substantive continuation; configured retry later passed via standalone prose.",
+  "selectedAt": 1789484949289,
+  "mode": {
+    "sessionId": "ae9647e7-5cee-4d16-8c6e-c510e9a17989",
+    "toolUseId": "toolu_012sNY1HmtuSG19pruoLhJZt",
+    "questions": [
+      {
+        "header": "Review mode",
+        "question": "D4 — Which review mode should govern the rest of this plan review?\nProject/branch/task: gstack-plan-count-xeGnfv on main, saved project views plan (~12 estimated files, enhancement to an existing task list).\nELI10: The mode sets my posture for the remaining 11 review sections. Expansion modes look for adjacent features worth adding (default views, pinning, cross-project views) and ask you about each one. Hold Scope keeps exactly what is planned and hunts failure paths, edge cases and tests instead. Scope Reduction strips to the smallest thing that fixes the pain. The plan is a modest enhancement with one approved schema decision (D2), so it sits naturally in the middle.\nStakes if we pick wrong: Too expansive and a two-week feature grows a backlog before it ships; too tight and you ship a private-only-feeling view picker that misses cheap wins like \"set as default\".\nRecommendation: SELECTIVE EXPANSION because the plan is an enhancement under 15 files: bulletproof the agreed scope, then let you cherry-pick a short list of adjacent additions one by one.\nNote: options differ in kind, not coverage — no completeness score.\nA) SELECTIVE EXPANSION (recommended)\n  ✅ Runs the full Hold Scope rigor on the agreed plan, then offers each adjacent idea separately as add / defer / skip\n  ✅ You decide scope item by item; rejected ideas land in NOT in scope, nothing sneaks in\n  ❌ More questions than Hold Scope; each cherry-pick is a decision you have to make\nB) SCOPE EXPANSION\n  ✅ Dreams big: 10x version, platonic ideal, delight scan, recommended enthusiastically\n  ✅ Best when the feature is greenfield and the team wants a cathedral\n  ❌ This is a filter-persistence enhancement; cathedral energy risks a backlog before the first view is saved\nC) HOLD SCOPE\n  ✅ Maximum rigor on exactly what is planned: every error path, edge case, test and log\n  ✅ Fewest decisions; fastest route to an implementable plan\n  ❌ Never surfaces cheap adjacent wins like default view or rename; you would find those in the pilot\nD) SCOPE REDUCTION\n  ✅ Strips to the minimum core (save, list, apply) and defers the rest with your approval\n  ✅ Right when the plan is bloated or over 15 files\n  ❌ This plan is already small; reduction mostly re-cuts what D2 just approved\nNet: how many adjacent ideas you want to hear about versus how fast you want a locked, rigorous plan.",
+        "options": [
+          {
+            "label": "SELECTIVE EXPANSION (recommended)",
+            "description": "Hold scope rigor plus one-by-one cherry-pick of adjacent additions."
+          },
+          {
+            "label": "SCOPE EXPANSION",
+            "description": "Dream big: 10x vision, platonic ideal, delight scan."
+          },
+          {
+            "label": "HOLD SCOPE",
+            "description": "Preserve scope; maximum rigor on failure paths, edge cases, tests."
+          },
+          {
+            "label": "SCOPE REDUCTION",
+            "description": "Strip to the minimum viable core; cut the rest with approval."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D4 — Which review mode should govern the rest of this plan review?\nProject/branch/task: gstack-plan-count-xeGnfv on main, saved project views plan (~12 estimated files, enhancement to an existing task list).\nELI10: The mode sets my posture for the remaining 11 review sections. Expansion modes look for adjacent features worth adding (default views, pinning, cross-project views) and ask you about each one. Hold Scope keeps exactly what is planned and hunts failure paths, edge cases and tests instead. Scope Reduction strips to the smallest thing that fixes the pain. The plan is a modest enhancement with one approved schema decision (D2), so it sits naturally in the middle.\nStakes if we pick wrong: Too expansive and a two-week feature grows a backlog before it ships; too tight and you ship a private-only-feeling view picker that misses cheap wins like \"set as default\".\nRecommendation: SELECTIVE EXPANSION because the plan is an enhancement under 15 files: bulletproof the agreed scope, then let you cherry-pick a short list of adjacent additions one by one.\nNote: options differ in kind, not coverage — no completeness score.\nA) SELECTIVE EXPANSION (recommended)\n  ✅ Runs the full Hold Scope rigor on the agreed plan, then offers each adjacent idea separately as add / defer / skip\n  ✅ You decide scope item by item; rejected ideas land in NOT in scope, nothing sneaks in\n  ❌ More questions than Hold Scope; each cherry-pick is a decision you have to make\nB) SCOPE EXPANSION\n  ✅ Dreams big: 10x version, platonic ideal, delight scan, recommended enthusiastically\n  ✅ Best when the feature is greenfield and the team wants a cathedral\n  ❌ This is a filter-persistence enhancement; cathedral energy risks a backlog before the first view is saved\nC) HOLD SCOPE\n  ✅ Maximum rigor on exactly what is planned: every error path, edge case, test and log\n  ✅ Fewest decisions; fastest route to an implementable plan\n  ❌ Never surfaces cheap adjacent wins like default view or rename; you would find those in the pilot\nD) SCOPE REDUCTION\n  ✅ Strips to the minimum core (save, list, apply) and defers the rest with your approval\n  ✅ Right when the plan is bloated or over 15 files\n  ❌ This plan is already small; reduction mostly re-cuts what D2 just approved\nNet: how many adjacent ideas you want to hear about versus how fast you want a locked, rigorous plan.": "SCOPE EXPANSION"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-15T15:09:09.325Z"
+  },
+  "pacing": {
+    "sessionId": "ae9647e7-5cee-4d16-8c6e-c510e9a17989",
+    "toolUseId": "toolu_017uVNs4CqTUFCa6T3jwkNL2",
+    "questions": [
+      {
+        "header": "Expansion",
+        "question": "D6.0 — I have 7 expansion candidates for the saved views plan. How do you want to decide them?\nProject/branch/task: gstack-plan-count-xeGnfv on main, SCOPE EXPANSION ceremony for saved project views.\nELI10: The delight scan produced 7 adjacent improvements: E1 default view per member, E2 view id in URL, E3 dirty-state indicator with Update / Save as new / Revert, E4 rename / duplicate / delete-with-undo, E5 graceful handling of stale filter references, E6 starter views on an empty picker, E7 cross-project views. The rule is one add / defer / skip question per item so nothing gets cut silently. Seven questions is a lot, so you choose the pace first. Dependencies: E3 works best with E2 (a URL to revert to) but does not require it; E7 is the only large item and changes the data model (no project FK).\nStakes if we pick wrong: Full split costs you 7 quick answers; narrowing first risks me pre-judging an item you would have wanted.\nRecommendation: A because the items are independent and each is a real scope call; 7 short answers beats me guessing.\nNote: options differ in kind, not coverage — no completeness score.\nA) Proceed with the full split, one question per item (recommended)\n  ✅ You see every candidate with its own effort and my honest recommendation\n  ✅ Rejected items are recorded in NOT in scope, so the trail is complete\n  ❌ Seven sequential questions before the rigor sections start\nB) Narrow first: I propose a smaller set, you confirm, then split that\n  ✅ Fewer questions; I would propose E1, E2, E3, E5 and defer E4, E6, E7\n  ✅ Still ends with per-item confirmation on the proposed set\n  ❌ You lose the chance to weigh E4, E6, E7 individually before they are parked\nC) Batch into two groups of up to 4 and pick from each\n  ✅ Two questions instead of seven\n  ✅ Works if you mostly want the top few and are fine parking the rest\n  ❌ Independent scope items do not really compete with each other; batching hides that\nNet: decision completeness vs. the number of prompts before the deep review begins.",
+        "options": [
+          {
+            "label": "A: Full split, 7 questions (recommended)",
+            "description": "One add / defer / skip / hold question per candidate, E1 through E7."
+          },
+          {
+            "label": "B: Narrow first",
+            "description": "I propose a smaller set (E1, E2, E3, E5), you confirm, then per-item questions on that set."
+          },
+          {
+            "label": "C: Batch into groups",
+            "description": "Two grouped questions covering all seven."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6.0 — I have 7 expansion candidates for the saved views plan. How do you want to decide them?\nProject/branch/task: gstack-plan-count-xeGnfv on main, SCOPE EXPANSION ceremony for saved project views.\nELI10: The delight scan produced 7 adjacent improvements: E1 default view per member, E2 view id in URL, E3 dirty-state indicator with Update / Save as new / Revert, E4 rename / duplicate / delete-with-undo, E5 graceful handling of stale filter references, E6 starter views on an empty picker, E7 cross-project views. The rule is one add / defer / skip question per item so nothing gets cut silently. Seven questions is a lot, so you choose the pace first. Dependencies: E3 works best with E2 (a URL to revert to) but does not require it; E7 is the only large item and changes the data model (no project FK).\nStakes if we pick wrong: Full split costs you 7 quick answers; narrowing first risks me pre-judging an item you would have wanted.\nRecommendation: A because the items are independent and each is a real scope call; 7 short answers beats me guessing.\nNote: options differ in kind, not coverage — no completeness score.\nA) Proceed with the full split, one question per item (recommended)\n  ✅ You see every candidate with its own effort and my honest recommendation\n  ✅ Rejected items are recorded in NOT in scope, so the trail is complete\n  ❌ Seven sequential questions before the rigor sections start\nB) Narrow first: I propose a smaller set, you confirm, then split that\n  ✅ Fewer questions; I would propose E1, E2, E3, E5 and defer E4, E6, E7\n  ✅ Still ends with per-item confirmation on the proposed set\n  ❌ You lose the chance to weigh E4, E6, E7 individually before they are parked\nC) Batch into two groups of up to 4 and pick from each\n  ✅ Two questions instead of seven\n  ✅ Works if you mostly want the top few and are fine parking the rest\n  ❌ Independent scope items do not really compete with each other; batching hides that\nNet: decision completeness vs. the number of prompts before the deep review begins.": "A: Full split, 7 questions (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-15T15:10:27.522Z"
+  },
+  "pending": {
+    "sessionId": "ae9647e7-5cee-4d16-8c6e-c510e9a17989",
+    "toolUseId": "toolu_01Fg8mtumrMeZwcX7o3UBvqg",
+    "questions": [
+      {
+        "header": "E1 default",
+        "question": "D6.1 — E1: Default view per member per project. Add, defer, skip or hold?\nProject/branch/task: gstack-plan-count-xeGnfv on main, saved views expansion item 1 of 7.\nELI10: Each member can mark one saved view (private or project) as their default for a project. Opening the project loads that view instead of the unfiltered list. Implementation: a `default_saved_view_id` on the project membership row (or a small member_project_prefs table), one \"set as default\" action in the picker, and a fallback to the plain list when the default view is deleted or no longer visible. This is the single biggest lever on the stated pain: the filter is rebuilt zero times, not once.\nStakes if we pick wrong: Without it, members still click into the picker every session; the feature is an option rather than the way the list works.\nRecommendation: Add because it turns \"saved\" into \"already there\" for ~20 minutes of CC work (human ~half day).\nNote: options differ in kind, not coverage — no completeness score.\nA) Add to this plan's scope (recommended)\n  ✅ Members land on their list on project open; zero clicks to reach a saved filter\n  ✅ Small: one nullable FK, one picker action, one fallback path, three tests\n  ❌ Adds a dangling-reference case when the default view is deleted or made private by its creator\nB) Defer to TODOS.md\n  ✅ Keeps the first release to pure save / pick / apply\n  ✅ Pilot data can show whether members even reopen views before you build auto-load\n  ❌ Pilot \"reuse\" numbers will understate value because reopening costs a click\nC) Skip entirely\n  ✅ No membership-table change at all\n  ✅ Simplest mental model: the list always opens unfiltered\n  ❌ Leaves the largest win on the table\nD) Hold: stop the chain and discuss\n  ✅ No cons — this is a hard-stop choice\nNet: one nullable FK now vs. a picker click every session forever.",
+        "options": [
+          {
+            "label": "A: Add (recommended)",
+            "description": "Default view per member per project, with fallback when the default is deleted or hidden."
+          },
+          {
+            "label": "B: Defer to TODOS",
+            "description": "Record with context; revisit after the pilot."
+          },
+          {
+            "label": "C: Skip",
+            "description": "Drop the idea; record in NOT in scope."
+          },
+          {
+            "label": "D: Hold",
+            "description": "Stop the chain and discuss this item first."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": false,
+    "failed": false
+  },
+  "publicEvents": [
+    {
+      "kind": "use",
+      "sessionId": "ae9647e7-5cee-4d16-8c6e-c510e9a17989",
+      "timestamp": "2026-09-15T15:09:08.911Z",
+      "toolUseId": "toolu_012sNY1HmtuSG19pruoLhJZt",
+      "name": "AskUserQuestion",
+      "input": {
+        "questions": [
+          {
+            "header": "Review mode",
+            "question": "D4 — Which review mode should govern the rest of this plan review?\nProject/branch/task: gstack-plan-count-xeGnfv on main, saved project views plan (~12 estimated files, enhancement to an existing task list).\nELI10: The mode sets my posture for the remaining 11 review sections. Expansion modes look for adjacent features worth adding (default views, pinning, cross-project views) and ask you about each one. Hold Scope keeps exactly what is planned and hunts failure paths, edge cases and tests instead. Scope Reduction strips to the smallest thing that fixes the pain. The plan is a modest enhancement with one approved schema decision (D2), so it sits naturally in the middle.\nStakes if we pick wrong: Too expansive and a two-week feature grows a backlog before it ships; too tight and you ship a private-only-feeling view picker that misses cheap wins like \"set as default\".\nRecommendation: SELECTIVE EXPANSION because the plan is an enhancement under 15 files: bulletproof the agreed scope, then let you cherry-pick a short list of adjacent additions one by one.\nNote: options differ in kind, not coverage — no completeness score.\nA) SELECTIVE EXPANSION (recommended)\n  ✅ Runs the full Hold Scope rigor on the agreed plan, then offers each adjacent idea separately as add / defer / skip\n  ✅ You decide scope item by item; rejected ideas land in NOT in scope, nothing sneaks in\n  ❌ More questions than Hold Scope; each cherry-pick is a decision you have to make\nB) SCOPE EXPANSION\n  ✅ Dreams big: 10x version, platonic ideal, delight scan, recommended enthusiastically\n  ✅ Best when the feature is greenfield and the team wants a cathedral\n  ❌ This is a filter-persistence enhancement; cathedral energy risks a backlog before the first view is saved\nC) HOLD SCOPE\n  ✅ Maximum rigor on exactly what is planned: every error path, edge case, test and log\n  ✅ Fewest decisions; fastest route to an implementable plan\n  ❌ Never surfaces cheap adjacent wins like default view or rename; you would find those in the pilot\nD) SCOPE REDUCTION\n  ✅ Strips to the minimum core (save, list, apply) and defers the rest with your approval\n  ✅ Right when the plan is bloated or over 15 files\n  ❌ This plan is already small; reduction mostly re-cuts what D2 just approved\nNet: how many adjacent ideas you want to hear about versus how fast you want a locked, rigorous plan.",
+            "options": [
+              {
+                "label": "SELECTIVE EXPANSION (recommended)",
+                "description": "Hold scope rigor plus one-by-one cherry-pick of adjacent additions."
+              },
+              {
+                "label": "SCOPE EXPANSION",
+                "description": "Dream big: 10x vision, platonic ideal, delight scan."
+              },
+              {
+                "label": "HOLD SCOPE",
+                "description": "Preserve scope; maximum rigor on failure paths, edge cases, tests."
+              },
+              {
+                "label": "SCOPE REDUCTION",
+                "description": "Strip to the minimum viable core; cut the rest with approval."
+              }
+            ],
+            "multiSelect": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "result",
+      "sessionId": "ae9647e7-5cee-4d16-8c6e-c510e9a17989",
+      "timestamp": "2026-09-15T15:09:09.325Z",
+      "toolUseId": "toolu_012sNY1HmtuSG19pruoLhJZt",
+      "content": "Your questions have been answered: \"D4 — Which review mode should govern the rest of this plan review?\nProject/branch/task: gstack-plan-count-xeGnfv on main, saved project views plan (~12 estimated files, enhancement to an existing task list).\nELI10: The mode sets my posture for the remaining 11 review sections. Expansion modes look for adjacent features worth adding (default views, pinning, cross-project views) and ask you about each one. Hold Scope keeps exactly what is planned and hunts failure paths, edge cases and tests instead. Scope Reduction strips to the smallest thing that fixes the pain. The plan is a modest enhancement with one approved schema decision (D2), so it sits naturally in the middle.\nStakes if we pick wrong: Too expansive and a two-week feature grows a backlog before it ships; too tight and you ship a private-only-feeling view picker that misses cheap wins like \"set as default\".\nRecommendation: SELECTIVE EXPANSION because the plan is an enhancement under 15 files: bulletproof the agreed scope, then let you cherry-pick a short list of adjacent additions one by one.\nNote: options differ in kind, not coverage — no completeness score.\nA) SELECTIVE EXPANSION (recommended)\n  ✅ Runs the full Hold Scope rigor on the agreed plan, then offers each adjacent idea separately as add / defer / skip\n  ✅ You decide scope item by item; rejected ideas land in NOT in scope, nothing sneaks in\n  ❌ More questions than Hold Scope; each cherry-pick is a decision you have to make\nB) SCOPE EXPANSION\n  ✅ Dreams big: 10x version, platonic ideal, delight scan, recommended enthusiastically\n  ✅ Best when the feature is greenfield and the team wants a cathedral\n  ❌ This is a filter-persistence enhancement; cathedral energy risks a backlog before the first view is saved\nC) HOLD SCOPE\n  ✅ Maximum rigor on exactly what is planned: every error path, edge case, test and log\n  ✅ Fewest decisions; fastest route to an implementable plan\n  ❌ Never surfaces cheap adjacent wins like default view or rename; you would find those in the pilot\nD) SCOPE REDUCTION\n  ✅ Strips to the minimum core (save, list, apply) and defers the rest with your approval\n  ✅ Right when the plan is bloated or over 15 files\n  ❌ This plan is already small; reduction mostly re-cuts what D2 just approved\nNet: how many adjacent ideas you want to hear about versus how fast you want a locked, rigorous plan.\"=\"SCOPE EXPANSION\". You can now continue with these answers in mind.",
+      "isError": false
+    },
+    {
+      "kind": "use",
+      "sessionId": "ae9647e7-5cee-4d16-8c6e-c510e9a17989",
+      "timestamp": "2026-09-15T15:10:26.306Z",
+      "toolUseId": "toolu_017uVNs4CqTUFCa6T3jwkNL2",
+      "name": "AskUserQuestion",
+      "input": {
+        "questions": [
+          {
+            "header": "Expansion",
+            "question": "D6.0 — I have 7 expansion candidates for the saved views plan. How do you want to decide them?\nProject/branch/task: gstack-plan-count-xeGnfv on main, SCOPE EXPANSION ceremony for saved project views.\nELI10: The delight scan produced 7 adjacent improvements: E1 default view per member, E2 view id in URL, E3 dirty-state indicator with Update / Save as new / Revert, E4 rename / duplicate / delete-with-undo, E5 graceful handling of stale filter references, E6 starter views on an empty picker, E7 cross-project views. The rule is one add / defer / skip question per item so nothing gets cut silently. Seven questions is a lot, so you choose the pace first. Dependencies: E3 works best with E2 (a URL to revert to) but does not require it; E7 is the only large item and changes the data model (no project FK).\nStakes if we pick wrong: Full split costs you 7 quick answers; narrowing first risks me pre-judging an item you would have wanted.\nRecommendation: A because the items are independent and each is a real scope call; 7 short answers beats me guessing.\nNote: options differ in kind, not coverage — no completeness score.\nA) Proceed with the full split, one question per item (recommended)\n  ✅ You see every candidate with its own effort and my honest recommendation\n  ✅ Rejected items are recorded in NOT in scope, so the trail is complete\n  ❌ Seven sequential questions before the rigor sections start\nB) Narrow first: I propose a smaller set, you confirm, then split that\n  ✅ Fewer questions; I would propose E1, E2, E3, E5 and defer E4, E6, E7\n  ✅ Still ends with per-item confirmation on the proposed set\n  ❌ You lose the chance to weigh E4, E6, E7 individually before they are parked\nC) Batch into two groups of up to 4 and pick from each\n  ✅ Two questions instead of seven\n  ✅ Works if you mostly want the top few and are fine parking the rest\n  ❌ Independent scope items do not really compete with each other; batching hides that\nNet: decision completeness vs. the number of prompts before the deep review begins.",
+            "options": [
+              {
+                "label": "A: Full split, 7 questions (recommended)",
+                "description": "One add / defer / skip / hold question per candidate, E1 through E7."
+              },
+              {
+                "label": "B: Narrow first",
+                "description": "I propose a smaller set (E1, E2, E3, E5), you confirm, then per-item questions on that set."
+              },
+              {
+                "label": "C: Batch into groups",
+                "description": "Two grouped questions covering all seven."
+              }
+            ],
+            "multiSelect": false
+          }
+        ]
+      }
+    },
+    {
+      "kind": "result",
+      "sessionId": "ae9647e7-5cee-4d16-8c6e-c510e9a17989",
+      "timestamp": "2026-09-15T15:10:27.522Z",
+      "toolUseId": "toolu_017uVNs4CqTUFCa6T3jwkNL2",
+      "content": "Your questions have been answered: \"D6.0 — I have 7 expansion candidates for the saved views plan. How do you want to decide them?\nProject/branch/task: gstack-plan-count-xeGnfv on main, SCOPE EXPANSION ceremony for saved project views.\nELI10: The delight scan produced 7 adjacent improvements: E1 default view per member, E2 view id in URL, E3 dirty-state indicator with Update / Save as new / Revert, E4 rename / duplicate / delete-with-undo, E5 graceful handling of stale filter references, E6 starter views on an empty picker, E7 cross-project views. The rule is one add / defer / skip question per item so nothing gets cut silently. Seven questions is a lot, so you choose the pace first. Dependencies: E3 works best with E2 (a URL to revert to) but does not require it; E7 is the only large item and changes the data model (no project FK).\nStakes if we pick wrong: Full split costs you 7 quick answers; narrowing first risks me pre-judging an item you would have wanted.\nRecommendation: A because the items are independent and each is a real scope call; 7 short answers beats me guessing.\nNote: options differ in kind, not coverage — no completeness score.\nA) Proceed with the full split, one question per item (recommended)\n  ✅ You see every candidate with its own effort and my honest recommendation\n  ✅ Rejected items are recorded in NOT in scope, so the trail is complete\n  ❌ Seven sequential questions before the rigor sections start\nB) Narrow first: I propose a smaller set, you confirm, then split that\n  ✅ Fewer questions; I would propose E1, E2, E3, E5 and defer E4, E6, E7\n  ✅ Still ends with per-item confirmation on the proposed set\n  ❌ You lose the chance to weigh E4, E6, E7 individually before they are parked\nC) Batch into two groups of up to 4 and pick from each\n  ✅ Two questions instead of seven\n  ✅ Works if you mostly want the top few and are fine parking the rest\n  ❌ Independent scope items do not really compete with each other; batching hides that\nNet: decision completeness vs. the number of prompts before the deep review begins.\"=\"A: Full split, 7 questions (recommended)\". You can now continue with these answers in mind.",
+      "isError": false
+    },
+    {
+      "kind": "use",
+      "sessionId": "ae9647e7-5cee-4d16-8c6e-c510e9a17989",
+      "timestamp": "2026-09-15T15:10:43.737Z",
+      "toolUseId": "toolu_01Fg8mtumrMeZwcX7o3UBvqg",
+      "name": "AskUserQuestion",
+      "input": {
+        "questions": [
+          {
+            "header": "E1 default",
+            "question": "D6.1 — E1: Default view per member per project. Add, defer, skip or hold?\nProject/branch/task: gstack-plan-count-xeGnfv on main, saved views expansion item 1 of 7.\nELI10: Each member can mark one saved view (private or project) as their default for a project. Opening the project loads that view instead of the unfiltered list. Implementation: a `default_saved_view_id` on the project membership row (or a small member_project_prefs table), one \"set as default\" action in the picker, and a fallback to the plain list when the default view is deleted or no longer visible. This is the single biggest lever on the stated pain: the filter is rebuilt zero times, not once.\nStakes if we pick wrong: Without it, members still click into the picker every session; the feature is an option rather than the way the list works.\nRecommendation: Add because it turns \"saved\" into \"already there\" for ~20 minutes of CC work (human ~half day).\nNote: options differ in kind, not coverage — no completeness score.\nA) Add to this plan's scope (recommended)\n  ✅ Members land on their list on project open; zero clicks to reach a saved filter\n  ✅ Small: one nullable FK, one picker action, one fallback path, three tests\n  ❌ Adds a dangling-reference case when the default view is deleted or made private by its creator\nB) Defer to TODOS.md\n  ✅ Keeps the first release to pure save / pick / apply\n  ✅ Pilot data can show whether members even reopen views before you build auto-load\n  ❌ Pilot \"reuse\" numbers will understate value because reopening costs a click\nC) Skip entirely\n  ✅ No membership-table change at all\n  ✅ Simplest mental model: the list always opens unfiltered\n  ❌ Leaves the largest win on the table\nD) Hold: stop the chain and discuss\n  ✅ No cons — this is a hard-stop choice\nNet: one nullable FK now vs. a picker click every session forever.",
+            "options": [
+              {
+                "label": "A: Add (recommended)",
+                "description": "Default view per member per project, with fallback when the default is deleted or hidden."
+              },
+              {
+                "label": "B: Defer to TODOS",
+                "description": "Record with context; revisit after the pilot."
+              },
+              {
+                "label": "C: Skip",
+                "description": "Drop the idea; record in NOT in scope."
+              },
+              {
+                "label": "D: Hold",
+                "description": "Stop the chain and discuss this item first."
+              }
+            ],
+            "multiSelect": false
+          }
+        ]
+      }
+    }
+  ],
+  "requestOrderProvenance": "The public retainer sorted JSON keys. Structural equality was verified, then request questions recovered the original property order from the native final observation (the reader retains block.input.questions). No values, timestamps, results or answers changed.",
+  "viewport": " ☐ Expansion \n\n│ D6.0 — I have 7 expansion candidates for the saved views plan. How do you want to decide them?\n│ Project/branch/task: gstack-plan-count-xeGnfv on main, SCOPE EXPANSION ceremony for saved project views.\n│ ELI10: The delight scan produced 7 adjacent improvements: E1 default view per member, E2 view id in URL, E3 \n│ dirty-state indicator with Update / Save as new / Revert, E4 rename / duplicate / delete-with-undo, E5 graceful\n│ handling of stale filter references, E6 starter views on an empty picker, E7 cross-project views. The rule is one add\n│ / defer / skip question per item so nothing gets cut silently. Seven questions is a lot, so you choose the pace first.\n│ Dependencies: E3 works best with E2 (a URL to revert to) but does not require it; E7 is the only large item and\n│ changes the data model (no project FK).\n│ Stakes if we pick wrong: Full split costs you 7 quick answers; narrowing first risks me pre-judging an item you would\n│ have wanted.\n│ Recommendation: A because the items are independent and each is a real scope call; 7 short answers beats me guessing.\n│ Note: options differ in kind, not coverage — no completeness score.\n│ A) Proceed with the full split, one question per item (recommended)\n│   ✅ You see every candidate with its own effort and my honest recommendation\n│   ✅ Rejected items are recorded in NOT in scope, so the trail is complete\n│   ❌ Seven sequential questions before the rigor sections start\n│ B) Narrow first: I propose a smaller set, you confirm, then split that\n│   ✅ Fewer questions; I would propose E1, E2, E3, E5 and defer E4, E6, E7\n│   ✅ Still ends with per-item confirmation on the proposed set\n│   ❌ You lose the chance to weigh E4, E6, E7 individually before they are parked\n│ C) Batch into two groups of up to 4 and pick from each\n│   ✅ Two questions instead of seven\n│   ✅ Works if you mostly want the top few and are fine parking the rest\n│   ❌ Independent scope items do not really compete with each other; batching hides that\n│ Net: decision completeness vs. the number of prompts befor…\n\n❯ 1. A: Full split, 7 questions (recommended)\n     One add / defer / skip / hold question per candidate, E1 through E7.\n  2. B: Narrow first\n     I propose a smaller set (E1, E2, E3, E5), you confirm, then per-item questions on that set.\n  3. C: Batch into groups\n     Two grouped questions covering all seven.\n  4. Type something.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  5. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n",
+  "nextViewport": "│ Project/branch/task: gstack-plan-count-xeGnfv on main, saved views expansion item 1 of 7.\n│ ELI10: Each member can mark one saved view (private or project) as their default for a project. Opening the project\n│ loads that view instead of the unfiltered list. Implementation: a `default_saved_view_id` on the project membership\n│ row (or a small member_project_prefs table), one \"set as default\" action in the picker, and a fallback to the plain\n│ list when the default view is deleted or no longer visible. This is the single biggest lever on the stated pain: the\n│ filter is rebuilt zero times, not once.\n│ Stakes if we pick wrong: Without it, members still click into the picker every session; the feature is an option\n│ rather than the way the list works.\n│ Recommendation: Add because it turns \"saved\" into \"already there\" for ~20 minutes of CC work (human ~half day).\n│ Note: options differ in kind, not coverage — no completeness score.\n│ A) Add to this plan's scope (recommended)\n│   ✅ Members land on their list on project open; zero clicks to reach a saved filter\n│   ✅ Small: one nullable FK, one picker action, one fallback path, three tests\n│   ❌ Adds a dangling-reference case when the default view is deleted or made private by its creator\n│ B) Defer to TODOS.md\n│   ✅ Keeps the first release to pure save / pick / apply\n│   ✅ Pilot data can show whether members even reopen views before you build auto-load\n│   ❌ Pilot \"reuse\" numbers will understate value because reopening costs a click\n│ C) Skip entirely\n│   ✅ No membership-table change at all\n│   ✅ Simplest mental model: the list always opens unfiltered\n│   ❌ Leaves the largest win on the table\n│ D) Hold: stop the chain and discuss\n│   ✅ No cons — this is a hard-stop choice\n│ Net: one nullable FK now vs. a picker click every session forever.\n\n❯ 1. A: Add (recommended)\n     Default view per member per project, with fallback when the default is deleted or hidden.\n  2. B: Defer to TODOS\n     Record with context; revisit after the pilot.\n  3. C: Skip\n     Drop the idea; record in NOT in scope.\n  4. D: Hold\n     Stop the chain and discuss this item first.\n  5. Type something.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  6. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n",
+  "rawTerminalSha256": "3e5d35c91bce333bc6ac941e4c2bc5f3be176bc9f737de64682393b1c9f135f9",
+  "viewportRawOffset": 225817,
+  "provenance": "Native questions, actual successful pacing answer, pending E1, and original CLI viewport retained from source6f first timeout. No completed E1 answer or posture is added."
+}

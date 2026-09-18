@@ -158,6 +158,22 @@ const WINDOWS_FRAGILE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 // the failure mode is structural rather than detectable via source-file scan.
 export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
   {
+    file: 'test/setup-gbrain-fixture.test.ts',
+    reason: 'the fixture invokes real POSIX detector/verifier helpers through executable shebang wrappers',
+  },
+  {
+    file: 'test/hermetic-skills-seeding.test.ts',
+    reason: 'seeds the POSIX PTY skill runtime, whose embedded shell paths require a POSIX temporary root',
+  },
+  {
+    file: 'test/hermetic-wiring.test.ts',
+    reason: 'its runtime contract check seeds the POSIX PTY skill runtime; the curated Windows lane does not run that harness',
+  },
+  {
+    file: 'test/pty-workspace-trust.test.ts',
+    reason: 'launches the POSIX PTY harness with a fake executable and bound skill runtime',
+  },
+  {
     file: 'test/host-config.test.ts',
     reason: 'asserts "claude" binary on PATH (only true when running inside Claude Code, not on bare CI runner)',
   },
@@ -1301,16 +1317,38 @@ export async function runFreeShard(
   };
   const reporter = new FreeRunReporter(files, options.verbose ? undefined : emitToConsole);
 
-  const consumeStream = (stream: NodeJS.ReadableStream, origin: StreamOrigin): Promise<void> =>
-    new Promise((resolve, reject) => {
+  const captureFailures = new Map<StreamOrigin, Error>();
+  const consumeStream = (stream: typeof child.stdout, origin: StreamOrigin): Promise<void> =>
+    new Promise((resolve) => {
+      if (!stream) {
+        captureFailures.set(origin, new Error('configured pipe is missing'));
+        resolve();
+        return;
+      }
+      let ended = stream.readableEnded;
+      const incomplete = (error?: Error | null): void => {
+        // A delayed error replaces the initial destroyed-stream diagnostic
+        // with its original cause. Failures are data, never early rejections
+        // while the caller is still waiting for the child's real exit.
+        if (error) captureFailures.set(origin, error);
+        else if (!captureFailures.has(origin)) captureFailures.set(origin, new Error('stream closed before end'));
+        resolve();
+      };
+      // Even an already-destroyed pipe can emit error on the next tick.
+      stream.on('error', incomplete);
+      stream.once('end', () => { ended = true; resolve(); });
+      stream.once('close', () => {
+        if (!ended) incomplete(stream.errored);
+        else resolve();
+      });
       stream.on('data', (chunk: Buffer | string) => {
         classifier.write(chunk, origin); // strict verdict ALWAYS sees the full stream
         if (!logWriteFailed) logStream.write(chunk);
         reporter.write(chunk, origin);
         if (options.verbose) emitToConsole(typeof chunk === 'string' ? chunk : chunk.toString('utf8'), origin);
       });
-      stream.on('end', resolve);
-      stream.on('error', reject);
+      if (ended) resolve();
+      else if (stream.destroyed) incomplete(stream.errored);
     });
 
   let timedOut = false;
@@ -1321,9 +1359,7 @@ export async function runFreeShard(
 
   let exitCode: number | null = null;
   try {
-    const streams: Array<Promise<void>> = [];
-    if (child.stdout) streams.push(consumeStream(child.stdout, 'stdout'));
-    if (child.stderr) streams.push(consumeStream(child.stderr, 'stderr'));
+    const streams = [consumeStream(child.stdout, 'stdout'), consumeStream(child.stderr, 'stderr')];
     exitCode = await new Promise<number | null>((resolve, reject) => {
       child.once('error', reject);
       child.once('close', (code) => resolve(code));
@@ -1335,6 +1371,12 @@ export async function runFreeShard(
     // Reap survivors of this shard even on the clean path.
     killProcessGroup(child, 'SIGKILL');
     reporter.end();
+    for (const [origin, error] of captureFailures) {
+      const diagnostic = `${label} ${origin} capture incomplete: ${error.message} `
+        + `(child exit ${exitCode ?? 'signal'}). Full log: ${logPath}`;
+      console.error(diagnostic);
+      if (!logWriteFailed) logStream.write(diagnostic + '\n');
+    }
     await new Promise<void>((resolve) => logStream.end(() => resolve()));
     try {
       fs.rmSync(stateDir, { recursive: true, force: true });
@@ -1347,21 +1389,21 @@ export async function runFreeShard(
   const summary = classifier.end();
   const status: FreeShardStatus = timedOut
     ? 'timed-out'
-    : strictTestExitCode(exitCode ?? 1, summary, files.length) === 0 ? 'passed' : 'failed';
+    : captureFailures.size === 0 && strictTestExitCode(exitCode ?? 1, summary, files.length) === 0 ? 'passed' : 'failed';
 
   if (status === 'timed-out') {
     console.error(
       `${label} exceeded the ${Math.round(wallTimeoutMs / 1000)}s wall-clock deadline — `
       + 'killed the process group. Reporting as TIMED-OUT (distinct from failed).',
     );
-  } else if (status === 'failed' && (exitCode ?? 1) === 0) {
+  } else if (status === 'failed' && captureFailures.size === 0 && (exitCode ?? 1) === 0) {
     const reason = summary.failedTests > 0 || summary.unhandledBetweenTests > 0
       ? `printed ${summary.failedTests} failing result(s) and ${summary.unhandledBetweenTests} unhandled error(s) between tests`
       : summary.terminalFileCounts.length === 0
         ? "never printed bun's terminal summary — the run was truncated (a process.exit fired mid-suite)"
         : `bun's summary reported ${summary.terminalFileCounts.join(', ')} file(s), expected ${files.length}`;
     console.error(`${label} exited 0 but ${reason}. Treating as FAILED.`);
-  } else if (status === 'failed') {
+  } else if (status === 'failed' && (exitCode ?? 1) !== 0) {
     console.error(`${label} failed with exit code ${exitCode ?? 'signal'}`);
   }
 
@@ -1373,6 +1415,7 @@ export async function runFreeShard(
   const unattributedFailures = status === 'passed' ? 0
     : report.failures.filter((f) => !f.file).length
       + report.unhandledErrors.length
+      + captureFailures.size
       + (report.sawTerminalSummary ? 0 : 1);
   const outcome: FreeShardOutcome = {
     shard: shardNumber, files, status, exitCode, elapsedMs: Date.now() - startedAt, groupPid, failingFiles, unattributedFailures,

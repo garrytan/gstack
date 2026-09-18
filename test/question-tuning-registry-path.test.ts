@@ -50,6 +50,18 @@ describe('question-tuning registry path is absolute (#2489)', () => {
     }
   });
 
+  test('question identity covers prose and ad hoc IDs without enabling disabled tuning', () => {
+    for (const host of ['claude', 'codex'] as const) {
+      const out = generateQuestionTuning(makeCtx(host));
+      expect(out).toContain('skip entirely if `QUESTION_TUNING: false`');
+      expect(out).toMatch(/Before each decision brief[\s\S]*AskUserQuestion[\s\S]*Conductor\/fallback prose/);
+      expect(out).toMatch(/every asked brief[\s\S]*including ad hoc IDs/);
+      expect(out).toMatch(/same ID for its preference check, question marker, and log/);
+      expect(out).toContain('`<gstack-qid:{question_id}>` once in the question text itself');
+      expect(out).toMatch(/On prose paths, use the explicit reply line/);
+    }
+  });
+
   test('the interpolated path points at a file that exists in the install tree', () => {
     expect(fs.existsSync(path.join(ROOT, 'scripts', 'question-registry.ts'))).toBe(true);
   });

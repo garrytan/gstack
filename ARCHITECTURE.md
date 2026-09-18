@@ -354,6 +354,20 @@ This is structurally sound — if a command exists in code, it appears in docs. 
 
 The generator also owns two files that are not skill docs: `review/design-checklist.md` is rendered from `lib/design-catalog.ts` (through `scripts/resolvers/design-checklist.ts`), and `lib/dom-dump.js` is written from `lib/dom-dump-script.ts`. The checklist `/review` and `/ship` read and the DOM dump `/design-review` runs therefore cannot drift from the catalog and the script the templates describe; `test/design-checklist-sync.test.ts` pins both.
 
+The internal async `runGeneration()` driver inventories skills, Claude sections,
+host metadata, OpenClaw snippets, the index, the agent digest, and auxiliary
+assets. Every artifact goes through one compare-or-write function. Dry runs
+report missing or different artifacts as `STALE` without changing files or
+directories; rendering and filesystem failures report `ERROR` with their cause.
+Either fails the command, including a single-host invocation. Module imports
+remain synchronous and do not start generation.
+
+Physical output paths are separate from paths embedded in content. `skill:check`
+uses that separation to generate every host once in temporary storage, validate
+the complete render, and compare canonical tracked output. Nonignored generated
+output must be tracked. Optional ignored host caches are untouched, and temporary
+storage is cleaned in `finally`, including after failed generation.
+
 ### The preamble
 
 Every skill starts with a `{{PREAMBLE}}` block that runs before the skill's own logic. Since v1.71.0.0 the rendered block is a thin fence that invokes `bin/gstack-skill-start` (the consolidated preamble runtime — it replaced ~18KB of inline bash per tier-2+ skill) and reads back `KEY: value` STATUS lines that the skill prose branches on; `bin/gstack-skill-end` logs telemetry at skill end. One-time onboarding and consent text is emitted as session-bound `GSTACK_INSTRUCTION` blocks only when a runtime gate actually fires, instead of rendering in every skill. The startup still handles five things:
@@ -369,7 +383,7 @@ Every skill starts with a `{{PREAMBLE}}` block that runs before the skill's own 
 Three reasons:
 
 1. **Claude reads SKILL.md at skill load time.** There's no build step when a user invokes `/browse`. The file must already exist and be correct.
-2. **CI can validate freshness.** `gen:skill-docs --dry-run` + `git diff --exit-code` catches stale docs before merge.
+2. **CI can validate freshness.** All-host generation followed by tracked-diff and untracked-output checks catches stale docs before merge; `skill:check` also validates every host's content from a clean checkout.
 3. **Git blame works.** You can see when a command was added and in which commit.
 
 ### Template test tiers

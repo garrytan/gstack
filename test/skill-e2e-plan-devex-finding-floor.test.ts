@@ -20,6 +20,15 @@ describeE2E('/plan-devex-review AskUserQuestion floor (gate)', () => {
         skillName: 'plan-devex-review',
         slashCommand: '/plan-devex-review',
         followUpPrompt: FORCING_FLOOR_DEVEX,
+        productType: 'sdk-documentation',
+        devexSetupContext: [
+          'Confirmed persona: a hands-on developer making a first SDK call.',
+          'The declared onboarding facts are:',
+          FORCING_FLOOR_DEVEX.split('## Onboarding flow\n')[1]!,
+          'No measured turnaround, outputs, or runtime behavior were supplied. Keep predictions and unknowns labeled.',
+          'This supplies persona and empathy context only; proposed fixes and scope changes remain undecided.',
+        ].join(' ').replace(/\s+/g, ' '),
+        requestedPlanPath: '/tmp/gstack-test-plan-devex-floor.md',
         // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
         // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
         cwd: process.cwd(),

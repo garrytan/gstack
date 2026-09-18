@@ -1,0 +1,49 @@
+{
+  "source": "491566889b47a73db0f5b20799a901a80c38d756",
+  "attempt": "plan-ceo-review-1789623770412-IFVjXh",
+  "actualPending": {
+    "sessionId": "6496a751-5c37-48fa-bcce-c241e94c9e63",
+    "toolUseId": "toolu_01UdqQbP1kWDeVdxDAK9DqVB",
+    "questions": [
+      {
+        "question": "D2.5 — E5: Include, defer or cut the Mattermost REST plugin?\nProject/branch/task: main branch, PLAN.md scope decision, candidate 5 of 5. E1 + E3 in (6 weeks, 2 slots), E2 + E4 deferred. This is the last open slot.\nELI10: Mattermost is the self-hosted Slack alternative used by regulated and air-gapped enterprises. Only 3% of asks, but every one of them is a high-ARR account, and self-hosted customers are locked in: they cannot switch chat tools easily, so once you support them they stay. It costs ~2 weeks as a REST plugin. Including it brings the quarter to 3 integrations and 8 engineer-weeks; the plan's cap is 2-3 integrations, so it fits on count, but total weeks are not stated in the plan and 8 may or may not fit your actual team.\nStakes if we pick wrong: Including it commits 8 weeks total this quarter, which may be more than the team has; deferring it leaves your highest-ARR-per-ask segment without a channel while E1 and E3 ship for everyone else.\nRecommendation: Include because it is the third-best demand-per-week when ARR-weighted, it fits the 2-3 cap, and E1 + E3 + E5 covers broad base, enterprise cloud and enterprise self-hosted in one quarter. Confirm the 8-week total against real capacity in D2.final; if weeks are tight, this is the item to revise.\nNote: options differ in kind, not coverage — no completeness score.\nNet: E5 rounds out an enterprise-complete quarter; the only argument against it is engineer-weeks, which the plan does not state.",
+        "header": "E5 Mattermost",
+        "options": [
+          {
+            "label": "Include (recommended)",
+            "description": "Ship the Mattermost REST plugin this quarter. Effort: M (~2 weeks human / ~3-5 days with CC). Risk: medium (customer-hosted servers vary in version and network access; plugin compatibility matrix). Reuse: none, greenfield. Verification: plugin install on supported versions, server-unreachable and token-revoked paths, tested per Section 4. ✅ Every ask comes from a high-ARR account; locked-in segment that stays once served. ✅ Completes enterprise coverage alongside Teams; fits the 2-3 cap on count. ❌ Brings the quarter to 8 engineer-weeks total, and the plan never states how many weeks the team actually has."
+          },
+          {
+            "label": "Defer",
+            "description": "Move Mattermost to next quarter with a TODOS.md entry naming the high-ARR accounts. Effort: S (zero work now). Risk: medium (accounts may escalate). Reuse: none consumed. Verification: none this quarter. ✅ Keeps the quarter at 6 weeks and 2 integrations, the safest capacity read. ✅ Self-hosted customers are locked in; they are unlikely to churn over a one-quarter wait. ❌ Your highest-ARR-per-ask segment watches Slack and Teams ship without them."
+          },
+          {
+            "label": "Cut",
+            "description": "Drop Mattermost entirely; record the reason under NOT in scope, no TODO. Effort: S (zero work). Risk: high. Reuse: none. Verification: none. ✅ Avoids the long-term support burden of customer-hosted plugin compatibility. ✅ Simplest roadmap: two cloud platforms, no self-hosted matrix. ❌ Tells high-ARR self-hosted accounts they are not a target; hard to walk back."
+          },
+          {
+            "label": "Hold",
+            "description": "Stop the chain here and discuss E5 before deciding. Effort: S (zero work). Risk: none. Reuse: none. Verification: none. ✅ Room to confirm real engineer-weeks before committing to 8. ✅ Nothing is decided or recorded until you say continue. ❌ Delays the final set validation until this is resolved."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": false,
+    "failed": false,
+    "source": "pre_tool_use"
+  },
+  "visible": "│ but every one of them is a high-ARR account, and self-hosted customers are locked in: they cannot switch chat tools\n│ easily, so once you support them they stay. It costs ~2 weeks as a REST plugin. Including it brings the quarter to 3\n│ integrations and 8 engineer-weeks; the plan's cap is 2-3 integrations, so it fits on count, but total weeks are not\n│ stated in the plan and 8 may or may not fit your actual team.\n│ Stakes if we pick wrong: Including it commits 8 weeks total this quarter, which may be more than the team has;\n│ deferring it leaves your highest-ARR-per-ask segment without a channel while E1 and E3 ship for everyone else.\n│ Recommendation: Include because it is the third-best demand-per-week when ARR-weighted, it fits the 2-3 cap, and E1 +\n│ E3 + E5 covers broad base, enterprise cloud and enterprise self-hosted in one quarter. Confirm the 8-week total\n│ against real capacity in D2.final; if weeks are tight, this is the item to revise.\n│ Note: options differ in kind, not coverage — no completeness score.\n│ Net: E5 rounds out an enterprise-complete quarter; the only argument against it is engineer-weeks, which the plan does\n│ not state.\n\n❯ 1. Include (recommended)\n     Ship the Mattermost REST plugin this quarter. Effort: M (~2 weeks human / ~3-5 days with CC). Risk: medium\n     (customer-hosted servers vary in version and network access; plugin compatibility matrix). Reuse: none, greenfield.\n     Verification: plugin install on supported versions, server-unreachable and token-revoked paths, tested per Section\n     4. ✅ Every ask comes from a high-ARR account; locked-in segment that stays once served. ✅ Completes enterprise\n     coverage alongside Teams; fits the 2-3 cap on count. ❌ Brings the quarter to 8 engineer-weeks total, and the plan\n     never states how many weeks the team actually has.\n  2. Defer\n     Move Mattermost to next quarter with a TODOS.md entry naming the high-ARR accounts. Effort: S (zero work now).\n     Risk: medium (accounts may escalate). Reuse: none consumed. Verification: none this quarter. ✅ Keeps the quarter\n     at 6 weeks and 2 integrations, the safest capacity read. ✅ Self-hosted customers are locked in; they are unlikely\n     to churn over a one-quarter wait. ❌ Your highest-ARR-per-ask segment watches Slack and Teams ship without them.\n  3. Cut\n     Drop Mattermost entirely; record the reason under NOT in scope, no TODO. Effort: S (zero work). Risk: high. Reuse:\n     none. Verification: none. ✅ Avoids the long-term support burden of customer-hosted plugin compatibility. ✅\n     Simplest roadmap: two cloud platforms, no self-hosted matrix. ❌ Tells high-ARR self-hosted accounts they are not a\n     target; hard to walk back.\n  4. Hold\n     Stop the chain here and discuss E5 before deciding. Effort: S (zero work). Risk: none. Reuse: none. Verification:\n     none. ✅ Room to confirm real engineer-weeks before committing to 8. ✅ Nothing is decided or recorded until you\n     say continue. ❌ Delays the final set validation until this is resolved.\n  5. Type something.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  6. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n",
+  "elapsedMs": 528352,
+  "originalError": "Split actor requires the complete matched native question before selecting",
+  "sourceKind": "Exact native PreToolUse pending question retained in both terminal catch and retainer; no reconstructed fields",
+  "originalOutcome": "failed",
+  "provenance": {
+    "receiptSha256": "0abaffdb882d259fd24c3ccca2147c0ac21f760d613ddac69b8428752a294e25",
+    "screenSha256": "ebcec31f506580aec2d972a2f86c414750e8c487f23e9c48e3e6d8deb9d39067",
+    "observationSha256": "28bde2a047a40e4101926f326c83a890b2416e6c1794fde0189e6fbb42193e36",
+    "pendingHookSha256": "48f471e0babd844dc0dc167ded7859ddcccde0ac5151fde65fa010aecfd8aaff",
+    "readbackSha256": "6216965b0c2449ab2b4f7b07a19f2622540b4a463aaa52ad48efa2ed2d57d4a8",
+    "nativeFields": "Exact terminal pendingQuestion; all questions and toolUseId independently equal retained PreToolUse hook. Complete latest owned Read contains the same question, header, labels and descriptions."
+  }
+}

@@ -19,13 +19,15 @@
  * Reader-side fix folded from community PR #1851 by @harjothkhara.
  */
 import { describe, test, expect } from 'bun:test';
-import { execSync, spawnSync } from 'child_process';
+import { execFileSync, execSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import type { TemplateContext } from '../scripts/resolvers/types';
 import { generateContextRecovery } from '../scripts/resolvers/preamble/generate-context-recovery';
+import { ALL_HOST_CONFIGS } from '../hosts';
+import { discoverSkillFiles } from '../scripts/discover-skills';
 
 const ROOT = path.join(import.meta.dir, '..');
 
@@ -35,57 +37,60 @@ const PATH_ADJACENT = /\/\$\{?_BRANCH|\$\{_BRANCH\}\/|\$_BRANCH\//;
 const FILENAME_PREFIX = /\$\{?_BRANCH\}?[A-Za-z0-9._-]*\.(?:jsonl|json|md|txt|log)/;
 
 function renderedSkillFiles(root = ROOT): string[] {
-  // Enumerate managed render trees without buffering a shell's file census.
-  // .context holds archived/experimental copies, not shipped skill output.
-  const excluded = new Set(['node_modules', '.claude', '.context', '.git']);
-  const files: string[] = [];
-  function visit(dir: string, inSections = false) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const file = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (!excluded.has(entry.name)) visit(file, inSections || entry.name === 'sections');
-      } else if (entry.name === 'SKILL.md' || (inSections && entry.name.endsWith('.md'))) {
-        files.push(file);
-      }
-    }
+  // Repository files, including new outputs, exclude ignored workspaces/archives.
+  const files = execFileSync('git', [
+    'ls-files', '-z', '--cached', '--others', '--exclude-standard', '--',
+    'SKILL.md', '**/SKILL.md', '**/sections/*.md',
+  ], { cwd: root, encoding: 'utf-8', timeout: 30_000 })
+    .split('\0').filter(Boolean).map(file => path.join(root, file));
+  // Host outputs are deliberately gitignored; inspect only their registered roots.
+  for (const host of ALL_HOST_CONFIGS.filter(host => host.name !== 'claude')) {
+    const hostRoot = path.join(root, host.hostSubdir);
+    const skillsRoot = path.join(hostRoot, 'skills');
+    if (!fs.existsSync(skillsRoot) || fs.lstatSync(hostRoot).isSymbolicLink()
+      || fs.lstatSync(skillsRoot).isSymbolicLink()) continue;
+    files.push(...discoverSkillFiles(skillsRoot).map(file => path.join(skillsRoot, file)));
   }
-  visit(root);
-  return files;
+  return [...new Set(files)];
 }
 
 describe('branch slug hygiene (#2550, #1851)', () => {
-  test('render discovery excludes scratch copies and retains every managed host without a pipe-size limit', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-render-census-'));
-    const add = (relative: string) => {
-      const file = path.join(root, relative);
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, '# Render fixture\n');
-      return file;
-    };
+  test('inventory covers repository outputs and host caches without ignored candidate trees', () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-skill inventory-'));
     try {
-      const expected = [
-        add('review/SKILL.md'), add('review/sections/analysis.md'),
-        add('.agents/skills/gstack-review/SKILL.md'),
-        add('.kiro/skills/gstack-review/sections/nested/analysis.md'),
-        add('skill with $quotes/sections/line\nbreak.md'),
-      ];
-      for (const excluded of ['.context', '.claude', '.git', 'node_modules']) {
-        add(`${excluded}/old-render/review/SKILL.md`);
-        add(`${excluded}/old-render/review/sections/analysis.md`);
+      execFileSync('git', ['init', '-q'], { cwd: repo, timeout: 30_000 });
+      const write = (file: string) => {
+        fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
+        fs.writeFileSync(path.join(repo, file), '# Skill\n');
+      };
+      const source = ['SKILL.md', 'health/SKILL.md', 'health/sections/checks.md'];
+      const hosts = ALL_HOST_CONFIGS.filter(host => host.name !== 'claude');
+      fs.writeFileSync(path.join(repo, '.gitignore'),
+        ['.context/', 'node_modules/', ...hosts.map(host => `${host.hostSubdir}/`)].join('\n'));
+      source.forEach(write);
+      execFileSync('git', ['add', '--', ...source], { cwd: repo, timeout: 30_000 });
+      source.push('new skill/SKILL.md');
+      write(source.at(-1)!); // New, untracked output must still be checked.
+      write('.context/candidate/SKILL.md');
+      write('.context/candidate/health/sections/checks.md');
+      write('node_modules/other/SKILL.md');
+      expect(renderedSkillFiles(repo).sort())
+        .toEqual(source.map(file => path.join(repo, file)).sort());
+      const caches = hosts.map(host => `${host.hostSubdir}/skills/gstack-health/SKILL.md`);
+      caches.forEach(write);
+      expect(renderedSkillFiles(repo).sort())
+        .toEqual([...source, ...caches].map(file => path.join(repo, file)).sort());
+      // Old find never followed host or skills directory symlinks into another tree.
+      write('.context/outside/skills/gstack-foreign/SKILL.md');
+      for (const [index, host] of hosts.slice(0, 2).entries()) {
+        const link = path.join(repo, host.hostSubdir, index ? 'skills' : '');
+        fs.rmSync(link, { recursive: true, force: true });
+        fs.symlinkSync(path.join(repo, '.context/outside', index ? 'skills' : ''), link, 'junction');
       }
-      // The old execSync census failed at its 1 MiB stdout default once
-      // enough isolated host renders existed in a workspace.
-      for (let i = 0; i < 4500; i++) {
-        expected.push(add(`host-output/skill-${i}-${'x'.repeat(210)}/SKILL.md`));
-      }
-      expect(Buffer.byteLength(expected.join('\n'))).toBeGreaterThan(1024 * 1024);
-      const actual = renderedSkillFiles(root);
-      const expectedSet = new Set(expected);
-      expect(actual).toHaveLength(expected.length);
-      expect(new Set(actual).size).toBe(expected.length);
-      expect(actual.every(file => expectedSet.has(file))).toBe(true);
+      expect(renderedSkillFiles(repo).sort())
+        .toEqual([...source, ...caches.slice(2)].map(file => path.join(repo, file)).sort());
     } finally {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(repo, { recursive: true, force: true });
     }
   });
 

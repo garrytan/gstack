@@ -1167,12 +1167,17 @@ describe('gstack-slug', () => {
   });
 
   test('no templates or bin scripts use source process substitution for gstack-slug', () => {
+    // Scan project sources, including new untracked templates, without walking
+    // ignored caches, symlinked installations or private evaluation worktrees.
     const result = Bun.spawnSync(
-      ['grep', '-r', 'source <(.*gstack-slug', '--include=*.tmpl', '--include=gstack-review-*', '.'],
-      { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 30_000 }
+      ['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', '*.tmpl', 'bin/gstack-review-*'],
+      { cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 5_000 },
     );
-    // grep returns exit code 1 when no matches found — that's what we want
-    expect(result.stdout.toString().trim()).toBe('');
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    const files = [...new Set(result.stdout.toString().split('\0').filter(Boolean))];
+    expect(files.length).toBeGreaterThan(0);
+    const violations = files.filter(file => /source <\(.*gstack-slug/.test(fs.readFileSync(path.join(ROOT, file), 'utf8')));
+    expect(violations).toEqual([]);
   });
 });
 

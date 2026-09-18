@@ -211,3 +211,45 @@ let outcome='success';try{withLock(dir,()=>{const active=path.join(barrier,'acti
   test('an active recheck pins only its expired parent report, never expired repair material',()=>{const now=Date.now(),repo='f'.repeat(24),oldRun=`${now-31*86400_000}-${'a'.repeat(16)}`,childRun=`${now}-${'b'.repeat(16)}`,findingId='c'.repeat(32),repoDir=secureDirectory(path.join(privateRoot(),repo)),parent=secureDirectory(path.join(repoDir,oldRun)),child=secureDirectory(path.join(repoDir,childRun)),bundles=secureDirectory(path.join(parent,'bundles')),reviews=secureDirectory(path.join(parent,'reviews')),attempts=secureDirectory(path.join(parent,'verification-attempts'));writeHelperJson(path.join(parent,'report.json'),{schemaVersion:3,runId:oldRun,repoId:repo,status:'finished',coverage:[],findings:[{id:findingId}]});writeJson(path.join(bundles,'bundle.json'),{schemaVersion:3});writeJson(path.join(reviews,'review.json'),{schemaVersion:3});writeJson(path.join(attempts,'attempt.json'),{schemaVersion:3});writeHelperJson(path.join(child,'report.json'),{schemaVersion:3,runId:childRun,repoId:repo,status:'running',deadline:new Date(now+60_000).toISOString(),coverage:[],findings:[],parent:{runId:oldRun,findingId,kind:'recheck'}});retention(now);expect(fs.existsSync(path.join(parent,'report.json'))).toBe(true);expect(fs.existsSync(bundles)).toBe(false);expect(fs.existsSync(reviews)).toBe(false);expect(fs.existsSync(attempts)).toBe(false);fs.rmSync(child,{recursive:true});retention(now);expect(fs.existsSync(parent)).toBe(false);});
   test('finished, expired, and malformed child reports cannot extend parent retention',()=>{const now=Date.now(),repo='e'.repeat(24),repoDir=secureDirectory(path.join(privateRoot(),repo)),findingId='d'.repeat(32);for(const [index,childValue] of [[0,{status:'finished',repoId:repo,deadline:new Date(now+60_000).toISOString()}],[1,{status:'running',repoId:repo,deadline:new Date(now-1).toISOString()}],[2,{status:'running',repoId:'0'.repeat(24),deadline:new Date(now+60_000).toISOString()}]] as const){const parentRun=`${now-(31+index)*86400_000}-${String(index+1).repeat(16)}`,childRun=`${now-index}-${String(index+4).repeat(16)}`,parent=secureDirectory(path.join(repoDir,parentRun)),child=secureDirectory(path.join(repoDir,childRun));writeHelperJson(path.join(parent,'report.json'),{schemaVersion:3,runId:parentRun,repoId:repo,status:'finished',coverage:[],findings:[{id:findingId}]});writeHelperJson(path.join(child,'report.json'),{schemaVersion:3,runId:childRun,repoId:childValue.repoId,status:childValue.status,deadline:childValue.deadline,coverage:[],findings:[],parent:{runId:parentRun,findingId,kind:'recheck'}});}retention(now);for(const name of fs.readdirSync(repoDir).filter(name=>Number(name.split('-')[0])<now-30*86400_000))expect(fs.existsSync(path.join(repoDir,name))).toBe(false);});
 });
+
+
+describe('CSO public report source-root privacy', () => {
+  const maskedRoot = '<REDACTED-internal.user_path>';
+  const reportFor = (sourceRoot: string): any => ({
+    schemaVersion: 3, runId: '1789450000000-aaaaaaaaaaaaaaaa', repoId: 'b'.repeat(24),
+    createdAt: '2026-09-15T06:00:00.000Z', deadline: '2026-09-15T06:10:00.000Z',
+    status: 'finished', completeness: 'partial',
+    policy: { mode: 'daily', scope: 'default', diff: true, base: 'main', offline: true, budgetSeconds: 600, maxWorkers: 3, maxRepairs: 3 },
+    source: { root: sourceRoot, snapshotHash: 'c'.repeat(64), originalHash: 'd'.repeat(64), baseCommit: 'e'.repeat(40), transformations: [{ path: 'src/root.ts', handling: 'public source' }] },
+    application: { actors: ['root administrator'], assets: ['/source/project'], entrypoints: ['read'], tenantBoundaries: ['tenant'], sensitiveOperations: ['read'], invariants: ['Root access remains restricted.'] },
+    coverage: [{ domain: 'authorization', scope: 'default', status: 'partial', method: 'manual static review', gaps: ['Remaining source review'], exclusions: [], evidence: ['Source read'] }],
+    findings: [], gaps: [], events: [],
+  });
+
+  test.each([
+    ['POSIX temporary', '/tmp/cso-private-project/repo'],
+    ['POSIX custom', '/srv/company-project/repo'],
+    ['Linux home', '/home/alice/company-project'],
+    ['macOS home', '/Users/alice/company-project'],
+    ['Windows custom', String.raw`D:\teams\company-project`],
+    ['Windows home', String.raw`C:\Users\Alice\company-project`],
+  ])('masks %s source roots without changing private identity', (_label, sourceRoot) => {
+    const dir = tmp(), report = reportFor(sourceRoot), original = structuredClone(report);
+    saveReport(dir, report);
+    const file = path.join(dir, 'report.json'), raw = fs.readFileSync(file, 'utf8');
+    expect(raw).not.toContain(sourceRoot);
+    const saved = JSON.parse(raw);
+    expect(saved.source.root).toBe(maskedRoot);
+    expect(saved).toEqual({ ...original, source: { ...original.source, root: maskedRoot } });
+    expect(report).toEqual(original);
+    expect(fs.readFileSync(path.join(dir, 'report.md'), 'utf8')).not.toContain(sourceRoot);
+    // Retained reports from before this fix are projected on read, without
+    // mutating their private file or any identity hashes.
+    const legacy = JSON.stringify(original, null, 2) + '\n';
+    fs.writeFileSync(file, legacy, { mode: 0o600 });
+    expect(loadReport(dir)).toEqual(saved);
+    expect(fs.readFileSync(file, 'utf8')).toBe(legacy);
+    expect(sanitizeHelperForJson({ root: 'administrator', label: 'root access', path: '/source/project' }))
+      .toEqual({ root: 'administrator', label: 'root access', path: '/source/project' });
+  });
+});

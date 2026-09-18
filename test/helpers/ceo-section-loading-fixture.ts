@@ -33,20 +33,39 @@ change with no UI, API, schema, pricing, or developer onboarding change.
 - All reads and writes use this repository in the same process; there are no
   external DB writers. Multi-process operation remains unsupported and startup
   rejects that configuration while caching is enabled.
+- These surrounding contracts are accepted fixture facts, supplied by the
+  existing repository, cache adapter and rollout controller. Preserve them;
+  review the new wrapper ordering below against them.
 - Authentication and authorization run before repository access. Keys encode
   the authenticated tenant ID and validated profile ID without ambiguity.
   Values are immutable profile-summary DTOs; secrets and cache keys are never
   logged. Cached results cannot bypass authorization.
 - The existing LRU adapter supports 1000 entries, a 16 MiB byte cap, and a
-  30-second TTL. Recorded hot data fits those limits. Absent records use a
-  distinct sentinel with a 10-second TTL; undefined means a cache miss.
+  30-second TTL. Recorded hot data fits those limits. repository.read returns
+  an immutable absent-result DTO for a missing record, never undefined. The
+  adapter recognizes that DTO in cache.set, stores an internal sentinel with a
+  10-second TTL, and cache.get decodes it back to the same absent-result DTO.
+  The internal sentinel cannot escape the adapter; undefined means a cache miss.
 - Cache operations are synchronous and atomic in the single JS event loop.
   On any cache failure the existing adapter bypasses the cache until an empty
   cache is reinitialized; repository errors keep the current typed API error
-  mapping. The existing per-key
-  single-flight wrapper coalesces simultaneous misses and releases on failure.
-- A read already in progress when a write commits may return its earlier DB
-  snapshot to that caller. Every read begun after that write completes must
+  mapping. The existing per-key single-flight wrapper sits inside
+  repository.read, coalesces simultaneous store reads and releases on failure.
+  A committed repository.write retires that key's old read cohort before its
+  promise resolves. A later repository.read starts a fresh cohort; a rejected
+  write leaves the cohort unchanged. Already-started readers may finish with
+  their earlier snapshot. This admission rule does not inspect cache fills.
+- The repository uses an in-process transactional store, with no network
+  transport between this wrapper and the store. repository.write is atomic:
+  a resolved promise means committed, and every
+  rejected promise guarantees no commit; its transaction rolled back before
+  rejection. Existing contract tests exercise that guarantee.
+- Consistency is measured at the public wrapper boundary. A write completes
+  when writeProfile's promise fulfills after cache.delete, not when
+  repository.write commits or resolves. A read begins when readProfile is
+  invoked. Reads that overlap an unfinished writeProfile may return an earlier
+  snapshot, including reads begun after the store commit but before the wrapper
+  promise fulfills. Every read begun after that write completes must
   observe the committed version. TTL expiry is not a substitute for this rule.
 
 ## Proposed wrapper integration
@@ -60,14 +79,35 @@ ${CACHE_READ_WRITE_SKETCH}
 
 ## Verification and rollout
 Existing repository contract tests cover tenant isolation, key validation,
-absence, DB failures, and authorization. New wrapper tests cover hit/miss,
+absence, DB failures, authorization, and startup rejection of multi-process
+operation while caching is enabled. New wrapper tests cover hit/miss,
 eviction and byte limits, TTL, adapter-failure fallback, successful-write
 invalidation, failed-write preservation, and concurrent-miss coalescing.
 The rollout uses the existing runtime feature flag: enable for 10% of keys,
 then 50%, then all keys after one healthy hour at each stage. Monitor hit/miss,
 eviction, cache bytes, fallback errors, DB CPU, and read p95 without raw IDs.
-On error-rate or latency regression, disable the flag immediately; both reads
-and writes bypass the cache while disabled, and enabling creates an empty cache.
+The existing controller uses one shared key-selection predicate for reads and
+writes. On any enable, disable or percentage change, it stops admitting work,
+awaits every admitted old-instance write, then publishes a new wrapper/cache
+instance with a fresh single-flight cohort before admitting new work. Old reads
+retain their old instance and cannot fill the new one. Disabled instances
+bypass the cache on both paths. Tests cover the old-writer/new-reader ordering,
+all those transitions and predicate parity. This lifecycle isolation does not coordinate
+an ordinary DB write with a cache fill in the same active instance.
+Existing dashboards and runbooks cover these metrics. Before each stage, verify
+that alerts page the service owner on any correctness/error-SLO breach, read
+p95 above 120 ms for five minutes, or cache bypass persisting for one minute.
+Hit rate is hits / (hits + misses) among requests admitted to the cache path;
+flag-excluded or adapter-bypassed requests are tracked separately, not as misses.
+DB CPU and read p95 are service-wide metrics, including bypassed requests.
+At the 10% and 50% stages, a healthy hour requires at least 60% admitted-request
+hits, unchanged correctness/error SLOs, no alerts, and aggregate DB CPU/read p95
+no worse than their 70%/120 ms pre-rollout baselines. At 100%, the original
+absolute acceptance targets (DB CPU below 50%, read p95 below 60 ms, hits at
+least 60%) must all hold with unchanged correctness/error SLOs and no alerts.
+Any breach disables the flag immediately; the runbook records the incident,
+rollback and criteria for resuming. These are existing
+rollout-controller and telemetry contracts, not proposed wrapper additions.
 Cold starts remain within the existing DB capacity. The service owner monitors
 the rollout and records the results against the acceptance targets.
 
@@ -75,7 +115,32 @@ the rollout and records the results against the acceptance targets.
 Distributed caching, cross-process coherence, prewarming, changing consistency
 semantics, or adding new product surfaces. The repository interface preserves a
 future replacement path without introducing a general cache framework now.
+
+## Author's review and acceptance requirements
+This is a full CEO scope and feasibility review. The author has approved the
+retained contracts, limits, rollout and acceptance targets above. Evaluate the
+proposed wrapper against them; the wrapper itself remains unapproved. An actual
+contradiction or missing proof must be reported and resolved, not assumed away.
+For a demonstrated gap, amend the plan with the required guarantee, a feasible
+remedy, its tradeoffs and deterministic regression scenarios. Those repairs
+and their required verification are within the requested scope. The exact data
+structures, full function bodies and executable test code belong to subsequent
+engineering planning; do not select or implement them during this review when
+the required behavior and feasibility can already be established.
+
+Use the existing deterministic repository-contract test harness. Required wrapper
+acceptance includes both completion orders of overlapping reads and writes,
+missing-record creation, rejected reads/writes, overlapping writes, and isolation
+across controller instance changes. Use existing telemetry to record any added
+branch on the current dashboard with no key labels; no new alert threshold or metric
+project is requested. These are future acceptance requirements, not tests already
+implemented or passing. Preserve all 11 review outcomes, required registries,
+diagrams, tasks, completion summary and the full GSTACK REVIEW REPORT.
 `;
+
+// This actor can accept repairs to the stated contracts, not every recommended
+// implementation project or change to the retained scope.
+export const CEO_SECTION_DECISION_POLICY = '- You represent the plan author and must follow the review depth and acceptance requirements in PLAN.md. Authorize complete remedies and required verification that restore its retained contracts and acceptance targets; use the recommended option only among alternatives within that scope. Do not authorize weaker consistency, changed limits, optional scope, new observability projects or implementation-code selection reserved for later engineering planning. Do not create an implementation choice when the required guarantee and feasibility already resolve this CEO review; record the requirement and leave those details to engineering. Preserve every finding and required output. If a concrete incompatibility or missing required proof remains, resolve it through the normal decision procedure; never hide it or claim approval when no offered alternative satisfies these constraints. Save and verify any actual decision, record its authority and exact scope, and continue without asking a human.';
 
 /** All six events must form one ordered, same-key, post-write reader trace. */
 function hasNumberedStaleFillTrace(text: string): boolean {
@@ -365,7 +430,7 @@ function structuredFindingAssessment(prose: string[], finding: number, traceEnd:
     if (assertedOwner(prose, i) && (sameId.test(line) || namedAssessment || followingTrace)) {
       // A current table can put a scalar verdict in the cited finding's row.
       // Normalize that owned status only, never borrow a neighboring row.
-      const status = /^\|\s*(F[1-9]\d*)\s*\|\s*["“']?(withdrawn|rejected|dismissed)\b/i.exec(line);
+      const status = /^\|\s*([FD][1-9]\d*)\s*\|\s*["“']?(withdrawn|rejected|dismissed)\b/i.exec(line);
       assessment.push(status && ids.includes(status[1]!) ? `${status[1]} is ${status[2]}. ${line}` : line);
     }
   }
@@ -635,6 +700,26 @@ function hasOrderedStaleFillOperations(text: string, sourceText = text): boolean
   const later = String.raw`(?:(?:every|all|the)\s+)?(?:later|next|new|subsequent)\s+readers?\s+(?:sees?|gets?|observes?|receives?)\s+(?:the\s+)?(?:stale|old|outdated)\s+(?:data|value|snapshot)`;
   const findingPrefix = String.raw`(?:(?:F[1-9]\d*|(?:Finding|Issue)\s+[1-9]\d*)\s*[—–:-]\s*)?(?:P[0-3]\s*[—–:-]\s*)?`;
   const sequence = new RegExp(String.raw`^${findingPrefix}${read}${separator}${write}${separator}${fill}${separator}${later}(?=[\s.!?;]|$)`, 'i');
+  // A fill's lifetime can establish overlap without splitting its synchronous
+  // JS continuation. Its start precedes one write, and that same fill stores
+  // the pre-write snapshot after that write; a returned value alone is not a fill.
+  const lifetimeSubject = String.raw`(?:(?:a|the|this|original|same)\s+)?(?:cache\s+)?fill(?:\s+(?:that|which))?`;
+  const starts = String.raw`(?:started|began|starts|begins)`;
+  const writer = String.raw`(?:(?:a|the|that|this)\s+)?write(?:\s+(?:commits?|completes?|settles?|returns?))?`;
+  const sameWriter = String.raw`(?:it|(?:that|the\s+same|that\s+same|the)\s+write)(?:\s+(?:commits?|completes?|settles?|returns?))?`;
+  const storage = String.raw`(?:\s+(?:caches|stores)|,\s*(?:caching|storing))\s+(?:the\s+)?(?:old|stale|pre[- ](?:write|commit))\s+(?:snapshot|value|data)`;
+  const lifetime = new RegExp(String.raw`\b${lifetimeSubject}\s+${starts}\s+before\s+${writer}\s+and\s+(?:stored|stores|completed|completes|finished|finishes)\s+after\s+${sameWriter}${storage}\b`, 'i');
+  const lifetimeCells = sourceText.replace(/`[^`]*`|"(?:[^"\\]|\\.)*"|“[^”]*”/g, '[literal]')
+    .replace(/[*_]/g, '').replace(/\s+/g, ' ').split(/\s*\|\s*/);
+  if (lifetimeCells.some(cell => cell.split(/[.!?](?:\s+|$)/).some(claim => {
+    const matched = lifetime.exec(claim);
+    if (!matched) return false;
+    // Negated, hypothetical, quoted and prevention descriptions do not assert
+    // this execution. Never join temporal fragments across quoted source.
+    return !/\b(?:if|unless|whether|might|may|could|not|never|no\s+longer|example|template|hypothetical|historical|quoted|copied|source|prevent\w*|avoid\w*|impossible)\b/i.test(claim)
+      && !/[?"“”]/.test(claim)
+      && !/\b(?:another|different|separate|unrelated|other)\s+(?:cache|key|entry|fill|write)\b/i.test(claim);
+  }))) return true;
   // An asserted schedule can name the read's resolution and store separately.
   // All four operations must remain in one cell and in their causal order;
   // quoted requirements may follow, but inline code cannot supply operations.
@@ -692,6 +777,61 @@ function assertedProseOwner(prose: string[], index: number): boolean {
   return !owners.some(owner => owner.source);
 }
 
+/** A retained rule must require committed values for reads begun after write completion. */
+function retainsPostWriteFreshness(text: string): boolean {
+  const writer = '(?:(?:the|that|a)\\s+)?write\\s+(?:(?:has|had)\\s+)?(?:completes?|completed|returns?|returned|finishes?|finished|commits?|committed)';
+  const boundary = `(?:${writer}|(?:the\\s+)?write\\s+(?:completion|return|commit))`;
+  const reads = '(?:(?:every|all|any|new|later|future|subsequent)\\s+)?(?:reads?|requests?|callers?)';
+  const starts = '(?:(?:that|which)\\s+)?(?:begun|started|begins?|starts?)';
+  const obligation = '(?:must|shall|are\\s+required\\s+to)\\s+(?:observe|return|see|receive)';
+  const committed = '(?:(?:the\\s+)?(?:(?:newly|latest)\\s+)?committed\\s+(?:version|value|snapshot)|the\\s+value\\s+it\\s+committed)';
+  const afterRead = new RegExp(`^${reads}\\s+${starts}\\s+after\\s+${boundary}\\s+${obligation}\\s+${committed}$`, 'i');
+  const afterWrite = new RegExp(`^(?:once|after)\\s+${writer},?\\s+${reads}\\s+${obligation}\\s+${committed}$`, 'i');
+  return text.split(/[.!?](?:\s+|$)/).some(sentence => {
+    const claim = sentence.trim().replace(/^[-*]\s+/, '').replace(/^(?:the\s+)?retained\s+(?:rule|contract|invariant|requirement)\s*:\s*/i, '');
+    return !/\b(?:not|never|may|might|could|if|unless|except)\b/i.test(claim) && (afterRead.test(claim) || afterWrite.test(claim));
+  });
+}
+
+/** Quote only the attributed premise; the review's current conclusion must remain asserted prose. */
+function attributedCoordinationClaim(text: string): { id: string } | undefined {
+  const premise = /(?:^|[.;]\s+)\[Amended:\s*([DF][1-9]\d*)\]\s+(?:(?:the|our)\s+)?(?:original|current|proposed)\s+(sketch|wrapper|implementation)\s+(?:stated|states|assumed|assumes|specified|specifies|proposed|proposes)\s+(?:that\s+)?(["“])([^"“”]+)(["”])/i.exec(text);
+  if (!premise || !((premise[3] === '"' && premise[5] === '"') || (premise[3] === '“' && premise[5] === '”'))) return;
+  const quoted = premise[4]!;
+  const absence = /\b(?:no|without|lacks?|lacked|omits?|omitted)\s+(?:(?:additional|extra)\s+)?(?:version\s+checks\s+(?:or|and)\s+)?(?:coordination|synchroni[sz]ation|ordering\s+guards?)\b/i.exec(quoted);
+  if (!absence || !/\bcache\s+(?:fills?|population|repopulation)\b|\b(?:re)?populat\w*\s+(?:the\s+)?cache\b/i.test(quoted) || !/\bwrites?\b/i.test(quoted)
+    || /\b(?:if|unless|whether|might|may|could|not|never|another|different|unrelated)\b/i.test(quoted.replace(absence[0], '')) || /[?!|]/.test(quoted)) return;
+  const unquoted = text.replace(premise[3] + quoted + premise[5], '[premise]');
+  if (/["“”|]/.test(unquoted) || /\b(?:if|unless|whether|might|may|could|hypothetical|example|template|quoted)\b/i.test(unquoted)) return;
+  const remaining = text.slice(premise.index + premise[0].length);
+  const authority = '(?:(?:(?:the|our)\\s+)?review\\s+(?:showed|shows|found|finds|established|demonstrated|concluded)(?:\\s+that)?\\s+|we\\s+(?:found|established|demonstrated|concluded)(?:\\s+that)?\\s+)?';
+  const subject = '(this|that|it|(?:this|that|the)\\s+(sketch|wrapper|implementation|proposal|approach|assumption))';
+  const violation = '(?:violates|breaks|contradicts|fails\\s+to\\s+(?:satisfy|preserve)|does\\s+not\\s+(?:satisfy|preserve))';
+  const requirement = '(?:the\\s+)?(?:(?:retained|existing|current)\\s+)?(?:freshness|read[- ]after[- ]write)\\s+(?:invariant|contract|rule|guarantee|requirement)';
+  const conclusion = new RegExp(`(?:^|[.;:]\\s+)${authority}${subject}\\s+${violation}\\s+${requirement}(?:\\s+above)?(?:\\s+\\(([^)]*)\\))?[.!](?=\\s|$)`, 'i').exec(remaining);
+  if (!conclusion || (conclusion[2] && /^(?:sketch|wrapper|implementation)$/i.test(conclusion[2]) && conclusion[2].toLowerCase() !== premise[2]!.toLowerCase())) return;
+  if ([...(conclusion[3] ?? '').matchAll(/\b[DF][1-9]\d*\b/gi)].some(reference => reference[0].toUpperCase() !== premise[1]!.toUpperCase())) return;
+  // A directly following conclusion refers to this premise. An intervening
+  // sentence can only explicitly reject that same premise, not introduce F2.
+  const bridge = remaining.slice(0, conclusion.index).replace(/^[.\s]+|[.;:\s]+$/g, '');
+  const rejected = /^(?:this|that|it)(?:\s+(?:statement|premise|proposal|approach|assumption|sketch|wrapper|implementation))?\s+(?:is|was|has\s+been)\s+(?:withdrawn|rejected|retracted|discarded|superseded)$|^(?:we|(?:the|our)\s+review)\s+(?:withdraw|reject|retract|discard)\s+(?:this|that)\s+(?:statement|premise|proposal|approach|assumption)$/i;
+  if (bridge && !rejected.test(bridge)) return;
+  return { id: premise[1]! };
+}
+
+/** Permission belongs only to a receiving group whose members began before the writer finished. */
+function permitsEarlierGroupReturn(claim: string, fillPattern: RegExp): boolean {
+  const group = /^(?:(?:the|these)\s+)?(?:(?:coalesced|already[- ]pending)\s+)?(?:waiters|readers|callers)(?:\s+coalesced\s+on\s+R[1-9]\d*)?\b/i.exec(claim.trim());
+  if (!group || !/\b(?:receive|return|observe|see)\b/i.test(claim) || !/\b(?:permitted|allowed|acceptable)\b/i.test(claim)
+    || fillPattern.test(claim) || /\b(?:next|later|subsequent|new|fresh|future)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(claim)
+    || /\b(?:if|unless|whether|might|could|never|not|after|and|also)\b|\bmay\s+have\b/i.test(claim)) return false;
+  const writer = '(?:(?:(?:the|that)\\s+)?write|W(?:[1-9]\\d*)?)\\s+(?:(?:has|had)\\s+)?(?:completed|returned|committed|settled|finished)|(?:the\\s+)?write\\s+(?:completion|return|commit)';
+  const sameGroup = '(?:they|each\\s+(?:call|read|request)|all\\s+(?:of\\s+)?(?:these\\s+)?(?:calls|reads|requests|callers|readers|waiters))';
+  const ordering = new RegExp(`\\b${sameGroup}\\s+(?:began|started)\\s+before\\s+(?:${writer})\\b`, 'i');
+  const relative = new RegExp(`^\\s+(?:that|who)\\s+(?:began|started)\\s+before\\s+(?:${writer})\\b`, 'i');
+  return ordering.test(claim) || relative.test(claim.trim().slice(group[0].length));
+}
+
 function hasProseStaleFillFinding(report: string): boolean {
   // Copied source, diagrams and quoted examples cannot supply a finding.
   let fence: { char: string; length: number } | null = null;
@@ -725,8 +865,34 @@ function hasProseStaleFillFinding(report: string): boolean {
     // between cache fills and writes that violates read-after-write freshness.
     // That is independent evidence even when the old-value trace is a diagram.
     // Inline source cannot supply the assertion; the amendment label is metadata.
-    const coordinationText = normalize(block.replace(/`([^`]*)`/g, (_span, body: string) =>
-      /^\[Amended:[^\]]+\]$/.test(body) ? body : '[literal]'));
+    const literalSafeBlock = block.replace(/`([^`]*)`/g, (_span, body: string) =>
+      /^\[Amended:[^\]]+\]$/.test(body) ? body : '[literal]');
+    const coordinationText = normalize(literalSafeBlock);
+    // An attributed quote can establish what the original sketch proposed;
+    // the reviewer must independently reject it against the retained rule.
+    // Do not promote an arbitrary quoted finding, or infer a missing contract.
+    const attributed = attributedCoordinationClaim(normalize(literalSafeBlock.replace(/^#{1,6}[^\n]*(?:\n|$)/, '')));
+    const retainedFreshness = attributed && blocks.slice(0, index).some((prior, priorIndex) => {
+      const priorLines = blocks.slice(0, priorIndex + 1).flatMap(part => part.split('\n'));
+      if (!assertedProseOwner(priorLines, priorLines.length - 1)) return false;
+      // A different finding's requirement is not the retained plan contract.
+      const headings: Array<{ level: number; title: string }> = [];
+      for (const line of priorLines) {
+        const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+        if (!heading) continue;
+        while (headings.length && headings.at(-1)!.level >= heading[1]!.length) headings.pop();
+        headings.push({ level: heading[1]!.length, title: heading[2]! });
+      }
+      if (headings.some(heading => /\b[DF][1-9]\d*\b/i.test(heading.title))) return false;
+      const requirement = normalize(prior.replace(/^#{1,6}[^\n]*(?:\n|$)/, '').replace(/`[^`]*`|"(?:[^"\\]|\\.)*"|“[^”]*”/g, '[literal]'));
+      const intervening = normalize(blocks.slice(priorIndex, index).join(' '));
+      if (/\b(?:another|different|separate|unrelated|other)\s+(?:cache|key|entry)\b/i.test(requirement)
+        || /\b(?:this|that|the)\s+(?:(?:freshness|read[- ]after[- ]write)\s+)?(?:invariant|contract|rule)\s+(?:is|was|remains)\s+(?:withdrawn|rejected|dismissed|no\s+longer\s+(?:required|retained))\b/i.test(intervening)) return false;
+      return retainsPostWriteFreshness(requirement);
+    });
+    const attributedGap = Boolean(attributed && retainedFreshness)
+      && !/\b(?:if|unless|whether|might|may|could|hypothetical|example|template|quoted)\b/i.test(coordinationText)
+      && !/\b(?:example|template|source|quoted|format)\b[^.]*:\s*$/i.test(blocks[index - 1] ?? '');
     const premise = /(?:^|[.;]\s+)(?:\[Amended:[^\]]{1,80}\]\s*)?(?:the\s+)?(?:original|current|proposed)\s+(sketch|wrapper|implementation)\s+(?:(?:had|has|proposed)\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\b|stated\s+that\s+no\s+coordination\s+between\s+(?:an?\s+)?cache\s+fill\s+and\s+(?:an?\s+)?write\s+was\s+proposed\b)/i.exec(coordinationText);
     const citedConclusion = /(?:^|[.;]\s+)Review\s+(?:showed|shows)\s+that\s+(sketch|wrapper|implementation)\s+(?:violates|breaks)\s+the\s+(?:retained\s+)?read[- ]after[- ]write\s+(?:rule|contract|guarantee|invariant)\s+\(see\s+(F[1-9]\d*)\)(?:[.!](?=\s|$)|$)/i.exec(coordinationText);
     // The reviewer can assert the original coordination violation directly,
@@ -739,7 +905,7 @@ function hasProseStaleFillFinding(report: string): boolean {
       && !coordinationText.slice(premise.index, conclusion.index).includes('|')
       && !/["“”]|\b(?:if|example|template|quoted)\b/i.test(text)
       && !/\b(?:example|template|source|quoted|format)\b[^.]*:\s*$/i.test(blocks[index - 1] ?? '');
-    if ((!stale || !inFlight || !read || !fill || !invalidation || !ordering) && !coordinationGap) return false;
+    if ((!stale || !inFlight || !read || !fill || !invalidation || !ordering) && !coordinationGap && !attributedGap) return false;
 
     // A neighboring explanation/remedy belongs to this paragraph only until
     // another named finding/section/table row begins. In particular, a
@@ -748,9 +914,11 @@ function hasProseStaleFillFinding(report: string): boolean {
     const independent = /^(?:#{1,6}(?:\s|\d)|\d+\.\s|[-*]\s|\||(?:[*_]+)?(?:Finding\b|Section\s|P[0-3]\b))/i.test(next);
     const explicitId = /^\|\s*(F[1-9]\d*)\s*\|/.exec(text)?.[1]
       ?? (coordinationGap && conclusion === citedConclusion ? citedConclusion?.[2] : undefined)
-      ?? (coordinationGap && conclusion === reportedViolation ? reportedViolation?.[1] : undefined);
+      ?? (coordinationGap && conclusion === reportedViolation ? reportedViolation?.[1] : undefined)
+      ?? (attributedGap ? attributed!.id : undefined);
     const assessment = explicitId
-      ? structuredFindingAssessment(lines, owners.length - 1, owners.length - 1, [explicitId], assertedProseOwner).join(' ')
+      ? structuredFindingAssessment(lines, owners.length - 1, owners.length - 1, [explicitId], assertedProseOwner)
+        .map(line => attributedGap && /^#{1,6}\s/.test(line) ? line + '.' : line).join(' ')
       : '';
     const context = text + (independent ? '' : ' ' + normalize(next)) + ' ' + normalize(assessment);
     const findingId = explicitId ?? 'F[1-9]\\d*';
@@ -798,6 +966,7 @@ function hasProseStaleFillFinding(report: string): boolean {
         || (!proposedPrevention && /\b(?:cannot|can't|never|does not|doesn't|will not|won't|did not|didn't|is not|isn't|was not|wasn't|has not|hasn't|had not|hadn't)\s+(?:\w+\s+){0,3}restor\w*\b/i.test(claim))
         || /\bno\s+(?:fix|change|coordination|guard)\s+(?:is\s+)?(?:needed|required)\b/i.test(claim);
       if (!dismissal) continue;
+      if (attributedGap && permitsEarlierGroupReturn(claim, fillPattern)) continue;
       const originalCaller = /\b(?:original|already[- ]pending)\s+(?:pending\s+)?(?:caller|reader|request)\b|\bpending\s+caller\b/i.test(claim);
       // A finding can name versions instead of calling them "old". Explicit
       // start-before-commit and return-to-own-caller evidence scopes this
@@ -810,6 +979,6 @@ function hasProseStaleFillFinding(report: string): boolean {
         && !fillPattern.test(claim) && !/\b(?:next|later|subsequent|new|fresh|future)\s+(?:read\w*|request\w*|caller\w*)\b/i.test(claim);
       if (!(onlyEarlierReturn && subsequentRead && (violation || remedy || explicitlyEarlierCall))) return false;
     }
-    return finding || subsequentRead || remedy;
+    return finding || subsequentRead || remedy || attributedGap;
   });
 }

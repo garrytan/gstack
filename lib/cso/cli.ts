@@ -8,7 +8,7 @@ import {
   canonical, completeness, importLegacy, object, relativePath, renderReport, rootCauseIdentity, sha256, snapshotPathHandle, snapshotPathHandleId, snapshotPathId, snapshotReference, string, strings, validateCoverage, validateFinding, validateVerificationRequest,
 } from './contracts';
 import { capture, containedFile, assertSnapshot } from './snapshot';
-import { assertStateOutside, event, finalizeReplayTemporary, loadReport, newRun, privateRoot, readJson, repoId, requireTime, retention, runDirectory, saveReport, secureDirectory, withLock, writeHelperJson, writeJson, writeJsonExclusive } from './state';
+import { assertStateOutside, event, finalizeReplayTemporary, loadReport, newRun, privateRoot, publicReport, PUBLIC_SOURCE_ROOT, readJson, repoId, requireTime, retention, runDirectory, saveReport, secureDirectory, withLock, writeHelperJson, writeJson, writeJsonExclusive } from './state';
 import { dockerEndpoint, dockerProbe, ISOLATION_POLICY_HASH } from './docker';
 import { executable, git, redact, sanitizeForJson, sanitizeHelperForJson } from './process';
 import { inspectPreparation } from './preparation';
@@ -163,7 +163,7 @@ async function start(args:string[],dependencies:CsoCliDependencies,parent?:RunRe
     if(plan.status==='ready'&&!c.gaps.length)c.status='assessed';else if(c.evidence.length>1)c.status='partial';
     report.coverage.push(c);
   }
-  saveReport(run.dir,report);return report;
+  saveReport(run.dir,report);return publicReport(report);
 }
 async function doctor(args:string[],dependencies:CsoCliDependencies){
   const started=Date.now(),repo=callerPath(need(args,'--repo'));if(args.length)throw new CsoError('INVALID_ARGUMENT',`Unknown argument: ${args[0]}`);
@@ -215,7 +215,7 @@ function publicSnapshotPath(manifest:SnapshotManifest,path:string):{path:string;
   return displayPath===path?{path}:{path:handle,displayPath};
 }
 function publicSnapshotManifest(manifest:SnapshotManifest):Record<string,unknown>{
-  return {...manifest,entries:manifest.entries.map(entry=>{const {path,pathId:_,...rest}=entry;return{...rest,...publicSnapshotPath(manifest,path)};}),
+  return {...manifest,root:PUBLIC_SOURCE_ROOT,entries:manifest.entries.map(entry=>{const {path,pathId:_,...rest}=entry;return{...rest,...publicSnapshotPath(manifest,path)};}),
     ...(manifest.deletedPaths?.length?{deletedPaths:manifest.deletedPaths.map(item=>publicSnapshotPath(manifest,item.path))}:{}),
     ...(manifest.changedPaths?{changedPaths:manifest.changedPaths.map(path=>publicSnapshotPath(manifest,path).path)}:{})};
 }

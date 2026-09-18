@@ -31,6 +31,141 @@ function cli(...args: string[]) {
 }
 afterEach(() => { for (const dir of owned.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
+describe('phase-close packets preserve full readback before publication', () => {
+  function closeFixture(phase = 'ceo', body?: string) {
+    const f = fixture();
+    if (body !== undefined) writeFileSync(f.active, `## Implementation plan\n${body}\n## Review record\n`);
+    const method = methodology(phase, f.restore);
+    const checkpoint = createSnapshot(phase, f.active, f.restore, method);
+    const record = (text: string) => {
+      const plan = readFileSync(f.active, 'utf8');
+      writeFileSync(f.active, plan.slice(0, plan.indexOf('## Review record\n')) +
+        `## Review record\n<!-- autoplan-accepted:${phase} -->\n${text}\n<!-- /autoplan-accepted:${phase} -->\n`);
+    };
+    record('None: current implementation already covers all accepted requirements.');
+    const prepare = () => {
+      const result = cli('prepare-close', phase, f.active, checkpoint.snapshotPath, f.restore, method);
+      expect(result.status, result.stderr).toBe(0);
+      return JSON.parse(result.stdout);
+    };
+    return { ...f, method, checkpoint, record, prepare };
+  }
+
+  test('CLI close preparation binds an immutable complete packet without changing blind input', () => {
+    const f = closeFixture('ceo', '# Contract\n' + 'Required behavior.\n'.repeat(650) + '```text\nPhase 3 complete.\n```\n');
+    const packet = f.prepare();
+    const text = readFileSync(packet.closePacketPath, 'utf8');
+    const input = readFileSync(packet.reviewInputPath, 'utf8');
+    expect(packet.phase).toBe('ceo');
+    expect(packet.checkpointPath).toBe(f.checkpoint.snapshotPath);
+    expect(packet.reviewInputSha256).toBe(createHash('sha256').update(input).digest('hex'));
+    expect(packet.closePacketSha256).toBe(createHash('sha256').update(text).digest('hex'));
+    expect(packet.closePacketBytes).toBe(Buffer.byteLength(text));
+    expect(statSync(packet.closePacketPath).mode & 0o777).toBe(0o444);
+    expect(text).toContain(JSON.stringify(packet.reviewInputSha256));
+    expect(text).toContain(JSON.stringify(packet.sourceSha256));
+    expect(text).toContain(JSON.stringify(packet.checkpointPath));
+    expect(text).toContain(input);
+    expect(text.indexOf('## Return to the close procedure')).toBeGreaterThan(text.indexOf(input) + input.length);
+    expect(text).toContain('````text\n' + input);
+    expect(input).toBe(readFileSync(f.checkpoint.snapshotPath, 'utf8'));
+    expect(input).not.toContain('## Return to the close procedure');
+    expect(packet.phaseComplete).toBe(false);
+    let offset = 1;
+    const lines = text.split('\n'), delivered: string[] = [];
+    for (const range of packet.readRanges) {
+      expect(range.offset).toBe(offset);
+      expect(range.limit).toBeLessThanOrEqual(600);
+      delivered.push(...lines.slice(range.offset - 1, range.endLine));
+      offset = range.endLine + 1;
+    }
+    expect(offset).toBe(lines.length + 1);
+    expect(delivered.join('\n')).toBe(text);
+    expect(packet.readRanges.length).toBeGreaterThan(1);
+  });
+
+  test.each([
+    ['ceo', '1', '6', ['2']],
+    ['design', '2', 'rows in the completed design litmus scorecard', ['2.5', '3']],
+    ['dx', '2.5', '6', ['3']],
+    ['eng', '3', '6', ['4']],
+  ])('%s close supplies bound report data without publishing or advancing', (phase, number, total, next) => {
+    const packet = closeFixture(phase as string).prepare();
+    const text = readFileSync(packet.closePacketPath, 'utf8');
+    const binding = JSON.parse(text.split('Binding: ')[1]!.split('\n')[0]!);
+    expect(packet.report.number).toBe(number);
+    expect(packet.report.total).toBe(total);
+    expect([...packet.report.next.matchAll(/Phase (\d+(?:\.\d+)?)/g)].map(m => m[1])).toEqual(next);
+    expect(packet.report.includeDxMetrics).toBe(phase === 'dx');
+    expect(binding.report).toEqual(packet.report);
+    expect(binding.phase).toBe(phase);
+    const continuation = text.slice(text.indexOf('## Return to the close procedure'));
+    const verify = continuation.indexOf('**Verify the current implementation.**');
+    const publish = continuation.indexOf('**Publish the parent report.**');
+    const message = continuation.indexOf(`**Phase ${number} complete.**`);
+    const driver = continuation.indexOf('**Return to the driver.**');
+    expect(verify).toBeGreaterThanOrEqual(0);
+    expect(publish).toBeGreaterThan(verify);
+    expect(message).toBeGreaterThan(publish);
+    expect(driver).toBeGreaterThan(message);
+    const verification = continuation.slice(verify, publish).replace(/\s+/g, ' ');
+    expect(verification).toContain('accepted decisions, source requirements, conditions, tests and required outputs');
+    expect(verification).toContain('full methodology/section Reads, successful writes and terminal reviewer results');
+    expect(verification).toContain("Match a completed native review's INPUT to its voice snapshot");
+    expect(verification).toContain('A pending reviewer keeps this phase open');
+    expect(verification).toContain("Apply this phase's failure policy to failed native attempts");
+    expect(verification).toContain('unavailable/disabled voices receive no completion credit');
+    expect(verification).toContain('same checkpoint and Read the entire new packet before publication');
+    expect(verification).toContain('counts, hashes, keyword probes and a saved “Read-back” sentence do not perform this semantic review');
+    const publication = continuation.slice(publish, driver).replace(/\s+/g, ' ');
+    expect(publication).toContain('After successful verification, SEND the filled template below now as visible parent assistant text');
+    expect(publication).toContain('the next operation before any next-phase tool call');
+    expect(publication).toContain("actual findings, voice statuses and the actual host's reviewer names");
+    expect(publication).toContain('N/A when either review voice is missing; confirmed counts require both voices');
+    expect(publication).toContain('unfilled template is not a completed report');
+    expect(publication).toContain('Outside review: <completed: N concerns / unavailable / disabled>. Native subagent: <completed: N issues / unavailable>.');
+    expect(publication).toContain(`Consensus: <N/A (voice coverage missing) | X/${total} native+outside confirmed; Y disagreements → gate>.`);
+    expect(publication).toContain(`Passing to <applicable ${packet.report.next}>.`);
+    expect(publication.includes('DX overall: <score>/10. TTHW: <observed> min → <target> min.')).toBe(phase === 'dx');
+    expect(publication).not.toContain('completed: 0');
+    expect(publication).not.toContain('```');
+    const continuationAfterMessage = continuation.slice(driver).replace(/\s+/g, ' ');
+    expect(continuationAfterMessage).toContain('Only after sending the actual parent report');
+    expect(continuationAfterMessage).toContain('The driver alone advances phases and emits applicable skip messages; a skip is never a completion');
+    expect(continuationAfterMessage).toContain('Saving a report in ACTIVE_PLAN or printing it through Bash does not publish it');
+    expect(continuationAfterMessage).toContain('Preparation and a Read result complete neither verification nor publication');
+    expect(packet.phaseComplete).toBe(false);
+  });
+
+  test('many inline code spans do not overflow the fence maximum calculation', () => {
+    const packet = closeFixture('ceo', '# Contract\n' + '`code` '.repeat(150_000) + '\n').prepare();
+    const implementation = readFileSync(packet.reviewInputPath, 'utf8');
+    expect(readFileSync(packet.closePacketPath, 'utf8')).toContain('```text\n' + implementation + '```');
+    expect(packet.phaseComplete).toBe(false);
+  });
+
+  test('late amendments regenerate the entire packet against the fixed checkpoint', () => {
+    const f = closeFixture(), first = f.prepare();
+    const firstBytes = readFileSync(first.closePacketPath, 'utf8');
+    f.record('- Accepted late correction: hide badge during retry-pending as well as loading and errors.');
+    const second = f.prepare();
+    expect(second.closePacketPath).not.toBe(first.closePacketPath);
+    expect(second.checkpointPath).toBe(first.checkpointPath);
+    expect(second.sourceSha256).not.toBe(first.sourceSha256);
+    expect(second.reviewInputSha256).not.toBe(first.reviewInputSha256);
+    expect(readFileSync(second.closePacketPath, 'utf8')).toContain('hide badge during retry-pending');
+    expect(readFileSync(first.closePacketPath, 'utf8')).toBe(firstBytes);
+    expect(firstBytes).toContain('Any later implementation or accepted-decision edit invalidates this packet');
+    expect(first.phaseComplete).toBe(false);
+    expect(second.phaseComplete).toBe(false);
+    const generic = cli('amend-input', 'ceo', f.active, f.checkpoint.snapshotPath, f.restore, f.method);
+    expect(generic.status, generic.stderr).toBe(0);
+    const input = JSON.parse(generic.stdout);
+    expect(input.closePacketPath).toBeUndefined();
+    expect(readFileSync(input.reviewInputPath, 'utf8')).toBe(readFileSync(second.reviewInputPath, 'utf8'));
+  });
+});
+
 
 describe('methodology preparation is a required snapshot input', () => {
   test('all phases return an exact contiguous schedule through the final partial chunk', () => {

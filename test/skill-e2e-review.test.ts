@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
-import { runSkillTest } from './helpers/session-runner';
+import { runSkillTest, SESSION_DRAIN_GRACE_MS } from './helpers/session-runner';
 import {
   ROOT, browseBin, runId, evalsEnabled, selectedTests,
   describeIfSelected, testConcurrentIfSelected,
@@ -15,6 +15,8 @@ import * as os from 'os';
 import { installFakeImpeccable } from './helpers/fake-impeccable';
 
 const evalCollector = createEvalCollector('e2e-review');
+// Capture cleanup and recording must finish before Bun starts its retry.
+const REVIEW_FINALIZE_MS = SESSION_DRAIN_GRACE_MS + 5_000;
 
 // --- B5: Review skill E2E ---
 
@@ -91,7 +93,7 @@ Write your review findings to ${reviewDir}/review-output.md`,
         reviewContent.includes('unsanitized');
       expect(hasSqlContent).toBe(true);
     }
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + REVIEW_FINALIZE_MS);
 });
 
 // --- Review: Enum completeness E2E ---
@@ -174,7 +176,7 @@ The diff adds a new "returned" status to the Order model. Your job is to check i
       recordE2E(evalCollector, '/review enum completeness', 'Review enum completeness E2E', result, { passed });
     }
     // The runner can drain stderr for 5s after exit; reserve 1s for assertions/recording.
-  }, JUDGE_MS + 6_000);
+  }, JUDGE_MS + REVIEW_FINALIZE_MS);
 });
 
 // --- Review: Design review lite E2E ---
@@ -288,7 +290,7 @@ Important: The design checklist should catch issues like blacklisted fonts, smal
       expect(detected).toBeGreaterThanOrEqual(4); // the LLM-checklist bar, unchanged by the detector
       expect(detectorSeen).toBe(true); // the fake engine's rows are deterministic; the review must carry them
     }
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + REVIEW_FINALIZE_MS);
 });
 
 // Base branch detection tests for review/ship + the Review Dashboard Via

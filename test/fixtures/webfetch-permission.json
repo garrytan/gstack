@@ -1,0 +1,7 @@
+{
+  "input": {
+    "url": "https://devblogs.microsoft.com/microsoft365dev/retirement-of-office-365-connectors-within-microsoft-teams/",
+    "prompt": "Summarize the retirement timeline for Office 365 Connectors (incoming webhooks) in Microsoft Teams: what dates are stated for blocking new connector creation and for final retirement of existing connectors, and what replacement does Microsoft recommend? Quote the exact dates."
+  },
+  "card": "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n Fetch\n\n   │ url: https://devblogs.microsoft.com/microsoft365dev/retirement-of-office-365-connectors-within-microsoft-teams/\n   │ prompt: Summarize the retirement timeline for Office 365 Connectors (incoming webhooks) in Microsoft Teams: what dates are stated for blocking new connector creation and for final retirement of existing connectors, and what\n   │ replacement does Microsoft recommend? Quote the exact dates.\n   Claude wants to fetch content from devblogs.microsoft.com\n                    \n Do you want to allow Claude to fetch this content?\n ❯ 1. Yes\n   2. Yes, and don't ask again for devblogs.microsoft.com\n   3. No, and tell Claude what to do differently (esc)"
+}

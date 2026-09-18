@@ -1,0 +1,44 @@
+{
+  "source": "90f099817ac7e56cddafbd6fdac4c12dfd70f4a4",
+  "reportSha256": "d4ae545eec013da903b5b3c0b459f9f8d2543ea838001271bd7c82b27ac848c3",
+  "nativeCall": {
+    "sessionId": "8cb0e220-9725-4e5f-a661-26a09d18a235",
+    "toolUseId": "toolu_01DszoYCjnkNfCj5FxaZJsjQ",
+    "questions": [
+      {
+        "question": "D11 — How should legacyAuthFlow() behavior be protected while its callers are re-routed?\nProject/branch/task: Multi-tenant Auth Refactor on `main`; PLAN.md:14-16 excludes legacyAuthFlow() from coverage, and D4 re-routes every caller through a per-tenant flag.\nELI10: legacyAuthFlow() is not being rewritten anymore, but every place that called it now goes through a switch first, and a second path (AuthBroker) has to behave the same way for the same inputs. A \"characterization suite\" records what legacyAuthFlow() does TODAY for six input classes (valid, expired, revoked, malformed token; suspended tenant; IDP down) so any accidental change fails a test. A \"parity suite\" pushes the same six fixtures through the new path with the flag on and checks the accept/deny outcome matches, with the two intentional differences (typed failure instead of swallow, mint refused when suspended) listed as expected. Routing tests check the switch itself. This decides how to cover the regression risk; skipping it is not on the table.\nStakes if we pick wrong: Without characterization, a flagged tenant's parity test has nothing trustworthy to compare against and a legacy regression ships silently to every existing tenant.\nRecommendation: A because with CC the golden fixtures are minutes of work and they are the only oracle you have for \"the new path is compatible\".\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: a pinned oracle plus parity plus routing vs. testing the new path against an unpinned moving target.",
+        "header": "R5 regression",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Characterization + parity + routing suites (recommended)",
+            "description": "✅ Legacy outputs are pinned for all 6 fixture classes; any drift on `main` fails CI before it reaches a tenant (human: ~2 days / CC: ~40 min).\n✅ The parity suite reuses the same fixtures, so compatibility is asserted against a recorded oracle, not against memory.\n❌ Golden fixtures must be regenerated deliberately when legacy behavior is meant to change (it isn't, in this PR)."
+          },
+          {
+            "label": "Parity + routing suites only",
+            "description": "✅ Covers the new path against legacy as it runs today, plus the flag switch.\n✅ Fewer files: no standalone legacy suite.\n❌ If legacy itself drifts, both sides move together and parity still passes; the drift ships."
+          },
+          {
+            "label": "Routing tests only",
+            "description": "✅ Cheapest; proves the flag sends each tenant to the right function.\n✅ No fixture maintenance.\n❌ Neither path's behavior is asserted; compatibility is assumed, not tested."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D11 — How should legacyAuthFlow() behavior be protected while its callers are re-routed?\nProject/branch/task: Multi-tenant Auth Refactor on `main`; PLAN.md:14-16 excludes legacyAuthFlow() from coverage, and D4 re-routes every caller through a per-tenant flag.\nELI10: legacyAuthFlow() is not being rewritten anymore, but every place that called it now goes through a switch first, and a second path (AuthBroker) has to behave the same way for the same inputs. A \"characterization suite\" records what legacyAuthFlow() does TODAY for six input classes (valid, expired, revoked, malformed token; suspended tenant; IDP down) so any accidental change fails a test. A \"parity suite\" pushes the same six fixtures through the new path with the flag on and checks the accept/deny outcome matches, with the two intentional differences (typed failure instead of swallow, mint refused when suspended) listed as expected. Routing tests check the switch itself. This decides how to cover the regression risk; skipping it is not on the table.\nStakes if we pick wrong: Without characterization, a flagged tenant's parity test has nothing trustworthy to compare against and a legacy regression ships silently to every existing tenant.\nRecommendation: A because with CC the golden fixtures are minutes of work and they are the only oracle you have for \"the new path is compatible\".\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: a pinned oracle plus parity plus routing vs. testing the new path against an unpinned moving target.": "Characterization + parity + routing suites (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-15T16:07:06.905Z"
+  },
+  "originalOutcome": "seed_coverage_failed",
+  "originalMissing": [
+    "complexity",
+    "sequential-idp",
+    "mandatory legacy regression test absent"
+  ],
+  "scope": "Exact relevant declaration, implementation task and owned ledger excerpts from the final report; original paid failure remains unaccepted.",
+  "report": "# Current reviewed plan\n\nReviewed target: `PLAN.md` (\"Plan: Multi-tenant Auth Refactor\") on `main` @ `eb94ff5`\n\n## Tests\n**Regression contract (R5, D11, Iron Rule):**\n1. `legacyAuthFlow` characterization suite: golden fixtures pinning current outputs for\n   valid, expired, revoked, malformed token; suspended tenant; IDP unavailable.\n2. Parity suite: the same six fixtures through `AuthBroker` with the flag on, asserting\n   identical accept/deny outcome and session shape. Enumerated expected divergences: typed\n   `AuthFailure` deny where legacy swallowed (R3); mint refused when the suspension marker is\n   set (R2).\n3. Routing suite: flag off → legacy; flag on → broker; flag lookup throws → legacy.\n\n## Implementation Tasks\n- [ ] **T9 (P1 CRITICAL, human: ~1 day / CC: ~20 min)** — tests — Write the `legacyAuthFlow` characterization suite (6 golden fixtures). Can start first, independent of all other tasks.\n  - Surfaced by: Tests — T1 (PLAN.md:14-16, :27-28), D11\n  - Files: test/auth/legacy/legacyAuthFlow.characterization.test, test/fixtures/auth/*\n  - Verify: suite green on unmodified main before any refactor lands\n\n## Review ledger\n### R5: Regression contract for legacyAuthFlow() callers (Iron Rule)\nFinding: T1, P1 CRITICAL, confidence 9/10, PLAN.md:14-16 (\"That coverage does not exercise legacyAuthFlow() or assert compatibility with its prior behavior.\") + PLAN.md:27-28, reviewer: plan-eng-review (Claude)\nPlan baseline: no regression coverage of legacy behavior (original); after D4 the function body is untouched but every caller is re-routed through the per-tenant flag, so its behavior is still at risk\nRuntime evidence: unknown; repo has no tests (TESTFILES:0). The plan claims existing adapter tests exist and remain unchanged (PLAN.md:12-13); not verifiable here\nState: approved\n\nBehavior to preserve (legacy tenants, flag off): identical accept/deny outcome and session shape for valid, expired, revoked, malformed tokens; suspended tenant; IDP unavailable.\nIntentional differences (flagged tenants only): typed `AuthFailure` deny where legacy swallowed (R3); mint refused when suspension marker set (R2). Enumerated as expected divergences in the parity suite.\n\nComparison grid:\n\n| Choice | Current | A) Characterization + parity + routing | B) Parity + routing | C) Routing only |\n|---|---|---|---|---|\n| R5 legacy characterization (golden fixtures pin current legacyAuthFlow outputs) | none, pending | yes: 6 fixture classes above | no | no |\n| R5 parity suite (same fixtures through AuthBroker path, flag on; divergences enumerated) | none, pending | yes | yes | no |\n| R5 flag routing tests (off -> legacy, on -> broker, lookup failure -> legacy) | none, pending | yes | yes | yes |\n| D4 cutover contract | approved | unchanged | unchanged | unchanged |\n| Completeness | - | 10/10 | 7/10 | 3/10 |\n\nQuestion D11: \"How should legacyAuthFlow() behavior be protected while its callers are re-routed?\" Options: A) Characterization + parity + routing suites (recommended, 10/10); B) Parity + routing only (7/10); C) Routing only (3/10).\n\nActual answer: A (D11)\nAccepted scope: (1) `legacyAuthFlow` characterization suite with golden fixtures for valid, expired, revoked, malformed token, suspended tenant, IDP unavailable; (2) parity suite running the same fixtures through AuthBroker with flag on, asserting identical accept/deny and session shape, with two enumerated expected divergences; (3) routing suite: flag off -> legacy, flag on -> broker, flag lookup throws -> legacy.\nHistory: none\n"
+}

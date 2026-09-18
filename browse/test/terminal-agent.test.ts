@@ -186,10 +186,12 @@ describe('Source-level guard: terminal-agent', () => {
 
   test('cleanup escalates SIGINT to SIGKILL after 3s on close', () => {
     // disposeSession must be idempotent and use a SIGINT-then-SIGKILL pattern.
-    const dispose = AGENT_SRC.slice(AGENT_SRC.indexOf('function disposeSession'));
-    expect(dispose).toContain("'SIGINT'");
-    expect(dispose).toContain("'SIGKILL'");
-    expect(dispose).toContain('3000');
+    const dispose = AGENT_SRC.slice(AGENT_SRC.indexOf('function disposeSession'), AGENT_SRC.indexOf('function sendPtyCompletion'));
+    const lifecycle = fs.readFileSync(path.join(import.meta.dir, '../src/terminal-pty-lifecycle.ts'), 'utf-8');
+    expect(dispose).toContain('disposePtyProcess(proc)');
+    expect(lifecycle).toContain("'SIGINT'");
+    expect(lifecycle).toContain("'SIGKILL'");
+    expect(lifecycle).toContain('PTY_SHUTDOWN_GRACE_MS = 3000');
   });
 
   test('tabState frames write tabs.json + active-tab.json', () => {

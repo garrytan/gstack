@@ -58,10 +58,16 @@ const MANDATORY: Array<{ name: string; re: RegExp }> = [
  * these into a section (they fire only once the section is loaded), but they
  * must never be DROPPED. Asserted against the skeleton+sections union. */
 const PER_SKILL_RULES: Record<string, RegExp[]> = {
-  'plan-ceo-review': [/One issue = one AskUserQuestion call/i],
-  'plan-eng-review': [/One issue = one AskUserQuestion call/i],
+  'plan-ceo-review': [/One decision unit = one AskUserQuestion call/i, /Do NOT batch/i],
+  'plan-eng-review': [
+    /one question for one choice per AskUserQuestion call/i,
+    /If the grid exposes another independent change, return to step 2 and split it before sending/i,
+  ],
   'plan-design-review': [/One issue = one AskUserQuestion call/i],
-  'plan-devex-review': [/One issue = one AskUserQuestion call/i],
+  'plan-devex-review': [
+    /One new or reopened decision = one AskUserQuestion call/i,
+    /Never combine independent decisions, including in separate question tabs/i,
+  ],
   // /codex emits its recommendation as prose; the instruction MUST stay in the
   // always-loaded skeleton because codex has no on-demand section.
   codex: [/Synthesis recommendation \(REQUIRED\)/i, /Recommendation\s*:\s*<action>\s*because/i],

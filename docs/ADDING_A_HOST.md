@@ -122,16 +122,15 @@ Add `.myhost/` to `.gitignore` (generated skill docs are gitignored).
 # Generate skill docs for the new host
 bun run gen:skill-docs --host myhost
 
-# Verify output exists and has no .claude/skills leakage
+# Verify output exists
 ls .myhost/skills/gstack-*/SKILL.md
-grep -r ".claude/skills" .myhost/skills/ | head -5
-# (should be empty)
 
 # Generate for all hosts (includes the new one)
 bun run gen:skill-docs --host all
 
-# Health dashboard shows the new host
+# Validate all host content and tracked output freshness, including the new host
 bun run skill:check
+# Claude install paths are rejected in prose; legitimate Bash fallbacks are allowed.
 ```
 
 ### 5. Run tests

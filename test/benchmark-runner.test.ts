@@ -14,6 +14,8 @@ import { test, expect } from 'bun:test';
 import { formatTable, formatJson, formatMarkdown, type BenchmarkReport } from './helpers/benchmark-runner';
 import { estimateCostUsd, PRICING } from './helpers/pricing';
 import { missingTools, TOOL_COMPATIBILITY } from './helpers/tool-map';
+import { CLAUDE_FRONTIER_EVAL_MODEL } from '../lib/eval-model';
+import { CODEX_FRONTIER_MODEL } from '../scripts/resolvers/constants';
 
 test('estimateCostUsd returns 0 for unknown model (no crash)', () => {
   const cost = estimateCostUsd({ input: 1000, output: 500 }, 'unknown-model-7b');
@@ -25,6 +27,23 @@ test('estimateCostUsd computes correctly for known Claude model', () => {
   // 1M input + 0.5M output = $15 + $37.50 = $52.50
   const cost = estimateCostUsd({ input: 1_000_000, output: 500_000 }, 'claude-opus-4-7');
   expect(cost).toBeCloseTo(52.50, 2);
+});
+
+for (const model of [CLAUDE_FRONTIER_EVAL_MODEL, CODEX_FRONTIER_MODEL]) {
+  test(`estimateCostUsd prices the current ${model} default at its standard rate`, () => {
+    // Current default models both cost $10/MTok input and $50/MTok output.
+    expect(estimateCostUsd({ input: 1000, output: 200 }, model)).toBe(0.02);
+  });
+}
+
+test('Fable cache reads use its explicit rate alongside uncached input and output', () => {
+  expect(estimateCostUsd({ input: 0, output: 0, cached: 1_000_000 }, 'claude-fable-5-1')).toBe(0.25);
+  // $0.01 uncached + $0.01 output + $0.001 cache reads, not the legacy 10% rate.
+  expect(estimateCostUsd({ input: 1000, output: 200, cached: 4000 }, 'claude-fable-5-1')).toBe(0.021);
+});
+
+test('Astra cache reads use its standard cached-input rate', () => {
+  expect(estimateCostUsd({ input: 0, output: 0, cached: 1_000_000 }, 'gpt-6-astra')).toBe(1);
 });
 
 test('estimateCostUsd applies cached input discount alongside uncached input', () => {

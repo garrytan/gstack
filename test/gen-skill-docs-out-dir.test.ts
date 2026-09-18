@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { discoverSectionTemplates, discoverTemplates } from '../scripts/discover-skills';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -74,6 +75,50 @@ describe('gen-skill-docs --out-dir (B2 render isolation)', () => {
     } finally {
       fs.rmSync(tmpHome, { recursive: true, force: true });
       fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  test('brain-writeback fixture survives render cleanup without changing any source artifacts', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-brain-fixture-'));
+    const stateDir = path.join(base, 'state');
+    const renderDir = path.join(base, 'render');
+    const workDir = path.join(base, 'work');
+    fs.mkdirSync(stateDir);
+    fs.mkdirSync(workDir);
+    const sourcePaths = [
+      ...discoverTemplates(ROOT).map(template => template.output),
+      ...discoverSectionTemplates(ROOT).map(template => template.output),
+      'gstack/llms.txt', 'agents-digest/gstack-AGENTS.md',
+    ];
+    const snapshot = () => sourcePaths.map(relative => {
+      const file = path.join(ROOT, relative);
+      return [relative, fs.existsSync(file) ? [hashFile(file), fs.statSync(file).mtimeMs] : null];
+    });
+    const before = snapshot();
+    try {
+      fs.writeFileSync(path.join(stateDir, 'gbrain-detection.json'), JSON.stringify({ gbrain_local_status: 'ok' }));
+      const result = spawnSync('bun', [
+        'run', 'scripts/gen-skill-docs.ts', '--host', 'claude', '--respect-detection',
+        '--out-dir', renderDir, '--link-root', workDir,
+      ], { cwd: ROOT, encoding: 'utf-8', timeout: 120_000, env: { ...process.env, GSTACK_HOME: stateDir } });
+      expect(result.status, result.stderr).toBe(0);
+      fs.cpSync(path.join(renderDir, 'office-hours'), path.join(workDir, 'office-hours'), { recursive: true });
+      fs.rmSync(renderDir, { recursive: true });
+
+      const skill = fs.readFileSync(path.join(workDir, 'office-hours', 'SKILL.md'), 'utf-8');
+      const sectionRefs = [...skill.matchAll(/Read `([^`]+\/office-hours\/sections\/[^`]+\.md)`/g)].map(match => match[1]);
+      expect(sectionRefs.length).toBeGreaterThan(0);
+      for (const file of sectionRefs) {
+        expect(file.startsWith(workDir + '/office-hours/sections/')).toBe(true);
+        expect(fs.existsSync(file)).toBe(true);
+      }
+      expect(skill).not.toContain(renderDir);
+      expect(skill).toContain('~/.claude/skills/gstack/bin/');
+      expect(fs.readFileSync(path.join(workDir, 'office-hours', 'sections', 'design-and-handoff.md'), 'utf-8'))
+        .toContain('gbrain put "office-hours/');
+      expect(snapshot()).toEqual(before);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
     }
   });
 

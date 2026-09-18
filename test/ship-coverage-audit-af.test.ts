@@ -5,32 +5,67 @@ import * as evidence from './helpers/coverage-audit-evidence';
 import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { E2E_TOUCHFILES } from './helpers/touchfiles-data';
 import fixture from './fixtures/ship-coverage-audit-af.json';
+import { randomUUID } from 'node:crypto';
+import { validateCoverageAudit } from './helpers/coverage-audit';
+import { runRecordedOfficeHoursAttempt, OFFICE_HOURS_BUN_GRACE_MS } from './helpers/office-hours-attempt';
 
 const source = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-workflow.test.ts'), 'utf8');
-async function runCaller(index: number, change?: (result: any) => void) {
+async function runCaller(index: number, change?: (result: any) => void, bindAttempt = true) {
   const row = structuredClone(fixture.rows[index]!); change?.(row.result);
   const block = source.slice(source.indexOf("describeIfSelected('Test Coverage Audit E2E'"), source.indexOf('// --- Codex skill E2E ---'));
   const js = new Bun.Transpiler({loader:'ts'}).transformSync(block);
   const files = new Map<string,string>(), setup: Function[] = [], cleanup: Function[] = [], callbacks: Function[] = [], records: any[] = [], invocations: any[] = [];
-  const virtualFs = {mkdtempSync:()=>row.cwd,mkdirSync:()=>{},writeFileSync:(p:string,v:string)=>files.set(p,v),readFileSync:(p:string)=>{expect(files.has(p)).toBe(true);return files.get(p)!;},rmSync:()=>{}};
+  const removed: string[] = [];
+  const virtualFs = {mkdtempSync:()=>row.cwd,mkdirSync:()=>{},writeFileSync:(p:string,v:string)=>files.set(p,v),
+    appendFileSync:(p:string,v:string)=>{expect(files.has(p)).toBe(true);files.set(p,files.get(p)!+v);},
+    readFileSync:(p:string)=>{expect(files.has(p)).toBe(true);return files.get(p)!;},rmSync:(p:string)=>removed.push(p)};
+  const collector = { addTest: (entry: any) => records.push(entry) };
   const args:Record<string,any> = { describeIfSelected:(_title:string,_names:string[],fn:Function)=>fn(),
     beforeAll:(fn:Function)=>setup.push(fn),afterAll:(fn:Function)=>cleanup.push(fn),
     testConcurrentIfSelected:(_name:string,fn:Function,timeout:number)=>{expect(timeout).toBe(CAPTURE_MS);callbacks.push(fn);},
     fs:virtualFs,os:{tmpdir:()=>'/tmp'},path:path.posix,ROOT:'/synthetic-gstack',copyDirSync:()=>{},spawnSync:()=>({status:0}),
-    runSkillTest:async (opts:any)=>{invocations.push(opts);return row.result;},runId:'synthetic-run',JUDGE_MS,CAPTURE_MS,
-    coverageAuditReadEvidence:(evidence as any).coverageAuditReadEvidence,
-    logCost:()=>{},recordE2E:(_collector:any,_name:string,_suite:string,_result:any,options:any)=>records.push(options),evalCollector:{},expect,console:{log:()=>{}},
+    createCoverageAuditFixture:(cwd:string)=>{
+      files.set(cwd+'/src/billing.ts',fixture.files.source);files.set(cwd+'/test/billing.test.ts',fixture.files.tests);
+    },
+    extractSkillBody:()=> 'synthetic ship instructions', randomUUID, validateCoverageAudit,
+    runRecordedOfficeHoursAttempt, OFFICE_HOURS_BUN_GRACE_MS, resolveEvalModel:()=> 'synthetic-model',
+    runSkillTest:async (opts:any)=>{
+      invocations.push(opts);
+      const delivered = [
+        [fixture.files.source, files.get(row.cwd+'/src/billing.ts')!],
+        [fixture.files.tests, files.get(row.cwd+'/test/billing.test.ts')!],
+      ];
+      for(const [original,current] of delivered) {
+        expect(current).toStartWith(original);
+        expect(current.slice(original.length)).toMatch(/^\n\/\/ coverage-read-evidence: [a-f0-9-]{36}\n$/);
+      }
+      // This is a synthetic replay of public event structure, not a new verdict
+      // for the historical attempts. Rebind only complete delivered bodies to
+      // the current fixture; keep recorded ownership, IDs, commands and output.
+      if(bindAttempt) for(const event of row.result.transcript as any[]) {
+        if(event.type !== 'user') continue;
+        for(const block of event.message?.content ?? []) if(block.type === 'tool_result' && typeof block.content === 'string') {
+          let content=block.content.replace(/^ *\d+(?:\t|→)/gm,'');
+          for(const [original,current] of delivered) content=content.replaceAll(original.trim(),current.trim());
+          block.content=content;
+        }
+      }
+      return { duration: 1, toolCalls: [], model: 'synthetic-model', firstResponseMs: 1, maxInterTurnMs: 0,
+        costEstimate: { estimatedCost: 0, turnsUsed: 1, estimatedTokens: 0 }, ...row.result };
+    },runId:'synthetic-run',JUDGE_MS,CAPTURE_MS,
+    logCost:()=>{},evalCollector:collector,expect,console:{log:()=>{}},
   };
   new Function(...Object.keys(args),js)(...Object.values(args));
   for(const fn of setup) await fn();
-  expect(files.get(row.cwd+'/src/billing.ts')).toBe(fixture.files.source);
-  expect(files.get(row.cwd+'/test/billing.test.ts')).toBe(fixture.files.tests);
   expect(callbacks).toHaveLength(1);
   let thrown:unknown;try{await callbacks[0]!();}catch(error){thrown=error;}
   for(const fn of cleanup) await fn();
   expect(invocations).toHaveLength(1);expect(invocations[0].workingDirectory).toBe(row.cwd);
   expect(invocations[0].maxTurns).toBe(15);expect(invocations[0].timeout).toBe(JUDGE_MS);
+  expect(invocations[0].signal).toBeInstanceOf(AbortSignal);
   expect(records).toHaveLength(1);
+  expect(records[0].name).toBe('ship-coverage-audit');expect(records[0].tier).toBe('e2e');
+  expect(removed).toEqual([row.cwd]);
   return {thrown,record:records[0]};
 }
 
@@ -42,6 +77,9 @@ test('AF ship retry completed Bash read pair satisfies the actual caller',async(
 });
 test('AF ship real timeout stays false despite successful file delivery',async()=>{
   const r=await runCaller(2);expect(r.thrown).toBeDefined();expect(r.record.passed).toBe(false);
+});
+test('AF historical bytes without the current attempt marker cannot satisfy the caller',async()=>{
+  const r=await runCaller(0,undefined,false);expect(r.thrown).toBeDefined();expect(r.record.passed).toBe(false);
 });
 test('AF ship caller records missing or foreign read evidence false exactly once',async()=>{
   for(const change of [

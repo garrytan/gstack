@@ -8,6 +8,7 @@
 import { test, expect } from 'bun:test';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
+import { assertPlanModeWithEvidence } from './helpers/plan-mode-evidence';
 import {
   runPlanSkillObservation,
   planFileHasDecisionsSection,
@@ -54,16 +55,18 @@ describeE2E('plan-eng-review plan-mode smoke (periodic)', () => {
       timeoutMs: CAPTURE_MS,
     });
 
-    if (obs.outcome === 'silent_write' || obs.outcome === 'exited' || obs.outcome === 'timeout') {
-      throw new Error(
-        `plan-eng-review plan-mode smoke FAILED: outcome=${obs.outcome}\n` +
-          `summary: ${obs.summary}\n` +
-          `elapsed: ${obs.elapsedMs}ms\n` +
-          `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
-      );
-    }
-    expect(['asked', 'plan_ready']).toContain(obs.outcome);
-    assertReportAtBottomIfPlanWritten(obs);
+    assertPlanModeWithEvidence('plan-eng-review', 'reaches a terminal outcome (asked or plan_ready) without silent writes', obs, () => {
+      if (obs.outcome === 'silent_write' || obs.outcome === 'exited' || obs.outcome === 'timeout') {
+        throw new Error(
+          `plan-eng-review plan-mode smoke FAILED: outcome=${obs.outcome}\n` +
+            `summary: ${obs.summary}\n` +
+            `elapsed: ${obs.elapsedMs}ms\n` +
+            `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+        );
+      }
+      expect(['asked', 'plan_ready']).toContain(obs.outcome);
+      assertReportAtBottomIfPlanWritten(obs);
+    });
   }, CAPTURE_LONG_MS);
 
   // D3-B / D4-B: when a plan with guaranteed-finding-triggering complexity
@@ -83,41 +86,43 @@ describeE2E('plan-eng-review plan-mode smoke (periodic)', () => {
       timeoutMs: CAPTURE_MS,
     });
 
-    if (
-      obs.outcome === 'wrote_findings_before_asking' ||
-      obs.outcome === 'auto_decided' ||
-      obs.outcome === 'silent_write' ||
-      obs.outcome === 'exited' ||
-      obs.outcome === 'timeout'
-    ) {
-      throw new Error(
-        `STOP-gate regression: outcome=${obs.outcome}\nsummary: ${obs.summary}\n` +
-          `elapsed: ${obs.elapsedMs}ms\n` +
-          `--- evidence (last 2KB) ---\n${obs.evidence}`,
-      );
-    }
-
-    if (obs.outcome === 'plan_ready') {
-      if (!obs.planFile || !planFileHasDecisionsSection(obs.planFile)) {
+    assertPlanModeWithEvidence('plan-eng-review', 'STOP gate fires when seeded plan forces Step 0 findings', obs, () => {
+      if (
+        obs.outcome === 'wrote_findings_before_asking' ||
+        obs.outcome === 'auto_decided' ||
+        obs.outcome === 'silent_write' ||
+        obs.outcome === 'exited' ||
+        obs.outcome === 'timeout'
+      ) {
         throw new Error(
-          `STOP-gate regression: plan_ready without ## Decisions section in ` +
-            `${obs.planFile ?? '<no plan file>'} — gate skipped after ToolSearch.\n` +
+          `STOP-gate regression: outcome=${obs.outcome}\nsummary: ${obs.summary}\n` +
+            `elapsed: ${obs.elapsedMs}ms\n` +
             `--- evidence (last 2KB) ---\n${obs.evidence}`,
         );
       }
-    }
 
-    expect(['asked', 'plan_ready']).toContain(obs.outcome);
-    assertReportAtBottomIfPlanWritten(obs);
+      if (obs.outcome === 'plan_ready') {
+        if (!obs.planFile || !planFileHasDecisionsSection(obs.planFile)) {
+          throw new Error(
+            `STOP-gate regression: plan_ready without ## Decisions section in ` +
+              `${obs.planFile ?? '<no plan file>'} — gate skipped after ToolSearch.\n` +
+              `--- evidence (last 2KB) ---\n${obs.evidence}`,
+          );
+        }
+      }
 
-    // Plan-mode scope-gate bypass: with a seeded plan in plan mode, the gate
-    // must NOT render its "What should I review?" menu — it auto-selects B
-    // and announces it. Exception ordering in the template (plan-mode branch
-    // first) makes this deterministic even though the seed arrives as a
-    // pasted user message. Unseeded test 1 keeps its lenient contract: with
-    // no plan drafted, the "ask as normal" fallback legitimately renders the
-    // question.
-    expect(obs.scopeGateQuestionObserved ?? false).toBe(false);
-    expect(obs.scopeGateAutoSelectObserved ?? false).toBe(true);
+      expect(['asked', 'plan_ready']).toContain(obs.outcome);
+      assertReportAtBottomIfPlanWritten(obs);
+
+      // Plan-mode scope-gate bypass: with a seeded plan in plan mode, the gate
+      // must NOT render its "What should I review?" menu — it auto-selects B
+      // and announces it. Exception ordering in the template (plan-mode branch
+      // first) makes this deterministic even though the seed arrives as a
+      // pasted user message. Unseeded test 1 keeps its lenient contract: with
+      // no plan drafted, the "ask as normal" fallback legitimately renders the
+      // question.
+      expect(obs.scopeGateQuestionObserved ?? false).toBe(false);
+      expect(obs.scopeGateAutoSelectObserved ?? false).toBe(true);
+    });
   }, CAPTURE_LONG_MS);
 });

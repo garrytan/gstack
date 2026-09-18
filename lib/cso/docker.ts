@@ -17,9 +17,10 @@ function dockerTimeout(deadline:number|undefined,maximum:number):number{
 }
 function deadlineExpired(deadline:number|undefined):boolean{return deadline!==undefined&&Date.now()>=deadline;}
 export async function dockerEndpoint(home: string, env: Record<string,string|undefined> = process.env, deadline?:number): Promise<DockerEndpoint> {
-  const docker = executable('docker');
   const requestedHost = env.DOCKER_HOST;
   if (requestedHost && !requestedHost.startsWith('unix:///')) throw new CsoError('ISOLATION_FAILED','Remote TCP, HTTP, SSH, and TLS Docker endpoints are refused');
+  // Reject forbidden input even on hosts where Docker is not installed.
+  const docker = executable('docker');
   let uri = requestedHost;
   if (!uri) {
     const config = env.DOCKER_CONFIG || (env.HOME ? join(env.HOME,'.docker') : '');

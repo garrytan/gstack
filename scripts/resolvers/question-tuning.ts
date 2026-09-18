@@ -27,9 +27,9 @@ export function generateQuestionTuning(ctx: TemplateContext): string {
   const registry = `${ctx.paths.skillRoot}/scripts/question-registry.ts`;
   return `## Question Tuning (skip entirely if \`QUESTION_TUNING: false\`)
 
-Before each AskUserQuestion, choose \`question_id\` from \`${registry}\` or \`{skill}-{slug}\`, then run \`printf '%s' "<question summary>" | ${bin}/gstack-question-preference --check "<id>" --summary-stdin\` (piped summary feeds the one-way keyword net, #2024). \`AUTO_DECIDE\` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." \`ASK_NORMALLY\` means ask.
+Before each decision brief (AskUserQuestion or Conductor/fallback prose), choose \`question_id\` from \`${registry}\` or \`{skill}-{slug}\`, then run \`printf '%s' "<question summary>" | ${bin}/gstack-question-preference --check "<id>" --summary-stdin\` (piped summary feeds the one-way keyword net, #2024). \`AUTO_DECIDE\` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." \`ASK_NORMALLY\` means ask.
 
-**Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append \`<gstack-qid:{question_id}>\` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered \`question_id\`.
+**Embed the question_id as a marker in every asked brief**, including ad hoc IDs. Use the same ID for its preference check, question marker, and log. Include \`<gstack-qid:{question_id}>\` once in the question text itself, not only a command or log. On prose paths, use the explicit reply line. Without the marker, the PreToolUse hook treats AskUserQuestion as observed-only and never auto-decides.
 
 **Embed the option recommendation via the \`(recommended)\` label suffix** on exactly one option per AUQ. The PreToolUse hook parses \`(recommended)\` first, falls back to "Recommendation: X" prose, and refuses to auto-decide if ambiguous. Two \`(recommended)\` labels = refuse.
 
@@ -49,4 +49,3 @@ ${bin}/gstack-question-preference --write '{"question_id":"<id>","preference":"<
 
 Exit code 2 = rejected as not user-originated; do not retry. On success: "Set \`<id>\` → \`<preference>\`. Active immediately."`;
 }
-

@@ -6,6 +6,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createFakeBunCli } from './helpers/fake-bun-cli';
+import { fakePlanSeedPrelude } from './helpers/fake-plan-seed';
 import { nativeSeededPlanSelection } from './helpers/plan-scope-selection';
 import { isScopeGateQuestionVisible } from './helpers/claude-pty-runner';
 import { readPlanCountTranscript, type NativePublicToolEvent, type PlanCountTranscript } from './helpers/plan-count-transcript';
@@ -157,12 +158,12 @@ test('seeded plan selection dependencies select the existing design and Eng mode
 
 test('real PTY observation binds its explicit session and retains public diagnostics before cleanup', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scope-pty-'));
-  const cli = createFakeBunCli(path.join(dir, 'fake-claude'), `
+  const cli = createFakeBunCli(path.join(dir, 'fake-claude'), fakePlanSeedPrelude() + `
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2), id = args[args.indexOf('--session-id') + 1];
 fs.writeFileSync(process.env.SCOPE_TEST_ARGV, JSON.stringify(args));
 let sent = false;
-process.stdin.on('data', chunk => {
+process.on('gstack-seeded-slash', chunk => {
   if (sent || !chunk.toString().includes('/plan-design-review')) return;
   sent = true;
   const base = Date.now(), root = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', 'fixture');

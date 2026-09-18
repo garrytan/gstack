@@ -1,0 +1,76 @@
+{
+  "sourceCommit": "dacc95ea69dc73d7d0358165355969b6e4f10f6f",
+  "source": "Retained public native requests/answers from CLI2.1.251; full parent JSONL was deleted. Free tests create synthetic request/reply envelopes and times, not a historical E2E replay.",
+  "sourceObservationSha256": {
+    "first": "038d5a0b3f5343f1d27d7513391ec8b33abb20c1799410e0e91cd19002ac6c4d",
+    "retry": "aa174a8589192e2c26578c335286f16015df2fe98b3a2c3b583229af3e27c0a2"
+  },
+  "actualOutcome": "Both EXPANSION attempts failed; no rejudging. Four Include/Defer/Cut/Hold options differ from source three-option menu.",
+  "retryQuestion": {
+    "question": "D3.1 — E1: Shared project views (private / project visibility)?\nProject/branch/task: gstack-plan-count-F2ZINo on main, SCOPE EXPANSION review of saved views.\nELI10: Today's plan makes every view personal. E1 adds a `visibility` column (private | project) and a project-owned copy of a view that everyone in the project sees in the picker. Only the owner or a project admin can edit or delete a project view; anyone can duplicate it to private. This is the single change that turns bookmarks into a shared team artifact, and it is far cheaper to add the column now than to migrate later.\nStakes if we pick wrong: Without it, the first \"can you share your view?\" request lands in week one of the pilot and the answer is screenshots. With it done carelessly, a member could edit a view the whole team relies on.\nRecommendation: Include because the schema cost is two columns now vs. a data migration later, and shared views are what every incumbent (Asana, Linear, Jira) treats as the baseline.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a modest permissions surface now vs. an inevitable migration and a weaker pilot signal later.",
+    "header": "E1 shared",
+    "multiSelect": false,
+    "options": [
+      {
+        "label": "A) Include (recommended)",
+        "description": "✅ Views become team artifacts; \"Blocked this sprint\" exists once, not eight times. ✅ Two columns now avoids a later migration of live user data. ❌ Adds an edit/delete permission path that must be tested for owner, admin and non-owner."
+      },
+      {
+        "label": "B) Defer to TODOS.md",
+        "description": "✅ Pilot stays personal-only and ships sooner. ✅ Schema can still reserve `visibility` so the later add is additive. ❌ Sharing requests during the pilot go unanswered; pilot signal understates value."
+      },
+      {
+        "label": "C) Cut",
+        "description": "✅ Smallest permission surface; nothing beyond PLAN.md. ✅ Zero admin/owner test matrix. ❌ Views stay bookmarks forever unless re-planned; contradicts the 12-month ideal."
+      },
+      {
+        "label": "D) Hold — discuss first",
+        "description": "✅ Stops the chain so we can talk through ownership/admin semantics before deciding. ✅ No disposition recorded yet. ❌ Delays the remaining five proposals until you say continue."
+      }
+    ]
+  },
+  "retryAnswer": "A) Include (recommended)",
+  "firstMetaQuestion": {
+    "question": "D4.0 — Seven expansion proposals: how do you want to decide them?\nProject/branch/task: plan-count-dfvaRl on main, SCOPE EXPANSION ceremony for saved views.\nELI10: I have seven candidate additions (E1 shared views, E2 versioned payload + deep link, E3 stale-reference detection, E4 dirty state, E5 remember last view, E6 pilot instrumentation, E7 picker polish). The rule is one question per proposal so nothing gets dropped silently. That is seven quick Include/Defer/Cut questions plus a final confirmation. Or you can have me narrow the list first, or batch them into two groups.\nStakes if we pick wrong: Full split costs you 8 clicks; narrowing risks me cutting something you wanted; batching mixes independent items into one pick.\nRecommendation: A because E1-E7 are independent scope items (with E2 as the shared foundation) and each deserves its own yes/no.\nNote: options differ in kind, not coverage — no completeness score.\nNet: decision precision vs. number of prompts.",
+    "header": "Ceremony",
+    "multiSelect": false,
+    "options": [
+      {
+        "label": "Proceed with the full split (recommended)",
+        "description": "✅ Every proposal gets its own Include / Defer / Cut / Hold decision from you\n✅ Dependencies (E1, E3 need E2) surfaced inline so the set stays coherent\n❌ Eight prompts before the deep review starts"
+      },
+      {
+        "label": "Narrow scope first",
+        "description": "✅ I propose a shorter list (likely E2, E1, E6, E4) and you approve the trim\n✅ Fewer prompts; still no silent drops because you approve the cut list\n❌ Items you might have wanted (E3, E5, E7) get one collective decision, not individual"
+      },
+      {
+        "label": "Batch into groups of 4",
+        "description": "✅ Two multi-select prompts instead of seven single ones\n✅ Faster if you already know roughly what you want\n❌ Loses the per-item recommendation and dependency ELI10; easier to pick an incoherent set"
+      }
+    ]
+  },
+  "firstMetaAnswer": "Proceed with the full split (recommended)",
+  "firstUnansweredQuestion": {
+    "question": "D4.1 — E2: One versioned JSON filter payload + deep-linkable view URLs?\nProject/branch/task: plan-count-dfvaRl on main, SCOPE EXPANSION ceremony, proposal 1 of 7.\nELI10: Right now the plan says \"store the filters\" without saying in what shape. E2 makes that explicit: a single `{version: 1, filters: {...}, sort: {...}}` payload produced by one serializer that both the live filter UI and the saved_views row use, plus a `?view=<id>` URL param so opening a link opens that view. Without it, the UI state and the stored state drift into two formats, and every later feature (sharing, stale detection) fights that drift. Paste a link in chat, teammate sees the exact list.\nStakes if we pick wrong: Skipping it means E1 and E3 become unbuildable as proposed, and a v2 payload migration lands on every saved row.\nRecommendation: Include because it is the cheapest change with the largest downstream leverage, and it is nearly free if done before the first migration. Effort M: human ~2 days / CC ~30 min. Risk low.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a few hours of schema discipline now vs. a data migration and two encodings later.",
+    "header": "E2 payload",
+    "multiSelect": false,
+    "options": [
+      {
+        "label": "Include (recommended)",
+        "description": "✅ One serializer, one payload shape, versioned from day one; UI and storage cannot drift\n✅ Unlocks E1 (shared) and E3 (stale detection) and makes every view a shareable URL\n❌ Adds a version field and a migration path you must honor in every later payload change"
+      },
+      {
+        "label": "Defer to TODOS.md",
+        "description": "✅ Ship the plan as written first; revisit the payload format after the pilot\n✅ Zero extra work in this PR\n❌ E1 and E3 fall out of this plan; a later format change migrates every saved row"
+      },
+      {
+        "label": "Cut",
+        "description": "✅ Smallest possible scope; whatever shape falls out of the first implementation stands\n✅ No versioning ceremony at all\n❌ Locks in an accidental format; deep links never happen; sharing gets expensive"
+      },
+      {
+        "label": "Hold — discuss first",
+        "description": "✅ Stops the chain so we can talk through the payload shape before deciding\n✅ Good if you already have a filter-state format in the codebase I cannot see\n❌ Pauses the review until you resume"
+      }
+    ]
+  }
+}

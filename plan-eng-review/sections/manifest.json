@@ -8,7 +8,7 @@
       "id": "review-sections",
       "file": "review-sections.md",
       "title": "Architecture/Code/Test/Performance review, outside voice, required outputs + review report",
-      "trigger": "running the 4-section review, outside voice, required outputs, and review report (only after Step 0 scope is agreed)"
+      "trigger": "starting the Scope Challenge and full review (after target selection and startup)"
     }
   ]
 }

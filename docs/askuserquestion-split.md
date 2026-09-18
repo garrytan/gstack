@@ -103,14 +103,22 @@ parent decision, resume from where they left off.
 After the chain resolves (without Hold), fire `D<N>.final` to confirm
 and validate the assembled set.
 
-**Step 1 — validate dependencies.** If the picked set is incoherent
-(e.g. E3 picked Include but its required E1 was Cut), do NOT silently
-accept. Re-prompt the conflict as a single AskUserQuestion:
+**Step 1 — validate dependencies and capacity.** If the picked set is
+incoherent (e.g. E3 is Included but its required E1 was Cut), show the
+conflict and the actual prior answers. Ask which candidate to revisit:
 
-> "E3 needs E1 but you cut E1. Revise:
-> A) keep E1
-> B) cut E3 too
-> C) leave as-is and accept the broken state"
+> "E3 needs E1. Your answers include E3 and cut E1. Which should we revisit?
+> A) Revisit E1
+> B) Revisit E3
+> C) Hold — leave this conflict unresolved for discussion"
+
+This routing answer changes no disposition. For the named candidate,
+fire one `D<N>.revise-<k>` with the standard **Include / Defer / Cut / Hold**
+menu. Hold all other candidates' prior answers fixed. Revalidate dependencies
+and capacity after the answer; never silently cut, swap or include another
+candidate to make the set fit. A Hold stops the chain: retain the actual
+prior answers and explicitly report the unresolved blocking conflict.
+Do not confirm an incoherent set as ready to implement.
 
 **Step 2 — confirm the assembled set.** If coherent:
 

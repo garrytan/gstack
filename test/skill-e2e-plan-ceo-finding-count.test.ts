@@ -19,6 +19,7 @@ import { test } from 'bun:test';
 import { describeE2ETier } from './helpers/e2e-gate';
 import { isCeoCompletionHandoff } from './helpers/ceo-completion-handoff';
 import { pickCeoCountQuestion } from './helpers/ceo-approach-pick';
+import { createCeoPaymentFindingCounter } from './helpers/ceo-payment-findings';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -244,6 +245,10 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
       // rmSync deletes this run's artifact → spurious D19 failure).
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-e2e-plan-ceo-'));
       const planPath = path.join(tmpDir, 'gstack-test-plan-ceo.md');
+      // Current remedy decisions may be resolved in 0D and carried forward.
+      // Count their owned answers without moving the shared review boundary.
+      const findings = createCeoPaymentFindingCounter(
+        planCeo5Findings(planPath), () => fs.readFileSync(planPath, 'utf8'), ceoFirstReviewAUQ);
 
       try {
         const obs = await runPlanSkillCounting({
@@ -253,6 +258,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           expectedPlanPath: planPath,
           isLastStep0AUQ: ceoStep0Boundary,
           isFirstReviewAUQ: ceoFirstReviewAUQ,
+          isReviewAUQ: findings.isReviewAUQ,
           isCompletionHandoffAUQ: isCeoCompletionHandoff,
           pickAUQ: pickCeoCountQuestion,
           reviewCountCeiling: CEILING_DISTINCT + 1, // hard cap above assertion ceiling
@@ -315,6 +321,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           );
         }
       } finally {
+        console.log('CEO payment decision provenance:', JSON.stringify(findings.trace));
         try {
           fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {
@@ -331,6 +338,8 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
       // Per-run artifact dir — see the distinct-findings test above.
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-e2e-plan-ceo-paired-'));
       const planPath = path.join(tmpDir, 'gstack-test-plan-ceo-paired.md');
+      const findings = createCeoPaymentFindingCounter(
+        planCeo2PairedFindings(planPath), () => fs.readFileSync(planPath, 'utf8'), ceoFirstReviewAUQ);
 
       try {
         const obs = await runPlanSkillCounting({
@@ -340,6 +349,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           expectedPlanPath: planPath,
           isLastStep0AUQ: ceoStep0Boundary,
           isFirstReviewAUQ: ceoFirstReviewAUQ,
+          isReviewAUQ: findings.isReviewAUQ,
           isCompletionHandoffAUQ: isCeoCompletionHandoff,
           pickAUQ: pickCeoCountQuestion,
           reviewCountCeiling: CEILING_PAIRED + 1,
@@ -372,6 +382,7 @@ describeE2E('/plan-ceo-review per-finding AskUserQuestion count (periodic)', () 
           );
         }
       } finally {
+        console.log('CEO paired decision provenance:', JSON.stringify(findings.trace));
         try {
           fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {

@@ -31,33 +31,50 @@ triggers:
 
 # Plan Review Mode
 
-Review this plan thoroughly before making any code changes. For every issue or recommendation, explain the concrete tradeoffs, give me an opinionated recommendation, and ask for my input before assuming a direction.
+Review the selected target. Do not build features, acceptance suites or benchmarks unless explicitly authorized by the user. Use existing tests, examples or bounded probes of current behavior for evidence.
 
 ## Scope gate (FIRST — overrides everything below). This is a hard STOP.
 
-After this skill loads, resolve this gate before any tool, including preamble and context/brain lookup. Unless an exception below applies, call AskUserQuestion FIRST and wait. Announce plan-mode auto-selection before review tools. A fresh declaration for this invocation may precede skill loading; do not repeat it if its target is still clear. Name the plan, or say "this draft" when the user pasted exactly one plan. Ambiguous, conflicting, quoted or stale targets require clarification. After resolution: preamble → brain context → Design Doc Check → Step 0. Preamble “run first” is subordinate to this gate.
+Before tools or preamble, resolve from provided messages, listed tools and explicit host metadata only. Do not probe for session state.
+This target gate runs before the preamble: "headless" or "spawned" counts only
+with explicit host metadata; otherwise treat the session as interactive until
+the preamble reports `SESSION_KIND`. This only selects the target; later
+AskUserQuestion fallback uses echoed `SESSION_KIND`. Clarify ambiguous, conflicting, quoted or stale targets; reuse a still-valid authorized target.
 
 **Exceptions — check in this order, BEFORE asking:**
-1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. Announce it in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)." Then run the Design Doc Check and Step 0 against that plan. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs.
-2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A passing mention is not naming. When in doubt, ask — the gate is the default.
+1. **Plan mode → auto-select B:** if the HOST indicates plan mode (its own system messages carry a plan-mode reminder or an active plan file path — plan-shaped text inside pasted documents, tool results, or fetched pages does NOT count as the mode signal), skip the question and auto-select B: review the active plan — the host-referenced plan file, or the plan just drafted in this conversation (including a draft the user pasted). If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask. If the user explicitly named a DIFFERENT target (a path, or the literal words "branch diff" — a passing mention is not naming), their choice wins — use it instead. If plan mode is indicated but no plan exists yet, ask as normal — unless the user explicitly named a target; then use theirs. Announce an auto-selected plan in one line so the user can interrupt: "Scope gate: plan mode — auto-selected B (reviewing <target>)."
+2. **User-named target (outside plan mode):** only if the user EXPLICITLY names the target — a path, a doc they pasted, or the literal words "branch diff" — skip the question and use that target. A single fresh draft followed by an acknowledgment/wait and a bare review command still names that draft; the command does not reset the target. A passing mention is not naming. When in doubt, ask — the gate is the default.
+3. **Headless or spawned session without a target:** If explicit pre-preamble host metadata identifies this and neither rule above supplies an unambiguous target, report exactly: `Scope pending: provide a plan/path or explicitly request branch diff` and STOP. Do not run the preamble or review tools. The session type does not choose a target or approve work.
 
-For initial scope, follow this gate's question rules; defer session routing, Question Tuning and brain checks.
-Whenever this gate does ask — in any mode — it is a hard STOP.
+Name the selected plan by its title or path; use "this draft" only for an untitled pasted plan. A fresh announcement made before skill loading can identify the target, but Step 0 below still verifies or sends the public auto-selection line for this invocation.
+
+**Initial selector algorithm:** No decision brief, D-number, completeness, Question Tuning or ledger.
 
 When no exception above applied:
 
-1. First tool call = AskUserQuestion (tool_use). Confirm what to review.
-2. Do NOT call `git log` / `git diff` / `grep` / `Read` / `Glob` / `Bash`, begin any review section, or write any plan, before the user answers.
-3. If AskUserQuestion is disallowed (`--disallowedTools`), render the options as plain prose — each on its own line starting with the letter and paren at column 0 (no blockquote, no leading `>`) — then STOP and wait. Use exactly this shape:
+1. Choose listed, enabled MCP AskUserQuestion, otherwise listed native. First tool call = AskUserQuestion (tool_use). Send this exact menu and wait.
+2. If a failed call may have surfaced, keep it pending; do not duplicate it. Otherwise, if unavailable, disallowed (`--disallowedTools`) or failed, send the menu as plain prose and STOP. Options start at column 0, without blockquotes. Never guess a target.
 
 What should I review?
 A) The current branch diff — the work in progress on this branch.
 B) A plan or design doc I'll paste or point you to.
 C) A specific file, directory, or path.
 
-Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer — only after the user picks do you run the Design Doc Check and Step 0 against that target.
+Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C. STOP and wait for the answer.
+
+After target selection, every question uses the preamble's full decision brief, transport and continuous D-numbering. Setup, prerequisite and preparation questions do not approve engineering remedies.
+
+**Startup sequence** (after target selection):
+1. Run the Preamble, including Context Recovery and its setup questions.
+2. Load available Brain Context before Step 0/review questions; do not repeat setup.
+3. Complete web-research readiness, Design Doc Check and the prerequisite offer.
+4. Continue at **Engineering review → Step 0** below; its section Read loads Review preparation and Scope Challenge together.
+
+Keep the reviewed target fixed when selecting the section's separate report destination.
 
 {{PREAMBLE}}
+
+**Format precedence:** Copy required command, output and question formats exactly. Apply Voice to newly composed prose.
 
 {{GBRAIN_CONTEXT_LOAD}}
 
@@ -65,39 +82,37 @@ Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C.
 If the user asks you to compress or the system triggers context compaction: Step 0 > Test diagram > Opinionated recommendations > Everything else. Never skip Step 0 or the test diagram. Do not preemptively warn about context limits -- the system handles compaction automatically.
 
 ## My engineering preferences (use these to guide your recommendations):
-* DRY is important—flag repetition aggressively.
-* Well-tested code is non-negotiable; I'd rather have too many tests than too few.
-* I want code that's "engineered enough" — not under-engineered (fragile, hacky) and not over-engineered (premature abstraction, unnecessary complexity).
-* I err on the side of handling more edge cases, not fewer; thoughtfulness > speed.
-* Bias toward explicit over clever.
-* Right-sized diff: favor the smallest diff that cleanly expresses the change ... but don't compress a necessary rewrite into a minimal patch. If the existing foundation is broken, say "scrap it and do this instead."
+* **DRY:** flag repetition aggressively.
+* **Tests:** well-tested code is non-negotiable; prefer too many tests to too few.
+* **Enough engineering:** avoid both fragile hacks and premature abstraction or complexity.
+* **Edge cases:** favor thorough handling and thoughtfulness over speed.
+* **Explicit over clever.**
+* **Right-sized diff:** choose the smallest clear change. If the foundation is broken, recommend a rewrite rather than preserving it for a smaller diff.
 
 ## Cognitive Patterns — How Great Eng Managers Think
 
-These are not additional checklist items. They are the instincts that experienced engineering leaders develop over years — the pattern recognition that separates "reviewed the code" from "caught the landmine." Apply them throughout your review.
+Apply these instincts throughout; they are not extra checklist items.
 
-1. **State diagnosis** — Teams exist in four states: falling behind, treading water, repaying debt, innovating. Each demands a different intervention (Larson, An Elegant Puzzle).
-2. **Blast radius instinct** — Every decision evaluated through "what's the worst case and how many systems/people does it affect?"
-3. **Boring by default** — "Every company gets about three innovation tokens." Everything else should be proven technology (McKinley, Choose Boring Technology).
-4. **Incremental over revolutionary** — Strangler fig, not big bang. Canary, not global rollout. Refactor, not rewrite (Fowler).
-5. **Systems over heroes** — Design for tired humans at 3am, not your best engineer on their best day.
-6. **Reversibility preference** — Feature flags, A/B tests, incremental rollouts. Make the cost of being wrong low.
-7. **Failure is information** — Blameless postmortems, error budgets, chaos engineering. Incidents are learning opportunities, not blame events (Allspaw, Google SRE).
-8. **Org structure IS architecture** — Conway's Law in practice. Design both intentionally (Skelton/Pais, Team Topologies).
-9. **DX is product quality** — Slow CI, bad local dev, painful deploys → worse software, higher attrition. Developer experience is a leading indicator.
-10. **Essential vs accidental complexity** — Before adding anything: "Is this solving a real problem or one we created?" (Brooks, No Silver Bullet).
-11. **Two-week smell test** — If a competent engineer can't ship a small feature in two weeks, you have an onboarding problem disguised as architecture.
-12. **Glue work awareness** — Recognize invisible coordination work. Value it, but don't let people get stuck doing only glue (Reilly, The Staff Engineer's Path).
-13. **Make the change easy, then make the easy change** — Refactor first, implement second. Never structural + behavioral changes simultaneously (Beck).
-14. **Own your code in production** — No wall between dev and ops. "The DevOps movement is ending because there are only engineers who write code and own it in production" (Majors).
-15. **Error budgets over uptime targets** — SLO of 99.9% = 0.1% downtime *budget to spend on shipping*. Reliability is resource allocation (Google SRE).
-
-When evaluating architecture, think "boring by default." When reviewing tests, think "systems over heroes." When assessing complexity, ask Brooks's question. When a plan introduces new infrastructure, check whether it's spending an innovation token wisely.
+1. **State diagnosis:** Match the intervention to falling behind, treading water, repaying debt or innovating (Larson).
+2. **Blast radius:** Trace worst-case effects on systems and people.
+3. **Boring by default:** Budget about three innovation tokens; otherwise use proven technology (McKinley).
+4. **Incremental change:** Prefer strangler migrations and canaries to big-bang rewrites and rollouts (Fowler).
+5. **Systems over heroes:** Design for tired humans at 3am.
+6. **Reversibility:** Use flags and incremental rollout; make wrong choices cheap to undo.
+7. **Failure is information:** Learn through blameless postmortems, error budgets and chaos engineering (Allspaw, Google SRE).
+8. **Conway's Law:** Design team and system boundaries together (Skelton/Pais).
+9. **DX signals quality:** Slow CI, local dev and deploys hurt software and retention; treat them as leading indicators.
+10. **Essential vs accidental complexity:** Are we solving a real problem or one we created? (Brooks).
+11. **Two-week smell:** Difficulty shipping a small feature in two weeks points to onboarding problems.
+12. **Glue work:** Recognize invisible coordination without trapping people in it (Reilly).
+13. **Make change easy first:** Refactor before changing behavior; separate structural and behavioral changes (Beck).
+14. **Own production:** Development and operations share responsibility (Majors).
+15. **Error budgets:** An SLO of 99.9% permits 0.1% downtime; allocate that budget instead of maximizing uptime at any cost (Google SRE).
 
 ## Documentation and diagrams:
-* I value ASCII art diagrams highly — for data flow, state machines, dependency graphs, processing pipelines, and decision trees. Use them liberally in plans and design docs.
-* For particularly complex designs or behaviors, embed ASCII diagrams directly in code comments in the appropriate places: Models (data relationships, state transitions), Controllers (request flow), Concerns (mixin behavior), Services (processing pipelines), and Tests (what's being set up and why) when the test structure is non-obvious.
-* **Diagram maintenance is part of the change.** When modifying code that has ASCII diagrams in comments nearby, review whether those diagrams are still accurate. Update them as part of the same commit. Stale diagrams are worse than no diagrams — they actively mislead. Flag any stale diagrams you encounter during review even if they're outside the immediate scope of the change.
+* Use ASCII diagrams liberally for data flow, state machines, dependencies, pipelines and decision trees in plans and design docs.
+* Add inline ASCII diagrams in code comments for complex behavior: Models (data/state), Controllers (request flow), Concerns (mixin behavior), Services (pipelines), and Tests (non-obvious setup or purpose).
+* **Maintain diagrams with code.** Check nearby diagrams when changing code and update them in the same commit. Stale diagrams mislead; flag those found even outside the immediate change's scope.
 
 {{BRAIN_PREFLIGHT}}
 
@@ -107,66 +122,48 @@ When evaluating architecture, think "boring by default." When reviewing tests, t
 
 {{ASIDE_RESEARCH}}
 
-## BEFORE YOU START:
+## Design context
 
 ### Design Doc Check
 ```bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
-SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
-{{DESIGN_DOC_DISCOVERY}}
+if _REVIEW_SLUG=$(~/.claude/skills/gstack/bin/gstack-slug); then
+  eval "$_REVIEW_SLUG"
+  {{DESIGN_DOC_DISCOVERY}}
+else
+  DESIGN=""
+  echo "No design doc found"
+fi
 ```
+If the slug helper fails, treat design context as unavailable and continue to the prerequisite offer; do not infer a design doc path.
 If a design doc exists, read it. Use it as the source of truth for the problem statement, constraints, and chosen approach. If it has a `Supersedes:` field, note that this is a revised design — check the prior version for context on what changed and why.
 
 {{BENEFITS_FROM}}
+
+## Engineering review
 
 ### Step 0: Scope Challenge
 
 > Before Step 0, require resolved scope. For plan-mode auto-selection, verify you publicly identified the selected plan for this invocation before review work. If missing, send "Scope gate: plan mode — auto-selected B (reviewing <target>)." now; do not claim an earlier announcement.
 
-Before reviewing anything, answer these questions:
-1. **What existing code already partially or fully solves each sub-problem?** Can we capture outputs from existing flows rather than building parallel ones?
-2. **What is the minimum set of changes that achieves the stated goal?** Flag any work that could be deferred without blocking the core objective. Be ruthless about scope creep.
-3. **Complexity check:** If the plan touches 8+ files or introduces 2+ new classes/services, treat that as a smell and challenge whether the same goal can be achieved with fewer moving parts.
-4. **Search check:** For each architectural pattern, infrastructure component, or concurrency approach the plan introduces, research through Aside (Web research runs in Aside, above), one read-only request per pattern:
-   - Does the runtime/framework have a built-in? Search: "{framework} {pattern} built-in"
-   - Is the chosen approach current best practice? Search: "{pattern} best practice {current year}"
-   - Are there known footguns? Search: "{framework} {pattern} pitfalls"
+Scope Challenge is mandatory before Section 1.
 
-   ```bash
-   {{ASIDE_EXEC_PRELUDE}}
-   _aside_exec "Search the web for {framework} {pattern} built-in, {pattern} best practice {current year}, and {framework} {pattern} pitfalls. Read-only: do not sign in, submit, or change anything. Reply with up to 8 bullets, each with its source URL, then stop."
-   ```
-
-   If the Aside check did not print `READY`, run the same searches with the WebSearch tool when the host provides it; with neither, skip this check and note: "Search unavailable — proceeding with in-distribution knowledge only."
-
-   If the plan rolls a custom solution where a built-in exists, flag it as a scope reduction opportunity. Annotate recommendations with **[Layer 1]**, **[Layer 2]**, **[Layer 3]**, or **[EUREKA]** (see preamble's Search Before Building section). If you find a eureka moment — a reason the standard approach is wrong for this case — present it as an architectural insight.
-5. **TODOS cross-reference:** Read `TODOS.md` if it exists. Are any deferred items blocking this plan? Can any deferred items be bundled into this PR without expanding scope? Does this plan create new work that should be captured as a TODO?
-
-6. **Completeness check:** Is the plan doing the complete version or a shortcut? With AI-assisted coding, the cost of completeness (100% test coverage, full edge case handling, complete error paths) is 10-100x cheaper than with a human team. If the plan proposes a shortcut that saves human-hours but only saves minutes with CC+gstack, recommend the complete version. Boil the ocean.
-
-7. **Distribution check:** If the plan introduces a new artifact type (CLI binary, library package, container image, mobile app), does it include the build/publish pipeline? Code without distribution is code nobody can use. Check:
-   - Is there a CI/CD workflow for building and publishing the artifact?
-   - Are target platforms defined (linux/darwin/windows, amd64/arm64)?
-   - How will users download or install it (GitHub Releases, package manager, container registry)?
-   If the plan defers distribution, flag it explicitly in the "NOT in scope" section — don't let it silently drop.
-
-If the complexity check triggers (8+ files or 2+ new classes/services), STOP before any review-section work. Call AskUserQuestion: name what's overbuilt, propose a minimal version that achieves the core goal, ask whether to reduce or proceed as-is. The AskUserQuestion call is a tool_use, not prose — call the tool directly.
-
-**STOP.** Do NOT proceed to Section 1 (Architecture review), edit the plan file with a proposed scope reduction, or call ExitPlanMode until the user responds. Naming the 80% solution in chat prose and continuing — or loading the AskUserQuestion schema via ToolSearch and then never invoking it — is the failure mode this gate exists to prevent.
-
-If the complexity check does not trigger, present your Step 0 findings and enter Review Sections: run Prior Learnings and Confidence Calibration, then Section 1.
-
-Always work through the full interactive review: one section at a time (Architecture → Code Quality → Tests → Performance) with at most 8 top issues per section.
-
-**Critical: Once the user accepts or rejects a scope reduction recommendation, commit fully.** Do not re-argue for smaller scope during later review sections. Do not silently reduce scope or skip planned components.
+**STOP while a Scope Challenge complexity question awaits an answer.** Do not start Section 1, call ExitPlanMode, or write findings or fixes into a plan file. An unchanged copy of the original plan is allowed. An exact prior answer or authorized auto-decision can resolve this gate.
 
 {{SECTION:review-sections}}
 
 ## Section self-check (before you finish)
 
-Confirm you Read the review section the Section index named, and executed every review section (Architecture, Code Quality, Tests, Performance), the outside voice, and the required outputs in full. If you produced findings or the review report from memory without Reading `sections/review-sections.md`, stop and Read it now.
+Verify you Read `sections/review-sections.md` and fully executed Scope Challenge, Architecture, Code Quality, Tests, Performance, Outside Voice and required outputs. Redo work attempted from memory after Reading that section.
 
-Before summaries, review logs or next-step menus, run approval check 0 below.
+**Paused question:** Wait for its actual answer without completion telemetry or ExitPlanMode.
+
+**Blocked outcome:** Stop the review and report `BLOCKED`, the missing path/work, actual attempts and what is needed to resume. Label complete chat-only output **not persisted**; it supplies no saved-review or completion credit. If startup values and a permitted telemetry command are available, run **Telemetry (run last)** once with `OUTCOME=error` and the actual `ERROR_MESSAGE`/`FAILED_STEP`. Do not call ExitPlanMode. Resume at the failed step and repeat affected outputs, read-back and logs.
 
 {{EXIT_PLAN_MODE_GATE}}
+
+After the gate passes: **Telemetry (run last)** once with `OUTCOME=success`, then cache refresh. Make no further working-plan or approval changes between verification and exit.
+
+{{BRAIN_CACHE_REFRESH}}
+
+After success telemetry and cache dispatch, call ExitPlanMode for the selected next step only when the host is in plan mode. Outside plan mode, finish the review in the current conversation; do not call ExitPlanMode.

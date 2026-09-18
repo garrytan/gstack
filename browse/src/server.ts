@@ -1651,6 +1651,9 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   async function shutdown(exitCode: number = 0) {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    // State and terminal files belong to this instance, including embedders
+    // whose cfg differs from the standalone daemon's module-level config.
+    const config = cfg.config;
 
     console.log('[browse] Shutting down...');
     if (ownsTerminalAgent) {

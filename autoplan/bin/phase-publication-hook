@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Native Read barrier. A broken install must return deny JSON, never silence.
+set -euo pipefail
+_AUTOPLAN_DECIDED=''
+_autoplan_backstop() {
+  if [ -z "$_AUTOPLAN_DECIDED" ]; then
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[autoplan] Publication hook unavailable. Restore the gstack installation and retry."}}'
+  fi
+}
+trap _autoplan_backstop EXIT
+_AUTOPLAN_HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+_AUTOPLAN_RESULT="$(bun "$_AUTOPLAN_HOOK_DIR/phase-publication-hook.ts")"
+test -n "$_AUTOPLAN_RESULT"
+printf '%s\n' "$_AUTOPLAN_RESULT"
+_AUTOPLAN_DECIDED=1

@@ -163,7 +163,12 @@ if(mode==='screen') mock.module(screenModule,()=>({createPtyScreen:async(...args
 start=Date.now();log('body');
 const observation=await runPlanSkillCounting({skillName:'plan-design-review',slashCommand:'/plan-design-review',
   followUpPrompt:'Review the deadline fixture.',isLastStep0AUQ:()=>false,reviewCountCeiling:8,timeoutMs:mode==='boot'?12000:18000,
-  pickAUQ:()=>{log('picker');while(Date.now()-start<12800){};return 2;},
+  pickAUQ:(_routing,_active,context)=>{
+    const ready=fs.readFileSync(process.env.BOUNDARY_EVENTS,'utf8').trim().split('\n').map(line=>JSON.parse(line)).find(event=>event.event==='ready');
+    if(!Object.isFrozen(context)||context.cwd!==ready.cwd||!Number.isFinite(context.deadlineAt)||context.deadlineAt<=Date.now()||context.deadlineAt>start+18000)
+      throw new Error('Picker did not receive its owned fixture and bounded deadline');
+    log('picker');while(Date.now()-start<12800){};return 2;
+  },
   env:{BOUNDARY_EVENTS:process.env.BOUNDARY_EVENTS}});
 const events=fs.readFileSync(process.env.BOUNDARY_EVENTS,'utf8').trim().split('\n').map(line=>JSON.parse(line));
 log('returned',{outcome:observation.outcome,elapsed:Date.now()-start,reads,fixtureGone:!fs.existsSync(events.find(e=>e.event==='ready').cwd)});

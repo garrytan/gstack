@@ -1,0 +1,1109 @@
+{
+  "sourceRevision": "8525fd4abad1e54de1aaaa9a5692202d4b13bd25",
+  "provenance": {
+    "originalEvents": "/home/vercel-sandbox/gstack/.context/sep15-ship-consolidation/behavior-8525fd4a-monitor-artifacts/design-finding-count/attempt1-public-events.json",
+    "eventsSha256": "aed192beb82821c05cb26bf04aad7143a71f97e773178536543ae7c5e3f69b77",
+    "observationSha256": "aa1bc73455da69bb86239ecc960b37a75547e1f2feffb1595098385891255a31",
+    "report": "Exact reconstruction from successful native Write/Edit inputs, equal to complete numbered native Read-back after stripping line numbers. No synthetic report text.",
+    "planPath": "/tmp/gstack-owned-display-2pr8geye/gstack-paid-shard-kJVkAz/tmp/gstack-e2e-plan-design-FiIovI/gstack-test-plan-design.md",
+    "operations": [
+      {
+        "id": "toolu_017dMpLVibkG8er8ZKZQcyS2",
+        "tool": "Write",
+        "requestedAt": "2026-09-15T10:21:04.133Z",
+        "acknowledgedAt": "2026-09-15T10:21:04.534Z",
+        "resultSha256": "38958a2920d89f1d5ca3d7d611eb2b0f7ae14e6de3798d70a1c2aaaab07f40e4"
+      },
+      {
+        "id": "toolu_019Jz9nmZGQ2DrMBrv17dcBe",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:21:39.697Z",
+        "acknowledgedAt": "2026-09-15T10:21:40.084Z",
+        "resultSha256": "e9b459ab40687518a20d43e349159f7180367a875fc8a84ccaed75c67e3ec12a"
+      },
+      {
+        "id": "toolu_019XpcVZBj7VDts2CcoRJw3E",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:21:52.548Z",
+        "acknowledgedAt": "2026-09-15T10:21:53.622Z",
+        "resultSha256": "73072ae7fbde53e3108c1235d4d8cc591d1f4d5ca1a0e8bd185607edbf35aa68"
+      },
+      {
+        "id": "toolu_01WqxUFqF3M6d3KkyjGxqv5T",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:22:25.971Z",
+        "acknowledgedAt": "2026-09-15T10:22:27.215Z",
+        "resultSha256": "7541cb43e062ee5d6c96da0d479e093b3aebe4142b8b21762a03f561bfe5f945"
+      },
+      {
+        "id": "toolu_01As63zzzaQmLH1ynrvmjwBk",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:22:47.673Z",
+        "acknowledgedAt": "2026-09-15T10:22:48.782Z",
+        "resultSha256": "effc64e1645f55c0b69c20119a0731218db505e2b36b83d1119f7541af2a3010"
+      },
+      {
+        "id": "toolu_01RCQHWHWs4fUaNfrrjsvUmJ",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:23:37.499Z",
+        "acknowledgedAt": "2026-09-15T10:23:38.452Z",
+        "resultSha256": "d041208aa9c15c7a707bb4797aa1c48cd40f3f422d5cf181596c718d912dc56f"
+      },
+      {
+        "id": "toolu_01JV6fmUcyysatDDivnqbkqz",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:23:46.082Z",
+        "acknowledgedAt": "2026-09-15T10:23:47.992Z",
+        "resultSha256": "e2324beed75e0fc63faffec382229e98e2f214731196166c5c9a47ed4a9b03aa"
+      },
+      {
+        "id": "toolu_015q2rkcLn1xbacQFV84ps5n",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:23:54.403Z",
+        "acknowledgedAt": "2026-09-15T10:23:55.521Z",
+        "resultSha256": "f672f8ea851b624e3e8537acd1a5d9c82bd0b9faa025ed1c7067db5617c4ee11"
+      },
+      {
+        "id": "toolu_01J14XfDqNuGzTA6AWyZ9HDd",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:24:25.788Z",
+        "acknowledgedAt": "2026-09-15T10:24:27.119Z",
+        "resultSha256": "451953b72fc0b0ac3917315b5bd8f3f1b474a5f9998c2091251971160ee02854"
+      },
+      {
+        "id": "toolu_01VRRvbuWeavw1GR4otTcxWT",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:24:35.440Z",
+        "acknowledgedAt": "2026-09-15T10:24:36.679Z",
+        "resultSha256": "bb6dce352e7b1feeb59b0fc6a1aa027e49ca3ab34fe1ef5bd39b67f30670bf24"
+      },
+      {
+        "id": "toolu_01S1BdvnsvHuMCQ6ZxfGMfr3",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:24:44.017Z",
+        "acknowledgedAt": "2026-09-15T10:24:44.180Z",
+        "resultSha256": "df5f0d090580733256e6dfd51ea15f48cf973baad6da70ffd739dff90b6e2b15"
+      },
+      {
+        "id": "toolu_01UJKGYxEqzJPn7CNRRfcByj",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:25:05.842Z",
+        "acknowledgedAt": "2026-09-15T10:25:07.769Z",
+        "resultSha256": "8f661c5487fee96c4b1008bb39525bdd85152698929b94bef85fc3a35d95a265"
+      },
+      {
+        "id": "toolu_01FoX2xBPMK3KpCu6yvQacCR",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:25:19.981Z",
+        "acknowledgedAt": "2026-09-15T10:25:21.310Z",
+        "resultSha256": "85742486bbe915808e0768f512f4cf9ba48105d11412a2c98e8802fe2748812d"
+      },
+      {
+        "id": "toolu_01QQ9goUkmwvraj6LS721gyj",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:25:27.573Z",
+        "acknowledgedAt": "2026-09-15T10:25:28.854Z",
+        "resultSha256": "def4227ad3f5992d094954b5b7340c750d040bb9b94b64bf46cf1e640aaa245a"
+      },
+      {
+        "id": "toolu_01U97Uuh6ifFEFTgJyR8gAH6",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:26:34.514Z",
+        "acknowledgedAt": "2026-09-15T10:26:36.630Z",
+        "resultSha256": "e011130c137c024b558439e5d7e7aa34f049e0b0b92882129327cddcd3978fbc"
+      },
+      {
+        "id": "toolu_01HczVEJSrcqc5NDcjUrTqDu",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:27:23.947Z",
+        "acknowledgedAt": "2026-09-15T10:27:24.339Z",
+        "resultSha256": "3865139f57c6c86cf9a6eefe426053ceebabbc4eb49cb0df4fdc18de4c2f101a"
+      },
+      {
+        "id": "toolu_01JWLWY3Ag3SHkpFJwG1C14G",
+        "tool": "Edit",
+        "requestedAt": "2026-09-15T10:27:52.945Z",
+        "acknowledgedAt": "2026-09-15T10:27:54.020Z",
+        "resultSha256": "7207c337c8f247620d3de70ee25be7bff3ce1d107a3143aaf9a92633596205dd"
+      },
+      {
+        "id": "toolu_01RZkwxCJ7paUDEejbH6vJB9",
+        "tool": "Read",
+        "requestedAt": "2026-09-15T10:27:58.481Z",
+        "acknowledgedAt": "2026-09-15T10:27:58.522Z",
+        "resultSha256": "17d9f53824532c8d9ed0430c4ec6ca6c05cebbf23e81e8018fc6d4fcdb817b4d"
+      }
+    ]
+  },
+  "originalOutcome": {
+    "outcome": "timeout",
+    "summary": "no terminal outcome within 1500000ms total budget (including startup and 5000ms cleanup reserve; step0=7, review=0)",
+    "elapsedMs": 1495005,
+    "step0Count": 7,
+    "reviewCount": 0
+  },
+  "transcript": {
+    "status": "ready",
+    "calls": [
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "toolUseId": "toolu_0176ogjmsRi3nWbkGY4LNs5L",
+        "questions": [
+          {
+            "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch of the plan-review fixture repo, about to run /plan-design-review on PLAN.md.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules. Routing rules are a short list telling the assistant which /skill to run when you say things like \"review this\" or \"ship it\", so you don't have to remember skill names. This is a one-time setup prompt per project. Note: plan mode is active, so if you pick A the CLAUDE.md append and commit happen after plan mode ends, not now.\nStakes if we pick wrong: pick A and you get an extra ~15-line section in CLAUDE.md; pick B and you invoke skills by name manually.\nRecommendation: A because routing makes the skills discoverable with zero ongoing cost.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience of automatic skill routing vs keeping CLAUDE.md exactly as it is.",
+            "header": "Routing",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add routing rules to CLAUDE.md (recommended)",
+                "description": "✅ Requests like \"review this plan\" or \"ship it\" auto-route to the matching gstack skill.\n✅ One small append to CLAUDE.md, committed once; no runtime cost after that.\n❌ Adds a ~15-line section to the project's CLAUDE.md that some teammates may not want."
+              },
+              {
+                "label": "No thanks, I'll invoke skills manually",
+                "description": "✅ CLAUDE.md stays exactly as it is; nothing else changes in the repo.\n✅ You keep full control of which skill runs and when.\n❌ You have to remember and type each /skill name yourself, every time."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch of the plan-review fixture repo, about to run /plan-design-review on PLAN.md.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules. Routing rules are a short list telling the assistant which /skill to run when you say things like \"review this\" or \"ship it\", so you don't have to remember skill names. This is a one-time setup prompt per project. Note: plan mode is active, so if you pick A the CLAUDE.md append and commit happen after plan mode ends, not now.\nStakes if we pick wrong: pick A and you get an extra ~15-line section in CLAUDE.md; pick B and you invoke skills by name manually.\nRecommendation: A because routing makes the skills discoverable with zero ongoing cost.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience of automatic skill routing vs keeping CLAUDE.md exactly as it is.": "Add routing rules to CLAUDE.md (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T10:18:56.176Z"
+      },
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "toolUseId": "toolu_01WC3DvYjPHLbUFrJyBFbywP",
+        "questions": [
+          {
+            "question": "D2 — Issue 1 (Pass 1, Info Arch): How should Save stand out from Reset/Cancel/Export in the header?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, gap G1 (visual hierarchy).\nELI10: Right now all four header buttons look identical, so a user scanning the page cannot tell which one commits their edits. The whole journey ends with \"press Save and read the timestamp\", so Save needs to be the one button the eye lands on first. DESIGN.md already says how: Save is the only filled button (#1d4ed8 with white text), the other three are neutral ghost buttons.\nStakes if we pick wrong: users hesitate or hit Reset/Cancel by mistake and lose edits; hierarchy-as-service principle broken at the one place it matters.\nRecommendation: 1A because it is the exact DESIGN.md token, reuses the existing Button variant, and changes nothing about geometry or order.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: apply the approved primary/ghost split now vs leave the header flat.",
+            "header": "Issue 1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A: Filled primary Save, ghost secondaries (recommended)",
+                "description": "✅ Save becomes the single filled #1d4ed8/white button; Reset, Cancel, Export are neutral ghost buttons per DESIGN.md.\n✅ Uses the existing Button variants; 44px geometry, DOM order and disabled/pending styles stay as specified.\n❌ Slightly more visual weight in the header; the disabled-pending look for Save must still read as disabled on a filled button."
+              },
+              {
+                "label": "1B: Emphasize Save with weight/border only, no fill",
+                "description": "✅ Save gets bold text and a 2px #1d4ed8 border; header stays visually quiet.\n✅ Smaller change to the existing styles than a filled button.\n❌ Deviates from DESIGN.md's \"only filled primary action\" rule and weaker at a 3-second scan, especially at 320px."
+              },
+              {
+                "label": "1C: Leave all four buttons identical",
+                "description": "✅ Zero styling work in this update.\n❌ Users cannot tell the primary action from three secondaries; the gap stays open and the pass stays at 6/10."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Issue 1 (Pass 1, Info Arch): How should Save stand out from Reset/Cancel/Export in the header?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, gap G1 (visual hierarchy).\nELI10: Right now all four header buttons look identical, so a user scanning the page cannot tell which one commits their edits. The whole journey ends with \"press Save and read the timestamp\", so Save needs to be the one button the eye lands on first. DESIGN.md already says how: Save is the only filled button (#1d4ed8 with white text), the other three are neutral ghost buttons.\nStakes if we pick wrong: users hesitate or hit Reset/Cancel by mistake and lose edits; hierarchy-as-service principle broken at the one place it matters.\nRecommendation: 1A because it is the exact DESIGN.md token, reuses the existing Button variant, and changes nothing about geometry or order.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: apply the approved primary/ghost split now vs leave the header flat.": "1A: Filled primary Save, ghost secondaries (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T10:21:32.015Z"
+      },
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "toolUseId": "toolu_01V6UVV2WPA2dd5EZm8318kx",
+        "questions": [
+          {
+            "question": "D3 — Issue 2 (Pass 2, States): What does the user see while Save is pending for 2-5 seconds?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, gap G5 (motion / pending state).\nELI10: When someone presses Save, nothing on the page changes for up to five seconds. They cannot tell whether the click registered, so they press again or leave. The plan already says repeat Saves are blocked and that pending feedback belongs to the button, not the status text. DESIGN.md already defines the pattern: an inline spinner beside \"Saving…\" inside the disabled Save button, aria-busy=true, with reduced-motion support. Export already does exactly this.\nStakes if we pick wrong: the most common action on the page looks broken; trust erodes at the moment the user is waiting to be told their preferences were stored.\nRecommendation: 2A because it mirrors the Export pending state the user already sees, matches DESIGN.md, and keeps the InlineStatus contract untouched.\nCompleteness: 2A=10/10, 2B=5/10, 2C=2/10\nNet: reuse the established in-button spinner vs invent a second pending pattern or ship the frozen page.",
+            "header": "Issue 2",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "2A: Inline spinner + \"Saving…\" in the Save button (recommended)",
+                "description": "✅ Same pattern as Export: spinner beside \"Saving…\" inside Save, aria-busy=true, aria-disabled + activation guard, reduced-motion fallback.\n✅ InlineStatus text stays unchanged while pending, exactly as the plan already requires; screen readers hear one announcement, not two.\n❌ The filled primary button must fit the spinner plus label without growing beyond its idle height at 320px."
+              },
+              {
+                "label": "2B: Full-form skeleton overlay while saving",
+                "description": "✅ Very visible; nobody misses that something is happening.\n✅ Prevents edits during the request without per-field disabling.\n❌ Hides the user's own values for up to 5 seconds and breaks the \"do not move focus / preserve unsaved values\" contract; not a DESIGN.md pattern."
+              },
+              {
+                "label": "2C: Leave Save with no pending indicator",
+                "description": "✅ No work.\n❌ The page looks frozen for 2-5 seconds; users double-submit or abandon; the gap stays open."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 — Issue 2 (Pass 2, States): What does the user see while Save is pending for 2-5 seconds?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, gap G5 (motion / pending state).\nELI10: When someone presses Save, nothing on the page changes for up to five seconds. They cannot tell whether the click registered, so they press again or leave. The plan already says repeat Saves are blocked and that pending feedback belongs to the button, not the status text. DESIGN.md already defines the pattern: an inline spinner beside \"Saving…\" inside the disabled Save button, aria-busy=true, with reduced-motion support. Export already does exactly this.\nStakes if we pick wrong: the most common action on the page looks broken; trust erodes at the moment the user is waiting to be told their preferences were stored.\nRecommendation: 2A because it mirrors the Export pending state the user already sees, matches DESIGN.md, and keeps the InlineStatus contract untouched.\nCompleteness: 2A=10/10, 2B=5/10, 2C=2/10\nNet: reuse the established in-button spinner vs invent a second pending pattern or ship the frozen page.": "2A: Inline spinner + \"Saving…\" in the Save button (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T10:22:19.151Z"
+      },
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "toolUseId": "toolu_0188WtnvKwKpaHxzP6rS6mse",
+        "questions": [
+          {
+            "question": "D4 — Issue 3 (Pass 4, Typography): Collapse the three form-label sizes to DESIGN.md's two-role scale?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, gap G4 (typography).\nELI10: Labels on the form currently come in three sizes (14, 16, 18px) with no rule behind them, so the eye reads noise instead of hierarchy, and 14px labels fall under the 16px minimum for body text. DESIGN.md defines exactly two roles: 16px for body, form labels and helper text, 20px for the Profile/Notifications section headings. Applying it removes the third size and makes every label one size.\nStakes if we pick wrong: readers get a flat, jittery type ramp; the 14px labels stay hard to read on phones; the form looks assembled rather than designed.\nRecommendation: 3A because it is the DESIGN.md scale, fixes the sub-16px label, and touches only sizes, not fonts or layout.\nCompleteness: 3A=10/10, 3B=6/10, 3C=2/10\nNet: one label size and one heading size vs keeping an accidental three-size ramp.",
+            "header": "Issue 3",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "3A: 16px labels/body/helper, 20px section headings (recommended)",
+                "description": "✅ Exactly DESIGN.md's two roles; every field label, helper and error text at 16px, Profile/Notifications h2 at 20px.\n✅ Removes the sub-16px labels and gives the fieldsets a clear two-level ramp with zero layout change.\n❌ Slightly longer labels at 16px may wrap on 320px; line-height must be checked against the 44px control height."
+              },
+              {
+                "label": "3B: Keep 16 and 18px, drop only the 14px labels",
+                "description": "✅ Removes the accessibility miss (14px) with the smallest diff.\n✅ Preserves whatever current emphasis the 18px labels carry.\n❌ Leaves a size DESIGN.md does not define, so the plan and the system still disagree."
+              },
+              {
+                "label": "3C: Keep all three sizes as they are",
+                "description": "✅ No work in this update.\n❌ Flat type hierarchy remains, 14px labels stay below the body minimum, and the gap stays open."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — Issue 3 (Pass 4, Typography): Collapse the three form-label sizes to DESIGN.md's two-role scale?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, gap G4 (typography).\nELI10: Labels on the form currently come in three sizes (14, 16, 18px) with no rule behind them, so the eye reads noise instead of hierarchy, and 14px labels fall under the 16px minimum for body text. DESIGN.md defines exactly two roles: 16px for body, form labels and helper text, 20px for the Profile/Notifications section headings. Applying it removes the third size and makes every label one size.\nStakes if we pick wrong: readers get a flat, jittery type ramp; the 14px labels stay hard to read on phones; the form looks assembled rather than designed.\nRecommendation: 3A because it is the DESIGN.md scale, fixes the sub-16px label, and touches only sizes, not fonts or layout.\nCompleteness: 3A=10/10, 3B=6/10, 3C=2/10\nNet: one label size and one heading size vs keeping an accidental three-size ramp.": "3A: 16px labels/body/helper, 20px section headings (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T10:23:30.381Z"
+      },
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "toolUseId": "toolu_01AExc8KBvV6XvLsed4hjqnG",
+        "questions": [
+          {
+            "question": "D5 — Issue 4 (Pass 5, Spacing): Adopt DESIGN.md's 8px spacing scale for the form?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, gap G2 (spacing rhythm).\nELI10: The gaps between parts of the form are 16px in one place, 24px in another, 32px in a third, with no rule deciding which. The eye reads uneven gaps as unrelated groups, so Profile and Notifications do not feel like siblings. DESIGN.md already fixes the rhythm on an 8px base: 32px between sections, 24px between field groups, 8px between a label and its input.\nStakes if we pick wrong: the form keeps looking assembled by three people; grouping (Gestalt proximity) stops doing its job, and the two fieldsets read as one undifferentiated column.\nRecommendation: 4A because it is the DESIGN.md scale, is a pure spacing-token change, and gives each level of the hierarchy one gap size.\nCompleteness: 4A=10/10, 4B=6/10, 4C=2/10\nNet: one predictable rhythm from the system vs keeping ad hoc gaps.",
+            "header": "Issue 4",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "4A: Sections 32px, field groups 24px, label-to-input 8px (recommended)",
+                "description": "✅ DESIGN.md's 8px base applied everywhere: 32 between header/status/Profile/Notifications, 24 between fields, 8 label-to-input.\n✅ Spacing tokens only; no DOM, component or layout change, and the 640px/320px behavior is unaffected.\n❌ Slightly taller page on 320px (two more 8px steps); verify nothing needs horizontal scroll and the first field is still above the fold."
+              },
+              {
+                "label": "4B: Normalize to a single 24px gap everywhere",
+                "description": "✅ Simplest possible rule; one number to remember.\n✅ Removes the 16px and 32px outliers with a one-line change.\n❌ Loses the section vs field-group distinction DESIGN.md relies on for grouping, and still disagrees with the design system."
+              },
+              {
+                "label": "4C: Leave spacing as it is",
+                "description": "✅ No work in this update.\n❌ Three unrelated gap sizes stay; the fieldsets never read as a rhythm and the gap stays open."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 — Issue 4 (Pass 5, Spacing): Adopt DESIGN.md's 8px spacing scale for the form?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, gap G2 (spacing rhythm).\nELI10: The gaps between parts of the form are 16px in one place, 24px in another, 32px in a third, with no rule deciding which. The eye reads uneven gaps as unrelated groups, so Profile and Notifications do not feel like siblings. DESIGN.md already fixes the rhythm on an 8px base: 32px between sections, 24px between field groups, 8px between a label and its input.\nStakes if we pick wrong: the form keeps looking assembled by three people; grouping (Gestalt proximity) stops doing its job, and the two fieldsets read as one undifferentiated column.\nRecommendation: 4A because it is the DESIGN.md scale, is a pure spacing-token change, and gives each level of the hierarchy one gap size.\nCompleteness: 4A=10/10, 4B=6/10, 4C=2/10\nNet: one predictable rhythm from the system vs keeping ad hoc gaps.": "4A: Sections 32px, field groups 24px, label-to-input 8px (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T10:24:19.035Z"
+      },
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "toolUseId": "toolu_01AF2naKkuoaQM4WwEU768AP",
+        "questions": [
+          {
+            "question": "D6 — Issue 5 (Pass 5, Color): Replace the ~3:1 error styling with DESIGN.md's error tokens?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, gap G3 (error contrast).\nELI10: The error message is red text on light pink at roughly 3:1 contrast. WCAG AA needs 4.5:1 for text, so the one message a user most needs to read when something goes wrong is the hardest text on the page to read. DESIGN.md already defines the pair: error.text #991b1b on error.surface #fef2f2 (about 8:1), always with an icon and explicit wording so the state never depends on color alone.\nStakes if we pick wrong: users with low vision or on a dim phone screen miss why their save failed; the plan's own \"all text meets AA\" rule is broken on the highest-stakes text.\nRecommendation: 5A because it is the DESIGN.md pair, clears AA with margin, and adds the icon + text redundancy the system requires.\nCompleteness: 5A=10/10, 5B=6/10, 5C=1/10\nNet: readable errors from the system's tokens vs a pink box nobody can read.",
+            "header": "Issue 5",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "5A: error.text #991b1b on error.surface #fef2f2 + icon + text (recommended)",
+                "description": "✅ DESIGN.md tokens; measured contrast ~8:1, well above the 4.5:1 AA floor for 16px text.\n✅ Applies to field errors, the ErrorSummary and the network error/Retry area alike, each with the existing icon and explicit wording.\n❌ The Retry ghost button sitting on the #fef2f2 surface must be verified for its own 4.5:1 text and 3:1 focus-ring contrast."
+              },
+              {
+                "label": "5B: Keep current pink surface, darken only the text to pass 4.5:1",
+                "description": "✅ Smallest visual change; the surface color users already recognize stays.\n✅ Passes AA once the text is darkened.\n❌ Introduces a red that DESIGN.md does not define, so the system and the plan still disagree, and skips the icon requirement."
+              },
+              {
+                "label": "5C: Leave the error styling as it is",
+                "description": "✅ No work in this update.\n❌ ~3:1 error text stays below AA; the plan violates its own contrast rule and the gap stays open."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 — Issue 5 (Pass 5, Color): Replace the ~3:1 error styling with DESIGN.md's error tokens?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, gap G3 (error contrast).\nELI10: The error message is red text on light pink at roughly 3:1 contrast. WCAG AA needs 4.5:1 for text, so the one message a user most needs to read when something goes wrong is the hardest text on the page to read. DESIGN.md already defines the pair: error.text #991b1b on error.surface #fef2f2 (about 8:1), always with an icon and explicit wording so the state never depends on color alone.\nStakes if we pick wrong: users with low vision or on a dim phone screen miss why their save failed; the plan's own \"all text meets AA\" rule is broken on the highest-stakes text.\nRecommendation: 5A because it is the DESIGN.md pair, clears AA with margin, and adds the icon + text redundancy the system requires.\nCompleteness: 5A=10/10, 5B=6/10, 5C=1/10\nNet: readable errors from the system's tokens vs a pink box nobody can read.": "5A: error.text #991b1b on error.surface #fef2f2 + icon + text (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T10:24:59.683Z"
+      },
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "toolUseId": "toolu_0136nv2ii8Hg1vgbbnhTV1cB",
+        "questions": [
+          {
+            "question": "D7 — Issue 6 (Pass 7): If \"Exporting…\" + spinner overflows its ~90px column at 320px, what should the Export button do?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, conflict between the Export pending label and the 320px equal-column row.\nELI10: On a 320px phone the three secondary buttons each get about 90px. Idle labels (Reset, Cancel, Export) fit. The pending label \"Exporting…\" plus a spinner needs roughly 105-120px, so it will not fit on one line. Two accepted rules collide: show the spinner beside \"Exporting…\" inside the button, and keep three equal columns that fit 320px. We need a rule for that moment so the implementer does not clip the word or break the row. Conditional: measure first; this decides the fallback if it overflows.\nStakes if we pick wrong: the pending state (the one that proves the tap landed) clips to \"Expor…\" or pushes the row past 320px with horizontal scroll, on the smallest screens where taps are least certain.\nRecommendation: 6A because it keeps the visible text and the equal-column contract, and the height change is brief and user-triggered.\nCompleteness: 6A=9/10, 6B=7/10, 6C=5/10\nNet: let the row grow for a few seconds vs hide the pending text on mobile vs redesign the mobile action row.",
+            "header": "Issue 6",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "6A: Let the label wrap; row grows to fit, columns stay equal (recommended)",
+                "description": "✅ \"Exporting…\" wraps to two lines under the spinner; the button and its two siblings grow to the same height (min 44px), so the equal-column row and DOM order are untouched.\n✅ Visible pending text survives on the smallest screens; aria-busy and reduced-motion behave exactly as on desktop.\n❌ The action row gets taller for the duration of the request and snaps back on settle, a small layout shift below the header."
+              },
+              {
+                "label": "6B: Spinner only at 640px and below, \"Exporting…\" visually hidden",
+                "description": "✅ Button geometry never changes; no layout shift; screen readers still hear \"Exporting…\" via sr-only text and aria-busy.\n✅ Simple CSS: hide the label at the breakpoint.\n❌ Sighted mobile users lose the words; a lone spinner in a ghost button is weaker feedback than the desktop state."
+              },
+              {
+                "label": "6C: Pending Export spans the full secondary row at 640px and below",
+                "description": "✅ Plenty of room for spinner + label at any width.\n❌ Reset and Cancel disappear or reflow during the request, changing visual order mid-task and contradicting the accepted equal-column contract."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D7 — Issue 6 (Pass 7): If \"Exporting…\" + spinner overflows its ~90px column at 320px, what should the Export button do?\nProject/branch/task: main, PLAN.md Settings Page UI redesign, conflict between the Export pending label and the 320px equal-column row.\nELI10: On a 320px phone the three secondary buttons each get about 90px. Idle labels (Reset, Cancel, Export) fit. The pending label \"Exporting…\" plus a spinner needs roughly 105-120px, so it will not fit on one line. Two accepted rules collide: show the spinner beside \"Exporting…\" inside the button, and keep three equal columns that fit 320px. We need a rule for that moment so the implementer does not clip the word or break the row. Conditional: measure first; this decides the fallback if it overflows.\nStakes if we pick wrong: the pending state (the one that proves the tap landed) clips to \"Expor…\" or pushes the row past 320px with horizontal scroll, on the smallest screens where taps are least certain.\nRecommendation: 6A because it keeps the visible text and the equal-column contract, and the height change is brief and user-triggered.\nCompleteness: 6A=9/10, 6B=7/10, 6C=5/10\nNet: let the row grow for a few seconds vs hide the pending text on mobile vs redesign the mobile action row.": "6A: Let the label wrap; row grows to fit, columns stay equal (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T10:26:22.525Z"
+      }
+    ],
+    "assistantMessages": [
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "text": "Scope gate: plan mode — auto-selected B (reviewing PLAN.md: \"Settings Page UI redesign\"). The request already fixes the rest of the scope: text-only (no mockups), all seven dimensions, no outside voices, stop after the design review.",
+        "timestamp": "2026-09-15T10:18:33.464Z"
+      },
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "text": "## Pre-review system audit\n\n- **Plan:** `PLAN.md` (Settings Page UI redesign). One commit in history, no prior review cycles, no learnings, no brain digests, no TODOS.md.\n- **DESIGN.md:** exists and is detailed. Every design decision below calibrates against it.\n- **UI scope:** one existing page (account settings form): header action group, InlineStatus, two fieldsets, confirmation dialogs, pending/error/success states, 640px/320px layouts. Design review applies.\n- **Existing patterns to reuse:** Button, Field, InlineStatus, ErrorSummary, ConfirmationDialog; the established spinner-in-button pending pattern; the error.text/error.surface tokens; the 8px spacing scale; the two-role type scale.\n- **Designer binary:** available, but you asked for text-only, so no mockups.\n\n## Step 0: Design scope assessment\n\n**0A. Initial design completeness: 6/10.** The accepted-behavior section is unusually strong: every state, focus rule, live-region rule, and breakpoint is written down. What drags it to 6 is the \"Planned implementation gaps\" section: five known violations of DESIGN.md (primary-action emphasis, spacing rhythm, error contrast, label sizes, no Save pending indicator) are described as problems with no decision attached. An engineer picking this up today would ship the frozen 2-5 second Save and the 3:1 error text. A 10 for this plan: each of the five gaps resolved to a specific token and written as a task, an interaction state table, the accepted journey rendered as a storyboard, and a decision register with nothing open.\n\n**0B. DESIGN.md status:** present. All decisions calibrated against it.\n\n**0C. Existing design leverage:** everything. DESIGN.md already names the exact token for each of the five gaps; the work is deciding to apply them, not inventing anything.\n\n**0D. Focus areas:** your request already answered this (\"Review all seven design dimensions\"), so I'm not re-asking. Running all seven passes.\n\n---\n\n## Pass 1: Information Architecture — 6/10\n\nWhat the user sees first, second, third is defined at the page level (nav → h1 + description → actions → status → Profile → Notifications), and the DOM order is fixed. The break is inside the action group: four identical buttons in a row means the most important control on the page has no visual priority. Krug's 3-second scan test fails at exactly the spot the whole journey depends on. That is finding G1.",
+        "timestamp": "2026-09-15T10:21:19.239Z"
+      },
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "text": "**Pass 2 re-rate: 7/10 → 10/10.** Every cell in the state table now names what the user sees. Save pending was the only hole; 2A fills it with the pattern Export already uses.\n\n---\n\n## Pass 3: User Journey & Emotional Arc — 8/10 (before Issue 2) → 10/10\n\nThe plan already writes the journey down (\"arrives from account navigation… edits… saves… reads the Saved timestamp… leaves with confidence\"). Rendering it as the required storyboard is recording an accepted requirement, so no question here:\n\n```\nSTEP | USER DOES                          | USER FEELS                      | PLAN SPECIFIES?\n-----|------------------------------------|---------------------------------|------------------------------------------------------\n1    | Arrives from account nav           | oriented: \"right place\"         | h1 \"Account settings\" + verbatim description; skeleton, then defaults (never empty)\n2    | Scans header                       | \"there's the button that saves\" | Save is the only filled button (D2); ghost secondaries\n3    | Edits Display name / a switch      | in control, aware of dirty state| InlineStatus → \"Unsaved changes\" (text, not color)\n4    | Mistypes email                     | corrected, not scolded          | inline error + linked ErrorSummary, focus first invalid field, edits kept\n5    | Presses Save                       | \"it heard me\"                   | spinner + \"Saving…\" in the button (D3); repeat Save blocked; Reset/Cancel/Export locked\n6    | Network fails                      | annoyed but safe                | edits preserved, \"Unsaved changes\" stays, Retry beside status, focus only if still on Save\n7    | Save succeeds                      | reassured                       | \"Saved at HH:mm\" in the polite live region; no focus jump\n8    | Tries to leave while dirty         | protected, not trapped          | same dialog on every exit + beforeunload; Keep editing returns focus\n9    | Leaves clean                       | done                            | Cancel navigates immediately; destination heading focus\n```\n\nTime horizons: 5-second visceral is served by the h1 and the single filled Save (D2); 5-minute behavioral by the dirty/pending/saved text loop (D3 closes the one break); 5-year reflective by the same pattern every visit, exported preferences on demand, and no surprise data loss. One deliberate non-finding: Export success has no in-page confirmation beyond the browser's download UI. DESIGN.md sets that (\"clears the Export error only\"), so it stays accepted, listed under NOT in scope.\n\n**Pass 3: 8/10 → 10/10** (the 2-5 second frozen wait was the only break in the arc; D3 resolves it). No new issues, moving on.\n\n---\n\n## Pass 4: AI Slop Risk — 7/10\n\n**Classifier: OPERATE** (account settings form; the user's win is finishing a task). App UI rules apply.\n\nHard rejections: none. No card grid, no hero, no carousel, no imagery, single-column fieldset layout rather than stacked cards.\n\nLitmus (from plan + DESIGN.md text):\n1. Product unmistakable in first screen? YES: h1 \"Account settings\" inside the persistent app nav.\n2. One strong visual anchor? YES after D2 (the single filled Save); NO before it.\n3. Understandable by scanning headlines? YES: h1 → Profile → Notifications.\n4. Each section one job? YES: identity fields vs notification switches.\n5. Cards necessary? N/A, none used.\n6. Motion improves hierarchy? YES after D3: the only motion is the in-button spinner, meaning-carrying, reduced-motion aware.\n7. Premium without decorative shadows? YES: no decorative shadows specified.\n\nApp UI rules: calm surface, few colors (one accent #1d4ed8, one error pair), utility copy, minimal chrome: all met. One concrete hit: `[flat-type-hierarchy]`. Three label sizes (14/16/18) across the same role means no clear type hierarchy and a 14px label that also breaks the \"body < 16px\" universal rule. That is finding G4.\n\nNoted, not reopened: DESIGN.md retains `system-ui, sans-serif` (blacklist #11). The plan explicitly excludes visual exploration, and on an OPERATE surface native expectations beat expression. Recorded under NOT in scope with that rationale rather than reopened.",
+        "timestamp": "2026-09-15T10:23:16.726Z"
+      },
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "text": "**Pass 5 re-rate: 5/10 → 10/10.** Every DESIGN.md token now has a matching line in the plan; no new components introduced.\n\n---\n\n## Pass 6: Responsive & Accessibility — 8/10 → 10/10\n\nChecked against the plan and DESIGN.md:\n\n- **Viewports:** above 640px one action row; at 640px and below full-width Save then an equal-column secondary row; fits 320px, no horizontal scroll, 44px targets. Intentional, not \"stacked\".\n- **Keyboard:** focus-visible 2px #1d4ed8 offset 2px everywhere; dialogs trap focus, Escape cancels, focus returns to the trigger; no focus theft while pending; Retry gets focus only if focus is still on the trigger; aria-disabled keeps Save/Export focusable.\n- **Screen readers:** main landmark, h1 → h2 order, fieldsets labelled via aria-labelledby, errors via aria-describedby plus ErrorSummary, one polite atomic live region, Retry outside it with operation-specific aria-labels, no duplicate \"Saving…\" announcement.\n- **Contrast:** the error text at ~3:1 was the only miss; D6 fixes it to ≈8:1. Focus-ring contrast on the tinted error surface is written into the D6 spec as a verification.\n- **Motion:** reduced-motion fallback on both spinners (D3 + existing Export).\n\nThe 8 was entirely the error contrast; with D6 applied, no remaining gaps. No new issues, moving on.\n\n---\n\n## Pass 7: Unresolved Design Decisions\n\nStarting from earlier passes: Issues 1-5 are all decided, nothing carried. Cross-checking the accepted requirements against each other surfaces one concrete conflict I can quantify.\n\n```\nDECISION NEEDED                                          | IF DEFERRED, WHAT HAPPENS\n---------------------------------------------------------|----------------------------------------------------------\nExport pending label at 320px: \"Exporting…\" + spinner    | Engineer picks: label clips mid-word, overflows the column,\nin a ~90px equal-column button (accepted contract says   | or the row silently breaks equal columns. Sighted mobile\nboth \"spinner beside Exporting…\" AND \"three equal        | users lose the pending text or see a broken header.\ncolumns fitting 320px\").                                 |\n```\n\nArithmetic: 320px minus ~16px page padding each side ≈ 288px; three columns with two 8px gaps ≈ 90px each. \"Exporting…\" at 16px system-ui ≈ 80px, plus a 16px spinner and 8px gap ≈ 104px before button padding. It does not fit. Exact padding values live in the existing CSS I cannot see, so the item is conditional: verify at 320px, and decide the fallback policy now so the implementer does not improvise.",
+        "timestamp": "2026-09-15T10:26:07.800Z"
+      },
+      {
+        "sessionId": "4f9a05ae-e7e1-49fd-bfb7-897e3947f86b",
+        "text": "## Review complete\n\n```\n+====================================================================+\n|                    REVIEW READINESS DASHBOARD                       |\n+====================================================================+\n| Review          | Runs | Last Run            | Status         | Required |\n|-----------------|------|---------------------|----------------|----------|\n| Eng Review      |  0   | —                   | —              | YES      |\n| CEO Review      |  0   | —                   | —              | no       |\n| Design Review   |  1   | 2026-09-15 10:28    | CLEAR (FULL)   | no       |\n| Adversarial     |  0   | —                   | —              | no       |\n| Outside Voice   |  0   | —                   | skipped (design)| no      |\n+--------------------------------------------------------------------+\n| VERDICT: NOT CLEARED — Eng Review missing                           |\n+====================================================================+\n```\n\nBoth entries grade CURRENT (commit 7fb0858, clean tree); no staleness notes.\n\n**What changed:** `gstack-test-plan-design.md` now carries the accepted contract verbatim, six individually approved decisions (D2-D7), the implementation spec per decision, state table, storyboard, six tasks (T1-T6) with verification, and the terminal review report. Six tasks also written to the `/autoplan` JSONL artifact. Overall design score 5/10 → 10/10, 0 unresolved.\n\n**Skipped, per your request:** mockups, outside voices, and the next-step chaining question (you said you'll run subsequent reviews manually). Eng review is still the required ship gate when you get to it.\n\n**Watch:**\n- T6 is conditional: measure \"Exporting…\" + spinner at 320px first; the wrap rule only applies if it overflows.\n- Two contrast checks are written into the spec but need real measurement: the disabled-pending label on the filled Save, and the Retry label / focus ring on the `#fef2f2` error surface.\n- D1 (routing rules in CLAUDE.md) was approved but not applied: plan mode blocks that edit. Append the routing section and commit once you leave plan mode.\n\nNo durable learnings this session (fixture repo, nothing non-obvious about the environment).\n\n**STATUS:** DONE — design review completed with evidence (Read-back verified, review log written).",
+        "timestamp": "2026-09-15T10:28:41.493Z"
+      }
+    ]
+  },
+  "report": "# Plan: Settings Page UI redesign (design-reviewed)\n\nSource plan: `PLAN.md` at repo root. Design system: `DESIGN.md` at repo root.\nReview: `/plan-design-review`, text-only (mockups skipped by request), native only\n(outside voices skipped by request), all seven dimensions.\n\n## Context\n\nThe account-settings form already ships. Its shell, components (Button, Field,\nInlineStatus, ErrorSummary, ConfirmationDialog), interaction contract, and\naccessibility behavior are established and approved in DESIGN.md. This plan does\nnot redesign the form. It closes five inconsistencies between what the current\nform renders and what DESIGN.md already specifies, without touching the accepted\nstructure or behavior.\n\nWhat the user gets: a Save button they can find in one glance, a pending state\nthat proves the click landed, an error message they can read, one label size,\nand section spacing that reads as one rhythm instead of three.\n\n## Existing product and accepted behavior (unchanged, carried from PLAN.md)\n\n- Single-column settings shell, 640px max width, inside persistent app navigation.\n- Page header: h1 \"Account settings\", description \"Manage your display name,\n  email address, and notification preferences.\" (verbatim, preserved), then the\n  action group Save | Reset | Cancel | Export, then the persistent InlineStatus.\n- Sections: Profile (h2: Display name, Email) and Notifications (h2: Weekly digest,\n  Product tips). h2s label their fieldsets via aria-labelledby. No skipped heading level.\n- DOM and visual order:\n  ```text\n  Persistent app navigation\n  main: Account settings (h1) + description\n    Save | Reset | Cancel | Export\n    InlineStatus\n    Profile (h2): Display name, Email\n    Notifications (h2): Weekly digest, Product tips\n  ```\n- InlineStatus: role=status, aria-live=polite, aria-atomic=true. Text contract:\n  blank before first save; \"Unsaved changes\" when dirty; \"Saved at HH:mm\" (local\n  24-hour) after success; revert-all or confirmed Reset restores the prior state.\n  Failed saves keep \"Unsaved changes\" alongside the error. Status text does not\n  change while Save is pending; pending feedback belongs to the request button.\n- Loading: existing form skeleton. New account: DESIGN.md server defaults\n  (account name/email, Weekly digest on, Product tips off). Read failure: Retry\n  (aria-label \"Retry loading\").\n- Save is atomic. Repeat Save is blocked while pending. Save and Export are\n  mutually exclusive; Reset and Cancel are disabled while either is pending; all\n  four return to idle/dirty behavior when it settles.\n- Save/Export pending: aria-disabled=true plus activation guard (stay focusable,\n  existing disabled appearance). Reset/Cancel: HTML disabled during requests.\n  Export pending: existing inline spinner beside \"Exporting…\", aria-busy=true,\n  reduced-motion support.\n- Errors: validation beside fields plus linked ErrorSummary, aria-describedby,\n  focus first invalid field. Network failure: preserve edits, Retry as a sibling\n  button outside the live region, visible text \"Retry\", aria-label \"Retry save\" /\n  \"Retry export\". Focus moves to Retry only if focus is still on the trigger.\n  Export failure uses the same area; a successful download clears only that error.\n- Reset (dirty, idle): dialog \"Discard unsaved changes?\" / \"Your saved preferences\n  will be restored.\" Actions \"Keep editing\" (default) / \"Discard changes\".\n  Cancel (dirty, idle): same dialog with \"Keep editing\" / \"Discard and leave\".\n  Clean and idle: Reset is disabled; Cancel navigates back without a dialog.\n- Router guards every in-app exit with the Cancel dialog while dirty. beforeunload\n  registered only while dirty. Confirmed navigation: destination main-heading\n  focus. Keep editing: focus returns to the attempted exit / trigger.\n- Dialogs trap focus; Escape cancels. Focus-visible everywhere: 2px solid #1d4ed8\n  outline, offset 2px on white, contrast above 3:1. All targets at least 44px.\n- Responsive: above 640px, one action row. At 640px and below, full-width Save\n  first, then Reset | Cancel | Export in one equal-column row, DOM/tab order\n  preserved, fits 320px without horizontal scroll with 44px targets.\n- Font family: existing system-ui, sans-serif, inherited by form controls.\n- Reduced motion respected. No new components, no visual exploration.\n\n## Pending review findings (not yet approved; carried from PLAN.md gaps)\n\nEach item below is an open finding. The DESIGN.md token it maps to is a\nproposed remedy, not a decision. Nothing here is an implementation task until\nits individual decision is recorded in the Decision Register.\n\n| # | Gap (as observed in the current form) | Proposed remedy (pending) | Status |\n|---|---------------------------------------|---------------------------|--------|\n| G1 | Visual hierarchy: Save has the same size, weight, color as Reset/Cancel/Export. | DESIGN.md: Save filled #1d4ed8 / white text; others neutral ghost. | APPROVED (D2 → 1A) |\n| G2 | Spacing: 16/24/32px between sections, no rhythm. | DESIGN.md 8px base: sections 32, field groups 24, label-to-input 8. | APPROVED (D5 → 4A) |\n| G3 | Color: error red on light pink at ~3:1, below WCAG AA. | DESIGN.md error.text #991b1b on error.surface #fef2f2, with icon and text. | APPROVED (D6 → 5A) |\n| G4 | Typography: 14/16/18px across form labels. | DESIGN.md two roles: 16px body/labels/helper, 20px section headings. | APPROVED (D4 → 3A) |\n| G5 | Motion: Save takes 2-5s with no indicator; page looks frozen. | DESIGN.md pending pattern: inline spinner beside \"Saving…\" in Save, aria-busy=true, reduced-motion. | APPROVED (D3 → 2A) |\n\n## Approved design changes (implementation spec)\n\n### Header action hierarchy (Issue 1, approved 1A)\n- Save uses the existing Button `primary` variant: filled `#1d4ed8`, white text.\n  It is the only filled button on the page.\n- Reset, Cancel, Export use the existing Button `ghost` variant (neutral).\n- Geometry, 44px targets, DOM/tab order, and the 640px/320px layouts are unchanged.\n- The pending appearance (aria-disabled during Save/Export) and the HTML-disabled\n  appearance (Reset/Cancel) keep their existing disabled styles; on the filled\n  Save that disabled style must still read as disabled (verify contrast of the\n  white label on the dimmed fill stays at or above 4.5:1, or use the existing\n  disabled fill token if one exists).\n- Screen-level hierarchy as a result:\n  ```text\n  1st  Account settings (h1)                 orientation\n  2nd  Save (filled, primary)                the one action that commits\n  3rd  InlineStatus text                     \"Unsaved changes\" / \"Saved at HH:mm\"\n  4th  Profile / Notifications fields        the work itself\n  5th  Reset | Cancel | Export (ghost)       escape hatches, discoverable, quiet\n  ```\n\n### Save pending state (Issue 2, approved 2A)\n- While the Save request is in flight, the Save button shows the existing inline\n  spinner beside the label \"Saving…\", `aria-busy=\"true\"`, `aria-disabled=\"true\"`\n  plus the click/keyboard activation guard (same mechanics Export already uses).\n- Button stays focusable; focus does not move while pending or after success.\n- Reduced motion: the spinner uses the existing `prefers-reduced-motion` fallback\n  (static indicator, no rotation); the \"Saving…\" label carries the meaning.\n- InlineStatus text is unchanged while pending (\"Unsaved changes\" for a dirty\n  form; otherwise its timestamp or blank). \"Saving…\" is never announced in the\n  live region.\n- Reset and Cancel are HTML-disabled; Export is aria-disabled, per the accepted\n  mutual-exclusion contract.\n- On settle: success → \"Saved at HH:mm\" in InlineStatus, button label back to\n  \"Save\"; failure → \"Unsaved changes\" retained, error + \"Retry\" (aria-label\n  \"Retry save\") in the existing error area, edits preserved.\n- Layout: the Save button keeps its idle height (44px min) while the spinner and\n  \"Saving…\" are shown; reserve width so the label swap does not shift the\n  secondary buttons at widths above 640px. At 640px and below Save is full-width,\n  so no reflow.\n\n### Typography scale (Issue 3, approved 3A)\n- Two roles only, per DESIGN.md:\n  - 16px: body copy, page description, every form label, helper text, error text,\n    InlineStatus text, button labels, dialog body and dialog actions.\n  - 20px: Profile and Notifications h2 section headings.\n- Remove the 14px and 18px label sizes wherever the current form uses them.\n- The h1 keeps its existing app-shell size (out of scope for this update).\n- Font family unchanged: `system-ui, sans-serif`, inherited by form controls.\n- Check: at 320px, a 16px label that wraps to two lines must not push its\n  control below the 44px target or misalign the label-to-input 8px gap.\n\n### Spacing rhythm (Issue 4, approved 4A)\n- 8px base scale from DESIGN.md, applied to the whole form:\n  - 32px between major blocks: header (title + description + actions), InlineStatus\n    row, Profile fieldset, Notifications fieldset.\n  - 24px between field groups inside a fieldset (Display name → Email;\n    Weekly digest → Product tips), and between an h2 and its first field group.\n  - 8px between a label and its input / switch, and between a field and its\n    inline error or helper text.\n- Replace every 16px block gap; no other values outside the scale.\n- Unchanged: 640px max width, 44px targets, action-group internal gaps and the\n  320px equal-column row (their existing tokens already sit on the 8px base).\n\n### Error color and redundancy (Issue 5, approved 5A)\n- All error surfaces use DESIGN.md tokens: `error.text #991b1b` on\n  `error.surface #fef2f2` (contrast ≈ 8:1, above the 4.5:1 AA floor at 16px).\n- Applies to: inline field errors, the linked ErrorSummary, and the network\n  error/Retry area beside InlineStatus (Save, Export, and read-failure variants).\n- Every error shows the existing error icon plus explicit text; color is never\n  the only signal (matches the \"never communicate status through color alone\" rule).\n- The Retry ghost button on the #fef2f2 surface: verify its label reaches 4.5:1\n  and its 2px #1d4ed8 focus ring reaches 3:1 against #fef2f2 (it does against\n  white; re-measure on the tinted surface).\n- Remove the current light-pink surface and red text values wherever they are set.\n\n### Export pending label at 320px (Issue 6, approved 6A, conditional)\n- First measure: at 320px, with the real page and button padding, check whether\n  the spinner + \"Exporting…\" fits on one line inside its equal-column ghost button.\n- If it does not fit: the label wraps to a second line (spinner above or beside\n  the first line per the existing spinner component); `overflow-wrap: normal`,\n  no clipping, no `text-overflow: ellipsis`. The Export button grows in height\n  and its two siblings (Reset, Cancel) stretch to the same height (CSS grid /\n  flex `align-items: stretch`), so the row stays three equal columns with 44px+\n  targets, DOM and tab order unchanged.\n- The row returns to its idle height when the request settles. This shift is\n  user-triggered and brief; do not animate it (reduced-motion safe by default).\n- Above 640px nothing changes: the single row has room for the full label.\n- Same rule applies to Save's \"Saving…\" only in theory; Save is full-width at\n  640px and below, so it never wraps.\n\n### Interaction state table (after Issues 1-2)\n```\nFEATURE        | LOADING                              | EMPTY                  | ERROR                                              | SUCCESS                          | PARTIAL\n---------------|--------------------------------------|------------------------|----------------------------------------------------|----------------------------------|----------------\nPage load      | existing form skeleton               | DESIGN.md defaults     | Retry (aria-label \"Retry loading\")                 | populated form                   | n/a\nSave           | spinner + \"Saving…\" in Save, aria-busy| n/a                   | field errors + linked ErrorSummary, focus 1st bad  | \"Saved at HH:mm\" in InlineStatus | never exposed\n               | InlineStatus unchanged               |                        | field; network: edits kept, \"Unsaved changes\",     |                                  | (atomic save)\n               |                                      |                        | Retry (aria-label \"Retry save\")                    |                                  |\nExport         | spinner + \"Exporting…\", aria-busy    | n/a                    | same error area, Retry (aria-label \"Retry export\") | browser download; clears only    | n/a\n               |                                      |                        | unsaved fields untouched                           | the Export error                 |\nDirty tracking | n/a                                  | blank status pre-save  | n/a                                                | \"Unsaved changes\" ↔ timestamp    | n/a\nReset / Cancel | HTML disabled while any request pends| Reset disabled (clean) | n/a                                                | dialog → restore / leave         | n/a\n```\n\n## Decision Register\n\n| ID | Issue | Decision | Rationale |\n|----|-------|----------|-----------|\n| D2 | 1: Save primary emphasis | 1A: Save filled #1d4ed8/white; Reset, Cancel, Export ghost | Exact DESIGN.md token; reuses existing Button variants; passes the 3-second scan without changing geometry or order. |\n| D3 | 2: Save pending state | 2A: inline spinner + \"Saving…\" inside Save, aria-busy, reduced-motion | Mirrors the Export pending state; DESIGN.md's established pattern; keeps the InlineStatus contract intact. |\n| D4 | 3: Label type sizes | 3A: 16px labels/body/helper, 20px section headings; drop 14px and 18px | DESIGN.md's two roles; fixes the sub-16px labels; sizes only, no font or layout change. |\n| D5 | 4: Spacing rhythm | 4A: 8px base; sections 32, field groups 24, label-to-input 8 | DESIGN.md scale; pure token change; proximity does the grouping work. |\n| D6 | 5: Error contrast | 5A: error.text #991b1b on error.surface #fef2f2, icon + explicit text | DESIGN.md pair at ≈8:1; clears AA; color never the only signal. |\n| D7 | 6: \"Exporting…\" overflow at 320px (conditional on measurement) | 6A: label wraps, row grows, columns stay equal, no clipping | Keeps visible pending text and the equal-column contract; shift is brief and user-triggered. |\n\n## Journey storyboard (accepted journey, recorded)\n\n```\nSTEP | USER DOES                          | USER FEELS                      | PLAN SPECIFIES\n-----|------------------------------------|---------------------------------|------------------------------------------------------\n1    | Arrives from account nav           | oriented                        | h1 + verbatim description; skeleton, then defaults (never empty)\n2    | Scans header                       | \"there's the button that saves\" | Save is the only filled button (D2); ghost secondaries\n3    | Edits a field or switch            | in control, aware of dirty state| InlineStatus → \"Unsaved changes\" (text, not color)\n4    | Mistypes email                     | corrected, not scolded          | inline error + ErrorSummary (D6 tokens), focus first invalid field, edits kept\n5    | Presses Save                       | \"it heard me\"                   | spinner + \"Saving…\" in the button (D3); repeat Save blocked; others locked\n6    | Network fails                      | annoyed but safe                | edits preserved, \"Unsaved changes\" stays, Retry beside status\n7    | Save succeeds                      | reassured                       | \"Saved at HH:mm\" in the polite live region; no focus jump\n8    | Tries to leave while dirty         | protected, not trapped          | same dialog on every exit + beforeunload; Keep editing returns focus\n9    | Leaves clean                       | done                            | Cancel navigates immediately; destination heading focus\n```\n\n## NOT in scope\n\n- Replacing `system-ui, sans-serif` with a chosen typeface: DESIGN.md retains it and the plan excludes visual exploration; on this task-completion surface native type is defensible. Revisit only in a design-system update.\n- In-page confirmation for a successful Export: DESIGN.md defines success as the browser download plus clearing the Export error only. Accepted as-is.\n- h1 size and app-shell chrome: owned by the shell, not this form.\n- New components or layout variants: DESIGN.md says no new component family is needed; none introduced.\n- Any change to InlineStatus wording, dialog copy, focus rules or router guards: accepted contracts, carried verbatim.\n\n## What already exists (reuse, do not rebuild)\n\n- DESIGN.md at repo root: tokens for every approved change above.\n- Components: Button (primary / ghost variants, disabled and aria-disabled styles), Field, InlineStatus, ErrorSummary, ConfirmationDialog.\n- The inline spinner + label pending pattern already used by Export (aria-busy, reduced-motion fallback).\n- The 2px #1d4ed8 focus-visible outline, offset 2px.\n- The form skeleton for initial loading; the \"Saved at HH:mm\" formatter; the router dirty-exit guard and beforeunload registration.\n\n## TODOS.md updates\n\nNone proposed. All six findings were approved and are implementation tasks below; no design debt was deferred and no out-of-scope tradeoff needs a follow-up.\n\n## Implementation Tasks\nSynthesized from this review's findings. Each task derives from a specific\nfinding above. Run with Claude Code or Codex; checkbox as you ship.\n\n- [ ] **T1 (P1, human: ~1h / CC: ~5min)** — Header action group — Make Save the only filled primary button; Reset, Cancel, Export ghost\n  - Surfaced by: Pass 1 (Info Arch) — G1 \"Save rendered with the same size, weight, color as three other buttons\"\n  - Files: settings page header / action-group component styles; Button variant usage\n  - Verify: visual check at >640px and 320px; disabled-pending Save label contrast ≥ 4.5:1; DOM/tab order unchanged\n- [ ] **T2 (P1, human: ~2h / CC: ~15min)** — Save button — Add inline spinner + \"Saving…\" pending state (aria-busy, aria-disabled + guard, reduced-motion)\n  - Surfaced by: Pass 2 (States) — G5 \"Save takes 2-5 seconds with no loading indicator\"\n  - Files: Save handler / Button pending prop; reuse the Export pending implementation\n  - Verify: throttle network, press Save: spinner + \"Saving…\" shown, InlineStatus text unchanged, no second submit, no focus move; `prefers-reduced-motion: reduce` shows static indicator; screen reader announces no \"Saving…\"\n- [ ] **T3 (P2, human: ~1h / CC: ~5min)** — Form typography — Set labels/body/helper/errors to 16px and h2 section headings to 20px; remove 14px and 18px\n  - Surfaced by: Pass 4 (AI Slop) — G4 \"14px, 16px, and 18px font sizes across the form labels\" `[flat-type-hierarchy]`\n  - Files: form label / fieldset heading styles\n  - Verify: computed font-size audit shows only 16 and 20 inside `main` (h1 excluded); 320px labels wrap without breaking 44px control height\n- [ ] **T4 (P2, human: ~1h / CC: ~5min)** — Form spacing — Apply 8px scale: 32px between blocks, 24px between field groups, 8px label-to-input\n  - Surfaced by: Pass 5 (Design Sys) — G2 \"24px in some places, 32px in others, and 16px in a third\"\n  - Files: settings form layout / fieldset styles\n  - Verify: computed margins audit: no 16px block gaps; no horizontal scroll at 320px\n- [ ] **T5 (P1, human: ~1h / CC: ~10min)** — Error surfaces — Use error.text #991b1b on error.surface #fef2f2 with icon + explicit text on field errors, ErrorSummary, and the network error/Retry area\n  - Surfaced by: Pass 5 (Design Sys) / Pass 6 (a11y) — G3 \"red text on a light pink background… approximately 3:1\"\n  - Files: error token definitions; Field error, ErrorSummary, InlineStatus error area styles\n  - Verify: measured contrast ≥ 4.5:1 for error text and Retry label on #fef2f2; focus ring ≥ 3:1 on #fef2f2; icon present in every error state\n- [ ] **T6 (P2, human: ~1h / CC: ~10min)** — Export button at ≤640px — Measure \"Exporting…\" + spinner at 320px; if it overflows, wrap the label and stretch the row to equal heights, no clipping\n  - Surfaced by: Pass 7 (Decisions) — Issue 6, conflict between pending label and equal-column 320px row\n  - Files: action-group responsive styles (≤640px rules)\n  - Verify: at 320px trigger Export on a throttled network: full label visible, three equal columns, all targets ≥ 44px, no horizontal scroll, row returns to idle height on settle\n\n## Verification (end-to-end)\n\n1. Load the page on a new account: skeleton, then DESIGN.md defaults; InlineStatus blank.\n2. Edit Display name: status \"Unsaved changes\"; Reset enabled.\n3. Save on a throttled network: Save shows spinner + \"Saving…\", Export aria-disabled, Reset/Cancel disabled, status unchanged; on success \"Saved at HH:mm\", Save label restored, no focus move.\n4. Force a network failure: edits kept, \"Unsaved changes\" retained, error in #991b1b on #fef2f2 with icon, Retry (aria-label \"Retry save\") focused only if focus was still on Save.\n5. Enter an invalid email and Save: inline error + ErrorSummary in the new tokens; focus first invalid field.\n6. Export at 320px on a throttled network: T6 behavior; success clears only an Export error.\n7. Keyboard-only pass: every control reachable, 2px #1d4ed8 ring visible, dialogs trap focus, Escape returns focus to trigger.\n8. Screen reader pass (VoiceOver or NVDA): one polite announcement per status change; no \"Saving…\" from the live region; Retry labels are operation-specific.\n9. `prefers-reduced-motion: reduce`: both spinners render static.\n10. Computed-style audit inside `main`: font sizes {16, 20}; block gaps {8, 24, 32}; error text/surface tokens as specified.\n\n## Completion Summary\n\n```\n  +====================================================================+\n  |         DESIGN PLAN REVIEW — COMPLETION SUMMARY                    |\n  +====================================================================+\n  | System Audit         | DESIGN.md present; scope: one existing form |\n  | Step 0               | 6/10 initial; all 7 dimensions (by request) |\n  | Pass 1  (Info Arch)  |  6/10 → 10/10 after fixes                  |\n  | Pass 2  (States)     |  7/10 → 10/10 after fixes                  |\n  | Pass 3  (Journey)    |  8/10 → 10/10 after fixes                  |\n  | Pass 4  (AI Slop)    |  7/10 → 10/10 after fixes                  |\n  | Pass 5  (Design Sys) |  5/10 → 10/10 after fixes                  |\n  | Pass 6  (Responsive) |  8/10 → 10/10 after fixes                  |\n  | Pass 7  (Decisions)  |  1 resolved, 0 deferred                    |\n  +--------------------------------------------------------------------+\n  | NOT in scope         | written (5 items)                           |\n  | What already exists  | written                                     |\n  | TODOS.md updates     | 0 items proposed                            |\n  | Approved Mockups     | 0 generated, 0 approved (text-only request) |\n  | Decisions made       | 6 added to plan                             |\n  | Decisions deferred   | 0                                           |\n  | Overall design score | 5/10 → 10/10                                |\n  +====================================================================+\n```\n\nOverall score is the lowest rated pass (1-6): 5/10 before fixes (Pass 5), 10/10 after.\n\n## Unresolved Decisions\n\nNone. All six findings received an individual decision (D2-D7).\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |\n| Outside Review | codex (skipped by request) | Independent 2nd opinion | 0 | skipped | — |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | — |\n| Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | score: 5/10 → 10/10, 6 decisions |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |\n\n- **OUTSIDE COVERAGE:** provider codex, phase design, skipped by user request (\"native design review only\"); no outside findings. Native review completed in-host (claude).\n- **VERDICT:** DESIGN CLEARED (10/10, 0 unresolved); eng review required.\n\nNO UNRESOLVED DECISIONS\n",
+  "cancelledRetry": {
+    "source": "/home/vercel-sandbox/gstack/.context/sep15-ship-consolidation/behavior-8525fd4a-monitor-artifacts/design-finding-count/attempt2-final-shard-abort-observation.json",
+    "sha256": "58c791fd0a1a9e3554d58202290b402b15bf2ca111cb22dfdf8ea711a4565a1b",
+    "outcome": "SHARD_DEADLINE_CANCELLED_RETRY",
+    "lastSnapshotElapsedMs": 275539,
+    "calls": [
+      {
+        "sessionId": "be782940-cb02-4b71-aa3b-0976f5efb7da",
+        "toolUseId": "toolu_01NTTdo32zGCazo21k9BBdsf",
+        "questions": [
+          {
+            "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch of the plan-review fixture; reviewing PLAN.md (Settings Page UI redesign).\nELI10: gstack skills work best when CLAUDE.md tells the assistant which skill to invoke for which kind of request (bugs → /investigate, ship → /ship, etc.). This is a one-time setup prompt per project. Note: plan mode is active, so if you pick A the CLAUDE.md edit and commit are deferred until plan mode exits.\nStakes if we pick wrong: without routing rules you invoke skills manually every time; with them, the wrong skill can occasionally auto-fire on an ambiguous request.\nRecommendation: A because routing rules make the skill set discoverable with near-zero cost.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience of automatic skill routing vs. keeping CLAUDE.md untouched.",
+            "header": "Routing",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add routing rules (recommended)",
+                "description": "✅ Requests like \"review this diff\" or \"ship it\" route to the right gstack skill automatically. ✅ One short section appended to CLAUDE.md; committed once (after plan mode exits). ❌ Modifies a checked-in project file and adds a commit."
+              },
+              {
+                "label": "No thanks, invoke manually",
+                "description": "✅ CLAUDE.md stays exactly as it is; nothing committed to the repo. ✅ You keep full control over when each skill runs. ❌ You type each /skill name yourself; this prompt will not appear again for this project."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch of the plan-review fixture; reviewing PLAN.md (Settings Page UI redesign).\nELI10: gstack skills work best when CLAUDE.md tells the assistant which skill to invoke for which kind of request (bugs → /investigate, ship → /ship, etc.). This is a one-time setup prompt per project. Note: plan mode is active, so if you pick A the CLAUDE.md edit and commit are deferred until plan mode exits.\nStakes if we pick wrong: without routing rules you invoke skills manually every time; with them, the wrong skill can occasionally auto-fire on an ambiguous request.\nRecommendation: A because routing rules make the skill set discoverable with near-zero cost.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience of automatic skill routing vs. keeping CLAUDE.md untouched.": "Add routing rules (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T10:43:45.418Z"
+      },
+      {
+        "sessionId": "be782940-cb02-4b71-aa3b-0976f5efb7da",
+        "toolUseId": "toolu_016zDkKU4GVLN1iiCekyXQtK",
+        "questions": [
+          {
+            "question": "D2 — Issue 1: make Save the visible primary action in the header?\nProject/branch/task: main; PLAN.md Settings Page UI redesign, Pass 1 Information Architecture.\nELI10: Save, Reset, Cancel and Export currently look identical, so the user's eye has to read all four labels to find the one they came for. DESIGN.md already says Save is the only filled button (#1d4ed8 with white text) and the other three are neutral ghost buttons. This decides whether the plan commits to that.\nStakes if we pick wrong: a settings form where the most common action is invisible in a lineup; on mobile Save already becomes full-width first, so leaving it unstyled makes the desktop and mobile hierarchies disagree.\nRecommendation: 1A because DESIGN.md prescribes it, the Button primary variant already exists, and one filled button is the smallest change that fixes the scan.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: one filled button vs. keeping four identical buttons and hoping position carries the hierarchy.",
+            "header": "Issue 1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A Filled Save, ghost secondaries (recommended)",
+                "description": "✅ Save filled #1d4ed8/white (6.6:1 contrast), Reset/Cancel/Export neutral ghost; matches DESIGN.md exactly and reuses the existing Button variants. ✅ Desktop row and the 640px full-width-Save layout tell the same story. ❌ Touches the header styles of all four buttons, so visual regression tests need updating."
+              },
+              {
+                "label": "1B Filled Save only, leave others as-is",
+                "description": "✅ Smallest diff: only Save changes; Reset/Cancel/Export keep their current styling. ✅ Still gives the scan a clear winner. ❌ Leaves three secondary buttons in a non-DESIGN.md style, so the header is still inconsistent with the design system."
+              },
+              {
+                "label": "1C Keep all four identical",
+                "description": "✅ Zero styling work in this change. ✅ No visual regression risk on the header. ❌ Primary action stays undiscoverable and the plan keeps a documented DESIGN.md violation."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Issue 1: make Save the visible primary action in the header?\nProject/branch/task: main; PLAN.md Settings Page UI redesign, Pass 1 Information Architecture.\nELI10: Save, Reset, Cancel and Export currently look identical, so the user's eye has to read all four labels to find the one they came for. DESIGN.md already says Save is the only filled button (#1d4ed8 with white text) and the other three are neutral ghost buttons. This decides whether the plan commits to that.\nStakes if we pick wrong: a settings form where the most common action is invisible in a lineup; on mobile Save already becomes full-width first, so leaving it unstyled makes the desktop and mobile hierarchies disagree.\nRecommendation: 1A because DESIGN.md prescribes it, the Button primary variant already exists, and one filled button is the smallest change that fixes the scan.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: one filled button vs. keeping four identical buttons and hoping position carries the hierarchy.": "1A Filled Save, ghost secondaries (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T10:46:57.654Z"
+      }
+    ],
+    "coverageCredit": 0,
+    "note": "Only the two acknowledged calls are replayed. No terminal callback or completed report is claimed for this interrupted retry."
+  }
+,
+  "cf74Retry": {
+    "source": "cf74db538a2f4c4361f2573316abb91e01663564",
+    "provenance": {
+      "attempt": "plan-design-review-1789522225695-hU2pFy",
+      "planPath": "/tmp/gstack-owned-display-8i30e6qg/gstack-paid-shard-q2ddRx/tmp/gstack-e2e-plan-design-bSM334/gstack-test-plan-design.md",
+      "reportSha256": "b17197eb53a9a1d345f1c40a954cc7127c136ab454774fe1ea2dff527a091826",
+      "reportMtimeMs": 1789522759304.585,
+      "originalSetupCount": 5,
+      "originalReviewCount": 2,
+      "nativeCompletedAt": "2026-09-16T01:40:18.916Z",
+      "paidVerdict": "root cancelled after demonstrated detector stall; zero pass credit"
+    },
+    "transcript": {
+      "status": "ready",
+      "calls": [
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "toolUseId": "toolu_01FLTdFYW5651zASJqAXgHyV",
+          "questions": [
+            {
+              "question": "D1 — Issue 1: Make Save the visible primary action?\nProject/branch/task: Account settings form on main, aligning the proposed form with DESIGN.md.\nELI10: Right now Save, Reset, Cancel and Export look identical, so a user scanning the header has to read all four labels before they know which one commits their edits. Users scan, they don't read; the button they want should be the one their eye lands on. DESIGN.md already names the treatment: Save is the only filled button (#1d4ed8, white text, ~6.7:1 contrast), the other three are neutral ghosts.\nStakes if we pick wrong: users mis-tap Reset or Cancel next to Save and get a discard dialog instead of a save; on mobile the full-width Save row loses its meaning if it isn't visually primary.\nRecommendation: 1A because it is the exact DESIGN.md token and reuses the existing Button primary variant with no new styling.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nPrinciple: Hierarchy as service — what the user sees first should be what they came to do.\nNet: 1A costs nothing and fixes the header's only hierarchy problem; 1B and 1C keep the ambiguity in some form.",
+              "header": "Issue 1",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "1A: Filled Save, ghost others (recommended)",
+                  "description": "✅ Matches DESIGN.md exactly: Save #1d4ed8 filled with white text; Reset, Cancel, Export neutral ghost buttons. ✅ Reuses the existing Button primary variant; zero new CSS or components. ❌ Export becomes visually quieter, so it must stay clearly labeled (plan already requires this)."
+                },
+                {
+                  "label": "1B: Filled Save, Export outlined, Reset/Cancel ghost",
+                  "description": "✅ Gives Export a middle tier so a data-portability action isn't buried. ✅ Still makes Save the single loudest control. ❌ Introduces a third button tier DESIGN.md does not define; three visual weights in a four-button row is noisier, not clearer."
+                },
+                {
+                  "label": "1C: Keep four equal buttons, differentiate by position only",
+                  "description": "✅ No visual change; lowest implementation effort (human: ~0 / CC: ~0). ✅ Preserves the current look some users are used to. ❌ Leaves the DESIGN.md violation in place and keeps the mis-tap risk; position alone is invisible on the 640px two-row layout."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D1 — Issue 1: Make Save the visible primary action?\nProject/branch/task: Account settings form on main, aligning the proposed form with DESIGN.md.\nELI10: Right now Save, Reset, Cancel and Export look identical, so a user scanning the header has to read all four labels before they know which one commits their edits. Users scan, they don't read; the button they want should be the one their eye lands on. DESIGN.md already names the treatment: Save is the only filled button (#1d4ed8, white text, ~6.7:1 contrast), the other three are neutral ghosts.\nStakes if we pick wrong: users mis-tap Reset or Cancel next to Save and get a discard dialog instead of a save; on mobile the full-width Save row loses its meaning if it isn't visually primary.\nRecommendation: 1A because it is the exact DESIGN.md token and reuses the existing Button primary variant with no new styling.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nPrinciple: Hierarchy as service — what the user sees first should be what they came to do.\nNet: 1A costs nothing and fixes the header's only hierarchy problem; 1B and 1C keep the ambiguity in some form.": "1A: Filled Save, ghost others (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-16T01:33:38.028Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "toolUseId": "toolu_011U4B9i7WsLgyY7RsT2u3Q9",
+          "questions": [
+            {
+              "question": "D2 — Issue 2: What does Save look like during the 2-5 second request?\nProject/branch/task: Account settings form on main; the plan's own Motion gap.\nELI10: After pressing Save nothing changes for up to five seconds, so the user wonders if the tap registered and presses again or leaves. The plan already forbids repeating “Saving…” in the live region and says pending feedback belongs to the button, but it never says what the button shows. DESIGN.md defines it: inline spinner beside “Saving…” inside the disabled Save button, aria-busy=true, reduced-motion fallback, exactly how Export already behaves in this plan.\nStakes if we pick wrong: the trust moment of the whole journey (“did it store?”) becomes a frozen page; a page skeleton would also hide the user's own edits.\nRecommendation: 2A because it is the established pending pattern, mirrors Export, and keeps the user's edits visible.\nCompleteness: 2A=10/10, 2B=5/10, 2C=2/10\nPrinciple: Design for trust — feedback within the button the user just pressed.\nNet: 2A is one existing pattern applied to one more button; the alternatives either hide content or leave the freeze.",
+              "header": "Issue 2",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "2A: Spinner + “Saving…” inside Save (recommended)",
+                  "description": "✅ DESIGN.md's established pending-action pattern; identical to the Export treatment already in the plan. ✅ aria-disabled + activation guard keeps it focusable; aria-busy announces state; reduced-motion swaps the spinner for static text. ❌ Label width changes while pending, so the button needs a min-width so the header row doesn't shift."
+                },
+                {
+                  "label": "2B: Skeleton over the form while saving",
+                  "description": "✅ Very obvious that something is happening. ✅ Reuses the existing load skeleton. ❌ Hides the user's own edits and the InlineStatus for up to 5s, contradicting “preserve unsaved values” and the no-focus-move rule; skeleton is a loading pattern, not a pending one."
+                },
+                {
+                  "label": "2C: Leave as is, rely on the disabled state",
+                  "description": "✅ Zero work. ✅ Save is already non-repeatable via the activation guard. ❌ Disabled styling alone reads as “broken” for 2-5s; screen readers get no pending announcement at all."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D2 — Issue 2: What does Save look like during the 2-5 second request?\nProject/branch/task: Account settings form on main; the plan's own Motion gap.\nELI10: After pressing Save nothing changes for up to five seconds, so the user wonders if the tap registered and presses again or leaves. The plan already forbids repeating “Saving…” in the live region and says pending feedback belongs to the button, but it never says what the button shows. DESIGN.md defines it: inline spinner beside “Saving…” inside the disabled Save button, aria-busy=true, reduced-motion fallback, exactly how Export already behaves in this plan.\nStakes if we pick wrong: the trust moment of the whole journey (“did it store?”) becomes a frozen page; a page skeleton would also hide the user's own edits.\nRecommendation: 2A because it is the established pending pattern, mirrors Export, and keeps the user's edits visible.\nCompleteness: 2A=10/10, 2B=5/10, 2C=2/10\nPrinciple: Design for trust — feedback within the button the user just pressed.\nNet: 2A is one existing pattern applied to one more button; the alternatives either hide content or leave the freeze.": "2A: Spinner + “Saving…” inside Save (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-16T01:34:21.231Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "toolUseId": "toolu_01THne4GwwQaM4VjttTtHhRp",
+          "questions": [
+            {
+              "question": "D3 — Issue 3: What does the page show when the initial read fails?\nProject/branch/task: Account settings form on main; new finding from the state table.\nELI10: The plan says “Read failures show Retry” and DESIGN.md gives that button its aria-label, but neither says what the fields and header actions look like while the load has failed. Left open, an engineer will most likely render empty editable fields, and a user who fills them in and hits Save would overwrite real preferences with blanks. The page needs a stated shape for this moment.\nStakes if we pick wrong: data loss (saving blanks over real values) or a confusing half-page with four live buttons and no data.\nRecommendation: 3A because it reuses the skeleton the page already has, blocks the destructive path, and keeps Cancel as the exit.\nCompleteness: 3A=10/10, 3B=7/10, 3C=6/10\nPrinciple: Edge cases are user experiences — a failed load is a screen, not a log line.\nNet: 3A adds one paragraph to the plan and closes a data-loss hole; 3B/3C are smaller but leave editable or ambiguous states.",
+              "header": "Issue 3",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "3A: Keep skeleton, error + Retry, Save/Reset/Export disabled (recommended)",
+                  "description": "✅ Form skeleton stays in place (no editable empty fields), so nothing can be saved over real data. ✅ Error text in the status/error slot with the sibling Retry (aria-label “Retry loading”); Save, Reset, Export HTML-disabled; Cancel stays enabled and navigates back without a dialog since nothing is dirty. ❌ Slightly more state to test (load-failed as a fourth top-level page state)."
+                },
+                {
+                  "label": "3B: Replace the form with an error panel + Retry",
+                  "description": "✅ Unambiguous: user sees only the problem and the fix. ✅ No disabled controls to explain. ❌ Removes the heading/description/actions the user just navigated to, breaking the destination-heading focus behavior; introduces a new panel treatment DESIGN.md does not define."
+                },
+                {
+                  "label": "3C: Show empty fields, error + Retry, all actions enabled",
+                  "description": "✅ Simplest to build; nothing conditional in the header. ✅ User can still Cancel or Export. ❌ Blank editable fields invite a Save that wipes real preferences; Export would download nothing meaningful."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D3 — Issue 3: What does the page show when the initial read fails?\nProject/branch/task: Account settings form on main; new finding from the state table.\nELI10: The plan says “Read failures show Retry” and DESIGN.md gives that button its aria-label, but neither says what the fields and header actions look like while the load has failed. Left open, an engineer will most likely render empty editable fields, and a user who fills them in and hits Save would overwrite real preferences with blanks. The page needs a stated shape for this moment.\nStakes if we pick wrong: data loss (saving blanks over real values) or a confusing half-page with four live buttons and no data.\nRecommendation: 3A because it reuses the skeleton the page already has, blocks the destructive path, and keeps Cancel as the exit.\nCompleteness: 3A=10/10, 3B=7/10, 3C=6/10\nPrinciple: Edge cases are user experiences — a failed load is a screen, not a log line.\nNet: 3A adds one paragraph to the plan and closes a data-loss hole; 3B/3C are smaller but leave editable or ambiguous states.": "3A: Keep skeleton, error + Retry, Save/Reset/Export disabled (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-16T01:34:56.426Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "toolUseId": "toolu_017HYQM77RDY6gMXFjKaFp38",
+          "questions": [
+            {
+              "question": "D4 — Issue 4: Collapse label/heading type to two roles?\nProject/branch/task: Account settings form on main; the plan's own Typography gap.\nELI10: The proposed form uses three label sizes (14, 16, 18px) with no rule for which is which, so the eye reads noise instead of structure, and 14px body text is below the 16px floor for readability. DESIGN.md defines exactly two roles: 16px for body, form labels and helper text, 20px for the two section headings. Two sizes with clear jobs give a stronger hierarchy than three without.\nStakes if we pick wrong: small labels hurt older and low-vision users; a third size keeps implying a distinction that doesn't exist.\nRecommendation: 4A because it is the DESIGN.md token and removes a readability violation at the same time.\nCompleteness: 4A=10/10, 4B=6/10, 4C=2/10\nPrinciple: Subtraction default — two sizes with jobs beat three without.\nNet: 4A is a token swap on Field and heading styles; 4B keeps a size DESIGN.md does not have; 4C keeps the violation.",
+              "header": "Issue 4",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "4A: 16px body/labels/helper, 20px h2 (recommended)",
+                  "description": "✅ Exactly the two DESIGN.md type roles; nothing below the 16px body floor. ✅ Form controls inherit the same 16px, which also prevents iOS auto-zoom on focus. ❌ Helper text and labels share a size, so helper text must be distinguished by color/weight within AA contrast, not size."
+                },
+                {
+                  "label": "4B: 16px labels/body, 14px helper text, 20px h2",
+                  "description": "✅ Keeps a visual step between label and helper text. ✅ Common pattern users recognize. ❌ Adds a third role DESIGN.md does not define and puts helper text under the 16px body floor again."
+                },
+                {
+                  "label": "4C: Keep 14/16/18 as proposed",
+                  "description": "✅ No change to current styles. ✅ Zero effort. ❌ Leaves the DESIGN.md violation and the sub-16px body text; the hierarchy stays accidental."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D4 — Issue 4: Collapse label/heading type to two roles?\nProject/branch/task: Account settings form on main; the plan's own Typography gap.\nELI10: The proposed form uses three label sizes (14, 16, 18px) with no rule for which is which, so the eye reads noise instead of structure, and 14px body text is below the 16px floor for readability. DESIGN.md defines exactly two roles: 16px for body, form labels and helper text, 20px for the two section headings. Two sizes with clear jobs give a stronger hierarchy than three without.\nStakes if we pick wrong: small labels hurt older and low-vision users; a third size keeps implying a distinction that doesn't exist.\nRecommendation: 4A because it is the DESIGN.md token and removes a readability violation at the same time.\nCompleteness: 4A=10/10, 4B=6/10, 4C=2/10\nPrinciple: Subtraction default — two sizes with jobs beat three without.\nNet: 4A is a token swap on Field and heading styles; 4B keeps a size DESIGN.md does not have; 4C keeps the violation.": "4A: 16px body/labels/helper, 20px h2 (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-16T01:35:47.762Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "toolUseId": "toolu_01LrVakw5vvP7gHCEoxjsHr2",
+          "questions": [
+            {
+              "question": "D5 — Issue 5: Adopt the 8px spacing scale for the form?\nProject/branch/task: Account settings form on main; the plan's own Spacing gap.\nELI10: The proposed form separates sections by 16px in one place, 24px in another and 32px in a third, so the eye can't tell which things belong together (Gestalt proximity). DESIGN.md sets an 8px base scale: 32px between sections, 24px between field groups, 8px between a label and its input. Bigger gap = bigger boundary, consistently, so grouping is visible without lines or boxes.\nStakes if we pick wrong: Profile and Notifications read as one undifferentiated list; label-to-input distance varies and labels look orphaned.\nRecommendation: 5A because it is the DESIGN.md scale and a pure token change.\nCompleteness: 5A=10/10, 5B=6/10, 5C=2/10\nPrinciple: Visual hierarchy is everything — related things visually grouped, nested things visually contained.\nNet: 5A is three spacing tokens applied once; 5B invents a scale; 5C leaves the noise.",
+              "header": "Issue 5",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "5A: 32 / 24 / 8px on the 8px base (recommended)",
+                  "description": "✅ Exactly DESIGN.md: sections 32px, field groups 24px, label-to-input 8px; header → action group → status slot also on the 8px grid. ✅ Removes the stray 16px section gap and the two competing section values. ❌ Slightly taller page on 320px screens; still fits without horizontal scroll since only vertical rhythm changes."
+                },
+                {
+                  "label": "5B: Tighter 24 / 16 / 8px scale",
+                  "description": "✅ Denser form, less scrolling on small screens. ✅ Still a single consistent rhythm. ❌ Deviates from the checked-in DESIGN.md scale and makes section boundaries weaker relative to field groups."
+                },
+                {
+                  "label": "5C: Keep current mixed 16/24/32px",
+                  "description": "✅ No change. ✅ Zero effort. ❌ Leaves the DESIGN.md violation and the grouping ambiguity in place."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D5 — Issue 5: Adopt the 8px spacing scale for the form?\nProject/branch/task: Account settings form on main; the plan's own Spacing gap.\nELI10: The proposed form separates sections by 16px in one place, 24px in another and 32px in a third, so the eye can't tell which things belong together (Gestalt proximity). DESIGN.md sets an 8px base scale: 32px between sections, 24px between field groups, 8px between a label and its input. Bigger gap = bigger boundary, consistently, so grouping is visible without lines or boxes.\nStakes if we pick wrong: Profile and Notifications read as one undifferentiated list; label-to-input distance varies and labels look orphaned.\nRecommendation: 5A because it is the DESIGN.md scale and a pure token change.\nCompleteness: 5A=10/10, 5B=6/10, 5C=2/10\nPrinciple: Visual hierarchy is everything — related things visually grouped, nested things visually contained.\nNet: 5A is three spacing tokens applied once; 5B invents a scale; 5C leaves the noise.": "5A: 32 / 24 / 8px on the 8px base (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-16T01:36:24.972Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "toolUseId": "toolu_01EDwRSsb4XyG9jXYCxUkZHe",
+          "questions": [
+            {
+              "question": "D6 — Issue 6: Fix the error message contrast to the DESIGN.md error tokens?\nProject/branch/task: Account settings form on main; the plan's own Color gap.\nELI10: The proposed error message is red text on light pink at roughly 3:1, which fails WCAG AA (4.5:1 for body text). The people most likely to hit a save error are the ones who most need to read it. DESIGN.md defines error.text #991b1b on error.surface #fef2f2, which I computed at about 7.6:1 (passes AA and AAA), plus an icon and explicit text so the state never depends on color alone.\nStakes if we pick wrong: a real accessibility failure on the page's most stressful moment; low-vision and colorblind users can't read why their save failed.\nRecommendation: 6A because it is the DESIGN.md token, passes AA with margin, and adds the icon DESIGN.md already requires.\nCompleteness: 6A=10/10, 6B=7/10, 6C=1/10\nPrinciple: Accessibility is not optional — contrast and non-color cues are requirements, not polish.\nNet: 6A is two color tokens and an icon on the existing error row; 6B passes but drops the surface; 6C ships a WCAG failure.",
+              "header": "Issue 6",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "6A: #991b1b on #fef2f2 with icon + text (recommended)",
+                  "description": "✅ DESIGN.md error.text/error.surface pair at ≈7.6:1, comfortably above the 4.5:1 AA floor. ✅ Applies to InlineStatus errors, ErrorSummary and field-level errors alike, with the icon carrying the state for colorblind users. ❌ The icon needs aria-hidden so screen readers hear the text once, not twice."
+                },
+                {
+                  "label": "6B: #991b1b text on white, no error surface",
+                  "description": "✅ Even higher contrast (≈11:1) and less visual weight. ✅ One fewer token to maintain. ❌ Drops the DESIGN.md error surface that visually contains the error row; long error text on white is harder to scan as a unit."
+                },
+                {
+                  "label": "6C: Keep current red-on-pink (~3:1)",
+                  "description": "✅ No change. ✅ Zero effort. ❌ Fails WCAG AA outright and contradicts DESIGN.md's “all text must meet AA”."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D6 — Issue 6: Fix the error message contrast to the DESIGN.md error tokens?\nProject/branch/task: Account settings form on main; the plan's own Color gap.\nELI10: The proposed error message is red text on light pink at roughly 3:1, which fails WCAG AA (4.5:1 for body text). The people most likely to hit a save error are the ones who most need to read it. DESIGN.md defines error.text #991b1b on error.surface #fef2f2, which I computed at about 7.6:1 (passes AA and AAA), plus an icon and explicit text so the state never depends on color alone.\nStakes if we pick wrong: a real accessibility failure on the page's most stressful moment; low-vision and colorblind users can't read why their save failed.\nRecommendation: 6A because it is the DESIGN.md token, passes AA with margin, and adds the icon DESIGN.md already requires.\nCompleteness: 6A=10/10, 6B=7/10, 6C=1/10\nPrinciple: Accessibility is not optional — contrast and non-color cues are requirements, not polish.\nNet: 6A is two color tokens and an icon on the existing error row; 6B passes but drops the surface; 6C ships a WCAG failure.": "6A: #991b1b on #fef2f2 with icon + text (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-16T01:36:56.201Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "toolUseId": "toolu_012MmkQLvcGL5ouhJHmf57ij",
+          "questions": [
+            {
+              "question": "D7 — Issue 7: What is Save's state when the form is clean and idle?\nProject/branch/task: Account settings form on main; ambiguity left open by the plan body.\nELI10: The plan says Reset is disabled when there is nothing to discard, and that dirty state must not depend on whether Save is enabled, but it never says whether Save itself is enabled on a clean form. That single line decides what a user sees the moment the page loads: a live Save button that does nothing useful, or a quiet one that wakes up when they edit. DESIGN.md hints at the second (it talks about text “not relying on button enabled state”, so enabled state is expected to vary) but does not state it.\nStakes if we pick wrong: an always-live Save invites no-op saves that bump the timestamp and confuse “what changed?”; an unexplained disabled Save can feel broken if the status text is blank.\nRecommendation: 7A because it mirrors the approved Reset treatment, matches DESIGN.md's implication, and the InlineStatus text already explains the state (blank or “Saved at HH:mm”).\nCompleteness: 7A=10/10, 7B=8/10, 7C=6/10\nPrinciple: Don't make me think — a control's availability should match whether it has anything to do.\nNet: 7A keeps Save and Reset symmetric with one rule; 7B is simpler but allows meaningless saves; 7C adds a fourth button state.",
+              "header": "Issue 7",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "7A: Save HTML-disabled when clean, enabled when dirty (recommended)",
+                  "description": "✅ Same rule as Reset (nothing to save → disabled), so the header has one consistent idle logic; uses the existing disabled Button style separate from pending. ✅ Prevents no-op saves that rewrite the timestamp; InlineStatus text (blank or “Saved at HH:mm”) already tells the user why. ❌ Keyboard users skip a disabled Save in the tab order; acceptable because there is nothing to do and Reset already behaves this way."
+                },
+                {
+                  "label": "7B: Save always enabled; clean save is an idempotent re-save",
+                  "description": "✅ Simplest state model; Save never looks broken. ✅ Lets a user force a re-sync if they doubt the stored values. ❌ Bumps “Saved at HH:mm” with no change, which muddies the timestamp's meaning; asymmetric with Reset's disabled-when-clean rule."
+                },
+                {
+                  "label": "7C: Save aria-disabled when clean, focusable, click shows a status hint",
+                  "description": "✅ Stays in tab order and can explain itself (“No changes to save”). ✅ Consistent with the pending aria-disabled technique. ❌ Adds a new status message and a fourth Save state DESIGN.md does not define; the live region would announce a hint for a no-op."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D7 — Issue 7: What is Save's state when the form is clean and idle?\nProject/branch/task: Account settings form on main; ambiguity left open by the plan body.\nELI10: The plan says Reset is disabled when there is nothing to discard, and that dirty state must not depend on whether Save is enabled, but it never says whether Save itself is enabled on a clean form. That single line decides what a user sees the moment the page loads: a live Save button that does nothing useful, or a quiet one that wakes up when they edit. DESIGN.md hints at the second (it talks about text “not relying on button enabled state”, so enabled state is expected to vary) but does not state it.\nStakes if we pick wrong: an always-live Save invites no-op saves that bump the timestamp and confuse “what changed?”; an unexplained disabled Save can feel broken if the status text is blank.\nRecommendation: 7A because it mirrors the approved Reset treatment, matches DESIGN.md's implication, and the InlineStatus text already explains the state (blank or “Saved at HH:mm”).\nCompleteness: 7A=10/10, 7B=8/10, 7C=6/10\nPrinciple: Don't make me think — a control's availability should match whether it has anything to do.\nNet: 7A keeps Save and Reset symmetric with one rule; 7B is simpler but allows meaningless saves; 7C adds a fourth button state.": "7A: Save HTML-disabled when clean, enabled when dirty (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-16T01:37:49.570Z"
+        }
+      ],
+      "assistantMessages": [
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Scope gate: plan mode — auto-selected B (reviewing PLAN.md: \"Settings Page UI redesign\", the plan CLAUDE.md names as the review target). Text-only review per your instruction; all seven dimensions; no outside voices.",
+          "timestamp": "2026-09-16T01:30:23.218Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "## Pre-review system audit\n\n- **Base branch:** no remote, no `origin/HEAD`; `main` exists locally → base branch is `main`. Single commit (`f6ab193 Seed review plan`), clean tree, no prior design review cycles (`reviews.jsonl` absent).\n- **Review target:** `PLAN.md` \"Settings Page UI redesign\". UI scope: one existing page (Account settings), four header actions, two fieldsets, InlineStatus, ErrorSummary, ConfirmationDialog. Changes to existing UI → design review applies.\n- **DESIGN.md:** exists and is specific (tokens, spacing scale, type roles, error colors, pending pattern, dialog copy, defaults). All findings calibrate against it.\n- **Existing leverage:** Button, Field, InlineStatus, ErrorSummary, ConfirmationDialog, form skeleton, router dirty-guard, focus ring, date formatter, export naming. Nothing new is needed.\n- **TODOS.md:** not present. Brain digests: cold (no product/brand/decisions). Prior learnings: none.\n- **Designer:** `DESIGN_READY`, but you asked for text-only, so mockups are skipped.\n\n## Step 0: Design scope assessment\n\n**0A. Initial rating: 6/10.** The behavior spec (lines 7-98) is unusually complete: every state, focus rule, live region, breakpoint and download name is written down. What drags it down is the \"Planned implementation gaps\" section: the proposed form still violates DESIGN.md in five places, and two of them hit the trust moment directly (Save gives no pending feedback for 2-5s; the error surface fails WCAG AA at ~3:1). A 10 for this plan is: every listed gap resolved to a named DESIGN.md token, the Save pending state specified as precisely as Export already is, and the two ambiguities the body leaves open (read-failure presentation, Save's clean-idle state) pinned down.\n\n**0B.** DESIGN.md exists — every recommendation below cites its token.\n\n**0C.** Reuse everything listed above; the plan already says \"no component replacement\" and I agree.\n\n**0D.** You pre-answered the focus question: all seven dimensions. Skipping that ask. Outside voices: skipped per your instruction. Cross-project learnings config is unset but the learnings store is empty (`LEARNINGS: 0`), so I'm deferring that one-time prompt too.\n\nWriting the initial plan artifact now (accepted requirements copied, all gaps recorded as pending), then Pass 1.",
+          "timestamp": "2026-09-16T01:32:40.363Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Issue 1 → **1A** approved. Applying to the plan.",
+          "timestamp": "2026-09-16T01:33:41.143Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "**Pass 1 re-rate: 6 → 10/10.** The header now has one loud control; everything else in the IA was already pinned.\n\n## Pass 2: Interaction State Coverage — 7/10\n\nState table drawn from the accepted behavior (restatement, no decision needed):\n\n```\nFEATURE          | LOADING                      | EMPTY                          | ERROR                                        | SUCCESS                        | PARTIAL\n-----------------|------------------------------|--------------------------------|----------------------------------------------|--------------------------------|--------------\nForm load        | existing skeleton            | new account: server defaults   | error + Retry (aria-label \"Retry loading\");  | fields populated, status blank | n/a\n                 |                              | (name/email, digest ON,        | FORM AREA UNSPECIFIED  ← Issue 3             |                                |\n                 |                              | tips OFF), never blank fields  |                                              |                                |\nSave             | NOT SPECIFIED for 2-5s       | n/a                            | validation: ErrorSummary + field errors,     | \"Saved at HH:mm\" in            | none: atomic\n                 | ← Issue 2                    |                                | focus first invalid; network: error + Retry  | InlineStatus, no focus move    |\n                 |                              |                                | (\"Retry save\"), edits kept, status stays     |                                |\n                 |                              |                                | \"Unsaved changes\"                            |                                |\nExport           | spinner + \"Exporting…\" in    | n/a                            | error + Retry (\"Retry export\"), edits kept   | browser download               | n/a\n                 | button, aria-busy            |                                |                                              | account-settings-YYYY-MM-DD    |\nReset / Cancel   | HTML disabled while pending  | clean: Reset disabled, Cancel  | n/a                                          | dialog confirm → restore /     | n/a\n                 |                              | navigates immediately          |                                              | leave; focus returns           |\nDirty tracking   | status text unchanged        | blank before first save        | \"Unsaved changes\" retained after failure     | reverts to saved timestamp     | n/a\n```\n\nTwo gaps. Issue 2 is the plan's own \"Motion\" item; Issue 3 is new: \"Read failures show Retry\" says where the button goes but not what the rest of the page looks like for the user staring at it.",
+          "timestamp": "2026-09-16T01:34:07.192Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Issue 2 → **2A** approved. Applying, then Issue 3.",
+          "timestamp": "2026-09-16T01:34:24.215Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Issue 3 → **3A** approved. Applying.",
+          "timestamp": "2026-09-16T01:34:58.828Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "**Pass 2 re-rate: 7 → 10/10.** Every cell in the state table now has a user-visible spec.\n\n## Pass 3: User Journey & Emotional Arc — 8/10\n\nStoryboard of the accepted journey (required artifact, restated from the plan; no new decisions):\n\n```\nSTEP | USER DOES                          | USER FEELS                     | PLAN SPECIFIES?\n-----|------------------------------------|--------------------------------|---------------------------------------------\n1    | Arrives from account nav           | Oriented: \"right place\"        | h1 focus on arrival, verbatim description, skeleton → defaults (never blank)\n2    | Scans header                       | Knows what to do first         | Filled Save (decision 1); ghosts recede\n3    | Edits Display name / toggles digest| In control, aware of change    | InlineStatus \"Unsaved changes\" (text, not color); Reset enables\n4    | Presses Save                       | \"Did that register?\"           | Spinner + \"Saving…\" in button (decision 2); no focus jump; status unchanged\n5a   | Save succeeds                      | Relief, confidence             | \"Saved at HH:mm\" polite; Export now reflects saved values\n5b   | Validation fails                   | Guided, not blamed             | ErrorSummary links fields; focus first invalid; edits kept\n5c   | Network fails                      | Frustrated but safe            | Error + Retry (aria \"Retry save\"); edits kept; status stays \"Unsaved changes\"\n6    | Tries to leave while dirty         | Protected from loss            | Same dialog on Cancel, nav, beforeunload; Keep editing returns focus\n7    | Leaves after seeing timestamp      | Trust: stored                  | Destination heading focus; no lingering warning\n```\n\nTime horizons: 5-second visceral = one filled button on a calm form; 5-minute behavioral = Saved-timestamp confirmation loop; 5-year reflective = the form never surprises (atomic save, no silent discard). The arc's only break was step 4's frozen page, closed by decision 2. Export success feedback is the browser's own download UI, which is the platform convention for a JSON download; no plan change needed.\n\n**Re-rate: 8 → 10/10.** No new issues, moving on.\n\n## Pass 4: AI Slop Risk — 6/10\n\n**Classifier: OPERATE** (App UI, settings). App UI rules apply.\n\nHard rejections: none (no cards, no hero, no carousel; single-column layout, not stacked cards).\n\nLitmus (plan text as evidence):\n1. Brand/product unmistakable? **YES** — persistent app nav + \"Account settings\" h1.\n2. One strong visual anchor? **YES after decision 1** — filled Save; before, NO.\n3. Scannable by headings only? **YES** — h1 → Profile → Notifications.\n4. Each section one job? **YES** — two fieldsets, two purposes.\n5. Cards necessary? **N/A** — none used.\n6. Motion improves hierarchy? **YES** — the only motion is the pending spinner, which carries state.\n7. Premium without decorative shadows? **YES** — none specified.\n\nUniversal-rule hits:\n- **14px labels** violate \"body text < 16px\" and read as a flat, accidental hierarchy (`flat-type-hierarchy`). That's Issue 4 below.\n- **system-ui as primary font** is blacklist #11. The plan explicitly retains the existing app-wide family and excludes visual exploration; changing the product's font is separate scope, not a form update. I'm recording it under \"NOT in scope\" rather than asking. Say so if you want it reopened.\n- Browser surfaces: focus ring is themed (#1d4ed8); selection/caret aren't mentioned, but this is an existing shell, so that's app-level, also out of scope.",
+          "timestamp": "2026-09-16T01:35:35.996Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Issue 4 → **4A** approved. Applying.",
+          "timestamp": "2026-09-16T01:35:51.153Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Issue 5 → **5A** approved. Applying, then Issue 6.",
+          "timestamp": "2026-09-16T01:36:27.825Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Issue 6 → **6A** approved. Applying.",
+          "timestamp": "2026-09-16T01:36:59.295Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "**Pass 5 re-rate: 4 → 10/10.** All five DESIGN.md violations now have approved token-level fixes; no new component family is introduced.\n\n## Pass 6: Responsive & Accessibility — 7/10\n\nChecked against the plan and DESIGN.md:\n- **Viewports:** >640px single row; ≤640px full-width Save + equal-column secondary row, DOM order preserved; 320px fit. At 320px with 16px page padding and two 8px gaps, each secondary button gets ≈90×44px, enough for \"Export\"/\"Cancel\"/\"Reset\" at 16px. Tablets see the 640px max-width desktop layout. Intentional, not \"stacked on mobile\".\n- **Keyboard:** themed focus ring (#1d4ed8, ≈6.7:1 on white), dialog focus trap + Escape, focus return rules, aria-disabled + activation guard so pending buttons stay reachable.\n- **Screen readers:** main landmark, h1/h2 order, fieldsets via aria-labelledby, one polite atomic live region, aria-busy on the request button, Retry aria-labels, ErrorSummary explicitly not a second live region.\n- **Touch:** 44px on every control including the ghost Retry.\n- **Motion:** reduced-motion fallback on both spinners.\n\nThe only a11y failure was the ~3:1 error contrast, closed by decision 6A (carried, not re-asked). **Re-rate: 7 → 10/10.** No new issues, moving on.\n\n## Pass 7: Unresolved Design Decisions\n\n```\nDECISION NEEDED                                  | IF DEFERRED, WHAT HAPPENS\n-------------------------------------------------|-----------------------------------------------------\nSave's state when the form is clean and idle     | Engineer picks; half the team assumes always-enabled,\n(Issue 7)                                        | half assumes disabled like Reset; QA files it as a bug\n```\n\nEvidence this is real and in scope: the plan says \"dirty state never relies on... the Save button being enabled\" and \"Reset is disabled when clean because it has nothing to discard\", but never states Save's clean-idle state. DESIGN.md's phrasing (\"without relying on button enabled state\") implies the enabled state does vary with dirtiness, but doesn't say so for Save.",
+          "timestamp": "2026-09-16T01:37:34.134Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Issue 7 → **7A** approved. Applying, then the required outputs and report.",
+          "timestamp": "2026-09-16T01:37:52.641Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Now the remaining decision entry plus the required output sections (NOT in scope, What already exists, TODOS, Implementation Tasks, Completion Summary, Unresolved Decisions).",
+          "timestamp": "2026-09-16T01:38:00.929Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Now the terminal review report (no prior report exists, so this is a plain append at EOF).",
+          "timestamp": "2026-09-16T01:39:10.984Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "Read-back gate: verifying the saved file.",
+          "timestamp": "2026-09-16T01:39:22.185Z"
+        },
+        {
+          "sessionId": "40ba4859-c050-4ae6-87cd-cc0f83533906",
+          "text": "## Review Readiness Dashboard\n\n```\n+====================================================================+\n|                    REVIEW READINESS DASHBOARD                       |\n+====================================================================+\n| Review          | Runs | Last Run            | Status       | Required |\n|-----------------|------|---------------------|--------------|----------|\n| Eng Review      |  0   | —                   | —            | YES      |\n| CEO Review      |  0   | —                   | —            | no       |\n| Design Review   |  1   | 2026-09-16 01:39    | CLEAR (FULL) | no       |\n| Adversarial     |  0   | —                   | —            | no       |\n| Outside Voice   |  0   | —                   | skipped      | no       |\n+--------------------------------------------------------------------+\n| VERDICT: NOT CLEARED — Eng Review missing (required gate)           |\n+====================================================================+\n```\nOutside coverage: design phase, provider codex, `outside_status: skipped` (your call: native only). No cross-model row.\n\n## Completion report\n\n**STATUS: DONE**\n\n- **Plan written:** `/tmp/gstack-owned-display-8i30e6qg/gstack-paid-shard-q2ddRx/tmp/gstack-e2e-plan-design-bSM334/gstack-test-plan-design.md` — accepted behavior preserved verbatim, 7 decisions recorded, header action state matrix, 8 implementation tasks (7 P1, 1 P2), terminal `## GSTACK REVIEW REPORT`. Note: written to your requested path, not the host's default `.claude/plans/` file.\n- **Score:** overall 4/10 → 9/10 (lowest pass). Pass 4 sits at 9 only because the plan retains the `system-ui` font stack, which it explicitly scopes out; every other pass is 10.\n- **Decisions (all yours, all option A):** 1A filled Save / ghost others · 2A spinner + \"Saving…\" in Save · 3A read-failure keeps skeleton, disables Save/Reset/Export · 4A 16/20px type · 5A 32/24/8 spacing · 6A #991b1b on #fef2f2 + icon · 7A Save HTML-disabled when clean.\n- **Two findings the plan didn't list itself:** the read-failure screen (3A, a data-loss hole if an engineer rendered empty editable fields) and Save's clean-idle state (7A).\n- **Skipped per your instruction:** mockups, outside voices, the next-step menu. **Deferred by me:** the one-time CLAUDE.md routing-rules prompt (plan mode forbids editing/committing CLAUDE.md) and the cross-project-learnings config prompt (learnings store is empty; no effect on this review).\n- **Logged:** review log (clean, 0 unresolved), outside-voices row (skipped), one durable decision (`6060c2fb`), one operational learning, telemetry, tasks JSONL for /autoplan.\n- **Watch:** the plan is design-clear but not ship-clear; `/plan-eng-review` is the required gate when you get to it. Staying in plan mode since you said you'll run subsequent reviews yourself.",
+          "timestamp": "2026-09-16T01:40:18.916Z"
+        }
+      ],
+      "planReadyRequests": []
+    },
+    "report": "# Plan: Settings Page UI redesign (design-reviewed)\n\n## Context\nThis updates the existing single-column Account settings form so the built form\nmatches the checked-in DESIGN.md. The behavior contract below is accepted and\nunchanged; the review's job is to close the remaining visual/state gaps between\nthe proposed form and DESIGN.md before implementation starts. Source plan:\n`PLAN.md` at commit f6ab193. Design system: `DESIGN.md`.\n\nReview mode: `/plan-design-review`, text-only (no mockups), native review only\n(no outside voices), all seven dimensions.\n\n## Existing product and accepted behavior\nThis updates an existing account-settings form using the checked-in DESIGN.md.\nThe shell and components already exist. Profile and Notifications are the only\nsections, with visible headings and associated field labels. The page header\ncontains the title, a short description, and Save/Reset/Cancel/Export actions.\nThe existing description is “Manage your display name, email address, and notification preferences.”\nPreserve that description verbatim.\nPreserve the approved single-column structure and component behavior.\nThe page title “Account settings” is h1. Profile and Notifications are h2\nheadings that label their fieldsets via aria-labelledby; no heading level is skipped.\nThe existing DOM and visual order are:\n```text\nPersistent app navigation\nmain: Account settings (h1) + description\n  Save | Reset | Cancel | Export\n  InlineStatus\n  Profile (h2): Display name, Email\n  Notifications (h2): Weekly digest, Product tips\n```\n\nJourney: a user arrives from account navigation wanting to adjust preferences,\nedits the labeled fields, saves, and reads the inline Saved timestamp before\nleaving. The feedback preserves confidence that their preferences were stored.\nThe persistent InlineStatus has role=status, aria-live=polite, aria-atomic=true.\nAfter success it reads “Saved at HH:mm” in the user’s local 24-hour time.\nEditing away from a saved value changes its text to “Unsaved changes”, so\ndirty state never relies on color or the Save button being enabled. Reverting\nall edits or confirming Reset restores the last successful save timestamp.\nBefore any successful save, unchanged values show blank status text; editing\nshows “Unsaved changes”, and reverting or confirming Reset restores blank text.\nFailed saves retain “Unsaved changes” alongside the error message.\nInitial loading uses the existing form skeleton. A new account sees useful\ndefault preferences as specified in DESIGN.md rather than an empty page. Read failures show Retry.\nSave is atomic: all fields persist together or none do, so partial success is\nnot exposed. Field validation, network failure, and successful-save feedback\nuse the exact existing DESIGN.md patterns. Preserve unsaved values after errors.\nDisable repeat Save submissions while pending. Save and Export are mutually\nexclusive: disable both while either is pending. After Save finishes, Export\ndownloads the latest successfully saved preferences. Reset restores saved values only\nafter confirmation; Cancel confirms discarding dirty edits before returning to\nthe previous page; Export downloads the current saved preferences as JSON.\nReset and Cancel are disabled while Save or Export is pending; all four header\nactions return to their idle/dirty-state behavior when it settles. While preparing Export, use the existing inline\nspinner beside “Exporting…” inside its disabled button, aria-busy=true, with reduced-motion support.\nAn Export failure uses the existing inline error/retry area and preserves\nunsaved fields. Retry repeats Export; success clears only that Export error.\nRetry controls are siblings beside the status text, outside its live region.\nVisible text stays “Retry”; its aria-label is “Retry save” or “Retry export” for that operation.\nThe read-failure control follows the same pattern with aria-label “Retry loading”.\nThe existing router protects dirty edits on every in-app exit, including\npersistent app navigation, using the same Cancel confirmation dialog.\nRegister the browser-native beforeunload warning only while the form is dirty;\nremove it when clean. Confirmed in-app navigation uses the existing destination\nheading focus behavior; Keep editing returns focus to the attempted exit.\nDuring Save or Export, both request buttons use aria-disabled=true plus an\nexplicit click/keyboard activation guard, rather than the HTML disabled attribute.\nThey remain focusable and keep the existing disabled appearance. Reset and\nCancel use HTML disabled during the request. Do not move focus while pending\nor after success. On a network error, focus the operation-specific Retry only\nif focus is still on the request trigger; never steal focus the user moved.\nThe existing InlineStatus text stays unchanged while Save is pending:\nUnsaved changes for a dirty form, otherwise its saved timestamp or initial\nblank text. Pending feedback belongs to the request button; do not repeat\nSaving… in the status live region. Success and failure use the outcomes above.\nWhen clean and idle, Reset is disabled because it has nothing to discard,\nand Cancel navigates back immediately without a confirmation. When dirty\nand idle, Reset and Cancel use their existing discard confirmations. Their\n44px geometry is unchanged; the disabled style is separate from pending feedback.\nThe existing ErrorSummary mounts in the status/error area below the action\ngroup and above Profile. It links each invalid field; focus goes to the first\ninvalid field and the summary is not a second live region. Preserve that slot.\nThe existing error/Retry row is inline above 640px with an 8px gap. At 640px\nand below, Retry wraps below the text as a full-width 44px ghost button,\noutside the live region; long errors fit 320px without horizontal scroll.\nThe existing Export action names downloads account-settings-YYYY-MM-DD.json\nusing the local date, with no account identifiers. The browser adds its usual\nduplicate-name suffix for repeated exports. Preserve this download behavior.\n\nResponsive behavior: above 640px keep the header action group in one row; at\n640px and below, place full-width Save first and the three secondary actions\nin one equal-column row below it, preserving DOM/tab order. The form fits 320px\nwithout horizontal scroll, including the secondary actions and their 44px targets.\nAll controls have visible focus rings and 44px targets. Use semantic fieldsets,\nlabels, a main landmark and heading order; errors link through aria-describedby.\nFocus-visible on every control and dialog action is the existing 2px solid\n#1d4ed8 outline, offset 2px on white, with measured contrast above 3:1.\nDialogs trap focus; Escape cancels. Closing while staying on the form restores\nfocus to the Reset or Cancel trigger. Confirmed navigation uses the existing\ndestination-main-heading focus behavior. Export remains a\nclearly labeled button. Respect reduced motion. No additional visual exploration\nor component replacement is part of this established form update.\nRetain the existing system-ui, sans-serif font family, including on form controls.\n\n## Design review findings (status: PENDING until each is individually decided)\nEach item below is a gap between the proposed form and DESIGN.md. A DESIGN.md\ntoken is the recommended fix, not an approved one. Nothing here is an\nimplementation task until its decision is recorded in \"Decisions made\".\n\n| # | Dimension | Gap (as proposed) | Recommended fix (DESIGN.md) | Status |\n|---|-----------|-------------------|-----------------------------|--------|\n| 1 | Visual hierarchy | Save has the same size/weight/color as Reset, Cancel, Export; no primary action is visible | Save filled #1d4ed8 / white text; Reset, Cancel, Export neutral ghost | APPROVED (1A) |\n| 2 | Interaction states / motion | Save takes 2-5s with no pending indicator; page looks frozen | Inline spinner beside “Saving…” inside Save, aria-busy=true, reduced-motion fallback (the pattern Export already uses) | APPROVED (2A) |\n| 3 | Interaction states | Read failure: “show Retry” but the form area during failure is unspecified | Keep skeleton in place, error + Retry (aria-label “Retry loading”) in the status area; Save/Reset/Export disabled, Cancel enabled | APPROVED (3A) |\n| 4 | Typography | Labels use 14px, 16px and 18px; 14px body text fails the ≥16px rule | Two roles: 16px body/labels/helper, 20px section headings | APPROVED (4A) |\n| 5 | Spacing | Section gaps of 16/24/32px with no rhythm | 8px base: sections 32px, field groups 24px, label-to-input 8px | APPROVED (5A) |\n| 6 | Color | Error red on light pink at ~3:1, below WCAG AA | error.text #991b1b on error.surface #fef2f2 (≈7.6:1) with icon + explicit text | APPROVED (6A) |\n| 7 | Unresolved decision | Save’s state when the form is clean and idle is not stated | Save HTML-disabled when clean and idle, enabled when dirty (mirrors Reset) | APPROVED (7A) |\n\n## Decisions made\n1. **Action hierarchy (1A, Pass 1).** Save is the only filled primary action:\n   background #1d4ed8, white text (≈6.7:1). Reset, Cancel and Export are the\n   existing neutral ghost Button variant. Geometry unchanged (44px targets),\n   disabled/pending appearance per the accepted behavior above. At 640px and\n   below the full-width Save row is therefore the single filled element above\n   the three-ghost secondary row.\n2. **Save pending state (2A, Pass 2).** While the save request is in flight,\n   Save shows the existing inline spinner beside the label “Saving…” inside the\n   button, aria-busy=true, aria-disabled=true plus the activation guard (no HTML\n   disabled), keeping the existing disabled appearance and focus. Under\n   prefers-reduced-motion the spinner is static and the “Saving…” text carries\n   the state. Give Save a min-width equal to its idle width so the header row\n   does not reflow when the label changes. InlineStatus text is unchanged while\n   pending (per accepted behavior); nothing else on the page animates. This is\n   the same pattern Export already uses with “Exporting…”.\n3. **Read-failure state (3A, Pass 2).** If the initial preferences read fails,\n   the existing form skeleton stays in place (no editable empty fields are\n   rendered). The existing error/Retry row appears in the status/error slot\n   below the action group: error text in the InlineStatus live region, sibling\n   Retry button outside it with visible text “Retry” and aria-label “Retry\n   loading”. Save, Reset and Export are HTML-disabled (nothing to save,\n   discard or export); Cancel stays enabled and navigates back immediately\n   without a dialog because the form is not dirty. Retry re-runs the read and\n   returns the page to the skeleton, then to the populated idle state. The\n   error row follows the same 640px wrap rule as the save/export error row.\n4. **Typography (4A, Pass 4).** Two type roles only: 16px for body copy, the\n   page description, form labels, helper text, InlineStatus, error text and\n   button labels; 20px for the Profile and Notifications h2 headings. Form\n   controls inherit 16px. Remove the 14px and 18px label sizes. Helper text is\n   distinguished from labels by the existing secondary text color (must stay\n   ≥4.5:1 on white), not by size. Font family stays system-ui, sans-serif.\n5. **Spacing (5A, Pass 5).** 8px base scale throughout: 32px between the\n   Profile and Notifications sections (and between the status/error slot and\n   Profile), 24px between field groups inside a section, 8px between a label\n   and its input. Header stack (h1 → description → action group → status slot)\n   uses the same scale: 8px h1-to-description, 24px description-to-actions,\n   16px actions-to-status slot. Replace the stray 16px and mixed 24/32px section\n   gaps. The 8px gap in the inline error/Retry row and the 640px wrap rule are\n   unchanged.\n6. **Error color (6A, Pass 5).** All error text (InlineStatus network/export/\n   read errors, ErrorSummary, field-level errors) uses error.text #991b1b on\n   error.surface #fef2f2 (measured ≈7.6:1, passes WCAG AA and AAA), with the\n   existing error icon (aria-hidden=\"true\") beside explicit text so the state\n   never relies on color alone. Replace the current red-on-pink (~3:1) pair\n   everywhere it appears in the form. Retry stays a neutral ghost button\n   beside the error text, outside the live region, per accepted behavior.\n7. **Save clean-idle state (7A, Pass 7).** When the form is clean and idle\n   (on load, after a successful save, after reverting all edits, after a\n   confirmed Reset), Save is HTML-disabled with the existing disabled Button\n   style, the same rule Reset already follows. Any edit away from the saved\n   value enables Save (and Reset) at the same moment InlineStatus switches to\n   “Unsaved changes”. This idle disabled state is distinct from the pending\n   aria-disabled state in decision 2. Cancel and Export are unaffected.\n\n## Header action state matrix (derived from accepted behavior + decisions 1-3, 7)\n| Page state | Save | Reset | Cancel | Export |\n|------------|------|-------|--------|--------|\n| Loading (skeleton) | HTML disabled | HTML disabled | enabled, navigates back | HTML disabled |\n| Load failed | HTML disabled | HTML disabled | enabled, navigates back | HTML disabled |\n| Clean, idle | HTML disabled (7A) | HTML disabled | enabled, navigates back immediately | enabled |\n| Dirty, idle | enabled, filled primary | enabled → confirm dialog | enabled → confirm dialog | enabled |\n| Save pending | aria-disabled, spinner + “Saving…” (2A) | HTML disabled | HTML disabled | aria-disabled |\n| Export pending | aria-disabled | HTML disabled | HTML disabled | aria-disabled, spinner + “Exporting…” |\n| After error | returns to dirty/clean idle row; Retry appears beside error text | per idle row | per idle row | per idle row |\n\n## Passes: before → after\n| Pass | Before | After | Reason |\n|------|--------|-------|--------|\n| 1 Information Architecture | 6 | 10 | Save is the single filled control (1A); structure already fully specified |\n| 2 Interaction States | 7 | 10 | Save pending state (2A) and read-failure state (3A) specified |\n| 3 User Journey | 8 | 10 | Storyboard recorded; the step-4 freeze closed by 2A |\n| 4 AI Slop | 6 | 9 | Two type roles (4A); no hard rejections; retained system-ui stack kept out of scope by the plan |\n| 5 Design System | 4 | 10 | All five DESIGN.md violations resolved to tokens (1A, 2A, 4A, 5A, 6A) |\n| 6 Responsive & A11y | 7 | 10 | Error contrast fixed (6A); responsive and a11y rules already complete |\n| 7 Decisions | — | 1 resolved, 0 deferred | Save clean-idle state (7A) |\n\n## NOT in scope\n- **Replacing the system-ui font stack.** AI-slop blacklist #11, but the plan explicitly retains the app-wide family and excludes visual exploration; changing the product font is app-level scope, not part of this form update.\n- **Theming selection color / caret / scrollbars.** Belongs to the existing app shell, not this form.\n- **New component families or layout exploration.** Plan and DESIGN.md both say reuse Button, Field, InlineStatus, ErrorSummary, ConfirmationDialog only.\n- **Export success feedback beyond the browser download.** Platform convention for a file download; no in-page confirmation added.\n- **Third button tier for Export (1B).** Considered and declined in favor of DESIGN.md's two tiers.\n\n## What already exists (reuse, do not rebuild)\n- DESIGN.md tokens: primary #1d4ed8/white, error.text #991b1b, error.surface #fef2f2, focus ring 2px solid #1d4ed8 offset 2px, 8px spacing base (32/24/8), type roles 16/20px, 640px max width.\n- Components: Button (primary, ghost, disabled, pending-with-spinner variants), Field, InlineStatus (role=status live region), ErrorSummary, ConfirmationDialog (focus trap, Escape, focus return), form skeleton.\n- Behaviors: router dirty-exit guard, beforeunload registration, destination-heading focus, “Saved at HH:mm” formatter, account-settings-YYYY-MM-DD.json export naming, Export spinner pattern, Retry sibling pattern with aria-labels.\n\n## TODOS.md updates\nNone proposed. Every approved fix is in-scope implementation work with verification in the tasks below; no deferred design debt remains from this review.\n\n## Implementation Tasks\nSynthesized from this review's findings. Each task derives from a specific\nfinding above. Run with Claude Code or Codex; checkbox as you ship.\n\n- [ ] **T1 (P1, human: ~1h / CC: ~5min)** — Button / header action group — Render Save as the filled primary (#1d4ed8, white) and Reset/Cancel/Export as ghost buttons\n  - Surfaced by: Pass 1 — Issue 1 / decision 1A\n  - Files: settings page header component; Button variant usage\n  - Verify: visual check at 1024px and 320px; computed background of Save is #1d4ed8, others transparent; white-on-#1d4ed8 contrast ≥4.5:1\n- [ ] **T2 (P1, human: ~2h / CC: ~10min)** — Save button pending state — Show inline spinner + “Saving…” inside Save with aria-busy, aria-disabled + activation guard, reduced-motion fallback, min-width lock\n  - Surfaced by: Pass 2 — Issue 2 / decision 2A\n  - Files: settings page save handler; Button pending variant (same as Export)\n  - Verify: throttle network to 3s; Save shows spinner + “Saving…”, cannot be re-activated by click/Enter/Space, stays focusable, header row width does not shift; with prefers-reduced-motion the spinner is static; InlineStatus text unchanged while pending\n- [ ] **T3 (P1, human: ~2h / CC: ~10min)** — Settings page load — Implement the read-failure state: skeleton retained, error + Retry (aria-label “Retry loading”), Save/Reset/Export disabled, Cancel enabled\n  - Surfaced by: Pass 2 — Issue 3 / decision 3A\n  - Files: settings page data loading / page state machine; InlineStatus + Retry row\n  - Verify: mock a failed GET; no editable fields render; error text announced once; Retry re-fetches and populates; Cancel navigates back with no dialog; row wraps correctly at 640px and fits 320px\n- [ ] **T4 (P1, human: ~1h / CC: ~5min)** — Field / headings — Collapse type to 16px body/labels/helper and 20px h2; remove 14px and 18px sizes\n  - Surfaced by: Pass 4 — Issue 4 / decision 4A\n  - Files: Field label/helper styles; settings section heading styles\n  - Verify: computed font-size of every label, helper, status and button text is 16px; both h2 are 20px; inputs inherit 16px; helper text color ≥4.5:1 on white\n- [ ] **T5 (P2, human: ~1h / CC: ~5min)** — Settings layout — Apply the 8px scale: sections 32px, field groups 24px, label-to-input 8px, header stack 8/24/16px\n  - Surfaced by: Pass 5 — Issue 5 / decision 5A\n  - Files: settings page layout styles; fieldset / field group spacing\n  - Verify: measure computed margins/gaps in devtools; no 16px section gap remains; page fits 320px without horizontal scroll\n- [ ] **T6 (P1, human: ~1h / CC: ~5min)** — Error styling — Use #991b1b on #fef2f2 with aria-hidden icon for InlineStatus errors, ErrorSummary and field errors\n  - Surfaced by: Pass 5 / Pass 6 — Issue 6 / decision 6A\n  - Files: error text / surface tokens; InlineStatus, ErrorSummary, Field error styles\n  - Verify: contrast checker reports ≥4.5:1 (expected ≈7.6:1) on every error surface; icon not announced by screen reader; error still readable in grayscale\n- [ ] **T7 (P1, human: ~1h / CC: ~5min)** — Save button idle logic — HTML-disable Save when the form is clean and idle; enable on first edit together with Reset\n  - Surfaced by: Pass 7 — Issue 7 / decision 7A\n  - Files: settings page dirty-state derivation; header action group\n  - Verify: on load Save and Reset are disabled and status is blank/“Saved at HH:mm”; editing one field enables both and status reads “Unsaved changes”; reverting or confirming Reset disables both again; after a successful save both are disabled\n- [ ] **T8 (P1, human: ~2h / CC: ~10min)** — Header action state matrix — Add tests covering every row of the state matrix above (loading, load failed, clean idle, dirty idle, save pending, export pending, after error)\n  - Surfaced by: Passes 2, 5, 7 — decisions 2A, 3A, 7A combined\n  - Files: settings page component tests\n  - Verify: one test per matrix row asserting disabled/aria-disabled/aria-busy attributes and focus behavior for all four buttons\n\n_No new tasks from Pass 3 (journey) — storyboard is evidence only._\n\n## Completion Summary\n```\n  +====================================================================+\n  |         DESIGN PLAN REVIEW — COMPLETION SUMMARY                    |\n  +====================================================================+\n  | System Audit         | DESIGN.md present; UI scope: 1 page, 4     |\n  |                      | actions, 2 fieldsets, status/error slot    |\n  | Step 0               | 6/10 initial; all 7 dimensions (user)      |\n  | Pass 1  (Info Arch)  |  6/10 → 10/10 after fixes                  |\n  | Pass 2  (States)     |  7/10 → 10/10 after fixes                  |\n  | Pass 3  (Journey)    |  8/10 → 10/10 after fixes                  |\n  | Pass 4  (AI Slop)    |  6/10 →  9/10 after fixes                  |\n  | Pass 5  (Design Sys) |  4/10 → 10/10 after fixes                  |\n  | Pass 6  (Responsive) |  7/10 → 10/10 after fixes                  |\n  | Pass 7  (Decisions)  | 1 resolved, 0 deferred                     |\n  +--------------------------------------------------------------------+\n  | NOT in scope         | written (5 items)                          |\n  | What already exists  | written                                    |\n  | TODOS.md updates     | 0 items proposed                           |\n  | Approved Mockups     | 0 generated, 0 approved (text-only)        |\n  | Decisions made       | 7 added to plan                            |\n  | Decisions deferred   | 0                                          |\n  | Overall design score | 4/10 → 9/10                                |\n  +====================================================================+\n```\nPlan is design-complete. Run /design-review after implementation for visual QA.\n\n## Unresolved Decisions\nNone. All seven findings received an individual decision (1A, 2A, 3A, 4A, 5A, 6A, 7A).\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |\n| Outside Review | codex via `/plan-design-review` (design outside voices) | Independent 2nd opinion | 0 | skipped (user: native only) | — |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | — | — |\n| Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | score: 4/10 → 9/10, 7 decisions |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |\n\n- **OUTSIDE COVERAGE:** provider codex, phase design, skipped by user (native design review only); no outside findings. host=claude, outside_status=skipped.\n- **VERDICT:** DESIGN CLEARED — plan is design-complete (every rated pass 8+, 0 unresolved); eng review required.\n\nNO UNRESOLVED DECISIONS\n",
+    "firstFailureCalls": [
+      {
+        "sessionId": "ef7132ec-2688-4881-99e8-271c9ab4e220",
+        "toolUseId": "toolu_016r7bv2zWSsLQpKXQkT9v58",
+        "questions": [
+          {
+            "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-lvkT4r on main, running /plan-design-review on PLAN.md.\nELI10: gstack skills work best when CLAUDE.md tells the assistant which skill to invoke for which kind of request (bugs → /investigate, ship → /ship, etc.). This is a one-time setup prompt. Note: we're in plan mode, so if you pick A the append + commit happens after plan mode ends, not now.\nStakes if we pick wrong: without routing, skills only run when you invoke them by name; with it, CLAUDE.md gains a ~15-line section.\nRecommendation: A because routing rules are cheap and make skills fire on intent rather than memorized slash commands.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a small CLAUDE.md addition vs. manual skill invocation forever.",
+            "header": "Routing",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add routing rules (recommended)",
+                "description": "✅ Requests like 'find this bug' auto-route to /investigate without remembering slash names. ✅ One-time, ~15 lines appended to CLAUDE.md, committed as a chore. ❌ Edit deferred until plan mode exits; adds a section to a fixture CLAUDE.md."
+              },
+              {
+                "label": "No thanks, invoke manually",
+                "description": "✅ CLAUDE.md stays exactly as-is; nothing written or committed. ✅ Records routing_declined so this prompt never repeats for this project. ❌ You must type /skill-name yourself every time."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-lvkT4r on main, running /plan-design-review on PLAN.md.\nELI10: gstack skills work best when CLAUDE.md tells the assistant which skill to invoke for which kind of request (bugs → /investigate, ship → /ship, etc.). This is a one-time setup prompt. Note: we're in plan mode, so if you pick A the append + commit happens after plan mode ends, not now.\nStakes if we pick wrong: without routing, skills only run when you invoke them by name; with it, CLAUDE.md gains a ~15-line section.\nRecommendation: A because routing rules are cheap and make skills fire on intent rather than memorized slash commands.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a small CLAUDE.md addition vs. manual skill invocation forever.": "Add routing rules (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:19:16.729Z"
+      },
+      {
+        "sessionId": "ef7132ec-2688-4881-99e8-271c9ab4e220",
+        "toolUseId": "toolu_01985oDCjvwKa9YzMoihJUZb",
+        "questions": [
+          {
+            "question": "D2 — Review all seven design passes, or focus on specific ones?\nProject/branch/task: gstack-plan-count-lvkT4r on main, /plan-design-review of PLAN.md \"Settings Page UI redesign\".\nELI10: I rated the plan 5/10 on design completeness. The behavior contract is nearly complete, but the plan admits five DESIGN.md violations it never resolves: no visible primary action, three competing section spacings, an error color near 3:1 contrast, three label sizes, and a 2–5s Save with no pending state. Mockups are skipped per your instruction. The seven passes are Information Architecture, Interaction States, User Journey, AI Slop Risk, Design System Alignment, Responsive & Accessibility, and Unresolved Decisions.\nStakes if we pick wrong: narrowing focus risks shipping a form that still contradicts the approved design system in a dimension we skipped.\nRecommendation: A because you asked for all seven and the five gaps span four different passes.\nCompleteness: A=10/10, B=6/10\nNet: full coverage in ~8 decision questions vs. fewer questions and blind spots.",
+            "header": "Focus",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "All seven passes (recommended)",
+                "description": "✅ Every known DESIGN.md violation gets its own decision, plus any ambiguity the contract still leaves open. ✅ Matches your request to review all seven dimensions. ❌ Roughly eight individual decision questions before the report."
+              },
+              {
+                "label": "Focus on the five named gaps only",
+                "description": "✅ Faster: five decisions, one per gap already listed in PLAN.md. ✅ Still resolves every violation the plan itself admits. ❌ Skips Pass 7 hunting for contract ambiguities (e.g. Save's clean/idle state), which is where implementers usually get stuck."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Review all seven design passes, or focus on specific ones?\nProject/branch/task: gstack-plan-count-lvkT4r on main, /plan-design-review of PLAN.md \"Settings Page UI redesign\".\nELI10: I rated the plan 5/10 on design completeness. The behavior contract is nearly complete, but the plan admits five DESIGN.md violations it never resolves: no visible primary action, three competing section spacings, an error color near 3:1 contrast, three label sizes, and a 2–5s Save with no pending state. Mockups are skipped per your instruction. The seven passes are Information Architecture, Interaction States, User Journey, AI Slop Risk, Design System Alignment, Responsive & Accessibility, and Unresolved Decisions.\nStakes if we pick wrong: narrowing focus risks shipping a form that still contradicts the approved design system in a dimension we skipped.\nRecommendation: A because you asked for all seven and the five gaps span four different passes.\nCompleteness: A=10/10, B=6/10\nNet: full coverage in ~8 decision questions vs. fewer questions and blind spots.": "All seven passes (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:21:52.579Z"
+      },
+      {
+        "sessionId": "ef7132ec-2688-4881-99e8-271c9ab4e220",
+        "toolUseId": "toolu_01SveF2nWfrMfR1VtvHNf9Mg",
+        "questions": [
+          {
+            "question": "D3 — Issue 1 (Visual Hierarchy): make Save the single filled primary action?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 1 of /plan-design-review on PLAN.md.\nELI10: Right now Save, Reset, Cancel, and Export look identical in the header. The user has to read all four labels to find the one that commits their edits, and the two that throw work away sit right next to it looking equally important. DESIGN.md already prescribes the answer: Save gets the filled #1d4ed8 button with white text, the other three stay neutral ghost buttons. Principle: hierarchy as service; if everything shouts, nothing is heard.\nStakes if we pick wrong: mis-taps on Reset/Cancel (both gated by a dialog, so recoverable, but each one drains goodwill), and a form that contradicts the approved design system on its most-used control.\nRecommendation: 1A because DESIGN.md already decided the tokens; this is applying them, not inventing.\nCompleteness: 1A=10/10, 1B=7/10, 1C=0/10\nNet: apply the approved primary token now, or ship a header where the commit action is indistinguishable from the discard actions.",
+            "header": "Issue 1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A Filled primary Save, ghost others (recommended)",
+                "description": "✅ Save uses the existing filled Button variant: #1d4ed8 background, white text (~7.0:1), unchanged 44px geometry; Reset/Cancel/Export stay neutral ghosts, exactly per DESIGN.md. ✅ Pending state inherits the filled style with the disabled appearance, so hierarchy holds while Saving… ❌ Any snapshot tests of the header button styles need updating."
+              },
+              {
+                "label": "1B Filled Save, also visually separate Export",
+                "description": "✅ Save filled as in 1A, plus Export pushed to the far right with a gap so \"download\" reads as a different job than the edit-cycle actions. ✅ Reduces mis-grouping of Export with Reset/Cancel. ❌ Changes the approved header layout and the 640px equal-column secondary row; DESIGN.md says preserve structure, so this needs a design-system amendment."
+              },
+              {
+                "label": "1C Leave as-is",
+                "description": "✅ Zero implementation work in the header. ✅ No snapshot churn. ❌ Ships a known DESIGN.md violation on the primary control; Pass 1 stays at 6/10 and the review log records it unresolved."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 — Issue 1 (Visual Hierarchy): make Save the single filled primary action?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 1 of /plan-design-review on PLAN.md.\nELI10: Right now Save, Reset, Cancel, and Export look identical in the header. The user has to read all four labels to find the one that commits their edits, and the two that throw work away sit right next to it looking equally important. DESIGN.md already prescribes the answer: Save gets the filled #1d4ed8 button with white text, the other three stay neutral ghost buttons. Principle: hierarchy as service; if everything shouts, nothing is heard.\nStakes if we pick wrong: mis-taps on Reset/Cancel (both gated by a dialog, so recoverable, but each one drains goodwill), and a form that contradicts the approved design system on its most-used control.\nRecommendation: 1A because DESIGN.md already decided the tokens; this is applying them, not inventing.\nCompleteness: 1A=10/10, 1B=7/10, 1C=0/10\nNet: apply the approved primary token now, or ship a header where the commit action is indistinguishable from the discard actions.": "1A Filled primary Save, ghost others (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:22:20.661Z"
+      },
+      {
+        "sessionId": "ef7132ec-2688-4881-99e8-271c9ab4e220",
+        "toolUseId": "toolu_015Yzays3s1V3yKJweoikyDo",
+        "questions": [
+          {
+            "question": "D4 — Issue 2 (Motion / Save pending state): apply the existing Saving… spinner pattern to the Save button?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 2 of /plan-design-review on PLAN.md.\nELI10: Save takes 2–5 seconds and the plan gives the user nothing to look at during that time; the page looks frozen. Export already solves this with the approved pattern: an inline spinner beside \"Exporting…\" inside the aria-disabled button, aria-busy=true, respecting reduced motion. Save should do the same with \"Saving…\". The status live region stays quiet (already decided in the contract) so screen-reader users aren't double-announced. Principle: trust is earned at the pixel level; visible progress is the difference between \"it's working\" and \"it's broken\".\nStakes if we pick wrong: repeat clicks, users navigating away mid-save, and support tickets asking whether preferences were stored.\nRecommendation: 2A because the pattern exists, Export already uses it, and it matches the accepted no-focus-move / quiet-live-region rules.\nCompleteness: 2A=10/10, 2B=5/10, 2C=0/10\nNet: reuse a pattern already on the page, or invent a second pending idiom, or ship the frozen page.",
+            "header": "Issue 2",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "2A Spinner + \"Saving…\" in Save button (recommended)",
+                "description": "✅ Reuses the exact Export pattern: existing inline spinner, label \"Saving…\", aria-busy=true, aria-disabled=true with activation guard, filled style with disabled appearance, reduced-motion swaps the spin for a static indicator. ✅ InlineStatus unchanged while pending; focus stays on Save; Export/Reset/Cancel disabled per contract. ❌ Button width shifts slightly as label changes unless min-width is reserved; task must pin min-width to the idle \"Save\" width."
+              },
+              {
+                "label": "2B Skeleton the form while saving",
+                "description": "✅ Very visible progress; impossible to miss. ✅ Reuses the existing load skeleton. ❌ Hides the user's own edits for 2–5s and, on failure, must swap back without losing them; also nothing in DESIGN.md sanctions skeletons for writes."
+              },
+              {
+                "label": "2C Leave as-is",
+                "description": "✅ No work. ✅ No risk of layout shift in the header. ❌ Ships the frozen page; Pass 2 stays at 6/10 and the gap is logged unresolved."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — Issue 2 (Motion / Save pending state): apply the existing Saving… spinner pattern to the Save button?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 2 of /plan-design-review on PLAN.md.\nELI10: Save takes 2–5 seconds and the plan gives the user nothing to look at during that time; the page looks frozen. Export already solves this with the approved pattern: an inline spinner beside \"Exporting…\" inside the aria-disabled button, aria-busy=true, respecting reduced motion. Save should do the same with \"Saving…\". The status live region stays quiet (already decided in the contract) so screen-reader users aren't double-announced. Principle: trust is earned at the pixel level; visible progress is the difference between \"it's working\" and \"it's broken\".\nStakes if we pick wrong: repeat clicks, users navigating away mid-save, and support tickets asking whether preferences were stored.\nRecommendation: 2A because the pattern exists, Export already uses it, and it matches the accepted no-focus-move / quiet-live-region rules.\nCompleteness: 2A=10/10, 2B=5/10, 2C=0/10\nNet: reuse a pattern already on the page, or invent a second pending idiom, or ship the frozen page.": "2A Spinner + \"Saving…\" in Save button (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:23:06.287Z"
+      },
+      {
+        "sessionId": "ef7132ec-2688-4881-99e8-271c9ab4e220",
+        "toolUseId": "toolu_01UBAq4sjLPpCK1GGvAHFmcZ",
+        "questions": [
+          {
+            "question": "D5 — Issue 4 (Typography): collapse form labels to DESIGN.md's two type roles?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 4 of /plan-design-review on PLAN.md.\nELI10: Labels on the form are set at three different sizes (14, 16, 18px) with no rule behind which label gets which. Users read size as importance, so \"Email\" at 18px and \"Product tips\" at 14px silently says one matters more. DESIGN.md has two roles only: 16px for body, form labels, and helper text; 20px for the Profile/Notifications h2s. Applying them makes the hierarchy mean something and lifts the 14px labels above the 16px readability floor. Principle: specificity over vibes; a type scale is a small set of roles, not a range of sizes.\nStakes if we pick wrong: 14px labels stay hard to read on phones, and the arbitrary sizes keep signalling false importance.\nRecommendation: 4A because DESIGN.md already names the two roles; the plan just needs to bind every label to them.\nCompleteness: 4A=10/10, 4B=6/10, 4C=0/10\nNet: two named roles everywhere, or a partial cleanup, or three sizes that mean nothing.",
+            "header": "Issue 4",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "4A Two roles: 16px labels/helper, 20px h2 (recommended)",
+                "description": "✅ Display name, Email, Weekly digest, Product tips labels and all helper/error text at 16px; Profile and Notifications h2 at 20px; h1 keeps the existing page-title style. ✅ Removes the sub-16px text and makes size differences carry meaning. ❌ Labels that were 14px grow, so the 320px layout must be re-verified for wrapping (already a required check)."
+              },
+              {
+                "label": "4B Only fix the 14px labels up to 16px",
+                "description": "✅ Removes the readability failure with minimal churn. ✅ Leaves any 18px labels alone if someone intended them. ❌ Keeps a third label size DESIGN.md doesn't define, so the form still doesn't match the system."
+              },
+              {
+                "label": "4C Leave as-is",
+                "description": "✅ No work. ✅ No layout re-check. ❌ Ships sub-16px labels and an undefined third size; Pass 4 caps at 8/10 and the gap logs unresolved."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 — Issue 4 (Typography): collapse form labels to DESIGN.md's two type roles?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 4 of /plan-design-review on PLAN.md.\nELI10: Labels on the form are set at three different sizes (14, 16, 18px) with no rule behind which label gets which. Users read size as importance, so \"Email\" at 18px and \"Product tips\" at 14px silently says one matters more. DESIGN.md has two roles only: 16px for body, form labels, and helper text; 20px for the Profile/Notifications h2s. Applying them makes the hierarchy mean something and lifts the 14px labels above the 16px readability floor. Principle: specificity over vibes; a type scale is a small set of roles, not a range of sizes.\nStakes if we pick wrong: 14px labels stay hard to read on phones, and the arbitrary sizes keep signalling false importance.\nRecommendation: 4A because DESIGN.md already names the two roles; the plan just needs to bind every label to them.\nCompleteness: 4A=10/10, 4B=6/10, 4C=0/10\nNet: two named roles everywhere, or a partial cleanup, or three sizes that mean nothing.": "4A Two roles: 16px labels/helper, 20px h2 (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:25:12.239Z"
+      },
+      {
+        "sessionId": "ef7132ec-2688-4881-99e8-271c9ab4e220",
+        "toolUseId": "toolu_01YUDXQ1zH8XVE7rQiDBRwTc",
+        "questions": [
+          {
+            "question": "D6 — Issue 3 (Color): move the error message to DESIGN.md's error tokens?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 5 of /plan-design-review on PLAN.md.\nELI10: When a save fails, the message telling the user what went wrong is red text on light pink at about 3:1 contrast. WCAG AA needs 4.5:1 for normal text, so people with low vision, or anyone on a dim phone screen outdoors, may not be able to read the one message that matters most. DESIGN.md's tokens are error.text #991b1b on error.surface #fef2f2, which I measured at 7.6:1, and it pairs the color with an icon and explicit text so status never rides on color alone. Principle: accessibility is not optional; the failure message is the highest-stakes text on the page.\nStakes if we pick wrong: an unreadable failure message means users think the save worked when it didn't, or give up without knowing why.\nRecommendation: 3A because the tokens exist, measure 7.6:1, and match the icon-plus-text rule already in the contract.\nCompleteness: 3A=10/10, 3B=6/10, 3C=0/10\nNet: apply the measured tokens, or hand-pick a darker red, or ship an unreadable error.",
+            "header": "Issue 3",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "3A error.text #991b1b on error.surface #fef2f2 (recommended)",
+                "description": "✅ Measured 7.6:1, clears AA and AAA; used for the network error row, Export error, read-failure row, and inline field errors so every error surface matches. ✅ Keeps the existing icon + explicit text so status is never color-only; focus ring stays 6.1:1 against the surface. ❌ Any hard-coded pink/red values in the error components need replacing with the tokens."
+              },
+              {
+                "label": "3B Darken the current red until it passes 4.5:1",
+                "description": "✅ Smallest visual change from today's look. ✅ Passes AA if measured carefully. ❌ Introduces a third red the design system doesn't define; future components will drift again."
+              },
+              {
+                "label": "3C Leave as-is",
+                "description": "✅ No work. ✅ No token migration. ❌ Ships a known WCAG AA failure on the failure message itself; Pass 5 and Pass 6 stay capped and the gap logs unresolved."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 — Issue 3 (Color): move the error message to DESIGN.md's error tokens?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 5 of /plan-design-review on PLAN.md.\nELI10: When a save fails, the message telling the user what went wrong is red text on light pink at about 3:1 contrast. WCAG AA needs 4.5:1 for normal text, so people with low vision, or anyone on a dim phone screen outdoors, may not be able to read the one message that matters most. DESIGN.md's tokens are error.text #991b1b on error.surface #fef2f2, which I measured at 7.6:1, and it pairs the color with an icon and explicit text so status never rides on color alone. Principle: accessibility is not optional; the failure message is the highest-stakes text on the page.\nStakes if we pick wrong: an unreadable failure message means users think the save worked when it didn't, or give up without knowing why.\nRecommendation: 3A because the tokens exist, measure 7.6:1, and match the icon-plus-text rule already in the contract.\nCompleteness: 3A=10/10, 3B=6/10, 3C=0/10\nNet: apply the measured tokens, or hand-pick a darker red, or ship an unreadable error.": "3A error.text #991b1b on error.surface #fef2f2 (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:26:03.445Z"
+      },
+      {
+        "sessionId": "ef7132ec-2688-4881-99e8-271c9ab4e220",
+        "toolUseId": "toolu_01CTQACgCKQZpeTEcyzp2W9d",
+        "questions": [
+          {
+            "question": "D7 — Issue 5 (Spacing): adopt DESIGN.md's 8px rhythm (32 / 24 / 8)?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 5 of /plan-design-review on PLAN.md.\nELI10: The gaps between parts of the form are 24px in some places, 32px in others, 16px in a third, with no rule behind them. Users don't consciously measure spacing, but inconsistent gaps make grouping unreadable: is \"Email\" part of Profile or the start of something new? DESIGN.md sets one rhythm on an 8px base: 32px between sections (header → status area → Profile → Notifications), 24px between field groups inside a section, 8px from a label to its input. Principle: Gestalt proximity; spacing is how the eye learns what belongs together.\nStakes if we pick wrong: the form keeps reading as a loose list of controls rather than two clear groups, and the next contributor guesses yet another value.\nRecommendation: 5A because the scale is already defined and every gap on this page maps to one of its three values.\nCompleteness: 5A=10/10, 5B=6/10, 5C=0/10\nNet: one named scale everywhere, or fix only the section gaps, or keep three unrelated numbers.",
+            "header": "Issue 5",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "5A Full 8px rhythm: 32 sections, 24 field groups, 8 label-to-input (recommended)",
+                "description": "✅ Every vertical gap on the page bound to a token: 32px between header, status/error slot, Profile, Notifications; 24px between Display name/Email and between the two switches; 8px label-to-input. ✅ The 8px error-row gap and 640px action-row gaps already sit on the same base. ❌ Existing spacing overrides in the settings stylesheet need removing, and the 320px layout re-verified."
+              },
+              {
+                "label": "5B Normalize section gaps to 32px only",
+                "description": "✅ Fixes the most visible inconsistency with one change. ✅ Leaves intra-section spacing alone. ❌ Field-group and label gaps stay undefined, so the form still doesn't sit on the system's scale."
+              },
+              {
+                "label": "5C Leave as-is",
+                "description": "✅ No stylesheet work. ✅ No layout re-check. ❌ Ships three unrelated gaps; Pass 5 stays capped and the gap logs unresolved."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D7 — Issue 5 (Spacing): adopt DESIGN.md's 8px rhythm (32 / 24 / 8)?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 5 of /plan-design-review on PLAN.md.\nELI10: The gaps between parts of the form are 24px in some places, 32px in others, 16px in a third, with no rule behind them. Users don't consciously measure spacing, but inconsistent gaps make grouping unreadable: is \"Email\" part of Profile or the start of something new? DESIGN.md sets one rhythm on an 8px base: 32px between sections (header → status area → Profile → Notifications), 24px between field groups inside a section, 8px from a label to its input. Principle: Gestalt proximity; spacing is how the eye learns what belongs together.\nStakes if we pick wrong: the form keeps reading as a loose list of controls rather than two clear groups, and the next contributor guesses yet another value.\nRecommendation: 5A because the scale is already defined and every gap on this page maps to one of its three values.\nCompleteness: 5A=10/10, 5B=6/10, 5C=0/10\nNet: one named scale everywhere, or fix only the section gaps, or keep three unrelated numbers.": "5A Full 8px rhythm: 32 sections, 24 field groups, 8 label-to-input (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:26:38.592Z"
+      },
+      {
+        "sessionId": "ef7132ec-2688-4881-99e8-271c9ab4e220",
+        "toolUseId": "toolu_01FgY7LVVd3F69ywRCdHNRKJ",
+        "questions": [
+          {
+            "question": "D8 — Issue 6: what does Save do when the form is clean and idle?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 7 of /plan-design-review on PLAN.md.\nELI10: The contract says Reset is disabled when there's nothing to discard, but never says what Save does when there's nothing to save: on first load, right after a successful save, or after reverting edits. Whoever implements it will pick something. Two sensible answers: Save is aria-disabled (still focusable, dimmed) until an edit makes the form dirty, mirroring Reset; or Save stays enabled and pressing it re-saves the same values, refreshing \"Saved at HH:mm\" after a 2–5s spinner. Principle: don't make me think; a disabled Save says \"nothing to do here\" without a request.\nStakes if we pick wrong: either a pointless 2–5s request every time an anxious user clicks Save for reassurance, or a primary button that looks dead on first load if the dimmed style is too faint.\nRecommendation: 6A because it mirrors the Reset rule already in DESIGN.md, avoids no-op requests, and aria-disabled keeps focus stable after a save completes while focus is on the button.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a consistent \"idle means dimmed\" rule for both stateful actions, vs. an always-live Save that costs a round trip per reassurance click.",
+            "header": "Issue 6",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "6A Save aria-disabled when clean, enabled when dirty (recommended)",
+                "description": "✅ Mirrors Reset: clean form = nothing to save; uses aria-disabled + activation guard so focus stays put when Save flips to disabled right after a success. ✅ Keeps the filled primary style with the existing disabled appearance, so hierarchy holds and no extra request fires. ❌ On first load the primary button is dimmed until the user types; the disabled appearance must still be recognizably the primary."
+              },
+              {
+                "label": "6B Save always enabled; clean click re-saves",
+                "description": "✅ Reassurance clicks work: the timestamp refreshes and users see confirmation again. ✅ No disabled-state styling question on the primary. ❌ Every clean click costs a 2–5s request and spinner for no change; a slow network turns reassurance into doubt."
+              },
+              {
+                "label": "6C Save always enabled; clean click is a silent no-op",
+                "description": "✅ No request fires. ✅ Primary never looks dimmed. ❌ A button that does nothing with no feedback violates the trust principle; screen-reader users get no announcement at all."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D8 — Issue 6: what does Save do when the form is clean and idle?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 7 of /plan-design-review on PLAN.md.\nELI10: The contract says Reset is disabled when there's nothing to discard, but never says what Save does when there's nothing to save: on first load, right after a successful save, or after reverting edits. Whoever implements it will pick something. Two sensible answers: Save is aria-disabled (still focusable, dimmed) until an edit makes the form dirty, mirroring Reset; or Save stays enabled and pressing it re-saves the same values, refreshing \"Saved at HH:mm\" after a 2–5s spinner. Principle: don't make me think; a disabled Save says \"nothing to do here\" without a request.\nStakes if we pick wrong: either a pointless 2–5s request every time an anxious user clicks Save for reassurance, or a primary button that looks dead on first load if the dimmed style is too faint.\nRecommendation: 6A because it mirrors the Reset rule already in DESIGN.md, avoids no-op requests, and aria-disabled keeps focus stable after a save completes while focus is on the button.\nNote: options differ in kind, not coverage — no completeness score.\nNet: a consistent \"idle means dimmed\" rule for both stateful actions, vs. an always-live Save that costs a round trip per reassurance click.": "6A Save aria-disabled when clean, enabled when dirty (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:28:21.579Z"
+      },
+      {
+        "sessionId": "ef7132ec-2688-4881-99e8-271c9ab4e220",
+        "toolUseId": "toolu_018mSbp8GaAEkYziFPbVzHsJ",
+        "questions": [
+          {
+            "question": "D9 — Issue 7: what happens to the error/Retry row and focus when Retry is activated?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 7 of /plan-design-review on PLAN.md.\nELI10: After a failed save, the user's focus may be on the Retry button inside the error row. They press it. The contract says Save shows \"Saving…\" and focus must not move while pending, but it never says whether the old error message stays on screen during the retry or what happens to focus if the row goes away. If the row is removed and nothing catches focus, keyboard and screen-reader users land on <body> and lose their place. Principle: seeing the system, not the screen; the second attempt must behave like the first.\nStakes if we pick wrong: a stale \"Save failed\" message shown while the retry is in flight, or focus silently dropped to the page body mid-operation.\nRecommendation: 7A because it makes a retry identical to pressing Save (error gone, focus on the trigger), so a second failure follows the exact same focus-to-Retry rule as the first.\nNote: options differ in kind, not coverage — no completeness score.\nNet: treat Retry as \"press Save again\" with one named focus hand-off, or keep the stale error visible and freeze Retry until the outcome arrives.",
+            "header": "Issue 7",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "7A Clear the row on Retry; hand focus to the request button (recommended)",
+                "description": "✅ Activating Retry save/export removes the error row immediately and, if focus was on Retry, moves it to the corresponding request button (Save or Export), which is now showing its pending spinner; this is the one named exception to \"do not move focus while pending\". ✅ A second failure then re-renders the row and focuses Retry only if focus is still on the request button, exactly like the first failure. ❌ Requires the implementer to sequence focus before the row unmounts."
+              },
+              {
+                "label": "7B Keep the row visible; Retry aria-disabled until the outcome",
+                "description": "✅ No focus movement at all while pending; focus stays on the (now aria-disabled) Retry. ✅ Simpler DOM: nothing unmounts until the result. ❌ The old failure text stays visible during the retry, which reads as \"still failing\"; on success the row then clears under focus and a hand-off is still needed."
+              },
+              {
+                "label": "7C Leave unspecified",
+                "description": "✅ No plan change. ✅ Implementer decides. ❌ Most likely outcome is focus dropped to <body>; logged as an unresolved decision."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D9 — Issue 7: what happens to the error/Retry row and focus when Retry is activated?\nProject/branch/task: gstack-plan-count-lvkT4r on main, Pass 7 of /plan-design-review on PLAN.md.\nELI10: After a failed save, the user's focus may be on the Retry button inside the error row. They press it. The contract says Save shows \"Saving…\" and focus must not move while pending, but it never says whether the old error message stays on screen during the retry or what happens to focus if the row goes away. If the row is removed and nothing catches focus, keyboard and screen-reader users land on <body> and lose their place. Principle: seeing the system, not the screen; the second attempt must behave like the first.\nStakes if we pick wrong: a stale \"Save failed\" message shown while the retry is in flight, or focus silently dropped to the page body mid-operation.\nRecommendation: 7A because it makes a retry identical to pressing Save (error gone, focus on the trigger), so a second failure follows the exact same focus-to-Retry rule as the first.\nNote: options differ in kind, not coverage — no completeness score.\nNet: treat Retry as \"press Save again\" with one named focus hand-off, or keep the stale error visible and freeze Retry until the outcome arrives.": "7A Clear the row on Retry; hand focus to the request button (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:28:51.224Z"
+      },
+      {
+        "sessionId": "ef7132ec-2688-4881-99e8-271c9ab4e220",
+        "toolUseId": "toolu_016iwbDoWFWJ97rfAsMvqxoy",
+        "questions": [
+          {
+            "question": "D10 — TODO proposal: hint that Export excludes unsaved edits when the form is dirty?\nProject/branch/task: gstack-plan-count-lvkT4r on main, post-pass TODO proposals for /plan-design-review.\nELI10: The accepted contract says Export downloads the last saved preferences, never the edits in progress. That's correct behavior, but a user with \"Unsaved changes\" showing who clicks Export gets a file missing what they just typed, with no warning. This isn't a violation of the plan, so I'm not changing it in this review; it's a scope tradeoff you may want on the backlog. What: when the form is dirty, give Export a short inline hint or tooltip (e.g. helper text \"Exports your saved preferences\") or a confirmation. Why: prevents a confusing download. Pros: cheap, reuses existing helper-text pattern. Cons: adds copy to a header the design system says to keep minimal; a dialog would add friction. Context: DESIGN.md line 41 and PLAN.md line 44–47 define the current behavior. Depends on: nothing.\nStakes if we pick wrong: a minor confusion ships, or the header gains copy nobody asked for.\nRecommendation: A because it records the tradeoff without expanding this PR; a human-team day of debate becomes a 5-minute backlog entry (human: ~1h / CC: ~5 min).\nNote: options differ in kind, not coverage — no completeness score.\nNet: park it as debt, drop it, or widen this PR.",
+            "header": "TODO",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A Add to TODOS.md (recommended)",
+                "description": "✅ Captures the tradeoff with context so it isn't lost; TODOS.md doesn't exist yet, so the plan gains a task to create it with this entry. ✅ Keeps this PR scoped to the approved design-system fixes. ❌ The confusing download ships until someone picks it up."
+              },
+              {
+                "label": "B Skip — not valuable enough",
+                "description": "✅ Nothing added anywhere. ✅ Header copy stays minimal per DESIGN.md. ❌ The tradeoff is forgotten; if it bites later, it gets rediscovered from a support ticket."
+              },
+              {
+                "label": "C Build it now in this PR",
+                "description": "✅ Closes the gap immediately. ✅ Reuses existing helper-text styling. ❌ Changes accepted header content and needs a DESIGN.md amendment plus its own copy decision; widens a PR meant to be a token alignment."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D10 — TODO proposal: hint that Export excludes unsaved edits when the form is dirty?\nProject/branch/task: gstack-plan-count-lvkT4r on main, post-pass TODO proposals for /plan-design-review.\nELI10: The accepted contract says Export downloads the last saved preferences, never the edits in progress. That's correct behavior, but a user with \"Unsaved changes\" showing who clicks Export gets a file missing what they just typed, with no warning. This isn't a violation of the plan, so I'm not changing it in this review; it's a scope tradeoff you may want on the backlog. What: when the form is dirty, give Export a short inline hint or tooltip (e.g. helper text \"Exports your saved preferences\") or a confirmation. Why: prevents a confusing download. Pros: cheap, reuses existing helper-text pattern. Cons: adds copy to a header the design system says to keep minimal; a dialog would add friction. Context: DESIGN.md line 41 and PLAN.md line 44–47 define the current behavior. Depends on: nothing.\nStakes if we pick wrong: a minor confusion ships, or the header gains copy nobody asked for.\nRecommendation: A because it records the tradeoff without expanding this PR; a human-team day of debate becomes a 5-minute backlog entry (human: ~1h / CC: ~5 min).\nNote: options differ in kind, not coverage — no completeness score.\nNet: park it as debt, drop it, or widen this PR.": "A Add to TODOS.md (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T01:29:51.086Z"
+      }
+    ]
+  }
+}

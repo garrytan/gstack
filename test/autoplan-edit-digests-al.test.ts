@@ -90,9 +90,9 @@ test('normalization joins display wrapping but keeps changed nonwhitespace bytes
  expect(autoplanEditLineHash('same  body\t')).toBe(autoplanEditLineHash('samebody'));expect(autoplanEditLineHash('same body')).not.toBe(autoplanEditLineHash('different body'));
  const r=replay();r.viewport=r.viewport.replace('Toast stacking','Toast stacKING');expect(pick(r)).toBeNull();
 });
-test('only Autoplan owns the new digest helper and regression evidence',()=>{
+test('Eng and Autoplan share the digest helper and regression evidence',()=>{
  const owner=E2E_TOUCHFILES['autoplan-chain-pty']!;for(let i=0;i<owner.length;i++){expect(Object.hasOwn(owner,i)).toBe(true);expect(typeof owner[i]).toBe('string');}
- for(const file of ['test/helpers/autoplan-artifact-digest.ts','test/autoplan-edit-digests-al.test.ts','test/fixtures/autoplan-edit-digests-al.json'])expect(selectTests([file],E2E_TOUCHFILES,[]).selected).toEqual(['autoplan-chain-pty']);
+ for(const file of ['test/helpers/autoplan-artifact-digest.ts','test/autoplan-edit-digests-al.test.ts','test/fixtures/autoplan-edit-digests-al.json'])expect(selectTests([file],E2E_TOUCHFILES,[]).selected.sort()).toEqual(['autoplan-chain-pty','plan-eng-finding-count']);
 });
 test('identical pending hook replay cannot refresh digest or timestamp',()=>{
  const r=replay(),before=fs.readFileSync(r.recorder.file,'utf8');recordAutoplanArtifact(JSON.stringify(r.event),r.recorder.file,r.context.cwd,r.config,r.context.ownedStateRoot);expect(fs.readFileSync(r.recorder.file,'utf8')).toBe(before);

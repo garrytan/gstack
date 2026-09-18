@@ -364,5 +364,186 @@
       "genuineDecisions": 8,
       "observationSha256": "8412dec128155b28ce10dc0c9aaae82069bf3dfd5d22e3afabf70d1ba39da2ff"
     }
-  ]
+  ],
+  "capture77": {
+    "sourceHead": "77fd0890ddfeaf2bdd6d78183a2d989d9a4e8d4c",
+    "fullPublicCaptureSha256": "25941f779b15df49295ff9b2f134d1391337ae37d8ac3b6fc86ac622a0e128a0",
+    "historicalOutcome": "plan_ready; seeded-gap assertion failed: opaque-auth-error, breaking-upgrade",
+    "provenance": "Five complete original native seed decisions from the ten-call public capture; exact questions, options, answers and session identities. Unrelated setup, narrative and later decisions are omitted. No paid failure is rejudged.",
+    "calls": [
+      {
+        "sessionId": "d163ed32-3fa3-4347-b9d4-7ea00e072b43",
+        "toolUseId": "toolu_01QGqFDXcQtJspvbz4m3SxgP",
+        "questions": [
+          {
+            "question": "D5 — Authentication error: what does the developer see when their API key is rejected?\nProject/branch/task: EvalKit SDK on main; Real Usage and Debug stages, first live evaluation after the demo.\nELI10: Right after the keyless demo, the developer creates a key in the console and exports EVALKIT_API_KEY (README.md:25-27). If that key is stale, mistyped, revoked, or simply not exported, the SDK raises `AuthError(\"request failed\")` (docs/api.md:11). 'request failed' could mean DNS, a proxy, a rate limit, or the key. Your other errors already say what broke, which argument or file, and how to fix it (docs/current-contracts.md:21-23); this one does not. The developer's next move is guessing or opening a support ticket.\nStakes if we pick wrong: the first live call, the moment they decide whether EvalKit is real, ends in an unexplained failure; support gets 'request failed' tickets with no code to search on.\nRecommendation: A because it applies the error contract the SDK already enforces everywhere else, and the fix URL is the console page README already documents.\nCompleteness: A=9/10, B=7/10, C=3/10\nNet: A makes auth failures self-serve and searchable; B covers the common case with one message; C keeps the only error in the SDK that violates its own standard.",
+            "header": "Auth error",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Structured AuthError: code + cause + fix, per state (recommended)",
+                "description": "Keep the AuthError class. Message gains a stable code and a state-specific cause and fix: EVALKIT_AUTH_MISSING_KEY (env var unset: 'export EVALKIT_API_KEY=... ; create one at https://console.evalkit.example/settings/api-keys'), EVALKIT_AUTH_INVALID_KEY (rejected/revoked: 'rotate or create a key at <same URL>, then re-export'). Never echoes the key; includes the help link and the request/eval id for support. Documented in docs/api.md. (human: ~1 day / CC: ~20 min)\n✅ Matches the problem+cause+fix contract every other EvalKit error already meets.\n✅ A searchable code turns 'request failed' tickets into a docs lookup.\n✅ Missing vs invalid key are the two states developers actually hit; each gets its own next step.\n❌ Changes a documented message; api.md and the changelog need the new text, and any test asserting 'request failed' must be updated."
+              },
+              {
+                "label": "B) Single improved message, no per-state split",
+                "description": "Keep AuthError; replace 'request failed' with one message: 'API key rejected (EVALKIT_AUTH_INVALID_KEY). Create or rotate a key at https://console.evalkit.example/settings/api-keys and export EVALKIT_API_KEY.'\n✅ One string change; smallest possible runtime diff for the beta.\n✅ Still gives a code, a cause and a fix URL, which is 90% of the value.\n❌ A developer who forgot to export the variable is told their key was rejected, which is wrong and sends them to rotate a key that was never sent."
+              },
+              {
+                "label": "C) Retain `AuthError(\"request failed\")`, document its meaning in api.md",
+                "description": "No runtime change; docs/api.md explains that 'request failed' from AuthError means the key was rejected and links the console page.\n✅ Zero code risk before the beta ships.\n✅ Developers who read api.md can decode the message.\n❌ Every error is pain; this one forces a context switch to docs to learn it means 'your key is bad', and remains unsearchable and indistinguishable from network failures at a glance."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 — Authentication error: what does the developer see when their API key is rejected?\nProject/branch/task: EvalKit SDK on main; Real Usage and Debug stages, first live evaluation after the demo.\nELI10: Right after the keyless demo, the developer creates a key in the console and exports EVALKIT_API_KEY (README.md:25-27). If that key is stale, mistyped, revoked, or simply not exported, the SDK raises `AuthError(\"request failed\")` (docs/api.md:11). 'request failed' could mean DNS, a proxy, a rate limit, or the key. Your other errors already say what broke, which argument or file, and how to fix it (docs/current-contracts.md:21-23); this one does not. The developer's next move is guessing or opening a support ticket.\nStakes if we pick wrong: the first live call, the moment they decide whether EvalKit is real, ends in an unexplained failure; support gets 'request failed' tickets with no code to search on.\nRecommendation: A because it applies the error contract the SDK already enforces everywhere else, and the fix URL is the console page README already documents.\nCompleteness: A=9/10, B=7/10, C=3/10\nNet: A makes auth failures self-serve and searchable; B covers the common case with one message; C keeps the only error in the SDK that violates its own standard.": "A) Structured AuthError: code + cause + fix, per state (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T17:28:29.849Z"
+      },
+      {
+        "sessionId": "d163ed32-3fa3-4347-b9d4-7ea00e072b43",
+        "toolUseId": "toolu_01LysC1TJ8hNg99KxYdZh6zp",
+        "questions": [
+          {
+            "question": "D7 — v1→v2 upgrade: what happens to a v1 script that calls `Client.evaluate()` after `pip install evalkit==2.0.0b1`?\nProject/branch/task: EvalKit SDK on main; Upgrade stage of the journey trace.\nELI10: Version 1 exposes Client.evaluate(). 2.0 renames it to Client.run() and deletes the old name on the spot, with no alias, no warning, no migration guide, no codemod (docs/api.md:15-17). Every existing user who upgrades gets `AttributeError: 'Client' object has no attribute 'evaluate'` in production or CI, and Python gives them no hint that run() is the replacement. The changelog is otherwise complete (api.md:18), so this is the single upgrade hole.\nStakes if we pick wrong: the first thing existing customers learn about 2.0 is that it broke their pipeline without telling them why; that is the upgrade-fear story that stalls every later release.\nRecommendation: A because a one-line alias plus a DeprecationWarning makes the upgrade boring, and 2.0 already carries three other contract changes (D3, D5, D6) that a migration guide must cover anyway.\nCompleteness: A=9/10, B=7/10, C=2/10\nNet: A keeps v1 code running while telling it exactly what to change; B breaks it but explains; C breaks it silently.",
+            "header": "v1→v2",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Deprecated alias through 2.x + migration guide (recommended)",
+                "description": "Client.evaluate() stays as a thin wrapper that calls Client.run() and emits DeprecationWarning('Client.evaluate() is deprecated; use Client.run(). Removed in 3.0. See <migration guide URL>'). Changelog gains a 'Migrating from 1.x' section covering: evaluate→run (with a one-line sed/grep), run_batch argument order (D6), new AuthError codes (D5), CI check now runs before the first live eval (D3). Alias removed in 3.0. (human: ~half day / CC: ~15 min)\n✅ Existing pipelines keep passing on upgrade day; the warning names the exact edit.\n✅ One guide covers all four 2.0 contract changes, so upgraders read one page, not four.\n✅ Standard Python deprecation shape (warnings module), so CI can opt into -W error to enforce migration on their schedule.\n❌ Carries one alias and one warning through the 2.x line; needs a tracked removal task for 3.0."
+              },
+              {
+                "label": "B) Remove as drafted, but fail with a pointer + migration guide",
+                "description": "No alias. Client defines __getattr__ so 'evaluate' raises AttributeError('Client.evaluate() was renamed to Client.run() in 2.0; see <migration guide>'). Same 'Migrating from 1.x' changelog section as A.\n✅ Clean 2.0 API surface with no legacy names to remove later.\n✅ The break is self-explaining: the error tells the developer the rename and where to read more.\n❌ Still a hard break on upgrade day; every v1 caller must edit code before anything runs again."
+              },
+              {
+                "label": "C) Retain as drafted: immediate removal, no alias, warning, or guide",
+                "description": "Ship docs/api.md:15-17 unchanged.\n✅ Zero additional work before the beta.\n✅ Smallest possible 2.0 surface area.\n❌ Upgrading users hit a bare AttributeError with no hint that run() exists; the only fix path is reading source or filing a ticket."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D7 — v1→v2 upgrade: what happens to a v1 script that calls `Client.evaluate()` after `pip install evalkit==2.0.0b1`?\nProject/branch/task: EvalKit SDK on main; Upgrade stage of the journey trace.\nELI10: Version 1 exposes Client.evaluate(). 2.0 renames it to Client.run() and deletes the old name on the spot, with no alias, no warning, no migration guide, no codemod (docs/api.md:15-17). Every existing user who upgrades gets `AttributeError: 'Client' object has no attribute 'evaluate'` in production or CI, and Python gives them no hint that run() is the replacement. The changelog is otherwise complete (api.md:18), so this is the single upgrade hole.\nStakes if we pick wrong: the first thing existing customers learn about 2.0 is that it broke their pipeline without telling them why; that is the upgrade-fear story that stalls every later release.\nRecommendation: A because a one-line alias plus a DeprecationWarning makes the upgrade boring, and 2.0 already carries three other contract changes (D3, D5, D6) that a migration guide must cover anyway.\nCompleteness: A=9/10, B=7/10, C=2/10\nNet: A keeps v1 code running while telling it exactly what to change; B breaks it but explains; C breaks it silently.": "A) Deprecated alias through 2.x + migration guide (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T17:29:30.526Z"
+      }
+    ],
+    "scope": "Only the two relevant complete native decisions; original complete ten-call replay remains in private evidence."
+  },
+  "capture77Retry": {
+    "source": "77fd0890ddfeaf2bdd6d78183a2d989d9a4e8d4c",
+    "historicalOutcome": "plan_ready; seeded-gap assertion failed (opaque-auth-error, breaking-upgrade), no paid pass credit",
+    "publicCaptureSha256": "aa5ccdf29bc445188582fb185d5086f9e6e16bfe0b7e0e254b7dbc33926265a1",
+    "scope": "Two relevant complete native decisions plus the future TODO disposition that must not replace the missing current quickstart decision; full ten-call replay remains private evidence.",
+    "calls": [
+      {
+        "sessionId": "b1038864-4a5c-40a9-81e6-d623f74a640f",
+        "toolUseId": "toolu_01LanPwovYCXqQvwk6SG5qXU",
+        "questions": [
+          {
+            "question": "D5 — What should the developer see when their API key is rejected?\nProject/branch/task: EvalKit SDK beta polish on `main`; Debug stage, contract E3 (docs/api.md:11-13).\nELI10: The first thing a developer does after the demo is paste a key. If they paste it wrong, or it was revoked, they get `AuthError(\"request failed\")`. That could mean network, server, anything. They will go check their Wi-Fi before they check the key. Every other EvalKit error already says problem, cause and fix (current-contracts.md:21-23); this is the single exception, and it sits exactly at the moment of first real usage. The key creation page and its revoke/rotate controls already exist (README.md:25-28), so the fix text has a real destination.\nStakes if we pick wrong: A developer with a bad key burns 10-20 minutes debugging the wrong layer at the exact step where they decide whether to keep going.\nRecommendation: A because it brings AuthError up to the contract every other error already meets, and the destination URL already exists.\nCompleteness: A=10/10, B=5/10, C=1/10\nA) Full problem + cause + fix, with a stable code (recommended)\n  ✅ e.g. `AuthError: API key rejected (EVALKIT_AUTH_INVALID_KEY). Cause: EVALKIT_API_KEY is missing, invalid, or revoked. Fix: create or rotate a key at https://console.evalkit.example/settings/api-keys and export EVALKIT_API_KEY.` Key value never echoed.\n  ✅ Distinguishes missing / invalid / revoked when the API reports distinct statuses; `code` attribute lets CI scripts branch on it\n  ❌ Touches an explicitly retained message; needs a test per variant and a docs entry alongside EVALKIT_CI_TIMEOUT\nB) Append the console URL to the existing message\n  ✅ One-line change; developer at least learns where keys live\n  ✅ No new error code or attribute to document\n  ❌ Still no cause; \"request failed\" still reads as a network problem\nC) Keep `AuthError(\"request failed\")` as planned\n  ✅ No change to retained behavior\n  ❌ Only error in the SDK that violates its own error contract, at the highest-stakes step\nNet: trading a small error-class change against the one moment a confused developer walks away.",
+            "header": "AuthError",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Problem + cause + fix + code (recommended)",
+                "description": "Stable code EVALKIT_AUTH_INVALID_KEY, cause, console URL fix, secret redacted; variants for missing/invalid/revoked where API distinguishes."
+              },
+              {
+                "label": "B) Add console URL only",
+                "description": "Keep 'request failed', append the key page URL."
+              },
+              {
+                "label": "C) Keep as planned",
+                "description": "AuthError('request failed') unchanged."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 — What should the developer see when their API key is rejected?\nProject/branch/task: EvalKit SDK beta polish on `main`; Debug stage, contract E3 (docs/api.md:11-13).\nELI10: The first thing a developer does after the demo is paste a key. If they paste it wrong, or it was revoked, they get `AuthError(\"request failed\")`. That could mean network, server, anything. They will go check their Wi-Fi before they check the key. Every other EvalKit error already says problem, cause and fix (current-contracts.md:21-23); this is the single exception, and it sits exactly at the moment of first real usage. The key creation page and its revoke/rotate controls already exist (README.md:25-28), so the fix text has a real destination.\nStakes if we pick wrong: A developer with a bad key burns 10-20 minutes debugging the wrong layer at the exact step where they decide whether to keep going.\nRecommendation: A because it brings AuthError up to the contract every other error already meets, and the destination URL already exists.\nCompleteness: A=10/10, B=5/10, C=1/10\nA) Full problem + cause + fix, with a stable code (recommended)\n  ✅ e.g. `AuthError: API key rejected (EVALKIT_AUTH_INVALID_KEY). Cause: EVALKIT_API_KEY is missing, invalid, or revoked. Fix: create or rotate a key at https://console.evalkit.example/settings/api-keys and export EVALKIT_API_KEY.` Key value never echoed.\n  ✅ Distinguishes missing / invalid / revoked when the API reports distinct statuses; `code` attribute lets CI scripts branch on it\n  ❌ Touches an explicitly retained message; needs a test per variant and a docs entry alongside EVALKIT_CI_TIMEOUT\nB) Append the console URL to the existing message\n  ✅ One-line change; developer at least learns where keys live\n  ✅ No new error code or attribute to document\n  ❌ Still no cause; \"request failed\" still reads as a network problem\nC) Keep `AuthError(\"request failed\")` as planned\n  ✅ No change to retained behavior\n  ❌ Only error in the SDK that violates its own error contract, at the highest-stakes step\nNet: trading a small error-class change against the one moment a confused developer walks away.": "A) Problem + cause + fix + code (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T17:44:17.466Z"
+      },
+      {
+        "sessionId": "b1038864-4a5c-40a9-81e6-d623f74a640f",
+        "toolUseId": "toolu_01VGDfp6ESfQKqhXmmN2WCHP",
+        "questions": [
+          {
+            "question": "D6 — How does a v1 user of `Client.evaluate()` reach `Client.run()` in 2.0?\nProject/branch/task: EvalKit SDK beta polish on `main`; Upgrade stage, contract E5 (docs/api.md:15-18).\nELI10: Your persona wires EvalKit into production CI. When they bump to 2.0, every `client.evaluate(...)` call dies with a generic AttributeError that names nothing about `run()`. That is the upgrade-fear scenario: a routine version bump breaks CI with no hint. The rename is one word, so a codemod is overkill, but the developer still needs a warning before the break, or at minimum an error that tells them the new name. D4 already adds a second break (run_batch order), so the migration section has two entries either way.\nStakes if we pick wrong: Broken CI on upgrade with no explanation; developers pin to 1.x and stop upgrading, which kills beta feedback.\nRecommendation: A because a warned alias makes the upgrade boring and costs a few lines.\nCompleteness: A=9/10, B=7/10, C=4/10, D=1/10\nA) Keep `evaluate()` as a deprecated alias in 2.0 with a DeprecationWarning; remove in 3.0 (recommended)\n  ✅ 2.0 upgrade never breaks a v1 call; the warning names `run()` and the removal version\n  ✅ Migration section in the changelog covers `evaluate -> run` and the `run_batch` order change from D4\n  ❌ Old name lingers one more major; two spellings exist in 2.x docs and completions\nB) Remove it, but raise a clear error pointing at `run()`\n  ✅ Clean 2.0 surface; the failure says exactly what to change\n  ✅ Still gets the changelog migration section\n  ❌ Upgrade still breaks CI on first run; a stub method exists only to fail\nC) No alias or stub; add a migration guide section to the changelog only\n  ✅ Zero runtime code\n  ✅ Discoverable for developers who read release notes\n  ❌ The AttributeError itself stays silent; most developers hit the error before the notes\nD) Keep as planned: hard removal, no guide\n  ✅ Nothing to do\n  ❌ Changelog cannot be called complete with an undocumented breaking rename\nNet: trading a lingering alias for one major against a silent production break on a version bump.",
+            "header": "Upgrade",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Deprecated alias + warning, remove in 3.0 (recommended)",
+                "description": "evaluate() delegates to run() with DeprecationWarning naming run() and 3.0; migration section covers both breaks."
+              },
+              {
+                "label": "B) Remove, raise clear error",
+                "description": "evaluate() stub raises an error naming run(); migration section added."
+              },
+              {
+                "label": "C) Migration guide only",
+                "description": "No runtime change; document evaluate -> run and run_batch order in the changelog."
+              },
+              {
+                "label": "D) Keep as planned",
+                "description": "Hard removal, no guide."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 — How does a v1 user of `Client.evaluate()` reach `Client.run()` in 2.0?\nProject/branch/task: EvalKit SDK beta polish on `main`; Upgrade stage, contract E5 (docs/api.md:15-18).\nELI10: Your persona wires EvalKit into production CI. When they bump to 2.0, every `client.evaluate(...)` call dies with a generic AttributeError that names nothing about `run()`. That is the upgrade-fear scenario: a routine version bump breaks CI with no hint. The rename is one word, so a codemod is overkill, but the developer still needs a warning before the break, or at minimum an error that tells them the new name. D4 already adds a second break (run_batch order), so the migration section has two entries either way.\nStakes if we pick wrong: Broken CI on upgrade with no explanation; developers pin to 1.x and stop upgrading, which kills beta feedback.\nRecommendation: A because a warned alias makes the upgrade boring and costs a few lines.\nCompleteness: A=9/10, B=7/10, C=4/10, D=1/10\nA) Keep `evaluate()` as a deprecated alias in 2.0 with a DeprecationWarning; remove in 3.0 (recommended)\n  ✅ 2.0 upgrade never breaks a v1 call; the warning names `run()` and the removal version\n  ✅ Migration section in the changelog covers `evaluate -> run` and the `run_batch` order change from D4\n  ❌ Old name lingers one more major; two spellings exist in 2.x docs and completions\nB) Remove it, but raise a clear error pointing at `run()`\n  ✅ Clean 2.0 surface; the failure says exactly what to change\n  ✅ Still gets the changelog migration section\n  ❌ Upgrade still breaks CI on first run; a stub method exists only to fail\nC) No alias or stub; add a migration guide section to the changelog only\n  ✅ Zero runtime code\n  ✅ Discoverable for developers who read release notes\n  ❌ The AttributeError itself stays silent; most developers hit the error before the notes\nD) Keep as planned: hard removal, no guide\n  ✅ Nothing to do\n  ❌ Changelog cannot be called complete with an undocumented breaking rename\nNet: trading a lingering alias for one major against a silent production break on a version bump.": "A) Deprecated alias + warning, remove in 3.0 (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T17:44:44.093Z"
+      },
+      {
+        "sessionId": "b1038864-4a5c-40a9-81e6-d623f74a640f",
+        "toolUseId": "toolu_01EDP2p1Hpjq85qycd3xrb2E",
+        "questions": [
+          {
+            "question": "D9 — TODO: ship `examples/first_eval.py` as a real-usage example in a later release?\nProject/branch/task: EvalKit SDK beta polish on `main`; TODOS.md candidate from the E4 finding.\nELI10: The beta README currently points at `examples/first_eval.py`, which does not exist (docs/package-contents.txt:8-9). The in-scope fix repoints the README at the shipped demo. The file itself, a runnable end-to-end example against a developer's own dataset with error handling, would still be useful later, but adding it changes the package inventory the plan fixes for beta.\nWhat: Add `examples/first_eval.py` (own dataset, client setup, run_eval, AuthError handling) to the examples archive.\nWhy: 'Show code in context' beyond the README snippet; the demo scores bundled data only.\nPros: Real-usage example developers can copy into their repo; doubles as an integration test.\nCons: Inventory change; another artifact to keep in sync with the API.\nContext: D8 adds a README snippet for beta; this TODO is the fuller example file. Depends on D4 order and D5 error shape landing first.\nStakes if we pick wrong: Low; this is a follow-up, not a beta blocker.\nRecommendation: A because it is cheap to record now and the README snippet already carries beta.\nNote: options differ in kind, not coverage — no completeness score.\nA) Add to TODOS.md (recommended)\n  ✅ Captures the gap with context while it is fresh; no beta scope change\n  ✅ Someone can pick it up in 3 months with D4/D5 already shipped\n  ❌ One more open item on the backlog\nB) Skip\n  ✅ README snippet from D8 may be enough for this persona\n  ❌ The dead-file finding leaves no trace once the README is repointed\nC) Build it now (adds to beta inventory)\n  ✅ Beta ships with a full example\n  ❌ Crosses the fixed package-inventory boundary of this plan\nNet: record vs forget vs expand scope.",
+            "header": "TODO",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Add to TODOS.md (recommended)",
+                "description": "Record the example-file follow-up with context; no beta scope change."
+              },
+              {
+                "label": "B) Skip",
+                "description": "Do not record; README snippet suffices."
+              },
+              {
+                "label": "C) Build it now",
+                "description": "Add examples/first_eval.py to the beta inventory (scope expansion)."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D9 — TODO: ship `examples/first_eval.py` as a real-usage example in a later release?\nProject/branch/task: EvalKit SDK beta polish on `main`; TODOS.md candidate from the E4 finding.\nELI10: The beta README currently points at `examples/first_eval.py`, which does not exist (docs/package-contents.txt:8-9). The in-scope fix repoints the README at the shipped demo. The file itself, a runnable end-to-end example against a developer's own dataset with error handling, would still be useful later, but adding it changes the package inventory the plan fixes for beta.\nWhat: Add `examples/first_eval.py` (own dataset, client setup, run_eval, AuthError handling) to the examples archive.\nWhy: 'Show code in context' beyond the README snippet; the demo scores bundled data only.\nPros: Real-usage example developers can copy into their repo; doubles as an integration test.\nCons: Inventory change; another artifact to keep in sync with the API.\nContext: D8 adds a README snippet for beta; this TODO is the fuller example file. Depends on D4 order and D5 error shape landing first.\nStakes if we pick wrong: Low; this is a follow-up, not a beta blocker.\nRecommendation: A because it is cheap to record now and the README snippet already carries beta.\nNote: options differ in kind, not coverage — no completeness score.\nA) Add to TODOS.md (recommended)\n  ✅ Captures the gap with context while it is fresh; no beta scope change\n  ✅ Someone can pick it up in 3 months with D4/D5 already shipped\n  ❌ One more open item on the backlog\nB) Skip\n  ✅ README snippet from D8 may be enough for this persona\n  ❌ The dead-file finding leaves no trace once the README is repointed\nC) Build it now (adds to beta inventory)\n  ✅ Beta ships with a full example\n  ❌ Crosses the fixed package-inventory boundary of this plan\nNet: record vs forget vs expand scope.": "A) Add to TODOS.md (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T17:48:55.509Z"
+      }
+    ]
+  }
 }

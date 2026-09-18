@@ -1,8 +1,8 @@
 import { describe, test, expect } from 'bun:test';
-import { spawnSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { runCapturedCommand } from './helpers/sync-command-capture';
 import { gitIn } from './helpers/scratch-repo';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -69,16 +69,14 @@ function buildRootAndRunCommand(
     fs.mkdirSync(project, { recursive: true });
 
     const { script, rootDir } = buildScript(sandbox);
-    const build = spawnSync(
-      'bash',
-      ['-c', `IS_WINDOWS=${isWindows}\n${extractFunction('_link_or_copy')}\n${script}`],
-      { encoding: 'utf-8', timeout: 30000 },
+    const build = runCapturedCommand(
+      'bash', ['-c', `IS_WINDOWS=${isWindows}\n${extractFunction('_link_or_copy')}\n${script}`],
+      { timeout: 30000 },
     );
 
     const libLst = fs.lstatSync(path.join(rootDir, 'lib'), { throwIfNoEntry: false });
-    const run = spawnSync('bash', [path.join(rootDir, 'bin', 'gstack-learnings-log'), PAYLOAD], {
+    const run = runCapturedCommand('bash', [path.join(rootDir, 'bin', 'gstack-learnings-log'), PAYLOAD], {
       cwd: project,
-      encoding: 'utf-8',
       timeout: 30000,
       env: { ...process.env, HOME: home, GSTACK_HOME: path.join(home, '.gstack') },
     });
@@ -87,14 +85,14 @@ function buildRootAndRunCommand(
     fs.writeFileSync(path.join(project, 'source.txt'), 'reviewed content\n');
     gitIn(project, 'add source.txt');
     gitIn(project, 'commit -qm initial');
-    const review = spawnSync('bash', ['-c', `
+    const review = runCapturedCommand('bash', ['-c', `
 set -e
 TOKEN=$("$1/bin/gstack-review-log" --start review)
 "$1/bin/gstack-review-log" '{"skill":"review","status":"clean","completed":true,"converged":true}' --finish "$TOKEN"
 "$1/bin/gstack-review-read"
 `, 'review-runtime', rootDir], {
       cwd: project,
-      encoding: 'utf-8',
+      captureStdout: true,
       timeout: 30000,
       env: { ...process.env, HOME: home, GSTACK_HOME: path.join(home, '.gstack') },
     });
@@ -182,10 +180,10 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
   for (const [host, buildScript] of Object.entries(HOST_ROOTS)) {
     test(`${host} root (symlink install): gstack-learnings-log imports ../lib and writes the learning`, () => {
       const r = buildRootAndRunCommand('0', buildScript);
-      expect(r.buildStatus).toBe(0);
+      expect(r.buildStatus, r.buildStderr).toBe(0);
       expect(r.libIsSymlink).toBe(true);
       expect(r.runStderr).not.toContain('lib/jsonl-store.ts');
-      expect(r.runStatus).toBe(0);
+      expect(r.runStatus, r.runStderr).toBe(0);
       expect(r.learningsWritten).toBe(true);
       expect(r.supabaseConfigPresent).toBe(true);
       expect(r.reviewStatus).toBe(0);
@@ -194,11 +192,11 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
 
     test(`${host} root (Windows copy install): gstack-learnings-log imports ../lib and writes the learning`, () => {
       const r = buildRootAndRunCommand('1', buildScript);
-      expect(r.buildStatus).toBe(0);
+      expect(r.buildStatus, r.buildStderr).toBe(0);
       // Windows branch copies: lib must be a real directory, not a symlink.
       expect(r.libIsSymlink).toBe(false);
       expect(r.runStderr).not.toContain('lib/jsonl-store.ts');
-      expect(r.runStatus).toBe(0);
+      expect(r.runStatus, r.runStderr).toBe(0);
       expect(r.learningsWritten).toBe(true);
       expect(r.supabaseConfigPresent).toBe(true);
       expect(r.reviewStatus).toBe(0);
@@ -223,4 +221,5 @@ describe.skipIf(process.platform === 'win32')('setup: bin commands resolve sibli
     expect(r.learningsWritten).toBe(false);
     expect(r.reviewStatus).not.toBe(0);
   });
+
 });

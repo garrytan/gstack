@@ -2,21 +2,59 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 Before dispatch, Read `methodologyPath` from `bun "<SNAPSHOT_TOOL>" methodology ceo "<REVIEW_SKILL>" "<RESTORE_PATH>"` per `readRanges`; log successful ranges/total to EOF. Skip-listed: load only.
 
+Execute in this order: Step 0 (including its completed Spec Review Loop) → Claude
+CEO voice → Codex CEO voice → consensus → Review Sections → saved summary → phase
+announcement. Dispatching a reviewer does not complete its step.
+
 **Override rules:**
 - Mode selection: SELECTIVE EXPANSION
-- Premises: accept reasonable ones (P6). Clearly-wrong or challenged premises are
-  NOT a mid-run stop — queue each as a User-Challenge-shaped item for the Final
-  Approval Gate (Phase 4): what the plan assumes, why it looks wrong, and the cost
-  of proceeding anyway. Premises still require human judgment — the human exercises
-  it at the gate, exactly once, not mid-pipeline.
+- Premises: accept reasonable ones (P6). Queue clearly-wrong/challenged premises
+  as User Challenges for Phase 4: assumption, reason and cost of proceeding.
+  The user decides there; never stop mid-pipeline.
 - Alternatives: pick highest completeness (P1). If tied, pick simplest (P5).
   If top 2 are close → mark TASTE DECISION.
 - Scope expansion: in blast radius + <1d CC → approve (P2). Outside → defer to TODOS.md (P3).
   Duplicates → reject (P4). Borderline (3-5 files) → mark TASTE DECISION.
-- All 10 review sections: run fully, auto-decide each issue, log every decision.
-- Dual voices: always run BOTH Claude subagent AND Codex if available (P6).
-  Run Claude first, then Codex, sequentially;
-  both must complete before consensus.
+- All 11 review sections: run fully, auto-decide each issue, log every decision.
+
+**Required execution checklist (CEO):**
+
+Complete every Step 0 analysis/output on the loaded skill's SELECTIVE EXPANSION
+route with the overrides above: CEO scope document and 0H Spec Review Loop before
+0I and Review Sections.
+
+**At 0H, prepare the current input for each spec review.** Create one amendment
+checkpoint; keep its `snapshotPath` as `<CEO_STEP0_CHECKPOINT>` throughout CEO:
+```bash
+bun "<SNAPSHOT_TOOL>" create ceo "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyPath>"
+```
+Put every accepted behavior, condition, test and manual checklist from Step 0 in
+the CEO accepted-obligations block. Preserve source-plan and DESIGN.md requirements;
+User Challenges retain the original requirements. Taste is a provisional
+auto-decision; accepted expansions must work without assuming queued changes are
+approved. Keep decision history and pending review work in `Review record`.
+
+Before every spec dispatch, including after each accepted spec fix, run:
+```bash
+bun "<SNAPSHOT_TOOL>" amend-input ceo "<ACTIVE_PLAN>" "<CEO_STEP0_CHECKPOINT>" "<RESTORE_PATH>" "<methodologyPath>"
+```
+This applies the recorded requirements and exports the complete current
+`Implementation plan`. Keep returned `checkpointPath` as the amendment baseline;
+use returned `reviewInputPath` as `<CEO_SPEC_INPUT>`. Read that file at every
+returned `readRanges` offset/limit through EOF, then read the CEO scope summary in full.
+Reconcile dispositions, scope counts, proposal IDs and actual heading/test references
+between them. Link deferrals to actual TODOs or pending writes. Fix summary drift
+without changing decisions, dropping findings/required fields or inventing references.
+If the working plan changes, repeat `amend-input` and the readback before dispatch.
+Supply the complete CEO scope summary and `<CEO_SPEC_INPUT>` to the loaded Spec
+Review Loop. The checkpoint is immutable prior state; never supply it as the current
+working plan. A failed preparation is an input failure, not a completed spec review.
+Keep the loop's existing stop conditions and three-launch cap. After the loop,
+create a fresh snapshot below for both voices; it does not replace the amendment checkpoint.
+
+Step 0.5 (Dual Voices): After Step 0's Spec Review Loop, consume the native CEO
+review, then the available outside voice (P6). Present both completed results
+before consensus; always run the native pass.
 
   **Bind phase input:** Run; use `snapshotPath` as `<CEO_INPUT>` for both voices:
 ```bash
@@ -28,7 +66,8 @@ bun "<SNAPSHOT_TOOL>" create ceo "<ACTIVE_PLAN>" "<RESTORE_PATH>" "<methodologyP
   Claude Code: set Agent `run_in_background: false` if its schema exposes it.
   Other hosts: foreground; await completion when supported.
 
-  Send `nativeDispatchPrompt` verbatim: ONLY/FINAL tool call this response.
+  Read `snapshot.json` beside `<CEO_INPUT>`. Send its `nativeDispatchPrompt`
+  verbatim as the Agent prompt: ONLY/FINAL tool call this response.
   Keep native Reads enabled. Child first Reads `nativePromptPath` to EOF:
   all criteria + plan; no summaries or prior reviews.
 
@@ -52,7 +91,7 @@ IMPORTANT: Do NOT read or execute any SKILL.md files or paths containing skills/
   No compliments. Just the strategic blind spots.
   File: <CEO_INPUT>
 
-Use Write to save the **complete prompt and context** in a private file. Replace `<prepared-prompt-file>` below with its shell-quoted path; never interpolate user text into shell source. Include actual plan/spec/source content. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale. A refusal is never completion.
+Write the **complete prompt and context**, including actual plan/spec/source, to a private file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request a final Recommendation: <action> because <specific reason> line, including an explicit no-findings rationale.
 
 ```bash
 # GSTACK_ACTIVE_HOST names the harness, never the model.
@@ -73,15 +112,16 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" || exit 1
-_gstack_codex_timeout_wrapper 600 codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
-_OUTSIDE_EXIT=$?
+_OUTSIDE_PROMPT=$(cat "$_OUTSIDE_INPUT") || exit 1
+_OUTSIDE_EXIT=0
+_gstack_codex_timeout_wrapper 600 codex exec "$_OUTSIDE_PROMPT" -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
 # Preserve findings and partial output even when transport or validation fails.
-cat "$_OUTSIDE_TMP/text"
+cat "$_OUTSIDE_TMP/text" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
 if [ "$_OUTSIDE_EXIT" -eq 124 ]; then
-  _gstack_codex_log_event "codex_timeout" "600"
-  _gstack_codex_log_hang "autoplan" "0"
+  _gstack_codex_log_event "codex_timeout" "600" || true
+  _gstack_codex_log_hang "autoplan" "0" || true
 fi
-cat "$_OUTSIDE_TMP/stderr" >&2
+cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
 if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
   echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
   exit "$_OUTSIDE_EXIT"
@@ -91,11 +131,11 @@ bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Show the full response in a `tool-output` fence. Completed outside coverage requires successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout, or CLI failure means `outside_status: unavailable`. Follow this caller's fallback; missing coverage is never clean/PASS. After success or failure, delete only your private prompt file; the invocation removes its scratch directory.
+Show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 Outer tool timeout: 720000ms. Failed/incomplete outside review → unavailable; disabled → skip outside. Both retain the native pass.
 
-For this phase (ceo), retain the historical review-log skill identifier. Add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"ceo"`. Record each attempted pass separately when outcomes differ. Use `source:"codex"` only for completed external CLI output, and `source:"in-host"` for a native pass. Historical `source:"claude"` continues to mean a native Claude subagent. CLI availability or a native fallback does not count as outside completion. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
+Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"ceo"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.
 
   **Error handling:** Codex auth/timeout/empty → proceed with
   Claude subagent only, tagged `[single-model]`. If Claude subagent also fails →
@@ -108,39 +148,23 @@ For this phase (ceo), retain the historical review-log skill identifier. Add `"h
   strategic reason → TASTE DECISION. If both models agree the user's stated structure
   should change (merge, split, add, remove) → USER CHALLENGE (never auto-decided).
 
-**Required execution checklist (CEO):**
-
-Step 0 (0A-0F) — run each sub-step and produce:
-- 0A: Premise challenge with specific premises named and evaluated
-- 0B: Existing code leverage map (sub-problems → existing code)
-- 0C: Dream state diagram (CURRENT → THIS PLAN → 12-MONTH IDEAL)
-- 0C-bis: Implementation alternatives table (2-3 approaches with effort/risk/pros/cons)
-- 0F: Mode selection confirmation
-- 0D: Mode-specific analysis with scope decisions logged
-- 0E: Temporal interrogation (HOUR 1 → HOUR 6+)
-
-Step 0.5 (Dual Voices): Present the completed calls above under Codex SAYS
-(CEO — strategy challenge) and Claude SUBAGENT (CEO — strategic independence).
-Produce CEO consensus table:
+Produce the CEO consensus table from the completed results:
 
 ```
 CEO DUAL VOICES — CONSENSUS TABLE:
-═══════════════════════════════════════════════════════════════
   Dimension                           Claude  Codex  Consensus
-  ──────────────────────────────────── ─────── ─────── ─────────
   1. Premises valid?                   —       —      —
   2. Right problem to solve?           —       —      —
   3. Scope calibration correct?        —       —      —
   4. Alternatives sufficiently explored?—      —      —
   5. Competitive/market risks covered? —       —      —
   6. 6-month trajectory sound?         —       —      —
-═══════════════════════════════════════════════════════════════
 CONFIRMED = completed subagent + outside; primary cannot replace outside.
 Outside disabled/unavailable: six Consensus cells N/A, never CONFIRMED.
 Native findings stay separate; disagreements → taste; flag single-voice criticals.
 ```
 
-Sections 1-10 — for EACH section, run the evaluation criteria from the loaded skill file:
+Sections 1-11 — for EACH section, run the evaluation criteria from the loaded skill file:
 - Sections WITH findings: full analysis, auto-decide each issue, log to audit trail
 - Sections with NO findings: 1-2 sentences stating what was examined and why nothing
   was flagged. NEVER compress a section to just its name in a table row.
@@ -154,20 +178,11 @@ Sections 1-10 — for EACH section, run the evaluation criteria from the loaded 
 - Dream state delta (where this plan leaves us vs 12-month ideal)
 - Completion Summary (the full summary table from the CEO skill)
 
-**Close this phase:** Reconcile full review → EVERY accepted requirement/condition/test
-in its block. Taste provisional; User Challenges keep original.
-```bash
-bun "<SNAPSHOT_TOOL>" amend ceo "<ACTIVE_PLAN>" "<CEO_INPUT>"
-```
-None: reason checks unchanged. Read back fully; retention ≠ approval/completeness/correctness.
-Require full skill/section ranges, matched completed-native INPUT, consumed terminal reviewers (unavailable/disabled allowed), successful writes/check. Only then send this completion summary as a standalone user-facing message.
-After sending it, load/create/dispatch the next phase:
+**Close this phase:**
 
-**Phase 1 complete.**
-Codex: [completed: N concerns / unavailable / disabled]. Claude subagent: [completed: N issues / unavailable].
-Consensus: [N/A (outside disabled/unavailable) | X/6 native+outside confirmed; Y disagreements → gate].
-Passing to Phase 2.
+The review work above ends here. Now load the shared close steps afresh, even if
+read earlier. Use phase `ceo`, checkpoint `<CEO_STEP0_CHECKPOINT>`, and this phase's
+`methodologyPath`. Keep this checkpoint for this invocation; review exports do not replace it.
 
-Do NOT begin Phase 2 until all Phase 1 outputs are written to the plan file,
-including the premise assessment (queued premise challenges travel to the
-Final Gate — they never pause the pipeline here).
+> **STOP.** Before closing a review phase, after its reviews finish and before announcing completion or loading the next phase (read afresh at each exit), Read `~/.claude/skills/gstack/autoplan/sections/phase-close.md` and execute it
+> in full. Do not work from memory — that section is the source of truth for this step.

@@ -276,9 +276,14 @@ export function readJson(path: string): any {
     secureDirectory(dirname(path));recoverAtomicNoReplaceJson(path,{label:'Private immutable artifact',maxBytes:MAX_STATE_FILE});return readPrivateJson(path);
   } catch(e) { if (e instanceof CsoError) throw e; throw new CsoError('MISSING_INPUT','Private state file is missing or invalid'); }
 }
+export const PUBLIC_SOURCE_ROOT = '<REDACTED-internal.user_path>';
+/** A report is public evidence; the real root remains in the private snapshot. */
+export function publicReport(report: RunReportV3): RunReportV3 {
+  return { ...report, source: { ...report.source, root: PUBLIC_SOURCE_ROOT } };
+}
 export function saveReport(dir: string, report: RunReportV3): void {
   report.completeness = completeness(report);
-  const safe=sanitizeHelperForJson(report) as RunReportV3;
+  const safe=sanitizeHelperForJson(publicReport(report)) as RunReportV3;
   for(const finding of safe.findings){const expected=fingerprint(finding);if(finding.id!==expected||finding.fingerprint!==expected)throw new CsoError('PERSISTENCE_FAILED','Finding identity changed during redaction; the previous report was preserved');}
   try{secureDirectory(dir);const serialized=JSON.stringify(safe,null,2);if(Buffer.byteLength(serialized)+1>MAX_STATE_FILE)throw new CsoError('PERSISTENCE_FAILED','Private state exceeds the 1 MiB persistence limit; the previous artifact was preserved');atomicWriteSync(join(dir,'report.json'),serialized+'\n',{mode:0o600});}catch(error){if(error instanceof CsoError)throw error;throw new CsoError('PERSISTENCE_FAILED','Private report could not be written; no saved report is claimed');}
   try { atomicWriteSync(join(dir,'report.md'),renderReport(safe),{mode:0o600}); }
@@ -287,7 +292,7 @@ export function saveReport(dir: string, report: RunReportV3): void {
 export function loadReport(dir: string): RunReportV3 {
   const v = readJson(join(dir,'report.json'));
   if (v.schemaVersion !== 3 || !Array.isArray(v.coverage) || !Array.isArray(v.findings)) throw new CsoError('INCOMPATIBLE_INPUT','Expected a v3 run report');
-  return v;
+  return publicReport(v);
 }
 export function event(report: RunReportV3, kind: string, message: string): void {
   report.events.push({at:new Date().toISOString(),kind,message:redact(message)});

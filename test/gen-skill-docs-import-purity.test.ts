@@ -42,11 +42,14 @@ describe('gen-skill-docs import purity', () => {
     const out = Bun.spawnSync(['bun', '-e', probe], { cwd: ROOT, timeout: 120_000 });
     const stdout = out.stdout.toString();
     const stderr = out.stderr.toString();
-    expect(stderr, stderr).not.toContain('import mutated');
-    expect(stdout).toContain('IMPORT_PURE');
+    // Preserve the child outcome before an output assertion can obscure it.
+    const diagnostics = `import probe: exit=${out.exitCode}; signal=${out.signalCode ?? 'none'}\n`
+      + `stdout: ${stdout.slice(-4096) || '(empty)'}\nstderr: ${stderr.slice(-4096) || '(empty)'}`;
+    expect(out.exitCode, diagnostics).toBe(0);
+    expect(stderr, diagnostics).not.toContain('import mutated');
+    expect(stdout, diagnostics).toContain('IMPORT_PURE');
     // The import must also not have run generation output (the "GENERATED:"
     // lines main() prints) — load-time execution is the exact regression.
-    expect(stdout).not.toContain('GENERATED:');
-    expect(out.exitCode).toBe(0);
+    expect(stdout, diagnostics).not.toContain('GENERATED:');
   });
 });

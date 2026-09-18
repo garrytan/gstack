@@ -11,7 +11,10 @@ const read = (file: string) => readFileSync(resolve(root, file), 'utf8');
 const fixture = 'test/fixtures/plans/autoplan-dashboard.md';
 
 test('the chain fixture retains the complete original UI/API scope', () => {
-  const original = read('test/fixtures/plans/ui-heavy-feature.md');
+  // The design fixture adds proposed implementation contracts after the shared
+  // scope. The chain supplies its own existing contracts for independent review.
+  const original = read('test/fixtures/plans/ui-heavy-feature.md')
+    .split('\n## Planned implementation contracts')[0]!.trimEnd();
   const complete = read(fixture);
   expect(complete.startsWith(original + '\n')).toBe(true);
   // This supplements dependency facts; it does not supply a completed review,

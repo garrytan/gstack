@@ -3,6 +3,13 @@ import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..', '..');
 
+// Include the scope/Aside prerequisites used by Step 0, through report outputs.
+export const ENG_REVIEW_EXCERPT = {
+  skillPath: 'plan-eng-review/SKILL.md',
+  startMarker: '## Scope gate',
+  endMarker: '## Section self-check (before you finish)',
+} as const;
+
 // Same generated two-line pointer consumed by setup-gbrain-fixture.ts.
 const STOP_POINTER =
   /^> \*\*STOP\.\*\* Before [^\n]*sections\/([a-z0-9-]+\.md)[^\n]*\n> in full\.[^\n]*/gm;

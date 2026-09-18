@@ -1,0 +1,295 @@
+{
+  "source": "90f099817ac7e56cddafbd6fdac4c12dfd70f4a4",
+  "cliVersion": "2.1.251",
+  "cases": [
+    {
+      "name": "five-baseline",
+      "source": "90f099817ac7e56cddafbd6fdac4c12dfd70f4a4",
+      "originalError": "Error: Unsupported current CEO decision; cannot exclude it from the 4–7 count: d9385c5f-da81-49d1-a475-a1ea1a87254b:toolu_01LGiCdruLLziwpCaS9h11ES",
+      "call": {
+        "sessionId": "d9385c5f-da81-49d1-a475-a1ea1a87254b",
+        "toolUseId": "toolu_01LGiCdruLLziwpCaS9h11ES",
+        "questions": [
+          {
+            "question": "D3 — Bind `userId` as a query parameter, or keep the raw SQL fragment?\nProject/branch/task: Payment Processing Integration plan on `main`, HOLD SCOPE review, ledger row D3.\nELI10: The user ID arrives from Stripe's event metadata. The signature proves Stripe sent it; it does not prove the string is harmless. Anyone who can set PaymentIntent metadata on your Stripe account (a merchant tool, a leaked API key) can put `'; DROP TABLE users; --` in it, and the plan's own contracts say IDs may contain any punctuation and nothing sanitizes them. Pasting that string into SQL text is classic SQL injection; handing it to the database as a bound parameter makes it inert.\nStakes if we pick wrong: Data exfiltration or destruction through a validly signed webhook, with no alert distinguishing it from a normal payment.\nRecommendation: A because binding costs one line and removes the whole vulnerability class; the plan's own contracts section already states a valid signature does not make the string safe for SQL.\nCompleteness: A=10/10, B=2/10\nNet: a one-line binding versus an injection hole reachable by anyone with metadata access.",
+            "header": "SQL lookup",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Bound parameter / finder (recommended)",
+                "description": "✅ Quotes, semicolons, Unicode in `metadata.user_id` become plain data, never SQL\n✅ Uses the shared DB client the way it is designed; no format validation added, opaque TEXT contract intact\n❌ Requires one deliberate line instead of string interpolation"
+              },
+              {
+                "label": "Keep raw SQL fragment",
+                "description": "✅ Matches the plan text as written; nothing to change\n✅ Marginally shorter code\n❌ SQL injection through any validly signed event whose metadata an attacker controls"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 — Bind `userId` as a query parameter, or keep the raw SQL fragment?\nProject/branch/task: Payment Processing Integration plan on `main`, HOLD SCOPE review, ledger row D3.\nELI10: The user ID arrives from Stripe's event metadata. The signature proves Stripe sent it; it does not prove the string is harmless. Anyone who can set PaymentIntent metadata on your Stripe account (a merchant tool, a leaked API key) can put `'; DROP TABLE users; --` in it, and the plan's own contracts say IDs may contain any punctuation and nothing sanitizes them. Pasting that string into SQL text is classic SQL injection; handing it to the database as a bound parameter makes it inert.\nStakes if we pick wrong: Data exfiltration or destruction through a validly signed webhook, with no alert distinguishing it from a normal payment.\nRecommendation: A because binding costs one line and removes the whole vulnerability class; the plan's own contracts section already states a valid signature does not make the string safe for SQL.\nCompleteness: A=10/10, B=2/10\nNet: a one-line binding versus an injection hole reachable by anyone with metadata access.": "Bound parameter / finder (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T16:00:48.951Z"
+      },
+      "savedPlan": "# Plan: Payment Processing Integration — CEO Review (HOLD SCOPE)\nReviewed by /plan-ceo-review on 2026-09-15. Branch: main. Mode: HOLD SCOPE (explicit user choice).\nSource plan: PLAN.md (commit 22cc010). Review only; no code changes.\n## Decision ledger\n\n| ID and owner | Contract and evidence | Current | Proposed | Status | Exact approval and scope |\n|---|---|---|---|---|---|\n| D3 (user) | Lookup query. PLAN.md Database access: `request.params.userId` \"directly into a raw SQL fragment\"; Contracts: adapter forwards nonempty string unchanged, no cast/escape, IDs are opaque TEXT incl. punctuation | prior handler's lookup (method unknown; mark unknown) | see options below | unresolved | — |\n\n### D3 — Lookup query (pending)\n\nCommitment grid:\n\n```\nCommitment                        | Source/approval or pending | Current | A: bound parameter | B: raw fragment\nIDs are opaque TEXT, any nonempty string | approved (contracts) | yes   | yes                | yes\nNo format validation added         | approved (contracts)      | yes     | yes                | yes\nuserId interpolated into SQL text  | pending (D3)              | unknown | no                 | yes\n```\n\n- **A) Bound parameter / finder** — `WHERE id = $1` with the string bound, or the\n  existing model finder. Effort S, risk low. Pros: any punctuation/Unicode/quote in a\n  signed-but-attacker-controlled `metadata.user_id` is inert; matches how the shared\n  DB client is meant to be used. Cons: none beyond one line of care.\n- **B) Raw SQL fragment** (plan as written) — string interpolation. Effort S, risk\n  high. Pros: none over A. Cons: a merchant-side actor who can set PaymentIntent\n  metadata (or a stolen dashboard/API key) gets SQL injection through a validly signed\n  event; the ownership guard compares identity, it does not sanitize; the contracts\n  section itself says \"a valid signature does not make it safe for SQL.\"\n- No third viable option: escaping by hand is strictly worse than binding.\n",
+      "provenance": {
+        "originalReportSha256": "a09da73054aaccf86d2df113578c76e990609c7483b005408dd5e8205d832853",
+        "requiredExcerptSha256": "e30fc2c26e544d03b40bd7991a3170372d884d511230ede318e10530be2b1303",
+        "requestAt": "2026-09-15T16:00:47.200Z",
+        "successfulPriorMutations": [
+          {
+            "name": "Write",
+            "toolUseId": "toolu_01ExqMmTfCqudZ1WeWmLvuKJ",
+            "requestedAt": "2026-09-15T16:00:08.956Z",
+            "acknowledgedAt": "2026-09-15T16:00:09.906Z"
+          },
+          {
+            "name": "Edit",
+            "toolUseId": "toolu_01QttmFedjvjxKdVNgETC31N",
+            "requestedAt": "2026-09-15T16:00:32.607Z",
+            "acknowledgedAt": "2026-09-15T16:00:33.460Z"
+          }
+        ],
+        "extraction": "Original source paragraph, original owned ledger row, complete original decision section; other sections omitted without rewriting."
+      }
+    },
+    {
+      "name": "paired-baseline",
+      "source": "90f099817ac7e56cddafbd6fdac4c12dfd70f4a4",
+      "originalError": "Error: Unsupported current CEO decision; cannot exclude it from the 4–7 count: 70635ea5-c9a1-4bfa-b32a-1ab8aa4ea0c0:toolu_01RPnSBqL1fLqyMhv5URGTsv",
+      "call": {
+        "sessionId": "70635ea5-c9a1-4bfa-b32a-1ab8aa4ea0c0",
+        "toolUseId": "toolu_01RPnSBqL1fLqyMhv5URGTsv",
+        "questions": [
+          {
+            "header": "D1 Test 1",
+            "question": "D1 — How deep should the successful-charge test assert?\nProject/branch/task: main, HOLD SCOPE review of the processPayment test-coverage plan (ledger row D1).\nELI10: The plan says the receipt must be exactly { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }, but the planned test only checks that *something* came back. A receipt of {} or one with the wrong amount would still pass. The factory already exposes the Stripe call history and the sleeper record, so stronger assertions cost lines, not infrastructure.\nStakes if we pick wrong: a regression that drops currency or mis-copies the amount ships with a green suite, and the customer sees a wrong receipt.\nRecommendation: C because the plan's own stated goal is coverage of this contract, and C is three assertions using hooks the plan already names (human: ~10 min / CC: ~1 min).\nCompleteness: A=3/10, B=7/10, C=10/10\nNet: trading two extra assertion lines against a test that can actually fail when the receipt contract breaks.",
+            "options": [
+              {
+                "label": "C) Full: receipt + call + no backoff (recommended)",
+                "description": "✅ Deep-equal the receipt AND assert exactly one Stripe charge call with amount 1000 / USD AND an empty sleeper record. Covers the whole happy-path contract.\n❌ Three assertions instead of one; pins a 'no backoff on success' fact the plan implies but does not spell out."
+              },
+              {
+                "label": "B) Deep-equal receipt only",
+                "description": "✅ One assertion covers all three receipt fields; a dropped or mis-copied field fails the test.\n❌ Says nothing about what was sent to Stripe or whether a backoff fired on the happy path."
+              },
+              {
+                "label": "A) Keep as planned: truthy only",
+                "description": "✅ Matches PLAN.md verbatim; smallest possible diff.\n❌ Passes when the receipt is {} or carries the wrong amount; does not cover the contract the plan claims to cover."
+              }
+            ],
+            "multiSelect": false
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — How deep should the successful-charge test assert?\nProject/branch/task: main, HOLD SCOPE review of the processPayment test-coverage plan (ledger row D1).\nELI10: The plan says the receipt must be exactly { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }, but the planned test only checks that *something* came back. A receipt of {} or one with the wrong amount would still pass. The factory already exposes the Stripe call history and the sleeper record, so stronger assertions cost lines, not infrastructure.\nStakes if we pick wrong: a regression that drops currency or mis-copies the amount ships with a green suite, and the customer sees a wrong receipt.\nRecommendation: C because the plan's own stated goal is coverage of this contract, and C is three assertions using hooks the plan already names (human: ~10 min / CC: ~1 min).\nCompleteness: A=3/10, B=7/10, C=10/10\nNet: trading two extra assertion lines against a test that can actually fail when the receipt contract breaks.": "C) Full: receipt + call + no backoff (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T16:01:27.394Z"
+      },
+      "savedPlan": "# Plan: Payment Processing — Test Coverage (working plan, under /plan-ceo-review, HOLD SCOPE)\nSource: PLAN.md @ 434ca72 on `main`. Base branch: `main` (git-native fallback; no `origin` URL).\nReview mode: HOLD SCOPE (explicit user instruction). Scope: two new unit tests in the existing processPayment suite. No production code changes.\n## Decision ledger\n\n| ID and owner | Contract and evidence | Current | Proposed | Status | Exact approval and scope |\n|---|---|---|---|---|---|\n| D1 (user) — Test 1 assertion depth | Receipt = { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" } (PLAN.md \"Existing behavior retained\"). Factory exposes Stripe mock call history and sleeper record (plan-stated). | Assert only receipt is truthy (\"complete planned assertion\"). | A) truthy only. B) deep-equal receipt. C) deep-equal receipt + exactly one Stripe charge call with amount 1000 / USD + empty sleeper record. | unresolved | — |\n\n### D1 comparison\n| Commitment | Source / status | Current | A | B | C |\n|---|---|---|---|---|---|\n| Test lives in existing processPayment suite, uses factory | PLAN.md, fixed | yes | yes | yes | yes |\n| Mock returns id ch_paid; call with 1000 / USD | PLAN.md, fixed | yes | yes | yes | yes |\n| Receipt truthy | PLAN.md | yes | yes | implied | implied |\n| Receipt deep-equals { chargeId, amountCents, currency } | pending | no | no | yes | yes |\n| Exactly one Stripe charge call, with amount 1000 and currency USD | pending | no | no | no | yes |\n| Sleeper record empty (no backoff on success) | pending | no | no | no | yes |\n\n- A) As planned — effort S, risk low. Pros: matches PLAN.md verbatim; smallest diff. Cons: passes if the receipt is `{}` or has amountCents 100000; does not cover the contract the plan says it covers. Completeness 3/10.\n- B) Deep-equal receipt — effort S, risk low. Pros: one assertion covers all three fields in the stated contract; a dropped or mis-copied field fails. Cons: says nothing about what was sent to Stripe or whether a backoff fired. Completeness 7/10.\n- C) Deep-equal + outbound call + no backoff — effort S (3 assertions), risk low. Pros: covers the receipt contract and pins the happy path to exactly one charge with the requested amount/currency and zero recorded sleeps; uses only factory hooks the plan already names. Cons: three lines instead of one; asserts a \"no backoff on success\" fact the plan implies but does not spell out. Completeness 10/10.\n",
+      "provenance": {
+        "originalReportSha256": "8c7df213f2043d5e2e4f6a3c60e5605bb0c283a0a0d4d5193466c3054d3e1239",
+        "requiredExcerptSha256": "b6e251d9091abfe79c95498f7bb8439ab75f8c7fd5be506669dc4db9120d84f8",
+        "requestAt": "2026-09-15T16:01:26.177Z",
+        "successfulPriorMutations": [
+          {
+            "name": "Write",
+            "toolUseId": "toolu_015CQo69r92n5P9pkaFiRu24",
+            "requestedAt": "2026-09-15T16:01:07.639Z",
+            "acknowledgedAt": "2026-09-15T16:01:09.907Z"
+          }
+        ],
+        "extraction": "Original source paragraph, original owned ledger row, complete original decision section; other sections omitted without rewriting."
+      }
+    },
+    {
+      "name": "five-retry-incomplete",
+      "source": "90f099817ac7e56cddafbd6fdac4c12dfd70f4a4",
+      "originalError": "Unsupported current CEO decision; cannot exclude it from the 4–7 count: e0ce0ace-371b-4d72-8c03-5f65569d112f:toolu_01AK4Ko2EqUrSXZAW6Lf49VM",
+      "call": {
+        "sessionId": "e0ce0ace-371b-4d72-8c03-5f65569d112f",
+        "toolUseId": "toolu_01AK4Ko2EqUrSXZAW6Lf49VM",
+        "questions": [
+          {
+            "question": "D2 — How should the new lookup put request.params.userId into the query?\nProject/branch/task: main — Payment Processing Integration, HOLD SCOPE review, ledger row D2.\nELI10: The user ID arrives from Stripe metadata as any text at all, including quotes, semicolons and Unicode, and nothing upstream cleans it (PLAN.md:21-26). The plan pastes that text straight into a SQL string. A real user whose ID contains an apostrophe breaks the query every time, so their payment is never marked paid and Stripe keeps retrying for three days. If anyone can influence a stored user ID, the same paste becomes SQL injection with a valid Stripe signature on it.\nStakes if we pick wrong: stuck payments for legitimate IDs plus an injection surface on the payments path; both retryable forever, neither self-healing.\nRecommendation: A because a bound parameter keeps the \"every nonempty string is a valid identifier\" invariant by construction and has no charset edge cases.\nCompleteness: A=10/10, B=6/10, C=2/10\nPros / cons:\nA) Bound parameter or existing ORM finder (recommended)\n  ✅ Injection impossible by construction; no charset or escape-mode edge cases to audit\n  ✅ Same semantics as the existing lookup the plan says it retains (PLAN.md:24-26)\n  ❌ Rewrites the Database access section; one regression test with quote/backslash/Unicode IDs comes with it\nB) Keep raw fragment, escape with the driver quote helper\n  ✅ Smallest change to the plan text as written\n  ✅ Blocks the obvious quote-break for common IDs\n  ❌ Correctness depends on helper matching server charset and escape mode; hand-built SQL still needs re-audit on every edit\nC) Raw fragment as written\n  ✅ Zero change to the plan\n  ✅ Nothing else to say for it\n  ❌ Breaks the stated invariant for IDs with quotes; 500 → 72h retry loop; injection surface on the payments path\nNet: one bind parameter versus owning an escape-correctness argument on the money path.",
+            "header": "D2 lookup SQL",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Bound parameter (recommended)",
+                "description": "Parameterized query or the existing ORM finder. Regression test for quote/backslash/Unicode IDs ships with it."
+              },
+              {
+                "label": "B) Escape helper",
+                "description": "Keep raw fragment, quote via DB driver helper. Charset/escape-mode dependent."
+              },
+              {
+                "label": "C) Raw fragment",
+                "description": "Plan as written. Fails the opaque-TEXT invariant; injection surface."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — How should the new lookup put request.params.userId into the query?\nProject/branch/task: main — Payment Processing Integration, HOLD SCOPE review, ledger row D2.\nELI10: The user ID arrives from Stripe metadata as any text at all, including quotes, semicolons and Unicode, and nothing upstream cleans it (PLAN.md:21-26). The plan pastes that text straight into a SQL string. A real user whose ID contains an apostrophe breaks the query every time, so their payment is never marked paid and Stripe keeps retrying for three days. If anyone can influence a stored user ID, the same paste becomes SQL injection with a valid Stripe signature on it.\nStakes if we pick wrong: stuck payments for legitimate IDs plus an injection surface on the payments path; both retryable forever, neither self-healing.\nRecommendation: A because a bound parameter keeps the \"every nonempty string is a valid identifier\" invariant by construction and has no charset edge cases.\nCompleteness: A=10/10, B=6/10, C=2/10\nPros / cons:\nA) Bound parameter or existing ORM finder (recommended)\n  ✅ Injection impossible by construction; no charset or escape-mode edge cases to audit\n  ✅ Same semantics as the existing lookup the plan says it retains (PLAN.md:24-26)\n  ❌ Rewrites the Database access section; one regression test with quote/backslash/Unicode IDs comes with it\nB) Keep raw fragment, escape with the driver quote helper\n  ✅ Smallest change to the plan text as written\n  ✅ Blocks the obvious quote-break for common IDs\n  ❌ Correctness depends on helper matching server charset and escape mode; hand-built SQL still needs re-audit on every edit\nC) Raw fragment as written\n  ✅ Zero change to the plan\n  ✅ Nothing else to say for it\n  ❌ Breaks the stated invariant for IDs with quotes; 500 → 72h retry loop; injection surface on the payments path\nNet: one bind parameter versus owning an escape-correctness argument on the money path.": "A) Bound parameter (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T16:05:50.738Z"
+      },
+      "savedPlan": "# Plan: Payment Processing Integration — CEO Review (HOLD SCOPE)\nWorking plan for `/plan-ceo-review`. Source plan: `PLAN.md` on `main`.\nMode: HOLD SCOPE (explicit user choice). Review only; no code changes.\n## Decision ledger\n\n| ID and owner | Contract and evidence | Current | Proposed | Status | Exact approval and scope |\n|---|---|---|---|---|---|\n| D2 (user) — lookup query construction | PLAN.md:16-26, 110-112; IDs opaque TEXT, unsanitized | Existing lookup (no cast/format restriction) | Raw SQL fragment from `request.params.userId` | unresolved | — |\n\n### D2 — lookup query construction: options (pending)\n\nFacts (PLAN.md:16-31): `request.params.userId` is an external string\nforwarded unchanged; IDs are opaque TEXT with punctuation and Unicode; the\nownership guard is an identity comparison, not SQL validation. Interpolating\nthat string into a raw SQL fragment has two failure paths:\n\n1. **Correctness.** A legitimate ID containing `'`, `\\`, `;` or a\n   multi-byte sequence breaks the fragment → DB exception → HTTP 500 →\n   Stripe retries for 72h with the same string → same failure. That user's\n   payment is never marked paid and the ingress alert fires every retry.\n2. **Security.** Any path that lets an external party influence a stored\n   user-ID binding (signup-derived IDs, imports, support tooling) turns the\n   fragment into SQL injection with a valid Stripe signature attached.\n\n| Commitment | Source/approval or pending | Current | A: Bind parameter | B: Escape/quote helper | C: Raw fragment (plan) |\n|---|---|---|---|---|---|\n| No cast / no format restriction | settled, PLAN.md:24-26 | yes | yes | yes | yes |\n| Every nonempty string is a valid identifier | settled, PLAN.md:25-26 | yes | yes | mostly (charset-dependent) | no |\n| Unknown user → 200, log, stop | settled, PLAN.md:43-44 | yes | yes | yes | yes |\n| Regression test: ID with quote/backslash/Unicode resolves the user | pending (D4 decides base suite; this test belongs to D2's fix) | none | yes | yes | n/a |\n\n- **A) Bind parameter** (`WHERE id = ?` / named bind, or the ORM finder the\n  existing lookup already uses). Effort S (human ~1 hr / CC ~2 min). Risk\n  low. Pros: no charset edge cases; identical semantics to the existing\n  lookup; injection impossible by construction. Cons: none material.\n- **B) Escape via the DB driver's quote helper, keep the raw fragment.**\n  Effort S. Risk medium. Pros: minimal edit to plan text. Cons: correctness\n  depends on the helper matching server charset/`NO_BACKSLASH_ESCAPES`\n  settings; still a hand-built fragment reviewers must re-audit.\n- **C) Raw fragment as written.** Effort S. Risk high. Fails invariant\n  PLAN.md:25-26 for IDs containing quote characters; injection surface.\n\nRecommendation: A. Verification coverage: A gets a regression test with\nIDs containing `'`, `\\`, `;`, and a multi-byte string (kept with the fix\nper HOLD SCOPE); B needs the same plus charset-mode tests; C has none.\n\nLimits recorded: mail deadline 1s; DB+ingress 2s; webhook 10s; 1 new class;\nplanned file changes estimated 2-4 (handler, routing/flag wiring, lookup;\nplus tests if D4 approves). Estimates, no code to count.\n",
+      "provenance": {
+        "originalReportSha256": "96928e90ba245dc213318eee54ac5b36c7e4b0283e12e66720fc9d4745a7caf0",
+        "requiredExcerptSha256": "dfbfaa5fd72e181061a4a4ae690b0d2b9c3001a86025d9974149bb187d3dda3f",
+        "successfulPriorMutations": [
+          {
+            "toolUseId": "toolu_01UBr2CyTeZ7YWTTvxjQ9tFo",
+            "name": "Write",
+            "requestedAt": "2026-09-15T16:04:19.895Z",
+            "acknowledgedAt": "2026-09-15T16:04:21.967Z"
+          },
+          {
+            "toolUseId": "toolu_011MirWpdMG6NW8T3abvgSop",
+            "name": "Edit",
+            "requestedAt": "2026-09-15T16:04:39.658Z",
+            "acknowledgedAt": "2026-09-15T16:04:41.542Z"
+          },
+          {
+            "toolUseId": "toolu_01VHQVCbNkynm74bitX2rzD9",
+            "name": "Edit",
+            "requestedAt": "2026-09-15T16:05:11.527Z",
+            "acknowledgedAt": "2026-09-15T16:05:11.631Z"
+          },
+          {
+            "toolUseId": "toolu_013Xi3tWb3tf7WxtSRJ1qFmk",
+            "name": "Edit",
+            "requestedAt": "2026-09-15T16:05:30.373Z",
+            "acknowledgedAt": "2026-09-15T16:05:31.214Z"
+          }
+        ],
+        "lastPublicCapture": "2026-09-15T16:05:32.972Z",
+        "finalSnapshotAt": "2026-09-15T16:05:55.257Z",
+        "limitation": "The complete acknowledged comparison was captured before this D2 call appeared. Native request and ACK are from the final durable observation. The public journal was cleaned before the final one-shot; later report writes cannot be ruled out from these retained events alone. No paid outcome is reclassified."
+      }
+    },
+    {
+      "name": "five-77-literal-current-proposal",
+      "source": "77fd0890ddfeaf2bdd6d78183a2d989d9a4e8d4c",
+      "originalError": "Error: Unsupported current CEO decision; cannot exclude it from the 4–7 count: e8ee44d3-cf25-4738-9faa-0a4717966328:toolu_01UjbSAKubReu8kqNohbM4Cj",
+      "call": {
+        "sessionId": "e8ee44d3-cf25-4738-9faa-0a4717966328",
+        "toolUseId": "toolu_01UjbSAKubReu8kqNohbM4Cj",
+        "questions": [
+          {
+            "question": "D4 (row D-TESTS) — What automated tests ship with the new handler?\nProject/branch/task: main, Payment Processing Integration plan, HOLD SCOPE review.\nELI10: The plan ships a brand-new payment handler with zero automated tests and leans on a manual staging replay that the plan itself says is not regression coverage. Each decision we just made (dispatcher routing, parameterized lookup, commit-then-send with named rescues) is a promise; without a test, the next refactor can quietly break any of them and nobody finds out until a customer pays and nothing happens.\nStakes if we pick wrong: a payment path with no automated proof; regressions discovered by customers or on-call instead of CI.\nRecommendation: A because ~10 focused tests cost minutes with CC and turn every decision above into something CI enforces.\nCompleteness: A=10/10, B=1/10, C=6/10\nNet: the cost of tests here is trivially small next to the cost of a silent payment regression.",
+            "header": "D4 Tests",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Handler unit tests + routing test + one replay fixture (recommended)",
+                "description": "✅ Covers happy path, unknown user, missing address skip, mail raise, DB raise, id edge cases, zero/N orders\n✅ Every D1-D3 decision gets a test that fails if someone undoes it; next handler copies a tested template\n❌ About ten test cases to write and keep green\nEffort: M (human ~1 day / CC ~20 min)"
+              },
+              {
+                "label": "B) None planned (plan as written)",
+                "description": "✅ Zero test-writing time before the staging replay\n✅ Manual checklist still verifies the happy path once before broad rollout\n❌ No automated proof for SQL safety, email failure handling or ordering; the plan already admits the checklist is not regression coverage\nEffort: none"
+              },
+              {
+                "label": "C) One integration replay test only",
+                "description": "✅ Cheap end-to-end proof that the wiring and happy path work\n✅ Reuses the recorded event fixture the staging checklist already needs\n❌ Every failure path (mail raise, DB raise, unknown user, injection-shaped id) stays untested\nEffort: S (human ~2 hr / CC ~5 min)"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 (row D-TESTS) — What automated tests ship with the new handler?\nProject/branch/task: main, Payment Processing Integration plan, HOLD SCOPE review.\nELI10: The plan ships a brand-new payment handler with zero automated tests and leans on a manual staging replay that the plan itself says is not regression coverage. Each decision we just made (dispatcher routing, parameterized lookup, commit-then-send with named rescues) is a promise; without a test, the next refactor can quietly break any of them and nobody finds out until a customer pays and nothing happens.\nStakes if we pick wrong: a payment path with no automated proof; regressions discovered by customers or on-call instead of CI.\nRecommendation: A because ~10 focused tests cost minutes with CC and turn every decision above into something CI enforces.\nCompleteness: A=10/10, B=1/10, C=6/10\nNet: the cost of tests here is trivially small next to the cost of a silent payment regression.": "A) Handler unit tests + routing test + one replay fixture (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T17:18:18.959Z"
+      },
+      "seed": "## Tests\nNone planned. We'll rely on the existing integration suite catching regressions.",
+      "savedPlan": "# CEO Review Working Plan: Payment Processing Integration\n\nGenerated by /plan-ceo-review on 2026-09-15\nBranch: main | Mode: HOLD SCOPE (user-selected) | Base branch: main | Platform: unknown (no remote)\nPlan under review: PLAN.md (repo root)\n\n\n| ID and owner | Contract and evidence | Current | Proposed | Status | Exact approval and scope |\n|---|---|---|---|---|---|\n| D-TESTS (user) | PLAN.md L76-80: staging replay checklist is \"manual deployment verification, not automated handler regression coverage\". Engineering prefs: well-tested is non-negotiable. | Existing integration suite (coverage of this handler unknown). | \"None planned.\" | unresolved | pending |\n\n### D-TESTS: automated coverage for the new handler\n\nThe plan itself says the staging replay checklist is \"not automated handler regression coverage\" (L79-80) and then plans no tests. \"The existing integration suite\" cannot cover a class that does not exist yet unless it already drives the ingress end-to-end with the feature flag on, which the plan does not claim. The D1-D3 answers each named tests that prove them; those tests belong to this row.\n\n| Option | Summary | Effort | Risk | Pros | Cons | Reuse / verification |\n|---|---|---|---|---|---|---|\n| A. Handler unit tests + routing test + one replay fixture | Unit tests on `Webhooks::StripePaymentWebhookHandler` for: happy path; unknown/deleted user (200, no update, no send); nil/empty email (skip record, counter, no send); mail raises `MailTimeout` and provider error (update committed, 200, structured error logged); DB raises (500, no send attempted); quote/`--`/Unicode user ids treated as literal ids; zero orders (one receipt, empty summary); N orders (one query, one receipt). One dispatcher routing test (event type -> handler). One integration test replaying a recorded `payment_intent.succeeded` fixture through the ingress with the feature flag on. | M (human ~1 day / CC ~20 min) | low | Every D1-D3 decision has a test that fails if someone undoes it; the next handler copies a tested template; the staging checklist becomes confirmation, not discovery. | ~10 test cases to write and keep green. | Reuses existing test harness and mail/DB client fakes if present; verification is the suite itself. |\n| B. None planned (plan as written) | Rely on the integration suite + manual staging replay. | none | high | Zero test-writing time. | SQL, email and ordering behavior unprotected; the plan's own text says the checklist is not regression coverage; a payment path ships with no automated proof. | None. |\n| C. One integration replay test only | Single end-to-end test: recorded event through ingress, flag on, assert user row + one send. | S (human ~2 hr / CC ~5 min) | medium | Cheap; proves the happy path wiring. | Misses every failure path (mail raise, DB raise, unknown user, injection-shaped id); a green happy path hides a broken error map. | Reuses harness; verifies happy path only. |\n\nCommitment grid:\n\n```text\nCommitment                                   | Source/approval or pending   | Current | A   | B   | C\nManual staging replay checklist               | approved (PLAN L76-78)       | yes     | yes | yes | yes\nAutomated happy-path coverage                 | pending                      | none    | yes | no  | yes\nAutomated failure-path coverage (mail, DB,    | pending                      | none    | yes | no  | no\n  unknown user, skip-address, id edge cases)  |                              |         |     |     |\nRouting test (dispatcher -> handler, per D1)  | pending                      | none    | yes | no  | no\n```\n\nRecommendation: A. Completeness: A=10/10, B=1/10, C=6/10.\n",
+      "provenance": {
+        "originalReportSha256": "2255af9096e9460243639cae322e4723bddba1865577106fecf5bf14b13e190f",
+        "requiredExcerptSha256": "b8acec467704812b2314c6a7a78b027dc77050890c69acf2abf3d9e33f1fbb08",
+        "sourceExcerptSha256": "16260b0adea29b71014bdfee9544afc63a82f4ecff8edb171c50a932961e1f31",
+        "completeActualSeedSha256": "a4793293acc53cffeba6acb2ec6ac8148e82746db2a7e3eb8d6e6c75a1681ea7",
+        "actualBuilderSha256": "a3de97b14e141dce64140f5ed3f2700062ce8d4dcf68da40921d2bc09a4396b7",
+        "requestAt": "2026-09-15T17:18:17.278Z",
+        "successfulPriorMutations": [
+          {
+            "name": "Edit",
+            "toolUseId": "toolu_01336GyeGSWguZsZsccdp5FQ",
+            "requestedAt": "2026-09-15T17:18:01.228Z",
+            "acknowledgedAt": "2026-09-15T17:18:01.440Z"
+          }
+        ],
+        "capturedBeforeAnswer": "2026-09-15T17:18:01.527Z",
+        "extraction": "Exact original source paragraph, source metadata, owned ledger row and complete option comparison; unrelated report sections omitted without rewriting.",
+        "limitation": "The original attempt failed at this acknowledged call. This is its exact pre-answer snapshot, not a completed final review or passing paid outcome."
+      }
+    },
+    {
+      "name": "five-77-retry-effort-risk-tuple",
+      "source": "77fd0890ddfeaf2bdd6d78183a2d989d9a4e8d4c",
+      "originalError": "Error: Unsupported current CEO decision; cannot exclude it from the 4–7 count: 8a8790dc-0c42-4eb9-90bc-925593624e41:toolu_01BrtpqYTGWJNoDNKxAArayt",
+      "call": {
+        "sessionId": "8a8790dc-0c42-4eb9-90bc-925593624e41",
+        "toolUseId": "toolu_01BrtpqYTGWJNoDNKxAArayt",
+        "questions": [
+          {
+            "question": "D4 (ledger R2) — How should the handler build the user lookup query from `request.params.userId`?\nProject/branch/task: gstack-plan-count on main; CEO review of the Stripe payment handler plan, HOLD SCOPE.\nELI10: The plan pastes the user ID string straight into SQL text. Your own contract says IDs are opaque text that can contain quotes, semicolons and Unicode, and that nothing upstream sanitizes them. Pasting means a user whose ID has a quote in it breaks the query, gets a 500, and Stripe retries their payment for days without ever marking it paid. Passing the ID as a bound parameter makes the database treat it as a value, never as SQL, whichever shape you pick.\nStakes if we pick wrong: legit punctuation IDs never get payment_status=paid via webhook, and if ID minting is ever user-influenced this is SQL injection through a validly signed request. Keeping the raw fragment is not offered; it contradicts PLAN.md lines 21-26.\nRecommendation: A because it removes SQL text from the handler entirely, so nobody can regress it into interpolation later.\nCompleteness: A=10/10, B=9/10\nNet: no SQL text in the handler vs keeping raw SQL shape with binds; both are safe today, only A stays safe by construction.",
+            "header": "SQL lookup",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) ORM finder, bound param (recommended)",
+                "description": "✅ `find_by(id: user_id)`-style call; driver binds the value, TEXT equality, no cast, Unicode preserved. ✅ Zero SQL text in the handler, so a future edit cannot reintroduce interpolation. ❌ If the lookup ever needs an unusual join, you revisit this. (human: ~30 min / CC: ~1 min)"
+              },
+              {
+                "label": "B) Raw SQL with bind params",
+                "description": "✅ Keeps the raw-SQL shape via `sanitize_sql_array` / `$1` binds; equally safe today. ✅ Room for a custom projection if the lookup needs one. ❌ SQL text stays in the handler; a later edit can slide back to interpolation and needs the same regression test."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 (ledger R2) — How should the handler build the user lookup query from `request.params.userId`?\nProject/branch/task: gstack-plan-count on main; CEO review of the Stripe payment handler plan, HOLD SCOPE.\nELI10: The plan pastes the user ID string straight into SQL text. Your own contract says IDs are opaque text that can contain quotes, semicolons and Unicode, and that nothing upstream sanitizes them. Pasting means a user whose ID has a quote in it breaks the query, gets a 500, and Stripe retries their payment for days without ever marking it paid. Passing the ID as a bound parameter makes the database treat it as a value, never as SQL, whichever shape you pick.\nStakes if we pick wrong: legit punctuation IDs never get payment_status=paid via webhook, and if ID minting is ever user-influenced this is SQL injection through a validly signed request. Keeping the raw fragment is not offered; it contradicts PLAN.md lines 21-26.\nRecommendation: A because it removes SQL text from the handler entirely, so nobody can regress it into interpolation later.\nCompleteness: A=10/10, B=9/10\nNet: no SQL text in the handler vs keeping raw SQL shape with binds; both are safe today, only A stays safe by construction.": "A) ORM finder, bound param (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-15T17:25:00.107Z"
+      },
+      "seed": "## Database access\nThe new endpoint reads `request.params.userId` directly into a raw SQL\nfragment for the lookup query.",
+      "savedPlan": "# Plan: Payment Processing Integration (CEO review, HOLD SCOPE)\n\nReviewed plan: `PLAN.md` on `main` (base branch: `main`, git-native fallback; no remote).\nReview: `/plan-ceo-review`, mode HOLD SCOPE (user-selected). Session `639480-1789492725-cdecb9e8`.\nDate: 2026-09-15.\n\n\n| ID and owner | Contract and evidence | Current | Proposed | Status | Exact approval and scope |\n|---|---|---|---|---|---|\n| R2 (user): user lookup query construction | PLAN.md:16-26, 110-112: `userId` is an unchanged external string, opaque TEXT incl. punctuation/Unicode, no SQL-format validation; \"a valid signature does not make it safe for SQL.\" | Plan text: `request.params.userId` read directly into a raw SQL fragment. | Pending: bind parameter via ORM finder vs raw SQL with bind params. Keeping the raw fragment violates the plan's own stated contract. | unresolved | pending |\n\n#### R2 comparison: user lookup query construction\n\n| Commitment | Source/approval or pending | Current | A) ORM finder with bound param | B) Raw SQL with bind params |\n|---|---|---|---|---|\n| `userId` reaches the query as data, never as SQL syntax | settled invariant (PLAN.md:21-26) | violated by plan text | yes (driver binds) | yes (driver binds) |\n| Opaque TEXT incl. punctuation/Unicode, no format cast | settled (PLAN.md:24-26) | preserved | preserved (equality on TEXT column) | preserved |\n| Unknown user -> existing lookup-result guard (200, log, stop) | settled (PLAN.md:43-44) | preserved | `nil` result feeds the guard unchanged | `nil`/empty result feeds the guard unchanged |\n| Lookup returns the fields the update and receipt need (id, email, payment_status) | settled by contract | same | same | same |\n| DB exception -> 500 -> Stripe retry | settled (PLAN.md:70-73) | same | same | same |\n\n- **A) ORM finder with a bound parameter**, e.g. `User.find_by(id: user_id)`\n  (S effort, low risk). Reuse: full (rung 2, the ORM is the standard\n  library here). Verification: one test that a `userId` containing quotes,\n  semicolons and Unicode is looked up literally and either found or\n  routed to the unknown-user guard. Pros: no SQL text in the handler at all;\n  impossible to regress into interpolation; the equality on a TEXT column\n  needs no cast. Cons: none material.\n- **B) Raw SQL with bind parameters** (`sanitize_sql_array` / `exec_params`\n  `$1`) (S effort, low risk). Pros: keeps the \"raw SQL\" shape the plan\n  author may have wanted for an unusual query. Cons: SQL text lives in the\n  handler; a later edit can reintroduce interpolation; needs the same test as A.\n\nKeeping the raw fragment is not offered as an option: it contradicts the\nplan's own retained contract (PLAN.md:21-23). Two live consequences: (1) a\nlegitimate opaque ID containing a quote, semicolon or backslash (PLAN.md:24-26\nsays these are valid) breaks the query, raises, returns 500, and Stripe\nretries that user's payment until it gives up, so that user never gets\n`payment_status=paid` via webhook; (2) if user-ID minting is ever\nuser-influenced, this is SQL injection through a signed request. The\nownership guard (PLAN.md:27-31) narrows (2) to IDs that match a stored\nbinding; it does not fix (1) and the plan says not to lean on it for SQL safety.\n\nRecommendation for the question: A. Completeness: A=10/10, B=9/10.\n",
+      "provenance": {
+        "originalReportSha256": "62ea39b20464946e981306d7c34986cc100c1cf1e0b724d070308873e87357ee",
+        "requiredExcerptSha256": "bbb07536f19f0ce6eb11004960d95f2f16c9ffaf84bfe93400ea9fee8507f5cd",
+        "sourceExcerptSha256": "e81f1656cf9e28384c474958721c0ddc130ded3cf2c415a38419567287107368",
+        "completeActualSeedSha256": "f497b47a50dbc5f0cf03f0dbc7b2804e392d51f4324144ed625944fb6aa27287",
+        "actualBuilderSha256": "a3de97b14e141dce64140f5ed3f2700062ce8d4dcf68da40921d2bc09a4396b7",
+        "requestAt": "2026-09-15T17:24:58.592Z",
+        "successfulPriorMutations": [
+          {
+            "name": "Edit",
+            "toolUseId": "toolu_01RVBt2XVEDdyZKTuroi1jYR",
+            "requestedAt": "2026-09-15T17:24:42.468Z",
+            "acknowledgedAt": "2026-09-15T17:24:44.582Z"
+          }
+        ],
+        "capturedBeforeAnswer": "2026-09-15T17:24:45.496Z",
+        "extraction": "Exact source paragraph, source metadata, owned R2 ledger row and full R2 comparison; unrelated report sections omitted without rewriting.",
+        "limitation": "The original configured retry failed at this acknowledged call. Free replay is diagnostic only; it cannot grant paid outcome credit."
+      }
+    }
+  ]
+}

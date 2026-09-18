@@ -1,0 +1,83 @@
+{
+  "sourceRevision": "749df4446b5a1abd24a590bed745efa7a5fcd43b",
+  "runId": "ship-all-749df444-75d9abf9-4308-4e2f-8fd3-c5f5faef87cd",
+  "originalOutcome": "timeout",
+  "notes": [
+    "The original finding-count attempt timed out and remains failing. These two exact native answered calls prove only review seed coverage, not implementation, report completion, or a passing paid evaluation.",
+    "The window bounds only these two retained calls; they are not reconstructed runner start/end times."
+  ],
+  "publicCaptureSha256": "32c18a35882056aef6a00779ad7b27c47db5257d0550876f7412e9496e2ff32d",
+  "transcriptSource": ".context/nouakchott-c6fc-impact/runtime-owned-records-final/executions/749df4446b5a1abd24a590bed745efa7a5fcd43b/all/run/public-retention/skill-e2e-plan-eng-finding-count/plan-eng-review-1789560142449-2Y02Vc/latest-public-transcript.json",
+  "windowStart": "2026-09-16T12:11:00.000Z",
+  "windowEnd": "2026-09-16T12:12:10.000Z",
+  "calls": [
+    {
+      "sessionId": "a75c4f50-7964-47ef-a0b0-a830761427a9",
+      "toolUseId": "toolu_01Hehd3BNwKaVsgXSDGEvyhr",
+      "questions": [
+        {
+          "question": "D7 — Who is allowed to write to the cache adapter?\nProject/branch/task: main branch, /plan-eng-review of PLAN.md \"Multi-tenant Auth Refactor\" (Architecture review).\nELI10: Two services both write into the same cache (PLAN.md:29), and the adapter's own rules say writes are not serialized (PLAN.md:19). Picture SessionMint waiting on the identity provider while, in that gap, the tenant gets suspended and the invalidation hook wipes their entries. The mint finishes and writes a fresh entry for a tenant who should now be locked out. Two writers make that race easy; one writer that re-checks tenant status right before storing makes it hard.\nStakes if we pick wrong: A suspended or logged-out tenant keeps a live cached session until expiry, which is exactly the class of bug the invalidation hooks exist to prevent.\nRecommendation: A because a single writer is the simplest explicit structure, needs no change to the adapter or its tests, and puts the one write site next to the one policy check in AuthBroker.\nCompleteness: A=9/10, B=8/10, D=3/10; C is an investigation step, unscored\nPros / cons:\nA) Single writer: only AuthBroker writes (recommended)\n  ✅ One write site to audit; SessionMint becomes side-effect free and trivially testable\n  ✅ Adapter and its existing tests stay unchanged; broker re-checks tenant status before the write\n  ❌ SessionMint must return the minted session instead of storing it, a small API change (human: ~3h / CC: ~10 min)\nB) Both write, through one guarded adapter write path\n  ✅ Closes the race for every present and future writer at the adapter boundary\n  ✅ Services keep their proposed write calls\n  ❌ Changes the adapter contract the plan promised to leave unchanged (PLAN.md:21-22); its tests must grow (human: ~1 day / CC: ~20 min)\nC) Investigate before choosing\n  ✅ A bounded read of the adapter's hooks and mint write sites confirms or dismisses the race\n  ✅ No structural commitment on an inferred risk\n  ❌ Leaves a P1 open into implementation; the probe still ends in this same choice\nD) Both services write directly, as planned\n  ✅ No API change to SessionMint or the adapter\n  ✅ Matches the plan as written\n  ❌ Leaves the mint-after-invalidate race open with no mitigation\nNet: one write site with a tenant re-check vs. two writers racing the invalidation hooks.",
+          "header": "Cache writes",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Single writer: only AuthBroker writes (recommended)",
+              "description": "✅ One write site to audit; SessionMint becomes side-effect free and trivially testable\n✅ Adapter and its existing tests stay unchanged; broker re-checks tenant status before the write\n❌ SessionMint must return the minted session instead of storing it, a small API change (human: ~3h / CC: ~10 min)"
+            },
+            {
+              "label": "Both write, through one guarded adapter write path",
+              "description": "✅ Closes the race for every present and future writer at the adapter boundary\n✅ Services keep their proposed write calls\n❌ Changes the adapter contract the plan promised to leave unchanged (PLAN.md:21-22); its tests must grow (human: ~1 day / CC: ~20 min)"
+            },
+            {
+              "label": "Investigate before choosing",
+              "description": "✅ A bounded read of the adapter's hooks and mint write sites confirms or dismisses the race\n✅ No structural commitment on an inferred risk\n❌ Leaves a P1 open into implementation; the probe still ends in this same choice"
+            },
+            {
+              "label": "Both services write directly, as planned",
+              "description": "✅ No API change to SessionMint or the adapter\n✅ Matches the plan as written\n❌ Leaves the mint-after-invalidate race open with no mitigation"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Who is allowed to write to the cache adapter?\nProject/branch/task: main branch, /plan-eng-review of PLAN.md \"Multi-tenant Auth Refactor\" (Architecture review).\nELI10: Two services both write into the same cache (PLAN.md:29), and the adapter's own rules say writes are not serialized (PLAN.md:19). Picture SessionMint waiting on the identity provider while, in that gap, the tenant gets suspended and the invalidation hook wipes their entries. The mint finishes and writes a fresh entry for a tenant who should now be locked out. Two writers make that race easy; one writer that re-checks tenant status right before storing makes it hard.\nStakes if we pick wrong: A suspended or logged-out tenant keeps a live cached session until expiry, which is exactly the class of bug the invalidation hooks exist to prevent.\nRecommendation: A because a single writer is the simplest explicit structure, needs no change to the adapter or its tests, and puts the one write site next to the one policy check in AuthBroker.\nCompleteness: A=9/10, B=8/10, D=3/10; C is an investigation step, unscored\nPros / cons:\nA) Single writer: only AuthBroker writes (recommended)\n  ✅ One write site to audit; SessionMint becomes side-effect free and trivially testable\n  ✅ Adapter and its existing tests stay unchanged; broker re-checks tenant status before the write\n  ❌ SessionMint must return the minted session instead of storing it, a small API change (human: ~3h / CC: ~10 min)\nB) Both write, through one guarded adapter write path\n  ✅ Closes the race for every present and future writer at the adapter boundary\n  ✅ Services keep their proposed write calls\n  ❌ Changes the adapter contract the plan promised to leave unchanged (PLAN.md:21-22); its tests must grow (human: ~1 day / CC: ~20 min)\nC) Investigate before choosing\n  ✅ A bounded read of the adapter's hooks and mint write sites confirms or dismisses the race\n  ✅ No structural commitment on an inferred risk\n  ❌ Leaves a P1 open into implementation; the probe still ends in this same choice\nD) Both services write directly, as planned\n  ✅ No API change to SessionMint or the adapter\n  ✅ Matches the plan as written\n  ❌ Leaves the mint-after-invalidate race open with no mitigation\nNet: one write site with a tenant re-check vs. two writers racing the invalidation hooks.": "Single writer: only AuthBroker writes (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-16T12:11:07.612Z"
+    },
+    {
+      "sessionId": "a75c4f50-7964-47ef-a0b0-a830761427a9",
+      "toolUseId": "toolu_012SzE8u66bsfq7A25JDMqvk",
+      "questions": [
+        {
+          "question": "D8 — What happens when validateAndDispatch() hits an error?\nProject/branch/task: main branch, /plan-eng-review of PLAN.md \"Multi-tenant Auth Refactor\" (Architecture review, security).\nELI10: The function that decides whether a request gets through has three nested try/catch blocks, and each one catches an error and moves on (PLAN.md:32-33). In an auth path, \"catch and move on\" is the dangerous direction: if a token check throws and the code keeps going, a bad token might be dispatched as if it were fine. The safe rule is fail closed: any error while validating or checking policy means deny, with a typed error that says which stage failed, and nothing is dispatched.\nStakes if we pick wrong: Fail open means an IDP hiccup or a malformed token could let a request through with no log line to find it later; fail closed means an IDP outage denies logins loudly, which is the outcome you want.\nRecommendation: A because auth must fail closed, typed errors make the three failure stages testable and greppable, and letting dispatch errors propagate keeps the broker from hiding downstream bugs.\nCompleteness: A=10/10, B=6/10, C=2/10\nPros / cons:\nA) Fail closed: validate/policy errors deny with typed errors; dispatch errors propagate (recommended)\n  ✅ No path from a swallowed error to a dispatched request; each stage has a named error class to assert on\n  ✅ Every denial is logged with tenant and request id, so a 3am incident has a trail\n  ❌ An IDP or cache outage becomes visible login failures rather than silent degradation (human: ~half day / CC: ~10 min)\nB) Fail closed for validate and policy; keep swallowing dispatch errors\n  ✅ Closes the security-relevant fail-open path\n  ✅ Smaller change to the dispatch stage as written\n  ❌ Downstream dispatch bugs stay invisible; callers cannot distinguish \"dispatched\" from \"failed silently\"\nC) Keep the three swallowing catches as planned\n  ✅ No change to the proposed function\n  ✅ Zero risk of newly visible failures\n  ❌ Unknown fail-open behavior in the auth decision path, untestable by error class\nNet: loud, typed denials vs. silent continues in the one function that must never be silent.",
+          "header": "Error contract",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Fail closed: validate/policy errors deny with typed errors; dispatch errors propagate (recommended)",
+              "description": "✅ No path from a swallowed error to a dispatched request; each stage has a named error class to assert on\n✅ Every denial is logged with tenant and request id, so a 3am incident has a trail\n❌ An IDP or cache outage becomes visible login failures rather than silent degradation (human: ~half day / CC: ~10 min)"
+            },
+            {
+              "label": "Fail closed for validate and policy; keep swallowing dispatch errors",
+              "description": "✅ Closes the security-relevant fail-open path\n✅ Smaller change to the dispatch stage as written\n❌ Downstream dispatch bugs stay invisible; callers cannot distinguish \"dispatched\" from \"failed silently\""
+            },
+            {
+              "label": "Keep the three swallowing catches as planned",
+              "description": "✅ No change to the proposed function\n✅ Zero risk of newly visible failures\n❌ Unknown fail-open behavior in the auth decision path, untestable by error class"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — What happens when validateAndDispatch() hits an error?\nProject/branch/task: main branch, /plan-eng-review of PLAN.md \"Multi-tenant Auth Refactor\" (Architecture review, security).\nELI10: The function that decides whether a request gets through has three nested try/catch blocks, and each one catches an error and moves on (PLAN.md:32-33). In an auth path, \"catch and move on\" is the dangerous direction: if a token check throws and the code keeps going, a bad token might be dispatched as if it were fine. The safe rule is fail closed: any error while validating or checking policy means deny, with a typed error that says which stage failed, and nothing is dispatched.\nStakes if we pick wrong: Fail open means an IDP hiccup or a malformed token could let a request through with no log line to find it later; fail closed means an IDP outage denies logins loudly, which is the outcome you want.\nRecommendation: A because auth must fail closed, typed errors make the three failure stages testable and greppable, and letting dispatch errors propagate keeps the broker from hiding downstream bugs.\nCompleteness: A=10/10, B=6/10, C=2/10\nPros / cons:\nA) Fail closed: validate/policy errors deny with typed errors; dispatch errors propagate (recommended)\n  ✅ No path from a swallowed error to a dispatched request; each stage has a named error class to assert on\n  ✅ Every denial is logged with tenant and request id, so a 3am incident has a trail\n  ❌ An IDP or cache outage becomes visible login failures rather than silent degradation (human: ~half day / CC: ~10 min)\nB) Fail closed for validate and policy; keep swallowing dispatch errors\n  ✅ Closes the security-relevant fail-open path\n  ✅ Smaller change to the dispatch stage as written\n  ❌ Downstream dispatch bugs stay invisible; callers cannot distinguish \"dispatched\" from \"failed silently\"\nC) Keep the three swallowing catches as planned\n  ✅ No change to the proposed function\n  ✅ Zero risk of newly visible failures\n  ❌ Unknown fail-open behavior in the auth decision path, untestable by error class\nNet: loud, typed denials vs. silent continues in the one function that must never be silent.": "Fail closed: validate/policy errors deny with typed errors; dispatch errors propagate (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-16T12:12:03.852Z"
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+import { expect, test } from 'bun:test';
+import { PaymentFailure, ProviderError, processPayment, type Payment } from './src/payment';
+
+const payment: Payment = { key: 'order-42', amount: 1200, currency: 'usd' };
+
+test.each([null, { ...payment, key: '' }, { ...payment, key: 'x'.repeat(129) },
+  { ...payment, amount: 0 }, { ...payment, amount: -1 }, { ...payment, amount: 0.5 },
+  { ...payment, currency: '' }])('invalid inputs never reach the transport: %j', async input => {
+  let calls = 0;
+  await expect(processPayment(input as Payment, {
+    chargeOnce: async () => { calls++; return { id: 'charge-42' }; },
+    sleep: async () => { throw new Error('must not wait'); },
+  })).rejects.toBeInstanceOf(TypeError);
+  expect(calls).toBe(0);
+});
+
+test.each(['declined', 'invalid', 'auth'] as const)('%s is never retried', async code => {
+  let calls = 0; const cause = new ProviderError(code);
+  const result = processPayment(payment, {
+    chargeOnce: async () => { calls++; throw cause; },
+    sleep: async () => { throw new Error('must not wait'); },
+  });
+  const failure = await result.then(() => { throw new Error('expected rejection'); }, error => error);
+  expect(failure).toBeInstanceOf(PaymentFailure);
+  expect(failure).toMatchObject({ key: payment.key, outcomeUnknown: false });
+  expect(failure.cause).toBe(cause);
+  expect(calls).toBe(1);
+});
+
+test.each(['502', 'timeout'] as const)('recovery after one %s preserves the request, delay and retry ownership', async code => {
+  const input = { ...payment }; const requests: Readonly<Payment>[] = []; const waits: number[] = [];
+  let releaseWait!: () => void;
+  const waiting = new Promise<void>(resolve => { releaseWait = resolve; });
+  let announceWait!: () => void;
+  const sleepStarted = new Promise<void>(resolve => { announceWait = resolve; });
+  const result = processPayment(input, {
+    chargeOnce: async request => {
+      requests.push(request);
+      if (requests.length === 1) { input.key = 'changed'; input.amount = 9999; throw new ProviderError(code); }
+      return { id: 'charge-42' };
+    },
+    sleep: async ms => { waits.push(ms); announceWait(); await waiting; },
+  });
+  // Drain the microtask queue while the injected wait is still unresolved: a
+  // retry that merely calls sleep without awaiting it must not reach transport.
+  await sleepStarted;
+  expect(requests).toHaveLength(1);
+  releaseWait();
+  expect(await result).toEqual({ chargeId: 'charge-42', amount: 1200, currency: 'usd' });
+  expect(requests).toEqual([payment, payment]);
+  expect(requests[0]).toBe(requests[1]);
+  expect(Object.isFrozen(requests[0])).toBe(true);
+  expect(waits).toEqual([100]);
+});
+
+test.each([
+  ['502', 'declined'], ['502', 'invalid'], ['502', 'auth'],
+  ['timeout', 'declined'], ['timeout', 'invalid'], ['timeout', 'auth'],
+] as const)('uncertain %s followed by %s stays unknown', async (first, second) => {
+  const causes = [new ProviderError(first), new ProviderError(second)];
+  const requests: Readonly<Payment>[] = []; const waits: number[] = [];
+  const result = processPayment(payment, {
+    chargeOnce: async request => { requests.push(request); throw causes[requests.length - 1]; },
+    sleep: async ms => { waits.push(ms); },
+  });
+  const failure = await result.then(() => { throw new Error('expected rejection'); }, error => error);
+  expect(failure).toBeInstanceOf(PaymentFailure);
+  expect(failure).toMatchObject({ key: payment.key, outcomeUnknown: true });
+  expect(failure.cause).toBe(causes[1]);
+  expect(requests).toEqual([payment, payment]);
+  expect(requests[0]).toBe(requests[1]);
+  expect(waits).toEqual([100]);
+});
+
+test.each(['502', 'timeout'] as const)('rejected backoff after %s preserves the uncertain failure and stops retrying', async code => {
+  const cause = new Error('wait failed'); const waits: number[] = []; let calls = 0;
+  const result = processPayment(payment, {
+    chargeOnce: async () => { calls++; throw new ProviderError(code); },
+    sleep: async ms => { waits.push(ms); throw cause; },
+  });
+  const failure = await result.then(() => { throw new Error('expected rejection'); }, error => error);
+  expect(failure).toBeInstanceOf(PaymentFailure);
+  expect(failure).toMatchObject({ key: payment.key, outcomeUnknown: true });
+  expect(failure.cause).toBe(cause);
+  expect(calls).toBe(1);
+  expect(waits).toEqual([100]);
+});

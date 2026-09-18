@@ -41,6 +41,8 @@ import { test, expect } from 'bun:test';
 import { CAPTURE_LONG_MS, PTY_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import { runPlanSkillObservation } from './helpers/claude-pty-runner';
+import { createPlanCountFixture } from './helpers/plan-count-fixture';
+import { seedHermeticGstackHome } from './helpers/hermetic-env';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -49,14 +51,31 @@ import { spawnSync } from 'child_process';
 const describeE2E = describeE2ETier('periodic');
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const PLAN = `# Draft: deterministic skill-list ordering
+
+Users compare skill listings in scripts and reviews. Make the existing listing
+path sort registered skill names deterministically before rendering them.
+Keep skill membership, aliases, metadata and text/JSON output formats unchanged.
+Cover mixed-case names and differing directory enumeration order with tests.
+
+This draft is the review target, not the current branch. For this invocation,
+I want only the review-mode decision; I will handle optional Office Hours and
+setup separately, and run the substantive review later. No review mode has
+been selected. For this mode-only handoff, use the full selected mode name in
+the normal audit record's user_choice and recommended fields, and name it in
+your public decision. A menu letter alone would not identify the chosen mode.`;
 
 describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () => {
   test('user-opted-in question still auto-decides when AskUserQuestion is --disallowedTools', async () => {
-    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-auto-decide-'));
+    const tmpHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-auto-decide-')));
+    let fixture: ReturnType<typeof createPlanCountFixture> | undefined;
     try {
+      fixture = createPlanCountFixture(PLAN);
+      seedHermeticGstackHome(tmpHome);
       // 1. Bootstrap the tmp GSTACK_HOME with question_tuning=true.
       const configBin = path.join(ROOT, 'bin', 'gstack-config');
       const setRes = spawnSync(configBin, ['set', 'question_tuning', 'true'], {
+        cwd: fixture.cwd,
         env: { ...process.env, GSTACK_HOME: tmpHome },
         encoding: 'utf-8',
         timeout: 30_000,
@@ -64,20 +83,24 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
       if (setRes.status !== 0) {
         throw new Error(`gstack-config set failed: ${setRes.stderr || setRes.stdout}`);
       }
+      const privacyRes = spawnSync(configBin, ['set', 'cross_project_learnings', 'false'], {
+        cwd: fixture.cwd, env: { ...process.env, GSTACK_HOME: tmpHome }, encoding: 'utf-8', timeout: 30_000,
+      });
+      if (privacyRes.status !== 0) throw new Error(`gstack-config privacy baseline failed: ${privacyRes.stderr || privacyRes.stdout}`);
 
       // 2. Resolve slug for the project (uses git remote — same as the spawned
       //    claude would resolve). The preference file path keys on this slug.
       const slugBin = path.join(ROOT, 'bin', 'gstack-slug');
       const slugRes = spawnSync(slugBin, [], {
-        // LIVE-REPO CWD: gstack-slug resolves the slug from this repo's git
-        // remote — must match what the spawned claude (repo cwd) resolves.
-        cwd: ROOT,
+        // Preference writer and observer share this attempt's standalone project.
+        cwd: fixture.cwd,
         env: { ...process.env, GSTACK_HOME: tmpHome },
         encoding: 'utf-8',
         timeout: 30_000,
       });
       // gstack-slug emits `eval`-able shell exports like `SLUG=garrytan-gstack`.
-      const slug = (slugRes.stdout.match(/SLUG=([^\s;]+)/)?.[1] ?? 'unknown').replace(/['"]/g, '');
+      const slug = slugRes.stdout.match(/SLUG=([^\s;]+)/)?.[1]?.replace(/['"]/g, '');
+      if (slugRes.status !== 0 || !slug) throw new Error('gstack-slug failed to identify the owned project');
 
       // 3. Write the preference: plan-ceo-review-mode → never-ask. The
       //    'plan-tune' source bypasses the inline-user origin gate.
@@ -90,6 +113,7 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
           source: 'plan-tune',
         })],
         {
+          cwd: fixture.cwd,
           env: { ...process.env, GSTACK_HOME: tmpHome },
           encoding: 'utf-8',
           timeout: 30_000,
@@ -115,23 +139,19 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
       //    beats transport-avoidance).
       const obs = await runPlanSkillObservation({
         skillName: 'plan-ceo-review',
+        cwd: fixture.cwd,
         // Keep the observed question within the single stored preference's scope.
         // An unseeded invocation asks which plan to review, a different question.
-        initialPlanContent: `# Draft: deterministic skill-list ordering
-
-Users compare skill listings in scripts and reviews. Make the existing listing
-path sort registered skill names deterministically before rendering them.
-Keep skill membership, aliases, metadata and text/JSON output formats unchanged.
-Cover mixed-case names and differing directory enumeration order with tests.
-
-This draft is the review target, not the current branch. For this invocation,
-I want only the review-mode decision; I will handle optional Office Hours and
-setup separately, and run the substantive review later. No review mode has
-been selected.`,
+        initialPlanContent: PLAN,
         inPlanMode: true,
         extraArgs: ['--disallowedTools', 'AskUserQuestion'],
         timeoutMs: CAPTURE_LONG_MS,
-        env: { GSTACK_HOME: tmpHome, CONDUCTOR_WORKSPACE_PATH: tmpHome },
+        // A judge calling an idle session 'waiting' is not an observed question.
+        // Missing decision evidence still fails at the unchanged deadline.
+        requireProseEvidence: true,
+        autoDecisionState: { stateRoot: fs.realpathSync(tmpHome), projectSlug: slug },
+        env: { GSTACK_HOME: tmpHome, GSTACK_STATE_ROOT: tmpHome, CONDUCTOR_WORKSPACE_PATH: fixture.cwd,
+          DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' },
       });
 
       // 5. Pass: 'auto_decided' (the strongest signal) or 'plan_ready' with
@@ -152,7 +172,8 @@ been selected.`,
       }
       expect(['auto_decided', 'plan_ready']).toContain(obs.outcome);
     } finally {
-      try { fs.rmSync(tmpHome, { recursive: true, force: true }); } catch { /* best-effort */ }
+      try { fixture?.cleanup(); }
+      finally { fs.rmSync(tmpHome, { recursive: true, force: true }); }
     }
   }, PTY_MS);
 });

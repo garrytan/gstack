@@ -258,10 +258,9 @@ Write the dashboard output to ${dashDir}/dashboard-output.md`,
 
     // Check dashboard output for via attribution
     const dashPath = path.join(dashDir, 'dashboard-output.md');
-    const allOutput = [
-      result.output || '',
-      ...result.toolCalls.map(tc => tc.output || ''),
-    ].join('\n').toLowerCase();
+    // Keep assertions on produced output: the source template itself contains
+    // the expected attribution, so a Read result cannot prove a dashboard ran.
+    const allOutput = (result.output || '').toLowerCase();
 
     // Verify via attribution appears somewhere (conversation or file)
     let dashContent = '';

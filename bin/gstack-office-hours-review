@@ -1,0 +1,74 @@
+#!/usr/bin/env bun
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { atomicWriteSync } from '../lib/fs-atomic.ts';
+import { assessOfficeHoursReviews, loadOfficeHoursReviews, renderOfficeHoursReview, renderOfficeHoursReviewerPrompt, replaceOfficeHoursReviewBlock } from '../lib/office-hours-review.ts';
+
+function main(args) {
+  const command = args.shift();
+  if (!['check', 'prepare', 'finalize'].includes(command)) throw new Error('usage: gstack-office-hours-review check <round.json...> | prepare --design <doc> --out-dir <reviewdir> [round.json...] | finalize --design <doc> [--report <report>] [--unreviewed <reason>] <round.json...>');
+  const options = {};
+  const files = [];
+  while (args.length) {
+    const value = args.shift();
+    if (value.startsWith('--')) {
+      const allowed = command === 'prepare' ? ['--design', '--out-dir'] : command === 'finalize' ? ['--design', '--report', '--unreviewed'] : [];
+      if (!allowed.includes(value)
+          || options[value] !== undefined || !args.length) throw new Error(`invalid option: ${value}`);
+      options[value] = args.shift();
+    } else files.push(value);
+  }
+  const rounds = loadOfficeHoursReviews(files);
+  if (command === 'check') {
+    console.log(JSON.stringify(assessOfficeHoursReviews(rounds)));
+    return;
+  }
+  if (!options['--design']) throw new Error(`${command} requires --design`);
+  const designPath = path.resolve(options['--design']);
+  if (rounds.some(review => path.resolve(review.document) !== designPath)) throw new Error('artifact document does not match --design');
+  if (command === 'prepare') {
+    if (!options['--out-dir']) throw new Error('prepare requires --out-dir');
+    if (!fs.statSync(designPath).isFile()) throw new Error('design must be an existing file');
+    const outDir = fs.realpathSync(options['--out-dir']);
+    if (!fs.statSync(outDir).isDirectory()) throw new Error('out-dir must be an existing directory');
+    const round = rounds.length + 1;
+    const promptPath = path.join(outDir, `round-${round}.prompt.md`);
+    const verdictPath = path.join(outDir, `round-${round}.json`);
+    const prompt = renderOfficeHoursReviewerPrompt({ document: designPath, verdictPath, previous: rounds.at(-1) });
+    const inputs = new Set([fs.realpathSync(designPath), ...files.map(file => fs.realpathSync(file))]);
+    for (const destination of [promptPath, verdictPath]) {
+      if (fs.existsSync(destination) && inputs.has(fs.realpathSync(destination))) throw new Error('output destination overlaps input evidence');
+    }
+    if (fs.lstatSync(verdictPath, { throwIfNoEntry: false })) throw new Error('next verdict already exists; check it before preparing another attempt');
+    const existing = fs.lstatSync(promptPath, { throwIfNoEntry: false });
+    if (existing) {
+      if (!existing.isFile() || fs.readFileSync(promptPath, 'utf8') !== prompt) throw new Error('existing review prompt differs from the complete saved evidence');
+    } else atomicWriteSync(promptPath, prompt, { mode: 0o600 });
+    const dispatch = `Read ${JSON.stringify(promptPath)} and execute the independent spec review as instructed.\nDocument: ${designPath}\nPrompt: ${promptPath}\nVerdict: ${verdictPath}`;
+    console.log(JSON.stringify({ round, promptPath, verdictPath, dispatch }));
+    return;
+  }
+  const reportPath = options['--report'] ? path.resolve(options['--report']) : null;
+  if (reportPath === designPath) throw new Error('design and report must be different files');
+  const inputs = new Set(files.map(file => fs.realpathSync(file)));
+  for (const destination of [designPath, reportPath].filter(Boolean)) {
+    if (inputs.has(fs.realpathSync(destination))) throw new Error('output destination overlaps a review artifact');
+  }
+  if (reportPath && fs.realpathSync(reportPath) === fs.realpathSync(designPath)) throw new Error('design and report must be different files');
+  const rendered = renderOfficeHoursReview(rounds, options['--unreviewed']);
+  // Validate/read/render both destinations before publishing either. Each rename
+  // is atomic; any publication error fails the command and final verification.
+  const design = fs.readFileSync(designPath, 'utf8');
+  const report = reportPath ? fs.readFileSync(reportPath, 'utf8') : '';
+  const nextDesign = replaceOfficeHoursReviewBlock(design, 'concerns', rendered.concerns);
+  const nextReport = reportPath ? replaceOfficeHoursReviewBlock(report, 'report', rendered.report) : null;
+  if (nextDesign !== design) atomicWriteSync(designPath, nextDesign, { mode: fs.statSync(designPath).mode & 0o777 });
+  if (reportPath && nextReport !== null && nextReport !== report) atomicWriteSync(reportPath, nextReport, { mode: fs.statSync(reportPath).mode & 0o777 });
+  console.log(JSON.stringify({ stop: rendered.stop, metrics: rendered.metrics, report: rendered.report }));
+}
+
+try { main(process.argv.slice(2)); }
+catch (error) {
+  console.error(`gstack-office-hours-review: ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
+}

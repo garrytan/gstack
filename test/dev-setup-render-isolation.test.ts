@@ -1,6 +1,8 @@
 import { describe, test, expect } from 'bun:test';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+import { runGeneration } from '../scripts/gen-skill-docs';
 
 // Static tripwires for the B2 render-isolation wiring. These fail CI if a
 // refactor drops a load-bearing line, re-introducing the "dev-setup dirties
@@ -49,18 +51,19 @@ describe('setup: honors GSTACK_SKIP_GBRAIN_REGEN', () => {
   });
 });
 
-describe('gen-skill-docs: section rewrite is gated on --out-dir', () => {
-  const gen = read('scripts/gen-skill-docs.ts');
-
-  test('rewriteSectionBase is a no-op without --out-dir', () => {
-    expect(gen).toContain('function rewriteSectionBase');
-    const idx = gen.indexOf('function rewriteSectionBase');
-    const body = gen.slice(idx, idx + 400);
-    // #2692: the gate is LINK_ROOT (defaults to OUT_DIR — still null when
-    // --out-dir is unset, so the in-place render stays a byte-exact no-op).
-    expect(body).toContain('if (!LINK_ROOT) return content');
-    expect(gen).toContain("parsePathFlag('--link-root') ?? OUT_DIR");
-    expect(body).toContain('sections'); // surgical: regex targets only /sections/ paths
+describe('gen-skill-docs: canonical section links', () => {
+  test('canonical render keeps global section and runtime paths', async () => {
+    const outputRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-canonical-links-'));
+    try {
+      const result = await runGeneration({ host: 'claude', outputRoot, contentLinkRoot: null });
+      expect(result.exitCode).toBe(0);
+      const content = fs.readFileSync(path.join(outputRoot, 'ship/SKILL.md'), 'utf-8');
+      expect(content).toContain('~/.claude/skills/gstack/ship/sections/');
+      expect(content).toContain('~/.claude/skills/gstack/bin/');
+      expect(content).not.toContain(outputRoot);
+    } finally {
+      fs.rmSync(outputRoot, { recursive: true, force: true });
+    }
   });
 });
 

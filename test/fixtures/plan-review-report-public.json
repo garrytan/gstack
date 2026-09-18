@@ -1,0 +1,29 @@
+{
+  "description": "Verbatim public report-table excerpts from the 2026-09-15 report artifact evaluation. Remaining report text is deliberately excluded; free tests label their synthetic completion suffix.",
+  "captures": [
+    {
+      "id": "failed-1",
+      "source_revision": "c2e050aa",
+      "cli": "2.1.251",
+      "collector_sha256": "00fc34604851d3defb799e3ef4614300e89fccdd999987f8502afd9391a43da2",
+      "attempt": 1,
+      "report_table": "## GSTACK REVIEW REPORT\n\n| Review | Runs | Status | Findings |\n|--------|------|--------|----------|\n| CEO    | 0    | pending | not yet run |\n| Codex  | 0    | pending | not yet run |\n| Eng    | 1    | done    | see findings below |\n| Design | 0    | pending | not yet run |\n| DX     | 0    | pending | not yet run |\n"
+    },
+    {
+      "id": "failed-2",
+      "source_revision": "c2e050aa",
+      "cli": "2.1.251",
+      "collector_sha256": "00fc34604851d3defb799e3ef4614300e89fccdd999987f8502afd9391a43da2",
+      "attempt": 2,
+      "report_table": "## GSTACK REVIEW REPORT\n\n| Review | Runs | Status  | Findings |\n|--------|------|---------|----------|\n| CEO    | 0    | pending | not yet run |\n| Codex  | 0    | pending | not yet run |\n| Eng    | 1    | done    | see findings below |\n| Design | 0    | pending | not yet run |\n| DX     | 0    | pending | not yet run |\n"
+    },
+    {
+      "id": "passed-1",
+      "source_revision": "2b1b5c47",
+      "cli": "2.1.251",
+      "collector_sha256": "8fb5c18d41171e8fe07c2b48c03a18654d0bf3ca9baba9c5429b4536969cbead",
+      "attempt": 1,
+      "report_table": "## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | not run |\n| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | not run |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | ISSUES OPEN | 9 issues, 3 critical gaps |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | not run |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | not run |\n"
+    }
+  ]
+}

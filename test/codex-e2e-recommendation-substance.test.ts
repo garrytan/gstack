@@ -73,10 +73,9 @@ describeCodex('/codex recommendation substance (live, periodic)', () => {
         timeoutMs: CAPTURE_MS,
       });
 
-      if (result.output.startsWith('SKIP:')) {
-        // codex binary missing — describeCodex already guards, but double-safe.
-        return;
-      }
+      // Prerequisite skips happen before this test starts. An attempted run
+      // must finish successfully before its output is sent to the paid judge.
+      expect(result.exitCode, result.stderr || result.output).toBe(0);
 
       const score = await judgeRecommendation(result.output);
       // eslint-disable-next-line no-console

@@ -24,7 +24,7 @@ export const PAID_TEST_GLOBS = [
   'test/codex-e2e*.test.ts',
   'test/gemini-e2e.test.ts',
   'test/llm-judge-recommendation.test.ts',
-  'test/carve-section-loading.test.ts',
+  'test/carve-section-loading*.test.ts',
 ] as const;
 
 /** True when a repo-relative path (either slash style) is a paid test file. */

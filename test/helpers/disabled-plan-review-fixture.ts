@@ -86,8 +86,77 @@ function preRunLogRecordValue(before: string, nextClause: string): boolean {
     /^(?:that|the|this)\s+(?:record|entry|line)\s+(?:does not|doesn't|cannot)\s+(?:reflect|establish|provide|supply)\s+(?:current\s+)?outside\s+(?:review\s+)?coverage\s+(?:from|for)\s+(?:this|my)\s+(?:run|session|workflow)\b/i.test(nextClause.trim());
 }
 
+/** Structured quotations must belong to the exact retained prior record. */
+function withoutAttributedPriorRecordData(output: string, priorRecord?: Record<string, unknown>): string {
+  if (!priorRecord || priorRecord.outside_status !== 'completed') return output;
+  const fields = new Set(['skill', 'timestamp', 'status', 'source', 'host', 'outside_provider', 'outside_status', 'phase', 'commit']);
+  const matchesPrior = (text: string, full: boolean): boolean => {
+    let record: Record<string, unknown>;
+    try {
+      if (full) {
+        record = JSON.parse(text);
+        const writtenKeys = [...text.matchAll(/("(?:\\.|[^"\\])*")\s*:/g)].map(match => JSON.parse(match[1]!));
+        if (writtenKeys.length !== new Set(writtenKeys).size) return false;
+      }
+      else {
+        record = {};
+        for (const part of text.split(',')) {
+          const field = /^\s*["']?([a-z_]+)["']?\s*[:=]\s*["']?([a-z0-9_.:+-]+)["']?\s*$/i.exec(part);
+          if (!field || Object.hasOwn(record, field[1]!)) return false;
+          record[field[1]!] = field[2]!;
+        }
+      }
+    } catch { return false; }
+    if (!record || typeof record !== 'object' || Array.isArray(record)) return false;
+    const keys = Object.keys(record);
+    return ['status', 'source', 'outside_status'].every(key => Object.hasOwn(record, key))
+      && (!full || keys.length === Object.keys(priorRecord).length)
+      && keys.every(key => fields.has(key) && Object.hasOwn(priorRecord, key) && record[key] === priorRecord[key]);
+  };
+  const ownsPriorValue = (prefix: string, fenced: boolean): boolean => {
+    const local = prefix.replace(/[*`]/g, '').trimEnd().split(/\r?\n|(?<=[.!?;])\s+/).at(-1) ?? '';
+    const owner = [...local.matchAll(/\b(?:earlier|prior|previous|historical|old(?:er)?|pre[- ]existing)\s+(?:(?:review[- ]log|review|log)\s+)?(?:entry|record|line|row)(?:\s+\d+)?\b/gi)].at(-1);
+    if (!owner || /\b(?:now|currently|current|today|new|updat\w*|append\w*|chang\w*|mark\w*|set|write|wrote)\b/i.test(local.slice(0, owner.index))) return false;
+    let rest = local.slice(owner.index + owner[0].length);
+    // An explicit historical owner already establishes prior attribution.
+    // A parenthesized timestamp must identify that exact retained record;
+    // the redundant pre-run suffix is optional, but arbitrary metadata fails.
+    const location = /^\s*\(\s*(?:timestamp\s+)?([^\s,()]+)(?:\s*,\s*before\s+(?:this|my)\s+(?:run|session|workflow)(?:\s+(?:started|began))?)?\s*\)/i.exec(rest);
+    if (location) {
+      const priorTime = typeof priorRecord.timestamp === 'string' ? Date.parse(priorRecord.timestamp) : NaN;
+      const clock = Number.isFinite(priorTime) ? new Date(priorTime).toISOString().slice(11, 19) + 'Z' : '';
+      if (location[1] !== priorRecord.timestamp && location[1] !== clock) return false;
+      rest = rest.slice(location[0].length);
+    }
+    // Keep attribution on this record. A subject switch, current mutation,
+    // second status or prose inside the data cannot borrow its ownership.
+    const report = /^\s*(?:(?:that\s+)?(?:claims?|claiming|shows?|showed|says?|said|records?|recorded|reported)\s*:?)?\s*:\s*$/i;
+    const inlineReport = /^\s*(?:that\s+)?(?:claims?|claiming|shows?|showed|says?|said|records?|recorded|reported)\s*:?[ \t]*$/i;
+    const notAuthored = /^\s+that\s+(?:I|we)\s+(?:did\s+not|didn't)\s+(?:write|create|produce|record)\s*:\s*$/i;
+    return fenced ? report.test(rest) || notAuthored.test(rest) : inlineReport.test(rest);
+  };
+  const spans: Array<{ start: number; end: number }> = [];
+  const fences = /^ {0,3}(`{3,}|~{3,})(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n {0,3}\1[ \t]*(?=\r?\n|$)/gim;
+  for (const match of output.matchAll(fences)) {
+    if (ownsPriorValue(output.slice(0, match.index), true) && matchesPrior(match[2]!, true)) {
+      spans.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  for (const match of output.matchAll(/`([^`\r\n]+)`/g)) {
+    if (spans.some(span => span.start <= match.index && match.index < span.end)) continue;
+    if (ownsPriorValue(output.slice(0, match.index), false) && matchesPrior(match[1]!, false)) {
+      spans.push({ start: match.index, end: match.index + match[0].length });
+    }
+  }
+  for (const span of spans.sort((a, b) => b.start - a.start)) {
+    output = output.slice(0, span.start) + output.slice(span.start, span.end).replace(/[^\r\n]/g, ' ') + output.slice(span.end);
+  }
+  return output;
+}
+
 /** Check each completion mention; a historical record cannot excuse a later current claim. */
-function hasUnattributedOutsideCompletion(output: string): boolean {
+function hasUnattributedOutsideCompletion(output: string, priorRecord?: Record<string, unknown>): boolean {
+  output = withoutAttributedPriorRecordData(output, priorRecord);
   const marker = /\bboth reviewers agree\b|["']?\boutside_status["']*\s*[:=]\s*["']*completed\b/gi;
   const clauses = output.replace(/[*`]/g, '').split(/\r?\n|(?<=[.!?;])\s+|\b(?:but|however|nevertheless|yet)\b[:,]?\s*/i);
   return clauses.some((clause, clauseIndex) => [...clause.matchAll(marker)].some(match => {
@@ -148,7 +217,7 @@ export function disabledPlanReviewEvidence(result: {
   const disabledAttribution = /outside_status["'`*]*\s*[:=]\s*["'`*]*disabled\b/i.test(result.output)
     || result.output.split('\n').some(line => /\b(?:outside(?:\s+(?:voice|review))?|codex(?:\s+review)?)\b/i.test(line)
       && /\bdisabled\b/i.test(line) && !/\bnot\s+disabled\b/i.test(line));
-  const falseCompletion = hasUnattributedOutsideCompletion(result.output);
+  const falseCompletion = hasUnattributedOutsideCompletion(result.output, priorRecord);
   // Native CLI releases expose the requested subagent as Agent or Task.
   // Availability never permits dispatch: fallbackCalls rejects both names.
   const agentAvailable = Array.isArray(init?.tools) && init.tools.some((tool: unknown) => tool === 'Agent' || tool === 'Task');

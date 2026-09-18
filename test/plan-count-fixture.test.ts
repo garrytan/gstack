@@ -66,6 +66,47 @@ describe('plan-count fixtures', () => {
     expect(fs.existsSync(second.env.GSTACK_HOME)).toBe(false);
   });
 
+  test('a preconfigured review actor declines only unrelated first-use preferences in owned state', () => {
+    const shared = getHermeticDirs().gstackHome;
+    const before = fs.readFileSync(path.join(shared, 'config.yaml'), 'utf8');
+    const ordinary = createPlanCountFixture(PROMPT, { nativeReviewOnly: true });
+    const configured = createPlanCountFixture(PROMPT, { nativeReviewOnly: true, preconfiguredReviewActor: true });
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'configured-review-home-'));
+    try {
+      const env = { PATH: process.env.PATH!, HOME: home, ...configured.env };
+      const config = (key: string) => spawnSync('bash', [path.join(ROOT, 'bin/gstack-config'), 'get', key],
+        { cwd: configured.cwd, env, encoding: 'utf8', timeout: 10_000 });
+      for (const [key, value] of [['routing_declined', 'true'], ['cross_project_learnings', 'false'],
+        ['codex_reviews', 'disabled'], ['question_tuning', 'false']]) {
+        const result = config(key);
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toBe(value);
+      }
+      const start = spawnSync('bash', [path.join(ROOT, 'bin/gstack-skill-start'), '--skill', 'plan-ceo-review'],
+        { cwd: configured.cwd, env, encoding: 'utf8', timeout: 30_000 });
+      expect(start.status, start.stderr).toBe(0);
+      expect(start.stdout).toContain('SESSION_KIND: interactive');
+      expect(start.stdout).toContain('HAS_ROUTING: no');
+      expect(start.stdout).toContain('ROUTING_DECLINED: true');
+      expect(start.stdout).not.toContain('GSTACK_INSTRUCTION_BEGIN: routing-injection ');
+      expect(start.stdout).toContain('QUESTION_TUNING: false');
+      expect(fs.readFileSync(path.join(configured.cwd, 'PLAN.md'), 'utf8')).toBe(PROMPT);
+      expect(fs.readFileSync(path.join(configured.cwd, 'CLAUDE.md'), 'utf8'))
+        .toBe(fs.readFileSync(path.join(ordinary.cwd, 'CLAUDE.md'), 'utf8'));
+      expect(fs.existsSync(path.join(configured.cwd, 'TODOS.md'))).toBe(false);
+      expect(fs.readFileSync(path.join(ordinary.env.GSTACK_HOME, 'config.yaml'), 'utf8'))
+        .toBe(before.replace(/^codex_reviews:.*(?:\r?\n|$)/gm, '') + '\ncodex_reviews: disabled\n');
+      expect(fs.readFileSync(path.join(shared, 'config.yaml'), 'utf8')).toBe(before);
+      expect(() => createPlanCountFixture(PROMPT, { preconfiguredReviewActor: true }))
+        .toThrow('Preconfigured review actor requires owned native review state');
+    } finally {
+      ordinary.cleanup();
+      configured.cleanup();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+    expect(fs.existsSync(configured.env.GSTACK_HOME)).toBe(false);
+  }, 40_000);
+
   test('concurrent fixtures have independent content and cleanup owns only its directory', () => {
     const first = createPlanCountFixture('first plan');
     const second = createPlanCountFixture('second plan');
@@ -172,7 +213,7 @@ try {
         { name: 'permission-lifecycle', skillName: 'plan-design-review', prompt: PROMPT, mode: 'permission-lifecycle' },
         { name: 'permission', skillName: 'plan-design-review', prompt: PROMPT, mode: 'permission' },
         { name: 'missing-transcript', skillName: 'plan-design-review', prompt: PROMPT, mode: 'missing-transcript' },
-        { name: 'ceo', skillName: 'plan-ceo-review', prompt: '# Independent CEO plan\nUnique product context.', mode: 'complete' },
+        { name: 'ceo', skillName: 'plan-ceo-review', prompt: '# Independent CEO plan\nUnique product context.', mode: 'complete', preconfiguredReviewActor: true },
         { name: 'exited', skillName: 'plan-eng-review', prompt: '# Early-exit plan\nStill clean up.', mode: 'exit' },
         { name: 'skip-first', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'prerequisite', skipIndex: 1 },
         { name: 'skip-second', skillName: 'plan-devex-review', prompt: '# Native DX plan', mode: 'prerequisite', skipIndex: 2 },
@@ -235,6 +276,7 @@ record({
   type: 'startup', pid: process.pid, cwd: process.cwd(), argv: process.argv.slice(2),
   stateRoot: process.env.GSTACK_STATE_ROOT, gstackHome: process.env.GSTACK_HOME,
   codexReviews: config('codex_reviews'), explainLevel: config('explain_level'),
+  routingDeclined: config('routing_declined'), crossProjectLearnings: config('cross_project_learnings'),
   onboarding: fs.readdirSync(process.env.GSTACK_HOME).filter(name => name.startsWith('.')),
   gitRoot: spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 10_000 }).stdout.trim(),
   plan: fs.existsSync(planPath) ? fs.readFileSync(planPath, 'utf8') : null,
@@ -503,6 +545,7 @@ const results = await Promise.all(cases.map(async (item) => ({
     slashCommand: '/' + item.skillName,
     followUpPrompt: item.prompt,
     fixtureFiles: item.files,
+    preconfiguredReviewActor: item.preconfiguredReviewActor,
     expectedPlanPath: item.report,
     isLastStep0AUQ: () => false,
     isFirstReviewAUQ: ['direct-finding', 'batched-finding', 'failed-call'].includes(item.mode) ? designFirstReviewAUQ : undefined,
@@ -564,6 +607,8 @@ await Bun.write(${JSON.stringify(resultPath)}, JSON.stringify({ results, onboard
           expect(startup.stateRoot).not.toBe(hostState);
           expect(startup.codexReviews).toBe('disabled');
           expect(startup.explainLevel).toBe('beginner');
+          expect(startup.routingDeclined).toBe(item.preconfiguredReviewActor ? 'true' : 'false');
+          expect(startup.crossProjectLearnings).toBe(item.preconfiguredReviewActor ? 'false' : '');
           expect(startup.onboarding).toEqual(report.onboarding);
           expect(startup.plan).toBe(item.prompt);
           expect(startup.context).toContain('PLAN.md');

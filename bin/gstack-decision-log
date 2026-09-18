@@ -3,6 +3,7 @@
  * gstack-decision-log — append a durable decision (or supersede/redact/compact it).
  *
  * Usage:
+ *   gstack-decision-log --help
  *   gstack-decision-log '{"decision":"...","rationale":"...","scope":"repo","source":"user"}'
  *   gstack-decision-log --supersede <decision-id>
  *   gstack-decision-log --redact <decision-id>
@@ -18,6 +19,8 @@ import { dirname } from "path";
 import { mkdirpSync } from "../lib/fs-utils";
 import { spawnSync } from "child_process";
 import {
+  DECISION_SCOPES,
+  DECISION_SOURCES,
   decisionPaths,
   validateDecide,
   makeRefEvent,
@@ -31,6 +34,47 @@ import { resolveSlug, gitBranch, flagValue } from "../lib/bin-context";
 const HERE = import.meta.dir;
 
 const args = process.argv.slice(2);
+const usage = `Usage:
+  gstack-decision-log '<JSON>'
+  gstack-decision-log --supersede <decision-id> ['<replacement JSON>']
+  gstack-decision-log --redact <decision-id>
+  gstack-decision-log --compact
+  gstack-decision-log --help
+
+Decision JSON:
+  decision: nonempty string (required)
+  scope: ${DECISION_SCOPES.join("|")} (default: repo)
+  source: ${DECISION_SOURCES.join("|")} (default: agent)
+  rationale, alternatives_considered: optional explanatory text
+  branch: branch name; inferred from git for scope=branch when omitted
+  issue: issue identifier for issue-scoped retrieval
+  confidence: optional integer 1-10
+  id, date, session: optional record metadata; id/date are generated when omitted
+Only these payload fields are stored; skill and tags are not record fields.
+
+Pass JSON as one argument, not stdin. A quoted heredoc preserves apostrophes:
+  payload=$(cat <<'JSON'
+{"decision":"Keep the caller's acceptance rule","rationale":"The application owns the threshold","scope":"repo","source":"user"}
+JSON
+  )
+  gstack-decision-log "$payload"
+
+Successful writes print the decision id. Invalid payloads exit 1 without a record.
+Supersede retires the old decision and optionally records a validated replacement.
+Redact accepts no replacement; compact removes redacted history and archives superseded records.
+Help prints this schema and exits without resolving the project or writing state.
+`;
+
+// Help and empty-input usage must not create slug caches, stores or sync work.
+if (args.includes("--help")) {
+  process.stdout.write(usage);
+  process.exit(0);
+}
+if (args.every((arg) => !arg.trim())) {
+  process.stderr.write(usage);
+  process.exit(1);
+}
+
 const slug = resolveSlug(`${HERE}/gstack-slug`);
 const paths = decisionPaths(slug);
 // mkdirpSync, not bare mkdirSync: bun on Windows throws EEXIST from a

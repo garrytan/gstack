@@ -1,0 +1,225 @@
+{
+  "sourceRevision": "b176520c966d347fb8da05f631da3a9bb9fca3be",
+  "source": "Retained public native questions/ACKs and byte-exact successful Write report payloads from both real paired attempts.",
+  "limit": "Both actual attempts failed. Completed comparison variants are explicitly synthetic and never replace or rejudge the original failures.",
+  "captures": [
+    {
+      "attempt": "plan-ceo-review-1789537824362-RY5FQx",
+      "sourceRecord": {
+        "at": "2026-09-16T05:50:25.256Z",
+        "kind": "owned-plan-or-report",
+        "source": "/tmp/g-pyj7vm4y/gstack-paid-shard-3lvlkJ/tmp/gstack-plan-count-Yvuyqg/PLAN.md",
+        "artifact": "objects/4775ea0bec8cc504432b36a56b3557de4ecb0c699eeae66f087130f6fcc68ce8.md",
+        "sha256": "4775ea0bec8cc504432b36a56b3557de4ecb0c699eeae66f087130f6fcc68ce8",
+        "bytes": 2329,
+        "mtimeMs": 1789537794187.0474,
+        "provenance": "Exact observed file bytes; never reconstructed from tool text."
+      },
+      "savedRecord": {
+        "at": "2026-09-16T05:53:18.914Z",
+        "kind": "owned-plan-or-report",
+        "source": "/tmp/g-pyj7vm4y/gstack-paid-shard-3lvlkJ/tmp/gstack-e2e-plan-ceo-paired-4TrblY/gstack-test-plan-ceo-paired.md",
+        "artifact": "objects/5ca9ca682c53cc6c03aace28a0506dc3912c9d413dbeaae7af3b5ffd4b1307e7.md",
+        "sha256": "5ca9ca682c53cc6c03aace28a0506dc3912c9d413dbeaae7af3b5ffd4b1307e7",
+        "bytes": 7051,
+        "mtimeMs": 1789537998288.315,
+        "provenance": "Exact observed file bytes; never reconstructed from tool text."
+      },
+      "seed": "Please review this plan thoroughly in HOLD SCOPE mode. As you go, write your plan-mode plan to /tmp/g-pyj7vm4y/gstack-paid-shard-3lvlkJ/tmp/gstack-e2e-plan-ceo-paired-4TrblY/gstack-test-plan-ceo-paired.md (use Edit/Write to that exact path).\nProceed directly to the requested CEO review; skip the optional /office-hours prerequisite.\nFinish after this CEO review; I will handle subsequent reviews manually.\n\n# Plan: Payment Processing — Test Coverage\n\n## Existing coverage and test infrastructure retained\nThis changes unit tests only; processPayment() production behavior stays as-is.\nThe Stripe adapter suite already covers network timeouts, card declines (402),\nrate limits (429), and recovery when an initial 502 is followed by a successful\ncharge. Receipt-builder failure behavior has its own passing regression tests.\nThe payment test factory explicitly configures max_retries=1 and exposes the\nStripe mock call history. Its injected virtual sleeper records backoff without\nreal delays, so an exhausted 502 operation makes exactly two charge attempts.\nThese existing helpers and regression suites remain in use for this change.\n\n## Existing behavior retained\nA successful charge returns a receipt with chargeId copied from Stripe,\namountCents equal to the requested integer amount, and currency equal to\nthe requested currency. For a 1000-cent USD charge returning id ch_paid,\nthe receipt is { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }.\nOn repeated 502 responses, max_retries=1 means two total charge attempts\nseparated by one recorded 100 ms backoff, followed by PaymentUnavailable.\nThese contracts are already implemented; this plan adds their unit coverage.\n\n## Proposed tests\nAdd two tests in the existing processPayment suite using its current factory,\nStripe mock and virtual sleeper. Other tests and production code stay as-is.\n\n1. Successful charge: arrange the Stripe mock to return id ch_paid, call\n   processPayment with amountCents=1000 and currency=USD, and assert only\n   that the returned receipt is truthy. This is the complete planned assertion.\n2. Repeated 502: arrange two consecutive Stripe 502 responses, call\n   processPayment, and assert only that it rejects with PaymentUnavailable.\n   No assertion about the mock call history or virtual sleeper record\n   is planned for this test.",
+      "savedPlan": "# Plan: Payment Processing — Test Coverage (CEO review, HOLD SCOPE)\n\nSource plan: `PLAN.md` @ df6ca76 on `main`. Review mode: HOLD SCOPE (explicit user instruction).\nStorage: this file is the working plan (user-requested path). No code, TODOS.md, or design doc exists in the repo; every \"existing\" helper below is plan-asserted and unverified here.\n\n## Context\n\n`processPayment()` already implements two contracts (successful-charge receipt shape; max_retries=1 retry then `PaymentUnavailable`) that have no unit coverage in the processPayment suite. This plan adds that coverage using the existing payment test factory, Stripe mock (with call history) and injected virtual sleeper. Production code is untouched.\n\n## Existing infrastructure retained (plan-asserted, not verified in this repo)\n\n- Stripe adapter suite covers: network timeouts, 402 declines, 429 rate limits, 502-then-success recovery.\n- Receipt-builder failure behavior has its own regression tests.\n- Payment test factory: `max_retries=1`, exposes Stripe mock call history, injects a virtual sleeper that records backoff without real delays. Exhausted 502 = exactly two charge attempts.\n\n## Contracts under test (from PLAN.md \"Existing behavior retained\")\n\n| ID | Contract | Evidence |\n|---|---|---|\n| C1 | Success: receipt = `{ chargeId: <Stripe id>, amountCents: <requested int>, currency: <requested> }`; for 1000 USD / `ch_paid` → `{ chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }` | PLAN.md L18-21 |\n| C2 | Repeated 502 with max_retries=1: exactly 2 charge attempts, exactly one recorded 100 ms backoff between them, then rejects `PaymentUnavailable` | PLAN.md L22-23 |\n\n## Step 0 — audit findings\n\n- 0A Premise: right problem. Two documented contracts have zero direct unit coverage; a regression in receipt mapping or retry count ships silently today. Doing nothing is a real (not hypothetical) gap for payment code.\n- 0B Leverage: everything needed exists (factory, mock history, sleeper record). No new helpers, no rebuilding.\n- 0C Dream state: 12 months out, every processPayment contract is pinned by a test that fails on the specific regression. This plan moves toward that only if the tests assert the contracts they name.\n\n```\n  CURRENT STATE                    THIS PLAN                       12-MONTH IDEAL\n  C1, C2 implemented,   --->   two tests in processPayment   --->  every documented contract\n  no direct unit tests          suite, same helpers                pinned by a failing-on-regression test\n```\n\n- 0G HOLD SCOPE checks: 1 file touched, 0 new classes → complexity check passes. Minimum change = the two tests; nothing is deferrable without abandoning the goal. Invariants C1/C2 are stated acceptance criteria; repairs needed to actually cover them are in scope.\n\n## Decision ledger\n\n| ID and owner | Contract and evidence | Current | Proposed | Status | Exact approval and scope |\n|---|---|---|---|---|---|\n| R1 (user) — Test 1 assertion depth | C1, PLAN.md L18-21, L30-32. Coverage: none today | Assert only `receipt` is truthy (plan's \"complete planned assertion\") | A) assert receipt deep-equals `{ chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }` and Stripe mock called exactly once with amountCents=1000, currency=USD; B) assert `chargeId === \"ch_paid\"` only; C) keep truthy-only | unresolved | pending |\n| R2 (user) — Test 2 assertion depth | C2, PLAN.md L22-23, L33-36. Coverage: adapter suite covers 502→success, not 502→502 exhaustion | Assert only rejection with `PaymentUnavailable`; explicitly no call-history or sleeper assertion | A) also assert mock call history length === 2 and sleeper record deep-equals `[100]`; B) also assert call history length === 2 only; C) keep rejection-only | unresolved | pending |\n| M (user) — Review mode | user instruction \"review this plan thoroughly in HOLD SCOPE mode\" | HOLD SCOPE | — | approved | CLAUDE.md user request; explicit choice, no question asked |\n\n### R1 commitment comparison\n\n```text\nCommitment                         | Source/approval or pending | Current      | A            | B             | C\nArrange mock returns ch_paid       | PLAN.md L30, approved      | yes          | yes          | yes           | yes\nCall with 1000 / USD               | PLAN.md L31, approved      | yes          | yes          | yes           | yes\nAssert receipt truthy              | PLAN.md L32                | yes          | subsumed     | subsumed      | yes\nAssert chargeId === \"ch_paid\"      | pending                    | no           | yes          | yes           | no\nAssert amountCents === 1000        | pending                    | no           | yes          | no            | no\nAssert currency === \"USD\"          | pending                    | no           | yes          | no            | no\nAssert mock called once w/ args    | pending                    | no           | yes          | no            | no\nProduction code / other tests      | PLAN.md L28, approved      | unchanged    | unchanged    | unchanged     | unchanged\n```\n\nOptions: A \"Full contract\" — S effort, low risk; catches wrong-amount, wrong-currency, wrong-id, double-charge regressions; 10/10. B \"Id only\" — S, low; catches id mapping only; 5/10. C \"Truthy only\" — S, low; passes against `return {}`; 3/10.\n\n### R2 commitment comparison\n\n```text\nCommitment                         | Source/approval or pending | Current      | A            | B             | C\nArrange two consecutive 502s       | PLAN.md L33, approved      | yes          | yes          | yes           | yes\nAssert rejects PaymentUnavailable  | PLAN.md L34, approved      | yes          | yes          | yes           | yes\nAssert call history length === 2   | pending                    | no (L35-36)  | yes          | yes           | no\nAssert sleeper record === [100]    | pending                    | no (L35-36)  | yes          | no            | no\nProduction code / other tests      | PLAN.md L28, approved      | unchanged    | unchanged    | unchanged     | unchanged\n```\n\nOptions: A \"Full contract\" — S, low; catches retry-count and backoff regressions plus the error class; 10/10. B \"Count only\" — S, low; misses a backoff regression (0 ms or 1000 ms both pass); 7/10. C \"Rejection only\" — S, low; passes with 1 attempt or 50 attempts; 3/10.\n\n## Proposed tests (working text; amended as rows resolve)\n\nAdd two tests in the existing processPayment suite using its current factory, Stripe mock and virtual sleeper. Other tests and production code stay as-is.\n\n1. Successful charge — arrange Stripe mock → `ch_paid`; call `processPayment({ amountCents: 1000, currency: \"USD\" })`; assertion depth: **R1 pending**.\n2. Repeated 502 — arrange two consecutive 502s; call `processPayment`; assert rejects `PaymentUnavailable`; further assertions: **R2 pending**.\n\n## NOT in scope\n\n- Production changes to `processPayment()`, the retry loop, or the receipt builder.\n- New helpers or fixtures.\n- Re-covering scenarios the Stripe adapter suite already owns (timeouts, 402, 429, 502→success).\n",
+      "call": {
+        "sessionId": "952244a1-ccef-4dab-b15c-60bc2eb238f6",
+        "toolUseId": "toolu_01YR9WjaxF3GG7ivTFK3ZupA",
+        "questions": [
+          {
+            "question": "D3 (ledger row R1) — How deep should Test 1 (successful charge) assert?\nProject/branch/task: gstack-plan-count-Yvuyqg on main, HOLD SCOPE review of the processPayment coverage plan.\nELI10: The plan writes down the exact receipt the charge must return: { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The proposed test then only checks that the receipt is not null/undefined. A receipt builder that returns {} or charges 100000 cents passes that test. Asserting the real object is the same test file, same helpers, about 3 more lines.\nStakes if we pick wrong: A wrong-amount or wrong-currency regression in the receipt ships with a green suite; that is customer-visible money.\nRecommendation: A because the contract is already spelled out in the plan and the mock call history is already exposed by the factory.\nCompleteness: A=10/10, B=5/10, C=3/10\nNet: three extra expect lines vs a test that cannot fail on the regressions it exists to catch.",
+            "header": "R1 depth",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Full contract (recommended)",
+                "description": "✅ Deep-equals the stated receipt { chargeId, amountCents, currency } so id, amount and currency regressions each fail loudly. ✅ Asserts the Stripe mock was called exactly once with amountCents=1000, currency=USD, catching accidental double-charge or arg mangling. ❌ Test is coupled to the exact receipt shape; adding a field later means updating one deep-equal (human: ~1 min / CC: seconds)."
+              },
+              {
+                "label": "chargeId only",
+                "description": "✅ Catches the id-mapping regression, which is the most likely copy bug. ✅ Less coupling to the full receipt shape. ❌ Wrong amountCents or currency still passes; the plan's own contract (L18-21) goes unchecked for two of three fields."
+              },
+              {
+                "label": "Keep truthy-only",
+                "description": "✅ Matches PLAN.md L32 exactly, zero deviation from the submitted plan. ✅ Never breaks on receipt shape changes. ❌ Passes against `return {}`; provides no regression protection for C1, so the coverage goal is not met."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 (ledger row R1) — How deep should Test 1 (successful charge) assert?\nProject/branch/task: gstack-plan-count-Yvuyqg on main, HOLD SCOPE review of the processPayment coverage plan.\nELI10: The plan writes down the exact receipt the charge must return: { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }. The proposed test then only checks that the receipt is not null/undefined. A receipt builder that returns {} or charges 100000 cents passes that test. Asserting the real object is the same test file, same helpers, about 3 more lines.\nStakes if we pick wrong: A wrong-amount or wrong-currency regression in the receipt ships with a green suite; that is customer-visible money.\nRecommendation: A because the contract is already spelled out in the plan and the mock call history is already exposed by the factory.\nCompleteness: A=10/10, B=5/10, C=3/10\nNet: three extra expect lines vs a test that cannot fail on the regressions it exists to catch.": "Full contract (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T05:53:37.749Z"
+      },
+      "priorCalls": [
+        {
+          "sessionId": "952244a1-ccef-4dab-b15c-60bc2eb238f6",
+          "toolUseId": "toolu_01AhnGMX7q79P9r2pgkviNB3",
+          "questions": [
+            {
+              "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-Yvuyqg on main, starting the CEO review of PLAN.md.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so plain requests like \"review this diff\" get routed to the right skill automatically. This is a one-time onboarding prompt for this project. Note: plan mode blocks editing CLAUDE.md and committing right now, so choosing A queues the edit + commit for after this review exits plan mode.\nStakes if we pick wrong: Without routing, you invoke each skill by name; with it, an unwanted section lands in CLAUDE.md. Both reversible.\nRecommendation: A because routing rules are a small, reversible addition that saves typing skill names.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience of auto-routing vs keeping CLAUDE.md untouched.",
+              "header": "Routing",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Add routing rules (recommended)",
+                  "description": "✅ Requests like \"review this\" or \"ship it\" auto-route to the matching gstack skill without naming it. ✅ One-time setup; the section is plain markdown you can edit or delete anytime. ❌ Edit + commit to CLAUDE.md is deferred until after plan mode ends; adds ~20 lines to a fixture CLAUDE.md."
+                },
+                {
+                  "label": "No thanks, invoke skills manually",
+                  "description": "✅ CLAUDE.md stays exactly as-is in this review fixture repo. ✅ Sets routing_declined=true so this prompt never reappears for this project. ❌ You keep typing /skill-name for every gstack workflow."
+                }
+              ]
+            },
+            {
+              "question": "D2 — Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-Yvuyqg on main, same review.\nELI10: gstack can search learnings recorded from your other projects on this machine to find patterns that might apply here. This stays local; no data leaves your machine. Recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern.\nStakes if we pick wrong: Miss useful past learnings, or surface a learning from an unrelated client project. Both reversible via gstack-config.\nRecommendation: A because this is a local-only lookup and this machine currently has 0 learnings, so risk is nil.\nNote: options differ in kind, not coverage — no completeness score.\nNet: broader recall vs strict per-project isolation.",
+              "header": "Learnings",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Enable cross-project (recommended)",
+                  "description": "✅ Findings in this review can cite learnings recorded on other local projects when they match. ✅ Fully local; flips one config key you can turn back off. ❌ On a multi-client machine, a learning from one codebase could surface in another."
+                },
+                {
+                  "label": "Project-scoped only",
+                  "description": "✅ Learnings never cross project boundaries; safest on shared client machines. ✅ Also a one-key config write, reversible any time. ❌ This project has 0 learnings today, so searches return nothing until it accumulates its own."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-Yvuyqg on main, starting the CEO review of PLAN.md.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so plain requests like \"review this diff\" get routed to the right skill automatically. This is a one-time onboarding prompt for this project. Note: plan mode blocks editing CLAUDE.md and committing right now, so choosing A queues the edit + commit for after this review exits plan mode.\nStakes if we pick wrong: Without routing, you invoke each skill by name; with it, an unwanted section lands in CLAUDE.md. Both reversible.\nRecommendation: A because routing rules are a small, reversible addition that saves typing skill names.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience of auto-routing vs keeping CLAUDE.md untouched.": "Add routing rules (recommended)",
+            "D2 — Enable cross-project learnings search?\nProject/branch/task: gstack-plan-count-Yvuyqg on main, same review.\nELI10: gstack can search learnings recorded from your other projects on this machine to find patterns that might apply here. This stays local; no data leaves your machine. Recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern.\nStakes if we pick wrong: Miss useful past learnings, or surface a learning from an unrelated client project. Both reversible via gstack-config.\nRecommendation: A because this is a local-only lookup and this machine currently has 0 learnings, so risk is nil.\nNote: options differ in kind, not coverage — no completeness score.\nNet: broader recall vs strict per-project isolation.": "Enable cross-project (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-16T05:51:36.473Z"
+        }
+      ]
+    },
+    {
+      "attempt": "plan-ceo-review-1789538052221-Hm8ShQ",
+      "sourceRecord": {
+        "at": "2026-09-16T05:54:12.349Z",
+        "kind": "owned-plan-or-report",
+        "source": "/tmp/g-pyj7vm4y/gstack-paid-shard-3lvlkJ/tmp/gstack-plan-count-rQv537/PLAN.md",
+        "artifact": "objects/83bfd8b47b60dd9900e0f53ed8adee732ec11740b048b6d71ebb8f23cd538624.md",
+        "sha256": "83bfd8b47b60dd9900e0f53ed8adee732ec11740b048b6d71ebb8f23cd538624",
+        "bytes": 2329,
+        "mtimeMs": 1789538022156.3145,
+        "provenance": "Exact observed file bytes; never reconstructed from tool text."
+      },
+      "savedRecord": {
+        "at": "2026-09-16T05:56:44.816Z",
+        "kind": "owned-plan-or-report",
+        "source": "/tmp/g-pyj7vm4y/gstack-paid-shard-3lvlkJ/tmp/gstack-e2e-plan-ceo-paired-jDdFUn/gstack-test-plan-ceo-paired.md",
+        "artifact": "objects/3fb13172acc3bdea56297d9316fde416fa658e655fdde6ab70fb8c80a73f3a98.md",
+        "sha256": "3fb13172acc3bdea56297d9316fde416fa658e655fdde6ab70fb8c80a73f3a98",
+        "bytes": 9010,
+        "mtimeMs": 1789538204640.3113,
+        "provenance": "Exact observed file bytes; never reconstructed from tool text."
+      },
+      "seed": "Please review this plan thoroughly in HOLD SCOPE mode. As you go, write your plan-mode plan to /tmp/g-pyj7vm4y/gstack-paid-shard-3lvlkJ/tmp/gstack-e2e-plan-ceo-paired-jDdFUn/gstack-test-plan-ceo-paired.md (use Edit/Write to that exact path).\nProceed directly to the requested CEO review; skip the optional /office-hours prerequisite.\nFinish after this CEO review; I will handle subsequent reviews manually.\n\n# Plan: Payment Processing — Test Coverage\n\n## Existing coverage and test infrastructure retained\nThis changes unit tests only; processPayment() production behavior stays as-is.\nThe Stripe adapter suite already covers network timeouts, card declines (402),\nrate limits (429), and recovery when an initial 502 is followed by a successful\ncharge. Receipt-builder failure behavior has its own passing regression tests.\nThe payment test factory explicitly configures max_retries=1 and exposes the\nStripe mock call history. Its injected virtual sleeper records backoff without\nreal delays, so an exhausted 502 operation makes exactly two charge attempts.\nThese existing helpers and regression suites remain in use for this change.\n\n## Existing behavior retained\nA successful charge returns a receipt with chargeId copied from Stripe,\namountCents equal to the requested integer amount, and currency equal to\nthe requested currency. For a 1000-cent USD charge returning id ch_paid,\nthe receipt is { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }.\nOn repeated 502 responses, max_retries=1 means two total charge attempts\nseparated by one recorded 100 ms backoff, followed by PaymentUnavailable.\nThese contracts are already implemented; this plan adds their unit coverage.\n\n## Proposed tests\nAdd two tests in the existing processPayment suite using its current factory,\nStripe mock and virtual sleeper. Other tests and production code stay as-is.\n\n1. Successful charge: arrange the Stripe mock to return id ch_paid, call\n   processPayment with amountCents=1000 and currency=USD, and assert only\n   that the returned receipt is truthy. This is the complete planned assertion.\n2. Repeated 502: arrange two consecutive Stripe 502 responses, call\n   processPayment, and assert only that it rejects with PaymentUnavailable.\n   No assertion about the mock call history or virtual sleeper record\n   is planned for this test.",
+      "savedPlan": "# Plan: Payment Processing — Test Coverage (CEO review working plan)\n\nSource: `PLAN.md` @ `09c9995` on `main`. Review: `/plan-ceo-review`, mode HOLD SCOPE (explicit user instruction). Base branch: `main` (git-native fallback; no remote).\n\n## Context\nprocessPayment() already implements two contracts (successful receipt shape; 502 retry then PaymentUnavailable) but the unit suite does not pin them. This plan adds two unit tests in the existing processPayment suite, reusing the existing factory (max_retries=1), Stripe mock (exposes call history) and virtual sleeper (records backoff). No production code changes.\n\n## Evidence status\n- Repo under review contains only `PLAN.md` and `CLAUDE.md`. The processPayment suite, factory, Stripe mock, virtual sleeper and adapter tests are **stated by the plan, not verifiable in this checkout**. All \"Current\" values below are plan statements, marked (plan-stated).\n- No design doc, handoff note, TODOS.md, prior learnings, or brain digests exist for this project.\n\n## Stated limits (kept)\n| Measure | Value | Source |\n|---|---|---|\n| Files changed | 1 (existing processPayment spec file) | plan |\n| New tests | 2 | plan |\n| Production code changes | 0 | plan |\n| max_retries | 1 → exactly 2 charge attempts on exhausted 502 | plan-stated factory config |\n| Backoff | one recorded 100 ms sleep between attempts | plan-stated |\n| Receipt contract | `{ chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }` | plan-stated |\n\n## Step 0A — Premise challenge\n1. Right problem? Yes: two implemented contracts have no unit coverage; pinning them is the smallest useful change. No alternative framing is simpler.\n2. Outcome: a regression in receipt shape or retry/backoff behavior fails CI before it reaches a customer's charge. The plan reaches this only if the tests actually assert the contracts. As written, test 1 (`truthy`) and test 2 (`rejects with PaymentUnavailable` only) do not; they detect the code path existing, not the contract holding. That is a proxy for coverage.\n3. Do nothing: receipt-shape drift (e.g. amountCents returned as a string, currency dropped) and retry drift (3 attempts, 0 ms backoff, or no retry at all) all pass today's suite. The pain is real: these are money-path invariants.\n\n## Step 0B — Existing code leverage\n| Sub-problem | Existing code (plan-stated) | Reuse |\n|---|---|---|\n| Build a processPayment under test with deterministic retries | payment test factory, max_retries=1 | reuse as-is |\n| Script Stripe responses / inspect calls | Stripe mock with call history | reuse; call history currently unused by the plan |\n| Observe backoff without real delay | injected virtual sleeper with record | reuse; record currently unused by the plan |\n| Adapter-level errors (timeout, 402, 429, 502-then-success) | Stripe adapter suite | already covered; do not duplicate |\n| Receipt-builder failures | receipt-builder regression tests | already covered; do not duplicate |\n\nNothing is being rebuilt. The plan under-uses two helpers it already lists.\n\n## Step 0C — Dream state\n```\n  CURRENT STATE                      THIS PLAN                        12-MONTH IDEAL\n  Contracts implemented,    --->     2 tests in processPayment  --->  Every money-path contract\n  no unit test pins them             suite; helpers reused             (shape, attempts, backoff,\n  (drift is invisible)               (delta: +2 tests, 1 file)         error class) pinned by a\n                                                                       deterministic unit test;\n                                                                       drift fails CI, not prod.\n```\nThe plan moves toward the ideal only if the tests pin the contracts. Weak assertions move sideways: they add test count without adding drift detection.\n\n## Landscape check (Layer 1/2/3)\n- Layer 1: inject the clock/sleeper, assert backend invocation count, assert the recorded delay schedule. Plan infrastructure already supports all three.\n- Layer 2: current guidance agrees; source: https://oneuptime.com/blog/post/2026-08-14-test-jittered-retries-deterministically/view (\"assert backend invocation count\", \"execute the logical schedule instantly and reproduce every decision\").\n- Layer 3: no eureka. Conventional wisdom is right here; the risk is under-asserting, not over-engineering.\n\n## Step 0G — HOLD SCOPE checks\n1. Complexity: 1 file, 0 new classes/services. Pass.\n2. Minimum change for the goal: both tests are the goal; nothing is deferrable without abandoning it. No deferral question needed.\n3. Stated invariants: the \"Existing behavior retained\" section states exact contracts. Tests that do not check them do not meet the plan's own acceptance criteria; repairing the assertions is in scope under HOLD SCOPE, but the plan explicitly chose \"assert only\", so each repair is asked as a separate row below.\n\n## Decision ledger\n| ID and owner | Contract and evidence | Current | Proposed | Status | Exact approval and scope |\n|---|---|---|---|---|---|\n| R1 — plan author / processPayment suite | Test 1 (successful charge). Contract: receipt `{ chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }` (plan-stated); mock call history and sleeper record available (plan-stated) | `expect(receipt).toBeTruthy()` as the complete assertion | A) assert full receipt equality + exactly one Stripe call with (1000, \"USD\") + empty sleeper record; B) assert full receipt equality only; C) keep truthy | unresolved | — |\n| R2 — plan author / processPayment suite | Test 2 (repeated 502). Contract: 2 total attempts, one recorded 100 ms backoff, then PaymentUnavailable (plan-stated) | rejects with PaymentUnavailable; no call-history or sleeper assertion | A) also assert call history length 2 and sleeper record `[100]`; B) also assert call history length 2 only; C) keep rejection-only | unresolved | — |\n| R3 — reviewer | Verification evidence: none of the referenced code is in this checkout | unverifiable here | Implementer runs the suite in the real repo; not a decision | noted | n/a |\n\n### R1 commitment comparison\n```\nCommitment                                   | Source/approval or pending | Current  | A   | B   | C\nReceipt is returned                           | plan (approved)            | yes      | yes | yes | yes\nchargeId === \"ch_paid\"                        | pending                    | no       | yes | yes | no\namountCents === 1000 (integer)                | pending                    | no       | yes | yes | no\ncurrency === \"USD\"                            | pending                    | no       | yes | yes | no\nStripe mock called exactly once with (1000,USD)| pending                   | no       | yes | no  | no\nSleeper record empty (no backoff on success)  | pending                    | no       | yes | no  | no\nFiles touched                                 | plan (approved)            | 1        | 1   | 1   | 1\nProduction code change                        | plan (approved)            | 0        | 0   | 0   | 0\n```\nOptions: A \"Full contract\" (effort S / risk low; catches shape drift, double-charge, spurious backoff). B \"Receipt shape\" (S / low; catches shape drift only). C \"As planned\" (S / low; catches only a missing return; passes on `{}`).\n\n### R2 commitment comparison\n```\nCommitment                                   | Source/approval or pending | Current | A   | B   | C\nRejects with PaymentUnavailable               | plan (approved)            | yes     | yes | yes | yes\nExactly 2 charge attempts (call history)      | pending                    | no      | yes | yes | no\nOne recorded 100 ms backoff (sleeper record)  | pending                    | no      | yes | no  | no\nTwo 502s arranged on the mock                 | plan (approved)            | yes     | yes | yes | yes\nFiles touched                                 | plan (approved)            | 1       | 1   | 1   | 1\nProduction code change                        | plan (approved)            | 0       | 0   | 0   | 0\n```\nOptions: A \"Attempts + backoff\" (S / low; catches over/under-retry and backoff regressions). B \"Attempts only\" (S / low; misses backoff going to 0 ms or 10 s). C \"As planned\" (S / low; passes if the code never retries, or retries 5 times with no delay, as long as it eventually throws PaymentUnavailable).\n\n## Proposed tests (working copy; pending rows shown)\n1. Successful charge: arrange Stripe mock → id `ch_paid`; call processPayment(amountCents=1000, currency=\"USD\"); assertion per **R1 (pending)**.\n2. Repeated 502: arrange two consecutive 502 responses; call processPayment; assertion per **R2 (pending)**.\n\n## NOT in scope\n- Production changes to processPayment, adapter, receipt builder.\n- Re-testing adapter-level cases (timeout, 402, 429, 502-then-success) or receipt-builder failures (already covered).\n\n## Deferred housekeeping (approved in D1, blocked by plan mode)\n- Append gstack skill routing rules to `CLAUDE.md` and commit (`chore: add gstack skill routing rules to CLAUDE.md`) after plan mode exits.\n",
+      "call": {
+        "sessionId": "94266585-cf5d-47fd-b3c2-8db9923c81ec",
+        "toolUseId": "toolu_01VSfmZTFFjsBrLFfKiKaRk5",
+        "questions": [
+          {
+            "question": "D3 (ledger R1) — What should the successful-charge test assert?\nProject/branch/task: gstack-plan-count-rQv537 on main; HOLD SCOPE review of the processPayment test-coverage plan.\nELI10: The plan states the exact receipt a 1000-cent USD charge must return ({ chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }), but test 1 only checks that *something* came back. A bug that returns {} or amountCents as \"1000\" (a string) or drops currency still passes. The factory already exposes the Stripe mock's call history and the sleeper's record, so checking them costs a few lines and no new helpers.\nStakes if we pick wrong: Too weak and the money-path receipt can drift silently; a downstream ledger or invoice reads the wrong amount and the suite stays green.\nRecommendation: A because the plan already wrote the contract down; asserting it is the whole point of the test and adds ~5 lines in the same file (human: ~15 min / CC: ~1 min).\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: same file, same effort tier; the choice is only how much drift the test can detect.",
+            "header": "R1 Test 1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Full contract (recommended)",
+                "description": "✅ Asserts receipt deep-equals { chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" } so shape drift fails CI. ✅ Asserts Stripe mock called exactly once with (1000, \"USD\") and sleeper record empty: catches double-charge and spurious backoff on the happy path. ❌ Slightly more coupled to mock/sleeper APIs; if those helpers change, this test needs a touch too."
+              },
+              {
+                "label": "B) Receipt shape only",
+                "description": "✅ Pins chargeId, amountCents and currency exactly, catching the most likely regressions. ✅ Depends only on the return value, not on mock internals. ❌ A double Stripe call or an unexpected backoff on success would still pass unnoticed."
+              },
+              {
+                "label": "C) Keep truthy (as planned)",
+                "description": "✅ Matches the plan text exactly; zero change to the author's intent. ✅ Cannot break when receipt fields are added later. ❌ Passes on {} or any wrong amount/currency; it proves a return exists, not that the contract holds."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 (ledger R1) — What should the successful-charge test assert?\nProject/branch/task: gstack-plan-count-rQv537 on main; HOLD SCOPE review of the processPayment test-coverage plan.\nELI10: The plan states the exact receipt a 1000-cent USD charge must return ({ chargeId: \"ch_paid\", amountCents: 1000, currency: \"USD\" }), but test 1 only checks that *something* came back. A bug that returns {} or amountCents as \"1000\" (a string) or drops currency still passes. The factory already exposes the Stripe mock's call history and the sleeper's record, so checking them costs a few lines and no new helpers.\nStakes if we pick wrong: Too weak and the money-path receipt can drift silently; a downstream ledger or invoice reads the wrong amount and the suite stays green.\nRecommendation: A because the plan already wrote the contract down; asserting it is the whole point of the test and adds ~5 lines in the same file (human: ~15 min / CC: ~1 min).\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: same file, same effort tier; the choice is only how much drift the test can detect.": "A) Full contract (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-16T05:57:02.151Z"
+      },
+      "priorCalls": [
+        {
+          "sessionId": "94266585-cf5d-47fd-b3c2-8db9923c81ec",
+          "toolUseId": "toolu_015nYXfGaJTpJffeszYiYC2H",
+          "questions": [
+            {
+              "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-rQv537 on main, starting the /plan-ceo-review of PLAN.md.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so plain requests like \"review this diff\" route to the right skill automatically instead of you typing the slash command. This is a one-time setup prompt per project.\nStakes if we pick wrong: Without rules, skills only run when invoked by name; with rules, a short section is appended to CLAUDE.md and committed. Note: plan mode is active, so if you pick A the CLAUDE.md edit and commit happen after this review exits plan mode, not now.\nRecommendation: A because it is a small, reversible doc change that makes future sessions route correctly.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience in future sessions vs keeping CLAUDE.md untouched.",
+              "header": "Routing",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Add routing rules (recommended)",
+                  "description": "✅ Future requests like \"strategy review\" auto-route to the right gstack skill. ✅ Small appended section, easy to remove later. ❌ Adds a commit to this repo and touches CLAUDE.md (deferred until plan mode exits)."
+                },
+                {
+                  "label": "No thanks, invoke manually",
+                  "description": "✅ CLAUDE.md and git history stay exactly as they are today. ✅ Records the preference so this prompt never repeats for this project. ❌ You must type /skill-name yourself every time; no automatic routing."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: gstack-plan-count-rQv537 on main, starting the /plan-ceo-review of PLAN.md.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so plain requests like \"review this diff\" route to the right skill automatically instead of you typing the slash command. This is a one-time setup prompt per project.\nStakes if we pick wrong: Without rules, skills only run when invoked by name; with rules, a short section is appended to CLAUDE.md and committed. Note: plan mode is active, so if you pick A the CLAUDE.md edit and commit happen after this review exits plan mode, not now.\nRecommendation: A because it is a small, reversible doc change that makes future sessions route correctly.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience in future sessions vs keeping CLAUDE.md untouched.": "Add routing rules (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-16T05:54:14.242Z"
+        },
+        {
+          "sessionId": "94266585-cf5d-47fd-b3c2-8db9923c81ec",
+          "toolUseId": "toolu_01WNvWwvsu9LUq56aM2QdZLR",
+          "questions": [
+            {
+              "question": "D2 — Let gstack search learnings from your other projects on this machine?\nProject/branch/task: gstack-plan-count-rQv537 on main, /plan-ceo-review of the payment test-coverage plan.\nELI10: gstack logs small lessons per project (command quirks, pitfalls). It can also search lessons from your other local projects when reviewing this one. Everything stays on this machine; nothing is uploaded. This is a one-time setting.\nStakes if we pick wrong: Enabled on a machine with multiple client codebases means one client's notes can surface in another's review. Disabled on a solo machine means you re-learn the same pitfalls per project.\nRecommendation: A because this is a solo review fixture and local-only search has no downside here.\nNote: options differ in kind, not coverage — no completeness score.\nNet: broader recall vs strict per-project isolation.",
+              "header": "Learnings",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Enable cross-project (recommended)",
+                  "description": "✅ Reviews can reuse pitfalls already learned in your other local projects. ✅ Stays local; no data leaves the machine, reversible via gstack-config. ❌ On shared client machines, notes from one codebase can appear while reviewing another."
+                },
+                {
+                  "label": "Project-scoped only",
+                  "description": "✅ Hard isolation: only this project's own learnings ever surface. ✅ Safest default for multi-client consulting machines. ❌ Each project starts cold and repeats lessons other projects already learned."
+                }
+              ]
+            }
+          ],
+          "answered": true,
+          "failed": false,
+          "answers": {
+            "D2 — Let gstack search learnings from your other projects on this machine?\nProject/branch/task: gstack-plan-count-rQv537 on main, /plan-ceo-review of the payment test-coverage plan.\nELI10: gstack logs small lessons per project (command quirks, pitfalls). It can also search lessons from your other local projects when reviewing this one. Everything stays on this machine; nothing is uploaded. This is a one-time setting.\nStakes if we pick wrong: Enabled on a machine with multiple client codebases means one client's notes can surface in another's review. Disabled on a solo machine means you re-learn the same pitfalls per project.\nRecommendation: A because this is a solo review fixture and local-only search has no downside here.\nNote: options differ in kind, not coverage — no completeness score.\nNet: broader recall vs strict per-project isolation.": "Enable cross-project (recommended)"
+          },
+          "unansweredQuestionIndices": [],
+          "answeredAt": "2026-09-16T05:55:28.399Z"
+        }
+      ]
+    }
+  ]
+}

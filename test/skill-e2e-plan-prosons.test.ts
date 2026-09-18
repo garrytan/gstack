@@ -29,10 +29,11 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
+import { runRecordedOfficeHoursAttempt, OFFICE_HOURS_BUN_GRACE_MS } from './helpers/office-hours-attempt';
 import {
   ROOT, runId,
   describeIfSelected, testConcurrentIfSelected,
-  logCost, recordE2E,
+  logCost,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
 import { spawnSync } from 'child_process';
@@ -152,47 +153,50 @@ describeIfSelected('Plan Prosons — Format Positive', ['plan-review-prosons-for
   });
 
   testConcurrentIfSelected('plan-review-prosons-format', async () => {
-    const result = await runSkillTest({
-      prompt: `Read plan-ceo-review/SKILL.md for the review workflow.
+    await runRecordedOfficeHoursAttempt({
+      collector: evalCollector, name: '/plan-review-prosons-format', suite: 'Plan Prosons — Format Positive',
+      model: 'claude-opus-4-7', budgetMs: CAPTURE_MS,
+      run: signal => runSkillTest({
+        signal,
+        prompt: `Read plan-ceo-review/SKILL.md for the review workflow.
 
-Read plan.md — two cache approaches with real tradeoffs. Pick the architectural approach via AskUserQuestion (Step 0C-bis / Implementation Alternatives). These options differ in coverage.
+Read plan.md — two cache approaches with real tradeoffs. Pick the architectural approach via AskUserQuestion (Alternatives / implementation approach menu). These options differ in coverage.
 
 ${captureInstruction(outFile)}
 
 After writing the file, stop.`,
-      workingDirectory: planDir,
-      maxTurns: 10,
-      timeout: CAPTURE_MS,
-      testName: 'plan-review-prosons-format',
-      runId,
-      model: 'claude-opus-4-7',
+        workingDirectory: planDir,
+        maxTurns: 10,
+        timeout: CAPTURE_MS,
+        testName: 'plan-review-prosons-format',
+        runId,
+        model: 'claude-opus-4-7',
+      }),
+      validate: async (result, signal) => {
+        logCost('/plan-review prosons format positive', result);
+        expect(['success', 'error_max_turns']).toContain(result.exitReason);
+
+        expect(fs.existsSync(outFile)).toBe(true);
+        const captured = fs.readFileSync(outFile, 'utf-8');
+        expect(captured.length).toBeGreaterThan(200);
+
+        // Every Pros/Cons token present
+        expect(captured).toMatch(D_NUMBER_RE);
+        expect(captured).toMatch(ELI10_RE);
+        expect(captured).toMatch(STAKES_RE);
+        expect(captured).toMatch(RECOMMENDATION_RE);
+        expect(captured).toMatch(PROS_CONS_HEADER_RE);
+        expect(captured).toMatch(NET_LINE_RE);
+
+        // Pro/con bullet counts: ≥2 ✅ and ≥1 ❌ per option (total ≥4 ✅ and ≥2 ❌ for 2 options)
+        expect(countChars(captured, '✅')).toBeGreaterThanOrEqual(4);
+        expect(countChars(captured, '❌')).toBeGreaterThanOrEqual(2);
+
+        // (recommended) label on one option
+        expect(captured).toMatch(RECOMMENDED_LABEL_RE);
+      },
     });
-
-    logCost('/plan-review prosons format positive', result);
-    recordE2E(evalCollector, '/plan-review-prosons-format', 'Plan Prosons — Format Positive', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(200);
-
-    // Every Pros/Cons token present
-    expect(captured).toMatch(D_NUMBER_RE);
-    expect(captured).toMatch(ELI10_RE);
-    expect(captured).toMatch(STAKES_RE);
-    expect(captured).toMatch(RECOMMENDATION_RE);
-    expect(captured).toMatch(PROS_CONS_HEADER_RE);
-    expect(captured).toMatch(NET_LINE_RE);
-
-    // Pro/con bullet counts: ≥2 ✅ and ≥1 ❌ per option (total ≥4 ✅ and ≥2 ❌ for 2 options)
-    expect(countChars(captured, '✅')).toBeGreaterThanOrEqual(4);
-    expect(countChars(captured, '❌')).toBeGreaterThanOrEqual(2);
-
-    // (recommended) label on one option
-    expect(captured).toMatch(RECOMMENDED_LABEL_RE);
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
 });
 
 // --- Case 2: Hard-stop escape NEGATIVE (CT2) ---
@@ -211,38 +215,41 @@ describeIfSelected('Plan Prosons — Hard-stop Negative', ['plan-review-prosons-
   });
 
   testConcurrentIfSelected('plan-review-prosons-hardstop-neg', async () => {
-    const result = await runSkillTest({
-      prompt: `Read plan-ceo-review/SKILL.md.
+    await runRecordedOfficeHoursAttempt({
+      collector: evalCollector, name: '/plan-review-prosons-hardstop-neg', suite: 'Plan Prosons — Hard-stop Negative',
+      model: 'claude-opus-4-7', budgetMs: CAPTURE_MS,
+      run: signal => runSkillTest({
+        signal,
+        prompt: `Read plan-ceo-review/SKILL.md.
 
 Read plan.md — this has REAL tradeoffs between Redis and in-memory caching (both have pros and cons). Pick the architectural approach via AskUserQuestion.
 
 ${captureInstruction(outFile)}
 
 After writing the file, stop.`,
-      workingDirectory: planDir,
-      maxTurns: 10,
-      timeout: CAPTURE_MS,
-      testName: 'plan-review-prosons-hardstop-neg',
-      runId,
-      model: 'claude-opus-4-7',
+        workingDirectory: planDir,
+        maxTurns: 10,
+        timeout: CAPTURE_MS,
+        testName: 'plan-review-prosons-hardstop-neg',
+        runId,
+        model: 'claude-opus-4-7',
+      }),
+      validate: async (result, signal) => {
+        logCost('/plan-review prosons hard-stop negative', result);
+        expect(['success', 'error_max_turns']).toContain(result.exitReason);
+
+        expect(fs.existsSync(outFile)).toBe(true);
+        const captured = fs.readFileSync(outFile, 'utf-8');
+        expect(captured.length).toBeGreaterThan(200);
+
+        // Genuine tradeoff — must NOT dodge to hard-stop escape.
+        expect(captured).not.toMatch(HARD_STOP_ESCAPE_RE);
+        // Must have real pros and cons (≥2 ✅ + ≥1 ❌ per option)
+        expect(countChars(captured, '✅')).toBeGreaterThanOrEqual(4);
+        expect(countChars(captured, '❌')).toBeGreaterThanOrEqual(2);
+      },
     });
-
-    logCost('/plan-review prosons hard-stop negative', result);
-    recordE2E(evalCollector, '/plan-review-prosons-hardstop-neg', 'Plan Prosons — Hard-stop Negative', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(200);
-
-    // Genuine tradeoff — must NOT dodge to hard-stop escape.
-    expect(captured).not.toMatch(HARD_STOP_ESCAPE_RE);
-    // Must have real pros and cons (≥2 ✅ + ≥1 ❌ per option)
-    expect(countChars(captured, '✅')).toBeGreaterThanOrEqual(4);
-    expect(countChars(captured, '❌')).toBeGreaterThanOrEqual(2);
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
 });
 
 // --- Case 3: Neutral-posture NEGATIVE (CT2) ---
@@ -261,39 +268,42 @@ describeIfSelected('Plan Prosons — Neutral-posture Negative', ['plan-review-pr
   });
 
   testConcurrentIfSelected('plan-review-prosons-neutral-neg', async () => {
-    const result = await runSkillTest({
-      prompt: `Read plan-ceo-review/SKILL.md.
+    await runRecordedOfficeHoursAttempt({
+      collector: evalCollector, name: '/plan-review-prosons-neutral-neg', suite: 'Plan Prosons — Neutral Negative',
+      model: 'claude-opus-4-7', budgetMs: CAPTURE_MS,
+      run: signal => runSkillTest({
+        signal,
+        prompt: `Read plan-ceo-review/SKILL.md.
 
-Read plan.md — Option A dominates Option B on coverage. This is NOT a taste call. Pick the approach via AskUserQuestion (Step 0C-bis / Implementation Alternatives — coverage-differentiated, so Completeness: N/10 applies).
+Read plan.md — Option A dominates Option B on coverage. This is NOT a taste call. Pick the approach via AskUserQuestion (Alternatives / implementation approach menu — coverage-differentiated, so Completeness: N/10 applies).
 
 ${captureInstruction(outFile)}
 
 After writing the file, stop.`,
-      workingDirectory: planDir,
-      maxTurns: 10,
-      timeout: CAPTURE_MS,
-      testName: 'plan-review-prosons-neutral-neg',
-      runId,
-      model: 'claude-opus-4-7',
+        workingDirectory: planDir,
+        maxTurns: 10,
+        timeout: CAPTURE_MS,
+        testName: 'plan-review-prosons-neutral-neg',
+        runId,
+        model: 'claude-opus-4-7',
+      }),
+      validate: async (result, signal) => {
+        logCost('/plan-review prosons neutral negative', result);
+        expect(['success', 'error_max_turns']).toContain(result.exitReason);
+
+        expect(fs.existsSync(outFile)).toBe(true);
+        const captured = fs.readFileSync(outFile, 'utf-8');
+        expect(captured.length).toBeGreaterThan(200);
+
+        // One option dominates — must NOT use "taste call" neutral-posture dodge.
+        expect(captured).not.toMatch(NEUTRAL_POSTURE_RE);
+        // (recommended) label MUST be present on the dominant option.
+        expect(captured).toMatch(RECOMMENDED_LABEL_RE);
+        // Recommendation line must contain "because" (concrete reason, not "no preference")
+        expect(captured).toMatch(/[Rr]ecommendation:.*because/);
+      },
     });
-
-    logCost('/plan-review prosons neutral negative', result);
-    recordE2E(evalCollector, '/plan-review-prosons-neutral-neg', 'Plan Prosons — Neutral Negative', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(200);
-
-    // One option dominates — must NOT use "taste call" neutral-posture dodge.
-    expect(captured).not.toMatch(NEUTRAL_POSTURE_RE);
-    // (recommended) label MUST be present on the dominant option.
-    expect(captured).toMatch(RECOMMENDED_LABEL_RE);
-    // Recommendation line must contain "because" (concrete reason, not "no preference")
-    expect(captured).toMatch(/[Rr]ecommendation:.*because/);
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
 });
 
 // --- Case 4: Hard-stop POSITIVE (escape allowed when legitimately one-sided) ---
@@ -312,40 +322,43 @@ describeIfSelected('Plan Prosons — Hard-stop Positive', ['plan-ceo-review-pros
   });
 
   testConcurrentIfSelected('plan-ceo-review-prosons-cadence', async () => {
-    const result = await runSkillTest({
-      prompt: `Read plan-ceo-review/SKILL.md.
+    await runRecordedOfficeHoursAttempt({
+      collector: evalCollector, name: '/plan-ceo-review-prosons-cadence', suite: 'Plan Prosons — Hard-stop Positive',
+      model: 'claude-opus-4-7', budgetMs: CAPTURE_MS,
+      run: signal => runSkillTest({
+        signal,
+        prompt: `Read plan-ceo-review/SKILL.md.
 
 Read plan.md — this is a destructive one-way action (terminate all sessions). Ask the user to confirm via AskUserQuestion. This is a legitimate hard-stop choice — the hard-stop escape (\`✅ No cons — this is a hard-stop choice\`) is allowed here because there is no meaningful alternative besides doing or not doing the action.
 
 ${captureInstruction(outFile)}
 
 After writing the file, stop.`,
-      workingDirectory: planDir,
-      maxTurns: 10,
-      timeout: CAPTURE_MS,
-      testName: 'plan-ceo-review-prosons-cadence',
-      runId,
-      model: 'claude-opus-4-7',
+        workingDirectory: planDir,
+        maxTurns: 10,
+        timeout: CAPTURE_MS,
+        testName: 'plan-ceo-review-prosons-cadence',
+        runId,
+        model: 'claude-opus-4-7',
+      }),
+      validate: async (result, signal) => {
+        logCost('/plan-review prosons hard-stop positive', result);
+        expect(['success', 'error_max_turns']).toContain(result.exitReason);
+
+        expect(fs.existsSync(outFile)).toBe(true);
+        const captured = fs.readFileSync(outFile, 'utf-8');
+        expect(captured.length).toBeGreaterThan(100);
+
+        // Format scaffolding still required
+        expect(captured).toMatch(PROS_CONS_HEADER_RE);
+        // Hard-stop escape is ACCEPTED here (destructive one-way action)
+        // Either the escape is used OR real pros/cons are present — both are valid.
+        const hasEscape = HARD_STOP_ESCAPE_RE.test(captured);
+        const hasProsAndCons = countChars(captured, '✅') >= 1 && countChars(captured, '❌') >= 1;
+        expect(hasEscape || hasProsAndCons).toBe(true);
+      },
     });
-
-    logCost('/plan-review prosons hard-stop positive', result);
-    recordE2E(evalCollector, '/plan-ceo-review-prosons-cadence', 'Plan Prosons — Hard-stop Positive', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason),
-    });
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(100);
-
-    // Format scaffolding still required
-    expect(captured).toMatch(PROS_CONS_HEADER_RE);
-    // Hard-stop escape is ACCEPTED here (destructive one-way action)
-    // Either the escape is used OR real pros/cons are present — both are valid.
-    const hasEscape = HARD_STOP_ESCAPE_RE.test(captured);
-    const hasProsAndCons = countChars(captured, '✅') >= 1 && countChars(captured, '❌') >= 1;
-    expect(hasEscape || hasProsAndCons).toBe(true);
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
 });
 
 afterAll(async () => {

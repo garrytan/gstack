@@ -12,7 +12,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { sanitizeTestName } from './session-runner';
 import { EvalCollector } from './eval-store';
-import { renderDashboard } from '../../scripts/eval-watch';
+import { readPartialResults, renderDashboard } from '../../scripts/eval-watch';
 import type { HeartbeatData, PartialData } from '../../scripts/eval-watch';
 
 let tmpDir: string;
@@ -199,6 +199,37 @@ describe('eval-store observability', () => {
 // --- Tests 9, 10: watcher dashboard rendering ---
 
 describe('eval-watch dashboard', () => {
+  test('partial reader preserves a legacy collector and ignores missing or corrupt files', () => {
+    expect(readPartialResults(tmpDir)).toBeNull();
+    const partial = { tests: [{ name: 'legacy', passed: true, cost_usd: 0.25, duration_ms: 10 }], total_cost_usd: 0.25, _partial: true };
+    fs.writeFileSync(path.join(tmpDir, '_partial-e2e.json'), JSON.stringify(partial));
+    fs.writeFileSync(path.join(tmpDir, '_partial-e2e-broken.json'), '{');
+    expect(readPartialResults(tmpDir)).toEqual(partial);
+  });
+
+  test('partial reader replaces legacy suites without reviving old retries or counting finals', async () => {
+    const first = new EvalCollector('e2e', tmpDir, 'codex-first');
+    const second = new EvalCollector('e2e', tmpDir, 'codex-second');
+    const legacy = new EvalCollector('e2e', tmpDir);
+    const entry = { name: 'case', suite: 'codex-first', tier: 'e2e' as const, passed: true, cost_usd: 0.25, duration_ms: 10 };
+    first.addTest(entry);
+    first.addTest({ ...entry, cost_usd: 0.5 });
+    second.addTest({ ...entry, suite: 'codex-second', cost_usd: 1 });
+    legacy.addTest(entry);
+    legacy.addTest({ ...entry, cost_usd: 4 });
+    legacy.addTest({ ...entry, cost_usd: 8 });
+    legacy.addTest({ ...entry, name: 'retired case', cost_usd: 16 });
+    legacy.addTest({ ...entry, name: 'other case', suite: 'legacy', cost_usd: 2 });
+    await first.finalize();
+    fs.writeFileSync(path.join(tmpDir, '_partial-e2e.json.tmp'), JSON.stringify({ tests: [entry] }));
+    const partial = readPartialResults(tmpDir)!;
+    expect(partial.tests).toHaveLength(4);
+    expect(partial.total_cost_usd).toBe(3.75);
+    expect(partial.tests.filter(test => test.suite === 'codex-first').map(test => test.attempt)).toEqual([1, 2]);
+    expect(partial.tests.filter(test => test.suite === 'codex-second')).toHaveLength(1);
+    expect(renderDashboard(null, partial)).toContain('Completed: 4');
+  });
+
   test('9: renderDashboard shows completed tests and current test', () => {
     const heartbeat: HeartbeatData = {
       runId: '20260314-143022',

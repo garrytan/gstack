@@ -235,11 +235,12 @@ describe('aside-render: live fallback render (needs a browse binary)', () => {
   const bin = resolveBrowseBin();
   // A binary on disk is not a reachable daemon: warm it up first (the first
   // command auto-starts the server) and skip, never fail, when it cannot come
-  // up — a cold daemon is an environment fact, not a renderer defect.
+  // up — a cold daemon is an environment fact, not a renderer defect. Listing
+  // tabs must not navigate the active tab: another shard may be rendering in it.
   let daemonUp = false;
   if (bin) {
     for (let attempt = 0; attempt < 2 && !daemonUp; attempt++) {
-      const r = spawnSync(bin, ['goto', 'about:blank'], { encoding: 'utf8', timeout: 90_000 });
+      const r = spawnSync(bin, ['tabs'], { encoding: 'utf8', timeout: 90_000 });
       daemonUp = r.status === 0;
     }
     if (!daemonUp) console.warn('[aside-render] browse daemon did not come up after two attempts — live fallback cases skipped');

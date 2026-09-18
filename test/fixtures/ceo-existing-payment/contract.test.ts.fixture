@@ -1,0 +1,59 @@
+import { expect, test } from 'bun:test';
+import { Database } from 'bun:sqlite';
+import { readFileSync } from 'node:fs';
+import { existingDispatcher } from './src/existing-invoice-handler';
+import { MissingOrder, type PaymentRequest } from './src/platform';
+
+function database(): Database {
+  const db = new Database(':memory:');
+  db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
+  db.exec("INSERT INTO users VALUES ('acct','user','customer','unpaid'), ('acct','other','different','unpaid')");
+  db.exec("INSERT INTO orders VALUES ('acct','order','user','Invoice',100), ('acct','foreign','other','Other',200)");
+  return db;
+}
+const request = (): PaymentRequest => ({ accountId: 'acct', eventId: 'invoice-event',
+  customerId: 'customer', orderIds: ['order'], params: { userId: 'user' } });
+
+test('the current invoice route commits once and replays without mutable lookup data', async () => {
+  const db = database();
+  try {
+    const dispatcher = existingDispatcher(db);
+    expect(await dispatcher.dispatch('invoice.paid', request())).toEqual({ status: 200, kind: 'committed' });
+    expect(db.query('SELECT payment_status FROM users WHERE id = ?').get('user')).toEqual({ payment_status: 'paid' });
+    expect(db.query('SELECT * FROM payment_audit').all()).toEqual([
+      { account_id: 'acct', event_id: 'invoice-event', user_id: 'user', payment_status: 'paid' },
+    ]);
+    db.exec('DELETE FROM users; DELETE FROM orders');
+    expect(await dispatcher.dispatch('invoice.paid', request())).toEqual({ status: 200, kind: 'duplicate' });
+    expect(db.query('SELECT COUNT(*) AS n FROM event_receipts').get()).toEqual({ n: 1 });
+    expect(await dispatcher.dispatch('payment_intent.succeeded', request())).toBeUndefined();
+  } finally { db.close(); }
+});
+
+test('the current invoice route rejects mismatched customers and foreign orders before any commit', async () => {
+  const db = database();
+  try {
+    const dispatcher = existingDispatcher(db);
+    expect(await dispatcher.dispatch('invoice.paid', { ...request(), customerId: 'different' }))
+      .toEqual({ status: 403, kind: 'forbidden' });
+    await expect(dispatcher.dispatch('invoice.paid', { ...request(), orderIds: ['foreign'] })).rejects.toBeInstanceOf(MissingOrder);
+    expect(db.query('SELECT COUNT(*) AS n FROM event_receipts').get()).toEqual({ n: 0 });
+    expect(db.query('SELECT COUNT(*) AS n FROM payment_audit').get()).toEqual({ n: 0 });
+    expect(db.query("SELECT COUNT(*) AS n FROM users WHERE payment_status = 'paid'").get()).toEqual({ n: 0 });
+  } finally { db.close(); }
+});
+
+test('the current invoice route rolls back already-written status and receipt when the audit insert fails', async () => {
+  const db = database();
+  try {
+    // This is the third write: pre-write validation cannot prove atomicity.
+    db.exec(`CREATE TRIGGER fail_invoice_audit BEFORE INSERT ON payment_audit
+      BEGIN SELECT RAISE(ABORT, 'fixture audit failure'); END`);
+    await expect(existingDispatcher(db).dispatch('invoice.paid', request()))
+      .rejects.toThrow('fixture audit failure');
+    expect(db.query('SELECT payment_status FROM users WHERE id = ?').get('user'))
+      .toEqual({ payment_status: 'unpaid' });
+    expect(db.query('SELECT COUNT(*) AS n FROM event_receipts').get()).toEqual({ n: 0 });
+    expect(db.query('SELECT COUNT(*) AS n FROM payment_audit').get()).toEqual({ n: 0 });
+  } finally { db.close(); }
+});

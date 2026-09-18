@@ -4,14 +4,66 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { outsideVoiceCommand, outsideVoicePreflight } from '../scripts/resolvers/outside-voice';
+import { outsideVoiceCommand, outsideVoicePreflight, outsideVoiceInvocation } from '../scripts/resolvers/outside-voice';
 import { generateCodexDocReview, generateCodexPlanReview } from '../scripts/resolvers/review';
+import { validateOutsideReview } from '../lib/outside-review-result';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { ALL_HOST_CONFIGS } from '../hosts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-outside-preflight-'));
 afterAll(() => fs.rmSync(TEMP, { recursive: true, force: true }));
+
+test('CEO and Eng describe the actual disabled route and completion validator', () => {
+  for (const host of ALL_HOST_CONFIGS) {
+    for (const skillName of ['plan-ceo-review', 'plan-eng-review']) {
+      const ctx: TemplateContext = { host: host.name, skillName, tmplPath: `${skillName}/SKILL.md.tmpl`, paths: HOST_PATHS[host.name] };
+      const output = generateCodexPlanReview(ctx);
+      expect(output).not.toContain('Skip this section entirely');
+      if (skillName === 'plan-ceo-review') {
+        expect(output.replace(/\s+/g, ' ')).toContain('If preflight selected `disabled`, use the guarded record below');
+        expect(output).toContain('"outside_status":"disabled"');
+      } else expect(output).toContain('persist `outside_status: disabled` with the guarded');
+      const prompt = output.slice(output.indexOf('"IMPORTANT:'), output.indexOf('\n<plan content>"'));
+      expect(prompt).toContain('End with Recommendation: <action> because <specific reason>');
+      expect(prompt).toContain('If there are no findings, say so and explain why');
+      const invocation = outsideVoiceInvocation(ctx);
+      expect(invocation).toContain('missing Recommendation: <action> because <reason> markers');
+      expect(invocation).not.toContain('score/severity/completion');
+      if (skillName === 'plan-eng-review') {
+        const routing = output.slice(output.indexOf('**Outcome routing:**'), output.indexOf('**Disabled is a terminal branch'));
+        expect(routing).toMatch(/\| Disabled \|[^\n]*No prompt, outside process or native replacement\./);
+        expect(routing).toMatch(/\| Other preflight mode, including harness mismatch \|[^\n]*Native fallback\./);
+        expect(routing).toMatch(/\| Outside execution or output validation fails \|[^\n]*finish termination, then use Native fallback\./);
+        expect(routing).toMatch(/\| Native fallback unavailable or fails \|[^\n]*No clean-review credit\./);
+        const fallback = output.slice(output.indexOf('**Native fallback'), output.indexOf('Dispatch via the Agent tool'));
+        expect(fallback.replace(/\s+/g, ' ')).toContain('Immediately before dispatch, check the preflight result again: disabled means no replacement');
+        const bounded = output.slice(output.indexOf('**Bounded outside-voice wait'), output.indexOf('**Cross-model tension:**'));
+        expect(bounded).toContain('A native result never supplies outside coverage.');
+        expect(output).toContain('A completed native fallback uses SOURCE=in-host, OUTSIDE_STATUS=unavailable, and STATUS=clean or issues_found from its findings');
+        expect(output).toContain('"unavailable" if neither reviewer completed');
+        expect(output).toContain('Never count missing coverage as a clean review');
+        expect(output).toContain("These findings are the reviewer's, even if later resolved by the parent");
+        // Compact prose must retain the actual wrong-harness execution guard.
+        expect(invocation).toContain('exit 78');
+        expect(invocation.indexOf('exit 78')).toBeLessThan(invocation.indexOf('_OUTSIDE_TMP=$(mktemp'));
+      } else {
+        const prose = output.replace(/\s+/g, ' ');
+        expect(prose).toContain('Other preflight failures retain their printed diagnosis, including harness mismatch');
+        const fallback = prose.slice(prose.indexOf('**Native fallback'), prose.indexOf('Dispatch via the Agent tool'));
+        expect(fallback).toContain('Immediately before dispatch, recheck the preflight result');
+        expect(fallback).toContain('`CODEX_MODE: disabled`, return to **Record the disabled outcome** without dispatching');
+        expect(prose).toContain('Its opening harness guard rechecks the fresh shell: exit 78 uses the same Native fallback below, never a replacement provider');
+        expect(prose).toContain('A native result never supplies outside coverage.');
+        expect(invocation).toContain('exit 78');
+        expect(invocation.indexOf('exit 78')).toBeLessThan(invocation.indexOf('_OUTSIDE_TMP=$(mktemp'));
+      }
+    }
+  }
+  expect(validateOutsideReview('Recommendation: proceed because no findings remain.', 'review').completed).toBe(true);
+  expect(validateOutsideReview('SCORE: 10\nAMBIGUITIES: NONE', 'review').completed).toBe(false);
+  expect(validateOutsideReview('Recommendation: proceed', 'review').completed).toBe(false);
+});
 
 describe('own-harness review fallback instructions', () => {
   for (const host of ALL_HOST_CONFIGS) {

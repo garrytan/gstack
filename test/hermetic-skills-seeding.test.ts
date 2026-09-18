@@ -13,7 +13,7 @@
  *    same canonical gstack runtime checkout used by lazy-section paths.
  * 3. connect-chrome (dir symlink) collapses into open-gstack-browser — no
  *    duplicate, no connect-chrome entry.
- * 4. Per-process idempotence: the second call returns the cached dir.
+ * 4. Stable registration: later calls refresh documents at the same path.
  */
 
 import { describe, test, expect } from 'bun:test';

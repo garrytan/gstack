@@ -25,7 +25,7 @@
  *    explicitly-named target, so the gate must NOT ask — and the review
  *    must actually consume the pasted content.
  *
- * Cost note: 4 sequential PTY runs (~3-5 min each) in the gate lane, up
+ * Cost note: 5 sequential PTY runs (~3-5 min each) in the gate lane, up
  * from 1 pre-bypass. Selected only when plan-ceo/eng/design or the runner
  * change (see 'plan-mode-no-op' in touchfiles.ts).
  */
@@ -125,40 +125,42 @@ describeE2E('plan-mode-info no-op outside plan mode (gate regression)', () => {
   // review output), proving the target was used rather than the question
   // merely skipped. Also the over-trigger guard for the tightened
   // "explicit-only" exception wording.
-  test('plan-eng-review skips the scope gate for an explicitly-pasted target', async () => {
-    const obs = await runPlanSkillObservation({
-      skillName: 'plan-eng-review',
-      inPlanMode: false,
-      initialPlanContent: NAMED_TARGET_SEED,
-      trackTokens: [SEED_TOKEN],
-      timeoutMs: CAPTURE_MS,
-    });
+  for (const skillName of ['plan-eng-review', 'plan-design-review'] as const) {
+    test(`${skillName} skips the scope gate for an explicitly-pasted target`, async () => {
+      const obs = await runPlanSkillObservation({
+        skillName,
+        inPlanMode: false,
+        initialPlanContent: NAMED_TARGET_SEED,
+        trackTokens: [SEED_TOKEN],
+        timeoutMs: CAPTURE_MS,
+      });
 
-    if (
-      obs.outcome === 'wrote_findings_before_asking' ||
-      obs.outcome === 'silent_write' ||
-      obs.outcome === 'exited' ||
-      obs.outcome === 'timeout'
-    ) {
-      throw new Error(
-        `named-target no-op FAILED: outcome=${obs.outcome}\n` +
-          `summary: ${obs.summary}\n` +
-          `elapsed: ${obs.elapsedMs}ms\n` +
-          `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
-      );
-    }
-    expect(['asked', 'plan_ready']).toContain(obs.outcome);
-    expect(obs.evidence).not.toContain(PLAN_MODE_REMINDER);
+      if (
+        obs.outcome === 'wrote_findings_before_asking' ||
+        obs.outcome === 'silent_write' ||
+        obs.outcome === 'exited' ||
+        obs.outcome === 'timeout'
+      ) {
+        throw new Error(
+          `named-target no-op FAILED (${skillName}): outcome=${obs.outcome}\n` +
+            `summary: ${obs.summary}\n` +
+            `elapsed: ${obs.elapsedMs}ms\n` +
+            `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+        );
+      }
+      expect(['asked', 'plan_ready']).toContain(obs.outcome);
+      expect(obs.evidence).not.toContain(PLAN_MODE_REMINDER);
 
-    // The pasted doc is the named target: gate question must not render,
-    // no plan-mode announcement either (we are NOT in plan mode).
-    expect(obs.scopeGateQuestionObserved ?? false).toBe(false);
-    expect(obs.scopeGateAutoSelectObserved ?? false).toBe(false);
+      // The pasted doc is the named target: gate question must not render,
+      // no plan-mode announcement either (we are NOT in plan mode).
+      expect(obs.scopeGateQuestionObserved ?? false).toBe(false);
+      expect(obs.scopeGateAutoSelectObserved ?? false).toBe(false);
 
-    // Target consumption via high-water token tracking over the CUMULATIVE
-    // buffer — the 2KB evidence tail is lossy and the plan-file fallback is
-    // unreachable outside plan mode (extractPlanFilePath only matches
-    // plan-mode save renders).
-    expect(obs.tokensObserved?.[SEED_TOKEN] ?? false).toBe(true);
-  }, CAPTURE_LONG_MS);
+      // Target consumption via high-water token tracking over the CUMULATIVE
+      // buffer — the 2KB evidence tail is lossy and the plan-file fallback is
+      // unreachable outside plan mode (extractPlanFilePath only matches
+      // plan-mode save renders).
+      expect(obs.tokensObserved?.[SEED_TOKEN] ?? false).toBe(true);
+    }, CAPTURE_LONG_MS);
+  }
 });

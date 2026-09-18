@@ -248,6 +248,11 @@ export function shardSlugOfEvalDir(evalDir: string): string | null {
   return path.basename(path.dirname(normalized)) === 'shards' ? path.basename(normalized) : null;
 }
 
+/** The reserved suffix scopes collectors that share one paid-runner shard. */
+function collectorNamespaceOfFile(file: string): string | null {
+  return path.basename(file).match(/--suite-([a-z0-9]+(?:-[a-z0-9]+)*)\.json$/)?.[1] ?? null;
+}
+
 /**
  * Find the most recent finalized (non-partial) eval file for a tier, scanning
  * `evalDir` and one level of `shards/<slug>/` subdirs. Shared by the budget
@@ -312,7 +317,8 @@ export function extractToolSummary(transcript: any[]): Record<string, number> {
  * Find the most recent prior COMPLETED eval file for comparison.
  * Scans the eval dir plus one level of `shards/<slug>/` subdirs. Prefers
  * same shard slug (a shard's own history over another shard's or the flat
- * dir's), then same branch, then falls back to anything.
+ * dir's), then same branch, then falls back to anything in the same collector
+ * namespace. A sibling suite is never a comparable baseline.
  *
  * In-progress accumulators (`_partial: true`, written by savePartial after every
  * test) are never candidates: the current run's own partial carries the current
@@ -327,9 +333,11 @@ export function findPreviousRun(
   excludeFile: string,
 ): string | null {
   // Parse top-level fields from each file (cheap — no full tests array needed)
+  const namespace = collectorNamespaceOfFile(excludeFile);
   const entries: Array<{ file: string; branch: string; timestamp: string; shard: string | null }> = [];
   for (const fullPath of listEvalJsonFiles(evalDir)) {
     if (path.resolve(fullPath) === path.resolve(excludeFile)) continue;
+    if (collectorNamespaceOfFile(fullPath) !== namespace) continue;
     try {
       const raw = fs.readFileSync(fullPath, 'utf-8');
       // Quick parse — only grab the fields we need
@@ -842,12 +850,17 @@ export class EvalCollector {
   private finalized = false;
   private evalDir: string;
   private shard: string | null;
+  private fileNamespace?: string;
   private createdAt = Date.now();
 
-  constructor(tier: 'e2e' | 'llm-judge', evalDir?: string) {
+  constructor(tier: 'e2e' | 'llm-judge', evalDir?: string, fileNamespace?: string) {
+    if (fileNamespace !== undefined && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(fileNamespace)) {
+      throw new Error('Eval collector namespace must be a lowercase kebab-case slug');
+    }
     this.tier = tier;
     this.evalDir = evalDir || process.env.GSTACK_EVAL_DIR || defaultEvalDir();
     this.shard = shardSlugOfEvalDir(this.evalDir);
+    this.fileNamespace = fileNamespace;
   }
 
   addTest(entry: EvalTestEntry): void {
@@ -897,7 +910,7 @@ export class EvalCollector {
       };
 
       fs.mkdirSync(this.evalDir, { recursive: true });
-      const partialPath = path.join(this.evalDir, '_partial-e2e.json');
+      const partialPath = path.join(this.evalDir, `_partial-e2e${this.fileNamespace ? `-${this.fileNamespace}` : ''}.json`);
       const tmp = partialPath + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(partial, null, 2) + '\n');
       fs.renameSync(tmp, partialPath);
@@ -940,7 +953,9 @@ export class EvalCollector {
     fs.mkdirSync(this.evalDir, { recursive: true });
     const dateStr = timestamp.replace(/[:.]/g, '').replace('T', '-').slice(0, 15);
     const safeBranch = git.branch.replace(/[^a-zA-Z0-9._-]/g, '-');
-    const filename = `${version}-${safeBranch}-${this.tier}-${dateStr}.json`;
+    // Keep the legacy stem first: eval:compare orders candidates by basename.
+    const suffix = this.fileNamespace ? `--suite-${this.fileNamespace}` : '';
+    const filename = `${version}-${safeBranch}-${this.tier}-${dateStr}${suffix}.json`;
     const filepath = path.join(this.evalDir, filename);
     fs.writeFileSync(filepath, JSON.stringify(result, null, 2) + '\n');
 

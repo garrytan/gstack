@@ -148,6 +148,8 @@ function splitFrontmatter(raw: string, file: string): { frontmatter: string; bod
  * output format, the /context-save checkpoint template), NOT section
  * boundaries. Fences close only on a matching char of >= opening length,
  * per CommonMark, so 4-backtick fences embedding 3-backtick blocks work.
+ * Standalone generated STOP-Read blocks between horizontal rules replace
+ * entire carved steps and end the preceding H2. Nested pointers stay inside it.
  */
 function scanH2Sections(bodyLines: string[]): H2Section[] {
   const sections: H2Section[] = [];
@@ -166,12 +168,23 @@ function scanH2Sections(bodyLines: string[]): H2Section[] {
       }
       continue;
     }
-    if (!fence && line.startsWith('## ')) {
-      sections.push({ heading: line.slice(3).trim(), start: i, end: bodyLines.length });
+    if (!fence) {
+      const heading = line.startsWith('## ');
+      let carvedStep = /^> \*\*STOP\.\*\* Before .+, Read `[^`]+\/sections\/[^`]+\.md` and execute it$/.test(line)
+        && bodyLines[i + 1] === '> in full. Do not work from memory — that section is the source of truth for this step.';
+      if (carvedStep) {
+        let preceding = i - 1;
+        while (preceding >= 0 && !bodyLines[preceding].trim()) preceding--;
+        let following = i + 2;
+        while (following < bodyLines.length && !bodyLines[following].trim()) following++;
+        carvedStep = bodyLines[preceding] === '---' && bodyLines[following] === '---';
+      }
+      if (heading || carvedStep) {
+        const previous = sections.at(-1);
+        if (previous) previous.end = Math.min(previous.end, i);
+        if (heading) sections.push({ heading: line.slice(3).trim(), start: i, end: bodyLines.length });
+      }
     }
-  }
-  for (let s = 0; s < sections.length - 1; s++) {
-    sections[s].end = sections[s + 1].start;
   }
   return sections;
 }

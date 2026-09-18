@@ -1,0 +1,461 @@
+{
+  "provenance": {
+    "source": "491566889b47a73db0f5b20799a901a80c38d756",
+    "runId": "ship-all-49156688-adba7e9d-5bc4-4553-87a9-eceebb429e8a",
+    "attempt": "plan-eng-review-1789623770371-HbeBYP",
+    "outcome": "timeout",
+    "elapsedMs": 1495012,
+    "sourceReceipt": {
+      "path": "/home/vercel-sandbox/gstack/.context/nouakchott-publication-monitor/eng/count-attempt1-timeout/original-complete-public-transcript.json",
+      "sha256": "f9bde32d8c5927b4a6f3349848f915fd0d4d0d96b5f69541e0bac01eec7027bd",
+      "bytes": 748169
+    },
+    "seedReadToolUseId": "toolu_01K7ikfAobRnW1MeAD49ot8J",
+    "seedReadAcknowledgedAt": "2026-09-17T05:43:02.675Z",
+    "noNewBehaviorCredit": true
+  },
+  "seed": "Proceed directly to the requested engineering review; skip the optional /office-hours prerequisite.\nPlease review this plan thoroughly. Write the full reviewed implementation plan, including its final ## GSTACK REVIEW REPORT section, to /tmp/g-qd3dlnlc/gstack-paid-shard-RwWuPu/tmp/gstack-e2e-plan-eng-A99UA0/gstack-test-plan-eng.md (use Edit/Write to that exact path).\nThe separate QA Test Plan artifact belongs at the skill-prescribed test-plan path; keep this requested deliverable as the full reviewed implementation plan.\n\n# Plan: Multi-tenant Auth Refactor\n\n## Context supplied by the plan author\nThe goal is to reorganize existing tenant-auth orchestration without changing\nits product behavior. RequestPolicy groups the existing per-request access\ndecision: given already-fetched claims and tenant/request context, it returns\nallow or deny under the existing access policy. AuthBroker.validateAndDispatch()\ncalls it after validation and before dispatch. It adds no policy, network call,\ncache mutation or state. Its separate class boundary remains a proposal to review.\n\n## Existing contracts retained\nThe existing cache adapter keys entries by tenant ID, issuer, audience,\nand policy version. It evicts expired tokens and invalidates entries on\nlogout, token revocation, or tenant suspension. AuthCache retains these\nunchanged validity and tenant-key rules; they do not serialize mutations.\nAuthCache is a service-facing facade over that same existing adapter,\nwith one backing cache. The adapter, its invalidation hooks, and their\nexisting tests remain in use unchanged.\nUnit and integration coverage is planned for the new components and their\nsuccess/error paths. That coverage does not exercise legacyAuthFlow() or\nassert compatibility with its prior behavior.\n\n## Architecture\nTwo new services (`AuthBroker` and `SessionMint`) share a global mutable\n`AuthCache` instance via module-level export. Both services mutate it.\n\n## Code quality\nThe `validateAndDispatch()` function is 60 lines with three nested\ntry/catch blocks; each catch swallows a different error class.\n\n## Tests\nThe existing `legacyAuthFlow()` will get rewritten as part of this work;\nno regression test for the prior behavior is planned.\n\n## Performance\nToken validation issues 5 sequential API calls to the IDP; they could be\nparallelized via Promise.all trivially (calls are independent).\n\n## Architecture (scope smell)\nThis touches 12 files and introduces 5 new classes (AuthBroker, TokenStore,\nSessionMint, AuthCache, RequestPolicy). Worth flagging the complexity check.",
+  "calls": [
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_018fF5NTE6iaF4pusfui8KBi",
+      "questions": [
+        {
+          "question": "D1 — Keep the legacyAuthFlow() rewrite inside this refactor PR, or defer it?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), complexity gate.\nELI10: The plan promises no product behavior change, yet it also rewrites legacyAuthFlow(), the code path that logs tenants in today, and it has no test that pins down what that path currently does (PLAN.md:36-37). We are deciding WHEN that rewrite happens: in this PR alongside the five new classes, or in a follow-up once the new pieces exist and are tested. How the rewrite gets regression coverage is a separate decision in Test review.\nStakes if we pick wrong: bundle it and a subtle login regression ships hidden inside a 12-file structural diff; defer it and two auth flows coexist in the tree until the follow-up lands.\nRecommendation: B because Beck's rule holds here: land the structure with its own tests first, then swap the live login path in a small, reviewable PR whose only job is behavior parity.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Include the rewrite in this PR\n  ✅ One PR delivers the reorganization end to end; no interim parallel auth flow to maintain\n  ✅ Reviewers see old and new orchestration side by side in one diff\n  ❌ A 12-file diff mixing structure and a live login-path rewrite is where auth regressions hide\n  ❌ Rollback means reverting the whole refactor, not just the login swap\nB) Defer the rewrite to a follow-up PR (recommended)\n  ✅ This PR becomes purely structural: new classes, tests, zero change to the live login path\n  ✅ The follow-up is a tiny, flag-able swap (human: ~1 day / CC: ~20 min) with a single question: does behavior match?\n  ❌ legacyAuthFlow() and AuthBroker coexist until the follow-up merges; someone must own landing it\n  ❌ Total calendar time is longer by one review cycle\nNet: trading one bigger blast radius for two small, independently revertible steps.",
+          "header": "D1 legacy",
+          "options": [
+            {
+              "label": "Include rewrite in this PR",
+              "description": "legacyAuthFlow() is rewritten into AuthBroker in this same PR. Regression coverage for its prior behavior is decided separately in Test review."
+            },
+            {
+              "label": "Defer to follow-up PR (recommended)",
+              "description": "This PR adds the new services beside legacyAuthFlow() and leaves its call path untouched. A follow-up PR swaps the login path over, behind a flag, with parity coverage decided in Test review."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Keep the legacyAuthFlow() rewrite inside this refactor PR, or defer it?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), complexity gate.\nELI10: The plan promises no product behavior change, yet it also rewrites legacyAuthFlow(), the code path that logs tenants in today, and it has no test that pins down what that path currently does (PLAN.md:36-37). We are deciding WHEN that rewrite happens: in this PR alongside the five new classes, or in a follow-up once the new pieces exist and are tested. How the rewrite gets regression coverage is a separate decision in Test review.\nStakes if we pick wrong: bundle it and a subtle login regression ships hidden inside a 12-file structural diff; defer it and two auth flows coexist in the tree until the follow-up lands.\nRecommendation: B because Beck's rule holds here: land the structure with its own tests first, then swap the live login path in a small, reviewable PR whose only job is behavior parity.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Include the rewrite in this PR\n  ✅ One PR delivers the reorganization end to end; no interim parallel auth flow to maintain\n  ✅ Reviewers see old and new orchestration side by side in one diff\n  ❌ A 12-file diff mixing structure and a live login-path rewrite is where auth regressions hide\n  ❌ Rollback means reverting the whole refactor, not just the login swap\nB) Defer the rewrite to a follow-up PR (recommended)\n  ✅ This PR becomes purely structural: new classes, tests, zero change to the live login path\n  ✅ The follow-up is a tiny, flag-able swap (human: ~1 day / CC: ~20 min) with a single question: does behavior match?\n  ❌ legacyAuthFlow() and AuthBroker coexist until the follow-up merges; someone must own landing it\n  ❌ Total calendar time is longer by one review cycle\nNet: trading one bigger blast radius for two small, independently revertible steps.": "Include rewrite in this PR"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:45:04.767Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_01Uof8bVeGzZbGrX4CLno8ga",
+      "questions": [
+        {
+          "question": "D2 — Parallelize the 5 IDP calls (Promise.all) in this refactor PR, or defer it?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), complexity gate.\nELI10: Token validation today makes 5 calls to the identity provider one after another; the plan says they are independent and could run at once (PLAN.md:40-41). That is a speed change, not a reorganization. Running them at once also changes what happens when one fails: which error wins, whether the other four still fire, and how many requests the IDP sees per second. We are deciding whether that behavior change rides inside this \"no behavior change\" refactor or gets its own PR with its own measurement.\nStakes if we pick wrong: bundle it and a failed login now has two possible causes (new structure or new concurrency) with no way to bisect; defer it and users keep paying ~5x latency on validation until the follow-up.\nRecommendation: B because the refactor's own correctness check is \"behavior identical to before\"; parallel IDP calls break that check by design, and the claim that the calls are independent has not been verified against code.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Include Promise.all in this PR\n  ✅ Users get the latency win immediately instead of waiting for a follow-up PR\n  ✅ The validation code is already open on the bench; touching it once is less churn\n  ❌ Error semantics change (first-rejection vs. sequential short-circuit) inside a PR that claims none\n  ❌ \"Calls are independent\" is asserted, not shown; if call 3 needs call 1's output the plan is wrong\nB) Defer to a dedicated perf PR (recommended)\n  ✅ Refactor stays verifiable by parity: same inputs, same IDP call sequence, same outputs\n  ✅ Perf PR can measure p50/p95 before and after and decide Promise.all vs Promise.allSettled vs fewer calls via caching (human: ~1 day / CC: ~30 min)\n  ❌ Validation latency stays at 5 sequential round trips for one more release\n  ❌ Someone has to actually schedule the follow-up; deferred perf work tends to rot\nNet: trading an immediate but unmeasured speedup for a refactor whose parity can be trusted.",
+          "header": "D2 perf",
+          "options": [
+            {
+              "label": "Include Promise.all in this PR",
+              "description": "The 5 IDP calls are parallelized as part of this refactor. Performance review will still cover error semantics and the independence claim."
+            },
+            {
+              "label": "Defer to a perf follow-up (recommended)",
+              "description": "This PR keeps the existing sequential IDP call order. Parallelization becomes a TODO with a measurement plan; Performance review records the finding without changing this PR."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Parallelize the 5 IDP calls (Promise.all) in this refactor PR, or defer it?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), complexity gate.\nELI10: Token validation today makes 5 calls to the identity provider one after another; the plan says they are independent and could run at once (PLAN.md:40-41). That is a speed change, not a reorganization. Running them at once also changes what happens when one fails: which error wins, whether the other four still fire, and how many requests the IDP sees per second. We are deciding whether that behavior change rides inside this \"no behavior change\" refactor or gets its own PR with its own measurement.\nStakes if we pick wrong: bundle it and a failed login now has two possible causes (new structure or new concurrency) with no way to bisect; defer it and users keep paying ~5x latency on validation until the follow-up.\nRecommendation: B because the refactor's own correctness check is \"behavior identical to before\"; parallel IDP calls break that check by design, and the claim that the calls are independent has not been verified against code.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Include Promise.all in this PR\n  ✅ Users get the latency win immediately instead of waiting for a follow-up PR\n  ✅ The validation code is already open on the bench; touching it once is less churn\n  ❌ Error semantics change (first-rejection vs. sequential short-circuit) inside a PR that claims none\n  ❌ \"Calls are independent\" is asserted, not shown; if call 3 needs call 1's output the plan is wrong\nB) Defer to a dedicated perf PR (recommended)\n  ✅ Refactor stays verifiable by parity: same inputs, same IDP call sequence, same outputs\n  ✅ Perf PR can measure p50/p95 before and after and decide Promise.all vs Promise.allSettled vs fewer calls via caching (human: ~1 day / CC: ~30 min)\n  ❌ Validation latency stays at 5 sequential round trips for one more release\n  ❌ Someone has to actually schedule the follow-up; deferred perf work tends to rot\nNet: trading an immediate but unmeasured speedup for a refactor whose parity can be trusted.": "Include Promise.all in this PR"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:45:24.823Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_01UAavvzAqbnBkitFG3eQC9r",
+      "questions": [
+        {
+          "question": "D3 — Five new classes as proposed, or a smaller arrangement with the same features?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), complexity gate (12 files, 5 new classes).\nELI10: The plan adds AuthBroker, TokenStore, SessionMint, AuthCache and RequestPolicy (PLAN.md:44-45). Two of those look like wrappers with nothing inside: RequestPolicy \"adds no policy, network call, cache mutation or state\" (PLAN.md:12-13), which describes a function, not a class; AuthCache is \"a service-facing facade over that same existing adapter\" that \"retains these unchanged\" rules (PLAN.md:18-21), which describes a pass-through. Fewer moving parts means fewer places for a 3am on-call engineer to look. Same features either way: D1 (rewrite included) and D2 (Promise.all included) stay fixed; the shared-global-cache question and TokenStore's undefined job are separate findings in Architecture review.\nStakes if we pick wrong: too many layers and every cache bug gets debugged through two facades; too few and a real responsibility gets crammed into AuthBroker and it grows back into a 60-line function.\nRecommendation: C because a stateless decision is clearest as a pure function, and a facade that adds no rules over a single adapter is a layer with no job; 3 classes plus one function covers the same features.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Original: 5 classes, 12 files\n  ✅ Every concept named in the plan gets its own file and its own test suite\n  ✅ Matches the plan author's mental model exactly; no re-planning needed\n  ❌ RequestPolicy is a class with no state wrapping one pure decision; AuthCache re-exposes an adapter it does not change\n  ❌ Two cache-shaped classes (TokenStore, AuthCache) over \"one backing cache\" invites drift between them\nB) Middle: 4 classes, RequestPolicy becomes a pure function\n  ✅ decideAccess(claims, ctx) is trivially unit-testable with a table of cases and no mocks\n  ✅ Keeps the AuthCache facade for teams who want one service-facing import\n  ❌ Still two cache-shaped classes over one adapter; the facade's only job is forwarding\n  ❌ Saves one file but not the layering that makes cache bugs hard to trace\nC) Lean: 3 classes + 1 function (recommended)\n  ✅ AuthBroker, SessionMint, TokenStore + pure decideAccess(); services use the existing adapter directly, so cache behavior has exactly one implementation to read\n  ✅ Roughly 8-9 files instead of 12; the existing adapter tests remain the cache contract, nothing new to keep in sync (human: ~2 days / CC: ~30 min)\n  ❌ If a service-facing cache API is later needed, it gets added then, not now\n  ❌ TokenStore's responsibility is still undefined in the plan; this arrangement keeps it pending a definition\nNet: trading one import convenience (AuthCache) and one namespace (RequestPolicy) for a dependency graph a new engineer can hold in their head.",
+          "header": "D3 shape",
+          "options": [
+            {
+              "label": "A) Original 5 classes",
+              "description": "AuthBroker, TokenStore, SessionMint, AuthCache, RequestPolicy across ~12 files, exactly as PLAN.md proposes."
+            },
+            {
+              "label": "B) 4 classes, policy as function",
+              "description": "RequestPolicy becomes a pure exported decideAccess(claims, ctx) function. AuthBroker, TokenStore, SessionMint and the AuthCache facade remain as proposed."
+            },
+            {
+              "label": "C) 3 classes + 1 function (recommended)",
+              "description": "AuthBroker, TokenStore, SessionMint plus pure decideAccess(). Drop the AuthCache facade; services depend on the existing cache adapter directly. How that dependency is supplied (module export vs. injection) is decided separately in Architecture review."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Five new classes as proposed, or a smaller arrangement with the same features?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), complexity gate (12 files, 5 new classes).\nELI10: The plan adds AuthBroker, TokenStore, SessionMint, AuthCache and RequestPolicy (PLAN.md:44-45). Two of those look like wrappers with nothing inside: RequestPolicy \"adds no policy, network call, cache mutation or state\" (PLAN.md:12-13), which describes a function, not a class; AuthCache is \"a service-facing facade over that same existing adapter\" that \"retains these unchanged\" rules (PLAN.md:18-21), which describes a pass-through. Fewer moving parts means fewer places for a 3am on-call engineer to look. Same features either way: D1 (rewrite included) and D2 (Promise.all included) stay fixed; the shared-global-cache question and TokenStore's undefined job are separate findings in Architecture review.\nStakes if we pick wrong: too many layers and every cache bug gets debugged through two facades; too few and a real responsibility gets crammed into AuthBroker and it grows back into a 60-line function.\nRecommendation: C because a stateless decision is clearest as a pure function, and a facade that adds no rules over a single adapter is a layer with no job; 3 classes plus one function covers the same features.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Original: 5 classes, 12 files\n  ✅ Every concept named in the plan gets its own file and its own test suite\n  ✅ Matches the plan author's mental model exactly; no re-planning needed\n  ❌ RequestPolicy is a class with no state wrapping one pure decision; AuthCache re-exposes an adapter it does not change\n  ❌ Two cache-shaped classes (TokenStore, AuthCache) over \"one backing cache\" invites drift between them\nB) Middle: 4 classes, RequestPolicy becomes a pure function\n  ✅ decideAccess(claims, ctx) is trivially unit-testable with a table of cases and no mocks\n  ✅ Keeps the AuthCache facade for teams who want one service-facing import\n  ❌ Still two cache-shaped classes over one adapter; the facade's only job is forwarding\n  ❌ Saves one file but not the layering that makes cache bugs hard to trace\nC) Lean: 3 classes + 1 function (recommended)\n  ✅ AuthBroker, SessionMint, TokenStore + pure decideAccess(); services use the existing adapter directly, so cache behavior has exactly one implementation to read\n  ✅ Roughly 8-9 files instead of 12; the existing adapter tests remain the cache contract, nothing new to keep in sync (human: ~2 days / CC: ~30 min)\n  ❌ If a service-facing cache API is later needed, it gets added then, not now\n  ❌ TokenStore's responsibility is still undefined in the plan; this arrangement keeps it pending a definition\nNet: trading one import convenience (AuthCache) and one namespace (RequestPolicy) for a dependency graph a new engineer can hold in their head.": "A) Original 5 classes"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:45:50.883Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_01QuWKugzWeeR21KDV7mw2BY",
+      "questions": [
+        {
+          "question": "D4 — How should `AuthBroker` and `SessionMint` get their `AuthCache`?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Architecture review.\nELI10: The plan makes one cache object a global that any file can import and change (PLAN.md:28-29), and two services both write to it. Globals hide who depends on what: a test for SessionMint can silently see entries AuthBroker's test left behind, and in production the only way to know who mutated the cache is to grep every import. Passing the cache into each service's constructor from one wiring file makes the dependency visible and lets tests hand each service a fresh cache.\nStakes if we pick wrong: flaky auth tests that pass alone and fail in the suite, and a production cache bug with no owner to trace.\nRecommendation: A because it is the same object and the same behavior, only the handoff changes; the cost is one wiring file and it removes the whole class of shared-state test failures.\nCompleteness: A=10/10, B=3/10, C=5/10\nPros / cons:\nA) Constructor injection from one composition root (recommended)\n  ✅ Every consumer of the cache is visible in a constructor signature, not hidden in an import\n  ✅ Tests build a fresh `AuthCache` per case; no cross-test pollution, no reset hooks\n  ❌ One new wiring file (or a few lines in the existing app bootstrap) to maintain\nB) Keep the module-level export as proposed\n  ✅ Zero wiring work; matches the plan text exactly\n  ✅ Any future module can reach the cache with one import\n  ❌ Shared mutable state across the test suite; who-mutated-what is a grep exercise in production\nC) Keep the export, add a `resetForTests()` hook\n  ✅ Cheap fix for test pollution without touching constructors\n  ✅ Keeps the plan's import ergonomics\n  ❌ Test-only API on a production object; the production dependency remains hidden and unowned\nNet: trading a few lines of wiring for a dependency graph you can read and tests that cannot leak into each other.",
+          "header": "D4 wiring",
+          "options": [
+            {
+              "label": "A) Inject via constructor (recommended)",
+              "description": "One `AuthCache` is built at the app composition root and passed into `AuthBroker` and `SessionMint` constructors. The module-level export is not created. Tests construct a fresh `AuthCache` per case."
+            },
+            {
+              "label": "B) Keep module-level export",
+              "description": "`AuthCache` is exported from a module and imported by both services, exactly as PLAN.md:28-29 proposes. No wiring change."
+            },
+            {
+              "label": "C) Export plus resetForTests()",
+              "description": "Module-level export kept; `AuthCache` gains a test-only `resetForTests()` that clears state between tests. Production wiring unchanged."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — How should `AuthBroker` and `SessionMint` get their `AuthCache`?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Architecture review.\nELI10: The plan makes one cache object a global that any file can import and change (PLAN.md:28-29), and two services both write to it. Globals hide who depends on what: a test for SessionMint can silently see entries AuthBroker's test left behind, and in production the only way to know who mutated the cache is to grep every import. Passing the cache into each service's constructor from one wiring file makes the dependency visible and lets tests hand each service a fresh cache.\nStakes if we pick wrong: flaky auth tests that pass alone and fail in the suite, and a production cache bug with no owner to trace.\nRecommendation: A because it is the same object and the same behavior, only the handoff changes; the cost is one wiring file and it removes the whole class of shared-state test failures.\nCompleteness: A=10/10, B=3/10, C=5/10\nPros / cons:\nA) Constructor injection from one composition root (recommended)\n  ✅ Every consumer of the cache is visible in a constructor signature, not hidden in an import\n  ✅ Tests build a fresh `AuthCache` per case; no cross-test pollution, no reset hooks\n  ❌ One new wiring file (or a few lines in the existing app bootstrap) to maintain\nB) Keep the module-level export as proposed\n  ✅ Zero wiring work; matches the plan text exactly\n  ✅ Any future module can reach the cache with one import\n  ❌ Shared mutable state across the test suite; who-mutated-what is a grep exercise in production\nC) Keep the export, add a `resetForTests()` hook\n  ✅ Cheap fix for test pollution without touching constructors\n  ✅ Keeps the plan's import ergonomics\n  ❌ Test-only API on a production object; the production dependency remains hidden and unowned\nNet: trading a few lines of wiring for a dependency graph you can read and tests that cannot leak into each other.": "A) Inject via constructor (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:49:01.058Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_01JSSg5YBsCAjYqbsqsiHxLd",
+      "questions": [
+        {
+          "question": "D5 — Should each service own a distinct set of cache keys, or may both write anywhere?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Architecture review.\nELI10: Two services will write into the same cache, the cache does not lock writes (PLAN.md:19), and every entry is addressed by the same four-part key (PLAN.md:16-17). If AuthBroker stores \"this token is valid\" and SessionMint stores \"this session exists\" under keys that can collide, whichever wrote last silently wins and the other service reads garbage. The fix is a rule, not a lock: each service writes only under its own key prefix, and one small test proves the two prefixes cannot overlap.\nStakes if we pick wrong: a validated-token entry overwritten by a session entry (or the reverse) is a login that fails for no visible reason, or a stale session that stays alive.\nRecommendation: A because it costs one namespace constant per service and one test, and it turns \"who wrote this?\" from a debugging question into a compile-time fact.\nCompleteness: A=10/10, B=3/10, C=n/a (investigation, approves nothing)\nPros / cons:\nA) Disjoint key namespaces per service, asserted by a test (recommended)\n  ✅ Every cache entry names its writer; collisions become impossible rather than unlikely\n  ✅ Invalidation hooks (logout, revocation, suspension) can target one namespace without touching the other\n  ❌ Existing adapter key format may need a prefix field; if the adapter is truly unchanged, the prefix lives in the tenant-ID or audience slot, which is ugly\nB) Both write freely, as proposed\n  ✅ No change to the adapter's key shape; matches the plan text\n  ✅ Fastest to implement; nothing new to document\n  ❌ Last-writer-wins on an unserialized cache with no rule about which value is correct\nC) Investigate before choosing\n  ✅ Confirms whether SessionMint even writes to this cache today before adding a rule\n  ✅ Bounded: read the adapter key builder and `legacyAuthFlow()` write sites, report back\n  ❌ Approves nothing; the ownership choice stays open and the PR cannot close it\nNet: trading a small key-shape decision now for never having to ask \"which service wrote this entry?\" in an incident.",
+          "header": "D5 ownership",
+          "options": [
+            {
+              "label": "A) Disjoint namespaces + test (recommended)",
+              "description": "Each service writes only under its own key namespace (documented in the plan). A unit test asserts the two key builders never produce the same key for any tenant/issuer/audience/policy-version tuple. Adapter validity and invalidation rules unchanged."
+            },
+            {
+              "label": "B) Both write freely",
+              "description": "Both services mutate the shared cache with no ownership rule, as PLAN.md:29 proposes. No test added for key collisions."
+            },
+            {
+              "label": "C) Investigate first",
+              "description": "Read the existing adapter's key builder and `legacyAuthFlow()` write sites, then return to this question. No implementation approved; R2 stays pending."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Should each service own a distinct set of cache keys, or may both write anywhere?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Architecture review.\nELI10: Two services will write into the same cache, the cache does not lock writes (PLAN.md:19), and every entry is addressed by the same four-part key (PLAN.md:16-17). If AuthBroker stores \"this token is valid\" and SessionMint stores \"this session exists\" under keys that can collide, whichever wrote last silently wins and the other service reads garbage. The fix is a rule, not a lock: each service writes only under its own key prefix, and one small test proves the two prefixes cannot overlap.\nStakes if we pick wrong: a validated-token entry overwritten by a session entry (or the reverse) is a login that fails for no visible reason, or a stale session that stays alive.\nRecommendation: A because it costs one namespace constant per service and one test, and it turns \"who wrote this?\" from a debugging question into a compile-time fact.\nCompleteness: A=10/10, B=3/10, C=n/a (investigation, approves nothing)\nPros / cons:\nA) Disjoint key namespaces per service, asserted by a test (recommended)\n  ✅ Every cache entry names its writer; collisions become impossible rather than unlikely\n  ✅ Invalidation hooks (logout, revocation, suspension) can target one namespace without touching the other\n  ❌ Existing adapter key format may need a prefix field; if the adapter is truly unchanged, the prefix lives in the tenant-ID or audience slot, which is ugly\nB) Both write freely, as proposed\n  ✅ No change to the adapter's key shape; matches the plan text\n  ✅ Fastest to implement; nothing new to document\n  ❌ Last-writer-wins on an unserialized cache with no rule about which value is correct\nC) Investigate before choosing\n  ✅ Confirms whether SessionMint even writes to this cache today before adding a rule\n  ✅ Bounded: read the adapter key builder and `legacyAuthFlow()` write sites, report back\n  ❌ Approves nothing; the ownership choice stays open and the PR cannot close it\nNet: trading a small key-shape decision now for never having to ask \"which service wrote this entry?\" in an incident.": "A) Disjoint namespaces + test (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:49:56.798Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_013QRjxoTLJWscVYSsnLj5tp",
+      "questions": [
+        {
+          "question": "D6 — Define TokenStore's job in the plan before building it, or let the implementer decide?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Architecture review.\nELI10: The plan lists five new classes and explains four of them. TokenStore is only a name (PLAN.md:44-45). With AuthCache already sitting on top of the one real cache (PLAN.md:21), nobody reading the plan can say what TokenStore holds that AuthCache does not, which means the implementer will decide under time pressure and the reviewer of the PR will have nothing to check it against. Writing five sentences now is cheaper than arguing about them in code review.\nStakes if we pick wrong: a second cache-like class with overlapping keys and no owner, or a class that exists because the plan said so and holds nothing.\nRecommendation: A because a class in an auth path that nobody can describe is a class nobody can test; the amendment is a paragraph, not a design effort (human: ~30 min / CC: ~2 min).\nCompleteness: A=10/10, B=3/10, C=n/a (investigation, approves nothing)\nPros / cons:\nA) Amend the plan with TokenStore's contract before implementation (recommended)\n  ✅ PR reviewers get a written contract to check the class against; tests follow from the contract\n  ✅ Surfaces early whether TokenStore duplicates AuthCache, before code exists to defend\n  ❌ Blocks the TokenStore workstream until the plan author writes the paragraph\nB) Leave undefined; implementer decides during the build\n  ✅ No planning delay; the implementer may already know exactly what it is\n  ✅ Matches the plan as written\n  ❌ The only spec is the class name; overlap with AuthCache is discovered in review or production\nC) Investigate before choosing\n  ✅ Reading the existing token-persistence code may show TokenStore is a rename, not a new concept\n  ✅ Bounded to the existing code that TokenStore replaces\n  ❌ Approves nothing; the contract is still unwritten afterward\nNet: trading a paragraph now for a class whose tests can be derived rather than guessed.",
+          "header": "D6 TokenStore",
+          "options": [
+            {
+              "label": "A) Amend plan with contract first (recommended)",
+              "description": "Before TokenStore is implemented, the plan states: what it stores, its key shape, its relation to AuthCache and the existing adapter, who calls it, and its unit tests. If it writes to the shared cache it gets its own namespace under D5."
+            },
+            {
+              "label": "B) Leave undefined",
+              "description": "TokenStore's responsibility is decided by the implementer during the build. No plan amendment."
+            },
+            {
+              "label": "C) Investigate first",
+              "description": "Read the existing token-persistence code TokenStore replaces, report, then return to this question. Nothing approved; R3 stays pending."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Define TokenStore's job in the plan before building it, or let the implementer decide?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Architecture review.\nELI10: The plan lists five new classes and explains four of them. TokenStore is only a name (PLAN.md:44-45). With AuthCache already sitting on top of the one real cache (PLAN.md:21), nobody reading the plan can say what TokenStore holds that AuthCache does not, which means the implementer will decide under time pressure and the reviewer of the PR will have nothing to check it against. Writing five sentences now is cheaper than arguing about them in code review.\nStakes if we pick wrong: a second cache-like class with overlapping keys and no owner, or a class that exists because the plan said so and holds nothing.\nRecommendation: A because a class in an auth path that nobody can describe is a class nobody can test; the amendment is a paragraph, not a design effort (human: ~30 min / CC: ~2 min).\nCompleteness: A=10/10, B=3/10, C=n/a (investigation, approves nothing)\nPros / cons:\nA) Amend the plan with TokenStore's contract before implementation (recommended)\n  ✅ PR reviewers get a written contract to check the class against; tests follow from the contract\n  ✅ Surfaces early whether TokenStore duplicates AuthCache, before code exists to defend\n  ❌ Blocks the TokenStore workstream until the plan author writes the paragraph\nB) Leave undefined; implementer decides during the build\n  ✅ No planning delay; the implementer may already know exactly what it is\n  ✅ Matches the plan as written\n  ❌ The only spec is the class name; overlap with AuthCache is discovered in review or production\nC) Investigate before choosing\n  ✅ Reading the existing token-persistence code may show TokenStore is a rename, not a new concept\n  ✅ Bounded to the existing code that TokenStore replaces\n  ❌ Approves nothing; the contract is still unwritten afterward\nNet: trading a paragraph now for a class whose tests can be derived rather than guessed.": "A) Amend plan with contract first (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:50:59.089Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_013xidCkRrSA2cqQnNqgqHav",
+      "questions": [
+        {
+          "question": "D7 — How should the rewritten `validateAndDispatch()` handle errors?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Code quality review.\nELI10: Today this function has three try/catch blocks nested inside each other and each one quietly eats a different kind of error (PLAN.md:32-33). When something goes wrong, the function moves on as if it had not, so a login can fail with no error message and no log line. Since D1 already commits to rewriting this function, the question is what shape the rewrite takes: three steps in a row that each throw a named error, caught once at the top and turned into a clear deny plus a log entry, or the same nesting with logging bolted on.\nStakes if we pick wrong: on-call sees \"login failed\" with no cause; worse, a swallowed validation error could let dispatch proceed on a token that was never fully checked.\nRecommendation: A because the function is being rewritten anyway (D1=A), typed errors plus one handler is fewer lines than three nested catches, and every error class gets a test that proves what the user sees.\nCompleteness: A=10/10, B=5/10, C=1/10\nPros / cons:\nA) Linear pipeline, typed errors, one top-level handler, one test per error class (recommended)\n  ✅ Every failure has a name, a mapped response and a log line; nothing is swallowed\n  ✅ Three flat steps read top to bottom; the 60 lines become roughly 25 plus a small error module\n  ❌ Introduces an `AuthError` hierarchy (3-5 subclasses) that must be kept in sync with the IDP client's failures\nB) Keep the nesting, add a structured log inside each catch\n  ✅ Smallest diff to the existing control flow; low risk of changing which errors are caught\n  ✅ On-call at least gets a log line per swallowed error\n  ❌ Errors are still swallowed; the caller still cannot distinguish deny from outage\nC) Keep as proposed (swallowing preserved)\n  ✅ Zero effort; matches the plan text\n  ✅ Behavior-identical to today, which suits a \"no behavior change\" refactor\n  ❌ Three silent failure paths in the login hot path, rewritten by hand with no test naming them\nNet: trading a small typed-error module for an auth function whose every failure is visible and tested.",
+          "header": "D7 errors",
+          "options": [
+            {
+              "label": "A) Pipeline + typed errors + one handler (recommended)",
+              "description": "validate → RequestPolicy → dispatch as three flat steps. Each stage throws a typed `AuthError` subclass. One top-level handler maps each subclass to an explicit deny response and a structured log line. No catch without a rethrow or mapped response. One unit test per error class asserts the response and the log."
+            },
+            {
+              "label": "B) Keep nesting, add logging",
+              "description": "The three nested try/catch blocks remain; each catch gains a structured log line. Swallowing behavior otherwise unchanged."
+            },
+            {
+              "label": "C) Keep as proposed",
+              "description": "Nested catches rewritten as-is; each still swallows its error class. No logging or tests added for the swallowed paths."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — How should the rewritten `validateAndDispatch()` handle errors?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Code quality review.\nELI10: Today this function has three try/catch blocks nested inside each other and each one quietly eats a different kind of error (PLAN.md:32-33). When something goes wrong, the function moves on as if it had not, so a login can fail with no error message and no log line. Since D1 already commits to rewriting this function, the question is what shape the rewrite takes: three steps in a row that each throw a named error, caught once at the top and turned into a clear deny plus a log entry, or the same nesting with logging bolted on.\nStakes if we pick wrong: on-call sees \"login failed\" with no cause; worse, a swallowed validation error could let dispatch proceed on a token that was never fully checked.\nRecommendation: A because the function is being rewritten anyway (D1=A), typed errors plus one handler is fewer lines than three nested catches, and every error class gets a test that proves what the user sees.\nCompleteness: A=10/10, B=5/10, C=1/10\nPros / cons:\nA) Linear pipeline, typed errors, one top-level handler, one test per error class (recommended)\n  ✅ Every failure has a name, a mapped response and a log line; nothing is swallowed\n  ✅ Three flat steps read top to bottom; the 60 lines become roughly 25 plus a small error module\n  ❌ Introduces an `AuthError` hierarchy (3-5 subclasses) that must be kept in sync with the IDP client's failures\nB) Keep the nesting, add a structured log inside each catch\n  ✅ Smallest diff to the existing control flow; low risk of changing which errors are caught\n  ✅ On-call at least gets a log line per swallowed error\n  ❌ Errors are still swallowed; the caller still cannot distinguish deny from outage\nC) Keep as proposed (swallowing preserved)\n  ✅ Zero effort; matches the plan text\n  ✅ Behavior-identical to today, which suits a \"no behavior change\" refactor\n  ❌ Three silent failure paths in the login hot path, rewritten by hand with no test naming them\nNet: trading a small typed-error module for an auth function whose every failure is visible and tested.": "A) Pipeline + typed errors + one handler (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:51:57.376Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_01UC6zBApoA7AB39BDzjejqM",
+      "questions": [
+        {
+          "question": "D8 — Should the cache key and RequestPolicy read the policy version from one shared value per request?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Code quality review.\nELI10: Cache entries are tagged with a policy version (PLAN.md:16-17) so that when the access rules change, old cached answers stop being used. RequestPolicy applies those same rules (PLAN.md:9-11). The plan does not say whether both read the version from the same place. If they do not, there is a window where the cache still says \"allowed under v1\" while the policy code is already on v2, and the user gets the old answer. Threading one value through both is a DRY fix: one source, no drift.\nStakes if we pick wrong: an access decision that should have been re-evaluated under a stricter policy is served from cache; the tenant admin who tightened the rule sees it ignored.\nRecommendation: A because it is one argument threaded through two call sites plus one test, and it closes a class of stale-permission bugs that are near impossible to reproduce after the fact. Medium confidence that the existing code has the gap; the fix is cheap either way.\nCompleteness: A=10/10, B=3/10, C=n/a (investigation, approves nothing)\nPros / cons:\nA) One policyVersion per request, passed to both consumers, with a v1-to-v2 eviction test (recommended)\n  ✅ Cache key and policy decision cannot disagree about which policy is in force\n  ✅ The test doubles as documentation of why the version is part of the cache key\n  ❌ Slightly wider RequestPolicy signature; the version becomes an explicit parameter\nB) Leave unspecified; each consumer resolves it as today\n  ✅ No change to signatures; matches the plan text\n  ✅ If the existing code already shares a source, this is free\n  ❌ The plan cannot prove there is one source; a future change to either lookup reintroduces drift silently\nC) Investigate before choosing\n  ✅ Settles the medium-confidence question with evidence from the real code\n  ✅ Bounded to two lookups\n  ❌ Approves nothing; the choice stays open and the review cannot close it\nNet: trading one explicit parameter for a guarantee that a policy change is honored the moment it ships.",
+          "header": "D8 policyVer",
+          "options": [
+            {
+              "label": "A) One value per request + test (recommended)",
+              "description": "`policyVersion` is resolved once per request and passed to both the cache key builder and `RequestPolicy`. A unit test writes a cache entry under v1 and asserts a request carrying v2 misses the cache and re-evaluates. Adapter key fields unchanged."
+            },
+            {
+              "label": "B) Leave unspecified",
+              "description": "Each consumer resolves the policy version however the existing code does. No signature change, no test."
+            },
+            {
+              "label": "C) Investigate first",
+              "description": "Read the adapter key builder and the policy lookup in `legacyAuthFlow()`; report whether they share one source, then return here. Nothing approved; R5 stays pending."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — Should the cache key and RequestPolicy read the policy version from one shared value per request?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Code quality review.\nELI10: Cache entries are tagged with a policy version (PLAN.md:16-17) so that when the access rules change, old cached answers stop being used. RequestPolicy applies those same rules (PLAN.md:9-11). The plan does not say whether both read the version from the same place. If they do not, there is a window where the cache still says \"allowed under v1\" while the policy code is already on v2, and the user gets the old answer. Threading one value through both is a DRY fix: one source, no drift.\nStakes if we pick wrong: an access decision that should have been re-evaluated under a stricter policy is served from cache; the tenant admin who tightened the rule sees it ignored.\nRecommendation: A because it is one argument threaded through two call sites plus one test, and it closes a class of stale-permission bugs that are near impossible to reproduce after the fact. Medium confidence that the existing code has the gap; the fix is cheap either way.\nCompleteness: A=10/10, B=3/10, C=n/a (investigation, approves nothing)\nPros / cons:\nA) One policyVersion per request, passed to both consumers, with a v1-to-v2 eviction test (recommended)\n  ✅ Cache key and policy decision cannot disagree about which policy is in force\n  ✅ The test doubles as documentation of why the version is part of the cache key\n  ❌ Slightly wider RequestPolicy signature; the version becomes an explicit parameter\nB) Leave unspecified; each consumer resolves it as today\n  ✅ No change to signatures; matches the plan text\n  ✅ If the existing code already shares a source, this is free\n  ❌ The plan cannot prove there is one source; a future change to either lookup reintroduces drift silently\nC) Investigate before choosing\n  ✅ Settles the medium-confidence question with evidence from the real code\n  ✅ Bounded to two lookups\n  ❌ Approves nothing; the choice stays open and the review cannot close it\nNet: trading one explicit parameter for a guarantee that a policy change is honored the moment it ships.": "A) One value per request + test (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:52:55.704Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_01TZevVwcDzm4UAjtisAmBSU",
+      "questions": [
+        {
+          "question": "D9 — How do we prove the rewritten login path behaves like `legacyAuthFlow()` does today?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Test review (regression rule).\nELI10: D1 committed to rewriting the function that logs every tenant in, and the plan says there is no test recording what that function currently does (PLAN.md:36-37). Without that recording, the only way to learn the rewrite changed something is a user reporting it. The fix is to run the OLD function against a table of inputs first, write down every answer it gives, and then require the NEW function to give the same answers, except where we decided on purpose to change them (D7's explicit errors, D2's concurrent IDP calls). The question is how wide that table is.\nStakes if we pick wrong: a tenant that used to be denied is allowed, or a working login breaks, and nobody can say whether the old code did the same.\nRecommendation: A because the twelve cases are the entire input space this plan names, capturing them from the old code costs minutes with CC (human: ~1 day / CC: ~20 min), and every case not captured is a regression nobody will see until production.\nCompleteness: A=10/10, B=5/10, C=10/10 (plus runtime evidence; adds a flag and a harness to the PR)\nPros / cons:\nA) Full characterization matrix, captured before the rewrite, replayed after (recommended)\n  ✅ Every input class the plan names (valid, expired, revoked, suspended, wrong issuer, wrong audience, policy deny, IDP 5xx, IDP timeout, malformed, missing tenant, cache hit/miss) gets a recorded before/after answer\n  ✅ D7's intentional error changes are listed explicitly, so \"different\" is a decision, not a surprise\n  ❌ Requires access to the real `legacyAuthFlow()` to capture the baseline; this repo does not contain it\nB) Happy path plus one deny only\n  ✅ Fast to write; covers the two outcomes users hit most\n  ✅ Still catches a totally broken rewrite\n  ❌ Nine of the twelve named cases (every error and edge path) have no before/after record; that is where auth regressions live\nC) Full matrix plus a flagged dual-run harness in staging\n  ✅ Adds live-traffic evidence: real tokens, real IDP responses, real tenant configs\n  ✅ Mismatch logs point at exactly which case diverged\n  ❌ Adds a feature flag and a comparison harness to a PR that is already 12 files; both must be removed later\nNet: trading a few hours of table-writing for the only proof that a login rewrite did not change who gets in.",
+          "header": "D9 regression",
+          "options": [
+            {
+              "label": "A) Full characterization matrix (recommended)",
+              "description": "Before the rewrite, capture `legacyAuthFlow()` outputs (allow/deny, cache reads/writes, dispatch target, IDP call set) for all twelve named cases. Replay the same suite against `AuthBroker.validateAndDispatch()`. List D7 explicit-error responses and D2 concurrent IDP calls as the only intentional differences, each asserted."
+            },
+            {
+              "label": "B) Happy path + one deny",
+              "description": "Capture and replay valid-token (cache-miss and cache-hit) and policy-deny only. Other cases uncovered."
+            },
+            {
+              "label": "C) Full matrix + staging dual-run",
+              "description": "Everything in A, plus a flag-gated harness in staging that runs both flows per request and logs mismatches for one release cycle. Flag and harness removed afterward."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D9 — How do we prove the rewritten login path behaves like `legacyAuthFlow()` does today?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Test review (regression rule).\nELI10: D1 committed to rewriting the function that logs every tenant in, and the plan says there is no test recording what that function currently does (PLAN.md:36-37). Without that recording, the only way to learn the rewrite changed something is a user reporting it. The fix is to run the OLD function against a table of inputs first, write down every answer it gives, and then require the NEW function to give the same answers, except where we decided on purpose to change them (D7's explicit errors, D2's concurrent IDP calls). The question is how wide that table is.\nStakes if we pick wrong: a tenant that used to be denied is allowed, or a working login breaks, and nobody can say whether the old code did the same.\nRecommendation: A because the twelve cases are the entire input space this plan names, capturing them from the old code costs minutes with CC (human: ~1 day / CC: ~20 min), and every case not captured is a regression nobody will see until production.\nCompleteness: A=10/10, B=5/10, C=10/10 (plus runtime evidence; adds a flag and a harness to the PR)\nPros / cons:\nA) Full characterization matrix, captured before the rewrite, replayed after (recommended)\n  ✅ Every input class the plan names (valid, expired, revoked, suspended, wrong issuer, wrong audience, policy deny, IDP 5xx, IDP timeout, malformed, missing tenant, cache hit/miss) gets a recorded before/after answer\n  ✅ D7's intentional error changes are listed explicitly, so \"different\" is a decision, not a surprise\n  ❌ Requires access to the real `legacyAuthFlow()` to capture the baseline; this repo does not contain it\nB) Happy path plus one deny only\n  ✅ Fast to write; covers the two outcomes users hit most\n  ✅ Still catches a totally broken rewrite\n  ❌ Nine of the twelve named cases (every error and edge path) have no before/after record; that is where auth regressions live\nC) Full matrix plus a flagged dual-run harness in staging\n  ✅ Adds live-traffic evidence: real tokens, real IDP responses, real tenant configs\n  ✅ Mismatch logs point at exactly which case diverged\n  ❌ Adds a feature flag and a comparison harness to a PR that is already 12 files; both must be removed later\nNet: trading a few hours of table-writing for the only proof that a login rewrite did not change who gets in.": "A) Full characterization matrix (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:54:04.081Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_01D9droZsSJYRqBESuEsgZ3q",
+      "questions": [
+        {
+          "question": "D10 — When one of the 5 concurrent IDP calls fails, which error does the user get?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Performance review.\nELI10: D2 made the five identity-provider calls run at the same time. With `Promise.all`, the first one to fail decides the error and the rest are ignored, but \"first\" means first on the network that day, not first in any order we chose. So the same bad token can produce a different error message on each retry. `Promise.allSettled` waits for all five, then we pick the most important failure by a fixed list. Same speed on the happy path; predictable errors on the sad path.\nStakes if we pick wrong: support tickets that say \"sometimes it says revoked, sometimes it says try later\" for the same token, and a regression matrix (D9) whose IDP-failure rows cannot assert a stable error class.\nRecommendation: A because it costs one precedence list and a per-call timeout, and it is the only option under which the D9 matrix can assert a deterministic error for the IDP 5xx and timeout rows.\nCompleteness: A=10/10, B=6/10, C=2/10\nPros / cons:\nA) allSettled + fixed precedence + per-call timeout, fully tested (recommended)\n  ✅ Same token, same failure set, same error every time; D9 rows for IDP failures become assertable\n  ✅ Per-call timeout bounds worst-case latency to one slow call, not a hang\n  ❌ Waits for the slowest call even when an early failure already decides the outcome (bounded by the timeout)\nB) Promise.all, documented first-wins, single-failure tests only\n  ✅ Fails fast: an early rejection returns immediately\n  ✅ Matches the plan text with minimal extra work\n  ❌ Error class depends on network timing when two calls fail; two-failure cases untested and untestable deterministically\nC) Promise.all as proposed, no docs, no failure tests\n  ✅ Zero extra work\n  ✅ D7's handler still maps whatever error arrives\n  ❌ Non-deterministic user-facing errors with nothing written down about why\nNet: trading a fail-fast return on rare double failures for an error the user, support and the regression suite can all rely on.",
+          "header": "D10 IDP errors",
+          "options": [
+            {
+              "label": "A) allSettled + precedence + timeout (recommended)",
+              "description": "Run the 5 calls with `Promise.allSettled` and a per-call timeout. After all settle, throw one typed `AuthError` chosen by a fixed precedence (revoked > suspended > expired > invalid signature/issuer/audience > IDP 5xx > timeout). Tests: each call failing alone, two failing in both orders, all failing, one timing out."
+            },
+            {
+              "label": "B) Promise.all, documented, single-failure tests",
+              "description": "Keep `Promise.all`. Document that the first rejection in time is surfaced. Tests: each of the 5 calls failing alone. Two-failure ordering untested."
+            },
+            {
+              "label": "C) Promise.all as proposed",
+              "description": "`Promise.all` with no precedence rule, no documentation and no failure tests beyond the D7 handler mapping."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D10 — When one of the 5 concurrent IDP calls fails, which error does the user get?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Performance review.\nELI10: D2 made the five identity-provider calls run at the same time. With `Promise.all`, the first one to fail decides the error and the rest are ignored, but \"first\" means first on the network that day, not first in any order we chose. So the same bad token can produce a different error message on each retry. `Promise.allSettled` waits for all five, then we pick the most important failure by a fixed list. Same speed on the happy path; predictable errors on the sad path.\nStakes if we pick wrong: support tickets that say \"sometimes it says revoked, sometimes it says try later\" for the same token, and a regression matrix (D9) whose IDP-failure rows cannot assert a stable error class.\nRecommendation: A because it costs one precedence list and a per-call timeout, and it is the only option under which the D9 matrix can assert a deterministic error for the IDP 5xx and timeout rows.\nCompleteness: A=10/10, B=6/10, C=2/10\nPros / cons:\nA) allSettled + fixed precedence + per-call timeout, fully tested (recommended)\n  ✅ Same token, same failure set, same error every time; D9 rows for IDP failures become assertable\n  ✅ Per-call timeout bounds worst-case latency to one slow call, not a hang\n  ❌ Waits for the slowest call even when an early failure already decides the outcome (bounded by the timeout)\nB) Promise.all, documented first-wins, single-failure tests only\n  ✅ Fails fast: an early rejection returns immediately\n  ✅ Matches the plan text with minimal extra work\n  ❌ Error class depends on network timing when two calls fail; two-failure cases untested and untestable deterministically\nC) Promise.all as proposed, no docs, no failure tests\n  ✅ Zero extra work\n  ✅ D7's handler still maps whatever error arrives\n  ❌ Non-deterministic user-facing errors with nothing written down about why\nNet: trading a fail-fast return on rare double failures for an error the user, support and the regression suite can all rely on.": "A) allSettled + precedence + timeout (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:57:07.836Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_011DBsVwdrw1CdVZ2ujtKnSv",
+      "questions": [
+        {
+          "question": "D11 — Should concurrent cache misses for the same token share one IDP fan-out?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Performance review.\nELI10: When many requests for the same tenant arrive at once and the cache is empty (a fresh deploy, or the policy version just changed so every old entry is ignored), each request separately asks the identity provider five times. With D2 those five now fire together, so a burst of 100 requests is 500 simultaneous IDP calls instead of a trickle. A single-flight map is about fifteen lines: the first request for a key does the work, the rest wait on its promise. This is new behavior, so it is a choice, not a given.\nStakes if we pick wrong: IDP rate-limiting during login bursts turns a cache-cold moment into an outage; or, if the existing code already dedupes, we add code for a problem that is not there.\nRecommendation: A because the fix is small, the test is one line of Promise.all over 50 calls, and D2 made bursts five times sharper than before. Medium confidence that the gap exists today; if the existing code already dedupes, the implementer keeps that and this test still applies.\nCompleteness: A=10/10, B=2/10, C=n/a (defer, approves nothing)\nPros / cons:\nA) In-process single-flight per key, with a concurrency test (recommended)\n  ✅ A login burst on a cold cache costs one 5-call fan-out per unique token, not one per request\n  ✅ Test is deterministic: 50 concurrent calls → assert IDP mock saw exactly 5\n  ❌ In-memory only; multiple app instances still fan out once each (acceptable; cross-instance locking is out of scope)\nB) No deduplication\n  ✅ Simplest code; matches the plan text\n  ✅ If the IDP has generous limits, the cost is latency, not failure\n  ❌ 5N concurrent IDP calls on every cold-cache burst, sharpened by D2\nC) Defer to a TODO with a staging probe\n  ✅ Decide with a measurement instead of a guess\n  ✅ Keeps this PR focused on the approved refactor scope\n  ❌ Approves nothing; the burst risk ships with D2 until the probe happens\nNet: trading fifteen lines and one test for cold-cache bursts that cannot multiply IDP load.",
+          "header": "D11 stampede",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Single-flight per key + test (recommended)",
+              "description": "AuthBroker.validate() keeps an in-process map of cache key → pending validation promise. Concurrent misses for one key await the same 5-call fan-out; the entry is removed when it settles. Test: 50 concurrent requests for one key → exactly 5 IDP calls, all 50 receive the same result or the same typed error."
+            },
+            {
+              "label": "B) No deduplication",
+              "description": "Each cache miss fans out to the IDP independently, as the plan implies. No test."
+            },
+            {
+              "label": "C) Defer to TODO with probe",
+              "description": "Nothing implemented in this PR. A TODO records: measure IDP calls per unique key under concurrent load in staging, then decide. R8 stays pending."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D11 — Should concurrent cache misses for the same token share one IDP fan-out?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), Performance review.\nELI10: When many requests for the same tenant arrive at once and the cache is empty (a fresh deploy, or the policy version just changed so every old entry is ignored), each request separately asks the identity provider five times. With D2 those five now fire together, so a burst of 100 requests is 500 simultaneous IDP calls instead of a trickle. A single-flight map is about fifteen lines: the first request for a key does the work, the rest wait on its promise. This is new behavior, so it is a choice, not a given.\nStakes if we pick wrong: IDP rate-limiting during login bursts turns a cache-cold moment into an outage; or, if the existing code already dedupes, we add code for a problem that is not there.\nRecommendation: A because the fix is small, the test is one line of Promise.all over 50 calls, and D2 made bursts five times sharper than before. Medium confidence that the gap exists today; if the existing code already dedupes, the implementer keeps that and this test still applies.\nCompleteness: A=10/10, B=2/10, C=n/a (defer, approves nothing)\nPros / cons:\nA) In-process single-flight per key, with a concurrency test (recommended)\n  ✅ A login burst on a cold cache costs one 5-call fan-out per unique token, not one per request\n  ✅ Test is deterministic: 50 concurrent calls → assert IDP mock saw exactly 5\n  ❌ In-memory only; multiple app instances still fan out once each (acceptable; cross-instance locking is out of scope)\nB) No deduplication\n  ✅ Simplest code; matches the plan text\n  ✅ If the IDP has generous limits, the cost is latency, not failure\n  ❌ 5N concurrent IDP calls on every cold-cache burst, sharpened by D2\nC) Defer to a TODO with a staging probe\n  ✅ Decide with a measurement instead of a guess\n  ✅ Keeps this PR focused on the approved refactor scope\n  ❌ Approves nothing; the burst risk ships with D2 until the probe happens\nNet: trading fifteen lines and one test for cold-cache bursts that cannot multiply IDP load.": "A) Single-flight per key + test (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T05:59:55.078Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_01AhGZz6Kcba6EFjnrJ9rF3i",
+      "questions": [
+        {
+          "question": "D12 — TODO: close the validate-then-mint window when a tenant is suspended mid-request?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), final planning decisions (TODOs).\nELI10: A request validates its token, the tenant gets suspended a millisecond later (the hook evicts both cache namespaces), and then SessionMint still issues a session because it only sees claims that were valid a moment ago. The refactor does not make this worse than today, but finding A4 flagged it as the one critical gap: no test, no handling, and the user would never see an error. It is real work with a design question (re-check suspension at mint time? version-stamp the claims?) so it does not belong in a refactor that promises unchanged behavior.\nStakes if we pick wrong: a suspended tenant keeps a live session for its full lifetime; or we bloat a behavior-preserving refactor with new policy.\nRecommendation: A because the gap needs its own design decision and a probe of how long the window really is, and this PR is committed to unchanged product behavior (PLAN.md:8-9).\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ The gap is written down with its context, so it is not lost when the refactor merges\n  ✅ Keeps this PR honest about its own scope: reorganize, do not change behavior\n  ❌ The window ships as it exists today; nothing in this PR narrows it\nB) Skip, not valuable enough\n  ✅ Zero extra work; the window predates this refactor\n  ✅ If suspension is rare and sessions are short-lived, exposure may be negligible\n  ❌ A known silent failure with no owner and no record; the next reader rediscovers it\nC) Build it now in this PR\n  ✅ Closes the window while the code is already open\n  ✅ SessionMint.mint() could re-check suspension before writing (human: ~1 day / CC: ~20 min)\n  ❌ Adds new policy to a refactor that promises none; breaks the D9 parity claim\nNet: trading a written-down gap with an owner against either forgetting it or growing this PR's scope.\nTODO draft:\n  What: Decide how SessionMint handles a tenant suspended between token validation and session minting.\n  Why: A4 critical gap: suspension invalidates cache entries but a request already past validation still mints a session; no test, no handling, silent.\n  Context: AuthBroker.validateAndDispatch() runs validate → RequestPolicy → dispatch → SessionMint.mint(). The suspension hook evicts both cache namespaces (D5) but does not reach in-flight requests. Start by measuring the window (time between validate return and mint write) in staging, then choose: re-check tenant status at mint, or stamp claims with a tenant-state version and reject stale ones at mint.\n  Effort: M. Priority: P1. Depends on: this refactor merged (composition root and SessionMint in place).",
+          "header": "D12 TODO A4",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Add to TODOS.md (recommended)",
+              "description": "Record the TODO above with full context. In plan mode the TODOS.md write is not permitted, so it is presented as accepted but not persisted; written on implementation."
+            },
+            {
+              "label": "B) Skip",
+              "description": "Do not record. The window predates the refactor and is left as is with no owner."
+            },
+            {
+              "label": "C) Build it now in this PR",
+              "description": "SessionMint.mint() re-checks tenant suspension before writing a session. Adds new behavior to this PR and a new decision for the D9 parity matrix."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D12 — TODO: close the validate-then-mint window when a tenant is suspended mid-request?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), final planning decisions (TODOs).\nELI10: A request validates its token, the tenant gets suspended a millisecond later (the hook evicts both cache namespaces), and then SessionMint still issues a session because it only sees claims that were valid a moment ago. The refactor does not make this worse than today, but finding A4 flagged it as the one critical gap: no test, no handling, and the user would never see an error. It is real work with a design question (re-check suspension at mint time? version-stamp the claims?) so it does not belong in a refactor that promises unchanged behavior.\nStakes if we pick wrong: a suspended tenant keeps a live session for its full lifetime; or we bloat a behavior-preserving refactor with new policy.\nRecommendation: A because the gap needs its own design decision and a probe of how long the window really is, and this PR is committed to unchanged product behavior (PLAN.md:8-9).\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ The gap is written down with its context, so it is not lost when the refactor merges\n  ✅ Keeps this PR honest about its own scope: reorganize, do not change behavior\n  ❌ The window ships as it exists today; nothing in this PR narrows it\nB) Skip, not valuable enough\n  ✅ Zero extra work; the window predates this refactor\n  ✅ If suspension is rare and sessions are short-lived, exposure may be negligible\n  ❌ A known silent failure with no owner and no record; the next reader rediscovers it\nC) Build it now in this PR\n  ✅ Closes the window while the code is already open\n  ✅ SessionMint.mint() could re-check suspension before writing (human: ~1 day / CC: ~20 min)\n  ❌ Adds new policy to a refactor that promises none; breaks the D9 parity claim\nNet: trading a written-down gap with an owner against either forgetting it or growing this PR's scope.\nTODO draft:\n  What: Decide how SessionMint handles a tenant suspended between token validation and session minting.\n  Why: A4 critical gap: suspension invalidates cache entries but a request already past validation still mints a session; no test, no handling, silent.\n  Context: AuthBroker.validateAndDispatch() runs validate → RequestPolicy → dispatch → SessionMint.mint(). The suspension hook evicts both cache namespaces (D5) but does not reach in-flight requests. Start by measuring the window (time between validate return and mint write) in staging, then choose: re-check tenant status at mint, or stamp claims with a tenant-state version and reject stale ones at mint.\n  Effort: M. Priority: P1. Depends on: this refactor merged (composition root and SessionMint in place).": "A) Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T06:01:57.620Z"
+    },
+    {
+      "sessionId": "49588b23-314c-40b4-b48b-e01670fb6f74",
+      "toolUseId": "toolu_013a39L6urKSfCWHNM68F7e6",
+      "questions": [
+        {
+          "question": "D13 — TODO: capture a validation latency baseline (p50/p95, IDP calls per request) before and after the refactor?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), final planning decisions (TODOs).\nELI10: The plan says going from 5 sequential IDP calls to 5 parallel ones is a win, but nobody has a number for how long validation takes today. The D9 characterization capture already runs the old code against 12 cases; timing those runs and counting IDP calls costs almost nothing extra and gives a before number. The same harness against the new code gives the after number. Without it, the performance claim is a guess and a regression (say the single-flight map holding a slow promise) would be invisible.\nStakes if we pick wrong: a claimed speedup that never materializes, or a latency regression nobody notices until users complain; or we spend time instrumenting a path that nobody is asking about.\nRecommendation: A because the measurement piggybacks on work D9 already requires, and it is the only way to turn PLAN.md:40-41 from a claim into a fact.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ Before/after numbers from the same harness, so the D2 claim is verified not assumed\n  ✅ Catches a latency regression from D10 timeouts or D11 single-flight before release\n  ❌ One more item to track; the numbers are staging numbers, not production\nB) Skip, not valuable enough\n  ✅ No extra work; max(5) < sum(5) is true by construction\n  ✅ Production dashboards may already show auth latency\n  ❌ If the IDP client already pooled or pipelined, the win may be near zero and nobody would know\nC) Build it now in this PR\n  ✅ The D9 capture harness is being written anyway; adding timers is a few lines (human: ~2 hours / CC: ~5 min)\n  ✅ Numbers land in the PR description as evidence\n  ❌ Couples a measurement concern to the characterization test; numbers in CI are noisy\nNet: trading a small tracked item against shipping a performance claim with no evidence.\nTODO draft:\n  What: Record validation p50/p95 and IDP calls per request for legacyAuthFlow() and validateAndDispatch() using the D9 characterization harness.\n  Why: PLAN.md:40-41 claims a latency win from parallel IDP calls; no baseline exists. D10 (per-call timeout) and D11 (single-flight) also change the latency profile.\n  Context: The D9 capture runs the 12-case matrix against legacyAuthFlow() before the rewrite. Wrap each run with timers and an IDP call counter; store results next to the captured fixtures. Re-run against validateAndDispatch() after; compare. Use staging with a real IDP, not mocks, for the timing numbers.\n  Effort: S. Priority: P2. Depends on: D9 characterization harness.",
+          "header": "D13 TODO perf",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Add to TODOS.md (recommended)",
+              "description": "Record the TODO above with full context. Presented as accepted but not persisted in plan mode; written on implementation."
+            },
+            {
+              "label": "B) Skip",
+              "description": "Do not record. The parallelization win is taken as true by construction."
+            },
+            {
+              "label": "C) Build it now in this PR",
+              "description": "Add timers and an IDP call counter to the D9 characterization harness in this PR; report before/after in the PR description."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D13 — TODO: capture a validation latency baseline (p50/p95, IDP calls per request) before and after the refactor?\nProject/branch/task: main — Multi-tenant Auth Refactor plan (PLAN.md), final planning decisions (TODOs).\nELI10: The plan says going from 5 sequential IDP calls to 5 parallel ones is a win, but nobody has a number for how long validation takes today. The D9 characterization capture already runs the old code against 12 cases; timing those runs and counting IDP calls costs almost nothing extra and gives a before number. The same harness against the new code gives the after number. Without it, the performance claim is a guess and a regression (say the single-flight map holding a slow promise) would be invisible.\nStakes if we pick wrong: a claimed speedup that never materializes, or a latency regression nobody notices until users complain; or we spend time instrumenting a path that nobody is asking about.\nRecommendation: A because the measurement piggybacks on work D9 already requires, and it is the only way to turn PLAN.md:40-41 from a claim into a fact.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Add to TODOS.md (recommended)\n  ✅ Before/after numbers from the same harness, so the D2 claim is verified not assumed\n  ✅ Catches a latency regression from D10 timeouts or D11 single-flight before release\n  ❌ One more item to track; the numbers are staging numbers, not production\nB) Skip, not valuable enough\n  ✅ No extra work; max(5) < sum(5) is true by construction\n  ✅ Production dashboards may already show auth latency\n  ❌ If the IDP client already pooled or pipelined, the win may be near zero and nobody would know\nC) Build it now in this PR\n  ✅ The D9 capture harness is being written anyway; adding timers is a few lines (human: ~2 hours / CC: ~5 min)\n  ✅ Numbers land in the PR description as evidence\n  ❌ Couples a measurement concern to the characterization test; numbers in CI are noisy\nNet: trading a small tracked item against shipping a performance claim with no evidence.\nTODO draft:\n  What: Record validation p50/p95 and IDP calls per request for legacyAuthFlow() and validateAndDispatch() using the D9 characterization harness.\n  Why: PLAN.md:40-41 claims a latency win from parallel IDP calls; no baseline exists. D10 (per-call timeout) and D11 (single-flight) also change the latency profile.\n  Context: The D9 capture runs the 12-case matrix against legacyAuthFlow() before the rewrite. Wrap each run with timers and an IDP call counter; store results next to the captured fixtures. Re-run against validateAndDispatch() after; compare. Use staging with a real IDP, not mocks, for the timing numbers.\n  Effort: S. Priority: P2. Depends on: D9 characterization harness.": "A) Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-17T06:02:18.316Z"
+    }
+  ],
+  "controlledReplacements": {
+    "qualification": "Synthetic single-option catalog substitutions for free actor/transport controls only. All other original offered options remain unchanged and unapproved. These are not recovered original native calls or paid outcomes. Original calls and answers above remain unchanged.",
+    "selectedIds": [
+      "keep-seeded-scope",
+      "parallel-idp",
+      "keep-classes",
+      "cache-ownership",
+      "cache-ownership",
+      "document-only",
+      "error-handling",
+      "document-only",
+      "tests-only",
+      "document-only",
+      "retain-behavior",
+      "document-only",
+      "document-only"
+    ],
+    "replaceIndices": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+    ]
+  }
+}

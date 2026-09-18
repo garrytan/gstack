@@ -1,0 +1,377 @@
+{
+  "source": "67147822f55b911c033617f759dc472d0d348e72",
+  "calls": [
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_01AsCtYnuM2xzLiWk5EfsBHA",
+      "questions": [
+        {
+          "question": "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch of the plan-review fixture; one-time gstack onboarding prompt fired by skill-start.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so plain requests like \"review this diff\" route to the right skill automatically instead of you typing slash commands. This is a small appended section, committed once. Note: plan mode is active, so if you pick A I will append and commit it only after this review finishes and plan mode exits.\nStakes if we pick wrong: pick A and dislike it, delete a 15-line section; pick B and skills only run when you invoke them by name.\nRecommendation: A because routing rules make the skill set discoverable with zero ongoing cost.\nNote: options differ in kind, not coverage \u2014 no completeness score.",
+          "header": "Routing",
+          "options": [
+            {
+              "label": "Add routing rules to CLAUDE.md (recommended)",
+              "description": "\u2705 Natural-language requests auto-route to /investigate, /review, /ship, etc. without memorizing names. \u2705 One 15-line append, committed once, easy to revert. \u274c Adds a section to CLAUDE.md that every session loads into context."
+            },
+            {
+              "label": "No thanks, I'll invoke skills manually",
+              "description": "\u2705 CLAUDE.md stays exactly as it is, nothing added to context. \u2705 Full manual control over when skills run. \u274c Skills only fire when you type the slash command; no proactive routing."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch of the plan-review fixture; one-time gstack onboarding prompt fired by skill-start.\nELI10: gstack works best when your project's CLAUDE.md includes skill routing rules, so plain requests like \"review this diff\" route to the right skill automatically instead of you typing slash commands. This is a small appended section, committed once. Note: plan mode is active, so if you pick A I will append and commit it only after this review finishes and plan mode exits.\nStakes if we pick wrong: pick A and dislike it, delete a 15-line section; pick B and skills only run when you invoke them by name.\nRecommendation: A because routing rules make the skill set discoverable with zero ongoing cost.\nNote: options differ in kind, not coverage \u2014 no completeness score.": "Add routing rules to CLAUDE.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:30:19.040Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_012gzg2N8fMrHTieypYNSXzt",
+      "questions": [
+        {
+          "question": "D2 \u2014 Enable cross-project learnings search?\nProject/branch/task: main branch of the plan-review fixture; first-time gstack learnings configuration.\nELI10: gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local (no data leaves your machine). Recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern.\nStakes if we pick wrong: enable it on a multi-client machine and a client A pitfall could surface in client B's review; disable it as a solo dev and you re-discover the same quirks per repo.\nRecommendation: A because this is a local-only search and the fixture has no client-separation concern.\nNote: options differ in kind, not coverage \u2014 no completeness score.",
+          "header": "Learnings",
+          "options": [
+            {
+              "label": "Enable cross-project learnings (recommended)",
+              "description": "\u2705 Pitfalls and patterns logged in other repos on this machine inform this review. \u2705 Local-only read of ~/.gstack; nothing leaves the machine. \u274c Findings from unrelated projects could occasionally be irrelevant noise."
+            },
+            {
+              "label": "Keep learnings project-scoped only",
+              "description": "\u2705 Strict isolation between codebases; nothing crosses project lines. \u2705 Zero risk of client-to-client contamination. \u274c Every repo starts from zero learnings; same quirks get re-learned per project."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Enable cross-project learnings search?\nProject/branch/task: main branch of the plan-review fixture; first-time gstack learnings configuration.\nELI10: gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local (no data leaves your machine). Recommended for solo developers. Skip if you work on multiple client codebases where cross-contamination would be a concern.\nStakes if we pick wrong: enable it on a multi-client machine and a client A pitfall could surface in client B's review; disable it as a solo dev and you re-discover the same quirks per repo.\nRecommendation: A because this is a local-only search and the fixture has no client-separation concern.\nNote: options differ in kind, not coverage \u2014 no completeness score.": "Enable cross-project learnings (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:31:21.164Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_01GrZ2bFMtABqzqpSSYT8YMt",
+      "questions": [
+        {
+          "question": "D3 \u2014 Review all 7 design dimensions, or focus on specific areas?\nProject/branch/task: main; reviewing \"Plan: Settings Page UI redesign\" (PLAN.md) against DESIGN.md.\nELI10: I've rated this plan 6/10 on design completeness. The biggest gaps are: no primary-action hierarchy in the header (Save looks like Reset/Cancel/Export), a 2-5 second Save with no pending indicator, and error text below WCAG AA contrast. Next I run six rated passes plus the decision register. You already said text-only and all seven dimensions, so this confirms the pass scope before I start asking per-issue decisions.\nStakes if we pick wrong: narrowing skips passes where the plan is already strong, saving little; running all seven costs a few extra minutes.\nRecommendation: A because you asked for all seven and the five listed gaps span four different passes anyway.\nNote: options differ in kind, not coverage \u2014 no completeness score.",
+          "header": "Focus",
+          "options": [
+            {
+              "label": "All 7 dimensions (recommended)",
+              "description": "\u2705 Every listed gap gets its own decision in the pass it belongs to, nothing slips. \u2705 Matches your stated request for all seven design dimensions. \u274c A few extra minutes on passes (journey, slop) where findings are thin."
+            },
+            {
+              "label": "Focus on the 5 listed gaps only",
+              "description": "\u2705 Fastest path to approving the five DESIGN.md token fixes. \u2705 Skips storyboard and state-table artifacts you may not need. \u274c Misses the ErrorSummary placement ambiguity and any journey-level finding."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Review all 7 design dimensions, or focus on specific areas?\nProject/branch/task: main; reviewing \"Plan: Settings Page UI redesign\" (PLAN.md) against DESIGN.md.\nELI10: I've rated this plan 6/10 on design completeness. The biggest gaps are: no primary-action hierarchy in the header (Save looks like Reset/Cancel/Export), a 2-5 second Save with no pending indicator, and error text below WCAG AA contrast. Next I run six rated passes plus the decision register. You already said text-only and all seven dimensions, so this confirms the pass scope before I start asking per-issue decisions.\nStakes if we pick wrong: narrowing skips passes where the plan is already strong, saving little; running all seven costs a few extra minutes.\nRecommendation: A because you asked for all seven and the five listed gaps span four different passes anyway.\nNote: options differ in kind, not coverage \u2014 no completeness score.": "All 7 dimensions (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:33:30.976Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_01MK1W9HLWJiinMAdf1TcgTp",
+      "questions": [
+        {
+          "question": "D4 \u2014 Issue 1: How should Save be distinguished from Reset/Cancel/Export in the header?\nProject/branch/task: main; Pass 1 (Information Architecture) of the Account settings plan.\nELI10: Right now all four header buttons look identical, so a user who just edited their email has to read four labels to find the one that commits the change. Design principle: hierarchy as service (what should the user see first). DESIGN.md already names the treatment: Save is the only filled button, the other three are ghost buttons.\nStakes if we pick wrong: users mis-click Reset or Cancel next to Save, hit a discard dialog, and lose confidence; or Save stays invisible and users leave without saving.\nRecommendation: 1A because it is the exact existing Button variant pair from DESIGN.md and needs no new styles.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10",
+          "header": "Issue 1",
+          "options": [
+            {
+              "label": "1A: Filled primary Save + ghost secondaries per DESIGN.md (recommended)",
+              "description": "\u2705 Save uses the existing filled primary variant (#1d4ed8 fill, white text); Reset/Cancel/Export use the existing neutral ghost variant. \u2705 Zero new tokens; white on #1d4ed8 is ~6.7:1, well above AA. \u274c Ghost buttons rely on border/text for affordance, so the ghost variant must keep a visible border (already in the component)."
+            },
+            {
+              "label": "1B: Filled Save, plus move Export to the far right with a gap",
+              "description": "\u2705 Also separates the read-only Export from the two destructive actions spatially. \u2705 Still uses existing variants. \u274c Changes the approved DOM/visual order and the \u2264640px equal-column row, both of which the plan says to preserve."
+            },
+            {
+              "label": "1C: Keep four identical buttons, bold the Save label only",
+              "description": "\u2705 Smallest visual change. \u274c Weight alone is a weak cue at 16px and violates DESIGN.md's stated primary treatment. \u274c Still reads as a toolbar in the 3-second scan test."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Issue 1: How should Save be distinguished from Reset/Cancel/Export in the header?\nProject/branch/task: main; Pass 1 (Information Architecture) of the Account settings plan.\nELI10: Right now all four header buttons look identical, so a user who just edited their email has to read four labels to find the one that commits the change. Design principle: hierarchy as service (what should the user see first). DESIGN.md already names the treatment: Save is the only filled button, the other three are ghost buttons.\nStakes if we pick wrong: users mis-click Reset or Cancel next to Save, hit a discard dialog, and lose confidence; or Save stays invisible and users leave without saving.\nRecommendation: 1A because it is the exact existing Button variant pair from DESIGN.md and needs no new styles.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10": "1A: Filled primary Save + ghost secondaries per DESIGN.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:33:51.033Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_01WwJh3dZ2c4VoTV9YzMUNyM",
+      "questions": [
+        {
+          "question": "D5 \u2014 Issue 2: What does the user see during the 2-5 second Save?\nProject/branch/task: main; Pass 2 (Interaction States) of the Account settings plan.\nELI10: After pressing Save nothing on screen changes for up to five seconds, so users double-click, assume it broke, or leave. A pending state has to live somewhere the eye already is: on the button they just pressed. DESIGN.md's established pattern is a small spinner plus the word \"Saving\u2026\" inside the Save button, with aria-busy so screen readers hear it, and no spin under reduced-motion.\nStakes if we pick wrong: a skeleton would blank the form and hide the user's edits; a status-region \"Saving\u2026\" would double-announce and contradict the plan's rule that the live region stays unchanged while pending.\nRecommendation: 2A because it is the existing pattern, keeps focus and edits in place, and reserves width so the header row does not jump when the label changes.\nCompleteness: 2A=10/10, 2B=5/10, 2C=2/10",
+          "header": "Issue 2",
+          "options": [
+            {
+              "label": "2A: Spinner + \"Saving\u2026\" inside Save button per DESIGN.md (recommended)",
+              "description": "\u2705 Existing inline spinner beside \"Saving\u2026\" inside Save; aria-busy=true; aria-disabled + activation guard so it stays focusable; reduced-motion swaps spin for a static indicator. \u2705 Save button min-width equals its widest label state so the action row does not shift. \u274c Feedback is only on the button; the InlineStatus stays unchanged by design, which is intended."
+            },
+            {
+              "label": "2B: Full-form skeleton while saving",
+              "description": "\u2705 Very visible pending signal. \u274c Hides the user's just-typed values and the status text, exactly what they want to keep seeing. \u274c Not the DESIGN.md pending pattern; skeleton is reserved for initial load."
+            },
+            {
+              "label": "2C: Add \"Saving\u2026\" text to the InlineStatus live region only",
+              "description": "\u2705 Screen readers hear a change. \u274c Contradicts the plan's accepted rule that the status region stays unchanged while pending. \u274c Sighted users still see a Save button that looks inert."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 \u2014 Issue 2: What does the user see during the 2-5 second Save?\nProject/branch/task: main; Pass 2 (Interaction States) of the Account settings plan.\nELI10: After pressing Save nothing on screen changes for up to five seconds, so users double-click, assume it broke, or leave. A pending state has to live somewhere the eye already is: on the button they just pressed. DESIGN.md's established pattern is a small spinner plus the word \"Saving\u2026\" inside the Save button, with aria-busy so screen readers hear it, and no spin under reduced-motion.\nStakes if we pick wrong: a skeleton would blank the form and hide the user's edits; a status-region \"Saving\u2026\" would double-announce and contradict the plan's rule that the live region stays unchanged while pending.\nRecommendation: 2A because it is the existing pattern, keeps focus and edits in place, and reserves width so the header row does not jump when the label changes.\nCompleteness: 2A=10/10, 2B=5/10, 2C=2/10": "2A: Spinner + \"Saving\u2026\" inside Save button per DESIGN.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:34:30.638Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_01Qa4kQBs29GT2XkZEhMNVsT",
+      "questions": [
+        {
+          "question": "D6 \u2014 Issue 3: How should the form's type sizes be consolidated?\nProject/branch/task: main; Pass 4 (AI Slop Risk) of the Account settings plan.\nELI10: Labels currently use three sizes (14, 16, 18px) that are too close to read as different levels, so the eye gets no help telling a section heading from a field label, and 14px text is below the 16px floor for body text. DESIGN.md defines exactly two type roles: 16px for body, labels and helper text; 20px for section headings. Principle: specificity over vibes, and \"if everything shouts, nothing is heard\".\nStakes if we pick wrong: keeping 14px labels ships sub-16px body text on a form people fill on phones; keeping three sizes keeps the flat hierarchy the plan itself flagged.\nRecommendation: 3A because it is the existing two-role scale and removes the sub-16px text in one move.\nCompleteness: 3A=10/10, 3B=6/10, 3C=4/10",
+          "header": "Issue 3",
+          "options": [
+            {
+              "label": "3A: Two roles per DESIGN.md: 16px labels/body/helper, 20px h2 (recommended)",
+              "description": "\u2705 All field labels, helper text, status text, error text and button labels at 16px; Profile/Notifications h2 at 20px; h1 keeps its existing size. \u2705 Removes every sub-16px string on the form. \u274c Any label currently at 18px shrinks slightly, so verify the two switch labels still wrap cleanly at 320px."
+            },
+            {
+              "label": "3B: Keep 14px helper text, 16px labels, 20px headings",
+              "description": "\u2705 Preserves a smaller helper-text size some teams like. \u2705 Headings still get a clear 20px step. \u274c Violates DESIGN.md's two-role rule and the 16px body-text floor on helper/error text."
+            },
+            {
+              "label": "3C: Leave 14/16/18 as-is",
+              "description": "\u2705 No change to the current form. \u274c Leaves the flat hierarchy and 14px text the plan itself identified as a problem. \u274c Contradicts DESIGN.md."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 \u2014 Issue 3: How should the form's type sizes be consolidated?\nProject/branch/task: main; Pass 4 (AI Slop Risk) of the Account settings plan.\nELI10: Labels currently use three sizes (14, 16, 18px) that are too close to read as different levels, so the eye gets no help telling a section heading from a field label, and 14px text is below the 16px floor for body text. DESIGN.md defines exactly two type roles: 16px for body, labels and helper text; 20px for section headings. Principle: specificity over vibes, and \"if everything shouts, nothing is heard\".\nStakes if we pick wrong: keeping 14px labels ships sub-16px body text on a form people fill on phones; keeping three sizes keeps the flat hierarchy the plan itself flagged.\nRecommendation: 3A because it is the existing two-role scale and removes the sub-16px text in one move.\nCompleteness: 3A=10/10, 3B=6/10, 3C=4/10": "3A: Two roles per DESIGN.md: 16px labels/body/helper, 20px h2 (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:35:36.340Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_01LfvCdJau8WWeKksb3acYkx",
+      "questions": [
+        {
+          "question": "D7 \u2014 Issue 4: How should vertical spacing be normalized?\nProject/branch/task: main; Pass 5 (Design System Alignment) of the Account settings plan.\nELI10: The form uses 16px, 24px and 32px between sections with no rule, so the gaps stop meaning anything: a user's eye cannot tell where Profile ends and Notifications begins by spacing alone. DESIGN.md defines an 8px scale with three named gaps: 32px between sections, 24px between field groups, 8px from a label to its input. Principle: related things are visually grouped, nested things visually contained (Gestalt proximity).\nStakes if we pick wrong: keep the random gaps and headings float between sections; pick a tighter scale and the 44px targets crowd on a 320px phone.\nRecommendation: 4A because it is the existing scale and the three values map one-to-one onto the page's three kinds of gap.\nCompleteness: 4A=10/10, 4B=7/10, 4C=3/10",
+          "header": "Issue 4",
+          "options": [
+            {
+              "label": "4A: Apply DESIGN.md's 8px scale: 32 / 24 / 8 (recommended)",
+              "description": "\u2705 32px between header, status area, Profile and Notifications; 24px between field groups inside a fieldset; 8px label-to-input. \u2705 More space above each h2 (32) than below it (8 to its first label), so headings sit with their content. \u274c Some current 16px gaps grow, so total page height increases slightly on phones."
+            },
+            {
+              "label": "4B: Normalize to 24px everywhere",
+              "description": "\u2705 One number, trivially consistent. \u2705 Fits the 8px base. \u274c Loses the section/field-group distinction, so Profile and Notifications read as one continuous list; not the DESIGN.md scale."
+            },
+            {
+              "label": "4C: Leave 16/24/32 as currently implemented",
+              "description": "\u2705 No change. \u274c Keeps the inconsistency the plan itself flagged and contradicts DESIGN.md. \u274c Headings keep floating between sections."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 \u2014 Issue 4: How should vertical spacing be normalized?\nProject/branch/task: main; Pass 5 (Design System Alignment) of the Account settings plan.\nELI10: The form uses 16px, 24px and 32px between sections with no rule, so the gaps stop meaning anything: a user's eye cannot tell where Profile ends and Notifications begins by spacing alone. DESIGN.md defines an 8px scale with three named gaps: 32px between sections, 24px between field groups, 8px from a label to its input. Principle: related things are visually grouped, nested things visually contained (Gestalt proximity).\nStakes if we pick wrong: keep the random gaps and headings float between sections; pick a tighter scale and the 44px targets crowd on a 320px phone.\nRecommendation: 4A because it is the existing scale and the three values map one-to-one onto the page's three kinds of gap.\nCompleteness: 4A=10/10, 4B=7/10, 4C=3/10": "4A: Apply DESIGN.md's 8px scale: 32 / 24 / 8 (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:36:17.982Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_013xFMVNR89fN1ydvhX2Pkco",
+      "questions": [
+        {
+          "question": "D8 \u2014 Issue 5: How should the error message color be fixed?\nProject/branch/task: main; Pass 6 (Responsive & Accessibility) of the Account settings plan.\nELI10: The current red-on-pink error text measures about 3:1, below the 4.5:1 WCAG AA minimum for text, so people with low vision or a dim phone screen may not be able to read the one message telling them why their save failed. DESIGN.md's error tokens (#991b1b on #fef2f2) measure 7.60:1, and it also requires an icon plus explicit wording so the state is never color-only. Principle: accessibility is not optional; trust is earned at the pixel level.\nStakes if we pick wrong: ship an AA failure on the most important message on the page; or fix contrast but keep a color-only signal for colorblind users.\nRecommendation: 5A because it is the exact DESIGN.md token pair, verified at 7.60:1, and includes the non-color cue.\nCompleteness: 5A=10/10, 5B=6/10, 5C=2/10",
+          "header": "Issue 5",
+          "options": [
+            {
+              "label": "5A: error.text #991b1b on error.surface #fef2f2, icon + explicit text (recommended)",
+              "description": "\u2705 Measured 7.60:1, clears AA (4.5:1) and AAA (7:1) for the field messages, ErrorSummary and the network error area. \u2705 Leading error icon (aria-hidden) plus wording like \"Email address is required\" so the state does not depend on color. \u274c Slightly darker red than the current one; verify it against the existing ghost-button border in the Retry sibling."
+            },
+            {
+              "label": "5B: Darken only the text until it reaches 4.5:1, keep current pink",
+              "description": "\u2705 Minimal change to the existing surface. \u2705 Meets AA at the floor. \u274c Off-token color that diverges from DESIGN.md and needs its own measurement; no icon means status still leans on color."
+            },
+            {
+              "label": "5C: Leave the ~3:1 error styling",
+              "description": "\u2705 No change. \u274c Ships a WCAG AA failure on the message users most need to read. \u274c Contradicts DESIGN.md's \"all text must meet WCAG AA\"."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 \u2014 Issue 5: How should the error message color be fixed?\nProject/branch/task: main; Pass 6 (Responsive & Accessibility) of the Account settings plan.\nELI10: The current red-on-pink error text measures about 3:1, below the 4.5:1 WCAG AA minimum for text, so people with low vision or a dim phone screen may not be able to read the one message telling them why their save failed. DESIGN.md's error tokens (#991b1b on #fef2f2) measure 7.60:1, and it also requires an icon plus explicit wording so the state is never color-only. Principle: accessibility is not optional; trust is earned at the pixel level.\nStakes if we pick wrong: ship an AA failure on the most important message on the page; or fix contrast but keep a color-only signal for colorblind users.\nRecommendation: 5A because it is the exact DESIGN.md token pair, verified at 7.60:1, and includes the non-color cue.\nCompleteness: 5A=10/10, 5B=6/10, 5C=2/10": "5A: error.text #991b1b on error.surface #fef2f2, icon + explicit text (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:37:05.673Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_01BvWcEpYGGfcSSy9rK68Tnf",
+      "questions": [
+        {
+          "question": "D9 \u2014 Issue 6: Where should the ErrorSummary render when validation fails?\nProject/branch/task: main; Pass 7 (Unresolved decisions) of the Account settings plan.\nELI10: When Save fails validation, DESIGN.md says errors appear beside the fields AND in a linked summary, with focus moving to the first invalid field. But the page's DOM-order diagram never shows where that summary lives. If the existing ErrorSummary component already has a fixed slot in the current form, keep it and just record it; if not, it needs a home. Principle: seeing the system, not the screen; the error path is part of the layout.\nStakes if we pick wrong: a summary rendered below the fieldsets is off-screen on a phone at the moment Save appears to do nothing; a summary above the h1 breaks the heading order the plan protects.\nRecommendation: 6A because it sits where the user's eye already is after pressing Save and where DESIGN.md already puts network errors.\nCompleteness: 6A=10/10, 6B=7/10, 6C=4/10",
+          "header": "Issue 6",
+          "options": [
+            {
+              "label": "6A: In the existing status/error area, below the action row, above Profile (recommended)",
+              "description": "\u2705 Directly beneath Save, next to the InlineStatus, above the first fieldset; same slot DESIGN.md uses for network errors. \u2705 Each summary item links to its field via href/aria-describedby; focus still goes to the first invalid field, so the summary is not a second live region. \u274c If the existing component is currently mounted elsewhere, moving it is a small refactor (human: ~1h / CC: ~5min)."
+            },
+            {
+              "label": "6B: Keep wherever the existing ErrorSummary component mounts today",
+              "description": "\u2705 Zero layout change; honors \"preserve component behavior\". \u2705 No refactor. \u274c Leaves the position undocumented in the plan, so the 320px visibility question stays open until someone checks the code."
+            },
+            {
+              "label": "6C: Below the Notifications fieldset, near the bottom of the form",
+              "description": "\u2705 Keeps the header compact. \u274c Off-screen on phones at the moment of failure; user sees Save \"do nothing\". \u274c Save lives at the top, so the summary is far from the trigger."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D9 \u2014 Issue 6: Where should the ErrorSummary render when validation fails?\nProject/branch/task: main; Pass 7 (Unresolved decisions) of the Account settings plan.\nELI10: When Save fails validation, DESIGN.md says errors appear beside the fields AND in a linked summary, with focus moving to the first invalid field. But the page's DOM-order diagram never shows where that summary lives. If the existing ErrorSummary component already has a fixed slot in the current form, keep it and just record it; if not, it needs a home. Principle: seeing the system, not the screen; the error path is part of the layout.\nStakes if we pick wrong: a summary rendered below the fieldsets is off-screen on a phone at the moment Save appears to do nothing; a summary above the h1 breaks the heading order the plan protects.\nRecommendation: 6A because it sits where the user's eye already is after pressing Save and where DESIGN.md already puts network errors.\nCompleteness: 6A=10/10, 6B=7/10, 6C=4/10": "6A: In the existing status/error area, below the action row, above Profile (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:37:59.358Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_013v56sRKMjQLpWC7CwXPcxQ",
+      "questions": [
+        {
+          "question": "D10 \u2014 Issue 7: How do the status text and its Retry sibling lay out at 320px?\nProject/branch/task: main; Pass 7 (Unresolved decisions) of the Account settings plan.\nELI10: After a network failure the status area shows an error sentence plus a separate 44px \"Retry\" button beside it. The plan proves the header action row fits a 320px phone but never says what this error row does there. If both stay on one line, either the text gets crushed into a column two words wide or Retry shrinks below 44px. Principle: responsive is not \"stacked on mobile\", each viewport gets an intentional layout.\nStakes if we pick wrong: the Retry target on the failure path, the moment users are most frustrated, becomes hard to tap.\nRecommendation: 7A because it keeps text and button as siblings (so Retry stays outside the live region) while guaranteeing the 44px target at every width.\nCompleteness: 7A=10/10, 7B=6/10, 7C=5/10",
+          "header": "Issue 7",
+          "options": [
+            {
+              "label": "7A: Inline above 640px; at \u2264640px Retry wraps to its own full-width row below the text (recommended)",
+              "description": "\u2705 Above 640px: text and Retry on one line, Retry right-aligned, 8px gap. \u2705 At \u2264640px: Retry wraps below the message as a full-width 44px ghost button; icon and text keep their 8px gap; no horizontal scroll at 320px. \u274c Two layout rules for one row; the wrap must be tested at 320px with a long error sentence."
+            },
+            {
+              "label": "7B: Always inline, let the text wrap around a fixed-width Retry",
+              "description": "\u2705 One rule at all widths. \u2705 Retry always visible beside the text. \u274c At 320px the message column is roughly 200px wide; a two-sentence error becomes five short lines."
+            },
+            {
+              "label": "7C: Always stack Retry below the text at every width",
+              "description": "\u2705 Simplest single rule and always 44px. \u2705 Long messages read at full measure. \u274c Above 640px it wastes a row and separates Retry from the sentence it belongs to."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D10 \u2014 Issue 7: How do the status text and its Retry sibling lay out at 320px?\nProject/branch/task: main; Pass 7 (Unresolved decisions) of the Account settings plan.\nELI10: After a network failure the status area shows an error sentence plus a separate 44px \"Retry\" button beside it. The plan proves the header action row fits a 320px phone but never says what this error row does there. If both stay on one line, either the text gets crushed into a column two words wide or Retry shrinks below 44px. Principle: responsive is not \"stacked on mobile\", each viewport gets an intentional layout.\nStakes if we pick wrong: the Retry target on the failure path, the moment users are most frustrated, becomes hard to tap.\nRecommendation: 7A because it keeps text and button as siblings (so Retry stays outside the live region) while guaranteeing the 44px target at every width.\nCompleteness: 7A=10/10, 7B=6/10, 7C=5/10": "7A: Inline above 640px; at \u2264640px Retry wraps to its own full-width row below the text (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:38:26.962Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_01137jbiM1CrXD99Bf3ehyaK",
+      "questions": [
+        {
+          "question": "D11 \u2014 Issue 8: What is the Export download filename?\nProject/branch/task: main; Pass 7 (Unresolved decisions) of the Account settings plan.\nELI10: Export saves the user's preferences as a JSON file, but nothing says what the file is called. Users judge a download by its name in the Downloads folder a week later; \"export.json\" tells them nothing. Principle: trust is earned at the pixel level, and a filename is a pixel the user keeps.\nStakes if we pick wrong: low, but an anonymous filename is the kind of carelessness Ive says people can sense; a filename with the user's email leaks PII into shared Downloads folders.\nRecommendation: 8A because it names the product area and the date, sorts chronologically, and contains no personal data.\nCompleteness: 8A=10/10, 8B=7/10, 8C=3/10",
+          "header": "Issue 8",
+          "options": [
+            {
+              "label": "8A: account-settings-YYYY-MM-DD.json (recommended)",
+              "description": "\u2705 Self-describing and date-stamped in the user's local date, so repeated exports sort and never overwrite. \u2705 No personal data in the filename; safe on shared machines. \u274c Two exports on the same day collide; the browser appends (1), which is acceptable."
+            },
+            {
+              "label": "8B: account-settings.json (no date)",
+              "description": "\u2705 Shortest, stable name; easy to reference in support docs. \u2705 No personal data. \u274c Repeated exports pile up as account-settings (1).json, (2).json with no way to tell which is newest."
+            },
+            {
+              "label": "8C: Leave to the implementer",
+              "description": "\u2705 No decision needed now. \u274c Engineer ships whatever the JSON helper defaults to, typically \"download.json\". \u274c Not a design outcome anyone chose."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D11 \u2014 Issue 8: What is the Export download filename?\nProject/branch/task: main; Pass 7 (Unresolved decisions) of the Account settings plan.\nELI10: Export saves the user's preferences as a JSON file, but nothing says what the file is called. Users judge a download by its name in the Downloads folder a week later; \"export.json\" tells them nothing. Principle: trust is earned at the pixel level, and a filename is a pixel the user keeps.\nStakes if we pick wrong: low, but an anonymous filename is the kind of carelessness Ive says people can sense; a filename with the user's email leaks PII into shared Downloads folders.\nRecommendation: 8A because it names the product area and the date, sorts chronologically, and contains no personal data.\nCompleteness: 8A=10/10, 8B=7/10, 8C=3/10": "8A: account-settings-YYYY-MM-DD.json (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:38:52.561Z"
+    },
+    {
+      "sessionId": "0283bf0b-80ac-4203-ae8e-a69664c6543b",
+      "toolUseId": "toolu_01GLSSTGGWDMaFCdvVPLgtRS",
+      "questions": [
+        {
+          "question": "D12 \u2014 TODO: app-wide typeface decision (replace system-ui)?\nProject/branch/task: main; post-pass TODO proposals for the Account settings plan.\nELI10: The settings form inherits the app's default system font. That is fine for this alignment pass, but it is an app-level typography gap that this plan cannot fix alone. This asks only whether to record it as debt; it changes nothing in the current plan.\nStakes if we pick wrong: record it and it costs one TODO entry; skip it and the observation is lost until someone notices again.\nRecommendation: A because it is real debt with a clear owner path (/design-consultation) and zero cost to record.\nNote: options differ in kind, not coverage \u2014 no completeness score.",
+          "header": "TODO",
+          "options": [
+            {
+              "label": "A: Add to TODOS.md (recommended)",
+              "description": "\u2705 Debt is recorded with context so it is picked up as its own scope later. \u2705 Zero change to this plan. \u274c TODOS.md does not exist yet; it gets created after plan mode exits, as a follow-up write."
+            },
+            {
+              "label": "B: Skip, not valuable enough",
+              "description": "\u2705 Nothing to maintain. \u2705 Keeps the review output focused on this form. \u274c The typography observation is lost."
+            },
+            {
+              "label": "C: Build it now in this PR",
+              "description": "\u2705 Fixes the tell immediately. \u274c Contradicts the plan's explicit \"retain system-ui\" and \"no visual exploration\" rules. \u274c An app-wide font change does not belong in a one-form alignment PR."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D12 \u2014 TODO: app-wide typeface decision (replace system-ui)?\nProject/branch/task: main; post-pass TODO proposals for the Account settings plan.\nELI10: The settings form inherits the app's default system font. That is fine for this alignment pass, but it is an app-level typography gap that this plan cannot fix alone. This asks only whether to record it as debt; it changes nothing in the current plan.\nStakes if we pick wrong: record it and it costs one TODO entry; skip it and the observation is lost until someone notices again.\nRecommendation: A because it is real debt with a clear owner path (/design-consultation) and zero cost to record.\nNote: options differ in kind, not coverage \u2014 no completeness score.": "A: Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T12:39:26.202Z"
+    }
+  ]
+}

@@ -50,7 +50,7 @@ const negatives: Array<[string, (f: any) => void]> = [
   ['two arbitrary continuation rows', f => { f.screen = f.screen.split('\n')[0] + '\n' + f.screen; }],
   ['missing original file', f => { f.fileKind = 'missing'; }],
   ['directory in place of original file', f => { f.fileKind = 'directory'; }],
-  ['oversized original file', f => { f.before += 'x'.repeat(65537); }],
+  ['required original line beyond the bounded prefix', f => { f.before = 'x'.repeat(65537) + f.before; }],
   ['foreign displayed directory', f => { f.screen = f.screen.replace(path.dirname(f.expected) + ' for this session', path.join(path.dirname(f.expected), 'foreign') + ' for this session'); }],
   ['foreign hook expected path', f => { f.state.expected += '.foreign'; }],
   ['no current native request', f => { f.state.pendingId = null; }],

@@ -12,6 +12,7 @@
 import { test, expect } from 'bun:test';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
+import { assertPlanModeWithEvidence } from './helpers/plan-mode-evidence';
 import {
   runPlanSkillObservation,
   assertReportAtBottomIfPlanWritten,
@@ -50,16 +51,18 @@ describeE2E('plan-design-review plan-mode smoke (periodic)', () => {
       timeoutMs: CAPTURE_MS,
     });
 
-    if (obs.outcome === 'silent_write' || obs.outcome === 'exited' || obs.outcome === 'timeout') {
-      throw new Error(
-        `plan-design-review plan-mode smoke FAILED: outcome=${obs.outcome}\n` +
-          `summary: ${obs.summary}\n` +
-          `elapsed: ${obs.elapsedMs}ms\n` +
-          `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
-      );
-    }
-    expect(['asked', 'plan_ready']).toContain(obs.outcome);
-    assertReportAtBottomIfPlanWritten(obs);
+    assertPlanModeWithEvidence('plan-design-review', 'reaches a terminal outcome (asked or plan_ready) without silent writes', obs, () => {
+      if (obs.outcome === 'silent_write' || obs.outcome === 'exited' || obs.outcome === 'timeout') {
+        throw new Error(
+          `plan-design-review plan-mode smoke FAILED: outcome=${obs.outcome}\n` +
+            `summary: ${obs.summary}\n` +
+            `elapsed: ${obs.elapsedMs}ms\n` +
+            `--- evidence (last 2KB visible) ---\n${obs.evidence}`,
+        );
+      }
+      expect(['asked', 'plan_ready']).toContain(obs.outcome);
+      assertReportAtBottomIfPlanWritten(obs);
+    });
   }, CAPTURE_LONG_MS);
 
   // Plan-mode scope-gate bypass: with a seeded UI-heavy plan in plan mode,
@@ -75,26 +78,28 @@ describeE2E('plan-design-review plan-mode smoke (periodic)', () => {
       timeoutMs: CAPTURE_MS,
     });
 
-    if (
-      obs.outcome === 'wrote_findings_before_asking' ||
-      obs.outcome === 'auto_decided' ||
-      obs.outcome === 'silent_write' ||
-      obs.outcome === 'exited' ||
-      obs.outcome === 'timeout'
-    ) {
-      throw new Error(
-        `plan-design plan-mode bypass FAILED: outcome=${obs.outcome}\n` +
-          `summary: ${obs.summary}\nelapsed: ${obs.elapsedMs}ms\n` +
-          `--- evidence (last 2KB) ---\n${obs.evidence}`,
-      );
-    }
+    assertPlanModeWithEvidence('plan-design-review', 'scope gate auto-selects B when a plan is seeded in plan mode', obs, () => {
+      if (
+        obs.outcome === 'wrote_findings_before_asking' ||
+        obs.outcome === 'auto_decided' ||
+        obs.outcome === 'silent_write' ||
+        obs.outcome === 'exited' ||
+        obs.outcome === 'timeout'
+      ) {
+        throw new Error(
+          `plan-design plan-mode bypass FAILED: outcome=${obs.outcome}\n` +
+            `summary: ${obs.summary}\nelapsed: ${obs.elapsedMs}ms\n` +
+            `--- evidence (last 2KB) ---\n${obs.evidence}`,
+        );
+      }
 
-    expect(['asked', 'plan_ready']).toContain(obs.outcome);
-    assertReportAtBottomIfPlanWritten(obs);
+      expect(['asked', 'plan_ready']).toContain(obs.outcome);
+      assertReportAtBottomIfPlanWritten(obs);
 
-    // The bypass contract (exception ordering makes this deterministic even
-    // though the seed arrives as a pasted user message).
-    expect(obs.scopeGateQuestionObserved ?? false).toBe(false);
-    expect(obs.scopeGateAutoSelectObserved ?? false).toBe(true);
+      // The bypass contract (exception ordering makes this deterministic even
+      // though the seed arrives as a pasted user message).
+      expect(obs.scopeGateQuestionObserved ?? false).toBe(false);
+      expect(obs.scopeGateAutoSelectObserved ?? false).toBe(true);
+    });
   }, CAPTURE_LONG_MS);
 });

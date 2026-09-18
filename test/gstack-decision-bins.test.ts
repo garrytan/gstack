@@ -4,10 +4,11 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { execSync, type ExecSyncOptionsWithStringEncoding } from "child_process";
+import { execSync, spawnSync, type ExecSyncOptionsWithStringEncoding } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { DECISION_SCOPES, DECISION_SOURCES } from "../lib/gstack-decision";
 
 const ROOT = path.resolve(import.meta.dir, "..");
 const LOG = path.join(ROOT, "bin", "gstack-decision-log");
@@ -44,6 +45,85 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
 
 describe("gstack-decision-log", () => {
+  function invoke(args: string[], stateDir: string) {
+    return spawnSync(process.execPath, [LOG, ...args], {
+      ...opts(), // timeout via opts(), as with the other decision CLI helpers.
+      env: { ...process.env, GSTACK_HOME: stateDir, GSTACK_PROJECT_SLUG: "help-contract" },
+    });
+  }
+
+  test("captured --help invocation explains the payload without creating state", () => {
+    // DX public row 136 asked for --help before writing decisions. The old CLI
+    // returned only a generic error, then rejected the caller's free-text scope.
+    const stateDir = path.join(tmpDir, "unused-state");
+    const r = invoke(["--help"], stateDir);
+    expect(r.status).toBe(0);
+    expect(r.signal).toBeNull();
+    expect(r.stderr).toBe("");
+    expect(r.stdout).toContain(`scope: ${DECISION_SCOPES.join("|")}`);
+    expect(r.stdout).toContain(`source: ${DECISION_SOURCES.join("|")}`);
+    expect(r.stdout).toContain("decision: nonempty string (required)");
+    expect(fs.existsSync(stateDir)).toBe(false);
+  });
+
+  test("help wins over empty arguments and write flags; empty input stays read-only", () => {
+    for (const args of [
+      ["", "--help", ""], ["--compact", "--help"],
+      ["--supersede", "old-id", '{"decision":"replacement"}', "--help"],
+      ["--redact", "old-id", "--help"],
+    ]) {
+      const stateDir = path.join(tmpDir, "unused-state");
+      const r = invoke(args, stateDir);
+      expect(r.status).toBe(0);
+      expect(r.stderr).toBe("");
+      expect(r.stdout).toContain("Usage:");
+      expect(fs.existsSync(stateDir)).toBe(false);
+    }
+    for (const args of [[], [""], ["", " "]]) {
+      const stateDir = path.join(tmpDir, "unused-state");
+      const r = invoke(args, stateDir);
+      expect(r.status).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toContain("Usage:");
+      expect(fs.existsSync(stateDir)).toBe(false);
+    }
+  });
+
+  test("documented payload and defaults persist through the unchanged real validator", () => {
+    const stateDir = path.join(tmpDir, "schema-state");
+    const help = invoke(["--help"], stateDir);
+    expect(help.status).toBe(0);
+    const payloadLine = help.stdout.match(/^\{"decision":.*\}$/m)?.[0];
+    expect(payloadLine).toBeDefined();
+    const payload = JSON.parse(payloadLine!);
+    const written = invoke([payloadLine!], stateDir);
+    expect(written.status).toBe(0);
+    const defaulted = invoke(['{"decision":"Keep the default record contract"}'], stateDir);
+    expect(defaulted.status).toBe(0);
+    const events = fs.readFileSync(path.join(stateDir, "projects", "help-contract", "decisions.jsonl"), "utf-8")
+      .trim().split("\n").map((line) => JSON.parse(line));
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ ...payload, kind: "decide", id: written.stdout.trim() });
+    expect(events[1]).toMatchObject({ scope: "repo", source: "agent", kind: "decide", id: defaulted.stdout.trim() });
+    expect(JSON.parse(fs.readFileSync(path.join(stateDir, "projects", "help-contract", "decisions.active.json"), "utf-8")))
+      .toHaveLength(2);
+  });
+
+  test("help does not relax captured invalid scopes or payload validation", () => {
+    const stateDir = path.join(tmpDir, "invalid-state");
+    for (const [payload, message] of [
+      [{ decision: "Keep the chosen onboarding target", scope: "eval-sdk public beta onboarding" }, "invalid scope"],
+      [{ decision: "Keep the chosen onboarding target", source: "reviewer" }, "invalid source"],
+      [{ decision: "Keep the chosen onboarding target", confidence: 11 }, "confidence"],
+      [{ decision: " " }, "decision text is required"],
+    ] as const) {
+      const r = invoke([JSON.stringify(payload)], stateDir);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain(message);
+      expect(fs.existsSync(path.join(stateDir, "projects", "help-contract", "decisions.jsonl"))).toBe(false);
+    }
+  });
+
   test("logs a decision and returns an id", () => {
     const r = log('{"decision":"Use PGLite + remote MCP","scope":"repo","source":"user"}');
     expect(r.code).toBe(0);

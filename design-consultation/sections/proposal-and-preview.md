@@ -14,7 +14,7 @@ AESTHETIC: [direction] — [one-line rationale]
 DECORATION: [level] — [why this pairs with the aesthetic]
 LAYOUT: [approach] — [why this fits the product type]
 COLOR: [approach] + proposed palette (hex values) — [rationale]
-TYPOGRAPHY: [3 font recommendations with roles] — [why these fonts]
+TYPOGRAPHY: [display, body, label, mono assignments; a face may serve multiple roles] — [why these fonts]
 SPACING: [base unit + density] — [rationale]
 MOTION: [approach] — [rationale]
 
@@ -29,9 +29,8 @@ RISKS (where your product gets its own face):
   - [2-3 deliberate departures from convention]
   - For each risk: what it is, why it works, what you gain, what it costs
 
-The safe choices keep you literate in your category. The risks are where
-your product becomes memorable. Which risks appeal to you? Want to see
-different ones? Or adjust anything else?
+Safe choices meet category expectations; risks make the product memorable.
+Which risks appeal to you? Try others or adjust anything else?
 ```
 
 Coherence alone can look generic. Propose at least 2 creative risks—type, accent, spacing, layout or motion—with rationale, benefit and cost alongside the category's safe choices.
@@ -62,7 +61,7 @@ Coherence alone can look generic. Propose at least 2 creative risks—type, acce
 
 **Motion approaches:** minimal-functional (only transitions that aid comprehension) / intentional (subtle entrance animations, meaningful state transitions) / expressive (full choreography, scroll-driven, playful)
 
-**Choosing faces: a procedure, not a menu.** (1) Name the audience and surface mode: Persuade (marketing), Operate (tasks), Read (long content), or Experience (immersive). Choose the corresponding tone. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files and licenses; omit unverified faces. (5) Specify loading strategy.
+**Choosing faces: a procedure, not a menu.** (1) Name the audience's world (publication, notation, identity or object they read) and mode: Persuade (marketing), Operate (tasks), Read (long content), Experience (immersive). Match its tone. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files/licenses; omit unverified faces. (5) Specify loading strategy.
 
 **Font-verification fallback:** Skipping competitive research does not waive font verification. Offline, check local files/licenses. Otherwise describe roles/weights/proportions; mark font selection as pending verification in DESIGN.md. Continue palette/layout; defer the preview until fonts can be verified, or honor a user skip. Invent no face or URL.
 
@@ -138,15 +137,14 @@ Use one focused AskUserQuestion per requested drill-down: **Fonts:** 3-5 candida
 
 ## Phase 5: Design System Preview (default ON)
 
-Preview the proposed system using the available path.
-
 ### Path A: AI Mockups (if DESIGN_READY)
 
-Generate AI mockups applying the proposed system to realistic product screens.
+Apply the proposed system to realistic product screens:
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-_DESIGN_DIR="$HOME/.gstack/projects/$SLUG/designs/design-system-$(date +%Y%m%d)"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+_DESIGN_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-system-$(date +%Y%m%d)"
 mkdir -p "$_DESIGN_DIR"
 echo "DESIGN_DIR: $_DESIGN_DIR"
 ```

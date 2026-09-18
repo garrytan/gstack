@@ -96,7 +96,8 @@ If `DESIGN_NOT_AVAILABLE`: skip mockup generation — the fix loop works without
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-REPORT_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/designs/design-audit-$(date +%Y%m%d)"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+REPORT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-audit-$(date +%Y%m%d)"
 RUN_ID="$(date +%H%M%S)-$$"
 mkdir -p "$REPORT_DIR/screenshots" "$REPORT_DIR/dom/$RUN_ID"
 echo "REPORT_DIR: $REPORT_DIR"; echo "RUN_ID: $RUN_ID"
@@ -125,7 +126,7 @@ Record baseline design score and AI slop score at end of Phase 6.
 ## Output Structure
 
 ```
-~/.gstack/projects/$SLUG/designs/design-audit-{YYYYMMDD}/
+$GSTACK_STATE_ROOT/projects/$SLUG/designs/design-audit-{YYYYMMDD}/
 ├── design-audit-{domain}.md                  # Structured report
 ├── screenshots/
 │   ├── first-impression.jpg                  # Phase 1

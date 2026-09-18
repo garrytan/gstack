@@ -1,6 +1,6 @@
 ## Step 7: Test Coverage Audit
 
-**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent runs the coverage audit in a fresh context window — the parent only sees the conclusion, not intermediate file reads. This is context-rot defense.
+**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The fresh-context subagent runs the audit; the parent only needs the conclusion.
 
 {{FOREGROUND_DISPATCH_NOTE}} The parent needs this audit's LAST-line JSON before continuing.
 
@@ -23,7 +23,7 @@ Use null for an undetermined or skipped coverage percentage, not zero. Include e
 3. Embed `diagram` verbatim in the PR body's `## Test Coverage` section (Step 19).
 4. Print a one-line summary: `Coverage: {coverage_pct}%, {gaps} gaps. {tests_added.length} tests added.`
 
-**If the subagent fails, times out, returns invalid JSON, or never completes (backgrounded despite the flag, or no final output after ~10 minutes — stop waiting; if a backgrounded task is still running, stop it first so a late result never races the fallback):** Fall back to running the audit inline in the parent. Do not block /ship on subagent failure — partial results are better than none.
+**If the subagent fails, times out, returns invalid JSON, or never completes after ~10 minutes:** stop any live backgrounded task, then run the audit inline in the parent. Do not block /ship on subagent failure — partial results are better than none.
 
 {{TEST_COVERAGE_GATE_SHIP}}
 

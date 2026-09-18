@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
-import { runSkillTest } from './helpers/session-runner';
+import { runSkillTest, SESSION_DRAIN_GRACE_MS } from './helpers/session-runner';
+import { runRecordedOfficeHoursAttempt, OFFICE_HOURS_BUN_GRACE_MS } from './helpers/office-hours-attempt';
+import { resolveEvalModel } from '../lib/eval-model';
 import {
   ROOT, runId, describeIfSelected, testConcurrentIfSelected,
   logCost, recordE2E, createEvalCollector, finalizeEvalCollector,
@@ -12,6 +14,9 @@ import * as path from 'path';
 import * as os from 'os';
 
 const evalCollector = createEvalCollector('e2e-review-army');
+// Let consensus capture cleanup and assertions settle before Bun retries or
+// removes its shared fixture. This adds no model work time.
+const CONSENSUS_FINALIZE_MS = SESSION_DRAIN_GRACE_MS + 5_000;
 
 // Helper: create a git repo with a feature branch
 function setupRepo(prefix: string): { dir: string; run: (cmd: string, args: string[]) => void } {
@@ -488,8 +493,15 @@ describeIfSelected('Review Army: Red Team', ['review-army-red-team'], () => {
   afterAll(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} });
 
   testConcurrentIfSelected('review-army-red-team', async () => {
-    const result = await runSkillTest({
-      prompt: `You are reviewing a large diff (300+ lines). Read review-SKILL.md.
+    await runRecordedOfficeHoursAttempt({
+      collector: evalCollector,
+      name: '/review army red team',
+      suite: 'Review Army',
+      model: process.env.EVALS_MODEL ?? resolveEvalModel('capture'),
+      budgetMs: CAPTURE_MS,
+      run: (signal) => runSkillTest({
+        signal,
+        prompt: `You are reviewing a large diff (300+ lines). Read review-SKILL.md.
 Skip preamble, lake intro, telemetry.
 
 The diff is large enough to activate the Red Team specialist.
@@ -498,23 +510,24 @@ Focus on finding issues that other specialists might miss.
 
 Write your red team findings to ${dir}/review-output.md
 Start the file with "RED TEAM REVIEW" on the first line.`,
-      workingDirectory: dir,
-      maxTurns: 20,
-      timeout: CAPTURE_MS,
-      testName: 'review-army-red-team',
-      runId,
+        workingDirectory: dir,
+        maxTurns: 20,
+        timeout: CAPTURE_MS,
+        testName: 'review-army-red-team',
+        runId,
+      }),
+      validate: async (result) => {
+        logCost('/review army red-team', result);
+        expect(result.exitReason).toBe('success');
+
+        const outputPath = path.join(dir, 'review-output.md');
+        if (fs.existsSync(outputPath)) {
+          const content = fs.readFileSync(outputPath, 'utf-8');
+          expect(content.toLowerCase()).toMatch(/red team|adversarial/);
+        }
+      },
     });
-
-    logCost('/review army red-team', result);
-    recordE2E(evalCollector, '/review army red team', 'Review Army', result);
-    expect(result.exitReason).toBe('success');
-
-    const outputPath = path.join(dir, 'review-output.md');
-    if (fs.existsSync(outputPath)) {
-      const content = fs.readFileSync(outputPath, 'utf-8');
-      expect(content.toLowerCase()).toMatch(/red team|adversarial/);
-    }
-  }, CAPTURE_MS);
+  }, CAPTURE_MS + OFFICE_HOURS_BUN_GRACE_MS);
 });
 
 // --- Review Army: Consensus (periodic) ---
@@ -594,7 +607,7 @@ Write findings to ${dir}/review-output.md`,
       recordE2E(evalCollector, '/review army consensus', 'Review Army', result, { passed });
     }
     // The runner can drain stderr for 5s after exit; reserve 1s for assertions/recording.
-  }, CAPTURE_MS + 6_000);
+  }, CAPTURE_MS + CONSENSUS_FINALIZE_MS);
 });
 
 // --- Review Army: Simplification specialist (activation) ---

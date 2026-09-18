@@ -519,27 +519,55 @@ describe('scan', () => {
 });
 
 describe('design-review REPORT_DIR agrees with the allow-list', () => {
-  test.skipIf(!POSIX)('the template expression, evaluated with GSTACK_HOME set, lands under <gstack home>/projects/<slug>/designs/ and a dump there is scanned', () => {
+  for (const config of [
+    { name: 'GSTACK_HOME', gstack: 'configured state', plugin: undefined, pluginRoot: undefined, expected: 'configured state' },
+    { name: 'the gstack plugin', gstack: undefined, plugin: 'plugin state', pluginRoot: '/plugins/GsTaCk', expected: 'plugin state' },
+    { name: 'HOME default', gstack: undefined, plugin: undefined, pluginRoot: undefined, expected: 'fake-home/.gstack' },
+    { name: 'a foreign plugin', gstack: undefined, plugin: 'plugin state', pluginRoot: '/plugins/other', expected: 'fake-home/.gstack' },
+    { name: 'GSTACK_HOME overriding the gstack plugin', gstack: 'configured state', plugin: 'plugin state', pluginRoot: '/plugins/gstack', expected: 'configured state' },
+  ]) test.skipIf(!POSIX)(`the template expression with ${config.name} uses the producer root and scans only its design dump`, () => {
     const tmpl = fs.readFileSync(path.join(ROOT, 'design-review', 'SKILL.md.tmpl'), 'utf-8');
     const m = tmpl.match(/^REPORT_DIR="(.+)"$/m);
     expect(m).not.toBeNull();
     const expr = m![1];
-    expect(expr.startsWith('${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/designs/')).toBe(true);
-    const r = spawnSync('bash', ['-c', `SLUG=my-repo; echo "${expr}"`], { encoding: 'utf-8', timeout: 30_000, env: { PATH: process.env.PATH!, HOME: path.join(SANDBOX, 'fake-home'), GSTACK_HOME } });
+    expect(expr.startsWith('$GSTACK_STATE_ROOT/projects/$SLUG/designs/')).toBe(true);
+    const env: RunOpts['env'] = {
+      HOME: path.join(SANDBOX, 'fake-home'),
+      GSTACK_HOME: config.gstack ? path.join(SANDBOX, config.gstack) : undefined,
+      CLAUDE_PLUGIN_DATA: config.plugin ? path.join(SANDBOX, config.plugin) : undefined,
+      CLAUDE_PLUGIN_ROOT: config.pluginRoot,
+      TMPDIR: SANDBOX,
+    };
+    // Run the actual producer resolver before evaluating its template expression.
+    const r = spawnSync('bash', ['-c', `eval "$("$1")"\nSLUG=my-repo\nprintf '%s\\n' "${expr}"`, 'report-dir', path.join(ROOT, 'bin', 'gstack-paths')], {
+      cwd: REPO, encoding: 'utf-8', timeout: 30_000, env: { PATH: process.env.PATH!, ...env },
+    });
+    expect(r.status).toBe(0);
     const reportDir = r.stdout.trim();
-    expect(reportDir.startsWith(path.join(GSTACK_HOME, 'projects', 'my-repo', 'designs', 'design-audit-'))).toBe(true);
+    const stateRoot = path.join(SANDBOX, config.expected);
+    expect(reportDir.startsWith(path.join(stateRoot, 'projects', 'my-repo', 'designs', 'design-audit-'))).toBe(true);
     const dom = path.join(reportDir, 'dom', '120000-1');
     fs.mkdirSync(dom, { recursive: true });
     fs.writeFileSync(path.join(dom, 'home.dom.html'), '<html></html>');
+    const otherRoot = path.join(SANDBOX, config.expected === 'plugin state' ? 'configured state' : 'plugin state');
+    const outside = path.join(otherRoot, 'projects', 'my-repo', 'designs', 'foreign.html');
+    fs.mkdirSync(path.dirname(outside), { recursive: true });
+    fs.writeFileSync(outside, '<html></html>');
+    const link = path.join(dom, 'foreign-link.html');
+    fs.symlinkSync(outside, link);
     const log = path.join(SANDBOX, 'argv-report.log');
     fs.rmSync(log, { force: true });
     try {
-      const s = run(['scan', '--format', 'gstack', dom + '/home.dom.html'], { env: { IMPECCABLE_BIN: FAKE, IMPECCABLE_FAKE_LOG: log } });
-      expect(s.err).not.toContain(SENTINEL.DETECT_REFUSED);
+      const s = run(['scan', '--format', 'gstack', dom + '/home.dom.html', outside, link], { env: { ...env, IMPECCABLE_BIN: FAKE, IMPECCABLE_FAKE_LOG: log } });
+      expect(s.code).toBe(2);
+      expect(s.err).not.toContain(`${SENTINEL.DETECT_REFUSED}: ${dom}/home.dom.html`);
+      expect(s.err).toContain(`${SENTINEL.DETECT_REFUSED}: ${outside}`);
+      expect(s.err).toContain(`${SENTINEL.DETECT_REFUSED}: ${link}`);
       const argv = JSON.parse(fs.readFileSync(log, 'utf-8').trim().split('\n')[0]).argv as string[];
       expect(argv.slice(2)).toEqual(['--no-inline-ignores', fs.realpathSync(path.join(dom, 'home.dom.html'))]);
     } finally {
-      fs.rmSync(path.join(GSTACK_HOME, 'projects'), { recursive: true, force: true });
+      fs.rmSync(path.join(stateRoot, 'projects'), { recursive: true, force: true });
+      fs.rmSync(path.join(otherRoot, 'projects'), { recursive: true, force: true });
     }
   });
 });

@@ -22,9 +22,8 @@ import {
   assertReviewReportAtBottom,
 } from './helpers/claude-pty-runner';
 
-import { isEngCompletionHandoff } from './helpers/eng-completion-handoff';
-import type { NativePlanQuestionCall } from './helpers/plan-count-transcript';
-import { evaluateEngSeedCoverage } from './helpers/eng-seeded-coverage';
+import { evaluateEngTerminalReview } from './helpers/eng-seeded-coverage';
+import { createEngCountActor, engCountActorRequest } from './helpers/eng-count-question-policy';
 
 const describeE2E = describeE2ETier('periodic');
 
@@ -32,10 +31,19 @@ const describeE2E = describeE2ETier('periodic');
 // coverage gaps when these surrounding contracts were omitted. The shared
 // mutable state and missing legacy regression below remain deliberate defects.
 const planEng5Findings = (planPath: string) => [
+  'Proceed directly to the requested engineering review; skip the optional /office-hours prerequisite.',
   `Please review this plan thoroughly. Write the full reviewed implementation plan, including its final ## GSTACK REVIEW REPORT section, to ${planPath} (use Edit/Write to that exact path).`,
   `The separate QA Test Plan artifact belongs at the skill-prescribed test-plan path; keep this requested deliverable as the full reviewed implementation plan.`,
   '',
   '# Plan: Multi-tenant Auth Refactor',
+  '',
+  '## Context supplied by the plan author',
+  'The goal is to reorganize existing tenant-auth orchestration without changing',
+  'its product behavior. RequestPolicy groups the existing per-request access',
+  'decision: given already-fetched claims and tenant/request context, it returns',
+  'allow or deny under the existing access policy. AuthBroker.validateAndDispatch()',
+  'calls it after validation and before dispatch. It adds no policy, network call,',
+  'cache mutation or state. Its separate class boundary remains a proposal to review.',
   '',
   '## Existing contracts retained',
   'The existing cache adapter keys entries by tenant ID, issuer, audience,',
@@ -66,7 +74,7 @@ const planEng5Findings = (planPath: string) => [
   'parallelized via Promise.all trivially (calls are independent).',
   '',
   '## Architecture (scope smell)',
-  'This touches 12 files and introduces 4 new classes (TokenStore,',
+  'This touches 12 files and introduces 5 new classes (AuthBroker, TokenStore,',
   'SessionMint, AuthCache, RequestPolicy). Worth flagging the complexity check.',
 ].join('\n');
 
@@ -82,24 +90,34 @@ describeE2E('/plan-eng-review seeded issue coverage (periodic)', () => {
 
       try {
         const startedAt = Date.now();
-        const completedCalls = new Map<string, NativePlanQuestionCall>();
+        const deadlineAt = startedAt + 1_500_000;
+        const followUpPrompt = planEng5Findings(planPath);
+        const actorRequest = engCountActorRequest(followUpPrompt);
+        let terminalAssessed = false;
         const obs = await runPlanSkillCounting({
           skillName: 'plan-eng-review',
           slashCommand: '/plan-eng-review',
-          followUpPrompt: planEng5Findings(planPath),
+          followUpPrompt: actorRequest,
+          preconfiguredReviewActor: true,
           expectedPlanPath: planPath,
+          approveEngTestPlanEdits: true,
           isLastStep0AUQ: engStep0Boundary,
           isSetupAUQ: engSetupAUQ,
           isFirstReviewAUQ: engFirstReviewAUQ,
-          isCompletionHandoffAUQ: fp => {
-            try { return isEngCompletionHandoff(fp, fs.readFileSync(planPath, 'utf8'), [...completedCalls.values()]); }
-            catch { return false; } // Unpublished work cannot establish a closed handoff.
-            finally { if (fp.nativeCall && !completedCalls.has(fp.signature)) completedCalls.set(fp.signature, fp.nativeCall); }
+          // Phase labels are progress only. One owned terminal assessment sees
+          // every complete native call and the published report together.
+          evaluateTerminal: async input => {
+            if (terminalAssessed) throw new Error('Eng terminal was assessed more than once');
+            terminalAssessed = true;
+            return evaluateEngTerminalReview(followUpPrompt, { ...input, deadlineAt: Math.min(input.deadlineAt, deadlineAt) });
           },
+          observeSetupQuestions: true,
+          requireNativePicker: true,
+          pickAUQ: createEngCountActor(actorRequest),
           // Extra legitimate decisions are not a failure. The unchanged wall limit
           // bounds runaway reviews; coverage below uses scoped completed native calls.
           reviewCountCeiling: Infinity,
-          timeoutMs: 1_500_000,
+          timeoutMs: deadlineAt - Date.now(),
           env: { QUESTION_TUNING: 'false', EXPLAIN_LEVEL: 'default' },
         });
 
@@ -125,10 +143,6 @@ describeE2E('/plan-eng-review seeded issue coverage (periodic)', () => {
           );
         }
         const planContent = fs.readFileSync(planPath, 'utf-8');
-        const coverage = evaluateEngSeedCoverage(obs.transcript, planContent, startedAt, Date.now());
-        if (!coverage.ok) {
-          throw new Error(`SEED COVERAGE FAIL: ${JSON.stringify(coverage)}; observed reviewCount=${obs.reviewCount}`);
-        }
         const verdict = assertReviewReportAtBottom(planContent);
         if (!verdict.ok) {
           throw new Error(
@@ -138,6 +152,13 @@ describeE2E('/plan-eng-review seeded issue coverage (periodic)', () => {
                 : '') +
               `--- plan content (last 1KB) ---\n${planContent.slice(-1024)}`,
           );
+        }
+        // A native completion summary may finish without ExitPlanMode. Its
+        // existing runner gate already requires the report after every answer.
+        if (!terminalAssessed) {
+          terminalAssessed = true;
+          await evaluateEngTerminalReview(followUpPrompt, { transcript: obs.transcript, report: planContent,
+            reportMtimeMs: fs.lstatSync(planPath).mtimeMs, startedAt, finishedAt: Date.now(), deadlineAt });
         }
       } finally {
         try {

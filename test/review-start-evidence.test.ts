@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { findFilesBySuffix } from './helpers/scratch-repo';
+import { findFilesBySuffix, gitArgvIn } from './helpers/scratch-repo';
 
 const ROOT = resolve(import.meta.dir, '..');
 let repo: string;
@@ -16,9 +16,10 @@ function cli(name: string, args: string[] = [], cwd = repo) {
 }
 
 function git(...args: string[]) {
-  return execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
-    cwd: repo, encoding: 'utf8', timeout: 10_000,
-  }).trim();
+  const result = gitArgvIn(repo, args, 10_000);
+  if (result.error || result.status !== 0)
+    throw new Error(`Fixture git failed: ${result.error?.message ?? result.stderr.toString()}`);
+  return result.stdout.toString().trim();
 }
 
 function log(token?: string, overrides: Record<string, any> = {}) {

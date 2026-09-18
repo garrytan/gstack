@@ -10,6 +10,8 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import type { JSONOutputFormat } from '@anthropic-ai/sdk/resources/messages';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { CLAUDE_FRONTIER_EVAL_MODEL, resolveEvalModel } from '../../lib/eval-model';
 
@@ -63,15 +65,27 @@ export interface RecommendationScore {
 // with GSTACK_EVAL_MODEL_JUDGE; Haiku remains the right default for
 // classifier-grade duties (pty hung/working, warmup, distill — see
 // lib/eval-model.ts).
+export interface CallJudgeOptions {
+  temperature?: number;
+  max_tokens?: number;
+  signal?: AbortSignal;
+  /** Opt-in serialization contract; callers still validate the judgment locally. */
+  jsonSchema?: JSONOutputFormat['schema'];
+}
+
 export async function callJudge<T>(
   prompt: string,
   model?: string,
-  opts?: { temperature?: number; max_tokens?: number },
+  opts?: CallJudgeOptions,
 ): Promise<T> {
+  const signal = opts?.signal;
+  signal?.throwIfAborted();
   // Routed through the documented single resolution point: explicit arg >
   // GSTACK_EVAL_MODEL_JUDGE > GSTACK_EVAL_MODEL > frontier default. The old
   // inline `GSTACK_EVAL_MODEL_JUDGE || sonnet` silently ignored the global
   // GSTACK_EVAL_MODEL override that every other eval call site honors.
+  // opts support bounded judgments; cancellation covers both requests and
+  // retry delays. Defaults preserve prior behavior.
   // Thinking and answer text share max_tokens. The old 1024-token budget
   // could be exhausted before a frontier judge emitted any JSON.
   const resolvedModel = resolveEvalModel('judge', model);
@@ -82,8 +96,9 @@ export async function callJudge<T>(
     model: resolvedModel,
     max_tokens: maxTokens,
     ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
+    ...(opts?.jsonSchema === undefined ? {} : { output_config: { format: { type: 'json_schema' as const, schema: opts.jsonSchema } } }),
     messages: [{ role: 'user', content: prompt }],
-  });
+  }, signal ? { signal } : undefined);
 
   // 429s under CI concurrency: jittered exponential backoff over 3 retries
   // (~1s/4s/16s + jitter), honoring the server's retry-after when present.
@@ -92,15 +107,21 @@ export async function callJudge<T>(
   let attempt = 0;
   for (;;) {
     try {
+      signal?.throwIfAborted();
       response = await makeRequest();
+      signal?.throwIfAborted();
       break;
     } catch (err: any) {
+      signal?.throwIfAborted();
       if (err?.status !== 429 || attempt >= 3) throw err;
       const retryAfterSecs = Number(err?.headers?.['retry-after']);
       const baseMs = Number.isFinite(retryAfterSecs) && retryAfterSecs > 0
         ? retryAfterSecs * 1000
         : 1000 * 4 ** attempt;
-      await new Promise((r) => setTimeout(r, baseMs + Math.random() * 500));
+      await delay(baseMs + Math.random() * 500, undefined, { signal }).catch(error => {
+        signal?.throwIfAborted();
+        throw error;
+      });
       attempt += 1;
     }
   }
@@ -112,9 +133,32 @@ export async function callJudge<T>(
     .filter(block => block.type === 'text')
     .map(block => block.text)
     .join('\n');
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error(`Judge returned non-JSON: ${text.slice(0, 200)}`);
-  return JSON.parse(jsonMatch[0]) as T;
+  try {
+    if (opts?.jsonSchema !== undefined) {
+      if (response.stop_reason !== 'end_turn') throw new Error(`Structured judge did not complete: stop_reason=${response.stop_reason}`);
+      return JSON.parse(text) as T;
+    }
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error(`Judge returned non-JSON: ${text.slice(0, 200)}`);
+    return JSON.parse(jsonMatch[0]) as T;
+  } catch (error) {
+    // The canonical full stderr spool retains this public response even when
+    // parsing fails before a caller can record a judgment. Never copy content
+    // blocks wholesale: thinking, signatures and nested metadata stay omitted.
+    const scalar = (value: unknown) => value === null || ['string', 'number', 'boolean'].includes(typeof value) ? value : null;
+    console.error(JSON.stringify({
+      type: 'llm-judge-response-parse-error',
+      responseId: scalar(response.id),
+      requestId: scalar((response as typeof response & { _request_id?: string })._request_id),
+      model: scalar(response.model),
+      stopReason: scalar(response.stop_reason),
+      usage: Object.fromEntries(['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']
+        .map(key => [key, scalar(response.usage?.[key as keyof typeof response.usage])])),
+      textBlocks: response.content.filter(block => block.type === 'text').map(block => block.text),
+      error: { name: error instanceof Error ? error.name : typeof error, message: error instanceof Error ? error.message : String(error) },
+    }));
+    throw error;
+  }
 }
 
 /**
@@ -200,7 +244,7 @@ Rules:
  * The generator model is whatever the skill runs with (often Opus for
  * plan-ceo-review). The judge is always Sonnet via callJudge() for cost.
  */
-export async function judgePosture(mode: PostureMode, text: string): Promise<PostureScore> {
+export async function judgePosture(mode: PostureMode, text: string, signal?: AbortSignal): Promise<PostureScore> {
   const rubrics: Record<PostureMode, { axis_a: string; axis_b: string; context: string }> = {
     expansion: {
       context: 'This text is expansion proposals emitted by /plan-ceo-review in SCOPE EXPANSION or SELECTIVE EXPANSION mode. The skill is supposed to lead with felt-experience vision, then close with concrete effort and impact.',
@@ -241,7 +285,7 @@ Respond with ONLY valid JSON in this exact format:
 
 Here is the output to evaluate:
 
-${text}`);
+${text}`, undefined, { signal });
 }
 
 /**
@@ -259,7 +303,8 @@ ${text}`);
  * Format spec: scripts/resolvers/preamble/generate-ask-user-format.ts
  *   Recommendation: <choice> because <one-line reason>
  */
-export async function judgeRecommendation(askUserText: string): Promise<RecommendationScore> {
+export async function judgeRecommendation(askUserText: string, signal?: AbortSignal): Promise<RecommendationScore> {
+  signal?.throwIfAborted();
   // Deterministic checks. The format spec requires:
   //   "Recommendation: <choice> because <reason>"
   // Match case-insensitive on the leading word, allow optional markdown
@@ -333,6 +378,7 @@ Respond with ONLY valid JSON:
   const out = await callJudge<{ reason_substance: number; reasoning: string }>(
     prompt,
     'claude-haiku-4-5-20251001',
+    { signal },
   );
 
   // Defensive clamp: rubric is 1-5. If Haiku returns out-of-range or non-numeric,

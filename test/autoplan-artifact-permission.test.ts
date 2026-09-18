@@ -206,9 +206,9 @@ describe('owned Autoplan artifact edit permission', () => {
     expect(pick(r)).toBeNull();
   });
 
-  test('new helper, fixture, and regression select only the existing Autoplan paid case', () => {
-    for (const file of ['test/helpers/autoplan-artifact-permission.ts', 'test/autoplan-artifact-permission.test.ts',
-      'test/fixtures/autoplan-artifact-permission-ad-v3.json'])
-      expect(selectTests([file], E2E_TOUCHFILES).selected).toEqual(['autoplan-chain-pty']);
+  test('shared artifact permission controls select Eng and Autoplan while the UI fixture stays Autoplan-only', () => {
+    for (const file of ['test/helpers/autoplan-artifact-permission.ts', 'test/autoplan-artifact-permission.test.ts'])
+      expect(selectTests([file], E2E_TOUCHFILES).selected.sort()).toEqual(['autoplan-chain-pty', 'plan-eng-finding-count']);
+    expect(selectTests(['test/fixtures/autoplan-artifact-permission-ad-v3.json'], E2E_TOUCHFILES).selected).toEqual(['autoplan-chain-pty']);
   });
 });

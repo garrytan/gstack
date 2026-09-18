@@ -1,0 +1,8 @@
+{
+  "name": "existing-auth-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  }
+}

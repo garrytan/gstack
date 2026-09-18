@@ -18,9 +18,9 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { execFileSync } from "child_process";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { runCapturedCommand } from "./helpers/sync-command-capture";
 
 const SOURCE_PATH = join(import.meta.dir, "..", "scripts", "resolvers", "tasks-section.ts");
 
@@ -38,12 +38,13 @@ function extractBranchCommitFilter(): string {
 }
 
 function runJq(program: string, inputLines: string[], branch: string, commits: string): string[] {
-  const out = execFileSync(
+  const result = runCapturedCommand(
     "jq",
     ["-c", "--arg", "branch", branch, "--arg", "commits", commits, program],
-    { input: inputLines.join("\n"), encoding: "utf-8", timeout: 30_000 },
+    { input: inputLines.join("\n"), captureStdout: true, timeout: 30_000 },
   );
-  return out.split("\n").filter(Boolean);
+  expect(result.status, result.stderr).toBe(0);
+  return result.stdout.split("\n").filter(Boolean);
 }
 
 const RECORD = (branch: string, commit: string) =>

@@ -7,8 +7,9 @@ export function generateContextRecovery(ctx: TemplateContext): string {
   // the canonical slug form the gstack-slug eval on the first line sets
   // (tr '/' '-' then tr -cd 'a-zA-Z0-9._-', matching what gstack-review-log
   // WRITES). Initialize raw $_BRANCH here: skill-start runs in a separate
-  // process. Keep the timeline writer's slash-preserving allowlist and fallback;
-  // using the filename slug in the "branch" field would break matching.
+  // process. Artifact filenames and timeline filters intentionally use different
+  // branch forms: $BRANCH for slugged review filenames, $_BRANCH for raw
+  // timeline JSON values. Do not collapse one into the other.
   return `## Context Recovery
 
 At session start or after compaction, recover recent project context.

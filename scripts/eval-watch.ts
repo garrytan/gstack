@@ -2,7 +2,7 @@
  * Live E2E test watcher dashboard.
  *
  * Reads heartbeat (e2e-live.json) for current test status and
- * partial eval results (_partial-e2e.json) for completed tests.
+ * partial eval results (_partial-e2e*.json) for completed tests.
  * Renders a terminal dashboard every 1s.
  *
  * Usage: bun run eval:watch [--tail]
@@ -20,10 +20,8 @@ const GSTACK_DEV_DIR = path.join(os.homedir(), '.gstack-dev');
 // getProjectEvalDir() (or GSTACK_EVAL_DIR), so watching the legacy global
 // path missed it whenever slug detection succeeded — i.e. the normal case.
 const HEARTBEAT_PATH = path.join(GSTACK_DEV_DIR, 'e2e-live.json');
-const PARTIAL_PATH = path.join(
-  process.env.GSTACK_EVAL_DIR || getProjectEvalDir(),
-  '_partial-e2e.json',
-);
+const EVAL_DIR = process.env.GSTACK_EVAL_DIR || getProjectEvalDir();
+const PARTIAL_PATH = path.join(EVAL_DIR, '_partial-e2e*.json');
 const STALE_THRESHOLD_SEC = 600; // 10 minutes
 
 export interface HeartbeatData {
@@ -42,6 +40,8 @@ export interface HeartbeatData {
 export interface PartialData {
   tests: Array<{
     name: string;
+    suite?: string;
+    attempt?: number;
     passed: boolean;
     cost_usd: number;
     duration_ms: number;
@@ -59,6 +59,25 @@ function readJSON<T>(filePath: string): T | null {
   } catch {
     return null;
   }
+}
+
+/** Read the legacy collector and suite collectors in this shard, never finals. */
+export function readPartialResults(evalDir = EVAL_DIR): PartialData | null {
+  let names: string[];
+  try { names = fs.readdirSync(evalDir).sort(); } catch { return null; }
+  const partials = names.filter(name => /^_partial-e2e(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\.json$/.test(name))
+    .map(name => ({ name, data: readJSON<PartialData>(path.join(evalDir, name)) }))
+    .filter((item): item is { name: string; data: PartialData } => Array.isArray(item.data?.tests));
+  if (partials.length === 0) return null;
+  if (partials.length === 1) return partials[0].data;
+  const named = partials.filter(item => item.name !== '_partial-e2e.json').flatMap(item => item.data.tests);
+  const namedSuites = new Set(named.map(test => test.suite ?? null));
+  const legacy = partials.find(item => item.name === '_partial-e2e.json')?.data.tests ?? [];
+  // A legacy accumulator can remain after adopting suite files. Prefer the
+  // entire current suite snapshot, including its own retries. Old retries and
+  // retired tests must not leak back in from the legacy snapshot.
+  const tests = [...legacy.filter(test => !namedSuites.has(test.suite ?? null)), ...named];
+  return { tests, total_cost_usd: tests.reduce((sum, test) => sum + test.cost_usd, 0), _partial: true };
 }
 
 /** Check if a process is alive (signal 0 = existence check, doesn't kill). */
@@ -148,7 +167,7 @@ if (import.meta.main) {
 
   const render = () => {
     let heartbeat = readJSON<HeartbeatData>(HEARTBEAT_PATH);
-    const partial = readJSON<PartialData>(PARTIAL_PATH);
+    const partial = readPartialResults();
 
     // Auto-clear heartbeat if the process is dead
     if (heartbeat?.pid && !isProcessAlive(heartbeat.pid)) {

@@ -1,0 +1,53 @@
+{
+  "qualification": "Captured unanswered native Product type menus; no original attempt receives pass credit.",
+  "captures": [
+    {
+      "sourceSha256": "70a9a4b64f106aa94f772caa46d10b8b68d1af4cf35257f4622e0cd67b2a689d",
+      "question": {
+        "header": "Product type",
+        "question": "D1 \u2014 Is this a Library/SDK plan delivered as Documentation?\nProject/branch/task: gstack-plan-count-Dt51ml on main, reviewing PLAN.md \"SDK quickstart docs\".\nELI10: The plan describes 8 steps a developer follows before making a first SDK call, and it is titled as quickstart docs. How I classify it decides which personas I offer next and which parts of the journey I weigh most (install and hello-world for an SDK, findability and copy-paste code for docs). The stakes: pick the wrong lens and I score the wrong things.\nStakes if we pick wrong: I'd benchmark against the wrong peers and offer personas that don't match your actual reader.\nRecommendation: A because the plan's only artifact is a docs flow whose endpoint is \"make your first SDK call\" \u2014 it is docs about an SDK, both lenses apply, SDK is primary.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: choosing the lens, not the scope; nothing about the plan changes yet.",
+        "options": [
+          {
+            "label": "SDK + Docs (recommended)",
+            "description": "\u2705 Matches the plan's endpoint (first SDK call) and its title (quickstart docs), so TTHW and copy-paste code both get weighed \u2705 Lets me benchmark against SDK onboarding peers (Stripe, Twilio, Supabase) which is where the 8-step flow will be judged \u274c Treats the dev server and Postgres steps as SDK install friction, which may overweight them if this is really a self-hosted platform"
+          },
+          {
+            "label": "Platform (self-hosted)",
+            "description": "\u2705 Steps 3-5 (env vars, migrations, dev server) read like standing up a self-hosted service, which is a platform journey \u2705 Benchmarks shift to Supabase self-host / Appwrite / PocketBase, which is fairer if devs must run the backend \u274c Deemphasizes the SDK call and curl example the plan itself names as the goal"
+          },
+          {
+            "label": "Documentation only",
+            "description": "\u2705 Scores the docs artifact on its own terms: findability, structure, copy-paste code, context switching \u2705 Avoids recommending product changes the docs team cannot make \u274c Ignores that half the friction (email for API key, 8 env vars) is product, not prose, and a docs-only lens would let it slide"
+          }
+        ],
+        "multiSelect": false
+      }
+    },
+    {
+      "sourceSha256": "0a89435742ceb23e15fe6f2c4c6d64ef100ade2152974d787fa71aa3dc548ab5",
+      "question": {
+        "question": "D1 \u2014 Product type: is this primarily a Documentation plan (SDK quickstart) for an SDK backed by a key-gated API?\nProject/branch/task: gstack-plan-count-Bd5h1O on main, reviewing PLAN.md \"SDK quickstart docs\".\nELI10: The review calibrates against different gold standards depending on what the developer is actually touching. A docs plan gets judged on whether the words get someone to a working call fast; an SDK plan gets judged on install and API shape; an API plan on curl and key issuance. The plan title says docs, but steps 3-5 and 7 are infra and key-issuance work, so the classification is not obvious.\nStakes if we pick wrong: I benchmark against the wrong peers and score dimensions that don't apply, and the friction trace misses the stage where developers actually leave.\nRecommendation: A because the plan's deliverable is the quickstart guide; the SDK and API are the things it documents, not what it changes.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: pick the surface the plan changes, and I'll still hold the SDK and API constraints fixed as context.",
+        "header": "Product type",
+        "options": [
+          {
+            "label": "Documentation (primary) (recommended)",
+            "description": "\u2705 Matches the plan title and the 3 declared gaps (quickstart cmd, sandbox, curl), all docs-adjacent. \u2705 Lets the review judge words and step count against docs peers like Stripe/Supabase quickstarts. \u274c Treats the local dev server and key-by-email as fixed constraints, so fixes are limited to how they're documented and sequenced."
+          },
+          {
+            "label": "Library/SDK (primary)",
+            "description": "\u2705 Puts install, import, and first-call ergonomics at the center of scoring. \u2705 Benchmarks against SDK peers (Stripe SDKs, Supabase client) on time to first call. \u274c The plan doesn't change SDK code, so most findings would land outside the plan's scope."
+          },
+          {
+            "label": "API/Service (primary)",
+            "description": "\u2705 Centers key issuance and the missing curl example, which are the largest declared gaps. \u2705 Benchmarks the email-for-a-key step against self-serve dashboards. \u274c The plan can't change the key-issuance process itself in DX POLISH mode; only how it's documented."
+          },
+          {
+            "label": "Platform (local stack + docs)",
+            "description": "\u2705 Treats Postgres, migrations, env vars, and dev server as the real onboarding surface. \u2705 Benchmarks against docker-compose / devcontainer style starts. \u274c Reframes a docs plan as an infra plan, which crosses the scope the user asked me to preserve."
+          }
+        ],
+        "multiSelect": false
+      }
+    }
+  ]
+}

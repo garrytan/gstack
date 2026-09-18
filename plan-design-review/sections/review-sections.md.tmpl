@@ -30,7 +30,13 @@ is still waiting for its first issue decision.
 
 {{LEARNINGS_SEARCH}}
 
-**Pass protocol (1-6):** Record the initial 0-10 score. Every `FIX TO 10` below is a proposal: ask about each issue, wait for approval, then edit the plan and re-rate that pass with the reason for the score change. A declined fix remains documented and lowers the final score. Never edit first and ask afterward. Pass 7 is the unscored decision register, not a seventh rating.
+Evaluate every pass using the plan and referenced existing contracts. An explicitly excluded artifact is not a missing requirement: assess the same dimension with permitted evidence. Reopen that exclusion only for a concrete design gap, and ask before changing it.
+
+**Pass protocol (1-6):** Record the initial 0-10 score. Every `FIX TO 10` below is a proposal: ask about each issue, wait for approval, then edit the plan and re-rate that pass with the reason for the score change. Never edit first and ask afterward.
+
+A declined fix remains documented: the unresolved gap keeps the rating below 10. Carry each pass's before/after scores and remaining gaps into the Completion Summary below. Compute the overall score as specified in the Completion Summary; do not treat litmus answers or Pass 7's decision counts as numeric ratings. Pass 7 is the unscored decision register, not a seventh rating.
+
+A faithful restatement of an existing or already approved contract, such as a wireframe of the unchanged layout, is review evidence rather than a new design choice. Record it directly; ask if producing it would introduce or change a design decision. Finish with the Required Outputs and terminal Plan File Review Report below, including any unanswered decisions.
 
 ### Pass 1: Information Architecture
 Rate 0-10: Does the plan define what the user sees first, second, third?
@@ -90,6 +96,8 @@ FIX TO 10: Add responsive specs per viewport — not "stacked on mobile" but int
 **STOP.** AskUserQuestion once per issue. Do NOT batch. Recommend + WHY.
 
 ### Pass 7: Unresolved Design Decisions
+Start from unresolved choices recorded in earlier passes. For each new item, cite an actual in-scope element and the missing decision in the plan, source, DESIGN.md, or approved mockup. Page/section names and outside-review suggestions do not establish that a control exists. Check the available artifacts first; if its existence is unknown, keep the item conditional and state what must be verified. Do not invent controls or reopen accepted treatments for a hypothetical element. Surface real missing decisions and concrete conflicts; approval of one treatment does not settle a different known element.
+
 Preserve accepted user-facing outcomes. Choosing implementation mechanics does not
 reopen them; ask only if a concrete constraint exposes a new design requirement
 or tradeoff. Surface the remaining ambiguities that will haunt implementation:
@@ -116,7 +124,7 @@ If yes, use `$D iterate` with feedback summarizing the changes, or `$D variants`
 
 ## CRITICAL RULE — How to ask questions
 Follow the AskUserQuestion format from the Preamble above. Additional rules for plan design reviews:
-* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question.
+* **One issue = one AskUserQuestion call.** Never combine multiple issues into one question. Each call contains exactly one question; multiple question tabs in one call are also batching. If a user could choose either remedy without choosing the other, ask separately, even when both affect the same component or token file. Shared implementation work does not make independent design choices inseparable.
 * Describe the design gap concretely — what's missing, what the user will experience if it's not specified.
 * Present 2-3 options. For each: effort to specify now, risk if deferred.
 * **Map to Design Principles above.** One sentence connecting your recommendation to a specific principle.
@@ -157,6 +165,7 @@ review log; a proposed remedy or next-step answer contributes zero.
 {{TASKS_SECTION_EMIT:design-review}}
 
 ### Completion Summary
+Prepare this for the saved review; announce completion after the Read-back gate below.
 
 **Overall design score:** use the lowest of the six rated pass scores (1-6),
 separately before and after approved fixes. Pass 7 is unscored. Keep Step 0's
@@ -187,7 +196,7 @@ pass is 8+; unresolved findings still prevent a clean review log.
   +====================================================================+
 ```
 
-If all passes 8+: "Plan is design-complete. Run /design-review after implementation for visual QA."
+After Read-back, if all passes 8+: "Plan is design-complete. Run /design-review after implementation for visual QA."
 If any below 8: note what's unresolved and why (user chose to defer).
 
 ### Unresolved Decisions
@@ -202,20 +211,19 @@ If visual mockups were generated during this review, add to the plan file:
 
 | Screen/Section | Mockup Path | Direction | Notes |
 |----------------|-------------|-----------|-------|
-| [screen name]  | ~/.gstack/projects/$SLUG/designs/[folder]/[filename].png | [brief description] | [constraints from review] |
+| [screen name]  | [absolute $_DESIGN_DIR]/[filename].png | [brief description] | [constraints from review] |
 ```
 
 Include the full path to each approved mockup (the variant the user chose), a one-line description of the direction, and any constraints. The implementer reads this to know exactly which visual to build from. These persist across conversations and workspaces. If no mockups were generated, omit this section.
 
+{{PLAN_FILE_REVIEW_REPORT}}
+
 ## Review Log
 
-After producing the Completion Summary above, persist the review result.
-
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes review metadata to
-`~/.gstack/` (user config directory, not project files). The skill preamble
-already writes to `~/.gstack/sessions/` and `~/.gstack/analytics/` — this is
-the same pattern. The review dashboard depends on this data. Skipping this
-command breaks the review readiness dashboard in /ship.
+When a plan/report file is in scope, persist only after its successful write and Read-back
+above. On failure, report the error and stop; do not log completion or an accepted decision.
+**PLAN MODE EXCEPTION — ALWAYS RUN after verification:** these commands write review
+metadata to `~/.gstack/`; the following dashboard reads the saved result.
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-design-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"unresolved":N,"decisions_made":N,"commit":"COMMIT"}'
@@ -231,8 +239,6 @@ Substitute values from the Completion Summary:
 - **COMMIT**: output of `git rev-parse --short HEAD`
 
 {{REVIEW_DASHBOARD}}
-
-{{PLAN_FILE_REVIEW_REPORT}}
 
 {{LEARNINGS_LOG}}
 

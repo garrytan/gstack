@@ -1,16 +1,16 @@
-// E2E: /setup-gbrain Path 4 with Step 4.5 "Yes" — local PGLite for code search.
+// E2E: /setup-gbrain Path 4 with Step 4d "Yes" — local PGLite for code search.
 //
 // Drives the skill against a stub HTTP MCP server (200 OK on tools/list).
 // Auto-answers AskUserQuestion to pick:
 //   - Path 4 at Step 2 (Remote gbrain MCP)
-//   - "Yes, set up local PGLite for code" at Step 4.5
+//   - "Yes, set up local PGLite for code" at Step 4d
 //
 // Asserts that the model:
 //   1. ran the verify helper successfully (got past Step 4c)
-//   2. invoked gstack-gbrain-install (Step 4.5 Yes branch)
-//   3. invoked `gbrain init --pglite --json` (also Step 4.5 Yes branch)
+//   2. invoked gstack-gbrain-install (Step 4d Yes branch)
+//   3. invoked `gbrain init --pglite --json` (also Step 4d Yes branch)
 //   4. registered the remote MCP via claude mcp add --transport http
-//   5. wrote a "Code search ..... OK local-pglite" row to the Step 10 verdict
+//   5. accepted the local-PGLite offer and left a local engine config
 //
 // Periodic-tier (codex #12: AgentSDK harness is non-deterministic; gate-tier
 // coverage of the split-engine behavior lives in the deterministic unit
@@ -21,302 +21,70 @@
 import { test, expect, afterAll } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';
 import { describeE2ETier, e2eTierEnabled } from './helpers/e2e-gate';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import * as http from 'http';
 import {
-  runAgentSdkTest,
   passThroughNonAskUserQuestion,
   resolveClaudeBinary,
-  type AgentSdkResult,
 } from './helpers/agent-sdk-runner';
-import { buildSetupGbrainFixture } from './helpers/setup-gbrain-fixture';
+import { createSetupGbrainSandbox, runSetupGbrainAttempt, SETUP_GBRAIN_FINALIZE_MS } from './helpers/setup-gbrain-sandbox';
+import { chooseLocalPgliteFixtureAnswer } from './helpers/setup-gbrain-fixture';
 import { EvalCollector } from './helpers/eval-store';
-import { redactFindingSpans } from '../lib/redact-engine';
 
 const describeE2E = describeE2ETier('periodic');
 const evalCollector = e2eTierEnabled('periodic') ? new EvalCollector('e2e') : null;
-const FIXTURE_TOKEN = 'gbrain_fake_token_for_test';
-
-/** Public diagnostics only; never serialize SDK thinking or credential values. */
-function publicDiagnostics(result: AgentSdkResult) {
-  const transcript = result.events.flatMap((event: any) => {
-    if (event.type === 'system' && event.subtype === 'init') return [{
-      type: event.type, subtype: event.subtype, session_id: event.session_id,
-      cwd: event.cwd, model: event.model, tools: event.tools,
-      claude_code_version: event.claude_code_version,
-    }];
-    if (event.type !== 'assistant' && event.type !== 'user') return [];
-    const content = Array.isArray(event.message?.content) ? event.message.content.flatMap((block: any) => {
-      if (block.type === 'text') return [{ type: block.type, text: block.text }];
-      if (block.type === 'tool_use') return [{ type: block.type, id: block.id, name: block.name, input: block.input }];
-      if (block.type === 'tool_result') return [{ type: block.type, tool_use_id: block.tool_use_id,
-        is_error: block.is_error, content: typeof block.content === 'string' ? block.content :
-          Array.isArray(block.content) ? block.content.filter((b: any) => b.type === 'text').map((b: any) => ({ type: 'text', text: b.text })) : [] }];
-      return [];
-    }) : [];
-    return content.length ? [{ type: event.type, session_id: event.session_id,
-      parent_tool_use_id: event.parent_tool_use_id,
-      message: { id: event.message.id, role: event.message.role, content } }] : [];
-  });
-  const serialized = JSON.stringify({ output: result.output, transcript, browseErrors: result.browseErrors }).replaceAll(FIXTURE_TOKEN, '<REDACTED-FIXTURE-TOKEN>');
-  const redacted = redactFindingSpans(serialized, { repoVisibility: 'private' });
-  if (redacted === null) return { output: '[Public diagnostics omitted: redaction limit]', transcript: [], browseErrors: [] };
-  try {
-    return JSON.parse(redacted);
-  } catch {
-    // Text redaction can consume JSON delimiters along with a credential URL.
-    // Keep only its redacted text; diagnostics must not mask the test verdict.
-    return { output: `[Redacted public diagnostics; JSON structure changed]\n${redacted}`, transcript: [], browseErrors: [] };
-  }
-}
-
 afterAll(async () => { if (evalCollector) await evalCollector.finalize(); });
 
-/**
- * Minimal stub MCP server that returns success on initialize / tools/list.
- * Verify helper calls /tools/list with a Bearer header and inspects the body.
- */
-function startStubMcp(): Promise<{ url: string; close: () => Promise<void> }> {
-  return new Promise((resolve) => {
-    const server = http.createServer((req, res) => {
-      let body = '';
-      req.on('data', (c) => (body += c));
-      req.on('end', () => {
-        res.statusCode = 200;
-        res.setHeader('Content-Type', 'text/event-stream');
-        // Try to be useful: respond with a fake initialize + tools/list payload.
-        let payload: unknown = { jsonrpc: '2.0', id: 1, result: { tools: [] } };
-        try {
-          const req = JSON.parse(body);
-          if (req.method === 'initialize') {
-            payload = {
-              jsonrpc: '2.0',
-              id: req.id,
-              result: {
-                protocolVersion: '2024-11-05',
-                capabilities: { tools: {} },
-                serverInfo: { name: 'gbrain', version: '0.32.3.0' },
-              },
-            };
-          }
-        } catch {
-          // ignore parse failure; default payload
-        }
-        res.end(`event: message\ndata: ${JSON.stringify(payload)}\n\n`);
-      });
-    });
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address();
-      if (!addr || typeof addr === 'string') throw new Error('no address');
-      resolve({
-        url: `http://127.0.0.1:${addr.port}/mcp`,
-        close: () => new Promise((r) => server.close(() => r())),
-      });
-    });
-  });
-}
-
-/**
- * Fake gbrain CLI:
- *   - --version → echoes a version
- *   - init --pglite --json → writes a pglite config, exits 0
- *   - everything else → exits 0 quietly
- *
- * Logs every invocation so we can assert init was called.
- */
-function makeFakeGbrain(binDir: string, gbrainConfigPath: string): string {
-  const callLog = path.join(binDir, 'gbrain-calls.log');
-  const script = `#!/bin/bash
-echo "gbrain $@" >> "${callLog}"
-case "$1 $2" in
-  "--version "*) echo "gbrain 0.33.1.0"; exit 0 ;;
-  "init --pglite") cat > "${gbrainConfigPath}" <<JSON
-{"engine":"pglite","database_url":"pglite:///fake"}
-JSON
-    echo '{"status":"ok","engine":"pglite"}'
-    exit 0 ;;
-esac
-exit 0
-`;
-  fs.writeFileSync(path.join(binDir, 'gbrain'), script, { mode: 0o755 });
-  return callLog;
-}
-
-/**
- * Fake `claude` CLI for mcp add/remove/get/list. Logs every call so we can
- * assert remote MCP registration happened.
- */
-function makeFakeClaude(binDir: string): string {
-  const callLog = path.join(binDir, 'claude-calls.log');
-  const script = `#!/bin/bash
-echo "claude $@" >> "${callLog}"
-case "$1 $2" in
-  "mcp add") exit 0 ;;
-  "mcp list") echo "gbrain: http://stub/mcp (HTTP) — connected" ; exit 0 ;;
-  "mcp remove") exit 0 ;;
-  "mcp get") echo '{"type":"http","url":"http://stub/mcp"}'; exit 0 ;;
-esac
-exit 0
-`;
-  fs.writeFileSync(path.join(binDir, 'claude'), script, { mode: 0o755 });
-  return callLog;
-}
-
-/**
- * Fake gstack-gbrain-install so we don't actually clone the gbrain repo +
- * bun-link. The test only cares that the skill INVOKED it on the Yes branch.
- */
-function makeFakeInstall(binDir: string): string {
-  const callLog = path.join(binDir, 'install-calls.log');
-  const script = `#!/bin/bash
-echo "install $@" >> "${callLog}"
-exit 0
-`;
-  fs.writeFileSync(path.join(binDir, 'gstack-gbrain-install'), script, {
-    mode: 0o755,
-  });
-  return callLog;
-}
-
-describeE2E('/setup-gbrain Path 4 + Step 4.5 Yes → local PGLite for code', () => {
+describeE2E('/setup-gbrain Path 4 + Step 4d Yes → local PGLite for code', () => {
   test('opt-in flow invokes install + gbrain init + remote MCP register', async () => {
-    const stubServer = await startStubMcp();
-    const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'path4-pglite-'));
-    const fakeBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'path4-pglite-bin-'));
-    const gbrainConfigDir = path.join(sandboxHome, '.gbrain');
-    fs.mkdirSync(gbrainConfigDir, { recursive: true });
-    const gbrainConfigPath = path.join(gbrainConfigDir, 'config.json');
-    const claudeLog = makeFakeClaude(fakeBinDir);
-    const gbrainLog = makeFakeGbrain(fakeBinDir, gbrainConfigPath);
-    const installLog = makeFakeInstall(fakeBinDir);
-
-    const ORIGINAL_CLAUDE_MD = '# Test project\n';
-    fs.writeFileSync(path.join(sandboxHome, 'CLAUDE.md'), ORIGINAL_CLAUDE_MD);
-
-    const askLog: Array<{ question: string; choice: string }> = [];
+    const started = Date.now();
     const binary = resolveClaudeBinary();
-
-    const orig = {
-      home: process.env.HOME,
-      pathEnv: process.env.PATH,
-      mcpToken: process.env.GBRAIN_MCP_TOKEN,
-    };
-    process.env.HOME = sandboxHome;
-    process.env.PATH = `${fakeBinDir}:${path.join(path.resolve(import.meta.dir, '..'), 'bin')}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`;
-    process.env.GBRAIN_MCP_TOKEN = FIXTURE_TOKEN;
-
-    try {
-      // Carve-aware fixture (see test/helpers/setup-gbrain-fixture.ts):
-      // skeleton + brain-init (Step 4 Path 4 body incl. the Step 4d local
-      // PGLite offer this test says Yes to) + claude-md-persist (Step 8 sits
-      // on the walked path to Step 10). Non-empty guard inside the builder.
-      const skillPath = path.join(sandboxHome, 'setup-gbrain-SKILL.md');
-      fs.writeFileSync(
-        skillPath,
-        buildSetupGbrainFixture(['brain-init.md', 'claude-md-persist.md']),
-      );
-      const result = await runAgentSdkTest({
-        systemPrompt: { type: 'preset', preset: 'claude_code' },
-        userPrompt:
-          `Read the skill file at ${skillPath} and follow Path 4 (Remote MCP). ` +
-          `Use this MCP URL: ${stubServer.url}. ` +
-          `The bearer token is already in GBRAIN_MCP_TOKEN. ` +
-          `At Step 4d (the "Want symbol-aware code search?" question), ask me with AskUserQuestion and wait for my answer. ` +
-          `Then continue through Step 5a (MCP registration) → Step 10 (verdict). ` +
-          `I have not yet chosen whether to set up local PGLite; do not skip that decision.`,
-        workingDirectory: sandboxHome,
-        env: { GBRAIN_MCP_TOKEN: FIXTURE_TOKEN },
-        maxTurns: 25,
-        allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'Write', 'Edit'],
-        ...(binary ? { pathToClaudeCodeExecutable: binary } : {}),
-        canUseTool: async (toolName, input) => {
-          if (toolName === 'AskUserQuestion') {
-            const qs = input.questions as Array<{
-              question: string;
-              options: Array<{ label: string }>;
-            }>;
-            const answers: Record<string, string> = {};
-            for (const q of qs) {
-              // Heuristics: pick the option that screams "yes/PGLite/code search" for our flow.
-              const yes =
-                q.options.find((o) =>
-                  /yes.*local|local.*pglite|code search|opt in/i.test(o.label),
-                ) ??
-                q.options.find((o) => /remote.*mcp|path 4/i.test(o.label)) ??
-                q.options[0]!;
-              answers[q.question] = yes.label;
-              askLog.push({ question: q.question, choice: yes.label });
-            }
-            return {
-              behavior: 'allow',
-              updatedInput: { questions: qs, answers },
-            };
-          }
-          return passThroughNonAskUserQuestion(toolName, input);
-        },
-      });
-
-      let passed = false;
-      try {
-      // Smoke test contract (codex #12: AgentSDK is non-deterministic, so this
-      // E2E asserts the model followed the SPLIT-ENGINE PATH without depending
-      // on the exact subcommand sequence — deterministic per-step coverage
-      // lives in gbrain-local-status.test.ts, gbrain-sync-skip.test.ts, etc).
-
-      // Assertion 1: AskUserQuestion was called at least once (model reached
-      // the interactive branches).
+    const fixture = await createSetupGbrainSandbox({
+      name: 'local-pglite', status: 200,
+      sections: ['brain-init.md', 'claude-md-persist.md'], originalClaudeMd: '# Test project\n',
+    });
+    const askLog: Array<{ question: string; choice: string }> = [];
+    await runSetupGbrainAttempt(fixture, {
+      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      userPrompt:
+        `Read the skill file at ${fixture.skillPath} and follow Path 4 (Remote MCP). ` +
+        `Use this MCP URL: ${fixture.url}. ` +
+        `The bearer token is already in GBRAIN_MCP_TOKEN; use it without printing it. ` +
+        `At Step 4d ("Want symbol-aware code search?"), ask the question and PICK YES — set up local PGLite for code. ` +
+        `Then continue through Step 5a (MCP registration) → Step 10 (verdict). ` +
+        `Decline optional artifacts sync. Do not skip the Step 4d local-PGLite offer.`,
+      maxTurns: 25,
+      allowedTools: ['Read', 'Grep', 'Glob', 'Bash', 'Write', 'Edit'],
+      ...(binary ? { pathToClaudeCodeExecutable: binary } : {}),
+      canUseTool: async (toolName, input) => {
+        if (toolName !== 'AskUserQuestion') return passThroughNonAskUserQuestion(toolName, input);
+        const questions = input.questions as Array<{
+          question: string; options: Array<{ label: string }>;
+        }>;
+        const answers: Record<string, string> = {};
+        for (const q of questions) {
+          const choice = chooseLocalPgliteFixtureAnswer(q);
+          answers[q.question] = choice;
+          askLog.push({ question: q.question, choice });
+        }
+        return { behavior: 'allow', updatedInput: { questions, answers } };
+      },
+    }, (result) => {
       expect(askLog.length).toBeGreaterThan(0);
-
-      // Assertion 2: at LEAST ONE of the Path 4 / Step 4.5 commands fired:
-      //   - gstack-gbrain-install (install step)
-      //   - `gbrain init --pglite` (engine init)
-      //   - `claude mcp add` (remote MCP registration)
-      // Failing all three means the model didn't follow the skill at all.
-      const installCalls = fs.existsSync(installLog)
-        ? fs.readFileSync(installLog, 'utf-8')
-        : '';
-      const gbrainCalls = fs.existsSync(gbrainLog)
-        ? fs.readFileSync(gbrainLog, 'utf-8')
-        : '';
-      const claudeCalls = fs.existsSync(claudeLog)
-        ? fs.readFileSync(claudeLog, 'utf-8')
-        : '';
-      const followedPath =
-        installCalls.length > 0 ||
-        /gbrain init --pglite/.test(gbrainCalls) ||
-        /mcp add/.test(claudeCalls);
-      expect(followedPath).toBe(true);
-
-      // Assertion 3: token never leaked to CLAUDE.md (security regression).
-      const finalClaudeMd = fs.readFileSync(
-        path.join(sandboxHome, 'CLAUDE.md'),
-        'utf-8',
-      );
-      expect(finalClaudeMd).not.toContain(FIXTURE_TOKEN);
-      passed = true;
-      } finally {
-        const diagnostics = publicDiagnostics(result);
-        evalCollector?.addTest({
-          name: 'setup-gbrain-path4-local-pglite', suite: 'setup-gbrain', tier: 'e2e',
-          passed, duration_ms: result.durationMs, cost_usd: result.costUsd,
-          output: diagnostics.output, transcript: diagnostics.transcript,
-          turns_used: result.turnsUsed, browse_errors: diagnostics.browseErrors,
-          exit_reason: result.exitReason, model: result.model,
-          first_response_ms: result.firstResponseMs, max_inter_turn_ms: result.maxInterTurnMs,
-        });
-      }
-    } finally {
-      if (orig.home === undefined) delete process.env.HOME;
-      else process.env.HOME = orig.home;
-      if (orig.pathEnv === undefined) delete process.env.PATH;
-      else process.env.PATH = orig.pathEnv;
-      if (orig.mcpToken === undefined) delete process.env.GBRAIN_MCP_TOKEN;
-      else process.env.GBRAIN_MCP_TOKEN = orig.mcpToken;
-      await stubServer.close();
-      fs.rmSync(sandboxHome, { recursive: true, force: true });
-      fs.rmSync(fakeBinDir, { recursive: true, force: true });
-    }
-  }, CAPTURE_MS);
+      expect(askLog.some((q) => /code search|pglite|symbol/i.test(q.question) &&
+        /yes|local|pglite/i.test(q.choice))).toBe(true);
+      const calls = fixture.commands();
+      expect(fixture.requests.some((r) => r.rpcMethod === 'initialize' && r.authorizationMatches)).toBe(true);
+      expect(calls.some((c) => c.command === 'gstack-gbrain-mcp-verify' && c.phase === 'end' &&
+        c.exitCode === 0 && /"status":\s*"success"/.test(c.stdout))).toBe(true);
+      expect(calls.some((c) => c.command === 'gstack-gbrain-install' && c.phase === 'end' && c.exitCode === 0)).toBe(true);
+      expect(calls.some((c) => c.command === 'gbrain' && c.phase === 'start' && c.args[0] === 'init' && c.args.includes('--pglite'))).toBe(true);
+      expect(calls.some((c) => c.command === 'claude' && c.phase === 'start' && c.args[1] === 'add' && c.authorizationMatches)).toBe(true);
+      const final = fixture.snapshot();
+      expect(final.mcp.registered).toBe(true);
+      expect(JSON.parse(final.gbrainConfig ?? '{}').engine).toBe('pglite');
+      expect(final.claudeMdTokenLeak).toBe(false);
+      expect(result.output.includes(fixture.token)).toBe(false);
+    }, CAPTURE_MS - (Date.now() - started), {
+      collector: evalCollector, name: 'setup-gbrain-path4-local-pglite', suite: 'setup-gbrain',
+    });
+  }, CAPTURE_MS + SETUP_GBRAIN_FINALIZE_MS);
 });

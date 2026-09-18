@@ -1,0 +1,82 @@
+{
+  "provenance": {
+    "source": "8525fd4abad1e54de1aaaa9a5692202d4b13bd25",
+    "cli": "Claude Code2.1.251",
+    "originalReportSha256": "7b544cd80c6065ed16682992585f2cc5ed47e6991e7f9c7cda1d2b0913734ad1",
+    "originalObservationSha256": "daedf90a253fb09e2fcaf28e449300df96bbe5312213c5dc7bdda1cfe7043a8b",
+    "projection": "Exact task, execution-lane, and final-report sections plus final modifying/native-navigation calls and ExitPlanMode. Complete16-call/31255-byte private replay retained separately."
+  },
+  "call": {
+    "sessionId": "7fc6f0ff-3d9a-4068-81bb-9de165c5444b",
+    "toolUseId": "toolu_01Ph2en8wsvUd7zQMy7SMeoc",
+    "questions": [
+      {
+        "question": "D16 \u2014 Next step after this eng review?\nProject/branch/task: gstack-plan-count-wB30y0 on `main`; reviewed plan saved to gstack-e2e-plan-eng-3p1mb8/gstack-test-plan-eng.md with ENG CLEARED.\nELI10: The engineering review is done and logged clean: 8 remedy decisions approved, 0 unresolved, 0 critical gaps. This is navigation only; it approves no implementation change. The plan has no UI, so a design review does not apply. A CEO review is optional for an internal auth refactor.\nStakes if we pick wrong: None that block shipping; the Eng gate is the only required one and it is CLEAR.\nRecommendation: C because all required reviews are complete and the task list (T1\u2013T10) is ready to execute in the lanes described.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: start building vs one optional strategy pass first.",
+        "header": "Next step",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "C) Ready to implement \u2014 run /ship when done (recommended)",
+            "description": "\u2705 Eng Review is CLEAR and logged; T1\u2013T10 are build-ready with lanes A+B, then C+D, then E. \u2705 No further review gates block this refactor. \u274c CEO-level scope questions, if any exist, surface during build rather than before."
+          },
+          {
+            "label": "B) Run /plan-ceo-review first (optional)",
+            "description": "\u2705 A strategy pass on whether multi-tenant auth is the right investment now. \u2705 Independent of the engineering verdict, which stays CLEAR. \u274c Adds a review cycle to an internal refactor with no user-facing product change."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D16 \u2014 Next step after this eng review?\nProject/branch/task: gstack-plan-count-wB30y0 on `main`; reviewed plan saved to gstack-e2e-plan-eng-3p1mb8/gstack-test-plan-eng.md with ENG CLEARED.\nELI10: The engineering review is done and logged clean: 8 remedy decisions approved, 0 unresolved, 0 critical gaps. This is navigation only; it approves no implementation change. The plan has no UI, so a design review does not apply. A CEO review is optional for an internal auth refactor.\nStakes if we pick wrong: None that block shipping; the Eng gate is the only required one and it is CLEAR.\nRecommendation: C because all required reviews are complete and the task list (T1\u2013T10) is ready to execute in the lanes described.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: start building vs one optional strategy pass first.": "C) Ready to implement \u2014 run /ship when done (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-15T10:15:34.191Z"
+  },
+  "priorCalls": [
+    {
+      "sessionId": "7fc6f0ff-3d9a-4068-81bb-9de165c5444b",
+      "toolUseId": "toolu_01A29VFjzjmtKsaA1zWTDx3e",
+      "questions": [
+        {
+          "question": "D15 \u2014 TODO: check whether any of the 5 IDP calls fetch cacheable metadata (JWKS keys, OIDC discovery)?\nProject/branch/task: gstack-plan-count-wB30y0 on `main`, TODO proposals after the PLAN.md review.\nELI10: The plan does not say what the five IDP calls are. If one of them fetches the IDP's public signing keys (JWKS) or its discovery document, that data changes rarely and comes with cache headers; fetching it on every token validation is wasted latency and quota. This is medium confidence (5/10): I cannot see the calls, so this is a 'go look' item, not a known bug.\nWhat: enumerate the 5 IDP calls; cache any JWKS/discovery fetch for its max-age with a background refresh. Why: cuts per-validation IDP round trips if such calls exist. Pros: fewer calls per login; less IDP dependence at request time. Cons: key-rotation handling (cache miss on unknown kid) must be correct; may turn out to be zero calls, in which case it is a five-minute investigation. Context: start in AuthBroker.validate; list the five call targets. Depends on: nothing; can run before or after R8.\nStakes if we pick wrong: Skip it and possibly leave 1-2 unnecessary round trips per login; build now and you may add caching for calls that are not cacheable.\nRecommendation: A because it is a cheap investigation with a plausible payoff, and its context should not be lost.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: captured for a quick look later vs dropped vs investigated inside this PR.",
+          "header": "TODO: JWKS",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Add to TODOS.md (recommended)",
+              "description": "\u2705 Preserves the question and where to look (the five call sites) for whoever tunes login latency next. \u2705 Zero scope added to this PR. \u274c If it is a real win, it waits. (Written to TODOS.md after plan mode exits; recorded in the plan now.)"
+            },
+            {
+              "label": "B) Skip \u2014 not valuable enough",
+              "description": "\u2705 Nothing to track. \u2705 If all five calls are per-token introspection, there is nothing to cache anyway. \u274c The observation is lost and someone re-derives it when login latency comes up."
+            },
+            {
+              "label": "C) Build it now in this PR",
+              "description": "\u2705 Enumerating the five calls is minutes and should happen for R8 anyway; caching JWKS is a well-known pattern (human: ~half day / CC: ~10 min). \u2705 Fewer IDP calls per login ships together with the parallelization. \u274c Key-rotation edge cases (unknown kid \u2192 refresh \u2192 retry) add tests to an already large auth PR."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D15 \u2014 TODO: check whether any of the 5 IDP calls fetch cacheable metadata (JWKS keys, OIDC discovery)?\nProject/branch/task: gstack-plan-count-wB30y0 on `main`, TODO proposals after the PLAN.md review.\nELI10: The plan does not say what the five IDP calls are. If one of them fetches the IDP's public signing keys (JWKS) or its discovery document, that data changes rarely and comes with cache headers; fetching it on every token validation is wasted latency and quota. This is medium confidence (5/10): I cannot see the calls, so this is a 'go look' item, not a known bug.\nWhat: enumerate the 5 IDP calls; cache any JWKS/discovery fetch for its max-age with a background refresh. Why: cuts per-validation IDP round trips if such calls exist. Pros: fewer calls per login; less IDP dependence at request time. Cons: key-rotation handling (cache miss on unknown kid) must be correct; may turn out to be zero calls, in which case it is a five-minute investigation. Context: start in AuthBroker.validate; list the five call targets. Depends on: nothing; can run before or after R8.\nStakes if we pick wrong: Skip it and possibly leave 1-2 unnecessary round trips per login; build now and you may add caching for calls that are not cacheable.\nRecommendation: A because it is a cheap investigation with a plausible payoff, and its context should not be lost.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: captured for a quick look later vs dropped vs investigated inside this PR.": "A) Add to TODOS.md (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-15T10:12:43.710Z"
+    }
+  ],
+  "plan": "## Worktree parallelization strategy\n\n| Step | Modules touched | Depends on |\n|---|---|---|\n| S1 characterization matrix + caller enumeration (R7) | tests/legacy | \u2014 |\n| S2 RequestPolicy + contract (R2) | policy/ | \u2014 |\n| S3 validate()/dispatch() split + AuthBroker + Promise.all (R6, R8) | auth/broker | S2 |\n| S4 SessionMint single-writer + re-check (R5) | auth/session | S2 |\n| S5 composition root injection + legacy swap + diagram updates (R4, C3) | app wiring, auth/legacy | S1, S3, S4 |\n\nLane A: S1 (independent) \u00b7 Lane B: S2 (independent) \u00b7 Lane C: S3 (after B) \u00b7 Lane D: S4 (after B) \u00b7 Lane E: S5 (after A, C, D).\nExecution: launch A + B in parallel worktrees; merge. Launch C + D in parallel; merge. Then E.\nConflict flags: C and D both import `policy/` types but do not edit it; no shared edit surface. E touches wiring that C and D construct, so E must run after both merge.\n\n## Implementation Tasks\nSynthesized from this review's findings. Each task derives from a specific\nfinding above. Run with Claude Code or Codex; checkbox as you ship.\n\n- [ ] **T1 (P1, human: ~1.5 days / CC: ~20 min)** \u2014 tests/legacy \u2014 Capture the 10-case characterization matrix from `legacyAuthFlow()` and add one integration test per caller\n  - Surfaced by: Test review \u2014 T1 CRITICAL, PLAN.md:27-28; R7/D12\n  - Files: new `legacyAuthFlow.characterization.test.*`, one integration test per enumerated caller\n  - Verify: matrix green against legacy; replayed green against new path before swap\n- [ ] **T2 (P1, human: ~1 day / CC: ~20 min)** \u2014 policy/ \u2014 Implement `RequestPolicy` per the contract (tenant \u2192 issuers, audiences, lifetimes, policy version; unknown tenant \u2192 typed error)\n  - Surfaced by: Scope Challenge #3, PLAN.md:35; R2/D7\n  - Files: `policy/RequestPolicy.*`, its test\n  - Verify: unit tests for known tenant, unknown tenant, version bump\n- [ ] **T3 (P1, human: ~half day / CC: ~5 min)** \u2014 app wiring \u2014 Remove the module-level cache export; build one adapter at the composition root and inject it into both services\n  - Surfaced by: Architecture A1(a), PLAN.md:19-20; R4/D9\n  - Files: composition root / DI wiring, `AuthBroker` and `SessionMint` constructors\n  - Verify: same-instance wiring test; tenant-isolation test with per-test in-memory fake\n- [ ] **T4 (P1, human: ~1 day / CC: ~20 min)** \u2014 auth/session \u2014 Make `SessionMint` the sole cache writer with a status re-check immediately before write; assert `AuthBroker` never writes\n  - Surfaced by: Architecture A1(b), PLAN.md:10, :20; R5/D10\n  - Files: `auth/session/SessionMint.*`, `auth/broker/AuthBroker.*`, concurrency test\n  - Verify: suspension-between-validate-and-mint test leaves no entry; suspension hook removes a minted entry\n- [ ] **T5 (P1, human: ~1 day / CC: ~15 min)** \u2014 auth/broker \u2014 Split `validateAndDispatch()` into `validate()` returning a typed outcome and `dispatch()`; one boundary catch mapping every error class; unmapped \u2192 reject\n  - Surfaced by: Code quality C1, PLAN.md:23-24; R6/D11\n  - Files: `auth/broker/validate.*`, `dispatch.*`, callers\n  - Verify: one test per error class + unknown class \u2192 reject + log assertion\n- [ ] **T6 (P2, human: ~2 h / CC: ~3 min)** \u2014 auth/broker \u2014 Run the 5 IDP checks under `Promise.all` (fail-fast), per-call timeouts unchanged\n  - Surfaced by: Performance P1, PLAN.md:31-32; R8/D13\n  - Files: `auth/broker/AuthBroker.*`\n  - Verify: fast-failure-before-slow-success test; all-pass test; cache hit \u2192 0 calls, miss \u2192 5\n- [ ] **T7 (P1, human: ~3 days / CC: ~45 min)** \u2014 auth/ \u2014 Implement `AuthBroker` and `SessionMint` over the existing adapter (no `TokenStore`, no `AuthCache`)\n  - Surfaced by: Scope Challenge #2/#4; D6, D8\n  - Files: `auth/broker/`, `auth/session/`\n  - Verify: end-to-end login test [\u2192E2E]; adapter suite still green unchanged\n- [ ] **T8 (P2, human: ~2 h / CC: ~5 min)** \u2014 docs/comments \u2014 Add the data-flow diagram to the plan and inline ASCII comments in `AuthBroker`, `SessionMint.mint()`, `validate()`\n  - Surfaced by: Architecture A4; Diagrams section\n  - Files: plan, the three source files\n  - Verify: diagrams match code at review time\n- [ ] **T9 (P2, human: ~1 day / CC: ~15 min)** \u2014 auth/legacy \u2014 Swap callers to the new path, delete `legacyAuthFlow()` only after T1 replays green; update or delete any stale diagrams nearby\n  - Surfaced by: Test review T1; Code quality C3\n  - Files: every enumerated caller, `legacyAuthFlow` module\n  - Verify: T1 suite + per-caller integration tests green on the new path\n- [ ] **T10 (P3, follow-up)** \u2014 TODOS.md \u2014 Record two TODOs with context: AbortController cancellation of losing IDP calls (D14); JWKS/discovery caching investigation (D15)\n  - Surfaced by: Performance review; D14, D15\n  - Files: `TODOS.md` (create after plan mode exits)\n  - Verify: entries present with what/why/context/depends-on\n\n_Effort ratios assume tests ~50x, bug fix with regression ~20x, architecture ~5x human\u00f7CC._\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | \u2014 | \u2014 |\n| Outside Review | codex via `/plan-eng-review` (host: claude, phase: plan-review) | Independent 2nd opinion | 1 | DISABLED | skipped (codex_reviews=disabled) |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (mode: SCOPE_REDUCED) | 30 issues, 0 critical gaps |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | \u2014 | \u2014 |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | \u2014 | \u2014 |\n\n- **OUTSIDE COVERAGE:** provider codex, phase plan-review, outside_status disabled (intentional opt-out via `codex_reviews=disabled`); no native fallback dispatched; no outside findings. Re-enable: `gstack-config set codex_reviews enabled`.\n- **VERDICT:** ENG CLEARED \u2014 ready to implement (8/8 remedy decisions approved; 0 unresolved; 0 critical gaps). CEO, Design and DX reviews not run (not required for an internal auth refactor).\n\nNO UNRESOLVED DECISIONS\n",
+  "reportWriteAt": "2026-09-15T10:14:32.679Z",
+  "startedAt": "2026-09-15T10:01:22.804Z",
+  "planReadyRequests": [
+    {
+      "sessionId": "7fc6f0ff-3d9a-4068-81bb-9de165c5444b",
+      "toolUseId": "toolu_01JTeJPmsKYW8kaxyscCbBqU",
+      "timestamp": "2026-09-15T10:16:32.138Z",
+      "failed": false
+    }
+  ]
+}

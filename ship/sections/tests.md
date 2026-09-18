@@ -13,7 +13,7 @@ setopt +o nomatch 2>/dev/null || true  # zsh compat
 # Definitive ecosystem markers (presence = ecosystem, NOT a command to run)
 [ -f manage.py ] && echo "RUNTIME:python FRAMEWORK:django MARKER:manage.py"
 { [ -f pyproject.toml ] || [ -f pytest.ini ] || [ -f tox.ini ] || [ -f setup.cfg ] || [ -f requirements.txt ]; } && echo "RUNTIME:python"
-[ -f Gemfile ] || [ -f Rakefile ] || [ -f .rspec ] && echo "RUNTIME:ruby"
+{ [ -f Gemfile ] || [ -f Rakefile ] || [ -f .rspec ]; } && echo "RUNTIME:ruby"
 [ -f package.json ] && echo "RUNTIME:node"
 [ -f go.mod ] && echo "RUNTIME:go"
 [ -f Cargo.toml ] && echo "RUNTIME:rust"

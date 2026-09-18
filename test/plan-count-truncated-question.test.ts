@@ -27,6 +27,11 @@ describe('native question truncated before its routing id', () => {
       expect(visible).not.toContain('<gstack-qid:');
       const call = pending();
       expect(matchesNativePlanQuestion(visible, call)).toBe(true);
+      // The existing truncated grammar permits blank leading rail rows.
+      // Complete-boxed context checks must not intercept that fallback.
+      const leadingRail = '│\n' + visible;
+      expect(matchesNativePlanQuestion(leadingRail, call)).toBe(true);
+      expect(capturePlanCountQuestion(leadingRail, new Set(), 0, true, call)?.nativeCall).toBe(call);
       const active = capturePlanCountQuestion(visible, new Set(), 0, true, call)!;
       expect(active.nativeCall).toBe(call);
       expect(pickCeoCountQuestion(nativePlanCallFingerprint(call, 0, true), active)).toBe(2);

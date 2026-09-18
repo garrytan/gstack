@@ -114,6 +114,109 @@ End-to-end walkthrough: [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-t
 | `/make-pdf` | Turn any markdown file into a publication-quality PDF. Renders through Aside, or gstack's own browser when Aside is absent. |
 | `/diagram` | English in, diagram out: mermaid source + editable .excalidraw + SVG/PNG, offline. Renders through Aside, or gstack's own browser when Aside is absent. |
 
+## Validation discipline
+
+When fixing failures or preparing `/ship`, follow this order:
+
+1. List the known failing cases, their logs and source revision, the demonstrated
+   cause, and the smallest check that can prove each repair. Keep one current
+   list in `.context/`; update it instead of starting overlapping repair plans.
+   Reconcile the runner's failure total with named failures and unhandled or
+   module-load errors; the named-test footer alone is not the complete inventory.
+2. Resolve base-branch integration and assign one owner per shared file before
+   editing. Keep repairs within the observed failures and the user's scope.
+   Before a fixture writes through a link, resolve its target and verify it stays
+   inside that fixture's temporary root; live skill registrations can point back
+   into this checkout.
+   When upstream replaces a helper API, inventory every direct caller, mock
+   adapter, source snapshot, generated golden, and selection edge before choosing
+   focused checks. Verify extracted test adapters supply the current imports and
+   result schema; an adapter failure is not evidence that production failed.
+   Schedule independent checks independently. Gate a check only on inputs or
+   prerequisites it actually needs; an unrelated failure must not serialize the
+   whole validation plan. Keep source fixed while tests live-link its files.
+3. Diagnose before changing code. Distinguish a product defect, an invalid test
+   expectation, a detector/fixture defect, and a launch/environment failure.
+   Preserve the original failure. Do not call it pre-existing without evidence.
+   Verify pinned runtime tool schemas and defaults before treating omitted fields
+   as model noncompliance.
+   Check that a bounded evaluation’s fixture scope and automated answers support
+   its metric. Do not let the driver approve unrelated expansion, then blame the
+   skill for the extra work; preserve required findings and evidence limits.
+4. Reproduce with the smallest relevant test. For agent tests, reuse captured
+   public events in free regressions, including negative controls, before paying
+   for another agent run. Check behavior and acknowledgments; match exact prose
+   only when that prose is the contract. Do not lower thresholds, increase model
+   budgets, skip cases, or rejudge a failure to manufacture a pass.
+   For policy or validation repairs, exercise the actual registered callback with
+   representative native input and assert that it uses the helper’s result.
+   When renderer or parser failures recur at the same boundary, verify the
+   supported input class against the pinned runtime. Keep adversarial controls;
+   do not add one spelling or glyph per paid failure.
+   For workflow clarity failures, read the complete evaluated excerpt and its
+   referenced source. Resolve all demonstrated ambiguities together: order,
+   definitions, ownership and approval. Consolidate dense instructions into
+   executable steps instead of appending more clauses. Review the resulting
+   workflow as a whole; prose snapshots alone do not prove it is clear.
+   For each gate, identify when its inputs exist and trace normal,
+   skipped/unavailable and late-change paths to catch circular prerequisites or
+   bypassed checks.
+5. Run required cheap CI checks, including credential scanning, before paid work.
+   Also run adjacent cheap checks: generated-content freshness, prompt-size/parity
+   limits, source assertions, fixture checks, and dependency selection as
+   applicable. A changed prompt must clear these before its eval.
+   Run its selected quality judge before long behavioral evaluations that read
+   the same changed prompt. If a repair supersedes an active run's inputs, cancel
+   that run, preserve completed outcomes, and label unfinished cases as cancelled.
+   Check each edit or setup command’s result before running dependent checks. A
+   failed edit is not a reason to test the unchanged input again.
+6. Declare a fixture actor’s supported interactions before the model starts.
+   Keep its answers and permission handling within that declared interface.
+   Bind artifact ownership to the same isolated state passed to the child;
+   ambient environment paths do not establish ownership. Check whole-file and
+   CI supervision against every case and configured retry, not just one attempt.
+   Preflight the actual launcher: required binaries, isolated state, display when
+   needed, explicit test tier, selection, and expected executed-case counts.
+   Verify required tool execution with a no-cost smoke check under that launch
+   environment; versions and authentication alone do not prove it works. Set
+   private artifact modes explicitly and preserve normal fixture permissions.
+   Prove a diagnostic snapshot survives fixture cleanup in the final artifact
+   directory before paid work; an unset EVALS_RUN_ID disables native snapshots.
+   Bind complete spool filenames and classify Bun's out-of-tier describe.skip
+   placeholders separately, with zero selected-case credit.
+   Put standalone Git fixtures outside another checkout; verify their resolved
+   project slug and state root before interpreting a failure.
+   Reject missing explicit test files before invoking Bun; it can silently ignore
+   a nonexistent file selector and pass the remaining files.
+   Preserve exit status through logging. Use the documented detached runner and
+   eval lock. Review the final launcher after edits; preparation and `--list`
+   modes must not start monitors, retainers, or test processes. Verify this with
+   a before/after process check. During long runs, inspect the last public tool
+   result and pending permission state; diagnose a blocked actor before waiting
+   through its deadline. Preserve cancellation separately from a test verdict.
+   Skipped or unstarted cases
+   do not satisfy coverage; preserve configured retries and every attempt.
+7. Prove all known repairs with focused tests, including affected paid cases.
+   Rerun a failed case only after a concrete repair or a demonstrated launch
+   correction. Run the remaining required selected evaluations on the integrated
+   code. Do not use the full free suite to discover predictable adjacent failures.
+   Reuse a passing check when its consumed inputs and relevant environment are
+   unchanged. For model judges, compare the expanded prompt, rubric, parameters
+   and dependencies; a different commit alone does not invalidate the result.
+   Do not resample an unchanged passing judge to simplify launcher configuration.
+   Preserve its original source and label the result as reused evidence.
+   Use actual prompt builders and compare complete bytes when proving model-input
+   identity; preserve literal text in excerpts and record the consumed inputs.
+8. Finish review fixes, generation, release metadata, and build before final
+   acceptance. Freeze the code, then run `bun run test` once at the end. During
+   repair, focused checks replace a full-suite run before every commit. If final
+   acceptance unexpectedly fails, retain the failure, diagnose it narrowly, and
+   report the changed validation plan before another full run; never retry it
+   blindly or claim a pass from an older revision.
+9. Publish only with passing required checks, unless the user explicitly grants
+   an exception for identified failures. Report revision, actual pass/fail/skip
+   counts, and incomplete coverage. A passing subset is not release acceptance.
+
 ## Build commands
 
 ```bash

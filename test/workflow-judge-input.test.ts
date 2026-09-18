@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { readWorkflowJudgeInput } from './helpers/workflow-judge-input';
+import { ENG_REVIEW_EXCERPT } from './helpers/workflow-excerpt';
 
 const ROOT = resolve(import.meta.dir, '..');
 const scratchRoots: string[] = [];
@@ -34,6 +35,22 @@ function sectionPaths(skill: string): string[] {
 }
 
 describe('workflow judge file bundle', () => {
+  test('the actual Eng judge registration includes authorization and the referenced final gate', () => {
+    const source = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
+    const registration = source.match(/testIfSelected\('plan-eng-review\/SKILL\.md sections',[\s\S]*?await runWorkflowJudge\(\{([\s\S]*?)\n    \}\);/);
+    expect(registration).not.toBeNull();
+    const options = new Function('ENG_REVIEW_EXCERPT', `return ({${registration![1]}});`)(ENG_REVIEW_EXCERPT);
+    const input = readWorkflowJudgeInput({ root: ROOT, ...options });
+    const entry = input.files.find(file => file.kind === 'entrypoint')!;
+    const complete = readFileSync(join(ROOT, options.skillPath), 'utf8');
+    expect(entry.content).toBe(complete.slice(complete.indexOf('# Plan Review Mode')));
+    expect(entry.content).toContain('Do not build features, acceptance suites or benchmarks unless explicitly authorized');
+    expect(entry.content).toContain('## Scope gate');
+    expect(entry.content).toContain('## Section self-check');
+    expect(entry.content).toContain('## EXIT PLAN MODE GATE (BLOCKING)');
+    expect(entry.content.trimEnd()).toMatch(/After success telemetry and cache dispatch, call ExitPlanMode[^\n]*\.$/);
+  });
+
   test('preserves the exact entrypoint excerpt and each complete section in sorted named files', () => {
     const entrypoint = 'excluded preamble\n## Begin\nRead sections/z-last.md when directed.\n## End\nexcluded epilogue';
     const sections = {
@@ -190,17 +207,20 @@ describe('workflow judge file bundle', () => {
   test('generated engineering review includes the scope choices and readiness probe its steps reference', () => {
     const skillPath = 'plan-eng-review/SKILL.md';
     const caller = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
-    const markers = caller.match(/skillPath: 'plan-eng-review\/SKILL\.md',\s+startMarker: '([^']+)',\s+endMarker: '([^']+)'/);
-    expect(markers).not.toBeNull();
-    const [, startMarker, endMarker] = markers!;
-    const input = readWorkflowJudgeInput({ root: ROOT, skillPath, startMarker, endMarker });
+    const registration = caller.match(/testIfSelected\('plan-eng-review\/SKILL\.md sections',[\s\S]*?await runWorkflowJudge\(\{([\s\S]*?)\n    \}\);/);
+    expect(registration).not.toBeNull();
+    const options = new Function('ENG_REVIEW_EXCERPT', `return ({${registration![1]}});`)(ENG_REVIEW_EXCERPT);
+    expect(ENG_REVIEW_EXCERPT.skillPath).toBe(skillPath);
+    const input = readWorkflowJudgeInput({ root: ROOT, ...options });
     const entrypoint = input.files.find(file => file.kind === 'entrypoint')!;
     expect(entrypoint.content).toContain('B) A plan or design doc');
     expect(entrypoint.content).toContain('## Scope gate');
     expect(entrypoint.content.indexOf('## Scope gate')).toBeLessThan(entrypoint.content.indexOf('### Step 0: Scope Challenge'));
     expect(entrypoint.content).toContain('## Web research runs in Aside');
     expect(entrypoint.content).toContain('echo "READY: aside');
-    expect(entrypoint.content.indexOf('echo "READY: aside')).toBeLessThan(entrypoint.content.indexOf('4. **Search check:**'));
+    expect(input.text.indexOf('echo "READY: aside')).toBeLessThan(input.text.indexOf('4. **Search check:**'));
+    expect(entrypoint.content).not.toContain('4. **Search check:**');
+    expect(occurrences(input.text, '4. **Search check:**')).toBe(1);
     expect(occurrences(input.text, '## Scope gate')).toBe(1);
     expect(occurrences(input.text, '### 1. Architecture review')).toBe(1);
     const sections = input.files.filter(file => file.kind === 'section');

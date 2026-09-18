@@ -5,8 +5,16 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { HostConfig } from './host-config';
 
 const SKIP = new Set(['node_modules', '.git', 'dist']);
+
+/** The generator and its coverage checks use the same include-minus-skip rule. */
+export function includesSkill(host: HostConfig, skillDir: string): boolean {
+  const { includeSkills, skipSkills } = host.generation;
+  return (!includeSkills?.length || includeSkills.includes(skillDir))
+    && !skipSkills?.includes(skillDir);
+}
 
 function subdirs(root: string): string[] {
   return fs.readdirSync(root, { withFileTypes: true })

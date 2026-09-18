@@ -36,7 +36,8 @@ import { autoplanSetupDecision, autoplanBlockingQuestionBoundary, type AutoplanS
 import { autoplanPhaseCompletions, type AutoplanPhaseHit } from './helpers/autoplan-phase-observer';
 import { readPlanCountTranscript, type PlanCountTranscript, type NativePublicToolEvent } from './helpers/plan-count-transcript';
 import { readPendingQuestion, pendingQuestionRecorderStatus } from './helpers/plan-count-pending-question';
-import { auditAutoplanMethodReads, loadAutoplanMethodologyBinding, type AutoplanMethodReadAudit } from './helpers/autoplan-method-read-audit';
+import { auditAutoplanMethodReads, loadAutoplanMethodologyBinding, prematureAutoplanPhaseEntry, registerAutoplanPhaseInstructionAliases,
+  type AutoplanMethodReadAudit, type AutoplanPhaseInstruction, type AutoplanPhaseEntryViolation } from './helpers/autoplan-method-read-audit';
 import { getHermeticDirs } from './helpers/hermetic-env';
 import { createPlanCountSnapshotWriter } from './helpers/plan-count-artifacts';
 import { createNativeReviewState } from './helpers/plan-count-fixture';
@@ -78,8 +79,15 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
         gitRun(['commit', '-m', 'init UI-heavy fixture']);
 
         nativeState = createNativeReviewState();
+        // This fixture requires all four phases. Bind exact frozen sources
+        // before launch; a missing source must not leave a live native session.
+        const phaseInstructions: AutoplanPhaseInstruction[] = (['design', 'dx', 'eng'] as const).map((phase, index) => {
+          const canonical = fs.realpathSync(path.join(ROOT, 'autoplan', 'sections', `${phase}-phase.md`));
+          return { phase, requiredPhase: ([1, 2, 2.5] as const)[index]!, paths: [canonical], content: fs.readFileSync(canonical, 'utf8') };
+        });
         const session = await launchClaudePty({
           env: nativeState.env,
+          autoplanArtifactState: nativeState,
           permissionMode: 'plan',
           cwd: tempDir,
           timeoutMs: AUTOPLAN_CHAIN_BUDGET.sessionMs,
@@ -96,7 +104,8 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
         let pendingArtifact: ReturnType<typeof readPendingAutoplanArtifact>;
         let viewportCapturedAt = Date.now();
         let methodologyAudit: AutoplanMethodReadAudit[] = [];
-        let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' | 'incomplete_methodology' | 'blocked_on_question' | 'artifact_permission_failed' = 'timeout';
+        let prematurePhaseEntry: AutoplanPhaseEntryViolation | null = null;
+        let outcome: 'chain_complete' | 'plan_ready' | 'timeout' | 'exited' | 'unsupported_setup' | 'incomplete_methodology' | 'premature_phase_entry' | 'blocked_on_question' | 'artifact_permission_failed' = 'timeout';
         let unsupportedSetup: Extract<AutoplanSetupDecision, { kind: 'unsupported_setup' }> | null = null;
         let blockedQuestion: ReturnType<typeof autoplanBlockingQuestionBoundary> = null;
         let evidence = '';
@@ -115,24 +124,28 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           pendingSetupQuestion = readPendingQuestion(session.pendingQuestionFile, tempDir,
             session.hermeticConfigDir, commandStartedAt, transcript);
           pendingArtifact = readPendingAutoplanArtifact(session.pendingAutoplanArtifactFile, tempDir,
-            session.hermeticConfigDir, session.hermeticSkillStateRoot, commandStartedAt, publicTools, Date.now(), true);
+            session.hermeticConfigDir, session.autoplanArtifactStateRoot, commandStartedAt, publicTools, Date.now(), true, session.autoplanEngTestPlanStateRoot);
           methodologyAudit = auditAutoplanMethodReads(publicTools, prompt =>
             loadAutoplanMethodologyBinding(prompt, [getHermeticDirs().runRoot, nativeState!.env.GSTACK_HOME!]));
           hits = autoplanPhaseCompletions(transcript, commandStartedAt);
+          prematurePhaseEntry = prematureAutoplanPhaseEntry(publicTools, transcript, phaseInstructions, commandStartedAt);
         };
         const capture = (state: string) => {
           artifacts = saveSnapshot({
             skillName: 'autoplan', cwd: tempDir, claudeConfigDir: session.hermeticConfigDir,
             raw: session.rawOutput(), visible: session.visibleText(), viewport,
-            observation: { state, hits, native: transcript, pendingSetupQuestion, pendingArtifact, methodologyAudit, exitCode: session.exitCode(), unsupportedSetup, blockedQuestion,
-              ownedArtifactStateRoot: session.hermeticSkillStateRoot,
-              artifactRecorder:autoplanArtifactRecorderStatus(session.pendingAutoplanArtifactFile, tempDir, session.hermeticConfigDir, session.hermeticSkillStateRoot),
+            observation: { state, hits, native: transcript, pendingSetupQuestion, pendingArtifact, methodologyAudit, prematurePhaseEntry, exitCode: session.exitCode(), unsupportedSetup, blockedQuestion,
+              ownedArtifactStateRoot: session.autoplanArtifactStateRoot,
+              ownedEngTestPlanStateRoot: session.autoplanEngTestPlanStateRoot,
+              artifactRecorder:autoplanArtifactRecorderStatus(session.pendingAutoplanArtifactFile, tempDir, session.hermeticConfigDir, session.autoplanArtifactStateRoot, session.autoplanEngTestPlanStateRoot),
               pendingQuestionRecorder:pendingQuestionRecorderStatus(session.pendingQuestionFile, tempDir, session.hermeticConfigDir),
               retention: 'Current raw/visible/viewport and parsed native metadata only; full parent JSONL retention is not guaranteed.' },
           });
         };
 
         try {
+          if (session.hermeticConfigDir) registerAutoplanPhaseInstructionAliases(phaseInstructions, session.hermeticConfigDir,
+            session.hermeticSkillStateRoot);
           await Bun.sleep(8000);
           session.mark();
           commandStartedAt = Date.now();
@@ -147,9 +160,13 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           let lastCheckpointAt = start;
           const seenSetupQuestions = new Set<string>();
           while (Date.now() - start < budgetMs) {
-            await Bun.sleep(5000);
+            await Bun.sleep(Math.min(5000, budgetMs - (Date.now() - start)));
+            if (Date.now() - start >= budgetMs) break;
             viewportCapturedAt = Date.now();
             viewport = await session.currentScreen();
+            // Wait → current screen → deadline → evidence/input. A screen read
+            // that finishes late cannot authorize an action or a passing result.
+            if (Date.now() - start >= budgetMs) break;
             observe();
             if (Date.now() - lastCheckpointAt >= 30_000) {
               capture('in_progress');
@@ -160,12 +177,17 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
               evidence = viewport.slice(-3000);
               break;
             }
+            if (prematurePhaseEntry) {
+              outcome = 'premature_phase_entry';
+              evidence = JSON.stringify(prematurePhaseEntry);
+              break;
+            }
             const visible = viewport;
 
             // Native hooks exclusively approve owned artifact Edits. Rejection
             // is a failure, and pending hooks cannot fall through to UI input.
             const artifactStatus = autoplanArtifactRecorderStatus(session.pendingAutoplanArtifactFile, tempDir,
-              session.hermeticConfigDir, session.hermeticSkillStateRoot);
+              session.hermeticConfigDir, session.autoplanArtifactStateRoot, session.autoplanEngTestPlanStateRoot);
             const artifactBoundary = autoplanArtifactApprovalBoundary(artifactStatus);
             if (artifactBoundary === 'failed') {
               outcome = 'artifact_permission_failed';
@@ -257,7 +279,10 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
             fullSessionEvidence = diagnosticTail(session.visibleText());
             observe();
             // Final retained records can include a dispatch published after the loop break.
-            if (methodologyAudit.some(audit => !audit.passed) && outcome !== 'artifact_permission_failed') {
+            if (prematurePhaseEntry && outcome !== 'artifact_permission_failed') {
+              outcome = 'premature_phase_entry';
+              evidence = JSON.stringify(prematurePhaseEntry);
+            } else if (methodologyAudit.some(audit => !audit.passed) && outcome !== 'artifact_permission_failed') {
               outcome = 'incomplete_methodology';
               evidence = JSON.stringify(methodologyAudit);
             }
@@ -275,7 +300,7 @@ describeE2E('/autoplan native chain ordering (periodic)', () => {
           );
         }
 
-        if (outcome === 'exited' || outcome === 'timeout' || outcome === 'unsupported_setup' || outcome === 'incomplete_methodology' || outcome === 'artifact_permission_failed') {
+        if (outcome === 'exited' || outcome === 'timeout' || outcome === 'unsupported_setup' || outcome === 'incomplete_methodology' || outcome === 'premature_phase_entry' || outcome === 'artifact_permission_failed') {
           throw new Error(
             `autoplan chain test FAILED: outcome=${outcome}, exitCode=${exitCode}, hits=${JSON.stringify(hits)}\n` +
               `Native transcript: ${transcript.status}; artifacts=${JSON.stringify(artifacts)}\n` +

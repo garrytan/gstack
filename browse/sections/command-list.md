@@ -77,23 +77,23 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `html [selector]` | innerHTML of selector (throws if not found), or full page HTML if no selector given |
 | `links` | All links as "text → href" |
 | `media [--images|--videos|--audio] [selector]` | All media elements (images, videos, audio) with URLs, dimensions, types |
-| `text` | Cleaned page text |
+| `text [selector|@ref]` | Cleaned visible page text, or cleaned text for a CSS selector/@ref when one is provided |
 
 ### Extraction
 | Command | Description |
 |---------|-------------|
-| `archive [path]` | Save complete page as MHTML via CDP |
-| `download <url|@ref> [path] [--base64] [--navigate]` | Download URL or media element to disk using browser cookies. Use --navigate for URLs that trigger browser downloads (CDN redirects, Content-Disposition, anti-bot protected sites) |
-| `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]` | Bulk download all media from page. Writes manifest.json |
+| `archive [path]` | Save complete page as MHTML via CDP. Default path: <temp>/browse-archive-<timestamp>.mhtml. Returns the saved path, size, and MHTML marker. |
+| `download <url|@ref> [path] [--base64] [--navigate]` | Download URL or media element to disk using browser cookies. Default path: <temp>/browse-download-<timestamp>.<ext>. --base64 returns a data:<mime>;base64,... string instead of writing, capped at 10MB. Use --navigate for URLs that trigger browser downloads (CDN redirects, Content-Disposition, anti-bot protected sites). |
+| `scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]` | Bulk download all media from page to --dir (default: <temp>/browse-scrape-<timestamp>). Writes files plus manifest.json with source URL, size, type, success/failure counts. --limit defaults to 50 and caps at 200. |
 
 ### Interaction
 | Command | Description |
 |---------|-------------|
-| `cleanup [--ads] [--cookies] [--sticky] [--social] [--all]` | Remove page clutter (ads, cookie banners, sticky elements, social widgets) |
+| `cleanup [--ads] [--cookies] [--sticky] [--social] [--overlays] [--clutter] [--all]` | Remove page clutter by hiding matched elements. With no flags, defaults to --all. --all includes ads, cookies, sticky, social, overlays, and clutter; individual flags limit the categories. Returns removed element count. |
 | `click <sel>` | Click element |
 | `cookie <name>=<value>` | Set cookie on current page domain |
 | `cookie-import <json>` | Import cookies from JSON file |
-| `cookie-import-browser [browser] [--domain d]` | Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import) |
+| `cookie-import-browser [browser] [--domain d] [--profile p] [--all]` | Import cookies from installed Chromium-family browsers. Browser names are the installed browser IDs shown by detection; common values include comet, chrome, chromium, edge, brave, arc. With --domain, imports only that domain after current-page domain validation; without --domain, opens the picker UI. --profile defaults to Default; --all imports every non-expired cookie only when explicitly passed. |
 | `dialog-accept [text]` | Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response |
 | `dialog-dismiss` | Auto-dismiss next dialog |
 | `fill <sel> <val>` | Fill input |
@@ -117,13 +117,13 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `console [--clear|--errors]` | Console messages (--errors filters to error/warning) |
 | `cookies` | All cookies as JSON |
 | `css <sel> <prop>` | Computed CSS value |
-| `dialog [--clear]` | Dialog messages |
+| `dialog [--clear]` | Captured alert/confirm/prompt messages as text/JSON events. --clear empties the dialog buffer. |
 | `eval <file> [--out <file>] [--raw]` | Run JavaScript from a file in the page context and return result as string. Path must resolve under /tmp or cwd (no traversal). Use eval for multi-line scripts; use js for one-liners. With --out <file>, the result is written to disk (base64 data URL decoded to bytes unless --raw); --out makes the invocation a WRITE (needs write scope, never allowed over the tunnel). |
-| `inspect [selector] [--all] [--history]` | Deep CSS inspection via CDP — full rule cascade, box model, computed styles |
+| `inspect [selector] [--all] [--history]` | Deep CSS inspection via CDP. Default inspects one selector and returns matching element, full rule cascade, box model, and computed styles. --all returns every inspectable element summary; --history returns prior style modifications/inspection state. |
 | `is <prop> <sel|@ref>` | State check on element. Valid <prop> values: visible, hidden, enabled, disabled, checked, editable, focused (case-sensitive). <sel> accepts a CSS selector OR an @ref token from a prior snapshot (e.g. @e3, @c1) — refs are interchangeable with selectors anywhere a selector is expected. |
 | `js <expr> [--out <file>] [--raw]` | Run inline JavaScript expression in the page context and return result as string. Same JS sandbox as eval; the only difference is js takes an inline expr while eval reads from a file. With --out <file>, the result is written to disk instead of returned (a base64 data URL is decoded to raw bytes unless --raw is given) — ideal for rasterizing local renders to PNG without serializing megabytes back through the CLI. --out makes the invocation a WRITE (needs write scope, never allowed over the tunnel). |
-| `network [--clear]` | Network requests |
-| `perf` | Page load timings |
+| `network [--clear]` | Captured network requests as lines with method, status, resource type, and URL. --clear empties the captured request buffer. |
+| `perf` | Page load timings as JSON-ish milliseconds for navigation/load phases |
 | `storage  |  storage set <key> <value>` | Read both localStorage and sessionStorage as JSON. With "set <key> <value>", write to localStorage only (sessionStorage is read-only via this command — set it with `js sessionStorage.setItem(...)`). |
 | `ux-audit` | Extract page structure for UX behavioral analysis — site ID, nav, headings, text blocks, interactive elements. Returns JSON for agent interpretation. |
 
@@ -131,10 +131,10 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | Command | Description |
 |---------|-------------|
 | `diff <url1> <url2>` | Text diff between pages |
-| `pdf [path] [--format letter|a4|legal] [--width <dim> --height <dim>] [--margins <dim>] [--margin-top <dim> --margin-right <dim> --margin-bottom <dim> --margin-left <dim>] [--header-template <html>] [--footer-template <html>] [--page-numbers] [--tagged] [--outline] [--print-background] [--prefer-css-page-size] [--toc] [--tab-id <N>]  |  pdf --from-file <payload.json> [--tab-id <N>]` | Save the current page as PDF. Supports page layout (--format, --width, --height, --margins, --margin-*), structure (--toc waits for Paged.js), branding (--header-template, --footer-template, --page-numbers), accessibility (--tagged, --outline), and --from-file <payload.json> for large payloads. Use --tab-id <N> to target a specific tab. |
+| `pdf [path] [--format letter|a4|legal] [--width <dim> --height <dim>] [--margins <dim>] [--margin-top <dim> --margin-right <dim> --margin-bottom <dim> --margin-left <dim>] [--header-template <html>] [--footer-template <html>] [--page-numbers] [--tagged] [--outline] [--print-background] [--prefer-css-page-size] [--toc] [--tab-id <N>]  |  pdf --from-file <payload.json> [--tab-id <N>]` | Save the current page as PDF. Default path: <temp>/browse-page.pdf. <dim> accepts CSS units like 1in, 72pt, 25mm, 2.54cm; bare numbers are pixels. Supports page layout (--format, --width, --height, --margins, --margin-*), structure (--toc waits briefly for Paged.js), branding (--header-template, --footer-template, --page-numbers), accessibility (--tagged, --outline), and --from-file <payload.json> for large payloads. Use --tab-id <N> to target a specific tab. |
 | `prettyscreenshot [--scroll-to sel|text] [--cleanup] [--hide sel...] [--width px] [path]` | Clean screenshot with optional cleanup, scroll positioning, and element hiding |
 | `responsive [prefix]` | Screenshots at mobile (375x812), tablet (768x1024), desktop (1280x720). Saves as {prefix}-mobile.png etc. |
-| `screenshot [--selector <css>] [--viewport] [--clip x,y,w,h] [--base64] [selector|@ref] [path]` | Save screenshot. --selector targets a specific element (explicit flag form). Positional selectors starting with ./#/@/[ still work. |
+| `screenshot [--selector <css>] [--viewport] [--clip x,y,w,h] [--base64] [selector|@ref] [path]` | Save screenshot. Default path: <temp>/browse-screenshot.png. Default capture is full-page; --viewport captures only the viewport. --selector targets a specific element; --clip uses x,y,width,height pixels. --base64 returns data:image/png;base64,... instead of writing, capped at 10MB. Positional selectors starting with ./#/@/[ still work. |
 
 ### Snapshot
 | Command | Description |
@@ -146,10 +146,10 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 |---------|-------------|
 | `chain  (JSON via stdin)` | Run a sequence of commands from JSON on stdin. One JSON array of arrays, each inner array is [cmd, ...args]. Output is one JSON result per command. Pipe a JSON array (e.g. `[["goto","https://example.com"],["text","h1"]]`) to `$B chain` and it runs the goto then the text command in order. Stops at the first error. |
 | `domain-skill save|list|show|edit|promote-to-global|rollback|rm <host?>` | Per-site notes the agent writes for itself. Host is derived from the active tab. Lifecycle: `save` adds a quarantined note → after N=3 successful uses without the prompt-injection classifier flagging it, the note auto-promotes to "active" → `promote-to-global` lifts it to the global tier (machine-wide, all projects). The classifier flag is set automatically by the L4 prompt-injection scan; agents do not set it manually. Use `list` / `show` to inspect, `edit` to revise, `rollback` to demote, `rm` to tombstone. |
-| `frame <sel|@ref|--name n|--url pattern|main>` | Switch to iframe context (or main to return) |
-| `inbox [--clear]` | List messages from sidebar scout inbox |
+| `frame <sel|@ref|--name n|--url pattern|main>` | Switch command context to an iframe, or `main` to return to the top page. <sel> is CSS, @ref comes from snapshot, --name matches frame name exactly, and --url pattern is a substring match against frame URL. |
+| `inbox [--clear]` | List sidebar inbox messages from the visible browser extension as JSON/text; --clear removes them after reading. |
 | `skill list|show|run|test|rm <name?> [--arg k=v]... [--timeout=Ns]` | Run a browser-skill: deterministic Playwright script that drives the daemon over loopback HTTP. 3-tier lookup (project > global > bundled). Spawned scripts get a per-spawn scoped token (read+write only) — never the daemon root token. |
-| `watch [stop]` | Passive observation — periodic snapshots while user browses |
+| `watch [stop]` | Start passive observation mode: records periodic snapshots while the user browses and blocks mutation commands. Use watch stop to end observation and return the collected snapshot summary. |
 
 ### Tabs
 | Command | Description |

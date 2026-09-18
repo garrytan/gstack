@@ -1,0 +1,39 @@
+{
+  "source": "90f099817ac7e56cddafbd6fdac4c12dfd70f4a4",
+  "kind": "captured-public-native-input",
+  "originalPaidOutcome": "pending at capture; this fixture assigns no paid result",
+  "observationSha256": "91c51a298021193406ea2ad3563061193580a96d9da5761a5f337587f719a5c8",
+  "captureAt": "2026-09-15T16:14:21.363Z",
+  "call": {
+    "sessionId": "8cb0e220-9725-4e5f-a661-26a09d18a235",
+    "toolUseId": "toolu_01HoQT3mLxYW2nCAwcKW3xUd",
+    "questions": [
+      {
+        "question": "D13 \u2014 How should the five IDP validation calls be issued concurrently?\nProject/branch/task: Multi-tenant Auth Refactor on `main`; PLAN.md:31-32 proposes Promise.all over five independent IDP calls.\nELI10: Today the five checks run one after another, so login waits five round trips. Running them together cuts that to one round trip, which is the right idea. Promise.all does that, but if any one call fails it throws immediately and throws away the other four results, so the log can only say \"something failed\" and one slow IDP endpoint with no timeout leaves the user waiting forever. Promise.allSettled waits for all five, reports each one's outcome, and with a per-call timeout every call is bounded; the D9 classifier then names exactly which check failed.\nStakes if we pick wrong: Promise.all means the first IDP incident produces logs that say \"validation failed\" for every tenant with no hint which of five endpoints is down; no timeout means a hung IDP call hangs the login request.\nRecommendation: A because it is the same one-line change in shape, keeps the latency win, and turns \"something failed\" into \"the introspection call timed out at 2000 ms\".\nCompleteness: A=10/10, B=7/10, C=7/10\nNet: full per-call attribution and bounded waits vs. a slightly simpler primitive that hides which call broke.",
+        "header": "R7 IDP calls",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Promise.allSettled + per-call timeout (default 2000 ms), classify each failure (recommended)",
+            "description": "\u2705 Latency drops to ~1x the slowest call, and every rejection is named in the log with its call and tenant (human: ~3h / CC: ~10 min).\n\u2705 A hung IDP endpoint is bounded by the timeout instead of hanging the login request.\n\u274c Slightly more code: a settled-result mapper and a timeout wrapper; the 2000 ms default must be checked against the IDP's real p99."
+          },
+          {
+            "label": "Promise.all as planned",
+            "description": "\u2705 One-line change; the latency win is the same on the happy path.\n\u2705 Fewer lines than the settled mapper.\n\u274c First rejection discards the other four outcomes; no per-call timeout, so one slow endpoint stalls the login."
+          },
+          {
+            "label": "Keep the five calls sequential",
+            "description": "\u2705 Zero change; each call's failure is naturally attributed because they run in order.\n\u2705 Lowest instantaneous load on the IDP.\n\u274c Login latency stays ~5x a single round trip on every request."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D13 \u2014 How should the five IDP validation calls be issued concurrently?\nProject/branch/task: Multi-tenant Auth Refactor on `main`; PLAN.md:31-32 proposes Promise.all over five independent IDP calls.\nELI10: Today the five checks run one after another, so login waits five round trips. Running them together cuts that to one round trip, which is the right idea. Promise.all does that, but if any one call fails it throws immediately and throws away the other four results, so the log can only say \"something failed\" and one slow IDP endpoint with no timeout leaves the user waiting forever. Promise.allSettled waits for all five, reports each one's outcome, and with a per-call timeout every call is bounded; the D9 classifier then names exactly which check failed.\nStakes if we pick wrong: Promise.all means the first IDP incident produces logs that say \"validation failed\" for every tenant with no hint which of five endpoints is down; no timeout means a hung IDP call hangs the login request.\nRecommendation: A because it is the same one-line change in shape, keeps the latency win, and turns \"something failed\" into \"the introspection call timed out at 2000 ms\".\nCompleteness: A=10/10, B=7/10, C=7/10\nNet: full per-call attribution and bounded waits vs. a slightly simpler primitive that hides which call broke.": "Promise.allSettled + per-call timeout (default 2000 ms), classify each failure (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-15T16:09:23.575Z"
+  }
+}

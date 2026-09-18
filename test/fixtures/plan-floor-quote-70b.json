@@ -1,0 +1,125 @@
+{
+  "qualification": "Original public judge responses. These retained failures are not rejudged or given paid-pass credit.",
+  "captures": [
+    {
+      "source": "70b0910557ee9f0eecab1bb7cb7ca0d5898b5214",
+      "receiptSha256": "5bb834e5241da1ee0955749cd6a77054dccbc4eaa3641d17463fac0a1e782628",
+      "inputSha256": "9e9f159912c750d1516d34221ea36120a5b8d9c35cf1a8a809b24e540114e2e5",
+      "input": {
+        "seed": "Proceed directly to the requested review; skip the optional /office-hours prerequisite.\n\nThis actor has already declined routing setup, cross-project recall and outside reviewers.\n\nPreserve the supplied product scope. For review-mode questions choose HOLD SCOPE (CEO), DX POLISH (DX), or the full BIG CHANGE review (Eng). Design: review all seven dimensions.\n\nPlease review this plan thoroughly. As you go, write your plan-mode plan to /tmp/g-ors65b0q/gstack-paid-shard-NWybwp/tmp/gstack-plan-count-0tymh1/gstack-test-plan-ceo-floor.md (use Edit/Write to that exact path).\n\n# Plan: Launch a \"developer-friendly\" pricing tier\n\n## Goal\nIncrease developer adoption.\n\n## Success metric\nMore signups.\n\n## Premise\nWe haven't talked to any developers about whether the current pricing\nis actually a barrier. The team agreed it \"feels like\" it should be cheaper.",
+        "candidate": {
+          "transport": "native",
+          "identity": "679ef0a1-c751-4686-9fe4-a03b179ea0fb:toolu_01PTKh1xv6SQfDNZm74bsKW6:question:0",
+          "question": {
+            "question": "D1 \u2014 PREMISE: How should the plan handle its own admission that nobody has asked developers whether pricing is the barrier?\nProject/branch/task: `main` in the plan-review fixture; reviewing PLAN.md \"developer-friendly pricing tier.\"\nELI10: The plan wants to make the product cheaper so more developers sign up, but the team has never asked a developer if price is why they are not signing up. It could be onboarding, docs, or needing a credit card. A price cut is nearly impossible to undo (raising prices later drives away the people you just won), so guessing wrong costs revenue forever and may not move adoption at all.\nStakes if we pick wrong: permanent margin loss with flat adoption, or months spent on the wrong lever while the real barrier goes untouched.\nRecommendation: A because two weeks of interviews plus a funnel pull from data you already have decides whether the tier should exist and what shape it takes, before any irreversible price move.\nCompleteness: A=9/10, B=7/10, C=3/10\nNet: trading a two-week delay against an irreversible pricing bet made on zero evidence.",
+            "header": "Premise gate",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Validate first, then build (recommended)",
+                "description": "Add a prerequisite phase to the plan: 10-15 developer interviews (mix of churned, never-converted and active), pull pricing-page and checkout drop-off from existing analytics, and write a one-page go/no-go with explicit thresholds. The tier is built only if price clears as a top-2 barrier. Effort: S. Risk: low. Reuse: existing analytics and billing checkout data. Verification: go/no-go doc cites interview count and funnel numbers. \u2705 Cheapest possible test of the plan's core hypothesis, using data the company already has. \u2705 Also surfaces the tier's right shape (free vs cheap vs usage-based) instead of guessing. \u2705 Keeps the price change reversible until evidence exists. \u274c Delays any launch by roughly two weeks (human) / ~1 day synthesis (CC) and may conclude the tier should not ship."
+              },
+              {
+                "label": "Ship as a reversible experiment",
+                "description": "Keep the tier in scope but ship it behind a feature flag to a cohort or geography for 60-90 days with a pre-registered kill criterion (e.g. activation-adjusted signup lift below X% or revenue cannibalization above Y% reverts it). Effort: M. Risk: medium. Reuse: existing feature-flag and analytics plumbing if present. Verification: kill criterion written into the plan and dashboarded before launch. \u2705 Gets real market data rather than interview opinions. \u2705 Keeps the door two-way for the experiment window. \u274c Public price points are sticky; even a flagged tier gets screenshotted and expected, and reverting reads as a price hike. \u274c 60-90 days to signal versus two weeks for A, and it still does not tell you *why* developers did or did not convert."
+              },
+              {
+                "label": "Proceed as written",
+                "description": "Launch the tier with no validation, accept the premise risk and record it in the plan. Effort: S (zero extra work). Risk: high. Reuse: n/a. Verification: none. \u2705 Fastest path to a shipped tier if the hunch happens to be right. \u2705 No research or flag infrastructure needed. \u274c One-way pricing decision on zero evidence; if price is not the barrier you lose margin and learn nothing about the real blocker."
+              }
+            ]
+          }
+        }
+      },
+      "rawAssessment": {
+        "kind": "finding",
+        "seedQuote": "We haven't talked to any developers about whether the current pricing is actually a barrier. The team agreed it \"feels like\" it should be cheaper.",
+        "questionQuote": "How should the plan handle its own admission that nobody has asked developers whether pricing is the barrier?",
+        "optionIndex": 1,
+        "optionQuote": "Add a prerequisite phase to the plan: 10-15 developer interviews (mix of churned, never-converted and active), pull pricing-page and checkout drop-off from existing analytics, and write a one-page go/no-go with explicit thresholds.",
+        "reason": "The plan proposes an irreversible pricing change on an unvalidated assumption, and the question asks which approach should resolve this concrete premise gap before launch."
+      },
+      "originalValidationError": "Error: Floor assessment lacks exact seed/question/option evidence"
+    },
+    {
+      "source": "70b0910557ee9f0eecab1bb7cb7ca0d5898b5214",
+      "receiptSha256": "d636ee51845cb86f95926fe9d093980e550e294052d8d1ca73defe08678f4413",
+      "inputSha256": "ac2319f65bde0ca9dce39bbc5527026ac4cd7baca6913a4a889b5c556431b6e4",
+      "input": {
+        "seed": "Proceed directly to the requested review; skip the optional /office-hours prerequisite.\n\nThis actor has already declined routing setup, cross-project recall and outside reviewers.\n\nPreserve the supplied product scope. For review-mode questions choose HOLD SCOPE (CEO), DX POLISH (DX), or the full BIG CHANGE review (Eng). Design: review all seven dimensions.\n\nPlease review this plan thoroughly. As you go, write your plan-mode plan to /tmp/g-ors65b0q/gstack-paid-shard-AzEYGx/tmp/gstack-plan-count-A5RqmE/gstack-test-plan-design-floor.md (use Edit/Write to that exact path).\n\n# Plan: Marketing landing page\n\n## Layout\nAll headings, taglines, and body copy will be center-aligned for a\n\"clean modern look.\" The hero h1 sits 8px above the subhead with no\nbreathing room; the CTA button is the same visual weight as a\nsecondary \"Learn more\" link directly beside it.",
+        "candidate": {
+          "transport": "native",
+          "identity": "bd3122bd-2c88-4b0c-b338-b825e9237f32:toolu_01AgwTK6tprsPNQbGL1t9zCC:question:0",
+          "question": {
+            "header": "Page IA",
+            "question": "D1 \u2014 Issue 1: Define the page structure beyond the hero?\n\nProject/branch/task: gstack-plan-count-A5RqmE on `main`, reviewing the Marketing landing page plan.\n\nELI10: Right now the plan describes the top of the page and nothing else. A visitor scrolls and finds whatever the implementer invented that afternoon. A landing page is a sequence of scenes: each one has one job and moves the visitor toward the CTA. If we don't write down the sequence, we get the template every AI-built site has.\n\nStakes if we pick wrong: visitor can't answer \"what is this and why should I care\" by scanning headlines; bounce.\n\nRecommendation: 1A because a written section list with one job per section is the cheapest way to stop template drift and it's what the implementer actually needs.\n\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\n\nNet: you're trading 10 minutes of deciding the story now against an implementer deciding it for you.",
+            "options": [
+              {
+                "label": "1A Full IA + ASCII map (recommended)",
+                "description": "\u2705 Plan gets an ordered section list, one job and one headline each, plus an ASCII page diagram (human: ~1h / CC: ~5 min). \u2705 Constraint worship applied: max 4 sections below the hero, each earns its place. \u274c Requires you to confirm the product story now; placeholders if product details unknown."
+              },
+              {
+                "label": "1B Hero + one proof section only",
+                "description": "\u2705 Minimal page: hero, one proof/detail section, closing CTA; fast to build. \u2705 Hard to bloat; no cards, no grids. \u274c Weak for visitors who need more than one argument before acting."
+              },
+              {
+                "label": "1C Defer, hero only in plan",
+                "description": "\u2705 No decision now; plan stays as written. \u274c Implementer ships the default hero\u21923 features\u2192testimonials\u2192pricing rhythm, the most recognizable AI layout."
+              }
+            ],
+            "multiSelect": false
+          }
+        }
+      },
+      "rawAssessment": {
+        "kind": "finding",
+        "seedQuote": "The hero h1 sits 8px above the subhead with no breathing room; the CTA button is the same visual weight as a secondary \"Learn more\" link directly beside it.",
+        "questionQuote": "Right now the plan describes the top of the page and nothing else. A visitor scrolls and finds whatever the implementer invented that afternoon.",
+        "optionIndex": 1,
+        "optionQuote": "Plan gets an ordered section list, one job and one headline each, plus an ASCII page diagram",
+        "reason": "The question identifies a concrete missing requirement in the seed (page structure beyond the hero) and offers three remedies, with option 1A providing the fullest specification."
+      },
+      "originalValidationError": "Error: Floor assessment lacks exact seed/question/option evidence"
+    },
+    {
+      "source": "70b0910557ee9f0eecab1bb7cb7ca0d5898b5214",
+      "receiptSha256": "b016424ba40a1c3f23384c66bfe6018b52e795bd584806699296cab1447fe75f",
+      "inputSha256": "21f2e9b1281261eabf2fd3527fb378140558183c75429ebb42e2305c88eca9df",
+      "input": {
+        "seed": "Proceed directly to the requested review; skip the optional /office-hours prerequisite.\n\nThis actor has already declined routing setup, cross-project recall and outside reviewers.\n\nPreserve the supplied product scope. For review-mode questions choose HOLD SCOPE (CEO), DX POLISH (DX), or the full BIG CHANGE review (Eng). Design: review all seven dimensions.\n\nPlease review this plan thoroughly. As you go, write your plan-mode plan to /tmp/g-ors65b0q/gstack-paid-shard-NWybwp/tmp/gstack-plan-count-7cWsBM/gstack-test-plan-ceo-floor.md (use Edit/Write to that exact path).\n\n# Plan: Launch a \"developer-friendly\" pricing tier\n\n## Goal\nIncrease developer adoption.\n\n## Success metric\nMore signups.\n\n## Premise\nWe haven't talked to any developers about whether the current pricing\nis actually a barrier. The team agreed it \"feels like\" it should be cheaper.",
+        "candidate": {
+          "transport": "native",
+          "identity": "ba3a59d1-8535-471d-81db-0c5b4ba5bc14:toolu_014Skbkn5oXHVDJU5HEWar84:question:0",
+          "question": {
+            "question": "D1 \u2014 R1: Should the tier launch be gated on validating that price is actually the adoption barrier?\nProject/branch/task: gstack-plan-count-7cWsBM on main; CEO review (HOLD SCOPE) of the developer-friendly pricing tier plan.\nELI10: The plan says pricing \"feels like\" it should be cheaper, but nobody has asked a developer. If price is not the real barrier (onboarding friction and time-to-first-value usually are), a cheaper tier costs revenue and changes nothing about adoption. Price cuts are also a one-way door: raising prices later angers the developers you just won.\nStakes if we pick wrong: Months of work and a permanent revenue haircut spent on a hypothesis that two weeks of interviews could have killed or confirmed.\nRecommendation: A because a two-week validation sprint costs less than one month of the tier's discount and settles the premise before the one-way door.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: A trades two weeks of calendar for knowing; B trades revenue and some trust for learning in public; C trades everything on a feeling.",
+            "header": "Premise gate",
+            "options": [
+              {
+                "label": "Validate before launch (recommended)",
+                "description": "Gate the launch on a 2-week validation sprint: 10-15 developer interviews, a Van Westendorp price-sensitivity survey, and funnel analysis of where prospects drop off (pricing page vs. onboarding). Ship only if a written kill criterion is passed. Effort: M (human: ~2 weeks / CC: ~2 hours to draft interview script, survey and analysis). Risk: low. Reuse: existing signup funnel analytics and past support/sales conversations. Verification coverage: written hypothesis, kill criterion and evidence memo before launch. \u2705 Settles the premise before an irreversible public price cut \u2705 Produces the price point and packaging from developer data instead of a feeling \u274c Delays launch by about two weeks of calendar time"
+              },
+              {
+                "label": "Launch as instrumented experiment",
+                "description": "Ship the tier behind a pricing-page A/B test to a fraction of traffic with cohort tracking, treating launch as the validation. Effort: M (human: ~1 week / CC: ~1 hour for flag and tracking plan). Risk: medium. Reuse: existing feature flags and analytics. Verification coverage: cohort dashboards and a pre-registered decision date. \u2705 Learns from real behavior rather than stated preference \u2705 Keeps the launch on the current timeline \u274c A public price you later remove is a one-way door with developer trust; test exposure still leaks to forums and screenshots"
+              },
+              {
+                "label": "Proceed as written",
+                "description": "Launch the tier with no premise validation, as the current plan states. Effort: S (zero additional work). Risk: high. Reuse: none. Verification coverage: none beyond the current signup count. \u2705 Fastest path to a shipped tier \u2705 No research overhead for the team \u274c Bets revenue and roadmap on an untested feeling; if price is not the barrier you cannot tell why adoption did not move"
+              }
+            ],
+            "multiSelect": false
+          }
+        }
+      },
+      "rawAssessment": {
+        "kind": "finding",
+        "seedQuote": "We haven't talked to any developers about whether the current pricing is actually a barrier. The team agreed it \"feels like\" it should be cheaper.",
+        "questionQuote": "Should the tier launch be gated on validating that price is actually the adoption barrier?",
+        "optionIndex": 1,
+        "optionQuote": "Gate the launch on a 2-week validation sprint: 10-15 developer interviews, a Van Westendorp price-sensitivity survey, and funnel analysis of where prospects drop off",
+        "reason": "The question asks whether to validate an untested adoption-barrier premise before an irreversible public price cut, offering concrete remedies with risk and effort tradeoffs."
+      },
+      "originalValidationError": "Error: Floor assessment lacks exact seed/question/option evidence"
+    }
+  ]
+}

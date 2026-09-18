@@ -158,6 +158,22 @@ describe('generateAskUserFormat — 5+ option split rule (slim inline + docs poi
     expect(out).toMatch(/Read on demand when N>4/);
   });
 
+  test('dependency repair routes to one candidate without approving a package or a broken set', () => {
+    const source = fs.readFileSync(path.resolve(import.meta.dir, '../docs/askuserquestion-split.md'), 'utf8');
+    const repair = source.split('**Step 1 — validate dependencies and capacity.**')[1]?.split('**Step 2')[0] ?? '';
+    const text = repair.replace(/\s+/g, ' ');
+    expect(text).toContain('actual prior answers');
+    expect(text).toContain('This routing answer changes no disposition');
+    expect(text).toContain('For the named candidate, fire one `D<N>.revise-<k>` with the standard **Include / Defer / Cut / Hold** menu');
+    expect(text).toContain("Hold all other candidates' prior answers fixed");
+    expect(text).toContain('Revalidate dependencies and capacity after the answer');
+    expect(text).toContain('never silently cut, swap or include another candidate');
+    expect(text).toContain('A Hold stops the chain');
+    expect(text).toContain('report the unresolved blocking conflict');
+    expect(text).toContain('Do not confirm an incoherent set as ready to implement');
+    expect(text).not.toContain('accept the broken state');
+  });
+
   test('regression: orphan "12." prefix removed from CJK rule', () => {
     expect(out).not.toContain('12. **Non-ASCII');
     expect(out).toContain('**Non-ASCII characters');
@@ -216,6 +232,13 @@ describe('generateAskUserFormat — runtime-failure prose fallback', () => {
   test('prose fallback tells the user to reply with a letter, then STOP', () => {
     expect(out).toMatch(/reply with a letter/i);
     expect(out).toMatch(/STOP and wait/i);
+  });
+
+  test('prose questions carry their checked identity on the reply line only when tuning is enabled', () => {
+    const layout = out.slice(out.indexOf('Layout:'), out.indexOf('**Continuation'));
+    expect(layout).toContain('listing the offered selectors');
+    expect(layout).toContain('With `QUESTION_TUNING: true`');
+    expect(layout).toContain('append the checked `<gstack-qid:{question_id}>` to the explicit reply line');
   });
 
   // OV2: the former "tool_use, not prose" assertions must carry the qualifier so the

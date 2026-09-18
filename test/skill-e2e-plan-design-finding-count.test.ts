@@ -49,6 +49,15 @@ const existingInteractionStates = [
   'and Cancel navigates back immediately without a confirmation. When dirty',
   'and idle, Reset and Cancel use their existing discard confirmations. Their',
   '44px geometry is unchanged; the disabled style is separate from pending feedback.',
+  'The existing ErrorSummary mounts in the status/error area below the action',
+  'group and above Profile. It links each invalid field; focus goes to the first',
+  'invalid field and the summary is not a second live region. Preserve that slot.',
+  'The existing error/Retry row is inline above 640px with an 8px gap. At 640px',
+  'and below, Retry wraps below the text as a full-width 44px ghost button,',
+  'outside the live region; long errors fit 320px without horizontal scroll.',
+  'The existing Export action names downloads account-settings-YYYY-MM-DD.json',
+  'using the local date, with no account identifiers. The browser adds its usual',
+  'duplicate-name suffix for repeated exports. Preserve this download behavior.',
 ];
 
 // A known surrounding design prevents missing layout/journey/state contracts

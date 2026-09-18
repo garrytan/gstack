@@ -18,8 +18,8 @@ for (const { name: host } of ALL_HOST_CONFIGS) {
     const preparation = outsideVoiceInvocation(context(host), { timeoutMs: 300000, purpose: 'design-direction' });
     expect(preparation).toContain('missing Recommendation marker');
     expect(preparation).not.toMatch(/severity|no.findings|clean\/PASS/i);
-    expect(preparation.includes('Claude Code review/challenge has no tools, git, or path access')).toBe(host === 'codex');
-    expect(preparation).toContain('Include actual plan/spec/source content');
+    expect(preparation.includes('Claude Code has no tools, git or path access')).toBe(host === 'codex');
+    expect(preparation).toContain('including actual plan/spec/source');
     expect(text).toContain('outside_status="unavailable"');
     expect(text).toContain('otherwise \"none\"');
     expect(text).toContain('run the command twice: one record for each voice, including any unavailable voice');

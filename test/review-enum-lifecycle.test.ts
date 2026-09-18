@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
+import { SESSION_DRAIN_GRACE_MS } from './helpers/session-runner';
 import { E2E_TOUCHFILES } from './helpers/touchfiles';
 
 const source=fs.readFileSync(path.join(import.meta.dir,'skill-e2e-review.test.ts'),'utf8');
@@ -9,7 +10,7 @@ async function exercise(scenarios: Array<'success'|'timeout'|'wrong-report'|'bro
   const setups:any[]=[],done:any[]=[],callbacks:any[]=[],rows:any[]=[],calls:any[]=[];
   const files=new Map<string,string>(); let outer=0,index=0;
   const args: Record<string,any>={
-    expect,JUDGE_MS,CAPTURE_MS,ROOT:'/source',runId:'synthetic-run',process:{pid:123,env:{EVALS_RUN_ID:'synthetic-controller'}},
+    expect,JUDGE_MS,CAPTURE_MS,SESSION_DRAIN_GRACE_MS,ROOT:'/source',runId:'synthetic-run',process:{pid:123,env:{EVALS_RUN_ID:'synthetic-controller'}},
     beforeAll:(fn:any)=>setups.push(fn),afterAll:(fn:any)=>done.push(fn),
     describeIfSelected:(_title:string,names:string[],fn:any)=>{if(names.includes('review-enum-completeness'))fn();},
     testConcurrentIfSelected:(name:string,fn:any,timeout:number)=>{expect(name).toBe('review-enum-completeness');callbacks.push(fn);outer=timeout;},
@@ -35,7 +36,7 @@ async function exercise(scenarios: Array<'success'|'timeout'|'wrong-report'|'bro
 }
 
 test('Enum caller reserves cleanup time without extending the model execution budget', async()=>{
-  const x=await exercise(['success']);expect(x.outer).toBe(JUDGE_MS+6000);expect(x.errors).toEqual([undefined]);expect(x.rows.map(r=>r.passed)).toEqual([true]);
+  const x=await exercise(['success']);expect(x.outer).toBe(JUDGE_MS+SESSION_DRAIN_GRACE_MS+5000);expect(x.errors).toEqual([undefined]);expect(x.rows.map(r=>r.passed)).toEqual([true]);
 });
 
 test('Enum retries keep distinct capture identities and public diagnostics',async()=>{

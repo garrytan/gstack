@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { E2E_TOUCHFILES } from './helpers/touchfiles';
+import { OFFICE_HOURS_BUN_GRACE_MS, runRecordedOfficeHoursAttempt } from './helpers/office-hours-attempt';
 
 const source = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-office-hours.test.ts'), 'utf8');
 const owners = ['office-hours-forcing-energy', 'office-hours-builder-wildness'] as const;
@@ -10,25 +11,30 @@ type Owner = typeof owners[number];
 type Scenario = { exitReason?: string; artifact?: 'missing' | 'short'; scores?: { axis_a: number; axis_b: number; reasoning: string }; judgeError?: Error };
 
 async function exercise(owner: Owner, scenarios: Scenario[]) {
-  // Evaluate the actual callbacks with all external effects replaced. No SDK or judge module is imported.
+  // Evaluate the actual callbacks and recording helper with external effects
+  // replaced. The collector stays in memory; no SDK or judge is invoked.
   let executable = source;
   for (const declaration of source.matchAll(/^import[\s\S]*?;\n/gm)) executable = executable.replace(declaration[0], '');
   const js = new Bun.Transpiler({ loader: 'ts', target: 'bun' }).transformSync(executable);
   const setups: Array<() => void> = [], finalizers: Array<() => void> = [];
   const callbacks = new Map<string, () => Promise<void>>();
   const files = new Map<string, string>(), records: any[] = [], calls: any[] = [], judged: any[] = [], removed: string[] = [];
-  const collector = {};
   let index = -1, current: Scenario = {}, currentResult: any;
+  const collector = { addTest(entry: any) {
+    expect(entry.name).toBe('/' + owner); expect(entry.tier).toBe('e2e');
+    expect(entry.transcript).toBe(currentResult.transcript);
+    records.push({ attempt: index, result: currentResult, ...structuredClone(entry) });
+  } };
   const args: Record<string, any> = {
     expect, beforeAll: (fn: () => void) => setups.push(fn), afterAll: (fn: () => void) => finalizers.push(fn),
-    CAPTURE_MS, CAPTURE_LONG_MS, ROOT: '/source', runId: 'synthetic-posture-run', evalsEnabled: true,
+    CAPTURE_MS, CAPTURE_LONG_MS, OFFICE_HOURS_BUN_GRACE_MS, runRecordedOfficeHoursAttempt,
+    ROOT: '/source', runId: 'synthetic-posture-run', evalsEnabled: true,
     describeIfSelected: (_title: string, _names: string[], fn: () => void) => fn(),
-    testConcurrentIfSelected: (name: string, fn: () => Promise<void>, timeout: number) => { expect(timeout).toBe(CAPTURE_LONG_MS); callbacks.set(name, fn); },
-    createEvalCollector: () => collector, finalizeEvalCollector: () => {}, logCost: () => {}, console: { log: () => {} },
-    recordE2E: (target: unknown, name: string, suite: string, result: unknown, extra: any) => {
-      expect(target).toBe(collector); expect(result).toBe(currentResult); expect(name).toBe('/' + owner);
-      records.push({ attempt: index, name, suite, result, ...structuredClone(extra) });
-    },
+    testConcurrentIfSelected: (name: string, fn: () => Promise<void>, timeout: number) => { expect(timeout).toBe(CAPTURE_LONG_MS + OFFICE_HOURS_BUN_GRACE_MS); callbacks.set(name, fn); },
+    EvalCollector: class { constructor(tier: string, _runId: unknown, suffix: string) {
+      expect(tier).toBe('e2e'); expect(suffix).toBe('office-hours'); return collector;
+    } },
+    finalizeEvalCollector: () => {}, logCost: () => {}, console: { log: () => {} },
     spawnSync: () => ({ status: 0 }), path, os: { tmpdir: () => '/tmp' },
     fs: {
       mkdtempSync: (prefix: string) => prefix + 'owned', mkdirSync: () => {}, copyFileSync: () => {}, cpSync: () => {},
@@ -40,14 +46,18 @@ async function exercise(owner: Owner, scenarios: Scenario[]) {
       index++; current = scenarios[index]!; expect(current).toBeDefined(); calls.push(opts);
       expect(opts.testName).toBe(owner); expect(opts.maxTurns).toBe(8); expect(opts.timeout).toBe(CAPTURE_MS);
       expect(opts.model).toBe('claude-sonnet-4-6'); expect(opts.runId).toBe('synthetic-posture-run');
+      expect(opts.signal).toBeInstanceOf(AbortSignal);
       expect(opts.prompt).toContain('Skip any AskUserQuestion');
       const file = path.join(opts.workingDirectory, owner === owners[0] ? 'q3.md' : 'unlocks.md');
       files.delete(file);
       if (current.artifact !== 'missing') files.set(file, current.artifact === 'short' ? 'short' : 'public response '.repeat(30));
-      currentResult = { exitReason: current.exitReason ?? 'success', browseErrors: [], durationMs: 123 + index, costUsd: 0.11, output: 'public completion' };
+      currentResult = { exitReason: current.exitReason ?? 'success', browseErrors: [], duration: 123 + index,
+        costEstimate: { estimatedCost: 0.11, turnsUsed: 2, estimatedTokens: 100 },
+        toolCalls: [], transcript: [], model: opts.model, output: 'public completion' };
       return currentResult;
     },
-    judgePosture: async (mode: string, text: string) => {
+    judgePosture: async (mode: string, text: string, signal: AbortSignal) => {
+      expect(signal).toBe(calls.at(-1).signal);
       expect(mode).toBe(owner === owners[0] ? 'forcing' : 'builder'); expect(text.length).toBeGreaterThan(200);
       judged.push({ attempt: index, mode });
       if (current.judgeError) throw current.judgeError;

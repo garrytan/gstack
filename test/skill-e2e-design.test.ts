@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest, type SkillTestResult } from './helpers/session-runner';
+import { OFFICE_HOURS_BUN_GRACE_MS, runRecordedOfficeHoursAttempt } from './helpers/office-hours-attempt';
+import { resolveEvalModel } from '../lib/eval-model';
 import { callJudge } from './helpers/llm-judge';
 import {
   ROOT, runId, evalsEnabled, selectedTests,
@@ -414,13 +416,25 @@ describeIfSelected('Plan Design Review E2E', ['plan-design-review-plan-mode', 'p
   }
 
   testConcurrentIfSelected('plan-design-review-plan-mode', async () => {
-    const reviewDir = setupReviewDir();
+    let reviewDir: string | undefined;
+    let planBefore = '';
+    const cleanup = () => {
+      if (reviewDir) try { fs.rmSync(reviewDir, { recursive: true, force: true }); } catch {}
+    };
     try {
-      const run = (cmd: string, args: string[]) =>
-        spawnSync(cmd, args, { cwd: reviewDir, stdio: 'pipe', timeout: 5000 });
+      await runRecordedOfficeHoursAttempt({
+        collector: evalCollector, name: '/plan-design-review plan-mode', suite: 'Plan Design Review E2E',
+        model: process.env.EVALS_MODEL ?? resolveEvalModel('capture'),
+        // Keep recording/cancellation grace inside the existing 600s Bun wall.
+        budgetMs: CAPTURE_LONG_MS - OFFICE_HOURS_BUN_GRACE_MS,
+        run: async signal => {
+          try {
+            reviewDir = setupReviewDir();
+            const run = (cmd: string, args: string[]) =>
+              spawnSync(cmd, args, { cwd: reviewDir, stdio: 'pipe', timeout: 5000 });
 
-      // Create a plan file with intentional design gaps
-      fs.writeFileSync(path.join(reviewDir, 'plan.md'), `# Plan: User Dashboard
+            // Preserve the original complete seed for byte-level edit evidence.
+            fs.writeFileSync(path.join(reviewDir, 'plan.md'), `# Plan: User Dashboard
 
 ## Context
 Build a user dashboard that shows account stats, recent activity, and settings.
@@ -438,59 +452,68 @@ Build a user dashboard that shows account stats, recent activity, and settings.
 - API endpoint: GET /api/dashboard
 - WebSocket for real-time activity updates
 `);
+            planBefore = fs.readFileSync(path.join(reviewDir, 'plan.md'), 'utf8');
+            run('git', ['add', '.']);
+            run('git', ['commit', '-m', 'initial plan']);
+            signal.throwIfAborted();
+            return await runSkillTest({
+              prompt: `Read plan-design-review/SKILL.md for the design review workflow.
 
-      run('git', ['add', '.']);
-      run('git', ['commit', '-m', 'initial plan']);
+Review the plan in ./plan.md. Its design gaps are vague "clean, modern UI" and "cards and icons", a "hero section with gradient" (AI slop), and missing empty, error, loading, responsive, and accessibility behavior.
 
-      const result = await runSkillTest({
-        prompt: `Read plan-design-review/SKILL.md for the design review workflow.
+Use this non-interactive delivery sequence:
+1. Skip the preamble bash block and any AskUserQuestion calls. Read every lazy section the workflow requires. Review all 7 design passes. Rate each scored design dimension 0-10 and explain what would make it a 10; preserve the unresolved-decisions pass and every required design decision.
+2. EDIT plan.md with the missing design decisions (interaction state table, empty states, responsive behavior, etc.) and the full required review report. Keep the saved review compact: use the canonical tables and decision IDs. Specify each design requirement once; refer to its section or decision ID from other pass rationales, tasks, and report cells instead of repeating that specification. Give concise score rationales and 10/10 explanations. Retain all required report fields, design decisions, diagrams, ratings, and explanations.
+3. Persist that complete plan and review with Write before publishing a completed walkthrough or saying a fix is applied. Read plan.md back to verify the saved changes.
+4. Then return a brief, concrete summary of the design changes; do not repeat the full review in the response. This changes presentation only: execute every required pass and lazy-section Read.
 
-Review the plan in ./plan.md. This plan has several design gaps — it uses vague language like "clean, modern UI" and "cards and icons", mentions a "hero section with gradient" (AI slop), and doesn't specify empty states, error states, loading states, responsive behavior, or accessibility.
+IMPORTANT: Do NOT try to browse any URLs or use a browse binary. This is a plan review, not a live site audit.`,
+              workingDirectory: reviewDir,
+              maxTurns: 15,
+              timeout: CAPTURE_MS,
+              publicStreamDiagnostics: true,
+              signal,
+              testName: 'plan-design-review-plan-mode',
+              runId,
+            });
+          } catch (error) {
+            cleanup();
+            throw error;
+          }
+        },
+        validate: result => {
+          try {
+            logCost('/plan-design-review plan-mode', result);
 
-Skip the preamble bash block. Skip any AskUserQuestion calls — this is non-interactive. Rate each design dimension 0-10 and explain what would make it a 10. Then EDIT plan.md to add the missing design decisions (interaction state table, empty states, responsive behavior, etc.).
+            // Check that the agent produced design ratings (0-10 scale)
+            const output = result.output || '';
+            const hasRatings = /\d+\/10/.test(output);
+            const hasDesignContent = output.toLowerCase().includes('information architecture') ||
+              output.toLowerCase().includes('interaction state') ||
+              output.toLowerCase().includes('ai slop') ||
+              output.toLowerCase().includes('hierarchy');
 
-IMPORTANT: Do NOT try to browse any URLs or use a browse binary. This is a plan review, not a live site audit. Just read the plan file, review it, and edit it to fix the gaps.`,
-        workingDirectory: reviewDir,
-        maxTurns: 15,
-        timeout: CAPTURE_MS,
-        testName: 'plan-design-review-plan-mode',
-        runId,
+            // Check that the plan file was edited (the core new behavior)
+            const planAfter = fs.readFileSync(path.join(reviewDir, 'plan.md'), 'utf-8');
+            const planWasEdited = planAfter !== planBefore && planAfter.length > 300;
+            const planHasDesignAdditions = planAfter.toLowerCase().includes('empty') ||
+              planAfter.toLowerCase().includes('loading') ||
+              planAfter.toLowerCase().includes('error') ||
+              planAfter.toLowerCase().includes('state') ||
+              planAfter.toLowerCase().includes('responsive') ||
+              planAfter.toLowerCase().includes('accessibility');
+
+            expect(['success', 'error_max_turns']).toContain(result.exitReason);
+            // Agent should produce design-relevant output about the plan
+            expect(hasDesignContent).toBe(true);
+            // Agent should have edited the plan file to add missing design decisions
+            expect(planWasEdited).toBe(true);
+            expect(planHasDesignAdditions).toBe(true);
+
+          } finally { cleanup(); }
+        },
       });
-
-      logCost('/plan-design-review plan-mode', result);
-
-      // Check that the agent produced design ratings (0-10 scale)
-      const output = result.output || '';
-      const hasRatings = /\d+\/10/.test(output);
-      const hasDesignContent = output.toLowerCase().includes('information architecture') ||
-        output.toLowerCase().includes('interaction state') ||
-        output.toLowerCase().includes('ai slop') ||
-        output.toLowerCase().includes('hierarchy');
-
-      // Check that the plan file was edited (the core new behavior)
-      const planAfter = fs.readFileSync(path.join(reviewDir, 'plan.md'), 'utf-8');
-      const planOriginal = `# Plan: User Dashboard`;
-      const planWasEdited = planAfter.length > 300; // Original is ~450 chars, edited should be much longer
-      const planHasDesignAdditions = planAfter.toLowerCase().includes('empty') ||
-        planAfter.toLowerCase().includes('loading') ||
-        planAfter.toLowerCase().includes('error') ||
-        planAfter.toLowerCase().includes('state') ||
-        planAfter.toLowerCase().includes('responsive') ||
-        planAfter.toLowerCase().includes('accessibility');
-
-      recordE2E(evalCollector, '/plan-design-review plan-mode', 'Plan Design Review E2E', result, {
-        passed: hasDesignContent && planWasEdited && ['success', 'error_max_turns'].includes(result.exitReason),
-      });
-
-      expect(['success', 'error_max_turns']).toContain(result.exitReason);
-      // Agent should produce design-relevant output about the plan
-      expect(hasDesignContent).toBe(true);
-      // Agent should have edited the plan file to add missing design decisions
-      expect(planWasEdited).toBe(true);
-      expect(planHasDesignAdditions).toBe(true);
-    } finally {
-      try { fs.rmSync(reviewDir, { recursive: true, force: true }); } catch {}
-    }
+    } finally { cleanup(); }
   }, CAPTURE_LONG_MS);
 
   testConcurrentIfSelected('plan-design-review-no-ui-scope', async () => {

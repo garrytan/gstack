@@ -107,6 +107,26 @@ describe('gen-skill-docs stale-render prune', () => {
     }
   }, 200_000);
 
+  test('a failed host render keeps generated directories outside its partial inventory', () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-prune-failed-'));
+    const skills = path.join(out, '.agents', 'skills');
+    const stale = path.join(skills, 'gstack-retired-zzz', 'SKILL.md');
+    fs.mkdirSync(path.dirname(stale), { recursive: true });
+    fs.writeFileSync(stale, staleRender('gstack-retired-zzz', 'retain after failure'));
+    // An expected artifact that cannot be written interrupts the host render.
+    fs.mkdirSync(path.join(skills, 'gstack-autoplan', 'SKILL.md'), { recursive: true });
+    try {
+      const r = gen(out);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain('ERROR (codex)');
+      expect(r.stderr).toContain('EISDIR');
+      expect(r.stdout).not.toContain('pruned stale');
+      expect(fs.readFileSync(stale, 'utf-8')).toBe(staleRender('gstack-retired-zzz', 'retain after failure'));
+    } finally {
+      fs.rmSync(out, { recursive: true, force: true });
+    }
+  }, 200_000);
+
   test('--dry-run never prunes: a bannered stale render stays byte-identical, no SKILL.md is written, and the run reports STALE', () => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-prune-dry-'));
     const skills = path.join(out, '.agents', 'skills');

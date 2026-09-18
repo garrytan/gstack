@@ -97,6 +97,39 @@ describe('extractSkillSections (synthetic)', () => {
     expect(out).not.toContain('step two body');
   });
 
+  test('a carved step ends the preceding H2 without changing its content', () => {
+    const pointer = '> **STOP.** Before the next step, Read `~/review/sections/next.md` and execute it\n'
+      + '> in full. Do not work from memory — that section is the source of truth for this step.';
+    const file = path.join(tmpDir, 'carved.md');
+    const original = path.join(tmpDir, 'before-carve.md');
+    const source = SYNTHETIC_SKILL.replace('\n## Step 2 — Other', '\n---\n\n## Step 2 — Other');
+    fs.writeFileSync(original, source);
+    fs.writeFileSync(file, source.replace(
+      '\n## Step 2 — Other', `\n${pointer}\n\n---\n\n## Step 2 — Other`,
+    ));
+    expect(extractSkillSections(file, ['Step 1 — Do the thing']))
+      .toBe(extractSkillSections(original, ['Step 1 — Do the thing']));
+    expect(extractSkillSections(file, ['Step 2 — Other']))
+      .toBe(extractSkillSections(original, ['Step 2 — Other']));
+    expect(extractSkillBody(file)).toContain(pointer);
+  });
+
+  test('nested pointers and ordinary STOP quotes remain part of the requested H2', () => {
+    const pointer = '> **STOP.** Before the next step, Read `~/review/sections/next.md` and execute it\n'
+      + '> in full. Do not work from memory — that section is the source of truth for this step.';
+    for (const prose of [
+      `\`\`\`md\n---\n\n${pointer}\n\n---\n\`\`\``,
+      `### Nested step\n\nInstructions for this step.\n\n${pointer}\nContinue this step.`,
+      `---\n\n${pointer.replace('> in full.', '> First,')}\n\n---`,
+    ]) {
+      const file = path.join(tmpDir, 'quoted.md');
+      fs.writeFileSync(file, SYNTHETIC_SKILL.replace('step one body', `step one body\n${prose}`));
+      const out = extractSkillSections(file, ['Step 1 — Do the thing']);
+      expect(out).toContain(prose);
+      expect(out).toContain('step one continues after the fence');
+    }
+  });
+
   test('missing section throws with the section name and the file path', () => {
     expect(() => extractSkillSections(skillDir, ['Step 99 — Renamed'])).toThrow(/Step 99 — Renamed/);
     expect(() => extractSkillSections(skillDir, ['Step 99 — Renamed'])).toThrow(/SKILL\.md/);
@@ -223,6 +256,8 @@ describe('real-skill pins: section lists used by E2E fixtures', () => {
     // Drops the shared preamble and the untested workflow tail.
     expect(out).not.toContain('## Telemetry (run last)');
     expect(out).not.toContain('## Step 5: Fix-First Review');
+    expect(out).not.toContain('review/sections/review-army.md');
+    expect(out).toContain('Enum & Value Completeness requires reading code OUTSIDE the diff.');
     // Meaningfully smaller than the source.
     const full = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(out.length).toBeLessThan(full.length * 0.5);
@@ -266,6 +301,8 @@ describe('real-skill pins: section lists used by E2E fixtures', () => {
     expect(out).toContain('### Step 1: Gather');
     expect(out).toContain('### Step 14: Write the Narrative');
     expect(out).not.toContain('## Global Retrospective Mode');
+    expect(out).toContain('Read `~/.claude/skills/gstack/retro/sections/report-format.md` and execute it');
+    expect(out).toContain('After delivering the repo-scoped report, run the following learning capture and result-save steps, then stop.');
     expect(out).not.toContain('## Telemetry (run last)');
 
     const reportFormat = fs.readFileSync(
@@ -340,4 +377,39 @@ describe('real-skill pins: body/head extraction used by E2E fixtures', () => {
       expect(out.split('\n').length).toBeLessThan(Math.min(150, fullLines));
     }
   });
+});
+
+// Execute only the actual installation function, never the paid module setup.
+test('routing catalog contains installed project names without a request-to-skill answer key', () => {
+  const source = fs.readFileSync(path.join(ROOT, 'test/skill-routing-e2e.test.ts'), 'utf8');
+  const start = source.indexOf('function installSkills(tmpDir: string)');
+  const end = source.indexOf('/** Init a git repo', start);
+  expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
+  const installed = new Map<string, string>([
+    [path.join(ROOT, 'SKILL.md'), '---\nname: gstack\ndescription: Route project workflows.\n---\n'],
+    [path.join(ROOT, 'review/SKILL.md'), '---\nname: review\ndescription: Deliberately unrelated photography text.\n---\n'],
+    [path.join(ROOT, 'qa/SKILL.md'), '---\nname: qa\ndescription: Test browser flows.\n---\n'],
+  ]);
+  const writes = new Map<string, string>();
+  const fixtureRoot = path.join(os.tmpdir(), 'routing-catalog-no-files-written');
+  const mockFs = {
+    existsSync: (file: string) => installed.has(file),
+    mkdirSync: () => {},
+    writeFileSync: (file: string, content: string) => writes.set(file, content),
+  };
+  const compiled = new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice(start, end) + '\ninstallSkills(fixtureRoot);');
+  new Function('ROOT', 'fs', 'path', 'extractSkillHead', 'fixtureRoot', compiled)(
+    ROOT, mockFs, path, (file: string) => installed.get(file), fixtureRoot,
+  );
+  const instructions = writes.get(path.join(fixtureRoot, 'CLAUDE.md'))!;
+  expect(instructions).toContain('installed gstack skills: gstack, qa, review.');
+  expect(instructions).toContain("built-in skills are outside this project's workflow");
+  expect(instructions).toContain('matching the request to the skill descriptions');
+  expect(instructions).not.toContain('photography');
+  expect(instructions).not.toContain('code-review');
+  expect(instructions).not.toContain('ship');
+  expect(instructions).not.toContain("I'm about to merge");
+  expect(writes.get(path.join(fixtureRoot, '.claude/skills/review/SKILL.md')))
+    .toBe(installed.get(path.join(ROOT, 'review/SKILL.md')));
+  expect(writes.size).toBe(4);
 });

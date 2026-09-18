@@ -98,7 +98,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'reload':  { category: 'Navigation', description: 'Reload page' },
   'url':     { category: 'Navigation', description: 'Print current URL' },
   // Reading
-  'text':    { category: 'Reading', description: 'Cleaned page text' },
+  'text':    { category: 'Reading', description: 'Cleaned visible page text, or cleaned text for a CSS selector/@ref when one is provided', usage: 'text [selector|@ref]' },
   'html':    { category: 'Reading', description: 'innerHTML of selector (throws if not found), or full page HTML if no selector given', usage: 'html [selector]' },
   'links':   { category: 'Reading', description: 'All links as "text → href"' },
   'forms':   { category: 'Reading', description: 'Form fields as JSON' },
@@ -112,11 +112,11 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'attrs':   { category: 'Inspection', description: 'Element attributes as JSON', usage: 'attrs <sel|@ref>' },
   'is':      { category: 'Inspection', description: 'State check on element. Valid <prop> values: visible, hidden, enabled, disabled, checked, editable, focused (case-sensitive). <sel> accepts a CSS selector OR an @ref token from a prior snapshot (e.g. @e3, @c1) — refs are interchangeable with selectors anywhere a selector is expected.', usage: 'is <prop> <sel|@ref>' },
   'console': { category: 'Inspection', description: 'Console messages (--errors filters to error/warning)', usage: 'console [--clear|--errors]' },
-  'network': { category: 'Inspection', description: 'Network requests', usage: 'network [--clear]' },
-  'dialog':  { category: 'Inspection', description: 'Dialog messages', usage: 'dialog [--clear]' },
+  'network': { category: 'Inspection', description: 'Captured network requests as lines with method, status, resource type, and URL. --clear empties the captured request buffer.', usage: 'network [--clear]' },
+  'dialog':  { category: 'Inspection', description: 'Captured alert/confirm/prompt messages as text/JSON events. --clear empties the dialog buffer.', usage: 'dialog [--clear]' },
   'cookies': { category: 'Inspection', description: 'All cookies as JSON' },
   'storage': { category: 'Inspection', description: 'Read both localStorage and sessionStorage as JSON. With "set <key> <value>", write to localStorage only (sessionStorage is read-only via this command — set it with `js sessionStorage.setItem(...)`).', usage: 'storage  |  storage set <key> <value>' },
-  'perf':    { category: 'Inspection', description: 'Page load timings' },
+  'perf':    { category: 'Inspection', description: 'Page load timings as JSON-ish milliseconds for navigation/load phases' },
   // Interaction
   'click':   { category: 'Interaction', description: 'Click element', usage: 'click <sel>' },
   'fill':    { category: 'Interaction', description: 'Fill input', usage: 'fill <sel> <val>' },
@@ -130,18 +130,18 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'viewport':{ category: 'Interaction', description: 'Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild.', usage: 'viewport [<WxH>] [--scale <n>]' },
   'cookie':  { category: 'Interaction', description: 'Set cookie on current page domain', usage: 'cookie <name>=<value>' },
   'cookie-import': { category: 'Interaction', description: 'Import cookies from JSON file', usage: 'cookie-import <json>' },
-  'cookie-import-browser': { category: 'Interaction', description: 'Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import)', usage: 'cookie-import-browser [browser] [--domain d]' },
+  'cookie-import-browser': { category: 'Interaction', description: 'Import cookies from installed Chromium-family browsers. Browser names are the installed browser IDs shown by detection; common values include comet, chrome, chromium, edge, brave, arc. With --domain, imports only that domain after current-page domain validation; without --domain, opens the picker UI. --profile defaults to Default; --all imports every non-expired cookie only when explicitly passed.', usage: 'cookie-import-browser [browser] [--domain d] [--profile p] [--all]' },
   'header':  { category: 'Interaction', description: 'Set custom request header (colon-separated, sensitive values auto-redacted)', usage: 'header <name>:<value>' },
   'useragent': { category: 'Interaction', description: 'Set user agent', usage: 'useragent <string>' },
   'dialog-accept': { category: 'Interaction', description: 'Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response', usage: 'dialog-accept [text]' },
   'dialog-dismiss': { category: 'Interaction', description: 'Auto-dismiss next dialog' },
   // Data extraction
-  'download': { category: 'Extraction', description: 'Download URL or media element to disk using browser cookies. Use --navigate for URLs that trigger browser downloads (CDN redirects, Content-Disposition, anti-bot protected sites)', usage: 'download <url|@ref> [path] [--base64] [--navigate]' },
-  'scrape':   { category: 'Extraction', description: 'Bulk download all media from page. Writes manifest.json', usage: 'scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]' },
-  'archive':  { category: 'Extraction', description: 'Save complete page as MHTML via CDP', usage: 'archive [path]' },
+  'download': { category: 'Extraction', description: 'Download URL or media element to disk using browser cookies. Default path: <temp>/browse-download-<timestamp>.<ext>. --base64 returns a data:<mime>;base64,... string instead of writing, capped at 10MB. Use --navigate for URLs that trigger browser downloads (CDN redirects, Content-Disposition, anti-bot protected sites).', usage: 'download <url|@ref> [path] [--base64] [--navigate]' },
+  'scrape':   { category: 'Extraction', description: 'Bulk download all media from page to --dir (default: <temp>/browse-scrape-<timestamp>). Writes files plus manifest.json with source URL, size, type, success/failure counts. --limit defaults to 50 and caps at 200.', usage: 'scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]' },
+  'archive':  { category: 'Extraction', description: 'Save complete page as MHTML via CDP. Default path: <temp>/browse-archive-<timestamp>.mhtml. Returns the saved path, size, and MHTML marker.', usage: 'archive [path]' },
   // Visual
-  'screenshot': { category: 'Visual', description: 'Save screenshot. --selector targets a specific element (explicit flag form). Positional selectors starting with ./#/@/[ still work.', usage: 'screenshot [--selector <css>] [--viewport] [--clip x,y,w,h] [--base64] [selector|@ref] [path]' },
-  'pdf':     { category: 'Visual', description: 'Save the current page as PDF. Supports page layout (--format, --width, --height, --margins, --margin-*), structure (--toc waits for Paged.js), branding (--header-template, --footer-template, --page-numbers), accessibility (--tagged, --outline), and --from-file <payload.json> for large payloads. Use --tab-id <N> to target a specific tab.', usage: 'pdf [path] [--format letter|a4|legal] [--width <dim> --height <dim>] [--margins <dim>] [--margin-top <dim> --margin-right <dim> --margin-bottom <dim> --margin-left <dim>] [--header-template <html>] [--footer-template <html>] [--page-numbers] [--tagged] [--outline] [--print-background] [--prefer-css-page-size] [--toc] [--tab-id <N>]  |  pdf --from-file <payload.json> [--tab-id <N>]' },
+  'screenshot': { category: 'Visual', description: 'Save screenshot. Default path: <temp>/browse-screenshot.png. Default capture is full-page; --viewport captures only the viewport. --selector targets a specific element; --clip uses x,y,width,height pixels. --base64 returns data:image/png;base64,... instead of writing, capped at 10MB. Positional selectors starting with ./#/@/[ still work.', usage: 'screenshot [--selector <css>] [--viewport] [--clip x,y,w,h] [--base64] [selector|@ref] [path]' },
+  'pdf':     { category: 'Visual', description: 'Save the current page as PDF. Default path: <temp>/browse-page.pdf. <dim> accepts CSS units like 1in, 72pt, 25mm, 2.54cm; bare numbers are pixels. Supports page layout (--format, --width, --height, --margins, --margin-*), structure (--toc waits briefly for Paged.js), branding (--header-template, --footer-template, --page-numbers), accessibility (--tagged, --outline), and --from-file <payload.json> for large payloads. Use --tab-id <N> to target a specific tab.', usage: 'pdf [path] [--format letter|a4|legal] [--width <dim> --height <dim>] [--margins <dim>] [--margin-top <dim> --margin-right <dim> --margin-bottom <dim> --margin-left <dim>] [--header-template <html>] [--footer-template <html>] [--page-numbers] [--tagged] [--outline] [--print-background] [--prefer-css-page-size] [--toc] [--tab-id <N>]  |  pdf --from-file <payload.json> [--tab-id <N>]' },
   'responsive': { category: 'Visual', description: 'Screenshots at mobile (375x812), tablet (768x1024), desktop (1280x720). Saves as {prefix}-mobile.png etc.', usage: 'responsive [prefix]' },
   'diff':    { category: 'Visual', description: 'Text diff between pages', usage: 'diff <url1> <url2>' },
   // Tabs
@@ -165,17 +165,17 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'disconnect': { category: 'Server', description: 'Disconnect headed browser, return to headless mode' },
   'focus':   { category: 'Server', description: 'Bring headed browser window to foreground (macOS)', usage: 'focus [@ref]' },
   // Inbox
-  'inbox':   { category: 'Meta', description: 'List messages from sidebar scout inbox', usage: 'inbox [--clear]' },
+  'inbox':   { category: 'Meta', description: 'List sidebar inbox messages from the visible browser extension as JSON/text; --clear removes them after reading.', usage: 'inbox [--clear]' },
   // Watch
-  'watch':   { category: 'Meta', description: 'Passive observation — periodic snapshots while user browses', usage: 'watch [stop]' },
+  'watch':   { category: 'Meta', description: 'Start passive observation mode: records periodic snapshots while the user browses and blocks mutation commands. Use watch stop to end observation and return the collected snapshot summary.', usage: 'watch [stop]' },
   // State
   'state':   { category: 'Server', description: 'Save/load browser state (cookies + URLs)', usage: 'state save|load <name>' },
   // Frame
-  'frame':   { category: 'Meta', description: 'Switch to iframe context (or main to return)', usage: 'frame <sel|@ref|--name n|--url pattern|main>' },
+  'frame':   { category: 'Meta', description: 'Switch command context to an iframe, or `main` to return to the top page. <sel> is CSS, @ref comes from snapshot, --name matches frame name exactly, and --url pattern is a substring match against frame URL.', usage: 'frame <sel|@ref|--name n|--url pattern|main>' },
   // CSS Inspector
-  'inspect': { category: 'Inspection', description: 'Deep CSS inspection via CDP — full rule cascade, box model, computed styles', usage: 'inspect [selector] [--all] [--history]' },
+  'inspect': { category: 'Inspection', description: 'Deep CSS inspection via CDP. Default inspects one selector and returns matching element, full rule cascade, box model, and computed styles. --all returns every inspectable element summary; --history returns prior style modifications/inspection state.', usage: 'inspect [selector] [--all] [--history]' },
   'style':   { category: 'Interaction', description: 'Modify CSS property on element (with undo support)', usage: 'style <sel> <prop> <value> | style --undo [N]' },
-  'cleanup': { category: 'Interaction', description: 'Remove page clutter (ads, cookie banners, sticky elements, social widgets)', usage: 'cleanup [--ads] [--cookies] [--sticky] [--social] [--all]' },
+  'cleanup': { category: 'Interaction', description: 'Remove page clutter by hiding matched elements. With no flags, defaults to --all. --all includes ads, cookies, sticky, social, overlays, and clutter; individual flags limit the categories. Returns removed element count.', usage: 'cleanup [--ads] [--cookies] [--sticky] [--social] [--overlays] [--clutter] [--all]' },
   'prettyscreenshot': { category: 'Visual', description: 'Clean screenshot with optional cleanup, scroll positioning, and element hiding', usage: 'prettyscreenshot [--scroll-to sel|text] [--cleanup] [--hide sel...] [--width px] [path]' },
   // UX Audit
   'ux-audit': { category: 'Inspection', description: 'Extract page structure for UX behavioral analysis — site ID, nav, headings, text blocks, interactive elements. Returns JSON for agent interpretation.', usage: 'ux-audit' },

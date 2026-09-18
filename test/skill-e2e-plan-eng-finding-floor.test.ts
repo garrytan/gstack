@@ -31,6 +31,7 @@ describeE2E('/plan-eng-review AskUserQuestion floor (periodic)', () => {
         skillName: 'plan-eng-review',
         slashCommand: '/plan-eng-review',
         followUpPrompt: FORCING_FLOOR_ENG,
+        requestedPlanPath: '/tmp/gstack-test-plan-eng-floor.md',
         // LIVE-REPO CWD: PTY session needs the repo cwd — gstack skill
         // registry + hermetic pre-trusted dir (hermetic-env trustedDirs).
         cwd: process.cwd(),

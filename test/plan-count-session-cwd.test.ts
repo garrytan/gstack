@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import {readPlanCountTranscript, type NativePublicToolEvent} from './helpers/plan-count-transcript';
 import {auditAutoplanMethodReads} from './helpers/autoplan-method-read-audit';
 import {autoplanPhaseCompletions} from './helpers/autoplan-phase-observer';
+import {readOwnedClaudePublicTranscript} from '../lib/claude-public-transcript';
 
 const dirs:string[]=[];
 afterEach(()=>{for(const d of dirs.splice(0))fs.rmSync(d,{recursive:true,force:true});});
@@ -112,4 +113,131 @@ for(const [name,change] of Object.entries({
  'future result':(r:any[])=>r[3].timestamp='2026-09-11T02:00:00.000Z',
 }))test(`cwd continuation does not bypass ${name}`,()=>{
  const r=rows();change(r);expect(designAudit(read(r).events)?.passed).toBe(false);
+});
+
+// Native90f compact boundaries reset parentUuid and retain the owned parent
+// in logicalParentUuid. Summary timestamps can precede their boundary slightly;
+// append-order graph metadata, not summary prose, connects the next tool turn.
+function compactRows():any[]{
+ const r=rows();r[2].parentUuid=uuid(21);
+ r.splice(2,0,{...record(20,null),type:'system',subtype:'compact_boundary',logicalParentUuid:uuid(2),message:undefined},
+  {...record(21,20,cwd,'user'),isCompactSummary:true,timestamp:'2026-09-11T01:23:54.550Z',message:{role:'user',content:'Context summary; not an announcement or tool result.'}});
+ return r;
+}
+test('compact boundary retains changed-cwd tool request, ACK and actual phase text',()=>{
+ const {events,transcript}=read(compactRows());
+ expect(events.map(e=>e.toolUseId)).toEqual(['read-owned','read-owned','dispatch']);
+ expect(designAudit(events)?.passed).toBe(true);
+ expect(autoplanPhaseCompletions(transcript,0)).toEqual([{phase:1,ts:Date.parse(time)}]);
+});
+test('compact boundary can repeat on the same owned append-order ancestry',()=>{
+ const r=compactRows();r.push({...record(30,null,archive),type:'system',subtype:'compact_boundary',logicalParentUuid:uuid(6),message:undefined},
+  {...record(31,30,archive,'user'),isCompactSummary:true,message:{role:'user',content:'Phase 3 complete. Quoted prior context only.'}},
+  record(32,31,archive,'assistant',[{type:'text',text:'Phase 2 complete.'}]));
+ expect(autoplanPhaseCompletions(read(r).transcript,0).map(x=>x.phase)).toEqual([1,2]);
+});
+for(const [name,change] of Object.entries({
+ 'missing owned origin':(r:any[])=>r.shift(),
+ 'foreign owned origin':(r:any[])=>r[0].cwd='/other/fixture',
+ 'rootless later reset':(r:any[])=>{r[0].parentUuid=uuid(99);},
+ 'unknown logical parent':(r:any[])=>r[2].logicalParentUuid=uuid(99),
+ 'missing logical parent':(r:any[])=>delete r[2].logicalParentUuid,
+ 'invalid logical parent':(r:any[])=>r[2].logicalParentUuid='prior-message',
+ 'unowned prior session parent':(r:any[])=>{r[1].sessionId='foreign-session';},
+ 'foreign boundary session':(r:any[])=>r[2].sessionId='foreign-session',
+ 'sidechain boundary':(r:any[])=>r[2].isSidechain=true,
+ 'agent boundary':(r:any[])=>r[2].agentId='child',
+ 'missing boundary scope':(r:any[])=>delete r[2].isSidechain,
+ 'relative boundary cwd':(r:any[])=>r[2].cwd='relative',
+ 'invalid boundary time':(r:any[])=>r[2].timestamp='unknown',
+ 'missing boundary time':(r:any[])=>delete r[2].timestamp,
+ 'missing boundary UUID':(r:any[])=>delete r[2].uuid,
+ 'stale reused boundary UUID':(r:any[])=>r[2].uuid=uuid(2),
+ 'wrong boundary type':(r:any[])=>r[2].type='assistant',
+ 'wrong boundary subtype':(r:any[])=>r[2].subtype='summary',
+ 'unknown non-null parent':(r:any[])=>r[2].parentUuid=uuid(99),
+ 'body masquerading as boundary':(r:any[])=>r[2].message={role:'user',content:[{type:'text',text:'compact_boundary logicalParentUuid='+uuid(2)}]},
+ 'quoted boundary source':(r:any[])=>{const text=JSON.stringify(r[2]);r[2]={...record(20,null),message:{role:'assistant',content:[{type:'text',text}]}};},
+}))test('compact boundary rejects '+name,()=>{
+ const r=compactRows();change(r);const {events,transcript}=read(r);
+ expect(events.some(e=>e.toolUseId==='read-owned')).toBe(false);
+ expect(autoplanPhaseCompletions(transcript,0)).toEqual([]);
+ expect(designAudit(events)?.passed).toBe(false);
+});
+test('compact boundary does not admit a foreign later root or bypass failed methodology',()=>{
+ const foreign=compactRows();foreign.unshift(record(99,null,'/other/fixture','user'));
+ expect(read(foreign).events.some(e=>e.toolUseId==='read-owned')).toBe(false);
+ const failed=compactRows();failed[5].message.content[0].is_error=true;
+ expect(designAudit(read(failed).events)?.passed).toBe(false);
+});
+
+// The pinned 2.1.251 native loopback appended assistant records before its
+// initial human/attachment prefix. UUID parents establish order; timestamps do
+// not. The complete original public replay and native failure remain retained.
+function readOwned(records:any[],partial=false){
+ const config=fs.mkdtempSync(path.join(os.tmpdir(),'owned-causal-'));dirs.push(config);
+ const project=path.join(config,'projects','owned');fs.mkdirSync(project,{recursive:true});
+ const journal=path.join(project,sid+'.jsonl');
+ const bytes=records.map(r=>JSON.stringify(r)).join('\n')+(partial?'':'\n');fs.writeFileSync(journal,bytes);
+ const result=readOwnedClaudePublicTranscript(journal,cwd,sid);
+ expect(fs.readFileSync(journal,'utf8')).toBe(bytes);
+ return result;
+}
+function delayedOriginRows():any[]{const r=rows();return [r[2],r[0],r[1],...r.slice(3)];}
+test('owned native public records admit a complete later-appended root by causal UUID ancestry',()=>{
+ const normal=readOwned(rows()),delayed=readOwned(delayedOriginRows());
+ expect(delayed.transcript.status).toBe('ready');expect(delayed).toEqual(normal);
+ expect(delayed.events.filter(e=>e.kind==='use').map(e=>e.toolUseId)).toEqual(['read-owned','dispatch']);
+});
+test('owned causal order preserves human rearm and end-turn ordering without timestamp sorting',()=>{
+ const r=rows();r[0].origin={kind:'human'};r[0].promptId=uuid(80);
+ r[0].message.content='<command-message>autoplan</command-message>\n<command-name>/autoplan</command-name>';
+ r[4].message.stop_reason='end_turn';
+ r.push({...record(7,6,cwd,'user'),origin:{kind:'human'},promptSource:'typed',promptId:uuid(81),message:{role:'user',content:'Unrelated human task.'}},
+  record(8,7,cwd,'assistant',[{type:'text',text:'Ordinary human response.'}]),
+  {...record(9,8,cwd,'user'),origin:{kind:'human'},promptId:uuid(82),message:{role:'user',content:'<command-message>autoplan</command-message>\n<command-name>/autoplan</command-name>'}});
+ const original=readOwned(r);const reordered=[r[6],r[2],r[8],r[0],r[1],...r.slice(3,6),r[7]];
+ expect(readOwned(reordered)).toEqual(original);
+ expect(original.events.filter(e=>e.kind==='user_turn').map(e=>e.autoplan)).toEqual([true,false,true]);
+ expect(original.events.findIndex(e=>e.kind==='end_turn')).toBeLessThan(original.events.findIndex(e=>e.kind==='user_turn'&&!e.autoplan));
+});
+test('owned native metadata siblings keep their physical tie order',()=>{
+ const r=rows();r.splice(4,0,{...record(90,3),type:'attachment',message:undefined});
+ expect(readOwned([r[2],r[0],r[1],...r.slice(3)])).toEqual(readOwned(r));
+});
+test('owned causal compaction follows the authenticated logical parent',()=>{
+ const r=compactRows();expect(readOwned([r[4],r[3],r[2],r[0],r[1],...r.slice(5)])).toEqual(readOwned(r));
+ expect(readOwned(r).events.some(e=>e.kind==='use'&&e.toolUseId==='read-owned')).toBe(true);
+});
+for(const [name,change] of Object.entries({
+ 'missing root':(r:any[])=>r.splice(1,1),
+ 'foreign root cwd':(r:any[])=>r[1].cwd='/another/fixture',
+ 'sidechain root':(r:any[])=>r[1].isSidechain=true,
+ 'agent root':(r:any[])=>r[1].agentId='child',
+ 'foreign root session':(r:any[])=>r[1].sessionId='foreign',
+ 'non-human root':(r:any[])=>r[1].message.role='assistant',
+ 'missing attachment':(r:any[])=>r.splice(2,1),
+ 'foreign attachment':(r:any[])=>r[2].sessionId='foreign',
+ 'sidechain attachment':(r:any[])=>r[2].isSidechain=true,
+ 'agent attachment':(r:any[])=>r[2].agentId='child',
+ 'duplicate root UUID':(r:any[])=>r.push({...r[1]}),
+ 'conflicting UUID':(r:any[])=>r.push({...r[2],parentUuid:uuid(88)}),
+ 'competing root':(r:any[])=>r.push(record(99,null,cwd,'user')),
+ 'cycle':(r:any[])=>r[2].parentUuid=r[0].uuid,
+ 'invalid root timestamp':(r:any[])=>r[1].timestamp='not-time',
+ 'later unrelated root':(r:any[])=>{r[1].parentUuid=uuid(99);r.push(record(77,null,cwd,'user'));},
+}))test('owned causal admission rejects '+name,()=>{
+ const r=delayedOriginRows();change(r);const got=readOwned(r);
+ expect(got.events.some(e=>e.kind==='use'&&e.toolUseId==='read-owned')).toBe(false);
+ expect(got.events.some(e=>e.kind==='message'&&e.text==='Phase 1 complete.')).toBe(false);
+});
+test('a partial later parent remains pending until its complete native line exists',()=>{
+ const r=delayedOriginRows();const root=r.splice(1,1)[0];r.push(root);
+ const pending=readOwned(r,true);expect(pending.transcript.status).toBe('missing');expect(pending.events).toEqual([]);
+ expect(readOwned(r).events.some(e=>e.kind==='use'&&e.toolUseId==='read-owned')).toBe(true);
+});
+test('default projection retains its original physical-order and exact-cwd behavior',()=>{
+ const r=delayedOriginRows();const got=read(r);
+ expect(got.events.map(e=>e.toolUseId)).toEqual(['dispatch']);
+ expect(autoplanPhaseCompletions(got.transcript,0)).toEqual([]);
 });

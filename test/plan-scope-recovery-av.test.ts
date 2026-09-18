@@ -23,7 +23,14 @@ test('the review handoff repairs a missing public declaration without claiming t
     const start = skill === 'plan-eng-review' ? '### Step 0: Scope Challenge' : '## PRE-REVIEW SYSTEM AUDIT';
     expect(text.indexOf(check)).toBeGreaterThan(text.indexOf('{{PREAMBLE}}'));
     expect(text.indexOf(check)).toBeGreaterThan(text.indexOf(start));
-    expect(text.indexOf(check)).toBeLessThan(text.indexOf(skill === 'plan-eng-review' ? 'Before reviewing anything' : 'Before reviewing the plan, gather context'));
+    const reviewStart = text.indexOf(skill === 'plan-eng-review' ? '{{SECTION:review-sections}}' : 'Before reviewing the plan, gather context');
+    expect(reviewStart).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf(check)).toBeLessThan(reviewStart);
+    if (skill === 'plan-eng-review') {
+      const section = fs.readFileSync(path.join(import.meta.dir, '..', skill, 'sections/review-sections.md.tmpl'), 'utf8');
+      expect(section).toContain('Before reviewing, answer:');
+      expect(text.slice(text.indexOf(check), reviewStart)).toContain('Scope Challenge is mandatory before Section 1');
+    }
   }
 });
 
@@ -31,19 +38,27 @@ test('unseeded, explicit-target and early announcement rules remain authoritativ
   for (const skill of skills) {
     const template = read(skill);
     const gate = template.slice(template.indexOf('## Scope gate'), template.indexOf('{{PREAMBLE}}'));
-    expect(gate).toContain('After this skill loads, resolve this gate before any tool');
-    expect(gate).toContain('Announce plan-mode auto-selection before review tools');
+    const entry = skill === 'plan-eng-review'
+      ? 'Before tools or preamble, resolve from provided messages, listed tools and explicit host metadata only'
+      : 'After this skill loads, resolve this gate before any tool';
+    const announce = skill === 'plan-eng-review'
+      ? 'Announce an auto-selected plan in one line so the user can interrupt'
+      : 'Announce plan-mode auto-selection before review tools';
+    expect(gate).toContain(entry);
+    expect(gate).toContain(announce);
     expect(gate).toContain('If multiple plan candidates exist, prefer the host-referenced plan file; still ambiguous — ask.');
     expect(gate).toContain('If the user explicitly named a DIFFERENT target');
     expect(gate).toContain('If plan mode is indicated but no plan exists yet, ask as normal');
     expect(gate).toContain('When no exception above applied:');
-    expect(gate).toContain('First tool call = AskUserQuestion (tool_use). Confirm what to review.');
+    expect(gate).toContain(skill === 'plan-eng-review'
+      ? 'First tool call = AskUserQuestion (tool_use). Send this exact menu and wait'
+      : 'First tool call = AskUserQuestion (tool_use). Confirm what to review.');
     expect(gate).toContain('STOP and wait for the answer');
     for (const host of ALL_HOST_CONFIGS) {
       const ctx: TemplateContext = {skillName: skill, tmplPath: `${skill}/SKILL.md.tmpl`, host: host.name,
         paths: HOST_PATHS[host.name]!, preambleTier: 3, interactive: true};
       const expanded = template.replace('{{PREAMBLE}}', generatePreamble(ctx));
-      expect(expanded.indexOf('Announce plan-mode auto-selection before review tools')).toBeLessThan(expanded.indexOf('```bash'));
+      expect(expanded.indexOf(announce)).toBeLessThan(expanded.indexOf('```bash'));
       expect(expanded.indexOf('STOP and wait for the answer')).toBeLessThan(expanded.indexOf('```bash'));
       expect(expanded.indexOf(recovery(template))).toBeGreaterThan(expanded.indexOf('```bash'));
     }

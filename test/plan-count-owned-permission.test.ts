@@ -1,7 +1,7 @@
 import {test,expect} from 'bun:test';
 import * as fs from 'node:fs';import * as os from 'node:os';import * as path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {classifyPlanCountFrame,createPlanCountPermissionGuard} from './helpers/claude-pty-runner';
+import {classifyPlanCountFrame,createPlanCountPermissionGuard,isPermissionDialogVisible} from './helpers/claude-pty-runner';
 import capture from './fixtures/plan-count-owned-permission-v.json';
 test('actual V owned-plan Edit pane is a one-time permission, not a review finding',()=>{
  expect(capture.events.map(e=>e.block.type)).toEqual(['tool_use','tool_result','tool_use']);
@@ -12,6 +12,7 @@ test('actual V owned-plan Edit pane is a one-time permission, not a review findi
 test('new permission grammar requires matching file pane and complete native permission footer',()=>{
  const panel=capture.screen.slice(capture.screen.indexOf(' Edit file\n'));
  for(const screen of [panel.replace(' Edit file\n PLAN.md\n',''),panel.replace(' Edit file\n PLAN.md',' Edit file\n OTHER.md'),panel.replace('Esc to cancel · Tab to amend','Esc to cancel'),panel.replace('   3. No','   3. Keep working'),'Example:\n'+panel,'```text\n'+panel,'☐ File policy\n'+panel,panel.replace(' ❯ 1. Yes','   1. Yes')]){
+  expect(isPermissionDialogVisible(screen),screen).toBe(false);
   expect(createPlanCountPermissionGuard()(screen,''),screen).not.toBe('grant');expect(classifyPlanCountFrame(screen),screen).not.toBe('permission');
  }
 });

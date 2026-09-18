@@ -25,13 +25,11 @@
  *
  * Periodic tier (Codex non-determinism). Cost: ~$2-3 per full run.
  */
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, beforeAll, afterAll } from 'bun:test';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
-import { runCodexSkill, installSkillToTempHome } from './helpers/codex-session-runner';
-import type { CodexResult } from './helpers/codex-session-runner';
-import { EvalCollector } from './helpers/eval-store';
-import type { EvalTestEntry } from './helpers/eval-store';
-import { selectTests, detectBaseBranch, getChangedFiles, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
+import { runCodexSkill } from './helpers/codex-session-runner';
+import { CODEX_EVAL_FINALIZE_MS, createCodexEvalCollector, runRecordedCodexEval, createCodexPlanFormatCapture } from './helpers/codex-eval';
+import { selectTests, detectBaseBranch, getChangedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -58,12 +56,14 @@ const describeCodex = SKIP ? describe.skip : describe;
 
 // --- Touchfiles ---
 
-const CODEX_FORMAT_TOUCHFILES: Record<string, string[]> = {
-  'codex-plan-ceo-format-mode':      ['.agents/skills/gstack-plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'model-overlays/gpt.md', 'model-overlays/gpt-5.4.md'],
-  'codex-plan-ceo-format-approach':  ['.agents/skills/gstack-plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'model-overlays/gpt.md', 'model-overlays/gpt-5.4.md'],
-  'codex-plan-eng-format-coverage':  ['.agents/skills/gstack-plan-eng-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'model-overlays/gpt.md', 'model-overlays/gpt-5.4.md'],
-  'codex-plan-eng-format-kind':      ['.agents/skills/gstack-plan-eng-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'model-overlays/gpt.md', 'model-overlays/gpt-5.4.md'],
-};
+// Keep selection dependencies in the canonical map, including the test helpers.
+const CODEX_FORMAT_TOUCHFILES: Record<string, string[]> = Object.fromEntries(
+  ['codex-plan-ceo-format-mode', 'codex-plan-ceo-format-approach',
+    'codex-plan-eng-format-coverage', 'codex-plan-eng-format-kind'].map((key) => {
+    if (!E2E_TOUCHFILES[key]) throw new Error(`canonical E2E_TOUCHFILES lost key '${key}'`);
+    return [key, E2E_TOUCHFILES[key]];
+  }),
+);
 
 let selectedTests: string[] | null = null;
 if (evalsEnabled && !process.env.EVALS_ALL) {
@@ -75,34 +75,17 @@ if (evalsEnabled && !process.env.EVALS_ALL) {
   }
 }
 
-function testIfSelected(name: string, fn: () => Promise<void>, timeout?: number) {
+function testIfSelected(name: string, fn: () => Promise<void>, timeout: number) {
   if (selectedTests !== null && !selectedTests.includes(name)) {
-    test.skip(name, fn, timeout);
+    test.skip(name, fn, timeout + CODEX_EVAL_FINALIZE_MS);
   } else {
-    test(name, fn, timeout);
+    test(name, fn, timeout + CODEX_EVAL_FINALIZE_MS);
   }
 }
 
 // --- Eval collector ---
 
-let evalCollector: EvalCollector | null = null;
-if (!SKIP) {
-  evalCollector = new EvalCollector('codex-e2e-plan-format');
-}
-
-function recordCodexResult(testName: string, result: CodexResult, passed: boolean) {
-  evalCollector?.addTest({
-    name: testName,
-    suite: 'codex-e2e-plan-format',
-    tier: 'e2e',
-    passed,
-    duration_ms: result.durationMs,
-    cost_usd: 0, // Codex doesn't report cost in the same way; tokens tracked separately
-    output: result.output?.slice(0, 2000),
-    turns_used: result.toolCalls.length,
-    exit_reason: result.exitCode === 0 ? 'success' : `exit_code_${result.exitCode}`,
-  });
-}
+const evalCollector = SKIP ? null : createCodexEvalCollector('codex-e2e-plan-format');
 
 afterAll(async () => {
   if (evalCollector) {
@@ -159,17 +142,6 @@ function captureInstruction(outFile: string): string {
   return `Write the verbatim text of every AskUserQuestion you would have presented to the user to the file ${outFile} (one question per session, full text including the re-ground, ELI10 paragraph, RECOMMENDATION line, and options). Do NOT ask the user interactively. Do NOT paraphrase. This is a format-capture test, not an interactive session.`;
 }
 
-// --- Regex predicates ---
-// Match RECOMMENDATION lenient to markdown bolding around it.
-const RECOMMENDATION_RE = /RECOMMENDATION:[*\s]*Choose/;
-const COMPLETENESS_RE = /Completeness:\s*\d{1,2}\/10/;
-const KIND_NOTE_RE = /options differ in kind/i;
-// ELI10 signal: some plain-English explanation must exist. Weak proxy: >= 200 chars
-// of narrative prose between the re-ground and the options, AND at least one of the
-// plain-English hints ("plain English", "16-year-old", or "what this means").
-// We test for the length floor and absence of a bare options-list-only output.
-const ELI10_LENGTH_FLOOR = 400; // full AskUserQuestion content should be at least this long
-
 // --- Tests ---
 
 describeCodex('Codex Plan Format — CEO Mode Selection', () => {
@@ -184,31 +156,27 @@ describeCodex('Codex Plan Format — CEO Mode Selection', () => {
   });
 
   testIfSelected('codex-plan-ceo-format-mode', async () => {
-    const result = await runCodexSkill({
-      skillDir,
-      prompt: `Read the plan-ceo-review skill. Read plan.md (the plan to review). Proceed to Step 0F (Mode Selection) where the skill presents 4 mode options (SCOPE EXPANSION, SELECTIVE EXPANSION, HOLD SCOPE, SCOPE REDUCTION) via AskUserQuestion. These options differ in kind (review posture), not coverage. ${captureInstruction(outFile)}`,
-      timeoutMs: CAPTURE_MS,
-      cwd: planDir,
-      skillName: 'gstack-plan-ceo-review',
-      sandbox: 'workspace-write',
+    const capture = createCodexPlanFormatCapture(outFile, 'kind');
+    const result = await runRecordedCodexEval({
+      name: 'codex-plan-ceo-format-mode',
+      suite: 'codex-e2e-plan-format',
+      budgetMs: CAPTURE_LONG_MS,
+      run: (signal) => {
+        capture.reset();
+        return runCodexSkill({
+          skillDir,
+          prompt: `Read the plan-ceo-review skill. Read plan.md (the plan to review). Proceed to Mode Selection where the skill presents 4 mode options (SCOPE EXPANSION, SELECTIVE EXPANSION, HOLD SCOPE, SCOPE REDUCTION) via AskUserQuestion. These options differ in kind (review posture), not coverage. ${captureInstruction(outFile)}`,
+          timeoutMs: CAPTURE_MS,
+          cwd: planDir,
+          skillName: 'gstack-plan-ceo-review',
+          sandbox: 'workspace-write',
+          signal,
+        });
+      },
+      validate: capture.validate,
+      record: (entry) => evalCollector?.addTest(capture.attach(entry)),
     });
-
-    recordCodexResult('codex-plan-ceo-format-mode', result, result.exitCode === 0);
     console.log(`codex-plan-ceo-format-mode: ${result.tokens}t, ${Math.round(result.durationMs/1000)}s, exit=${result.exitCode}`);
-
-    // Codex may timeout — accept as non-fatal (same pattern as existing codex-e2e tests)
-    if (result.exitCode === 124 || result.exitCode === 137) {
-      console.warn(`codex timed out (exit ${result.exitCode}) — skipping assertions`);
-      return;
-    }
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(ELI10_LENGTH_FLOOR);
-    expect(captured).toMatch(RECOMMENDATION_RE);
-    // kind-differentiated: no fabricated score, must have note
-    expect(captured).not.toMatch(COMPLETENESS_RE);
-    expect(captured).toMatch(KIND_NOTE_RE);
   }, CAPTURE_LONG_MS);
 });
 
@@ -224,28 +192,27 @@ describeCodex('Codex Plan Format — CEO Approach Menu', () => {
   });
 
   testIfSelected('codex-plan-ceo-format-approach', async () => {
-    const result = await runCodexSkill({
-      skillDir,
-      prompt: `Read the plan-ceo-review skill. Read plan.md. Proceed to Step 0C-bis (Implementation Alternatives / Approach Menu) where the skill generates 2-3 approaches (minimal viable vs ideal architecture) and presents them via AskUserQuestion. These options differ in coverage so Completeness: N/10 applies. ${captureInstruction(outFile)}`,
-      timeoutMs: CAPTURE_MS,
-      cwd: planDir,
-      skillName: 'gstack-plan-ceo-review',
-      sandbox: 'workspace-write',
+    const capture = createCodexPlanFormatCapture(outFile, 'coverage');
+    const result = await runRecordedCodexEval({
+      name: 'codex-plan-ceo-format-approach',
+      suite: 'codex-e2e-plan-format',
+      budgetMs: CAPTURE_LONG_MS,
+      run: (signal) => {
+        capture.reset();
+        return runCodexSkill({
+          skillDir,
+          prompt: `Read the plan-ceo-review skill. Read plan.md. Proceed to Alternatives (the implementation approach menu) where the skill generates 2-3 approaches (minimal viable vs ideal architecture) and presents them via AskUserQuestion. These options differ in coverage so Completeness: N/10 applies. ${captureInstruction(outFile)}`,
+          timeoutMs: CAPTURE_MS,
+          cwd: planDir,
+          skillName: 'gstack-plan-ceo-review',
+          sandbox: 'workspace-write',
+          signal,
+        });
+      },
+      validate: capture.validate,
+      record: (entry) => evalCollector?.addTest(capture.attach(entry)),
     });
-
-    recordCodexResult('codex-plan-ceo-format-approach', result, result.exitCode === 0);
     console.log(`codex-plan-ceo-format-approach: ${result.tokens}t, ${Math.round(result.durationMs/1000)}s, exit=${result.exitCode}`);
-
-    if (result.exitCode === 124 || result.exitCode === 137) {
-      console.warn(`codex timed out (exit ${result.exitCode}) — skipping assertions`);
-      return;
-    }
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(ELI10_LENGTH_FLOOR);
-    expect(captured).toMatch(RECOMMENDATION_RE);
-    expect(captured).toMatch(COMPLETENESS_RE);
   }, CAPTURE_LONG_MS);
 });
 
@@ -261,28 +228,27 @@ describeCodex('Codex Plan Format — Eng Coverage Issue', () => {
   });
 
   testIfSelected('codex-plan-eng-format-coverage', async () => {
-    const result = await runCodexSkill({
-      skillDir,
-      prompt: `Read the plan-eng-review skill. Read plan.md. In your Section 3 Test Review, generate ONE AskUserQuestion about test coverage depth where options are clearly coverage-differentiated: A) full coverage incl. edge + error paths (Completeness 10/10), B) happy path only (7/10), C) smoke test (3/10). ${captureInstruction(outFile)}`,
-      timeoutMs: CAPTURE_MS,
-      cwd: planDir,
-      skillName: 'gstack-plan-eng-review',
-      sandbox: 'workspace-write',
+    const capture = createCodexPlanFormatCapture(outFile, 'coverage');
+    const result = await runRecordedCodexEval({
+      name: 'codex-plan-eng-format-coverage',
+      suite: 'codex-e2e-plan-format',
+      budgetMs: CAPTURE_LONG_MS,
+      run: (signal) => {
+        capture.reset();
+        return runCodexSkill({
+          skillDir,
+          prompt: `Read the plan-eng-review skill. Read plan.md. In your Section 3 Test Review, generate ONE AskUserQuestion about test coverage depth where options are clearly coverage-differentiated: A) full coverage incl. edge + error paths (Completeness 10/10), B) happy path only (7/10), C) smoke test (3/10). ${captureInstruction(outFile)}`,
+          timeoutMs: CAPTURE_MS,
+          cwd: planDir,
+          skillName: 'gstack-plan-eng-review',
+          sandbox: 'workspace-write',
+          signal,
+        });
+      },
+      validate: capture.validate,
+      record: (entry) => evalCollector?.addTest(capture.attach(entry)),
     });
-
-    recordCodexResult('codex-plan-eng-format-coverage', result, result.exitCode === 0);
     console.log(`codex-plan-eng-format-coverage: ${result.tokens}t, ${Math.round(result.durationMs/1000)}s, exit=${result.exitCode}`);
-
-    if (result.exitCode === 124 || result.exitCode === 137) {
-      console.warn(`codex timed out (exit ${result.exitCode}) — skipping assertions`);
-      return;
-    }
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(ELI10_LENGTH_FLOOR);
-    expect(captured).toMatch(RECOMMENDATION_RE);
-    expect(captured).toMatch(COMPLETENESS_RE);
   }, CAPTURE_LONG_MS);
 });
 
@@ -298,29 +264,26 @@ describeCodex('Codex Plan Format — Eng Kind Issue', () => {
   });
 
   testIfSelected('codex-plan-eng-format-kind', async () => {
-    const result = await runCodexSkill({
-      skillDir,
-      prompt: `Read the plan-eng-review skill. Read plan.md. In your Section 1 Architecture review, generate ONE AskUserQuestion about an architectural choice where the options differ in kind (e.g. Redis vs Postgres materialized view vs in-process cache — different kinds of systems with different tradeoffs, NOT more-or-less-complete versions of the same thing). ${captureInstruction(outFile)}`,
-      timeoutMs: CAPTURE_MS,
-      cwd: planDir,
-      skillName: 'gstack-plan-eng-review',
-      sandbox: 'workspace-write',
+    const capture = createCodexPlanFormatCapture(outFile, 'kind');
+    const result = await runRecordedCodexEval({
+      name: 'codex-plan-eng-format-kind',
+      suite: 'codex-e2e-plan-format',
+      budgetMs: CAPTURE_LONG_MS,
+      run: (signal) => {
+        capture.reset();
+        return runCodexSkill({
+          skillDir,
+          prompt: `Read the plan-eng-review skill. Read plan.md. In your Section 1 Architecture review, generate ONE AskUserQuestion about an architectural choice where the options differ in kind (e.g. Redis vs Postgres materialized view vs in-process cache — different kinds of systems with different tradeoffs, NOT more-or-less-complete versions of the same thing). ${captureInstruction(outFile)}`,
+          timeoutMs: CAPTURE_MS,
+          cwd: planDir,
+          skillName: 'gstack-plan-eng-review',
+          sandbox: 'workspace-write',
+          signal,
+        });
+      },
+      validate: capture.validate,
+      record: (entry) => evalCollector?.addTest(capture.attach(entry)),
     });
-
-    recordCodexResult('codex-plan-eng-format-kind', result, result.exitCode === 0);
     console.log(`codex-plan-eng-format-kind: ${result.tokens}t, ${Math.round(result.durationMs/1000)}s, exit=${result.exitCode}`);
-
-    if (result.exitCode === 124 || result.exitCode === 137) {
-      console.warn(`codex timed out (exit ${result.exitCode}) — skipping assertions`);
-      return;
-    }
-
-    expect(fs.existsSync(outFile)).toBe(true);
-    const captured = fs.readFileSync(outFile, 'utf-8');
-    expect(captured.length).toBeGreaterThan(ELI10_LENGTH_FLOOR);
-    expect(captured).toMatch(RECOMMENDATION_RE);
-    // kind-differentiated: no fabricated score
-    expect(captured).not.toMatch(COMPLETENESS_RE);
-    expect(captured).toMatch(KIND_NOTE_RE);
   }, CAPTURE_LONG_MS);
 });

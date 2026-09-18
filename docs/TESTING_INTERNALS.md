@@ -64,6 +64,11 @@ fallback `~/.gstack-dev/evals/`) with auto-comparison
 against the previous finalized run (in-flight `_partial` files are never used as
 a baseline, so a run can't compare against itself).
 
+The periodic overlay fixtures use a versioned behavior gate with efficacy
+reported separately. See [Overlay benchmark contract v2](OVERLAY_BENCHMARK_CONTRACT.md)
+for exact correctness requirements, retired fanout cases, immutable evidence,
+and the limits of a passing result.
+
 ## Runners: how the suites execute (2026-08 overhaul)
 
 **Aside-only E2E tests self-skip without a live Aside; browser-driving tests
@@ -181,7 +186,7 @@ archaeology.
 `test/helpers/eval-budgets.ts` (JUDGE/CAPTURE/CAPTURE_LONG/PTY/PTY_LONG);
 `test/eval-budgets-policy.test.ts` pins that every tier fits the shard wall
 minus overhead and ratchets raw literals. Budget above the wall is fiction.
-The sole registered exception is `AUTOPLAN_CHAIN_BUDGET` for
+The registered four-phase exception is `AUTOPLAN_CHAIN_BUDGET` for
 `test/skill-e2e-autoplan-chain.test.ts`: 80 minutes of work (four `PTY_LONG`
 allocations), an 84-minute session watchdog, an 85-minute Bun test deadline,
 and a 172-minute supervised shard wall. The unchanged retry count of one
@@ -199,24 +204,36 @@ A rejected artifact edit fails the test instead of falling through to terminal
 permission input. Approval itself supplies no edit success or phase credit:
 the native tool result and all four completed review phases are still required.
 
+`FINDING_RETRY_BUDGETS` also registers six finding files. Each retains its
+25-minute case deadline and one retry: the two-case CEO finding-count file has
+a 102-minute shard wall, and the five single-case files have 52-minute walls,
+including two minutes for cleanup. No per-case budget grows. Overlay wrappers
+have a 1,830-second minimum shard wall and run without Bun retries; see the
+[overlay contract](OVERLAY_BENCHMARK_CONTRACT.md) for their unchanged work budget.
+
 `resolvePaidShardBudget(files, overrideMs?)` is the canonical per-job resolver.
-Only the exact Autoplan file gets the exception, in its own shard. An explicit
-CLI `--timeout`, `EVALS_SHARD_TIMEOUT_MS`, or API `timeoutMs` still wins, including
-a lower cap. Planner entries and execution results record the effective wall,
+Autoplan, each registered finding file, and each overlay wrapper require their
+own shard, even with `--files-per-shard` above one. Mixed or multi-file overlay
+jobs are rejected so ordinary files retain their configured retries. An explicit
+CLI `--timeout`, `EVALS_SHARD_TIMEOUT_MS`, or API `timeoutMs` still wins for these
+policies, including a lower cap; overlay overrides below their minimum are rejected.
+Planner entries and execution results record the effective wall,
 its source and policy identifier. Custom drivers must resolve each job instead
 of passing their ordinary 1800-second default as an explicit Autoplan cap;
 their outer controller/detach wall must also cover the allocated work and cleanup.
-`eval:bg:periodic` already has a 37800-second outer cap. Legacy monolithic
+`eval:bg:periodic` already has a 60600-second outer cap. Legacy monolithic
 `eval:bg`/`eval:bg:all` retain their shorter 5400/7200-second caps and do not
 promise two complete Autoplan attempts; use the sharded periodic path for this policy.
 
-Periodic CI plans `--slices 7 --autoplan-slice`: six ordinary slices retain their
-existing limits, while the seventh runs only Autoplan. Its unchanged 200-minute
-job cap leaves 28 minutes around the 172-minute shard for setup and artifacts.
-Reconciliation rejects missing, duplicated or misplaced Autoplan work and absent
-budget records. This does not claim that the growing ordinary census has a
-200-minute worst-case bound. Ordinary paid tiers and their 1800-second shard
-wall remain unchanged; unregistered over-ceiling tests still fail policy checks.
+Periodic CI plans `--slices 7 --autoplan-slice`: the seventh runs only Autoplan.
+When overlays are selected, the sixth is reserved for their serial wrappers;
+registered finding files are distributed across the remaining ordinary slices
+by their supervised walls. Each slice job has a 330-minute cap; Autoplan retains
+its 172-minute shard wall. Reconciliation rejects missing, duplicated or misplaced
+registered work and absent budget records. The job cap is not a worst-case bound
+for the growing ordinary census. Ordinary paid tiers and the default 1800-second
+shard wall remain unchanged; the registered and overlay policies above supply
+exceptions, and unregistered over-ceiling tests still fail policy checks.
 
 Session timeouts are two-phase: a silent API dies at the startup grace (90s
 local / 300s CI floor, distinct exit reason `timeout_startup`) and the work

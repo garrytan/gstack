@@ -222,7 +222,7 @@ This is a capture test, not an interactive session. Skip any system-audit / envi
  * the agent cannot wander to the global install). AskUserQuestion is declared
  * unavailable so the agent auto-picks the recommended option and proceeds far
  * enough to hit the post-Step-0 STOP-Read directives; Read is the tool a STOP-Read
- * resolves to, so Read/Grep/Glob/Write is all the agent needs (no Bash → it cannot
+ * resolves to, so Read/Grep/Glob/Write/Edit cover local artifacts (no Bash → it cannot
  * `find /` its way out, nor run git/gh mutations).
  */
 export function hasDisabledOutsideReview(output: string): boolean {
@@ -244,7 +244,11 @@ export function hasDisabledOutsideReview(output: string): boolean {
 export async function captureSectionReads(opts: {
   planDir: string;
   skillName: string;
+  /** Fixture-authorized local artifact commands. */
+  artifactCommands?: string;
   scenario: string;
+  /** The fixture actor's decision authority; defaults to recommended choices. */
+  decisionPolicy?: string;
   /** Relative filename the agent writes its final output to (terminal signal). */
   reportFile?: string;
   /** Marker proving a real report/plan was produced (default: any non-empty text). */
@@ -256,8 +260,43 @@ export async function captureSectionReads(opts: {
   timeout?: number;
   /** Measure native section loading with the documented extra-review opt-out. */
   nativeReviewOnly?: boolean;
-}): Promise<{ readSections: Set<string>; reportProduced: boolean; toolCalls: SkillTestResult['toolCalls']; output: string }> {
+}): Promise<{ readSections: Set<string>; reportProduced: boolean; reportWritten: boolean;
+  exitReason: SkillTestResult['exitReason']; toolCalls: SkillTestResult['toolCalls'];
+  transcript: SkillTestResult['transcript']; output: string }> {
   const outFile = path.join(opts.planDir, opts.reportFile ?? 'REPORT.md');
+  const timeout = opts.timeout ?? 300_000;
+  const fullPlanReview = opts.skillName === 'plan-ceo-review' || opts.skillName === 'plan-eng-review';
+  // The Eng actor may run local review writers. Reject foreign destinations
+  // before creating its state or starting a child, including symlink escapes.
+  // Tool approval is not a filesystem sandbox; this checks fixture ownership.
+  if (opts.skillName === 'plan-eng-review' && opts.nativeReviewOnly && opts.artifactCommands) {
+    if (fs.lstatSync(opts.planDir).isSymbolicLink()) throw new Error('Eng section fixture root must not be a symlink');
+    const owner = fs.realpathSync(opts.planDir);
+    const isInside = (root: string, target: string) => {
+      const relative = path.relative(root, target);
+      return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
+    };
+    if (path.resolve(outFile) === path.resolve(opts.planDir) || !isInside(path.resolve(opts.planDir), path.resolve(outFile))) {
+      throw new Error('Eng section report must stay inside its fixture root');
+    }
+    let existing = path.resolve(outFile);
+    for (;;) {
+      try { fs.lstatSync(existing); break; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        existing = path.dirname(existing);
+      }
+    }
+    if (!isInside(owner, fs.realpathSync(existing))) throw new Error('Eng section report must stay inside its fixture root');
+  }
+  const readReport = (): Buffer | undefined => {
+    try { return fs.readFileSync(outFile); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      return undefined;
+    }
+  };
+  const beforeReport = readReport();
   const skillPath = path.join(opts.planDir, opts.skillName, 'SKILL.md');
   // Outside-review dispatch has separate behavioral coverage. Native-only
   // captures use the real supported control in state owned by this call;
@@ -268,10 +307,14 @@ export async function captureSectionReads(opts: {
   const nativeReviewRule = stateDir
     ? `\n- Read ${path.relative(path.resolve(opts.planDir), path.join(stateDir, 'config.yaml'))}, the isolated gstack configuration for this capture. It sets codex_reviews: disabled. Follow that documented control: skip the entire extra outside-review step, including its native fallback, and report outside coverage as disabled. Complete all native review sections and the full required report.`
     : '';
-  // Preserve full method execution while avoiding a second written walkthrough
-  // of decisions already represented in the amended plan and required outputs.
-  const planReviewWritingRule = opts.skillName === 'plan-ceo-review'
-    ? `\n- Write a concise, complete decision record: preserve original requirements and accepted plan amendments. Record each finding once with concrete evidence, the selected remedy, residual risks, and verification. Give all 11 sections an explicit outcome (including no issues or justified skips); retain the complete required registries, applicable diagrams, tasks, completion summary, and exact GSTACK REVIEW REPORT table. Cross-reference those records instead of repeating findings, option deliberations, diagrams, or registries in each section. Use compact outcome entries and short table cells; execute the review checklists without copying their questions or narrating every check into the artifact. Brevity must preserve every finding, accepted requirement, required field, and required diagram in its specified format. Do not expand the artifact into full implementation or test code unless that code is needed to specify an accepted plan change. This is a writing rule only: execute the full review, perform every required lazy-file Read, and complete all required artifacts before returning.`
+  // The actor needs the same execution window as the runner to allocate work.
+  // Pacing does not change the review's required content or completion gates.
+  const planReviewWritingRule = fullPlanReview
+    ? `\n- Native execution window: ${timeout / 1000} seconds. Use the system notice's runner-bound deadline and the observed clock to reserve the final ${timeout / 4000} seconds for assembling and verifying completion outputs. Bash may additionally run exactly \`date -u +%Y-%m-%dT%H:%M:%SZ\` for a read-only clock check, including when other Bash commands are restricted. Every required section, finding, approval and output still has to be completed; this is pacing guidance, not permission to skip work.
+1. Read the required skill and source material, then resolve Step 0 under the supplied author policy. ${opts.skillName === 'plan-eng-review' ? 'When Scope Challenge finishes, save its outcome. Check the Write/Edit result and Read the saved outcome before advancing.' : 'Follow each workflow save/readback checkpoint as it occurs; do not defer all persistence to one final Write.'} Preserve original requirements and accepted plan amendments throughout.
+2. Whenever Step 0 or a section needs an independent choice, give it one ID and one authoritative decision record; findings may reference several choice IDs. Before auto-selecting, save its full currentDecision question/header, every labeled option and full description, commitment comparison and source citations. Read back and verify those fields against the drafted decision and cited source; fix mismatches first. Then record the authorized auto-decision and exact scope, apply answers and amendments with scoped Edit operations, and Read back before taking another row. Keep the complete question and every option before selecting, as the skill requires.
+3. Work through ${opts.skillName === 'plan-ceo-review' ? 'all 11 sections, giving each an explicit outcome (including no issues or justified skips)' : 'all four review sections, including an explicit "No issues found" when applicable'}. ${opts.skillName === 'plan-eng-review' ? 'After each completed review section, save its complete findings and disposition with concrete evidence, the selected remedy, residual risks, and verification. Check the Write/Edit result and Read the saved outcome before advancing to the next section; these checkpoints also apply when no new choice needs approval.' : 'As sections finish, add each finding once with concrete evidence, the selected remedy, residual risks, and verification.'} Use compact outcomes, short option bullets and table cells. Execute checklists without copying their questions or narrating every check. Cross-reference saved IDs instead of repeating findings, option deliberations, diagrams or registries; do not regenerate unchanged records or repeat their briefs in the final report. Do not write full implementation or test code unless needed to specify an accepted change.
+4. Use the completion reserve to assemble ${opts.skillName === 'plan-ceo-review' ? 'the complete required registries, applicable diagrams, tasks, completion summary, and exact GSTACK REVIEW REPORT table' : 'the required diagrams, test-plan artifact, tasks, TODOS dispositions, completion summary and GSTACK REVIEW REPORT'}. Preserve every finding and original requirement, required decision fields and comparisons, exact approvals and verification; every diagram must retain its specified format. Read back the assembled plan and verify the full required outputs. Finish missing required outputs with scoped Edits, without rewriting unchanged records, then perform the skill's full final Read-back gate. Complete every required artifact and verification before returning.`
     : '';
   const prompt = `You are running an automated skill-execution test. No human is present, so AskUserQuestion is unavailable. The ONLY skill file you may read is this absolute path: ${skillPath}. Do NOT Glob/find/search for any other SKILL.md anywhere — especially nothing under ~/.claude or /Users.
 
@@ -280,11 +323,12 @@ Read ${skillPath} and EXECUTE its workflow for this scenario:
 ${opts.scenario}
 
 Rules for this run:
-- Skip system-audit, environment-setup, telemetry, and codebase-exploration steps.
-- At any decision point that would call AskUserQuestion, silently pick the skill's recommended option and continue. Do NOT stop to ask.
+- Skip system-audit, environment-setup, telemetry, and unrelated codebase exploration. Read the supplied plan's referenced fixture files when its review requires them.
+${opts.decisionPolicy ?? "- At any decision point that would call AskUserQuestion, silently pick the skill's recommended option and continue. Do NOT stop to ask."}
 - This skill's body has been carved into on-demand sections/. When the skill gives a STOP-Read directive (for example "Read \`.../sections/<file>\` and execute it in full"), you MUST actually Read that sections/ file with the Read tool BEFORE doing the work it covers. Do not work from memory.
-- Do NOT run git, gh, commit, push, or any mutating command.
-- When the workflow is complete, write the skill's final output (the full review report / ship plan, including any required report table) to ${outFile}.${nativeReviewRule}${planReviewWritingRule}
+- Resolve installed-root paths for section and companion Markdown files under ${opts.planDir}, where this fixture's skill package is copied.
+- Do NOT run git, gh, commit, push, or any mutating command${opts.artifactCommands ? ' except the local artifact commands explicitly authorized below' : ''}.${opts.artifactCommands ? `\n- ${opts.artifactCommands}` : ''}
+${fullPlanReview ? `- Save the evolving plan and review outputs to ${outFile} with Write/Edit at the workflow checkpoints below.` : `- When the workflow is complete, write the skill's final output (the full review report / ship plan, including any required report table) to ${outFile}.`}${nativeReviewRule}${planReviewWritingRule}
 - After all required writes are complete, return a brief completion message and STOP. Do not reproduce the full report in the final response.`;
 
   let result: SkillTestResult;
@@ -293,11 +337,12 @@ Rules for this run:
     result = await runSkillTest({
       prompt,
       workingDirectory: opts.planDir,
-      allowedTools: ['Read', 'Grep', 'Glob', 'Write'],
-      tools: ['Read', 'Grep', 'Glob', 'Write'],
+      allowedTools: ['Read', 'Grep', 'Glob', 'Write', 'Edit', ...(opts.nativeReviewOnly ? [] : ['Agent']), ...(opts.artifactCommands || fullPlanReview ? ['Bash'] : [])],
+      tools: ['Read', 'Grep', 'Glob', 'Write', 'Edit', ...(opts.nativeReviewOnly ? [] : ['Agent']), ...(opts.artifactCommands || fullPlanReview ? ['Bash'] : [])],
       publicStreamDiagnostics: true,
+      ...(fullPlanReview ? { completionReserveMs: timeout / 4 } : {}),
       maxTurns: opts.maxTurns ?? 25,
-      timeout: opts.timeout ?? 300_000,
+      timeout,
       testName: opts.testName,
       runId: opts.runId,
       model: resolveEvalModel('capture', opts.model),
@@ -315,12 +360,53 @@ Rules for this run:
     if (m) readSections.add(m[1]);
   }
 
-  let output = '';
-  try { output = fs.readFileSync(outFile, 'utf-8'); } catch { output = result.output ?? ''; }
+  const afterReport = readReport();
+  const reportWritten = afterReport !== undefined
+    && (beforeReport === undefined || !afterReport.equals(beforeReport));
+  // An unchanged seed (including a same-byte rewrite) is not this attempt's report.
+  const output = reportWritten ? afterReport!.toString('utf-8') : result.output ?? '';
   const reportProduced = result.exitReason === 'success'
     && (opts.reportMarker ? opts.reportMarker.test(output) : output.trim().length > 0);
 
-  return { readSections, reportProduced, toolCalls: result.toolCalls, output };
+  // Keep successful terminal-output captures, but a draft left by a failed run
+  // must never satisfy callers that use reportProduced as their completion gate.
+  return { readSections, reportProduced, reportWritten, exitReason: result.exitReason, toolCalls: result.toolCalls, transcript: result.transcript, output };
+}
+
+/** A completed CEO review needs its artifact and every summary outcome. */
+export function validateCeoReviewCompletion(capture: {
+  exitReason: string;
+  reportWritten: boolean;
+  output: string;
+}): void {
+  if (capture.exitReason !== 'success') {
+    throw new Error(`CEO review execution failed: ${capture.exitReason}`);
+  }
+  if (!capture.reportWritten) throw new Error('CEO review did not write REPORT.md');
+  const lines = capture.output.split(/\r?\n/);
+  const summaryStart = lines.findIndex(line =>
+    /^(?:#{1,6}\s+(?:\d+[.)]\s+)?)?(?:\|\s*)?(?:MEGA PLAN REVIEW\s*[—–-]\s*)?COMPLETION SUMMARY(?:\s*\|)?$/i
+      .test(line.trim().replace(/\*\*/g, '')),
+  );
+  if (summaryStart === -1) throw new Error('CEO report is missing its Completion Summary');
+  const summaryLines = lines.slice(summaryStart + 1);
+  const nextHeading = summaryLines.findIndex(line => /^#{1,6}\s+\S/.test(line));
+  const summary = nextHeading === -1 ? summaryLines : summaryLines.slice(0, nextHeading);
+  const outcomes = new Map<number, string>();
+  for (const line of summary) {
+    const row = line.replace(/\*\*/g, '').match(/^\s*\|\s*Section\s+(\d{1,2})\b[^|]*\|\s*(.*?)\s*\|\s*$/i);
+    if (row) outcomes.set(Number(row[1]), row[2].replace(/\*\*/g, '').trim());
+  }
+  for (let section = 1; section <= 11; section++) {
+    const outcome = outcomes.get(section) ?? '';
+    const placeholder = !outcome || /___/.test(outcome)
+      || /^(?:TBD|TODO|pending|not reviewed|done|complete(?:d)?|reviewed|[-—]+)[.!]?$/i.test(outcome);
+    const skipped = /^(?:skip(?:ped)?|N\/A|not applicable)\b/i.test(outcome);
+    const noUi = section === 11 && /\bno UI\b/i.test(outcome);
+    if (placeholder || (skipped && !noUi)) {
+      throw new Error(`CEO Completion Summary is missing a completed Section ${section} outcome`);
+    }
+  }
 }
 
 /** Read the carved (current worktree) plan-ceo SKILL.md + its sections dir. */
@@ -379,7 +465,7 @@ Read ${skillPath} for the review workflow. Do NOT search for, Glob, find, or rea
 
 Read ${planPath} — that is the plan to review. It is a standalone plan document, not a codebase. Skip any codebase exploration or system-audit steps.
 
-Proceed to Step 0F (Mode Selection), where the skill presents the 4 review-mode options to the user via AskUserQuestion.
+Proceed to Mode Selection, where the skill presents the 4 review-mode options to the user via AskUserQuestion.
 
 Write the verbatim text of that AskUserQuestion (the full decision brief: title, ELI10, stakes, recommendation, every option with its pros/cons bullets, and the Net line) to ${outFile}. Do NOT call any tool to ask the user. Do NOT paraphrase. After writing the file, stop.`;
 

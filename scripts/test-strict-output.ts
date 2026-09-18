@@ -326,12 +326,20 @@ export function forwardAndClassify(
   origin: ClassifierOrigin = 'stdout',
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    let ended = false;
+    const incomplete = () => reject(new Error(`incomplete ${origin} capture: stream closed before end`));
     stream.on('data', (chunk: Buffer | string) => {
       classifier.write(chunk, origin);
       destination.write(chunk);
     });
-    stream.on('end', resolve);
+    stream.once('end', () => { ended = true; resolve(); });
     stream.on('error', reject);
+    stream.once('close', () => { if (!ended) incomplete(); });
+    // Bun can return an already-destroyed pipe whose close event is past.
+    if ('destroyed' in stream && stream.destroyed && !ended) {
+      if ('errored' in stream && stream.errored) reject(stream.errored);
+      else incomplete();
+    }
   });
 }
 
@@ -406,11 +414,18 @@ export async function runShardChild(options: RunShardChildOptions): Promise<Shar
   let exitCode: number | null = null;
   try {
     const streams = options.hookStreams(child);
+    // Observe failures now; a pipe can reject before the child closes. Keep
+    // that first error until close so final process-group cleanup still runs.
+    const drainage = Promise.all(streams).then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
     exitCode = await new Promise<number | null>((resolve, reject) => {
       child.once('error', reject);
       child.once('close', (code) => resolve(code));
     });
-    await Promise.all(streams);
+    const captured = await drainage;
+    if (!captured.ok) throw captured.error;
   } finally {
     clearTimeout(killTimer);
     forwarding.dispose();

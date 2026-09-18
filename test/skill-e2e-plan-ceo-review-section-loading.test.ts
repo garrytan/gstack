@@ -18,8 +18,8 @@
  * ~/.claude install. (Install-layout linking is covered separately by
  * setup-sections-linking.test.ts.)
  *
- * The agent is told AskUserQuestion is unavailable, so it auto-picks the
- * recommended option through Step 0 and reaches the post-Step-0 STOP-Read. HOLD
+ * The agent is told AskUserQuestion is unavailable, so its bounded author
+ * policy resolves in-scope choices through Step 0 and the STOP-Read. HOLD
  * SCOPE is the simplest mode that still requires the full review section. Cost:
  * ~$1-2/run. Periodic tier.
  */
@@ -31,10 +31,11 @@ import {
   setupSkillDir,
   skillFromWorktree,
   captureSectionReads,
+  validateCeoReviewCompletion,
   hasDisabledOutsideReview,
   LONG_SECTION_CAPTURE_MS,
 } from './helpers/auq-sdk-capture';
-import { CEO_SECTION_CACHE_PLAN, hasStaleFillRaceFinding } from './helpers/ceo-section-loading-fixture';
+import { CEO_SECTION_CACHE_PLAN, CEO_SECTION_DECISION_POLICY, hasStaleFillRaceFinding } from './helpers/ceo-section-loading-fixture';
 
 const describeE2E = describeE2ETier('periodic');
 const runId = `plan-ceo-section-loading-${process.env.EVALS_RUN_ID ?? 'local'}`;
@@ -55,11 +56,12 @@ describeE2E('/plan-ceo-review section-loading E2E (periodic, SDK capture)', () =
         tmpPrefix: 'gstack-ceo-secload-',
       });
 
-      const { readSections, reportProduced, output } = await captureSectionReads({
+      const capture = await captureSectionReads({
         planDir,
         skillName: 'plan-ceo-review',
         scenario:
-          'Review the plan in PLAN.md. Hold the current scope (HOLD SCOPE mode) — do not challenge or expand scope. Run the full CEO review. PLAN.md is both the active plan and final output: preserve and amend its plan content, then include the full review report there.',
+          'Review the plan in PLAN.md. Hold the current scope (HOLD SCOPE mode) — do not challenge or expand scope. Run the full CEO review. Treat the explicitly accepted repository, adapter and controller contracts as fixture facts; an unavailable implementation is not evidence that those contracts fail. Propose remedies for demonstrated gaps, and surface any actual contradiction without silently weakening a retained requirement. PLAN.md is both the active plan and final output: preserve and amend its plan content, then include the full review report there.',
+        decisionPolicy: CEO_SECTION_DECISION_POLICY,
         // The skill appends its report to the active plan. Use that same
         // artifact so the capture does not request a second report write.
         reportFile: 'PLAN.md',
@@ -76,6 +78,8 @@ describeE2E('/plan-ceo-review section-loading E2E (periodic, SDK capture)', () =
         nativeReviewOnly: true,
       });
 
+      validateCeoReviewCompletion(capture);
+      const { readSections, reportProduced, output } = capture;
       const missing = REQUIRED_SECTIONS.filter(s => !readSections.has(s));
       expect({ reportProduced, read: [...readSections], missing }).toEqual({
         reportProduced: true,
