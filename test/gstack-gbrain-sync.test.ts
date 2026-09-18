@@ -227,6 +227,170 @@ esac
     rmSync(home, { recursive: true, force: true });
   });
 
+  it("forces --phase resolve_symbol_edges on the real (source-scoped) dream spawn", () => {
+    // #2860-class: the forced dream cycle must run ONLY the resolve_symbol_edges
+    // phase, never gbrain's full multi-phase overnight maintenance cycle (that's
+    // gbrain's own `autopilot`'s job, not ours). The fake gbrain below is a
+    // strict allowlist — any `dream` invocation that doesn't match this exact
+    // argv (e.g. bare `dream` or `dream --source <id>` with no --phase) hits
+    // the `*) exit 1` branch and fails the test.
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const repo = mkdtempSync(join(tmpdir(), "gstack-dream-phase-repo-"));
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-dream-phase-bin-"));
+    const commandLog = join(home, "gbrain-commands.log");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(join(home, ".gbrain"), { recursive: true });
+    writeFileSync(join(home, ".gbrain", "config.json"), JSON.stringify({ engine: "pglite", database_url: "pglite:///test" }));
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo, timeout: 30_000 });
+    writeFileSync(join(repo, ".gbrain-source"), "client-acme-app\n");
+    writeFileSync(join(bindir, "gbrain"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"
+case "$*" in
+  --version) echo 'gbrain 0.42.0.0' ;;
+  "sources list --json") echo '{"sources":[{"id":"client-acme-app","local_path":"${repo}","page_count":1}]}' ;;
+  "dream --source client-acme-app --phase resolve_symbol_edges") echo 'resolve_symbol_edges ... resolved 3' ;;
+  *) echo "unexpected gbrain command: $*" >&2; exit 1 ;;
+esac
+`);
+    chmodSync(join(bindir, "gbrain"), 0o755);
+    writeFileSync(join(bindir, "pgrep"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(bindir, "pgrep"), 0o755);
+
+    const r = spawnSync("bun", [SCRIPT, "--dream", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"], {
+      encoding: "utf-8",
+      timeout: 60000,
+      cwd: repo,
+      env: {
+        ...process.env,
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        GBRAIN_HOME: "",
+        GSTACK_TEST_GBRAIN_LOG: commandLog,
+        PATH: `${bindir}:${process.env.PATH || ""}`,
+      },
+    });
+
+    const commands = readFileSync(commandLog, "utf-8");
+    expect(r.status).toBe(0);
+    expect(commands).toContain("dream --source client-acme-app --phase resolve_symbol_edges");
+    expect(commands).not.toMatch(/^dream$/m);
+    expect(commands).not.toMatch(/^dream --source client-acme-app$/m);
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(bindir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("forces --phase resolve_symbol_edges on the real dream spawn even with no source id (fallback)", () => {
+    // Same #2860-class guarantee as above, for the no-source-id fallback path
+    // (repoRoot() returns null — not inside a git repo). The strict allowlist
+    // exits 1 on any `dream` invocation lacking --phase resolve_symbol_edges.
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const cwd = mkdtempSync(join(tmpdir(), "gstack-dream-phase-nosource-"));
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-dream-phase-nosource-bin-"));
+    const commandLog = join(home, "gbrain-commands.log");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(join(home, ".gbrain"), { recursive: true });
+    writeFileSync(join(home, ".gbrain", "config.json"), JSON.stringify({ engine: "pglite", database_url: "pglite:///test" }));
+    writeFileSync(join(bindir, "gbrain"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"
+case "$*" in
+  --version) echo 'gbrain 0.42.0.0' ;;
+  "sources list --json") echo '{"sources":[]}' ;;
+  "dream --phase resolve_symbol_edges") echo 'resolve_symbol_edges ... resolved 0' ;;
+  *) echo "unexpected gbrain command: $*" >&2; exit 1 ;;
+esac
+`);
+    chmodSync(join(bindir, "gbrain"), 0o755);
+    writeFileSync(join(bindir, "pgrep"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(bindir, "pgrep"), 0o755);
+
+    const r = spawnSync("bun", [SCRIPT, "--dream", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"], {
+      encoding: "utf-8",
+      timeout: 60000,
+      cwd,
+      env: {
+        ...process.env,
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        GBRAIN_HOME: "",
+        GSTACK_TEST_GBRAIN_LOG: commandLog,
+        PATH: `${bindir}:${process.env.PATH || ""}`,
+      },
+    });
+
+    const commands = readFileSync(commandLog, "utf-8");
+    expect(r.status).toBe(0);
+    expect(commands).toContain("dream --phase resolve_symbol_edges");
+    expect(commands).not.toMatch(/^dream$/m);
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(bindir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("forces --phase resolve_symbol_edges on the --full auto-chained dream (never-built cycle)", () => {
+    // Same #2860-class guarantee as the explicit --dream tests above, but for
+    // the OTHER trigger path: `--full` auto-chains a dream cycle when
+    // cycleCompleted() reports "never" (call graph never built). That path
+    // resolves cycle state via `gbrain doctor --json --fast`, then calls the
+    // exact same runDream(args) as --dream — but only a live spawn proves the
+    // auto-chained call actually carries --phase, not just the shared
+    // function it happens to call. The fake gbrain below is a strict
+    // allowlist — any command outside this exact set, or a `dream`
+    // invocation without --phase resolve_symbol_edges, hits the `*) exit 1`
+    // branch and fails the test.
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const repo = mkdtempSync(join(tmpdir(), "gstack-full-dream-phase-repo-"));
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-full-dream-phase-bin-"));
+    const commandLog = join(home, "gbrain-commands.log");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(join(home, ".gbrain"), { recursive: true });
+    writeFileSync(join(home, ".gbrain", "config.json"), JSON.stringify({ engine: "pglite", database_url: "pglite:///test" }));
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo, timeout: 30_000 });
+    writeFileSync(join(repo, ".gbrain-source"), "client-acme-app\n");
+    writeFileSync(join(bindir, "gbrain"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"
+case "$*" in
+  --version) echo 'gbrain 0.42.0.0' ;;
+  "sources list --json") echo '{"sources":[{"id":"client-acme-app","local_path":"${repo}","page_count":1}]}' ;;
+  "sync --strategy code --source client-acme-app --full --yes") ;;
+  "reindex-code --source client-acme-app --yes") ;;
+  "sources attach client-acme-app") ;;
+  "doctor --json --fast") echo '{"checks":[{"name":"cycle_freshness","status":"fail","message":"client-acme-app never built a call graph"}]}' ;;
+  "dream --source client-acme-app --phase resolve_symbol_edges") echo 'resolve_symbol_edges ... resolved 5' ;;
+  *) echo "unexpected gbrain command: $*" >&2; exit 1 ;;
+esac
+`);
+    chmodSync(join(bindir, "gbrain"), 0o755);
+    writeFileSync(join(bindir, "pgrep"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(bindir, "pgrep"), 0o755);
+
+    const r = spawnSync("bun", [SCRIPT, "--full", "--no-memory", "--no-brain-sync", "--quiet"], {
+      encoding: "utf-8",
+      timeout: 60000,
+      cwd: repo,
+      env: {
+        ...process.env,
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        GBRAIN_HOME: "",
+        GSTACK_TEST_GBRAIN_LOG: commandLog,
+        PATH: `${bindir}:${process.env.PATH || ""}`,
+      },
+    });
+
+    const commands = readFileSync(commandLog, "utf-8");
+    expect(r.status).toBe(0);
+    expect(commands).toContain("dream --source client-acme-app --phase resolve_symbol_edges");
+    expect(commands).not.toMatch(/^dream$/m);
+    expect(commands).not.toMatch(/^dream --source client-acme-app$/m);
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(bindir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it("uses a local pin for a dry-run dream without spawning gbrain", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
@@ -246,7 +410,7 @@ esac
     });
 
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain("gbrain dream --source client-acme-app");
+    expect(r.stdout).toContain("gbrain dream --source client-acme-app --phase resolve_symbol_edges");
     rmSync(repo, { recursive: true, force: true });
     rmSync(bindir, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
