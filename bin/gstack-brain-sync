@@ -71,6 +71,213 @@ remote_auth_hint() {
   esac
 }
 
+# Derive the artifacts source id without creating, advancing, or re-registering
+# anything. The explicit override is the same one used by
+# gstack-gbrain-source-wireup; otherwise the artifacts remote basename is the
+# canonical source id.
+artifacts_source_id() {
+  if [ -n "${GSTACK_BRAIN_SOURCE_ID:-}" ]; then
+    printf '%s\n' "$GSTACK_BRAIN_SOURCE_ID"
+    return 0
+  fi
+
+  local remote_url=""
+  remote_url=$(git -C "$GSTACK_HOME" remote get-url origin 2>/dev/null) || true
+  if [ -z "$remote_url" ]; then
+    local remote_file
+    if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
+      remote_file="$HOME/.gstack-artifacts-remote.txt"
+    else
+      remote_file="$HOME/.gstack-brain-remote.txt"
+    fi
+    [ -f "$remote_file" ] && remote_url=$(head -1 "$remote_file" 2>/dev/null | tr -d '[:space:]')
+  fi
+  [ -z "$remote_url" ] && return 1
+
+  basename "$remote_url" .git \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -c 'a-z0-9-' '-' \
+    | sed 's/--*/-/g; s/^-//; s/-$//' \
+    | cut -c1-32
+}
+
+# Recursively signal a process tree when process-group signalling is unavailable.
+# pgrep is present on macOS/Linux; Windows uses taskkill /T below. This fallback
+# still terminates the root when neither helper exists.
+signal_probe_tree() {
+  local signal="$1"
+  local root_pid="$2"
+  local child_pid
+  if command -v pgrep >/dev/null 2>&1; then
+    while IFS= read -r child_pid; do
+      case "$child_pid" in
+        ''|*[!0-9]*) continue ;;
+      esac
+      signal_probe_tree "$signal" "$child_pid"
+    done < <(pgrep -P "$root_pid" 2>/dev/null || true)
+  fi
+  kill -s "$signal" "$root_pid" 2>/dev/null || true
+}
+
+# The probe is launched in its own process group. Terminate that whole group so
+# a shim which spawns bun/node cannot leave the single-writer database wedged.
+# taskkill /T is the native Windows process-tree fallback; recursive pgrep is
+# the POSIX fallback if group signalling is unavailable.
+terminate_probe_tree() {
+  local probe_pid="$1"
+  local uname_s
+  uname_s=$(uname -s 2>/dev/null || printf 'unknown')
+  case "$uname_s" in
+    MINGW*|MSYS*|CYGWIN*)
+      if command -v taskkill.exe >/dev/null 2>&1; then
+        # Git Bash/MSYS otherwise rewrites /PID, /T, and /F as filesystem
+        # paths before taskkill receives them.
+        if MSYS_NO_PATHCONV=1 taskkill.exe /PID "$probe_pid" /T /F >/dev/null 2>&1; then
+          return 0
+        fi
+      fi
+      ;;
+  esac
+
+  if kill -TERM -- "-$probe_pid" 2>/dev/null; then
+    # A descendant may ignore TERM even after its launcher exits. Always send
+    # KILL to the dedicated group after a short grace period.
+    sleep 0.2
+    kill -KILL -- "-$probe_pid" 2>/dev/null || true
+  else
+    signal_probe_tree TERM "$probe_pid"
+    sleep 0.2
+    signal_probe_tree KILL "$probe_pid"
+  fi
+}
+
+# Read-only, bounded verification of the artifacts source's current page count.
+# Output is a tab-separated classifier consumed by write_index_aware_status:
+#   pages <id> <count> | zero <id> 0 | absent <id> | unverified <id> <reason>
+#
+# This deliberately does NOT call `gbrain sync`: --once runs at every skill
+# boundary, while indexing can be expensive and owns a single-writer database.
+# A git push is therefore reported as git-only. The one provable bad state — a
+# source this installation maintains reporting zero pages — fails loud.
+probe_artifacts_index() {
+  local source_id
+  source_id=$(artifacts_source_id 2>/dev/null) || {
+    printf 'unverified\tunknown\tartifacts source id unavailable\n'
+    return 0
+  }
+
+  # Do not probe a random local gbrain merely because the CLI is on PATH. An
+  # explicit id or the managed artifacts worktree is the evidence that this
+  # installation believes it maintains the source. Presence-only: never call
+  # ensure_worktree here (that lifecycle is owned by source-wireup).
+  if [ -z "${GSTACK_BRAIN_SOURCE_ID:-}" ] \
+      && [ ! -e "${GSTACK_BRAIN_WORKTREE:-$HOME/.gstack-brain-worktree}" ]; then
+    printf 'unverified\t%s\tartifacts source is not managed on this machine\n' "$source_id"
+    return 0
+  fi
+
+  local gbrain_bin
+  gbrain_bin=$(command -v gbrain 2>/dev/null) || {
+    printf 'unverified\t%s\tgbrain CLI unavailable\n' "$source_id"
+    return 0
+  }
+
+  # Launch through Bash so Git Bash can resolve gbrain's .cmd/shebang launcher
+  # on Windows. Job control gives the probe a dedicated process group, and a
+  # small watchdog bounds a wedged single-writer database (stock macOS has no
+  # timeout(1)).
+  local probe_file probe_pid probe_ticks=0 probe_rc=0
+  probe_file=$(mktemp /tmp/gstack-index-probe.XXXXXX) || {
+    printf 'unverified\t%s\tpage-count probe tempfile failed\n' "$source_id"
+    return 0
+  }
+  set -m
+  bash -c 'exec "$1" sources list --json' _ "$gbrain_bin" >"$probe_file" 2>/dev/null &
+  probe_pid=$!
+  set +m
+  while kill -0 "$probe_pid" 2>/dev/null; do
+    if [ "$probe_ticks" -ge 50 ]; then
+      terminate_probe_tree "$probe_pid"
+      wait "$probe_pid" 2>/dev/null || true
+      rm -f "$probe_file"
+      printf 'unverified\t%s\tpage-count probe timed out\n' "$source_id"
+      return 0
+    fi
+    sleep 0.1
+    probe_ticks=$(( probe_ticks + 1 ))
+  done
+  wait "$probe_pid" 2>/dev/null || probe_rc=$?
+  if [ "$probe_rc" -ne 0 ]; then
+    rm -f "$probe_file"
+    printf 'unverified\t%s\tpage-count probe exited %s\n' "$source_id" "$probe_rc"
+    return 0
+  fi
+
+  local parsed
+  parsed=$(python3 - "$probe_file" "$source_id" <<'PYEOF' 2>/dev/null
+import json
+import sys
+
+path, source_id = sys.argv[1:3]
+try:
+    with open(path) as f:
+        raw = json.load(f)
+except (OSError, TypeError, json.JSONDecodeError):
+    print(f"unverified\t{source_id}\tpage-count probe returned invalid JSON")
+    raise SystemExit(0)
+
+sources = raw if isinstance(raw, list) else raw.get("sources", []) if isinstance(raw, dict) else []
+match = next((row for row in sources if isinstance(row, dict) and row.get("id") == source_id), None)
+if match is None:
+    print(f"absent\t{source_id}\t")
+    raise SystemExit(0)
+
+count = match.get("page_count")
+if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+    print(f"unverified\t{source_id}\tpage_count missing or invalid")
+elif count == 0:
+    print(f"zero\t{source_id}\t0")
+else:
+    print(f"pages\t{source_id}\t{count}")
+PYEOF
+) || parsed=$(printf 'unverified\t%s\tpage-count probe parse failed' "$source_id")
+  rm -f "$probe_file"
+  printf '%s\n' "$parsed"
+}
+
+# Preserve the git outcome while making the indexing boundary explicit. Returns
+# non-zero only for the verified zero-page false-green; callers convert that to
+# a command failure after completing any safe git/queue finalization already in
+# progress.
+write_index_aware_status() {
+  local code="$1"
+  local message="$2"
+  local probe kind source_id detail
+  probe=$(probe_artifacts_index)
+  IFS=$'\t' read -r kind source_id detail <<EOF
+$probe
+EOF
+
+  case "$kind" in
+    zero)
+      message="$message; git sync does not index gbrain; artifacts source $source_id reports 0 pages"
+      write_status "index_failed" "$message"
+      echo "BRAIN_SYNC: error: artifacts source $source_id reports 0 pages; git sync completed but gbrain indexing did not. Run gstack-gbrain-source-wireup --strict, then verify gbrain sources list." >&2
+      return 1
+      ;;
+    pages)
+      write_status "$code" "$message; git sync does not index gbrain; artifacts source $source_id reports $detail pages (freshness not verified)"
+      ;;
+    absent)
+      write_status "$code" "$message; git sync does not index gbrain; artifacts source $source_id is not registered"
+      ;;
+    *)
+      write_status "$code" "$message; git sync does not index gbrain; indexing not verified (${detail:-unknown reason})"
+      ;;
+  esac
+  return 0
+}
+
 write_status() {
   # args: status_code message [extra_json_blob]
   local code="$1"
@@ -641,7 +848,7 @@ subcmd_once() {
   # the queue is empty.) The lock-release trap installed at acquisition
   # covers this exit.
   if ! spool_has_records && [ ! -s "$QUEUE" ] && [ ! -s "$QUEUE.migrating" ]; then
-    write_status "idle" "queue empty"
+    write_index_aware_status "idle" "queue empty" || exit 1
     exit 0
   fi
 
@@ -668,7 +875,7 @@ subcmd_once() {
     finalize_queue "$snapshot_file" "$class_file" "$paths_file"
     local summary
     summary=$(queue_summary "$class_file")
-    write_status "idle" "no stageable changes${summary:+ ($summary)}"
+    write_index_aware_status "idle" "no stageable changes${summary:+ ($summary)}" || exit 1
     exit 0
   fi
 
@@ -718,7 +925,7 @@ subcmd_once() {
       # Nothing to commit (e.g. all files already committed). The drained
       # records leave the spool; retained + post-snapshot records survive.
       finalize_queue "$snapshot_file" "$class_file" "$paths_file"
-      write_status "idle" "queue drained but no new changes to commit"
+      write_index_aware_status "idle" "queue drained but no new changes to commit" || exit 1
       exit 0
     }
 
@@ -750,7 +957,7 @@ subcmd_once() {
             bash -c 'git -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME"; then
           finalize_queue "$snapshot_file" "$class_file" "$paths_file"
           date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
-          write_status "ok" "pushed $n file(s) after rebase"
+          write_index_aware_status "ok" "pushed $n file(s) after rebase" || exit 1
           exit 0
         fi
       fi
@@ -764,7 +971,7 @@ subcmd_once() {
   # Success: drained records leave the spool (retained + post-snapshot survive).
   finalize_queue "$snapshot_file" "$class_file" "$paths_file"
   date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
-  write_status "ok" "pushed $n file(s)"
+  write_index_aware_status "ok" "pushed $n file(s)" || exit 1
   exit 0
 }
 
