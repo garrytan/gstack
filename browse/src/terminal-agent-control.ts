@@ -50,6 +50,17 @@ export function resolveTerminalAgentScript(searchHints: { metaDir?: string; exec
  * Used by both the CLI cold-start path (cli.ts) and the v1.44 watchdog in
  * server.ts. Centralizing here removes a copy-paste between them and means
  * spawn-env additions (BROWSE_OWNER_PID being the first) land in one place.
+ *
+ * "Detached" is load-bearing, not decorative (#2637). The CLI exits seconds
+ * after `connect` prints its status, and on Windows a child goes down with
+ * its parent's console/job object unless it was spawned detached —
+ * `proc.unref()` does not cover that. Without it the agent named in
+ * "Terminal agent started (PID: N)" is already dead when the sidebar asks
+ * for a terminal: `terminal-port` is never written and /pty-session answers
+ * 503 "terminal-agent not ready" until the 60s watchdog in server.ts
+ * respawns the agent under the (detached) daemon. What reaps a detached
+ * agent is `ownerPid` — the owner watchdog in terminal-agent.ts, which is
+ * why that field is required rather than optional.
  */
 export function spawnTerminalAgent(opts: {
   stateFile: string;
@@ -80,6 +91,8 @@ export function spawnTerminalAgent(opts: {
       ...(opts.extraEnv || {}),
     },
     stdio: ['ignore', 'ignore', 'ignore'],
+    // Outlives its spawner — see the doc comment above (#2637).
+    detached: true,
     // Explicit for the Node fallback path (dist/bun-polyfill.cjs), where the
     // host default is the opposite of Bun's. A visible console window on every
     // watchdog respawn is the symptom when this is missing.

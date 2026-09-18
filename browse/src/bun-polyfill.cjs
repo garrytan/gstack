@@ -134,6 +134,11 @@ globalThis.Bun = {
       stdio,
       env: options.env,
       cwd: options.cwd,
+      // Forwarded for the same reason as windowsHide: a caller that asks for
+      // a child outliving it (spawnTerminalAgent, #2637) gets Node's default
+      // of "dies with the parent" on this path unless the flag crosses the
+      // shim. Defaults to false, matching both Node and Bun.
+      detached: options.detached === true,
       // stdio:'ignore' silences a child's output but does not suppress its
       // console window on Windows. The terminal-agent respawn (server.ts
       // watchdog, 60s ticker) popped a visible bun.exe window on every
