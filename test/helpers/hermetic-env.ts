@@ -17,7 +17,8 @@
  *   │ GSTACK_ANTHROPIC_API_KEY    │── promotedEnv() ─────► ANTHROPIC_API_KEY
  *   │ CONDUCTOR_*, CLAUDECODE,    │
  *   │ CLAUDE_*, GSTACK_*, MCP_*,  │── dropped ───────────► ∅
- *   │ GBRAIN_*, GH_TOKEN, ...     │
+ *   │ GBRAIN_*, GH_TOKEN,         │
+ *   │ GITHUB_*_TOKEN, ...         │
  *   └─────────────────────────────┘
  *      + per-runner extraAllow (codex: OpenAI vars; gemini: Google vars)
  *      + CLAUDE_CONFIG_DIR=<runRoot>/.claude  GSTACK_HOME=<runRoot>/gstack-home
@@ -69,6 +70,44 @@ const ALLOW_EXACT = new Set([
  * opts.extraAllow. */
 const ALLOW_PREFIXES = ['EVALS_', 'GITHUB_'];
 
+/**
+ * Credential words a PREFIX rule must never admit, matched on the LAST
+ * _-delimited segment of the name.
+ *
+ * `GITHUB_` is in ALLOW_PREFIXES for CI metadata (GITHUB_ACTIONS, GITHUB_SHA,
+ * GITHUB_WORKSPACE…), but the same prefix also matches the operator
+ * credentials people actually export locally — GITHUB_TOKEN,
+ * GITHUB_PERSONAL_ACCESS_TOKEN, GITHUB_APP_PRIVATE_KEY. `GH_TOKEN` was named
+ * in the drop list above and pinned by a test; its sibling sailed through the
+ * prefix, so a local eval child ran with the operator's GitHub write
+ * credential in its environment — the exact contamination this module exists
+ * to prevent, and one CI never has (the workflows expose the job token as
+ * GH_TOKEN, which the allowlist already drops). Local signal was therefore
+ * NOT CI-equivalent for the one variable class that matters most.
+ *
+ * A shape rule, not a name denylist: any future GITHUB_*_TOKEN / _SECRET /
+ * _KEY is covered without an edit. Vocabulary matches the credential suffixes
+ * the shipped scanner already uses (ENV_KV_SUFFIX in lib/redact-patterns.ts),
+ * plus PAT. Segment-tail matching keeps real Actions vars: GITHUB_PATH ends in
+ * the segment PATH, not PAT.
+ *
+ * Screened for the module's own prefixes only. An ALLOW_EXACT entry
+ * (ANTHROPIC_API_KEY) or an `opts.extraAllow` entry (the codex runner's
+ * OPENAI_API_KEY, the gemini runner's GEMINI_*) is a deliberate, reviewed
+ * admission by a runner that needs that credential, and still wins.
+ */
+const CREDENTIAL_TAILS = new Set([
+  'KEY', 'KEYS', 'TOKEN', 'TOKENS', 'SECRET', 'SECRETS', 'PASSWORD', 'PASSWD',
+  'PASS', 'CREDENTIAL', 'CREDENTIALS', 'AUTH', 'PAT', 'DSN', 'COOKIE',
+  'SESSION', 'PRIVATE',
+]);
+
+/** True when the last _-delimited segment of `name` is a credential word. */
+export function isCredentialShapedName(name: string): boolean {
+  const segments = name.split('_');
+  return CREDENTIAL_TAILS.has(segments[segments.length - 1].toUpperCase());
+}
+
 export interface HermeticEnvOpts {
   /** Per-runner additional allowed names (exact match) or prefixes (entries
    * ending in '*'). Example: codex runner passes ['OPENAI_API_KEY', 'CODEX_*']. */
@@ -114,7 +153,7 @@ export function buildHermeticEnv(
     const allowed =
       ALLOW_EXACT.has(k) ||
       extraExact.has(k) ||
-      ALLOW_PREFIXES.some((p) => k.startsWith(p)) ||
+      (ALLOW_PREFIXES.some((p) => k.startsWith(p)) && !isCredentialShapedName(k)) ||
       extraPrefixes.some((p) => k.startsWith(p));
     if (allowed) out[k] = v;
   }
