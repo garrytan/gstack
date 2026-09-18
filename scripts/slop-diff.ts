@@ -31,19 +31,49 @@ if (changedFiles.size === 0) {
   process.exit(0);
 }
 
+
+/**
+ * Run `npx slop-scan scan <target> --json` with stdout redirected to a temp
+ * FILE and return the report text.
+ *
+ * Why not capture the pipe: slop-scan@0.3.0 writes its report with async
+ * stdout writes and then calls process.exit(), so on a PIPED stdout the
+ * output is truncated at the first ~8KB chunk (a full-repo report is
+ * multi-MB). File writes are synchronous, so redirecting to a file yields
+ * the complete report regardless of size. Returns null when slop-scan is
+ * unavailable or produced no output.
+ */
+function runSlopScan(target: string): string | null {
+  const outFile = path.join(
+    os.tmpdir(),
+    `slop-scan-out-${process.pid}-${Date.now()}.json`,
+  );
+  const outFd = fs.openSync(outFile, "w");
+  try {
+    spawnSync("npx", ["slop-scan", "scan", target, "--json"], {
+      stdio: ["ignore", outFd, "pipe"],
+      timeout: 120000,
+      shell: process.platform === "win32",
+    });
+    fs.closeSync(outFd);
+    const raw = fs.readFileSync(outFile, "utf-8");
+    return raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(outFile, { force: true });
+  }
+}
+
 // 2. Run slop-scan on HEAD
-const scanHead = spawnSync("npx", ["slop-scan", "scan", ".", "--json"], {
-  encoding: "utf-8",
-  timeout: 120000,
-  shell: process.platform === "win32",
-});
-if (!scanHead.stdout) {
+const scanHeadOut = runSlopScan(".");
+if (!scanHeadOut) {
   console.log("slop-scan not available. Install: npm i -g slop-scan");
   process.exit(0);
 }
 let headReport: any;
 try {
-  headReport = JSON.parse(scanHead.stdout);
+  headReport = JSON.parse(scanHeadOut);
 } catch {
   console.log("slop-scan returned invalid JSON.");
   process.exit(0);
@@ -86,19 +116,11 @@ if (mergeBase) {
       } catch {}
     }
 
-    const scanBase = spawnSync(
-      "npx",
-      ["slop-scan", "scan", tmpWorktree, "--json"],
-      {
-        encoding: "utf-8",
-        timeout: 120000,
-        shell: process.platform === "win32",
-      },
-    );
+    const scanBaseOut = runSlopScan(tmpWorktree);
 
-    if (scanBase.stdout) {
+    if (scanBaseOut) {
       try {
-        const baseReport = JSON.parse(scanBase.stdout);
+        const baseReport = JSON.parse(scanBaseOut);
         for (const f of baseReport.findings) {
           // Remap worktree paths back to repo-relative
           const realPath = f.path.replace(tmpWorktree + "/", "");
