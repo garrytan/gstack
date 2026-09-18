@@ -1,0 +1,44 @@
+{
+  "provenance": {
+    "source": ".context/dx-upgrade-aw-diagnosis-sdk-v1/provenance.json",
+    "sourceSha256": "74309818e0f55ac3f4c965ca0bf035530f264e688982af2d5289f86a36aa1f29",
+    "publicToolUseAndAckExact": true,
+    "paidOutcomesReclassified": false
+  },
+  "call": {
+    "sessionId": "ddb646c2-321f-4a98-97f5-2d4a49d64f83",
+    "toolUseId": "toolu_01FC8haeVo51JC3s2qPKnk1c",
+    "questions": [
+      {
+        "question": "D6 \u2014 Give v1 users a soft landing when `Client.evaluate()` becomes `Client.run()`?\nProject/branch/task: gstack-plan-count-RJNBvV on main, DX review of the EvalKit 2.0.0b1 release plan (Pass 5: Upgrade path, journey stage Upgrade).\nELI10: docs/api.md lines 15-18 say version 2 renames `Client.evaluate()` to `Client.run()` and deletes the old name immediately, with no compatibility alias, deprecation warning, migration guide, or codemod. Every v1 script and CI job that upgrades to 2.0 dies with an AttributeError that does not mention the new name. The persona's teammates on v1 will find out from a red CI run. Upgrades should be boring; this violates DX principle 2, incremental steps, and the credibility characteristic.\nStakes if we pick wrong: A hard break in a beta teaches early adopters that EvalKit upgrades are dangerous, which is the exact fear that stops SDKs from being pinned forward. Too much compatibility machinery for a one-method rename would be waste.\nRecommendation: A because a one-line alias plus a DeprecationWarning that names the replacement is nearly free, and a short migration note in the changelog is what turns the rename into a boring upgrade.\nCompleteness: A=10/10, B=7/10, C=4/10, D=1/10\nPros / cons:\nA) Keep `evaluate()` as a thin alias that emits `DeprecationWarning: Client.evaluate() is deprecated, use Client.run()`, remove it in 3.0, and add a v1-to-v2 migration section to the changelog plus an api.md note (recommended) (human: ~half day / CC: ~10 min)\n  \u2705 Every v1 script keeps working on 2.0 and prints the exact new method name to switch to\n  \u2705 The migration note lists the rename, the D4 signature change, and the D5 error codes in one place, so one read covers the whole upgrade\n  \u274c Two names coexist through 2.x, and the alias needs a test asserting the warning fires and the removal version is documented\nB) Alias with DeprecationWarning only, no migration guide (human: ~1 hour / CC: ~5 min)\n  \u2705 No runtime break for v1 callers\n  \u2705 Smallest change to ship the soft landing\n  \u274c Developers learn about the rename one warning at a time and never see the D4 and D5 changes listed together\nC) No alias; keep the hard removal but make the AttributeError message say \"evaluate() was renamed to run() in 2.0\" (human: ~1 hour / CC: ~5 min)\n  \u2705 Clean 2.0 surface with a single method name\n  \u2705 The failure at least names the fix\n  \u274c v1 code still breaks on upgrade; CI jobs go red before anyone reads the message\nD) Remove `evaluate()` immediately as documented\n  \u2705 No compatibility code to maintain\n  \u2705 Matches the current draft and changelog\n  \u274c Bare AttributeError on every v1 call site with no pointer to run(); the upgrade is a trap\nNet: A few lines of alias and one changelog section decide whether the 2.0 upgrade is boring or a red-CI surprise.",
+        "header": "Upgrade path",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A) Alias + warning + migration guide (recommended)",
+            "description": "evaluate() stays as a deprecated alias through 2.x; changelog gains a v1-to-v2 migration section covering D4, D5, and the rename."
+          },
+          {
+            "label": "B) Alias + warning only",
+            "description": "Soft landing at runtime, no written migration guide."
+          },
+          {
+            "label": "C) Hard removal, helpful error",
+            "description": "No alias; AttributeError message names run() as the replacement."
+          },
+          {
+            "label": "D) Remove immediately as documented",
+            "description": "Ship the hard rename with no alias, warning, or guide."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D6 \u2014 Give v1 users a soft landing when `Client.evaluate()` becomes `Client.run()`?\nProject/branch/task: gstack-plan-count-RJNBvV on main, DX review of the EvalKit 2.0.0b1 release plan (Pass 5: Upgrade path, journey stage Upgrade).\nELI10: docs/api.md lines 15-18 say version 2 renames `Client.evaluate()` to `Client.run()` and deletes the old name immediately, with no compatibility alias, deprecation warning, migration guide, or codemod. Every v1 script and CI job that upgrades to 2.0 dies with an AttributeError that does not mention the new name. The persona's teammates on v1 will find out from a red CI run. Upgrades should be boring; this violates DX principle 2, incremental steps, and the credibility characteristic.\nStakes if we pick wrong: A hard break in a beta teaches early adopters that EvalKit upgrades are dangerous, which is the exact fear that stops SDKs from being pinned forward. Too much compatibility machinery for a one-method rename would be waste.\nRecommendation: A because a one-line alias plus a DeprecationWarning that names the replacement is nearly free, and a short migration note in the changelog is what turns the rename into a boring upgrade.\nCompleteness: A=10/10, B=7/10, C=4/10, D=1/10\nPros / cons:\nA) Keep `evaluate()` as a thin alias that emits `DeprecationWarning: Client.evaluate() is deprecated, use Client.run()`, remove it in 3.0, and add a v1-to-v2 migration section to the changelog plus an api.md note (recommended) (human: ~half day / CC: ~10 min)\n  \u2705 Every v1 script keeps working on 2.0 and prints the exact new method name to switch to\n  \u2705 The migration note lists the rename, the D4 signature change, and the D5 error codes in one place, so one read covers the whole upgrade\n  \u274c Two names coexist through 2.x, and the alias needs a test asserting the warning fires and the removal version is documented\nB) Alias with DeprecationWarning only, no migration guide (human: ~1 hour / CC: ~5 min)\n  \u2705 No runtime break for v1 callers\n  \u2705 Smallest change to ship the soft landing\n  \u274c Developers learn about the rename one warning at a time and never see the D4 and D5 changes listed together\nC) No alias; keep the hard removal but make the AttributeError message say \"evaluate() was renamed to run() in 2.0\" (human: ~1 hour / CC: ~5 min)\n  \u2705 Clean 2.0 surface with a single method name\n  \u2705 The failure at least names the fix\n  \u274c v1 code still breaks on upgrade; CI jobs go red before anyone reads the message\nD) Remove `evaluate()` immediately as documented\n  \u2705 No compatibility code to maintain\n  \u2705 Matches the current draft and changelog\n  \u274c Bare AttributeError on every v1 call site with no pointer to run(); the upgrade is a trap\nNet: A few lines of alias and one changelog section decide whether the 2.0 upgrade is boring or a red-CI surprise.": "A) Alias + warning + migration guide (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-11T01:05:58.273Z"
+  }
+}

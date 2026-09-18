@@ -1,0 +1,138 @@
+{
+  "observationSHA256": "12c69056fdb115893b46b1a4289a41e52c8d2a4970d06396ceabc457da74a7f3",
+  "reportSHA256": "74ace7447a07d0b8a27ab45cb6dc8854602e862bbeaed1b7671a34e1e290784b",
+  "calls": [
+    {
+      "sessionId": "6224eb91-e7d5-4efa-89c1-7756f1140770",
+      "toolUseId": "toolu_011m4o2M9ybFru4R41h9eECH",
+      "questions": [
+        {
+          "question": "D4 — Scope: reduce to 2 new classes with injected cache, or proceed with 4 classes / 12 files?\nProject/branch/task: gstack-plan-count-FTw0nf on main, PLAN.md Multi-tenant Auth Refactor.\nELI10: The plan adds four new classes but only explains what two of them do. AuthCache wraps a cache adapter that already does everything the plan needs (PLAN.md:7-13). TokenStore and RequestPolicy get a name and nothing else (PLAN.md:35-36). Every extra class is another file to test, another place a tenant-isolation bug can hide, and another thing the next engineer has to learn. The question is whether the same auth refactor ships with fewer moving parts.\nStakes if we pick wrong: Too big and you carry four abstractions where two would do, forever. Too small and you fold a real responsibility into the wrong class and split it back out later.\nRecommendation: A because the existing adapter already has the contract AuthCache re-exposes, and a class with no stated responsibility is premature abstraction (your 'engineered enough' preference).\nNote: options differ in kind, not coverage — no completeness score.\nNet: two well-defined services over an injected adapter vs. four classes, two of them undefined.",
+          "header": "Scope",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Reduce: 2 classes, inject adapter (recommended)",
+              "description": "AuthBroker + SessionMint receive the existing cache adapter by constructor; drop the AuthCache facade; RequestPolicy becomes a plain typed config/function; TokenStore folds into the adapter unless it has a distinct responsibility you name. (human: ~3 days / CC: ~45 min) ✅ Fewer files (~7-8), fewer abstractions, and no module-level singleton to leak tenant state. ✅ Reuses the adapter's existing tests and invalidation hooks unchanged. ❌ If TokenStore really is a separate concern (e.g. refresh-token persistence), it must be re-added later."
+            },
+            {
+              "label": "B) Keep 4 classes, but inject (no singleton)",
+              "description": "All four classes stay; AuthCache is passed into both services instead of being a module-level export. (human: ~5 days / CC: ~1 hr) ✅ Preserves whatever design intent sits behind TokenStore and RequestPolicy. ✅ Still removes the shared-mutable-singleton hazard. ❌ Carries two undefended classes and ~12 files; the plan must be amended to state their responsibilities."
+            },
+            {
+              "label": "C) Proceed as-is",
+              "description": "4 classes, 12 files, module-level AuthCache export, as written. (human: ~5 days / CC: ~1 hr) ✅ No re-planning; the design is already in your head. ✅ Fastest path to first commit. ❌ Ships the singleton footgun and two classes the plan cannot yet explain; the architecture review will still flag the singleton."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Scope: reduce to 2 new classes with injected cache, or proceed with 4 classes / 12 files?\nProject/branch/task: gstack-plan-count-FTw0nf on main, PLAN.md Multi-tenant Auth Refactor.\nELI10: The plan adds four new classes but only explains what two of them do. AuthCache wraps a cache adapter that already does everything the plan needs (PLAN.md:7-13). TokenStore and RequestPolicy get a name and nothing else (PLAN.md:35-36). Every extra class is another file to test, another place a tenant-isolation bug can hide, and another thing the next engineer has to learn. The question is whether the same auth refactor ships with fewer moving parts.\nStakes if we pick wrong: Too big and you carry four abstractions where two would do, forever. Too small and you fold a real responsibility into the wrong class and split it back out later.\nRecommendation: A because the existing adapter already has the contract AuthCache re-exposes, and a class with no stated responsibility is premature abstraction (your 'engineered enough' preference).\nNote: options differ in kind, not coverage — no completeness score.\nNet: two well-defined services over an injected adapter vs. four classes, two of them undefined.": "A) Reduce: 2 classes, inject adapter (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T09:53:46.307Z"
+    },
+    {
+      "sessionId": "6224eb91-e7d5-4efa-89c1-7756f1140770",
+      "toolUseId": "toolu_01LeQfFfD3XayjMH11jL4ua7",
+      "questions": [
+        {
+          "question": "D5 — Issue 1: Who is allowed to write to the shared cache?\nProject/branch/task: gstack-plan-count-FTw0nf on main, PLAN.md Multi-tenant Auth Refactor (scope reduced per D4).\nELI10: Even with the adapter injected instead of global, AuthBroker and SessionMint both write to the same tenant-keyed cache and nothing orders those writes (PLAN.md:10 'they do not serialize mutations'; PLAN.md:20 'Both services mutate it'). Picture a user logging out: the adapter's logout hook deletes their token entry, and a SessionMint write that started a moment earlier lands right after and puts the token back. The user thinks they're logged out; the token still validates from cache. Nobody sees an error.\nStakes if we pick wrong: A revoked or suspended tenant's token keeps working until natural expiry. That's a silent auth bypass, the worst kind of bug to find in production.\nRecommendation: A because a single-writer rule is explicit over clever, needs no new locking primitive, and makes the race impossible rather than unlikely.\nCompleteness: A=10/10, B=8/10, C=3/10\nNet: an ownership rule enforced by types vs. a version check on every write vs. hoping the window is small.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A) Single writer: only SessionMint writes (recommended)",
+              "description": "SessionMint is the sole writer (mint + cache); AuthBroker holds a read-only view of the adapter (a narrowed interface type) and triggers invalidation only through the adapter's existing hooks. Add a test that a mint racing a revocation never resurrects the entry. (human: ~1 day / CC: ~20 min) ✅ The race is structurally impossible; the compiler enforces the rule. ✅ Reuses existing invalidation hooks unchanged. ❌ AuthBroker must go through SessionMint for any cache write it needs today."
+            },
+            {
+              "label": "1B) Both write, guard with policy-version CAS",
+              "description": "Both services keep writing; every write carries the policy version already in the key and the adapter rejects writes whose version is older than the current entry or a tombstone left by invalidation. (human: ~2 days / CC: ~40 min) ✅ No ownership change; both services keep their current shape. ✅ Tombstones also protect against late writes after tenant suspension. ❌ Adds compare-and-set logic to an adapter the plan promised to leave unchanged (PLAN.md:12-13)."
+            },
+            {
+              "label": "1C) Accept the window, document it",
+              "description": "Leave both writers unserialized and add a comment noting the race. (human: ~10 min / CC: ~2 min) ✅ Zero implementation work right now. ✅ Keeps the adapter and both services exactly as planned. ❌ Ships a known silent auth-bypass window; the size of the window depends on IDP latency you don't control."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Issue 1: Who is allowed to write to the shared cache?\nProject/branch/task: gstack-plan-count-FTw0nf on main, PLAN.md Multi-tenant Auth Refactor (scope reduced per D4).\nELI10: Even with the adapter injected instead of global, AuthBroker and SessionMint both write to the same tenant-keyed cache and nothing orders those writes (PLAN.md:10 'they do not serialize mutations'; PLAN.md:20 'Both services mutate it'). Picture a user logging out: the adapter's logout hook deletes their token entry, and a SessionMint write that started a moment earlier lands right after and puts the token back. The user thinks they're logged out; the token still validates from cache. Nobody sees an error.\nStakes if we pick wrong: A revoked or suspended tenant's token keeps working until natural expiry. That's a silent auth bypass, the worst kind of bug to find in production.\nRecommendation: A because a single-writer rule is explicit over clever, needs no new locking primitive, and makes the race impossible rather than unlikely.\nCompleteness: A=10/10, B=8/10, C=3/10\nNet: an ownership rule enforced by types vs. a version check on every write vs. hoping the window is small.": "1A) Single writer: only SessionMint writes (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T09:54:54.736Z"
+    },
+    {
+      "sessionId": "6224eb91-e7d5-4efa-89c1-7756f1140770",
+      "toolUseId": "toolu_01VJKE15J3D5NpLmUqw5QQ53",
+      "questions": [
+        {
+          "question": "D7 — Issue 3: What happens to validateAndDispatch() and its three swallowing catch blocks?\nProject/branch/task: gstack-plan-count-FTw0nf on main, PLAN.md Multi-tenant Auth Refactor (scope reduced per D4).\nELI10: validateAndDispatch() is 60 lines with three try/catch blocks nested inside each other, and each catch eats a different kind of error and moves on (PLAN.md:23-24). In auth code, 'moves on' is the problem: either the user gets a blank denial with nothing in the logs, or the function reaches the dispatch step even though a validation step failed. Neither is visible until someone reports it.\nStakes if we pick wrong: Silent denials that support can't debug, or a validation step that fails open. Both are invisible in tests that only check the happy path.\nRecommendation: A because splitting validation from dispatch and making every failure an explicit typed outcome is 'explicit over clever', and CC writes the per-error-class tests in minutes.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: explicit error outcomes with a test per class vs. same shape with logging vs. leave it.",
+          "header": "Issue 3",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3A) Split + typed error results, test per error class (recommended)",
+              "description": "Split into validate() returning a discriminated result (ok | {kind: 'expired'|'issuer'|'audience'|'network'|...}) and dispatch(); one boundary catch maps unknown throws to a logged 500-class error. No catch swallows. One unit test per error kind asserting the mapped outcome and log line. (human: ~1 day / CC: ~20 min) ✅ Every failure is named, logged, and tested; fail-closed is enforced by the type. ✅ Each function fits on a screen and has one job. ❌ Callers of validateAndDispatch() adapt to the new result shape."
+            },
+            {
+              "label": "3B) Keep structure, log + rethrow in each catch",
+              "description": "Same 60-line function and nesting; each catch logs with error class and rethrows or returns a deny. (human: ~2 hr / CC: ~5 min) ✅ Minimal diff; no caller changes. ✅ Errors stop being silent. ❌ Three nested try/catch blocks remain; the next engineer still has to trace which catch owns which failure."
+            },
+            {
+              "label": "3C) Leave as-is",
+              "description": "No change to validateAndDispatch(). (human: ~0 / CC: ~0) ✅ No work, no risk of introducing a change in this PR. ✅ Keeps the PR focused on the new services. ❌ Three classes of auth failure remain invisible in production."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Issue 3: What happens to validateAndDispatch() and its three swallowing catch blocks?\nProject/branch/task: gstack-plan-count-FTw0nf on main, PLAN.md Multi-tenant Auth Refactor (scope reduced per D4).\nELI10: validateAndDispatch() is 60 lines with three try/catch blocks nested inside each other, and each catch eats a different kind of error and moves on (PLAN.md:23-24). In auth code, 'moves on' is the problem: either the user gets a blank denial with nothing in the logs, or the function reaches the dispatch step even though a validation step failed. Neither is visible until someone reports it.\nStakes if we pick wrong: Silent denials that support can't debug, or a validation step that fails open. Both are invisible in tests that only check the happy path.\nRecommendation: A because splitting validation from dispatch and making every failure an explicit typed outcome is 'explicit over clever', and CC writes the per-error-class tests in minutes.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: explicit error outcomes with a test per class vs. same shape with logging vs. leave it.": "3A) Split + typed error results, test per error class (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T09:56:01.216Z"
+    },
+    {
+      "sessionId": "6224eb91-e7d5-4efa-89c1-7756f1140770",
+      "toolUseId": "toolu_0146kiJJzgAyvhjwGzuVKDHg",
+      "questions": [
+        {
+          "question": "D10 — Issue 6: How are the 5 IDP calls parallelized?\nProject/branch/task: gstack-plan-count-FTw0nf on main, PLAN.md Multi-tenant Auth Refactor (scope reduced per D4).\nELI10: Today the five identity-provider checks run one after another, so login takes five round trips (PLAN.md:31). Running them at once cuts that to one round trip. But 'at once' has two sharp edges: if one call hangs, the login hangs with it unless each call has its own deadline, and if one call fails fast the other four keep burning IDP quota unless we cancel them. Promise.all is the right aggregator here because a single failed check must fail the whole validation (fail closed).\nStakes if we pick wrong: Either logins hang on a slow IDP, or you quietly 5x your IDP request volume during an outage.\nRecommendation: A because per-call timeouts and cancellation are a few lines with AbortController and turn a 'trivial' change into a bounded one; complete error handling over happy path.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: bounded, cancellable parallel calls vs. bare Promise.all vs. sequential as today.",
+          "header": "Issue 6",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "6A) Promise.all + per-call timeout + abort on first failure (recommended)",
+              "description": "Each IDP call gets an AbortSignal with a per-call deadline; Promise.all rejects on the first failure and the shared controller aborts the remaining four; failure maps to the 'network' or check-specific error kind from 3A. Tests: fastest-rejection wins, timeout maps to 'network', remaining calls observed aborted. (human: ~half day / CC: ~15 min) ✅ Login latency bounded by the slowest healthy call, never by a hung one. ✅ IDP quota isn't burned on calls whose result no longer matters. ❌ Slightly more plumbing than a one-line Promise.all."
+            },
+            {
+              "label": "6B) Plain Promise.all",
+              "description": "Wrap the five calls in Promise.all; rely on the IDP client's global timeout, if any. (human: ~1 hr / CC: ~3 min) ✅ One-line change; immediate latency win. ✅ Fail-closed semantics come free from Promise.all. ❌ A hung call hangs the login; four calls keep running after the first rejection."
+            },
+            {
+              "label": "6C) Keep sequential",
+              "description": "No change. (human: ~0 / CC: ~0) ✅ No new concurrency to reason about. ✅ IDP sees at most one in-flight call per login. ❌ Login stays 5 round trips long for every user, every time."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D10 — Issue 6: How are the 5 IDP calls parallelized?\nProject/branch/task: gstack-plan-count-FTw0nf on main, PLAN.md Multi-tenant Auth Refactor (scope reduced per D4).\nELI10: Today the five identity-provider checks run one after another, so login takes five round trips (PLAN.md:31). Running them at once cuts that to one round trip. But 'at once' has two sharp edges: if one call hangs, the login hangs with it unless each call has its own deadline, and if one call fails fast the other four keep burning IDP quota unless we cancel them. Promise.all is the right aggregator here because a single failed check must fail the whole validation (fail closed).\nStakes if we pick wrong: Either logins hang on a slow IDP, or you quietly 5x your IDP request volume during an outage.\nRecommendation: A because per-call timeouts and cancellation are a few lines with AbortController and turn a 'trivial' change into a bounded one; complete error handling over happy path.\nCompleteness: A=10/10, B=7/10, C=3/10\nNet: bounded, cancellable parallel calls vs. bare Promise.all vs. sequential as today.": "6A) Promise.all + per-call timeout + abort on first failure (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T09:58:14.247Z"
+    }
+  ],
+  "declaration": "**CRITICAL — regression rule (mandatory, not a decision):** T1 adds a characterization test for `legacyAuthFlow()`'s current behavior (happy path, each current denial path, cache interaction) and lands *before* the 4A extraction. The original plan excluded this (PLAN.md:15-16); that exclusion is removed.",
+  "tasks": "- [ ] **T1 (P1, human: ~2h / CC: ~10min)** — auth/legacy — Add characterization/regression test for `legacyAuthFlow()` current behavior\n  - Surfaced by: Test review — REGRESSION RULE; PLAN.md:15-16 excluded it, PLAN.md:27 rewrites it\n  - Files: `auth/__tests__/legacyAuthFlow.regression.test.ts`\n  - Verify: test passes against unmodified legacy before any other commit\n- [ ] **T2 (P1, human: ~1d / CC: ~20min)** — auth/validate — Extract IDP checks + token validation into shared `validate()`; legacy calls it, behavior unchanged\n  - Surfaced by: Code quality Issue 4 (D8, 4A)\n  - Files: `auth/validate.ts`, `auth/legacyAuthFlow.ts`\n  - Verify: T1 still green; diff to legacy is call-site only\n",
+  "compact": "## Tests\n\n**CRITICAL — regression rule (mandatory, not a decision):** T1 adds a characterization test for `legacyAuthFlow()`'s current behavior (happy path, each current denial path, cache interaction) and lands *before* the 4A extraction. The original plan excluded this (PLAN.md:15-16); that exclusion is removed.\n\n## Implementation Tasks\n\n- [ ] **T1 (P1, human: ~2h / CC: ~10min)** — auth/legacy — Add characterization/regression test for `legacyAuthFlow()` current behavior\n  - Surfaced by: Test review — REGRESSION RULE; PLAN.md:15-16 excluded it, PLAN.md:27 rewrites it\n  - Files: `auth/__tests__/legacyAuthFlow.regression.test.ts`\n  - Verify: test passes against unmodified legacy before any other commit\n- [ ] **T2 (P1, human: ~1d / CC: ~20min)** — auth/validate — Extract IDP checks + token validation into shared `validate()`; legacy calls it, behavior unchanged\n  - Surfaced by: Code quality Issue 4 (D8, 4A)\n  - Files: `auth/validate.ts`, `auth/legacyAuthFlow.ts`\n  - Verify: T1 still green; diff to legacy is call-site only\n\n## GSTACK REVIEW REPORT\n\n**Suppressed findings (confidence ≤ 4, appendix only):**\n- `[P1?] (confidence: 4/10) PLAN.md:7-8` — tenant ID source for the cache key not stated; if claim-derived, cross-tenant cache poisoning. Unverifiable without source. Captured as TODO 3.\n- `[P3] (confidence: 3/10) PLAN.md:31` — five parallel IDP calls may hit IDP per-client rate limits during a cold-start stampede; mitigated by 7A single-flight. No IDP quota figures available.\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |\n| Outside Review | codex via `/plan-eng-review` | Independent 2nd opinion | 1 | disabled | outside_status: disabled (codex_reviews=disabled), phase: plan-review, host: claude |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean (PLAN) | 32 issues (6 section findings + 26 test gaps), 0 critical gaps, mode SCOPE_REDUCED |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |\n\n**OUTSIDE COVERAGE:** provider codex, phase plan-review, outside_status disabled (user opt-out), no findings; no native fallback dispatched. Outside coverage for this plan is absent by configuration, not by failure.\n\n**VERDICT:** ENG CLEARED — ready to implement (SCOPE_REDUCED; all 7 decisions resolved, 0 critical gaps). CEO and Design reviews not run; neither gates shipping for a backend auth refactor.\n\nNO UNRESOLVED DECISIONS\n",
+  "reviewReport": "## GSTACK REVIEW REPORT\n\n**Suppressed findings (confidence ≤ 4, appendix only):**\n- `[P1?] (confidence: 4/10) PLAN.md:7-8` — tenant ID source for the cache key not stated; if claim-derived, cross-tenant cache poisoning. Unverifiable without source. Captured as TODO 3.\n- `[P3] (confidence: 3/10) PLAN.md:31` — five parallel IDP calls may hit IDP per-client rate limits during a cold-start stampede; mitigated by 7A single-flight. No IDP quota figures available.\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |\n| Outside Review | codex via `/plan-eng-review` | Independent 2nd opinion | 1 | disabled | outside_status: disabled (codex_reviews=disabled), phase: plan-review, host: claude |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean (PLAN) | 32 issues (6 section findings + 26 test gaps), 0 critical gaps, mode SCOPE_REDUCED |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |\n\n**OUTSIDE COVERAGE:** provider codex, phase plan-review, outside_status disabled (user opt-out), no findings; no native fallback dispatched. Outside coverage for this plan is absent by configuration, not by failure.\n\n**VERDICT:** ENG CLEARED — ready to implement (SCOPE_REDUCED; all 7 decisions resolved, 0 critical gaps). CEO and Design reviews not run; neither gates shipping for a backend auth refactor.\n\nNO UNRESOLVED DECISIONS\n"
+}

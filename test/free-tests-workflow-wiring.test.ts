@@ -54,6 +54,17 @@ describe('free-tests workflow wiring', () => {
     }
   });
 
+  test('flake telemetry stays wired: retry flag, single-writer ledger, unconditional artifact', () => {
+    // WS1: a timing flake must not red the required lane, but every
+    // flaky-pass must be recorded and uploaded — a green run is exactly when
+    // the evidence matters. Removing any of these silently returns flakes to
+    // either merge-blocking (flag off) or invisibility (ledger/artifact off).
+    expect(source).toMatch(/GSTACK_FREE_RETRY_FLAKY:\s*"1"/);
+    expect(source).toMatch(/GSTACK_FLAKE_LEDGER:\s*\$\{\{ runner\.temp \}\}\/flake-ledger\.jsonl/);
+    expect(source).toContain('name: flake-ledger');
+    expect(source).toMatch(/name: Upload flake ledger\s*\n\s*if: always\(\)/);
+  });
+
   test('least-privilege token: contents read-only, credentials not persisted', () => {
     // The job executes PR-controlled code (install lifecycle scripts + the
     // suite itself). A default-grant GITHUB_TOKEN persisted into .git/config

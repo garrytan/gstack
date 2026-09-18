@@ -28,6 +28,8 @@ import * as crypto from 'crypto';
 export interface AtomicWriteOpts {
   /** File mode for the tmp file at creation (e.g. 0o600). Default: umask. */
   mode?: number;
+  /** Publish only when the target does not already exist. */
+  noReplace?: boolean;
 }
 
 function tmpPathFor(target: string): string {
@@ -47,7 +49,12 @@ export function atomicWriteSync(
     } else {
       fs.writeFileSync(tmp, data);
     }
-    fs.renameSync(tmp, target);
+    if (opts.noReplace) {
+      // Publishing the complete temp inode with link(2) gives atomic
+      // no-replace semantics; unlink only removes the temporary name.
+      fs.linkSync(tmp,target);
+      fs.unlinkSync(tmp);
+    } else fs.renameSync(tmp, target);
   } catch (err) {
     try {
       fs.unlinkSync(tmp);

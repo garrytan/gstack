@@ -99,8 +99,10 @@ export interface TemplateContext {
    * - 'default': full preamble prose ships as today (writing style, completeness,
    *   confusion protocol, context health are all present).
    * - 'terse': writing-style + completeness + confusion-protocol + context-health
-   *   sections are compressed to a one-line pointer at gen time. Saves ~3-5 KB
-   *   per tier-2+ skill. Opt-in via `--explain-level=terse` build flag for
+   *   sections are compressed to a one-line pointer at gen time. Saves ~2.6 KB
+   *   per tier-2+ skill (measured 2,611 B on the v1.71 render — re-measure with
+   *   a terse vs default build diff if the preamble changes shape again).
+   *   Opt-in via `--explain-level=terse` build flag for
    *   users who want shipped skills to match their runtime preference and
    *   avoid the per-session terse-mode prose.
    *

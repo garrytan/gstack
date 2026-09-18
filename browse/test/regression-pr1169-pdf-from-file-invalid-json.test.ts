@@ -6,16 +6,17 @@
  * checked separately, so the fix added an explicit object-shape gate.
  *
  * Test surface: parsePdfFromFile, exported for tests at meta-commands.ts:139.
- * All fixtures land in process.cwd() (SAFE_DIRECTORIES allows TEMP_DIR or cwd;
- * cwd is universally safe on every platform our CI runs on).
+ * Fixtures use the system temp directory, which SAFE_DIRECTORIES allows on
+ * every supported platform and which keeps transient files out of the repo.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 import { parsePdfFromFile } from "../src/meta-commands";
 
-const FIXTURE_DIR = fs.mkdtempSync(path.join(process.cwd(), "pr1169-pdf-"));
+const FIXTURE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "pr1169-pdf-"));
 
 beforeAll(() => {
   // mkdtempSync already created the dir

@@ -115,6 +115,85 @@ describe('extractBrowseCommands', () => {
   });
 });
 
+// Prose-span extraction: the {{BROWSE_FALLBACK}} mapping table (and any other
+// prose) carries `$B` shapes in backticks. Those are validated like code-block
+// commands, with `[flags]`-style placeholders stripped as documentation.
+describe('extractBrowseCommands — prose spans', () => {
+  test('a backticked $B shape in a markdown table row is extracted; [flags] placeholders are not args', () => {
+    const p = writeFixture('prose-table.md', [
+      '| Aside script step | `$B` equivalent |',    // line 1: bare `$B` (no command) is not a span
+      '|---|---|',                                   // line 2
+      '| `pg.pdf({ path })` | `$B pdf <out> [flags]` |', // line 3
+    ].join('\n'));
+    const cmds = extractBrowseCommands(p);
+    expect(cmds).toHaveLength(1);
+    expect(cmds[0].command).toBe('pdf');
+    expect(cmds[0].args).toEqual(['<out>']);
+    expect(cmds[0].line).toBe(3);
+    expect(cmds[0].raw).not.toContain('[flags]');
+  });
+
+  test('a backticked $B inside a non-bash fenced block is NOT extracted; the surrounding prose still is', () => {
+    const p = writeFixture('prose-json-fence.md', [
+      '```json',                          // line 1
+      '{"cmd": "`$B goto http://a`"}',     // line 2 — fenced, not bash: skipped
+      '```',                              // line 3
+      'Then run `$B text` to read it.',   // line 4 — prose span
+    ].join('\n'));
+    const cmds = extractBrowseCommands(p);
+    expect(cmds).toHaveLength(1);
+    expect(cmds[0].command).toBe('text');
+    expect(cmds[0].line).toBe(4);
+  });
+
+  test('an un-backticked $B in prose is not extracted', () => {
+    const p = writeFixture('prose-bare.md', 'Set $B goto first, then run `$B snapshot -i`.\n');
+    const cmds = extractBrowseCommands(p);
+    expect(cmds).toHaveLength(1);
+    expect(cmds[0].command).toBe('snapshot');
+    expect(cmds[0].args).toEqual(['-i']);
+  });
+
+  test('several backticked shapes on one prose line each yield a command, all pointing at that line', () => {
+    const p = writeFixture('prose-multi.md', [
+      '# Ref',                                                                          // line 1
+      '',                                                                               // line 2
+      '| `pg.evaluate(() => ...)` | `$B js "<expr>"` (`$B eval <file>` for multi-line) |', // line 3
+      'Use `$B click @e3` then `$B fill @e4 "value"` and finally `$B closetab`.',         // line 4
+    ].join('\n'));
+    const cmds = extractBrowseCommands(p);
+    expect(cmds.map(c => c.command)).toEqual(['js', 'eval', 'click', 'fill', 'closetab']);
+    expect(cmds[0].args).toEqual(['<expr>']);
+    expect(cmds[1].args).toEqual(['<file>']);
+    expect(cmds[3].args).toEqual(['@e4', 'value']);
+    expect(cmds.map(c => c.line)).toEqual([3, 3, 4, 4, 4]);
+  });
+
+  test('`$B --help` in prose is extracted and validateSkill accepts it as a CLI-only command', () => {
+    const p = writeFixture('prose-help.md', 'Run `$B --help` for the flag list.\n');
+    const cmds = extractBrowseCommands(p);
+    expect(cmds).toHaveLength(1);
+    expect(cmds[0].command).toBe('--help');
+    expect(cmds[0].args).toEqual([]);
+    const result = validateSkill(p);
+    expect(result.valid).toHaveLength(1);
+    expect(result.invalid).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  test('prose shapes are validated like code: unknown commands and bad snapshot flags are flagged', () => {
+    const p = writeFixture('prose-invalid.md', [
+      '| step | `$B explode now` |',
+      'Also `$B snapshot --bogus` and `$B snapshot -i -a -o <path>`.',
+    ].join('\n'));
+    const result = validateSkill(p);
+    expect(result.invalid.map(c => c.command)).toEqual(['explode']);
+    expect(result.snapshotFlagErrors).toHaveLength(1);
+    expect(result.snapshotFlagErrors[0].command.line).toBe(2);
+    expect(result.valid.map(c => c.raw)).toEqual(['$B snapshot -i -a -o <path>']);
+  });
+});
+
 describe('validateSkill', () => {
   test('valid commands pass validation', () => {
     const p = writeFixture('valid.md', [

@@ -34,10 +34,17 @@ RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https:
 # poppler-utils: make-pdf's e2e gates hard-require pdftotext/pdffonts/pdfinfo in CI.
 RUN for i in 1 2 3; do \
       apt-get update && apt-get install -y --no-install-recommends \
-        git curl unzip xz-utils ca-certificates jq bc gpg python3 file poppler-utils && break || \
+        git curl unzip xz-utils ca-certificates jq bc gpg python3 file poppler-utils gcc libc6-dev && break || \
       (echo "apt retry $i/3 after failure"; sleep 10); \
     done \
     && rm -rf /var/lib/apt/lists/*
+
+# Direct builds produce the trusted CSO launcher and watchdog. Check the exact
+# static-C capability here so the cached eval image cannot reach a slice without it.
+RUN printf 'int main(void) { return 0; }\n' > /tmp/gstack-cso-cc-probe.c \
+    && cc -std=c11 -static /tmp/gstack-cso-cc-probe.c -o /tmp/gstack-cso-cc-probe \
+    && /tmp/gstack-cso-cc-probe \
+    && rm -f /tmp/gstack-cso-cc-probe.c /tmp/gstack-cso-cc-probe
 
 # GitHub CLI
 RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -69,13 +76,20 @@ RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL "https://nodejs.org
 # The version MUST be passed as a positional arg — bun.sh/install ignores a
 # BUN_VERSION env var, so the old `| BUN_VERSION=x.y.z bash` form silently
 # installed latest on every image rebuild (observed: 1.3.13/1.3.14 drift vs
-# the 1.3.10 devs run locally).
+# the 1.3.10 devs ran locally).
 ENV BUN_INSTALL="/usr/local"
 RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://bun.sh/install \
-    | bash -s "bun-v1.3.13"
+    | bash -s "bun-v1.4.0"
 
-# Claude CLI
-RUN npm i -g @anthropic-ai/claude-code
+# Claude CLI — pinned to an EXACT version, same discipline as the bun pin
+# above. The PTY harness (test/helpers/claude-pty-runner.ts) screen-scrapes
+# this CLI's TUI (trust dialog, input prompt, spinner glyphs); an unpinned
+# install rebuilt weekly rode the TUI wherever it drifted, and that drift
+# broke the harness three separate times (welcome-screen wedge on 2.1.233,
+# skillify HOME discovery on 2.1.237, guard/freeze hooks on 2.1.162).
+# Bump deliberately, via a PR that runs the PTY gate against the new TUI.
+# test/ci-image-cli-pin.test.ts fails the free suite if this pin is removed.
+RUN npm i -g @anthropic-ai/claude-code@2.1.251
 
 # Playwright system deps (Chromium) — needed for browse E2E tests
 RUN npx playwright install-deps chromium

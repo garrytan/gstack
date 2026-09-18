@@ -144,6 +144,7 @@ export const FORCING_BATCHING_ENG = [
  */
 export const FORCING_SPLIT_OVERFLOW_CEO = [
   'Please review this plan and help me decide scope. Write your plan-mode plan to /tmp/gstack-test-plan-ceo-split-overflow.md (use Edit/Write to that exact path).',
+  'Proceed directly to the requested CEO review; skip the optional /office-hours prerequisite.',
   '',
   '# Plan: Pick which chat-platform integrations to ship this quarter',
   '',

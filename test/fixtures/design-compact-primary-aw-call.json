@@ -1,0 +1,36 @@
+{
+  "provenance": {
+    "sourceCommit": "16a5e0cd3b52e5ea7965f0df860eb533d89a47b5",
+    "publicEvidenceProofSha256": "0ccf49cf70a3d38fe76baf62cc1e7b99dfa09b451869f205238775a7aa793aeb",
+    "nativeSourceSha256": "639a5c5df0f26c14a88d02b1e8fb5fbfbff9f0bf881a77f25c789772a45df4ac",
+    "selection": "Exact third acknowledged AskUserQuestion call; no assistant prose or thinking."
+  },
+  "call": {
+    "sessionId": "cb4abdd2-31fe-48c2-b435-489292fed82a",
+    "toolUseId": "toolu_0154MPCcrEatXz3FPGDYchfB",
+    "questions": [
+      {
+        "question": "D2 — Issue 1: Save has no primary-action hierarchy. Project/branch/task: main, Pass 1 (Information Architecture) of the Account settings plan. ELI10: The header shows Save, Reset, Cancel, Export as four identical buttons. The user came to do one thing: save. When everything shouts, nothing is heard, and a scanning user can hit Reset by mistake. Stakes if we pick wrong: every visit costs a moment of hesitation, and misclicks on Reset trigger a confirmation dialog the user never wanted. Recommendation: 1A because DESIGN.md already names the token and it uses the existing Button component. Completeness: 1A=10/10, 1B=7/10. 1A) Filled primary Save per DESIGN.md (recommended) (human: ~1h / CC: ~5min) ✅ Save becomes the only filled button (#1d4ed8, white text); Reset, Cancel, Export become neutral ghost buttons ✅ Zero new components; Button already has both variants; 44px geometry and disabled styles unchanged ❌ Ghost buttons must still pass 4.5:1 text contrast, which the implementer has to verify. 1B) Keep four equal buttons, rely on position only ✅ No visual change to ship ✅ Save is still first in DOM and tab order ❌ Violates DESIGN.md and leaves the primary action indistinguishable at a glance, especially on 320px where the row wraps. Principle: hierarchy as service, more important means more prominent. Net: 1A is a token swap on an existing component; 1B keeps the known defect. Which option?",
+        "header": "Issue 1",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "1A) Filled primary Save (recommended)",
+            "description": "Save: filled #1d4ed8 with white text. Reset/Cancel/Export: neutral ghost. Existing Button variants, no new component."
+          },
+          {
+            "label": "1B) Keep four equal buttons",
+            "description": "No change. Documented as a declined fix; Pass 1 stays below 10."
+          }
+        ]
+      }
+    ],
+    "answered": true,
+    "failed": false,
+    "answers": {
+      "D2 — Issue 1: Save has no primary-action hierarchy. Project/branch/task: main, Pass 1 (Information Architecture) of the Account settings plan. ELI10: The header shows Save, Reset, Cancel, Export as four identical buttons. The user came to do one thing: save. When everything shouts, nothing is heard, and a scanning user can hit Reset by mistake. Stakes if we pick wrong: every visit costs a moment of hesitation, and misclicks on Reset trigger a confirmation dialog the user never wanted. Recommendation: 1A because DESIGN.md already names the token and it uses the existing Button component. Completeness: 1A=10/10, 1B=7/10. 1A) Filled primary Save per DESIGN.md (recommended) (human: ~1h / CC: ~5min) ✅ Save becomes the only filled button (#1d4ed8, white text); Reset, Cancel, Export become neutral ghost buttons ✅ Zero new components; Button already has both variants; 44px geometry and disabled styles unchanged ❌ Ghost buttons must still pass 4.5:1 text contrast, which the implementer has to verify. 1B) Keep four equal buttons, rely on position only ✅ No visual change to ship ✅ Save is still first in DOM and tab order ❌ Violates DESIGN.md and leaves the primary action indistinguishable at a glance, especially on 320px where the row wraps. Principle: hierarchy as service, more important means more prominent. Net: 1A is a token swap on an existing component; 1B keeps the known defect. Which option?": "1A) Filled primary Save (recommended)"
+    },
+    "unansweredQuestionIndices": [],
+    "answeredAt": "2026-09-11T01:03:40.095Z"
+  }
+}

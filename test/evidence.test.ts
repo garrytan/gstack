@@ -11,20 +11,18 @@ let gstackHome: string;
 let repoDir: string;
 
 import { gitIn, findFilesBySuffix } from './helpers/scratch-repo';
+import { runBin } from './helpers/run-bin';
 
 function git(args: string) {
   gitIn(repoDir, args);
 }
 
 function run(args: string[], opts: { cwd?: string } = {}): { status: number; stdout: string; stderr: string } {
-  const r = spawnSync(EVIDENCE, args, {
+  return runBin(EVIDENCE, args, {
     cwd: opts.cwd ?? repoDir,
-    env: { ...process.env, GSTACK_HOME: gstackHome },
-    encoding: 'utf-8',
-    timeout: 60000,
+    env: { GSTACK_HOME: gstackHome },
     maxBuffer: 16 * 1024 * 1024, // the truncation test streams 3MB through the wrapper
   });
-  return { status: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }
 
 function ledgerFile(): string {
@@ -311,6 +309,99 @@ describe('gstack-evidence check', () => {
       expect(chk.status).toBe(1);
     } finally {
       fs.rmSync(nonGit, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('gstack-evidence run — bun dotenv autoload must not reach the child', () => {
+  // bun auto-loads .env / .env.<NODE_ENV> / .env.local from the cwd into
+  // process.env, and this binary has a bun shebang, so without scrubbing every
+  // spawned command inherits them. That leaks production credentials into a child
+  // that would not otherwise have them AND changes the behaviour of the command
+  // being certified, which is the worse half: the ledger would vouch for a run
+  // that differs from the one CI performs.
+  //
+  // ⚠️ `bun test` runs with NODE_ENV=test, and bun SKIPS .env.local in test mode
+  // (verified on bun 1.3.11: NODE_ENV=test loads .env but not .env.local). A
+  // .env.local fixture here therefore proves nothing unless NODE_ENV is cleared
+  // for the spawn — the first version of these tests passed for exactly that
+  // wrong reason. Every leak test below asserts the scrub WARNING fired, so a
+  // fixture bun never loaded fails instead of passing silently.
+
+  function runWith(env: Record<string, string | undefined>, cmd: string) {
+    return spawnSync(EVIDENCE, ['run', '--label', 'envprobe', '--', cmd], {
+      cwd: repoDir,
+      env: { ...process.env, GSTACK_HOME: gstackHome, ...env },
+      encoding: 'utf-8',
+      timeout: 60000,
+    });
+  }
+
+  test('a .env value is scrubbed, and the warning names the key but never the value', () => {
+    fs.writeFileSync(path.join(repoDir, '.env'), 'ZZ_TOKEN_PROBE="s3cret-value"\n');
+    const r = run(['run', '--label', 'envprobe', '--', 'echo "saw=[${ZZ_TOKEN_PROBE:-absent}]"']);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('ZZ_TOKEN_PROBE');   // positive control: the scrub ran
+    expect(r.stdout).toContain('saw=[absent]');
+    // The diagnostic must not become the leak it prevents.
+    expect(r.stderr).not.toContain('s3cret-value');
+    expect(r.stdout).not.toContain('s3cret-value');
+  });
+
+  test('a .env.local value is scrubbed when bun actually loads it (NODE_ENV cleared)', () => {
+    fs.writeFileSync(path.join(repoDir, '.env.local'), 'ZZ_LOCAL_PROBE=leaked\n');
+    const r = runWith({ NODE_ENV: undefined }, 'echo "saw=[${ZZ_LOCAL_PROBE:-absent}]"');
+    expect(r.stderr ?? '').toContain('ZZ_LOCAL_PROBE');  // positive control
+    expect(r.stdout ?? '').toContain('saw=[absent]');
+    expect(r.stdout ?? '').not.toContain('leaked');
+  });
+
+  test('.env.local is left alone under NODE_ENV=test, because bun never loaded it', () => {
+    // Mirrors bun's own precedence. Scrubbing a key bun did not inject would strip
+    // a variable the caller's shell legitimately provided.
+    fs.writeFileSync(path.join(repoDir, '.env.local'), 'ZZ_TESTMODE_PROBE=from_file\n');
+    const r = runWith({ NODE_ENV: 'test', ZZ_TESTMODE_PROBE: 'from_shell' },
+      'echo "saw=[${ZZ_TESTMODE_PROBE:-absent}]"');
+    expect(r.stdout ?? '').toContain('saw=[from_shell]');
+  });
+
+  test('CONTROL — a var the shell exported with a different value SURVIVES', () => {
+    // bun does not override an already-exported var (verified on bun 1.3.11), so a
+    // live value that differs from the file is genuinely the user's environment.
+    fs.writeFileSync(path.join(repoDir, '.env'), 'ZZ_KEEP_PROBE=from_file\n');
+    const r = runWith({ ZZ_KEEP_PROBE: 'from_shell' }, 'echo "saw=[${ZZ_KEEP_PROBE:-absent}]"');
+    expect(r.stdout ?? '').toContain('saw=[from_shell]');
+    expect(r.stderr ?? '').not.toContain('ZZ_KEEP_PROBE');
+  });
+
+  test('GSTACK_EVIDENCE_KEEP_DOTENV=1 restores the old pass-through behaviour', () => {
+    fs.writeFileSync(path.join(repoDir, '.env'), 'ZZ_OPTOUT_PROBE=kept\n');
+    const r = runWith({ GSTACK_EVIDENCE_KEEP_DOTENV: '1' }, 'echo "saw=[${ZZ_OPTOUT_PROBE:-absent}]"');
+    expect(r.stdout ?? '').toContain('saw=[kept]');
+    expect(r.stderr ?? '').not.toContain('scrubbed');
+  });
+
+  test('no dotenv file means no scrub warning at all', () => {
+    const r = run(['run', '--label', 'envprobe', '--', 'echo hi']);
+    expect(r.status).toBe(0);
+    expect(r.stderr).not.toContain('scrubbed');
+  });
+
+  test('an UNREADABLE .env fails open: evidence still runs, nothing scrubbed', () => {
+    const envPath = path.join(repoDir, '.env');
+    fs.writeFileSync(envPath, 'ZZ_DENIED_PROBE=hidden\n');
+    fs.chmodSync(envPath, 0o000);
+    // chmod 000 cannot create unreadability for root or CAP_DAC_OVERRIDE
+    // environments (reads succeed regardless) — probe functionally and skip
+    // rather than assert a condition the fixture couldn't create.
+    try { fs.readFileSync(envPath); fs.chmodSync(envPath, 0o644); return; } catch {}
+    try {
+      const r = run(['run', '--label', 'envprobe', '--', 'echo hi']);
+      // The scrub must skip the unreadable file and the run must still be recorded.
+      expect(r.status).toBe(0);
+      expect(r.stderr ?? '').not.toContain('ZZ_DENIED_PROBE');
+    } finally {
+      fs.chmodSync(envPath, 0o644); // let afterEach rmSync succeed
     }
   });
 });

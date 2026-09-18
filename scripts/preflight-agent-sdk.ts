@@ -19,7 +19,7 @@
 import '../lib/conductor-env-shim';
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { readOverlay } from './resolvers/model-overlay';
-import { resolveClaudeBinary } from '../browse/src/claude-bin';
+import { resolveClaudeBinary } from '../lib/claude-bin';
 
 async function main() {
   const failures: string[] = [];

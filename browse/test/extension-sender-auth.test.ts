@@ -190,11 +190,7 @@ describe('background.js onMessage listener (behavioral)', () => {
     expect(r.response!.error).toBeUndefined();
   });
 
-  // QUARANTINED (pre-existing): fails identically on origin/main v1.64.1.0,
-  // solo, on dev machines (blame protocol, 2026-08 test-infra pass). Main's
-  // CI lane skip-lists this whole FILE; we quarantine only this test so the
-  // rest keeps guarding. Un-skip when the underlying env dependency is fixed.
-  test.skip('own content script: every privileged type is denied with no token/port fields', () => {
+  test('own content script: every privileged type is denied with no token/port fields', () => {
     for (const type of PRIVILEGED) {
       const r = dispatch(listener, { type }, CONTENT_SCRIPT_SENDER);
       expect(r.responded).toBe(true); // the gate answers, it does not go silent
@@ -208,11 +204,7 @@ describe('background.js onMessage listener (behavioral)', () => {
     }
   });
 
-  // QUARANTINED (pre-existing): fails identically on origin/main v1.64.1.0,
-  // solo, on dev machines (blame protocol, 2026-08 test-infra pass). Main's
-  // CI lane skip-lists this whole FILE; we quarantine only this test so the
-  // rest keeps guarding. Un-skip when the underlying env dependency is fixed.
-  test.skip('missing sender.url: every privileged type is denied', () => {
+  test('missing sender.url: every privileged type is denied', () => {
     for (const type of PRIVILEGED) {
       const r = dispatch(listener, { type }, NO_URL_SENDER);
       expect(r.responded).toBe(true);

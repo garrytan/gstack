@@ -99,3 +99,22 @@ describe('browse CLI server lock diagnostics (#1084)', () => {
     });
   });
 });
+
+// #2732 absorption (wave-added test): cli.ts's profile-lock cleanup and orphan
+// kill must resolve the profile dir through the canonical resolver — a
+// hardcoded ~/.gstack/chromium-profile here silently ignored $CHROMIUM_PROFILE
+// and $GSTACK_HOME, so `browse stop` unlinked locks and SIGKILLed a PID
+// belonging to an UNRELATED browser whenever a custom profile was active.
+// resolveChromiumProfile's env behavior is pinned in browse/test/config.test.ts;
+// this pins the cli.ts wiring to it.
+describe('chromiumProfileDir wiring (#2732)', () => {
+  const cliSrc = fs.readFileSync(path.join(import.meta.dir, '..', 'src', 'cli.ts'), 'utf-8');
+
+  test('cli.ts delegates to resolveChromiumProfile', () => {
+    expect(cliSrc).toMatch(/function chromiumProfileDir\(\): string \{\s*return resolveChromiumProfile\(\);/);
+  });
+
+  test('no hardcoded chromium-profile path remains in cli.ts', () => {
+    expect(cliSrc).not.toMatch(/['"]\.gstack['"],\s*['"]chromium-profile['"]/);
+  });
+});

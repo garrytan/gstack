@@ -60,6 +60,8 @@ is higher because you are a chef cooking for chefs.
 
 This skill IS a developer tool. Apply its own DX principles to itself.
 
+Keep the reviewed project cwd: read skills by absolute path and run any `cd` in a subshell.
+
 {{DX_FRAMEWORK}}
 
 ## Priority Hierarchy Under Context Pressure
@@ -140,12 +142,17 @@ Note the product type; it influences which persona options are offered in Step 0
 {{SECTION_INDEX:plan-devex-review}}
 ---
 
+{{ASIDE_RESEARCH}}
 
 ## Step 0: DX Investigation (before scoring)
 
 The core principle: **gather evidence and force decisions BEFORE scoring, not during
 scoring.** Steps 0A through 0G build the evidence base. Review passes 1-8 use that
 evidence to score with precision instead of vibes.
+
+**Decision cadence, including Step 0:** One unresolved DX issue per AskUserQuestion
+call. Never batch issues into a call's `questions` array. Wait for each answer.
+Keep persona, empathy, and mode confirmations in separate calls from issue approvals.
 
 ### 0A. Developer Persona Interrogation
 
@@ -220,15 +227,20 @@ it and feel what the developer feels.
 
 ### 0C. Competitive DX Benchmarking
 
-Before scoring anything, understand how comparable tools handle DX. Use WebSearch to
-find real TTHW data and onboarding approaches.
+Before scoring anything, understand how comparable tools handle DX. Research through
+Aside (Web research runs in Aside, above) to find real TTHW data and onboarding approaches.
 
-Run three searches:
+Run three searches, one read-only request each:
 1. "[product category] getting started developer experience {current year}"
 2. "[closest competitor] developer onboarding time"
 3. "[product category] SDK CLI developer experience best practices {current year}"
 
-If WebSearch is unavailable: "Search unavailable. Using reference benchmarks: Stripe
+```bash
+{{ASIDE_EXEC_PRELUDE}}
+_aside_exec "Search the web for [closest competitor] developer onboarding time and time to hello world. Read-only: do not sign in, submit, or change anything. Reply with up to 6 bullets, each with the stated setup time and its source URL, then stop."
+```
+
+If the Aside check did not print `READY`, run the same searches with the WebSearch tool when the host provides it. With neither: "Search unavailable. Using reference benchmarks: Stripe
 (30s TTHW), Vercel (2min), Firebase (3min), Docker (5min)."
 
 Produce a competitive benchmark table:
@@ -349,8 +361,8 @@ For each stage (Discover, Install, Hello World, Real Usage, Debug, Upgrade):
    or tells the developer to install it. A [persona] without Docker will see [specific
    error or nothing]."
 
-3. **AskUserQuestion per friction point.** One question per friction point found.
-   Do NOT batch multiple friction points into one question.
+3. **AskUserQuestion per friction point.** One separate tool call per friction point.
+   Do NOT batch friction points into one question or into different questions in one call.
 
    > "Journey Stage: INSTALL
    >

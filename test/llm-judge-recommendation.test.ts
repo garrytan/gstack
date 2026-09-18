@@ -12,6 +12,7 @@
  */
 
 import { expect } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import { judgeRecommendation } from './helpers/llm-judge';
 import { describeIfSelected, testIfSelected } from './helpers/e2e-helpers';
 
@@ -181,5 +182,5 @@ Net: ...`);
         `[hedge:${label}] expected commits=false; got ${score.commits}. text="${text}"`,
       ).toBe(false);
     }
-  }, 240_000);
+  }, CAPTURE_MS);
 });

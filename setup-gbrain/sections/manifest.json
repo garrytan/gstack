@@ -1,0 +1,32 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "setup-gbrain",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's detect (Step 1) + path picker (Step 2) are the ONLY places that decide WHEN a section is read (the install routes are branch-exclusive — at most one init route runs per invocation); required-reads live in the E2E fixtures. No machine predicate here — see docs/designs/v2_PLAN.md:663.",
+  "sections": [
+    {
+      "id": "engine-remediation",
+      "file": "engine-remediation.md",
+      "title": "Step 1.5: broken-local-engine remediation (retry / switch-to-PGLite / re-init AUQ, rollback-safe)",
+      "trigger": "running the Step 1.5 broken-engine remediation — Step 1's detect returned `gbrain_local_status` of `broken-db` or `broken-config` and no shortcut flag was passed"
+    },
+    {
+      "id": "brain-init",
+      "file": "brain-init.md",
+      "title": "Step 4: initialize the brain — per-path init procedures (Paths 1, 2a, 2b, 3, 4, Switch)",
+      "trigger": "initializing the brain in Step 4 — run ONLY the procedure for the path picked in Step 2 (Paths 1/2a/2b/3/4 or Switch; also holds the PAT scope disclosure that `--cleanup-orphans` re-uses)"
+    },
+    {
+      "id": "transcript-gate",
+      "file": "transcript-gate.md",
+      "title": "Step 7.5: transcript & memory ingest gate (probe, thresholds, ingest AskUserQuestion)",
+      "trigger": "running the Step 7.5 transcript & memory ingest gate on Paths 1, 2a, 2b, or 3 (Path 4 skips this section entirely — see the skeleton's skip note)"
+    },
+    {
+      "id": "claude-md-persist",
+      "file": "claude-md-persist.md",
+      "title": "Step 8: persist the GBrain Configuration + Search Guidance blocks in CLAUDE.md",
+      "trigger": "persisting the Step 8 `## GBrain Configuration` block to CLAUDE.md (and the Search Guidance block after Step 9 passes)"
+    }
+  ]
+}

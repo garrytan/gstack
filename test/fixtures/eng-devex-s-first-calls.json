@@ -1,0 +1,346 @@
+{
+  "devex": {
+    "sessionId": "2cd7f591-cb50-4731-bdc0-6378013ab022",
+    "calls": [
+      {
+        "sessionId": "2cd7f591-cb50-4731-bdc0-6378013ab022",
+        "toolUseId": "toolu_01TVxf9HJmMFvih7VVcDvVJq",
+        "questions": [
+          {
+            "question": "D1 — Pass 1 (Getting Started): The README quickstart points to a file that doesn't exist in the published package — how should the plan fix it? <gstack-qid:plan-devex-broken-quickstart>",
+            "header": "Quickstart fix",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Remove the broken reference (Recommended)",
+                "description": "Delete the 'python examples/first_eval.py' line from README. The demo command ('python -m evalkit.demo') already works and is the documented magical moment. No new files needed. (human: ~15min / CC: ~2min) ELI10: The README tells a dev to run a file that isn't in the package. Simplest fix: stop mentioning the file that doesn't exist. Completeness: A=9/10"
+              },
+              {
+                "label": "Create and ship examples/first_eval.py",
+                "description": "Write a minimal working example script and add it to the package. README reference stays accurate. Developers can read runnable source. (human: ~2h / CC: ~20min) ELI10: Create the missing file so the README is true. Completeness: B=10/10 — both paths work."
+              },
+              {
+                "label": "Keep reference, add 'see python -m evalkit.demo' note",
+                "description": "Leave the broken reference but append a note that the demo command is the primary first-run path. Does not fix the FileNotFoundError — just softens the confusion. Completeness: C=4/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Pass 1 (Getting Started): The README quickstart points to a file that doesn't exist in the published package — how should the plan fix it? <gstack-qid:plan-devex-broken-quickstart>": "Remove the broken reference (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:43:13.108Z"
+      },
+      {
+        "sessionId": "2cd7f591-cb50-4731-bdc0-6378013ab022",
+        "toolUseId": "toolu_01L4MrPBSKnZSkQwF6adbR2d",
+        "questions": [
+          {
+            "question": "D2 — Pass 1 (Getting Started): The plan targets TTHW < 2 min but retains a mandatory 5-minute CI gate with no skip path — these are mutually exclusive. How should the plan resolve this? <gstack-qid:plan-devex-ci-gate-tthw>",
+            "header": "CI gate vs TTHW",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add --offline / --skip-ci flag for local first-run (Recommended)",
+                "description": "The demo and first eval skip the remote CI gate when a flag is set. Lets the ML engineer see results in <2 min locally. CI gate still enforces in production CI (noninteractive mode). Matches the persona's stated goal: 'wants a local result before connecting to production CI.' (human: ~1 day / CC: ~30min) Completeness: A=9/10"
+              },
+              {
+                "label": "Move CI gate to non-blocking background check",
+                "description": "Return eval results immediately; run the CI check in background and warn on failure. First-run TTHW drops to ~1 min. Risk: developers may act on results before the check completes. (human: ~2 days / CC: ~1h) Completeness: B=8/10"
+              },
+              {
+                "label": "Revise the TTHW target to reflect the CI wait",
+                "description": "Change the documented target from <2 min to <7 min (inclusive of the 5-min gate). No code change needed. Honest, but EvalKit stays last-place in the benchmark set and loses the champion-tier positioning. Completeness: C=7/10 — accurate docs, poor competitive position."
+              },
+              {
+                "label": "Accept current trajectory (6 min, gate retained)",
+                "description": "Plan makes no change to the CI gate or the TTHW target. The contradiction between the <2 min target and the 5-min gate stays in the docs. Completeness: D=3/10 — unresolved."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Pass 1 (Getting Started): The plan targets TTHW < 2 min but retains a mandatory 5-minute CI gate with no skip path — these are mutually exclusive. How should the plan resolve this? <gstack-qid:plan-devex-ci-gate-tthw>": "Add --offline / --skip-ci flag for local first-run (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:43:27.146Z"
+      },
+      {
+        "sessionId": "2cd7f591-cb50-4731-bdc0-6378013ab022",
+        "toolUseId": "toolu_01HBiwr8VgCqu7erLaUR9RLV",
+        "questions": [
+          {
+            "question": "D3 — Pass 3 (Error Messages): AuthError(\"request failed\") has no error code, no cause, and no fix. An ML engineer with a typo in their API key sees only 'request failed' and has no path to resolution. Every other SDK error already identifies cause + fix. How should this be repaired? <gstack-qid:plan-devex-auth-error>",
+            "header": "Auth error fix",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Full structured error with cause and fix (Recommended)",
+                "description": "Raise AuthError with message: 'Authentication failed: invalid or missing API key. Check EVALKIT_API_KEY environment variable or pass api_key= explicitly.' Include an error code (e.g. auth/invalid-key) and a link to the key management docs. (human: ~1h / CC: ~5min) Tier 3 quality — matches every other SDK error. Completeness: A=10/10"
+              },
+              {
+                "label": "Minimal improvement: add cause only",
+                "description": "Change message to 'Authentication failed: check your EVALKIT_API_KEY.' No error code, no doc link. Fixes the blank-screen problem; still below the SDK's own error standard. (human: ~15min / CC: ~2min) Completeness: B=6/10"
+              },
+              {
+                "label": "Leave as-is (plan retains this message)",
+                "description": "Keep AuthError('request failed'). The auth error remains worse than every other SDK error. New developers with a wrong key have no self-service path. Completeness: C=2/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 — Pass 3 (Error Messages): AuthError(\"request failed\") has no error code, no cause, and no fix. An ML engineer with a typo in their API key sees only 'request failed' and has no path to resolution. Every other SDK error already identifies cause + fix. How should this be repaired? <gstack-qid:plan-devex-auth-error>": "Full structured error with cause and fix (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:43:41.180Z"
+      },
+      {
+        "sessionId": "2cd7f591-cb50-4731-bdc0-6378013ab022",
+        "toolUseId": "toolu_018xEouM6cTknAHaPebLNgwP",
+        "questions": [
+          {
+            "question": "D4 — Pass 2 (API Design): run_eval(dataset, evaluator) and run_batch(evaluator, dataset) accept the same two arguments in reversed order. An ML engineer who copies from one example to the other will silently pass arguments backward. The plan retains this as intentional. How should the plan handle it? <gstack-qid:plan-devex-arg-order>",
+            "header": "Arg order fix",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Standardize both to (dataset, evaluator) (Recommended)",
+                "description": "Fix run_batch to match run_eval's order. Dataset-first is the natural reading order: 'evaluate this dataset with this evaluator.' Add keyword-argument enforcement (Python *) so future callers can't silently pass in the wrong order. (human: ~2h / CC: ~10min) Completeness: A=10/10. Breaking for any run_batch callers passing positional args — changelog entry required."
+              },
+              {
+                "label": "Keep reversed order; add *-enforcement to both",
+                "description": "Force keyword arguments for both functions now. Developers can't accidentally swap them. Doesn't fix the asymmetry, but prevents silent bugs going forward. (human: ~1h / CC: ~5min) Completeness: B=7/10"
+              },
+              {
+                "label": "Retain intentional reversal, document it prominently",
+                "description": "Add a callout in API docs: 'Note: run_batch takes (evaluator, dataset), opposite of run_eval.' No code change. The asymmetry remains a cognitive trap but is at least disclosed. Completeness: C=4/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — Pass 2 (API Design): run_eval(dataset, evaluator) and run_batch(evaluator, dataset) accept the same two arguments in reversed order. An ML engineer who copies from one example to the other will silently pass arguments backward. The plan retains this as intentional. How should the plan handle it? <gstack-qid:plan-devex-arg-order>": "Standardize both to (dataset, evaluator) (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:43:53.212Z"
+      },
+      {
+        "sessionId": "2cd7f591-cb50-4731-bdc0-6378013ab022",
+        "toolUseId": "toolu_01Y6hhmTxcEspvHnNYHEB6th",
+        "questions": [
+          {
+            "question": "D5 — Pass 5 (Upgrade Path): Client.evaluate() (v1) is removed immediately in v2 with no compat alias, no deprecation warning, no migration guide, and no codemod. An ML engineer upgrading pip sees an AttributeError on their next run with no explanation of what changed or how to fix it. How should the plan address this? <gstack-qid:plan-devex-v1-migration>",
+            "header": "v1→v2 migration",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add alias + deprecation warning + changelog entry (Recommended)",
+                "description": "Ship Client.evaluate() as a compatibility alias that calls Client.run() and emits a DeprecationWarning with: 'evaluate() is deprecated in v2; use run() instead. This alias will be removed in v3.' Add a migration guide section to the changelog. Remove the alias in v3. (human: ~2h / CC: ~10min) Completeness: A=9/10 — zero surprise upgrades."
+              },
+              {
+                "label": "Migration guide only, no alias",
+                "description": "Add a MIGRATION.md with a one-page v1→v2 guide and a changelog entry. No alias. Developers must manually update call sites but have a clear path. (human: ~1h / CC: ~5min) Completeness: B=7/10 — better than nothing, but still breaks silently on upgrade."
+              },
+              {
+                "label": "Retain immediate removal (plan unchanged)",
+                "description": "No alias, no warning, no guide. Every v1 codebase breaks silently on pip upgrade. Completeness: C=2/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 — Pass 5 (Upgrade Path): Client.evaluate() (v1) is removed immediately in v2 with no compat alias, no deprecation warning, no migration guide, and no codemod. An ML engineer upgrading pip sees an AttributeError on their next run with no explanation of what changed or how to fix it. How should the plan address this? <gstack-qid:plan-devex-v1-migration>": "Add alias + deprecation warning + changelog entry (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:44:05.242Z"
+      }
+    ]
+  },
+  "eng": {
+    "sessionId": "0b335784-93fa-4b0a-8248-7d26077f2b4b",
+    "calls": [
+      {
+        "sessionId": "0b335784-93fa-4b0a-8248-7d26077f2b4b",
+        "toolUseId": "toolu_01Bzc6ugNvRmNcgALuNBX7Mt",
+        "questions": [
+          {
+            "question": "D1 — Step 0 scope challenge: 12 files + 4 new classes is overbuilt. Should we reduce scope before reviewing? <gstack-qid:plan-eng-scope-challenge>",
+            "header": "Scope",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Reduce scope (Recommended)",
+                "description": "ELI10: The plan introduces 4 new classes (TokenStore, SessionMint, AuthCache, RequestPolicy) and touches 12 files. That is a large surface area for a refactor. The 80% solution is: one MultiTenantAuth service wrapping the existing cache adapter, replacing legacyAuthFlow() directly — no parallel class hierarchy. This achieves multi-tenancy without the complexity tax. Completeness: A=8/10 (full multi-tenant auth, smaller blast radius). Note: options differ in kind for the extra classes — see below. Recommend A because engineering preferences favor minimal diff and the additional classes (TokenStore, RequestPolicy) appear to be new abstractions over existing adapter behavior. ✅ Smaller blast radius — fewer files means less merge conflict surface ✅ Each class boundary needs test coverage; fewer classes = faster to complete ❌ May need a follow-up PR to add TokenStore/RequestPolicy if they turn out necessary ❌ If the scope is right-sized already, this cuts work that will have to be re-done"
+              },
+              {
+                "label": "Proceed as-is",
+                "description": "Accept the 12-file / 4-class scope and review it thoroughly as written. Completeness: B=10/10 (reviews the full plan). ✅ No scope decisions deferred — all pieces reviewed together ✅ Can catch cross-class coupling issues before implementation begins ❌ Large scope means more findings and more interactive questions ❌ If some classes turn out unnecessary, the review work is partially wasted"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Step 0 scope challenge: 12 files + 4 new classes is overbuilt. Should we reduce scope before reviewing? <gstack-qid:plan-eng-scope-challenge>": "Reduce scope (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:47:15.523Z"
+      },
+      {
+        "sessionId": "0b335784-93fa-4b0a-8248-7d26077f2b4b",
+        "toolUseId": "toolu_01N7vnMMyiD4Mf3QesrrsZRX",
+        "questions": [
+          {
+            "question": "D2 — Architecture: shared mutable AuthCache via module-level export is a race condition. How should it be fixed? <gstack-qid:plan-eng-arch-shared-cache>",
+            "header": "Architecture",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Inject AuthCache via constructor (Recommended)",
+                "description": "[P1] (confidence: 9/10) The plan states: 'Two new services (AuthBroker and SessionMint) share a global mutable AuthCache instance via module-level export. Both services mutate it.' Module-level mutable singletons cannot be isolated in tests and create implicit ordering dependencies between callers. Fix: pass AuthCache as a constructor argument to both services. This also solves the scope-reduction goal — a single MultiTenantAuth service gets one injected cache. Effort: human ~1h / CC ~5min. ✅ Eliminates implicit shared-state coupling between services ✅ Makes both services testable in isolation without module mock tricks ✅ Aligns with the existing cache adapter pattern (the adapter already exists; this is Layer 1 reuse) ❌ Callers must wire the dependency (minimal — typically one DI container line). Completeness: A=9/10",
+                "preview": "// Before (plan as written)\nimport { authCache } from './cache' // module-level export\n\nclass AuthBroker {\n  validate() { authCache.get(...) }\n}\nclass SessionMint {\n  mint() { authCache.set(...) }\n}\n\n// After (recommended)\nclass MultiTenantAuth {\n  constructor(private cache: AuthCache) {}\n  validate() { this.cache.get(...) }\n  mint()     { this.cache.set(...) }\n}"
+              },
+              {
+                "label": "Add a mutex/lock around mutations",
+                "description": "[P1] (confidence: 9/10) Keep the global export but wrap mutations in a lock. Effort: human ~2h / CC ~10min. ✅ Avoids refactoring DI wiring across callers ❌ Adds accidental complexity (Brooks): the lock is solving a problem the module-level export created ❌ Doesn't help test isolation ❌ Still violates the user's 'explicit over clever' preference. Completeness: B=6/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Architecture: shared mutable AuthCache via module-level export is a race condition. How should it be fixed? <gstack-qid:plan-eng-arch-shared-cache>": "Inject AuthCache via constructor (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:47:37.557Z"
+      },
+      {
+        "sessionId": "0b335784-93fa-4b0a-8248-7d26077f2b4b",
+        "toolUseId": "toolu_01R1oK3MC2e64Nku3E9JhcCx",
+        "questions": [
+          {
+            "question": "D3 — Code quality: validateAndDispatch() swallows errors instead of surfacing them. How should it be fixed? <gstack-qid:plan-eng-cq-error-swallow>",
+            "header": "Code quality",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Refactor to typed error returns (Recommended)",
+                "description": "[P1] (confidence: 9/10) The plan states: 'validateAndDispatch() is 60 lines with three nested try/catch blocks; each catch swallows a different error class.' Swallowed errors in auth code mean callers can't distinguish token invalid / IDP down / policy denied — all look the same. Fix: decompose into three sub-functions (validateToken, checkPolicy, dispatchSession), each returning a typed Result<T, AuthError> rather than swallowing. Aligns with 'explicit over clever' preference. Effort: human ~3h / CC ~15min. ✅ Callers can handle each failure class differently (retry vs reject vs audit) ✅ Eliminates 60-line god function ✅ Three focused functions are each unit-testable in isolation ❌ Slightly more code surface (three functions vs one). Completeness: A=9/10"
+              },
+              {
+                "label": "Add structured logging and re-throw",
+                "description": "[P2] (confidence: 7/10) Keep the three catch blocks but log the error class and re-throw to the caller. Effort: human ~1h / CC ~5min. ✅ Minimal diff ❌ Doesn't fix the 60-line function or enable typed error handling ❌ Callers still need try/catch; error discrimination moves to instanceof checks at call site ❌ The underlying design stays fragile. Completeness: B=5/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 — Code quality: validateAndDispatch() swallows errors instead of surfacing them. How should it be fixed? <gstack-qid:plan-eng-cq-error-swallow>": "Refactor to typed error returns (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:48:01.599Z"
+      },
+      {
+        "sessionId": "0b335784-93fa-4b0a-8248-7d26077f2b4b",
+        "toolUseId": "toolu_01Ft7tfHP7qakDZgTF5g61jd",
+        "questions": [
+          {
+            "question": "D4 — Tests: multi-tenant isolation is not explicitly covered in the test plan. Should it be added? <gstack-qid:plan-eng-test-isolation>",
+            "header": "Tests",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add tenant isolation tests (Recommended)",
+                "description": "[P1] (confidence: 9/10) The plan says coverage is planned for 'success/error paths' but does not mention cross-tenant isolation. The cache keys on tenantId+issuer+audience+policyVersion, but tests must verify that an operation on tenant A's key cannot read or evict tenant B's entry. Auth systems where this goes wrong produce privilege escalation bugs. These are integration tests, not unit tests. Effort: human ~2h / CC ~10min. ✅ Catches cache key collision bugs (keying error would silently allow cross-tenant access) ✅ Documents the security invariant as executable specification ❌ Two additional test files; slightly more maintenance surface. Completeness: A=9/10"
+              },
+              {
+                "label": "Defer — existing adapter tests are sufficient",
+                "description": "[P2] (confidence: 5/10) The adapter tests already verify the key schema. If the multi-tenant key logic doesn't change, the existing tests transitively cover it. Effort: human ~0h / CC ~0min. ✅ No additional test code ❌ A new service wrapping the adapter can still introduce isolation bugs at the facade layer ❌ Relies on the plan's claim that the adapter is unchanged — unverifiable without code. Completeness: B=4/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 — Tests: multi-tenant isolation is not explicitly covered in the test plan. Should it be added? <gstack-qid:plan-eng-test-isolation>": "Add tenant isolation tests (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:48:45.699Z"
+      },
+      {
+        "sessionId": "0b335784-93fa-4b0a-8248-7d26077f2b4b",
+        "toolUseId": "toolu_01GdAJYqktTENRvfYPcyt2iT",
+        "questions": [
+          {
+            "question": "D5 — Performance: 5 sequential IDP calls during token validation could be parallelized. Fix now or defer? <gstack-qid:plan-eng-perf-idp-sequential>",
+            "header": "Performance",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Parallelize in this PR (Recommended)",
+                "description": "[P2] (confidence: 9/10) The plan explicitly notes: 'Token validation issues 5 sequential API calls to the IDP; they could be parallelized via Promise.all trivially (calls are independent).' With CC, the fix is ~5min. Sequential IDP calls multiply p99 latency by 5x for every auth check. Wrapping independent calls in Promise.all is a Layer 2 standard pattern with no meaningful risk. Effort: human ~30min / CC ~5min. ✅ Reduces auth latency proportionally to IDP round-trip time ✅ The plan already identified this; fixing it now costs essentially nothing with CC ❌ A Promise.all failure mode change: first failure short-circuits; need to verify all 5 calls are truly independent and any single failure should abort. Completeness: A=9/10"
+              },
+              {
+                "label": "Defer to a follow-up PR",
+                "description": "[P3] (confidence: 7/10) Ship the auth refactor first, optimize separately. Effort: human ~0h now / ~30min later. ✅ Smaller initial diff ❌ The plan already identified this gap; it will be immediately stale on merge ❌ Auth latency regresses for every user on every request. Completeness: B=4/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 — Performance: 5 sequential IDP calls during token validation could be parallelized. Fix now or defer? <gstack-qid:plan-eng-perf-idp-sequential>": "Parallelize in this PR (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:48:59.732Z"
+      },
+      {
+        "sessionId": "0b335784-93fa-4b0a-8248-7d26077f2b4b",
+        "toolUseId": "toolu_01AEoFpBiADH4oLKs6jkSBDR",
+        "questions": [
+          {
+            "question": "D6 — TODO: Deferred classes TokenStore and RequestPolicy may be needed for advanced policy scenarios. Capture as TODO? <gstack-qid:plan-eng-todo-deferred-classes>",
+            "header": "TODO",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add to TODOS.md (Recommended)",
+                "description": "What: Extract TokenStore and RequestPolicy as standalone components if policy complexity grows. Why: The scope reduction deferred them; if auth rules expand (RBAC, attribute-based policies), the single MultiTenantAuth service will bloat without these boundaries. Pros: captures the intent so future devs know it was considered. Cons: adds a TODOS entry that may never be needed. Completeness: A=8/10",
+                "preview": "## TODO: TokenStore + RequestPolicy (deferred from multi-tenant auth refactor)\n\n**What:** Extract TokenStore and RequestPolicy as separate\nclasses when policy complexity justifies it.\n\n**Why:** Scope reduction kept them merged into MultiTenantAuth.\nIf RBAC or attribute-based policy rules are added, that class\nwill need these boundaries to stay maintainable.\n\n**Context:** Agreed in D1 scope review. Upgrade when any single\nauth rule set exceeds ~30 lines of logic.\n\n**Blocked by:** Nothing. Independent of current PR."
+              },
+              {
+                "label": "Skip — not valuable enough",
+                "description": "If the plan’s scope reduction already made the right call, no need to track these as future work. ✅ Less TODO clutter ❌ If policy complexity does grow, the decision context is lost. Completeness: B=5/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 — TODO: Deferred classes TokenStore and RequestPolicy may be needed for advanced policy scenarios. Capture as TODO? <gstack-qid:plan-eng-todo-deferred-classes>": "Add to TODOS.md (Recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T05:49:43.838Z"
+      }
+    ]
+  }
+}

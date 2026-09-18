@@ -1,0 +1,41 @@
+{
+  "pendingCall": {
+    "sessionId": "fdd778bd-7b37-48e2-a9ef-8a23236eb739",
+    "toolUseId": "toolu_01PCZUJyfaiLWEa1TsnuffPp",
+    "questions": [
+      {
+        "question": "D1 \u2014 Add gstack skill routing rules to CLAUDE.md? <gstack-qid:routing-injection>",
+        "header": "Routing rules",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Add routing rules (Recommended)",
+            "description": "Appends a skill routing section to CLAUDE.md so future sessions automatically invoke the right skill (e.g. /autoplan for reviews, /ship for deploys) without you needing to type the command each time. One-time setup per project."
+          },
+          {
+            "label": "Skip, I'll invoke manually",
+            "description": "No change to CLAUDE.md. You'll continue calling skills yourself with /skill-name as you do now."
+          }
+        ]
+      },
+      {
+        "question": "D2 \u2014 No design doc found for this branch. Run /office-hours first to sharpen the review input?",
+        "header": "Design doc",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "Skip, proceed with review",
+            "description": "Start the full CEO \u2192 Design \u2192 DX \u2192 Eng review pipeline now using the plan as-is. Recommended when the plan context is already rich enough. (Recommended)"
+          },
+          {
+            "label": "Run /office-hours first",
+            "description": "Produces a structured problem statement, premise challenge, and explored alternatives before the review. Takes ~10 min. Gives the review sharper, better-grounded input."
+          }
+        ]
+      }
+    ],
+    "answered": false,
+    "failed": false
+  },
+  "screen": "      bun -e 'console.log(require(\"fs\").realpathSync(process.argv[1]))'\n      \"$HOME/.claude/skills/gstack/bin/gstack-autoplan-snapshot.ts\" 2>/dev/n\u2026)\n  \u23bf \u00a0/home/vercel-sandbox/gstack/bin/gstack-autoplan-snapshot.ts\n     RESTORE_PATH=/tmp/gstack-paid-shard-VpofCc/tmp/gstack-hermetic-2786306-ZTxUr3/skill-home-SKSZlS/.gstack/projec\n     ts/gstack-autoplan-chain-OmAEGg/main-autoplan-restore-20260909-120209.md\n     \u2026 +3 lines (ctrl+o to expand)\n  \u23bf \u00a0Allowed by auto mode classifier\n\n\u25cf Bash(SNAPSHOT_TOOL=\"/home/vercel-sandbox/gstack/bin/gstack-autoplan-snapshot.ts\"\n      SOURCE_PLAN=\"/tmp/gstack-paid-shard-VpofCc/tmp/gstack-autoplan-chain-OmAEGg/.claude/\u2026)\n  \u23bf \u00a0{\n       \"sourcePlan\": \"/tmp/gstack-paid-shard-VpofCc/tmp/gstack-autoplan-chain-OmAEGg/.claude/plans/ui-heavy-feature\n     .md\",\n     \u2026 +57 lines (ctrl+o to expand)\n  \u23bf \u00a0Allowed by auto mode classifier\n\n\u25cf Phase 0 initialized. Scope detected: UI scope (dashboard/component/modal/layout/button terms) and DX scope\n  (API/endpoint/integration/implement terms). Phases 1, 2, 2.5, and 3 will all run.\n\n  Now handling the GSTACK_INSTRUCTION routing block before proceeding:\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nPlanning: /tmp/gstack-paid-shard-VpofCc/tmp/gstack-hermetic-2786306-ZTxUr3/with-skills/.claude/plans/expressive-twirling\n-wigderson.md \n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\u2190  \u2610 Routing rules  \u2610 Design doc  \u2714 Submit  \u2192\n\nD1 \u2014 Add gstack skill routing rules to CLAUDE.md? <gstack-qid:routing-injection>\n\n\u276f 1. Add routing rules (Recommended)\n     Appends a skill routing section to CLAUDE.md so future sessions automatically invoke the right skill (e.g.\n     /autoplan for reviews, /ship for deploys) without you needing to type the command each time. One-time setup per\n     project.\n  2. Skip, I'll invoke manually\n     No change to CLAUDE.md. You'll continue calling skills yourself with /skill-name as you do now.\n  3. Type something.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  4. Chat about this\n\nEnter to select \u00b7 Tab/Arrow keys to navigate \u00b7 Esc to cancel\n"
+}

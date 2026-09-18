@@ -13,7 +13,7 @@
  *   Port:       random 10000-60000 (or BROWSE_PORT env for debug override)
  */
 
-import { BrowserManager } from './browser-manager';
+import { BrowserManager, markDaemonProcess } from './browser-manager';
 import { handleReadCommand, hasOutArg } from './read-commands';
 import { handleWriteCommand } from './write-commands';
 import { handleMetaCommand } from './meta-commands';
@@ -31,7 +31,9 @@ import {
   initRegistry, validateToken as validateScopedToken, checkScope, checkDomain,
   checkRate, createToken, createSetupKey, exchangeSetupKey, revokeToken,
   listTokens, recordCommand,
-  isRootToken, checkConnectRateLimit, type TokenInfo,
+  isRootToken, checkConnectRateLimit, type TokenInfo, type ScopeCategory,
+  DEFAULT_PAIR_SCOPES, InvalidScopeError, ReservedClientIdError, assertValidClientId,
+  assertValidTokenOptions, revokeSetupKeys, getClientSession, grantReducesAccess,
 } from './token-registry';
 import { validateTempPath } from './path-security';
 import { resolveConfig, ensureStateDir, readVersionHash, resolveChromiumProfile, cleanSingletonLocks, isPairAgentEnabled } from './config';
@@ -810,8 +812,17 @@ function parentWatchdogTick(parentPid: number = BROWSE_PARENT_PID): void {
     }
   }
 }
+// Poll cadence. Env-overridable as a test seam: watchdog.test.ts shrinks it
+// (250ms) so a free-tier test can observe a real tick deciding on a dead
+// parent instead of sleeping through the 15s production cadence. Production
+// launchers never set this; unparsable or non-positive values fall back to 15s.
+const rawWatchdogIntervalMs = parseInt(process.env.BROWSE_PARENT_WATCHDOG_INTERVAL_MS || '', 10);
+const PARENT_WATCHDOG_INTERVAL_MS =
+  Number.isFinite(rawWatchdogIntervalMs) && rawWatchdogIntervalMs > 0
+    ? rawWatchdogIntervalMs
+    : 15_000;
 if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
-  setInterval(parentWatchdogTick, 15_000);
+  setInterval(parentWatchdogTick, PARENT_WATCHDOG_INTERVAL_MS);
 } else if (IS_HEADED_WATCHDOG) {
   console.log('[browse] Parent-process watchdog disabled (headed mode)');
 } else if (BROWSE_PARENT_PID === 0) {
@@ -999,7 +1010,7 @@ async function handleCommandInternalImpl(
         status: 403, json: true,
         result: JSON.stringify({
           error: `Command "${command}" not allowed by your token scope`,
-          hint: `Your scopes: ${tokenInfo.scopes.join(', ')}. Ask the user to re-pair with --admin for eval/cookies/storage access.`,
+          hint: `Your scopes: ${tokenInfo.scopes.join(', ')}. Ask the user to re-pair without --restrict for full page access, or with --control for browser control commands.`,
         }),
       };
     }
@@ -1383,6 +1394,10 @@ async function handleCommand(body: any, tokenInfo?: TokenInfo | null): Promise<R
 // server.ts as a submodule can register their own signal handlers without
 // fighting with gstack's. CLI path is unchanged.
 if (import.meta.main) {
+  // Standalone daemon: a Chromium crash must exit THIS process (its
+  // supervisor/user notices); embedders and in-process test launches must
+  // never be exited by browser-manager's disconnect handler.
+  markDaemonProcess();
   // SIGINT (Ctrl+C): user intentionally stopping → shutdown.
   process.on('SIGINT', () => activeShutdown?.());
   // SIGHUP (terminal hangup): with handleSIGHUP:false at the three launch
@@ -1454,7 +1469,9 @@ function emergencyCleanup() {
 
   // Clean Chromium profile locks via the shared helper (defensive guard
   // refuses to operate on unrecognized profile dirs).
-  cleanSingletonLocks(resolveChromiumProfile());
+  if (activeBrowserManager.getConnectionMode() === 'headed' || process.env.BROWSE_HEADED === '1') {
+    cleanSingletonLocks(resolveChromiumProfile());
+  }
   safeUnlinkQuiet(config.stateFile);
 }
 // Same import.meta.main gate as SIGINT/SIGTERM — embedders register their
@@ -1689,7 +1706,9 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
 
     await cfgBrowserManager.close();
 
-    cleanSingletonLocks(resolveChromiumProfile());
+    if (cfgBrowserManager.getConnectionMode() === 'headed') {
+      cleanSingletonLocks(resolveChromiumProfile());
+    }
     safeUnlinkQuiet(config.stateFile);
     process.exit(exitCode);
   }
@@ -2316,7 +2335,14 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
             scopes: session.scopes,
             agent: session.clientId,
           }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } catch {
+        } catch (err) {
+          // Name the caller's typo (bad scope, negative rateLimit, reserved
+          // clientId) instead of hiding it behind the generic body error.
+          if (err instanceof InvalidScopeError || err instanceof ReservedClientIdError) {
+            return new Response(JSON.stringify({ error: err.message }), {
+              status: 400, headers: { 'Content-Type': 'application/json' },
+            });
+          }
           return new Response(JSON.stringify({ error: 'Invalid request body' }), {
             status: 400, headers: { 'Content-Type': 'application/json' },
           });
@@ -2330,15 +2356,28 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
             status: 403, headers: { 'Content-Type': 'application/json' },
           });
         }
-        const clientId = url.pathname.slice('/token/'.length);
+        // decodeURIComponent so CLI-encoded names (spaces, UTF-8) round-trip.
+        let clientId: string;
+        try {
+          clientId = decodeURIComponent(url.pathname.slice('/token/'.length));
+        } catch {
+          return new Response(JSON.stringify({ error: 'Malformed client ID encoding' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' },
+          });
+        }
         const revoked = revokeToken(clientId);
-        if (!revoked) {
+        // Release tabs UNCONDITIONALLY: ownership outlives the token (it clears
+        // only on tab close), so a client whose token already expired can still
+        // own tabs. Gating release on a revoke hit would orphan that ownership
+        // and let a same-name re-pair inherit an authenticated tab.
+        const tabsReleased = browserManager.releaseClientTabs(clientId).length;
+        if (!revoked && tabsReleased === 0) {
           return new Response(JSON.stringify({ error: `Agent "${clientId}" not found` }), {
             status: 404, headers: { 'Content-Type': 'application/json' },
           });
         }
-        console.log(`[browse] Revoked token for: ${clientId}`);
-        return new Response(JSON.stringify({ revoked: clientId }), {
+        console.log(`[browse] Revoked ${revoked} token(s), released ${tabsReleased} tab(s) for: ${clientId}`);
+        return new Response(JSON.stringify({ revoked: clientId, tokens_deleted: revoked, tabs_released: tabsReleased }), {
           status: 200, headers: { 'Content-Type': 'application/json' },
         });
       }
@@ -2350,13 +2389,17 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
             status: 403, headers: { 'Content-Type': 'application/json' },
           });
         }
-        const agents = listTokens().map(t => ({
+        // includeSetup: pending (unexchanged) setup keys are live grants the
+        // operator must be able to see — without them, revoking a paired-but-
+        // never-connected agent "works" while the list shows nothing.
+        const agents = listTokens({ includeSetup: true }).map(t => ({
           clientId: t.clientId,
           scopes: t.scopes,
           domains: t.domains,
           expiresAt: t.expiresAt,
           commandCount: t.commandCount,
           createdAt: t.createdAt,
+          pending: t.type === 'setup',
         }));
         return new Response(JSON.stringify({ agents }), {
           status: 200, headers: { 'Content-Type': 'application/json' },
@@ -2372,12 +2415,61 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
         }
         try {
           const pairBody = await req.json() as any;
-          // Default: full access (read+write+admin+meta). The trust boundary is
-          // the pairing ceremony itself, not the scope. --control adds browser-wide
-          // destructive commands (stop, restart, disconnect). --restrict limits scope.
+          // Reject a reserved/invalid clientId up front (createSetupKey enforces
+          // it too, but this makes the 400 unambiguous and skips the teardown).
+          if (pairBody.clientId !== undefined) assertValidClientId(pairBody.clientId);
+          // Default: DEFAULT_PAIR_SCOPES (full page access). The trust boundary
+          // is the pairing ceremony itself, not the scope. --control adds
+          // browser-wide destructive commands (stop, restart, disconnect).
+          // --restrict limits scope — but can never grant control: that scope
+          // stays behind the explicit control flag.
+          if (!pairBody.control && !pairBody.admin
+              && Array.isArray(pairBody.scopes) && pairBody.scopes.includes('control')) {
+            return new Response(JSON.stringify({
+              error: 'The control scope requires the control flag (--control); it cannot be granted via a scopes list.',
+            }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+          }
           const scopes = pairBody.control || pairBody.admin
-            ? ['read', 'write', 'admin', 'meta', 'control'] as const
-            : (pairBody.scopes || ['read', 'write', 'admin', 'meta']) as const;
+            ? [...DEFAULT_PAIR_SCOPES, 'control' as const]
+            : ((pairBody.scopes || [...DEFAULT_PAIR_SCOPES]) as ScopeCategory[]);
+          // D1: a re-pair supersedes prior grants. ALWAYS drop stale setup keys
+          // so a superseded broad key can never be exchanged — this closes the
+          // shadow-key hole where a narrowing re-pair before the agent connects
+          // would otherwise leave the old broad key live. Revoke the live
+          // SESSION only when the new grant actually reduces access, so a
+          // broaden/refresh never strands a working agent mid-task. Compare
+          // against the resolved grant (not raw pairBody) so dropping 'control'
+          // or a default re-pair is classified correctly. Revoke runs BEFORE
+          // createSetupKey — revokeToken deletes all of a clientId's tokens, so
+          // minting first would nuke the fresh key.
+          const grant = {
+            scopes: [...scopes] as ScopeCategory[],
+            domains: pairBody.domains as string[] | undefined,
+            rateLimit: pairBody.rateLimit ?? 10,
+            tabPolicy: 'own-only' as const,
+          };
+          // Validate BEFORE any revoke (createSetupKey validates too, but that
+          // runs after the teardown below). A bad scope or negative rateLimit
+          // must 400 without knocking a live session offline — otherwise a
+          // reducing re-pair with a typo (--restrict red) destroys the session
+          // and mints no replacement.
+          assertValidTokenOptions(grant.scopes, grant.rateLimit);
+          const priorSession = pairBody.clientId ? getClientSession(pairBody.clientId) : null;
+          let superseded: { tokens_deleted: number; tabs_released: number } | undefined;
+          if (priorSession && grantReducesAccess(priorSession, grant)) {
+            const tokensDeleted = revokeToken(pairBody.clientId);
+            const tabsReleased = browserManager.releaseClientTabs(pairBody.clientId).length;
+            superseded = { tokens_deleted: tokensDeleted, tabs_released: tabsReleased };
+            console.log(`[browse] Superseded ${tokensDeleted} token(s), released ${tabsReleased} tab(s) for reducing re-pair: ${pairBody.clientId}`);
+          } else if (pairBody.clientId) {
+            revokeSetupKeys(pairBody.clientId);
+            // No live session, but tab ownership outlives token expiry: free any
+            // tabs orphaned by an expired session so this re-pair can't inherit
+            // an earlier incarnation's authenticated pages (mirrors DELETE
+            // /token's unconditional release). A live-session broaden keeps its
+            // tabs — the working agent still owns them.
+            if (!priorSession) browserManager.releaseClientTabs(pairBody.clientId);
+          }
           const setupKey = createSetupKey({
             clientId: pairBody.clientId,
             scopes: [...scopes],
@@ -2412,8 +2504,16 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
             scopes: setupKey.scopes,
             tunnel_url: verifiedTunnelUrl,
             server_url: `http://127.0.0.1:${browsePort}`,
+            ...(superseded ? { superseded } : {}),
           }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-        } catch {
+        } catch (err) {
+          // Name the caller's typo (bad scope, negative rateLimit, reserved
+          // clientId) instead of hiding it behind the generic body error.
+          if (err instanceof InvalidScopeError || err instanceof ReservedClientIdError) {
+            return new Response(JSON.stringify({ error: err.message }), {
+              status: 400, headers: { 'Content-Type': 'application/json' },
+            });
+          }
           return new Response(JSON.stringify({ error: 'Invalid request body' }), {
             status: 400, headers: { 'Content-Type': 'application/json' },
           });
@@ -3092,6 +3192,14 @@ export async function start() {
     // daemon launch on this state file) can validate-then-cleanup orphans
     // without clobbering a recycled PID.
     ...(xvfb ? { xvfbPid: xvfb.pid, xvfbStartTime: xvfb.startTime, xvfbDisplay: xvfb.display } : {}),
+    // #2709: launched-Chromium identity (pid + start time) so `browse stop`
+    // can reap a survivor — the headless launch has no SingletonLock for
+    // killOrphanChromium to walk, and on macOS 26 the orphaned GPU process
+    // kept spinning at ~800% CPU after the daemon exited.
+    ...(() => {
+      const info = browserManager.getChromiumProcInfo();
+      return info ? { chromiumPid: info.pid, chromiumStartTime: info.startTime } : {};
+    })(),
   };
   const tmpFile = tmpStatePath();
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });

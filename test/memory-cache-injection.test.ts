@@ -53,6 +53,7 @@ function runHook(stdin: object): { stdout: string; stderr: string; status: numbe
     input: JSON.stringify({ ...stdin, cwd: fixtureCwd }),
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
   let parsed: any = null;
   try { parsed = JSON.parse(res.stdout || '{}'); } catch {}

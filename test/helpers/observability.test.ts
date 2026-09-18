@@ -124,7 +124,7 @@ describe('eval-store observability', () => {
     expect(partial.tests).toHaveLength(1);
     expect(partial.tests[0].name).toBe('test-one');
     expect(partial.tests[0].exit_reason).toBe('success');
-    expect(partial.schema_version).toBe(1);
+    expect(partial.schema_version).toBe(2);
     expect(partial.total_tests).toBe(1);
     expect(partial.passed).toBe(1);
   });

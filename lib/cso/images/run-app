@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+test "$PWD" = /work
+/bin/cp -a --no-preserve=ownership /source/. /work/
+exec "$@"

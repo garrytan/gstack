@@ -42,21 +42,17 @@ You are a senior product designer AND a frontend engineer. Review live sites wit
 | Target URL | (auto-detect or ask) | `https://myapp.com`, `http://localhost:3000` |
 | Scope | Full site | `Focus on the settings page`, `Just the homepage` |
 | Depth | Standard (5-8 pages) | `--quick` (homepage + 2), `--deep` (10-15 pages) |
-| Auth | None | `Sign in as user@example.com`, `Import cookies` |
+| Auth | The user's Aside session (already signed in) | `I'm signed in as user@example.com in Aside` |
 
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below).
 
 **If no URL is given and you're on main/master:** Ask the user for a URL.
 
-**CDP mode detection:** Check if browse is connected to the user's real browser:
-```bash
-$B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
-```
-If `CDP_MODE=true`: skip cookie import steps — the real browser already has cookies and auth sessions. Skip headless detection workarounds.
-
 **Check for DESIGN.md:**
 
 Look for `DESIGN.md`, `design-system.md`, or similar in the repo root. If found, read it — all design decisions must be calibrated against it. Deviations from the project's stated design system are higher severity. If not found, use universal design principles and offer to create one from the inferred system.
+
+{{DESIGN_MD_CHECK:calibrate}}
 
 **Check for clean working tree:**
 
@@ -76,9 +72,11 @@ RECOMMENDATION: Choose A because uncommitted work should be preserved as a commi
 
 After the user chooses, execute their choice (commit or stash), then continue with setup.
 
-**Find the browse binary:**
+**Check the Aside browser:**
 
-{{BROWSE_SETUP}}
+{{ASIDE_SETUP}}
+
+{{BROWSE_FALLBACK}}
 
 **Check test framework (bootstrap if needed):**
 
@@ -92,14 +90,21 @@ If `DESIGN_READY`: during the fix loop, you can generate "target mockups" showin
 
 If `DESIGN_NOT_AVAILABLE`: skip mockup generation — the fix loop works without it.
 
+{{DESIGN_DETECTOR}}
+
 **Create output directories:**
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-REPORT_DIR="$HOME/.gstack/projects/$SLUG/designs/design-audit-$(date +%Y%m%d)"
-mkdir -p "$REPORT_DIR/screenshots"
-echo "REPORT_DIR: $REPORT_DIR"
+REPORT_DIR="${GSTACK_HOME:-$HOME/.gstack}/projects/$SLUG/designs/design-audit-$(date +%Y%m%d)"
+RUN_ID="$(date +%H%M%S)-$$"
+mkdir -p "$REPORT_DIR/screenshots" "$REPORT_DIR/dom/$RUN_ID"
+echo "REPORT_DIR: $REPORT_DIR"; echo "RUN_ID: $RUN_ID"
 ```
+
+Remember `RUN_ID` and restate it literally in later blocks (each bash block is a fresh shell). DOM dumps land in `$REPORT_DIR/dom/$RUN_ID/`; nothing from earlier runs is touched.
+
+{{DESIGN_DETECTOR:phase0}}
 
 ---
 
@@ -123,11 +128,11 @@ Record baseline design score and AI slop score at end of Phase 6.
 ~/.gstack/projects/$SLUG/designs/design-audit-{YYYYMMDD}/
 ├── design-audit-{domain}.md                  # Structured report
 ├── screenshots/
-│   ├── first-impression.png                  # Phase 1
+│   ├── first-impression.jpg                  # Phase 1
 │   ├── {page}-annotated.png                  # Per-page annotated
-│   ├── {page}-mobile.png                     # Responsive
-│   ├── {page}-tablet.png
-│   ├── {page}-desktop.png
+│   ├── {page}-mobile.jpg                     # Responsive
+│   ├── {page}-tablet.jpg
+│   ├── {page}-desktop.jpg
 │   ├── finding-001-before.png                # Before fix
 │   ├── finding-001-target.png                # Target mockup (if generated)
 │   ├── finding-001-after.png                 # After fix
@@ -148,6 +153,8 @@ Sort all discovered findings by impact, then decide which to fix:
 - **Polish:** Fix if time allows. These separate good from great.
 
 Mark findings that cannot be fixed from source code (e.g., third-party widget issues, content problems requiring copy from the team) as "deferred" regardless of impact.
+
+Detector findings carry their `[rule-id]`; a deferred one ends with its `handoff=` command when `IMPECCABLE_SKILL: present` (Phase 0 lists them), and nothing when the detector did not run.
 
 ---
 
@@ -198,14 +205,25 @@ git commit -m "style(design): FINDING-NNN — short description"
 
 ### 8d. Re-test
 
-Navigate back to the affected page and verify the fix:
+Navigate back to the affected page and verify the fix — one Aside script per finding:
 
 ```bash
-$B goto <affected-url>
-$B screenshot "$REPORT_DIR/screenshots/finding-NNN-after.png"
-$B console --errors
-$B snapshot -D
+aside repl '
+const HOOK = `(() => { window.__gstackErrs = window.__gstackErrs || []; const oe = console.error; console.error = (...a) => { window.__gstackErrs.push(a.map(String).join(" ")); oe.apply(console, a); }; window.addEventListener("error", e => window.__gstackErrs.push("uncaught: " + e.message)); })()`;
+const pg = await openTab("about:blank");
+await pg._sendToTarget("Page.addScriptToEvaluateOnNewDocument", { source: HOOK });
+await pg.goto("<affected-url>");
+const s = await snapshot(pg, { interactive: true });
+console.log(s.tree);
+console.log("CONSOLE_ERRORS=" + JSON.stringify(await pg.evaluate(() => window.__gstackErrs)));
+await pg.screenshot({ path: "finding-NNN-after.png", type: "png", fullPage: true });
+console.log("ASIDE_DIR=" + pwd);
+await closeTab(pg);
+console.log("GSTACK_STEP_OK");
+'
 ```
+
+Then `cp "<ASIDE_DIR>/finding-NNN-after.png" "$REPORT_DIR/screenshots/"` and Read it next to the before shot. `CONSOLE_ERRORS=` must be `[]` (or no worse than the baseline) — a new error is a regression.
 
 Take **before/after screenshot pair** for every fix.
 
@@ -254,7 +272,8 @@ After all fixes are applied:
 1. Re-run the design audit on all affected pages
 2. If target mockups were generated during the fix loop AND `DESIGN_READY`: run `$D verify --mockup "$REPORT_DIR/screenshots/finding-NNN-target.png" --screenshot "$REPORT_DIR/screenshots/finding-NNN-after.png"` to compare the fix result against the target. Include pass/fail in the report.
 3. Compute final design score and AI slop score
-4. **If final scores are WORSE than baseline:** WARN prominently — something regressed
+4. Recompute the detector count the same way Phase 0 scanned: DOM mode re-dumps the affected pages after reload into `$REPORT_DIR/dom/$RUN_ID/` and rescans; source mode rescans the files you touched. Then delete `$REPORT_DIR/dom/$RUN_ID/` unless the user passed `--keep-dom`.
+5. **If final scores are WORSE than baseline:** WARN prominently — something regressed
 
 ---
 
@@ -282,6 +301,7 @@ Write a one-line summary to `~/.gstack/projects/{slug}/{user}-{branch}-design-au
 - Deferred findings
 - Design score delta: baseline → final
 - AI slop score delta: baseline → final
+- Detector: N → M (counted findings; "not installed" or "off" when it did not run)
 
 **PR Summary:** Include a one-line summary suitable for PR descriptions:
 > "Design review found N issues, fixed M. Design score X → Y, AI slop score X → Y."
@@ -309,4 +329,4 @@ If the repo has a `TODOS.md`:
 14. **Revert on regression.** If a fix makes things worse, `git revert HEAD` immediately.
 15. **Self-regulate.** Follow the design-fix risk heuristic. When in doubt, stop and ask.
 16. **CSS-first.** Prefer CSS/styling changes over structural component changes. CSS-only changes are safer and more reversible.
-17. **DESIGN.md export.** You MAY write a DESIGN.md file if the user accepts the offer from Phase 2.
+17. **DESIGN.md export.** You MAY write a DESIGN.md file if the user accepts the offer from Phase 2. Write it in the open DESIGN.md format (front matter tokens plus the canonical sections, the Phase 6 template in /design-consultation); an existing file keeps its persisted format choice, and this skill never offers a conversion.

@@ -6,11 +6,11 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs for the same branch (matches evals.yml,
-# windows-free-tests.yml, etc.). head_ref is set on pull_request; ref_name is
-# the fallback for push so a rapid push series doesn't pile up stale lint runs.
+# PR-number keyed (run_id fallback for push): a bare branch name carries no
+# fork prefix, so same-name branches from two forks would share one group and
+# cancel each other's runs (same rationale as free-tests.yml).
 concurrency:
-  group: actionlint-${{ github.head_ref || github.ref_name }}
+  group: actionlint-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 # Lint needs nothing from the token; the job runs a third-party image with
@@ -21,6 +21,7 @@ permissions:
 jobs:
   actionlint:
     runs-on: ubicloud-standard-2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:

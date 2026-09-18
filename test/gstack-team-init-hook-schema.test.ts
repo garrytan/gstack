@@ -42,6 +42,7 @@ describe('gstack-team-init required: PreToolUse hook schema (#2413)', () => {
       const stdout = execSync(`bash "${hookPath}"`, {
         env: { ...process.env, HOME: home },
         encoding: 'utf-8',
+        timeout: 30_000,
       });
       return { status: 0, stdout, stderr: '' };
     } catch (err) {

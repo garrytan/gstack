@@ -1,0 +1,157 @@
+{
+  "provenance": {
+    "source": "Exact public diagram blocks and owned successful parent Bash use/results from both AV review coverage attempts",
+    "diagnosisSHA256": "196856b7be83856440e90354d030d40f9a58a4ca13e684d67698bf34586460db",
+    "paidOutcomesReclassified": false
+  },
+  "attempts": [
+    {
+      "provenance": {
+        "publicSourceSHA256": "28e8ac80b5b6f78727e1adb6a30e2d5be2b76b252393d045a54a19223969cde0",
+        "diagramRange": [
+          145,
+          1602
+        ],
+        "recordedPassed": false
+      },
+      "name": "/review coverage audit",
+      "attempt": 1,
+      "files": {
+        "cwd": "/tmp/gstack-paid-shard-uogWT6/tmp/skill-e2e-review-coverage-IjPh61",
+        "source": {
+          "path": "/tmp/gstack-paid-shard-uogWT6/tmp/skill-e2e-review-coverage-IjPh61/src/billing.ts",
+          "content": "\nexport function processPayment(amount: number, currency: string) {\n  if (amount <= 0) throw new Error('Invalid amount');\n  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n  return { status: 'success', amount, currency };\n}\n\nexport function refundPayment(paymentId: string, reason: string) {\n  if (!paymentId) throw new Error('Payment ID required');\n  if (!reason) throw new Error('Reason required');\n  return { status: 'refunded', paymentId, reason };\n}\n"
+        },
+        "tests": {
+          "path": "/tmp/gstack-paid-shard-uogWT6/tmp/skill-e2e-review-coverage-IjPh61/test/billing.test.ts",
+          "content": "\nimport { describe, test, expect } from 'vitest';\nimport { processPayment } from '../src/billing';\n\ndescribe('processPayment', () => {\n  test('processes valid payment', () => {\n    const result = processPayment(100, 'USD');\n    expect(result.status).toBe('success');\n  });\n  // GAP: no test for invalid amount\n  // GAP: no test for unsupported currency\n  // GAP: refundPayment not tested at all\n});\n"
+        }
+      },
+      "result": {
+        "exitReason": "success",
+        "browseErrors": [],
+        "output": "```\nTEST COVERAGE MAP — src/billing.ts  (tests: test/billing.test.ts)\n=====================================================================\n\nprocessPayment(amount, currency)                        [PARTIAL 1/3]\n│\n├── amount <= 0  ──────► throw 'Invalid amount'         [ ] GAP  (L3)\n│                         negative path, untested\n│                         boundary values 0 and -1 never asserted\n│\n├── currency ∉ {USD,EUR} ► throw 'Unsupported currency' [ ] GAP  (L4)\n│                         negative path, untested\n│                         'EUR' happy path also never asserted\n│\n└── return {status:'success', amount, currency}         [x] TESTED (L5)\n                          test/billing.test.ts:6 'processes valid payment'\n                          asserts status only; amount/currency echo not checked\n\nrefundPayment(paymentId, reason)                        [MISSING 0/3]\n│                         function is never imported by any test\n├── !paymentId ─────────► throw 'Payment ID required'   [ ] GAP  (L9)\n│\n├── !reason ────────────► throw 'Reason required'       [ ] GAP  (L10)\n│\n└── return {status:'refunded', paymentId, reason}       [ ] GAP  (L11)\n\n---------------------------------------------------------------------\nLegend:  [x] covered by an existing test   [ ] no test reaches this path\n\nSummary\n  Paths total ........ 6\n  Paths tested ....... 1\n  Negative paths ..... 4  (0 tested)\n  Public functions ... 2  (1 with zero coverage)\n```",
+        "transcript": [
+          {
+            "type": "system",
+            "subtype": "init",
+            "cwd": "/tmp/gstack-paid-shard-uogWT6/tmp/skill-e2e-review-coverage-IjPh61",
+            "session_id": "0757e925-0e28-4bb4-a90a-3c573f4e1391"
+          },
+          {
+            "type": "assistant",
+            "session_id": "0757e925-0e28-4bb4-a90a-3c573f4e1391",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01PQZ1Gu6WHn7xDJyR1VxtU6",
+                  "name": "Bash",
+                  "input": {
+                    "command": "cat -n src/billing.ts && echo ==== && cat -n test/billing.test.ts && echo ==== && git log --oneline main..HEAD; git diff main --stat",
+                    "description": "Read billing source, tests, and branch diff stat"
+                  },
+                  "caller": {
+                    "type": "direct"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "session_id": "0757e925-0e28-4bb4-a90a-3c573f4e1391",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "tool_use_id": "toolu_01PQZ1Gu6WHn7xDJyR1VxtU6",
+                  "type": "tool_result",
+                  "content": "     1\t\n     2\texport function processPayment(amount: number, currency: string) {\n     3\t  if (amount <= 0) throw new Error('Invalid amount');\n     4\t  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n     5\t  return { status: 'success', amount, currency };\n     6\t}\n     7\t\n     8\texport function refundPayment(paymentId: string, reason: string) {\n     9\t  if (!paymentId) throw new Error('Payment ID required');\n    10\t  if (!reason) throw new Error('Reason required');\n    11\t  return { status: 'refunded', paymentId, reason };\n    12\t}\n====\n     1\t\n     2\timport { describe, test, expect } from 'vitest';\n     3\timport { processPayment } from '../src/billing';\n     4\t\n     5\tdescribe('processPayment', () => {\n     6\t  test('processes valid payment', () => {\n     7\t    const result = processPayment(100, 'USD');\n     8\t    expect(result.status).toBe('success');\n     9\t  });\n    10\t  // GAP: no test for invalid amount\n    11\t  // GAP: no test for unsupported currency\n    12\t  // GAP: refundPayment not tested at all\n    13\t});\n====",
+                  "is_error": false
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "provenance": {
+        "publicSourceSHA256": "c10262498a4ec2be9814f78f29b67dfaeccd0ac07d659f662a3b6d158d16a7d7",
+        "diagramRange": [
+          282,
+          1503
+        ],
+        "recordedPassed": false
+      },
+      "name": "/review coverage audit",
+      "attempt": 2,
+      "files": {
+        "cwd": "/tmp/gstack-paid-shard-uogWT6/tmp/skill-e2e-review-coverage-IjPh61",
+        "source": {
+          "path": "/tmp/gstack-paid-shard-uogWT6/tmp/skill-e2e-review-coverage-IjPh61/src/billing.ts",
+          "content": "\nexport function processPayment(amount: number, currency: string) {\n  if (amount <= 0) throw new Error('Invalid amount');\n  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n  return { status: 'success', amount, currency };\n}\n\nexport function refundPayment(paymentId: string, reason: string) {\n  if (!paymentId) throw new Error('Payment ID required');\n  if (!reason) throw new Error('Reason required');\n  return { status: 'refunded', paymentId, reason };\n}\n"
+        },
+        "tests": {
+          "path": "/tmp/gstack-paid-shard-uogWT6/tmp/skill-e2e-review-coverage-IjPh61/test/billing.test.ts",
+          "content": "\nimport { describe, test, expect } from 'vitest';\nimport { processPayment } from '../src/billing';\n\ndescribe('processPayment', () => {\n  test('processes valid payment', () => {\n    const result = processPayment(100, 'USD');\n    expect(result.status).toBe('success');\n  });\n  // GAP: no test for invalid amount\n  // GAP: no test for unsupported currency\n  // GAP: refundPayment not tested at all\n});\n"
+        }
+      },
+      "result": {
+        "exitReason": "success",
+        "browseErrors": [],
+        "output": "```\nsrc/billing.ts                                    test/billing.test.ts\n==============================================    ============================\nprocessPayment(amount, currency)\n |\n +-- [L3] amount <= 0 -> throw 'Invalid amount'         [ ] GAP  (negative path)\n |         boundary: 0, negative\n |\n +-- [L4] currency not USD/EUR -> throw 'Unsupported'   [ ] GAP  (negative path)\n |         e.g. 'GBP', '', lowercase 'usd'\n |\n +-- [L5] return { status: 'success', ... }             [x] COVERED\n           'processes valid payment' (100, 'USD')       (EUR branch not exercised)\n\nrefundPayment(paymentId, reason)                        [ ] GAP  (zero coverage,\n |                                                           not even imported)\n +-- [L9]  !paymentId -> throw 'Payment ID required'    [ ] GAP  (negative path)\n |\n +-- [L10] !reason -> throw 'Reason required'           [ ] GAP  (negative path)\n |\n +-- [L11] return { status: 'refunded', ... }           [ ] GAP  (happy path)\n\n----------------------------------------------------------------------\nLegend: [x] tested   [ ] no test\nPaths: 6 total | 1 covered | 5 gaps\nGuard clauses: 4 total | 0 tested\nExported functions: 2 total | 1 with any coverage\n```",
+        "transcript": [
+          {
+            "type": "system",
+            "subtype": "init",
+            "cwd": "/tmp/gstack-paid-shard-uogWT6/tmp/skill-e2e-review-coverage-IjPh61",
+            "session_id": "605e90b0-2488-4d77-8b97-e2245fa64b3f"
+          },
+          {
+            "type": "assistant",
+            "session_id": "605e90b0-2488-4d77-8b97-e2245fa64b3f",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool_use",
+                  "id": "toolu_01LafivkrmZAXQTaK4f3Bumf",
+                  "name": "Bash",
+                  "input": {
+                    "command": "cat review/specialists/testing.md; echo ======; cat -n src/billing.ts; echo ======; cat -n test/billing.test.ts",
+                    "description": "Read testing specialist, source, and tests"
+                  },
+                  "caller": {
+                    "type": "direct"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "user",
+            "session_id": "605e90b0-2488-4d77-8b97-e2245fa64b3f",
+            "parent_tool_use_id": null,
+            "message": {
+              "role": "user",
+              "content": [
+                {
+                  "tool_use_id": "toolu_01LafivkrmZAXQTaK4f3Bumf",
+                  "type": "tool_result",
+                  "content": "# Testing Specialist Review Checklist\n\nScope: Always-on (every review)\nOutput: JSON objects, one finding per line. Schema:\n{\"severity\":\"CRITICAL|INFORMATIONAL\",\"confidence\":N,\"path\":\"file\",\"line\":N,\"category\":\"testing\",\"summary\":\"...\",\"fix\":\"...\",\"fingerprint\":\"path:line:testing\",\"specialist\":\"testing\"}\nOptional: line, fix, fingerprint, evidence, test_stub.\nIf no findings: output `NO FINDINGS` and nothing else.\n\n---\n\n## Categories\n\n### Missing Negative-Path Tests\n- New code paths that handle errors, rejections, or invalid input with NO corresponding test\n- Guard clauses and early returns that are untested\n- Error branches in try/catch, rescue, or error boundaries with no failure-path test\n- Permission/auth checks that are asserted in code but never tested for the \"denied\" case\n\n### Missing Edge-Case Coverage\n- Boundary values: zero, negative, max-int, empty string, empty array, nil/null/undefined\n- Single-element collections (off-by-one on loops)\n- Unicode and special characters in user-facing inputs\n- Concurrent access patterns with no race-condition test\n\n### Test Isolation Violations\n- Tests sharing mutable state (class variables, global singletons, DB records not cleaned up)\n- Order-dependent tests (pass in sequence, fail when randomized)\n- Tests that depend on system clock, timezone, or locale\n- Tests that make real network calls instead of using stubs/mocks\n\n### Flaky Test Patterns\n- Timing-dependent assertions (sleep, setTimeout, waitFor with tight timeouts)\n- Assertions on ordering of unordered results (hash keys, Set iteration, async resolution order)\n- Tests that depend on external services (APIs, databases) without fallback\n- Randomized test data without seed control\n\n### Security Enforcement Tests Missing\n- Auth/authz checks in controllers with no test for the \"unauthorized\" case\n- Rate limiting logic with no test proving it actually blocks\n- Input sanitization with no test for malicious input\n- CSRF/CORS configuration with no integration test\n\n### Coverage Gaps\n- New public methods/functions with zero test coverage\n- Changed methods where existing tests only cover the old behavior, not the new branch\n- Utility functions called from multiple places but tested only indirectly\n======\n     1\t\n     2\texport function processPayment(amount: number, currency: string) {\n     3\t  if (amount <= 0) throw new Error('Invalid amount');\n     4\t  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n     5\t  return { status: 'success', amount, currency };\n     6\t}\n     7\t\n     8\texport function refundPayment(paymentId: string, reason: string) {\n     9\t  if (!paymentId) throw new Error('Payment ID required');\n    10\t  if (!reason) throw new Error('Reason required');\n    11\t  return { status: 'refunded', paymentId, reason };\n    12\t}\n======\n     1\t\n     2\timport { describe, test, expect } from 'vitest';\n     3\timport { processPayment } from '../src/billing';\n     4\t\n     5\tdescribe('processPayment', () => {\n     6\t  test('processes valid payment', () => {\n     7\t    const result = processPayment(100, 'USD');\n     8\t    expect(result.status).toBe('success');\n     9\t  });\n    10\t  // GAP: no test for invalid amount\n    11\t  // GAP: no test for unsupported currency\n    12\t  // GAP: refundPayment not tested at all\n    13\t});",
+                  "is_error": false
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,382 @@
+{
+  "calls": [
+    {
+      "id": "toolu_01SG2Hk1e1bh7J2NiZZZuFv2",
+      "questions": [
+        {
+          "question": "Should gstack add skill routing rules to this project's CLAUDE.md?",
+          "header": "Routing rules",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Skip — fixture repo (Recommended)",
+              "description": "This is a plan-review fixture repo; routing rules in CLAUDE.md would be noise here. Skip."
+            },
+            {
+              "label": "Add routing rules",
+              "description": "Append the standard gstack skill routing section to CLAUDE.md and commit it."
+            }
+          ]
+        },
+        {
+          "question": "gstack can search learnings from your other projects on this machine to find patterns that apply here. This stays local — no data leaves your machine. Enable cross-project learnings?",
+          "header": "Cross-proj learn",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (Recommended)",
+              "description": "Search learnings from all local projects. Best for solo developers. Recommended for most setups."
+            },
+            {
+              "label": "Keep project-scoped only",
+              "description": "Learnings only from this project. Safer if you work across multiple client codebases."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Should gstack add skill routing rules to this project's CLAUDE.md?": "Skip — fixture repo (Recommended)",
+        "gstack can search learnings from your other projects on this machine to find patterns that apply here. This stays local — no data leaves your machine. Enable cross-project learnings?": "Enable cross-project (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:52:08.251Z",
+      "answeredAt": "2026-09-09T01:52:17.131Z",
+      "toolUseId": "toolu_01SG2Hk1e1bh7J2NiZZZuFv2",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    },
+    {
+      "id": "toolu_01TqHSgk5ec9XasVdGpYxVQ2",
+      "questions": [
+        {
+          "question": "I traced the actual getting-started path for your Python ML engineer persona. Here's what I think they experience today — does this match reality?\n\n---\n\nT+0:00  Opens README. Clear: `pip install evalkit==2.0.0b1`, set EVALKIT_API_KEY.\nT+1:30  Follows next instruction: `python examples/first_eval.py`. FileNotFoundError. The file is not in the package. README lied.\nT+2:00  Searches the package for another entry point. Finds `python -m evalkit.demo`.\nT+2:30  Runs it. It starts. Nothing prints.\nT+3:00  Still nothing. No progress indicator. No timeout message. Wonders if it crashed.\nT+6:00  A score finally appears. The SDK was running a silent 5-minute remote CI check nobody warned them about.\nT+6:30  Tries `run_eval(dataset, evaluator)` in their own code.\nT+7:00  Accidentally calls `run_batch(evaluator, dataset)` — same concept, flipped order, silent wrong results.\nT+8:00  Passes a bad API key. Gets `AuthError: request failed`. No cause. No fix. Googles it.\nT+10:00 Upgrades from v1. `Client.evaluate()` raises AttributeError. No migration guide found. Files a GitHub issue.\n\n---\n\nWhere am I wrong, if anywhere?",
+          "header": "Empathy check",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Accurate — proceed (Recommended)",
+              "description": "This matches the real getting-started experience. Use this as the basis for the review."
+            },
+            {
+              "label": "Mostly right, minor corrections",
+              "description": "The broad strokes are right but some details are off. I'll note corrections."
+            },
+            {
+              "label": "Significantly off — actual experience differs",
+              "description": "The narrative doesn't reflect reality. I'll describe the actual path."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "I traced the actual getting-started path for your Python ML engineer persona. Here's what I think they experience today — does this match reality?\n\n---\n\nT+0:00  Opens README. Clear: `pip install evalkit==2.0.0b1`, set EVALKIT_API_KEY.\nT+1:30  Follows next instruction: `python examples/first_eval.py`. FileNotFoundError. The file is not in the package. README lied.\nT+2:00  Searches the package for another entry point. Finds `python -m evalkit.demo`.\nT+2:30  Runs it. It starts. Nothing prints.\nT+3:00  Still nothing. No progress indicator. No timeout message. Wonders if it crashed.\nT+6:00  A score finally appears. The SDK was running a silent 5-minute remote CI check nobody warned them about.\nT+6:30  Tries `run_eval(dataset, evaluator)` in their own code.\nT+7:00  Accidentally calls `run_batch(evaluator, dataset)` — same concept, flipped order, silent wrong results.\nT+8:00  Passes a bad API key. Gets `AuthError: request failed`. No cause. No fix. Googles it.\nT+10:00 Upgrades from v1. `Client.evaluate()` raises AttributeError. No migration guide found. Files a GitHub issue.\n\n---\n\nWhere am I wrong, if anywhere?": "Accurate — proceed (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:52:41.213Z",
+      "answeredAt": "2026-09-09T01:52:42.707Z",
+      "toolUseId": "toolu_01TqHSgk5ec9XasVdGpYxVQ2",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    },
+    {
+      "id": "toolu_015uUzyDXtpQYMLA7YF6mUd6",
+      "questions": [
+        {
+          "question": "D1 — Journey stage: Hello World (T+1:30 failure)\n\nThe README says: “follow the quickstart’s command: `python examples/first_eval.py`”\nBut docs/package-contents.txt confirms `examples/first_eval.py` is absent from both the published package and the release examples archive.\n\nEvery new developer hits a FileNotFoundError at minute 1.5, before they’ve gotten any value. This is a T=0 trust-breaker — the first instruction in the README doesn’t work. DX Principle: Zero Friction at T0.\n\nRecommendation: A — update README to point to `python -m evalkit.demo` as the primary quickstart, because the demo module IS in the package and already produces real scores. Adding the missing file risks scope creep (examples need to be kept in sync).\nCompleteness: A=9/10, B=8/10, C=6/10",
+          "header": "D1: Quickstart",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Fix README to point to demo (Recommended)",
+              "description": "Change README.md: replace `python examples/first_eval.py` with `python -m evalkit.demo` as the primary quickstart command. One-line fix, consistent with the settled demo delivery vehicle."
+            },
+            {
+              "label": "B: Add examples/first_eval.py to the package",
+              "description": "Include the missing file in the published package. Works, but requires writing and maintaining a quickstart script that mirrors the demo."
+            },
+            {
+              "label": "C: Add note that file requires separate download",
+              "description": "Document that examples/ is a separate archive, not in the pip package. Reduces the surprise but doesn’t eliminate the friction."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Journey stage: Hello World (T+1:30 failure)\n\nThe README says: “follow the quickstart’s command: `python examples/first_eval.py`”\nBut docs/package-contents.txt confirms `examples/first_eval.py` is absent from both the published package and the release examples archive.\n\nEvery new developer hits a FileNotFoundError at minute 1.5, before they’ve gotten any value. This is a T=0 trust-breaker — the first instruction in the README doesn’t work. DX Principle: Zero Friction at T0.\n\nRecommendation: A — update README to point to `python -m evalkit.demo` as the primary quickstart, because the demo module IS in the package and already produces real scores. Adding the missing file risks scope creep (examples need to be kept in sync).\nCompleteness: A=9/10, B=8/10, C=6/10": "A: Fix README to point to demo (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:52:56.951Z",
+      "answeredAt": "2026-09-09T01:52:58.755Z",
+      "toolUseId": "toolu_015uUzyDXtpQYMLA7YF6mUd6",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    },
+    {
+      "id": "toolu_01J53jpB2gtwH21ZUfLgVQif",
+      "questions": [
+        {
+          "question": "D2 — Journey stage: Hello World / Demo (T+2:30–6:00 silence)\n\nThe demo runs `python -m evalkit.demo`. But docs/current-contracts.md says: “On a developer’s first local evaluation, the SDK requires a successful remote CI check and blocks for five minutes before returning an evaluation result. There is no skip flag or offline first-run path.”\n\nThis means the demo — the settled magical moment — also blocks for 5 minutes on first run, with no output, no progress, no ETA. The agreed TTHW target is <2 minutes (Champion tier). The current TTHW is 6 minutes (Red Flag tier). The gap is not closeable without changing this gate.\n\nDX Principle: Zero Friction at T0. Fight Uncertainty (developer doesn’t know if it crashed).\n\nRecommendation: B — exempt `python -m evalkit.demo` from the CI gate, because the demo uses bundled sample data that requires no remote validation. The CI gate makes sense for real evaluations; it does not apply to a canned demo.\nCompleteness: A=9/10, B=9/10, C=7/10",
+          "header": "D2: CI gate",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Add EVALKIT_SKIP_CI_CHECK env var / --no-ci flag (Recommended)",
+              "description": "Add an escape hatch for local development. Developers set the env var to skip the gate. Production CI keeps the gate. Two lines of implementation."
+            },
+            {
+              "label": "B: Exempt python -m evalkit.demo from CI gate",
+              "description": "The demo uses bundled data; CI check is meaningless for it. Exempt only the demo entrypoint. Smallest scope change that achieves <2-min TTHW for the first-run experience."
+            },
+            {
+              "label": "C: Add a progress indicator during the CI wait",
+              "description": "Keep the 5-minute gate but print a progress message every 30s. Eliminates the ‘did it crash?’ confusion but doesn’t fix the 6-min TTHW. Still Red Flag tier."
+            },
+            {
+              "label": "D: Accept current behavior — defer TTHW to post-beta",
+              "description": "Acknowledge the gap in the plan but defer the fix. Current TTHW stays at 6 min; competitive position stays at Red Flag tier until after beta."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Journey stage: Hello World / Demo (T+2:30–6:00 silence)\n\nThe demo runs `python -m evalkit.demo`. But docs/current-contracts.md says: “On a developer’s first local evaluation, the SDK requires a successful remote CI check and blocks for five minutes before returning an evaluation result. There is no skip flag or offline first-run path.”\n\nThis means the demo — the settled magical moment — also blocks for 5 minutes on first run, with no output, no progress, no ETA. The agreed TTHW target is <2 minutes (Champion tier). The current TTHW is 6 minutes (Red Flag tier). The gap is not closeable without changing this gate.\n\nDX Principle: Zero Friction at T0. Fight Uncertainty (developer doesn’t know if it crashed).\n\nRecommendation: B — exempt `python -m evalkit.demo` from the CI gate, because the demo uses bundled sample data that requires no remote validation. The CI gate makes sense for real evaluations; it does not apply to a canned demo.\nCompleteness: A=9/10, B=9/10, C=7/10": "A: Add EVALKIT_SKIP_CI_CHECK env var / --no-ci flag (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:53:14.012Z",
+      "answeredAt": "2026-09-09T01:53:14.797Z",
+      "toolUseId": "toolu_01J53jpB2gtwH21ZUfLgVQif",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    },
+    {
+      "id": "toolu_01LbtniLP3CQ4faAzZzTcekZ",
+      "questions": [
+        {
+          "question": "D3 — Journey stage: Debug (T+8:00)\n\nThe developer passes a bad API key. docs/api.md documents the current behavior: `AuthError(\"request failed\")`. The plan retains this message. Per the same file: “There is no authentication error code, explanation of the cause, or instruction for replacing the key.”\n\nAll other errors in the SDK already identify cause, argument, and actionable fix (per docs/current-contracts.md). The auth error is the only outlier.\n\nWhat the developer sees: `AuthError: request failed`. What they think: “Did the network fail? Is the API down? Is my key expired? Is it the wrong format?” They Google it. Context switching: 10-20 minutes lost.\n\nDX Principle: Fight Uncertainty. Every error = problem + cause + fix.\n\nRecommendation: A — rewrite the message with cause + fix + code. It’s consistent with every other error in the SDK and costs a single string change.\nCompleteness: A=10/10, B=7/10",
+          "header": "D3: Auth error",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Rewrite auth error with cause + fix + code (Recommended)",
+              "description": "Change to: `AuthError(\"Invalid API key — EVALKIT_API_KEY is missing, expired, or incorrect. Generate a new key at https://evalkit.io/dashboard/keys\", code=\\\"auth_invalid_key\\\")`. One string change; consistent with all other SDK errors."
+            },
+            {
+              "label": "B: Add error code only, keep current message",
+              "description": "Add `code=\\\"auth_invalid_key\\\"` to the existing `AuthError(\\\"request failed\\\")`. Structured-API consumers can branch on it; CLI users still see an opaque message."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Journey stage: Debug (T+8:00)\n\nThe developer passes a bad API key. docs/api.md documents the current behavior: `AuthError(\"request failed\")`. The plan retains this message. Per the same file: “There is no authentication error code, explanation of the cause, or instruction for replacing the key.”\n\nAll other errors in the SDK already identify cause, argument, and actionable fix (per docs/current-contracts.md). The auth error is the only outlier.\n\nWhat the developer sees: `AuthError: request failed`. What they think: “Did the network fail? Is the API down? Is my key expired? Is it the wrong format?” They Google it. Context switching: 10-20 minutes lost.\n\nDX Principle: Fight Uncertainty. Every error = problem + cause + fix.\n\nRecommendation: A — rewrite the message with cause + fix + code. It’s consistent with every other error in the SDK and costs a single string change.\nCompleteness: A=10/10, B=7/10": "A: Rewrite auth error with cause + fix + code (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:53:28.537Z",
+      "answeredAt": "2026-09-09T01:53:28.838Z",
+      "toolUseId": "toolu_01LbtniLP3CQ4faAzZzTcekZ",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    },
+    {
+      "id": "toolu_0196UjEe2r8dPGtujUKzbekN",
+      "questions": [
+        {
+          "question": "D4 — Journey stage: Real Usage (silent wrong results)\n\nThe two core evaluation functions have reversed positional order:\n  run_eval(dataset, evaluator)   ← dataset first\n  run_batch(evaluator, dataset)  ← evaluator first\n\nBoth argument names describe the same concepts. docs/api.md notes: “The reversed positional order is intentional in the current draft; neither function requires keyword arguments.”\n\nA developer who learns `run_eval` and then calls `run_batch` will pass arguments in the wrong order. No type error fires (both args accept similar types). They get wrong results silently.\n\nDX Principle: Decide for me, let me override. API consistency is a trust signal.\n\nRecommendation: A — standardize to `(dataset, evaluator)` order for both. Breaking change, but both functions are new in v2 (no existing callers to migrate). This is the cheapest moment to fix the inconsistency.\nCompleteness: A=10/10, B=8/10, C=6/10",
+          "header": "D4: Arg order",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Standardize to (dataset, evaluator) for both (Recommended)",
+              "description": "Flip run_batch to match run_eval. Both functions are v2-new, so no existing call sites to migrate. Consistent API from day one."
+            },
+            {
+              "label": "B: Require keyword arguments for both",
+              "description": "Add keyword-only enforcement: `run_eval(*, dataset, evaluator)` and `run_batch(*, evaluator, dataset)`. Callers must name args; wrong order is a TypeError. Keeps current naming."
+            },
+            {
+              "label": "C: Document the asymmetry clearly, leave as-is",
+              "description": "Add a prominent warning in the docs. Asymmetry stays; documentation burden is on the user. Some developers will still get it wrong."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Journey stage: Real Usage (silent wrong results)\n\nThe two core evaluation functions have reversed positional order:\n  run_eval(dataset, evaluator)   ← dataset first\n  run_batch(evaluator, dataset)  ← evaluator first\n\nBoth argument names describe the same concepts. docs/api.md notes: “The reversed positional order is intentional in the current draft; neither function requires keyword arguments.”\n\nA developer who learns `run_eval` and then calls `run_batch` will pass arguments in the wrong order. No type error fires (both args accept similar types). They get wrong results silently.\n\nDX Principle: Decide for me, let me override. API consistency is a trust signal.\n\nRecommendation: A — standardize to `(dataset, evaluator)` order for both. Breaking change, but both functions are new in v2 (no existing callers to migrate). This is the cheapest moment to fix the inconsistency.\nCompleteness: A=10/10, B=8/10, C=6/10": "A: Standardize to (dataset, evaluator) for both (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:53:41.147Z",
+      "answeredAt": "2026-09-09T01:53:42.886Z",
+      "toolUseId": "toolu_0196UjEe2r8dPGtujUKzbekN",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    },
+    {
+      "id": "toolu_01VnVwndUqPcVSsQJn6wz58o",
+      "questions": [
+        {
+          "question": "D5 — Journey stage: Upgrade (AttributeError with no guidance)\n\nVersion 1 exposes `Client.evaluate()`. Version 2 replaces it with `Client.run()` and removes the old name immediately. Per docs/api.md: “No compatibility alias, deprecation warning, migration guide, or codemod is provided.”\n\nA v1 developer who upgrades gets `AttributeError: 'Client' object has no attribute 'evaluate'` with no suggestion of what to use instead. They either stay on v1 or file an issue.\n\nDX Principle: Credible — developers need to upgrade without fear. Upgrade fear is a real adoption blocker: if upgrading breaks things silently, developers stay pinned to old versions.\n\nRecommendation: A — add a deprecation shim in the beta, because it costs 3 lines and eliminates a hard break for every v1 user. A shim in beta that prints a warning (not an error) gives users a runway before the shim is removed in v3.\nCompleteness: A=9/10, B=7/10, C=6/10",
+          "header": "D5: v1→v2 upgrade",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Add Client.evaluate() deprecation shim (Recommended)",
+              "description": "Add `Client.evaluate = deprecated_alias(Client.run)` that calls `Client.run()` and emits a DeprecationWarning: “evaluate() removed in v2; use run() instead.” Remove in v3. 3-line change; zero breakage for v1 users on upgrade."
+            },
+            {
+              "label": "B: Add a one-page migration guide (no shim)",
+              "description": "Write docs/migration-v1-v2.md with a sed or ast-grep codemod snippet. No backward compat alias. Developers must update call sites manually but have clear instructions."
+            },
+            {
+              "label": "C: Accept hard break, document in changelog only",
+              "description": "The changelog already notes the removal. No new code or docs. v1 developers get an AttributeError and must find the changelog entry themselves."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Journey stage: Upgrade (AttributeError with no guidance)\n\nVersion 1 exposes `Client.evaluate()`. Version 2 replaces it with `Client.run()` and removes the old name immediately. Per docs/api.md: “No compatibility alias, deprecation warning, migration guide, or codemod is provided.”\n\nA v1 developer who upgrades gets `AttributeError: 'Client' object has no attribute 'evaluate'` with no suggestion of what to use instead. They either stay on v1 or file an issue.\n\nDX Principle: Credible — developers need to upgrade without fear. Upgrade fear is a real adoption blocker: if upgrading breaks things silently, developers stay pinned to old versions.\n\nRecommendation: A — add a deprecation shim in the beta, because it costs 3 lines and eliminates a hard break for every v1 user. A shim in beta that prints a warning (not an error) gives users a runway before the shim is removed in v3.\nCompleteness: A=9/10, B=7/10, C=6/10": "A: Add Client.evaluate() deprecation shim (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:53:56.097Z",
+      "answeredAt": "2026-09-09T01:53:56.933Z",
+      "toolUseId": "toolu_01VnVwndUqPcVSsQJn6wz58o",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    },
+    {
+      "id": "toolu_01WUfxYpV5WmB1djnKzxoEvz",
+      "questions": [
+        {
+          "question": "D6 — Pass 4: Documentation (expected output missing from README)\n\nAfter D1, the README quickstart becomes: `python -m evalkit.demo`. But the README doesn’t show what output to expect. The developer runs the demo, waits ~1 minute, and doesn’t know if it’s working or what success looks like until a score appears.\n\nShowing a 3-4 line output snippet in the README (the kind of thing `python -m evalkit.demo` actually prints) gives developers a clear success signal without reading any more docs.\n\nDX Principle: Fight Uncertainty. Zero Friction at T0.\n\nRecommendation: A — add expected output to the README because it costs 3 lines and eliminates the ‘is this working?’ anxiety during the wait.\nNote: options differ in kind, not coverage — no completeness score.",
+          "header": "D6: README output",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Add expected output snippet to README (Recommended)",
+              "description": "Append 3-4 lines of sample output below the quickstart command so developers know what success looks like before running. E.g. `Evaluating 10 samples... Score: 0.84 | Pass: 8/10 | Fail: 2/10`"
+            },
+            {
+              "label": "B: Skip — output is self-evident from running the demo",
+              "description": "The demo prints real scores; developers will see the output immediately. Showing it in advance adds noise to the README."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Pass 4: Documentation (expected output missing from README)\n\nAfter D1, the README quickstart becomes: `python -m evalkit.demo`. But the README doesn’t show what output to expect. The developer runs the demo, waits ~1 minute, and doesn’t know if it’s working or what success looks like until a score appears.\n\nShowing a 3-4 line output snippet in the README (the kind of thing `python -m evalkit.demo` actually prints) gives developers a clear success signal without reading any more docs.\n\nDX Principle: Fight Uncertainty. Zero Friction at T0.\n\nRecommendation: A — add expected output to the README because it costs 3 lines and eliminates the ‘is this working?’ anxiety during the wait.\nNote: options differ in kind, not coverage — no completeness score.": "A: Add expected output snippet to README (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:55:01.765Z",
+      "answeredAt": "2026-09-09T01:55:03.170Z",
+      "toolUseId": "toolu_01WUfxYpV5WmB1djnKzxoEvz",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    },
+    {
+      "id": "toolu_01KVCUwR1zd2VZcBS3GqzPcb",
+      "questions": [
+        {
+          "question": "D7 — Pass 5: Upgrade Path (migration guide to complement the D5 shim)\n\nD5 adds `Client.evaluate()` as a DeprecationWarning shim. A developer will see: `DeprecationWarning: evaluate() removed in v2; use run() instead.` That’s a good runtime signal.\n\nBut a developer reading the changelog or docs before upgrading has no guidance: no before/after example, no list of renamed symbols, no one-line codemod. A short migration note in the changelog or a new `docs/migration-v1-v2.md` gives them confidence before they even try `pip install evalkit==2.0.0b1`.\n\nDX Principle: Credible. Upgrade fear blocks adoption.\n\nRecommendation: A — add a brief migration note because it’s 5 lines in the changelog and eliminates upgrade hesitation for current v1 users.\nCompleteness: A=9/10, B=8/10",
+          "header": "D7: Migration doc",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Add brief migration note to changelog (Recommended)",
+              "description": "Add a “Migrating from v1” subsection to the existing changelog: list the rename (`evaluate()` → `run()`), confirm everything else is unchanged, include a one-liner sed codemod. ~5 lines."
+            },
+            {
+              "label": "B: Shim is sufficient — skip extra docs",
+              "description": "The DeprecationWarning from D5 tells developers what to do at runtime. Additional docs are extra maintenance surface."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Pass 5: Upgrade Path (migration guide to complement the D5 shim)\n\nD5 adds `Client.evaluate()` as a DeprecationWarning shim. A developer will see: `DeprecationWarning: evaluate() removed in v2; use run() instead.` That’s a good runtime signal.\n\nBut a developer reading the changelog or docs before upgrading has no guidance: no before/after example, no list of renamed symbols, no one-line codemod. A short migration note in the changelog or a new `docs/migration-v1-v2.md` gives them confidence before they even try `pip install evalkit==2.0.0b1`.\n\nDX Principle: Credible. Upgrade fear blocks adoption.\n\nRecommendation: A — add a brief migration note because it’s 5 lines in the changelog and eliminates upgrade hesitation for current v1 users.\nCompleteness: A=9/10, B=8/10": "A: Add brief migration note to changelog (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:55:15.913Z",
+      "answeredAt": "2026-09-09T01:55:17.213Z",
+      "toolUseId": "toolu_01KVCUwR1zd2VZcBS3GqzPcb",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    },
+    {
+      "id": "toolu_01ESkQSxbnafURZkncSUGkyr",
+      "questions": [
+        {
+          "question": "TODO candidate: Progress indicator during the first-run CI wait\n\nD2 added EVALKIT_SKIP_CI_CHECK for local dev. But when that flag is NOT set — in a developer’s own CI pipeline, or when they don’t know about the flag — the SDK still blocks for 5 minutes with no output. A progress message every 30s (“Waiting for CI check... 90s elapsed”) eliminates the ‘did it crash?’ confusion without changing the gate behavior.\n\nWhat: Print a progress line to stderr every 30s during the CI wait.\nWhy: Without it, non-skip path users see 5 minutes of silence.\nPros: Eliminates uncertainty on the non-skip path; 10 lines of code.\nCons: Adds noise to CI logs if the user pipes stdout.\nDepends on: D2 (skip flag) is already resolved.",
+          "header": "TODO: CI progress",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Add to this plan (ship with beta) (Recommended)",
+              "description": "Add a 30s progress stderr printer to the CI wait loop. Part of the beta polish scope."
+            },
+            {
+              "label": "B: Defer to post-beta TODO",
+              "description": "Log it as a follow-up. Skip flag covers local dev; progress indicator is a quality-of-life improvement for later."
+            },
+            {
+              "label": "C: Skip entirely",
+              "description": "The skip flag is sufficient. Non-skip path developers see CI logs anyway."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "TODO candidate: Progress indicator during the first-run CI wait\n\nD2 added EVALKIT_SKIP_CI_CHECK for local dev. But when that flag is NOT set — in a developer’s own CI pipeline, or when they don’t know about the flag — the SDK still blocks for 5 minutes with no output. A progress message every 30s (“Waiting for CI check... 90s elapsed”) eliminates the ‘did it crash?’ confusion without changing the gate behavior.\n\nWhat: Print a progress line to stderr every 30s during the CI wait.\nWhy: Without it, non-skip path users see 5 minutes of silence.\nPros: Eliminates uncertainty on the non-skip path; 10 lines of code.\nCons: Adds noise to CI logs if the user pipes stdout.\nDepends on: D2 (skip flag) is already resolved.": "A: Add to this plan (ship with beta) (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:55:58.977Z",
+      "answeredAt": "2026-09-09T01:55:59.376Z",
+      "toolUseId": "toolu_01ESkQSxbnafURZkncSUGkyr",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    },
+    {
+      "id": "toolu_01HPGaoGWFV6MyuLU1jjjGfN",
+      "questions": [
+        {
+          "question": "TODO candidate: Exempt python -m evalkit.demo from the CI gate (no env var needed)\n\nD2 added EVALKIT_SKIP_CI_CHECK so developers can bypass the first-run CI check. But the optimal UX for the demo is zero-friction with no flags or env vars. Since `python -m evalkit.demo` uses bundled sample data and no real API calls, the CI check is meaningless for it regardless of settings.\n\nWhat: In evalkit/demo.py, detect the demo entrypoint and skip the CI check unconditionally.\nWhy: `python -m evalkit.demo` should always work in <1 minute, even for developers who don’t know about EVALKIT_SKIP_CI_CHECK.\nPros: Zero-friction demo path; consistent with the “no hosted service” promise; 2 lines of code.\nCons: Two places that bypass the CI gate (env var + demo module) could confuse developers who expect gate parity.\nDepends on: D2 (skip flag) and D1 (README points to demo) already resolved.",
+          "header": "TODO: Demo CI exemption",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A: Add to this plan (ship with beta) (Recommended)",
+              "description": "Exempt python -m evalkit.demo from the CI gate unconditionally. The demo entrypoint uses bundled data; the gate is irrelevant."
+            },
+            {
+              "label": "B: Defer — env var is sufficient for beta",
+              "description": "The EVALKIT_SKIP_CI_CHECK env var already handles this for informed developers. The demo exemption is a quality-of-life improvement; defer to post-beta."
+            },
+            {
+              "label": "C: Skip — keep gate parity",
+              "description": "All first evaluations should go through the CI gate, including the demo. Consistency > convenience here."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "TODO candidate: Exempt python -m evalkit.demo from the CI gate (no env var needed)\n\nD2 added EVALKIT_SKIP_CI_CHECK so developers can bypass the first-run CI check. But the optimal UX for the demo is zero-friction with no flags or env vars. Since `python -m evalkit.demo` uses bundled sample data and no real API calls, the CI check is meaningless for it regardless of settings.\n\nWhat: In evalkit/demo.py, detect the demo entrypoint and skip the CI check unconditionally.\nWhy: `python -m evalkit.demo` should always work in <1 minute, even for developers who don’t know about EVALKIT_SKIP_CI_CHECK.\nPros: Zero-friction demo path; consistent with the “no hosted service” promise; 2 lines of code.\nCons: Two places that bypass the CI gate (env var + demo module) could confuse developers who expect gate parity.\nDepends on: D2 (skip flag) and D1 (README points to demo) already resolved.": "A: Add to this plan (ship with beta) (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "timestamp": "2026-09-09T01:56:09.841Z",
+      "answeredAt": "2026-09-09T01:56:11.405Z",
+      "toolUseId": "toolu_01HPGaoGWFV6MyuLU1jjjGfN",
+      "sessionId": "c1849829-c0f7-42bc-b198-334a9cf2be9a"
+    }
+  ]
+}

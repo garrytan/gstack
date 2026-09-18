@@ -21,6 +21,7 @@
 // intentionally machine-specific.
 
 import { describe, test, expect } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { spawnSync } from 'child_process';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
@@ -279,7 +280,7 @@ describeIfDevice('ios device path', () => {
   test('fixture iOS SDK and UIKit compile guards are available', () => {
     // This is an environment + source-guard preflight. The explicit deployment
     // test below performs the real signed iOS xcodebuild before installation.
-    const sdkPath = spawnSync('xcrun', ['--sdk', 'iphoneos', '--show-sdk-path'], { stdio: 'pipe' });
+    const sdkPath = spawnSync('xcrun', ['--sdk', 'iphoneos', '--show-sdk-path'], { stdio: 'pipe', timeout: 30_000 });
     if (sdkPath.status !== 0) {
       console.error('iOS SDK not found. Install via Xcode.');
     }
@@ -856,7 +857,7 @@ describe('ios device deployment (explicit opt-in)', () => {
       keepalive?.stop();
       rmSync(workDir, { recursive: true, force: true });
     }
-  }, 600_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // Always-on instructions if not paired. Surfaces actionable steps even when

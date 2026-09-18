@@ -9,8 +9,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { spawn } from 'child_process';
+import { Readable } from 'node:stream';
+import { createHash, type Hash } from 'node:crypto';
 import { getProjectEvalDir } from './eval-store';
 import { hermeticChildEnv, isHermeticEnabled } from './hermetic-env';
+import { killProcessGroup } from '../../scripts/test-strict-output';
+import { resolveEvalModel } from '../../lib/eval-model';
 
 const GSTACK_DEV_DIR = path.join(os.homedir(), '.gstack-dev');
 const HEARTBEAT_PATH = path.join(GSTACK_DEV_DIR, 'e2e-live.json'); // heartbeat stays global
@@ -51,6 +56,14 @@ export interface SkillTestResult {
   /** Peak latency between consecutive tool calls, in ms */
   maxInterTurnMs: number;
 }
+
+/** Local default startup grace: 90s covers observed API queue latency
+ *  (60-90s receipts) without letting a dead API burn a 600s budget. */
+export const STARTUP_GRACE_MS = 90_000;
+/** CI floor (TODOS-filed): shared runners queue harder; killing startup
+ *  before 300s in CI converts ordinary queueing into false failures.
+ *  Pinned by test/session-runner-startup-grace.test.ts. */
+export const STARTUP_GRACE_CI_FLOOR_MS = 300_000;
 
 const BROWSE_ERROR_PATTERNS = [
   /Unknown command: \w+/,
@@ -115,22 +128,88 @@ function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
+/** Diagnostic-only projection. Partial input never becomes a complete tool call. */
+function publicStreamProjection(startTime: number): (line: string) => string {
+  let messageId: string | undefined;
+  const blocks = new Map<number, { type: string; tool?: string; bytes: number; hash: Hash }>();
+  return (line) => {
+    let row: any;
+    try { row = JSON.parse(line); } catch {
+      // A truncated line may contain private reasoning or unfinished tool input.
+      return JSON.stringify({ type: 'public_stream_diagnostic', kind: 'unparseable_line',
+        elapsedMs: Date.now() - startTime, bytes: Buffer.byteLength(line) });
+    }
+    if (row === null || typeof row !== 'object' || Array.isArray(row)) {
+      return JSON.stringify({ type: 'public_stream_diagnostic', kind: 'non_object_line',
+        elapsedMs: Date.now() - startTime, bytes: Buffer.byteLength(line) });
+    }
+    if (row.type === 'stream_event') {
+      const event = row.event ?? {};
+      if (event.type === 'message_start') {
+        messageId = event.message?.id;
+        blocks.clear();
+      }
+      const index = event.index;
+      if (event.type === 'content_block_start' && Number.isInteger(index)) {
+        blocks.set(index, { type: event.content_block?.type, tool: event.content_block?.name,
+          bytes: 0, hash: createHash('sha256') });
+      }
+      const block = blocks.get(index);
+      if (event.type === 'content_block_delta' && block?.type === 'tool_use'
+        && event.delta?.type === 'input_json_delta' && typeof event.delta.partial_json === 'string') {
+        const chunk = Buffer.from(event.delta.partial_json);
+        block.bytes += chunk.length;
+        block.hash.update(chunk);
+      }
+      const diagnostic = { type: 'public_stream_diagnostic', kind: event.type,
+        session_id: row.session_id, messageId, index, elapsedMs: Date.now() - startTime,
+        blockType: block?.type, toolName: block?.tool, deltaType: event.delta?.type,
+        ...(block?.type === 'tool_use' ? { inputBytes: block.bytes,
+          inputSha256: block.hash.copy().digest('hex') } : {}),
+        ...(event.type === 'message_delta' ? { stopReason: event.delta?.stop_reason } : {}),
+      };
+      if (event.type === 'content_block_stop') blocks.delete(index);
+      return JSON.stringify(diagnostic);
+    }
+    if (Array.isArray(row.message?.content)) {
+      row.message.content = row.message.content.map((block: any) =>
+        block.type === 'thinking' || block.type === 'redacted_thinking'
+          ? { type: block.type, omitted: true } : block);
+    }
+    return JSON.stringify(row);
+  };
+}
+
 // --- Main runner ---
 
 export async function runSkillTest(options: {
   prompt: string;
   workingDirectory: string;
   maxTurns?: number;
+  /** Approval allowlist; does not restrict which tools the model can see. */
   allowedTools?: string[];
+  /** Optional built-in tool availability. Omit to preserve the CLI defaults. */
+  tools?: string[];
+  /** Opt-in public block timing/input-size diagnostics; never completion evidence. */
+  publicStreamDiagnostics?: boolean;
   timeout?: number;
   testName?: string;
   runId?: string;
-  /** Model to use. Defaults to claude-sonnet-4-6 (overridable via EVALS_MODEL env). */
+  /** Model to use. Defaults to the frontier eval model (overridable via EVALS_MODEL env). */
   model?: string;
   /** Extra env vars merged into the spawned claude -p process. Useful for
    *  per-test GSTACK_HOME overrides so the test doesn't have to spell out
    *  env setup in the prompt itself. */
   env?: Record<string, string>;
+  /** Startup-phase deadline: if NO NDJSON byte arrives within this window,
+   *  the run is killed EARLY with exitReason 'timeout_startup' instead of
+   *  burning the whole work budget waiting on an API that is not answering
+   *  (the recurring '0 turns / $0.00' class — four budget-bump receipts).
+   *  Defaults to min(STARTUP_GRACE_MS, timeout); the CI floor is higher
+   *  because CI queueing is real. Total wall stays <= timeout either way —
+   *  bun-level tier budgets are sized to the runner timeout with no margin,
+   *  so this phase split must never extend the envelope. */
+  startupGraceMs?: number;
 }): Promise<SkillTestResult> {
   const {
     prompt,
@@ -142,7 +221,16 @@ export async function runSkillTest(options: {
     runId,
     env: extraEnv,
   } = options;
-  const model = options.model ?? process.env.EVALS_MODEL ?? 'claude-sonnet-4-6';
+  // The CI floor is a FLOOR, not a default: an explicit startupGraceMs below
+  // 300s in CI would re-open the queueing-becomes-false-red hole the floor
+  // exists for (review finding — the name promised a clamp the code lacked).
+  // Local runs honor the caller verbatim; timeout still caps everything.
+  const requestedGrace = options.startupGraceMs ?? (process.env.CI ? STARTUP_GRACE_CI_FLOOR_MS : STARTUP_GRACE_MS);
+  const startupGraceMs = Math.min(
+    process.env.CI ? Math.max(requestedGrace, STARTUP_GRACE_CI_FLOOR_MS) : requestedGrace,
+    timeout,
+  );
+  const model = options.model ?? process.env.EVALS_MODEL ?? resolveEvalModel('capture');
 
   const startTime = Date.now();
   const startedAt = new Date().toISOString();
@@ -168,14 +256,24 @@ export async function runSkillTest(options: {
     '--max-turns', String(maxTurns),
     '--allowed-tools', ...allowedTools,
   ];
+  // --allowed-tools controls approval, including when permissions are skipped;
+  // only --tools removes unrelated built-ins such as Agent, Bash, and Skill.
+  // Keep this opt-in: existing workflow evals intentionally use CLI defaults.
+  if (options.tools !== undefined) args.push('--tools', options.tools.join(','));
+  if (options.publicStreamDiagnostics) args.push('--include-partial-messages');
   // Hermetic children get zero MCP servers (no --mcp-config is passed).
   // Gated on the same call-time check as the env scrub so EVALS_HERMETIC=0
   // restores operator MCP along with the operator env.
   if (isHermeticEnabled()) args.push('--strict-mcp-config');
 
   // Spawn claude directly with array-form args (no shell interpolation).
-  // Prompt is piped via stdin using a Blob to avoid temp files and shell escaping.
-  const proc = Bun.spawn(['claude', ...args], {
+  // node:child_process spawn (not Bun.spawn): `detached` puts the child in
+  // its OWN process group, so the timeout handler can killpg the whole tree.
+  // Bun.spawn has no detached option, and its bare proc.kill() signalled only
+  // claude itself — tool subprocesses claude spawned survived as orphans
+  // burning shared API rate for the rest of the shard's lifetime.
+  // Prompt is piped via stdin to avoid temp files and shell escaping.
+  const proc = spawn('claude', args, {
     cwd: workingDirectory,
     // Hermetic by default (see test/helpers/hermetic-env.ts): operator
     // session context (CONDUCTOR_*, CLAUDECODE, ~/.claude config, ~/.gstack)
@@ -185,40 +283,81 @@ export async function runSkillTest(options: {
     // suite exercising the INTERACTIVE prose-fallback path opts out by passing
     // `env: { GSTACK_HEADLESS: '' }` — extraEnv wins because it spreads last.
     env: hermeticChildEnv({ GSTACK_HEADLESS: '1', ...extraEnv }),
-    stdin: new Blob([prompt]),
-    stdout: 'pipe',
-    stderr: 'pipe',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
+  });
+  proc.stdin!.on('error', () => { /* child died before reading the prompt — exit handling reports it */ });
+  proc.stdin!.write(prompt);
+  proc.stdin!.end();
+  const stdoutWeb = Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>;
+  const stderrWeb = Readable.toWeb(proc.stderr!) as ReadableStream<Uint8Array>;
+  // 'exit' vs 'close' matters here: 'close' waits for stdout/stderr to
+  // drain, which an orphaned grandchild can hold open long after claude
+  // itself died with a REAL exit code — labeling must key off 'exit' or an
+  // auth failure gets triaged as 'timeout_startup' availability noise
+  // (claude adversarial finding). procExited stays 'close'-based (streams
+  // complete) for the drain race below.
+  let childExited = false;
+  const procExited: Promise<number> = new Promise((resolve) => {
+    proc.on('exit', () => { childExited = true; });
+    proc.on('close', (code) => { childExited = true; resolve(code ?? 1); });
+    proc.on('error', () => { childExited = true; resolve(1); });
   });
 
-  // Race against timeout
+  // Two-phase timeout. Phase 1 (startup): no NDJSON byte yet — a shorter
+  // deadline kills a non-answering API run EARLY and names it, instead of
+  // the old single timer burning the full work budget to produce an opaque
+  // '0 turns / $0.00' failure. Phase 2 (work): armed by the read loop when
+  // the FIRST byte arrives, for the REMAINING budget — total wall is always
+  // <= timeout (tier envelopes are margin-free by convention).
   let stderr = '';
   let exitReason = 'unknown';
   let timedOut = false;
+  let timedOutInStartup = false;
+  let phaseTimer: ReturnType<typeof setTimeout>;
 
-  const timeoutId = setTimeout(() => {
-    timedOut = true;
-    proc.kill();
-    // proc.kill() signals claude itself (direct spawn, no shell wrapper),
-    // but tool subprocesses claude spawned can survive as orphans that
-    // inherited our stdout/stderr pipes, so without cancel() the read loop
-    // below blocks until the orphan finally exits (observed: a 600s timeout
-    // stretching past 1400s and tripping bun's per-test timeout instead of
-    // returning a result).
+  const killRun = (startupPhase: boolean): void => {
+    // Labeling and unblocking are SEPARATE concerns: a timer firing after
+    // the child already exited must not relabel a real exit (auth error,
+    // crash) as a timeout — but it must STILL group-kill and cancel the
+    // reader, or an orphan holding the pipes re-creates the exact
+    // blocked-drain hang this runner fixed (an early `return` here was the
+    // bug the adversarial pass caught in the first version of this guard).
+    if (!childExited) {
+      timedOut = true;
+      timedOutInStartup = startupPhase;
+    }
+    // Group SIGKILL (mirrors runShardChild): claude AND every tool
+    // subprocess it spawned die together — a bare proc.kill() left orphans
+    // that inherited our stdout/stderr pipes and kept the API burning
+    // (observed: a 600s timeout stretching past 1400s while an orphan held
+    // the pipes open).
+    killProcessGroup(proc, 'SIGKILL');
+    // Belt and braces with the group kill: even if an orphan survives (EPERM
+    // fallback path), cancel() unblocks the read loop below.
     reader.cancel().catch(() => { /* stream already closed */ });
-  }, timeout);
+  };
+  phaseTimer = setTimeout(() => killRun(true), startupGraceMs);
+  /** Called once by the read loop on the first NDJSON byte. */
+  const armWorkPhase = (elapsedMs: number): void => {
+    clearTimeout(phaseTimer);
+    phaseTimer = setTimeout(() => killRun(false), Math.max(0, timeout - elapsedMs));
+  };
 
   // Stream NDJSON from stdout for real-time progress
   const collectedLines: string[] = [];
   let liveTurnCount = 0;
   let liveToolCount = 0;
   let firstResponseMs = 0;
+  let workPhaseArmed = false;
   let lastToolTime = 0;
   let maxInterTurnMs = 0;
-  const stderrPromise = new Response(proc.stderr).text();
+  const stderrPromise = new Response(stderrWeb).text();
 
-  const reader = proc.stdout.getReader();
+  const reader = stdoutWeb.getReader();
   const decoder = new TextDecoder();
   let buf = '';
+  const projectLine = options.publicStreamDiagnostics ? publicStreamProjection(startTime) : (line: string) => line;
 
   try {
     while (true) {
@@ -227,13 +366,21 @@ export async function runSkillTest(options: {
       buf += decoder.decode(value, { stream: true });
       const lines = buf.split('\n');
       buf = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.trim()) continue;
+      for (const rawLine of lines) {
+        if (!rawLine.trim()) continue;
+        const line = projectLine(rawLine);
         collectedLines.push(line);
 
         // Track time to first NDJSON line (measures latency from spawn to first Claude response)
-        if (firstResponseMs === 0) {
+        if (!workPhaseArmed) {
+          // Flag, not `firstResponseMs === 0`: a first line landing in the
+          // same millisecond as spawn would read as "not yet seen" and leave
+          // the startup timer live for the whole run (claude adversarial).
+          workPhaseArmed = true;
           firstResponseMs = Date.now() - startTime;
+          // First byte: startup phase over — arm the work phase for the
+          // REMAINING budget (total wall stays <= timeout).
+          armWorkPhase(firstResponseMs);
         }
 
         // Real-time progress to stderr + persistent logs
@@ -294,7 +441,11 @@ export async function runSkillTest(options: {
 
   // Flush remaining buffer
   if (buf.trim()) {
-    collectedLines.push(buf);
+    const line = projectLine(buf);
+    collectedLines.push(line);
+    if (options.publicStreamDiagnostics && runDir && safeName) {
+      try { fs.appendFileSync(path.join(runDir, `${safeName}.ndjson`), line + '\n'); } catch { /* non-fatal */ }
+    }
   }
 
   // Same orphan hazard as stdout: an orphaned grandchild holding stderr open
@@ -304,16 +455,20 @@ export async function runSkillTest(options: {
   stderr = await Promise.race([
     stderrPromise,
     (async () => {
-      await proc.exited;
+      await procExited;
       await new Promise((r) => setTimeout(r, 5_000));
       return '';
     })(),
   ]);
-  const exitCode = await proc.exited;
-  clearTimeout(timeoutId);
+  const exitCode = await procExited;
+  clearTimeout(phaseTimer);
 
   if (timedOut) {
-    exitReason = 'timeout';
+    // 'timeout_startup' = the API never sent a byte inside the grace — an
+    // availability problem, not a test failure worth reading transcripts
+    // for. Distinct so triage (and WS10's inconclusive classification) can
+    // key off it without receipts archaeology.
+    exitReason = timedOutInStartup ? 'timeout_startup' : 'timeout';
   } else if (exitCode === 0) {
     exitReason = 'success';
   } else {
@@ -341,9 +496,9 @@ export async function runSkillTest(options: {
     if (resultLine.subtype === 'success' && resultLine.is_error) {
       // claude -p can return subtype=success with is_error=true (e.g. API connection failure)
       exitReason = 'error_api';
-    } else if (resultLine.subtype === 'success') {
+    } else if (resultLine.subtype === 'success' && exitCode === 0 && !timedOut) {
       exitReason = 'success';
-    } else if (resultLine.subtype) {
+    } else if (resultLine.subtype && resultLine.subtype !== 'success') {
       // Preserve known subtypes like error_max_turns even if is_error is set
       exitReason = resultLine.subtype;
     }

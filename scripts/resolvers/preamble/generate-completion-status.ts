@@ -19,14 +19,17 @@ import type { TemplateContext } from '../types';
  * gates. See ceo-plan 2026-04-24 "remove vestigial plan-mode handshake" for
  * the full rationale.
  */
-export function generatePlanModeInfo(_ctx: TemplateContext): string {
+export function generatePlanModeInfo(ctx: TemplateContext): string {
+  const invocation = ['plan-design-review', 'plan-eng-review'].includes(ctx.skillName)
+    ? `The invoked skill overrides generic plan mode. **Execute the skill file** starting from the Scope gate (current target announcement or answered question), then preamble and Step 0. Skill questions are valid; skip only questions the skill resolves. Any AskUserQuestion variant satisfies end-of-turn; use AskUserQuestion Format's tool resolution. If unavailable/failed: \`headless\` → BLOCKED; \`interactive\` → prose fallback (satisfies end-of-turn). At STOP, stop: no continuation or ExitPlanMode. Execute "PLAN MODE EXCEPTION — ALWAYS RUN" commands. ExitPlanMode only after skill completion or if the user cancels the skill or tells you to leave plan mode.`
+    : `If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; any AskUserQuestion the skill fires is the workflow operating within plan mode, not a violation of it — and a skill whose instructions resolve a question themselves (e.g. a plan-mode auto-select) may legitimately not ask it. AskUserQuestion (any variant — \`mcp__*__AskUserQuestion\` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: \`headless\` → BLOCKED; \`interactive\` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.`;
   return `## Plan Mode Safe Operations
 
 In plan mode, allowed because they inform the plan: \`$B\`, \`$D\`, \`codex exec\`/\`codex review\`, writes to \`~/.gstack/\`, writes to the plan file, and \`open\` for generated artifacts.
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; any AskUserQuestion the skill fires is the workflow operating within plan mode, not a violation of it — and a skill whose instructions resolve a question themselves (e.g. a plan-mode auto-select) may legitimately not ask it. AskUserQuestion (any variant — \`mcp__*__AskUserQuestion\` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: \`headless\` → BLOCKED; \`interactive\` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.`;
+${invocation}`;
 }
 
 export function generateCompletionStatus(ctx: TemplateContext): string {
@@ -58,36 +61,24 @@ Do not log obvious facts or one-time transient errors.
 
 ## Telemetry (run last)
 
-After workflow completion, log telemetry. Use skill \`name:\` from frontmatter. OUTCOME is success/error/abort/unknown.
+After workflow completion, log telemetry with ONE command. OUTCOME is
+success/error/abort/unknown; \`SESSION_ID\` and \`TEL_START\` are the values the
+preamble's skill-start output echoed. It also drains the artifacts-sync queue
+(the former skill-end sync step — do not run gstack-brain-sync separately).
 
-**PLAN MODE EXCEPTION — ALWAYS RUN:** This command writes telemetry to
+**PLAN MODE EXCEPTION — ALWAYS RUN:** This writes telemetry to
 \`~/.gstack/analytics/\`, matching preamble analytics writes.
 
-Run this bash:
-
 \`\`\`bash
-_TEL_END=$(date +%s)
-_TEL_DUR=$(( _TEL_END - _TEL_START ))
-rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
-# Session timeline: record skill completion (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
-# Local analytics (gated on telemetry setting)
-if [ "$_TEL" != "off" ]; then
-echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
-fi
-# Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.claude/skills/gstack/bin/gstack-telemetry-log \\
-    --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \\
-    --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" \\
-    --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" 2>/dev/null &
-fi
+${ctx.paths.binDir}/gstack-skill-end --skill "${ctx.skillName}" --outcome OUTCOME \\
+  --session-id "SESSION_ID" --tel-start "TEL_START" --used-browse USED_BROWSE \\
+  --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" 2>/dev/null || true
 \`\`\`
 
-Replace \`SKILL_NAME\`, \`OUTCOME\`, and \`USED_BROWSE\` before running.
-Replace \`ERROR_MESSAGE\` with a short description of the error (if outcome is error,
-otherwise use empty string ""), and \`FAILED_STEP\` with the step name or number where
-the failure occurred (if outcome is error, otherwise use empty string "").
+Replace \`OUTCOME\` and \`USED_BROWSE\` (yes/no) before running; substitute
+\`SESSION_ID\`/\`TEL_START\` from the skill-start echoes. \`ERROR_MESSAGE\`/\`FAILED_STEP\`
+are "" unless outcome is error. If the command is missing (stale install), skip
+telemetry — it never blocks the workflow.
 
 ## Plan Status Footer
 

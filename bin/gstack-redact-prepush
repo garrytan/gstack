@@ -30,6 +30,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { scan, type Finding } from "../lib/redact-engine";
+import { mkdirpSync } from "../lib/fs-utils";
 
 const ZERO = /^0+$/;
 // The canonical empty-tree object; diffing against it yields all content as added.
@@ -349,7 +350,10 @@ function logSkip(reason: string): void {
   try {
     const home = process.env.GSTACK_HOME || path.join(os.homedir(), ".gstack");
     const dir = path.join(home, "security");
-    fs.mkdirSync(dir, { recursive: true });
+    // mkdirpSync, not bare mkdirSync: bun-on-Windows EEXIST (#2635). This site
+    // is try-wrapped by the caller, so the old failure was a silent skip-log
+    // loss rather than a crash — the fix makes the log survive, not un-crash.
+    mkdirpSync(dir);
     fs.appendFileSync(
       path.join(dir, "prepush-skip.jsonl"),
       JSON.stringify({ ts: new Date().toISOString(), reason }) + "\n",

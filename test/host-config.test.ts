@@ -3,8 +3,9 @@
  * host-config-export.ts, and golden-file regression checks.
  */
 
-import { describe, test, expect, beforeAll } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { validateHostConfig, validateAllConfigs, type HostConfig } from '../scripts/host-config';
 import {
@@ -329,7 +330,7 @@ describe('host-config-export.ts CLI', () => {
 
   function run(...args: string[]): { stdout: string; stderr: string; exitCode: number } {
     const result = Bun.spawnSync(['bun', 'run', EXPORT_SCRIPT, ...args], {
-      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe', timeout: 30_000,
     });
     return {
       stdout: result.stdout.toString().trim(),
@@ -428,34 +429,56 @@ describe('host-config-export.ts CLI', () => {
 describe('golden-file regression', () => {
   const GOLDEN_DIR = path.join(ROOT, 'test', 'fixtures', 'golden');
 
-  // #2532: the codex/factory goldens read gitignored .agents/ and .factory/
-  // artifacts that only gen-skill-docs.test.ts (a serial tree-mutating file)
-  // produces. On a clean clone — or when this file runs in isolation — those
-  // dirs don't exist and the goldens fail with ENOENT, an order dependency,
-  // not a regression. Self-provision: generate a host's artifacts iff its
-  // ship SKILL.md is missing. Existing artifacts are never overwritten here,
-  // so a genuinely stale artifact still fails the golden (that is the test's
-  // job; freshness enforcement lives in gen-skill-docs.test.ts).
+  // #2532 successor: the codex/factory goldens used to read gitignored
+  // .agents/ and .factory/ artifacts "produced by gen-skill-docs.test.ts" —
+  // an inter-test ordering dependency that failed with ENOENT on a clean
+  // clone or when this file ran in isolation. Severed: this describe
+  // UNCONDITIONALLY renders both hosts into its own --out-dir in beforeAll
+  // and reads its goldens only from that render — no when-missing check, no
+  // live-tree reads for the gitignored artifacts, no dependence on what any
+  // other test left on disk. Comparing a FRESH render to the golden is also
+  // strictly deterministic: a stale on-disk artifact can no longer mask (or
+  // fake) a generator regression.
+  const GOLDEN_OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-golden-out-'));
+
   beforeAll(() => {
-    const hostArtifacts: Array<[string, string]> = [
-      ['codex', path.join(ROOT, '.agents', 'skills', 'gstack-ship', 'SKILL.md')],
-      ['factory', path.join(ROOT, '.factory', 'skills', 'gstack-ship', 'SKILL.md')],
-    ];
-    for (const [host, artifact] of hostArtifacts) {
-      if (fs.existsSync(artifact)) continue;
-      const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', host], {
-        cwd: ROOT,
-      });
+    for (const host of ['codex', 'factory']) {
+      const result = Bun.spawnSync(
+        ['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', host, '--out-dir', GOLDEN_OUT],
+        { cwd: ROOT, timeout: 120_000 },
+      );
       if (result.exitCode !== 0) {
         throw new Error(
-          `golden-file beforeAll: gen-skill-docs --host ${host} failed (exit ${result.exitCode}):\n`
+          `golden-file beforeAll: gen-skill-docs --host ${host} --out-dir failed (exit ${result.exitCode}):\n`
           + result.stderr.toString(),
         );
       }
     }
   });
 
+  afterAll(() => {
+    fs.rmSync(GOLDEN_OUT, { recursive: true, force: true });
+  });
+
+  test('every Claude outside-voice mode uses the restricted runner and exposes an explicit model override', () => {
+    const rendered = fs.readFileSync(path.join(GOLDEN_OUT, '.agents/skills/gstack-claude-code/SKILL.md'), 'utf8');
+    const calls = rendered.split('\n').filter(line => line.includes('"$CLAUDE_RUNNER" --cwd'));
+    expect(calls).toHaveLength(3);
+    expect(rendered.match(/CLAUDE_RUNNER="\$RUNTIME_ROOT\/bin\/gstack-claude-code"/g)).toHaveLength(3);
+    for (const call of calls) {
+      expect(call).toContain('--timeout-ms 600000');
+    }
+    expect(rendered).toContain('GSTACK_CLAUDE_MODEL=<model>');
+    expect(rendered).toContain('Without an override, retain Claude');
+    expect(fs.existsSync(path.join(GOLDEN_OUT, '.agents/skills/gstack-claude/SKILL.md'))).toBe(false);
+  });
+
   test('Claude ship skill matches golden baseline', () => {
+    // Deliberately reads the TRACKED ship/SKILL.md (a read, not a write):
+    // the claude golden pins the committed render. Freshness of the tracked
+    // tree vs the templates is enforced by gen-skill-docs.test.ts. (An
+    // out-dir claude render would NOT byte-match this golden — --out-dir
+    // repoints section-base paths into the render by design.)
     const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'claude-ship-SKILL.md'), 'utf-8');
     const current = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     expect(current).toBe(golden);
@@ -463,13 +486,13 @@ describe('golden-file regression', () => {
 
   test('Codex ship skill matches golden baseline', () => {
     const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'codex-ship-SKILL.md'), 'utf-8');
-    const current = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const current = fs.readFileSync(path.join(GOLDEN_OUT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(current).toBe(golden);
   });
 
   test('Factory ship skill matches golden baseline', () => {
     const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'factory-ship-SKILL.md'), 'utf-8');
-    const current = fs.readFileSync(path.join(ROOT, '.factory', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const current = fs.readFileSync(path.join(GOLDEN_OUT, '.factory', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(current).toBe(golden);
   });
 });
@@ -477,7 +500,7 @@ describe('golden-file regression', () => {
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
-  test('Codex defaults to generic GPT while all existing hosts retain Claude', () => {
+  test('Codex host renders with generic GPT overlay while existing hosts retain Claude overlay', () => {
     expect(codex.defaultModel).toBe('gpt');
     for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex')) {
       expect(host.defaultModel).toBe('claude');
@@ -530,11 +553,11 @@ describe('host config correctness', () => {
     expect(factory.frontmatter.conditionalFields![0].add).toEqual({ 'disable-model-invocation': true });
   });
 
-  test('codex has suppressedResolvers for self-invocation prevention', () => {
-    expect(codex.suppressedResolvers).toBeDefined();
-    expect(codex.suppressedResolvers).toContain('CODEX_SECOND_OPINION');
-    expect(codex.suppressedResolvers).toContain('ADVERSARIAL_STEP');
+  test('codex restores outside-review resolvers while retaining the Review Army restriction', () => {
     expect(codex.suppressedResolvers).toContain('REVIEW_ARMY');
+    for (const resolver of ['CODEX_SECOND_OPINION', 'ADVERSARIAL_STEP', 'CODEX_PLAN_REVIEW', 'CODEX_DOC_REVIEW', 'DESIGN_OUTSIDE_VOICES']) {
+      expect(codex.suppressedResolvers).not.toContain(resolver);
+    }
   });
 
   test('codex has boundary instruction', () => {
@@ -569,9 +592,12 @@ describe('host config correctness', () => {
     expect(openclaw.coAuthorTrailer).toContain('OpenClaw');
   });
 
-  test('every external host skips the codex skill', () => {
-    for (const config of getExternalHosts()) {
-      expect(config.generation.skipSkills).toContain('codex');
+  test('outside reviewer skills are omitted only from their own harness', () => {
+    for (const config of ALL_HOST_CONFIGS) {
+      const skipped = config.generation.skipSkills ?? [];
+      expect(skipped.includes('codex')).toBe(config.name === 'codex');
+      expect(skipped.includes('claude-code')).toBe(config.name === 'claude');
+      expect(skipped).not.toContain('claude');
     }
   });
 

@@ -1,0 +1,111 @@
+{
+  "sourceCommit": "be36e2c57cc6bf4762b9c6a81cd4d72a6615baa7",
+  "sourceSha256": "011f84b01ea083c4433645aec15b6eafff6c74cf9c0df5fc6e7c9b7d917b5ea5",
+  "provenance": "Exact completed public native questions and answers from the Design retry; actual attempt classification is unchanged.",
+  "fingerprints": [
+    {
+      "signature": "f0828778-6b7e-48ef-818d-b08c448c69b7:toolu_01J89uusnxWobZ64CfBvxSSB",
+      "promptSnippet": "Issue 1 D1 — Issue 1: Make Save the only filled primary action in the header? Project/branch/task: gstack-plan-count on main, Pass 1 (Information Architecture) of the Settings page design review. ELI10: Right now Save, Reset, Cancel and Exp",
+      "options": [
+        {
+          "index": 1,
+          "label": "1A Filled Save, ghost others (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "1B Filled Save, keep others as-is"
+        },
+        {
+          "index": 3,
+          "label": "1C Defer, keep four identical buttons"
+        }
+      ],
+      "observedAtMs": 198471,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "f0828778-6b7e-48ef-818d-b08c448c69b7",
+        "toolUseId": "toolu_01J89uusnxWobZ64CfBvxSSB",
+        "questions": [
+          {
+            "question": "D1 — Issue 1: Make Save the only filled primary action in the header?\nProject/branch/task: gstack-plan-count on main, Pass 1 (Information Architecture) of the Settings page design review.\nELI10: Right now Save, Reset, Cancel and Export all look identical, so a user scanning the header has to read four labels to find the one that finishes their task. Pressing the wrong one is not harmless: Reset and Cancel both throw away edits (behind a dialog). DESIGN.md already says Save is the single filled #1d4ed8 button and the other three are neutral ghost buttons. Principle: Hierarchy as service and Krug's satisficing, the right choice should be the most visible one.\nStakes if we pick wrong: users hesitate at every save or mis-tap Reset/Cancel on mobile; the form reads as assembled rather than designed.\nRecommendation: 1A because it applies the existing DESIGN.md tokens with no new component work.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: one styling change on the existing Button component versus leaving the primary action undiscoverable.",
+            "header": "Issue 1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A Filled Save, ghost others (recommended)",
+                "description": "Save = filled #1d4ed8 with white text; Reset/Cancel/Export = neutral ghost Buttons, per DESIGN.md (human: ~1h / CC: ~5min). ✅ The primary action is found in one glance, before reading any label. ✅ Reuses existing Button variants, no new tokens or components. ❌ Ghost buttons must still hit 44px targets and 4.5:1 text contrast, which needs a check at 320px."
+              },
+              {
+                "label": "1B Filled Save, keep others as-is",
+                "description": "Only restyle Save; leave the three secondary buttons in their current style (human: ~30min / CC: ~3min). ✅ Smallest possible diff to the header. ✅ Save still pops out against the row. ❌ Leaves three same-weight secondary buttons that still compete with each other and drift from DESIGN.md."
+              },
+              {
+                "label": "1C Defer, keep four identical buttons",
+                "description": "Leave the header unchanged and record the gap as debt. ✅ Zero implementation work in this PR. ✅ No risk of touching the header layout. ❌ Ships a known DESIGN.md violation and the primary action stays undiscoverable, lowering the final score."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D1 — Issue 1: Make Save the only filled primary action in the header?\nProject/branch/task: gstack-plan-count on main, Pass 1 (Information Architecture) of the Settings page design review.\nELI10: Right now Save, Reset, Cancel and Export all look identical, so a user scanning the header has to read four labels to find the one that finishes their task. Pressing the wrong one is not harmless: Reset and Cancel both throw away edits (behind a dialog). DESIGN.md already says Save is the single filled #1d4ed8 button and the other three are neutral ghost buttons. Principle: Hierarchy as service and Krug's satisficing, the right choice should be the most visible one.\nStakes if we pick wrong: users hesitate at every save or mis-tap Reset/Cancel on mobile; the form reads as assembled rather than designed.\nRecommendation: 1A because it applies the existing DESIGN.md tokens with no new component work.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: one styling change on the existing Button component versus leaving the primary action undiscoverable.": "1A Filled Save, ghost others (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T11:49:54.997Z"
+      }
+    },
+    {
+      "signature": "f0828778-6b7e-48ef-818d-b08c448c69b7:toolu_01445bBRR3bvowXNNS9JTrmc",
+      "promptSnippet": "Issue 2 D2 — Issue 2: Show the established pending pattern during the 2-5s Save? Project/branch/task: gstack-plan-count on main, Pass 2 (Interaction State Coverage), Gap 5 in PLAN.md. ELI10: When a user presses Save, nothing changes for up ",
+      "options": [
+        {
+          "index": 1,
+          "label": "2A Spinner + “Saving…” in disabled Save (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "2B Skeleton the whole form while saving"
+        },
+        {
+          "index": 3,
+          "label": "2C Defer, keep the frozen page"
+        }
+      ],
+      "observedAtMs": 238212,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "f0828778-6b7e-48ef-818d-b08c448c69b7",
+        "toolUseId": "toolu_01445bBRR3bvowXNNS9JTrmc",
+        "questions": [
+          {
+            "question": "D2 — Issue 2: Show the established pending pattern during the 2-5s Save?\nProject/branch/task: gstack-plan-count on main, Pass 2 (Interaction State Coverage), Gap 5 in PLAN.md.\nELI10: When a user presses Save, nothing changes for up to five seconds. People read a frozen page as broken and press Save again or navigate away, which is exactly how you lose the edits you were protecting. DESIGN.md already defines the fix: an inline spinner beside “Saving…” inside the disabled Save button with aria-busy, and reduced-motion support. Principle: Nielsen's visibility of system status; every wait needs feedback within a second.\nStakes if we pick wrong: double submissions, abandoned saves, and a settings page that feels untrustworthy at the exact moment trust matters.\nRecommendation: 2A because it is the existing pattern Export already uses, so Save and Export behave identically.\nCompleteness: 2A=10/10, 2B=7/10, 2C=3/10\nNet: reuse the spinner-in-button pattern Export already has, or invent something new, or ship a frozen page.",
+            "header": "Issue 2",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "2A Spinner + “Saving…” in disabled Save (recommended)",
+                "description": "Existing inline spinner beside “Saving…” inside the disabled Save button, aria-busy=true, reduced-motion support; Reset/Cancel/Export disabled while pending; InlineStatus keeps “Unsaved changes” until the result (human: ~2h / CC: ~10min). ✅ Identical to the Export pending pattern, so one mental model for both actions. ✅ Feedback appears instantly in the place the user just clicked. ❌ Disabling the focused button can drop keyboard focus; handled as its own issue in Pass 6."
+              },
+              {
+                "label": "2B Skeleton the whole form while saving",
+                "description": "Swap the form for the loading skeleton until Save settles (human: ~3h / CC: ~15min). ✅ Very obvious that something is happening. ✅ Reuses the existing skeleton component. ❌ Hides the user's edits during the wait and destroys focus position; if Save fails the form has to re-render with preserved values."
+              },
+              {
+                "label": "2C Defer, keep the frozen page",
+                "description": "Leave Save without a pending indicator and record the gap as debt. ✅ No work in this PR. ✅ No new states to test. ❌ Users see a frozen page for 2-5s and repeat-submit; a known DESIGN.md violation ships."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 — Issue 2: Show the established pending pattern during the 2-5s Save?\nProject/branch/task: gstack-plan-count on main, Pass 2 (Interaction State Coverage), Gap 5 in PLAN.md.\nELI10: When a user presses Save, nothing changes for up to five seconds. People read a frozen page as broken and press Save again or navigate away, which is exactly how you lose the edits you were protecting. DESIGN.md already defines the fix: an inline spinner beside “Saving…” inside the disabled Save button with aria-busy, and reduced-motion support. Principle: Nielsen's visibility of system status; every wait needs feedback within a second.\nStakes if we pick wrong: double submissions, abandoned saves, and a settings page that feels untrustworthy at the exact moment trust matters.\nRecommendation: 2A because it is the existing pattern Export already uses, so Save and Export behave identically.\nCompleteness: 2A=10/10, 2B=7/10, 2C=3/10\nNet: reuse the spinner-in-button pattern Export already has, or invent something new, or ship a frozen page.": "2A Spinner + “Saving…” in disabled Save (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T11:50:34.740Z"
+      }
+    }
+  ]
+}

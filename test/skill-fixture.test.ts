@@ -27,6 +27,7 @@ import {
   RETRO_E2E_SECTIONS,
   CODEX_REVIEW_E2E_SECTIONS,
 } from './helpers/skill-fixture';
+import { E2E_TOUCHFILES, GLOBAL_TOUCHFILES, selectTests } from './helpers/touchfiles';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -126,6 +127,64 @@ describe('extractSkillBody (synthetic)', () => {
     fs.writeFileSync(path.join(bare, 'SKILL.md'), '---\nname: bare\n---\n## Only Section\nbody\n');
     expect(() => extractSkillBody(bare)).toThrow(/Preamble \(run first\)/);
   });
+
+  test('both exact preamble headings preserve the complete intro/scope gate and tail', () => {
+    for (const heading of ['Preamble (run first)', 'Preamble (after scope gate)']) {
+      const file = path.join(tmpDir, 'scoped-body.md');
+      const scope = '## Scope gate\nAnnounce the actual selected plan before any tools.\n\n';
+      const input = SYNTHETIC_SKILL.replace('## Preamble (run first)', scope + `## ${heading}`);
+      fs.writeFileSync(file, input);
+      const out = extractSkillBody(file);
+      const expected = extractSkillBody(skillDir).replace('Invoke text.\n\n', 'Invoke text.\n\n' + scope);
+      expect(out).toBe(expected);
+      expect(out).toContain(scope.trimEnd());
+      expect(out).not.toContain(`## ${heading}`);
+    }
+  });
+
+  test('unknown, missing, duplicated and reversed boundary sections fail loudly', () => {
+    const cases: Array<[string, string, RegExp]> = [
+      ['unknown start', SYNTHETIC_SKILL.replace('Preamble (run first)', 'Preamble (after setup)'), /Preamble/],
+      ['suffixed scoped start', SYNTHETIC_SKILL.replace('Preamble (run first)', 'Preamble (after scope gate) extra'), /Preamble/],
+      ['suffixed old start', SYNTHETIC_SKILL.replace('Preamble (run first)', 'Preamble (run first) extra'), /Preamble/],
+      ['missing footer', SYNTHETIC_SKILL.replace('## Plan Status Footer', '## Renamed Footer'), /Plan Status Footer/],
+      ['suffixed footer', SYNTHETIC_SKILL.replace('## Plan Status Footer', '## Plan Status Footer extra'), /Plan Status Footer/],
+      ['both starts', SYNTHETIC_SKILL.replace('## AskUserQuestion Format', '## Preamble (after scope gate)'), /ambiguous/],
+      ['duplicate start', SYNTHETIC_SKILL.replace('## AskUserQuestion Format', '## Preamble (run first)'), /ambiguous/],
+      ['duplicate footer', SYNTHETIC_SKILL.replace('## Step 2 — Other', '## Plan Status Footer'), /ambiguous/],
+      ['footer before start', SYNTHETIC_SKILL.replace('## Preamble (run first)', '## Plan Status Footer').replace('## Plan Status Footer\nfooter junk', '## Preamble (after scope gate)\nfooter junk'), /precedes/],
+      ['missing tail', SYNTHETIC_SKILL.slice(0, SYNTHETIC_SKILL.indexOf('## Step 1 — Do the thing')), /no content after/],
+    ];
+    for (const [name, input, error] of cases) {
+      const file = path.join(tmpDir, 'invalid-boundaries.md'); fs.writeFileSync(file, input);
+      expect(() => extractSkillBody(file), name).toThrow(error);
+      expect(() => extractSkillBody(file), name).toThrow(/invalid-boundaries\.md/);
+    }
+  });
+
+  test('quoted and fenced boundary examples do not become live section markers', () => {
+    for (const [open, close] of [['```markdown\n', '```\n'], ['~~~markdown\n', '~~~\n']]) {
+      const file = path.join(tmpDir, 'fenced-boundaries.md');
+      const examples = `${open}## Preamble (after scope gate)\n## Plan Status Footer\n${close}> ## Preamble (after scope gate)\n\n`;
+      fs.writeFileSync(file, SYNTHETIC_SKILL.replace('Intro line before any section.', examples + 'Intro line before any section.'));
+      expect(extractSkillBody(file)).toContain(examples.trimEnd());
+      fs.writeFileSync(file, SYNTHETIC_SKILL.replace('## Preamble (run first)\npreamble junk', `${open}## Preamble (after scope gate)\n${close}preamble junk`));
+      expect(() => extractSkillBody(file)).toThrow(/Preamble/);
+    }
+  });
+
+  test('other section extraction keeps its existing prefix matching', () => {
+    const file = path.join(tmpDir, 'section-prefix.md');
+    fs.writeFileSync(file, SYNTHETIC_SKILL.replace('Preamble (run first)', 'Preamble (after scope gate)'));
+    expect(extractSkillSections(file, ['Preamble (after'])).toContain('preamble junk');
+    expect(extractSkillSections(file, ['Step 1'])).toContain('step one continues after the fence');
+  });
+
+  test('the existing global source dependency selects every affected workflow fixture', () => {
+    expect(GLOBAL_TOUCHFILES).toContain('test/helpers/skill-fixture.ts');
+    const selection = selectTests(['test/helpers/skill-fixture.ts'], E2E_TOUCHFILES, GLOBAL_TOUCHFILES);
+    expect(selection.selected.sort()).toEqual(Object.keys(E2E_TOUCHFILES).sort());
+  });
 });
 
 describe('extractSkillHead (synthetic)', () => {
@@ -169,25 +228,50 @@ describe('real-skill pins: section lists used by E2E fixtures', () => {
     expect(out.length).toBeLessThan(full.length * 0.5);
   });
 
-  test('REVIEW_ARMY_E2E_SECTIONS extracts from review/SKILL.md', () => {
-    const out = extractSkillSections(path.join(ROOT, 'review'), REVIEW_ARMY_E2E_SECTIONS);
-    // The army tests reference the Plan Completion Audit (inside Step 1.5)
-    // and the Step 4.5 merge machinery (quality score, JSON schema, consensus).
-    expect(out).toContain('PLAN COMPLETION AUDIT');
-    expect(out).toContain('## Step 4.5: Review Army — Specialist Dispatch');
-    expect(out).toContain('quality_score');
-    expect(out).toContain('MULTI-SPECIALIST CONFIRMED');
+  test('REVIEW_ARMY_E2E_SECTIONS extracts from review/SKILL.md + carved sections', () => {
+    // /review is carved (T9): the Step 4.5 dispatch body lives in
+    // sections/review-army.md and the Plan Completion Audit in
+    // sections/plan-completion.md — the skeleton keeps only STOP-Read pointers.
+    // The E2E fixture (test/skill-e2e-review-army.test.ts) extracts the
+    // skeleton H2s minus Step 4.5, then appends both section files; this pin
+    // mirrors that exact construction so a section rename or an empty carve
+    // still fails FREE before a paid E2E setup throw.
+    const skeletonSections = REVIEW_ARMY_E2E_SECTIONS.filter(
+      (s) => !s.startsWith('Step 4.5'),
+    );
+    const out = extractSkillSections(path.join(ROOT, 'review'), skeletonSections);
+    expect(out).toContain('## Step 1.5: Scope Drift Detection');
     expect(out).not.toContain('## Telemetry (run last)');
+
+    const planCompletion = fs.readFileSync(
+      path.join(ROOT, 'review', 'sections', 'plan-completion.md'), 'utf-8');
+    expect(planCompletion).toContain('PLAN COMPLETION AUDIT');
+
+    const army = fs.readFileSync(
+      path.join(ROOT, 'review', 'sections', 'review-army.md'), 'utf-8');
+    expect(army).toContain('## Step 4.5: Review Army — Specialist Dispatch');
+    expect(army).toContain('quality_score');
+    expect(army).toContain('MULTI-SPECIALIST CONFIRMED');
   });
 
-  test('RETRO_E2E_SECTIONS extracts from retro/SKILL.md', () => {
-    const out = extractSkillSections(path.join(ROOT, 'retro'), RETRO_E2E_SECTIONS);
+  test('RETRO_E2E_SECTIONS skeleton extracts from retro/SKILL.md + carved section', () => {
+    // Carved (retro wave): the '## Engineering Retro: [date range]' report
+    // format lives in retro/sections/report-format.md; the E2E fixture builds
+    // skeleton sections + the section file (see skill-e2e-retro.test.ts).
+    const skeletonSections = RETRO_E2E_SECTIONS.filter(
+      (s) => s !== 'Engineering Retro: [date range]',
+    );
+    const out = extractSkillSections(path.join(ROOT, 'retro'), skeletonSections);
     // Steps 0.5-14 live under Prior Learnings / Capture Learnings.
-    expect(out).toContain('### Step 1: Gather Raw Data');
+    expect(out).toContain('### Step 1: Gather');
     expect(out).toContain('### Step 14: Write the Narrative');
-    expect(out).toContain('## Engineering Retro: [date range]');
     expect(out).not.toContain('## Global Retrospective Mode');
     expect(out).not.toContain('## Telemetry (run last)');
+
+    const reportFormat = fs.readFileSync(
+      path.join(ROOT, 'retro', 'sections', 'report-format.md'), 'utf-8');
+    expect(reportFormat).toContain('## Engineering Retro: [date range]');
+    expect(reportFormat).toContain('### Team Breakdown');
   });
 
   test('CODEX_REVIEW_E2E_SECTIONS extracts from the Codex host variant when present', () => {
@@ -211,6 +295,7 @@ describe('real-skill pins: body/head extraction used by E2E fixtures', () => {
     test(`extractSkillBody(${skill}) drops the shared preamble, keeps the flow`, () => {
       const out = extractSkillBody(path.join(ROOT, skill));
       expect(out).not.toContain('## Preamble (run first)');
+      expect(out).not.toContain('## Preamble (after scope gate)');
       expect(out).not.toContain('## Telemetry (run last)');
       const full = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
       expect(out.length).toBeLessThan(full.length * 0.75);
@@ -220,9 +305,18 @@ describe('real-skill pins: body/head extraction used by E2E fixtures', () => {
 
   test('body extraction keeps the sections the skillify/context E2E tests assert on', () => {
     expect(extractSkillBody(path.join(ROOT, 'skillify'))).toContain('## Step 1 — Provenance guard (D1)');
-    expect(extractSkillBody(path.join(ROOT, 'scrape'))).toContain('## Step 4 — Prototype phase');
+    expect(extractSkillBody(path.join(ROOT, 'scrape'))).toContain('## Step 2 — Refuse mutating intents');
     expect(extractSkillBody(path.join(ROOT, 'context-save'))).toContain('## List flow');
     expect(extractSkillBody(path.join(ROOT, 'context-restore'))).toContain('## If no saved contexts exist');
+  });
+
+  test('the scoped Eng render retains its original scope gate before the workflow', () => {
+    const file = path.join(ROOT, 'plan-eng-review', 'SKILL.md');
+    const full = fs.readFileSync(file, 'utf-8');
+    const scopeStart = full.indexOf('## Scope gate');
+    const preamble = full.indexOf('## Preamble (after scope gate)');
+    expect(scopeStart).toBeGreaterThan(0); expect(preamble).toBeGreaterThan(scopeStart);
+    expect(extractSkillBody(file)).toContain(full.slice(scopeStart, preamble).trimEnd());
   });
 
   // The union of skills installed by the routing + opus-47 discovery fixtures.

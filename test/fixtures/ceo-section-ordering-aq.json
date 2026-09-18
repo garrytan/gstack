@@ -1,0 +1,250 @@
+{
+  "provenance": {
+    "source": "owned public CEO distinct retry terminal observation",
+    "path": ".context/ship-source-aq-delta-paid-20260910-v1/ceo-distinct-retry-terminal-public-ledger-v1/observation.json",
+    "sha256": "55faac09a8b093e2f20c5df8e83f620517783d7d24392d49ca6e04909f458994",
+    "sessionId": "a3a1839d-1727-443b-b8ee-53c7cdc100e0",
+    "actualOutcome": "no_review_questions",
+    "actualSetup": 7,
+    "actualReview": 0,
+    "noPrivateReasoning": true
+  },
+  "calls": [
+    {
+      "sessionId": "a3a1839d-1727-443b-b8ee-53c7cdc100e0",
+      "toolUseId": "toolu_01ADaTTZFcDAnJ1ySsUrgs7Y",
+      "questions": [
+        {
+          "question": "gstack works best when your project's CLAUDE.md includes skill routing rules (one-time setup prompt from skill-start). Should I add them? Note: plan mode is active, so the CLAUDE.md edit and commit would happen after this review exits plan mode.",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules to CLAUDE.md (recommended)",
+              "description": "Appends a '## Skill routing' section mapping request types to /office-hours, /plan-ceo-review, /investigate, /ship, etc., then commits it. Deferred until plan mode ends."
+            },
+            {
+              "label": "No thanks, I'll invoke skills manually",
+              "description": "Records routing_declined=true in gstack config. Re-enable later with gstack-config set routing_declined false."
+            }
+          ]
+        },
+        {
+          "question": "gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local (no data leaves your machine). Recommended for solo developers; skip if you work on multiple client codebases where cross-contamination is a concern. Enable cross-project learnings?",
+          "header": "Learnings",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project learnings (recommended)",
+              "description": "Sets cross_project_learnings=true in ~/.gstack config. Future reviews surface patterns learned in your other local projects."
+            },
+            {
+              "label": "Keep learnings project-scoped only",
+              "description": "Sets cross_project_learnings=false. Only this project's learnings are searched."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "gstack works best when your project's CLAUDE.md includes skill routing rules (one-time setup prompt from skill-start). Should I add them? Note: plan mode is active, so the CLAUDE.md edit and commit would happen after this review exits plan mode.": "Add routing rules to CLAUDE.md (recommended)",
+        "gstack can search learnings from your other projects on this machine to find patterns that might apply here. This stays local (no data leaves your machine). Recommended for solo developers; skip if you work on multiple client codebases where cross-contamination is a concern. Enable cross-project learnings?": "Enable cross-project learnings (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:31:18.887Z"
+    },
+    {
+      "sessionId": "a3a1839d-1727-443b-b8ee-53c7cdc100e0",
+      "toolUseId": "toolu_01LoAPJSTyHbndf7WCLGHFT2",
+      "questions": [
+        {
+          "question": "D3 — Where does the new payment handler live relative to WebhookDispatcher?\nProject/branch/task: main branch, Stripe payment_intent.succeeded handler plan.\nELI10: The plan promises the handler runs inside the existing signature, dedup, and lock guards, but also says it bypasses WebhookDispatcher, the module that routes events to handlers. If the dispatcher is how handlers get wrapped in those guards, bypassing it means a second entry point that can drift from the guards over time. The plan itself lists 'separate class vs reuse WebhookDispatcher' as open.\nStakes if we pick wrong: a second Stripe entry point that silently skips dedup or locking on a future refactor, or a monolithic dispatcher that becomes the dumping ground for payment logic.\nRecommendation: B because it keeps the approved Webhooks::StripePaymentWebhookHandler name and namespace while keeping exactly one guarded entry point (explicit over clever, right-sized diff).\nCompleteness: A=7/10, B=10/10, C=5/10\nNet: namespace separation is fine; a separate ingress path is not. Register the class, do not bypass the router.",
+          "header": "Approach",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "B) Separate class registered via dispatcher (recommended)",
+              "description": "✅ Webhooks::StripePaymentWebhookHandler holds only payment logic; WebhookDispatcher registers it for payment_intent.succeeded, so guards, tracing, and handler-identity attribution apply unchanged. ✅ Isolated class is unit-testable without ingress plumbing. ❌ Requires a small dispatcher registration edit plus the feature-flag switch between prior and new handler. Effort: human ~half day / CC ~20 min."
+            },
+            {
+              "label": "A) Reuse WebhookDispatcher inline (minimal)",
+              "description": "✅ Smallest diff: add the payment_intent.succeeded branch inside the dispatcher module with no new class. ✅ Zero risk of a second entry point. ❌ Payment lookup, update, and email logic lands in the router module, growing its responsibilities and making unit tests need dispatcher setup. Completeness 7/10. Effort: human ~2h / CC ~10 min."
+            },
+            {
+              "label": "C) Separate class bypassing dispatcher (plan as written)",
+              "description": "✅ Cleanest namespace separation; no dispatcher edit at all. ✅ Matches the current plan text exactly. ❌ Creates a second ingress path whose guard coverage must be re-proven on every change; contradicts the plan's own 'runs inside those unchanged guards' contract unless the guards live in middleware only. Completeness 5/10. Effort: human ~half day / CC ~20 min."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 — Where does the new payment handler live relative to WebhookDispatcher?\nProject/branch/task: main branch, Stripe payment_intent.succeeded handler plan.\nELI10: The plan promises the handler runs inside the existing signature, dedup, and lock guards, but also says it bypasses WebhookDispatcher, the module that routes events to handlers. If the dispatcher is how handlers get wrapped in those guards, bypassing it means a second entry point that can drift from the guards over time. The plan itself lists 'separate class vs reuse WebhookDispatcher' as open.\nStakes if we pick wrong: a second Stripe entry point that silently skips dedup or locking on a future refactor, or a monolithic dispatcher that becomes the dumping ground for payment logic.\nRecommendation: B because it keeps the approved Webhooks::StripePaymentWebhookHandler name and namespace while keeping exactly one guarded entry point (explicit over clever, right-sized diff).\nCompleteness: A=7/10, B=10/10, C=5/10\nNet: namespace separation is fine; a separate ingress path is not. Register the class, do not bypass the router.": "B) Separate class registered via dispatcher (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:33:10.890Z"
+    },
+    {
+      "sessionId": "a3a1839d-1727-443b-b8ee-53c7cdc100e0",
+      "toolUseId": "toolu_012uXT9G2xvn3ELoJ9anfaZ6",
+      "questions": [
+        {
+          "question": "D4 — Section 1 (Architecture), issue 1: where does the inline email sit relative to the database commit?\nProject/branch/task: main branch, payment handler plan.\nELI10: The plan says update the user and send the email 'both inline' but never says whether the email runs inside the database transaction or after it commits. The mail client has a one-second deadline and raises MailTimeout. If the email is inside the transaction, every mail outage rolls back the payment update too, so a user who paid is never marked paid until mail recovers. The retained runbook assumes the opposite: committed payment, failed notification.\nStakes if we pick wrong: during a mail-provider outage, paid users stay unpaid and Stripe retries for 72 hours, while on-call sees 'failed webhook processing' instead of 'failed notification'.\nRecommendation: 1A because the runbook, retry record, and dedup-after-commit contracts all presuppose commit-then-notify (explicit over clever; zero silent failures).\nCompleteness: 1A=10/10, 1B=4/10\nNet: the transaction protects the payment write; the email must never be able to undo it.",
+          "header": "Txn boundary",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A) Commit the user update, then send email (recommended)",
+              "description": "✅ Load user and orders, assign payment_status=paid and PaymentIntent ID, COMMIT, then call the mail client, all while the per-user lock (separate from the transaction) stays held as the contract requires. ✅ Mail failure can never roll back a committed payment; the runbook's 'committed payment, failed notification' path is reachable. Verify: integration test that stubs MailTimeout and asserts the user row is still paid. ❌ Adds an explicit commit boundary the sketch left implicit. Effort: human ~1h / CC ~5 min."
+            },
+            {
+              "label": "1B) Keep email inside the transaction",
+              "description": "✅ Single block of code, no explicit commit call. ✅ All-or-nothing semantics are simple to read. ❌ A one-second MailTimeout rolls back the payment; paid users stay unpaid across the whole mail outage and every Stripe retry repeats the rollback. Completeness 4/10. Effort: human ~0 / CC ~0."
+            },
+            {
+              "label": "1C) Leave unspecified in the plan",
+              "description": "✅ No plan edit now. ✅ Implementer decides at build time. ❌ The single most consequential ordering decision in the handler is left to a coin flip; the temporal interrogation exists to prevent exactly this. Completeness 2/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Section 1 (Architecture), issue 1: where does the inline email sit relative to the database commit?\nProject/branch/task: main branch, payment handler plan.\nELI10: The plan says update the user and send the email 'both inline' but never says whether the email runs inside the database transaction or after it commits. The mail client has a one-second deadline and raises MailTimeout. If the email is inside the transaction, every mail outage rolls back the payment update too, so a user who paid is never marked paid until mail recovers. The retained runbook assumes the opposite: committed payment, failed notification.\nStakes if we pick wrong: during a mail-provider outage, paid users stay unpaid and Stripe retries for 72 hours, while on-call sees 'failed webhook processing' instead of 'failed notification'.\nRecommendation: 1A because the runbook, retry record, and dedup-after-commit contracts all presuppose commit-then-notify (explicit over clever; zero silent failures).\nCompleteness: 1A=10/10, 1B=4/10\nNet: the transaction protects the payment write; the email must never be able to undo it.": "1A) Commit the user update, then send email (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:34:39.689Z"
+    },
+    {
+      "sessionId": "a3a1839d-1727-443b-b8ee-53c7cdc100e0",
+      "toolUseId": "toolu_017RppuYzn6yPJiiXSkbAJ28",
+      "questions": [
+        {
+          "question": "D5 — Section 2 (Error & Rescue Map), issue 2: the email leg has no error handling; MailTimeout and the mail client's delivery-failure exception propagate out of the handler.\nProject/branch/task: main branch, payment handler plan.\nELI10: After the payment is committed (per 1A), the mail client can raise MailTimeout (one-second deadline) or its named delivery-failure error. The plan says 'no error handling on the email leg', so that exception reaches the ingress wrapper, which returns HTTP 500 and fires the 'failed webhook processing' alert. Stripe then re-delivers the event for up to 72 hours. The payment write is idempotent so data stays correct, but on-call is told a webhook failed when really a receipt failed, and the same receipt is now retried by two independent paths (Stripe replay and the runbook's retry procedure). The runbook explicitly says never replay the payment blindly.\nStakes if we pick wrong: alert misattribution during every mail outage, a 72-hour retry storm per paid user, and a runbook that no longer matches system behavior.\nRecommendation: 2A because the shared mail client already durably records the failed attempt for the retry procedure and already publishes caught exceptions to the failure-rate alert, so rescuing by name is the path that keeps every failure visible (every error has a name; zero silent failures).\nCompleteness: 2A=10/10, 2B=6/10\nNet: rescue exactly the named mail exceptions after commit, log with full correlation, return 200. Never a catch-all.",
+          "header": "Mail rescue",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A) Rescue named mail exceptions post-commit, log, return 200 (recommended)",
+              "description": "✅ Handler rescues only MailTimeout and the mail client's named delivery-failure class (read the exact class from the client during implementation; no StandardError catch-all), logs event ID, user ID, PaymentIntent ID, handler identity, and exception class at WARN, and returns normally so ingress replies 200 and the dedup marker records completion. ✅ Failure stays visible through the mail client's durable retry record plus the existing failure-rate and backlog alerts; runbook path is exact. Verify: unit test stubs MailTimeout, asserts user row paid, 200 returned, warning logged with event ID; second test asserts a DB exception is NOT rescued. ❌ Ingress 'failed webhook processing' alert no longer fires for mail-only failures, by design. Effort: human ~2h / CC ~10 min."
+            },
+            {
+              "label": "2B) Let the mail exception propagate (500, Stripe retries)",
+              "description": "✅ Zero rescue code; Stripe's retry eventually delivers the receipt once mail recovers. ✅ Ingress alert fires, so the failure is not silent. ❌ Contradicts the runbook's 'never replay the payment blindly', double-retries the same receipt via two paths, and misattributes mail outages as webhook failures for 72 hours per event. Completeness 6/10. Effort: human ~0 / CC ~0."
+            },
+            {
+              "label": "2C) Rescue with a catch-all and continue",
+              "description": "✅ Guarantees a 200 regardless of what the mail leg throws. ✅ One-line change. ❌ Swallows programming errors (nil method, wrong argument) alongside provider failures; the review's Prime Directive names catch-all rescue as a defect. Completeness 3/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Section 2 (Error & Rescue Map), issue 2: the email leg has no error handling; MailTimeout and the mail client's delivery-failure exception propagate out of the handler.\nProject/branch/task: main branch, payment handler plan.\nELI10: After the payment is committed (per 1A), the mail client can raise MailTimeout (one-second deadline) or its named delivery-failure error. The plan says 'no error handling on the email leg', so that exception reaches the ingress wrapper, which returns HTTP 500 and fires the 'failed webhook processing' alert. Stripe then re-delivers the event for up to 72 hours. The payment write is idempotent so data stays correct, but on-call is told a webhook failed when really a receipt failed, and the same receipt is now retried by two independent paths (Stripe replay and the runbook's retry procedure). The runbook explicitly says never replay the payment blindly.\nStakes if we pick wrong: alert misattribution during every mail outage, a 72-hour retry storm per paid user, and a runbook that no longer matches system behavior.\nRecommendation: 2A because the shared mail client already durably records the failed attempt for the retry procedure and already publishes caught exceptions to the failure-rate alert, so rescuing by name is the path that keeps every failure visible (every error has a name; zero silent failures).\nCompleteness: 2A=10/10, 2B=6/10\nNet: rescue exactly the named mail exceptions after commit, log with full correlation, return 200. Never a catch-all.": "2A) Rescue named mail exceptions post-commit, log, return 200 (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:35:05.906Z"
+    },
+    {
+      "sessionId": "a3a1839d-1727-443b-b8ee-53c7cdc100e0",
+      "toolUseId": "toolu_01NuWzqF3fK3w2kjcKc3ySTk",
+      "questions": [
+        {
+          "question": "D6 — Section 3 (Security), issue 3: request.params.userId is interpolated into a raw SQL fragment for the user lookup.\nProject/branch/task: main branch, payment handler plan.\nELI10: The plan reads the user_id from Stripe metadata straight into SQL text. The plan's own contracts say this string is forwarded unchanged, is never SQL-escaped, is opaque TEXT that legitimately contains punctuation and Unicode, and that a valid Stripe signature does not make it safe. So a user ID containing an apostrophe breaks the query for a real customer, and anyone who can set metadata on a PaymentIntent (or a compromised integration) gets SQL injection into the payments database. Threat: SQL injection and query breakage. Likelihood: High (punctuation IDs are valid by contract). Impact: High (payments DB). Plan mitigates: No.\nStakes if we pick wrong: data exfiltration or destruction from the payments database, plus paid users with punctuation in their IDs never getting marked paid.\nRecommendation: 3A because binding the value is the only fix compatible with 'every nonempty string is a valid identifier' (security is not optional; explicit over clever).\nCompleteness: 3A=10/10, 3B=5/10\nNet: bind the parameter, never build SQL text from it, and prove it with an adversarial ID in the tests.",
+          "header": "SQL injection",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3A) Parameterized lookup via existing finder, adversarial-ID test (recommended)",
+              "description": "✅ Reuse the finder the prior handler already uses for user lookup, or a bound-parameter query (ORM find_by / bind variable) when no finder exists; the external string is never concatenated into SQL. ✅ Verify with unit tests for IDs containing a single quote, a semicolon-plus-DROP payload, and multi-byte Unicode, asserting the correct user or nil comes back with no DB exception; unknown IDs still take the retained lookup-result guard (200, logged). ❌ Requires the implementer to locate the existing finder rather than write a one-line SQL string. Effort: human ~1h / CC ~5 min."
+            },
+            {
+              "label": "3B) Keep raw SQL but escape or validate the ID format",
+              "description": "✅ Smaller conceptual change from the sketch. ✅ Escaping blocks the common injection payloads. ❌ Format validation contradicts the retained contract that every nonempty string is a valid identifier, and hand escaping is exactly how injection bugs recur on the next edit. Completeness 5/10. Effort: human ~1h / CC ~5 min."
+            },
+            {
+              "label": "3C) Keep the plan as written",
+              "description": "✅ No change. ✅ Signature verification and the ownership guard limit who can reach it. ❌ The contract says explicitly that a valid signature does not make the string safe for SQL; legitimate punctuation IDs will crash the lookup. Completeness 1/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Section 3 (Security), issue 3: request.params.userId is interpolated into a raw SQL fragment for the user lookup.\nProject/branch/task: main branch, payment handler plan.\nELI10: The plan reads the user_id from Stripe metadata straight into SQL text. The plan's own contracts say this string is forwarded unchanged, is never SQL-escaped, is opaque TEXT that legitimately contains punctuation and Unicode, and that a valid Stripe signature does not make it safe. So a user ID containing an apostrophe breaks the query for a real customer, and anyone who can set metadata on a PaymentIntent (or a compromised integration) gets SQL injection into the payments database. Threat: SQL injection and query breakage. Likelihood: High (punctuation IDs are valid by contract). Impact: High (payments DB). Plan mitigates: No.\nStakes if we pick wrong: data exfiltration or destruction from the payments database, plus paid users with punctuation in their IDs never getting marked paid.\nRecommendation: 3A because binding the value is the only fix compatible with 'every nonempty string is a valid identifier' (security is not optional; explicit over clever).\nCompleteness: 3A=10/10, 3B=5/10\nNet: bind the parameter, never build SQL text from it, and prove it with an adversarial ID in the tests.": "3A) Parameterized lookup via existing finder, adversarial-ID test (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:35:26.602Z"
+    },
+    {
+      "sessionId": "a3a1839d-1727-443b-b8ee-53c7cdc100e0",
+      "toolUseId": "toolu_01N6WEAyzNmboptuCe7mt8Lw",
+      "questions": [
+        {
+          "question": "D7 — Section 6 (Tests), issue 4: the plan has no automated tests for the new handler and relies on the existing integration suite catching regressions.\nProject/branch/task: main branch, payment handler plan.\nELI10: The existing suite tests the prior handler and the shared guards. It does not exercise the new class, so nothing automated proves the four repairs just approved: commit-then-email ordering, named mail rescue, parameterized lookup, or the order-summary contract. The only check is the manual staging replay in the rollout checklist, which the plan itself labels 'not automated regression coverage'. The 2am-Friday test is the one that stubs MailTimeout and asserts the user is still marked paid.\nStakes if we pick wrong: the next refactor can silently reintroduce inline-in-transaction email or a catch-all rescue and only a production mail outage will tell you.\nRecommendation: 4A because well-tested code is your stated non-negotiable and every approved remedy already names its verifying assertion (completeness is cheap).\nCompleteness: 4A=10/10, 4B=7/10, 4C=2/10\nNet: the tests are the executable form of the contracts this plan retains; without them the contracts are prose.",
+          "header": "Tests",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "4A) Unit + integration tests for the handler (recommended)",
+              "description": "✅ Unit: happy path marks user paid with PaymentIntent ID and sends exactly one receipt; zero orders sends one receipt with empty summary; MailTimeout and the named delivery error are rescued, user stays paid, 200 returned, warning logged with event/user/PaymentIntent IDs; a DB exception is not rescued; user IDs with a quote, semicolon payload, and Unicode resolve without SQL error; unknown user takes the existing guard path. ✅ Integration: dispatcher routes payment_intent.succeeded to the new class under the flag, and a duplicate event ID delivered during an in-flight first delivery does not invoke the handler twice (controlled pause at the mail call). ❌ Roughly 10 to 12 test cases to write. Effort: human ~1 day / CC ~30 min."
+            },
+            {
+              "label": "4B) Integration tests only",
+              "description": "✅ Covers dispatcher routing and the dedup schedule end to end. ✅ Fewer files than the full set. ❌ Adversarial user-ID cases and the rescued-vs-not-rescued exception split are awkward at integration level and tend to be skipped. Completeness 7/10. Effort: human ~half day / CC ~15 min."
+            },
+            {
+              "label": "4C) Keep the plan: no new tests, rely on existing suite plus manual replay",
+              "description": "✅ Zero test-writing effort. ✅ Manual staging replay still runs before broad enablement. ❌ The existing suite never calls the new class; the three security and error-handling repairs have no automated proof. Completeness 2/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Section 6 (Tests), issue 4: the plan has no automated tests for the new handler and relies on the existing integration suite catching regressions.\nProject/branch/task: main branch, payment handler plan.\nELI10: The existing suite tests the prior handler and the shared guards. It does not exercise the new class, so nothing automated proves the four repairs just approved: commit-then-email ordering, named mail rescue, parameterized lookup, or the order-summary contract. The only check is the manual staging replay in the rollout checklist, which the plan itself labels 'not automated regression coverage'. The 2am-Friday test is the one that stubs MailTimeout and asserts the user is still marked paid.\nStakes if we pick wrong: the next refactor can silently reintroduce inline-in-transaction email or a catch-all rescue and only a production mail outage will tell you.\nRecommendation: 4A because well-tested code is your stated non-negotiable and every approved remedy already names its verifying assertion (completeness is cheap).\nCompleteness: 4A=10/10, 4B=7/10, 4C=2/10\nNet: the tests are the executable form of the contracts this plan retains; without them the contracts are prose.": "4A) Unit + integration tests for the handler (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:36:10.995Z"
+    },
+    {
+      "sessionId": "a3a1839d-1727-443b-b8ee-53c7cdc100e0",
+      "toolUseId": "toolu_013mjPD6bGoDGaVLyzxzXMyf",
+      "questions": [
+        {
+          "question": "D8 — Section 7 (Performance), issue 5: the order summary is loaded by fetching each order in a loop (N+1 queries).\nProject/branch/task: main branch, payment handler plan.\nELI10: The receipt needs a summary of the user's orders. The plan fetches each order with its own query. A customer with 200 orders means 201 database round trips inside a webhook that has a two-second database budget, all while holding the per-user lock that account deletion and other payments wait on. It also reads orders one at a time, so an order created mid-loop can appear in an inconsistent snapshot.\nStakes if we pick wrong: high-order-count customers push the handler past its deadline, Stripe retries for hours, and the lock stalls other work on that user.\nRecommendation: 5A because one bound query is smaller, faster, and a consistent snapshot; it is the minimal correct version of the same data load (right-sized diff).\nCompleteness: 5A=10/10, 5B=6/10\nNet: same data, one query, before the commit, with an index check.",
+          "header": "N+1 orders",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "5A) Single parameterized query for the user's orders, before commit (recommended)",
+              "description": "✅ One bound query (orders where user_id = ?, or the ORM association preload) loaded inside the transaction before the update, so a load failure rolls back cleanly and the summary is a consistent snapshot. ✅ Implementation confirms an index on orders.user_id exists and adds the receipt's summary shape unchanged (zero orders still yields one receipt). Verify: test asserts exactly one orders query is issued for a user with 50 orders. ❌ Requires touching the query rather than copying the loop. Effort: human ~1h / CC ~5 min."
+            },
+            {
+              "label": "5B) Keep the loop but cap it",
+              "description": "✅ Minimal change to the sketch. ✅ Bounds the worst case. ❌ Still N queries up to the cap and silently truncates the receipt summary, changing the retained notification contract. Completeness 6/10. Effort: human ~30 min / CC ~5 min."
+            },
+            {
+              "label": "5C) Keep the loop as written",
+              "description": "✅ No change. ✅ Fine for users with a handful of orders. ❌ Unbounded round trips inside a two-second budget while holding the per-user lock; degrades exactly for your best customers. Completeness 3/10."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — Section 7 (Performance), issue 5: the order summary is loaded by fetching each order in a loop (N+1 queries).\nProject/branch/task: main branch, payment handler plan.\nELI10: The receipt needs a summary of the user's orders. The plan fetches each order with its own query. A customer with 200 orders means 201 database round trips inside a webhook that has a two-second database budget, all while holding the per-user lock that account deletion and other payments wait on. It also reads orders one at a time, so an order created mid-loop can appear in an inconsistent snapshot.\nStakes if we pick wrong: high-order-count customers push the handler past its deadline, Stripe retries for hours, and the lock stalls other work on that user.\nRecommendation: 5A because one bound query is smaller, faster, and a consistent snapshot; it is the minimal correct version of the same data load (right-sized diff).\nCompleteness: 5A=10/10, 5B=6/10\nNet: same data, one query, before the commit, with an index check.": "5A) Single parameterized query for the user's orders, before commit (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T14:36:23.105Z"
+    }
+  ]
+}

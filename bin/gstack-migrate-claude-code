@@ -1,0 +1,20 @@
+#!/usr/bin/env bun
+// Repair existing installs only; never install a new host or invoke an AI CLI.
+import * as path from 'node:path';
+import { migrateClaudeCodeSkills } from '../lib/claude-code-migration';
+
+const value = (flag: string) => {
+  const index = process.argv.indexOf(flag);
+  return index < 0 ? undefined : process.argv[index + 1];
+};
+try {
+  const result = migrateClaudeCodeSkills({
+    installDir: value('--install-dir') ?? process.env.GSTACK_INSTALL_DIR ?? path.resolve(import.meta.dir, '..'),
+    skillsDir: value('--skills-dir'),
+    copy: process.env.GSTACK_RENAME_COPY === '1',
+  });
+  process.exitCode = result.pending.length ? 1 : 0;
+} catch (error) {
+  process.stderr.write(`Claude skill rename pending: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
+}

@@ -34,6 +34,7 @@ function run(extraEnv: Record<string, string> = {}, args: string[] = []) {
     env,
     stdout: 'pipe',
     stderr: 'pipe',
+    timeout: 30_000,
   });
   return {
     exitCode: result.exitCode,

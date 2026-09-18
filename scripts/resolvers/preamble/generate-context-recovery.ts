@@ -6,15 +6,16 @@ export function generateContextRecovery(ctx: TemplateContext): string {
   // Branch-form discipline (#2550/#1851): FILE-PATH positions use $BRANCH —
   // the canonical slug form the gstack-slug eval on the first line sets
   // (tr '/' '-' then tr -cd 'a-zA-Z0-9._-', matching what gstack-review-log
-  // WRITES). The timeline.jsonl greps keep raw $_BRANCH because the timeline
-  // writer (preamble's gstack-timeline-log call) stores the raw branch in the
-  // "branch" field — slugging the reader there would break matching.
+  // WRITES). Initialize raw $_BRANCH here: skill-start runs in a separate
+  // process. Keep the timeline writer's slash-preserving allowlist and fallback;
+  // using the filename slug in the "branch" field would break matching.
   return `## Context Recovery
 
 At session start or after compaction, recover recent project context.
 
 \`\`\`bash
 eval "$(${binDir}/gstack-slug 2>/dev/null)"
+_BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-') || :; _BRANCH=\${_BRANCH:-unknown}
 _PROJ="\${GSTACK_HOME:-$HOME/.gstack}/projects/\${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
@@ -40,5 +41,5 @@ fi
 
 If artifacts are listed, read the newest useful one. If \`LAST_SESSION\` or \`LATEST_CHECKPOINT\` appears, give a 2-sentence welcome back summary. If \`RECENT_PATTERN\` clearly implies a next skill, suggest it once.
 
-**Cross-session decisions.** If \`ACTIVE DECISIONS\` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for \`${binDir}/gstack-decision-search\` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with \`${binDir}/gstack-decision-log\` (\`--supersede <id>\` for a reversal). Reliable and local; gbrain not required.`;
+**Cross-session decisions.** Honor listed \`ACTIVE DECISIONS\` and their rationale; do not silently re-litigate them, and announce planned reversals. Use \`${binDir}/gstack-decision-search\` for past-decision questions. Log DURABLE decisions by you or the user (architecture, scope, tool/vendor choice, reversal; not trivial or turn-level choices) with \`${binDir}/gstack-decision-log\` (\`--supersede <id>\` for reversals). Reliable and local; gbrain not required.`;
 }

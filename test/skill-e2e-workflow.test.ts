@@ -1,4 +1,6 @@
+import { coverageAuditReadEvidence, type CoverageAuditFiles } from './helpers/coverage-audit-evidence';
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, browseBin, runId, evalsEnabled,
@@ -83,7 +85,7 @@ IMPORTANT:
       // other rounds — marginal at 180s, same contention story as
       // review-dashboard-via and retro-base-branch. Outer bun timeout
       // rises to 360s for headroom.
-      timeout: 300_000,
+      timeout: CAPTURE_MS,
       testName: 'document-release',
       runId,
     });
@@ -120,7 +122,7 @@ IMPORTANT:
     } else {
       console.warn('README was NOT updated — agent may not have found the feature');
     }
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // --- Ship workflow with local bare remote ---
@@ -174,7 +176,7 @@ describeIfSelected('Ship workflow E2E', ['ship-local-workflow'], () => {
 4. Push to origin: git push origin feature/ship-test`,
       workingDirectory: shipWorkDir,
       maxTurns: 8,
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'ship-local-workflow',
       runId,
     });
@@ -182,7 +184,7 @@ describeIfSelected('Ship workflow E2E', ['ship-local-workflow'], () => {
     logCost('/ship local workflow', result);
 
     // Check push succeeded — verify the feature branch exists on the bare remote
-    const branchCheck = spawnSync('git', ['branch', '--list', 'feature/ship-test'], { cwd: shipRemoteDir, stdio: 'pipe' });
+    const branchCheck = spawnSync('git', ['branch', '--list', 'feature/ship-test'], { cwd: shipRemoteDir, stdio: 'pipe', timeout: 30_000 });
     const branchExists = branchCheck.stdout.toString().trim().length > 0;
 
     // Check VERSION was bumped locally (even if push failed, this shows the LLM did the work)
@@ -198,7 +200,7 @@ describeIfSelected('Ship workflow E2E', ['ship-local-workflow'], () => {
     expect(branchExists).toBe(true);
     expect(versionBumped).toBe(true);
     console.log(`Branch pushed: ${branchExists}, VERSION: ${versionContent}, bumped: ${versionBumped}`);
-  }, 150_000);
+  }, CAPTURE_MS);
 });
 
 // setup-cookies-detect REMOVED: The cookie-import-browser module has 30+ thorough
@@ -297,7 +299,7 @@ Skip any AskUserQuestion calls — auto-approve the upgrade. Write a summary of 
 IMPORTANT: The install directory is at ./.claude/skills/gstack — use that exact path.`,
       workingDirectory: upgradeDir,
       maxTurns: 20,
-      timeout: 180_000,
+      timeout: CAPTURE_MS,
       testName: 'gstack-upgrade-happy-path',
       runId,
     });
@@ -317,13 +319,14 @@ IMPORTANT: The install directory is at ./.claude/skills/gstack — use that exac
 
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
     expect(versionAfter).toBe('0.6.0');
-  }, 240_000);
+  }, CAPTURE_MS);
 });
 
 // --- Test Coverage Audit E2E ---
 
 describeIfSelected('Test Coverage Audit E2E', ['ship-coverage-audit'], () => {
   let coverageDir: string;
+  let coverageFiles: CoverageAuditFiles;
 
   beforeAll(() => {
     coverageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-coverage-'));
@@ -381,6 +384,12 @@ describe('processPayment', () => {
 });
 `);
 
+    coverageFiles = {
+      cwd: coverageDir,
+      source: { path: path.join(coverageDir, 'src/billing.ts'), content: fs.readFileSync(path.join(coverageDir, 'src/billing.ts'), 'utf8') },
+      tests: { path: path.join(coverageDir, 'test/billing.test.ts'), content: fs.readFileSync(path.join(coverageDir, 'test/billing.test.ts'), 'utf8') },
+    };
+
     // Init git repo with main branch
     const run = (cmd: string, args: string[]) =>
       spawnSync(cmd, args, { cwd: coverageDir, stdio: 'pipe', timeout: 5000 });
@@ -418,32 +427,35 @@ Output the diagram directly.`,
       workingDirectory: coverageDir,
       maxTurns: 15,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
-      timeout: 120_000,
+      timeout: JUDGE_MS,
       testName: 'ship-coverage-audit',
       runId,
     });
 
     logCost('/ship coverage audit', result);
-    recordE2E(evalCollector, '/ship Step 3.4 coverage audit', 'Test Coverage Audit E2E', result, {
-      passed: result.exitReason === 'success',
-    });
+    let passed = false;
+    try {
+      expect(result.exitReason).toBe('success');
 
-    expect(result.exitReason).toBe('success');
+      // Check output contains coverage diagram elements
+      const output = result.output || '';
+      const hasGap = output.includes('GAP') || output.includes('gap') || output.includes('NO TEST');
+      const hasTested = output.includes('TESTED') || output.includes('tested') || output.includes('✓');
+      const hasCoverage = output.includes('COVERAGE') || output.includes('coverage') || output.includes('paths tested');
 
-    // Check output contains coverage diagram elements
-    const output = result.output || '';
-    const hasGap = output.includes('GAP') || output.includes('gap') || output.includes('NO TEST');
-    const hasTested = output.includes('TESTED') || output.includes('tested') || output.includes('✓');
-    const hasCoverage = output.includes('COVERAGE') || output.includes('coverage') || output.includes('paths tested');
+      console.log(`Output has GAP markers: ${hasGap}`);
+      console.log(`Output has TESTED markers: ${hasTested}`);
+      console.log(`Output has coverage summary: ${hasCoverage}`);
 
-    console.log(`Output has GAP markers: ${hasGap}`);
-    console.log(`Output has TESTED markers: ${hasTested}`);
-    console.log(`Output has coverage summary: ${hasCoverage}`);
-
-    // At minimum, the agent should have read the source and test files
-    const readCalls = result.toolCalls.filter(tc => tc.tool === 'Read');
-    expect(readCalls.length).toBeGreaterThan(0);
-  }, 180_000);
+      // At minimum, the agent should have read the source and test files
+      const reads = coverageAuditReadEvidence(result.transcript, coverageFiles);
+      expect(reads.sourceRead).toBe(true);
+      expect(reads.testsRead).toBe(true);
+      passed = true;
+    } finally {
+      recordE2E(evalCollector, '/ship Step 3.4 coverage audit', 'Test Coverage Audit E2E', result, { passed });
+    }
+  }, CAPTURE_MS);
 });
 
 // --- Codex skill E2E ---
@@ -473,17 +485,31 @@ describeIfSelected('Codex skill E2E', ['codex-review'], () => {
     run('git', ['add', 'user_controller.rb']);
     run('git', ['commit', '-m', 'add vulnerable controller']);
 
-    // Extract only the review-relevant section from codex SKILL.md (~120 lines vs 1075).
-    // Full SKILL.md is 55KB / ~14K tokens — takes 8 Read calls to consume, exhausting turns.
+    // Extract only the review-relevant content (CLAUDE.md: "extract, don't copy").
+    // The codex skill is carved (T9): the skeleton carries setup + dispatch and
+    // STOP-points to codex/sections/*-mode.md. Build the fixture from the
+    // skeleton's setup slices plus the review-mode section body, SKIPPING the
+    // Section index and STOP pointers — their install paths don't exist in this
+    // temp fixture dir and would burn agent turns on failed Reads.
     const full = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    const startMarker = '# /codex — Multi-AI Second Opinion';
-    const endMarker = '## Plan File Review Report';
-    const start = full.indexOf(startMarker);
-    const end = full.indexOf(endMarker, start);
-    const reviewSection = full.slice(
-      start >= 0 ? start : 0,
-      end > start ? end : undefined,
+    const introStart = full.indexOf('# /codex — Multi-AI Second Opinion');
+    const introEnd = full.indexOf('## Section index', introStart);
+    const stepsStart = full.indexOf('## Step 0.4', introStart);
+    const stepsEnd = full.indexOf('> **STOP.**', stepsStart);
+    expect(introStart).toBeGreaterThan(-1);
+    expect(introEnd).toBeGreaterThan(introStart);
+    expect(stepsStart).toBeGreaterThan(introEnd);
+    expect(stepsEnd).toBeGreaterThan(stepsStart);
+    const reviewMode = fs.readFileSync(
+      path.join(ROOT, 'codex', 'sections', 'review-mode.md'),
+      'utf-8',
     );
+    expect(reviewMode).toContain('## Step 2A: Review Mode'); // non-empty, right section
+    const reviewSection = [
+      full.slice(introStart, introEnd),
+      full.slice(stepsStart, stepsEnd),
+      reviewMode,
+    ].join('\n');
     fs.writeFileSync(path.join(codexDir, 'codex-SKILL.md'), reviewSection);
   });
 
@@ -506,7 +532,7 @@ Follow those instructions to run codex review against the diff on this branch.
 Write the full output (including the GATE verdict) to ${codexDir}/codex-output.md`,
       workingDirectory: codexDir,
       maxTurns: 25,
-      timeout: 300_000,
+      timeout: CAPTURE_MS,
       testName: 'codex-review',
       runId,
       model: 'claude-opus-4-7',
@@ -524,7 +550,7 @@ Write the full output (including the GATE verdict) to ${codexDir}/codex-output.m
       const hasCodexOutput = output.includes('CODEX') || output.includes('GATE') || output.includes('codex');
       expect(hasCodexOutput).toBe(true);
     }
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete

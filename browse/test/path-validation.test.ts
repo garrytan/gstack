@@ -115,7 +115,7 @@ describe('validateOutputPath — symlink resolution', () => {
   it('blocks symlink inside /tmp pointing outside safe dirs', () => {
     const linkPath = join(tmpdir(), 'test-output-symlink-' + Date.now() + '.png');
     try {
-      symlinkSync('/etc/crontab', linkPath);
+      symlinkSync('/etc/passwd', linkPath); // /etc/passwd exists on every Unix — /etc/crontab is absent on Amazon Linux/Fedora minimal;
       expect(() => validateOutputPath(linkPath)).toThrow(/Path must be within/);
     } finally {
       try { unlinkSync(linkPath); } catch {}

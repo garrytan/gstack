@@ -1,3 +1,5 @@
+import { generateAdversarialStep } from '../scripts/resolvers/review';
+import { HOST_PATHS } from '../scripts/resolvers/types';
 /**
  * Static guard for cross-model synthesis recommendation emit instructions.
  *
@@ -22,39 +24,42 @@ import * as path from 'path';
 const ROOT = path.resolve(import.meta.dir, '..');
 
 describe('cross-model synthesis emit instructions', () => {
-  test('codex/SKILL.md.tmpl Step 2A (review) requires a synthesis Recommendation', () => {
-    const tmpl = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md.tmpl'), 'utf-8');
-    const step2a = sliceBetween(tmpl, '## Step 2A:', '## Step 2B:');
-    expect(step2a, 'Step 2A section not found in codex template').not.toBe('');
-    expect(step2a).toMatch(/Synthesis recommendation \(REQUIRED\)/);
-    expect(step2a).toMatch(/Recommendation:\s*<action>\s*because/);
-  });
+  // The three codex modes are carved into codex/sections/*-mode.md.tmpl (T9);
+  // each mode section must still carry its own emit instruction so the rule is
+  // in context when that (mutually exclusive) mode's section is loaded.
+  const CODEX_MODE_SECTIONS: Array<[string, string]> = [
+    ['review-mode.md.tmpl', '## Step 2A:'],
+    ['challenge-mode.md.tmpl', '## Step 2B:'],
+    ['consult-mode.md.tmpl', '## Step 2C:'],
+  ];
 
-  test('codex/SKILL.md.tmpl Step 2B (challenge) requires a synthesis Recommendation', () => {
-    const tmpl = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md.tmpl'), 'utf-8');
-    const step2b = sliceBetween(tmpl, '## Step 2B:', '## Step 2C:');
-    expect(step2b, 'Step 2B section not found in codex template').not.toBe('');
-    expect(step2b).toMatch(/Synthesis recommendation \(REQUIRED\)/);
-    expect(step2b).toMatch(/Recommendation:\s*<action>\s*because/);
-  });
+  for (const [file, heading] of CODEX_MODE_SECTIONS) {
+    test(`codex/sections/${file} requires a synthesis Recommendation`, () => {
+      const tmpl = fs.readFileSync(path.join(ROOT, 'codex', 'sections', file), 'utf-8');
+      expect(tmpl, `${file} lost its ${heading} heading`).toContain(heading);
+      expect(tmpl).toMatch(/Synthesis recommendation \(REQUIRED\)/);
+      expect(tmpl).toMatch(/Recommendation:\s*<action>\s*because/);
+    });
+  }
 
-  test('codex/SKILL.md.tmpl Step 2C (consult) requires a synthesis Recommendation', () => {
+  test('codex/SKILL.md.tmpl skeleton keeps the always-loaded synthesis rule', () => {
+    // The AUQ safety net (test/auq-format-always-loaded.test.ts) requires the
+    // canonical rule in the ALWAYS-LOADED skeleton, not only in the on-demand
+    // mode sections — a question can fire before any section is read.
     const tmpl = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md.tmpl'), 'utf-8');
-    const step2c = sliceBetween(tmpl, '## Step 2C:', '## Model & Reasoning');
-    expect(step2c, 'Step 2C section not found in codex template').not.toBe('');
-    expect(step2c).toMatch(/Synthesis recommendation \(REQUIRED\)/);
-    expect(step2c).toMatch(/Recommendation:\s*<action>\s*because/);
+    expect(tmpl).toMatch(/Synthesis recommendation \(REQUIRED\)/);
+    expect(tmpl).toMatch(/Recommendation:\s*<action>\s*because/);
   });
 
   test('scripts/resolvers/review.ts Claude adversarial subagent prompt requires Recommendation', () => {
-    const resolver = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'review.ts'), 'utf-8');
+    const resolver = generateAdversarialStep({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'review', tmplPath: 'review/SKILL.md.tmpl' });
     // The Claude subagent prompt must instruct the model to emit a final
     // canonical Recommendation line.
     expect(resolver).toMatch(/Claude adversarial subagent[\s\S]+?Recommendation:\s*<action>\s*because/);
   });
 
   test('scripts/resolvers/review.ts Codex adversarial command requires Recommendation', () => {
-    const resolver = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'review.ts'), 'utf-8');
+    const resolver = generateAdversarialStep({ host: 'claude', paths: HOST_PATHS.claude, skillName: 'review', tmplPath: 'review/SKILL.md.tmpl' });
     // The codex exec command's prompt string must include the emit
     // instruction. Match within the codex adversarial section.
     expect(resolver).toMatch(/Codex adversarial challenge[\s\S]+?Recommendation:\s*<action>\s*because/);

@@ -36,6 +36,7 @@ function runDev(...args: string[]): { stdout: string; stderr: string; status: nu
     env: { ...process.env, GSTACK_HOME: tmpHome },
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
   return {
     stdout: res.stdout ?? '',
@@ -49,6 +50,7 @@ function logQuestion(payload: Record<string, unknown>): number {
     env: { ...process.env, GSTACK_HOME: tmpHome },
     encoding: 'utf-8',
     cwd: ROOT,
+    timeout: 30_000,
   });
   return res.status ?? -1;
 }

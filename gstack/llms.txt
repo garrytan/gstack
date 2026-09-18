@@ -11,16 +11,16 @@ Conventions:
 ## Skills
 
 - [/autoplan](autoplan/SKILL.md): Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.
-- [/benchmark](benchmark/SKILL.md): Performance regression detection using the browse daemon.
+- [/benchmark](benchmark/SKILL.md): Performance regression detection.
 - [/benchmark-models](benchmark-models/SKILL.md): Cross-model benchmark for gstack skills.
-- [/browse](browse/SKILL.md): Fast headless browser for QA testing and site dogfooding.
+- [/browse](browse/SKILL.md): Drive a real browser through Aside: open a page, read it, click through a flow, take screenshots, check console errors.
 - [/canary](canary/SKILL.md): Post-deploy canary monitoring.
 - [/careful](careful/SKILL.md): Safety guardrails for destructive commands.
-- [/claude](claude/SKILL.md): Claude Code CLI wrapper for non-Claude hosts - three modes.
+- [/claude-code](claude-code/SKILL.md): Claude Code CLI second opinion for non-Claude Code hosts.
 - [/codex](codex/SKILL.md): OpenAI Codex CLI wrapper — three modes.
 - [/context-restore](context-restore/SKILL.md): Restore working context saved earlier by /context-save.
 - [/context-save](context-save/SKILL.md): Save working context.
-- [/cso](cso/SKILL.md): Chief Security Officer mode.
+- [/cso](cso/SKILL.md): Security audit: supported static findings; qualified profiles add reproduction and repair candidates.
 - [/design-consultation](design-consultation/SKILL.md): Design consultation: understands your product, researches the landscape, proposes a complete design system (aesthetic, typography, color, layout, spacing, motion), and generates font+color preview pages.
 - [/design-html](design-html/SKILL.md): Design finalization: generates production-quality Pretext-native HTML/CSS.
 - [/design-review](design-review/SKILL.md): Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them.
@@ -56,7 +56,7 @@ Conventions:
 - [/qa-only](qa-only/SKILL.md): Report-only QA testing.
 - [/retro](retro/SKILL.md): Weekly engineering retrospective.
 - [/review](review/SKILL.md): Pre-landing PR review.
-- [/scrape](scrape/SKILL.md): Pull data from a web page.
+- [/scrape](scrape/SKILL.md): Pull data from a web page through the Aside browser — your real, already signed-in sessions.
 - [/setup-browser-cookies](setup-browser-cookies/SKILL.md): Import cookies from your real Chromium browser into the headless browse session.
 - [/setup-deploy](setup-deploy/SKILL.md): Configure deployment settings for /land-and-deploy.
 - [/setup-gbrain](setup-gbrain/SKILL.md): Set up gbrain for this coding agent: install the CLI, initialize a local PGLite or Supabase brain, register MCP, capture per-remote trust policy.

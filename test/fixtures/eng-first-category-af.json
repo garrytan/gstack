@@ -1,0 +1,81 @@
+{
+  "provenance": {
+    "sourceHead": "ca16058341c2e073051340d9653bbbc900f3ca36",
+    "firstCallPath": "/home/vercel-sandbox/gstack/.context/ship-source-af-delta-paid-20260909-v1/eng-first-decision-evidence-v1/first-completed-fingerprint.json",
+    "firstCallSha256": "8e52288042850aaa3df079829950858a035cfb9c4256bf654d477d7133c778e3",
+    "observationPath": "/home/vercel-sandbox/gstack/.context/ship-source-af-delta-paid-20260909-v1/eng-first-decision-evidence-v1/observation.json",
+    "observationSha256": "81070f4c4210628a3b4c2b2de1ceacb665b529b947c2cedc99bd95df9a9aa222",
+    "actualPreReview": true,
+    "privateThinkingInspected": false,
+    "retrospectivePass": false
+  },
+  "fingerprint": {
+    "signature": "da8c1112-7e41-49f3-9998-4dcdd1e844bb:toolu_01YSByMxycFVvYf7vmefh7f6",
+    "promptSnippet": "Issue 1 D4 \u2014 Issue 1 (Architecture): AuthBroker and SessionMint both mutate one shared cache with no owner and no serialization. How should shared-state access be structured? Project/branch/task: gstack-plan-count-KQoFHV on main, eng-review",
+    "options": [
+      {
+        "index": 1,
+        "label": "1A) Constructor-inject the adapter; single-writer ownership per operation; per-key serialization on the mint-vs-revoke path; race test (recommended)"
+      },
+      {
+        "index": 2,
+        "label": "1B) Constructor-inject the adapter only; both services keep writing freely"
+      },
+      {
+        "index": 3,
+        "label": "1C) Keep the module-level shared export as planned"
+      }
+    ],
+    "observedAtMs": 271840,
+    "preReview": true,
+    "nativeCall": {
+      "sessionId": "da8c1112-7e41-49f3-9998-4dcdd1e844bb",
+      "toolUseId": "toolu_01YSByMxycFVvYf7vmefh7f6",
+      "questions": [
+        {
+          "question": "D4 \u2014 Issue 1 (Architecture): AuthBroker and SessionMint both mutate one shared cache with no owner and no serialization. How should shared-state access be structured?\nProject/branch/task: gstack-plan-count-KQoFHV on main, eng-reviewing PLAN.md (Multi-tenant Auth Refactor), scope already reduced per D3.\nELI10: PLAN.md:19-20 says both services share a global mutable cache via module-level export and both mutate it, and PLAN.md:10 admits the validity and tenant-key rules \"do not serialize mutations\". Picture a tenant admin revoking a token at the same instant SessionMint writes a freshly minted session for that same tenant key: whichever write lands last wins, and a revoked session can be served as valid until it expires. A module-level global also means every unit test shares one instance, so state from one test leaks into the next and failures become order-dependent. D3 already cut the AuthCache facade, but the two services still share the underlying adapter, so the ownership question is unchanged.\nStakes if we pick wrong: Silent lost updates on revocation and suspension paths in production, plus flaky order-dependent tests during development, with no error anywhere to point at the cause.\nRecommendation: 1A because a single named writer per operation is explicit rather than clever, the race test makes the invariant executable, and with CC the complete version costs minutes more than the bare injection fix. This is the blast-radius call: the worst case is a revoked credential staying valid across a whole tenant.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: explicit write ownership with an executable race test, versus trusting last-write-wins on the one path where losing a write means serving a revoked token.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A) Constructor-inject the adapter; single-writer ownership per operation; per-key serialization on the mint-vs-revoke path; race test (recommended)",
+              "description": "\u2705 SessionMint owns writes of minted sessions, AuthBroker owns validation and invalidation, and the one overlapping path (revoke while minting) is serialized per tenant key with a documented rule: invalidation always wins (human: ~1 day / CC: ~20 min)\n\u2705 Injection gives every test a fresh adapter instance, killing cross-test state leakage, and the ownership rule lands as an ASCII diagram in the service comments\n\u2705 A concurrency test drives mint and revoke on the same key and asserts the revoked state persists\n\u274c Adds a small per-key lock or compare-and-set helper and one more test fixture to maintain"
+            },
+            {
+              "label": "1B) Constructor-inject the adapter only; both services keep writing freely",
+              "description": "\u2705 Removes the module-level global, so tests can isolate instances and hot-reload cannot fork the cache (human: ~2h / CC: ~5 min)\n\u2705 Smallest code change to the two service constructors and their call sites\n\u274c The revoke-during-mint race stays open with last-write-wins semantics and nothing tests it"
+            },
+            {
+              "label": "1C) Keep the module-level shared export as planned",
+              "description": "\u2705 Zero changes to the drafted architecture and no injection plumbing (human: 0 / CC: 0)\n\u2705 Every importer trivially gets the same instance without wiring\n\u274c Order-dependent tests, a second instance under hot reload, and an unserialized revoke-vs-mint race across every tenant"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 Issue 1 (Architecture): AuthBroker and SessionMint both mutate one shared cache with no owner and no serialization. How should shared-state access be structured?\nProject/branch/task: gstack-plan-count-KQoFHV on main, eng-reviewing PLAN.md (Multi-tenant Auth Refactor), scope already reduced per D3.\nELI10: PLAN.md:19-20 says both services share a global mutable cache via module-level export and both mutate it, and PLAN.md:10 admits the validity and tenant-key rules \"do not serialize mutations\". Picture a tenant admin revoking a token at the same instant SessionMint writes a freshly minted session for that same tenant key: whichever write lands last wins, and a revoked session can be served as valid until it expires. A module-level global also means every unit test shares one instance, so state from one test leaks into the next and failures become order-dependent. D3 already cut the AuthCache facade, but the two services still share the underlying adapter, so the ownership question is unchanged.\nStakes if we pick wrong: Silent lost updates on revocation and suspension paths in production, plus flaky order-dependent tests during development, with no error anywhere to point at the cause.\nRecommendation: 1A because a single named writer per operation is explicit rather than clever, the race test makes the invariant executable, and with CC the complete version costs minutes more than the bare injection fix. This is the blast-radius call: the worst case is a revoked credential staying valid across a whole tenant.\nCompleteness: 1A=10/10, 1B=6/10, 1C=3/10\nNet: explicit write ownership with an executable race test, versus trusting last-write-wins on the one path where losing a write means serving a revoked token.": "1A) Constructor-inject the adapter; single-writer ownership per operation; per-key serialization on the mint-vs-revoke path; race test (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T23:49:40.330Z"
+    }
+  },
+  "regressionTask": {
+    "lines": [
+      "- [ ] **T1 (P1, human: ~half day / CC: ~15 min)** \u2014 auth/legacy \u2014 Write characterization tests for `legacyAuthFlow()` before any rewrite",
+      "  - Surfaced by: Test review \u2014 REGRESSION RULE, PLAN.md:27-28 and :15-16",
+      "  - Files: `test/legacy-auth-flow.characterization.test`",
+      "  - Verify: suite green against current code; stays green (or diffs are deliberate) after rewrite"
+    ],
+    "provenance": {
+      "planPath": "/home/vercel-sandbox/gstack/.context/ship-source-af-delta-paid-20260909-v1/eng-first-decision-evidence-v1/actual-plan-from-native-mutations.md",
+      "planSha256": "cad36575e200178cf4d5eb3f2a7afc49d730417b36c69f21bef02ed1c22fe7c2",
+      "startLine": 372,
+      "endLine": 375,
+      "reconstructionProof": "/home/vercel-sandbox/gstack/.context/ship-source-af-delta-paid-20260909-v1/eng-first-decision-evidence-v1/plan-reconstruction-v1.json",
+      "source": "Exact task block from completed native Write/Edit reconstruction; final native Read corroborated only a different partial range and total line count. Original final file no longer exists.",
+      "retrospectivePass": false
+    }
+  }
+}

@@ -18,6 +18,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+import { canRevokeWrites } from './helpers/fs-caps';
 import {
   EGRESS_RECEIPT_FAILED,
   LEDGER_WARN_BYTES,
@@ -67,7 +68,7 @@ describe('egress receipt library', () => {
   });
 
   test('fail-closed: unwritable security dir throws typed EGRESS_RECEIPT_FAILED', () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return; // chmod is advisory there
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     writeReceipt({ home, sink: 'a', host: 'h', payloadClass: 'c', consent: 'k=v' });
     fs.chmodSync(path.join(home, 'security'), 0o500);
     try {
@@ -148,6 +149,44 @@ describe('egress receipt library', () => {
     }
   }, 15_000);
 
+  test('lockBudgetMs bounds the lock wait: a held lock fails closed within the budget instead of the 2.5 s default', () => {
+    const ledger = egressLedgerPath(home);
+    fs.mkdirSync(path.dirname(ledger), { recursive: true });
+    fs.mkdirSync(`${ledger}.lock`); // fresh mtime: not reclaimable as stale
+    const t0 = Date.now();
+    expect(() => writeReceipt({
+      home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c', lockBudgetMs: 150,
+    })).toThrow(/locked/);
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeGreaterThanOrEqual(100);
+    expect(elapsed).toBeLessThan(1500);
+    fs.rmdirSync(`${ledger}.lock`);
+    // the default still applies when the option is omitted (the lock is free now, so this succeeds)
+    const { id } = writeReceipt({ home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c' });
+    expect(() => writeOutcome({ home, receipt: id, status: 'exit:0', lockBudgetMs: 0 })).not.toThrow();
+    expect(verifyLedger(home).ok).toBe(true);
+  });
+
+  test('lockBudgetMs 0 on a held lock tries once and fails closed in well under 100 ms; writeOutcome rejects garbage too', () => {
+    const ledger = egressLedgerPath(home);
+    const { id } = writeReceipt({ home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c' });
+    fs.mkdirSync(`${ledger}.lock`);
+    const t0 = Date.now();
+    expect(() => writeReceipt({ home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c', lockBudgetMs: 0 })).toThrow(/locked/);
+    expect(Date.now() - t0).toBeLessThan(100);
+    fs.rmdirSync(`${ledger}.lock`);
+    const lines = fs.readFileSync(ledger, 'utf8').trim().split('\n').length;
+    expect(() => writeOutcome({ home, receipt: id, status: 'x', lockBudgetMs: -5 })).toThrow(/lockBudgetMs/);
+    expect(() => writeOutcome({ home, receipt: id, status: 'x', lockBudgetMs: Number.POSITIVE_INFINITY })).toThrow(/lockBudgetMs/);
+    expect(fs.readFileSync(ledger, 'utf8').trim().split('\n').length).toBe(lines); // nothing appended
+  });
+
+  test('lockBudgetMs rejects garbage before touching the ledger', () => {
+    expect(() => writeReceipt({ home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c', lockBudgetMs: -1 })).toThrow(/lockBudgetMs/);
+    expect(() => writeReceipt({ home, sink: 's', host: 'h', payloadClass: 'p', consent: 'c', lockBudgetMs: Number.NaN })).toThrow(/lockBudgetMs/);
+    expect(fs.existsSync(egressLedgerPath(home))).toBe(false);
+  });
+
   test('tail-read: last line is found correctly on a multi-record ledger larger than the tail window', () => {
     // 30 records ≈ 9KB > the 4KB tail window, so the append path must find
     // the true last line from a partial read.
@@ -221,12 +260,12 @@ describe('gstack-egress-receipt shell bridge', () => {
     fs.writeFileSync(payload, '[{"v":1}]');
     const write = spawnSync(bin, ['write', '--sink', 'telemetry-sync', '--host', '127.0.0.1:8399',
       '--class', 'telemetry-events', '--payload-file', payload, '--consent', 'telemetry=community'],
-      { encoding: 'utf-8', env: { ...process.env, GSTACK_HOME: home } });
+      { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_HOME: home } });
     expect(write.status).toBe(0);
     const id = write.stdout.trim();
     expect(id).toMatch(/^[0-9a-f]{64}$/);
     const outcome = spawnSync(bin, ['outcome', id, '204'],
-      { encoding: 'utf-8', env: { ...process.env, GSTACK_HOME: home } });
+      { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_HOME: home } });
     expect(outcome.status).toBe(0);
     const receipts = listReceipts(home);
     expect(receipts.length).toBe(1);
@@ -238,7 +277,7 @@ describe('gstack-egress-receipt shell bridge', () => {
   test('--no-payload records sha256:null (git-class: a subprocess owns the bytes)', () => {
     const write = spawnSync(bin, ['write', '--sink', 'brain-sync', '--host', 'github.com',
       '--class', 'git-push', '--no-payload', '--consent', 'artifacts_sync_mode=auto'],
-      { encoding: 'utf-8', env: { ...process.env, GSTACK_HOME: home } });
+      { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_HOME: home } });
     expect(write.status).toBe(0);
     const receipts = listReceipts(home);
     expect(receipts.length).toBe(1);
@@ -247,10 +286,10 @@ describe('gstack-egress-receipt shell bridge', () => {
   });
 
   test('write exits 3 with EGRESS_RECEIPT_FAILED when the ledger is unwritable', () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     fs.mkdirSync(path.join(home, 'security'), { recursive: true, mode: 0o500 });
     const write = spawnSync(bin, ['write', '--sink', 's', '--host', 'h', '--class', 'c', '--no-payload'],
-      { encoding: 'utf-8', env: { ...process.env, GSTACK_HOME: home } });
+      { encoding: 'utf-8', timeout: 30_000, env: { ...process.env, GSTACK_HOME: home } });
     expect(write.status).toBe(3);
     expect(write.stderr).toContain('EGRESS_RECEIPT_FAILED');
     fs.chmodSync(path.join(home, 'security'), 0o700);

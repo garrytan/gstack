@@ -96,20 +96,35 @@ def child_run(args, log):
         proc = subprocess.Popen(
             cmd, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True
         )
+        # Capture the PGID AT SPAWN (== proc.pid: start_new_session makes the
+        # child a session/group leader). Resolving it later via
+        # os.getpgid(proc.pid) raises ESRCH once the leader exits — a leader
+        # that died on the SIGTERM while a TERM-immune grandchild survived
+        # left that grandchild alive forever (codex adversarial finding).
+        pgid = proc.pid
         if args.timeout and args.timeout > 0:
             try:
                 code = proc.wait(timeout=args.timeout)
             except subprocess.TimeoutExpired:
                 log_line(log, f"### gstack-detach WATCHDOG fired after {args.timeout}s — killing ### {_now()}")
                 try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    os.killpg(pgid, signal.SIGTERM)
                 except Exception:
                     pass
                 time.sleep(5)
+                # Group SIGKILL after the grace, not a direct-child kill:
+                # eval runs spawn claude/codex grandchildren that survive a
+                # proc.kill() and burn cores + API for hours (the observed
+                # 15-hour-orphan class). ESRCH here just means the group
+                # honored the SIGTERM. Uses the SAVED pgid so a dead leader
+                # cannot orphan its group.
                 try:
-                    proc.kill()
+                    os.killpg(pgid, signal.SIGKILL)
                 except Exception:
-                    pass
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
                 code = "timeout"
         else:
             code = proc.wait()

@@ -1,0 +1,86 @@
+{
+  "provenance": {
+    "actualCollectorFailuresRetained": true,
+    "schema": "Exact public command strings, successful tool-result stdout excerpts and fenced public diagram excerpts. No private transcript content. Full actual replays remain ignored diagnostic evidence."
+  },
+  "source": "\nexport function processPayment(amount: number, currency: string) {\n  if (amount <= 0) throw new Error('Invalid amount');\n  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n  return { status: 'success', amount, currency };\n}\n\nexport function refundPayment(paymentId: string, reason: string) {\n  if (!paymentId) throw new Error('Payment ID required');\n  if (!reason) throw new Error('Reason required');\n  return { status: 'refunded', paymentId, reason };\n}\n",
+  "tests": "\nimport { describe, test, expect } from 'vitest';\nimport { processPayment } from '../src/billing';\n\ndescribe('processPayment', () => {\n  test('processes valid payment', () => {\n    const result = processPayment(100, 'USD');\n    expect(result.status).toBe('success');\n  });\n  // GAP: no test for invalid amount\n  // GAP: no test for unsupported currency\n  // GAP: refundPayment not tested at all\n});\n",
+  "reads": [
+    {
+      "sessionId": "d41a9e86-68c5-4305-af8e-02ec3a66411a",
+      "cwd": "/tmp/gstack-paid-shard-OXU3QY/tmp/skill-e2e-review-coverage-Edpehr",
+      "toolUseId": "toolu_01V9SRBC6CPRbQh9LBmyJ7P2",
+      "command": "cat review/specialists/testing.md && echo ==== SRC ==== && cat -n src/billing.ts && echo ==== TEST ==== && cat -n test/billing.test.ts && echo ==== DIFF ==== && git diff main --stat",
+      "outputExcerpt": "==== SRC ====\n     1\t\n     2\texport function processPayment(amount: number, currency: string) {\n     3\t  if (amount <= 0) throw new Error('Invalid amount');\n     4\t  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n     5\t  return { status: 'success', amount, currency };\n     6\t}\n     7\t\n     8\texport function refundPayment(paymentId: string, reason: string) {\n     9\t  if (!paymentId) throw new Error('Payment ID required');\n    10\t  if (!reason) throw new Error('Reason required');\n    11\t  return { status: 'refunded', paymentId, reason };\n    12\t}\n==== TEST ====\n     1\t\n     2\timport { describe, test, expect } from 'vitest';\n     3\timport { processPayment } from '../src/billing';\n     4\t\n     5\tdescribe('processPayment', () => {\n     6\t  test('processes valid payment', () => {\n     7\t    const result = processPayment(100, 'USD');\n     8\t    expect(result.status).toBe('success');\n     9\t  });\n    10\t  // GAP: no test for invalid amount\n    11\t  // GAP: no test for unsupported currency\n    12\t  // GAP: refundPayment not tested at all\n    13\t});\n",
+      "publicSource": ".context/ship-source-aw-delta-paid-20260911-v1/coverage-audit-public-evidence-sdk-v2/attempt-1/public.json",
+      "sourceSha256": "7aad23e23fb6b78bbb87067db37928be8ccf3261796bbb00eded899f7315dca0",
+      "outputSha256": "4a1b96db140ba5f3ae9ebdad027f54872af9cb31a0be9255ca35c874d13e3517",
+      "excerptLines": {
+        "start": 47,
+        "end": 73
+      },
+      "isError": false
+    },
+    {
+      "sessionId": "0332cfe9-9fbe-4f9f-9e0e-0619bdf8434e",
+      "cwd": "/tmp/gstack-paid-shard-OXU3QY/tmp/skill-e2e-review-coverage-Edpehr",
+      "toolUseId": "toolu_018bUzvwbYq6sZ9dx6ukMXCd",
+      "command": "grep -n -i -B5 -A60 \"diagram\\|ascii\" review/SKILL.md | head -200; echo \"=====SRC=====\"; cat -n src/billing.ts; echo \"=====TEST=====\"; cat -n test/billing.test.ts; echo \"=====DIFF=====\"; git diff main...HEAD --stat",
+      "outputExcerpt": "=====SRC=====\n     1\t\n     2\texport function processPayment(amount: number, currency: string) {\n     3\t  if (amount <= 0) throw new Error('Invalid amount');\n     4\t  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n     5\t  return { status: 'success', amount, currency };\n     6\t}\n     7\t\n     8\texport function refundPayment(paymentId: string, reason: string) {\n     9\t  if (!paymentId) throw new Error('Payment ID required');\n    10\t  if (!reason) throw new Error('Reason required');\n    11\t  return { status: 'refunded', paymentId, reason };\n    12\t}\n=====TEST=====\n     1\t\n     2\timport { describe, test, expect } from 'vitest';\n     3\timport { processPayment } from '../src/billing';\n     4\t\n     5\tdescribe('processPayment', () => {\n     6\t  test('processes valid payment', () => {\n     7\t    const result = processPayment(100, 'USD');\n     8\t    expect(result.status).toBe('success');\n     9\t  });\n    10\t  // GAP: no test for invalid amount\n    11\t  // GAP: no test for unsupported currency\n    12\t  // GAP: refundPayment not tested at all\n    13\t});\n",
+      "publicSource": ".context/ship-source-aw-delta-paid-20260911-v1/coverage-audit-public-evidence-sdk-v2/attempt-2/public.json",
+      "sourceSha256": "b9b2e509bdcc52a468ceb2bdb5100c59686abbbb4ca53b25bc5c114cf75fb62f",
+      "outputSha256": "bca6c3f3b3d5bc1d44461c65a1d91a256d30d38a9abd69978024ee1cfb2eee4d",
+      "excerptLines": {
+        "start": 1,
+        "end": 27
+      },
+      "isError": false
+    },
+    {
+      "sessionId": "812faacc-e160-4b82-a2b9-119a70ae6d05",
+      "cwd": "/tmp/gstack-paid-shard-OXU3QY/tmp/skill-e2e-plan-coverage-esYAY5",
+      "toolUseId": "toolu_01N8RhS8piNkybH6QF88GipK",
+      "command": "cd /tmp/gstack-paid-shard-OXU3QY/tmp/skill-e2e-plan-coverage-esYAY5; grep -n \"Test review\" plan-eng-review/sections/review-sections.md; awk '/^### 3\\. Test review|^## 3\\. Test review|3\\. Test review/{f=1} f&&/^#+ *4\\./{exit} f' plan-eng-review/sections/review-sections.md | head -150; echo ====SRC; cat -n src/billing.ts; echo ====TEST; cat -n test/billing.test.ts",
+      "outputExcerpt": "====SRC\n     1\t\n     2\texport function processPayment(amount: number, currency: string) {\n     3\t  if (amount <= 0) throw new Error('Invalid amount');\n     4\t  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n     5\t  return { status: 'success', amount, currency };\n     6\t}\n     7\t\n     8\texport function refundPayment(paymentId: string, reason: string) {\n     9\t  if (!paymentId) throw new Error('Payment ID required');\n    10\t  if (!reason) throw new Error('Reason required');\n    11\t  return { status: 'refunded', paymentId, reason };\n    12\t}\n====TEST\n     1\t\n     2\timport { describe, test, expect } from 'vitest';\n     3\timport { processPayment } from '../src/billing';\n     4\t\n     5\tdescribe('processPayment', () => {\n     6\t  test('processes valid payment', () => {\n     7\t    const result = processPayment(100, 'USD');\n     8\t    expect(result.status).toBe('success');\n     9\t  });\n    10\t  // GAP: no test for invalid amount\n    11\t  // GAP: no test for unsupported currency\n    12\t  // GAP: refundPayment not tested at all\n    13\t});",
+      "publicSource": ".context/ship-source-aw-delta-paid-20260911-v1/coverage-audit-public-evidence-sdk-v2/attempt-3/public.json",
+      "sourceSha256": "8c44ebea793c802504bba252d1def70da8fe6db754e3330d0da15eff2f4cc306",
+      "outputSha256": "f517b93748d06e66eb3f8bbf8007a43e491b9bea01b728bdc37306619077fa3a",
+      "excerptLines": {
+        "start": 153,
+        "end": 179
+      },
+      "isError": false
+    },
+    {
+      "sessionId": "9f075596-d66c-4524-a486-42c984023c03",
+      "cwd": "/tmp/gstack-paid-shard-OXU3QY/tmp/skill-e2e-plan-coverage-esYAY5",
+      "toolUseId": "toolu_01PeyZNwK9PGEZjLTMLtPAoJ",
+      "command": "echo \"=== src/billing.ts ===\" && cat -n src/billing.ts && echo && echo \"=== test/billing.test.ts ===\" && cat -n test/billing.test.ts && echo && echo \"=== framework detection ===\" && [ -f package.json ] && echo \"RUNTIME:node\"; ls jest.config.* vitest.config.* 2>/dev/null; grep -q '\"test\"[[:space:]]*:' package.json && echo \"SCRIPT:package.json test\"; git ls-files | grep -cE '\\.(test|spec)\\.[jt]sx?$' | sed 's/^/TESTFILES:/'; echo \"=== package.json ===\"; cat package.json; echo \"=== git diff main..HEAD --stat ===\"; git diff main..HEAD --stat",
+      "outputExcerpt": "=== src/billing.ts ===\n     1\t\n     2\texport function processPayment(amount: number, currency: string) {\n     3\t  if (amount <= 0) throw new Error('Invalid amount');\n     4\t  if (currency !== 'USD' && currency !== 'EUR') throw new Error('Unsupported currency');\n     5\t  return { status: 'success', amount, currency };\n     6\t}\n     7\t\n     8\texport function refundPayment(paymentId: string, reason: string) {\n     9\t  if (!paymentId) throw new Error('Payment ID required');\n    10\t  if (!reason) throw new Error('Reason required');\n    11\t  return { status: 'refunded', paymentId, reason };\n    12\t}\n\n=== test/billing.test.ts ===\n     1\t\n     2\timport { describe, test, expect } from 'vitest';\n     3\timport { processPayment } from '../src/billing';\n     4\t\n     5\tdescribe('processPayment', () => {\n     6\t  test('processes valid payment', () => {\n     7\t    const result = processPayment(100, 'USD');\n     8\t    expect(result.status).toBe('success');\n     9\t  });\n    10\t  // GAP: no test for invalid amount\n    11\t  // GAP: no test for unsupported currency\n    12\t  // GAP: refundPayment not tested at all\n    13\t});\n",
+      "publicSource": ".context/ship-source-aw-delta-paid-20260911-v1/coverage-audit-public-evidence-sdk-v2/attempt-4/public.json",
+      "sourceSha256": "5143679d764b729b439d7568c79817dda106822a67d0f0de3deea75a62df3d9a",
+      "outputSha256": "4a21180d6d78da3eb9080f3d02add781d543c1591d5afc59c727cae3c69e5471",
+      "excerptLines": {
+        "start": 1,
+        "end": 28
+      },
+      "isError": false
+    }
+  ],
+  "diagrams": [
+    {
+      "text": "```\nTest Coverage Map \u2014 src/billing.ts  (tests: test/billing.test.ts)\nLegend: [x] tested   [ ] GAP   \u2500 happy path   \u2717 negative path\n\nsrc/billing.ts\n\u2502\n\u251c\u2500\u2500 processPayment(amount, currency)                     1 of 4 paths tested\n\u2502   \u251c\u2500\u2500 \u2717 line 3   amount <= 0  \u2192 throw 'Invalid amount'          [ ] GAP  (negative path, guard clause)\n\u2502   \u2502              boundary: 0, negative                          [ ] GAP  (edge case)\n\u2502   \u251c\u2500\u2500 \u2717 line 4   currency \u2209 {USD, EUR} \u2192 throw 'Unsupported'    [ ] GAP  (negative path, guard clause)\n\u2502   \u2502              e.g. 'GBP', '', lowercase 'usd'                [ ] GAP  (edge case)\n\u2502   \u251c\u2500\u2500 \u2500 line 5   USD success                                    [x] 'processes valid payment'\n\u2502   \u2514\u2500\u2500 \u2500 line 5   EUR success                                    [ ] GAP  (second accepted enum value untested)\n\u2502\n\u2514\u2500\u2500 refundPayment(paymentId, reason)                     0 of 3 paths tested \u2014 not imported by any test\n    \u251c\u2500\u2500 \u2717 line 9   !paymentId \u2192 throw 'Payment ID required'       [ ] GAP  (negative path, guard clause)\n    \u251c\u2500\u2500 \u2717 line 10  !reason    \u2192 throw 'Reason required'           [ ] GAP  (negative path, guard clause)\n    \u2514\u2500\u2500 \u2500 line 11  refunded result                                [ ] GAP  (public function, zero coverage)\n\nSummary\n  Exported functions:  2    covered: 1 (partial)    uncovered: 1\n  Branches/paths:      7    covered: 1              gaps:      6\n  Negative paths:      4    covered: 0              gaps:      4\n```",
+      "publicSource": ".context/ship-source-aw-delta-paid-20260911-v1/coverage-audit-public-evidence-sdk-v2/attempt-1/public.json",
+      "startChar": 143,
+      "endChar": 1594,
+      "sourceSha256": "7aad23e23fb6b78bbb87067db37928be8ccf3261796bbb00eded899f7315dca0"
+    },
+    {
+      "text": "```\nTEST COVERAGE MAP \u2014 src/billing.ts  (tests: test/billing.test.ts)\n\nLegend:  [\u2713] tested    [\u2717] untested (GAP)\n\nsrc/billing.ts\n\u2502\n\u251c\u2500\u2500 processPayment(amount, currency)                       1 of 3 paths covered\n\u2502   \u2502\n\u2502   \u251c\u2500\u2500 L3  guard: amount <= 0  \u2192 throw 'Invalid amount'\n\u2502   \u2502       [\u2717] GAP \u2014 Missing Negative-Path Test\n\u2502   \u2502           no call with 0 or negative amount\n\u2502   \u2502\n\u2502   \u251c\u2500\u2500 L4  guard: currency \u2209 {USD, EUR} \u2192 throw 'Unsupported currency'\n\u2502   \u2502       [\u2717] GAP \u2014 Missing Negative-Path Test\n\u2502   \u2502           no call with e.g. 'GBP', '', or lowercase 'usd'\n\u2502   \u2502           (also: 'EUR' happy path never exercised)\n\u2502   \u2502\n\u2502   \u2514\u2500\u2500 L5  return { status:'success', amount, currency }\n\u2502           [\u2713] billing.test.ts:6  'processes valid payment'  (100, 'USD')\n\u2502               asserts status only; amount/currency echo not asserted\n\u2502\n\u2514\u2500\u2500 refundPayment(paymentId, reason)                       0 of 3 paths covered\n    \u2502       [\u2717] GAP \u2014 Coverage Gap: exported function never imported by any test\n    \u2502\n    \u251c\u2500\u2500 L9  guard: !paymentId \u2192 throw 'Payment ID required'\n    \u2502       [\u2717] GAP \u2014 Missing Negative-Path Test\n    \u2502\n    \u251c\u2500\u2500 L10 guard: !reason \u2192 throw 'Reason required'\n    \u2502       [\u2717] GAP \u2014 Missing Negative-Path Test\n    \u2502\n    \u2514\u2500\u2500 L11 return { status:'refunded', paymentId, reason }\n            [\u2717] GAP \u2014 no happy-path test\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nSummary\n  Functions:  2 total   1 tested   1 untested\n  Paths:      6 total   1 tested   5 untested   (~17% path coverage)\n  Guards:     4 total   0 tested   4 untested   (0% negative-path coverage)\n```",
+      "publicSource": ".context/ship-source-aw-delta-paid-20260911-v1/coverage-audit-public-evidence-sdk-v2/attempt-2/public.json",
+      "startChar": 201,
+      "endChar": 1803,
+      "sourceSha256": "b9b2e509bdcc52a468ceb2bdb5100c59686abbbb4ca53b25bc5c114cf75fb62f"
+    }
+  ]
+}

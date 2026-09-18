@@ -1,0 +1,62 @@
+[
+  {
+    "antipattern": "low-contrast",
+    "name": "Low contrast text",
+    "description": "Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "test/fixtures/review-eval-design-slop.dom.html",
+    "line": 0,
+    "snippet": "4.2:1 (need 4.5:1) — text #ffffff on #8b5cf6"
+  },
+  {
+    "antipattern": "low-contrast",
+    "name": "Low contrast text",
+    "description": "Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "test/fixtures/review-eval-design-slop.dom.html",
+    "line": 0,
+    "snippet": "4.47:1 (need 4.5:1) — text #ffffff on #6366f1"
+  },
+  {
+    "antipattern": "low-contrast",
+    "name": "Low contrast text",
+    "description": "Text does not meet WCAG AA contrast requirements (4.5:1 for body, 3:1 for large text). Increase the contrast between text and background.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "test/fixtures/review-eval-design-slop.dom.html",
+    "line": 0,
+    "snippet": "4.0:1 (need 4.5:1) — text #ff0000 on #1e1b4b"
+  },
+  {
+    "antipattern": "skipped-heading",
+    "name": "Skipped heading level",
+    "description": "Heading levels should not skip (e.g. h1 then h3 with no h2). Screen readers use heading hierarchy for navigation. Skipping levels breaks the document outline.",
+    "severity": "warning",
+    "category": "quality",
+    "file": "test/fixtures/review-eval-design-slop.dom.html",
+    "line": 0,
+    "snippet": "<h1> \"Welcome to Our Platform\" followed by <h3> \"Feature One\" (missing h2)"
+  },
+  {
+    "antipattern": "ai-color-palette",
+    "name": "AI color palette",
+    "description": "Purple/violet gradients and cyan-on-dark are the most recognizable tells of AI-generated UIs. Choose a distinctive, intentional palette.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "test/fixtures/review-eval-design-slop.dom.html",
+    "line": 0,
+    "snippet": "Purple/violet accent colors detected"
+  },
+  {
+    "antipattern": "marketing-buzzword",
+    "name": "Marketing buzzword",
+    "description": "Generic SaaS phrases (streamline / empower / supercharge / world-class / enterprise-grade / next-generation / cutting-edge / etc) are instant AI tells. Pick a specific verb and noun that says what the product literally does.",
+    "severity": "warning",
+    "category": "slop",
+    "file": "test/fixtures/review-eval-design-slop.dom.html",
+    "line": 0,
+    "snippet": "1 buzzword phrase: \"ful tool to streamline your workflow ef\""
+  }
+]

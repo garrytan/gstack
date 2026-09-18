@@ -14,7 +14,7 @@ const MINT_BIN = join(ROOT, 'bin', 'gstack-ios-qa-mint');
 const DAEMON_BIN = join(ROOT, 'bin', 'gstack-ios-qa-daemon');
 
 function runMint(args: string[]) {
-  return spawnSync(MINT_BIN, args, { stdio: 'pipe', encoding: 'utf-8' });
+  return spawnSync(MINT_BIN, args, { stdio: 'pipe', encoding: 'utf-8', timeout: 30_000 });
 }
 
 describe('bin/gstack-ios-qa-mint launcher', () => {
@@ -112,6 +112,7 @@ describe('bin/gstack-ios-qa-daemon launcher', () => {
       stdio: 'pipe',
       encoding: 'utf-8',
       env: { PATH: '/usr/bin:/bin' },
+      timeout: 30_000,
     });
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain('bun');

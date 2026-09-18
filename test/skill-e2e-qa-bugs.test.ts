@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import { outcomeJudge } from './helpers/llm-judge';
 import { judgePassed } from './helpers/eval-store';
@@ -8,6 +9,7 @@ import {
   copyDirSync, setupBrowseShims, logCost, recordE2E, dumpOutcomeDiagnostic,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import { asideAvailable } from './helpers/aside-available';
 import { startTestServer } from '../browse/test/test-server';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -19,7 +21,25 @@ const evalCollector = createEvalCollector('e2e-qa-bugs');
 // --- B6/B7/B8: Planted-bug outcome evals ---
 
 // Outcome evals also need ANTHROPIC_API_KEY for the LLM judge
-const describeOutcome = (evalsEnabled && hasApiKey) ? describe : describe.skip;
+// ...and a browser: a live Aside (primary) or a built browse/dist/browse
+// (fallback). Neither → skip, never fail.
+const describeOutcome = (evalsEnabled && hasApiKey && (asideAvailable() || fs.existsSync(browseBin))) ? describe : describe.skip;
+
+/**
+ * The BROWSER SETUP section qa/SKILL.md renders (Aside probe + browse fallback
+ * + driving rules). The agent gets just this, not the 1500-line skill, so the
+ * driver decision is the skill's own text, not the prompt's.
+ */
+function browserSetupSection(): string {
+  const skill = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
+  const start = skill.indexOf('## BROWSER SETUP');
+  // The Aside contract is followed by its own H2, '## Browser fallback: ...' — the
+  // fixture must carry both so a run without Aside can take the $B path.
+  const fallback = skill.indexOf('\n## Browser fallback', start + 3);
+  const end = skill.indexOf('\n## ', (fallback > 0 ? fallback : start) + 3);
+  if (start < 0 || end < 0) throw new Error('qa/SKILL.md: BROWSER SETUP section not found — regenerate with: bun run gen:skill-docs');
+  return skill.slice(start, end);
+}
 
 // Wrap describeOutcome with selection — skip if no planted-bug tests are selected
 const outcomeTestNames = ['qa-b6-static', 'qa-b7-spa', 'qa-b8-checkout'];
@@ -58,20 +78,20 @@ let testServer: ReturnType<typeof startTestServer>;
     fs.mkdirSync(path.join(reportDir, 'screenshots'), { recursive: true });
     const reportPath = path.join(reportDir, 'qa-report.md');
 
-    // Direct bug-finding with browse. Keep prompt concise — no reading long SKILL.md docs.
+    fs.writeFileSync(path.join(testWorkDir, 'BROWSER-SETUP.md'), browserSetupSection());
+
+    // Direct bug-finding. Keep prompt concise — no reading long SKILL.md docs.
     // "Write early, update later" pattern ensures report exists even if agent hits max turns.
     const targetUrl = `${testServer.url}/${fixture}`;
     const result = await runSkillTest({
       prompt: `Find bugs on this page: ${targetUrl}
 
-Browser binary: B="${browseBin}"
+Browser: read BROWSER-SETUP.md in this directory and follow it exactly — it probes for Aside first and falls back to the gstack browse binary. If it falls back, the binary is at ${browseBin} (B="${browseBin}"). Do not look for any other browser. The target is LOCAL, so submitting its forms needs no consent question.
 
-PHASE 1 — Quick scan (5 commands max):
-$B goto ${targetUrl}
-$B console --errors
-$B snapshot -i
-$B snapshot -c
-$B accessibility
+PHASE 1 — Quick scan (5 browser steps max):
+- Load ${targetUrl} and capture the console errors
+- Take an interactive snapshot (clickable/fillable elements) and read the page text
+- Accessibility pass: img elements without alt text, form controls without a label or aria-label
 
 PHASE 2 — Write initial report to ${reportPath}:
 Write every bug you found so far. Format each as:
@@ -79,12 +99,12 @@ Write every bug you found so far. Format each as:
 - Severity: high / medium / low
 - Evidence: what you observed
 
-PHASE 3 — Interactive testing (targeted — max 15 commands):
-- Test email: type "user@" (no domain) and blur — does it validate?
+PHASE 3 — Interactive testing (targeted — max 15 browser steps):
+- Test email: fill "user@" (no domain) and blur — does it validate?
 - Test quantity: clear the field entirely — check the total display
-- Test credit card: type a 25-character string — check for overflow
+- Test credit card: fill a 25-character string — check for overflow
 - Submit the form with zip code empty — does it require zip?
-- Submit a valid form and run $B console --errors
+- Submit a valid form and capture the console errors again
 - After finding more bugs, UPDATE ${reportPath} with new findings
 
 PHASE 4 — Finalize report:
@@ -97,7 +117,7 @@ CRITICAL RULES:
 - The report MUST exist at ${reportPath} when you finish`,
       workingDirectory: testWorkDir,
       maxTurns: 50,
-      timeout: 300_000,
+      timeout: CAPTURE_MS,
       testName: `qa-${label}`,
       runId,
       model: 'claude-opus-4-7',
@@ -127,7 +147,7 @@ CRITICAL RULES:
       // Agent may have named it differently — find any .md in reportDir or testWorkDir
       for (const searchDir of [reportDir, testWorkDir]) {
         try {
-          const mdFiles = fs.readdirSync(searchDir).filter(f => f.endsWith('.md'));
+          const mdFiles = fs.readdirSync(searchDir).filter(f => f.endsWith('.md') && f !== 'BROWSER-SETUP.md');
           if (mdFiles.length > 0) {
             report = fs.readFileSync(path.join(searchDir, mdFiles[0]), 'utf-8');
             break;
@@ -174,17 +194,17 @@ CRITICAL RULES:
   // B6: Static dashboard — broken link, disabled submit, overflow, missing alt, console error
   testConcurrentIfSelected('qa-b6-static', async () => {
     await runPlantedBugEval('qa-eval.html', 'qa-eval-ground-truth.json', 'b6-static');
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 
   // B7: SPA — broken route, stale state, async race, missing aria, console warning
   testConcurrentIfSelected('qa-b7-spa', async () => {
     await runPlantedBugEval('qa-eval-spa.html', 'qa-eval-spa-ground-truth.json', 'b7-spa');
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 
   // B8: Checkout — email regex, NaN total, CC overflow, missing required, stripe error
   testConcurrentIfSelected('qa-b8-checkout', async () => {
     await runPlantedBugEval('qa-eval-checkout.html', 'qa-eval-checkout-ground-truth.json', 'b8-checkout');
-  }, 360_000);
+  }, CAPTURE_LONG_MS);
 
 });
 

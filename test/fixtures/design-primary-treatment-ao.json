@@ -1,0 +1,113 @@
+{
+  "source": {
+    "commit": "be36e2c57cc6bf4762b9c6a81cd4d72a6615baa7",
+    "publicFingerprintsSHA256": "3743435c913a7cfd72bcc5bdb82996059611c08205e7bbaf3070b9c59b800b4e",
+    "ownedProofSHA256": "7d9f67b803cd68a478c51a062916d95bc553869d7233044dda9de4853cffac1d"
+  },
+  "fingerprints": [
+    {
+      "signature": "fd4deeac-97b0-4553-97c8-8a1768a256a4:toolu_01Ay1DYReDs6cEkzsT5wdMT3",
+      "promptSnippet": "Issue 1 D3 \u2014 Issue 1: Make Save the visually primary action in the header? Project/branch/task: main, /plan-design-review Pass 1 (Information Architecture) on the settings form plan. ELI10: Right now Save, Reset, Cancel, and Export all look",
+      "options": [
+        {
+          "index": 1,
+          "label": "1A Filled primary Save (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "1B Weight-only emphasis"
+        },
+        {
+          "index": 3,
+          "label": "1C Leave as is"
+        }
+      ],
+      "observedAtMs": 218195,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "fd4deeac-97b0-4553-97c8-8a1768a256a4",
+        "toolUseId": "toolu_01Ay1DYReDs6cEkzsT5wdMT3",
+        "questions": [
+          {
+            "question": "D3 \u2014 Issue 1: Make Save the visually primary action in the header?\nProject/branch/task: main, /plan-design-review Pass 1 (Information Architecture) on the settings form plan.\nELI10: Right now Save, Reset, Cancel, and Export all look identical. A user scanning the header cannot tell which button finishes their task, and Reset and Cancel look just as inviting as Save even though they discard work. DESIGN.md already says Save is the only filled button and the other three are quiet ghost buttons.\nStakes if we pick wrong: users hesitate at the header or hit a destructive action by mistake; the page reads as assembled rather than designed.\nRecommendation: 1A because it applies the exact existing DESIGN.md token, adds no new component, and fixes the hierarchy the plan itself flags. Principle: Hierarchy as service.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: apply the approved token now vs a weaker visual cue vs shipping four look-alike buttons.",
+            "header": "Issue 1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "1A Filled primary Save (recommended)",
+                "description": "\u2705 Save becomes the one filled button (#1d4ed8, white text); Reset, Cancel, Export become neutral ghost buttons per DESIGN.md (human: ~1h / CC: ~5min)\n\u2705 Reuses the existing Button component variants, so no new component or style family is introduced\n\u274c Ghost buttons must still be verified for visible boundaries and 44px targets at 320px"
+              },
+              {
+                "label": "1B Weight-only emphasis",
+                "description": "\u2705 Save gets bold text and a stronger border while all four stay ghost, a smaller visual change (human: ~30min / CC: ~5min)\n\u2705 Keeps the header calmer if you feel a filled button is too loud\n\u274c Diverges from DESIGN.md's stated primary token, so the form will not match the rest of the app"
+              },
+              {
+                "label": "1C Leave as is",
+                "description": "\u2705 Zero implementation work and no visual change to review\n\u2705 Avoids any risk of the filled button clashing with the persistent navigation\n\u274c Ships a header with no primary action; PLAN.md's own gap stays open and the pass stays at 6/10"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 \u2014 Issue 1: Make Save the visually primary action in the header?\nProject/branch/task: main, /plan-design-review Pass 1 (Information Architecture) on the settings form plan.\nELI10: Right now Save, Reset, Cancel, and Export all look identical. A user scanning the header cannot tell which button finishes their task, and Reset and Cancel look just as inviting as Save even though they discard work. DESIGN.md already says Save is the only filled button and the other three are quiet ghost buttons.\nStakes if we pick wrong: users hesitate at the header or hit a destructive action by mistake; the page reads as assembled rather than designed.\nRecommendation: 1A because it applies the exact existing DESIGN.md token, adds no new component, and fixes the hierarchy the plan itself flags. Principle: Hierarchy as service.\nCompleteness: A=10/10, B=6/10, C=3/10\nNet: apply the approved token now vs a weaker visual cue vs shipping four look-alike buttons.": "1A Filled primary Save (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T11:39:23.036Z"
+      }
+    },
+    {
+      "signature": "fd4deeac-97b0-4553-97c8-8a1768a256a4:toolu_01JrUQkK5cz2K5iFzKDaYToK",
+      "promptSnippet": "Issue 2 D4 \u2014 Issue 2: Show the existing pending state while Save runs? Project/branch/task: main, /plan-design-review Pass 2 (Interaction States) on the settings form plan. ELI10: Saving takes 2 to 5 seconds and the proposed form gives no s",
+      "options": [
+        {
+          "index": 1,
+          "label": "2A In-button Saving\u2026 spinner (recommended)"
+        },
+        {
+          "index": 2,
+          "label": "2B Full-form skeleton while saving"
+        },
+        {
+          "index": 3,
+          "label": "2C Leave as is"
+        }
+      ],
+      "observedAtMs": 265357,
+      "preReview": true,
+      "nativeCall": {
+        "sessionId": "fd4deeac-97b0-4553-97c8-8a1768a256a4",
+        "toolUseId": "toolu_01JrUQkK5cz2K5iFzKDaYToK",
+        "questions": [
+          {
+            "question": "D4 \u2014 Issue 2: Show the existing pending state while Save runs?\nProject/branch/task: main, /plan-design-review Pass 2 (Interaction States) on the settings form plan.\nELI10: Saving takes 2 to 5 seconds and the proposed form gives no sign anything is happening. People assume the click did not register, click again, or leave before it finishes. DESIGN.md already defines the fix: a small spinner beside the word \"Saving\u2026\" inside the disabled Save button, with the other three header actions disabled until it settles.\nStakes if we pick wrong: double submissions, users navigating away mid-save, and a page that feels broken exactly at the moment trust is decided.\nRecommendation: 2A because it is the established DESIGN.md pending pattern, already used for Export, and it keeps the InlineStatus live region reserved for the outcome. Principle: Design for trust; edge cases are user experiences.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: reuse the existing in-button spinner vs a page-level skeleton that hides the user's edits vs shipping a frozen page.",
+            "header": "Issue 2",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "2A In-button Saving\u2026 spinner (recommended)",
+                "description": "\u2705 Save shows inline spinner + \"Saving\u2026\", disabled, aria-busy=true; Reset/Cancel/Export disabled; all four re-enable on settle; reduced motion respected (human: ~1.5h / CC: ~10min)\n\u2705 Same pattern Export already uses, so users learn one pending behavior, not two\n\u274c Spinner in a 44px button needs a reduced-motion fallback verified, not just a CSS class"
+              },
+              {
+                "label": "2B Full-form skeleton while saving",
+                "description": "\u2705 Very obvious that work is in progress; reuses the existing load skeleton (human: ~1h / CC: ~10min)\n\u2705 Prevents any edits during the pending window by construction\n\u274c Hides the user's own values for up to 5s and repurposes a loading pattern for a submit, which DESIGN.md does not sanction"
+              },
+              {
+                "label": "2C Leave as is",
+                "description": "\u2705 No implementation work and no new behavior to test\n\u2705 Avoids any motion on the page at all\n\u274c Users see a frozen page for 2-5s, PLAN.md's Motion gap stays open, and repeat submissions remain likely"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 \u2014 Issue 2: Show the existing pending state while Save runs?\nProject/branch/task: main, /plan-design-review Pass 2 (Interaction States) on the settings form plan.\nELI10: Saving takes 2 to 5 seconds and the proposed form gives no sign anything is happening. People assume the click did not register, click again, or leave before it finishes. DESIGN.md already defines the fix: a small spinner beside the word \"Saving\u2026\" inside the disabled Save button, with the other three header actions disabled until it settles.\nStakes if we pick wrong: double submissions, users navigating away mid-save, and a page that feels broken exactly at the moment trust is decided.\nRecommendation: 2A because it is the established DESIGN.md pending pattern, already used for Export, and it keeps the InlineStatus live region reserved for the outcome. Principle: Design for trust; edge cases are user experiences.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: reuse the existing in-button spinner vs a page-level skeleton that hides the user's edits vs shipping a frozen page.": "2A In-button Saving\u2026 spinner (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-10T11:40:10.197Z"
+      }
+    }
+  ]
+}

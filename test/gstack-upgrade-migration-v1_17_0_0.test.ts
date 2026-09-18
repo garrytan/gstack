@@ -64,6 +64,7 @@ function run(opts: { env?: Record<string, string> } = {}) {
     env,
     encoding: 'utf-8',
     cwd: tmpHome,
+    timeout: 30_000,
   });
 }
 

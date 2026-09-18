@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, browseBin, runId, evalsEnabled, selectedTests,
@@ -11,6 +12,7 @@ import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { installFakeImpeccable } from './helpers/fake-impeccable';
 
 const evalCollector = createEvalCollector('e2e-review');
 
@@ -66,7 +68,7 @@ Run /review on the current diff (git diff main...HEAD).
 Write your review findings to ${reviewDir}/review-output.md`,
       workingDirectory: reviewDir,
       maxTurns: 20,
-      timeout: 180_000,
+      timeout: CAPTURE_MS,
       testName: 'review-sql-injection',
       runId,
     });
@@ -89,13 +91,14 @@ Write your review findings to ${reviewDir}/review-output.md`,
         reviewContent.includes('unsanitized');
       expect(hasSqlContent).toBe(true);
     }
-  }, 210_000);
+  }, CAPTURE_MS);
 });
 
 // --- Review: Enum completeness E2E ---
 
 describeIfSelected('Review enum completeness E2E', ['review-enum-completeness'], () => {
   let enumDir: string;
+  let enumCaptureSequence = 0;
 
   beforeAll(() => {
     enumDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-enum-'));
@@ -144,33 +147,41 @@ Write your review findings to ${enumDir}/review-output.md
 The diff adds a new "returned" status to the Order model. Your job is to check if all consumers handle it.`,
       workingDirectory: enumDir,
       maxTurns: 15,
-      timeout: 90_000,
+      timeout: JUDGE_MS,
       testName: 'review-enum-completeness',
-      runId,
+      runId: `${process.env.EVALS_RUN_ID ?? runId}-review-enum-${process.pid}-${++enumCaptureSequence}`,
+      publicStreamDiagnostics: true,
     });
 
     logCost('/review enum', result);
-    recordE2E(evalCollector, '/review enum completeness', 'Review enum completeness E2E', result);
-    expect(result.exitReason).toBe('success');
+    let passed = false;
+    try {
+      expect(result.exitReason).toBe('success');
 
-    // Verify the review caught the missing enum handlers
-    const reviewPath = path.join(enumDir, 'review-output.md');
-    if (fs.existsSync(reviewPath)) {
-      const review = fs.readFileSync(reviewPath, 'utf-8');
-      // Should mention the missing "returned" handling in at least one of the methods
-      const mentionsReturned = review.toLowerCase().includes('returned');
-      const mentionsEnum = review.toLowerCase().includes('enum') || review.toLowerCase().includes('status');
-      const mentionsCritical = review.toLowerCase().includes('critical');
-      expect(mentionsReturned).toBe(true);
-      expect(mentionsEnum || mentionsCritical).toBe(true);
+      // Verify the review caught the missing enum handlers
+      const reviewPath = path.join(enumDir, 'review-output.md');
+      if (fs.existsSync(reviewPath)) {
+        const review = fs.readFileSync(reviewPath, 'utf-8');
+        // Should mention the missing "returned" handling in at least one of the methods
+        const mentionsReturned = review.toLowerCase().includes('returned');
+        const mentionsEnum = review.toLowerCase().includes('enum') || review.toLowerCase().includes('status');
+        const mentionsCritical = review.toLowerCase().includes('critical');
+        expect(mentionsReturned).toBe(true);
+        expect(mentionsEnum || mentionsCritical).toBe(true);
+      }
+      passed = result.browseErrors.length === 0;
+    } finally {
+      recordE2E(evalCollector, '/review enum completeness', 'Review enum completeness E2E', result, { passed });
     }
-  }, 120_000);
+    // The runner can drain stderr for 5s after exit; reserve 1s for assertions/recording.
+  }, JUDGE_MS + 6_000);
 });
 
 // --- Review: Design review lite E2E ---
 
 describeIfSelected('Review design lite E2E', ['review-design-lite'], () => {
   let designDir: string;
+  let fakeEngineDir: string;
 
   beforeAll(() => {
     designDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-design-lite-'));
@@ -205,12 +216,20 @@ describeIfSelected('Review design lite E2E', ['review-design-lite'], () => {
       extractSkillSections(path.join(ROOT, 'review'), REVIEW_E2E_SECTIONS),
     );
     fs.copyFileSync(path.join(ROOT, 'review', 'checklist.md'), path.join(designDir, 'review-checklist.md'));
-    fs.copyFileSync(path.join(ROOT, 'review', 'design-checklist.md'), path.join(designDir, 'review-design-checklist.md'));
+    // The checklist's mechanical pass (step 0) runs the design detector from the
+    // installed gstack bin; point it at THIS checkout so the test is hermetic.
+    fs.writeFileSync(
+      path.join(designDir, 'review-design-checklist.md'),
+      fs.readFileSync(path.join(ROOT, 'review', 'design-checklist.md'), 'utf-8').replaceAll('~/.claude/skills/gstack/bin', path.join(ROOT, 'bin')),
+    );
     fs.copyFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), path.join(designDir, 'review-greptile-triage.md'));
+    // Fake impeccable engine OUTSIDE the repo (the wrapper ignores an in-repo IMPECCABLE_BIN).
+    fakeEngineDir = installFakeImpeccable('skill-e2e-fake-impeccable-').dir;
   });
 
   afterAll(() => {
     try { fs.rmSync(designDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(fakeEngineDir, { recursive: true, force: true }); } catch {}
   });
 
   testConcurrentIfSelected('review-design-lite', async () => {
@@ -229,9 +248,13 @@ Write your review findings to ${designDir}/review-output.md
 Important: The design checklist should catch issues like blacklisted fonts, small font sizes, outline:none, !important, AI slop patterns (purple gradients, generic hero copy, 3-column feature grid), etc.`,
       workingDirectory: designDir,
       maxTurns: 35,
-      timeout: 240_000,
+      timeout: CAPTURE_MS,
       testName: 'review-design-lite',
       runId,
+      env: {
+        IMPECCABLE_BIN: path.join(fakeEngineDir, 'impeccable'),
+        IMPECCABLE_FAKE_OUTPUT: path.join(ROOT, 'test', 'fixtures', 'impeccable-detect-sample.json'),
+      },
     });
 
     logCost('/review design lite', result);
@@ -258,11 +281,14 @@ Important: The design checklist should catch issues like blacklisted fonts, smal
       if (review.includes('welcome to') || review.includes('all-in-one') || review.includes('generic') || review.includes('hero copy') || review.includes('ai slop')) detected++;
       // Issue 7: 3-column feature grid — LOW
       if (review.includes('3-column') || review.includes('three-column') || review.includes('feature grid') || review.includes('icon') || review.includes('circle')) detected++;
+      // Signal 8: the mechanical pass (fake impeccable engine via IMPECCABLE_BIN) surfaced a detector row
+      const detectorSeen = review.includes('detector') || review.includes('[ai-color-palette]') || review.includes('[low-contrast]') || review.includes('impeccable');
 
-      console.log(`Design review detected ${detected}/7 planted issues`);
-      expect(detected).toBeGreaterThanOrEqual(4);
+      console.log(`Design review detected ${detected}/7 planted checklist signals; detector rows surfaced: ${detectorSeen}`);
+      expect(detected).toBeGreaterThanOrEqual(4); // the LLM-checklist bar, unchanged by the detector
+      expect(detectorSeen).toBe(true); // the fake engine's rows are deterministic; the review must carry them
     }
-  }, 300_000);
+  }, CAPTURE_MS);
 });
 
 // Base branch detection tests for review/ship + the Review Dashboard Via

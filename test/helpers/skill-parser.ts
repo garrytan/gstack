@@ -17,7 +17,7 @@ import * as path from 'path';
 
 /** CLI-only commands: valid $B invocations that are handled by the CLI, not the server */
 const CLI_COMMANDS = new Set([
-  'status', 'pair-agent', 'tunnel',
+  'status', 'pair-agent', 'tunnel', '--help',
 ]);
 
 export interface BrowseCommand {
@@ -42,6 +42,7 @@ export function extractBrowseCommands(skillPath: string): BrowseCommand[] {
   const lines = content.split('\n');
   const commands: BrowseCommand[] = [];
 
+  let inCodeBlock = false;
   let inBashBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
@@ -49,20 +50,28 @@ export function extractBrowseCommands(skillPath: string): BrowseCommand[] {
 
     // Detect code block boundaries
     if (line.trimStart().startsWith('```')) {
-      if (inBashBlock) {
-        inBashBlock = false;
-      } else if (line.trimStart().startsWith('```bash')) {
-        inBashBlock = true;
-      }
-      // Non-bash code blocks (```json, ```, ```js, etc.) are skipped
+      inCodeBlock = !inCodeBlock;
+      inBashBlock = inCodeBlock && line.trimStart().startsWith('```bash');
       continue;
     }
 
-    if (!inBashBlock) continue;
+    let source: string;
+    if (!inCodeBlock) {
+      // Prose and table rows: the {{BROWSE_FALLBACK}} mapping table carries its
+      // `$B` shapes in backticks — validate them like code-block commands.
+      // `[flags]`-style placeholders are documentation, not arguments.
+      const spans = [...line.matchAll(/`(\$B\s+[^`]+)`/g)].map(m => m[1].replace(/\[[^\]]*\]/g, ''));
+      if (spans.length === 0) continue;
+      source = spans.join('   ');
+    } else if (inBashBlock) {
+      source = line;
+    } else {
+      continue; // Non-bash code blocks (```json, ```, ```js, etc.) are skipped
+    }
 
-    // Match lines with $B command invocations
+    // Match $B command invocations
     // Handle multiple $B commands on one line (e.g., "$B click @e3       $B fill @e4 "value"")
-    const matches = line.matchAll(/\$B\s+(\S+)(?:\s+([^\$]*))?/g);
+    const matches = source.matchAll(/\$B\s+(\S+)(?:\s+([^\$]*))?/g);
     for (const match of matches) {
       const command = match[1];
       let argsStr = (match[2] || '').trim();
@@ -144,7 +153,9 @@ export function validateSkill(skillPath: string): ValidationResult {
  */
 export function extractRemoteSlugPatterns(rootDir: string, subdirs: string[]): Map<string, string[]> {
   const results = new Map<string, string[]>();
-  const pattern = /^REMOTE_SLUG=\$\(.*\)$/;
+  // Accepts both the bare `REMOTE_SLUG=$(...)` form and the gstack-slug form
+  // (`eval "$(...gstack-slug)"; REMOTE_SLUG="${SLUG:-...}"`).
+  const pattern = /^(?:eval\s[^;]*;\s*)?REMOTE_SLUG=\S/;
 
   for (const subdir of subdirs) {
     const dir = path.join(rootDir, subdir);

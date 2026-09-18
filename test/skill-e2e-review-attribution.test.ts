@@ -1,4 +1,5 @@
 import { expect, beforeAll, afterAll } from 'bun:test';
+import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId,
@@ -65,7 +66,7 @@ Then run git diff against the detected base branch and write a brief review.
 Write your findings to ${dir}/review-output.md`,
       workingDirectory: dir,
       maxTurns: 15,
-      timeout: 90_000,
+      timeout: JUDGE_MS,
       testName: 'review-base-branch',
       runId,
     });
@@ -84,7 +85,7 @@ Write your findings to ${dir}/review-output.md`,
       return cmd.includes('git diff');
     });
     expect(usedGitDiff).toBe(true);
-  }, 120_000);
+  }, JUDGE_MS);
 
   testConcurrentIfSelected('ship-base-branch', async () => {
     const dir = path.join(baseBranchDir, 'ship-base');
@@ -125,7 +126,7 @@ Write a summary to ${dir}/ship-preflight.md including:
 - The diff stat against the base branch`,
       workingDirectory: dir,
       maxTurns: 18,
-      timeout: 150_000,
+      timeout: CAPTURE_MS,
       testName: 'ship-base-branch',
       runId,
     });
@@ -155,7 +156,7 @@ Write a summary to ${dir}/ship-preflight.md including:
       return command.includes('git push') || command.includes('gh pr create');
     });
     expect(destructiveTools).toHaveLength(0);
-  }, 180_000);
+  }, CAPTURE_MS);
 });
 
 // --- Review Dashboard Via Attribution E2E ---
@@ -183,7 +184,7 @@ describeIfSelected('Review Dashboard Via Attribution', ['review-dashboard-via'],
     run('git', ['commit', '-m', 'feat: update']);
 
     // Get HEAD commit for review entries
-    const headResult = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dashDir, stdio: 'pipe' });
+    const headResult = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: dashDir, stdio: 'pipe', timeout: 30_000 });
     const commit = headResult.stdout.toString().trim();
 
     // Pre-populate review log with autoplan-sourced entries
@@ -280,7 +281,7 @@ Write the dashboard output to ${dashDir}/dashboard-output.md`,
     );
     // Ship dashboard should not gate when eng review is clear
     expect(gateQuestions).toHaveLength(0);
-  }, 480_000);
+  }, CAPTURE_LONG_MS);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete

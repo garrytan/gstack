@@ -38,7 +38,7 @@ let repo: string;
 let remote: string;
 
 function git(args: string[], cwd = repo): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8" });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 30_000 });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")}\n${r.stderr}`);
   return r.stdout?.trim() ?? "";
 }
@@ -56,6 +56,7 @@ function runHook(stdinLines: string): { code: number; stderr: string } {
     cwd: repo,
     input: Buffer.from(stdinLines),
     encoding: "utf8",
+    timeout: 30_000,
     env: { ...process.env },
   });
   return { code: r.status ?? 0, stderr: r.stderr ?? "" };
@@ -115,7 +116,7 @@ describe("rebased force-push does not re-scan upstream commits (#2573)", () => {
     // The rebased tip exists locally and is NOT an ancestor of HEAD — the
     // exact condition #2573 identified as the untested third branch.
     expect(git(["cat-file", "-t", preRebaseTip])).toBe("commit");
-    const isAncestor = spawnSync("git", ["merge-base", "--is-ancestor", preRebaseTip, "HEAD"], { cwd: repo });
+    const isAncestor = spawnSync("git", ["merge-base", "--is-ancestor", preRebaseTip, "HEAD"], { cwd: repo, timeout: 30_000 });
     expect(isAncestor.status).not.toBe(0);
     // What the OLD range would scan: upstream's published fixture included.
     const oldDiff = git(["diff", "--unified=0", `${preRebaseTip}..HEAD`]);

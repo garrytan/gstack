@@ -409,3 +409,34 @@ describe('Server auth security', () => {
     expect(routeSrc).toContain('SameSite=Strict');
   });
 });
+
+describe('Pair scope defaults and revocation surface', () => {
+  // Regression: the CLI only sent scopes when --restrict was passed, so the
+  // effective pairing default lived in two places (CLI omission + server
+  // fallback) and could silently drift. Both sides must reference the shared
+  // DEFAULT_PAIR_SCOPES constant, and the CLI must send scopes
+  // unconditionally (the old conditional-spread shape is banned).
+  test('/pair default and CLI pairing body share DEFAULT_PAIR_SCOPES', () => {
+    const pairBlock = sliceBetween(SERVER_SRC, "url.pathname === '/pair'", "url.pathname === '/tunnel/start'");
+    expect(pairBlock).toContain('DEFAULT_PAIR_SCOPES');
+    const cliBlock = sliceBetween(CLI_SRC, 'async function handlePairAgent', 'Determine the URL to use');
+    // Match the CODE shape, not a comment: a bare toContain('DEFAULT_PAIR_SCOPES')
+    // is satisfied by the explanatory comment and passes vacuously on a revert.
+    expect(cliBlock).toMatch(/scopes:\s*restrict\s*\?[\s\S]{0,200}?:\s*\[\.\.\.DEFAULT_PAIR_SCOPES\]/);
+    expect(cliBlock).not.toMatch(/\.\.\.\(restrict\s*\?/);
+  });
+
+  // control is the only scope behind an explicit flag; a scopes list must
+  // not be able to smuggle it into a pairing grant.
+  test('/pair rejects control inside a scopes list without the control flag', () => {
+    const pairBlock = sliceBetween(SERVER_SRC, "url.pathname === '/pair'", "url.pathname === '/tunnel/start'");
+    expect(pairBlock).toContain("pairBody.scopes.includes('control')");
+  });
+
+  // CLI-encoded clientIds (spaces, UTF-8) must round-trip through the revoke
+  // route; slicing the raw pathname 404s on every encoded name.
+  test('DELETE /token decodes the clientId path segment', () => {
+    const revokeBlock = sliceBetween(SERVER_SRC, "url.pathname.startsWith('/token/')", "url.pathname === '/agents'");
+    expect(revokeBlock).toContain('decodeURIComponent');
+  });
+});

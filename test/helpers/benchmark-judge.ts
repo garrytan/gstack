@@ -1,7 +1,7 @@
 /**
  * Benchmark quality judge — wraps llm-judge.ts for multi-provider scoring.
  *
- * The judge is always Anthropic SDK (claude-sonnet-4-6) for stability. It sees
+ * The judge uses the shared frontier Claude eval default. It sees
  * the prompt + N provider outputs and scores each on: correctness, completeness,
  * code quality, edge case handling. 0-10 per dimension; overall = average.
  *
@@ -9,6 +9,7 @@
  */
 
 import type { BenchmarkReport, BenchmarkEntry } from './benchmark-runner';
+import { resolveEvalModel } from '../../lib/eval-model';
 
 export async function judgeEntries(report: BenchmarkReport): Promise<void> {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -26,7 +27,7 @@ export async function judgeEntries(report: BenchmarkReport): Promise<void> {
 
   const judgePrompt = buildJudgePrompt(report.prompt, successful);
   const msg = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: resolveEvalModel('judge'),
     max_tokens: 2048,
     messages: [{ role: 'user', content: judgePrompt }],
   });

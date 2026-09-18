@@ -14,8 +14,8 @@
  * validateDecide; a rejected decision exits 1 with a message, nothing persisted.
  */
 
-import { mkdirSync } from "fs";
 import { dirname } from "path";
+import { mkdirpSync } from "../lib/fs-utils";
 import { spawnSync } from "child_process";
 import {
   decisionPaths,
@@ -33,7 +33,9 @@ const HERE = import.meta.dir;
 const args = process.argv.slice(2);
 const slug = resolveSlug(`${HERE}/gstack-slug`);
 const paths = decisionPaths(slug);
-mkdirSync(dirname(paths.log), { recursive: true });
+// mkdirpSync, not bare mkdirSync: bun on Windows throws EEXIST from a
+// recursive mkdir on an existing dir (#2635), and this runs on every log call.
+mkdirpSync(dirname(paths.log));
 
 function enqueue(): void {
   // Fire-and-forget cross-machine sync (no-op when artifacts_sync is off).

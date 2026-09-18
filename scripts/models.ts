@@ -24,6 +24,7 @@ export const ALL_MODEL_NAMES = [
   'gpt',
   'gpt-5.4',
   'gpt-5.6-sol',
+  'gpt-6-astra',
   'gemini',
   'o-series',
 ] as const;
@@ -62,6 +63,7 @@ export function resolveModel(input: string): Model | null {
   // not add a Sol family pattern: Terra, Luna, future 5.6 variants, and
   // suffixed model IDs must NOT inherit Sol's behavioral profile; they fall
   // through to the generic `gpt` family below.
+  if (/^gpt-6-astra(-|$)/.test(s)) return 'gpt-6-astra';
   if (/^gpt-5\.4(-|$)/.test(s)) return 'gpt-5.4';
   if (/^gpt(-|$)/.test(s)) return 'gpt';
   if (/^o[0-9]+(-|$)/.test(s)) return 'o-series';

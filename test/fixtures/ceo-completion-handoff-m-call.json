@@ -1,0 +1,562 @@
+{
+  "sourceHead": "084f75297dfe33530baa0cce33b6ec60faf0cc99",
+  "artifact": "plan-ceo-review-1788912957495-fB0byY",
+  "nativeSha256": "275cf3bfb1f78699abef1570c04e037833ab28c939c5db5e500e20b0efb47e77",
+  "rawCounts": {
+    "setup": 3,
+    "review": 4,
+    "administrative": 0
+  },
+  "calls": [
+    {
+      "sessionId": "5036f6f6-8360-4f76-bea8-417f5c727b32",
+      "toolUseId": "toolu_013RgeeqwFtbTgK5PST95ywa",
+      "questions": [
+        {
+          "question": "D1 \u2014 No design doc found. Run /office-hours first, or proceed with the standard review? <gstack-qid:plan-ceo-review-office-hours-prereq>",
+          "header": "Prereq skill",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Skip \u2014 proceed with review (Recommended)",
+              "description": "The plan is already well-scoped (2 specific tests, documented infrastructure). /office-hours would add little here. Proceed directly to the CEO review."
+            },
+            {
+              "label": "Run /office-hours first",
+              "description": "Produces a structured problem statement, premise challenge, and explored alternatives \u2014 gives the review sharper input. Takes ~10 min. We'll pick up the review right after."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 No design doc found. Run /office-hours first, or proceed with the standard review? <gstack-qid:plan-ceo-review-office-hours-prereq>": "Skip \u2014 proceed with review (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T00:17:45.716Z"
+    },
+    {
+      "sessionId": "5036f6f6-8360-4f76-bea8-417f5c727b32",
+      "toolUseId": "toolu_01Gxc4Dzcfghy2XJ44dwociF",
+      "questions": [
+        {
+          "question": "D2 \u2014 Which implementation approach for the test coverage? <gstack-qid:plan-ceo-review-approach-selection>",
+          "header": "Approach",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Minimal (Recommended)",
+              "description": "Exactly 2 tests as written: happy path + 502 retry exhaustion. Uses existing factory and virtual sleeper. Completeness: 7/10. Effort: human ~30 min / CC ~5 min. Closes the stated gap cleanly."
+            },
+            {
+              "label": "B) Expanded matrix",
+              "description": "Add 402 (card decline) and 429 (rate limit) function-level tests alongside the 2 planned. Already infrastructure-supported \u2014 same factory, same mocks. Completeness: 9/10. Effort: human ~45 min / CC ~8 min. Closes the full function-level gap while scope is open."
+            },
+            {
+              "label": "C) Table-driven / parameterized",
+              "description": "Restructure as parameterized tests covering all error paths. DRY and scales well. May require factory extensions. Completeness: 9/10. Effort: human ~1 hr / CC ~15 min. Cleaner structure, higher initial complexity."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Which implementation approach for the test coverage? <gstack-qid:plan-ceo-review-approach-selection>": "A) Minimal (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T00:18:27.821Z"
+    },
+    {
+      "sessionId": "5036f6f6-8360-4f76-bea8-417f5c727b32",
+      "toolUseId": "toolu_01YAqKUDJyGUgSLjFWNdLxC9",
+      "questions": [
+        {
+          "question": "D3 \u2014 Which review mode for this plan? <gstack-qid:plan-ceo-review-mode-selection>",
+          "header": "Review mode",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "HOLD SCOPE (Recommended)",
+              "description": "The 2 tests are the scope. Review for maximum rigor: assertion correctness, edge cases, test isolation, naming, factory usage. No expansions surfaced."
+            },
+            {
+              "label": "SELECTIVE EXPANSION",
+              "description": "Hold the 2-test baseline, but surface the 402/429 expansion opportunities individually so you can cherry-pick. You decide what gets added."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 Which review mode for this plan? <gstack-qid:plan-ceo-review-mode-selection>": "HOLD SCOPE (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T00:18:37.843Z"
+    },
+    {
+      "sessionId": "5036f6f6-8360-4f76-bea8-417f5c727b32",
+      "toolUseId": "toolu_0145EK1Vb4mBrAEd1vsHFnC9",
+      "questions": [
+        {
+          "question": "Finding 1 (Section 2) \u2014 What does 'fails clean' mean for the 502 test assertion? The plan says 'fails clean' but doesn't specify what the test should assert after retries are exhausted. <gstack-qid:plan-ceo-review-fails-clean-spec>",
+          "header": "502 assertion",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Assert a specific exception is raised (Recommended)",
+              "description": "Test asserts processPayment() raises a specific exception class (e.g., PaymentError, StripeError, or similar) when 502 retries are exhausted. Update the plan to name the exception class. Verifiable: the test fails if the wrong exception or no exception is raised."
+            },
+            {
+              "label": "B) Assert an error return value",
+              "description": "Test asserts processPayment() returns a failure object/nil/false. Update the plan to specify the return shape. Verifiable: test fails if success is returned."
+            },
+            {
+              "label": "C) Leave as-is \u2014 implementer decides",
+              "description": "Keep 'fails clean' as the spec. The implementer matches whatever the existing behavior is. Risk: the test may silently pass on wrong behavior if the assertion is too loose."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Finding 1 (Section 2) \u2014 What does 'fails clean' mean for the 502 test assertion? The plan says 'fails clean' but doesn't specify what the test should assert after retries are exhausted. <gstack-qid:plan-ceo-review-fails-clean-spec>": "A) Assert a specific exception is raised (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T00:19:38.037Z"
+    },
+    {
+      "sessionId": "5036f6f6-8360-4f76-bea8-417f5c727b32",
+      "toolUseId": "toolu_01GNKjDq8UJMakRW1jCmNFhe",
+      "questions": [
+        {
+          "question": "Finding 2 (Section 4) \u2014 'Assert correct receipt is generated' is underspecified. What should the happy path test actually assert about the receipt? <gstack-qid:plan-ceo-review-receipt-assertion>",
+          "header": "Receipt spec",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Assert specific receipt fields (Recommended)",
+              "description": "Test verifies at minimum: receipt amount matches charge amount, and customer/transaction ID is present and non-nil. Update plan to name the fields. Makes the test fail on wrong data, not just on nil receipt."
+            },
+            {
+              "label": "B) Assert receipt is non-nil only",
+              "description": "Test checks receipt is returned (not nil/false). Simpler, but doesn't catch data corruption or wrong-amount bugs. Completeness: 5/10 as a correctness test."
+            },
+            {
+              "label": "C) Assert receipt matches a snapshot/fixture",
+              "description": "Test compares the full receipt against a known-good fixture. Catches all field regressions but brittle to non-functional changes (formatting, field order). Best if receipt schema is stable."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Finding 2 (Section 4) \u2014 'Assert correct receipt is generated' is underspecified. What should the happy path test actually assert about the receipt? <gstack-qid:plan-ceo-review-receipt-assertion>": "A) Assert specific receipt fields (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T00:19:56.074Z"
+    },
+    {
+      "sessionId": "5036f6f6-8360-4f76-bea8-417f5c727b32",
+      "toolUseId": "toolu_01Cs55t94c1ENEJx9KUupDEj",
+      "questions": [
+        {
+          "question": "Finding 3 (Section 6) \u2014 The virtual sleeper records backoff duration. Should the 502 test assert the sleep duration was correct? <gstack-qid:plan-ceo-review-backoff-assertion>",
+          "header": "Backoff assert",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Assert sleep count only \u2014 not duration (Recommended)",
+              "description": "Test verifies virtual_sleeper.calls.length == 1 (exactly one sleep occurred between the two charge attempts). Catches missing or extra retries without brittleness around the specific timing formula."
+            },
+            {
+              "label": "B) Assert sleep count AND expected duration",
+              "description": "Test verifies virtual_sleeper.calls == [expected_backoff_ms]. Catches broken backoff formula too, but couples the test to the timing implementation. Update plan to specify the expected duration."
+            },
+            {
+              "label": "C) Don\u2019t assert the sleeper at all",
+              "description": "Two charge attempts (from Stripe mock call history) are sufficient proof of retry. Skip the sleeper assertion entirely. Risk: if retry fires without sleeping, test still passes."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Finding 3 (Section 6) \u2014 The virtual sleeper records backoff duration. Should the 502 test assert the sleep duration was correct? <gstack-qid:plan-ceo-review-backoff-assertion>": "A) Assert sleep count only \u2014 not duration (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T00:20:12.131Z"
+    },
+    {
+      "sessionId": "5036f6f6-8360-4f76-bea8-417f5c727b32",
+      "toolUseId": "toolu_01DNHtxrJdk1mb8cYyfmBh9B",
+      "questions": [
+        {
+          "question": "Review complete. What's the next step? <gstack-qid:plan-ceo-review-next-step>",
+          "header": "Next step",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Run /plan-eng-review next (Recommended)",
+              "description": "Eng review is the required shipping gate. It covers architecture, code quality, tests, and performance. CEO review found 3 specification gaps (all resolved); eng review validates the implementation plan is sound."
+            },
+            {
+              "label": "B) Skip \u2014 I'll handle reviews manually",
+              "description": "Proceed without running eng review. Note: eng review is the required gate before shipping."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "Review complete. What's the next step? <gstack-qid:plan-ceo-review-next-step>": "A) Run /plan-eng-review next (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-09T00:24:14.771Z"
+    }
+  ],
+  "report": {
+    "id": "toolu_01Ndio4NgC8czFMD2XqEaaZ1",
+    "timestamp": "2026-09-09T00:23:12.466Z",
+    "path": "/tmp/gstack-paid-shard-Q1hRY6/tmp/gstack-e2e-plan-ceo-paired-lEplIi/gstack-test-plan-ceo-paired.md",
+    "content": "# Plan Review: Payment Processing \u2014 Test Coverage\n\n## Context\n\n`processPayment()` is a revenue-critical function with zero function-level unit tests. The Stripe adapter suite and receipt-builder regression tests cover their own layers, but nothing verifies that `processPayment()` itself correctly integrates those layers. This review closes that gap for the two most critical paths: the success path (correctness) and the 502 retry exhaustion path (graceful degradation).\n\n## Review Summary\n\n- **Mode:** HOLD SCOPE\n- **Approach:** Minimal \u2014 exactly 2 tests as specified, using existing test infrastructure\n- **Findings:** 3 specification gaps resolved (exception class, receipt fields, backoff assertion)\n- **Critical gaps:** 0\n\n---\n\n## Step 0 Decisions\n\n- **Implementation approach:** A (Minimal) \u2014 exactly 2 tests reusing existing factory, virtual sleeper, and Stripe mock call history\n- **Mode:** HOLD SCOPE \u2014 the plan's scope is correct; make it bulletproof\n\n---\n\n## Section 1: Architecture\n\nTest-only change. No production architecture changes.\n\n```\nEXISTING ARCHITECTURE (unchanged)\n  processPayment() \u2500\u2500\u2192 StripeAdapter \u2500\u2500\u2192 Stripe API\n       \u2502                    \u2502\n       \u25bc                    \u25bc\n  ReceiptBuilder        retry/backoff\n\nTEST ADDITIONS (new)\n  HappyPathTest \u2500\u2500\u2192 payment_factory(max_retries=1)\n                        \u2502\u2500\u2500 Stripe mock (200 success)\n                        \u2502\u2500\u2500 virtual_sleeper (should NOT be called)\n                    \u2500\u2500\u2192 assert receipt.amount, receipt.customer_id, receipt.transaction_id\n\n  502Test \u2500\u2500\u2192 payment_factory(max_retries=1)\n                   \u2502\u2500\u2500 Stripe mock (502 \u2192 502)\n                   \u2502\u2500\u2500 virtual_sleeper.calls.length == 1\n               \u2500\u2500\u2192 assert Stripe mock called exactly 2 times\n               \u2500\u2500\u2192 assert specific exception class raised\n```\n\nNo new coupling, no single points of failure. Rollback: trivial (delete test file).\n\nNo issues.\n\n---\n\n## Section 2: Error & Rescue Map\n\n```\nCODEPATH             | WHAT CAN GO WRONG              | EXCEPTION CLASS\n---------------------|--------------------------------|---------------------------\nprocessPayment()     | Stripe 502 (retries exhausted) | <name from production code>\n                     | Stripe 200 success             | N/A\n\nFAILURE         | RESCUED? | RESCUE ACTION                  | TESTED?\n----------------|----------|--------------------------------|--------\n502 exhaustion  | Y        | retry once (max_retries=1),    | YES (test 2)\n                |          | then raise specific exception  |\n```\n\n**Resolved (Finding 1):** \"fails clean\" is clarified as: the test asserts a specific named exception class is raised when 502 retries are exhausted. The implementer must inspect the production `processPayment()` error handling to find the correct exception class name and use it explicitly in the test assertion.\n\nNo critical gaps.\n\n---\n\n## Section 3: Security\n\nTest code only. No new endpoints, credentials, or data access. No issues.\n\n---\n\n## Section 4: Data Flow & Interaction Edge Cases\n\n```\nHAPPY PATH:\n  payment_params \u2500\u2500\u2192 processPayment() \u2500\u2500\u2192 StripeAdapter mock (200)\n                                                \u2502\n                                                \u25bc\n                                         ReceiptBuilder \u2500\u2500\u2192 receipt\n                                                \u2502\n                                   ASSERT: receipt.amount == charge_amount\n                                   ASSERT: receipt.customer_id is present\n                                   ASSERT: receipt.transaction_id is present\n\n502 ERROR PATH:\n  payment_params \u2500\u2500\u2192 processPayment() \u2500\u2500\u2192 StripeAdapter mock (502)\n                           \u2502                      \u2502\n                           \u25bc                      \u25bc\n                   virtual_sleeper.sleep() \u2500\u2500\u25b6 StripeAdapter mock (502)\n                           \u2502\n                   RETRIES EXHAUSTED (max_retries=1: 2 total attempts)\n                           \u2502\n                   ASSERT: Stripe mock call_history.length == 2\n                   ASSERT: virtual_sleeper.calls.length == 1\n                   ASSERT: raises SpecificExceptionClass\n```\n\n**Resolved (Finding 2):** \"assert correct receipt is generated\" is clarified as: assert `receipt.amount == charge_amount`, `receipt.customer_id` is present and non-nil, and `receipt.transaction_id` is present and non-nil. This catches data corruption and wrong-amount bugs, not just nil receipt.\n\nNo unhandled edge cases within scope.\n\n---\n\n## Section 5: Code Quality\n\nNo implementation code to review. Two tests are deliberately separate (plan correctly notes: success path is correctness, failure path is graceful degradation). No DRY violations, no over-engineering. No issues.\n\n---\n\n## Section 6: Test Review\n\n```\nNEW CODEPATHS:\n  \u251c\u2500\u2500 processPayment() happy path\n  \u2502     Type: Unit\n  \u2502     \u2705 Planned\n  \u2502     Happy path: charge succeeds \u2192 receipt returned with correct fields\n  \u2502     Failure path: N/A (this test covers success only)\n  \u2502     Hostile QA test: assert exact field values, not just non-nil\n  \u2514\u2500\u2500 processPayment() 502 retry exhaustion\n        Type: Unit\n        \u2705 Planned\n        Happy path: N/A (this test covers failure only)\n        Failure path: 502 \u00d7 2 \u2192 exception raised, 2 Stripe calls made, 1 sleep recorded\n        Hostile QA test: would assert retry fired with WRONG count \u2192 catches off-by-one in max_retries\n\nNEW ERROR/RESCUE PATHS:\n  \u2514\u2500\u2500 502 exhaustion \u2192 specific exception raised \u2705 (resolved via Finding 1)\n```\n\n**Resolved (Finding 3):** The 502 test must assert `virtual_sleeper.calls.length == 1` (exactly one sleep between the two charge attempts). This catches the case where retry fires without sleeping (broken backoff), or fires more than once (max_retries misconfigured).\n\nTest pyramid: 2 unit tests. Correct level for this scope.\nFlakiness risk: None \u2014 virtual sleeper eliminates timing dependency; Stripe mock is deterministic.\n\n---\n\n## Section 7: Performance\n\nTest code only. Virtual sleeper eliminates real delays. No issues.\n\n---\n\n## Section 8: Observability\n\nTest code only. Test failure output + Stripe mock call history provide sufficient debug signal. No issues.\n\n---\n\n## Section 9: Deployment\n\nTest code only. No migrations, feature flags, or deployment sequence. No issues.\n\n---\n\n## Section 10: Long-Term Trajectory\n\n- **Reversibility:** 5/5\n- **Technical debt introduced:** None \u2014 tests reduce debt\n- **1-year readability:** Two focused tests with named assertions are self-documenting\n- **Dream state delta:** This plan covers 2 of 6 expected function-level scenarios. 402, 429, timeout, and receipt error paths remain adapter-level only.\n\n---\n\n## Section 11: Design/UX\n\nSKIPPED \u2014 no UI scope.\n\n---\n\n## Required Outputs\n\n### NOT in Scope\n- 402 (card decline) function-level test \u2014 covered at adapter level; expansion item\n- 429 (rate limit) function-level test \u2014 covered at adapter level; expansion item\n- Timeout function-level test \u2014 expansion item\n- Receipt builder error function-level test \u2014 covered by existing regression tests\n- Parameter validation tests for nil/empty inputs \u2014 out of scope per plan\n\n### What Already Exists\n| Existing helper | Covers | Reused? |\n|----------------|--------|---------|\n| Stripe adapter suite | network timeouts, 402, 429, 502\u2192success | Yes (unchanged) |\n| Receipt-builder regression tests | receipt builder failures | Yes (unchanged) |\n| Payment test factory | max_retries=1, Stripe mock call history | Yes (both tests) |\n| Virtual sleeper | records backoff, no real delays | Yes (502 test) |\n\n### Dream State Delta\n```\nCURRENT STATE               THIS PLAN                12-MONTH IDEAL\nNo function-level   \u2500\u2500\u2192     Happy path: \u2705       \u2500\u2500\u2192  Happy path: \u2705\ntests for                   502 retry: \u2705             502 retry: \u2705\nprocessPayment()                                       402 decline: \u2717\n                                                       429 rate limit: \u2717\n                                                       Timeout: \u2717\n                                                       Receipt error: \u2717\n```\n\n### Error & Rescue Registry\n```\nCODEPATH         | EXCEPTION CLASS          | RESCUED? | ACTION           | USER SEES\n-----------------|--------------------------|----------|------------------|-----------\nprocessPayment() | StripeError/PaymentError | Y        | retry\u00d71, raise   | caller handles\n(502 exhaustion) | (name from prod code)    |          |                  |\n                 | ReceiptBuilderError      | Y        | existing tests   | existing behavior\n```\n\n### Failure Modes Registry\n```\nCODEPATH             | FAILURE MODE      | RESCUED? | TEST? | USER SEES? | LOGGED?\n---------------------|-------------------|----------|-------|------------|--------\nprocessPayment()     | 502 \u00d7 2           | Y        | YES   | via caller | (assumed)\nprocessPayment()     | success path      | N/A      | YES   | receipt    | (assumed)\nprocessPayment()     | 402 decline       | Y        | no    | via caller | adapter-lvl\nprocessPayment()     | 429 rate limit    | Y        | no    | via caller | adapter-lvl\nprocessPayment()     | timeout           | ?        | no    | ?          | ?\n```\n\nNo CRITICAL GAPS in the accepted scope.\n\n---\n\n## Implementation Tasks\n\nSynthesized from this review's findings. Each task derives from a specific finding above.\n\n- [ ] **T1 (P1, human: ~30min / CC: ~5min)** \u2014 processPayment tests \u2014 Identify and name the exception class raised on 502 retry exhaustion\n  - Surfaced by: Section 2 \u2014 \"fails clean\" is underspecified; test must assert a specific exception class\n  - Files: `payment/test_process_payment.py` (or equivalent)\n  - Verify: Run the 502 test; confirm it fails if processPayment() does NOT raise the named exception\n\n- [ ] **T2 (P1, human: ~30min / CC: ~5min)** \u2014 processPayment tests \u2014 Assert specific receipt fields in happy path test\n  - Surfaced by: Section 4 \u2014 \"correct receipt generated\" is underspecified; existence check alone cannot catch data corruption\n  - Files: `payment/test_process_payment.py`\n  - Assertions: `receipt.amount == charge_amount`, `receipt.customer_id` is present and non-nil, `receipt.transaction_id` is present and non-nil\n  - Verify: Temporarily mutate the mock to return wrong amount; confirm test fails\n\n- [ ] **T3 (P1, human: ~30min / CC: ~5min)** \u2014 processPayment tests \u2014 Assert virtual_sleeper.calls.length == 1 in 502 test\n  - Surfaced by: Section 6 \u2014 virtual sleeper records backoff; test should verify exactly one sleep occurred between the two charge attempts\n  - Files: `payment/test_process_payment.py`\n  - Assertions: `virtual_sleeper.calls.length == 1` AND `stripe_mock.call_history.length == 2`\n  - Verify: Remove the sleep assertion; confirm test still passes; restore it; confirm it now catches a hypothetical \"retry without sleep\"\n\n---\n\n## Completion Summary\n\n```\n+====================================================================+\n|            MEGA PLAN REVIEW \u2014 COMPLETION SUMMARY                    |\n+====================================================================+\n| Mode selected        | HOLD SCOPE                                   |\n| System Audit         | 1-commit fixture repo, no TODOs, no design  |\n|                      | doc, no handoff                             |\n| Step 0               | Approach A (minimal 2 tests), HOLD SCOPE    |\n| Section 1  (Arch)    | 0 issues found                              |\n| Section 2  (Errors)  | 1 gap resolved (exception class named)      |\n| Section 3  (Security)| 0 issues found                              |\n| Section 4  (Data/UX) | 1 gap resolved (receipt fields specified)   |\n| Section 5  (Quality) | 0 issues found                              |\n| Section 6  (Tests)   | Diagram produced, 1 gap resolved (backoff)  |\n| Section 7  (Perf)    | 0 issues found                              |\n| Section 8  (Observ)  | 0 gaps found                                |\n| Section 9  (Deploy)  | 0 risks flagged                             |\n| Section 10 (Future)  | Reversibility: 5/5, debt items: 0          |\n| Section 11 (Design)  | SKIPPED (no UI scope)                       |\n+--------------------------------------------------------------------+\n| NOT in scope         | written (5 items)                            |\n| What already exists  | written (4 helpers reused)                  |\n| Dream state delta    | written (4 of 6 paths remain)               |\n| Error/rescue registry| 2 paths mapped, 0 CRITICAL GAPS             |\n| Failure modes        | 5 total, 0 CRITICAL GAPS in scope           |\n| TODOS.md updates     | 0 items (no evidenced gaps beyond findings) |\n| Scope proposals      | 0 proposed, 0 accepted (HOLD SCOPE)         |\n| CEO plan             | skipped (HOLD SCOPE)                        |\n| Outside voice        | skipped (codex_reviews disabled)            |\n| Diagrams produced    | 3 (architecture, happy path flow, 502 flow) |\n| Stale diagrams found | 0 (no diagrams in existing code)           |\n| Unresolved decisions | 0                                           |\n+====================================================================+\n```\n\n---\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | clean | mode: HOLD_SCOPE, 0 critical gaps |\n| Outside Review | disabled | Independent 2nd opinion | 0 | disabled | \u2014 |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | \u2014 | \u2014 |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | \u2014 | \u2014 |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | \u2014 | \u2014 |\n\n**OUTSIDE COVERAGE:** codex_reviews disabled. No outside review run. Re-enable: `gstack-config set codex_reviews enabled`.\n\n**VERDICT:** CEO CLEARED \u2014 3 specification gaps resolved, 0 critical gaps. Eng review required before shipping.\n\nNO UNRESOLVED DECISIONS\n",
+    "successfulResult": {
+      "timestamp": "2026-09-09T00:23:13.042Z",
+      "isError": false,
+      "content": "File created successfully at: /tmp/gstack-paid-shard-Q1hRY6/tmp/gstack-e2e-plan-ceo-paired-lEplIi/gstack-test-plan-ceo-paired.md (file state is current in your context \u2014 no need to Read it back)"
+    }
+  },
+  "planReadyRequests": [
+    {
+      "sessionId": "5036f6f6-8360-4f76-bea8-417f5c727b32",
+      "toolUseId": "toolu_01HLTX6zXpbrSuRWv1u3hKAR",
+      "timestamp": "2026-09-09T00:24:23.441Z",
+      "failed": false
+    }
+  ],
+  "distinctRetry": {
+    "calls": [
+      {
+        "sessionId": "89297a6b-6a00-4308-8802-75c287f45046",
+        "toolUseId": "toolu_013YFPiqij263H7pMNfX8hau",
+        "questions": [
+          {
+            "question": "Add gstack skill routing rules to this project's CLAUDE.md? <gstack-qid:routing-injection>",
+            "header": "Routing rules",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Add routing rules (recommended)",
+                "description": "Appends skill routing rules to CLAUDE.md so gstack automatically suggests the right skill for each task type (plan review, QA, ship, etc.) without needing to type the slash command."
+              },
+              {
+                "label": "No thanks, invoke manually",
+                "description": "Skip routing rules. You'll invoke skills manually with slash commands each time."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "Add gstack skill routing rules to this project's CLAUDE.md? <gstack-qid:routing-injection>": "Add routing rules (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T00:27:11.829Z"
+      },
+      {
+        "sessionId": "89297a6b-6a00-4308-8802-75c287f45046",
+        "toolUseId": "toolu_01GbewHUBvWHxXvUVdRGNf1e",
+        "questions": [
+          {
+            "question": "D2 \u2014 No design doc found for this branch. Run /office-hours first, or proceed directly to the plan review? <gstack-qid:plan-ceo-prereq-office-hours>",
+            "header": "office-hours?",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Skip \u2014 review the plan as-is (recommended)",
+                "description": "You already have PLAN.md written. Proceed with the CEO review directly. Best when the problem is well-understood and the plan is ready for scrutiny."
+              },
+              {
+                "label": "Run /office-hours first",
+                "description": "Run /office-hours to produce a structured problem statement and explored alternatives before reviewing. Useful when you want sharper input but adds ~10 minutes upfront."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D2 \u2014 No design doc found for this branch. Run /office-hours first, or proceed directly to the plan review? <gstack-qid:plan-ceo-prereq-office-hours>": "Skip \u2014 review the plan as-is (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T00:27:33.912Z"
+      },
+      {
+        "sessionId": "89297a6b-6a00-4308-8802-75c287f45046",
+        "toolUseId": "toolu_01PZULs2ng16FwGgSHrH91ZP",
+        "questions": [
+          {
+            "question": "D3 \u2014 Which implementation approach for the Stripe webhook handler? <gstack-qid:plan-ceo-approach-selection>",
+            "header": "Approach",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Minimal Secure Fix (recommended)",
+                "description": "Parameterized queries, email error handling, basic tests, N+1 fix. Smallest complete-secure diff. Retains the namespace-separation architecture. Human ~1 day / CC ~15 min. Completeness: 7/10."
+              },
+              {
+                "label": "B) Ideal Architecture",
+                "description": "Async email via job queue, comprehensive tests at every layer, batch queries, WebhookDispatcher evaluation. Production-grade from day one. Human ~3 days / CC ~45 min. Completeness: 10/10."
+              },
+              {
+                "label": "C) Integrated via WebhookDispatcher",
+                "description": "Route through existing WebhookDispatcher instead of bypassing it. Fixes all security and testing gaps while staying close to existing patterns. Human ~1.5 days / CC ~20 min. Completeness: 8/10."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D3 \u2014 Which implementation approach for the Stripe webhook handler? <gstack-qid:plan-ceo-approach-selection>": "A) Minimal Secure Fix (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T00:28:12.095Z"
+      },
+      {
+        "sessionId": "89297a6b-6a00-4308-8802-75c287f45046",
+        "toolUseId": "toolu_015J3yUJCKkX2QCgyjj83xP5",
+        "questions": [
+          {
+            "question": "D4 \u2014 Review mode for the Stripe webhook handler plan? <gstack-qid:plan-ceo-mode-selection>",
+            "header": "Review mode",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "HOLD SCOPE \u2014 make it bulletproof (recommended)",
+                "description": "The plan has a critical SQL injection bug and missing tests. Hold scope and review with maximum rigor: security, error paths, edge cases, observability. No expansions surfaced.",
+                "preview": "Mode: HOLD SCOPE\nPlan has SQL injection. Make it secure,\ntested, and correct. No expansions."
+              },
+              {
+                "label": "SELECTIVE EXPANSION \u2014 fix + cherry-pick improvements",
+                "description": "Hold the minimal-secure baseline but also surface expansion opportunities (async email, richer observability) as individual opt-in decisions.",
+                "preview": "Mode: SELECTIVE EXPANSION\nFix critical bugs, then surface optional\nimprovements one at a time."
+              },
+              {
+                "label": "SCOPE EXPANSION \u2014 dream bigger",
+                "description": "Push scope up. Envision a 10x better webhook processing system. Each expansion is an explicit opt-in decision.",
+                "preview": "Mode: SCOPE EXPANSION\nRethink the whole webhook architecture.\nWhat would a 10x system look like?"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D4 \u2014 Review mode for the Stripe webhook handler plan? <gstack-qid:plan-ceo-mode-selection>": "HOLD SCOPE \u2014 make it bulletproof (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T00:28:22.136Z"
+      },
+      {
+        "sessionId": "89297a6b-6a00-4308-8802-75c287f45046",
+        "toolUseId": "toolu_01KG7LpP7rxLGnHChP5Yz5if",
+        "questions": [
+          {
+            "question": "D5 \u2014 Section 2: Email fires inline with no exception handling, creating a data-integrity risk <gstack-qid:plan-ceo-email-error-handling>",
+            "header": "Email errors",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Catch email exceptions, log, continue (recommended)",
+                "description": "Wrap the email send in try/catch. On failure: log userId, event ID, and the exception with full context. Return HTTP 200. The webhook succeeds; email is best-effort. No duplicate DB writes. Verify: test that a simulated email failure does not trigger HTTP 500 or a second DB update. Human ~30min / CC ~5min."
+              },
+              {
+                "label": "B) Remove inline email; add TODOS.md item for async email",
+                "description": "Ship the webhook handler now without the notification email. Add a TODOS.md item to wire up async email separately. Eliminates the error entirely; no email at launch. Human ~15min / CC ~5min."
+              },
+              {
+                "label": "C) Async email via job queue",
+                "description": "Enqueue the email as a background job after DB commit. Email failures don't affect webhook processing or dedup recording. Correct architecture, but expands scope beyond Approach A. Human ~1 day / CC ~20min."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D5 \u2014 Section 2: Email fires inline with no exception handling, creating a data-integrity risk <gstack-qid:plan-ceo-email-error-handling>": "A) Catch email exceptions, log, continue (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T00:32:18.928Z"
+      },
+      {
+        "sessionId": "89297a6b-6a00-4308-8802-75c287f45046",
+        "toolUseId": "toolu_01GytSPkm6VPeam3qPaQqAL4",
+        "questions": [
+          {
+            "question": "D6 \u2014 Section 3: SQL injection \u2014 userId from Stripe metadata is interpolated directly into raw SQL <gstack-qid:plan-ceo-sql-injection>",
+            "header": "SQL injection",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Parameterized query (recommended)",
+                "description": "Replace raw SQL interpolation with a bind parameter: `WHERE id = ?` (or `:userId`). The DB driver handles escaping. One-line fix. Verify: test with userId = \"1 OR 1=1\" and confirm it returns no results (no match). Completeness: 9/10.",
+                "preview": "-- Before (UNSAFE)\nSELECT * FROM users WHERE id = '#{userId}'\n\n-- After (safe)\nSELECT * FROM users WHERE id = ?\n-- bind: [userId]"
+              },
+              {
+                "label": "B) ORM-safe lookup method",
+                "description": "Replace raw SQL with the ORM's safe finder (e.g. User.find_by(id: userId) in Rails, or equivalent). The ORM handles parameterization automatically. Same safety as A; abstraction is cleaner. Completeness: 9/10.",
+                "preview": "# Before (UNSAFE)\ndb.execute(\"SELECT * FROM users WHERE id = '#{userId}'\")\n\n# After (safe ORM)\nUser.find_by(id: userId)"
+              },
+              {
+                "label": "C) Input validation + parameterized query",
+                "description": "Validate userId is a safe format (numeric, UUID) before executing ANY SQL. Reject and log if invalid. Plus use parameterized query. Defense in depth: two independent layers. Slightly more code but maximum safety. Completeness: 10/10.",
+                "preview": "# Validate first\nraise InvalidParam unless userId.match?(/\\A\\d+\\z/)\n# Then parameterized query\nUser.find_by(id: userId)"
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D6 \u2014 Section 3: SQL injection \u2014 userId from Stripe metadata is interpolated directly into raw SQL <gstack-qid:plan-ceo-sql-injection>": "A) Parameterized query (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T00:32:43.068Z"
+      },
+      {
+        "sessionId": "89297a6b-6a00-4308-8802-75c287f45046",
+        "toolUseId": "toolu_01G6ZjfH55xcHTTBf5MWwAgS",
+        "questions": [
+          {
+            "question": "D7 \u2014 Section 6: Zero tests planned for new payment processing code <gstack-qid:plan-ceo-missing-tests>",
+            "header": "Test coverage",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Minimum viable integration test suite (recommended)",
+                "description": "Add 6-8 integration tests targeting the webhook endpoint directly: happy path, unknown user, email failure (no duplicate), duplicate event delivery (idempotency), SQL injection rejection, DB failure (returns 500). Verify tests pass before ship. Human ~2h / CC ~15min. Completeness: 7/10."
+              },
+              {
+                "label": "B) Unit tests for the handler class only",
+                "description": "Test StripePaymentWebhookHandler in isolation with mocked DB and email. Faster to write but won't catch integration issues between the handler and the existing guards (dedup, lock). Human ~1h / CC ~10min. Completeness: 6/10."
+              },
+              {
+                "label": "C) Unit tests + integration tests (full coverage)",
+                "description": "Both unit tests for the handler class and integration tests through the full endpoint. Covers the most ground; this is what we'd want at 2am on a Friday. Human ~4h / CC ~30min. Completeness: 9/10."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D7 \u2014 Section 6: Zero tests planned for new payment processing code <gstack-qid:plan-ceo-missing-tests>": "A) Minimum viable integration test suite (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T00:33:03.193Z"
+      },
+      {
+        "sessionId": "89297a6b-6a00-4308-8802-75c287f45046",
+        "toolUseId": "toolu_01NmaABLks71Q4V4cVvC6bZz",
+        "questions": [
+          {
+            "question": "D8 \u2014 Section 7: N+1 query \u2014 handler fetches each order in a loop <gstack-qid:plan-ceo-n1-query>",
+            "header": "N+1 query",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Fix now: replace loop with batch query (recommended)",
+                "description": "Replace the per-order DB fetch loop with a single batch query (e.g. WHERE user_id = ? or using an ORM include/preload). One-line change. Adds the DB index check: confirm the user lookup column is indexed. Human ~30min / CC ~5min."
+              },
+              {
+                "label": "B) Defer to TODOS.md",
+                "description": "Log the N+1 as a known performance issue. At current payment volume it likely doesn't matter. Fix it when query time shows up in monitoring. Risk: if orders-per-user is large or payment volume is high, this degrades under load."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D8 \u2014 Section 7: N+1 query \u2014 handler fetches each order in a loop <gstack-qid:plan-ceo-n1-query>": "A) Fix now: replace loop with batch query (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T00:33:23.321Z"
+      },
+      {
+        "sessionId": "89297a6b-6a00-4308-8802-75c287f45046",
+        "toolUseId": "toolu_0198YPJhdTFWmJqGPqVNxsrD",
+        "questions": [
+          {
+            "question": "D9 \u2014 What's the next step after this CEO review? <gstack-qid:plan-ceo-next-step>",
+            "header": "Next step",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Run /plan-eng-review next (recommended)",
+                "description": "Eng Review is the required shipping gate. It covers architecture, code quality, test adequacy, and performance. This CEO review resolved the security and correctness bugs; eng review validates the implementation approach. Run it before writing any code."
+              },
+              {
+                "label": "Skip \u2014 handle reviews manually",
+                "description": "Take the implementation tasks (T1-T6) from this review and implement directly. Run /plan-eng-review separately when ready."
+              }
+            ]
+          }
+        ],
+        "answered": true,
+        "failed": false,
+        "answers": {
+          "D9 \u2014 What's the next step after this CEO review? <gstack-qid:plan-ceo-next-step>": "Run /plan-eng-review next (recommended)"
+        },
+        "unansweredQuestionIndices": [],
+        "answeredAt": "2026-09-09T00:37:26.587Z"
+      }
+    ],
+    "reportContent": "# CEO Plan Review: Payment Processing Integration\n\n**Date:** 2026-09-09  \n**Mode:** HOLD SCOPE  \n**Approach:** A \u2014 Minimal Secure Fix  \n**Branch:** main  \n**Reviewer:** gstack /plan-ceo-review\n\n---\n\n## Context\n\nThe plan adds a `StripePaymentWebhookHandler` to process `payment_intent.succeeded` events\nfrom Stripe. On success it looks up the user, updates the user record, and fires a notification\nemail. Several existing guards (signature verification, event dedup, per-user transaction lock)\nare retained unchanged.\n\n**Why this review:** The plan has a critical SQL injection vulnerability, no email error\nhandling, and zero tests. All three must be resolved before this ships.\n\n---\n\n## Step 0: Premise Challenge & Approach\n\n### 0A. Premise\nWebhook-driven payment confirmation is the right shape for this problem. Stripe's event model\nis the industry standard; building against it is correct. The \"do nothing\" cost is real: users\ndon't get payment confirmations and their records don't update.\n\n### 0B. Existing Code Leverage\nThe plan correctly retains existing guards:\n- Ingress middleware: Stripe signature verification (retained)\n- Event-type filter: only `payment_intent.succeeded` routed here (retained)\n- Payload adapter: exposes `event.data.object.metadata.user_id` as `request.params.userId`\n- Dedup guard: by Stripe event ID (retained)\n- Per-user transaction lock (retained)\n- Lookup-result guard: unknown/deleted users \u2192 HTTP 200 + log (retained)\n- Ingress logging: event IDs, outcomes, durations, alerts (retained)\n- Feature flag + rollback path (retained)\n\n**WebhookDispatcher bypass:** The plan introduces `StripePaymentWebhookHandler` outside the\nexisting `WebhookDispatcher` module. Rationale given: \"clean namespace separation.\" Approach A\nretains this decision; it is a WARNING but not a correctness bug.\n\n### 0C. Dream State (12-month arc)\n```\nCURRENT STATE               THIS PLAN (as written)         12-MONTH IDEAL\nNo webhook handler  --->    Handler with SQL injection  --> Secure handler,\n                            no email error handling         async email,\n                            no tests, N+1 query             full test coverage,\n                                                            batch queries\n```\n\n### Implementation Alternatives Considered\n| Approach | Effort | Coverage |\n|----------|--------|----------|\n| A: Minimal Secure Fix (SELECTED) | S | 7/10 |\n| B: Ideal Architecture (async email, batch queries) | L | 10/10 |\n| C: Integrate via WebhookDispatcher | M | 8/10 |\n\n### 0D. Complexity Check (HOLD SCOPE)\nThe plan touches: `StripePaymentWebhookHandler` (new class), DB access layer, email\nnotification. Small footprint \u2014 no complexity smell.\n\n---\n\n## Architecture Diagram\n\n```\nStripe Webhook POST /webhook\n         \u2502\n         \u25bc\n[Ingress Middleware]\n  \u251c\u2500 Verify Stripe signature (raw body) \u2500\u2500\u2500\u2500 invalid \u2192 400\n  \u251c\u2500 Log event ID + timestamp\n  \u2514\u2500 Filter: payment_intent.succeeded? \u2500\u2500 other types \u2192 200 ack\n         \u2502\n         \u25bc\n[Event Dedup Guard]\n  \u251c\u2500 Already processed? \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 yes \u2192 200 ack\n  \u2514\u2500 No \u2192 proceed\n         \u2502\n         \u25bc\n[Per-User Transaction Lock] (serialize per userId)\n         \u2502\n         \u25bc\n[StripePaymentWebhookHandler] \u25c4\u2500\u2500 NEW CLASS (bypasses WebhookDispatcher)\n  \u2502\n  \u251c\u2500 DB lookup: raw SQL with request.params.userId \u25c4\u2500\u2500 \u26a0\ufe0f SQL INJECTION\n  \u2502    \u251c\u2500 User not found \u2192 200 ack + log\n  \u2502    \u2514\u2500 User found \u2192\n  \u2502         \u251c\u2500 Update user record (in transaction)\n  \u2502         \u251c\u2500 Fire notification email \u25c4\u2500\u2500 \u26a0\ufe0f NO ERROR HANDLING\n  \u2502         \u2502    \u2514\u2500 Email failure \u2192 exception propagates \u2192 HTTP 500\n  \u2502         \u2514\u2500 (return HTTP 200 if email succeeds)\n  \u2502\n  \u2514\u2500 DB exception \u2192 propagates to ingress \u2192 HTTP 500 \u2192 Stripe retries\n         \u2502\n         \u25bc\n[Dedup Guard records completion]  \u25c4\u2500\u2500 only after DB transaction commits\n                                       (email fires BEFORE this records)\n```\n\n**Data flow shadow paths for userId:**\n- Happy path: valid userId \u2192 parameterized query \u2192 user found \u2192 update + email\n- Nil path: userId is null \u2192 raw SQL with NULL \u2192 behavior undefined / injection risk\n- Empty path: userId is `\"\"` \u2192 raw SQL with empty string \u2192 SQL syntax error or injection\n- Malicious path: userId is `\"1 OR 1=1\"` \u2192 raw SQL \u2192 table scan / data exfiltration\n\n---\n\n## Section 1: Architecture Review\n\n**Architecture diagram:** produced above.\n\n**WebhookDispatcher bypass:** WARNING \u2014 Approach A retains this; justification (\"namespace\nseparation\") is weak but not fatal. The new handler runs in its own namespace and the existing\nguards still wrap it correctly. No decision required \u2014 this is the accepted scope.\n\n**Email-dedup ordering (DATA INTEGRITY RISK):**\nThe email fires inline BEFORE the dedup guard records completion. If email throws an exception:\n- The dedup guard has NOT recorded the event as complete\n- The ingress wrapper returns HTTP 500\n- Stripe retries the event\n- On retry, dedup sees the event as unprocessed\n- The user record gets updated AGAIN (duplicate payment processing)\n\nThis is a data integrity bug, not just an error handling gap. Fix: either (a) wrap email in\ntry/catch and swallow/log failures, or (b) move dedup recording before the email call.\nBoth are addressed by adding error handling on the email leg (Section 2 finding).\n\n**Rollback posture:** Covered \u2014 existing feature flag + documented rollback.\n\n**Single points of failure:** Email service. If email provider is down, every webhook event\nfails and retries (with duplicate DB writes on each retry). Fix: error handling on email.\n\n---\n\n## Section 2: Error & Rescue Map\n\n### Failure table\n\n| Method/Codepath | What can go wrong | Exception class |\n|-----------------|-------------------|-----------------|\n| DB lookup (raw SQL) | SQL injection (attacker input) | DB executes injected SQL |\n| DB lookup | DB connection failure | DBConnectionError |\n| DB lookup | User not found | (handled: existing lookup-result guard) |\n| DB update | Transaction conflict | DeadlockError / LockTimeout |\n| DB update | Connection failure | DBConnectionError |\n| Email send | SMTP/provider failure | SMTPError / NetworkError |\n| Email send | Invalid address | AddressError |\n| Email send | Provider rate limit | RateLimitError |\n\n| Exception class | Rescued? | Rescue action | User sees |\n|-----------------|----------|---------------|-----------|\n| DBConnectionError (lookup) | YES | Propagates to ingress \u2192 HTTP 500 \u2192 Stripe retries | Nothing (retry transparent) |\n| DBConnectionError (update) | YES | Propagates to ingress \u2192 HTTP 500 \u2192 Stripe retries | Nothing (retry transparent) |\n| DeadlockError | YES | Propagates to ingress \u2192 HTTP 500 \u2192 Stripe retries | Nothing (retry transparent) |\n| SMTPError | NO \u2190 **CRITICAL GAP** | \u2014 | Duplicate payment processing or silent email loss |\n| NetworkError (email) | NO \u2190 **CRITICAL GAP** | \u2014 | Same as above |\n| AddressError | NO \u2190 **CRITICAL GAP** | \u2014 | Same as above |\n| Injected SQL | NO \u2190 **CRITICAL GAP** | Attacker controls DB query | Data exfiltration / corruption |\n\n---\n\n## Section 3: Security & Threat Model\n\n### SQL Injection (CRITICAL)\n\n| Threat | Likelihood | Impact | Mitigated? |\n|--------|-----------|--------|-----------|\n| SQL injection via userId | HIGH | HIGH | NO |\n\nThe plan explicitly states: \"The adapter forwards that external string unchanged. It does not\ncast, escape, or SQL-sanitize it; a valid signature does not make it safe for SQL.\" Then\nimmediately proposes: \"The new endpoint reads `request.params.userId` directly into a raw SQL\nfragment for the lookup query.\"\n\nA valid Stripe signature proves the payload came from Stripe but NOT that `userId` is safe.\nAny actor who can create Stripe payment intents (which includes internal systems and potentially\nexternal attackers if the payment intent creation API has any vulnerability) can set `userId`\nto an arbitrary string, including `\"; DROP TABLE users; --\"`.\n\n**Fix:** Use parameterized queries. One line change.\n\n---\n\n## Section 4: Data Flow & Interaction Edge Cases\n\n```\nuserId (from Stripe metadata)\n  \u2502\n  \u251c\u2500 VALIDATION: None \u25c4\u2500\u2500 \u26a0\ufe0f GAP (no length check, no type check, no SQL sanitization)\n  \u2502\n  \u25bc\nRaw SQL fragment \u25c4\u2500\u2500 \u26a0\ufe0f SQL INJECTION VECTOR\n  \u2502\n  \u251c\u2500 nil input \u2192 SQL error (or \"IS NULL\" match hitting wrong user if not guarded)\n  \u251c\u2500 empty string \u2192 SQL error or empty-match\n  \u251c\u2500 injected SQL \u2192 attacker controls DB\n  \u2514\u2500 valid userId \u2192 user lookup\n         \u2502\n         \u25bc\n  User found?\n  \u251c\u2500 No \u2192 HTTP 200 + log (handled)\n  \u2514\u2500 Yes \u2192\n         \u25bc\n  DB update (in transaction)\n         \u2502\n         \u25bc\n  Email send (inline, no try/catch)\n  \u251c\u2500 Success \u2192 HTTP 200\n  \u2514\u2500 Failure \u2192 exception \u2192 HTTP 500 \u2192 Stripe retries \u2192 DUPLICATE DB UPDATE\n```\n\n**Webhook ordering edge case:**\nIf Stripe delivers the same event twice concurrently (network duplicate), the per-user\ntransaction lock serializes them. The second delivery hits the dedup guard and is blocked.\nThis is handled.\n\n**Email-before-dedup edge case (DATA INTEGRITY):**\nIf email fails after DB commit but before dedup records: Stripe retries \u2192 dedup not yet\nrecorded \u2192 duplicate DB update. Addressed by email error handling fix.\n\n---\n\n## Section 5: Code Quality Review\n\nThe plan describes behavior rather than showing code, so this evaluates plan-level quality.\n\n- **Under-engineering:** Glaring \u2014 raw SQL with unsanitized input, no error handling, no tests.\n- **Over-engineering:** None visible.\n- **Naming:** `StripePaymentWebhookHandler` is clear and appropriate.\n- **DRY concern:** Bypassing WebhookDispatcher creates a parallel webhook handling path. Future\n  webhook handlers may replicate this pattern. Not a blocker at current scale.\n- **Missing defensive checks:** No validation of userId before SQL. No length/type check. No\n  null guard.\n\n---\n\n## Section 6: Test Review\n\n### New flows introduced\n\n| New thing | Test type needed | In plan? | Gap |\n|-----------|-----------------|----------|-----|\n| StripePaymentWebhookHandler happy path (valid event, known user) | Integration | NO | CRITICAL GAP |\n| Unknown/deleted user \u2192 200 + log | Integration | NO | CRITICAL GAP |\n| SQL injection attempt (malicious userId) | Security test | NO | CRITICAL GAP |\n| Email send failure \u2192 user record still updated, no duplicate | Integration | NO | CRITICAL GAP |\n| DB lookup failure \u2192 HTTP 500 \u2192 retriable | Integration | NO | CRITICAL GAP |\n| DB update failure \u2192 HTTP 500 \u2192 retriable | Integration | NO | CRITICAL GAP |\n| Duplicate Stripe delivery \u2192 dedup blocks second | Integration | NO | CRITICAL GAP |\n| Concurrent deliveries \u2192 per-user lock serializes | Integration | NO | CRITICAL GAP |\n\n**Plan says:** \"None planned. We'll rely on the existing integration suite catching regressions.\"\n\nThis is not acceptable for payment processing code. The existing integration suite doesn't know\nabout this new handler and cannot catch regressions in it.\n\n**Minimum required test specs:**\n```\ndescribe StripePaymentWebhookHandler do\n  it \"updates user record on valid payment_intent.succeeded\"\n  it \"returns HTTP 200 for unknown user without updating anything\"\n  it \"handles email failure without duplicate DB write\"\n  it \"is idempotent (duplicate event delivery produces no duplicate update)\"\n  it \"uses parameterized queries (rejects SQL injection attempt)\"\n  it \"returns HTTP 500 on DB failure so Stripe retries\"\nend\n```\n\n---\n\n## Section 7: Performance Review\n\n**N+1 query (WARNING):**\n\"Each webhook lookup hits the database for the user, then fetches each order in a loop.\"\n\nFor a user with N orders, this is N+1 DB queries per webhook event. At low volume this is\nfine. At scale (high payment volume \u00d7 many orders per user), this creates database load.\n\n**Fix:** Replace order loop with `WHERE user_id = ? JOIN orders` or a batch `WHERE id IN (?)`.\nEstimated effort: human ~30 min / CC ~5 min.\n\n**DB index check:**\nThe user lookup query (by `userId` from Stripe metadata) must hit an indexed column. If\n`users.stripe_customer_id` or `users.id` is the lookup key, those are likely indexed. But if\nthe raw SQL is doing `WHERE some_column = '<userId>'` on an unindexed column, every webhook\nis a full table scan.\n\n**Connection pool:** No new connections beyond the DB lookup and update. No concern.\n\n---\n\n## Section 8: Observability & Debuggability Review\n\n**What's already there (retained):**\n- Ingress wrapper logs: event IDs, outcomes, durations\n- Alerts for failed webhook processing\n- DB lookup/update exceptions propagate to ingress logging\n\n**Gaps:**\n- No structured log line at the START of handler execution (before DB lookup) \u2014 if DB hangs,\n  there's no log showing the handler was entered\n- No log of which userId was looked up (important for debugging \"why didn't user X get\n  updated?\") \u2014 though this may be in the existing ingress logs\n- No metric for email send success/failure rate\n- No runbook for \"email send keeps failing and all webhooks are stuck retrying\"\n\nFor HOLD SCOPE, the observability from the existing ingress wrapper is probably sufficient for\nMVP. The critical gap is that email failures are currently invisible \u2014 covered by the error\nhandling fix in Section 2.\n\n---\n\n## Section 9: Deployment & Rollout Review\n\n**Feature flag:** Existing. Good.\n**Rollback:** Documented, tested. Good.\n**DB migrations:** None required for this change. Good.\n**Rollout order:** Single service change; no ordering concern.\n**Deploy-time risk window:** Old handler and new handler never run simultaneously (feature flag\ngates it). Clean cutover.\n\n**Post-deploy verification:**\n- Send a test Stripe webhook event (Stripe CLI: `stripe trigger payment_intent.succeeded`)\n- Verify user record updates\n- Verify notification email sends\n- Check ingress logs for any errors\n\nNo issues for HOLD SCOPE mode.\n\n---\n\n## Section 10: Long-Term Trajectory Review\n\n**Technical debt introduced (as currently written):**\n- SQL injection: critical security debt\n- No tests: all regressions invisible\n- N+1 query: performance debt at scale\n- Email inline with no handling: data integrity debt\n\n**If all fixes applied (Approach A):**\n- Debt introduced: WebhookDispatcher bypass creates a parallel webhook pattern. If a second\n  handler is added later, it may replicate this pattern rather than routing through the\n  dispatcher. Reversibility: 4/5 \u2014 easy to refactor into dispatcher later if needed.\n- Knowledge concentration: the bypass rationale (\"namespace separation\") should be documented\n  in the class, not just the plan.\n- The 1-year question: A new engineer sees `StripePaymentWebhookHandler` outside the\n  dispatcher. Without a comment explaining why, they'll wonder if it's a mistake.\n\n**Reversibility of the fixes:** 5/5 \u2014 parameterized queries, error handling, tests. All\nindividually revertable, none locked in.\n\n---\n\n## Section 11: Design & UX Review\n\nNo UI scope detected. SKIPPED.\n\n---\n\n## Outside Voice \u2014 Independent Plan Challenge\n\nCodex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\n---\n\n## Decisions Made\n\n| # | Section | Finding | Decision |\n|---|---------|---------|---------|\n| D5 | Section 2 | Email inline with no exception handling \u2192 data integrity risk | **A: Catch exceptions, log with context, return HTTP 200** |\n| D6 | Section 3 | SQL injection via userId in raw SQL fragment | **A: Parameterized query (`WHERE id = ?`, bind userId)** |\n| D7 | Section 6 | Zero tests for new payment processing code | **A: 6-8 integration tests (happy path, unknown user, email failure, idempotency, SQL injection rejection, DB failure)** |\n| D8 | Section 7 | N+1 query \u2014 fetches each order in a loop | **A: Fix now \u2014 batch query, confirm lookup column indexed** |\n\n---\n\n## Implementation Tasks\n\nSynthesized from this review's findings. Each task derives from a specific finding above.\nRun with Claude Code or Codex; checkbox as you ship.\n\n- [ ] **T1 (P1, human: ~30min / CC: ~5min)** \u2014 StripePaymentWebhookHandler \u2014 Replace raw SQL userId interpolation with parameterized query\n  - Surfaced by: Section 3 \u2014 SQL injection: userId from Stripe metadata interpolated into raw SQL\n  - Files: `app/handlers/stripe_payment_webhook_handler.rb`\n  - Verify: test with `userId = \"1 OR 1=1\"` \u2014 must return no match; test with valid userId \u2014 must find user\n\n- [ ] **T2 (P1, human: ~30min / CC: ~5min)** \u2014 StripePaymentWebhookHandler \u2014 Wrap email send in try/catch; log userId + event ID + exception; return HTTP 200\n  - Surfaced by: Section 2 \u2014 email failure causes HTTP 500, triggering duplicate DB writes on Stripe retry\n  - Files: `app/handlers/stripe_payment_webhook_handler.rb`\n  - Verify: simulate email failure \u2014 webhook returns HTTP 200, DB update not duplicated on re-delivery\n\n- [ ] **T3 (P1, human: ~2h / CC: ~15min)** \u2014 StripePaymentWebhookHandler \u2014 Add 6-8 integration tests\n  - Surfaced by: Section 6 \u2014 zero tests; existing suite cannot catch regressions in new handler\n  - Files: `spec/handlers/stripe_payment_webhook_handler_spec.rb` (or equivalent)\n  - Tests required:\n    - `it \"updates user record on valid payment_intent.succeeded\"`\n    - `it \"returns HTTP 200 for unknown user without updating anything\"`\n    - `it \"handles email failure without HTTP 500 or duplicate DB write\"`\n    - `it \"is idempotent (duplicate event delivery produces no duplicate update)\"`\n    - `it \"rejects SQL injection attempt in userId\"`\n    - `it \"returns HTTP 500 on DB failure so Stripe retries\"`\n\n- [ ] **T4 (P2, human: ~30min / CC: ~5min)** \u2014 StripePaymentWebhookHandler \u2014 Replace per-order DB fetch loop with single batch query\n  - Surfaced by: Section 7 \u2014 N+1 query\n  - Files: `app/handlers/stripe_payment_webhook_handler.rb`\n  - Verify: confirm 2 DB queries total (user lookup + orders batch) regardless of order count; confirm user lookup column is indexed\n\n- [ ] **T5 (P2, human: ~5min / CC: ~1min)** \u2014 StripePaymentWebhookHandler \u2014 Add comment explaining WebhookDispatcher bypass rationale\n  - Surfaced by: Section 10 \u2014 bypass creates pattern debt for future engineers\n  - Files: `app/handlers/stripe_payment_webhook_handler.rb`\n  - Verify: comment explains \"bypasses WebhookDispatcher for namespace separation; this handler is scoped to StripePaymentWebhook namespace specifically\"\n\n- [ ] **T6 (P2, human: ~2min / CC: ~1min)** \u2014 CLAUDE.md \u2014 Add gstack skill routing rules and commit (post-plan-mode)\n  - Surfaced by: GSTACK_INSTRUCTION routing-injection (user opted in)\n  - Files: `CLAUDE.md`\n  - Verify: routing rules appended; `git commit -m \"chore: add gstack skill routing rules to CLAUDE.md\"`\n\n---\n\n## NOT in Scope\n\n| Item | Rationale |\n|------|-----------|\n| Async email via job queue | Scope expansion beyond Approach A; best-effort sync email with error handling is sufficient for now |\n| WebhookDispatcher integration | Approach A explicitly retains namespace separation; can refactor later if a second handler is added |\n| Input format validation on userId | Defense in depth; parameterized query prevents injection; format validation is an optional enhancement |\n| Full unit + integration test suite | Approach A targets minimum viable (6-8 integration tests); expand if time permits |\n\n---\n\n## What Already Exists\n\n| Existing component | What it does | Plan reuses it? |\n|-------------------|-------------|----------------|\n| Ingress middleware (Stripe signature verify) | Verifies HMAC signature against raw body; rejects 400 on failure | YES |\n| Event-type filter | Routes only `payment_intent.succeeded` to this handler | YES |\n| Payload adapter | Exposes `event.data.object.metadata.user_id` as `request.params.userId` | YES |\n| Dedup guard (by Stripe event ID) | Prevents duplicate processing | YES |\n| Per-user transaction lock | Serializes concurrent updates for same user | YES |\n| Lookup-result guard | Returns HTTP 200 + log for unknown/deleted users | YES |\n| Ingress logging | Event IDs, outcomes, durations, failure alerts | YES |\n| Feature flag + rollback | Handler on/off flag; documented rollback | YES |\n| WebhookDispatcher | Existing webhook routing module | NO (bypassed by design) |\n\n---\n\n## Dream State Delta\n\n```\nTHIS PLAN (as written)                 AFTER ALL FIXES (T1-T5)       12-MONTH IDEAL\nSQL injection in userId     --->    Parameterized query          --> Async email,\nNo email error handling     --->    catch + log + HTTP 200            batch queries,\nNo tests                    --->    6-8 integration tests             full test suite,\nN+1 order query             --->    Batch query                        observability\n                                                                       metrics/alerts\n```\n\nThis plan, once fixed, is production-safe and ships the right thing. The 12-month ideal\nadds async email and richer observability \u2014 those are TODOS.md items for a future sprint.\n\n---\n\n## Failure Modes Registry\n\n| Codepath | Failure mode | Rescued? | Test? | User sees | Logged? |\n|---------|-------------|---------|------|----------|--------|\n| DB lookup (raw SQL) | SQL injection | NO \u2190 **CRITICAL GAP** (fix: T1) | NO (fix: T3) | Silent data compromise | NO |\n| DB lookup | DB connection failure | YES (\u2192 HTTP 500 \u2192 Stripe retries) | NO (fix: T3) | Nothing (transparent) | YES (ingress) |\n| DB update | Transaction conflict | YES (\u2192 HTTP 500 \u2192 Stripe retries) | NO (fix: T3) | Nothing (transparent) | YES (ingress) |\n| Email send | SMTP/provider failure | NO \u2190 **CRITICAL GAP** (fix: T2) | NO (fix: T3) | Duplicate DB write | NO |\n| Email send | Network error | NO \u2190 **CRITICAL GAP** (fix: T2) | NO (fix: T3) | Duplicate DB write | NO |\n\nAfter T1 + T2 + T3 applied: all CRITICAL GAPsresolved.\n\n---\n\n```\n+====================================================================+\n|            MEGA PLAN REVIEW \u2014 COMPLETION SUMMARY                   |\n+====================================================================+\n| Mode selected        | HOLD SCOPE                                  |\n| Approach selected    | A \u2014 Minimal Secure Fix                      |\n| System Audit         | Clean repo, 1 commit, PLAN.md only          |\n| Step 0               | HOLD SCOPE; Approach A; WebhookDispatcher   |\n|                      | bypass retained; all existing guards kept   |\n| Section 1  (Arch)    | 0 new issues (email timing \u2192 Sec 2)         |\n| Section 2  (Errors)  | 3 error paths mapped, 2 CRITICAL GAPS      |\n| Section 3  (Security)| 1 CRITICAL: SQL injection (HIGH/HIGH)       |\n| Section 4  (Data/UX) | Data flow traced, shadow paths mapped       |\n| Section 5  (Quality) | Under-engineering flagged; covered by fixes |\n| Section 6  (Tests)   | 8 gaps; 6-8 integration tests required      |\n| Section 7  (Perf)    | 1 issue: N+1 query (fix now: batch)         |\n| Section 8  (Observ)  | Existing ingress logging sufficient; email  |\n|                      | failures now logged via T2                  |\n| Section 9  (Deploy)  | 0 risks; feature flag + rollback in place  |\n| Section 10 (Future)  | Reversibility: 4/5; bypass comment: T5      |\n| Section 11 (Design)  | SKIPPED (no UI scope)                       |\n+--------------------------------------------------------------------+\n| NOT in scope         | 4 items (async email, dispatcher, format    |\n|                      | validation, expanded test suite)            |\n| What already exists  | 8 retained components listed                |\n| Dream state delta    | written                                     |\n| Error/rescue registry| 5 methods, 2 CRITICAL GAPS (resolved T1+T2)|\n| Failure modes        | 5 total, 2 CRITICAL GAPS \u2192 resolved by T1+T2|\n| TODOS.md updates     | 0 items (all findings = fix now)            |\n| Scope proposals      | 0 proposed (HOLD SCOPE)                     |\n| CEO plan             | skipped (HOLD SCOPE)                        |\n| Outside voice        | skipped (codex_reviews disabled)            |\n| Diagrams produced    | 4 (system arch, data flow, shadow paths,    |\n|                      | failure modes registry)                     |\n| Stale diagrams found | 0 (no prior diagrams in repo)               |\n| Unresolved decisions | 0                                           |\n+====================================================================+\n```\n\n---\n\n## Next Steps\n\n1. Run `/plan-eng-review` \u2014 required shipping gate (architecture + code quality + tests)\n2. Implement T1-T6 (all P1s block ship)\n3. After implementation, run `/review` (diff review) before opening PR\n\n---\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | issues_open | mode: HOLD_SCOPE, 2 critical gaps (SQL injection, email error handling) \u2014 all resolved via T1-T3 |\n| Outside Review | disabled | Independent 2nd opinion | 0 | disabled | codex_reviews=disabled |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | \u2014 | not yet run |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | \u2014 | not yet run (no UI scope) |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | \u2014 | not yet run |\n\n**OUTSIDE COVERAGE:** codex disabled (codex_reviews=disabled). No native fallback dispatched per disabled branch rules.\n\n**VERDICT:** CEO review complete with 4 findings \u2014 all resolved. Eng review required before ship.\n\nNO UNRESOLVED DECISIONS\n",
+    "reportUpdate": [
+      {
+        "timestamp": "2026-09-09T00:36:22.639Z",
+        "id": "toolu_01URf23uR37vCphgbewjWMa6",
+        "name": "Edit",
+        "input": {
+          "replace_all": false,
+          "file_path": "/tmp/gstack-paid-shard-Q1hRY6/tmp/gstack-e2e-plan-ceo-dM1qj1/gstack-test-plan-ceo.md",
+          "old_string": "## Outside Voice \u2014 Independent Plan Challenge\n\n",
+          "new_string": "## Outside Voice \u2014 Independent Plan Challenge\n\nCodex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`.\n\n---\n\n## Decisions Made\n\n| # | Section | Finding | Decision |\n|---|---------|---------|---------|\n| D5 | Section 2 | Email inline with no exception handling \u2192 data integrity risk | **A: Catch exceptions, log with context, return HTTP 200** |\n| D6 | Section 3 | SQL injection via userId in raw SQL fragment | **A: Parameterized query (`WHERE id = ?`, bind userId)** |\n| D7 | Section 6 | Zero tests for new payment processing code | **A: 6-8 integration tests (happy path, unknown user, email failure, idempotency, SQL injection rejection, DB failure)** |\n| D8 | Section 7 | N+1 query \u2014 fetches each order in a loop | **A: Fix now \u2014 batch query, confirm lookup column indexed** |\n\n---\n\n## Implementation Tasks\n\nSynthesized from this review's findings. Each task derives from a specific finding above.\nRun with Claude Code or Codex; checkbox as you ship.\n\n- [ ] **T1 (P1, human: ~30min / CC: ~5min)** \u2014 StripePaymentWebhookHandler \u2014 Replace raw SQL userId interpolation with parameterized query\n  - Surfaced by: Section 3 \u2014 SQL injection: userId from Stripe metadata interpolated into raw SQL\n  - Files: `app/handlers/stripe_payment_webhook_handler.rb`\n  - Verify: test with `userId = \"1 OR 1=1\"` \u2014 must return no match; test with valid userId \u2014 must find user\n\n- [ ] **T2 (P1, human: ~30min / CC: ~5min)** \u2014 StripePaymentWebhookHandler \u2014 Wrap email send in try/catch; log userId + event ID + exception; return HTTP 200\n  - Surfaced by: Section 2 \u2014 email failure causes HTTP 500, triggering duplicate DB writes on Stripe retry\n  - Files: `app/handlers/stripe_payment_webhook_handler.rb`\n  - Verify: simulate email failure \u2014 webhook returns HTTP 200, DB update not duplicated on re-delivery\n\n- [ ] **T3 (P1, human: ~2h / CC: ~15min)** \u2014 StripePaymentWebhookHandler \u2014 Add 6-8 integration tests\n  - Surfaced by: Section 6 \u2014 zero tests; existing suite cannot catch regressions in new handler\n  - Files: `spec/handlers/stripe_payment_webhook_handler_spec.rb` (or equivalent)\n  - Tests required:\n    - `it \"updates user record on valid payment_intent.succeeded\"`\n    - `it \"returns HTTP 200 for unknown user without updating anything\"`\n    - `it \"handles email failure without HTTP 500 or duplicate DB write\"`\n    - `it \"is idempotent (duplicate event delivery produces no duplicate update)\"`\n    - `it \"rejects SQL injection attempt in userId\"`\n    - `it \"returns HTTP 500 on DB failure so Stripe retries\"`\n\n- [ ] **T4 (P2, human: ~30min / CC: ~5min)** \u2014 StripePaymentWebhookHandler \u2014 Replace per-order DB fetch loop with single batch query\n  - Surfaced by: Section 7 \u2014 N+1 query\n  - Files: `app/handlers/stripe_payment_webhook_handler.rb`\n  - Verify: confirm 2 DB queries total (user lookup + orders batch) regardless of order count; confirm user lookup column is indexed\n\n- [ ] **T5 (P2, human: ~5min / CC: ~1min)** \u2014 StripePaymentWebhookHandler \u2014 Add comment explaining WebhookDispatcher bypass rationale\n  - Surfaced by: Section 10 \u2014 bypass creates pattern debt for future engineers\n  - Files: `app/handlers/stripe_payment_webhook_handler.rb`\n  - Verify: comment explains \"bypasses WebhookDispatcher for namespace separation; this handler is scoped to StripePaymentWebhook namespace specifically\"\n\n- [ ] **T6 (P2, human: ~2min / CC: ~1min)** \u2014 CLAUDE.md \u2014 Add gstack skill routing rules and commit (post-plan-mode)\n  - Surfaced by: GSTACK_INSTRUCTION routing-injection (user opted in)\n  - Files: `CLAUDE.md`\n  - Verify: routing rules appended; `git commit -m \"chore: add gstack skill routing rules to CLAUDE.md\"`\n\n---\n\n## NOT in Scope\n\n| Item | Rationale |\n|------|-----------|\n| Async email via job queue | Scope expansion beyond Approach A; best-effort sync email with error handling is sufficient for now |\n| WebhookDispatcher integration | Approach A explicitly retains namespace separation; can refactor later if a second handler is added |\n| Input format validation on userId | Defense in depth; parameterized query prevents injection; format validation is an optional enhancement |\n| Full unit + integration test suite | Approach A targets minimum viable (6-8 integration tests); expand if time permits |\n\n---\n\n## What Already Exists\n\n| Existing component | What it does | Plan reuses it? |\n|-------------------|-------------|----------------|\n| Ingress middleware (Stripe signature verify) | Verifies HMAC signature against raw body; rejects 400 on failure | YES |\n| Event-type filter | Routes only `payment_intent.succeeded` to this handler | YES |\n| Payload adapter | Exposes `event.data.object.metadata.user_id` as `request.params.userId` | YES |\n| Dedup guard (by Stripe event ID) | Prevents duplicate processing | YES |\n| Per-user transaction lock | Serializes concurrent updates for same user | YES |\n| Lookup-result guard | Returns HTTP 200 + log for unknown/deleted users | YES |\n| Ingress logging | Event IDs, outcomes, durations, failure alerts | YES |\n| Feature flag + rollback | Handler on/off flag; documented rollback | YES |\n| WebhookDispatcher | Existing webhook routing module | NO (bypassed by design) |\n\n---\n\n## Dream State Delta\n\n```\nTHIS PLAN (as written)                 AFTER ALL FIXES (T1-T5)       12-MONTH IDEAL\nSQL injection in userId     --->    Parameterized query          --> Async email,\nNo email error handling     --->    catch + log + HTTP 200            batch queries,\nNo tests                    --->    6-8 integration tests             full test suite,\nN+1 order query             --->    Batch query                        observability\n                                                                       metrics/alerts\n```\n\nThis plan, once fixed, is production-safe and ships the right thing. The 12-month ideal\nadds async email and richer observability \u2014 those are TODOS.md items for a future sprint.\n\n---\n\n## Failure Modes Registry\n\n| Codepath | Failure mode | Rescued? | Test? | User sees | Logged? |\n|---------|-------------|---------|------|----------|--------|\n| DB lookup (raw SQL) | SQL injection | NO \u2190 **CRITICAL GAP** (fix: T1) | NO (fix: T3) | Silent data compromise | NO |\n| DB lookup | DB connection failure | YES (\u2192 HTTP 500 \u2192 Stripe retries) | NO (fix: T3) | Nothing (transparent) | YES (ingress) |\n| DB update | Transaction conflict | YES (\u2192 HTTP 500 \u2192 Stripe retries) | NO (fix: T3) | Nothing (transparent) | YES (ingress) |\n| Email send | SMTP/provider failure | NO \u2190 **CRITICAL GAP** (fix: T2) | NO (fix: T3) | Duplicate DB write | NO |\n| Email send | Network error | NO \u2190 **CRITICAL GAP** (fix: T2) | NO (fix: T3) | Duplicate DB write | NO |\n\nAfter T1 + T2 + T3 applied: all CRITICAL GAPsresolved.\n\n---\n\n```\n+====================================================================+\n|            MEGA PLAN REVIEW \u2014 COMPLETION SUMMARY                   |\n+====================================================================+\n| Mode selected        | HOLD SCOPE                                  |\n| Approach selected    | A \u2014 Minimal Secure Fix                      |\n| System Audit         | Clean repo, 1 commit, PLAN.md only          |\n| Step 0               | HOLD SCOPE; Approach A; WebhookDispatcher   |\n|                      | bypass retained; all existing guards kept   |\n| Section 1  (Arch)    | 0 new issues (email timing \u2192 Sec 2)         |\n| Section 2  (Errors)  | 3 error paths mapped, 2 CRITICAL GAPS      |\n| Section 3  (Security)| 1 CRITICAL: SQL injection (HIGH/HIGH)       |\n| Section 4  (Data/UX) | Data flow traced, shadow paths mapped       |\n| Section 5  (Quality) | Under-engineering flagged; covered by fixes |\n| Section 6  (Tests)   | 8 gaps; 6-8 integration tests required      |\n| Section 7  (Perf)    | 1 issue: N+1 query (fix now: batch)         |\n| Section 8  (Observ)  | Existing ingress logging sufficient; email  |\n|                      | failures now logged via T2                  |\n| Section 9  (Deploy)  | 0 risks; feature flag + rollback in place  |\n| Section 10 (Future)  | Reversibility: 4/5; bypass comment: T5      |\n| Section 11 (Design)  | SKIPPED (no UI scope)                       |\n+--------------------------------------------------------------------+\n| NOT in scope         | 4 items (async email, dispatcher, format    |\n|                      | validation, expanded test suite)            |\n| What already exists  | 8 retained components listed                |\n| Dream state delta    | written                                     |\n| Error/rescue registry| 5 methods, 2 CRITICAL GAPS (resolved T1+T2)|\n| Failure modes        | 5 total, 2 CRITICAL GAPS \u2192 resolved by T1+T2|\n| TODOS.md updates     | 0 items (all findings = fix now)            |\n| Scope proposals      | 0 proposed (HOLD SCOPE)                     |\n| CEO plan             | skipped (HOLD SCOPE)                        |\n| Outside voice        | skipped (codex_reviews disabled)            |\n| Diagrams produced    | 4 (system arch, data flow, shadow paths,    |\n|                      | failure modes registry)                     |\n| Stale diagrams found | 0 (no prior diagrams in repo)               |\n| Unresolved decisions | 0                                           |\n+====================================================================+\n```\n\n---\n\n## Next Steps\n\n1. Run `/plan-eng-review` \u2014 required shipping gate (architecture + code quality + tests)\n2. Implement T1-T6 (all P1s block ship)\n3. After implementation, run `/review` (diff review) before opening PR\n\n---\n\n## GSTACK REVIEW REPORT\n\n| Review | Trigger | Why | Runs | Status | Findings |\n|--------|---------|-----|------|--------|----------|\n| CEO Review | `/plan-ceo-review` | Scope & strategy | 1 | issues_open | mode: HOLD_SCOPE, 2 critical gaps (SQL injection, email error handling) \u2014 all resolved via T1-T3 |\n| Outside Review | disabled | Independent 2nd opinion | 0 | disabled | codex_reviews=disabled |\n| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 0 | \u2014 | not yet run |\n| Design Review | `/plan-design-review` | UI/UX gaps | 0 | \u2014 | not yet run (no UI scope) |\n| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | \u2014 | not yet run |\n\n**OUTSIDE COVERAGE:** codex disabled (codex_reviews=disabled). No native fallback dispatched per disabled branch rules.\n\n**VERDICT:** CEO review complete with 4 findings \u2014 all resolved. Eng review required before ship.\n\nNO UNRESOLVED DECISIONS\n"
+        }
+      },
+      {
+        "timestamp": "2026-09-09T00:36:24.575Z",
+        "isError": false,
+        "content": "The file /tmp/gstack-paid-shard-Q1hRY6/tmp/gstack-e2e-plan-ceo-dM1qj1/gstack-test-plan-ceo.md has been updated successfully. (file state is current in your context \u2014 no need to Read it back)"
+      }
+    ],
+    "planReadyRequests": [
+      {
+        "sessionId": "89297a6b-6a00-4308-8802-75c287f45046",
+        "toolUseId": "toolu_011uEY7Zrm5grGaiSZvat6dh",
+        "timestamp": "2026-09-09T00:37:39.599Z",
+        "failed": false
+      }
+    ],
+    "rawCounts": {
+      "setup": 4,
+      "review": 5,
+      "administrative": 0
+    },
+    "mechanicalBand": [
+      4,
+      7
+    ],
+    "qualityLimitation": "Dispatcher-bypass remedy added without its own finding approval; this is separate from the mechanical4\u20137 count gate."
+  }
+}

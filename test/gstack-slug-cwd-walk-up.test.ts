@@ -172,12 +172,13 @@ describe('gstack-slug — outermost project-root resolution', () => {
     // succeeds. (The script's step 2 reads the remote when there's no cache.)
     const gitInit = spawnSync('git', ['init', '-q', '-b', 'main', projectRoot], {
       encoding: 'utf8',
+      timeout: 30_000,
     });
     expect(gitInit.status).toBe(0);
     const gitRemote = spawnSync(
       'git',
       ['-C', projectRoot, 'remote', 'add', 'origin', 'https://github.com/foo/bar.git'],
-      { encoding: 'utf8' },
+      { encoding: 'utf8', timeout: 30_000 },
     );
     expect(gitRemote.status).toBe(0);
 

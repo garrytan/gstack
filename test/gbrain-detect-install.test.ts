@@ -51,6 +51,7 @@ function run(bin: string, args: string[], opts: RunOpts = {}) {
     env,
     cwd: opts.cwd,
     encoding: 'utf-8',
+    timeout: 30_000,
   });
   return {
     stdout: (res.stdout || '').trim(),

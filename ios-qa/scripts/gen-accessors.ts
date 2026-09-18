@@ -739,7 +739,7 @@ export function render(specs: AccessorSpec[], buildId: string, accessorHash: str
 function detectSwiftVersion(): string {
   if (process.env.SWIFT_VERSION) return process.env.SWIFT_VERSION;
   try {
-    const out = execSync('swift --version', { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+    const out = execSync('swift --version', { stdio: ['ignore', 'pipe', 'ignore'], timeout: 30_000 }).toString();
     const m = out.match(/Apple Swift version (\d+\.\d+\.\d+)/);
     if (m) return m[1]!;
   } catch {
@@ -754,6 +754,7 @@ function detectToolGitRev(): string {
     return execSync('git rev-parse --short HEAD', {
       cwd: dirname(new URL(import.meta.url).pathname),
       stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 30_000,
     }).toString().trim();
   } catch {
     return 'dev';

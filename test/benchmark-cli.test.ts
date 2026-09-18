@@ -13,6 +13,8 @@
 
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
+
+import { runBin } from './helpers/run-bin';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -21,16 +23,15 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-model-benchmark');
 
 function run(args: string[], opts: { env?: Record<string, string> } = {}): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync('bun', ['run', BIN, ...args], {
+  const result = runBin('bun', ['run', BIN, ...args], {
     cwd: ROOT,
-    env: { ...process.env, ...opts.env },
-    encoding: 'utf-8',
-    timeout: 15000,
+    env: opts.env,
+    timeoutMs: 15000,
   });
   return {
     status: result.status,
-    stdout: result.stdout?.toString() ?? '',
-    stderr: result.stderr?.toString() ?? '',
+    stdout: result.stdout,
+    stderr: result.stderr,
   };
 }
 

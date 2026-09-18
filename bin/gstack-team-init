@@ -7,6 +7,16 @@
 #
 # Run from the root of your team's repo (not from the gstack directory).
 
+# Heredoc delivery guard. bash 5.2+ writes a heredoc body <=64KiB through a
+# pipe in the forked child before exec, with no reader on the other end. On
+# macOS under pipe-KVA pressure a fresh pipe gets a 512-byte buffer, so any
+# body >=512B blocks write() forever and the script hangs at startup with no
+# output. Compat level 50 restores the tempfile path. These scripts are
+# bash-3.2-clean, so the compat level costs them nothing. Not exported: the
+# guard is per-script, and it survives `bash script.sh` call sites that
+# bypass the shebang.
+BASH_COMPAT=50
+
 set -euo pipefail
 
 MODE="${1:-}"
@@ -63,7 +73,7 @@ cd ~/.claude/skills/gstack && ./setup --team
 ```
 
 Skills like /qa, /ship, /review, /investigate, and /browse become available after install.
-Use /browse for all web browsing. Use ~/.claude/skills/gstack/... for gstack file paths.'
+Use /browse for all web browsing (Aside first, the bundled gstack browser as fallback). Use ~/.claude/skills/gstack/... for gstack file paths.'
 else
   SNIPPET='## gstack (REQUIRED — global install)
 
@@ -90,7 +100,7 @@ If GSTACK_MISSING: STOP. Do not proceed. Tell the user:
 Do not skip skills, ignore gstack errors, or work around missing gstack.
 
 Using gstack skills: After install, skills like /qa, /ship, /review, /investigate,
-and /browse are available. Use /browse for all web browsing.
+and /browse are available. Use /browse for all web browsing (Aside first, the bundled gstack browser as fallback).
 Use the resolved install path above for gstack file paths
 (default: ~/.claude/skills/gstack).'
 fi

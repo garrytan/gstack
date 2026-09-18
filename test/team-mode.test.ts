@@ -133,8 +133,8 @@ describe('gstack-session-update', () => {
     fs.mkdirSync(stateDir, { recursive: true });
 
     // Init a git repo to pass the .git guard
-    execSync('git init', { cwd: gstackDir });
-    execSync('git commit --allow-empty -m "init"', { cwd: gstackDir });
+    execSync('git init', { cwd: gstackDir, timeout: 30_000 });
+    execSync('git commit --allow-empty -m "init"', { cwd: gstackDir, timeout: 30_000 });
     fs.writeFileSync(path.join(gstackDir, 'VERSION'), '0.1.0');
 
     // Create a minimal gstack-config that returns auto_upgrade=true
@@ -191,8 +191,8 @@ describe('gstack-team-init', () => {
 
   beforeEach(() => {
     tmpDir = mkTmpDir();
-    execSync('git init', { cwd: tmpDir });
-    execSync('git commit --allow-empty -m "init"', { cwd: tmpDir });
+    execSync('git init', { cwd: tmpDir, timeout: 30_000 });
+    execSync('git commit --allow-empty -m "init"', { cwd: tmpDir, timeout: 30_000 });
   });
 
   afterEach(() => {
@@ -265,8 +265,8 @@ describe('gstack-team-init', () => {
     fs.writeFileSync(path.join(vendoredDir, 'VERSION'), '0.14.0.0');
     fs.writeFileSync(path.join(vendoredDir, 'README.md'), 'vendored');
     // Track it in git
-    execSync('git add .claude/skills/gstack/', { cwd: tmpDir });
-    execSync('git commit -m "add vendored gstack"', { cwd: tmpDir });
+    execSync('git add .claude/skills/gstack/', { cwd: tmpDir, timeout: 30_000 });
+    execSync('git commit -m "add vendored gstack"', { cwd: tmpDir, timeout: 30_000 });
 
     const result = run(`${TEAM_INIT} optional`, { cwd: tmpDir });
     expect(result.exitCode).toBe(0);
@@ -306,8 +306,8 @@ describe('gstack-team-init', () => {
     const vendoredDir = path.join(tmpDir, '.claude', 'skills', 'gstack');
     fs.mkdirSync(vendoredDir, { recursive: true });
     fs.writeFileSync(path.join(vendoredDir, 'VERSION'), '0.14.0.0');
-    execSync('git add .claude/skills/gstack/', { cwd: tmpDir });
-    execSync('git commit -m "add vendored"', { cwd: tmpDir });
+    execSync('git add .claude/skills/gstack/', { cwd: tmpDir, timeout: 30_000 });
+    execSync('git commit -m "add vendored"', { cwd: tmpDir, timeout: 30_000 });
 
     run(`${TEAM_INIT} optional`, { cwd: tmpDir });
 

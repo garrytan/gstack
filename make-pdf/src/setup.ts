@@ -1,52 +1,56 @@
 /**
  * `$P setup` — guided smoke test.
  *
- * Flow (per the CEO plan CLI UX spec):
- *   1. Verify browse binary exists and responds
- *   2. Verify Chromium launches via $B goto about:blank
+ * Flow:
+ *   1. Find a browser: Aside (primary) or gstack's own headless browser (fallback)
+ *   2. Render a tiny HTML page through it
  *   3. Verify pdftotext is installed (warn, don't fail)
  *   4. Generate a smoke-test PDF from an inline 2-paragraph fixture
- *   5. Open it
- *   6. Print a 3-command cheatsheet
+ *   5. Print a 3-command cheatsheet
  */
 
 import * as path from "node:path";
 import * as fs from "node:fs";
 
-import * as browseClient from "./browseClient";
+import { NO_BROWSER_HELP, pickEngine, render, renderTmpDir } from "../../lib/aside-render";
+import { ExitCode } from "./types";
 import { resolvePdftotext, PdftotextUnavailableError } from "./pdftotext";
-import { generate } from "./orchestrator";
+import { OUTPUT_TMP_DIR, generate } from "./orchestrator";
 
 export async function runSetup(): Promise<void> {
   process.stderr.write("make-pdf setup — verifying install\n\n");
 
-  // 1. Resolve browse binary
-  process.stderr.write("  [1/5] Checking browse binary...");
-  try {
-    const bin = browseClient.resolveBrowseBin();
-    process.stderr.write(` OK (${bin})\n`);
-  } catch (err: any) {
+  // 1. A browser: Aside when it answers, else gstack's own
+  process.stderr.write("  [1/5] Checking for a browser...");
+  const engine = pickEngine();
+  if (!engine.engine) {
     process.stderr.write(" FAIL\n");
-    process.stderr.write(`\n${err.message}\n`);
-    process.exit(4);
+    process.stderr.write(`\n${engine.error}\n`);
+    process.exit(ExitCode.BrowserUnavailable);
   }
+  const via = engine.engine === "aside" ? `Aside ${engine.version}` : "gstack browser";
+  process.stderr.write(engine.engine === "aside"
+    ? ` Aside OK (${engine.version})\n`
+    : ` gstack browser OK (fallback: ${engine.bin}; Aside is not running)\n`);
 
-  // 2. Chromium smoke (navigate a dedicated tab to about:blank)
-  process.stderr.write("  [2/5] Launching Chromium...");
-  let chromiumTab: number | null = null;
+  // 2. Render smoke: open a tiny page and read it back
+  process.stderr.write(`  [2/5] Rendering through ${via}...`);
+  const smokeDir = fs.mkdtempSync(path.join(renderTmpDir(), "make-pdf-setup-"));
   try {
-    chromiumTab = browseClient.newtab("about:blank");
-    process.stderr.write(` OK (tab ${chromiumTab})\n`);
+    const file = path.join(smokeDir, "smoke.html");
+    fs.writeFileSync(file, "<!doctype html><title>make-pdf smoke</title><p id=t>browser-ok</p>", "utf8");
+    const r = await render({ file, steps: [{ kind: "eval", expression: "document.getElementById('t').textContent" }] });
+    if (!r.ok || r.evals[0] !== "browser-ok") {
+      throw new Error(r.error ?? `unexpected page text: ${r.evals[0]}`);
+    }
+    process.stderr.write(" OK\n");
   } catch (err: any) {
     process.stderr.write(" FAIL\n");
-    process.stderr.write(`\nChromium failed to launch: ${err.message}\n`);
-    process.stderr.write("\nTo fix: run gstack setup from the gstack repo:\n");
-    process.stderr.write("  cd ~/.claude/skills/gstack && ./setup\n");
-    process.exit(4);
+    process.stderr.write(`\n${via} could not render a page: ${err.message}\n`);
+    process.stderr.write(`To fix: ${NO_BROWSER_HELP}\n`);
+    process.exit(ExitCode.BrowserUnavailable);
   } finally {
-    if (chromiumTab !== null) {
-      try { browseClient.closetab(chromiumTab); } catch { /* ignore */ }
-    }
+    fs.rmSync(smokeDir, { recursive: true, force: true });
   }
 
   // 3. pdftotext (optional — CI gate only)
@@ -76,8 +80,8 @@ export async function runSetup(): Promise<void> {
     "The second paragraph contains curly quotes (\"hello\"), an em dash -- like this, and an ellipsis... all of which should render correctly.",
     "",
   ].join("\n");
-  const fixturePath = path.join(browseClient.PAYLOAD_TMP_DIR, `make-pdf-smoke-${process.pid}.md`);
-  const outPath = path.join(browseClient.PAYLOAD_TMP_DIR, `make-pdf-smoke-${process.pid}.pdf`);
+  const fixturePath = path.join(OUTPUT_TMP_DIR, `make-pdf-smoke-${process.pid}.md`);
+  const outPath = path.join(OUTPUT_TMP_DIR, `make-pdf-smoke-${process.pid}.pdf`);
   fs.writeFileSync(fixturePath, fixture, "utf8");
 
   try {

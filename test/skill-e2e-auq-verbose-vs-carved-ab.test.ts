@@ -23,6 +23,7 @@
  * strictly less unrelated review-section text in context.
  */
 import { test } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
@@ -109,6 +110,6 @@ describeE2E('AUQ no-degradation: verbose vs carved (periodic)', () => {
       // eslint-disable-next-line no-console
       console.log('[AUQ-AB] NO DEGRADATION:\n' + summary);
     },
-    600_000,
+    CAPTURE_LONG_MS,
   );
 });

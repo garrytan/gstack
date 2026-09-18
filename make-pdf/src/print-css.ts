@@ -7,8 +7,8 @@
  *
  *   - Helvetica first, with Liberation Sans as a metric-compatible Linux
  *     fallback (Helvetica and Arial aren't installed on most Linux distros;
- *     Liberation Sans ships via the fonts-liberation package and Playwright's
- *     install-deps). No bundled webfonts — dodges the per-glyph Tj bug that
+ *     Liberation Sans ships via the fonts-liberation package). No bundled
+ *     webfonts — dodges the per-glyph Tj bug that
  *     breaks copy-paste extraction.
  *   - All paragraphs flush-left. No first-line indent, no justify, no
  *     p+p indent. text-align: left everywhere. 12pt margin-bottom.

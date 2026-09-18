@@ -15,13 +15,13 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const DETACH = path.join(ROOT, 'bin', 'gstack-detach');
 
 function ownPgid(): string {
-  return (spawnSync('ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf-8' }).stdout || '').trim();
+  return (spawnSync('ps', ['-o', 'pgid=', '-p', String(process.pid)], { encoding: 'utf-8', timeout: 30_000 }).stdout || '').trim();
 }
 function waitFor(pred: () => boolean, ms: number): boolean {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (pred()) return true;
-    spawnSync('sleep', ['0.2']);
+    spawnSync('sleep', ['0.2'], { timeout: 30_000 });
   }
   return pred();
 }
@@ -69,6 +69,59 @@ describe('gstack-detach', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }, 16000);
 
+  test('watchdog group-SIGKILLs TERM-immune grandchildren (no orphan survives)', () => {
+    // Regression pin for the 2026-08 escalation change: the watchdog used to
+    // follow its killpg(SIGTERM) + 5s grace with a DIRECT proc.kill() — a
+    // grandchild that ignores TERM survived and burned cores/API for hours
+    // (the observed 15-hour-orphan class). Now the grace escalates to
+    // killpg(SIGKILL). The child here traps TERM and spawns a TERM-immune
+    // grandchild; only a GROUP SIGKILL clears both. Markers are per-run
+    // unique (pid) so concurrent worktree suites can't cross-kill.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gd-'));
+    const log = path.join(dir, 'run.log');
+    const g1 = `6091.${process.pid}`;
+    const g2 = `6092.${process.pid}`;
+    const alive = (m: string) => spawnSync('pgrep', ['-f', `sleep ${m.replace('.', '\\.')}`], { stdio: 'pipe', timeout: 5_000 }).status === 0;
+    try {
+      spawnSync(DETACH, ['--log', log, '--timeout', '1', '--', 'bash', '-c',
+        `trap '' TERM; (trap '' TERM; sleep ${g1}) & exec sleep ${g2}`],
+        { encoding: 'utf-8', timeout: 10000 });
+      expect(waitFor(() => logHas(log, '### gstack-detach EXIT=timeout ###'), 15000)).toBe(true);
+      // Grace is 5s after the TERM that both processes ignore — the SIGKILL
+      // escalation must clear the whole group shortly after the sentinel.
+      expect(waitFor(() => !alive(g1) && !alive(g2), 10000),
+        'TERM-immune child/grandchild survived the watchdog — killpg(SIGKILL) escalation regressed').toBe(true);
+    } finally {
+      spawnSync('pkill', ['-9', '-f', `sleep 609[12]\\.${process.pid}`], { stdio: 'ignore', timeout: 5_000 });
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30000);
+
+  test('watchdog kills the grandchild even when the LEADER dies on the SIGTERM', () => {
+    // The pgid-after-grace bug: killpg(getpgid(proc.pid), SIGKILL) raised
+    // ESRCH once the leader had honored the TERM, and the except fell back
+    // to proc.kill() on a corpse — the TERM-immune grandchild lived forever.
+    // The fix captures the pgid AT SPAWN. This variant is the one the
+    // TERM-immune-leader test above cannot see.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gd-'));
+    const log = path.join(dir, 'run.log');
+    const g = `6093.${process.pid}`;
+    const alive = () => spawnSync('pgrep', ['-f', `sleep ${g.replace('.', '\\.')}`], { stdio: 'pipe', timeout: 5_000 }).status === 0;
+    try {
+      // Leader: no trap — dies on the watchdog's SIGTERM. Grandchild:
+      // TERM-immune, same group — only a saved-pgid SIGKILL reaches it.
+      spawnSync(DETACH, ['--log', log, '--timeout', '1', '--', 'bash', '-c',
+        `(trap '' TERM; sleep ${g}) & sleep 60`],
+        { encoding: 'utf-8', timeout: 10000 });
+      expect(waitFor(() => logHas(log, '### gstack-detach EXIT=timeout ###'), 15000)).toBe(true);
+      expect(waitFor(() => !alive(), 10000),
+        'grandchild survived a dead leader — the pgid must be captured at spawn, not resolved after the grace').toBe(true);
+    } finally {
+      spawnSync('pkill', ['-9', '-f', `sleep 6093\\.${process.pid}`], { stdio: 'ignore', timeout: 5_000 });
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30000);
+
   test('machine --lock serializes concurrent runs (second WAITS for the first)', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gd-'));
     const lock = `gstack-detach-test-${process.pid}`;
@@ -90,7 +143,7 @@ describe('gstack-detach', () => {
   }, 20000);
 
   test('rejects missing command (exit 2)', () => {
-    const r = spawnSync(DETACH, ['--label', 'x'], { encoding: 'utf-8' });
+    const r = spawnSync(DETACH, ['--label', 'x'], { encoding: 'utf-8', timeout: 30_000 });
     expect(r.status).toBe(2);
   });
 });

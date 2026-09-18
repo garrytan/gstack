@@ -1,0 +1,248 @@
+{
+  "note": "Native F captures: exact question text, option labels and selected answers. The original complete observations remain in the run artifacts; descriptions are omitted from this focused classification replay. No expected counts are sent to a model.",
+  "cases": [
+    {
+      "name": "five-first",
+      "sourceCapture": "plan-ceo-review-1788889172889-nqtlLV",
+      "sessionId": "6783d375-4023-4b03-bad1-09af36a4fd1d",
+      "originalReviewCount": 8,
+      "expectedReviewCount": 7,
+      "calls": [
+        {
+          "toolUseId": "toolu_01NYTQ5FdABFQaRLZma3K2bo",
+          "header": "Arch: dispatcher",
+          "question": "D3 — Section 1 (Architecture): The plan bypasses the existing `WebhookDispatcher` module with no documented rationale beyond 'namespace separation.' This creates a parallel dispatch path that will diverge. What should the plan say about this?",
+          "options": [
+            "A) Document the bypass inline (recommended)",
+            "B) Integrate with WebhookDispatcher instead",
+            "C) Accept the bypass as-is — no change needed"
+          ],
+          "answer": "A) Document the bypass inline (recommended)"
+        },
+        {
+          "toolUseId": "toolu_01QX3MEMGL6J7ZPnAW4BVjZR",
+          "header": "Email error gap",
+          "question": "D4 — Section 2 (Error/Rescue): The email notification fires inline with no error handling. If email fails AFTER the DB update commits but BEFORE the dedup guard records completion, Stripe will retry the event. The user record gets updated twice — and still gets no email. How should the plan address this?",
+          "options": [
+            "A) Add a try/catch around the email leg (recommended)",
+            "B) Move email to a background job",
+            "C) Defer to TODOS.md — accept the risk for now"
+          ],
+          "answer": "A) Add a try/catch around the email leg (recommended)"
+        },
+        {
+          "toolUseId": "toolu_01Uf7CHkz7dkZmgb5bTrfKjq",
+          "header": "SQL injection",
+          "question": "D5 — Section 3 (Security) CRITICAL: The plan reads `request.params.userId` directly into a raw SQL fragment. This is a textbook SQL injection vulnerability. An attacker who can send a crafted webhook (or exploit a signature verification bypass) can exfiltrate or corrupt the entire database. This MUST be fixed before implementation. How?",
+          "options": [
+            "A) Parameterized query — fix the plan (recommended)",
+            "B) Input validation before the query",
+            "C) Note it as a known issue"
+          ],
+          "answer": "A) Parameterized query — fix the plan (recommended)"
+        },
+        {
+          "toolUseId": "toolu_01M76BDWgwpJrMZs1Mmh8J5S",
+          "header": "Tests",
+          "question": "D6 — Section 6 (Tests): The plan says 'None planned — we'll rely on the existing integration suite.' This is payment code. The existing suite has no tests for the new handler codepaths. What's the testing strategy?",
+          "options": [
+            "A) Write focused tests for the critical path (recommended)",
+            "B) Accept the gap — rely on existing suite"
+          ],
+          "answer": "A) Write focused tests for the critical path (recommended)"
+        },
+        {
+          "toolUseId": "toolu_019VwdQqcAMv5a4ygmSUFaZ6",
+          "header": "N+1 queries",
+          "question": "D7 — Section 7 (Performance): Each webhook lookup fetches orders in a loop (N+1 pattern): 1 query for user + 1 query per order. A user with 100 orders = 101 queries per webhook event. Fix now or defer?",
+          "options": [
+            "A) Fix now with a batch query (recommended)",
+            "B) Defer to TODOS.md"
+          ],
+          "answer": "A) Fix now with a batch query (recommended)"
+        },
+        {
+          "toolUseId": "toolu_01GpxKeqJsEc9sbC5hBafqSZ",
+          "header": "TODO: dispatcher",
+          "question": "TODOS.md — Item 1: Evaluate WebhookDispatcher integration. The plan documents why it’s bypassed but doesn’t rule out integration long-term. If the dispatcher grows new capabilities (rate limiting, circuit breaking, structured logging) the new handler will miss them. Add a future evaluation TODO?",
+          "options": [
+            "A) Add to TODOS.md (recommended)",
+            "B) Skip — not valuable enough"
+          ],
+          "answer": "A) Add to TODOS.md (recommended)"
+        },
+        {
+          "toolUseId": "toolu_01L5Q5bnnpCnWa6xHuPWgqCC",
+          "header": "TODO: async email",
+          "question": "TODOS.md — Item 2: Move email notification to a background job. The try/catch added in D4 prevents Stripe retry cascades, but email still runs synchronously in the webhook response window. If email becomes slow (slow SMTP, large templates), webhook response times suffer. Add an async email TODO?",
+          "options": [
+            "A) Add to TODOS.md (recommended)",
+            "B) Skip — try/catch is sufficient for now"
+          ],
+          "answer": "A) Add to TODOS.md (recommended)"
+        },
+        {
+          "toolUseId": "toolu_017nwDZhLb3oLysqRxToEUbZ",
+          "header": "Next review",
+          "question": "CEO Review complete. This plan had a critical SQL injection, email error gap, no tests, and N+1 queries — all now resolved through plan decisions. Eng Review is the required gate before ship. Run /plan-eng-review next?",
+          "options": [
+            "Run /plan-eng-review next (recommended)",
+            "Skip — I'll handle reviews manually"
+          ],
+          "answer": "Run /plan-eng-review next (recommended)"
+        }
+      ]
+    },
+    {
+      "name": "paired-first",
+      "sourceCapture": "plan-ceo-review-1788889172906-tPJLg7",
+      "sessionId": "60f4731c-327e-4712-981b-c96b0d3cf5eb",
+      "originalReviewCount": 5,
+      "expectedReviewCount": 4,
+      "calls": [
+        {
+          "toolUseId": "toolu_012YREPoKQhMKnnDb73VnJME",
+          "header": "Receipt assert",
+          "question": "D6 — Happy-path assertion: what should the test verify about the receipt? The plan says 'assert correct receipt is generated' but doesn't define which fields constitute correctness. A weak assertion (receipt.present?) passes even when amount, customer, or charge ID regress. Stakes: a buggy receipt ships undetected if the assertion is too broad. Recommendation: A — specific fields, because you get regression coverage for free with the same test. Completeness: A=9/10, B=4/10, C=7/10. <gstack-qid:plan-ceo-happy-path-assertion>",
+          "options": [
+            "A) Assert specific receipt fields (Recommended)",
+            "B) Accept ‘assert correct receipt’ as-is",
+            "C) Add a note to the plan defining ‘correct’"
+          ],
+          "answer": "A) Assert specific receipt fields (Recommended)"
+        },
+        {
+          "toolUseId": "toolu_0198Z1gZC8gkx6ezv73qyXYX",
+          "header": "Fail contract",
+          "question": "D7 — 502 error path: what does the test assert when retries are exhausted? The plan says 'fails clean' but doesn’t define the failure contract. Stakes: a test asserting `raises_exception?` passes even if the wrong exception type is raised (e.g., a generic RuntimeError instead of a PaymentError) — the test’s diagnostic value collapses. Recommendation: A — assert a named exception, because it documents processPayment()’s contract explicitly. Completeness: A=9/10, B=6/10, C=5/10. <gstack-qid:plan-ceo-502-failure-contract>",
+          "options": [
+            "A) Assert a specific named exception class (Recommended)",
+            "B) Assert raises + message contains a keyword",
+            "C) Accept ‘fails clean’ as-is"
+          ],
+          "answer": "A) Assert a specific named exception class (Recommended)"
+        },
+        {
+          "toolUseId": "toolu_01UArfrjX2d9JwzV3J9Bnpbs",
+          "header": "Call count",
+          "question": "D8 — Should the 502 test explicitly assert that Stripe was called exactly twice? The plan says 'retry-with-backoff fires once' (2 total calls). Without a call-count assertion, the test passes even if the retry loop fires 0 times (e.g., someone accidentally sets max_retries=0 in the factory) or 10 times — silently wrong retry behavior. Recommendation: A — assert call_count == 2, because that’s the observable proof that retry-with-backoff fired once. Completeness: A=9/10, B=6/10. <gstack-qid:plan-ceo-call-count-assert>",
+          "options": [
+            "A) Assert mock.call_count == 2 (Recommended)",
+            "B) Assert only the failure outcome, not call count"
+          ],
+          "answer": "A) Assert mock.call_count == 2 (Recommended)"
+        },
+        {
+          "toolUseId": "toolu_01T6gSvFAp4qDwojZHKfU22b",
+          "header": "TODO?",
+          "question": "D9 — TODO: Add processPayment() unit tests for 402 and 429 paths? The Stripe adapter suite already covers 402 card declines and 429 rate limits at integration level, but processPayment() has no unit tests for these paths specifically. A future regression in how processPayment() handles these codes (e.g., it stops delegating correctly) would be caught only by the slower integration suite. Effort: S (human ~30min / CC ~5min). Priority: P3. <gstack-qid:plan-ceo-todo-402-429>",
+          "options": [
+            "A) Add to TODOS.md",
+            "B) Skip — integration coverage is sufficient",
+            "C) Build it now in this PR"
+          ],
+          "answer": "A) Add to TODOS.md"
+        },
+        {
+          "toolUseId": "toolu_012xtd9WoAtgtz8VrBNxSNM2",
+          "header": "Next step",
+          "question": "D10 — What’s next? The CEO review is CLEARED. The Eng Review (/plan-eng-review) has not run and is the required gate before shipping. It covers architecture depth, test pyramid validation, and performance checks that the CEO review doesn’t duplicate. Note: options differ in kind, not coverage — no completeness score. Recommendation: A — run eng review next, it’s the required gate. <gstack-qid:plan-ceo-next-steps>",
+          "options": [
+            "Run /plan-eng-review next (Recommended)",
+            "Skip — I’ll handle reviews manually"
+          ],
+          "answer": "Run /plan-eng-review next (Recommended)"
+        }
+      ]
+    },
+    {
+      "name": "five-retry",
+      "sourceCapture": "plan-ceo-review-1788889864558-kUTrrg",
+      "sessionId": "7fb8e00c-6b83-4510-b4b1-34d169fa3bd5",
+      "originalReviewCount": 8,
+      "expectedReviewCount": 8,
+      "calls": [
+        {
+          "toolUseId": "toolu_011aNGxuX6kHRKCC2dRpGKpy",
+          "header": "Architecture",
+          "question": "D4 — Section 1 Architecture: WebhookDispatcher bypass needs rationale in the plan",
+          "options": [
+            "A) Add rationale to plan — document why bypass is intentional (recommended)",
+            "B) Leave it as-is — namespace separation is sufficient rationale"
+          ],
+          "answer": "A) Add rationale to plan — document why bypass is intentional (recommended)"
+        },
+        {
+          "toolUseId": "toolu_012qW99DV551qYXiZu7VKxLk",
+          "header": "Error handling",
+          "question": "D5 — Section 2 Errors: Email leg has no rescue handlers and timing ambiguity with dedup",
+          "options": [
+            "A) Fix inline: wrap email in try/catch, log, enqueue retry (recommended)",
+            "B) Accept email failure as silent — catch, log, swallow"
+          ],
+          "answer": "A) Fix inline: wrap email in try/catch, log, enqueue retry (recommended)"
+        },
+        {
+          "toolUseId": "toolu_01NnQUTDuwXSyqCYhLHj4yad",
+          "header": "SQL injection",
+          "question": "D6 — Section 3 Security: SQL injection is P0 — how should the fix be specified in the plan?",
+          "options": [
+            "A) Parameterized queries + type validation — specify both in the plan (recommended)",
+            "B) Parameterized queries only — bind parameter is sufficient"
+          ],
+          "answer": "A) Parameterized queries + type validation — specify both in the plan (recommended)"
+        },
+        {
+          "toolUseId": "toolu_011kzne3D3vqdCWYHU3kFZjS",
+          "header": "Data edge case",
+          "question": "D7 — Section 4 Data Flow: Missing userId in payload is unspecified",
+          "options": [
+            "A) Add explicit guard: validate userId presence before lookup (recommended)",
+            "B) Rely on existing lookup guard behavior"
+          ],
+          "answer": "A) Add explicit guard: validate userId presence before lookup (recommended)"
+        },
+        {
+          "toolUseId": "toolu_014DJHCbwaSPycewGhb4ayyM",
+          "header": "Test coverage",
+          "question": "D8 — Section 6 Tests: Zero test coverage for a new payment flow",
+          "options": [
+            "A) Add 5 focused tests to the plan (recommended)",
+            "B) Add happy-path integration test only"
+          ],
+          "answer": "A) Add 5 focused tests to the plan (recommended)"
+        },
+        {
+          "toolUseId": "toolu_013JiZ2mFSKLa2e2Nrn5FDdv",
+          "header": "Performance",
+          "question": "D9 — Section 7 Performance: N+1 query + unbounded order load",
+          "options": [
+            "A) Eager load orders + add a LIMIT (recommended)",
+            "B) Eager load orders only — no LIMIT"
+          ],
+          "answer": "A) Eager load orders + add a LIMIT (recommended)"
+        },
+        {
+          "toolUseId": "toolu_016EJRhhj8e4vYaRzd2nYpP2",
+          "header": "Observability",
+          "question": "D10 — Section 8 Observability: New handler needs structured logging to be debuggable",
+          "options": [
+            "A) Add 3 structured log lines to the handler spec (recommended)",
+            "B) Rely on ingress wrapper logging"
+          ],
+          "answer": "A) Add 3 structured log lines to the handler spec (recommended)"
+        },
+        {
+          "toolUseId": "toolu_01AaNKrDMAyzcfvqnLBc2aBV",
+          "header": "Deployment",
+          "question": "D11 — Section 9 Deployment: Post-deploy verification checklist is missing from the plan",
+          "options": [
+            "A) Add verification checklist to the plan (recommended)",
+            "B) Skip — existing rollback path is sufficient"
+          ],
+          "answer": "A) Add verification checklist to the plan (recommended)"
+        }
+      ]
+    }
+  ]
+}

@@ -12,6 +12,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, afterAll } from 'bun:test';
+import { canRevokeWrites } from './helpers/fs-caps';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -90,7 +91,7 @@ describe('_receipted_curl', () => {
   });
 
   test('fail-closed refusal never hits the network; stderr is problem + cause + fix', async () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     fs.mkdirSync(path.join(home, 'security'), { recursive: true, mode: 0o500 });
     const result = await runBash(`
       set -uo pipefail
@@ -118,7 +119,7 @@ describe('_receipted_curl', () => {
   });
 
   test('fail-open warns and proceeds when the receipt cannot be written', async () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     fs.mkdirSync(path.join(home, 'security'), { recursive: true, mode: 0o500 });
     const result = await runBash(`
       set -uo pipefail
@@ -168,7 +169,7 @@ describe('_receipted_git', () => {
   });
 
   test('fail-closed git refusal returns 3 without running the command', async () => {
-    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    if (!canRevokeWrites()) return; // chmod is advisory here (win32, root, DAC-override containers)
     fs.mkdirSync(path.join(home, 'security'), { recursive: true, mode: 0o500 });
     const marker = path.join(os.tmpdir(), `gstack-egress-git-${process.pid}`);
     fs.rmSync(marker, { force: true });

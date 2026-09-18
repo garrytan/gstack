@@ -1,0 +1,30 @@
+name: Seed claude interactive config
+description: >
+  Seed ~/.claude.json with onboarding-complete plus the API-key approval so
+  PTY sessions never wedge on the fresh-container onboarding / "use detected
+  ANTHROPIC_API_KEY?" dialog. Mirrors what the hermetic E2E child env seeds.
+  Idempotent — safe to run unconditionally in sliced lanes where any slice
+  can host a PTY test. Only the key's last 20 chars are persisted (the
+  approval-hash form claude itself writes), never the whole key.
+inputs:
+  anthropic-api-key:
+    description: API key whose suffix gets pre-approved. Pass from secrets at the call site.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        node -e '
+          const fs = require("fs"), os = require("os"), path = require("path");
+          const p = path.join(os.homedir(), ".claude.json");
+          const seed = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : {};
+          seed.hasCompletedOnboarding = true;
+          const key = process.env.ANTHROPIC_API_KEY || "";
+          if (key) seed.customApiKeyResponses = { approved: [key.slice(-20)], rejected: [] };
+          fs.writeFileSync(p, JSON.stringify(seed, null, 2));
+          console.log("seeded", p);
+        '

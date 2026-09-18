@@ -32,6 +32,7 @@ jobs:
   sync:
     name: Sync PR title to VERSION
     runs-on: ubicloud-standard-2
+    timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: write

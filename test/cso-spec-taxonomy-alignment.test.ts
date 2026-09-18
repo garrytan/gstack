@@ -1,44 +1,48 @@
-/**
- * Cross-skill taxonomy alignment. The canonical taxonomy lives in
- * lib/redact-patterns.ts (single source of truth). /spec and /cso both reference
- * it by pointer rather than inlining the full catalog (size discipline). This
- * test guards that the recognizable HIGH-tier prefixes stay present in /cso's
- * archaeology prose. (A fourth test covered the resolver-generated taxonomy
- * table; that generator was deleted as dead code — no template ever used it.)
- */
-import { describe, test, expect } from "bun:test";
-import * as fs from "fs";
-import * as path from "path";
+/** CSO uses versioned domain mappings and the shared fail-closed secret taxonomy. */
+import { describe, test, expect } from 'bun:test';
+import * as fs from 'fs';
+import * as path from 'path';
 
-const ROOT = path.resolve(import.meta.dir, "..");
-// cso is carved (skeleton + sections/audit-phases.md). The Secrets Archaeology
-// prose + secret prefixes moved into the section; check the union so relocated
-// content still counts.
-function unionSkill(skill: string): string {
-  let t = fs.readFileSync(path.join(ROOT, skill, "SKILL.md"), "utf-8");
-  const dir = path.join(ROOT, skill, "sections");
-  if (fs.existsSync(dir)) {
-    for (const f of fs.readdirSync(dir).sort()) {
-      if (f.endsWith(".md") && !f.endsWith(".md.tmpl")) t += "\n" + fs.readFileSync(path.join(dir, f), "utf-8");
-    }
-  }
-  return t;
-}
-const CSO = unionSkill("cso");
+const ROOT = path.resolve(import.meta.dir, '..');
+const CSO = fs.readFileSync(path.join(ROOT, 'cso/SKILL.md'), 'utf8') + '\n'
+  + fs.readFileSync(path.join(ROOT, 'cso/sections/audit-phases.md'), 'utf8');
 
-describe("cso/spec taxonomy alignment", () => {
-  test("cso archaeology names the recognizable HIGH-tier prefixes", () => {
-    for (const s of ["AKIA", "ghp_", "sk-ant-", "BEGIN"]) {
-      expect(CSO).toContain(s);
-    }
+describe('CSO domain source and redaction contracts', () => {
+  test('credential recognition uses the shared taxonomy without raw history commands', () => {
+    for (const prefix of ['AKIA', 'ghp_', 'sk-ant-', 'BEGIN']) expect(CSO).toContain(prefix);
+    expect(CSO).toContain('lib/redact-patterns.ts');
+    expect(CSO).toContain('Secrets Archaeology');
+    expect(CSO).toContain('Never print raw `git log -p --all`');
+    expect(CSO).toContain('Do not call live provider APIs');
   });
 
-  test("cso points to lib/redact-patterns.ts as the single source of truth", () => {
-    expect(CSO).toContain("lib/redact-patterns.ts");
+  test('OWASP 2025 mapping does not retain obsolete 2021 category numbers', () => {
+    const rows = CSO.split('\n').filter(line => /^\| A\d\d \|/.test(line));
+    expect(rows).toHaveLength(10);
+    const categories = new Map(rows.map(line => {
+      const [, id, name] = line.split('|').map(part => part.trim());
+      return [id, name];
+    }));
+    expect(categories.get('A02')).toBe('Security Misconfiguration');
+    expect(categories.get('A03')).toBe('Software Supply Chain Failures');
+    expect(categories.get('A10')).toBe('Mishandling of Exceptional Conditions');
+    expect(rows.find(line => line.startsWith('| A01 |'))).toContain('SSRF');
   });
 
-  test("cso keeps its git-history archaeology (different use case, not replaced)", () => {
-    expect(CSO).toContain("git log -p --all");
-    expect(CSO).toContain("Secrets Archaeology");
+  test('domain standards carry inspected versions and no inferred compliance', () => {
+    for (const version of ['OWASP Top 10:2025', 'OWASP API Security Top 10:2023', 'ASVS version: 5.0.0', 'v5.0.0-1.2.5', 'LLM Top 10 2026', 'Agentic Applications Top 10 2026', 'MCP security guidance version: 2026-07-28']) expect(CSO).toContain(version);
+    expect(CSO).toContain('artifact 56857');
+    expect(CSO).toContain('unset publication-date field');
+    expect(CSO).toContain('artifact 52117');
+    expect(CSO).toContain('Do not invent IDs');
+  });
+
+  test('all declared scanners retain execution and evidence boundaries', () => {
+    for (const scanner of ['Gitleaks', 'OSV-Scanner', 'Semgrep', 'zizmor', 'Trivy', 'Schemathesis']) expect(CSO).toContain(scanner);
+    expect(CSO).toContain('Import existing SARIF');
+    expect(CSO).toContain('public wheels');
+    expect(CSO).toContain('Gemfile.lock` parsed as inert data');
+    expect(CSO).toContain('Python `--no-build` alone');
+    expect(CSO).toContain('every database connection');
   });
 });

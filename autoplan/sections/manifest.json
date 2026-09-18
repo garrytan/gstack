@@ -1,0 +1,38 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "autoplan",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). Fields are IDs, file paths, human titles, and human-readable trigger text ONLY. The skeleton's phase sequencing (Sequential Execution + the Phase 0 UI/DX scope detection) is the ONLY place that decides WHEN to read a section — Phase 2 and Phase 2.5 are conditional and their sections must NOT be read when their scope is absent; required-reads live in the E2E fixtures. No machine predicate here — see docs/designs/v2_PLAN.md:663.",
+  "sections": [
+    {
+      "id": "ceo-phase",
+      "file": "ceo-phase.md",
+      "title": "Phase 1: CEO review (strategy & scope) — override rules, dual voices, required outputs",
+      "trigger": "starting Phase 1 (CEO review — always runs, after the Phase 0.5 preflight)"
+    },
+    {
+      "id": "design-phase",
+      "file": "design-phase.md",
+      "title": "Phase 2: design review — override rules, dual voices, 7-pass checklist",
+      "trigger": "starting Phase 2 (design review — ONLY if UI scope was detected in Phase 0; skip the read entirely otherwise)"
+    },
+    {
+      "id": "eng-phase",
+      "file": "eng-phase.md",
+      "title": "Phase 3: eng review + dual voices — override rules, test review, required outputs",
+      "trigger": "starting Phase 3 (eng review — always runs, after the Pre-Phase 3 checklist)"
+    },
+    {
+      "id": "dx-phase",
+      "file": "dx-phase.md",
+      "title": "Phase 2.5: DX review — override rules, dual voices, 8-dimension scorecard",
+      "trigger": "starting Phase 2.5 (DX review — ONLY if developer-facing scope was detected in Phase 0; skip the read entirely otherwise)"
+    },
+    {
+      "id": "tasks-aggregator",
+      "file": "tasks-aggregator.md",
+      "title": "Phase 4: Implementation Tasks aggregator (builds $AGGREGATED_TASKS for the gate)",
+      "trigger": "presenting the Final Approval Gate (Phase 4) — the aggregator computes $AGGREGATED_TASKS that the gate message substitutes"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "$schema": "https://gstack.dev/schemas/section-manifest.json",
   "skill": "cso",
   "version": 1,
-  "note": "PASSIVE registry (v2 plan T9 / CM2). id/file/title/trigger text ONLY. Mode dispatch (## Arguments, ## Mode Resolution), always-run phases (0,1), and FP-filtering exceptions (Phase 12) stay in the always-loaded skeleton; only the scope-dependent audit phases are on demand.",
+  "note": "Passive host-section registry. Mode dispatch, trusted execution/privacy rules, evidence rubric, verification gates, reporting, and recovery stay always-loaded; only scope-dependent investigation detail is on demand.",
   "sections": [
     {
       "id": "audit-phases",

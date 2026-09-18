@@ -11,7 +11,7 @@
  * future strict wrapper around `bun test`.
  */
 
-import { type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import * as path from 'node:path';
 
@@ -19,7 +19,16 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 const BUN_FAIL_RESULT = /^\(fail\) .+ \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
 const BUN_BETWEEN_TESTS_ERROR = '# Unhandled error between tests';
-const BUN_TERMINAL_SUMMARY = /^Ran \d+ tests? across (\d+) files?\. \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
+const BUN_TERMINAL_SUMMARY = /^Ran (\d+) tests? across (\d+) files?\. \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
+// The counts block bun prints just before the terminal summary (" 1 pass",
+// " 2 skip", " 0 fail"). "Ran N tests" COUNTS skipped tests, so N alone
+// cannot distinguish a shard that verified work from one whose every test
+// self-skipped (external-service binary missing, tier mismatch) — the
+// green-by-skip class. Anchored to whole-line matches; nested bun-test
+// children can still contribute counts (same known limit as the terminal
+// summary — see the last-summary-anchoring TODO in the audit).
+const BUN_SKIP_COUNT = /^\s*(\d+) skip$/;
+const BUN_PASS_COUNT = /^\s*(\d+) pass$/;
 
 export type BunTestOutputFinding = 'failed-test' | 'unhandled-between-tests';
 
@@ -27,6 +36,13 @@ export interface BunTestOutputSummary {
   failedTests: number;
   unhandledBetweenTests: number;
   terminalFileCounts: number[];
+  /** Test counts from the same terminal lines — feeds the hollow-shard guard. */
+  terminalTestCounts: number[];
+  /** Sum of bun's " N skip" count lines. "Ran N tests" includes skips, so
+   *  this is what separates verified work from green-by-skip. */
+  skippedTests: number;
+  /** Sum of bun's " N pass" count lines. */
+  passedTests: number;
 }
 
 export type ForwardedTerminationSignal = 'SIGINT' | 'SIGTERM';
@@ -196,9 +212,15 @@ export function classifyBunTestOutputLine(rawLine: string): BunTestOutputFinding
 }
 
 export function parseBunTerminalSummaryLine(rawLine: string): number | null {
+  return parseBunTerminalSummary(rawLine)?.files ?? null;
+}
+
+export function parseBunTerminalSummary(rawLine: string): { tests: number; files: number } | null {
   const line = stripAnsiLine(rawLine);
   const match = BUN_TERMINAL_SUMMARY.exec(line);
-  return match ? Number.parseInt(match[1], 10) : null;
+  return match
+    ? { tests: Number.parseInt(match[1], 10), files: Number.parseInt(match[2], 10) }
+    : null;
 }
 
 /**
@@ -220,6 +242,9 @@ export class BunTestOutputClassifier {
   private failedTests = 0;
   private unhandledBetweenTests = 0;
   private terminalFileCounts: number[] = [];
+  private terminalTestCounts: number[] = [];
+  private skippedTests = 0;
+  private passedTests = 0;
 
   write(chunk: Uint8Array | string, origin: ClassifierOrigin = 'stdout'): void {
     this.pending[origin] += typeof chunk === 'string'
@@ -242,6 +267,9 @@ export class BunTestOutputClassifier {
       failedTests: this.failedTests,
       unhandledBetweenTests: this.unhandledBetweenTests,
       terminalFileCounts: [...this.terminalFileCounts],
+      terminalTestCounts: [...this.terminalTestCounts],
+      skippedTests: this.skippedTests,
+      passedTests: this.passedTests,
     };
   }
 
@@ -258,8 +286,16 @@ export class BunTestOutputClassifier {
     const finding = classifyBunTestOutputLine(line);
     if (finding === 'failed-test') this.failedTests += 1;
     if (finding === 'unhandled-between-tests') this.unhandledBetweenTests += 1;
-    const terminalFileCount = parseBunTerminalSummaryLine(line);
-    if (terminalFileCount !== null) this.terminalFileCounts.push(terminalFileCount);
+    const stripped = stripAnsiLine(line);
+    const skip = BUN_SKIP_COUNT.exec(stripped);
+    if (skip !== null) this.skippedTests += Number.parseInt(skip[1], 10);
+    const pass = BUN_PASS_COUNT.exec(stripped);
+    if (pass !== null) this.passedTests += Number.parseInt(pass[1], 10);
+    const terminal = parseBunTerminalSummary(line);
+    if (terminal !== null) {
+      this.terminalFileCounts.push(terminal.files);
+      this.terminalTestCounts.push(terminal.tests);
+    }
   }
 }
 
@@ -297,4 +333,89 @@ export function forwardAndClassify(
     stream.on('end', resolve);
     stream.on('error', reject);
   });
+}
+
+// --- Shared shard-child lifecycle ---
+
+export interface RunShardChildOptions {
+  command: string;
+  args: string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  /** External wall-clock deadline; on expiry the child's process GROUP is SIGKILLed. */
+  timeoutMs: number;
+  /**
+   * Hook the freshly-spawned child's stdout/stderr. Stream POLICY (classifier
+   * tees, log spooling, console forwarding, reporters) is entirely the
+   * caller's. Runs synchronously right after spawn; the returned promises are
+   * awaited AFTER the child closes, so trailing output is fully drained
+   * before the caller reads its classifier/reporter state.
+   */
+  hookStreams: (child: ChildProcess) => Array<Promise<void>>;
+}
+
+export interface ShardChildResult {
+  exitCode: number | null;
+  /** True when the wall timer fired and SIGKILLed the group. */
+  timedOut: boolean;
+  /** The child's pid — the process-GROUP id on POSIX (detached spawn). */
+  groupPid: number | null;
+}
+
+/**
+ * The child lifecycle both sharded runners need, extracted from
+ * scripts/test-paid-shards.ts runPaidShard (scripts/test-free-shards.ts
+ * runFreeShard duplicates the same ~35 lines verbatim today and is designed
+ * to migrate here in a later change):
+ *
+ *   - spawn detached on POSIX so the child owns its process group,
+ *   - forward parent SIGINT/SIGTERM to the whole group (not just the child),
+ *   - arm an EXTERNAL wall-clock timer that SIGKILLs the group — a spinning
+ *     child main thread never fires its own in-process timer,
+ *   - in EVERY exit path: disarm the timer, detach the signal forwarder, and
+ *     reap group survivors with SIGKILL.
+ *
+ * Caller-side cleanup that must run even on a spawn failure (log streams,
+ * reporters, temp dirs) belongs in the caller's own try/finally around this
+ * call: a spawn 'error' event THROWS from here after the finally block runs,
+ * preserving the runners' existing could-not-run handling.
+ */
+export async function runShardChild(options: RunShardChildOptions): Promise<ShardChildResult> {
+  const child = spawn(options.command, options.args, {
+    cwd: options.cwd,
+    env: options.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
+    windowsHide: true,
+  });
+  const groupPid = child.pid ?? null;
+  // Group-kill on parent SIGINT/SIGTERM too, not just on timeout.
+  const forwarding = installChildSignalForwarding({
+    kill: (signal?: NodeJS.Signals | number) => {
+      killProcessGroup(child, (signal as NodeJS.Signals) ?? 'SIGTERM');
+      return true;
+    },
+  });
+
+  let timedOut = false;
+  const killTimer = setTimeout(() => {
+    timedOut = true;
+    killProcessGroup(child, 'SIGKILL');
+  }, options.timeoutMs);
+
+  let exitCode: number | null = null;
+  try {
+    const streams = options.hookStreams(child);
+    exitCode = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', (code) => resolve(code));
+    });
+    await Promise.all(streams);
+  } finally {
+    clearTimeout(killTimer);
+    forwarding.dispose();
+    // Reap survivors of this shard even on the clean path.
+    killProcessGroup(child, 'SIGKILL');
+  }
+  return { exitCode, timedOut, groupPid };
 }

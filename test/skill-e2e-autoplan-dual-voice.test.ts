@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
 import {
   ROOT, runId, evalsEnabled,
@@ -51,6 +52,14 @@ describeIfSelected('Autoplan dual-voice E2E', ['autoplan-dual-voice'], () => {
       const dest = path.join(skillsBase, skill);
       fs.mkdirSync(dest, { recursive: true });
       fs.copyFileSync(path.join(ROOT, skill, 'SKILL.md'), path.join(dest, 'SKILL.md'));
+      // Carved skills (autoplan + the plan-* reviews) keep their phase/review
+      // bodies in on-demand sections/ that the skeleton STOP-Reads — mirror the
+      // real install (which links sections/ next to SKILL.md) so the registered
+      // skeleton's section reads resolve inside the fixture.
+      const sections = path.join(ROOT, skill, 'sections');
+      if (fs.existsSync(sections)) {
+        copyDirSync(sections, path.join(dest, 'sections'));
+      }
     }
 
     // Write a tiny plan file for /autoplan to review.
@@ -90,7 +99,7 @@ Add a new /greet skill that prints a welcome message.
         testName: 'autoplan-dual-voice',
         workingDirectory: workDir,
         prompt: `/autoplan ${planPath}`,
-        timeout: 600_000, // 10 min
+        timeout: CAPTURE_LONG_MS, // 10 min
         // /autoplan spawns subagents and calls codex via Bash; it needs the
         // full tool set to get past Phase 1. Bash+Read+Write alone wasn't
         // enough — the skill stalled trying to invoke Agent/Skill.
@@ -139,8 +148,9 @@ Add a new /greet skill that prints a welcome message.
       // Full Phase 1 COMPLETION (three parallel review subagents, each loading a
       // 25-35K-token skill) routinely exceeds 10 minutes on sonnet, so requiring
       // the "Phase 1 complete" banner would force a 20-minute test for no extra
-      // dual-voice signal. Accept EITHER the completion banner (autoplan/SKILL.md
-      // "PHASE 1 COMPLETE" mandatory output) OR structural evidence that the
+      // dual-voice signal. Accept EITHER the completion banner (the "PHASE 1
+      // COMPLETE" mandatory output in autoplan/sections/ceo-phase.md, which the
+      // skeleton STOP-Reads) OR structural evidence that the
       // Phase 1 review dispatch actually happened: an Agent tool_use whose input
       // carries review instructions (execution artifact built by the skill, not
       // an echo of our prompt).

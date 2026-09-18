@@ -1,0 +1,68 @@
+{
+  "provenance": {
+    "observationSha256": "778f100e21ef21ed2d51713d6908808641a096395cda1c5bda3691e8b162a127",
+    "fingerprintIndex": 4,
+    "projection": "Exact public question/options and completed native identity; selected answer stored as a label to avoid duplicating the whole question."
+  },
+  "call": {
+    "sessionId": "a2101dd9-4ba9-4e9a-8f31-375e5a2c75d1",
+    "toolUseId": "toolu_01EnfvoE3MzCMtZnVPhV85ub",
+    "questions": [
+      {
+        "question": "D5 — How should the handler treat a failed receipt email after the payment update?\nProject/branch/task: gstack-plan-count-9V0cjz on main, Section 2 (Error & Rescue Map) of the CEO review.\nELI10: After marking the user paid, the handler sends one receipt email through the shared mail client. The plan says 'no error handling on the email leg'. The mail client already gives up after one second, records the failed attempt for on-call to retry, and the provider refuses to send the same receipt twice. So when the email fails, the only question is what the handler does next: crash the whole webhook (Stripe sees a 500 and retries for up to 72 hours) or catch the two named mail exceptions, log them with the event and PaymentIntent ids, and return 200 because the payment is committed and the retry record exists. There is also an ordering bug: if the send runs inside the database transaction, a mail failure rolls back the payment. Stakes if we pick wrong: users who paid stay unpaid, or on-call gets a 500 storm for what is really a mail outage.\nRecommendation: A because the retained contracts already make the mail leg durable and idempotent, so the handler's job is to make the failure visible without breaking the committed payment. Engineering preference: every error has a name, zero silent failures.\nCompleteness: A=10/10, B=5/10, C=3/10\nNet: named rescue after commit versus letting a notification failure masquerade as a payment failure.",
+        "header": "Email rescue",
+        "multiSelect": false,
+        "options": [
+          {
+            "label": "A: Commit, then send, rescue named errors (recommended)",
+            "description": "Completeness 10/10. human ~2 hr / CC ~10 min.\n✅ Update commits first; the receipt send runs after commit so a mail failure can never roll back a payment\n✅ Rescue exactly MailTimeout and the shared client's delivery-error class; log at error level with event id, user id, PaymentIntent id, handler identity, exception class; the existing failure-rate counter and retry record already fire; return normally so ingress acks 200\n✅ Any other exception class still propagates (no rescue StandardError), so unknown failures stay loud\n✅ Tests: send raises MailTimeout -> user row is paid, log line present, 200 returned; send raises an unrelated class -> 500\n❌ One rescue block and two test cases to write"
+          },
+          {
+            "label": "B: Let mail errors propagate (plan as written)",
+            "description": "Completeness 5/10. human ~0 / CC ~0.\n✅ No new code on the email leg\n✅ Failure is at least visible through the existing failed-webhook alert\n❌ Notification failures surface as payment webhook failures; Stripe retries up to 72 hours and the alert misattributes the cause\n❌ Transaction boundary stays unstated, so a mail failure inside the transaction rolls back a real payment"
+          },
+          {
+            "label": "C: Rescue StandardError around the send",
+            "description": "Completeness 3/10. human ~30 min / CC ~3 min.\n✅ Nothing on the email leg can ever fail the webhook\n✅ Trivial to write\n❌ Catch-all swallows programming errors (nil template, bad argument) as if they were provider outages; the runbook retries them forever\n❌ Violates the 'every error has a name' preference"
+          }
+        ]
+      }
+    ],
+    "answeredAt": "2026-09-11T02:19:44.965Z"
+  },
+  "answer": "A: Commit, then send, rescue named errors (recommended)",
+  "retry": {
+    "provenance": {
+      "observationSha256": "dc60c557c6917cfedbe5a6889cfd37a211a6077ff9d800e793d080a9ed39777e",
+      "fingerprintIndex": 2,
+      "projection": "Exact public question/options and completed native identity from separately failed retry; no paid outcome reclassification."
+    },
+    "call": {
+      "sessionId": "e0331fa3-731c-4df7-8f33-c05d0f813b04",
+      "toolUseId": "toolu_01DECrzdpbrQRuBAwRseQfnW",
+      "questions": [
+        {
+          "header": "Mail leg",
+          "question": "D4 (Issue 2.1) — How should the handler treat a failed or timed-out receipt send after the payment update?\nProject/branch/task: gstack-plan-count-SJVAA6 on main, CEO review of PLAN.md, Section 2 (Error & Rescue Map).\nELI10: The handler marks the user paid, then emails a receipt. PLAN.md says 'no error handling on the email leg'. The shared mail client already records the failed attempt for the notification runbook and rethrows MailTimeout or its delivery error. If the handler lets that bubble up, the webhook answers 500 for a payment that already committed, the failed-webhook alert fires for a mail problem, and Stripe replays the event for days during any mail outage. If the send runs inside the DB transaction, the rollback even un-pays the user until mail recovers.\nStakes if we pick wrong: paid customers show as unpaid during a mail outage, or on-call chases a payment incident that is really a notification incident.\nRecommendation: A because the retained contracts already say to retry only the failed notification and never replay the payment; the handler just has to honor that.\nCompleteness: A=10/10, B=6/10, C=2/10\nNet: separate payment truth from receipt delivery, with the failure still loud in the existing mail dashboard and attempt records. <gstack-qid:plan-ceo-review-mail-rescue>",
+          "options": [
+            {
+              "label": "A: Commit first, rescue named mail errors, return 200 (recommended)",
+              "description": "Sequence lookup → load orders → update → commit, then send. Rescue only MailTimeout and the mail client's delivery-error class (never StandardError). On rescue: structured warn with event id, user id, PaymentIntent id, handler identity and error class (no email address), then return success so Stripe gets 200; the client's durable attempt record plus the existing failure-rate and backlog alerts carry the retry. DB errors still propagate to 500. Tests: mail timeout → 200 + warn + user paid; delivery error → same; DB error → 500, no completion marker. (human ~3h / CC ~15 min)\n✅ Payment state never depends on mail provider health; no un-pay rollback\n✅ Failure stays visible through existing attempt record, dashboard, alert and structured warn; runbook path unchanged\n❌ Handler must know the mail client's exception classes by name; a new class added later would slip through to 500 (covered by a test asserting the rescued set)"
+            },
+            {
+              "label": "B: Commit first, let mail errors propagate to 500",
+              "description": "Fix only the ordering so the update commits before the send; keep 'no error handling'. Stripe retries; the idempotent update and the provider idempotency key make retries harmless. (human ~1h / CC ~5 min)\n✅ Smaller change; Stripe's own retry acts as the resend mechanism\n✅ Payment state still committed before the failing send\n❌ Failed-webhook alert fires for notification failures, and Stripe replays for up to 3 days per event during a mail outage, stacking attempt records on top of runbook retries"
+            },
+            {
+              "label": "C: Keep the plan as written",
+              "description": "Inline send, no ordering guarantee, no rescue. (human 0 / CC 0)\n✅ No additional code beyond the sketch\n✅ Matches the prior handler if it behaved the same way\n❌ A mail timeout inside the transaction rolls back the payment update; on-call cannot tell payment failures from mail failures from the webhook outcome alone"
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answeredAt": "2026-09-11T02:32:43.420Z"
+    },
+    "answer": "A: Commit first, rescue named mail errors, return 200 (recommended)"
+  }
+}

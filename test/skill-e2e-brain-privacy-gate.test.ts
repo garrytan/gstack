@@ -21,6 +21,7 @@
  */
 
 import { test, expect } from 'bun:test';
+import { CAPTURE_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -150,7 +151,7 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
       fs.rmSync(fakeBinDir, { recursive: true, force: true });
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
-  }, 180_000);
+  }, CAPTURE_MS);
 
   test('privacy gate does NOT fire when artifacts_sync_mode_prompted is already true', async () => {
     // Same staging, but prompted=true this time. Gate should be silent.
@@ -228,5 +229,5 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
       fs.rmSync(fakeBinDir, { recursive: true, force: true });
       fs.rmSync(tempHome, { recursive: true, force: true });
     }
-  }, 180_000);
+  }, CAPTURE_MS);
 });

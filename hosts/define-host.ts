@@ -4,8 +4,8 @@
  *
  * Every field a host doesn't override gets the common external-host default:
  * paths derived from the host name (`.{name}/skills/gstack`), allowlist
- * frontmatter (name + description), no metadata sidecar, skip the codex
- * skill, the standard three-entry pathRewrite trio derived from the resolved
+ * frontmatter (name + description), no metadata sidecar, all skills enabled,
+ * the standard three-entry pathRewrite trio derived from the resolved
  * paths, the shared runtimeRoot asset list, and symlink-generated install.
  *
  * Defaults are constructed fresh per call, so no two host configs ever share
@@ -20,15 +20,15 @@ type PathRewrite = { from: string; to: string };
 
 /**
  * Preamble resolvers that orchestrate cross-model second opinions (they shell
- * out to Codex or spin up the review army). Suppressed on hosts that can't or
- * shouldn't invoke other models — Codex itself (can't invoke itself) and the
- * non-Claude agent runtimes (OpenClaw, Hermes, GBrain).
+ * out to the selected outside provider or spin up the review army). Suppressed
+ * on the non-Claude agent runtimes that already opt out (OpenClaw, Hermes,
+ * GBrain). Codex keeps the outside-provider resolvers and suppresses only army.
  */
 export const CROSS_MODEL_RESOLVERS: string[] = [
-  'DESIGN_OUTSIDE_VOICES',  // design.ts — invokes Codex for outside voices
-  'ADVERSARIAL_STEP',       // review.ts — invokes Codex adversarially
-  'CODEX_SECOND_OPINION',   // review.ts — invokes Codex
-  'CODEX_PLAN_REVIEW',      // review.ts — invokes Codex
+  'DESIGN_OUTSIDE_VOICES',  // design.ts — selected outside provider
+  'ADVERSARIAL_STEP',       // review.ts — adversarial outside review
+  'CODEX_SECOND_OPINION',   // review.ts — legacy token, selected provider
+  'CODEX_PLAN_REVIEW',      // review.ts — legacy token, selected provider
   'REVIEW_ARMY',            // review-army.ts — multi-model orchestration
 ];
 
@@ -98,7 +98,7 @@ export function defineHost<const N extends string>(overrides: HostOverrides<N>):
     },
     generation = {
       generateMetadata: false,
-      skipSkills: ['codex'],  // Codex skill is a Claude wrapper around codex exec
+      skipSkills: [],
     },
     pathRewrites,
     extraPathRewrites,

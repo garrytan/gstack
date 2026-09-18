@@ -1,0 +1,317 @@
+{
+  "provenance": {
+    "rootSourceHead": "04c62ac678bb7bc1a22090f72f7ed51c451c22b9",
+    "publicCallsSha256": "994eaaf948b694066785c3b5a2e7396acdff490a8339756e34aed5ca85497c82",
+    "scope": "Exact ten completed owned native calls from the naturally failed CEO distinct retry; no retrospective paid credit."
+  },
+  "calls": [
+    {
+      "sessionId": "1f7fabc1-f286-440b-9904-2d37428020dd",
+      "toolUseId": "toolu_012qz23sgxBENoM5xLQYcrH6",
+      "questions": [
+        {
+          "question": "D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: main branch, plan-review fixture repo; one-time gstack onboarding prompt fired by skill-start.\nELI10: gstack wants a short \"Skill routing\" section appended to your project's CLAUDE.md so future requests like \"review this diff\" auto-route to the right skill. Note: we're in plan mode, so if you pick A the CLAUDE.md edit and commit are deferred until plan mode exits; I'll record the choice now.\nStakes if we pick wrong: Nothing breaks either way. Skipping means you invoke skills by name manually; adding means one extra section in CLAUDE.md.\nRecommendation: B because this repo is a review fixture with a purpose-built CLAUDE.md, and plan mode blocks the edit right now anyway.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: convenience routing vs keeping a fixture CLAUDE.md untouched.",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "B) No thanks, invoke manually (recommended)",
+              "description": "\u2705 Keeps the fixture CLAUDE.md exactly as seeded for this review run. \u2705 Nothing to defer past plan mode; records routing_declined in gstack config only. \u274c Future sessions won't auto-route requests to gstack skills without naming them."
+            },
+            {
+              "label": "A) Add routing rules to CLAUDE.md",
+              "description": "\u2705 Future \"review this\" / \"ship it\" requests auto-route to the matching gstack skill. \u2705 Standard gstack setup, one 15-line section. \u274c Cannot be applied in plan mode; the CLAUDE.md edit and commit would wait until after this review exits plan mode."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 \u2014 Add gstack skill routing rules to CLAUDE.md?\nProject/branch/task: main branch, plan-review fixture repo; one-time gstack onboarding prompt fired by skill-start.\nELI10: gstack wants a short \"Skill routing\" section appended to your project's CLAUDE.md so future requests like \"review this diff\" auto-route to the right skill. Note: we're in plan mode, so if you pick A the CLAUDE.md edit and commit are deferred until plan mode exits; I'll record the choice now.\nStakes if we pick wrong: Nothing breaks either way. Skipping means you invoke skills by name manually; adding means one extra section in CLAUDE.md.\nRecommendation: B because this repo is a review fixture with a purpose-built CLAUDE.md, and plan mode blocks the edit right now anyway.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: convenience routing vs keeping a fixture CLAUDE.md untouched.": "B) No thanks, invoke manually (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T06:52:22.522Z"
+    },
+    {
+      "sessionId": "1f7fabc1-f286-440b-9904-2d37428020dd",
+      "toolUseId": "toolu_01RxSxiz2k6HAvuASxyDVgfA",
+      "questions": [
+        {
+          "question": "D2 \u2014 Enable cross-project learnings search?\nProject/branch/task: main branch; first-run gstack config prompt (cross_project_learnings is unset).\nELI10: gstack keeps a local log of lessons learned per project. It can also search lessons from your other projects on this machine to spot patterns that apply here. Everything stays on disk locally; nothing is uploaded.\nStakes if we pick wrong: Enabling on a machine with multiple client codebases could surface one client's patterns while working on another. Disabling just means fewer prior-learning hits.\nRecommendation: A because this is a local-only lookup and a solo review session; more prior context makes findings sharper.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: richer prior-learning recall vs strict per-project isolation.",
+          "header": "Learnings",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Enable cross-project learnings (recommended)",
+              "description": "\u2705 Prior learnings from other local projects surface as \"Prior learning applied\" hints during review. \u2705 Local-only search over ~/.gstack; nothing leaves the machine. \u274c On a multi-client machine, patterns from one codebase could bleed into another's review."
+            },
+            {
+              "label": "B) Keep learnings project-scoped only",
+              "description": "\u2705 Strict isolation: only this project's learnings are ever consulted. \u2705 Safe default for consultants working across unrelated client repos. \u274c This fresh project has zero learnings, so the search returns nothing useful today."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 \u2014 Enable cross-project learnings search?\nProject/branch/task: main branch; first-run gstack config prompt (cross_project_learnings is unset).\nELI10: gstack keeps a local log of lessons learned per project. It can also search lessons from your other projects on this machine to spot patterns that apply here. Everything stays on disk locally; nothing is uploaded.\nStakes if we pick wrong: Enabling on a machine with multiple client codebases could surface one client's patterns while working on another. Disabling just means fewer prior-learning hits.\nRecommendation: A because this is a local-only lookup and a solo review session; more prior context makes findings sharper.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: richer prior-learning recall vs strict per-project isolation.": "A) Enable cross-project learnings (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T06:52:40.654Z"
+    },
+    {
+      "sessionId": "1f7fabc1-f286-440b-9904-2d37428020dd",
+      "toolUseId": "toolu_019FbetNiYLD2JbFo9gSmD4Q",
+      "questions": [
+        {
+          "question": "D3 \u2014 How should StripePaymentWebhookHandler be wired into the ingress?\nProject/branch/task: main; PLAN.md \"Architecture\" says the new handler bypasses WebhookDispatcher for namespace separation.\nELI10: The plan promises the new handler \"runs inside the unchanged guards\" (signature, dedup, per-user lock, ownership, unknown-user). It also says it bypasses the existing dispatcher. Those two claims only both hold if every guard lives outside the dispatcher, and the repo has no code to confirm that. If any guard lives in the dispatcher, bypassing it silently drops that guard.\nStakes if we pick wrong: A dropped dedup or lock guard means a Stripe retry double-processes a payment or races account deletion; a dropped ownership guard lets one PaymentIntent mark a different user paid.\nRecommendation: B because it makes \"runs inside unchanged guards\" true by construction instead of by assertion, and namespace separation is achieved with a module, not a bypass. Maps to \"explicit over clever\" and \"right-sized diff.\"\nCompleteness: A=4/10, B=9/10, C=10/10\nNet: B gets guard-safety for free with the same diff size as A; C buys a cleaner future at the cost of touching shared code this plan did not intend to touch.",
+          "header": "Approach",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "B) Dispatcher-registered handler in own namespace (recommended)",
+              "description": "\u2705 Handler class lives in its own Stripe namespace but is registered with WebhookDispatcher for payment_intent.succeeded, so every guard applies by construction. \u2705 Same diff size as A; nothing in the dispatcher changes (human: ~1 day / CC: ~20 min). \u274c Handler must conform to the dispatcher's handler interface, which the plan has not yet documented."
+            },
+            {
+              "label": "A) Standalone handler bypassing WebhookDispatcher (as written)",
+              "description": "\u2705 Smallest possible change: one new class, one ingress hook, no dispatcher contact. \u2705 Namespace isolation is total; no coupling to dispatcher conventions. \u274c Guard coverage depends on an unverified claim that no guard lives in the dispatcher; a wrong guess is a silent security or double-processing hole (human: ~1 day / CC: ~20 min)."
+            },
+            {
+              "label": "C) Extract guard chain into shared middleware, then register",
+              "description": "\u2705 Guards become an explicit, reusable stack that both the dispatcher and any future handler consume; the contract is visible in code. \u2705 Best 12-month trajectory for adding more Stripe event types. \u274c Touches shared ingress code and every existing handler's path in a payment-critical system; larger blast radius and rollback surface (human: ~4 days / CC: ~2 hours)."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D3 \u2014 How should StripePaymentWebhookHandler be wired into the ingress?\nProject/branch/task: main; PLAN.md \"Architecture\" says the new handler bypasses WebhookDispatcher for namespace separation.\nELI10: The plan promises the new handler \"runs inside the unchanged guards\" (signature, dedup, per-user lock, ownership, unknown-user). It also says it bypasses the existing dispatcher. Those two claims only both hold if every guard lives outside the dispatcher, and the repo has no code to confirm that. If any guard lives in the dispatcher, bypassing it silently drops that guard.\nStakes if we pick wrong: A dropped dedup or lock guard means a Stripe retry double-processes a payment or races account deletion; a dropped ownership guard lets one PaymentIntent mark a different user paid.\nRecommendation: B because it makes \"runs inside unchanged guards\" true by construction instead of by assertion, and namespace separation is achieved with a module, not a bypass. Maps to \"explicit over clever\" and \"right-sized diff.\"\nCompleteness: A=4/10, B=9/10, C=10/10\nNet: B gets guard-safety for free with the same diff size as A; C buys a cleaner future at the cost of touching shared code this plan did not intend to touch.": "B) Dispatcher-registered handler in own namespace (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T06:54:02.834Z"
+    },
+    {
+      "sessionId": "1f7fabc1-f286-440b-9904-2d37428020dd",
+      "toolUseId": "toolu_0175vCKiJ4dTuCn72zmE1pcV",
+      "questions": [
+        {
+          "question": "D4 \u2014 What is the per-user order fetch loop for?\nProject/branch/task: main; PLAN.md \"Performance\" says each webhook looks up the user, then fetches each order in a loop. Nothing else in the plan consumes orders.\nELI10: The handler's job is to mark the user paid and send an email. The plan also loads every order for that user, one query per order. An implementer hits this at hour 2-3 and has to guess whether orders feed the email body or are leftover from an earlier sketch. Guessing wrong either drops content the email needs or ships a dead N+1 loop into a payment-critical path.\nStakes if we pick wrong: Either the notification email is missing the order summary users expect, or every Stripe webhook does N extra queries for nothing and slows under load.\nRecommendation: A because the only plausible consumer is the notification email, and one batched query covers it; this keeps stated scope while removing the N+1. Maps to \"engineered enough\" and \"handle more edge cases.\"\nCompleteness: A=9/10, B=7/10, C=5/10\nNet: A keeps the orders and fixes the query shape; B removes orders entirely; C leaves the guess to the implementer.",
+          "header": "Orders",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Orders feed the email; fetch in one query (recommended)",
+              "description": "\u2705 One indexed query by user ID (with a bounded limit) replaces N per-order queries; email gets the order summary it needs. \u2705 Empty order list is an explicit email variant, not a crash (human: ~2h / CC: ~10min). \u274c Assumes the notification template wants order details; implementer must confirm the template contract at hour 1."
+            },
+            {
+              "label": "B) Orders are not needed; drop the loop",
+              "description": "\u2705 Smallest handler: lookup, update, email. No order query at all. \u2705 Removes the N+1 and any order-related failure mode outright. \u274c If the existing email template references orders, the email breaks or ships blank sections; a hidden requirement gets cut silently."
+            },
+            {
+              "label": "C) Leave it to the implementer to decide at build time",
+              "description": "\u2705 No decision needed now; matches the plan text as written. \u2705 Zero review time spent on it. \u274c The ambiguity the temporal check exists to catch stays in the plan, and the N+1 remains unresolved until someone notices in production."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 \u2014 What is the per-user order fetch loop for?\nProject/branch/task: main; PLAN.md \"Performance\" says each webhook looks up the user, then fetches each order in a loop. Nothing else in the plan consumes orders.\nELI10: The handler's job is to mark the user paid and send an email. The plan also loads every order for that user, one query per order. An implementer hits this at hour 2-3 and has to guess whether orders feed the email body or are leftover from an earlier sketch. Guessing wrong either drops content the email needs or ships a dead N+1 loop into a payment-critical path.\nStakes if we pick wrong: Either the notification email is missing the order summary users expect, or every Stripe webhook does N extra queries for nothing and slows under load.\nRecommendation: A because the only plausible consumer is the notification email, and one batched query covers it; this keeps stated scope while removing the N+1. Maps to \"engineered enough\" and \"handle more edge cases.\"\nCompleteness: A=9/10, B=7/10, C=5/10\nNet: A keeps the orders and fixes the query shape; B removes orders entirely; C leaves the guess to the implementer.": "A) Orders feed the email; fetch in one query (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T06:55:12.980Z"
+    },
+    {
+      "sessionId": "1f7fabc1-f286-440b-9904-2d37428020dd",
+      "toolUseId": "toolu_015MMLm3wfu9P4KCoKnpPFfW",
+      "questions": [
+        {
+          "question": "D5 (Finding 1.1) \u2014 How should the inline notification email behave when the mail client throws?\nProject/branch/task: main; PLAN.md \"Webhook fan-out\": update user AND fire email, both inline, no error handling on the email leg.\nELI10: Today the plan lets any mail failure (timeout, connection refused, provider 5xx) escape the handler. The ingress wrapper turns that into HTTP 500, so Stripe re-sends a payment event whose database write already committed. That is exactly what the plan's own runbook says never to do. If the email call sits inside the DB transaction, a mail outage also rolls back the paid state, and after Stripe's 3-day retry window the user stays unpaid forever.\nStakes if we pick wrong: Lost or delayed access for paying users during any mail outage, duplicate receipt emails on every Stripe retry, and a webhook-failure alert that misreports notification problems as payment problems.\nRecommendation: A because it makes the DB commit the only thing that can fail the webhook, names the exceptions instead of a catch-all, and hands notification failures to the alert and runbook the plan already retains. Maps to \"zero silent failures\" and \"every error has a name.\"\nCompleteness: A=9/10, B=10/10, C=2/10\nNet: A isolates the email with what exists today; B adds automatic re-delivery but depends on a retry mechanism the plan has not shown to be programmatic.",
+          "header": "Email leg",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Commit first, rescue named mail exceptions, log, return 200 (recommended)",
+              "description": "\u2705 Order: DB update commits, dedup marker records, then email sends with a bounded timeout; rescue ONLY the mail client's named exception classes (timeout, connection, delivery-rejected), never a bare catch-all, and never around the DB calls. \u2705 On rescue: structured warning with event ID, user ID, PI ID, exception class; the mail client's failure-rate metric and existing on-call alert fire; on-call retries via the existing notification retry procedure; handler returns success so Stripe does not replay. Verified by unit tests per named exception and an integration test with the provider stubbed down (human: ~3h / CC: ~15min). \u274c Delivery of the failed email depends on the runbook's manual retry step until someone acts on the alert."
+            },
+            {
+              "label": "B) Same as A, plus auto-enqueue the failed notification for retry",
+              "description": "\u2705 Everything in A, and the rescue block also hands the notification to the existing notification retry procedure automatically, so no human step is needed for transient outages. \u2705 Users get their email within the retry window without on-call involvement. \u274c Assumes the retained \"notification retry procedure\" is callable from code; if it is a manual runbook only, this option needs a new retry job, which is new scope (human: ~1 day / CC: ~30min)."
+            },
+            {
+              "label": "C) Keep as written: no error handling on the email leg",
+              "description": "\u2705 Smallest code; matches the current plan text exactly. \u2705 Every mail failure is loud (HTTP 500 and the webhook-failure alert). \u274c Stripe replays committed payments on mail failures, duplicate emails on retry, possible rollback of paid state if the email sits inside the transaction, and the alert misclassifies notification failures as payment failures."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 (Finding 1.1) \u2014 How should the inline notification email behave when the mail client throws?\nProject/branch/task: main; PLAN.md \"Webhook fan-out\": update user AND fire email, both inline, no error handling on the email leg.\nELI10: Today the plan lets any mail failure (timeout, connection refused, provider 5xx) escape the handler. The ingress wrapper turns that into HTTP 500, so Stripe re-sends a payment event whose database write already committed. That is exactly what the plan's own runbook says never to do. If the email call sits inside the DB transaction, a mail outage also rolls back the paid state, and after Stripe's 3-day retry window the user stays unpaid forever.\nStakes if we pick wrong: Lost or delayed access for paying users during any mail outage, duplicate receipt emails on every Stripe retry, and a webhook-failure alert that misreports notification problems as payment problems.\nRecommendation: A because it makes the DB commit the only thing that can fail the webhook, names the exceptions instead of a catch-all, and hands notification failures to the alert and runbook the plan already retains. Maps to \"zero silent failures\" and \"every error has a name.\"\nCompleteness: A=9/10, B=10/10, C=2/10\nNet: A isolates the email with what exists today; B adds automatic re-delivery but depends on a retry mechanism the plan has not shown to be programmatic.": "A) Commit first, rescue named mail exceptions, log, return 200 (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T06:56:43.363Z"
+    },
+    {
+      "sessionId": "1f7fabc1-f286-440b-9904-2d37428020dd",
+      "toolUseId": "toolu_01AbDgVzg2Hjp7EpUgUvDFGm",
+      "questions": [
+        {
+          "question": "D6 (Finding 3.1) \u2014 How should the user lookup use request.params.userId?\nProject/branch/task: main; PLAN.md \"Database access\": the handler reads request.params.userId directly into a raw SQL fragment.\nELI10: The user ID comes from Stripe metadata that the plan says is forwarded unchanged, may contain any punctuation or Unicode, and is never SQL-sanitized. Pasting it into SQL text lets whoever controls that metadata write part of your query. A valid Stripe signature only proves Stripe relayed it, not that it is safe. Binding it as a query parameter makes the database treat it as data no matter what it contains.\nStakes if we pick wrong: Arbitrary read or write against the users table from a payment-critical path, plus hard-to-reproduce failures on legitimate IDs containing quotes.\nRecommendation: A because parameter binding is the only remedy that works for opaque Unicode identifiers where format validation is off the table by contract. Maps to \"security is not optional\" and \"explicit over clever.\"\nCompleteness: A=10/10, B=6/10, C=0/10\nNet: A removes the injection class entirely; B shrinks it but keeps string-built SQL in the path.",
+          "header": "SQL lookup",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Parameterized query via the existing DB client (recommended)",
+              "description": "\u2705 Lookup, order fetch, and update all bind userId as a parameter; no string interpolation anywhere in the handler. \u2705 Tests feed hostile IDs (quote, semicolon, comment marker, Unicode, 4k-char string) and assert a plain no-row or found result with no error and no side effect; the DB trace still records user ID and event ID (human: ~1h / CC: ~10min). \u274c Slightly more verbose than a one-line raw fragment."
+            },
+            {
+              "label": "B) Keep raw SQL, escape/quote the string with the client's quoting helper",
+              "description": "\u2705 Small textual change to the fragment as written. \u2705 Blocks the common quote-based payloads. \u274c Still builds SQL from an external string; escaping bugs, encoding tricks, and helper misuse remain an injection surface, and the plan has no format constraint to lean on."
+            },
+            {
+              "label": "C) Keep as written: raw fragment, no change",
+              "description": "\u2705 Zero additional work. \u2705 Matches the plan text exactly. \u274c Direct SQL injection from Stripe metadata into a write-capable handler; contradicts the plan's own statement that the string is not SQL-safe."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 (Finding 3.1) \u2014 How should the user lookup use request.params.userId?\nProject/branch/task: main; PLAN.md \"Database access\": the handler reads request.params.userId directly into a raw SQL fragment.\nELI10: The user ID comes from Stripe metadata that the plan says is forwarded unchanged, may contain any punctuation or Unicode, and is never SQL-sanitized. Pasting it into SQL text lets whoever controls that metadata write part of your query. A valid Stripe signature only proves Stripe relayed it, not that it is safe. Binding it as a query parameter makes the database treat it as data no matter what it contains.\nStakes if we pick wrong: Arbitrary read or write against the users table from a payment-critical path, plus hard-to-reproduce failures on legitimate IDs containing quotes.\nRecommendation: A because parameter binding is the only remedy that works for opaque Unicode identifiers where format validation is off the table by contract. Maps to \"security is not optional\" and \"explicit over clever.\"\nCompleteness: A=10/10, B=6/10, C=0/10\nNet: A removes the injection class entirely; B shrinks it but keeps string-built SQL in the path.": "A) Parameterized query via the existing DB client (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T06:58:10.258Z"
+    },
+    {
+      "sessionId": "1f7fabc1-f286-440b-9904-2d37428020dd",
+      "toolUseId": "toolu_01QRHpiwdKU8tqFupvRAwpUq",
+      "questions": [
+        {
+          "question": "D7 (Finding 4.1) \u2014 Accept a possible duplicate email when the process crashes between DB commit and the dedup marker write?\nProject/branch/task: main; retained contract: the event-ID guard records completion only after the database transaction commits, and this plan does not replace that guard.\nELI10: The paid state commits first, then the guard writes \"event done.\" If the process dies in that tiny gap, Stripe retries, the update re-applies the same values (harmless), and the email goes out a second time. Money and access are correct either way; the user might get two receipts. Fixing it means changing the retained dedup guard or the mail client, which this plan says it leaves alone.\nStakes if we pick wrong: Accepting means a rare duplicate email visible in traces. Fixing means touching a shared, unchanged-by-contract component in a payment path.\nRecommendation: A because payment correctness is already guaranteed by idempotent assignment, the window is a process crash in a sub-second gap, the duplicate is visible in the mail trace by event ID, and no stated requirement promises exactly-once email. Maps to \"right-sized diff\" and \"deployments are not atomic.\"\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: accept a rare visible duplicate vs expand into a retained guard for exactly-once email.",
+          "header": "Dup email",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Accept as residual risk; document it in the plan (recommended)",
+              "description": "\u2705 No change to retained components; the plan records the exact schedule, why payment state is safe, and how to spot it (two mail sends for one event ID). \u2705 Zero extra code in a payment-critical path. \u274c A user can receive two notification emails after a crash in a sub-second window."
+            },
+            {
+              "label": "B) Record the dedup marker inside the update transaction",
+              "description": "\u2705 Marker and paid state commit atomically, so a retry after crash never re-runs the handler; exactly-once handler execution. \u2705 Removes the duplicate email path completely. \u274c Modifies the retained event guard the plan says it does not replace; affects every handler behind it; needs its own review and rollout (human: ~1 day / CC: ~30min)."
+            },
+            {
+              "label": "C) Key the email send on the event ID so the mail client dedupes",
+              "description": "\u2705 Leaves the guard alone; the send call carries the Stripe event ID as an idempotency key. \u2705 Also protects against runbook re-sends. \u274c Only works if the shared mail client or provider supports idempotency keys, which the plan does not state; otherwise this is new mail-client scope."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 (Finding 4.1) \u2014 Accept a possible duplicate email when the process crashes between DB commit and the dedup marker write?\nProject/branch/task: main; retained contract: the event-ID guard records completion only after the database transaction commits, and this plan does not replace that guard.\nELI10: The paid state commits first, then the guard writes \"event done.\" If the process dies in that tiny gap, Stripe retries, the update re-applies the same values (harmless), and the email goes out a second time. Money and access are correct either way; the user might get two receipts. Fixing it means changing the retained dedup guard or the mail client, which this plan says it leaves alone.\nStakes if we pick wrong: Accepting means a rare duplicate email visible in traces. Fixing means touching a shared, unchanged-by-contract component in a payment path.\nRecommendation: A because payment correctness is already guaranteed by idempotent assignment, the window is a process crash in a sub-second gap, the duplicate is visible in the mail trace by event ID, and no stated requirement promises exactly-once email. Maps to \"right-sized diff\" and \"deployments are not atomic.\"\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: accept a rare visible duplicate vs expand into a retained guard for exactly-once email.": "A) Accept as residual risk; document it in the plan (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T06:59:36.640Z"
+    },
+    {
+      "sessionId": "1f7fabc1-f286-440b-9904-2d37428020dd",
+      "toolUseId": "toolu_01PAGHq4vUvCPUCf5XRFgXME",
+      "questions": [
+        {
+          "question": "D8 (Finding 5.1) \u2014 Rename the handler class to name the event it handles?\nProject/branch/task: main; PLAN.md \"Architecture\" names the class StripePaymentWebhookHandler; the retained ingress forwards only payment_intent.succeeded to it.\nELI10: The class name promises \"all Stripe payment webhooks,\" but the code handles exactly one event. When someone adds a refund or dispute handler next quarter, a name tied to the event makes the dispatcher registration table read like a map of what happens on each event. This is taste, not correctness; nothing breaks either way.\nStakes if we pick wrong: Mild confusion for the next engineer, or a rename churn nobody asked for.\nRecommendation: A \u2014 this is a taste call, no strong preference either way; A is the default because it matches the D3 namespace decision and the one-event contract.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: event-named class under the Stripe namespace vs the broader name as written.",
+          "header": "Class name",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Stripe::PaymentIntentSucceededHandler (recommended)",
+              "description": "\u2705 Name states the exact event type the dispatcher routes to it, mirroring Stripe's own event name. \u2705 Pairs naturally with the D3 namespace and with future sibling handlers (human: ~10min / CC: ~1min). \u274c Longer; departs from the name used throughout the current plan text."
+            },
+            {
+              "label": "B) Keep StripePaymentWebhookHandler as written",
+              "description": "\u2705 Matches the plan and any discussion already had about it; zero churn. \u2705 Leaves room to route more payment events to the same class later. \u274c Name overstates scope today; a reader assumes it handles failures and refunds too."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 (Finding 5.1) \u2014 Rename the handler class to name the event it handles?\nProject/branch/task: main; PLAN.md \"Architecture\" names the class StripePaymentWebhookHandler; the retained ingress forwards only payment_intent.succeeded to it.\nELI10: The class name promises \"all Stripe payment webhooks,\" but the code handles exactly one event. When someone adds a refund or dispute handler next quarter, a name tied to the event makes the dispatcher registration table read like a map of what happens on each event. This is taste, not correctness; nothing breaks either way.\nStakes if we pick wrong: Mild confusion for the next engineer, or a rename churn nobody asked for.\nRecommendation: A \u2014 this is a taste call, no strong preference either way; A is the default because it matches the D3 namespace decision and the one-event contract.\nNote: options differ in kind, not coverage \u2014 no completeness score.\nNet: event-named class under the Stripe namespace vs the broader name as written.": "A) Stripe::PaymentIntentSucceededHandler (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T07:01:05.117Z"
+    },
+    {
+      "sessionId": "1f7fabc1-f286-440b-9904-2d37428020dd",
+      "toolUseId": "toolu_01WPGAsZjxjQARcj7foP3NAA",
+      "questions": [
+        {
+          "question": "D9 (Finding 6.1) \u2014 Replace \"Tests: None planned\" with the automated test set above?\nProject/branch/task: main; PLAN.md \"Tests\": none planned, rely on the existing integration suite. The retained contracts confirm the rollout checklist is manual verification, not regression coverage.\nELI10: A new class behind a feature flag is invisible to an existing test suite; nothing in it knows the class exists. The staging replay in the rollout checklist is one human running one happy-path event once. Every failure path this review mapped (mail down, DB down, hostile ID, template bug, deletion race, flag off) would ship untested. With AI-assisted coding the full set costs minutes, not the day it used to.\nStakes if we pick wrong: A regression in a payment handler is found by a paying customer or by on-call, and the runbook is exercised for real instead of in CI.\nRecommendation: A because well-tested code is non-negotiable in your stated preferences, the tests are already specified with exact assertions, and the marginal cost over B is minutes. Maps to \"I'd rather have too many tests than too few.\"\nCompleteness: A=10/10, B=6/10, C=1/10\nNet: the full table vs only the two already-approved slices vs manual staging replay only.",
+          "header": "Tests",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Full automated set: unit + integration + signed-fixture replay (recommended)",
+              "description": "\u2705 Every row in the Section 6 table lands: registration, happy path, empty orders, per-class mail rescue, hostile IDs, DB failure before commit, template error, deletion race, flag on/off, plus one signed payment_intent.succeeded fixture replayed through ingress with the mail provider stubbed down (human: ~1 day / CC: ~20min). \u2705 The 2am-Friday test exists in CI, so the runbook's promise is proven on every commit. \u274c Needs a captured signed fixture and a mail-provider stub in the test harness if none exist yet."
+            },
+            {
+              "label": "B) Only the D5 and D6 tests already approved",
+              "description": "\u2705 Covers the two highest-severity fixes (mail rescue per class, bound params with hostile IDs). \u2705 Smallest test diff that still guards the review's critical gaps (human: ~3h / CC: ~10min). \u274c Registration, happy path, empty orders, DB-failure sequencing, deletion race, and flag behavior ship on faith; a wiring mistake under D3 would not be caught."
+            },
+            {
+              "label": "C) Keep as written: no automated tests, manual staging replay only",
+              "description": "\u2705 Zero test code; matches the plan text. \u2705 The rollout checklist still requires one staging replay before broad enable. \u274c Contradicts the D5 and D6 approvals, which included tests, and leaves every failure path unverified by anything repeatable."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D9 (Finding 6.1) \u2014 Replace \"Tests: None planned\" with the automated test set above?\nProject/branch/task: main; PLAN.md \"Tests\": none planned, rely on the existing integration suite. The retained contracts confirm the rollout checklist is manual verification, not regression coverage.\nELI10: A new class behind a feature flag is invisible to an existing test suite; nothing in it knows the class exists. The staging replay in the rollout checklist is one human running one happy-path event once. Every failure path this review mapped (mail down, DB down, hostile ID, template bug, deletion race, flag off) would ship untested. With AI-assisted coding the full set costs minutes, not the day it used to.\nStakes if we pick wrong: A regression in a payment handler is found by a paying customer or by on-call, and the runbook is exercised for real instead of in CI.\nRecommendation: A because well-tested code is non-negotiable in your stated preferences, the tests are already specified with exact assertions, and the marginal cost over B is minutes. Maps to \"I'd rather have too many tests than too few.\"\nCompleteness: A=10/10, B=6/10, C=1/10\nNet: the full table vs only the two already-approved slices vs manual staging replay only.": "A) Full automated set: unit + integration + signed-fixture replay (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T07:02:03.239Z"
+    },
+    {
+      "sessionId": "1f7fabc1-f286-440b-9904-2d37428020dd",
+      "toolUseId": "toolu_01VezYJ6Ak2AHDm6HxZjWYJn",
+      "questions": [
+        {
+          "question": "D10 (Finding 8.1) \u2014 Alert when a succeeded payment hits the unknown-user path?\nProject/branch/task: main; retained contract: the lookup-result guard acks unknown/deleted users with HTTP 200 and logs the event, then stops.\nELI10: If Stripe says \"paid\" but the user ID in the metadata matches nobody (typo in checkout code, user deleted a moment earlier), the system says \"ok, done\" to Stripe and writes one log line. Stripe never retries, the customer paid, and nobody is told. Today the only way to notice is to read logs. A log-based alert on that existing line, scoped to payment_intent.succeeded, makes it a page instead of an archaeology exercise.\nStakes if we pick wrong: Paid customers stranded until they complain; or an alert on a component the plan promised not to touch.\nRecommendation: A because it needs no code change to the retained guard (alerting config on an existing event-correlated log), it closes the only remaining silent money-loss path this review found, and observability is scope, not afterthought. Maps to \"zero silent failures.\"\nCompleteness: A=9/10, B=10/10, C=3/10\nNet: alert on the existing log now vs a metric in the guard vs leaving it as a log line.",
+          "header": "Unknown user",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Log-based alert on the existing unknown-user line, plus runbook entry (recommended)",
+              "description": "\u2705 Alert fires on the retained guard's existing event-correlated warning filtered to payment_intent.succeeded; no code change to the guard. \u2705 Runbook entry: find the PaymentIntent in Stripe, resolve the intended user, apply the paid update through the documented manual path; verified by firing one synthetic unknown-user event in staging and seeing the alert (human: ~1h / CC: ~10min). \u274c Depends on the log pipeline supporting field-filtered alerts; if it does not, this becomes option B."
+            },
+            {
+              "label": "B) Emit a counter metric from the guard and alert on it",
+              "description": "\u2705 Metric is more reliable than log parsing and gives a dashboard panel for free. \u2705 Same runbook entry as A. \u274c Modifies the retained lookup-result guard the plan says it leaves unchanged; needs its own small review and affects every handler behind it (human: ~2h / CC: ~15min)."
+            },
+            {
+              "label": "C) Leave as a log line only (as today)",
+              "description": "\u2705 Zero change; matches the retained contract exactly. \u2705 The event is still discoverable in logs by event ID. \u274c A paying customer with a bad user_id is stranded until they complain; the review's last silent failure path stays open."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D10 (Finding 8.1) \u2014 Alert when a succeeded payment hits the unknown-user path?\nProject/branch/task: main; retained contract: the lookup-result guard acks unknown/deleted users with HTTP 200 and logs the event, then stops.\nELI10: If Stripe says \"paid\" but the user ID in the metadata matches nobody (typo in checkout code, user deleted a moment earlier), the system says \"ok, done\" to Stripe and writes one log line. Stripe never retries, the customer paid, and nobody is told. Today the only way to notice is to read logs. A log-based alert on that existing line, scoped to payment_intent.succeeded, makes it a page instead of an archaeology exercise.\nStakes if we pick wrong: Paid customers stranded until they complain; or an alert on a component the plan promised not to touch.\nRecommendation: A because it needs no code change to the retained guard (alerting config on an existing event-correlated log), it closes the only remaining silent money-loss path this review found, and observability is scope, not afterthought. Maps to \"zero silent failures.\"\nCompleteness: A=9/10, B=10/10, C=3/10\nNet: alert on the existing log now vs a metric in the guard vs leaving it as a log line.": "A) Log-based alert on the existing unknown-user line, plus runbook entry (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-10T07:02:57.328Z"
+    }
+  ]
+}
