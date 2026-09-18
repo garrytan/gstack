@@ -45,10 +45,10 @@ If `PROACTIVE` is `false`: do NOT proactively invoke or suggest other gstack ski
 this session. Only run skills the user explicitly invokes. This preference persists across
 sessions via `gstack-config`.
 
-If `PROACTIVE` is `true` (default): **invoke the Skill tool** when the user's request
-matches a skill's purpose. Do NOT answer directly when a skill exists for the task.
-Use the Skill tool to invoke it. The skill has specialized workflows, checklists, and
-quality gates that produce better results than answering inline.
+If `PROACTIVE` is `true` (default), invoke a skill when its purpose matches the
+requested outcome and its workflow adds useful guidance. A matching keyword alone
+is not enough: a small edit or a question about a tool does not require a full
+review, redesign, or release workflow. Honor an explicitly chosen skill.
 
 **Routing rules — when you see these patterns, INVOKE the skill via the Skill tool:**
 - User describes a new idea, asks "is this worth building", brainstorms, pitches a concept → invoke `/office-hours`
@@ -90,11 +90,9 @@ quality gates that produce better results than answering inline.
 - User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
 - User asks for code quality dashboard, "health check" → invoke `/health`
 
-**When in doubt, invoke the skill.** A false positive (invoking a skill that wasn't
-needed) is cheaper than a false negative (answering ad-hoc when a structured workflow
-exists). The skill provides multi-step workflows, checklists, and quality gates that
-always produce better results than an ad-hoc answer. If no skill matches, answer
-directly as usual.
+When the match is unclear, use the request and available context to decide whether
+the specialized workflow helps. Answer directly when it does not; do not treat
+extra skill loading as inherently safer or better.
 
 If the user opts out of suggestions, run `gstack-config set proactive false`.
 If they opt back in, run `gstack-config set proactive true`.
