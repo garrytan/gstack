@@ -306,6 +306,37 @@ describe('gstack-retro-metrics edges', () => {
     }
   });
 
+  // Regression: the repo-wide census was suffix-only, so pytest/unittest's
+  // default `test_*.py` discovery name counted as zero. A Python repo whose
+  // whole suite is `tests/test_*.py` reported TEST_FILES_TOTAL: 0 while its
+  // TEST_RATIO was healthy -- the two lines disagreed and the low one was
+  // silently wrong. Dir-homed helpers (tests/utils.py) must still NOT count.
+  test('counts pytest-style test_*.py and minitest test_*.rb, not dir-homed helpers', () => {
+    const pyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-rm-py-'));
+    try {
+      git(pyDir, ['init', '-b', 'main']);
+      git(pyDir, ['config', 'user.email', 'py@example.com']);
+      git(pyDir, ['config', 'user.name', 'Py']);
+      fs.mkdirSync(path.join(pyDir, 'tests'), { recursive: true });
+      fs.mkdirSync(path.join(pyDir, 'app'), { recursive: true });
+      write(pyDir, 'tests/test_login.py', 'def test_login():\n    assert True\n');
+      write(pyDir, 'tests/test_logout.py', 'def test_logout():\n    assert True\n');
+      write(pyDir, 'tests/helper_test.rb', "require 'minitest'\n");
+      write(pyDir, 'tests/test_signup.rb', "require 'minitest'\n");
+      // Must NOT count: a dir-homed helper, and a source file merely prefixed
+      // with "test" but not "test_".
+      write(pyDir, 'tests/utils.py', 'HELPER = 1\n');
+      write(pyDir, 'app/testing.py', 'MODE = 1\n');
+      commit(pyDir, 'test: add suite', '2026-03-10T09:00:00');
+      const out = runMetrics(['--base', 'main', '--since', '2026-03-09T00:00:00'], pyDir);
+      // test_login.py, test_logout.py, test_signup.rb (prefix) + helper_test.rb (suffix) = 4
+      expect(out).toMatch(/^TEST_FILES_TOTAL: 4$/m);
+      expect(out).toMatch(/^RETRO_METRICS_END: ok$/m);
+    } finally {
+      fs.rmSync(pyDir, { recursive: true, force: true });
+    }
+  });
+
   test('local reads only: no network git ops or curl anywhere in the script', () => {
     const script = fs.readFileSync(SCRIPT, 'utf-8');
     expect(script).not.toMatch(/(^|[;|&`($!]|\s)git(\s+-C\s+\S+)?\s+(push|pull|fetch|clone|ls-remote)\b/m);
