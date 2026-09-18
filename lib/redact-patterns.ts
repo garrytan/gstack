@@ -127,6 +127,25 @@ const ENV_KV_SUFFIX =
 const ENV_KV_CRED_PREFIX =
   /(api|auth|access|secret|private|app|client|server|master|admin|signing|encryption|session|csrf|jwt|oauth|bearer)$/i;
 
+// env.kv value-shape calibration: the value capture is `[^\s'"]{8,}` — any
+// run of non-space, non-quote characters — so it swallows CODE, not only
+// literals: `session = _FlakySession(requests.ReadTimeout(`, `session =
+// find_session(client,`, `token = make_token(user,`, `password =
+// getpass.getpass()`. Each is a credential-shaped name (bare `session`,
+// `token`, `password`) followed by a call whose mixed case clears the
+// 3.0-bit entropy gate. `validate` sees only the span, never the file, so
+// the fix is on the span's shape — and it must stay a NEGATIVE test on one
+// code shape: a character allow-list silences real passwords carrying
+// `!#$&*` (`Tr0ub4dor&3!xyz`), and excluding dotted paths silences
+// passphrases (`correct.horse.battery.staple`). Only a call is excluded: an
+// identifier or dotted path immediately followed by `(`.
+const ENV_KV_CALL_SHAPED = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*\(/;
+
+/** True when an env.kv value span is a function call rather than a literal. */
+export function isCallShapedEnvValue(span: string): boolean {
+  return ENV_KV_CALL_SHAPED.test(span);
+}
+
 /** True when the full env.kv match starts with a credential-shaped name. */
 export function isCredentialShapedEnvName(fullMatch: string): boolean {
   const nameMatch = ENV_KV_NAME.exec(fullMatch);
@@ -675,10 +694,12 @@ export const PATTERNS: RedactPattern[] = [
     // values. The value must stay capture group 1 (the engine masks group 1),
     // so name-shape checking lives in validate, not in a second group.
     regex: /^[ \t]*(?:export[ \t]+)?["']?[A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)["']?[ \t]*[:=][ \t]*["']?([^\s'"]{8,})["']?/i,
-    // Only fire on credential-shaped names with high-entropy values — kills
-    // `FOO_KEY=changeme` and `cacheKey: <entropic-id>` FPs.
+    // Only fire on credential-shaped names with high-entropy values that are
+    // not a call — kills `FOO_KEY=changeme`, `cacheKey: <entropic-id>` and
+    // `session = requests.Session()` / `token = make_token(...)` FPs.
     validate: (span, match) =>
       isCredentialShapedEnvName(match[0]) &&
+      !isCallShapedEnvValue(span) &&
       !isPlaceholderSpan(span) &&
       !/^\$\{?[A-Za-z_]/.test(span) &&
       shannonEntropy(span) >= 3.0,
