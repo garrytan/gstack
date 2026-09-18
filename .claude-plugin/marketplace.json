@@ -1,0 +1,31 @@
+{
+  "name": "garrytan-gstack",
+  "metadata": {
+    "description": "Garry's Stack — a virtual engineering team for Claude Code"
+  },
+  "owner": {
+    "name": "Garry Tan"
+  },
+  "plugins": [
+    {
+      "name": "gstack",
+      "source": "./",
+      "description": "28 development workflow skills that turn Claude Code into a virtual engineering team — office hours, code review, QA with a real browser, design audits, security analysis, release automation, and more.",
+      "category": "development",
+      "tags": [
+        "gstack",
+        "code-review",
+        "qa",
+        "testing",
+        "browser",
+        "design",
+        "security",
+        "workflow",
+        "engineering",
+        "shipping",
+        "debugging",
+        "devtools"
+      ]
+    }
+  ]
+}

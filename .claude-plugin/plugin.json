@@ -1,0 +1,25 @@
+{
+  "name": "gstack",
+  "description": "Garry's Stack — 28 Claude Code skills that turn your AI agent into a virtual engineering team. Code review, QA with a real browser, design audits, security analysis, and release automation, all as slash commands.",
+  "version": "0.12.2.0",
+  "author": {
+    "name": "Garry Tan"
+  },
+  "homepage": "https://github.com/garrytan/gstack",
+  "repository": "https://github.com/garrytan/gstack",
+  "license": "MIT",
+  "keywords": [
+    "gstack",
+    "skills",
+    "code-review",
+    "qa",
+    "testing",
+    "browser",
+    "design",
+    "security",
+    "workflow",
+    "engineering",
+    "productivity",
+    "devtools"
+  ]
+}
