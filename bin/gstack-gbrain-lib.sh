@@ -1,4 +1,5 @@
 # gstack-gbrain-lib.sh — shared helpers for setup-gbrain bin scripts.
+# shellcheck shell=bash
 #
 # This file is NOT executable; source it:
 #

@@ -17,7 +17,13 @@ import * as path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/g;
-const BUN_FAIL_RESULT = /^\(fail\) .+ \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
+// Bun renamed the per-test failure marker: <=1.3.x printed `(fail) <name>
+// [12ms]`, 1.4.x prints `✗ <name> [12ms]`. Matching only the legacy form made
+// classifyBunTestOutputLine blind on bun 1.4 — failedTests stayed 0, so the
+// zero-exit-with-failures guard this module exists for could not fire. Accept
+// both; the crash marker `✗ <path> (crashed: ...)` has no [duration] suffix and
+// still cannot match.
+const BUN_FAIL_RESULT = /^(?:\(fail\)|✗) .+ \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
 const BUN_BETWEEN_TESTS_ERROR = '# Unhandled error between tests';
 const BUN_TERMINAL_SUMMARY = /^Ran (\d+) tests? across (\d+) files?\. \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
 // The counts block bun prints just before the terminal summary (" 1 pass",

@@ -779,8 +779,13 @@ export function shardRunLooksTruncated(status: number | null, output: string): b
 const TEST_PATH_SOURCE = String.raw`\.test\.(?:[cm]?[jt]s|tsx|jsx)`;
 /** A file chunk header: the path bun printed, terminated by a bare colon. */
 const FILE_HEADER_RE = new RegExp(`^(\\S.*${TEST_PATH_SOURCE}):$`);
-/** Same shape strict-output classifies as failed-test, with the name captured. */
-const FAIL_RESULT_CAPTURE_RE = /^\(fail\) (.+) \[\d+(?:\.\d+)?(?:ns|us|µs|ms|s)\]$/;
+/**
+ * Same shape strict-output classifies as failed-test, with the name captured.
+ * Both markers bun has used: `(fail) <name> [12ms]` (<=1.3.x) and
+ * `✗ <name> [12ms]` (1.4.x). Keeping only the legacy form reported every
+ * shard as "0 failing test(s)" on bun 1.4 while 321 tests were failing.
+ */
+const FAIL_RESULT_CAPTURE_RE = /^(?:\(fail\)|✗) (.+) \[\d+(?:\.\d+)?(?:ns|us|µs|ms|s)\]$/;
 /** bun --parallel retries a crashed worker once: `<icon> crashed running <path>, retrying`. */
 const CRASH_RETRY_RE = new RegExp(`crashed running (\\S*${TEST_PATH_SOURCE}), retrying`);
 /** The give-up marker after the retry also crashes: `✗ <path> (crashed: exited)`. */

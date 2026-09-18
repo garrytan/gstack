@@ -13,6 +13,26 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
 esac
+# Resolve bun explicitly rather than trusting PATH. Skills invoke this script
+# from non-login, non-interactive shells (agent harnesses, hooks, cron) that
+# never source the user's rc, so a bun installed at ~/.bun/bin is invisible
+# here even though `bun --version` works in the user's own terminal. Every
+# call site pipes us to /dev/null with `|| true`, so an unresolved `bun`
+# surfaces as nothing at all and the learning is dropped — the same silent
+# class as #1950, reached through PATH instead of stderr. GSTACK_BUN overrides.
+if [ -z "${GSTACK_BUN:-}" ]; then
+  if command -v bun >/dev/null 2>&1; then
+    GSTACK_BUN=bun
+  elif [ -x "$HOME/.bun/bin/bun" ]; then
+    GSTACK_BUN="$HOME/.bun/bin/bun"
+  elif [ -x "$HOME/.bun/bin/bun.exe" ]; then
+    GSTACK_BUN="$HOME/.bun/bin/bun.exe"
+  else
+    echo "gstack-learnings-log: bun not found on PATH, \$GSTACK_BUN, or ~/.bun/bin — learning NOT recorded." >&2
+    exit 127
+  fi
+fi
+
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
@@ -25,7 +45,7 @@ INPUT="$1"
 TMPERR=$(mktemp)
 trap 'rm -f "$TMPERR"' EXIT
 set +e
-VALIDATED=$(printf '%s' "$INPUT" | GSTACK_LIB_DIR="$SCRIPT_DIR/../lib" bun -e "
+VALIDATED=$(printf '%s' "$INPUT" | GSTACK_LIB_DIR="$SCRIPT_DIR/../lib" "$GSTACK_BUN" -e "
 const { hasInjection } = await import(process.env.GSTACK_LIB_DIR + '/jsonl-store.ts');
 const raw = await Bun.stdin.text();
 let j;

@@ -741,3 +741,53 @@ describe('test-free-shards: duration-aware packing (full-suite LPT)', () => {
     expect(wallTimeoutForPackedShard(600_000, WALL_BASE_MS, 10)).toBe(1_800_000);
   });
 });
+
+describe('test-free-shards: bun 1.4 failure marker attribution', () => {
+  // The marker rename (`(fail) <name>` -> `✗ <name>`) made FAIL_RESULT_CAPTURE_RE
+  // blind, so every shard epilogue read "FAIL — 0 failing test(s) in 0 file(s)"
+  // while 321 tests were genuinely failing. The counts were only recoverable
+  // by hand-parsing the per-shard logs.
+  const failLine14 = (name: string) => `✗ ${name} [1.00ms]`;
+
+  test('✗ result lines are counted and attributed to their file', () => {
+    const reporter = new FreeRunReporter(['test/a.test.ts', 'test/b.test.ts']);
+    reporter.write('test/a.test.ts:\n', 'stderr');
+    reporter.write(`${failLine14('alpha fails')}\n`, 'stderr');
+    reporter.write('test/b.test.ts:\n', 'stderr');
+    reporter.write(`${failLine14('beta fails')}\n`, 'stderr');
+    reporter.write('Ran 2 tests across 2 files. [10.00ms]\n', 'stderr');
+    reporter.end();
+    expect(reporter.report().failures).toEqual([
+      { file: 'test/a.test.ts', testName: 'alpha fails' },
+      { file: 'test/b.test.ts', testName: 'beta fails' },
+    ]);
+  });
+
+  test('legacy (fail) lines still attribute — both markers coexist', () => {
+    const reporter = new FreeRunReporter(['test/a.test.ts']);
+    reporter.write('test/a.test.ts:\n', 'stderr');
+    reporter.write('(fail) legacy form [1.00ms]\n', 'stderr');
+    reporter.write(`${failLine14('modern form')}\n`, 'stderr');
+    reporter.end();
+    expect(reporter.report().failures.map((f) => f.testName)).toEqual(['legacy form', 'modern form']);
+  });
+
+  test('a crashed-worker ✗ marker is a crash, not a failing test', () => {
+    const reporter = new FreeRunReporter(['test/a.test.ts']);
+    reporter.write('✗ test/a.test.ts (crashed: exited)\n', 'stderr');
+    reporter.end();
+    const report = reporter.report();
+    expect(report.failures).toEqual([]);
+    expect(report.crashedFiles).toEqual(['test/a.test.ts']);
+  });
+
+  test('the epilogue reports the real count instead of zero', () => {
+    const reporter = new FreeRunReporter(['test/a.test.ts']);
+    reporter.write('test/a.test.ts:\n', 'stderr');
+    reporter.write(`${failLine14('one')}\n`, 'stderr');
+    reporter.write(`${failLine14('two')}\n`, 'stderr');
+    reporter.end();
+    const epilogue = buildRunEpilogue('failed', reporter.report(), 1000, '/tmp/x.log');
+    expect(epilogue[0]).toContain('2 failing test(s) in 1 file(s)');
+  });
+});
