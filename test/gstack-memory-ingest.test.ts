@@ -1350,3 +1350,177 @@ describe("#2392: transcript ingest honors per-remote trust policy", () => {
     rmSync(home, { recursive: true, force: true });
   });
 });
+
+// ── Silent per-file failures: state must never claim a page gbrain refused ──
+//
+// Field incident (2026-09-02): 37 + 69 state entries on two machines pointed at
+// pages that did not exist. `gbrain import` returns a per-file failure
+// (invalid frontmatter, oversize, symlink, slug mismatch) as status='skipped'
+// with exit 0, and writes sync-failures.jsonl ONLY when the import dir is a git
+// repo — the staging dir never is. readNewFailures() was therefore always
+// empty, `imported + skipped` equalled the staged count, and every failed page
+// was stamped as ingested. --incremental never revisits a stamped file, so the
+// loss was permanent and invisible.
+describe("per-file failure accounting (gbrain reports failures only on stderr / --json)", () => {
+  function installShim(home: string, body: string): { binDir: string } {
+    const binDir = join(home, "fake-bin");
+    mkdirSync(binDir, { recursive: true });
+    const script = `#!/usr/bin/env bash
+case "\${1:-}" in
+  --help|-h) echo "Usage: gbrain <command>"; echo "Commands:"; echo "  import <dir>   Import"; exit 0 ;;
+  import)
+    DIR="\${2:-}"
+${body}
+    ;;
+  *) echo "unknown"; exit 2 ;;
+esac
+`;
+    const binPath = join(binDir, "gbrain");
+    writeFileSync(binPath, script, "utf-8");
+    chmodSync(binPath, 0o755);
+    return { binDir };
+  }
+
+  const GOOD = "goodsession1";
+  const BAD = "badsession01";
+  function twoSessions(home: string): void {
+    for (const id of [GOOD, BAD]) {
+      writeClaudeCodeSession(home, "tmp-foo", id,
+        `{"type":"user","message":{"role":"user","content":"hi ${id}"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n` +
+        `{"type":"assistant","message":{"role":"assistant","content":"hello"},"timestamp":"2026-05-01T00:00:01Z"}\n`);
+    }
+  }
+  function stateSessions(gstackHome: string): string[] {
+    const statePath = join(gstackHome, ".transcript-ingest-state.json");
+    if (!existsSync(statePath)) return [];
+    return Object.keys(JSON.parse(readFileSync(statePath, "utf-8")).sessions || {});
+  }
+
+  it("parseImportStderrFailures reads returned skips, thrown warnings and malformed-filename skips", async () => {
+    const mod = await import(SCRIPT);
+    const stderr = [
+      "Found 3 markdown files",
+      "  Skipped transcripts/claude-code/x/2026-08-31-bad.md: Invalid YAML frontmatter: can not read a block mapping entry at line 22, column 1:",
+      "    ## Why (grounded in a real call)",
+      "    ^. Quote scalar values that contain \": \" or fix the frontmatter block.",
+      "  Warning: skipped transcripts/claude-code/x/2026-08-31-boom.md: post-write read-back failed",
+      "  Skipped (malformed filename — rename to import): transcripts/claude-code/x/2026-08-31-[weird].md",
+      "[import.files] 3/3 (100%) imported=0 skipped=3 errors=1",
+    ].join("\n");
+    const failures = mod.parseImportStderrFailures(stderr);
+    expect(failures).toEqual([
+      { path: "transcripts/claude-code/x/2026-08-31-bad.md", error: expect.stringContaining("Invalid YAML frontmatter"), thrown: false },
+      { path: "transcripts/claude-code/x/2026-08-31-boom.md", error: "post-write read-back failed", thrown: true },
+      { path: "transcripts/claude-code/x/2026-08-31-[weird].md", error: "malformed filename", thrown: false },
+    ]);
+  });
+
+  it("normalizeSlugForGbrain mints the slug gbrain's slugifyPath will store", async () => {
+    const mod = await import(SCRIPT);
+    // 12-char session prefixes can end in "-" and repo names carry case; gbrain
+    // lowercases and strips the trailing hyphen, so state must record that form.
+    expect(mod.normalizeSlugForGbrain("transcripts/claude-code/afshaker-KangenticX/2026-07-20-agent-aplan-"))
+      .toBe("transcripts/claude-code/afshaker-kangenticx/2026-07-20-agent-aplan");
+    expect(mod.normalizeSlugForGbrain("learnings/_unattributed/2026-08-24-learnings"))
+      .toBe("learnings/_unattributed/2026-08-24-learnings");
+  });
+
+  it("a page gbrain returns as a failed skip (exit 0) is left un-stamped and reported", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    twoSessions(home);
+    // Real gbrain shape: the failure is a `  Skipped <rel>: <err>` line on
+    // stderr, `skipped` counts it, `errors` does not, exit code is 0.
+    const { binDir } = installShim(home, `
+    BAD=$(cd "$DIR" && find . -name '*${BAD}*.md' | sed 's#^\\./##' | head -1)
+    echo "  Skipped $BAD: Invalid YAML frontmatter: can not read a block mapping entry. Quote scalar values that contain \\": \\" or fix the frontmatter block." >&2
+    echo '{"status":"success","duration_s":0.1,"imported":1,"skipped":1,"errors":0,"chunks":1,"total_files":2}'
+    exit 0`);
+
+    const r = runScript(["--bulk", "--include-unattributed", "--quiet"], {
+      HOME: home, GSTACK_HOME: gstackHome, PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.stderr).toMatch(/\[memory-ingest\] FAILED transcripts\/claude-code\/_unattributed\/.*badsession0.*Invalid YAML frontmatter/);
+    expect(r.stderr).not.toMatch(/Refusing to advance state/);
+    expect(r.stdout).toMatch(/written:\s+1/);
+    expect(r.stdout).toMatch(/failed:\s+1/);
+    const stamped = stateSessions(gstackHome);
+    expect(stamped).toHaveLength(1);
+    expect(stamped[0]).toContain(GOOD);
+  });
+
+  it("a thrown failure (exit 1 with a JSON summary) stamps the pages that landed and retries the rest", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    twoSessions(home);
+    // gbrain exits 1 whenever one file THROWS. Pre-fix the whole batch was
+    // refused, so one poison file re-staged the same batch forever.
+    const { binDir } = installShim(home, `
+    BAD=$(cd "$DIR" && find . -name '*${BAD}*.md' | sed 's#^\\./##' | head -1)
+    echo "  Warning: skipped $BAD: post-write read-back failed" >&2
+    echo '{"status":"success","duration_s":0.1,"imported":1,"skipped":1,"errors":1,"chunks":1,"total_files":2}'
+    exit 1`);
+
+    const r = runScript(["--bulk", "--include-unattributed", "--quiet"], {
+      HOME: home, GSTACK_HOME: gstackHome, PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(r.stderr).toMatch(/FAILED transcripts\/claude-code\/_unattributed\/.*badsession0.*post-write read-back failed/);
+    expect(r.stderr).not.toMatch(/Refusing to advance state/);
+    const stamped = stateSessions(gstackHome);
+    expect(stamped).toHaveLength(1);
+    expect(stamped[0]).toContain(GOOD);
+  });
+
+  it("refuses the batch when gbrain counts a failure it did not name (suppressed warnings)", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    twoSessions(home);
+    // gbrain prints at most 5 "Warning: skipped" lines per error class; the
+    // rest only show up in `errors`. An unmappable failure must not be stamped
+    // on to whichever page happens to be left.
+    const { binDir } = installShim(home, `
+    echo '{"status":"success","duration_s":0.1,"imported":1,"skipped":1,"errors":1,"chunks":1,"total_files":2}'
+    exit 1`);
+
+    const r = runScript(["--bulk", "--include-unattributed", "--quiet"], {
+      HOME: home, GSTACK_HOME: gstackHome, PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(r.stderr).toMatch(/cannot be mapped to a staged page/);
+    expect(r.stderr).toMatch(/Refusing to advance state/);
+    expect(stateSessions(gstackHome)).toHaveLength(0);
+  });
+});
+
+// ── Deleted cwd: attribute through the nearest existing ancestor ────────────
+describe("attribution survives a deleted worktree cwd", () => {
+  it("resolves the remote from the nearest existing ancestor directory", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const repo = join(home, "widgets");
+    mkdirSync(repo, { recursive: true });
+    for (const args of [["init", "-q"], ["remote", "add", "origin", "https://github.com/acme/widgets.git"]]) {
+      const g = spawnSync("git", ["-C", repo, ...args], { encoding: "utf-8" });
+      expect(g.status).toBe(0);
+    }
+    // The session ran in a worktree that no longer exists.
+    const goneCwd = join(repo, ".worktrees", "task-42");
+    writeClaudeCodeSession(home, "widgets-task-42", "gone0000cwd0",
+      `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"${goneCwd}"}\n` +
+      `{"type":"assistant","message":{"role":"assistant","content":"hello"},"timestamp":"2026-05-01T00:00:01Z"}\n`);
+    const { binDir, stagingListFile } = installFakeGbrain(home);
+
+    // No --include-unattributed: pre-fix this session was skipped outright.
+    const r = runScript(["--bulk", "--quiet"], {
+      HOME: home, GSTACK_HOME: gstackHome, PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/written:\s+1/);
+    const staged = readFileSync(stagingListFile, "utf-8");
+    expect(staged).toMatch(/transcripts\/claude-code\/acme-widgets\/2026-05-01-gone0000cwd0\.md/);
+  });
+});
