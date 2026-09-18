@@ -95,8 +95,12 @@ Try to determine how long this session has been active:
 ```bash
 if [ -n "$_TEL_START" ]; then
   START_EPOCH="$_TEL_START"
-elif [ -n "$PPID" ]; then
-  START_EPOCH=$(ps -o lstart= -p $PPID 2>/dev/null | xargs -I{} date -jf "%c" "{}" "+%s" 2>/dev/null || echo "")
+elif [ -n "$PPID" ] && [ -f ~/.gstack/sessions/"$PPID" ]; then
+  if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+    START_EPOCH=$(stat -f %m ~/.gstack/sessions/"$PPID" 2>/dev/null || echo "")
+  else
+    START_EPOCH=$(date -r ~/.gstack/sessions/"$PPID" +%s 2>/dev/null || stat -c %Y ~/.gstack/sessions/"$PPID" 2>/dev/null || echo "")
+  fi
 fi
 if [ -n "$START_EPOCH" ]; then
   NOW=$(date +%s)
