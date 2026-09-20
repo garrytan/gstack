@@ -107,6 +107,42 @@ describe("pre-push hook gating", () => {
     expect(code).toBe(0);
     expect(stderr).toContain("MEDIUM");
   });
+
+  test("clean pushed diff larger than the engine cap is scanned in chunks", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    fs.writeFileSync(path.join(repo, "large-a.txt"), "clean-a ".repeat(90_000));
+    fs.writeFileSync(path.join(repo, "large-b.txt"), "clean-b ".repeat(90_000));
+    git(["add", "large-a.txt", "large-b.txt"]);
+    git(["commit", "-q", "-m", "large clean diff"]);
+    const head = git(["rev-parse", "HEAD"]);
+
+    const { code, stderr } = runHook(
+      `refs/heads/main ${head} refs/heads/main ${base}\n`,
+    );
+
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("engine.input_too_large");
+  });
+
+  test("credential after the first chunk of a large pushed diff still blocks", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    fs.writeFileSync(path.join(repo, "large-a.txt"), "clean-a ".repeat(90_000));
+    fs.writeFileSync(
+      path.join(repo, "large-b.txt"),
+      "clean-b ".repeat(90_000) + "\n" + FAKE_AWS_KEY + "\n",
+    );
+    git(["add", "large-a.txt", "large-b.txt"]);
+    git(["commit", "-q", "-m", "large diff with credential"]);
+    const head = git(["rev-parse", "HEAD"]);
+
+    const { code, stderr } = runHook(
+      `refs/heads/main ${head} refs/heads/main ${base}\n`,
+    );
+
+    expect(code).toBe(1);
+    expect(stderr).toContain("aws.access_key");
+    expect(stderr).not.toContain("engine.input_too_large");
+  });
 });
 
 describe("diff direction + special refs", () => {
