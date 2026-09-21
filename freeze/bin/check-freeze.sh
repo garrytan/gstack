@@ -111,6 +111,29 @@ if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
 
+# Windows (Git Bash / MSYS2 / Cygwin): Claude Code hands the hook native paths
+# like C:\Users\me\repo\x.ts. Left alone, a drive-letter path is not
+# "/"-absolute, gets $(pwd) prepended, and can never match the /c/... boundary
+# /freeze wrote, so every edit was denied. Convert drive-letter paths to the
+# shell's own POSIX form (cygpath knows the /c vs /cygdrive/c mount prefix;
+# the manual /c/... form is the MSYS default when cygpath is absent).
+_to_posix_path() {
+  case "$1" in
+    [A-Za-z]:|[A-Za-z]:[/\\]*) ;;
+    *) printf '%s' "$1"; return 0 ;;
+  esac
+  local _out _drive _rest
+  if command -v cygpath >/dev/null 2>&1 && _out="$(cygpath -u -- "$1" 2>/dev/null; printf x)"; then
+    _out="${_out%x}"; _out="${_out%$'\n'}"
+    if [ -n "$_out" ]; then printf '%s' "$_out"; return 0; fi
+  fi
+  _drive=$(printf '%s' "${1%%:*}" | tr '[:upper:]' '[:lower:]')
+  _rest="${1#?:}"
+  printf '/%s%s' "$_drive" "${_rest//\\//}"
+}
+FILE_PATH=$(_to_posix_path "$FILE_PATH")
+FREEZE_DIR=$(_to_posix_path "$FREEZE_DIR")
+
 # Resolve file_path to absolute if it isn't already
 case "$FILE_PATH" in
   /*) ;; # already absolute
@@ -148,9 +171,22 @@ _resolve_path() {
 FILE_PATH=$(_resolve_path "$FILE_PATH")
 FREEZE_DIR=$(_resolve_path "$FREEZE_DIR")
 
+# Windows filesystems are case-insensitive: C:\Repo and /c/repo are the same
+# directory, and pwd -P does not canonicalize case. Compare case-folded there
+# so a casing difference neither denies an in-boundary edit nor matters to an
+# out-of-boundary one. POSIX hosts keep the exact, case-sensitive comparison.
+_CMP_FILE="$FILE_PATH"
+_CMP_FREEZE="$FREEZE_DIR"
+case "${OSTYPE:-}" in
+  msys*|cygwin*)
+    _CMP_FILE=$(printf '%s' "$FILE_PATH" | tr '[:upper:]' '[:lower:]')
+    _CMP_FREEZE=$(printf '%s' "$FREEZE_DIR" | tr '[:upper:]' '[:lower:]')
+    ;;
+esac
+
 # Check: does the file path start with the freeze directory?
-case "$FILE_PATH" in
-  "${FREEZE_DIR}/"*|"${FREEZE_DIR}")
+case "$_CMP_FILE" in
+  "${_CMP_FREEZE}/"*|"${_CMP_FREEZE}")
     # Inside freeze boundary — allow
     _FREEZE_DECIDED=1
     echo '{}'

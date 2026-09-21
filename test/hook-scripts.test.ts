@@ -1008,12 +1008,17 @@ describe('check-freeze.sh', () => {
 });
 
 // ============================================================
-// Windows hosts (Git Bash / MSYS2): no python/node
+// Windows hosts (Git Bash / MSYS2): native paths + no python/node
 // ============================================================
-// Git for Windows ships perl but often only the Microsoft Store python3 stub
-// (exits non-zero) and no node. Without perl in the parser chain every payload
-// failed to parse, so /freeze denied ALL edits and /careful asked on every
-// command. Stubbed parsers force the perl path on every platform.
+// Claude Code on Windows hands the hook C:\-style paths, and Git for Windows
+// ships perl but often only the Microsoft Store python3 stub (exits non-zero)
+// and no node. Before these fixes every payload failed to parse and every
+// drive-letter path failed to match, so /freeze denied ALL edits on Windows.
+// The conversion is plain string work when cygpath is absent, so these run on
+// every platform.
+const BS = String.fromCharCode(92);
+const winPath = (...parts: string[]) => parts.join(BS);
+
 /** A PATH whose python3 and node exist but fail, forcing the perl parser. */
 function withBrokenPythonNode(fn: (pathEnv: string) => void) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-hook-noparser-'));
@@ -1023,6 +1028,66 @@ function withBrokenPythonNode(fn: (pathEnv: string) => void) {
   }
   try { fn(`${dir}${path.delimiter}${process.env.PATH ?? ''}`); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
+
+describe('check-freeze.sh on Windows-style paths', () => {
+  const BOUNDARY = '/c/gstack-freeze-win/proj/';
+
+  test('a backslash drive-letter path inside a /c/... boundary allows', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const { exitCode, output } = runHook(FREEZE_SCRIPT, freezeInput(winPath('C:', 'gstack-freeze-win', 'proj', 'src', 'x.ts')), freezeEnv(stateDir));
+      expect(exitCode).toBe(0);
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    });
+  });
+
+  test('a forward-slash drive-letter path inside the boundary allows', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const { output } = runHook(FREEZE_SCRIPT, freezeInput('C:/gstack-freeze-win/proj/x.ts'), freezeEnv(stateDir));
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    });
+  });
+
+  test('a drive-letter path outside the boundary denies', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      for (const p of [winPath('C:', 'Windows', 'x.txt'), winPath('D:', 'gstack-freeze-win', 'proj', 'x.ts')]) {
+        const { exitCode, output } = runHook(FREEZE_SCRIPT, freezeInput(p), freezeEnv(stateDir));
+        expect(exitCode).toBe(0);
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('outside');
+      }
+    });
+  });
+
+  test('trailing-slash prefix protection holds for drive-letter paths', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const { output } = runHook(FREEZE_SCRIPT, freezeInput(winPath('C:', 'gstack-freeze-win', 'proj-old', 'x.ts')), freezeEnv(stateDir));
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+    });
+  });
+
+  test('a boundary stored in drive-letter form matches POSIX-form edits', () => {
+    withFreezeDir(winPath('C:', 'gstack-freeze-win', 'proj', ''), (stateDir) => {
+      const inside = runHook(FREEZE_SCRIPT, freezeInput('/c/gstack-freeze-win/proj/x.ts'), freezeEnv(stateDir));
+      expect(inside.output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+      const outside = runHook(FREEZE_SCRIPT, freezeInput('/c/gstack-freeze-win/other/x.ts'), freezeEnv(stateDir));
+      expect(outside.output.hookSpecificOutput?.permissionDecision).toBe('deny');
+    });
+  });
+
+  test.skipIf(process.platform !== 'win32')('comparison is case-insensitive on Windows', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const { output } = runHook(FREEZE_SCRIPT, freezeInput(winPath('c:', 'GSTACK-Freeze-Win', 'Proj', 'x.ts')), freezeEnv(stateDir));
+      expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    });
+  });
+
+  test.skipIf(process.platform === 'win32')('comparison stays case-sensitive on POSIX hosts', () => {
+    withFreezeDir(BOUNDARY, (stateDir) => {
+      const { output } = runHook(FREEZE_SCRIPT, freezeInput('/c/GSTACK-Freeze-Win/proj/x.ts'), freezeEnv(stateDir));
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+    });
+  });
+});
 
 describe('hook JSON parsing falls back to perl when python3 and node fail', () => {
   test('freeze still allows inside and denies outside the boundary', () => {
