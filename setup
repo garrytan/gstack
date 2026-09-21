@@ -21,7 +21,7 @@ Usage: ./setup [options]
 
 Options:
   --host <name>     Install for a specific host (claude, codex, kiro, factory,
-                    opencode, openclaw, hermes, gbrain, auto). Default: claude.
+                    opencode, cursor, antigravity, openclaw, hermes, gbrain, auto). Default: claude.
   --model <id>      Codex model profile override. Otherwise reads Codex config.
   --prefix          Install skills with the gstack- prefix (e.g. /gstack-review).
   --no-prefix       Install skills with short names (e.g. /review). Default.
@@ -73,6 +73,8 @@ OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
 CURSOR_SKILLS="$HOME/.cursor/skills"
 CURSOR_GSTACK="$CURSOR_SKILLS/gstack"
 KIRO_SKILLS="$HOME/.kiro/skills"
+ANTIGRAVITY_SKILLS="$HOME/.gemini/config/skills"
+ANTIGRAVITY_GSTACK="$ANTIGRAVITY_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -486,7 +488,9 @@ print_instruction_tier() {
 }
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|cursor|auto) ;;
+  claude|codex|kiro|factory|opencode|cursor|antigravity|auto) ;;
+  agy)
+    HOST="antigravity" ;;
   slate)
     echo ""
     echo "Slate is not yet a first-class install target (docs/designs/SLATE_HOST.md —"
@@ -596,6 +600,7 @@ INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
 INSTALL_CURSOR=0
+INSTALL_ANTIGRAVITY=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
@@ -606,8 +611,11 @@ if [ "$HOST" = "auto" ]; then
   # reliable footprint of an installed Cursor IDE.
   command -v cursor >/dev/null 2>&1 && INSTALL_CURSOR=1
   [ -d "$HOME/.cursor" ] && INSTALL_CURSOR=1
+  command -v agy >/dev/null 2>&1 && INSTALL_ANTIGRAVITY=1
+  command -v antigravity >/dev/null 2>&1 && INSTALL_ANTIGRAVITY=1
+  [ -d "$HOME/.gemini" ] && INSTALL_ANTIGRAVITY=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_ANTIGRAVITY" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -622,13 +630,15 @@ elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
 elif [ "$HOST" = "cursor" ]; then
   INSTALL_CURSOR=1
+elif [ "$HOST" = "antigravity" ]; then
+  INSTALL_ANTIGRAVITY=1
 fi
 
 # A host that passes --host validation but sets no INSTALL_* flag would
 # silently configure nothing and exit 0 (the #2361 slate failure class).
 # Fail loudly if a future host lands in the accept-list without a dispatch arm.
-if [ "$HOST" != "auto" ] && [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ]; then
-  echo "Error: no install arm exists for host '$HOST' — it passed --host validation but sets no INSTALL_* flag, so setup would configure nothing and exit 0. This is a setup bug. Valid install targets: claude, codex, kiro, factory, opencode, cursor (informational: slate, openclaw, hermes, gbrain)." >&2
+if [ "$HOST" != "auto" ] && [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_ANTIGRAVITY" -eq 0 ]; then
+  echo "Error: no install arm exists for host '$HOST' — it passed --host validation but sets no INSTALL_* flag, so setup would configure nothing and exit 0. This is a setup bug. Valid install targets: claude, codex, kiro, factory, opencode, cursor, antigravity (informational: slate, openclaw, hermes, gbrain)." >&2
   exit 1
 fi
 
@@ -2258,6 +2268,146 @@ link_cursor_skill_dirs() {
   fi
 }
 
+# ─── Helper: create a minimal ~/.gemini/config/skills/gstack runtime root ───
+# Google Antigravity (agy) scans ~/.gemini/config/skills. Same shape as the
+# Codex/Factory/OpenCode/Cursor runtime roots: root SKILL.md from the generated
+# tree + runtime assets only.
+create_antigravity_runtime_root() {
+  local gstack_dir="$1"
+  local antigravity_gstack="$2"
+  local antigravity_dir="$gstack_dir/.gemini/skills"
+  local generated_root="$antigravity_dir/gstack"
+
+  if [ -L "$antigravity_gstack" ]; then
+    rm -f "$antigravity_gstack"
+  elif _sidecar_root_user_owned "$antigravity_gstack"; then
+    echo "  left in place (existing dir not gstack-managed — no generated banner): $antigravity_gstack" >&2
+    return 0
+  elif [ -d "$antigravity_gstack" ] && [ "$antigravity_gstack" != "$gstack_dir" ] && [ "$antigravity_gstack" != "$generated_root" ]; then
+    rm -rf "$antigravity_gstack"
+  fi
+
+  mkdir -p "$antigravity_gstack" "$antigravity_gstack/browse" "$antigravity_gstack/gstack-upgrade" "$antigravity_gstack/review"
+
+  if [ -f "$antigravity_dir/gstack/SKILL.md" ]; then
+    _link_or_copy "$antigravity_dir/gstack/SKILL.md" "$antigravity_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    _link_or_copy "$gstack_dir/bin" "$antigravity_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$antigravity_gstack/lib"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    _link_or_copy "$gstack_dir/browse/dist" "$antigravity_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    _link_or_copy "$gstack_dir/browse/bin" "$antigravity_gstack/browse/bin"
+  fi
+  if [ -f "$antigravity_dir/gstack-upgrade/SKILL.md" ]; then
+    _link_or_copy "$antigravity_dir/gstack-upgrade/SKILL.md" "$antigravity_gstack/gstack-upgrade/SKILL.md"
+  fi
+  for f in checklist.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      _link_or_copy "$gstack_dir/review/$f" "$antigravity_gstack/review/$f"
+    fi
+  done
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    _link_or_copy "$gstack_dir/ETHOS.md" "$antigravity_gstack/ETHOS.md"
+  fi
+  if [ -f "$gstack_dir/supabase/config.sh" ]; then
+    mkdir -p "$antigravity_gstack/supabase"
+    _link_or_copy "$gstack_dir/supabase/config.sh" "$antigravity_gstack/supabase/config.sh"
+  fi
+}
+
+create_antigravity_sidecar() {
+  local repo_root="$1"
+  local antigravity_gstack="$repo_root/.gemini/skills/gstack"
+  local antigravity_dir="$repo_root/.gemini/skills"
+
+  if _sidecar_root_user_owned "$antigravity_gstack"; then
+    echo "  left in place (existing dir not gstack-managed — no generated banner): $antigravity_gstack" >&2
+    return 0
+  fi
+
+  mkdir -p "$antigravity_gstack" "$antigravity_gstack/browse" "$antigravity_gstack/gstack-upgrade" "$antigravity_gstack/review"
+
+  if [ -d "$repo_root/bin" ]; then
+    if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$antigravity_gstack/bin" ] || [ ! -e "$antigravity_gstack/bin" ]; then
+      _link_or_copy "$repo_root/bin" "$antigravity_gstack/bin"
+    fi
+  fi
+  if [ -d "$repo_root/lib" ]; then
+    if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$antigravity_gstack/lib" ] || [ ! -e "$antigravity_gstack/lib" ]; then
+      _link_or_copy "$repo_root/lib" "$antigravity_gstack/lib"
+    fi
+  fi
+  if [ -d "$repo_root/browse/dist" ]; then
+    if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$antigravity_gstack/browse/dist" ] || [ ! -e "$antigravity_gstack/browse/dist" ]; then
+      _link_or_copy "$repo_root/browse/dist" "$antigravity_gstack/browse/dist"
+    fi
+  fi
+  if [ -d "$repo_root/browse/bin" ]; then
+    if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$antigravity_gstack/browse/bin" ] || [ ! -e "$antigravity_gstack/browse/bin" ]; then
+      _link_or_copy "$repo_root/browse/bin" "$antigravity_gstack/browse/bin"
+    fi
+  fi
+  if [ -f "$antigravity_dir/gstack-upgrade/SKILL.md" ]; then
+    if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$antigravity_gstack/gstack-upgrade/SKILL.md" ] || [ ! -e "$antigravity_gstack/gstack-upgrade/SKILL.md" ]; then
+      _link_or_copy "$antigravity_dir/gstack-upgrade/SKILL.md" "$antigravity_gstack/gstack-upgrade/SKILL.md"
+    fi
+  fi
+  for f in checklist.md TODOS-format.md; do
+    if [ -f "$repo_root/review/$f" ]; then
+      if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$antigravity_gstack/review/$f" ] || [ ! -e "$antigravity_gstack/review/$f" ]; then
+        _link_or_copy "$repo_root/review/$f" "$antigravity_gstack/review/$f"
+      fi
+    fi
+  done
+  if [ -f "$repo_root/ETHOS.md" ]; then
+    if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$antigravity_gstack/ETHOS.md" ] || [ ! -e "$antigravity_gstack/ETHOS.md" ]; then
+      _link_or_copy "$repo_root/ETHOS.md" "$antigravity_gstack/ETHOS.md"
+    fi
+  fi
+}
+
+link_antigravity_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local antigravity_dir="$gstack_dir/.gemini/skills"
+  local linked=()
+
+  if [ ! -d "$antigravity_dir" ]; then
+    echo "  Generating .gemini/ skill docs..."
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host antigravity )
+  fi
+
+  if [ ! -d "$antigravity_dir" ]; then
+    echo "  warning: .gemini/skills/ generation failed — run 'bun run gen:skill-docs --host antigravity' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$antigravity_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$target" ] || [ ! -e "$target" ]; then
+        if _owned_for_windows_refresh "$target"; then
+          _link_or_copy "$skill_dir" "$target"
+          linked+=("$skill_name")
+        else
+          echo "  left in place (existing dir not gstack-managed — no generated banner): $target" >&2
+        fi
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
 # 4. Install for Claude (default)
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -2536,6 +2686,19 @@ if [ "$INSTALL_CURSOR" -eq 1 ]; then
   echo "  browse: $BROWSE_BIN"
   _browser_hint
   echo "  cursor skills: $CURSOR_SKILLS"
+fi
+
+# 6e. Install for Google Antigravity (agy)
+if [ "$INSTALL_ANTIGRAVITY" -eq 1 ]; then
+  mkdir -p "$ANTIGRAVITY_SKILLS"
+  create_antigravity_runtime_root "$SOURCE_GSTACK_DIR" "$ANTIGRAVITY_GSTACK"
+  _prune_stale_generated "$SOURCE_GSTACK_DIR" "$SOURCE_GSTACK_DIR/.gemini/skills" "$ANTIGRAVITY_SKILLS"
+  link_antigravity_skill_dirs "$SOURCE_GSTACK_DIR" "$ANTIGRAVITY_SKILLS"
+  create_antigravity_sidecar "$SOURCE_GSTACK_DIR"
+  echo "gstack ready (antigravity)."
+  echo "  browse: $BROWSE_BIN"
+  _browser_hint
+  echo "  antigravity skills: $ANTIGRAVITY_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

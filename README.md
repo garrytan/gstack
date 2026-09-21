@@ -118,6 +118,7 @@ Or target a specific agent with `./setup --host <name>`:
 | OpenAI Codex CLI | `--host codex` | Full install → `${CODEX_HOME:-~/.codex}/skills/gstack-*/` |
 | OpenCode | `--host opencode` | Full install → `~/.config/opencode/skills/gstack-*/` |
 | Cursor | `--host cursor` | Full install → `~/.cursor/skills/gstack-*/` |
+| Google Antigravity | `--host antigravity` | Full install → `~/.gemini/config/skills/gstack-*/` |
 | Factory Droid | `--host factory` | Full install → `~/.factory/skills/gstack-*/` |
 | Kiro | `--host kiro` | Full install → `~/.kiro/skills/gstack-*/` |
 | Slate | `--host slate` | Pointer to the Claude install (Slate reads `.claude/skills` as a fallback) |
