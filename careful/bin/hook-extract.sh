@@ -15,20 +15,42 @@
 #   polarity for that case (careful asks, freeze denies).
 #
 #   python3 is tried first because it ships with macOS and most Linux distros
-#   and is reliably on PATH in a hook environment; node is the fallback.
-gstack_hook_extract_field() {
-  _ghef_payload="$1"
-  _ghef_field="$2"
-  if command -v python3 >/dev/null 2>&1; then
-    printf '%s' "$_ghef_payload" | python3 -c 'import sys,json
+#   and is reliably on PATH in a hook environment; node is the fallback; perl
+#   (JSON::PP is core) is last. On Windows (Git Bash / MSYS2 / Cygwin) perl
+#   goes FIRST: Git for Windows always ships it, while python3 there is often
+#   only the Microsoft Store stub, which costs up to a second per spawn and
+#   then exits non-zero — five of those per deny blew the hook's time budget.
+#   $OSTYPE is a bash builtin, so picking the order spawns nothing.
+case "${OSTYPE:-}" in
+  msys*|cygwin*) _GSTACK_HOOK_PARSERS="perl python3 node" ;;
+  *) _GSTACK_HOOK_PARSERS="python3 node perl" ;;
+esac
+
+_ghef_python3() {
+  python3 -c 'import sys,json
 field = sys.argv[1]
 d = json.loads(sys.stdin.read())
 c = d.get("tool_input", {}).get(field, "")
-sys.stdout.write(c if isinstance(c, str) else "")' "$_ghef_field" 2>/dev/null && return 0
-  fi
-  if command -v node >/dev/null 2>&1; then
-    printf '%s' "$_ghef_payload" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const c=(j&&j.tool_input&&j.tool_input[process.argv[1]])||"";process.stdout.write(typeof c==="string"?c:"")}catch(e){process.exit(3)}})' "$_ghef_field" 2>/dev/null && return 0
-  fi
+sys.stdout.write(c if isinstance(c, str) else "")' "$1"
+}
+_ghef_node() {
+  node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const c=(j&&j.tool_input&&j.tool_input[process.argv[1]])||"";process.stdout.write(typeof c==="string"?c:"")}catch(e){process.exit(3)}})' "$1"
+}
+_ghef_perl() {
+  perl -MJSON::PP -MB -e 'binmode STDOUT, ":encoding(UTF-8)";
+local $/; my $d = JSON::PP->new->utf8->allow_nonref->decode(<STDIN>);
+my $t = ref($d) eq "HASH" ? $d->{tool_input} : undef;
+my $c = ref($t) eq "HASH" ? $t->{$ARGV[0]} : undef;
+my $f = defined($c) && !ref($c) ? B::svref_2object(\$c)->FLAGS : 0;
+print(($f & B::SVp_POK) && !($f & (B::SVp_IOK | B::SVp_NOK)) ? $c : "")' "$1"
+}
+gstack_hook_extract_field() {
+  _ghef_payload="$1"
+  _ghef_field="$2"
+  for _ghef_parser in $_GSTACK_HOOK_PARSERS; do
+    command -v "$_ghef_parser" >/dev/null 2>&1 || continue
+    printf '%s' "$_ghef_payload" | "_ghef_$_ghef_parser" "$_ghef_field" 2>/dev/null && return 0
+  done
   return 1
 }
 
@@ -38,14 +60,15 @@ sys.stdout.write(c if isinstance(c, str) else "")' "$_ghef_field" 2>/dev/null &&
 #   hook JSON with printf/sed interpolation: a path containing a quote or a
 #   newline produces malformed JSON, and Claude Code silently ignores the
 #   whole decision — a deny that no-ops exactly when it matters.
+_ghjs_python3() { python3 -c 'import sys,json; sys.stdout.write(json.dumps(sys.stdin.read()))'; }
+_ghjs_node() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.stringify(s)))'; }
+_ghjs_perl() { perl -MJSON::PP -e 'local $/; my $s = <STDIN> // ""; utf8::decode($s); print JSON::PP->new->ascii->allow_nonref->encode($s)'; }
 gstack_hook_json_string() {
   _ghjs_text="$1"
-  if command -v python3 >/dev/null 2>&1; then
-    printf '%s' "$_ghjs_text" | python3 -c 'import sys,json; sys.stdout.write(json.dumps(sys.stdin.read()))' 2>/dev/null && return 0
-  fi
-  if command -v node >/dev/null 2>&1; then
-    printf '%s' "$_ghjs_text" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.stringify(s)))' 2>/dev/null && return 0
-  fi
+  for _ghjs_parser in $_GSTACK_HOOK_PARSERS; do
+    command -v "$_ghjs_parser" >/dev/null 2>&1 || continue
+    printf '%s' "$_ghjs_text" | "_ghjs_$_ghjs_parser" 2>/dev/null && return 0
+  done
   # Last-resort fallback (no parser on PATH): strip to a safe charset so the
   # envelope stays valid JSON even if the message loses characters.
   printf '"%s"' "$(printf '%s' "$_ghjs_text" | tr -cd 'a-zA-Z0-9 ._/:@=+-' )"

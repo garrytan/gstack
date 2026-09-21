@@ -1008,6 +1008,67 @@ describe('check-freeze.sh', () => {
 });
 
 // ============================================================
+// Windows hosts (Git Bash / MSYS2): no python/node
+// ============================================================
+// Git for Windows ships perl but often only the Microsoft Store python3 stub
+// (exits non-zero) and no node. Without perl in the parser chain every payload
+// failed to parse, so /freeze denied ALL edits and /careful asked on every
+// command. Stubbed parsers force the perl path on every platform.
+/** A PATH whose python3 and node exist but fail, forcing the perl parser. */
+function withBrokenPythonNode(fn: (pathEnv: string) => void) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-hook-noparser-'));
+  for (const name of ['python3', 'node']) {
+    fs.writeFileSync(path.join(dir, name), '#!/bin/sh\nexit 1\n');
+    fs.chmodSync(path.join(dir, name), 0o755);
+  }
+  try { fn(`${dir}${path.delimiter}${process.env.PATH ?? ''}`); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+describe('hook JSON parsing falls back to perl when python3 and node fail', () => {
+  test('freeze still allows inside and denies outside the boundary', () => {
+    withBrokenPythonNode((pathEnv) => {
+      withFreezeDir('/Users/dev/project/src/', (stateDir) => {
+        const inside = runHook(FREEZE_SCRIPT, freezeInput('/Users/dev/project/src/a "q".ts'), freezeEnv(stateDir, { PATH: pathEnv }));
+        expect(inside.exitCode).toBe(0);
+        expect(inside.output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+
+        const outside = runHook(FREEZE_SCRIPT, freezeInput('/etc/evil"quoted\npath'), freezeEnv(stateDir, { PATH: pathEnv }));
+        expect(() => JSON.parse(outside.raw)).not.toThrow();
+        expect(outside.output.hookSpecificOutput?.permissionDecision).toBe('deny');
+        expect(outside.output.hookSpecificOutput?.permissionDecisionReason).toContain('outside');
+      });
+    });
+  });
+
+  test('freeze still fails closed on an unparseable payload', () => {
+    withBrokenPythonNode((pathEnv) => {
+      withFreezeDir('/Users/dev/project/src/', (stateDir) => {
+        const { output } = runHookRaw(FREEZE_SCRIPT, 'not json {{', freezeEnv(stateDir, { PATH: pathEnv }));
+        expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
+        expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('fail closed');
+      });
+    });
+  });
+
+  test('a non-string file_path is treated as absent (allow), matching python/node', () => {
+    withBrokenPythonNode((pathEnv) => {
+      withFreezeDir('/Users/dev/project/src/', (stateDir) => {
+        const { output } = runHook(FREEZE_SCRIPT, { tool_input: { file_path: 5 } }, freezeEnv(stateDir, { PATH: pathEnv }));
+        expect(output.hookSpecificOutput?.permissionDecision).toBeUndefined();
+      });
+    });
+  });
+
+  test('careful still classifies commands', () => {
+    withBrokenPythonNode((pathEnv) => {
+      const { output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf /var/data'), { PATH: pathEnv });
+      expect(output.hookSpecificOutput?.permissionDecision).toBe('ask');
+      expect(output.hookSpecificOutput?.permissionDecisionReason).toContain('recursive delete');
+    });
+  });
+});
+
+// ============================================================
 // check-freeze.sh state-root resolution (#1459 / #1509)
 // ============================================================
 // /freeze writes freeze-dir.txt under the root gstack-paths resolves
