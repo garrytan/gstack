@@ -150,7 +150,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'external',
     externalTest: 'test/skill-e2e-ship-section-loading.test.ts',
-    maxSkeletonBytes: 79_300, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 78_275
+    maxSkeletonBytes: 81_600, // fork: +single-select AskUserQuestion doctrine (+805B) + Step 1.5 pr-prep gate; measured 81,101
     minUnionBytes: 181_000, // token-reduction Phases 1-2 (v1.69.x branch); measured union 201,464
     mustContain: ['VERSION', 'CHANGELOG', 'review', 'merge', 'PR'],
     // v1.58.5.0: pre-push-guard install (#2077) stacks on the shared first-run-guidance preamble.
@@ -163,7 +163,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // wave's headline capability) grows the union to 1.195x. Deliberate:
     // the section is on-demand (loads only for Apple store targets), so
     // per-invocation cost for non-iOS ships is one manifest line.
-    maxSizeRatio: 1.28, // Harness-aware dispatch adds validated commands and per-pass provenance (~1.25x).
+    maxSizeRatio: 1.3, // fork: pr-prep/single-select additions; measured 1.295
   },
   'plan-ceo-review': {
     skill: 'plan-ceo-review',
@@ -181,7 +181,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
         // Fork port wave 2 (#703): the repo-doc-preference block in the design
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
-    maxSkeletonBytes: 79_744, // Exact 744-byte anti-shortcut move: main 79,739 + section 75,559 = unchanged 155,298-byte union; retains 5-byte slack.
+    maxSkeletonBytes: 81_000, // fork: +single-select AskUserQuestion doctrine (+805B); measured 80,470
     minUnionBytes: 123_600, // token-reduction Phases 1-2 (v1.69.x branch): preamble bash -> bin/gstack-skill-start, onboarding -> gated emission; measured union 137,346
     mustContain: ['SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'HOLD SCOPE', 'SCOPE REDUCTION'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -207,7 +207,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 57_200, // Eng per-issue approval exit check, including regression-test authority; measured 57,113 bytes.
+    maxSkeletonBytes: 58_400, // fork: +single-select AskUserQuestion doctrine (+805B); measured 57,914
     minUnionBytes: 99_800, // token-reduction Phases 1-2 (v1.69.x branch); measured union 110,910
     mustContain: ['Architecture', 'Code Quality', 'Test', 'Performance'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback + the
@@ -240,7 +240,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // tier-2+ skeleton (measured 89,184). Main's v1.64.0.0 adds ~340 B more
     // (telemetry --error-message/--failed-step preamble prose, PR #769).
     // Budget covers the sum of both waves.
-    maxSkeletonBytes: 79_500, // Harness-aware outside voice: validated dispatch and provenance.
+    maxSkeletonBytes: 80_300, // fork: +single-select AskUserQuestion doctrine (+805B); measured 79,799
     minUnionBytes: 99_200, // token-reduction Phases 1-2 (v1.69.x branch); measured union 110,293
     mustContain: ['design', 'visual'],
     maxSizeRatio: 1.12, // D1 1.104 + main's ~0.008
@@ -264,7 +264,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 68_500, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 67_129
+    maxSkeletonBytes: 69_750, // fork: +single-select AskUserQuestion doctrine (+805B); measured 69,250
     minUnionBytes: 99_700, // token-reduction Phases 1-2 (v1.69.x branch); measured union 110,833
     mustContain: ['developer experience', 'Getting Started'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -316,7 +316,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
-    maxSkeletonBytes: 41_000, // + v1.78 AUQ objectivity + v1.79 spawned contract incl. echo-failure tie-breaker; measured 40_575
+    maxSkeletonBytes: 42_200, // fork: +single-select AskUserQuestion doctrine (+805B); measured 41,688
     minUnionBytes: 56_700, // token-reduction Phases 1-2 (v1.69.x branch): preamble bash -> bin/gstack-skill-start, onboarding -> gated emission; measured union 63,018
     mustContain: ['CHANGELOG', 'Diataxis', 'coverage'],
     // Two intentional additions stack on this small skill: the AUQ-failure prose
@@ -354,7 +354,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // the cross-session decision-memory nudge) lands this carved skeleton just over
     // the strict 1.05; headroom for the shared preamble additions.
     // v1.64+v1.65 merge sums both waves' preamble growth; measured 1.073.
-    maxSizeRatio: 1.08,
+    maxSizeRatio: 1.09, // fork: pr-prep/single-select additions; measured 1.085
   },
   cso: {
     skill: 'cso',
@@ -390,7 +390,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // The full-audit E2E asserts actual section loading alongside report/proof behavior.
     behavioral: 'external',
     externalTest: 'test/skill-e2e-cso.test.ts',
-    maxSkeletonBytes: 18_000,
+    maxSkeletonBytes: 18_500, // fork: +single-select AskUserQuestion doctrine (+805B); measured 18,017
     minUnionBytes: 30_000, // v3 deliberately removes the shared export/startup preamble.
     mustContain: ['OWASP', 'STRIDE', 'daily', 'comprehensive', 'verif'],
     // Existing baseline comparison remains an upper bound; absolute limits above
@@ -425,7 +425,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined, // operational multi-STOP skill, like ship
     },
     behavioral: 'plan',
-    maxSkeletonBytes: 61_500, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 60_309
+    maxSkeletonBytes: 62_200, // fork: +single-select AskUserQuestion doctrine (+805B); measured 61,714
     minUnionBytes: 89_000, // Phase 4 wave 1; measured union 93,357
     mustContain: ['confidence', 'P1', 'P2', 'Review Army', 'adversarial'],
   },
@@ -452,7 +452,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: 'EXIT PLAN MODE GATE',
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 59_300, // + v1.78 AUQ spawned-trigger objectivity (explicit declaration + interactive fence); measured 58_867
+    maxSkeletonBytes: 60_550, // fork: +single-select AskUserQuestion doctrine (+805B); measured 60,046
     minUnionBytes: 83_400, // Phase 4 wave 1; measured union 84,304
     mustContain: ['GATE: PASS', 'CROSS-MODEL ANALYSIS', 'codex exec resume', 'sandbox_mode="read-only"', 'mktemp'],
     maxSizeRatio: 1.06, // measured 1.040 vs the v1.64.1.0 parity baseline
@@ -517,7 +517,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     maxSkeletonBytes: 70_000, // Phase-specific outside coverage, native fallback, and harness guard.
     minUnionBytes: 85_000, // measured union 86,926
     mustContain: ['6 Decision Principles', 'TASTE DECISION', 'USER CHALLENGE', 'consensus', 'Restore Point'],
-    maxSizeRatio: 1.12, // Four validated outside invocations replace raw CLI calls; phases keep independent coverage.
+    maxSizeRatio: 1.13, // fork: pr-prep/single-select additions; measured 1.121
   },
   spec: {
     skill: 'spec',
@@ -609,7 +609,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'prompt',
     maxSkeletonBytes: 63_500, // + v2.0 {{ASIDE_SETUP}}/{{BROWSE_FALLBACK}} (replaces the browse setup block); measured 61_253
-    maxSizeRatio: 1.08, // + v1.81 Aside contract + gstack-browser fallback block; measured 1.063
+    maxSizeRatio: 1.09, // fork: pr-prep/single-select additions; measured 1.089
     minUnionBytes: 69_500, // measured union 70,385
     // 'aside repl' pins the Aside contract; '$B goto' pins the fallback block in the always-loaded skeleton.
     mustContain: ['bug', 'aside repl', '$B goto', 'fix', 'Health Score Rubric', 'regression'],
@@ -648,7 +648,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 73_450, // + v1.78 AUQ spawned-trigger objectivity (explicit declaration + interactive fence); measured 73_059
+    maxSkeletonBytes: 74_500, // fork: +single-select AskUserQuestion doctrine (+805B); measured 73,989
     minUnionBytes: 66_000, // measured union 73,496
     mustContain: ['retrospective', '45-minute gap', 'Ship of the week', 'Praise'],
   },
@@ -680,7 +680,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined, // operational skill, no plan-mode gate
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 55_400, // measured 55,262 (2026-09-09): the detector install offer pointer + its sections-table row (the brief itself lives in sections/detector-install-offer.md); before that 54,545 for the review-cycle trust prose, the Slop Gate's Decisions-Log clause, and the blacklist header's override sentence
+    maxSkeletonBytes: 56_530, // fork: +single-select AskUserQuestion doctrine (+805B); measured 56,027
     minUnionBytes: 57_500, // Phase 4 wave 4; measured union 58,682
     mustContain: ["Don't make me think", "Users scan, they don't read", 'The Goodwill Reservoir', 'PRETEXT API CHEATSHEET', 'Pattern 3: Text around obstacles'],
   },
