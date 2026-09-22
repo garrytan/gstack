@@ -191,7 +191,7 @@ Cookies are the most sensitive data gstack handles. The design:
 
 ### Shell injection prevention
 
-The browser registry (Comet, Chrome, Arc, Brave, Edge) is hardcoded. Database paths are constructed from known constants, never from user input. Keychain access uses `Bun.spawn()` with explicit argument arrays, not shell string interpolation.
+The browser registry (Comet, Chrome, Arc, Dia, Brave, Edge) is hardcoded. Database paths are constructed from known constants, never from user input. Keychain access uses `Bun.spawn()` with explicit argument arrays, not shell string interpolation.
 
 ### Egress receipt ledger (v1.63.0.0)
 

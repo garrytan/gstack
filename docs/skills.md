@@ -28,7 +28,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/document-generate`](#document-generate) | **Technical Writer** | Generate Diataxis docs (tutorial / how-to / reference / explanation) for a feature from code. |
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Drives your Aside browser first — real sessions, real clicks, real screenshots — through deterministic `aside repl` scripts, and falls back to gstack's own Chromium (~100ms per command) when Aside isn't there. |
-| [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Fallback-browser skill: import cookies from your real browser (Chrome, Arc, Brave, Edge) into gstack's headless session to test authenticated pages. Unnecessary on Aside, which already has your sessions. |
+| [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Fallback-browser skill: import cookies from your real browser (Chrome, Arc, Dia, Brave, Edge) into gstack's headless session to test authenticated pages. Unnecessary on Aside, which already has your sessions. |
 | [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → DX → eng review automatically (eng always last, so the shipping gate reviews the final amended plan) with encoded decision principles. Surfaces only taste decisions for your approval. |
 | [`/plan-devex-review`](#plan-devex-review) | **DX Reviewer** | Plan-stage DX review. TTHW (time-to-hello-world), magical moments, friction points, persona traces. Three modes: Expansion, Polish, Triage. |
 | [`/devex-review`](#devex-review) | **DX Reviewer (live)** | Live developer experience audit. Walks the actual onboarding flow, measures TTHW, catches the docs lies. |
@@ -923,7 +923,7 @@ This is my **session manager mode** — for the fallback browser. With Aside ope
 
 Before `/qa` or `/browse` can test authenticated pages on gstack's own browser, they need cookies. Instead of manually logging in through the headless browser every time, `/setup-browser-cookies` imports your real sessions directly from your daily browser.
 
-It auto-detects installed Chromium browsers (Comet, Chrome, Arc, Brave, Edge), decrypts cookies via the macOS Keychain, and loads them into the Playwright session. An interactive picker UI lets you choose exactly which domains to import — no cookie values are ever displayed.
+It auto-detects installed Chromium browsers (Comet, Chrome, Arc, Dia, Brave, Edge), decrypts cookies via the macOS Keychain, and loads them into the Playwright session. An interactive picker UI lets you choose exactly which domains to import — no cookie values are ever displayed.
 
 ```
 You:   /setup-browser-cookies

@@ -218,7 +218,7 @@ What changes when the fallback is active:
 
 | On Aside | On the fallback engine |
 |---|---|
-| Your sessions are already there | `/setup-browser-cookies` imports them from Chrome, Arc, Brave, Edge, or Comet — or log in once in headed mode |
+| Your sessions are already there | `/setup-browser-cookies` imports them from Chrome, Arc, Dia, Brave, Edge, or Comet — or log in once in headed mode |
 | You watch the tabs the agent opens in Aside | `/open-gstack-browser` (or `$B connect`) shows the headed GStack Browser with the side panel |
 | Sign-in wall: sign in inside Aside, say "done" | `$B handoff` opens a visible Chrome at the same page; `$B resume` continues |
 | One `aside repl` script per flow, fresh session each time | Persistent daemon: cookies, tabs, and localStorage carry over between `$B` calls |
