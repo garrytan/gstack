@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.87.7.0] - 2026-09-22
+
+**Pre-push credential checks close four bypass paths.**
+**Every target remote resolves against its own base.**
+
+This release closes four paths where the pre-push credential hook exited 0 on pushed diffs carrying live keys. Pushing to a remote other than origin no longer evaluates diff ranges against origin/main. Unfetched remote tips and boundary-crossing proximity patterns now fail closed or scan with overlap instead of slipping past the hook.
+
+### The four numbers that matter
+
+Source: scenarios in `test/redact-prepush-fail-open.sh`, comparing the baseline scanner from v1.87.5.0 with this release. Run `bash test/redact-prepush-fail-open.sh` or `bun test test/redact-prepush-fail-open.test.ts` to execute the full gate. These are deterministic pre-push protocol checks covering range resolution, boundary slicing, and credential detection.
+
+| Metric | Before | After | Δ |
+|---|---:|---:|---:|
+| Fail-open pre-push scenarios | 4 | 0 | -4 |
+| Target remotes scoped to push target | No | Yes | Scoped |
+| Proximity slice overlap | 0 KiB | 16 KiB | +16 KiB |
+| Fail-open gate scenarios passing | 22/26 | 26/26 | +4 |
+
+Pushing to a secondary remote previously produced an empty diff range when local HEAD matched origin, letting secret-bearing commits ship with exit 0. That probe is now scoped directly to the push target.
+
+### What this means for developers
+
+Your pre-push hook blocks secrets when pushing to mirrors, staging targets, and non-origin remotes. Large minified bundles are sliced with overlap and scanned, reporting the matched rule instead of a generic size failure. Run `bun test test/redact-prepush-fail-open.test.ts` to verify your pre-push hook configuration.
+
+### Itemized changes
+
+#### Fixed
+
+- **Scoping default branch probes to push remote:** Pushing to a non-origin remote when HEAD matched origin/main previously resolved an empty diff range against origin, exiting 0 and allowing commits with credentials to push unscanned. The default branch probe now targets the destination remote and falls back to ref-listing when unresolvable.
+- **Fail closed on absent remote tips:** Well-shaped 40-character hex tips that do not exist in the local object store previously triggered a merge-base guess that could resolve to an empty diff. The hook now treats absent remote tips as unscannable ranges, blocking the push and instructing the user to run git fetch.
+- **Slice boundary overlap for proximity rules:** Added lines in large diffs are sliced in 768 KiB chunks. Patterns that require qualifying context within a character window previously missed secrets when the label and value straddled a boundary without overlap. Slices now overlap by 16 KiB.
+- **Zero-width character stripping on ingest:** Normalization of zero-width characters now happens before slice budgeting so that raw byte counts match what the detection engine inspects. Invisible padding can no longer push proximity pairs across slice boundaries.
+- **Dynamic empty-tree object resolution:** The fallback diff range used a hardcoded SHA-1 empty-tree object id, which does not exist in a SHA-256 repository and hard-blocked every legitimate first push of a new branch there. The id is now obtained from `git hash-object -t tree --stdin`, which is correct under either hash algorithm.
+- **Over-budget single line slicing:** Minified files with single lines exceeding the chunk budget are now sliced into overlapping chunks and inspected, identifying the specific credential finding rather than exiting with an uninspected size error.
+
+#### Added
+
+- **Pre-push fail-open gate:** Added `test/redact-prepush-fail-open.sh` and `test/redact-prepush-fail-open.test.ts` verifying all 26 pre-push range resolution, fail-closed, and boundary detection invariants.
+
 ## [1.87.5.0] - 2026-09-17
 
 **Tests finish sooner without dropping checks.**

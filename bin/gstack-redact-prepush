@@ -33,8 +33,9 @@ import { scan, type Finding } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
 
 const ZERO = /^0+$/;
-// The canonical empty-tree object; diffing against it yields all content as added.
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+// The canonical empty-tree object under SHA-1; diffing against it yields all
+// content as added. Only a FALLBACK — see emptyTree().
+const EMPTY_TREE_SHA1 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /**
  * Permissive git for legitimately-fallible PROBES (symbolic-ref, rev-parse,
@@ -65,10 +66,54 @@ function gitStrict(args: string[]): string {
   return r.stdout ?? "";
 }
 
+/**
+ * The empty-tree OID for THIS repository's hash algorithm.
+ *
+ * The SHA-1 constant does not exist in a SHA-256 repository, so the fallback
+ * range `<sha1-empty-tree>..local` makes git error out, gitStrict throws, and
+ * every legitimate first push of a new branch is hard-blocked with a diff
+ * error. Asking git to hash the empty tree returns the right OID under either
+ * algorithm and needs no table of constants.
+ */
+let _emptyTree: string | undefined;
+function emptyTree(): string {
+  if (_emptyTree === undefined) {
+    // --stdin with empty input rather than /dev/null: portable to Windows.
+    const r = spawnSync("git", ["hash-object", "-t", "tree", "--stdin"], {
+      encoding: "utf8",
+      input: "",
+    });
+    const oid = r.status === 0 ? (r.stdout ?? "").trim() : "";
+    _emptyTree = /^[0-9a-f]{40,64}$/i.test(oid) ? oid : EMPTY_TREE_SHA1;
+  }
+  return _emptyTree;
+}
+
 /** True when the object exists in the local odb (cat-file -e signals via exit code). */
 function objectExists(sha: string): boolean {
   const r = spawnSync("git", ["cat-file", "-e", sha], { encoding: "utf8" });
   return r.status === 0;
+}
+
+/**
+ * The remote this push targets, as git hands it to pre-push in $1 (and its URL
+ * as $2); the installed hook wrapper forwards "$@". Null when the name is
+ * unavailable (stdin/CLI invocation) or does not name a CONFIGURED remote — a
+ * URL push has no remote-tracking namespace at all — and every caller then
+ * falls back to the historical origin-shaped behavior.
+ */
+let _pushRemote: string | null | undefined;
+function pushRemote(): string | null {
+  if (_pushRemote === undefined) {
+    const name = process.argv[2];
+    const configured = name
+      ? git(["remote"]).split("\n").map((s) => s.trim()).filter(Boolean).includes(name)
+      : false;
+    _pushRemote = configured ? name! : null;
+  }
+  // `?? null` only narrows away the not-yet-computed sentinel; by here the
+  // cache is always set, and null legitimately means "no tracking namespace".
+  return _pushRemote ?? null;
 }
 
 /**
@@ -79,33 +124,43 @@ function objectExists(sha: string): boolean {
  * commits reachable from ANY remote-tracking ref, so a secret that had only
  * ever been fetched from (or pushed to) a private/local-path remote was never
  * scanned when later pushed to a PUBLIC remote — "already left this machine"
- * is not "already reached THIS remote". Git hands pre-push the push remote's
- * name as $1 (and its URL as $2); the installed hook wrapper forwards "$@".
- * Fallbacks keep the historical all-remotes behavior when the name is
- * unavailable (stdin/CLI invocation) or is not a configured remote (URL
- * pushes have no remote-tracking namespace) — falling back scans LESS than
- * the narrowed form would, but never less than the hook historically did.
+ * is not "already reached THIS remote". Falling back to the bare form scans
+ * LESS than the narrowed form would, but never less than the hook historically
+ * did.
  */
-let _remotesExclusion: string | undefined;
 function remotesExclusion(): string {
-  if (_remotesExclusion === undefined) {
-    const name = process.argv[2];
-    const configured = name
-      ? git(["remote"]).split("\n").map((s) => s.trim()).filter(Boolean).includes(name)
-      : false;
-    _remotesExclusion = configured ? `--remotes=${name}/*` : "--remotes";
-  }
-  return _remotesExclusion;
+  const name = pushRemote();
+  return name ? `--remotes=${name}/*` : "--remotes";
 }
 
-function defaultRemoteBranch(): string {
-  // origin/HEAD → origin/main, fall back to main/master.
-  const sym = git(["symbolic-ref", "refs/remotes/origin/HEAD"]).trim();
+/**
+ * The push target's default branch, or null when it has none we can resolve.
+ *
+ * ⚠ SCOPED TO THE PUSH TARGET, NOT HARDCODED TO origin.
+ *
+ * remotesExclusion() above already reasons this way for the rev-list exclusion,
+ * but this probe kept asking origin regardless of where the push was going, and
+ * the two together are what pick the scan range. The consequence was a
+ * fail-OPEN, measured: with HEAD == origin/main, `git push publish HEAD:main`
+ * to a brand-new second remote resolved a merge-base of HEAD against
+ * origin/main, producing the range HEAD..HEAD — an empty diff — so the entire
+ * tree, credentials included, shipped to an unknown (possibly public) remote
+ * with exit 0 and nothing scanned. That is the exact moment a scan matters most.
+ *
+ * Returning null when the target remote has no resolvable default branch drops
+ * the caller through to the rev-list step, which is already scoped to the push
+ * target and correctly reports "all of this is new" for a never-fetched remote.
+ * Scanning more is the safe direction here and matches the S1 reasoning above.
+ */
+function defaultRemoteBranch(): string | null {
+  const remote = pushRemote() ?? "origin";
+  // <remote>/HEAD → <remote>/main, fall back to main/master.
+  const sym = git(["symbolic-ref", `refs/remotes/${remote}/HEAD`]).trim();
   if (sym) return sym.replace("refs/remotes/", "");
-  for (const b of ["origin/main", "origin/master"]) {
+  for (const b of [`${remote}/main`, `${remote}/master`]) {
     if (git(["rev-parse", "--verify", b]).trim()) return b;
   }
-  return "origin/main";
+  return null;
 }
 
 /**
@@ -114,8 +169,11 @@ function defaultRemoteBranch(): string {
  * range, i.e. the whole history really is new content.
  */
 function unknownRemoteTipBase(localSha: string): string | null {
-  // 1. The common case: a merge-base with the remote's default branch.
-  const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
+  // 1. The common case: a merge-base with the remote's default branch. Null
+  //    means the PUSH TARGET has no default branch we can see (never fetched),
+  //    in which case there is nothing legitimate to anchor on — fall through.
+  const def = defaultRemoteBranch();
+  const base = def ? git(["merge-base", localSha, def]).trim() : "";
   if (base) return base;
 
   // 2. No merge-base. defaultRemoteBranch() guessed a ref that does not exist
@@ -235,13 +293,18 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
   if (fromNew !== null) return collectAddedLines(fromNew);
 
   let range: string;
+  // Set when git NAMED a remote tip we do not have. Any base we derive locally
+  // is then a guess about content we cannot see — see the empty-result check
+  // at the end of this function.
+  let guessedFromUnresolvableTip = false;
   if (ZERO.test(remoteSha) || !objectExists(remoteSha)) {
     // Either a new branch (zero remote sha), or the remote tip object is absent
     // locally (shallow clone, force-push without a prior fetch, CI checkout) so
     // remote..local cannot resolve. Both need a base derived locally; scan MORE
     // rather than hard-blocking a legitimate push (adversarial review finding 8).
+    guessedFromUnresolvableTip = !ZERO.test(remoteSha);
     const base = unknownRemoteTipBase(localSha);
-    range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
+    range = base ? `${base}..${localSha}` : `${emptyTree()}..${localSha}`;
   } else {
     // Existing branch (incl. force-push): net new content remote..local.
     range = `${remoteSha}..${localSha}`;
@@ -261,7 +324,34 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
     "diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
     range,
   ]);
-  return collectAddedLines(diff);
+  const added = collectAddedLines(diff);
+
+  // ⚠ A GUESS THAT SCANNED NOTHING IS NOT EVIDENCE OF NOTHING.
+  //
+  // git told us the remote is at a sha we do not have, which is itself proof
+  // that our remote-tracking refs do not describe this ref. Every base above is
+  // then a guess, and when the guess yields an EMPTY diff we have not concluded
+  // "this push adds nothing" — we have concluded nothing at all, while git is
+  // about to send whatever the real difference is.
+  //
+  // Measured fail-open: a four-field ref line with a valid local sha and a
+  // well-shaped but absent remote sha, on a repo where HEAD == origin/main,
+  // resolved to HEAD..HEAD and allowed a push carrying a live credential with
+  // exit 0. The shape check in main() rejects junk like "not-a-sha"; it cannot
+  // reject 40 plausible hex digits.
+  //
+  // Narrow by construction: the legitimate cases this path exists for (shallow
+  // clone, CI checkout, force-push without a prior fetch) all produce a
+  // NON-empty range and are untouched. Only "we guessed and saw nothing" blocks,
+  // and it blocks with the fix in the message: fetch the remote.
+  if (guessedFromUnresolvableTip && !added.trim()) {
+    throw new Error(
+      `remote tip ${remoteSha.slice(0, 12)} is not in the local object database and no ` +
+        "local base narrowed this push, so nothing was scanned — run `git fetch` for this " +
+        "remote and push again",
+    );
+  }
+  return added;
 }
 
 /**
@@ -295,6 +385,99 @@ function collectAddedLines(diff: string): string {
 const SCAN_CHUNK_BYTES = 768 * 1024;
 
 /**
+ * Bytes replayed from the end of one slice into the start of the next.
+ *
+ * ⚠ WHY SLICING WITHOUT OVERLAP IS NOT SAFE.
+ *
+ * The reasoning this replaced said overlap was unnecessary because "every
+ * pattern is single-line, so a line boundary cannot bisect a detectable
+ * secret". True of the MATCH, false of the PROXIMITY requirement: five
+ * patterns in redact-patterns.ts carry a `nearRegex` and only fire when their
+ * qualifying label appears within `nearWindow` characters — aws.secret_key
+ * (HIGH) needs `aws_secret_access_key` within 100, gcp.service_account (HIGH)
+ * needs `"private_key_id"` within 300. Put the label at the end of one slice
+ * and the secret at the start of the next and the pattern never fires at all.
+ *
+ * Measured, not hypothetical: a 40-char AWS secret with its label straddling
+ * the cut produced ZERO HIGH findings and exit 0 — the guard allowed a push it
+ * would have blocked had the same bytes sat 41 bytes earlier.
+ *
+ * 16 KiB is ~55x the largest nearWindow, so the qualifying context always
+ * survives the seam with room to spare.
+ */
+const SCAN_OVERLAP_BYTES = 16 * 1024;
+
+/**
+ * Per-line budget. Kept a full overlap below the slice budget so that
+ * `carried overlap + one unit` can never exceed SCAN_CHUNK_BYTES, which keeps
+ * every scan() call provably under the engine's 1 MiB cap.
+ */
+const LINE_BUDGET_BYTES = SCAN_CHUNK_BYTES - SCAN_OVERLAP_BYTES;
+
+/**
+ * Zero-width characters, matching redact-engine's ZERO_WIDTH set exactly.
+ *
+ * The engine strips these before matching, so they cost bytes here while
+ * contributing nothing to the text a pattern actually sees. Budgeting slices in
+ * RAW bytes therefore lets invisible padding decide where the seam falls:
+ * ~900 KB of U+200B between a label and its secret pushed them into different
+ * slices while their NORMALIZED distance stayed a couple of characters, and the
+ * push went out with exit 0. Stripping on ingest makes this file's budget and
+ * overlap measure the same thing the engine measures.
+ *
+ * Finding-preserving by construction — the engine would have removed exactly
+ * these characters anyway, so no match is created or destroyed.
+ */
+const ZERO_WIDTH = /[\u200B\u200C\u200D\u2060\uFEFF]/g;
+
+/** Never cut between the halves of a surrogate pair. */
+function safeCut(s: string, i: number): number {
+  if (i <= 0 || i >= s.length) return i;
+  const prev = s.charCodeAt(i - 1);
+  return prev >= 0xd800 && prev <= 0xdbff ? i - 1 : i;
+}
+
+/**
+ * Cut one over-budget line into byte-bounded pieces that overlap.
+ *
+ * A minified bundle or a single-line JSON blob is one "line" of megabytes. Handed
+ * to the engine whole it trips input_too_large: the push is blocked, which is
+ * safe, but blocked WITHOUT the content ever being read — so the operator is
+ * told a size error where a credential may be sitting, and learns to bypass.
+ * Slicing with overlap reads it for real; the 2 MiB one-liner that used to
+ * report `engine.input_too_large` now names the aws.access_key inside it.
+ */
+function sliceLongLine(line: string, budget: number, overlap: number): string[] {
+  const pieces: string[] = [];
+  let start = 0;
+  while (start < line.length) {
+    // One char is never fewer than one byte, so `budget` chars is never short
+    // of the byte budget; shrink proportionally until it fits.
+    let end = Math.min(line.length, start + budget);
+    let bytes = Buffer.byteLength(line.slice(start, end), "utf8");
+    while (end > start + 1 && bytes > budget) {
+      const scaled = start + Math.max(1, Math.floor((end - start) * (budget / bytes)));
+      end = scaled < end ? scaled : end - 1;
+      bytes = Buffer.byteLength(line.slice(start, end), "utf8");
+    }
+    end = Math.max(start + 1, safeCut(line, end));
+    pieces.push(line.slice(start, end));
+    if (end >= line.length) break;
+    // Step back by the overlap so a secret sitting on the cut — and the label
+    // that qualifies it — land together in the next piece.
+    let back = 0;
+    let backBytes = 0;
+    while (end - back - 1 > start && backBytes < overlap) {
+      backBytes += Buffer.byteLength(line[end - back - 1]!, "utf8");
+      back++;
+    }
+    // start strictly increases: the loop guarantees end - back > start.
+    start = Math.max(start + 1, safeCut(line, end - back));
+  }
+  return pieces;
+}
+
+/**
  * Scan added lines in line-aligned slices, unioning the findings.
  *
  * Why: the engine refuses input over its byte cap and fails closed, which is
@@ -306,15 +489,9 @@ const SCAN_CHUNK_BYTES = 768 * 1024;
  * people to reach for --no-verify, defeating the guardrail far more thoroughly
  * than a large diff does.
  *
- * Slicing loses NO detection coverage, because every pattern is single-line:
- * none in redact-patterns.ts carries the `m` or `s` flag, the
- * BEGIN-PRIVATE-KEY patterns capture only the header line rather than the key
- * body, and the engine itself iterates line by line. A line boundary therefore
- * cannot bisect a detectable secret, so no inter-slice overlap is needed.
- *
- * Fail-closed is preserved: a SINGLE line over the budget is still passed to
- * the engine intact, so a genuinely unscannable blob (minified bundle,
- * embedded base64) trips input_too_large and blocks exactly as before.
+ * Slices overlap by SCAN_OVERLAP_BYTES and are budgeted in zero-width-stripped
+ * bytes, so a seam cannot separate a proximity-qualified secret from its label;
+ * see those two constants for the fail-open each one closes.
  *
  * Findings' line/col are slice-relative, which is fine here — this hook only
  * reads severity, id and preview. Do not lift this into the engine, where
@@ -322,26 +499,66 @@ const SCAN_CHUNK_BYTES = 768 * 1024;
  */
 function scanAddedLines(added: string, opts: Parameters<typeof scan>[1]): Finding[] {
   const findings: Finding[] = [];
+  // Overlap deliberately re-scans the seam, so one occurrence can surface
+  // twice. Dedup on id+preview: line/col are slice-relative and cannot identify
+  // an occurrence. Worst case two DIFFERENT occurrences share a preview and are
+  // counted once — that lowers a count, never a block.
+  const seen = new Set<string>();
+
   let slice: string[] = [];
   let sliceBytes = 0;
 
-  const flush = () => {
+  const flush = (carryOverlap: boolean) => {
     if (slice.length === 0) return;
-    findings.push(...scan(slice.join("\n"), opts).findings);
-    slice = [];
-    sliceBytes = 0;
+    for (const f of scan(slice.join("\n"), opts).findings) {
+      const key = `${f.id}\u0000${f.preview}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      findings.push(f);
+    }
+    if (!carryOverlap) {
+      slice = [];
+      sliceBytes = 0;
+      return;
+    }
+    // Re-seed the next slice with the trailing lines worth up to one overlap.
+    const tail: string[] = [];
+    let tailBytes = 0;
+    for (let i = slice.length - 1; i >= 0; i--) {
+      const b = Buffer.byteLength(slice[i]!, "utf8") + 1;
+      if (tailBytes + b > SCAN_OVERLAP_BYTES) break;
+      tail.unshift(slice[i]!);
+      tailBytes += b;
+    }
+    slice = tail;
+    sliceBytes = tailBytes;
   };
 
-  for (const line of added.split("\n")) {
-    // +1 for the newline that rejoins it.
+  // unitBytes counts the newline that rejoins the unit.
+  const push = (unit: string, unitBytes: number) => {
+    // Close the current slice BEFORE overflowing it, carrying the overlap.
+    if (sliceBytes > 0 && sliceBytes + unitBytes > SCAN_CHUNK_BYTES) flush(true);
+    slice.push(unit);
+    sliceBytes += unitBytes;
+  };
+
+  for (const raw of added.split("\n")) {
+    const line = raw.replace(ZERO_WIDTH, "");
     const lineBytes = Buffer.byteLength(line, "utf8") + 1;
-    // Close the current slice BEFORE overflowing it. A single oversized line
-    // lands in a slice of its own and is handed to the engine as-is.
-    if (sliceBytes > 0 && sliceBytes + lineBytes > SCAN_CHUNK_BYTES) flush();
-    slice.push(line);
-    sliceBytes += lineBytes;
+    if (lineBytes > LINE_BUDGET_BYTES) {
+      // An over-budget line cannot share a slice with anything else. Close the
+      // current slice first (carrying its tail so context leading INTO the long
+      // line survives), then feed the pieces one slice at a time.
+      flush(true);
+      for (const piece of sliceLongLine(line, LINE_BUDGET_BYTES - 1, SCAN_OVERLAP_BYTES)) {
+        push(piece, Buffer.byteLength(piece, "utf8") + 1);
+        flush(true);
+      }
+      continue;
+    }
+    push(line, lineBytes);
   }
-  flush();
+  flush(false);
 
   return findings;
 }
