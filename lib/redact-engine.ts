@@ -569,12 +569,25 @@ function locateSpan(input: string, f: Finding): { start: number; end: number } {
   const pat = PATTERNS_BY_ID[f.id];
   if (!pat) return { start: -1, end: -1 };
   const re = new RegExp(pat.regex.source, withFlags(pat.regex.flags));
-  re.lastIndex = Math.max(0, offset - 2);
-  const m = re.exec(input);
-  if (!m) return { start: -1, end: -1 };
-  const span = m[1] ?? m[0];
-  const start = m.index + (m[1] !== undefined ? m[0].indexOf(m[1]) : 0);
-  return { start, end: start + span.length };
+
+  // A finding's col points at the reported span — the capture group when the
+  // pattern has one — which sits after the start of the whole match. Resuming
+  // the scan there skips any `^`-anchored pattern (env.kv), because the only
+  // position its `^` can match is the line start, which is already behind us:
+  // exec then finds nothing and the caller reads -1 as "cannot mask". Resume
+  // at the line start so the match is reachable, and still require the span to
+  // land exactly where the scan reported it, so fail-closed behaviour holds.
+  re.lastIndex = input.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
+
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(input)) !== null) {
+    const span = m[1] ?? m[0];
+    const start = m.index + (m[1] !== undefined ? m[0].indexOf(m[1]) : 0);
+    if (start === offset) return { start, end: start + span.length };
+    if (start > offset) break;
+    if (m[0].length === 0) re.lastIndex++; // zero-length match: avoid spinning
+  }
+  return { start: -1, end: -1 };
 }
 
 function inStructuralToken(body: string, start: number, end: number): boolean {
