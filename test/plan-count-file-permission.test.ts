@@ -69,6 +69,9 @@ describe('native repeated report permission identity',()=>{
 
 for (const variant of ['basic', 'intervening', 'cropped', 'same-basename', 'path-cropped']) test.skipIf(process.platform==='win32')(`real fake CLI grants each current request once: ${variant}`,async()=>{
  const intervening = variant === 'intervening';
+ // The recorder scopes owned paths to os.tmpdir(), so the fixture cannot move
+ // to a shorter base — the wide terminal below keeps macOS's long per-user
+ // TMPDIR path from wrapping mid-path inside the 120-column viewport.
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ce-'));const fake=path.join(dir,'fake-claude');const worker=path.join(dir,'worker.ts');const events=path.join(dir,'events.jsonl');const output=path.join(dir,'output.json');const expected=path.join(dir,variant==='same-basename'?'PLAN.md':'report.md');fs.writeFileSync(expected,'original');
  const cropped=capturedAc.rows.find(row=>row.job===5)!;
  let screen=variant==='path-cropped' ? capturedPath.screen.replace(capturedPath.screen.split('\n')[0]!,expected).replaceAll(path.dirname(capturedPath.expected),path.dirname(expected)).replaceAll(path.basename(capturedPath.expected),'report.md')
@@ -105,7 +108,7 @@ process.stdin.setRawMode?.(true);process.stdin.on('data',async data=>{
 });process.on('SIGINT',()=>process.exit(0));process.stdin.resume();
 process.stdout.write('PTY_READY:'+item.events+'\x1b[2J\x1b[H');
 `);fs.chmodSync(fake,0o755);
- fs.writeFileSync(worker,`import {runPlanSkillCounting} from ${JSON.stringify(pathToFileURL(path.join(import.meta.dir,'helpers/claude-pty-runner.ts')).href)};const o=await runPlanSkillCounting({skillName:'plan-ceo-review',slashCommand:'/plan-ceo-review',followUpPrompt:'Review the disposable fixture.',expectedPlanPath:${JSON.stringify(expected)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:1,timeoutMs:28000,startupReadyMarker:${JSON.stringify('PTY_READY:'+events)},env:{FILE_EPOCH_CASE:${JSON.stringify(JSON.stringify({events,expected,screen,intervening,activePlan:variant==='same-basename'}))}}});await Bun.write(${JSON.stringify(output)},JSON.stringify(o));`);
+ fs.writeFileSync(worker,`import {runPlanSkillCounting} from ${JSON.stringify(pathToFileURL(path.join(import.meta.dir,'helpers/claude-pty-runner.ts')).href)};const o=await runPlanSkillCounting({skillName:'plan-ceo-review',slashCommand:'/plan-ceo-review',followUpPrompt:'Review the disposable fixture.',expectedPlanPath:${JSON.stringify(expected)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true,reviewCountCeiling:1,timeoutMs:28000,cols:200,startupReadyMarker:${JSON.stringify('PTY_READY:'+events)},env:{FILE_EPOCH_CASE:${JSON.stringify(JSON.stringify({events,expected,screen,intervening,activePlan:variant==='same-basename'}))}}});await Bun.write(${JSON.stringify(output)},JSON.stringify(o));`);
  const child=Bun.spawn([process.execPath,worker],{env:{...process.env,BROWSE_TERMINAL_BINARY:fake,EVALS_HERMETIC:'1'},stdout:'pipe',stderr:'pipe'});const killer=setTimeout(()=>child.kill('SIGKILL'),33000);
  try{const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);expect(code,out+err).toBe(0);
   const o=JSON.parse(fs.readFileSync(output,'utf8'));expect(o.outcome,JSON.stringify(o)).toBe('ceiling_reached');expect(o.reviewCount).toBe(1);

@@ -4571,6 +4571,10 @@ export async function runPlanSkillCounting(opts: {
   env?: Record<string, string>;
   /** Override the spawned model. Defaults via launchClaudePty's chain. */
   model?: string;
+  /** Terminal width forwarded to launchClaudePty (default 120). Tests whose
+   *  disposable paths are long — e.g. macOS's per-user TMPDIR — can widen it
+   *  so a rendered path does not wrap mid-string in the viewport. */
+  cols?: number;
 }): Promise<PlanSkillCountObservation> {
   const budgetStarted = performance.now();
   const startedAt = Date.now();
@@ -4613,6 +4617,7 @@ export async function runPlanSkillCounting(opts: {
       timeoutMs: Math.max(1, remainingWork()),
       env: { ...opts.env, ...fixture.env },
       model: opts.model,
+      cols: opts.cols,
       seedSkills: true,
       observeScreen: true,
       observePlanReady: true,
