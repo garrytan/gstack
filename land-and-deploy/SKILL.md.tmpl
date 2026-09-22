@@ -174,7 +174,7 @@ If `CONFLICTING`: **STOP.** "This PR has merge conflicts with the base branch. R
 If required checks are still pending, wait for them to complete. Use a timeout of 15 minutes:
 
 ```bash
-gh pr checks --watch --fail-fast
+gh pr checks --watch --fail-fast --interval 60
 ```
 
 Record the CI wait time for the deploy report.
