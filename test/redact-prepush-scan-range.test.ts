@@ -263,7 +263,7 @@ describe("S1: exclusion scoped to the push-target remote", () => {
     expect(code).toBe(0);
   });
 
-  test("an unconfigured name (URL push) also falls back rather than erroring", () => {
+  test("an unconfigured name (URL push) does not error, and does not exclude another remote's commits", () => {
     const { originTip } = buildSecretOnSecondRemote();
     const head = run(["rev-parse", "HEAD"]).trim();
     const url = "file:///not-a-configured-remote";
@@ -271,7 +271,15 @@ describe("S1: exclusion scoped to the push-target remote", () => {
       `refs/heads/feature ${head} refs/heads/feature ${originTip}\n`,
       [url, url],
     );
+    // The original concern, kept: an unconfigured name must not be turned into
+    // an invalid `--remotes=<url>/*` refspec and crash the hook.
     expect(stderr).not.toContain("could not");
-    expect(code).toBe(0);
+    // The secret commit is reachable from the pushed tip and NOT from the tip
+    // this URL remote is at, so this push really does send it there. A URL is
+    // described by no remote-tracking ref, so "already on the private `other`
+    // remote" says nothing about this destination — excluding it would ship the
+    // credential with exit 0, the same shape S1 fixes for configured remotes.
+    expect(stderr).toContain("BLOCKED");
+    expect(code).not.toBe(0);
   });
 });

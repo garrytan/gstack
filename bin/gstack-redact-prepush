@@ -96,24 +96,36 @@ function objectExists(sha: string): boolean {
 }
 
 /**
- * The remote this push targets, as git hands it to pre-push in $1 (and its URL
- * as $2); the installed hook wrapper forwards "$@". Null when the name is
- * unavailable (stdin/CLI invocation) or does not name a CONFIGURED remote — a
- * URL push has no remote-tracking namespace at all — and every caller then
- * falls back to the historical origin-shaped behavior.
+ * What git told us about the push target, as three distinct cases. The
+ * distinction matters: "we were not told" and "we were told, and it has no
+ * tracking namespace" must not be collapsed, because only the first one can
+ * safely fall back to origin-shaped behavior.
+ *
+ *   { kind: "remote", name }  $1 names a CONFIGURED remote.
+ *   { kind: "url" }           $1 was given but is not a configured remote —
+ *                             a URL push. There is no <remote>/<branch> to
+ *                             anchor on, for ANY remote.
+ *   { kind: "unknown" }       $1 absent (stdin / CLI invocation).
  */
-let _pushRemote: string | null | undefined;
-function pushRemote(): string | null {
-  if (_pushRemote === undefined) {
+type PushTarget = { kind: "remote"; name: string } | { kind: "url" } | { kind: "unknown" };
+let _pushTarget: PushTarget | undefined;
+function pushTarget(): PushTarget {
+  if (_pushTarget === undefined) {
     const name = process.argv[2];
-    const configured = name
-      ? git(["remote"]).split("\n").map((s) => s.trim()).filter(Boolean).includes(name)
-      : false;
-    _pushRemote = configured ? name! : null;
+    if (!name) {
+      _pushTarget = { kind: "unknown" };
+    } else {
+      const configured = git(["remote"]).split("\n").map((s) => s.trim()).filter(Boolean).includes(name);
+      _pushTarget = configured ? { kind: "remote", name } : { kind: "url" };
+    }
   }
-  // `?? null` only narrows away the not-yet-computed sentinel; by here the
-  // cache is always set, and null legitimately means "no tracking namespace".
-  return _pushRemote ?? null;
+  return _pushTarget;
+}
+
+/** The configured remote this push targets, or null for a URL/unknown target. */
+function pushRemote(): string | null {
+  const t = pushTarget();
+  return t.kind === "remote" ? t.name : null;
 }
 
 /**
@@ -124,13 +136,29 @@ function pushRemote(): string | null {
  * commits reachable from ANY remote-tracking ref, so a secret that had only
  * ever been fetched from (or pushed to) a private/local-path remote was never
  * scanned when later pushed to a PUBLIC remote — "already left this machine"
- * is not "already reached THIS remote". Falling back to the bare form scans
- * LESS than the narrowed form would, but never less than the hook historically
- * did.
+ * is not "already reached THIS remote".
+ *
+ * ⚠ A URL PUSH EXCLUDES NOTHING.
+ *
+ * The bare `--remotes` fallback was a fail-open for a URL target, measured: the
+ * credential sat on origin/main, the local commit added only harmless content,
+ * and a first push to a different empty URL remote had origin/main excluded as
+ * "already on the remote" — so rev-list reported only the harmless commit as
+ * new, the range anchored at its parent, and the credential shipped with exit 0.
+ * A URL we were handed is not described by ANY remote-tracking ref, so there is
+ * nothing legitimately excludable and everything reachable must be scanned.
+ *
+ * An UNKNOWN target (no argv, stdin/CLI invocation) keeps the historical bare
+ * form: we were told nothing, so we cannot single out a namespace.
+ *
+ * Returns the rev-list arguments, empty when nothing may be excluded — the
+ * callers must not hand `--not` an empty operand.
  */
-function remotesExclusion(): string {
-  const name = pushRemote();
-  return name ? `--remotes=${name}/*` : "--remotes";
+function remotesExclusionArgs(): string[] {
+  const t = pushTarget();
+  if (t.kind === "remote") return ["--not", `--remotes=${t.name}/*`];
+  if (t.kind === "url") return [];
+  return ["--not", "--remotes"];
 }
 
 /**
@@ -138,7 +166,7 @@ function remotesExclusion(): string {
  *
  * ⚠ SCOPED TO THE PUSH TARGET, NOT HARDCODED TO origin.
  *
- * remotesExclusion() above already reasons this way for the rev-list exclusion,
+ * remotesExclusionArgs() above already reasons this way for the rev-list exclusion,
  * but this probe kept asking origin regardless of where the push was going, and
  * the two together are what pick the scan range. The consequence was a
  * fail-OPEN, measured: with HEAD == origin/main, `git push publish HEAD:main`
@@ -153,7 +181,17 @@ function remotesExclusion(): string {
  * Scanning more is the safe direction here and matches the S1 reasoning above.
  */
 function defaultRemoteBranch(): string | null {
-  const remote = pushRemote() ?? "origin";
+  const t = pushTarget();
+  // ⚠ A URL PUSH HAS NO ANCHOR — DO NOT BORROW origin's.
+  //
+  // Falling back to origin here was itself a fail-open, measured: with the
+  // credential already on origin/main and the local commit adding only harmless
+  // content, the first push to a different, empty URL remote resolved the range
+  // merge-base(HEAD, origin/main)..HEAD, scanned the harmless commit, exited 0,
+  // and sent the whole history — credential included — to that remote. origin's
+  // tip says nothing about what a DIFFERENT remote already has.
+  if (t.kind === "url") return null;
+  const remote = t.kind === "remote" ? t.name : "origin";
   // <remote>/HEAD → <remote>/main, fall back to main/master.
   const sym = git(["symbolic-ref", `refs/remotes/${remote}/HEAD`]).trim();
   if (sym) return sym.replace("refs/remotes/", "");
@@ -191,11 +229,11 @@ function unknownRemoteTipBase(localSha: string): string | null {
   //    NOTHING — "scans more, never less" inverted into "scans nothing".
   //
   //    The exclusion is scoped to the PUSH TARGET's tracking refs (see
-  //    remotesExclusion): content on some OTHER remote has left this machine,
+  //    remotesExclusionArgs): content on some OTHER remote has left this machine,
   //    but it has not reached the remote being pushed to — a secret that only
   //    ever hit a private remote must still be scanned on its way to a public
   //    one (S1).
-  const newCommits = git(["rev-list", "--reverse", localSha, "--not", remotesExclusion()]).trim();
+  const newCommits = git(["rev-list", "--reverse", localSha, ...remotesExclusionArgs()]).trim();
   if (newCommits) {
     const oldest = newCommits.split("\n")[0];
     const parent = git(["rev-parse", "--verify", `${oldest}^`]).trim();
@@ -238,7 +276,7 @@ function unknownRemoteTipBase(localSha: string): string | null {
  * base excludes both. `rev-list --not --remotes=<push-remote>/*` is the
  * operation that does, and this file already reasons that way in
  * `unknownRemoteTipBase` step 2. The exclusion is scoped to the push target's
- * tracking namespace (see remotesExclusion): the upstream commits a catch-up
+ * tracking namespace (see remotesExclusionArgs): the upstream commits a catch-up
  * merge brings in came from the SAME remote being pushed to, so scoping keeps
  * the #2592 fix intact while a secret known only to some OTHER (private)
  * remote is still scanned on its way to this one (S1).
@@ -257,7 +295,10 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): string |
   // direction. So it stays the base; `--remotes` only ADDS exclusions on top.
   if (ZERO.test(remoteSha) || !objectExists(remoteSha)) return null;
 
-  const narrowed = git(["rev-list", localSha, "--not", remoteSha, remotesExclusion()]).trim();
+  // `--not remoteSha` always applies; the remote-tracking exclusion is added
+  // only when one is legitimate for this target (see remotesExclusionArgs).
+  const extra = remotesExclusionArgs().filter((a) => a !== "--not");
+  const narrowed = git(["rev-list", localSha, "--not", remoteSha, ...extra]).trim();
   if (!narrowed) return null;
 
   // If excluding remote-tracking refs changes nothing, this push has no
@@ -303,8 +344,32 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
     // remote..local cannot resolve. Both need a base derived locally; scan MORE
     // rather than hard-blocking a legitimate push (adversarial review finding 8).
     guessedFromUnresolvableTip = !ZERO.test(remoteSha);
-    const base = unknownRemoteTipBase(localSha);
-    range = base ? `${base}..${localSha}` : `${emptyTree()}..${localSha}`;
+    if (guessedFromUnresolvableTip) {
+      // ⚠ AN ABSENT NAMED TIP INVALIDATES OUR TRACKING REFS FOR THIS REF.
+      //
+      // git told us the remote is at a sha we do not have, which is itself
+      // proof that our remote-tracking refs do not describe this ref — so
+      // narrowing by them is not conservative, it is a guess. Blocking only
+      // the EMPTY guess was not enough: measured, a stale origin/main holding
+      // the credential plus one harmless local commit produced a NON-empty,
+      // credential-free diff, the guard passed, and the force-push republished
+      // the credential with exit 0. A guess that scanned something is still a
+      // guess about the wrong thing.
+      //
+      // So this shape gets no local narrowing at all: scan everything reachable
+      // from the pushed tip. That is affordable now only because every scan is
+      // sliced under the engine's cap (see scanAddedLines), so a whole-history
+      // range can no longer degrade into engine.input_too_large — which is
+      // exactly why the older code avoided this path.
+      //
+      // A NEW BRANCH (zero remote sha) is deliberately NOT treated this way:
+      // there git named no tip, our tracking refs are not contradicted, and
+      // narrowing keeps the first push of a feature branch proportionate.
+      range = `${emptyTree()}..${localSha}`;
+    } else {
+      const base = unknownRemoteTipBase(localSha);
+      range = base ? `${base}..${localSha}` : `${emptyTree()}..${localSha}`;
+    }
   } else {
     // Existing branch (incl. force-push): net new content remote..local.
     range = `${remoteSha}..${localSha}`;
@@ -526,7 +591,31 @@ function scanAddedLines(added: string, opts: Parameters<typeof scan>[1]): Findin
     let tailBytes = 0;
     for (let i = slice.length - 1; i >= 0; i--) {
       const b = Buffer.byteLength(slice[i]!, "utf8") + 1;
-      if (tailBytes + b > SCAN_OVERLAP_BYTES) break;
+      if (tailBytes + b > SCAN_OVERLAP_BYTES) {
+        // ⚠ A LINE BIGGER THAN THE OVERLAP MUST STILL CONTRIBUTE ITS END.
+        //
+        // Carrying whole lines only means a single line longer than the whole
+        // overlap budget contributes NOTHING, and the seam it sits on gets no
+        // context at all. Measured: one ~770 KB ASCII line ending in
+        // `aws_secret_access_key =`, followed by a line holding the key, put the
+        // label and the secret in different slices with an empty overlap between
+        // them, so aws.secret_key never fired. Carry the line's SUFFIX instead —
+        // the last overlap-worth of it is exactly the part a proximity pattern
+        // needs.
+        if (tail.length === 0) {
+          const line = slice[i]!;
+          let back = 0;
+          let backBytes = 0;
+          while (back < line.length && backBytes < SCAN_OVERLAP_BYTES) {
+            backBytes += Buffer.byteLength(line[line.length - back - 1]!, "utf8");
+            back++;
+          }
+          const suffix = line.slice(safeCut(line, line.length - back));
+          tail.unshift(suffix);
+          tailBytes += Buffer.byteLength(suffix, "utf8") + 1;
+        }
+        break;
+      }
       tail.unshift(slice[i]!);
       tailBytes += b;
     }

@@ -249,7 +249,10 @@ run_missingremote() { cd "$1" || exit 1; local sha; sha=$(git rev-parse HEAD)
   printf 'refs/heads/main %s refs/heads/main cafebabecafebabecafebabecafebabecafebabe\n' "$sha" \
     | bun "$CAND" origin https://example.invalid/origin.git 2>&1; echo "___EXIT:$?"; }
 S16=$(run_missingremote "$R/s12")
-row "16 missing-but-shaped remote sha" "$S16" "BLOCK(unscannable)"
+# Now that an absent named tip drops ALL local narrowing, this blocks with the
+# actual finding rather than an "unscannable" apology: the whole reachable
+# range is scanned and the credential is named.
+row "16 missing-but-shaped remote sha" "$S16" "BLOCK(aws.access_key)"
 
 # 17: zero-width across slice boundary
 mkrepo s17; SEC="${_S1}${_S2}" python3 -c "
@@ -280,6 +283,31 @@ git add -A >/dev/null; git commit -qm proxsplit
 S18=$(run_probe "$R/s18")
 row "18 proximity split by slice cut" "$S18" "BLOCK(aws.secret_key)"
 
+# 20: an absent named tip whose GUESS is non-empty but wrong.
+# Row 16 covers the absent-tip case where the guess scans nothing. This is the
+# other half: the stale tracking ref holds the credential, one harmless local
+# commit sits on top, so the guessed range is non-empty and credential-free.
+# Blocking only the empty guess let this through with exit 0.
+mkrepo s20
+printf 'aws_access_key_id = %s\n' "$KEY" > secret.txt
+git add -A >/dev/null
+git commit -qm cred >/dev/null
+git update-ref refs/remotes/origin/main HEAD
+git remote add origin https://example.invalid/o.git
+git remote set-head origin main >/dev/null 2>&1
+echo 'harmless = 1' > ok.py
+git add -A >/dev/null
+git commit -qm harmless >/dev/null
+run_absent_tip() {
+  cd "$1" || exit 1
+  local sha
+  sha=$(git rev-parse HEAD)
+  printf 'refs/heads/main %s refs/heads/main aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7\n' "$sha" \
+    | bun "$CAND" origin https://example.invalid/o.git 2>&1
+  echo "___EXIT:$?"
+}
+S20=$(run_absent_tip "$R/s20")
+row "20 absent named tip, non-empty wrong guess" "$S20" "BLOCK(aws.access_key)"
 # E1: ordinary new-branch push must scan ONLY the new commit
 mkrepo e1
 printf 'aws_key = "%s"\n' "$KEY" > old.py
@@ -324,7 +352,11 @@ E4=$(cd "$R/e4" && printf 'refs/heads/main %s refs/heads/main %s\n' "$ZERO40" "$
   | bun "$CAND" origin https://example.invalid/o.git 2>&1; echo "___EXIT:$?")
 row "E4 branch delete skipped" "$E4" "ALLOW"
 
-# E5: URL push keeps historical origin-shaped fallback
+# E5: a URL push must NOT borrow origin's tip as its base.
+# The credential is already on origin/main and the local commit adds only
+# harmless content. Anchoring on origin (or excluding origin's commits as
+# "already pushed") scans the harmless commit only and ships the credential to
+# a remote that never had it. A URL target is described by no tracking ref.
 mkrepo e5
 printf 'aws_key = "%s"\n' "$KEY" > old.py
 git add -A >/dev/null; git commit -qm old >/dev/null
@@ -334,7 +366,36 @@ git checkout -q -b feature
 echo 'harmless = 1' > new.py; git add -A >/dev/null; git commit -qm new >/dev/null
 E5=$(cd "$R/e5" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$ZERO40" \
   | bun "$CAND" https://example.invalid/direct.git '' 2>&1; echo "___EXIT:$?")
-row "E5 URL push falls back to origin (narrow)" "$E5" "ALLOW"
+row "E5 URL push does not borrow origin's base" "$E5" "BLOCK(aws.access_key)"
+
+# E5b: the other half of E5 — over-scanning must not turn every URL push into a
+# block. Same shape, no credential anywhere: the push has to be allowed.
+mkrepo e5b
+echo 'old = 1' > old.py
+git add -A >/dev/null; git commit -qm old >/dev/null
+git update-ref refs/remotes/origin/main HEAD
+git remote add origin https://example.invalid/o.git
+git checkout -q -b feature
+echo 'harmless = 1' > new.py; git add -A >/dev/null; git commit -qm new >/dev/null
+E5B=$(cd "$R/e5b" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$ZERO40" \
+  | bun "$CAND" https://example.invalid/direct.git '' 2>&1; echo "___EXIT:$?")
+row "E5b clean URL push still allowed" "$E5B" "ALLOW"
+
+# 19: a line longer than the overlap must still contribute its END to the seam.
+# One ~770 KB ASCII line whose tail is the qualifying label, then a line holding
+# the secret. Carrying whole lines only leaves the seam with no context, so
+# aws.secret_key never fires even though both halves are in the pushed diff.
+mkrepo s19
+SEC="$SEC" python3 -c "
+import os
+sec=os.environ['SEC']
+filler='x'*770047
+with open('big.txt','w') as f:
+    f.write(filler+' aws_secret_access_key =\n')
+    f.write(sec+' '+'y'*20000+'\n')"
+git add -A >/dev/null; git commit -qm bigline >/dev/null
+S19=$(run_probe "$R/s19")
+row "19 label at the end of an over-overlap line" "$S19" "BLOCK(aws.secret_key)"
 
 # E6: long-line slicer survives multi-byte text
 mkrepo e6; KEY="$KEY" python3 -c "
@@ -370,7 +431,28 @@ if git init -q --object-format=sha256 "$R/.probe256" 2>/dev/null; then
   ZERO64=$(printf '0%.0s' {1..64})
   E8=$(cd "$d" && printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$ZERO64" \
     | bun "$CAND" origin https://example.invalid/o.git 2>&1; echo "___EXIT:$?")
-  row "E8 sha256 repo, new branch" "$E8" "BLOCK"
+  row "E8 sha256 repo, new branch" "$E8" "BLOCK(aws.access_key)"
+
+  # E8b: the row that actually proves the empty-tree OID fix. E8 alone does not:
+  # it carries a credential, so a build that cannot resolve the fallback range
+  # still "blocks", just with a diff error instead of a finding. A CLEAN sha256
+  # first push must be ALLOWED — under the hardcoded SHA-1 empty-tree OID it was
+  # hard-blocked, which is unusable rather than safe.
+  d="$R/e8b"
+  rm -rf "$d"
+  mkdir -p "$d"
+  cd "$d" || exit 1
+  git init -q --object-format=sha256 .
+  git config user.email t@t.t
+  git config user.name t
+  git checkout -q -b main
+  printf 'cfg = 1\nharmless = 2\n' > app.py
+  git add -A >/dev/null
+  git commit -qm seed >/dev/null
+  git remote add origin https://example.invalid/o.git
+  E8B=$(printf 'refs/heads/main %s refs/heads/main %s\n' "$(git rev-parse HEAD)" "$ZERO64" \
+    | bun "$CAND" origin https://example.invalid/o.git 2>&1; echo "___EXIT:$?")
+  row "E8b clean sha256 first push allowed" "$E8B" "ALLOW"
 fi
 
 echo
