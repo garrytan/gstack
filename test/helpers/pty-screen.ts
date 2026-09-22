@@ -1,6 +1,8 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
 /** The existing xterm package ships this headless source beside its browser bundle. */
 let terminalConstructor: Promise<any> | undefined;
@@ -27,8 +29,12 @@ function loadTerminal(): Promise<any> {
         } }],
       });
       if (!build.success) throw new AggregateError(build.logs, 'Installed xterm headless build failed');
-      const encoded = Buffer.from(await build.outputs[0].text()).toString('base64');
-      return (await import(`data:text/javascript;base64,${encoded}`)).Terminal;
+      // A `data:` URL import exceeds the module-specifier length cap on some
+      // Bun releases (NameTooLong). Spool the bundle to a real file instead.
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-pty-screen-'));
+      const bundle = path.join(dir, 'xterm-headless.mjs');
+      fs.writeFileSync(bundle, await build.outputs[0].text());
+      return (await import(pathToFileURL(bundle).href)).Terminal;
     } catch (cause) {
       throw new Error('PTY screen unavailable; cannot safely observe terminal input.', { cause });
     }

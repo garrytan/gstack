@@ -3123,7 +3123,7 @@ For a new PR, compose `v<NEW_VERSION> <type>: <summary>`. Use that final value b
 REDACT_VIS=$($GSTACK_ROOT/bin/gstack-config get redact_repo_visibility 2>/dev/null)
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
 REDACT_VIS="${REDACT_VIS:-unknown}"
-PR_BODY_FILE=$(mktemp) || { echo "ERROR: mktemp failed — cannot scan the PR body; refusing to create the PR unscanned." >&2; exit 1; }
+PR_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-pr-body.XXXXXX") || { echo "ERROR: mktemp failed — cannot scan the PR body; refusing to create the PR unscanned." >&2; exit 1; }
 cat > "$PR_BODY_FILE" <<'PR_BODY_EOF'
 <PR body from above>
 PR_BODY_EOF

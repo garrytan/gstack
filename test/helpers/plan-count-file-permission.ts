@@ -13,9 +13,21 @@ const scoped = (file: unknown, config: string, session: string) => {
   const rel = path.relative(path.join(config, 'projects'), file).split(path.sep);
   return rel.length === 2 && rel[0] !== '..' && rel[0] !== '.' && rel[1] === `${session}.jsonl`;
 };
+const canonical = (file: string) => {
+  try { return fs.realpathSync(file); } catch {
+    try { return path.join(fs.realpathSync(path.dirname(file)), path.basename(file)); } catch { return file; }
+  }
+};
+const containedInTmp = (relative: string) =>
+  !!relative && relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
 export function createFilePermissionRecorder(cwd: string, config: string, expected: string) {
-  const relative = path.relative(os.tmpdir(), expected);
-  if (!path.isAbsolute(expected) || !relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) return undefined;
+  // The kernel reports a spawned child's cwd resolved (/var -> /private/var on
+  // macOS) while os.tmpdir() keeps the symlinked spelling. Judge containment
+  // on canonical paths only when the literal check already failed; record
+  // identity stays the exact expected string.
+  let relative = path.relative(os.tmpdir(), expected);
+  if (!containedInTmp(relative)) relative = path.relative(canonical(os.tmpdir()), canonical(expected));
+  if (!path.isAbsolute(expected) || !containedInTmp(relative)) return undefined;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-file-permission-'));
   const file = path.join(dir, 'state.json');
   const command = [process.execPath, import.meta.path, '--record', file, cwd, config, expected].map(quote).join(' ');

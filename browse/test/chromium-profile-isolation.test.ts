@@ -49,7 +49,10 @@ describe.skipIf(process.platform === 'win32')('Chromium profile isolation (#2817
     if (fs.existsSync(stateFile)) {
       daemonPid = JSON.parse(fs.readFileSync(stateFile, 'utf-8')).pid;
     }
-    if (daemonPid) safeKill(-daemonPid, 'SIGKILL');
+    // Teardown kills the daemon's whole process group. On macOS a group whose
+    // members already exited fails EPERM rather than ESRCH, which safeKill
+    // rethrows — tolerate it here since teardown is best-effort.
+    if (daemonPid) try { safeKill(-daemonPid, 'SIGKILL'); } catch (error: any) { if (error?.code !== 'EPERM') throw error; }
     for (const child of children) child.kill('SIGKILL');
     await Promise.all(children.map(child => child.exited));
     fs.rmSync(scratch, { recursive: true, force: true });
