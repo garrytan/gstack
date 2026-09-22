@@ -61,6 +61,9 @@ export function claudeCodeArgs(options: Pick<ClaudeCodeOptions, 'access' | 'resu
   // An explicit gstack override wins; otherwise leave native CLI configuration
   // and ANTHROPIC_MODEL intact instead of replacing the user's selected model.
   if (env.GSTACK_CLAUDE_MODEL) args.push('--model', env.GSTACK_CLAUDE_MODEL);
+  // An explicit gstack override wins; otherwise leave native CLI configuration
+  // intact instead of passing an unrequested reasoning effort flag.
+  if (env.GSTACK_CLAUDE_EFFORT) args.push('--effort', env.GSTACK_CLAUDE_EFFORT);
   if (options.resume) args.push('--resume', options.resume);
   return args;
 }

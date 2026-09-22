@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.87.6.0] - 2026-09-22
+
+**Reasoning effort is now overridable by environment.**
+**Existing defaults stay unchanged across every mode.**
+
+Outside-voice reviewers now respect shell-level reasoning effort settings without changing any existing default. `GSTACK_CODEX_EFFORT` configures Codex review, challenge, and consult passes when set, falling back to per-mode defaults when absent. `GSTACK_CLAUDE_EFFORT` passes an explicit `--effort` flag to the Claude Code runner while leaving unconfigured shells on Claude's native defaults. Explicit per-request overrides like `--xhigh` continue to take precedence over the environment.
+
+### The three numbers that matter
+
+Source: assertions in `test/codex-effort-env-override.test.ts` and `test/provider-model-defaults.test.ts`. Run `bun test test/codex-effort-env-override.test.ts` to verify these overrides directly against rendered commands and runner argv. These are unit test assertions and configuration checks, not production statistics.
+
+| Metric | Before | After | Δ |
+|---|---:|---:|---:|
+| Hardcoded effort flags in outside-voice templates | 5 | 0 | -5 |
+| Environment-overridable outside reviewer flags | 0 | 2 | +2 |
+| Changed default effort values | 0 | 0 | 0 |
+
+Neither environment variable alters defaults when unset. Review and challenge passes retain `high`, consult retains `medium`, and Claude Code receives no effort argument unless requested.
+
+### What this means for developers
+
+You can scale reasoning depth up or down across a shell session without modifying skill files. If you want faster feedback during development or higher reasoning depth during an audit, export the variable in your shell. Explicit request flags like `--xhigh` still win over the environment. Set `GSTACK_CODEX_EFFORT` or `GSTACK_CLAUDE_EFFORT` in your environment to customize your runs.
+
+### Itemized changes
+
+#### Added
+
+- **`GSTACK_CODEX_EFFORT` overrides Codex reasoning effort.** Supports `low`, `medium`, `high`, and `xhigh` via `-c "model_reasoning_effort=\"${GSTACK_CODEX_EFFORT:-<default>}\""`. Preserves per-mode defaults (`high` for review and challenge, `medium` for consult). Explicit `--xhigh` flags take precedence.
+- **`GSTACK_CLAUDE_EFFORT` supplies `--effort` to Claude Code.** When set, the outside runner passes `--effort <value>` to the CLI. When unset, no effort flag is passed, preserving Claude Code's native configuration default.
+- **Unit tests for effort environment overrides.** Added `test/codex-effort-env-override.test.ts` covering helper defaults, command template interpolation, spec-gate defaults, Claude Code runner flags, and rendered template consistency.
+
+#### Changed
+
+- **Codex templates use `CODEX_REASONING_EFFORT_FLAG`.** Replaced hardcoded `model_reasoning_effort="high"` and `model_reasoning_effort="medium"` literals in `codex/sections/review-mode.md.tmpl`, `challenge-mode.md.tmpl`, and `consult-mode.md.tmpl` with the resolver macro.
+- **`ENV_KEYS` in provider tests.** Registered `GSTACK_CODEX_EFFORT` and `GSTACK_CLAUDE_EFFORT` in `test/provider-model-defaults.test.ts` to ensure clean environment restoration across tests.
+
 ## [1.87.5.0] - 2026-09-17
 
 **Tests finish sooner without dropping checks.**

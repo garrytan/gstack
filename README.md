@@ -150,10 +150,18 @@ make it stick across upgrades. After changing your Codex model, rerun
 gstack-owned Codex invocations and evals default to `gpt-6-astra`. Set
 `GSTACK_CODEX_MODEL=<model>` to override that runtime default; an explicitly
 requested model takes precedence. Runtime model selection is separate from
-the setup-time behavioral profile above. `/claude-code` (`gstack-claude-code`
-on Codex) preserves Claude's configured model. Set `GSTACK_CLAUDE_MODEL=<model>`
-or name a model in your request to override it for the invocation, including
-resumed consultations. See [eval defaults and overrides](CONTRIBUTING.md#testing--evals)
+the setup-time behavioral profile above. Reasoning effort defaults to `high`
+for review and challenge modes and `medium` for consult. Set
+`GSTACK_CODEX_EFFORT=<effort>` to replace that per-mode default everywhere; the
+value is passed through to Codex as `model_reasoning_effort`, so it accepts
+whatever your Codex build does. A request that names an effort outright (the
+`--xhigh` path in `/codex`) is applied by the skill itself and is not affected by
+the variable. `/claude-code` (`gstack-claude-code` on Codex) preserves Claude's
+configured model. Set `GSTACK_CLAUDE_MODEL=<model>` or name a model in your
+request to override it for the invocation, including resumed consultations.
+Set `GSTACK_CLAUDE_EFFORT=<effort>` to supply an explicit `--effort` flag to
+Claude Code; without it, no effort flag is passed and Claude Code retains its
+native default. See [eval defaults and overrides](CONTRIBUTING.md#testing--evals)
 for capture, judge, and benchmark model selection.
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).

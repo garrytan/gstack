@@ -116,7 +116,7 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" || exit 1
-_gstack_codex_timeout_wrapper 540 codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
+_gstack_codex_timeout_wrapper 540 codex exec "$(cat "$_OUTSIDE_INPUT")" -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c "model_reasoning_effort=\"${GSTACK_CODEX_EFFORT:-high}\"" -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
 _OUTSIDE_EXIT=$?
 # Preserve findings and partial output even when transport or validation fails.
 cat "$_OUTSIDE_TMP/text"
@@ -175,7 +175,7 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 : >"$_OUTSIDE_INPUT"
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" || exit 1
-_gstack_codex_timeout_wrapper 540 codex review --base '<base>' -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c "review_model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
+_gstack_codex_timeout_wrapper 540 codex review --base '<base>' -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c "review_model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c "model_reasoning_effort=\"${GSTACK_CODEX_EFFORT:-high}\"" -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr"
 _OUTSIDE_EXIT=$?
 # Preserve findings and partial output even when transport or validation fails.
 cat "$_OUTSIDE_TMP/text"

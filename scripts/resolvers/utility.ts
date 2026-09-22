@@ -1,5 +1,5 @@
 import type { TemplateContext } from './types';
-import { CODEX_MODEL_CONFIG_FLAG, CODEX_REVIEW_MODEL_CONFIG_FLAG, CODEX_WEB_SEARCH_FLAG } from './constants';
+import { CODEX_DEFAULT_EFFORT, CODEX_MODEL_CONFIG_FLAG, CODEX_REVIEW_MODEL_CONFIG_FLAG, CODEX_WEB_SEARCH_FLAG, codexReasoningEffortFlag } from './constants';
 import { CLAUDE_FRONTIER_EVAL_MODEL } from '../../lib/eval-model';
 
 /**
@@ -22,6 +22,14 @@ export function generateCodexModelConfigFlag(_ctx: TemplateContext): string {
 
 export function generateCodexReviewModelConfigFlag(_ctx: TemplateContext): string {
   return CODEX_REVIEW_MODEL_CONFIG_FLAG;
+}
+
+/**
+ * {{CODEX_REASONING_EFFORT_FLAG}} — the default reasoning effort override for Codex invocations.
+ * Users can override it with GSTACK_CODEX_EFFORT, while template arguments provide the per-mode default.
+ */
+export function generateCodexReasoningEffortFlag(_ctx: TemplateContext, args?: string[]): string {
+  return codexReasoningEffortFlag(args?.[0] ?? CODEX_DEFAULT_EFFORT);
 }
 
 export function generateClaudeModelFlag(_ctx: TemplateContext): string {

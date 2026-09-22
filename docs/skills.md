@@ -1067,13 +1067,18 @@ sessions. Set `GSTACK_CODEX_MODEL=<model>` to change the default, or name a
 model in your request to override it for that invocation. Generated commands
 pass the selection through `-c model=...`, overriding the CLI's configured model.
 Native review also sets `-c review_model=...` to that selection, overriding any
-separate review-model pin.
+separate review-model pin. Similarly, reasoning effort defaults to `high` for
+review and challenge modes and `medium` for consult. Set `GSTACK_CODEX_EFFORT=<effort>`
+to replace that per-mode default across modes; the value is passed through as
+`model_reasoning_effort`. An effort named in the request (the `--xhigh` path) is
+substituted by the skill itself, so the variable does not override it.
 
 On Codex hosts, the Claude outside-voice skill is `gstack-claude-code`. Its
-review, challenge, and consult calls preserve Claude's configured model.
-`GSTACK_CLAUDE_MODEL=<model>` supplies an explicit override, including resumed
-sessions; a model named in your request takes precedence. Harness routing is
-independent of model selection.
+review, challenge, and consult calls preserve Claude's configured model and effort.
+`GSTACK_CLAUDE_MODEL=<model>` supplies an explicit model override, including resumed
+sessions; a model named in your request takes precedence. Set `GSTACK_CLAUDE_EFFORT=<effort>`
+to pass an explicit `--effort` flag; without it, no effort flag is passed so Claude Code
+retains its native default. Harness routing is independent of model selection.
 
 ### Three modes
 

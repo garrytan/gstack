@@ -70,6 +70,20 @@ export const CODEX_MODEL_CONFIG_FLAG = `-c "model=\\"\${GSTACK_CODEX_MODEL:-${CO
 export const CODEX_REVIEW_MODEL_CONFIG_FLAG = `${CODEX_MODEL_CONFIG_FLAG} -c "review_model=\\"\${GSTACK_CODEX_MODEL:-${CODEX_FRONTIER_MODEL}}\\""`;
 
 /**
+ * Reasoning effort flag for gstack-owned Codex invocations.
+ *
+ * Emits `-c model_reasoning_effort="..."` expanding the shell-wide override
+ * GSTACK_CODEX_EFFORT when set, falling back to defaultEffort ('high' by default,
+ * or 'medium' for consult mode). An explicit per-call effort still wins by
+ * being passed as the defaultEffort argument or supplied in the user request.
+ */
+export const CODEX_DEFAULT_EFFORT = 'high';
+export function codexReasoningEffortFlag(defaultEffort: string = CODEX_DEFAULT_EFFORT): string {
+  return `-c "model_reasoning_effort=\\"\${GSTACK_CODEX_EFFORT:-${defaultEffort}}\\""`;
+}
+export const CODEX_REASONING_EFFORT_FLAG = codexReasoningEffortFlag();
+
+/**
  * Shared Codex error handling block for resolver output.
  * Used by ADVERSARIAL_STEP, CODEX_PLAN_REVIEW, CODEX_SECOND_OPINION,
  * DESIGN_OUTSIDE_VOICES, DESIGN_REVIEW_LITE, DESIGN_SKETCH.
