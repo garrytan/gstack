@@ -5,7 +5,7 @@
 **Pre-push credential checks close four bypass classes completely.**
 **A remote the hook cannot see is never assumed to already have your history.**
 
-This release closes four ways the pre-push credential hook exited 0 on a push that carried a live key. Each is a class rather than a single input: pushing somewhere other than `origin`, a remote tip the local clone does not have, a proximity pattern cut in half by a scan slice, and invisible padding that moved that cut. The gate that ships with it exercises seven shapes across those four classes, each against real git repositories.
+This release closes four ways the pre-push credential hook exited 0 on a push that carried a live key. Each is a class rather than a single input: pushing somewhere other than `origin`, a remote tip the local clone does not have, a proximity pattern cut in half by a scan slice, and invisible padding that moved that cut. The gate that ships with it exercises nine shapes across those four classes, each against real git repositories.
 
 ### The numbers that matter
 
@@ -13,12 +13,12 @@ Source: `test/redact-prepush-fail-open.sh`, run against the scanner from v1.87.5
 
 | Metric | Before | After | Δ |
 |---|---:|---:|---:|
-| Fail-open gate scenarios (exit 0 with a credential in the push) | 7 | 0 | -7 |
-| Gate scenarios passing | 21/30 | 30/30 | +9 |
+| Fail-open gate scenarios (exit 0 with a credential in the push) | 9 | 0 | -9 |
+| Gate scenarios passing | 21/32 | 32/32 | +11 |
 | Proximity slice overlap | 0 KiB | 16 KiB | +16 KiB |
 | Clean first push in a SHA-256 repository | blocked | allowed | fixed |
 
-The seven fail-open scenarios are the four classes above. Pushing to a remote the hook has no tracking refs for used to be judged against `origin`'s tip, so history that only `origin` had seen was treated as already delivered everywhere.
+The nine fail-open scenarios are the four classes above. Pushing to a remote the hook has no tracking refs for used to be judged against `origin`'s tip, so history that only `origin` had seen was treated as already delivered everywhere.
 
 ### What this means for developers
 
@@ -30,14 +30,14 @@ Your pre-push hook now blocks a credential on its way to a mirror, a staging rem
 
 - **Push target scoping:** The default-branch probe and the "already on the remote" exclusion now follow the remote the push actually targets. A push to a configured remote other than `origin` is anchored on that remote. A push to a URL is described by no remote-tracking ref at all, so nothing is excluded and everything reachable is scanned; previously it borrowed `origin`'s base and excluded every commit any remote had seen.
 - **Absent remote tips:** When git names a remote tip the local object database does not have, the local tracking refs are demonstrably stale for that ref, so no local narrowing is applied and the whole reachable history is scanned. A guessed range is never trusted in that case, whether it comes back empty or not.
-- **Slice boundary overlap for proximity rules:** Added lines are scanned in 768 KiB slices that now overlap by 16 KiB, so a pattern that needs its label nearby cannot lose it at a seam. A single line longer than the overlap now contributes its suffix to the seam instead of nothing.
+- **Slice boundary overlap for proximity rules:** Added lines are scanned in 768 KiB slices that now overlap by 16 KiB, so a pattern that needs its label nearby cannot lose it at a seam. The overlap is filled from the seam backwards to its exact budget, taking a partial line where a whole one no longer fits, so a line longer than the overlap still contributes its end.
 - **Zero-width characters on ingest:** Zero-width characters are stripped before slices are budgeted, so the budget measures the same text the detection engine inspects and invisible padding cannot move a seam between a label and its secret.
 - **Empty-tree object resolution:** The fallback range's empty-tree object id is obtained from `git hash-object -t tree --stdin` instead of a hardcoded SHA-1 value that does not exist in a SHA-256 repository.
 - **Over-budget single lines:** A minified file whose single line exceeds the slice budget is sliced with overlap and actually read, so the finding names the credential instead of reporting an unscanned size error.
 
 ### For contributors
 
-- **Pre-push fail-open gate:** `test/redact-prepush-fail-open.sh` (30 scenarios) and `test/redact-prepush-fail-open.test.ts`, which runs it as part of the free suite.
+- **Pre-push fail-open gate:** `test/redact-prepush-fail-open.sh` (32 scenarios) and `test/redact-prepush-fail-open.test.ts`, which runs it as part of the free suite.
 - `test/redact-prepush-scan-range.test.ts`: the URL-push case in the S1 block still asserts the hook does not error on an unconfigured name, and now also asserts the push is blocked, because the fixture's secret really is delivered to that URL.
 
 ## [1.87.5.0] - 2026-09-17
