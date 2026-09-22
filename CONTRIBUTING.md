@@ -138,8 +138,14 @@ never touches a symlinked or non-gstack directory.
 ## Testing & evals
 
 Codex evals and the GPT benchmark adapter default to `gpt-6-astra`:
-explicit model > `GSTACK_CODEX_MODEL` > default. Claude capture and judge
-defaults are `claude-fable-5-1`, resolved through `lib/eval-model.ts`:
+explicit model > `GSTACK_CODEX_MODEL` > default. Reasoning effort defaults
+to `high` for review and challenge and `medium` for consult, and resolves
+`GSTACK_CODEX_EFFORT` > that per-mode default — the variable replaces the
+default rather than deferring to it. An effort named in the request (the
+`--xhigh` path) is substituted by the skill and sits outside this chain. The
+Claude runner passes `--effort` only when `GSTACK_CLAUDE_EFFORT` is set;
+otherwise no flag is passed and Claude Code keeps its own default.
+Claude capture and judge defaults are `claude-fable-5-1`, resolved through `lib/eval-model.ts`:
 
 - Claude session, PTY, and Agent SDK eval runners and the Claude benchmark adapter: explicit model > `EVALS_MODEL` > `GSTACK_EVAL_MODEL_CAPTURE` > `GSTACK_EVAL_MODEL` > default.
 - Shared judge calls (including benchmark quality scoring): explicit model > `GSTACK_EVAL_MODEL_JUDGE` > `GSTACK_EVAL_MODEL` > default. `EVALS_MODEL` applies to capture runners, not judges.

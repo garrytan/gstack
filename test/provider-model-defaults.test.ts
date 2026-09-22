@@ -9,7 +9,8 @@ import { geminiExecArgs, geminiExecEnvironment, geminiExecWorkingDirectory, gemi
 import { CSO_PRODUCER_SHELL_ENV, csoProducerChildEnvironment } from './helpers/providers/types';
 
 const ENV_KEYS = ['PATH', 'GSTACK_CLAUDE_BIN', 'GSTACK_CLAUDE_BIN_ARGS',
-  'GSTACK_CODEX_MODEL', 'EVALS_MODEL', 'GSTACK_EVAL_MODEL', 'GSTACK_EVAL_MODEL_CAPTURE'];
+  'GSTACK_CODEX_MODEL', 'GSTACK_CODEX_EFFORT', 'GSTACK_CLAUDE_EFFORT',
+  'EVALS_MODEL', 'GSTACK_EVAL_MODEL', 'GSTACK_EVAL_MODEL_CAPTURE'];
 let saved: Record<string, string | undefined>;
 let workdir: string;
 
