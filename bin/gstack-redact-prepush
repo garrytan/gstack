@@ -146,7 +146,8 @@ function pushRemote(): string | null {
  * "already on the remote" — so rev-list reported only the harmless commit as
  * new, the range anchored at its parent, and the credential shipped with exit 0.
  * A URL we were handed is not described by ANY remote-tracking ref, so there is
- * nothing legitimately excludable and everything reachable must be scanned.
+ * nothing legitimately excludable: every commit reachable from the pushed tip
+ * counts as new, and the range is anchored below all of them.
  *
  * An UNKNOWN target (no argv, stdin/CLI invocation) keeps the historical bare
  * form: we were told nothing, so we cannot single out a namespace.
@@ -356,11 +357,19 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
       // the credential with exit 0. A guess that scanned something is still a
       // guess about the wrong thing.
       //
-      // So this shape gets no local narrowing at all: scan everything reachable
-      // from the pushed tip. That is affordable now only because every scan is
-      // sliced under the engine's cap (see scanAddedLines), so a whole-history
-      // range can no longer degrade into engine.input_too_large — which is
-      // exactly why the older code avoided this path.
+      // So this shape gets no local narrowing at all: the range is
+      // emptyTree..localSha, i.e. the full CONTENT of the pushed tip is scanned.
+      // That is affordable now only because every scan is sliced under the
+      // engine's cap (see scanAddedLines), so a whole-tree range can no longer
+      // degrade into engine.input_too_large — which is exactly why the older
+      // code avoided this path.
+      //
+      // Note what this is not: a `git diff` range is a NET diff, so it scans the
+      // final tree, not each commit. A credential added in one commit and
+      // removed in a later one within the same push is not in that diff at all,
+      // on this path and on every other range this hook computes. Closing that
+      // means scanning each commit's own diff — a separate change with its own
+      // cost profile, not part of this one.
       //
       // A NEW BRANCH (zero remote sha) is deliberately NOT treated this way:
       // there git named no tip, our tracking refs are not contradicted, and
@@ -586,38 +595,45 @@ function scanAddedLines(added: string, opts: Parameters<typeof scan>[1]): Findin
       sliceBytes = 0;
       return;
     }
-    // Re-seed the next slice with the trailing lines worth up to one overlap.
+    // Re-seed the next slice with up to one overlap's worth of trailing content.
+    //
+    // ⚠ FILL THE OVERLAP, DO NOT MERELY COLLECT WHOLE LINES.
+    //
+    // Walk back from the seam taking whole lines while they fit, and when one
+    // does not, take as much of ITS END as the remaining budget allows. Carrying
+    // whole lines only lets a line longer than the overlap contribute nothing, so
+    // a label at its end never met the secret after the seam. Carrying that
+    // suffix only when the tail was otherwise empty was not enough either: a
+    // short line between the long label line and the secret landed in the tail
+    // first, the tail was no longer empty, and the label was dropped again
+    // (measured, gate rows 19 and 21). Budget is exact: a character is added only
+    // if it still fits, so `overlap + unit <= SCAN_CHUNK_BYTES` keeps holding.
     const tail: string[] = [];
     let tailBytes = 0;
     for (let i = slice.length - 1; i >= 0; i--) {
-      const b = Buffer.byteLength(slice[i]!, "utf8") + 1;
-      if (tailBytes + b > SCAN_OVERLAP_BYTES) {
-        // ⚠ A LINE BIGGER THAN THE OVERLAP MUST STILL CONTRIBUTE ITS END.
-        //
-        // Carrying whole lines only means a single line longer than the whole
-        // overlap budget contributes NOTHING, and the seam it sits on gets no
-        // context at all. Measured: one ~770 KB ASCII line ending in
-        // `aws_secret_access_key =`, followed by a line holding the key, put the
-        // label and the secret in different slices with an empty overlap between
-        // them, so aws.secret_key never fired. Carry the line's SUFFIX instead —
-        // the last overlap-worth of it is exactly the part a proximity pattern
-        // needs.
-        if (tail.length === 0) {
-          const line = slice[i]!;
-          let back = 0;
-          let backBytes = 0;
-          while (back < line.length && backBytes < SCAN_OVERLAP_BYTES) {
-            backBytes += Buffer.byteLength(line[line.length - back - 1]!, "utf8");
-            back++;
-          }
-          const suffix = line.slice(safeCut(line, line.length - back));
-          tail.unshift(suffix);
-          tailBytes += Buffer.byteLength(suffix, "utf8") + 1;
-        }
-        break;
+      const line = slice[i]!;
+      const b = Buffer.byteLength(line, "utf8") + 1;
+      if (tailBytes + b <= SCAN_OVERLAP_BYTES) {
+        tail.unshift(line);
+        tailBytes += b;
+        continue;
       }
-      tail.unshift(slice[i]!);
-      tailBytes += b;
+      // One byte of the remaining room is the newline that rejoins the piece.
+      const room = SCAN_OVERLAP_BYTES - tailBytes - 1;
+      let back = 0;
+      let backBytes = 0;
+      while (back < line.length) {
+        const ch = Buffer.byteLength(line[line.length - back - 1]!, "utf8");
+        if (backBytes + ch > room) break;
+        backBytes += ch;
+        back++;
+      }
+      const suffix = line.slice(safeCut(line, line.length - back));
+      if (suffix) {
+        tail.unshift(suffix);
+        tailBytes += Buffer.byteLength(suffix, "utf8") + 1;
+      }
+      break;
     }
     slice = tail;
     sliceBytes = tailBytes;

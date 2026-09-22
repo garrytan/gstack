@@ -397,6 +397,40 @@ git add -A >/dev/null; git commit -qm bigline >/dev/null
 S19=$(run_probe "$R/s19")
 row "19 label at the end of an over-overlap line" "$S19" "BLOCK(aws.secret_key)"
 
+# 21: same seam, but a SHORT line sits between the long line and the secret.
+# Carrying a long line's suffix only when the tail is otherwise empty is not
+# enough: the short line lands in the tail first, the tail is no longer empty,
+# and the long line's end — where the label is — is dropped again.
+mkrepo s21
+SEC="$SEC" python3 -c "
+import os
+sec=os.environ['SEC']
+filler='x'*770020
+with open('big.txt','w') as f:
+    f.write(filler+' aws_secret_access_key =\n')
+    f.write('\n')
+    f.write(sec+' '+'y'*20000+'\n')"
+git add -A >/dev/null; git commit -qm bigline-gap >/dev/null
+S21=$(run_probe "$R/s21")
+row "21 short line between the long label line and the secret" "$S21" "BLOCK(aws.secret_key)"
+
+# 22: the general form of 19/21. Several short lines between the long label
+# line and the secret, still well inside the pattern's proximity window. The
+# property being pinned is that the LAST overlap-worth of text before a seam is
+# always carried, whatever mix of long and short lines it is made of.
+mkrepo s22
+SEC="$SEC" python3 -c "
+import os
+sec=os.environ['SEC']
+filler='x'*770000
+with open('big.txt','w') as f:
+    f.write(filler+' aws_secret_access_key =\n')
+    for _ in range(20): f.write('\n')
+    f.write(sec+' '+'y'*20000+'\n')"
+git add -A >/dev/null; git commit -qm bigline-gaps >/dev/null
+S22=$(run_probe "$R/s22")
+row "22 several short lines between long label line and secret" "$S22" "BLOCK(aws.secret_key)"
+
 # E6: long-line slicer survives multi-byte text
 mkrepo e6; KEY="$KEY" python3 -c "
 import os
