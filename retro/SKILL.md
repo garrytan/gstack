@@ -1,5 +1,5 @@
 ---
-name: retro
+name: gstack-retro
 preamble-tier: 2
 version: 2.0.0
 description: Weekly engineering retrospective. (gstack)

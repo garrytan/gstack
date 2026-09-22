@@ -1,5 +1,5 @@
 ---
-name: ship
+name: gstack-ship
 preamble-tier: 4
 version: 1.0.0
 description: "Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR. (gstack)"

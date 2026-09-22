@@ -1,5 +1,5 @@
 ---
-name: context-save
+name: gstack-context-save
 preamble-tier: 2
 version: 1.0.0
 description: Save working context. (gstack)

@@ -1,5 +1,5 @@
 ---
-name: guard
+name: gstack-guard
 version: 0.1.0
 description: "Full safety mode: destructive command warnings + directory-scoped edits. (gstack)"
 triggers:

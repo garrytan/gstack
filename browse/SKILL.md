@@ -1,5 +1,5 @@
 ---
-name: browse
+name: gstack-browse
 preamble-tier: 1
 version: 2.0.0
 description: "Drive a real browser through Aside: open a page, read it, click through a flow, take screenshots, check console errors. (gstack)"

@@ -1,5 +1,5 @@
 ---
-name: open-gstack-browser
+name: gstack-open-gstack-browser
 preamble-tier: 1
 version: 0.2.0
 description: Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.
