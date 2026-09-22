@@ -106,7 +106,7 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `scroll [sel|@ref]`: With a selector, smooth-scrolls the element into view.
 - `select <sel> <val>`: Select dropdown option by value, label, or visible text
 - `style <sel> <prop> <value> | style --undo [N]`: Modify CSS property on element (with undo support)
-- `type <text>`: Type into focused element
+- `type [--into <sel>] <text>`: Send real keystrokes.
 - `upload <sel> <file> [file2...]`: Upload file(s)
 - `useragent <string>`: Set user agent
 - `viewport [<WxH>] [--scale <n>]`: Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots).
