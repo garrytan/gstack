@@ -16,6 +16,8 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
+import { execFileSync } from 'child_process';
 import { safeUnlink, safeKill, isProcessAlive } from './error-handling';
 import { restrictFilePermissions, mkdirSecure } from './file-permissions';
 import { atomicWriteSync } from '../../lib/fs-atomic';
@@ -40,16 +42,38 @@ export function resolveTerminalAgentScript(searchHints: { metaDir?: string; exec
   return null;
 }
 
+/** argv marker appended by spawnTerminalAgent; reapOrphanAgents reads it back from `ps`. */
+export const OWNER_PID_ARG = '--owner-pid';
+const PRIOR_AGENT_KILL_GRACE_MS = 1000;
+
 /**
- * Spawn a fresh terminal-agent as a detached child. Handles the standard
- * three steps: kill any prior agent recorded at `<stateDir>/terminal-agent-pid`,
- * clear the stale record, then `Bun.spawn(['bun', 'run', script], ...)` with
- * env wiring. Returns the PID of the new agent on success, null when the
- * agent script can't be located.
+ * Spawn a fresh terminal-agent as a detached child. Steps, in order:
+ *
+ *   1. reapOrphanAgents(): kill agents of this script whose owner daemon is
+ *      dead, plus any earlier agent that belongs to the SAME owner. A daemon
+ *      wants exactly one agent; a watchdog that lost its record must not
+ *      accumulate them (observed: one blind respawn per minute for three days
+ *      filled a machine's process table).
+ *   2. Kill the agent recorded at `<stateDir>/terminal-agent-pid` and CONFIRM
+ *      it is gone before clearing the record (killAgentAndConfirm). An
+ *      unkillable prior is kept and its PID returned — never two agents.
+ *   3. `Bun.spawn(['bun', 'run', script, '--owner-pid', N])` with
+ *      BROWSE_OWNER_PID / BROWSE_AGENT_GEN in env, so the agent can watch its
+ *      owner and self-exit, and so `ps` shows who owns it.
+ *   4. Write the {pid, gen, startedAt} record IMMEDIATELY, before the agent
+ *      has bound — closing the window in which a shutdown or watchdog tick
+ *      found no record. If the record can't be persisted (state dir not
+ *      writable) the spawn is undone and null returned: an agent nobody can
+ *      find by identity is an agent nobody can ever kill.
+ *
+ * `ownerPid` is the daemon the agent serves. The watchdog passes process.pid;
+ * the CLI passes the daemon's PID because the CLI exits right after spawning —
+ * an agent watching the CLI would die seconds later, and one watching nothing
+ * lives forever. Note this means a CLI-spawned agent is reparented to PID 1
+ * while perfectly healthy: ppid is NOT an orphan signal.
  *
  * Used by both the CLI cold-start path (cli.ts) and the v1.44 watchdog in
- * server.ts. Centralizing here removes a copy-paste between them and means
- * spawn-env additions (BROWSE_OWNER_PID being the first) land in one place.
+ * server.ts.
  */
 export function spawnTerminalAgent(opts: {
   stateFile: string;
@@ -63,20 +87,38 @@ export function spawnTerminalAgent(opts: {
   scriptPath?: string;
 }): number | null {
   const stateDir = path.dirname(opts.stateFile);
-  const prior = readAgentRecord(stateDir);
-  if (prior) {
-    killAgentByRecord(prior, 'SIGTERM');
-    clearAgentRecord(stateDir);
-  }
   const script = opts.scriptPath || resolveTerminalAgentScript();
   if (!script || !fs.existsSync(script)) return null;
-  const proc = (Bun as any).spawn(['bun', 'run', script], {
+  const ownerPid = opts.ownerPid;
+
+  // 1. Sweep: dead-owner orphans + earlier agents of this same owner.
+  try {
+    const reaped = reapOrphanAgents(script, { ownerPid });
+    if (reaped.length) console.warn(`[browse] reaped stale terminal-agent(s): ${reaped.join(', ')}`);
+  } catch (err: any) {
+    console.warn('[browse] stale terminal-agent sweep failed:', err?.message || err);
+  }
+
+  // 2. Confirmed prior-kill. Only clear the record once the PID is gone.
+  const prior = readAgentRecord(stateDir);
+  if (prior) {
+    if (!killAgentAndConfirm(prior, PRIOR_AGENT_KILL_GRACE_MS)) {
+      console.warn(`[browse] prior terminal-agent PID ${prior.pid} survived SIGKILL — keeping it`);
+      return prior.pid;
+    }
+    clearAgentRecord(stateDir);
+  }
+
+  // 3. Spawn with the owner marker in argv and env.
+  const gen = crypto.randomBytes(16).toString('base64url');
+  const proc = (Bun as any).spawn(['bun', 'run', script, OWNER_PID_ARG, String(ownerPid)], {
     cwd: opts.cwd || process.cwd(),
     env: {
       ...process.env,
       BROWSE_STATE_FILE: opts.stateFile,
       BROWSE_SERVER_PORT: String(opts.serverPort),
-      BROWSE_OWNER_PID: String(opts.ownerPid),
+      BROWSE_OWNER_PID: String(ownerPid),
+      BROWSE_AGENT_GEN: gen,
       ...(opts.extraEnv || {}),
     },
     stdio: ['ignore', 'ignore', 'ignore'],
@@ -86,7 +128,18 @@ export function spawnTerminalAgent(opts: {
     windowsHide: true,
   });
   proc.unref?.();
-  return proc.pid ?? null;
+  const pid: number | null = proc.pid ?? null;
+  if (!pid) return null;
+
+  // 4. Record immediately. The agent re-writes the same {pid, gen} once bound.
+  try {
+    writeAgentRecord(stateDir, { pid, gen, startedAt: Date.now(), ownerPid });
+  } catch (err: any) {
+    console.warn(`[browse] terminal-agent record unwritable in ${stateDir} (${err?.message || err}) — not keeping agent ${pid}`);
+    try { safeKill(pid, 'SIGTERM'); } catch {}
+    return null;
+  }
+  return pid;
 }
 
 export interface AgentRecord {
@@ -95,6 +148,8 @@ export interface AgentRecord {
   gen: string;
   /** ms since epoch. Reserved for future PID-reuse guards. */
   startedAt: number;
+  /** Daemon PID this agent serves (--owner-pid). Absent on records written by older code. */
+  ownerPid?: number;
 }
 
 export function agentRecordPath(stateDir: string): string {
@@ -147,4 +202,125 @@ export function killAgentByRecord(
   if (!isProcessAlive(record.pid)) return false;
   safeKill(record.pid, signal);
   return true;
+}
+
+/** Synchronous bounded sleep that works under both Bun and Node (no polyfill needed). */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function waitForExit(pid: number, ms: number): boolean {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) return true;
+    sleepSync(process.platform === 'win32' ? 250 : 50); // tasklist is slow on Windows
+  }
+  return !isProcessAlive(pid);
+}
+
+/**
+ * SIGTERM → wait graceMs → SIGKILL → wait 500ms. Returns true only when the
+ * PID is confirmed gone, so callers may safely unlink the record. Sync and
+ * bounded because spawnTerminalAgent (and the watchdog tick) are sync.
+ * Never throws.
+ */
+export function killAgentAndConfirm(prior: AgentRecord, graceMs = 1000): boolean {
+  try {
+    if (!killAgentByRecord(prior, 'SIGTERM')) return true;
+    if (waitForExit(prior.pid, graceMs)) return true;
+    try { safeKill(prior.pid, 'SIGKILL'); } catch {}
+    return waitForExit(prior.pid, 500);
+  } catch {
+    return !isProcessAlive(prior.pid);
+  }
+}
+
+export interface AgentPsRow {
+  pid: number;
+  ppid: number;
+  /** From the `--owner-pid N` argv marker; null for pre-marker (legacy) agents. */
+  ownerPid: number | null;
+}
+
+/**
+ * Pure parser for `ps axww -o pid=,ppid=,command=`. Matches only rows whose
+ * command is `<…/>bun run <scriptPath>[ --owner-pid N …]` — the exact script
+ * path, a `bun` executable (bare or absolute), nothing else. `node …`,
+ * `grep …`, other scripts and `<scriptPath>.bak` are all rejected.
+ */
+export function parseAgentRows(psOutput: string, scriptPath: string): AgentPsRow[] {
+  const out: AgentPsRow[] = [];
+  const marker = ` run ${scriptPath}`;
+  for (const line of psOutput.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const cmd = m[3];
+    const idx = cmd.indexOf(marker);
+    if (idx <= 0 || path.basename(cmd.slice(0, idx)) !== 'bun') continue;
+    const rest = cmd.slice(idx + marker.length);
+    if (rest !== '' && !rest.startsWith(' ')) continue; // rejects terminal-agent.ts.bak
+    const om = /(?:^|\s)--owner-pid\s+(\d+)(?:\s|$)/.exec(rest);
+    out.push({ pid: +m[1], ppid: +m[2], ownerPid: om ? +om[1] : null });
+  }
+  return out;
+}
+
+/**
+ * Owner of the agent process `pid` as recorded in its argv marker: a number
+ * (`--owner-pid N`), null for a marker-less (pre-marker) agent, undefined when
+ * no such agent row exists or `ps` is unavailable (Windows). Lets a daemon
+ * decide whether a live agent named by a legacy record (no ownerPid) is its
+ * own before trusting it.
+ */
+export function agentOwner(pid: number, scriptPath: string, psOutput?: string): number | null | undefined {
+  if (process.platform === 'win32') return undefined;
+  let ps: string;
+  try {
+    ps = psOutput ?? execFileSync('ps', ['axww', '-o', 'pid=,ppid=,command='], { encoding: 'utf8', timeout: 3000 });
+  } catch {
+    return undefined;
+  }
+  const row = parseAgentRows(ps, scriptPath).find((r) => r.pid === pid);
+  return row ? row.ownerPid : undefined;
+}
+
+/**
+ * Reap agents of `scriptPath` that no live daemon wants:
+ *   - rows carrying `--owner-pid N`: reaped iff N is dead, or N === opts.ownerPid
+ *     (the caller is about to spawn a replacement for that owner — a daemon
+ *     runs exactly one agent, so any earlier one of the same owner is a duplicate);
+ *   - rows without the marker (pre-marker agents): reaped iff ppid === 1, or
+ *     ppid === opts.ownerPid (watchdog-spawned duplicates of this daemon).
+ *     A still-owned legacy agent reaped by the ppid-1 rule is respawned by its
+ *     daemon's watchdog within a tick, now with the marker — a one-time cost.
+ * Never signals the calling process. Not `pkill`: exact argv identity, no
+ * regex over process names. No-op on Windows. Sync and bounded.
+ */
+export function reapOrphanAgents(
+  scriptPath: string,
+  opts: {
+    ownerPid?: number;
+    psOutput?: string;
+    isAlive?: (pid: number) => boolean;
+    kill?: (pid: number, sig: NodeJS.Signals) => void;
+    graceMs?: number;
+    selfPid?: number;
+  } = {},
+): number[] {
+  if (process.platform === 'win32') return [];
+  const isAlive = opts.isAlive ?? isProcessAlive;
+  const kill = opts.kill ?? ((pid: number, sig: NodeJS.Signals) => safeKill(pid, sig));
+  const selfPid = opts.selfPid ?? process.pid;
+  const ps = opts.psOutput ?? execFileSync('ps', ['axww', '-o', 'pid=,ppid=,command='], { encoding: 'utf8', timeout: 3000 });
+  const victims = parseAgentRows(ps, scriptPath).filter((r) => {
+    if (r.pid === selfPid) return false;
+    if (r.ownerPid !== null) return !isAlive(r.ownerPid) || r.ownerPid === opts.ownerPid;
+    return r.ppid === 1 || (opts.ownerPid !== undefined && r.ppid === opts.ownerPid);
+  });
+  if (!victims.length) return [];
+  for (const v of victims) { try { kill(v.pid, 'SIGTERM'); } catch {} }
+  const deadline = Date.now() + (opts.graceMs ?? 500);
+  while (Date.now() < deadline && victims.some((v) => isAlive(v.pid))) sleepSync(50);
+  for (const v of victims) { if (isAlive(v.pid)) { try { kill(v.pid, 'SIGKILL'); } catch {} } }
+  return victims.map((v) => v.pid);
 }

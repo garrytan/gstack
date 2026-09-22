@@ -51,7 +51,7 @@ import { safeUnlink, safeUnlinkQuiet, safeKill } from './error-handling';
 import {
   findAvailablePort, formatExplicitPortUnavailableError, formatRandomPortUnavailableError,
 } from './port-allocator';
-import { readAgentRecord, killAgentByRecord, agentRecordPath, spawnTerminalAgent } from './terminal-agent-control';
+import { readAgentRecord, killAgentByRecord, killAgentAndConfirm, agentRecordPath, agentOwner, resolveTerminalAgentScript, spawnTerminalAgent } from './terminal-agent-control';
 import { isProcessAlive } from './error-handling';
 import { sanitizeBody, stripLoneSurrogateEscapes, stripLoneSurrogates, sanitizeReplacer } from './sanitize';
 import { startSocksBridge, testUpstream, type BridgeHandle } from './socks-bridge';
@@ -714,6 +714,16 @@ function resetIdleTimer() {
 // Named for behavioral testing via __testInternals__. The factory tests in
 // server-factory.test.ts call this directly so the idle-shutdown path can be
 // exercised without waiting 60s for the interval to fire.
+/** PID recorded in the state file, or null when the file is missing/unreadable. */
+function readStateFilePid(stateFile: string): number | null {
+  try {
+    const pid = JSON.parse(fs.readFileSync(stateFile, 'utf-8'))?.pid;
+    return typeof pid === 'number' ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
 function idleCheckTick() {
   // Headed mode: the user is looking at the browser. Never auto-die.
   // Only shut down when the user explicitly disconnects or closes the window.
@@ -1557,8 +1567,11 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   // tokens diverging between them, mystery PTY upgrade failures).
   //
   // Crash-loop guard: 3 respawn attempts inside 60s → stop trying and emit
-  // a one-line error. Manual `forceRestart` from the sidebar clears the
-  // history (the user is the explicit signal to retry).
+  // a one-line error. There is no in-process reset: the guard stays tripped
+  // for this daemon's lifetime (`browse stop` / `connect` restarts it). The
+  // same guard trips after 3 consecutive spawns that returned null (script
+  // missing, or the agent record unwritable — e.g. a cloud-mount state dir),
+  // so a daemon can never respawn blind once a minute forever.
   //
   // Only active when ownsTerminalAgent === true. Embedders that pre-launch
   // their own PTY server (gbrowser phoenix overlay) must not be auto-respawned
@@ -1582,6 +1595,12 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     AGENT_WATCHDOG_TICK_MS * (RESPAWN_GUARD_MAX + 2),
   );
   let agentRespawnGuardTripped = false;
+  // In-memory identity of the agent this daemon last spawned. Immune to the
+  // on-disk record being unwritable or clobbered by a sibling's cleanup —
+  // observed: a daemon whose state dir could not be written respawned blind
+  // once a minute for three days and filled the process table.
+  let lastAgentPid: number | null = null;
+  let consecutiveSpawnFailures = 0;
 
   if (ownsTerminalAgent) {
     agentWatchdogInterval = setInterval(() => {
@@ -1594,7 +1613,18 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
       // intentionally fall through here — split-brain is worse than
       // unresponsiveness, and slow recovery is handled by the user via
       // restart.
-      if (record && isProcessAlive(record.pid)) return;
+      // A live recorded agent counts only if it is OURS. A record without
+      // ownerPid (written by older code, or by a foreign agent that booted
+      // into this state dir) is checked against the agent's own argv marker;
+      // a marker-less or differently-owned agent is replaced — spawnTerminalAgent
+      // kills it (confirmed) and sweeps — never adopted. No marker lookup
+      // possible (Windows, ps failure) → trust it rather than churn.
+      if (record && isProcessAlive(record.pid)) {
+        const owner = record.ownerPid ?? agentOwner(record.pid, resolveTerminalAgentScript() || '');
+        if (owner === process.pid || owner === undefined) return;
+        console.warn(`[browse] recorded terminal-agent PID ${record.pid} is owned by ${owner === null ? 'nobody (pre-marker)' : `PID ${owner}`}, not this daemon — replacing it`);
+      }
+      if (lastAgentPid !== null && isProcessAlive(lastAgentPid)) return;
       // Either no record (never spawned, or cleaned up after crash) or
       // PID is dead. Try to respawn.
       const now = Date.now();
@@ -1617,9 +1647,18 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           cwd: cfg.config.projectDir,
         });
         if (pid) {
+          lastAgentPid = pid;
+          consecutiveSpawnFailures = 0;
           console.log(`[browse] terminal-agent respawned by watchdog (PID: ${pid})`);
         } else {
-          console.warn('[browse] terminal-agent respawn skipped — script not found on disk');
+          consecutiveSpawnFailures++;
+          console.warn('[browse] terminal-agent respawn skipped — script not found on disk or agent record unwritable');
+          if (consecutiveSpawnFailures >= RESPAWN_GUARD_MAX) {
+            agentRespawnGuardTripped = true;
+            console.error(
+              `[browse] terminal-agent respawn guard tripped (${RESPAWN_GUARD_MAX} consecutive spawn failures) — manual restart required`,
+            );
+          }
         }
       } catch (err: any) {
         console.warn('[browse] terminal-agent respawn failed:', err?.message || err);
@@ -1653,21 +1692,37 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     isShuttingDown = true;
 
     console.log('[browse] Shutting down...');
-    if (ownsTerminalAgent) {
+    // Ownership: if a NEWER daemon now owns this state dir (its browse.json
+    // names another live PID), the state file, the agent record and the
+    // terminal-* files are ITS — leave every one of them alone. Our own agent
+    // watches our PID and self-exits; the watchdog's lastAgentPid is nudged
+    // directly. Without this, an old daemon exiting (state-file watch, stop,
+    // SIGTERM) would tear down the new daemon's files and agent.
+    const stateOwner = readStateFilePid(config.stateFile);
+    const foreignOwner = stateOwner !== null && stateOwner !== process.pid && isProcessAlive(stateOwner);
+    if (foreignOwner) {
+      console.log(`[browse] state dir is now owned by PID ${stateOwner} — leaving its state/agent files alone`);
+      if (ownsTerminalAgent && lastAgentPid !== null) { try { safeKill(lastAgentPid, 'SIGTERM'); } catch {} }
+    }
+    if (ownsTerminalAgent && !foreignOwner) {
       // Identity-based kill (v1.44+). Replaces the v1.43- `pkill -f
       // terminal-agent\.ts` regex teardown which matched sibling gstack
       // sessions on the same host. Only the PID recorded in
       // `<stateDir>/terminal-agent-pid` by THIS daemon's agent is signaled.
+      let agentDead = true;
       try {
         const stateDir = path.dirname(config.stateFile);
         const record = readAgentRecord(stateDir);
-        if (record) killAgentByRecord(record, 'SIGTERM');
+        // SIGTERM → wait → SIGKILL → confirm. The record is unlinked only
+        // once the PID is confirmed gone: alive + no record = untracked orphan.
+        if (record) agentDead = killAgentAndConfirm(record, 1000);
       } catch (err: any) {
         console.warn('[browse] Failed to kill terminal-agent:', err.message);
       }
       safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-port'));
       safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-internal-token'));
-      safeUnlinkQuiet(agentRecordPath(path.dirname(config.stateFile)));
+      if (agentDead) safeUnlinkQuiet(agentRecordPath(path.dirname(config.stateFile)));
+      else console.warn('[browse] terminal-agent survived SIGKILL — leaving its PID record for the next spawner');
     }
     try { detachSession(); } catch (err: any) {
       console.warn('[browse] Failed to detach CDP session:', err.message);
@@ -1709,7 +1764,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     if (cfgBrowserManager.getConnectionMode() === 'headed') {
       cleanSingletonLocks(resolveChromiumProfile());
     }
-    safeUnlinkQuiet(config.stateFile);
+    if (!foreignOwner) safeUnlinkQuiet(config.stateFile);
     process.exit(exitCode);
   }
 
@@ -3167,7 +3222,10 @@ export async function start() {
     xvfb,
     proxyBridge,
     startTime,
-    ownsTerminalAgent: true, // CLI spawns terminal-agent.ts itself (see cli.ts:1037-1063)
+    // BROWSE_NO_TERMINAL_AGENT=1 (inherited from the CLI env via startServer's
+    // `...process.env`) disables spawn, watchdog and teardown of the agent for
+    // users who drive browse from the CLI and never open the sidebar terminal.
+    ownsTerminalAgent: process.env.BROWSE_NO_TERMINAL_AGENT !== '1', // CLI spawns terminal-agent.ts itself (cli.ts `connect` → spawnTerminalAgent)
   });
 
   const server = Bun.serve({
@@ -3204,6 +3262,30 @@ export async function start() {
   const tmpFile = tmpStatePath();
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpFile, config.stateFile);
+
+  // ─── State-file ownership watch ─────────────────────────────────
+  // A daemon whose browse.json no longer names it — a later daemon overwrote
+  // it, the dir was removed, or the state dir could never be written at all —
+  // is unreachable by every client: no port, no token, no `browse stop`. In
+  // cdp/headed mode the idle timeout never fires, so such a daemon would live
+  // (and run its terminal-agent watchdog) forever. Poll the file and shut
+  // down once it has been someone else's, or absent, for two consecutive
+  // ticks (one miss is tolerated: an atomic rename or a stop in flight).
+  // Shutdown is ownership-aware and leaves a newer owner's files alone.
+  // GSTACK_STATE_WATCH_MS=0 disables.
+  const STATE_WATCH_MS = parseInt(process.env.GSTACK_STATE_WATCH_MS || '60000', 10);
+  if (STATE_WATCH_MS > 0) {
+    let stateMisses = 0;
+    const stateWatch = setInterval(() => {
+      const owner = readStateFilePid(config.stateFile);
+      if (owner === process.pid) { stateMisses = 0; return; }
+      stateMisses++;
+      if (stateMisses < 2) return;
+      console.log(`[browse] state file ${owner === null ? 'missing' : `owned by PID ${owner}`} — this daemon (PID ${process.pid}) is unreachable, shutting down`);
+      activeShutdown?.();
+    }, STATE_WATCH_MS);
+    (stateWatch as any)?.unref?.();
+  }
 
   browserManager.serverPort = port;
 

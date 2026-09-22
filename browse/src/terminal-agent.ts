@@ -25,8 +25,8 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { writeSecureFile, restrictFilePermissions, mkdirSecure } from './file-permissions';
 import { atomicWriteSync, atomicWriteQuiet } from '../../lib/fs-atomic';
-import { safeUnlink } from './error-handling';
-import { writeAgentRecord, clearAgentRecord } from './terminal-agent-control';
+import { safeUnlink, isProcessAlive } from './error-handling';
+import { writeAgentRecord, clearAgentRecord, readAgentRecord } from './terminal-agent-control';
 import { findAvailablePort } from './port-allocator';
 import { extractPtyCookie } from './pty-session-cookie';
 
@@ -47,7 +47,10 @@ const INTERNAL_TOKEN = crypto.randomBytes(32).toString('base64url'); // shared w
  * header means "legacy caller" and is accepted (backward compat); a
  * present-but-mismatched header returns 409 stale generation.
  */
-const CURRENT_GEN = crypto.randomBytes(16).toString('base64url');
+// The spawner mints the gen (BROWSE_AGENT_GEN) so the record it writes at
+// spawn time carries the same value we re-write once bound; unset (direct
+// `bun run` in tests) → mint locally.
+const CURRENT_GEN = process.env.BROWSE_AGENT_GEN || crypto.randomBytes(16).toString('base64url');
 
 // In-memory attach-token registry. Parent posts /internal/grant after
 // /pty-session; we validate WS upgrades against this map.
@@ -978,9 +981,18 @@ async function main() {
     process.exit(1);
   }
 
+  const dir = path.dirname(PORT_FILE);
+  // Superseded before bind? If a DIFFERENT, live agent is already recorded
+  // for this state dir, exit without touching either file so we can't
+  // clobber its port file or record (a successor spawned around us).
+  const existing = readAgentRecord(dir);
+  if (existing && existing.pid !== process.pid && isProcessAlive(existing.pid)) {
+    console.error(`[terminal-agent] superseded by pid=${existing.pid} before bind — exiting`);
+    process.exit(0);
+  }
+
   // Write port file atomically so the parent server can pick it up.
   // Throws on failure — a boot without a discoverable port file is broken.
-  const dir = path.dirname(PORT_FILE);
   try { mkdirSecure(dir); } catch {}
   atomicWriteSync(PORT_FILE, String(port), { mode: 0o600 });
   restrictFilePermissions(PORT_FILE); // Windows ACL hardening
@@ -989,8 +1001,10 @@ async function main() {
   // v1.43- `pkill -f terminal-agent\.ts` regex teardown that could kill
   // sibling gstack sessions. Callers (cli.ts spawn site, server.ts
   // shutdown, the v1.44 watchdog) now route through killAgentByRecord in
-  // terminal-agent-control.ts.
-  writeAgentRecord(dir, { pid: process.pid, gen: CURRENT_GEN, startedAt: Date.now() });
+  // terminal-agent-control.ts. The spawner already wrote this same
+  // {pid, gen} at spawn time; the re-write is idempotent and also covers
+  // direct `bun run` (no spawner).
+  writeAgentRecord(dir, { pid: process.pid, gen: CURRENT_GEN, startedAt: Date.now(), ...(BROWSE_OWNER_PID > 0 ? { ownerPid: BROWSE_OWNER_PID } : {}) });
 
   // Hand the parent the internal token so it can call /internal/grant.
   // Parent learns INTERNAL_TOKEN via env (TERMINAL_AGENT_INTERNAL_TOKEN below).
@@ -998,14 +1012,21 @@ async function main() {
   // not already in env. Defense against env races at spawn time.
   console.log(`[terminal-agent] listening on 127.0.0.1:${port} pid=${process.pid} gen=${CURRENT_GEN}`);
 
-  // Cleanup port file + agent record on exit.
+  // Cleanup port file + agent record on exit — only while the record is
+  // still ours (or empty). A successor spawned around us may already own
+  // these files; clearing its record would make its daemon respawn again.
   let cleaningUp = false;
   const cleanup = () => {
     if (cleaningUp) return;
     cleaningUp = true;
-    safeUnlink(PORT_FILE);
-    safeUnlink(INTERNAL_TOKEN_FILE);
-    clearAgentRecord(dir);
+    try {
+      const rec = readAgentRecord(dir);
+      if (!rec || rec.pid === process.pid) {
+        safeUnlink(PORT_FILE);
+        safeUnlink(INTERNAL_TOKEN_FILE);
+        clearAgentRecord(dir);
+      }
+    } catch {}
     process.exit(0);
   };
   process.on('SIGTERM', cleanup);

@@ -527,6 +527,9 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   // Parse as int so stray whitespace ("0\n") still opts out — matches the
   // server's own parseInt at server.ts:760.
   const parentPid = parseInt(process.env.BROWSE_PARENT_PID || '', 10) === 0 ? '0' : String(process.pid);
+  // PID of the child we spawn (non-Windows path). The Windows launcher path
+  // cannot report it; reapLateStarter falls back to browse.json there.
+  let childPid: number | undefined;
 
   if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
     // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
@@ -561,12 +564,16 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     // (PPID=1, STAT=Ss) and survives the spawning shell's exit. Mirrors
     // the Windows path's rationale — same root cause, different OS API.
     const daemonLogFd = openDaemonLogSink();
-    nodeSpawn('bun', ['run', SERVER_SCRIPT], {
+    const child = nodeSpawn('bun', ['run', SERVER_SCRIPT], {
       detached: true,
       windowsHide: true,
       stdio: ['ignore', daemonLogFd, daemonLogFd],
       env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...extraEnv },
-    }).unref();
+    });
+    child.unref();
+    // Kept so a startup timeout can reap a half-started server instead of
+    // abandoning it as an unreachable daemon (see reapLateStarter).
+    childPid = child.pid;
   }
 
   // Wait for server to become healthy.
@@ -592,6 +599,13 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     return lateState;
   }
 
+  // Still not healthy: reap the half-started child so it can't finish booting
+  // later as an unreachable daemon. The next `connect` would write a fresh
+  // browse.json pointing at a NEW daemon, and the late booter — which in
+  // headed/cdp mode has no parent watchdog and no idle timeout — would live,
+  // and keep respawning its terminal-agent, forever.
+  await reapLateStarter(childPid, start);
+
   // Server didn't start in time — check the on-disk startup error log.
   // Both platforms now spawn with stdio: 'ignore', so the server writes
   // errors to disk for the CLI to read (see server.ts start().catch).
@@ -605,6 +619,32 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     if (e.code !== 'ENOENT') throw e;
   }
   throw new Error(`Server failed to start within ${MAX_START_WAIT / 1000}s`);
+}
+
+/**
+ * Kill the server child that startServer spawned but that never became
+ * healthy in time, plus any browse.json it may already have written. Without
+ * this the next `connect` writes a fresh browse.json pointing at a NEW daemon
+ * and the late booter becomes unreachable by every cleanup path.
+ * `childPid` is undefined on the Windows launcher path; there we fall back to
+ * a browse.json whose startedAt is no older than this attempt.
+ */
+async function reapLateStarter(childPid: number | undefined, notBefore: number): Promise<void> {
+  const late = readState();
+  const latePid = late?.pid && (
+    late.pid === childPid
+    || (childPid === undefined && Date.parse(late.startedAt || '') >= notBefore - 1000)
+  ) ? late.pid : undefined;
+  const targets = new Set([childPid, latePid].filter((p): p is number => typeof p === 'number' && p > 0));
+  for (const pid of targets) {
+    if (!isProcessAlive(pid)) continue;
+    console.error(`[browse] startup timed out — killing half-started server PID ${pid}`);
+    try { await killServer(pid); } catch {}
+    const deadline = Date.now() + 500;
+    while (Date.now() < deadline && isProcessAlive(pid)) await Bun.sleep(50);
+  }
+  const after = readState();
+  if (after?.pid && targets.has(after.pid)) safeUnlinkQuiet(config.stateFile);
 }
 
 export class ServerLockError extends Error {
@@ -1660,18 +1700,26 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       // spawnTerminalAgent helper so the CLI cold-start path and the
       // server.ts watchdog respawn path share one implementation. The
       // helper handles prior-PID cleanup, script lookup, and env wiring.
-      try {
-        const newPid = spawnTerminalAgent({
-          stateFile: config.stateFile,
-          serverPort: newState.port,
-          cwd: config.projectDir,
-        });
-        if (newPid) {
-          console.log(`[browse] Terminal agent started (PID: ${newPid})`);
+      if (process.env.BROWSE_NO_TERMINAL_AGENT === '1') {
+        console.log('[browse] Terminal agent disabled (BROWSE_NO_TERMINAL_AGENT=1)');
+      } else {
+        try {
+          const newPid = spawnTerminalAgent({
+            stateFile: config.stateFile,
+            serverPort: newState.port,
+            cwd: config.projectDir,
+            // The daemon, not this CLI: we exit right after spawning, so an
+            // agent watching us would die seconds later — and one watching
+            // nothing (ownerPid undefined → BROWSE_OWNER_PID=NaN) never exits.
+            ownerPid: newState.pid,
+          });
+          if (newPid) {
+            console.log(`[browse] Terminal agent started (PID: ${newPid})`);
+          }
+        } catch (err: any) {
+          // Non-fatal: chat still works without the terminal agent.
+          console.error(`[browse] Terminal agent failed to start: ${err.message}`);
         }
-      } catch (err: any) {
-        // Non-fatal: chat still works without the terminal agent.
-        console.error(`[browse] Terminal agent failed to start: ${err.message}`);
       }
     } catch (err: any) {
       console.error(`[browse] Connect failed: ${err.message}`);
@@ -1752,14 +1800,17 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         const respawned = await startServer(serverEnv);
         console.log(`[browse] Supervisor: server respawned (PID ${respawned.pid}, port ${respawned.port}).`);
         // Re-spawn the terminal-agent too; same env wiring as the initial connect.
-        try {
-          spawnTerminalAgent({
-            stateFile: config.stateFile,
-            serverPort: respawned.port,
-            cwd: config.projectDir,
-          });
-        } catch (err: any) {
-          console.warn(`[browse] Supervisor: terminal-agent respawn failed: ${err?.message || err}`);
+        if (process.env.BROWSE_NO_TERMINAL_AGENT !== '1') {
+          try {
+            spawnTerminalAgent({
+              stateFile: config.stateFile,
+              serverPort: respawned.port,
+              cwd: config.projectDir,
+              ownerPid: respawned.pid,
+            });
+          } catch (err: any) {
+            console.warn(`[browse] Supervisor: terminal-agent respawn failed: ${err?.message || err}`);
+          }
         }
       } catch (err: any) {
         console.error(`[browse] Supervisor: server respawn failed: ${err?.message || err}`);

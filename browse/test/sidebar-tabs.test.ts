@@ -235,7 +235,8 @@ describe('cli.ts: sidebar-agent is no longer spawned', () => {
       'utf-8',
     );
     expect(CONTROL_SRC).toContain('terminal-agent.ts');
-    expect(CONTROL_SRC).toMatch(/\.spawn\(\['bun',\s*'run',\s*script\]/);
+    // argv may carry the `--owner-pid N` identity marker after the script path.
+    expect(CONTROL_SRC).toMatch(/\.spawn\(\['bun',\s*'run',\s*script[,\]]/);
   });
 });
 

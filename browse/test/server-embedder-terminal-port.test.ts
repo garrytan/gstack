@@ -232,7 +232,7 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     expect(probes.length).toBeGreaterThan(0);
   });
 
-  test('4. CLI start() call site passes ownsTerminalAgent: true literally (static grep)', () => {
+  test('4. CLI start() call site gates ownsTerminalAgent on BROWSE_NO_TERMINAL_AGENT (static grep)', () => {
     // Resolves browse/src/server.ts relative to this test file so the test
     // works regardless of cwd. import.meta.url is the test file's URL.
     const serverTsPath = path.resolve(
@@ -246,6 +246,6 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     // Match the call site inside start()'s buildFetchHandler({...}) literal.
     // The pattern looks for the trailing comma and trailing context so the
     // match cannot be satisfied by the JSDoc reference earlier in the file.
-    expect(source).toMatch(/ownsTerminalAgent:\s*true,\s*\/\/\s*CLI spawns terminal-agent\.ts/);
+    expect(source).toMatch(/ownsTerminalAgent:\s*process\.env\.BROWSE_NO_TERMINAL_AGENT !== '1',\s*\/\/\s*CLI spawns terminal-agent\.ts/);
   });
 });
