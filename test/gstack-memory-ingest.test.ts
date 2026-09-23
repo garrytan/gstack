@@ -434,6 +434,43 @@ esac
   return { binDir, logFile, argsFile, stagingListFile };
 }
 
+/**
+ * Fake gitleaks for the --scan-secrets tests; returns its bin dir. `detect`
+ * reports one finding when the CONTENT of the scanned file contains `marker`
+ * (fixed-string), `[]` otherwise — so a test controls which bytes count as a
+ * secret. `failDetect` exits non-zero like a crashed or misconfigured
+ * gitleaks (scanner "error"); `failProbe` fails `gitleaks version`, which the
+ * probe treats as absent (scanner "missing").
+ */
+function installFakeGitleaks(
+  home: string,
+  opts: { marker?: string; failDetect?: boolean; failProbe?: boolean },
+): string {
+  const binDir = join(home, "fake-gitleaks-bin");
+  mkdirSync(binDir, { recursive: true });
+  const script = `#!/usr/bin/env bash
+if [ "\${1:-}" = "version" ]; then exit ${opts.failProbe ? 1 : 0}; fi
+${opts.failDetect ? 'echo "fake gitleaks: scan failed" >&2; exit 2' : ""}
+# gitleaks detect --no-git --source <path> --report-format json --report-path /dev/stdout --exit-code 0
+SRC=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --source) SRC="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if grep -qF -- '${opts.marker ?? "no-marker-configured"}' "$SRC"; then
+  echo '[{"RuleID":"fake-rule","Description":"fake finding","StartLine":1,"Match":"REDACTED","Secret":"AKIAFAKEFAKEFAKE12345"}]'
+else
+  echo '[]'
+fi
+exit 0
+`;
+  writeFileSync(join(binDir, "gitleaks"), script, "utf-8");
+  chmodSync(join(binDir, "gitleaks"), 0o755);
+  return binDir;
+}
+
 describe("gstack-memory-ingest writer (gbrain v0.20+ batch `import` interface)", () => {
   it("probes the gbrain executable directly instead of shelling through command -v", () => {
     const source = readFileSync(SCRIPT, "utf-8");
@@ -812,34 +849,13 @@ esac
     mkdirSync(gstackHome, { recursive: true });
     const { binDir } = installFakeGbrain(home);
 
-    // Fake gitleaks: prints a "finding" for any file whose path contains
+    // Fake gitleaks: reports a finding for any scanned page containing
     // "dirty", clean for everything else. The fake-gbrain shim doesn't
     // interfere — gitleaks is invoked from preparePages before staging.
-    const fakeGitleaksDir = join(home, "fake-gitleaks-bin");
-    mkdirSync(fakeGitleaksDir, { recursive: true });
-    const fakeGitleaks = `#!/usr/bin/env bash
-# gitleaks detect --no-git --source <path> --report-format json --report-path /dev/stdout --exit-code 0
-# We just need to emit a JSON findings array on stdout. Find the --source arg.
-SRC=""
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --source) SRC="$2"; shift 2 ;;
-    *) shift ;;
-  esac
-done
-if echo "$SRC" | grep -q dirty; then
-  echo '[{"RuleID":"fake-rule","Description":"fake finding","StartLine":1,"Match":"REDACTED","Secret":"AKIAFAKEFAKEFAKE12345"}]'
-else
-  echo '[]'
-fi
-exit 0
-`;
-    const gitleaksBin = join(fakeGitleaksDir, "gitleaks");
-    writeFileSync(gitleaksBin, fakeGitleaks, "utf-8");
-    chmodSync(gitleaksBin, 0o755);
+    const fakeGitleaksDir = installFakeGitleaks(home, { marker: "dirty" });
 
-    // Two sessions: one "clean" (filename has no "dirty"), one "dirty"
-    // (filename contains "dirty" so the fake gitleaks reports a finding).
+    // Two sessions: one "clean", one "dirty" (its message text is "dirty",
+    // so its rendered page draws a finding from the fake gitleaks).
     const sessionA =
       `{"type":"user","message":{"role":"user","content":"clean"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n`;
     const sessionB =
@@ -865,6 +881,102 @@ exit 0
 
     rmSync(home, { recursive: true, force: true });
   });
+
+  // The scan used to run on the raw .jsonl. gitleaks' assignment rules don't
+  // match across a JSON-escaped quote, so a quoted secret in a transcript
+  // (`KEY=\"v\"` on disk) scanned clean, then was imported as `KEY="v"`, the
+  // form the rules do match (seen on real Codex sessions: pages flagged
+  // linkedin-client-secret / generic-api-key whose .jsonl had scanned clean).
+  // The fake flags only the unescaped form, as real gitleaks does.
+  it("--scan-secrets scans the rendered page, not the raw .jsonl", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir, stagingListFile } = installFakeGbrain(home);
+    const marker = 'SYNTHETIC_TOKEN="';
+    const fakeGitleaksDir = installFakeGitleaks(home, { marker });
+
+    const ts = "2026-05-03T00:00:00Z";
+    const codexFile = writeCodexSession(
+      home,
+      "2026-05-03",
+      [
+        { timestamp: ts, type: "session_meta", payload: { id: "sess-escaped", cwd: "/tmp/codex-app" } },
+        {
+          timestamp: ts,
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: `wire up auth:\n${marker}not-a-real-value"` }],
+          },
+        },
+      ].map((rec) => JSON.stringify(rec)).join("\n") + "\n",
+    );
+    // Premise: on disk the quote is escaped, so the raw file has no marker.
+    expect(readFileSync(codexFile, "utf-8")).not.toContain(marker);
+    writeClaudeCodeSession(
+      home,
+      "tmp-foo",
+      "cleansess123",
+      `{"type":"user","message":{"role":"user","content":"clean"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n`,
+    );
+
+    const r = runScript(["--bulk", "--include-unattributed", "--scan-secrets"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${fakeGitleaksDir}:${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/skipped \(secret-scan\):\s+1/);
+    expect(r.stderr).toMatch(/\[secret-scan match\] .*\/\.codex\/sessions\/.+\.jsonl/);
+    // Only the clean session reached gbrain import.
+    const staged = readFileSync(stagingListFile, "utf-8");
+    expect(staged).toMatch(/^\.\/transcripts\/claude-code\/.+\.md$/m);
+    expect(staged).not.toContain("transcripts/codex/");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  // "Could not scan" comes back as an empty findings list with scanner
+  // "error" (gitleaks exited non-zero, overflowed the 16MB maxBuffer on a
+  // file with many findings, or printed an unparseable report) or "missing"
+  // (absent, unusable, or too slow to answer). The gate used to skip only on
+  // scanner "gitleaks" with findings, so both let files in unscanned.
+  for (const [label, opts, scanner] of [
+    ["gitleaks fails mid-scan", { failDetect: true }, "error"],
+    ["gitleaks is unusable", { failProbe: true }, "missing"],
+  ] as const) {
+    it(`--scan-secrets fails closed when ${label} (scanner ${scanner})`, () => {
+      const home = makeTestHome();
+      const gstackHome = join(home, ".gstack");
+      mkdirSync(gstackHome, { recursive: true });
+      const { binDir, logFile } = installFakeGbrain(home);
+      const fakeGitleaksDir = installFakeGitleaks(home, opts);
+      writeClaudeCodeSession(
+        home,
+        "tmp-foo",
+        "cleansess123",
+        `{"type":"user","message":{"role":"user","content":"clean"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n`,
+      );
+
+      const r = runScript(["--bulk", "--include-unattributed", "--scan-secrets"], {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        PATH: `${fakeGitleaksDir}:${binDir}:${process.env.PATH || ""}`,
+      });
+
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toMatch(/written:\s+0/);
+      expect(r.stdout).toMatch(/skipped \(secret-scan\):\s+1/);
+      expect(r.stderr).toContain(`[secret-scan ${scanner}]`);
+      // Nothing was prepared, so gbrain import never ran.
+      expect(existsSync(logFile)).toBe(false);
+
+      rmSync(home, { recursive: true, force: true });
+    });
+  }
 });
 
 // #2105: current Codex rollout records are

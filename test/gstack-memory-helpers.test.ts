@@ -4,6 +4,7 @@
  * Covers the public surface used by Lanes A, B, C:
  *   - canonicalizeRemote: 8 cases across https/ssh/git@/.git/empty
  *   - secretScanFile: gitleaks-missing fallback + redactMatch behavior
+ *   - secretScanText: scans the exact text via a removed temp file
  *   - parseSkillManifest: valid manifest + missing manifest + multi-kind
  *   - withErrorContext: success path + error path + log writing
  *   - detectEngineTier: cache TTL + fresh-detect fallback
@@ -19,6 +20,7 @@ import { join } from "path";
 import {
   canonicalizeRemote,
   secretScanFile,
+  secretScanText,
   parseSkillManifest,
   withErrorContext,
   detectEngineTier,
@@ -317,6 +319,76 @@ exit 2
       const result = secretScanFile(file);
       expect(result.scanner).toBe("missing");
       expect(_gitleaksCacheState()).toBe(false);
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── secretScanText ─────────────────────────────────────────────────────────
+
+describe("secretScanText", () => {
+  beforeEach(() => {
+    _resetGitleaksAvailabilityCache();
+  });
+
+  it("scans the exact text through a temp file that is gone afterwards", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const binDir = join(dir, "bin");
+    const log = join(dir, "scanned-paths.log");
+    mkdirSync(binDir, { recursive: true });
+    // Flags the unescaped `KEY="` only: the byte-for-byte form a rendered
+    // page carries and a JSON-escaped source line does not.
+    writeFileSync(
+      join(binDir, "gitleaks"),
+      `#!/bin/sh
+if [ "$1" = "version" ]; then exit 0; fi
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--source" ]; then SRC="$2"; fi
+  shift
+done
+printf '%s\\n' "$SRC" >> "${log}"
+if grep -qF 'KEY="' "$SRC"; then
+  echo '[{"RuleID":"fake-rule","Description":"fake finding","StartLine":4}]'
+else
+  echo '[]'
+fi
+`,
+      "utf-8",
+    );
+    chmodSync(join(binDir, "gitleaks"), 0o755);
+
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${oldPath || ""}`;
+    try {
+      const hit = secretScanText('---\ntitle: "x"\n---\nKEY="not-a-real-value"\n');
+      expect(hit.scanner).toBe("gitleaks");
+      expect(hit.findings.map((f) => f.rule_id)).toEqual(["fake-rule"]);
+
+      const escaped = secretScanText('{"text":"KEY=\\"not-a-real-value\\""}\n');
+      expect(escaped.scanner).toBe("gitleaks");
+      expect(escaped.findings).toEqual([]);
+
+      const scanned = readFileSync(log, "utf-8").trim().split("\n");
+      expect(scanned.length).toBe(2);
+      for (const p of scanned) expect(existsSync(p)).toBe(false);
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports scanner=missing, not a clean result, when gitleaks is absent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const oldPath = process.env.PATH;
+    try {
+      process.env.PATH = dir; // nothing named gitleaks here
+      const result = secretScanText('KEY="not-a-real-value"\n');
+      expect(result.scanned).toBe(false);
+      expect(result.scanner).toBe("missing");
     } finally {
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;
