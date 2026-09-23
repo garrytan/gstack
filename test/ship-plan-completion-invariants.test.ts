@@ -48,4 +48,9 @@ describe('ship/SKILL.md — Plan Completion gate invariants (VAS-449 remediation
     expect(skill).toMatch(/CONTENT-SHAPE in another repo.*validator/s);
     expect(skill).toMatch(/passing validator promotes the item from UNVERIFIABLE to DONE/);
   });
+
+  test('Plan file discovery searches repo-committed designs (docs/designs and DESIGN.md)', () => {
+    expect(skill).toMatch(/docs\/designs/);
+    expect(skill).toMatch(/DESIGN\.md/);
+  });
 });
