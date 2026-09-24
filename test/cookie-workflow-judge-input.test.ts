@@ -11,6 +11,8 @@ import { selectTests } from './helpers/test-selection';
 import { E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles-data';
 import { selectPrProfile } from '../scripts/test-pr-profile';
 import { JUDGE_MS } from './helpers/eval-budgets';
+import { JudgeRefusalError, DEFAULT_JUDGE_MAX_TOKENS } from './helpers/llm-judge';
+import { COOKIE_MANUAL_REVIEW_FILE, getCookieWorkflowManualReview, isManualReviewEntry } from './helpers/cookie-workflow-manual-review';
 
 const ROOT = resolve(import.meta.dir, '..');
 const NAME = 'setup-browser-cookies/SKILL.md workflow';
@@ -26,6 +28,19 @@ function fixture(entry: string | null = skill, reference: string | null = browse
   if (reference !== null) writeFileSync(join(root, 'BROWSER.md'), reference);
   return root;
 }
+
+function approveFixture(root: string) {
+  const input = buildCookieWorkflowJudgeInput(root);
+  const approval = { ...JSON.parse(readFileSync(join(ROOT, COOKIE_MANUAL_REVIEW_FILE), 'utf8')),
+    prompt_sha256: input.sha256, prompt_bytes: Buffer.byteLength(input.prompt), model: 'fixture-model',
+    reason: 'Synthetic approval fixture, not live review evidence' };
+  mkdirSync(join(root, '.github'), { recursive: true });
+  writeFileSync(join(root, COOKIE_MANUAL_REVIEW_FILE), JSON.stringify(approval));
+  return approval;
+}
+
+const refusal = () => new JudgeRefusalError({ id: 'msg_synthetic', _request_id: 'req_synthetic',
+  model: 'fixture-model', usage: { input_tokens: 1, output_tokens: 0 }, content: [] });
 
 afterEach(() => {
   for (const root of scratch.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -55,7 +70,7 @@ function actualCookieCallback(root: string, overrides: {
   const records: EvalTestEntry[] = [];
   const attempts = new Map<string, { attempt: number }>();
   let callback: () => Promise<void> = async () => { throw new Error('Judge callback was not registered'); };
-  new Function('describeIfSelected', 'testIfSelected', 'ROOT', 'buildCookieWorkflowJudgeInput', 'resolveEvalModel', 'callJudge', 'COOKIE_WORKFLOW_JUDGE', 'JUDGE_MS', 'WORKFLOW_JUDGE_TEST_MS', 'WORKFLOW_JUDGE_RECORD_MS', 'evalCollector', 'expect', 'console', 'readWorkflowJudgeInput', 'buildWorkflowJudgePrompt', 'prepareWorkflowJudgeCache', 'workflowJudgeAttempts', 'performance', 'setTimeout', 'clearTimeout', registration)(
+  new Function('describeIfSelected', 'testIfSelected', 'ROOT', 'buildCookieWorkflowJudgeInput', 'resolveEvalModel', 'callJudge', 'COOKIE_WORKFLOW_JUDGE', 'JUDGE_MS', 'WORKFLOW_JUDGE_TEST_MS', 'WORKFLOW_JUDGE_RECORD_MS', 'evalCollector', 'expect', 'console', 'readWorkflowJudgeInput', 'buildWorkflowJudgePrompt', 'prepareWorkflowJudgeCache', 'workflowJudgeAttempts', 'performance', 'setTimeout', 'clearTimeout', 'JudgeRefusalError', 'getCookieWorkflowManualReview', 'DEFAULT_JUDGE_MAX_TOKENS', registration)(
     (_suite: string, names: string[], run: () => void) => { expect(names).toEqual([NAME]); run(); },
     (name: string, run: () => Promise<void>, budget: number) => { expect(name).toBe(NAME); expect(budget).toBe(JUDGE_MS + 10_000); callback = run; },
     root, buildCookieWorkflowJudgeInput, () => 'fixture-model',
@@ -69,11 +84,92 @@ function actualCookieCallback(root: string, overrides: {
     } }),
     attempts, overrides.clock ? { now: overrides.clock } : performance,
     overrides.setTimer ?? setTimeout, overrides.clearTimer ?? clearTimeout,
+    JudgeRefusalError, getCookieWorkflowManualReview, DEFAULT_JUDGE_MAX_TOKENS,
   );
   return { run: () => callback(), requests, records, attempts };
 }
 
 describe('cookie workflow judge input', () => {
+  test('the registered callback accepts only an approved empty provider refusal, with no score or cache credit', async () => {
+    const root = fixture();
+    approveFixture(root);
+    const h = actualCookieCallback(root, { judge: async () => { throw refusal(); } });
+    await h.run();
+    expect(h.requests).toHaveLength(1);
+    expect(h.records).toHaveLength(1);
+    expect(h.records[0]).toMatchObject({ passed: false, execution: 'executed', exit_reason: 'provider_refusal' });
+    expect(isManualReviewEntry(h.records[0])).toBe(true);
+    expect(h.records[0]).not.toHaveProperty('judge_scores');
+    expect(h.records[0]).not.toHaveProperty('judge_reasoning');
+    expect(h.records[0]).not.toHaveProperty('reused_from');
+    expect(existsSync(join(root, 'cache'))).toBe(false);
+  });
+
+  test('an approval cannot turn low scores, malformed output, or a refusal-named ordinary error into acceptance', async () => {
+    const root = fixture(); approveFixture(root);
+    for (const result of [
+      { ...passingScore, clarity: 1 },
+      new SyntaxError('Malformed provider JSON'),
+      Object.assign(new Error('Synthetic refusal text'), { name: 'JudgeRefusalError' }),
+    ]) {
+      const h = actualCookieCallback(root, { judge: async () => { if (result instanceof Error) throw result; return result; } });
+      await expect(h.run()).rejects.toThrow();
+      expect(h.records).toHaveLength(1);
+      expect(h.records[0].passed).toBe(false);
+      expect(h.records[0]).not.toHaveProperty('manual_review');
+      expect(isManualReviewEntry(h.records[0])).toBe(false);
+    }
+    const scored = actualCookieCallback(root);
+    await scored.run();
+    expect(scored.records[0]).toMatchObject({ passed: true, judge_scores: COOKIE_WORKFLOW_JUDGE.thresholds });
+    expect(scored.records[0]).not.toHaveProperty('manual_review');
+  });
+
+  test.each(['prompt', 'model', 'budget', 'thresholds', 'malformed', 'missing', 'evidence', 'response-evidence'])(
+    'the actual callback rejects an unapproved refusal: %s', async mismatch => {
+      const root = fixture(); const approval = approveFixture(root);
+      const error = refusal();
+      if (mismatch === 'prompt') writeFileSync(join(root, 'BROWSER.md'), browser.replace('Exact reference.', 'Changed reference.'));
+      if (mismatch === 'model') approval.model = 'different-model';
+      if (mismatch === 'budget') approval.max_tokens++;
+      if (mismatch === 'thresholds') approval.thresholds.clarity++;
+      if (mismatch === 'evidence') error.refusal.request_id = null;
+      if (mismatch === 'response-evidence') error.refusal.response_id = null;
+      writeFileSync(join(root, COOKIE_MANUAL_REVIEW_FILE), mismatch === 'malformed' ? '{}' : JSON.stringify(approval));
+      if (mismatch === 'missing') rmSync(join(root, COOKIE_MANUAL_REVIEW_FILE));
+      const h = actualCookieCallback(root, { judge: async () => { throw error; } });
+      await expect(h.run()).rejects.toThrow();
+      expect(h.records).toHaveLength(1);
+      expect(h.records[0].passed).toBe(false);
+      expect(h.records[0]).not.toHaveProperty('manual_review');
+      expect(existsSync(join(root, 'cache'))).toBe(false);
+    });
+
+  test('a late refusal stays a timeout despite exact approval', async () => {
+    const root = fixture(); approveFixture(root);
+    let now = 0;
+    const h = actualCookieCallback(root, { budget: 20, clock: () => now,
+      judge: async () => { now = 20; throw refusal(); } });
+    await expect(h.run()).rejects.toThrow('deadline');
+    expect(h.records).toHaveLength(1);
+    expect(h.records[0]).toMatchObject({ passed: false, exit_reason: 'timeout' });
+    expect(h.records[0]).not.toHaveProperty('manual_review');
+  });
+
+  test('a retry refusal cannot erase an earlier scored failure with manual acceptance', async () => {
+    const root = fixture(); approveFixture(root);
+    let calls = 0;
+    const h = actualCookieCallback(root, { judge: async () => {
+      if (++calls === 1) return { ...passingScore, clarity: 1 };
+      throw refusal();
+    } });
+    await expect(h.run()).rejects.toThrow();
+    await expect(h.run()).rejects.toThrow('provider refused');
+    expect(h.records.map(record => [record.attempt, record.passed, record.exit_reason]))
+      .toEqual([[1, false, 'validation_failed'], [2, false, 'provider_refusal']]);
+    for (const record of h.records) expect(record).not.toHaveProperty('manual_review');
+  });
+
   test('preserves exact source bytes, line ranges, and the immutable rubric', () => {
     const input = buildCookieWorkflowJudgeInput(fixture());
     expect(input.files).toEqual([
@@ -157,7 +253,7 @@ describe('cookie workflow judge input', () => {
   });
 
   test('each owned dependency selects this judge in the fast PR profile', () => {
-    for (const file of ['setup-browser-cookies/SKILL.md.tmpl', 'setup-browser-cookies/SKILL.md', 'BROWSER.md', 'test/helpers/cookie-workflow-judge-input.ts', 'test/cookie-workflow-judge-input.test.ts']) {
+    for (const file of ['setup-browser-cookies/SKILL.md.tmpl', 'setup-browser-cookies/SKILL.md', 'BROWSER.md', 'test/helpers/cookie-workflow-judge-input.ts', 'test/cookie-workflow-judge-input.test.ts', 'test/helpers/cookie-workflow-manual-review.ts', 'test/cookie-workflow-manual-review.test.ts', 'test/helpers/manual-judge-review-fixture.ts', '.github/cookie-workflow-manual-review.json']) {
       const selectedJudges = selectTests([file], LLM_JUDGE_TOUCHFILES).selected;
       expect(selectedJudges).toEqual([NAME]);
       const selectedE2E = selectTests([file], E2E_TOUCHFILES).selected;

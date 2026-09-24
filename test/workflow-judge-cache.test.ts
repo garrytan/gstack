@@ -1,6 +1,7 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { Messages } from '@anthropic-ai/sdk/resources/messages';
-import { callJudge } from './helpers/llm-judge';
+import { callJudge, JudgeRefusalError, DEFAULT_JUDGE_MAX_TOKENS } from './helpers/llm-judge';
+import { getCookieWorkflowManualReview } from './helpers/cookie-workflow-manual-review';
 import { resolveEvalModel } from '../lib/eval-model';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -141,7 +142,7 @@ test('workflow registration preserves model work and reserves only terminal-reco
   const source = fs.readFileSync(path.join(import.meta.dir, 'skill-llm-eval.test.ts'), 'utf8');
   const body = source.split('async function runWorkflowJudge')[1]!.split('// Block 1:')[0]!;
   const stages = ['workflowJudgeAttempts.set', 'readWorkflowJudgeInput(', 'cache.lookup()',
-    'callJudge<JudgeScore>(prompt, undefined, { signal: controller.signal })',
+    'callJudge<JudgeScore>(prompt, undefined, { signal: controller.signal, max_tokens: maxTokens })',
     'expect(scores.clarity)', 'expect(scores.completeness)', 'expect(scores.actionability)', 'cache.publish(scores, active)']
     .map(stage => body.indexOf(stage));
   expect(stages.every(position => position >= 0)).toBe(true);
@@ -174,7 +175,7 @@ function actualCallback(f: ReturnType<typeof fixture>, overrides: {
   const run = new Function('ROOT', 'readWorkflowJudgeInput',
     'buildWorkflowJudgePrompt', 'prepareWorkflowJudgeCache', 'workflowJudgeAttempts', 'callJudge',
     'evalCollector', 'expect', 'console', 'performance', 'JUDGE_MS', 'WORKFLOW_JUDGE_RECORD_MS',
-    'setTimeout', 'clearTimeout',
+    'setTimeout', 'clearTimeout', 'JudgeRefusalError', 'getCookieWorkflowManualReview', 'DEFAULT_JUDGE_MAX_TOKENS',
     `${javascript}\nreturn runWorkflowJudge;`)(
     f.root, overrides.read ?? readWorkflowJudgeInput, buildWorkflowJudgePrompt,
     (options: WorkflowCacheOptions) => (overrides.prepare ?? prepareWorkflowJudgeCache)({ ...options, env: f.env }),
@@ -183,7 +184,8 @@ function actualCallback(f: ReturnType<typeof fixture>, overrides: {
       return overrides.judge ? overrides.judge(prompt, model, options) : scores;
     }, { addTest: (entry: any) => records.push(entry) }, expect, { log() {} },
     overrides.clock ? { now: overrides.clock } : performance, overrides.budget ?? 120_000, overrides.allowance ?? 5_000,
-    overrides.setTimer ?? setTimeout, overrides.clearTimer ?? clearTimeout);
+    overrides.setTimer ?? setTimeout, overrides.clearTimer ?? clearTimeout,
+    JudgeRefusalError, getCookieWorkflowManualReview, DEFAULT_JUDGE_MAX_TOKENS);
   return { run, records, signals, prompts, attempts, options: { ...f.opts, suite: 'Cache regression' } };
 }
 

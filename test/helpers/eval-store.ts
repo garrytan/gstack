@@ -12,6 +12,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
+import { isManualReviewEntry } from './cookie-workflow-manual-review';
+import type { ManualJudgeReview } from './cookie-workflow-manual-review';
 
 // v2: EvalTestEntry.harvest gains optional {insertions, deletions, net} and
 // may be explicitly null (arm-benchmark harvest-failure taxonomy). Readers
@@ -66,6 +68,7 @@ export interface EvalTestEntry {
   /** Absent in older records means executed; reuse is never a new model run. */
   execution?: 'executed' | 'reused';
   reused_from?: { input_key: string; run_id: string; revision: string; completed_at: string };
+  manual_review?: ManualJudgeReview;
   /** 1-based record attempt for this name in this run. bun's --retry leaves
    *  retried passes INVISIBLE in its text output (a fail→pass prints no
    *  (fail) line and recaps as a clean pass — probed on 1.3.10), so the ONLY
@@ -120,6 +123,14 @@ export interface EvalTestEntry {
   } | null;
 }
 
+export function evalEntryOutcome(entry: unknown): 'passed' | 'failed' | 'manual-review' {
+  if (!entry || typeof entry !== 'object') return 'failed';
+  if ('manual_review' in entry) return Object.hasOwn(entry, 'manual_review') && isManualReviewEntry(entry) ? 'manual-review' : 'failed';
+  const result = entry as EvalTestEntry;
+  if (result.execution !== undefined && result.execution !== 'executed' && result.execution !== 'reused') return 'failed';
+  return result.passed === true ? 'passed' : 'failed';
+}
+
 export interface EvalResult {
   schema_version: number;
   version: string;
@@ -135,6 +146,7 @@ export interface EvalResult {
   total_tests: number;
   executed_tests?: number;
   reused_tests?: number;
+  manual_accepted_tests?: number;
   passed: number;
   failed: number;
   total_cost_usd: number;
@@ -154,10 +166,10 @@ export interface EvalResult {
 export interface TestDelta {
   name: string;
   before: { passed: boolean; cost_usd: number; turns_used?: number; duration_ms?: number;
-            detection_rate?: number; tool_summary?: Record<string, number> };
+            detection_rate?: number; tool_summary?: Record<string, number>; manual_review?: boolean };
   after:  { passed: boolean; cost_usd: number; turns_used?: number; duration_ms?: number;
-            detection_rate?: number; tool_summary?: Record<string, number> };
-  status_change: 'improved' | 'regressed' | 'unchanged';
+            detection_rate?: number; tool_summary?: Record<string, number>; manual_review?: boolean };
+  status_change: 'improved' | 'regressed' | 'unchanged' | 'manual-review';
 }
 
 export interface ComparisonResult {
@@ -173,6 +185,7 @@ export interface ComparisonResult {
   improved: number;
   regressed: number;
   unchanged: number;
+  manual_reviewed?: number;
   tool_count_before: number;
   tool_count_after: number;
   /** After-tests that had a same-named entry in the before run. 0 = nothing was
@@ -388,6 +401,7 @@ export function compareEvalResults(
 ): ComparisonResult {
   const deltas: TestDelta[] = [];
   let improved = 0, regressed = 0, unchanged = 0;
+  let manualReviewed = 0;
   let toolCountBefore = 0, toolCountAfter = 0;
   let matched = 0;
 
@@ -409,33 +423,40 @@ export function compareEvalResults(
     toolCountAfter += afterToolCount;
 
     let statusChange: TestDelta['status_change'] = 'unchanged';
+    const beforeManual = beforeTest !== undefined && evalEntryOutcome(beforeTest) === 'manual-review';
+    const afterOutcome = evalEntryOutcome(afterTest);
+    const afterManual = afterOutcome === 'manual-review';
     if (beforeTest) {
       matched++;
-      if (!beforeTest.passed && afterTest.passed) { statusChange = 'improved'; improved++; }
-      else if (beforeTest.passed && !afterTest.passed) { statusChange = 'regressed'; regressed++; }
+      if (beforeManual && afterOutcome === 'failed') { statusChange = 'regressed'; regressed++; }
+      else if (beforeManual || afterManual) { statusChange = 'manual-review'; manualReviewed++; }
+      else if (evalEntryOutcome(beforeTest) === 'failed' && evalEntryOutcome(afterTest) === 'passed') { statusChange = 'improved'; improved++; }
+      else if (evalEntryOutcome(beforeTest) === 'passed' && evalEntryOutcome(afterTest) === 'failed') { statusChange = 'regressed'; regressed++; }
       else { unchanged++; }
     } else {
-      // New test — treat as unchanged (no prior data)
-      unchanged++;
+      if (afterManual) { statusChange = 'manual-review'; manualReviewed++; }
+      else unchanged++;
     }
 
     deltas.push({
       name: afterTest.name,
       before: {
-        passed: beforeTest?.passed ?? false,
+        passed: beforeTest !== undefined && evalEntryOutcome(beforeTest) === 'passed',
         cost_usd: beforeTest?.cost_usd ?? 0,
         turns_used: beforeTest?.turns_used,
         duration_ms: beforeTest?.duration_ms,
         detection_rate: beforeTest?.detection_rate,
         tool_summary: beforeToolSummary,
+        ...(beforeManual ? { manual_review: true } : {}),
       },
       after: {
-        passed: afterTest.passed,
+        passed: afterOutcome === 'passed',
         cost_usd: afterTest.cost_usd,
         turns_used: afterTest.turns_used,
         duration_ms: afterTest.duration_ms,
         detection_rate: afterTest.detection_rate,
         tool_summary: afterToolSummary,
+        ...(afterManual ? { manual_review: true } : {}),
       },
       status_change: statusChange,
     });
@@ -452,12 +473,13 @@ export function compareEvalResults(
     deltas.push({
       name: `${name} (removed)`,
       before: {
-        passed: beforeTest.passed,
+        passed: evalEntryOutcome(beforeTest) === 'passed',
         cost_usd: beforeTest.cost_usd,
         turns_used: beforeTest.turns_used,
         duration_ms: beforeTest.duration_ms,
         detection_rate: beforeTest.detection_rate,
         tool_summary: beforeToolSummary,
+        ...(evalEntryOutcome(beforeTest) === 'manual-review' ? { manual_review: true } : {}),
       },
       after: { passed: false, cost_usd: 0, tool_summary: {} },
       status_change: 'unchanged',
@@ -477,6 +499,7 @@ export function compareEvalResults(
     improved,
     regressed,
     unchanged,
+    ...(manualReviewed ? { manual_reviewed: manualReviewed } : {}),
     tool_count_before: toolCountBefore,
     tool_count_after: toolCountAfter,
     matched,
@@ -495,8 +518,8 @@ export function formatComparison(c: ComparisonResult): string {
   // Per-test deltas
   for (const d of c.deltas) {
     const arrow = d.status_change === 'improved' ? '↑' : d.status_change === 'regressed' ? '↓' : '=';
-    const beforeStatus = d.before.passed ? 'PASS' : 'FAIL';
-    const afterStatus = d.after.passed ? 'PASS' : 'FAIL';
+    const beforeStatus = d.before.manual_review ? 'MANUAL' : d.before.passed ? 'PASS' : 'FAIL';
+    const afterStatus = d.after.manual_review ? 'MANUAL' : d.after.passed ? 'PASS' : 'FAIL';
 
     // Turns delta
     let turnsDelta = '';
@@ -540,6 +563,7 @@ export function formatComparison(c: ComparisonResult): string {
   if (c.improved > 0) parts.push(`${c.improved} improved`);
   if (c.regressed > 0) parts.push(`${c.regressed} regressed`);
   if (c.unchanged > 0) parts.push(`${c.unchanged} unchanged`);
+  if (c.manual_reviewed) parts.push(`${c.manual_reviewed} unscored manual review`);
   lines.push(`  Status: ${parts.join(', ')}`);
 
   const costSign = c.total_cost_delta >= 0 ? '+' : '';
@@ -607,7 +631,9 @@ export function generateCommentary(c: ComparisonResult): string[] {
   const regressions = c.deltas.filter(d => d.status_change === 'regressed');
   if (regressions.length > 0) {
     for (const d of regressions) {
-      notes.push(`REGRESSION: "${d.name}" was passing, now fails. Investigate immediately.`);
+      notes.push(d.before.manual_review
+        ? `REGRESSION: "${d.name}" lost its unscored manual acceptance and now has a blocking failure. Investigate immediately.`
+        : `REGRESSION: "${d.name}" was passing, now fails. Investigate immediately.`);
     }
   }
 
@@ -615,6 +641,10 @@ export function generateCommentary(c: ComparisonResult): string[] {
   const improvements = c.deltas.filter(d => d.status_change === 'improved');
   for (const d of improvements) {
     notes.push(`Fixed: "${d.name}" now passes.`);
+  }
+
+  for (const d of c.deltas.filter(delta => delta.status_change === 'manual-review')) {
+    notes.push(`"${d.name}" includes an unscored manual acceptance; no model-score improvement or regression is inferred.`);
   }
 
   // 3. Per-test efficiency changes (only for unchanged-status tests — regressions/improvements are already noted)
@@ -893,7 +923,8 @@ export class EvalCollector {
       const version = getVersion();
       const totalCost = this.tests.reduce((s, t) => s + t.cost_usd, 0);
       const totalDuration = this.tests.reduce((s, t) => s + t.duration_ms, 0);
-      const passed = this.tests.filter(t => t.passed).length;
+      const passed = this.tests.filter(t => evalEntryOutcome(t) === 'passed').length;
+      const manual = this.tests.filter(t => evalEntryOutcome(t) === 'manual-review').length;
 
       const partial: EvalResult = {
         schema_version: SCHEMA_VERSION,
@@ -907,8 +938,9 @@ export class EvalCollector {
         total_tests: this.tests.length,
         executed_tests: this.tests.filter(t => t.execution !== 'reused').length,
         reused_tests: this.tests.filter(t => t.execution === 'reused').length,
+        ...(manual ? { manual_accepted_tests: manual } : {}),
         passed,
-        failed: this.tests.length - passed,
+        failed: this.tests.length - passed - manual,
         total_cost_usd: Math.round(totalCost * 100) / 100,
         total_duration_ms: totalDuration,
         tests: this.tests,
@@ -933,7 +965,8 @@ export class EvalCollector {
     const timestamp = new Date().toISOString();
     const totalCost = this.tests.reduce((s, t) => s + t.cost_usd, 0);
     const totalDuration = this.tests.reduce((s, t) => s + t.duration_ms, 0);
-    const passed = this.tests.filter(t => t.passed).length;
+    const passed = this.tests.filter(t => evalEntryOutcome(t) === 'passed').length;
+    const manual = this.tests.filter(t => evalEntryOutcome(t) === 'manual-review').length;
 
     const flaky = this.flakyRetries();
     const result: EvalResult = {
@@ -948,8 +981,9 @@ export class EvalCollector {
       total_tests: this.tests.length,
       executed_tests: this.tests.filter(t => t.execution !== 'reused').length,
       reused_tests: this.tests.filter(t => t.execution === 'reused').length,
+      ...(manual ? { manual_accepted_tests: manual } : {}),
       passed,
-      failed: this.tests.length - passed,
+      failed: this.tests.length - passed - manual,
       total_cost_usd: Math.round(totalCost * 100) / 100,
       total_duration_ms: totalDuration,
       wall_clock_ms: Date.now() - this.createdAt,
@@ -999,7 +1033,9 @@ export class EvalCollector {
     lines.push('═'.repeat(70));
 
     for (const t of this.tests) {
-      const status = !t.passed ? ' FAIL ' : t.execution === 'reused' ? ' REUSE' : ' PASS ';
+      const outcome = evalEntryOutcome(t);
+      const status = outcome === 'manual-review' ? 'MANUAL' : outcome === 'failed' ? ' FAIL '
+        : t.execution === 'reused' ? ' REUSE' : ' PASS ';
       const cost = `$${t.cost_usd.toFixed(2)}`;
       const dur = t.duration_ms ? `${Math.round(t.duration_ms / 1000)}s` : '';
       const turns = t.turns_used !== undefined ? `${t.turns_used}t` : '';
@@ -1010,6 +1046,8 @@ export class EvalCollector {
       } else if (t.judge_scores) {
         const scores = Object.entries(t.judge_scores).map(([k, v]) => `${k[0]}:${v}`).join(' ');
         detail = scores;
+      } else if (outcome === 'manual-review') {
+        detail = `unscored; approved by ${t.manual_review!.approval.approved_by} (${t.manual_review!.approval.approval_url})`;
       }
 
       const name = t.name.length > 35 ? t.name.slice(0, 32) + '...' : t.name.padEnd(35);
@@ -1020,6 +1058,7 @@ export class EvalCollector {
     const totalCost = `$${result.total_cost_usd.toFixed(2)}`;
     const totalDur = `${Math.round(result.total_duration_ms / 1000)}s`;
     lines.push(`  Total: ${result.passed}/${result.total_tests} passed${' '.repeat(20)}${totalCost.padStart(6)}  ${totalDur}`);
+    if (result.manual_accepted_tests) lines.push(`  Manual accepted: ${result.manual_accepted_tests} unscored provider refusal(s)`);
     lines.push(`  Evidence: ${result.executed_tests ?? result.total_tests} executed, ${result.reused_tests ?? 0} reused`);
     if (result.flaky_retries && result.flaky_retries.length > 0) {
       // Loud, never fatal: a flaky pass must not block anyone, but it must

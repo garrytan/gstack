@@ -742,7 +742,7 @@ describe('shared-code capture attempt accounting', () => {
     expect(result.tests.map((row: EvalTestEntry) => row.transcript!.filter(event => event.scenario_name).length))
       .toEqual([3, 3, 2, 2, 4, 4]);
     expect(result.total_cost_usd).toBe(0.18);
-    expect(collectorOutcomeCounts([result])).toEqual({ executed: 3, reused: 0, passed: 3, failed: 0, attempts: 6 });
+    expect(collectorOutcomeCounts([result])).toEqual({ executed: 3, reused: 0, passed: 3, failed: 0, manual_accepted: 0, attempts: 6 });
   });
 
   test('missing scenarios in a later attempt cannot inherit an earlier pass', async () => {
@@ -756,7 +756,7 @@ describe('shared-code capture attempt accounting', () => {
     })).rejects.toThrow('missing scenarios: second');
     const result = await finalized(captures);
     expect(result.tests[1]).toMatchObject({ attempt: 2, passed: false, exit_reason: 'attempt_incomplete' });
-    expect(collectorOutcomeCounts([result])).toEqual({ executed: 1, reused: 0, passed: 0, failed: 1, attempts: 2 });
+    expect(collectorOutcomeCounts([result])).toEqual({ executed: 1, reused: 0, passed: 0, failed: 1, manual_accepted: 0, attempts: 2 });
   });
 
   test('setup, verification and cleanup failures survive even when all recorded captures passed', async () => {
@@ -875,7 +875,7 @@ test('actual-retry', () => captures.runAttempt('actual-retry', ['audit'], 5_000,
     const result = JSON.parse(fs.readFileSync(path.join(resultDir, file), 'utf8'));
     expect(result.tests.map((row: EvalTestEntry) => [row.attempt, row.passed, row.exit_reason]))
       .toEqual([[1, false, 'timeout'], [2, true, 'success']]);
-    expect(collectorOutcomeCounts([result])).toEqual({ executed: 1, reused: 0, passed: 1, failed: 0, attempts: 2 });
+    expect(collectorOutcomeCounts([result])).toEqual({ executed: 1, reused: 0, passed: 1, failed: 0, manual_accepted: 0, attempts: 2 });
   });
 
   test('Bun outer timeouts stay failed after late completion, with and without a retry', () => {
@@ -917,7 +917,7 @@ test('outer-timeout', () => captures.runAttempt('outer-timeout', ['audit'], 50, 
         .toEqual(mode === 'retry' ? [[1, false], [2, true]] : [[1, false]]);
       expect(['timeout', 'attempt_incomplete']).toContain(result.tests[0].exit_reason);
       expect(result.tests[0].error).toContain('Test attempt stopped:');
-      expect(collectorOutcomeCounts([result])).toEqual({ executed: 1, reused: 0,
+      expect(collectorOutcomeCounts([result])).toEqual({ executed: 1, reused: 0, manual_accepted: 0,
         passed: mode === 'retry' ? 1 : 0, failed: mode === 'retry' ? 0 : 1, attempts: mode === 'retry' ? 2 : 1 });
     }
   });

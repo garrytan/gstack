@@ -5,7 +5,7 @@ import { isBuiltin } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { resolveEvalModel } from '../../lib/eval-model';
 import { JUDGE_MS } from './eval-budgets';
-import type { JudgeScore } from './llm-judge';
+import { DEFAULT_JUDGE_MAX_TOKENS, type JudgeScore } from './llm-judge';
 import { readWorkflowJudgeInput, buildWorkflowJudgePrompt } from './workflow-judge-input';
 import { buildEvalInputIdentity, lookupEvalInputCache, storeEvalInputCache,
   type EvalCacheValue, type EvalInputIdentity, type EvalPassingProof } from '../../scripts/eval-input-cache';
@@ -98,7 +98,7 @@ export function prepareWorkflowJudgeCache(opts: WorkflowCacheOptions): {
         coverage: { dependencies: 'complete', prompts: 'complete', environment: 'complete' }, unknownDependencies: [],
         files: workflowJudgeDependencies(opts.root, input.files.map(file => file.path)),
         prompts: { [opts.testName]: prompt },
-        parameters: { rootPackage, thresholds: opts.thresholds, max_tokens: 8192, temperature: null, budget_ms: JUDGE_MS,
+        parameters: { rootPackage, thresholds: opts.thresholds, max_tokens: DEFAULT_JUDGE_MAX_TOKENS, temperature: null, budget_ms: JUDGE_MS,
           request: 'messages.create/user', retries: 1 },
         runtime: { image: env.EVALS_CACHE_RUNTIME_ID!, bun: Bun.version, node: process.versions.node,
           platform: process.platform, arch: process.arch, judge: resolveEvalModel('judge', undefined, env),

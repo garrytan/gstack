@@ -216,6 +216,6 @@ describe('PR profile paid-runner integration', () => {
       { name: 'retry', suite: 'judge', passed: true, execution: 'executed' },
       { name: 'cached', suite: 'judge', passed: true, execution: 'reused' },
       { name: 'failed', suite: 'native', passed: false },
-    ] }])).toEqual({ executed: 2, reused: 1, passed: 2, failed: 1, attempts: 4 });
+    ] }])).toEqual({ executed: 2, reused: 1, passed: 2, failed: 1, manual_accepted: 0, attempts: 4 });
   });
 });

@@ -8,7 +8,7 @@
 
 import * as fs from 'fs';
 import type { EvalResult } from '../test/helpers/eval-store';
-import { getProjectEvalDir, listEvalJsonFiles } from '../test/helpers/eval-store';
+import { evalEntryOutcome, getProjectEvalDir, listEvalJsonFiles } from '../test/helpers/eval-store';
 
 const EVAL_DIR = getProjectEvalDir();
 
@@ -77,11 +77,21 @@ const avgDetection = detectionRates.length > 0
 
 // Flaky tests (passed in some runs, failed in others)
 const testResults = new Map<string, boolean[]>();
+const manualAccepted: Array<{ name: string; approvedBy: string; approvalUrl: string }> = [];
 for (const r of results) {
+  const final = new Map(r.tests.map(t => [t.name, t]));
+  const manuallyAcceptedNames = new Set([...final.values()].filter(t => evalEntryOutcome(t) === 'manual-review').map(t => t.name));
+  for (const t of final.values()) {
+    if (evalEntryOutcome(t) === 'manual-review') manualAccepted.push({ name: t.name,
+      approvedBy: t.manual_review!.approval.approved_by, approvalUrl: t.manual_review!.approval.approval_url });
+  }
   for (const t of r.tests) {
+    if (manuallyAcceptedNames.has(t.name)) continue;
     const key = `${r.tier}:${t.name}`;
+    const outcome = evalEntryOutcome(t);
+    if (outcome === 'manual-review') continue;
     if (!testResults.has(key)) testResults.set(key, []);
-    testResults.get(key)!.push(t.passed);
+    testResults.get(key)!.push(outcome === 'passed');
   }
 }
 const flakyTests: string[] = [];
@@ -119,6 +129,10 @@ console.log('Eval Summary');
 console.log('═'.repeat(70));
 console.log(`  Total runs:        ${results.length} (${e2eRuns.length} e2e, ${judgeRuns.length} llm-judge)`);
 console.log(`  Total spend:       $${totalCost.toFixed(2)}`);
+if (manualAccepted.length) {
+  console.log(`  Manual accepted:   ${manualAccepted.length} unscored provider refusal(s)`);
+  for (const entry of manualAccepted) console.log(`    ${entry.name}: approved by ${entry.approvedBy} (${entry.approvalUrl})`);
+}
 console.log(`  Avg cost/e2e:      $${avgE2ECost.toFixed(2)}`);
 console.log(`  Avg cost/judge:    $${avgJudgeCost.toFixed(2)}`);
 if (avgE2EDuration > 0) {

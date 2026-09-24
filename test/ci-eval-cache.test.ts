@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, chmodSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -101,4 +101,67 @@ test.skipIf(!Bun.which('jq'))('the actual comment separates reused evidence, ret
   expect(text).toContain('1 behaviors and 1 changed prompt files');
   expect(text).toContain('receive no PR-pass credit');
   expect(comment).not.toContain('diff-selected gate census');
+});
+
+test.skipIf(!Bun.which('jq') || !Bun.which('bash'))('comment consumes verified final counts without running repository code and fails closed without them', () => {
+  const job = paid.jobs['slices-comment'];
+  expect(job.permissions).toMatchObject({ 'pull-requests': 'write' });
+  expect(JSON.stringify(job.steps)).not.toMatch(/actions\/checkout|setup-bun|bun run|npm |node /);
+  const upload = paid.jobs['slices-report'].steps.find((step: any) => step.with?.name === 'report-verdict');
+  expect(upload.with.path.trim().split('\n')).toEqual(['/tmp/report.txt', '/tmp/paid-report/collector-outcomes.json']);
+  expect(job.steps.find((step: any) => step.with?.name === 'report-verdict').with.path).toBe('/tmp/verdict');
+  const root = mkdtempSync(join(tmpdir(), 'ci-comment-'));
+  const paidDir = join(root, 'paid-report');
+  const verdictDir = join(root, 'verdict');
+  const binDir = join(root, 'bin');
+  mkdirSync(paidDir); mkdirSync(verdictDir); mkdirSync(binDir);
+  writeFileSync(join(binDir, 'gh'), '#!/bin/sh\ncase "$*" in *--jq*) exit 0;; esac\nfor arg do case "$arg" in body=*) printf "%s\\n" "${arg#body=}";; esac; done\n');
+  chmodSync(join(binDir, 'gh'), 0o755);
+  writeFileSync(join(binDir, 'bc'), '#!/bin/sh\nread -r expression\n[ "$expression" = "0 + 0" ] && printf "0\\n"\n');
+  chmodSync(join(binDir, 'bc'), 0o755);
+  writeFileSync(join(paidDir, 'manifest.json'), JSON.stringify({ profile: 'pr', selection: { e2e: [], judges: [] } }));
+  writeFileSync(join(paidDir, 'judge.json'), JSON.stringify({ total_tests: 2, tier: 'llm-judge', shard: 1,
+    tests: [{ name: 'manual', passed: false, manual_review: { unverified: true } },
+      { name: 'reused', passed: true, execution: 'reused' }], flaky_retries: [] }));
+  const summary = { version: 1, files: [{ file: 'judge.json', tier: 'llm-judge', shard: 1, cost: 0,
+    total: 2, passed: 1, failed: 0, manual_accepted: 1, executed: 1, reused: 1, attempts: 2, flaky: 0 }],
+    totals: { total: 2, passed: 1, failed: 0, manual_accepted: 1, executed: 1, reused: 1, attempts: 2, flaky: 0 } };
+  mkdirSync(join(verdictDir, 'paid-report'));
+  const summaryPath = join(verdictDir, 'paid-report/collector-outcomes.json');
+  const script = (job.steps.find((step: any) => step.name === 'Post PR comment').run as string)
+    .replaceAll('/tmp/paid-report', paidDir).replaceAll('/tmp/verdict', verdictDir)
+    .replaceAll('${{ github.repository }}', 'garrytan/gstack')
+    .replaceAll('${{ github.event.pull_request.number }}', '123');
+  const check = spawnSync('bash', ['-n', '-c', script], { cwd: root, encoding: 'utf8', timeout: 5000 });
+  expect(check.status, check.stderr).toBe(0);
+  const run = () => spawnSync('bash', ['-e', '-c', script], { cwd: root,
+    env: { ...process.env, PATH: `${binDir}:${process.env.PATH}`, RECONCILE_EXIT: '0' },
+    encoding: 'utf8', timeout: 5000 });
+  try {
+    writeFileSync(summaryPath, JSON.stringify(summary));
+    const verified = run();
+    expect(verified.status, verified.stderr).toBe(0);
+    expect(verified.stdout).toContain('⚠ MANUAL ACCEPTED (unscored)');
+    expect(verified.stdout).toContain('1 automated passed / 2 final results');
+    expect(verified.stdout).toContain('0 failed, 1 manual accepted');
+
+    const unrelatedFailure = { ...summary, files: [{ ...summary.files[0], total: 3, failed: 1,
+      executed: 2, attempts: 3 }], totals: { ...summary.totals, total: 3, failed: 1,
+      executed: 2, attempts: 3 } };
+    writeFileSync(summaryPath, JSON.stringify(unrelatedFailure));
+    const red = run();
+    expect(red.status, red.stderr).toBe(0);
+    expect(red.stdout).toContain('❌ FAIL');
+    expect(red.stdout).toContain('1 failed, 1 manual accepted');
+
+    writeFileSync(summaryPath, JSON.stringify({ ...summary, totals: { ...summary.totals, manual_accepted: 2 } }));
+    const tampered = run();
+    expect(tampered.status, tampered.stderr).toBe(0);
+    expect(tampered.stdout).toContain('manual acceptance unavailable/unverified');
+    expect(tampered.stdout).not.toContain('⚠ MANUAL ACCEPTED (unscored)');
+    rmSync(summaryPath);
+    const absent = run();
+    expect(absent.status, absent.stderr).toBe(0);
+    expect(absent.stdout).toContain('manual acceptance unavailable/unverified');
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
