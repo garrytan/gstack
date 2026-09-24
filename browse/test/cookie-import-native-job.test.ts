@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, opendirSync, readdirSync, readFileSync, realpathSync, rmSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, opendirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -18,6 +18,110 @@ const root = mkdtempSync(path.join(tmpdir(), 'cookie-job-'));
 const resolvedRoot = realpathSync(root);
 const initialRootState = lstatSync(root, { bigint: true });
 const fixtureChildren = new Set<ChildProcess>();
+const fixturePrimitiveFailures = new WeakMap<object, object>();
+
+function removeOwnedFixtureDirectory(directory: string, identity: { dev: bigint; ino: bigint }, operations = {
+  lstat: (file: string) => lstatSync(file, { bigint: true }),
+  enumerate: (file: string) => readdirSync(file),
+  unlink: (file: string) => unlinkSync(file),
+  rmdir: (file: string) => rmdirSync(file),
+}): void {
+  let primitive = 'identity';
+  let object = directory;
+  let objectIdentityMatched = false;
+  let rootIdentityMatched = false;
+  const ancestors: { file: string; dev: bigint; ino: bigint }[] = [{ file: root, dev: initialRootState.dev, ino: initialRootState.ino }];
+  const inspect = (file: string) => {
+    primitive = 'lstat'; object = file; objectIdentityMatched = false;
+    return operations.lstat(file);
+  };
+  const verifyAncestors = (stopBefore?: string) => {
+    for (const ancestor of ancestors) {
+      if (ancestor.file === stopBefore) break;
+      if (ancestor.file === root) rootIdentityMatched = false;
+      const state = inspect(ancestor.file);
+      const matches = state.isDirectory() && !state.isSymbolicLink() && state.dev === ancestor.dev && state.ino === ancestor.ino;
+      if (ancestor.file === root) rootIdentityMatched = matches;
+      if (!matches) { primitive = 'identity'; throw new Error('Native fixture ancestor identity changed'); }
+      objectIdentityMatched = true;
+    }
+  };
+  const remove = (file: string, expected?: { dev: bigint; ino: bigint }) => {
+    const ancestorCount = ancestors.length;
+    try {
+      verifyAncestors();
+      const state = inspect(file);
+      if (expected && (state.dev !== expected.dev || state.ino !== expected.ino || !state.isDirectory() || state.isSymbolicLink())) {
+        primitive = 'identity'; throw new Error('Native fixture directory identity changed');
+      }
+      if (state.isDirectory() && !state.isSymbolicLink()) {
+        ancestors.push({ file, dev: state.dev, ino: state.ino });
+        verifyAncestors();
+        primitive = 'enumerate'; object = file; objectIdentityMatched = true;
+        const entries = operations.enumerate(file);
+        for (const entry of entries) {
+          if (!entry || entry === '.' || entry === '..' || path.basename(entry) !== entry) {
+            primitive = 'identity'; object = file; throw new Error('Native fixture enumeration escaped its directory');
+          }
+          remove(path.join(file, entry));
+        }
+        verifyAncestors();
+        primitive = 'rmdir'; object = file; objectIdentityMatched = true;
+        operations.rmdir(file);
+      } else {
+        verifyAncestors();
+        const current = inspect(file);
+        if (current.dev !== state.dev || current.ino !== state.ino || current.mode !== state.mode) {
+          primitive = 'identity'; throw new Error('Native fixture entry identity changed');
+        }
+        primitive = 'unlink'; object = file; objectIdentityMatched = true;
+        operations.unlink(file);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || object !== file) throw error;
+      const failedPrimitive = primitive;
+      const matchedBeforeFailure = objectIdentityMatched;
+      verifyAncestors(file);
+      try { inspect(file); }
+      catch (absenceError) {
+        if ((absenceError as NodeJS.ErrnoException).code === 'ENOENT') return;
+        throw absenceError;
+      }
+      primitive = failedPrimitive; object = file; objectIdentityMatched = matchedBeforeFailure;
+      throw error;
+    } finally {
+      ancestors.length = ancestorCount;
+    }
+  };
+  try {
+    const relative = path.relative(path.resolve(root), path.resolve(directory));
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Native fixture removal must stay below its owned root');
+    verifyAncestors();
+    if (realpathSync(root) !== resolvedRoot) { primitive = 'identity'; rootIdentityMatched = false; throw new Error('Native fixture root path changed'); }
+    let parent = root;
+    for (const part of relative.split(path.sep).slice(0, -1)) {
+      verifyAncestors();
+      parent = path.join(parent, part);
+      const state = inspect(parent);
+      if (!state.isDirectory() || state.isSymbolicLink()) { primitive = 'identity'; throw new Error('Native fixture ancestor is not an owned directory'); }
+      ancestors.push({ file: parent, dev: state.dev, ino: state.ino });
+    }
+    remove(directory, identity);
+    verifyAncestors();
+    primitive = 'postcondition'; object = directory; objectIdentityMatched = false;
+    try { operations.lstat(directory); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+    throw new Error('Native fixture directory remains after removal');
+  } catch (error) {
+    const relative = path.relative(path.resolve(directory), path.resolve(object));
+    if (error && typeof error === 'object') fixturePrimitiveFailures.set(error, {
+      primitive, rootIdentityMatched, objectIdentityMatched,
+      relativeObjectHash: !relative.startsWith('..') && !path.isAbsolute(relative) ? createHash('sha256').update(relative).digest('hex') : undefined,
+      objectScope: object === directory ? 'target' : relative.startsWith('..') || path.isAbsolute(relative) ? 'ancestor' : 'child',
+    });
+    throw error;
+  }
+}
 
 function ownFixtureChild<T extends ChildProcess>(child: T): T {
   fixtureChildren.add(child);
@@ -56,6 +160,7 @@ function fixtureRemovalEvidence(error: unknown, directory: string, identity: { d
     syscall: ['rm', 'rmdir', 'unlink', 'scandir', 'lstat'].includes(failure?.syscall || '') ? failure.syscall : 'unavailable',
     errno: Number.isSafeInteger(failure?.errno) ? failure.errno : undefined,
     pendingChildCloses: fixtureChildren.size,
+    ...(error && typeof error === 'object' ? fixturePrimitiveFailures.get(error) : undefined),
   };
   try {
     const rootState = lstatSync(root, { bigint: true });
@@ -319,6 +424,190 @@ function simulation(options: { reply?: NativeCookieReply; replyAt?: number; exit
 }
 
 describe('owned native-cookie lifecycle', () => {
+  test('single-pass removal visits directories before removing them and never follows a leaf link', () => {
+    const fixture = mkdtempSync(path.join(root, 'single-pass-'));
+    const target = path.join(fixture, 'target');
+    const outside = path.join(fixture, 'outside');
+    mkdirSync(path.join(target, 'nested'), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(path.join(target, 'nested', 'file'), 'fixture-only');
+    writeFileSync(path.join(outside, 'preserved'), 'fixture-only');
+    symlinkSync(outside, path.join(target, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
+    const identity = lstatSync(target, { bigint: true });
+    const actions: string[] = [];
+    removeOwnedFixtureDirectory(target, identity, {
+      lstat: file => lstatSync(file, { bigint: true }),
+      enumerate: file => { actions.push(`enumerate:${path.relative(target, file)}`); return readdirSync(file); },
+      unlink: file => { actions.push(`unlink:${path.relative(target, file)}`); unlinkSync(file); },
+      rmdir: file => { actions.push(`rmdir:${path.relative(target, file)}`); rmdirSync(file); },
+    });
+    expect(existsSync(target)).toBe(false);
+    expect(readFileSync(path.join(outside, 'preserved'), 'utf8')).toBe('fixture-only');
+    expect(actions.filter(action => action.startsWith('enumerate:'))).toHaveLength(2);
+    expect(actions.filter(action => action.startsWith('unlink:'))).toHaveLength(2);
+    expect(actions.filter(action => action.startsWith('rmdir:'))).toHaveLength(2);
+    expect(actions.indexOf(`unlink:${path.join('nested', 'file')}`)).toBeLessThan(actions.indexOf('rmdir:nested'));
+    expect(actions.at(-1)).toBe('rmdir:');
+  });
+
+  test('single-pass removal preserves the first original primitive error and stops', () => {
+    for (const failedPrimitive of ['lstat', 'enumerate', 'unlink', 'rmdir']) {
+      const target = mkdtempSync(path.join(root, 'first-removal-error-'));
+      const identity = lstatSync(target, { bigint: true });
+      if (failedPrimitive !== 'rmdir') {
+        writeFileSync(path.join(target, 'first'), 'fixture-only');
+        writeFileSync(path.join(target, 'second'), 'fixture-only');
+      }
+      const original = Object.freeze(Object.assign(new Error('sensitive-sentinel'), { code: 'EBUSY', errno: -4082, syscall: failedPrimitive }));
+      const calls: string[] = [];
+      let caught: unknown;
+      try {
+        removeOwnedFixtureDirectory(target, identity, {
+          lstat: file => {
+            if (failedPrimitive === 'lstat' && file === path.join(target, 'first')) { calls.push('lstat'); throw original; }
+            return lstatSync(file, { bigint: true });
+          },
+          enumerate: file => { calls.push('enumerate'); if (failedPrimitive === 'enumerate') throw original; return failedPrimitive === 'rmdir' ? [] : ['first', 'second']; },
+          unlink: file => { calls.push('unlink'); throw original; },
+          rmdir: file => { calls.push('rmdir'); throw original; },
+        });
+      } catch (error) { caught = error; }
+      expect(caught).toBe(original);
+      expect(calls).toEqual(failedPrimitive === 'enumerate' ? ['enumerate'] : ['enumerate', failedPrimitive]);
+      const receipt = fixtureRemovalEvidence(caught, target, identity);
+      expect(receipt).toMatchObject({ primitive: failedPrimitive, rootIdentityMatched: true, objectIdentityMatched: failedPrimitive !== 'lstat', directoryIdentityMatched: true, relativeObjectHash: createHash('sha256').update(['lstat', 'unlink'].includes(failedPrimitive) ? 'first' : '').digest('hex') });
+      expect(JSON.stringify(receipt)).not.toContain('sensitive-sentinel');
+      if (failedPrimitive !== 'rmdir') {
+        expect(readFileSync(path.join(target, 'first'), 'utf8')).toBe('fixture-only');
+        expect(readFileSync(path.join(target, 'second'), 'utf8')).toBe('fixture-only');
+      }
+    }
+  });
+
+  test('single-pass removal accepts disappeared entries without repeating a removal', () => {
+    for (const stage of ['before_lstat', 'during_unlink', 'during_rmdir']) {
+      const fixture = mkdtempSync(path.join(root, 'removal-disappearing-'));
+      const target = path.join(fixture, 'target');
+      const vanished = path.join(target, 'first');
+      const moved = path.join(fixture, 'moved');
+      mkdirSync(target);
+      if (stage === 'during_rmdir') mkdirSync(vanished);
+      else writeFileSync(vanished, 'fixture-only');
+      writeFileSync(path.join(target, 'second'), 'fixture-only');
+      const identity = lstatSync(target, { bigint: true });
+      const vanishedIdentity = lstatSync(vanished, { bigint: true });
+      const removals: string[] = [];
+      const enumerated: string[] = [];
+      removeOwnedFixtureDirectory(target, identity, {
+        lstat: file => lstatSync(file, { bigint: true }),
+        enumerate: file => {
+          enumerated.push(file);
+          const entries = readdirSync(file).sort();
+          if (stage === 'before_lstat' && file === target) renameSync(vanished, moved);
+          return entries;
+        },
+        unlink: file => {
+          removals.push(file);
+          if (stage === 'during_unlink' && file === vanished) renameSync(vanished, moved);
+          unlinkSync(file);
+        },
+        rmdir: file => {
+          removals.push(file);
+          if (stage === 'during_rmdir' && file === vanished) renameSync(vanished, moved);
+          rmdirSync(file);
+        },
+      });
+      expect(existsSync(target)).toBe(false);
+      expect(new Set(removals).size).toBe(removals.length);
+      expect(new Set(enumerated).size).toBe(enumerated.length);
+      expect(removals.filter(file => file === vanished)).toHaveLength(stage === 'before_lstat' ? 0 : 1);
+      expect(lstatSync(moved, { bigint: true }).ino).toBe(vanishedIdentity.ino);
+      if (stage === 'during_rmdir') expect(readdirSync(moved)).toEqual([]);
+      else expect(readFileSync(moved, 'utf8')).toBe('fixture-only');
+    }
+  });
+
+  test('single-pass removal never treats replacement, ancestor changes, or other errors as absence', () => {
+    for (const code of ['ENOENT', 'EBUSY', 'EPERM', 'EACCES', 'ancestor_replacement']) {
+      const fixture = mkdtempSync(path.join(root, 'removal-not-absent-'));
+      const target = path.join(fixture, 'target');
+      const first = path.join(target, 'first');
+      const moved = path.join(fixture, 'moved');
+      mkdirSync(target);
+      writeFileSync(first, 'fixture-only');
+      writeFileSync(path.join(target, 'second'), 'untouched-only');
+      const identity = lstatSync(target, { bigint: true });
+      const original = Object.freeze(Object.assign(new Error('synthetic-removal-error'), { code: code === 'ancestor_replacement' ? 'ENOENT' : code, syscall: 'unlink' }));
+      let calls = 0;
+      let caught: unknown;
+      try {
+        removeOwnedFixtureDirectory(target, identity, {
+          lstat: file => lstatSync(file, { bigint: true }),
+          enumerate: file => readdirSync(file).sort(),
+          unlink: file => {
+            calls++;
+            if (code === 'ENOENT') {
+              renameSync(file, moved);
+              writeFileSync(file, 'replacement-only');
+            } else if (code === 'ancestor_replacement') {
+              renameSync(target, moved);
+              mkdirSync(target);
+              writeFileSync(first, 'replacement-only');
+            }
+            throw original;
+          },
+          rmdir: file => rmdirSync(file),
+        });
+      } catch (error) { caught = error; }
+      expect(calls).toBe(1);
+      if (code === 'ancestor_replacement') {
+        expect(caught).toBeInstanceOf(Error);
+        expect((caught as Error).message).toContain('ancestor identity changed');
+        expect(fixturePrimitiveFailures.get(caught as object)).toMatchObject({ primitive: 'identity', objectIdentityMatched: false });
+        expect(readFileSync(path.join(moved, 'second'), 'utf8')).toBe('untouched-only');
+      } else {
+        expect(caught).toBe(original);
+        expect(fixturePrimitiveFailures.get(caught as object)).toMatchObject({ primitive: 'unlink', relativeObjectHash: createHash('sha256').update('first').digest('hex') });
+        expect(readFileSync(path.join(target, 'second'), 'utf8')).toBe('untouched-only');
+      }
+      expect(readFileSync(first, 'utf8')).toBe(code === 'ENOENT' || code === 'ancestor_replacement' ? 'replacement-only' : 'fixture-only');
+    }
+  });
+
+  test('single-pass removal rejects changed identities and linked ancestors before touching their contents', () => {
+    const fixture = mkdtempSync(path.join(root, 'removal-identity-'));
+    const target = path.join(fixture, 'target');
+    mkdirSync(target);
+    writeFileSync(path.join(target, 'preserved'), 'fixture-only');
+    const identity = lstatSync(target, { bigint: true });
+    expect(() => removeOwnedFixtureDirectory(target, { dev: identity.dev, ino: identity.ino + 1n })).toThrow('directory identity changed');
+    expect(() => removeOwnedFixtureDirectory(path.dirname(root), identity)).toThrow('stay below its owned root');
+    const link = path.join(fixture, 'link');
+    symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir');
+    expect(() => removeOwnedFixtureDirectory(path.join(link, 'preserved'), identity)).toThrow('ancestor is not an owned directory');
+    unlinkSync(link);
+    const moved = path.join(fixture, 'moved');
+    let caught: unknown;
+    try {
+      removeOwnedFixtureDirectory(target, identity, {
+        lstat: file => lstatSync(file, { bigint: true }),
+        enumerate: file => {
+          const entries = readdirSync(file);
+          renameSync(target, moved);
+          mkdirSync(target);
+          writeFileSync(path.join(target, 'preserved'), 'replacement-only');
+          return entries;
+        },
+        unlink: file => unlinkSync(file),
+        rmdir: file => rmdirSync(file),
+      });
+    } catch (error) { caught = error; }
+    expect(caught).toBeInstanceOf(Error);
+    expect(fixturePrimitiveFailures.get(caught as object)).toMatchObject({ primitive: 'identity', objectScope: 'target', objectIdentityMatched: false });
+    expect(readFileSync(path.join(moved, 'preserved'), 'utf8')).toBe('fixture-only');
+    expect(readFileSync(path.join(target, 'preserved'), 'utf8')).toBe('replacement-only');
+  });
+
   test('removal diagnostics preserve errors and inspect only the unchanged synthetic directory', () => {
     const fixture = mkdtempSync(path.join(root, 'removal-evidence-'));
     const identity = lstatSync(fixture, { bigint: true });
@@ -802,6 +1091,54 @@ describe('native Windows process qualification', () => {
 });
 
 describe('native Windows launch diagnostics', () => {
+  for (const kind of ['file', 'directory'] as const) {
+    test.skipIf(process.platform !== 'win32')(`single-pass removal preserves a real ${kind} delete-sharing conflict`, () => {
+      const fixture = mkdtempSync(path.join(root, 'removal-lock-'));
+      const target = path.join(fixture, 'target');
+      const sibling = path.join(fixture, 'preserved');
+      mkdirSync(target);
+      writeFileSync(sibling, 'unrelated-fixture-only');
+      const locked = kind === 'file' ? path.join(target, 'held') : target;
+      if (kind === 'file') writeFileSync(locked, 'held-fixture-only');
+      const identity = lstatSync(target, { bigint: true });
+      const lockedIdentity = lstatSync(locked, { bigint: true });
+      expect(realpathSync(target)).toBe(path.join(realpathSync(fixture), 'target'));
+      expect(lockedIdentity.isSymbolicLink()).toBe(false);
+      const kernel = dlopen('kernel32.dll', {
+        CreateFileW: { args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.u64], returns: FFIType.u64 },
+        CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
+      });
+      const name = Buffer.from(locked + '\0', 'utf16le');
+      const handle = kernel.symbols.CreateFileW(ptr(name), 0x80000000, 3, null, 3, kind === 'directory' ? 0x02000000 : 0x80, 0);
+      try {
+        expect(BigInt(handle)).not.toBe(0xffffffffffffffffn);
+        expect(BigInt(handle)).not.toBe(0n);
+        let caught: unknown;
+        try { removeOwnedFixtureDirectory(target, identity); }
+        catch (error) { caught = error; }
+        expect(caught).toBeInstanceOf(Error);
+        expect((caught as NodeJS.ErrnoException).code).toBe('EBUSY');
+        const primitive = kind === 'file' ? 'unlink' : 'rmdir';
+        expect((caught as NodeJS.ErrnoException).syscall).toBe(primitive);
+        const receipt = fixtureRemovalEvidence(caught, target, identity);
+        expect(receipt).toMatchObject({ primitive, rootIdentityMatched: true, objectIdentityMatched: true, directoryIdentityMatched: true, relativeObjectHash: createHash('sha256').update(kind === 'file' ? 'held' : '').digest('hex') });
+        console.log(JSON.stringify({ nativeFixtureOwnedLockControl: { kind, ...receipt } }));
+        expect(lstatSync(locked, { bigint: true }).ino).toBe(lockedIdentity.ino);
+        expect(lstatSync(locked, { bigint: true }).dev).toBe(lockedIdentity.dev);
+        if (kind === 'file') expect(readFileSync(locked, 'utf8')).toBe('held-fixture-only');
+        else expect(readdirSync(locked)).toEqual([]);
+        expect(readFileSync(sibling, 'utf8')).toBe('unrelated-fixture-only');
+      } finally {
+        try {
+          if (BigInt(handle) !== 0xffffffffffffffffn && BigInt(handle) !== 0n) expect(kernel.symbols.CloseHandle(handle)).toBe(1);
+        } finally { kernel.close(); }
+      }
+      removeOwnedFixtureDirectory(target, identity);
+      expect(existsSync(target)).toBe(false);
+      expect(readFileSync(sibling, 'utf8')).toBe('unrelated-fixture-only');
+    }, 10_000);
+  }
+
   test.each(['resolve_root', 'resolve_file'])('file-owner diagnostics preserve the %s filesystem failure without exposing its path', stage => {
     const fixture = mkdtempSync(path.join(root, 'owner-stage-'));
     const missing = path.join(fixture, 'sensitive-sentinel');
@@ -1009,11 +1346,10 @@ describe('native Windows launch diagnostics', () => {
       if ('error' in contained && contained.error === 'native_cleanup_failed') throw new Error('Contained cleanup was not confirmed; direct comparison refused');
       if (existsSync(userDataDir)) {
         if (realpathSync(userDataDir).toLowerCase() !== path.resolve(userDataDir).toLowerCase()) throw new Error('Synthetic profile ownership changed; comparison refused');
-        let identity: { dev: bigint; ino: bigint } | undefined;
-        try { identity = lstatSync(userDataDir, { bigint: true }); } catch {}
-        try { rmSync(userDataDir, { recursive: true, force: true }); }
+        const identity = lstatSync(userDataDir, { bigint: true });
+        try { removeOwnedFixtureDirectory(userDataDir, identity); }
         catch (error) {
-          console.error(JSON.stringify({ nativeFixtureRemovalFailure: { stage: 'launch_reset', layout, ...(identity ? fixtureRemovalEvidence(error, userDataDir, identity) : { inspected: false, reason: 'no_pre_reset_identity' }) } }));
+          console.error(JSON.stringify({ nativeFixtureRemovalFailure: { stage: 'launch_reset', layout, ...fixtureRemovalEvidence(error, userDataDir, identity) } }));
           throw error;
         }
       }
@@ -1077,9 +1413,8 @@ describe('native Windows launch diagnostics', () => {
         clearOwnedFixtureContents(fixture, rootIdentity);
       } else {
         if (existsSync(userDataDir) && realpathSync(userDataDir) !== path.join(ownedRoot, 'User Data')) throw new Error('Synthetic profile ownership changed');
-        let identity: { dev: bigint; ino: bigint } | undefined;
-        try { identity = lstatSync(userDataDir, { bigint: true }); } catch {}
-        try { rmSync(userDataDir, { recursive: true, force: true }); }
+        const identity = existsSync(userDataDir) ? lstatSync(userDataDir, { bigint: true }) : undefined;
+        try { if (identity) removeOwnedFixtureDirectory(userDataDir, identity); }
         catch (error) {
           console.error(JSON.stringify({ nativeFixtureRemovalFailure: { stage: 'initialization_reset', state, ...(identity ? fixtureRemovalEvidence(error, userDataDir, identity) : { inspected: false, reason: 'no_pre_reset_identity' }) } }));
           throw error;
