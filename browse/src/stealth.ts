@@ -137,12 +137,6 @@ export function buildStealthScript(hw: HostProfile): string {
                      MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
         RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled',
                                    UPDATE_AVAILABLE: 'update_available' },
-        connect: markNative(function connect() {
-          throw new TypeError('Error in invocation of runtime.connect: No matching signature.');
-        }, 'connect'),
-        sendMessage: markNative(function sendMessage() {
-          throw new TypeError('Error in invocation of runtime.sendMessage: No matching signature.');
-        }, 'sendMessage'),
         id: undefined,
       };
     }
