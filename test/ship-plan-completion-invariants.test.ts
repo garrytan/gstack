@@ -81,13 +81,15 @@ describe('ship/SKILL.md — Plan Completion gate invariants (VAS-449 remediation
   test('live evidence recovery distinguishes bookkeeping failure from stale inputs', () => {
     const entry = fs.readFileSync(path.join(SHIP_DIR, 'SKILL.md'), 'utf8');
     const gate = entry.slice(entry.indexOf('## Step 16:'), entry.indexOf('## Step 17:'));
-    expect(gate).toContain('content, command, or age mismatch');
-    expect(gate).toContain('ledger alone cannot record or verify');
+    expect(gate).toContain('Content, command or age mismatch, or no passing live evidence');
+    expect(gate).toContain('Ledger read/write failure only');
     expect(gate).toContain('unchanged final content');
-    expect(gate).toMatch(/exact command,\s+exit, and log/);
-    expect(gate).toContain('never label the ledger FRESH');
-    expect(gate).toContain('Do not rerun green suites solely for bookkeeping');
-    expect(gate).toContain('a failed RUN does');
+    expect(gate).toMatch(/exact command and permitted age, cite its exit,\s+timestamp and log/);
+    expect(gate).toMatch(/never\s+ledger FRESH/);
+    expect(gate).toMatch(/Do not rerun green suites solely because the ledger cannot save\s+or read its record/);
+    expect(gate).toContain('required live RUN must pass');
+    expect(gate).toMatch(/TODO edits and generated tests are content\s+changes, not ledger-only bookkeeping/);
+    expect(gate).toContain('If unchanged content cannot be confirmed, STOP');
   });
 
   test('ship contract precedes base detection and fresh remote facts precede distribution decisions', () => {

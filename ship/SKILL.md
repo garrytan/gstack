@@ -645,14 +645,15 @@ service with existing deployment — verify that a distribution pipeline exists.
    - B) Defer — add a P1 distribution TODO in Step 14
    - C) Not needed — this is internal/web-only, existing deployment covers it
 
-4. **If release pipeline exists:** Continue silently.
-5. **If no new artifact detected:** Skip silently.
+4. **If the user chooses A:** Add packaging and publish configuration using this repository's CI conventions. Ask for the intended distribution target if it is unknown; do not invent a registry or credentials. Include the new workflow in the tests and review below. Do not publish a release during `/ship`.
+5. **If release pipeline exists:** Continue silently.
+6. **If no new artifact detected:** Skip silently.
 
 ---
 
 ## Step 3: Merge the base branch (BEFORE tests)
 
-Merge the base ref fetched in Step 1 so tests cover the same state used by Step 2:
+Merge the base ref fetched in Step 1 so tests and reviews cover the integrated code:
 
 ```bash
 git merge origin/<base> --no-edit
@@ -693,7 +694,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    ```
    Save the JSON `baseVersion` as `BASE_VERSION`, then read `state` and dispatch:
    - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`; recover the prior `BUMP_LEVEL` from the release decision (or base/current version difference), then run step 3's queue check. Do not bump again without approval.
+   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Use the recorded level for this release; if absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify. On success, follow **ALREADY_BUMPED**, including its queue check; on failure, STOP. Repair alone never re-bumps.
    - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
@@ -800,14 +801,19 @@ Step 7 tests, review fixes, and Step 14 TODO edits intentionally make evidence S
 
 - **Every line FRESH (exit 0):** recorded runs passed on identical content except
   the listed release files. Cite label, exit, timestamp, and log path; continue.
-- **Any STALE/MISSING (exit non-zero):** rerun the stale/missing lanes on final
-  content, wrapped as `~/.claude/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`.
-  Read results and recheck once. A content, command, or age mismatch requires
-  relevant fresh verification. If the ledger alone cannot record or verify a
-  successful live run, confirm unchanged final content and cite the exact command,
-  exit, and log; report ledger unavailable and continue, but never label the ledger FRESH.
-  If unchanged content cannot be confirmed, STOP. Do not rerun green suites solely for bookkeeping.
-  A failed CHECK selects live verification: a failed CHECK never blocks; a failed RUN does, except for the explicit triage waiver below.
+- **Any STALE/MISSING (exit non-zero):** inspect the reason before choosing recovery:
+  - **Content, command or age mismatch, or no passing live evidence:** rerun the
+    affected lanes on final content, wrapped as `~/.claude/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`.
+    Read results and recheck once. TODO edits and generated tests are content
+    changes, not ledger-only bookkeeping.
+  - **Ledger read/write failure only:** if a successful live run already covers
+    the unchanged final content, exact command and permitted age, cite its exit,
+    timestamp and log directly. Report ledger unavailable and continue, never
+    ledger FRESH. Do not rerun green suites solely because the ledger cannot save
+    or read its record. If unchanged content cannot be confirmed, STOP.
+
+A failed CHECK identifies evidence to repair; it is not a test failure. The
+required live RUN must pass, except for the explicit triage waiver below.
 
 Paste build and rerun results. Later code, test, or build-input changes return
 through this gate before pushing. Step 18 owns validation of its post-push

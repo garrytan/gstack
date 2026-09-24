@@ -81,7 +81,7 @@ Read the diff for this branch. First list changed files: `DIFF_BASE=$(git merge-
 
 Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). After listing findings, end your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>` — examples: `Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s` or `Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
 
-Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
+Present findings under an `ADVERSARIAL REVIEW (Claude subagent):` header. **FIXABLE findings:** collect them for the Step 11 completion procedure below; it uses Step 9.4's classification and approval rules. **INVESTIGATE findings** are presented as informational.
 
 If the subagent fails or times out: "Claude adversarial subagent unavailable. Continuing."
 
@@ -206,7 +206,7 @@ A) Investigate and fix now (recommended)
 B) Continue — review will still complete
 ```
 
-If A: address the findings. After fixing, re-run tests (Step 5) since code has changed. Re-run the same shared structured invocation and diff scope to verify.
+If A: record approval to fix these findings in the Step 11 completion procedure below. If B: retain the acknowledged findings and failed gate; do not report a clean review.
 
 Read stderr for errors (same error handling as Codex adversarial above).
 
@@ -245,6 +245,13 @@ ADVERSARIAL REVIEW SYNTHESIS (always-on, N lines):
 ```
 
 High-confidence findings (agreed on by multiple sources) should be prioritized for fixes.
+
+### Step 11 completion and late-fix loop
+
+1. Finish all available passes and persist each source/phase's actual result above. Missing or failed passes remain unavailable, never clean.
+2. Triage the collected FIXABLE findings using Step 9.4 items 1–3: AUTO-FIX or ASK, apply automatic and approved fixes, and retain explicit skips. Do not ask again for a Step 11 P1 fix already approved.
+3. If anything changed, commit only the fixed files. Run Step 5 and affected Steps 6–8, then repeat Step 9 from a fresh start token. After Step 9 converges, return directly to Step 11 and repeat its passes on the changed tree. Prior responses do not certify the fixes; do not repeat unchanged Step 10 comment decisions.
+4. Bound this late-fix loop to three fix cycles. If the third cycle still changes code, record non-convergence and STOP with the recurring findings. A zero-fix cycle continues to Step 12 with actual coverage and any explicit acknowledgments; unavailable or waived coverage is never reported as a clean completed pass.
 
 ---
 

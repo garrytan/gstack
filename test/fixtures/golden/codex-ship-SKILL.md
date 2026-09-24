@@ -638,14 +638,15 @@ service with existing deployment — verify that a distribution pipeline exists.
    - B) Defer — add a P1 distribution TODO in Step 14
    - C) Not needed — this is internal/web-only, existing deployment covers it
 
-4. **If release pipeline exists:** Continue silently.
-5. **If no new artifact detected:** Skip silently.
+4. **If the user chooses A:** Add packaging and publish configuration using this repository's CI conventions. Ask for the intended distribution target if it is unknown; do not invent a registry or credentials. Include the new workflow in the tests and review below. Do not publish a release during `/ship`.
+5. **If release pipeline exists:** Continue silently.
+6. **If no new artifact detected:** Skip silently.
 
 ---
 
 ## Step 3: Merge the base branch (BEFORE tests)
 
-Merge the base ref fetched in Step 1 so tests cover the same state used by Step 2:
+Merge the base ref fetched in Step 1 so tests and reviews cover the integrated code:
 
 ```bash
 git merge origin/<base> --no-edit
@@ -2006,20 +2007,22 @@ or missing-reviewer rules.
    - Overall RECOMMENDATION
    - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
 
-4. **After all fixes (auto + user-approved):**
-   - If fixes were applied, commit named fixed files (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5), then re-run the whole Step 9 cycle from a new pass's start-token capture, including design, specialists, Red Team, and dedup. Repeat until a complete pass applies ZERO fixes with tests green or the same explicit Step 5 waiver. NEVER tell the user to run `/ship` again just for this cycle.
+4. **After all fixes (auto + user-approved), take the first matching branch:**
+   - If a dispatched specialist or Red Team failed, emit items 5–6 with `status:"unavailable"`, `completed:false` and `converged:false`. Then **STOP before Step 10**, naming the missing reviewer and retaining applied fixes. When coverage is available, rerun Step 5 and affected Steps 6–8 if code changed, then resume with a new Step 9 pass. Intentionally gated or host-unsupported reviewers were not dispatched and do not trigger this stop.
+   - If fixes were applied, commit named fixed files (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5) and affected Steps 6–8, then re-run the whole Step 9 cycle from a new pass's start-token capture, including design, specialists, Red Team, and dedup. Repeat until a complete pass applies ZERO fixes with tests green or the same explicit Step 5 waiver. NEVER tell the user to run `/ship` again just for this cycle.
    - **Bound: 3 fix cycles.** If cycle 3 still fixes code, persist item 6 below with `converged:false` and that pass's original REVIEW_START, then STOP and report which findings keep reappearing.
-   - A zero-fix pass (including explicit skips) proceeds to summary and persistence below; missing dispatched coverage still prevents completion.
+   - A zero-fix pass (including explicit skips) proceeds to summary and persistence below.
 
 5. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
 
-   If no issues found: `Pre-Landing Review: No issues found.`
+   If coverage is incomplete: `Pre-Landing Review: INCOMPLETE — <missing reviewers>`.
+   Otherwise, if no issues found: `Pre-Landing Review: No issues found.`
 
 6. Persist the review result to the review log:
 ```bash
 $GSTACK_ROOT/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship","completed":COMPLETED,"converged":CONVERGED,"cycles":CYCLES}' --finish REVIEW_START
 ```
-Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
+Substitute TIMESTAMP (ISO 8601), STATUS ("unavailable" for missing dispatched coverage, otherwise "issues_found" for unresolved defects or "clean" for none),
 and N values from the remaining unresolved findings, not the original pre-fix totals. The `via:"ship"` distinguishes from standalone `/review` runs.
 - `REVIEW_START` = the token captured at the start of Step 9 before this pass read the diff. `COMPLETED` = true only if the checklist and dispatched specialists completed; failed or missing dispatched coverage is false, never clean. A host-unsupported or intentionally gated specialist was not dispatched and does not block completion; retain the skip/unavailable label. `CONVERGED` = true only for a completed pass that applied zero fixes. `CYCLES` = fix cycles performed (0 for a first-pass completion). Never recapture at persistence to certify fixes that have not been reviewed.
 - `quality_score` = the PR Quality Score computed in Step 9.2 (e.g., 7.5). If specialists were skipped or unsupported by this host, use `10.0`
@@ -2080,7 +2083,7 @@ For each comment in `comments`:
 
 **SUPPRESSED:** Skip silently — these are known false positives from previous triage.
 
-**After all comments are resolved:** If any fixes were applied, the tests from Step 5 are now stale. **Re-run tests** (Step 5) before continuing to Step 11. If no fixes were applied, continue to Step 11.
+**After all comments are resolved:** If fixes were applied, run Step 5 and any affected checks from Steps 6–8, then repeat Step 9 on the changed tree before continuing to Step 11. Keep the replies already sent; do not repeat unchanged comment decisions. If no fixes were applied, continue to Step 11.
 
 ---
 
@@ -2158,7 +2161,7 @@ Read the diff for this branch. First list changed files: `DIFF_BASE=$(git merge-
 
 Think like an attacker and a chaos engineer. Your job is to find ways this code will fail in production. Look for: edge cases, race conditions, security holes, resource leaks, failure modes, silent data corruption, logic errors that produce wrong results silently, error handling that swallows failures, and trust boundary violations. Be adversarial. Be thorough. No compliments — just the problems. For each finding, classify as FIXABLE (you know how to fix it) or INVESTIGATE (needs human judgment). After listing findings, end your output with ONE line in the canonical format `Recommendation: <action> because <one-line reason naming the most exploitable finding>` — examples: `Recommendation: Fix the unbounded retry at queue.ts:78 because it'll DoS the worker pool under sustained 429s` or `Recommendation: Ship as-is because the strongest finding is a theoretical race that requires conditions we can't trigger in production`. The reason must point to a specific finding (or no-fix rationale). Generic reasons like 'because it's safer' do not qualify."
 
-Present findings under an `ADVERSARIAL REVIEW (Codex (in-host) subagent):` header. **FIXABLE findings** flow into the same Fix-First pipeline as the structured review. **INVESTIGATE findings** are presented as informational.
+Present findings under an `ADVERSARIAL REVIEW (Codex (in-host) subagent):` header. **FIXABLE findings:** collect them for the Step 11 completion procedure below; it uses Step 9.4's classification and approval rules. **INVESTIGATE findings** are presented as informational.
 
 If the subagent fails or times out: "Codex (in-host) adversarial subagent unavailable. Continuing."
 
@@ -2314,7 +2317,7 @@ A) Investigate and fix now (recommended)
 B) Continue — review will still complete
 ```
 
-If A: address the findings. After fixing, re-run tests (Step 5) since code has changed. Re-run the same shared structured invocation and diff scope to verify.
+If A: record approval to fix these findings in the Step 11 completion procedure below. If B: retain the acknowledged findings and failed gate; do not report a clean review.
 
 Read stderr for errors (same error handling as Claude Code adversarial above).
 
@@ -2353,6 +2356,13 @@ ADVERSARIAL REVIEW SYNTHESIS (always-on, N lines):
 ```
 
 High-confidence findings (agreed on by multiple sources) should be prioritized for fixes.
+
+### Step 11 completion and late-fix loop
+
+1. Finish all available passes and persist each source/phase's actual result above. Missing or failed passes remain unavailable, never clean.
+2. Triage the collected FIXABLE findings using Step 9.4 items 1–3: AUTO-FIX or ASK, apply automatic and approved fixes, and retain explicit skips. Do not ask again for a Step 11 P1 fix already approved.
+3. If anything changed, commit only the fixed files. Run Step 5 and affected Steps 6–8, then repeat Step 9 from a fresh start token. After Step 9 converges, return directly to Step 11 and repeat its passes on the changed tree. Prior responses do not certify the fixes; do not repeat unchanged Step 10 comment decisions.
+4. Bound this late-fix loop to three fix cycles. If the third cycle still changes code, record non-convergence and STOP with the recurring findings. A zero-fix cycle continues to Step 12 with actual coverage and any explicit acknowledgments; unavailable or waived coverage is never reported as a clean completed pass.
 
 ---
 
@@ -2408,7 +2418,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    ```
    Save the JSON `baseVersion` as `BASE_VERSION`, then read `state` and dispatch:
    - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`; recover the prior `BUMP_LEVEL` from the release decision (or base/current version difference), then run step 3's queue check. Do not bump again without approval.
+   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Use the recorded level for this release; if absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify. On success, follow **ALREADY_BUMPED**, including its queue check; on failure, STOP. Repair alone never re-bumps.
    - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
@@ -2556,14 +2566,19 @@ Step 7 tests, review fixes, and Step 14 TODO edits intentionally make evidence S
 
 - **Every line FRESH (exit 0):** recorded runs passed on identical content except
   the listed release files. Cite label, exit, timestamp, and log path; continue.
-- **Any STALE/MISSING (exit non-zero):** rerun the stale/missing lanes on final
-  content, wrapped as `$GSTACK_ROOT/bin/gstack-evidence run --label <lane> -- '<command>'`.
-  Read results and recheck once. A content, command, or age mismatch requires
-  relevant fresh verification. If the ledger alone cannot record or verify a
-  successful live run, confirm unchanged final content and cite the exact command,
-  exit, and log; report ledger unavailable and continue, but never label the ledger FRESH.
-  If unchanged content cannot be confirmed, STOP. Do not rerun green suites solely for bookkeeping.
-  A failed CHECK selects live verification: a failed CHECK never blocks; a failed RUN does, except for the explicit triage waiver below.
+- **Any STALE/MISSING (exit non-zero):** inspect the reason before choosing recovery:
+  - **Content, command or age mismatch, or no passing live evidence:** rerun the
+    affected lanes on final content, wrapped as `$GSTACK_ROOT/bin/gstack-evidence run --label <lane> -- '<command>'`.
+    Read results and recheck once. TODO edits and generated tests are content
+    changes, not ledger-only bookkeeping.
+  - **Ledger read/write failure only:** if a successful live run already covers
+    the unchanged final content, exact command and permitted age, cite its exit,
+    timestamp and log directly. Report ledger unavailable and continue, never
+    ledger FRESH. Do not rerun green suites solely because the ledger cannot save
+    or read its record. If unchanged content cannot be confirmed, STOP.
+
+A failed CHECK identifies evidence to repair; it is not a test failure. The
+required live RUN must pass, except for the explicit triage waiver below.
 
 Paste build and rerun results. Later code, test, or build-input changes return
 through this gate before pushing. Step 18 owns validation of its post-push

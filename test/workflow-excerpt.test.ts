@@ -163,13 +163,14 @@ describe('workflow judge excerpts', () => {
     const { skillPath, startMarker, endMarker } = ENG_REVIEW_EXCERPT;
     const eng = readWorkflowExcerpt(skillPath, startMarker, endMarker);
     const stages = ['## Review preparation', '## Retrospective learning', '## Confidence Calibration', '## Decision procedure',
-      '### 1. Establish current state', '## Review Sections',
+      '### 1. Establish current state', '## Scope Challenge', '### A. Assess the target',
+      '### B. Resolve complexity selectors', '### C. Resolve findings', '## Review Sections',
       '### 1. Architecture review', '### 2. Code quality review', '### 3. Test review', '### 4. Performance review']
       .map(heading => eng.indexOf(heading));
     expect(stages.every(index => index >= 0)).toBe(true);
     expect(stages).toEqual([...stages].sort((a, b) => a - b));
     expect(eng.match(/^## Decision procedure$/gm)).toHaveLength(1);
-    const procedure = eng.slice(eng.indexOf('## Decision procedure'), eng.indexOf('## Review Sections'));
+    const procedure = eng.slice(eng.indexOf('## Decision procedure'), eng.indexOf('## Scope Challenge'));
     const headings = marked.lexer(procedure).filter(token => token.type === 'heading' && token.depth === 3);
     expect(headings.map(token => token.text)).toEqual(['1. Establish current state', '2. Separate independent choices', '3. Compare one choice',
       '4. Save the pending record', '5. Ask and wait', '6. Apply and refresh']);

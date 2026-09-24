@@ -140,6 +140,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/tasks-section.ts'
   ],
   'plan-eng-review':           ['test/session-runner-stream-lifecycle.test.ts', 'test/paid-retry-supervision.test.ts',
+    'test/eng-review-routing.test.ts',
     'scripts/resolvers/learnings.ts',
     "test/plan-scope-recovery-av.test.ts",
     "test/fixtures/plan-scope-recovery-av.json", 'test/eng-scope-entry-ap.test.ts', 'plan-eng-review/**', 'test/skill-e2e-plan.test.ts',
@@ -147,6 +148,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'scripts/resolvers/testing.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/review.ts', 'test/plan-review-cases.test.ts'
   ],
   'plan-eng-review-artifact':  ['test/session-runner-stream-lifecycle.test.ts', 'test/paid-retry-supervision.test.ts',
+    'test/eng-review-routing.test.ts',
     'scripts/resolvers/learnings.ts',
     "test/plan-scope-recovery-av.test.ts",
     "test/fixtures/plan-scope-recovery-av.json", 'test/eng-scope-entry-ap.test.ts', 'plan-eng-review/**', 'test/skill-e2e-plan.test.ts',
@@ -154,6 +156,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'scripts/resolvers/testing.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/review.ts', 'test/plan-review-cases.test.ts'
   ],
   'plan-review-report':        ['test/session-runner-stream-lifecycle.test.ts', 'test/paid-retry-supervision.test.ts',
+    'test/eng-review-routing.test.ts',
     'test/helpers/office-hours-attempt.ts', 'test/office-hours-attempt.test.ts',
     'test/plan-review-report-recording.test.ts', 'test/fixtures/plan-review-report-public.json',
     'scripts/resolvers/learnings.ts',
@@ -1782,6 +1785,7 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
 
   // Ship & Release
   'ship/SKILL.md workflow':               ['ship/SKILL.md', 'ship/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts', 'test/workflow-judge-cache.test.ts', 'scripts/eval-input-cache.ts', 'test/eval-input-cache.test.ts', 'test/workflow-judge-input.test.ts', 'test/helpers/workflow-excerpt.ts',
+    'test/ship-workflow-clarity.test.ts', 'scripts/resolvers/review.ts',
     'scripts/resolvers/testing.ts', 'ship/sections/**'
   ],
   'document-release/SKILL.md workflow':   ['document-release/SKILL.md', 'document-release/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts', 'test/workflow-judge-cache.test.ts', 'scripts/eval-input-cache.ts', 'test/eval-input-cache.test.ts', 'test/workflow-judge-input.test.ts', 'test/helpers/workflow-excerpt.ts'],
@@ -1791,6 +1795,7 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
     'scripts/resolvers/preamble/generate-ask-user-format.ts'
   ],
   'plan-eng-review/SKILL.md sections':    [
+    'test/eng-review-routing.test.ts', 'scripts/resolvers/gbrain.ts',
     'scripts/resolvers/learnings.ts',
     "test/plan-scope-recovery-av.test.ts",
     "test/fixtures/plan-scope-recovery-av.json", 'test/eng-scope-entry-ap.test.ts', 'plan-eng-review/SKILL.md', 'plan-eng-review/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts', 'test/workflow-judge-cache.test.ts', 'scripts/eval-input-cache.ts', 'test/eval-input-cache.test.ts', 'test/workflow-judge-input.test.ts', 'test/helpers/workflow-excerpt.ts',
