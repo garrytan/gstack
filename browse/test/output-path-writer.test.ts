@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from 'bun:test';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -41,7 +41,7 @@ beforeAll(async () => {
   symlinkSync(join(allowed, 'nested'), join(outside, 'return'));
   const entry = join(root, 'node-entry.ts');
   writeFileSync(entry, [
-    `export { SAFE_DIRECTORIES, validateReadPath, validateTempPath } from ${JSON.stringify(resolve(import.meta.dir, '../src/path-security.ts'))};`,
+    `export { SAFE_DIRECTORIES, validateOutputPath, validateReadPath, validateTempPath } from ${JSON.stringify(resolve(import.meta.dir, '../src/path-security.ts'))};`,
     `export { writeEvalResult } from ${JSON.stringify(resolve(import.meta.dir, '../src/read-commands.ts'))};`,
     `export { isPathWithin, TEMP_DIR } from ${JSON.stringify(resolve(import.meta.dir, '../src/platform.ts'))};`,
   ].join('\n'));
@@ -55,29 +55,57 @@ beforeEach(() => {
   rmSync(join(outside, 'new.txt'), { force: true });
   rmSync(join(outside, 'missing-directory'), { recursive: true, force: true });
   rmSync(join(outside, 'escaped.txt'), { force: true });
+  rmSync(join(outside, 'new-component'), { recursive: true, force: true });
 });
 
 afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true });
 });
 
-function probe(operation: 'write' | 'read' | 'temp', file: string, runtime: 'bun' | 'node' = 'bun') {
+function probe(operation: 'write' | 'read' | 'temp' | 'scrape' | 'scrape-image' | 'mkdir', file: string, runtime: 'bun' | 'node' = 'bun') {
   const lexicalPath = resolve(allowed, file);
   expect(lexicalPath.startsWith(`${root}/`) || lexicalPath.startsWith(`${root}\\`)).toBe(true);
   const script = `
-    import { SAFE_DIRECTORIES, validateReadPath, validateTempPath } from ${JSON.stringify(runtime === 'node' ? nodeBundle : pathModule)};
+    import { SAFE_DIRECTORIES, validateOutputPath, validateReadPath, validateTempPath } from ${JSON.stringify(runtime === 'node' ? nodeBundle : pathModule)};
     import { writeEvalResult } from ${JSON.stringify(runtime === 'node' ? nodeBundle : readModule)};
     import { isPathWithin, TEMP_DIR } from ${JSON.stringify(runtime === 'node' ? nodeBundle : pathToFileURL(resolve(import.meta.dir, '../src/platform.ts')).href)};
-    import { realpathSync } from 'node:fs';
+    import { realpathSync, mkdirSync } from 'node:fs';
     const [operation, file, outside] = process.argv.slice(1);
     if (SAFE_DIRECTORIES.some(dir => isPathWithin(outside, dir))) throw new Error('Fixture sibling accidentally allowed');
     let error = null;
+    let output = null;
+    let browser;
+    let server;
     try {
       if (operation === 'write') writeEvalResult(file, 'fixture output', { raw: true });
+      else if (operation === 'mkdir') {
+        validateOutputPath(file);
+        mkdirSync(file, { recursive: true });
+      }
+      else if (operation === 'scrape' || operation === 'scrape-image') {
+        const { chromium } = await import(${JSON.stringify(pathToFileURL(require.resolve('playwright')).href)});
+        const { TabSession } = await import(${JSON.stringify(pathToFileURL(resolve(import.meta.dir, '../src/tab-session.ts')).href)});
+        const { handleWriteCommand } = await import(${JSON.stringify(pathToFileURL(resolve(import.meta.dir, '../src/write-commands.ts')).href)});
+        browser = await chromium.launch();
+        const page = await browser.newPage();
+        if (operation === 'scrape-image') {
+          server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+            return new URL(request.url).pathname === '/'
+              ? new Response('<img src="/pixel.png">', { headers: { 'Content-Type': 'text/html' } })
+              : new Response(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'), { headers: { 'Content-Type': 'image/png' } });
+          } });
+          await page.goto('http://127.0.0.1:' + server.port);
+        } else await page.setContent('<main><h1>Owned empty-media fixture</h1></main>');
+        output = await handleWriteCommand('scrape', ['images', '--dir', file], new TabSession(page), {
+          getPage: () => page,
+          getActiveFrameOrPage: () => page,
+        });
+      }
       else if (operation === 'read') validateReadPath(file);
       else validateTempPath(file);
     } catch (err) { error = err.message; }
-    console.log(JSON.stringify({ error, safe: SAFE_DIRECTORIES, remoteTemp: realpathSync(TEMP_DIR) }));
+    finally { await browser?.close(); server?.stop(true); }
+    console.log(JSON.stringify({ error, output, safe: SAFE_DIRECTORIES, remoteTemp: realpathSync(TEMP_DIR) }));
   `;
   const executable = runtime === 'node' ? Bun.which('node') : process.execPath;
   expect(executable).not.toBeNull();
@@ -91,7 +119,7 @@ function probe(operation: 'write' | 'read' | 'temp', file: string, runtime: 'bun
   });
   expect(result.exitCode).toBe(0);
   expect(result.stderr.toString()).toBe('');
-  return JSON.parse(result.stdout.toString()) as { error: string | null; safe: string[]; remoteTemp: string };
+  return JSON.parse(result.stdout.toString()) as { error: string | null; output: string | null; safe: string[]; remoteTemp: string };
 }
 
 for (const name of ['ordinary.txt', 'new-directory/new.txt', 'internal-link.txt', 'internal-parent/through-parent.txt', 'internal-chain/through-chain.txt']) {
@@ -179,3 +207,97 @@ test('Node writer preserves physical symlink-parent semantics and ordinary creat
     expect(readFileSync(`${allowed}/${file}`, 'utf8')).toBe('fixture output');
   }
 });
+
+test('actual scrape rejects recursive creation outside the roots before returning inside', () => {
+  expect(realpathSync.native(join(allowed, 'outward-parent'))).toBe(outside);
+  const before = readdirSync(outside).sort();
+  const result = probe('scrape', 'outward-parent/new-component/../../allowed/scrape-rejected');
+  expect(readdirSync(outside).sort()).toEqual(before);
+  expect(result.error).toContain('Path must be within');
+  expect(result.output).toBeNull();
+  expect(existsSync(join(allowed, 'scrape-rejected'))).toBe(false);
+}, 15_000);
+
+test('actual scrape preserves ordinary creation, internal links and existing outward-return traversal', () => {
+  const before = readdirSync(outside).sort();
+  mkdirSync(join(allowed, 'allowed', 'scrape-existing'), { recursive: true });
+  for (const directory of [
+    'ordinary-scrape/missing/leaf',
+    'internal-nested/../scrape-internal',
+    'outward-parent/nested/../../allowed/scrape-existing',
+  ]) {
+    const result = probe('scrape', directory);
+    expect(result.error).toBeNull();
+    expect(result.output).toContain('Scraped 0 items');
+    const manifest = JSON.parse(readFileSync(join(allowed, directory, 'manifest.json'), 'utf8'));
+    expect(manifest.files).toEqual([]);
+    expect(manifest.succeeded).toBe(0);
+  }
+  expect(readdirSync(outside).sort()).toEqual(before);
+}, 30_000);
+
+test('Node recursive creation rejects missing outside components and preserves existing traversal', () => {
+  const before = readdirSync(outside).sort();
+  const result = probe('mkdir', 'outward-parent/new-component/../../allowed/node-scrape-rejected', 'node');
+  expect(readdirSync(outside).sort()).toEqual(before);
+  expect(result.error).toContain('Path must be within');
+  for (const directory of ['node-ordinary/missing/leaf', 'internal-nested/../node-recursive', 'outward-parent/nested/../../allowed/node-existing']) {
+    expect(probe('mkdir', directory, 'node').error).toBeNull();
+    expect(statSync(`${allowed}/${directory}`).isDirectory()).toBe(true);
+  }
+  expect(readdirSync(outside).sort()).toEqual(before);
+});
+
+test('actual scrape creates and reports one normalized destination without a preexisting parent', () => {
+  const directory = 'outward-parent/nested/../../allowed/cycle2-uncreated/leaf';
+  const normalized = resolve(allowed, directory);
+  const rawDestination = join(allowed, 'cycle2-uncreated', 'leaf');
+  const before = readdirSync(outside).sort();
+  expect(existsSync(dirname(normalized))).toBe(false);
+  expect(existsSync(dirname(rawDestination))).toBe(false);
+  const result = probe('scrape', directory);
+  expect(result.error).toBeNull();
+  expect(result.output).toStartWith(`Scraped 0 items to ${normalized}/\n`);
+  const manifest = JSON.parse(readFileSync(join(normalized, 'manifest.json'), 'utf8'));
+  expect(manifest.files).toEqual([]);
+  expect(manifest.succeeded).toBe(0);
+  expect(existsSync(dirname(rawDestination))).toBe(false);
+  expect(readdirSync(outside).sort()).toEqual(before);
+}, 15_000);
+
+for (const filename of ['manifest.json', 'image-001.png']) {
+  for (const dangling of [false, true]) {
+    test(`actual scrape refuses ${dangling ? 'dangling' : 'live'} outward ${filename} without writing through it`, () => {
+      const directory = join(allowed, `leaf-${filename}-${dangling}`);
+      const target = join(outside, `leaf-${filename}-${dangling}`);
+      mkdirSync(directory);
+      expect(realpathSync(dirname(target))).toBe(outside);
+      if (!dangling) writeFileSync(target, 'owned sentinel');
+      symlinkSync(target, join(directory, filename));
+      const result = probe('scrape-image', directory);
+      if (dangling) expect(existsSync(target)).toBe(false);
+      else expect(readFileSync(target, 'utf8')).toBe('owned sentinel');
+      if (filename === 'manifest.json') expect(result.error).toContain('Path must be within');
+      else {
+        expect(result.error).toBeNull();
+        expect(result.output).toContain('0 succeeded, 1 failed');
+        const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
+        expect(manifest.succeeded).toBe(0);
+        expect(manifest.failed).toBe(1);
+        expect(manifest.files[0].error).toContain('Path must be within');
+      }
+    }, 15_000);
+  }
+  test(`actual scrape retains in-root ${filename} links`, () => {
+    const directory = join(allowed, `internal-leaf-${filename}`);
+    const target = join(allowed, `target-${filename}`);
+    mkdirSync(directory);
+    writeFileSync(target, 'owned sentinel');
+    expect(realpathSync(dirname(target))).toBe(allowed);
+    symlinkSync(target, join(directory, filename));
+    const result = probe('scrape-image', directory);
+    expect(result.error).toBeNull();
+    expect(result.output).toContain('1 succeeded, 0 failed');
+    expect(readFileSync(target, 'utf8')).not.toBe('owned sentinel');
+  }, 15_000);
+}

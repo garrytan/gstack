@@ -47,7 +47,7 @@ export function validateOutputPath(filePath: string): void {
       try {
         fs.lstatSync(resolved);
       } catch (err: any) {
-        if (err.code === 'ENOENT') continue;
+        if (err.code === 'ENOENT' && SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir))) continue;
         throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
       }
       try {
