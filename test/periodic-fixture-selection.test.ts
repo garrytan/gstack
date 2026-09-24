@@ -236,8 +236,11 @@ test('offering source lookup dependencies select all four gate audits', () => {
     'test/workflow-judge-input.test.ts', 'test/helpers/workflow-excerpt.ts']) {
     const result = selectTests([file], E2E_TOUCHFILES);
     expect(result.reason).toBe('diff');
-    expect(result.selected.sort()).toEqual(expected);
-    for (const id of expected) expect(E2E_TIERS[id]).toBe('gate');
+    const consumers = file === 'test/helpers/workflow-excerpt.ts'
+      ? [...expected, 'ship-managed-hook-refresh', 'ship-unmanaged-hook-consent', 'ship-local-hook-preservation'].sort()
+      : expected;
+    expect(result.selected.sort()).toEqual(consumers);
+    for (const id of consumers) expect(E2E_TIERS[id]).toBe('gate');
   }
   for (const file of ['test/helpers/codex-offering-fixture.ts', 'test/codex-offering-fixture.test.ts',
     'test/fixtures/codex-offering-cdd-public.json', 'test/fixtures/codex-offering-timeout-public.json']) {

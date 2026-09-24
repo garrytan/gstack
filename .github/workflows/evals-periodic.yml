@@ -253,7 +253,7 @@ jobs:
           name: gate-census-plan
           path: /tmp/gate-census-plan
 
-      - name: Run gate census slice ${{ matrix.slice }}/6
+      - name: Run gate census slice ${{ matrix.slice }}/7
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

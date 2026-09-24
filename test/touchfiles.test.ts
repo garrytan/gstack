@@ -22,6 +22,7 @@ import { readWorkflowExcerpt } from './helpers/workflow-excerpt';
 import { sharedLibsPlanExcerpt } from './helpers/shared-libs-plan-excerpt';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const SHIP_GUARD_ONLY = ['ship-managed-hook-refresh', 'ship-unmanaged-hook-consent', 'ship-local-hook-preservation'];
 
 function registeredJudgeTestNames(source: string): string[] {
   // Inspect registrations, not arbitrary `name` fields such as Error.name.
@@ -163,7 +164,7 @@ describe('selectTests', () => {
     // These two CEO-format cases already depend on every resolver through
     // scripts/resolvers/**; keep that existing selection alongside consumers.
     // The bounded Code Quality fixture stops before Test review.
-    const expected = [...new Set([...generated.selected.filter(id => id !== 'shared-libs-plan-callers'),
+    const expected = [...new Set([...generated.selected.filter(id => id !== 'shared-libs-plan-callers' && !SHIP_GUARD_ONLY.includes(id)),
       'codex-plan-ceo-format-mode', 'codex-plan-ceo-format-approach',
     ])].sort();
     const actual = selectTests(['scripts/resolvers/testing.ts'], E2E_TOUCHFILES);
@@ -180,6 +181,15 @@ describe('selectTests', () => {
     }
     for (const unrelated of ['browse-basic', 'retro', 'office-hours-section-loading', 'review-coverage-audit']) {
       expect(actual.selected).not.toContain(unrelated);
+    }
+  });
+
+  test('testing resolver does not select guard-only ship actors', () => {
+    const resolver = selectTests(['scripts/resolvers/testing.ts'], E2E_TOUCHFILES);
+    const ship = selectTests(['ship/SKILL.md'], E2E_TOUCHFILES);
+    for (const id of SHIP_GUARD_ONLY) {
+      expect(ship.selected).toContain(id);
+      expect(resolver.selected).not.toContain(id);
     }
   });
 

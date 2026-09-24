@@ -212,9 +212,9 @@ test('both gate executors cover the complete census without increasing aggregate
     expect(executor.strategy.matrix.slice).toEqual(Array.from({ length: slices }, (_, i) => i + 1));
     expect(planned.slices).toBe(slices);
     const manifest = buildRunManifest({ tier: 'gate', sliceCount: planned.slices, evalsAll: true, env: { EVALS_ALL: '1' } });
-    expect(manifest.entries.filter(row => row.status === 'planned')).toHaveLength(56);
+    expect(manifest.entries.filter(row => row.status === 'planned')).toHaveLength(58);
     const files = manifest.entries.filter(row => row.status === 'planned').map(row => row.file);
-    expect(new Set(files).size).toBe(56);
+    expect(new Set(files).size).toBe(58);
     expect(files.sort()).toEqual(selectPaidTestFiles(collectPaidTestFiles(), 'gate').selected.sort());
     const walls = executor.strategy.matrix.slice.map((slice: number) => paidShardWallUpperBoundMs(
       manifest.entries.filter(row => row.status === 'planned' && row.slice === slice).map(row => row.file), workers,

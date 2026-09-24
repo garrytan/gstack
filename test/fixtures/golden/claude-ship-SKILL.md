@@ -921,36 +921,39 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 ```bash
 _REDACT_PREPUSH=$(~/.claude/skills/gstack/bin/gstack-config get redact_prepush_hook 2>/dev/null || echo "false")
 _HOOK_PATH=$(git rev-parse --git-path hooks/pre-push 2>/dev/null || echo "")
-_HOOK_INSTALLED="no"
-[ -n "$_HOOK_PATH" ] && [ -f "$_HOOK_PATH" ] && grep -q "gstack-redact" "$_HOOK_PATH" 2>/dev/null && _HOOK_INSTALLED="yes"
-# Never silently install into custom core.hooksPath (e.g. committed .husky/).
+_HOOK_STATE="missing"
+if [ -e "$_HOOK_PATH" ] || [ -L "$_HOOK_PATH" ]; then
+  _HOOK_STATE="unmanaged"
+  if [ -f "$_HOOK_PATH" ] && [ ! -L "$_HOOK_PATH" ] && grep -Fqx '# gstack-redact pre-push (managed)' "$_HOOK_PATH" 2>/dev/null; then
+    _HOOK_STATE="managed"
+  fi
+fi
 _HOOKS_DIR=$(git rev-parse --git-path hooks 2>/dev/null || echo "")
-_GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null || echo "")
-# Worktree hooks live under the common git dir. /nonexistent prevents a
-# failed lookup from producing a match-all /* pattern.
-_GIT_COMMON=$(cd "$(git rev-parse --git-common-dir 2>/dev/null || echo /nonexistent)" 2>/dev/null && pwd || echo /nonexistent)
 _HOOKS_IN_GIT_DIR="no"
-case "$_HOOKS_DIR" in
-  "$_GIT_DIR"/*|"$_GIT_COMMON"/*|hooks|.git/hooks) _HOOKS_IN_GIT_DIR="yes" ;;
-esac
+_HOOKS_CONFIG_STATUS=0
+git config --get core.hooksPath >/dev/null 2>&1 || _HOOKS_CONFIG_STATUS=$?
+if [ -n "$_HOOK_PATH" ] && [ -n "$_HOOKS_DIR" ] && [ "$_HOOKS_CONFIG_STATUS" = "1" ] && [ ! -L "$_HOOKS_DIR" ]; then
+  _HOOKS_IN_GIT_DIR="yes"
+fi
 _PREPUSH_PROMPTED=$([ -f "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted" ] && echo "yes" || echo "no")
+if [ "$_REDACT_PREPUSH" = "true" ] && [ "$_HOOKS_IN_GIT_DIR" = "yes" ] && [ "$_HOOK_STATE" != "unmanaged" ]; then
+  ~/.claude/skills/gstack/bin/gstack-redact install-prepush-hook || exit $?
+fi
 echo "REDACT_PREPUSH: $_REDACT_PREPUSH"
-echo "HOOK_INSTALLED: $_HOOK_INSTALLED"
+echo "HOOK_STATE: $_HOOK_STATE"
 echo "HOOKS_IN_GIT_DIR: $_HOOKS_IN_GIT_DIR"
 echo "PREPUSH_PROMPTED: $_PREPUSH_PROMPTED"
 ```
 
 Branch on the echoed values:
 
-1. **`REDACT_PREPUSH: true` and `HOOK_INSTALLED: no` and `HOOKS_IN_GIT_DIR: yes`** —
-   consent already given; install silently (no question) and continue:
-   ```bash
-   ~/.claude/skills/gstack/bin/gstack-redact install-prepush-hook
-   ```
-   If `HOOKS_IN_GIT_DIR: no` (husky or another committed hooks dir), do NOT
-   install silently — print one line: "redact pre-push guard not installed:
-   this repo uses a custom core.hooksPath; run
-   `gstack-redact install-prepush-hook` manually if you want it chained."
+1. **`REDACT_PREPUSH: true`** — the block installs or refreshes managed
+   hooks, preserving `pre-push.local` and complete stdin. On installer
+   failure, STOP before pushing. `HOOKS_IN_GIT_DIR: no`: do not install;
+   request manual integration. `HOOK_STATE: unmanaged`: ask consent only
+   for a regular, non-symlink hook in the default directory without
+   `pre-push.local`; otherwise request manual integration. Dangling
+   symlinks are unmanaged. Never overwrite either policy.
 2. **`REDACT_PREPUSH` not true AND `PREPUSH_PROMPTED: no`** — one-time
    offer (fires once EVER, machine-wide). AskUserQuestion:
 
@@ -964,14 +967,14 @@ Branch on the echoed values:
    - B) No — never ask again
 
    If A: run `~/.claude/skills/gstack/bin/gstack-config set redact_prepush_hook true`
-   then `~/.claude/skills/gstack/bin/gstack-redact install-prepush-hook`.
+   then re-run the block and apply the same directory and unmanaged-hook rules above.
    If B: run `~/.claude/skills/gstack/bin/gstack-config set redact_prepush_hook false`.
    ALWAYS (after either answer, but NOT if the question itself failed to
    render — a failed AskUserQuestion must re-offer next time):
    ```bash
    touch "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted"
    ```
-3. **Anything else** (declined earlier, or already installed) — continue
+3. **Declined earlier** — continue
    without comment.
 
 **Idempotency check:** Check if the branch is already pushed and up to date.

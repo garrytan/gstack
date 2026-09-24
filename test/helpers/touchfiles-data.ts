@@ -945,6 +945,18 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   ],
 
   // Ship
+  'ship-managed-hook-refresh': ['ship/**', 'bin/gstack-redact', 'bin/gstack-config', 'scripts/gen-skill-docs.ts',
+    'test/helpers/ship-hook-actor.ts', 'test/ship-hook-actor.test.ts', 'test/ship-hook-refresh.test.ts',
+    'test/helpers/workflow-excerpt.ts', 'test/helpers/agent-sdk-runner.ts', 'test/skill-e2e-ship-hook-refresh.test.ts',
+    'test/paid-pr-profile.test.ts'],
+  'ship-unmanaged-hook-consent': ['ship/**', 'bin/gstack-redact', 'bin/gstack-config', 'scripts/gen-skill-docs.ts',
+    'test/helpers/ship-hook-actor.ts', 'test/ship-hook-actor.test.ts', 'test/ship-hook-refresh.test.ts',
+    'test/helpers/workflow-excerpt.ts', 'test/helpers/agent-sdk-runner.ts', 'test/skill-e2e-ship-hook-consent.test.ts',
+    'test/paid-pr-profile.test.ts'],
+  'ship-local-hook-preservation': ['ship/**', 'bin/gstack-redact', 'bin/gstack-config', 'scripts/gen-skill-docs.ts',
+    'test/helpers/ship-hook-actor.ts', 'test/ship-hook-actor.test.ts', 'test/ship-hook-refresh.test.ts',
+    'test/helpers/workflow-excerpt.ts', 'test/helpers/agent-sdk-runner.ts', 'test/skill-e2e-ship-hook-consent.test.ts',
+    'test/paid-pr-profile.test.ts'],
   'ship-base-branch': ['test/session-runner-stream-lifecycle.test.ts', 'ship/**', 'bin/gstack-repo-mode', 'test/skill-e2e-review-attribution.test.ts',
     'scripts/resolvers/testing.ts'
   ],
@@ -1639,6 +1651,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Ship — gate (end-to-end ship path)
   'ship-base-branch': 'gate',
   'ship-local-workflow': 'gate',
+  'ship-managed-hook-refresh': 'gate',
+  'ship-unmanaged-hook-consent': 'gate',
+  'ship-local-hook-preservation': 'gate',
   'ship-coverage-audit': 'gate',
   'ship-triage': 'gate',
   'ship-docsync': 'gate',

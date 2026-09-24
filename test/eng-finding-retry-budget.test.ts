@@ -137,7 +137,7 @@ test('live periodic census fits the declared CI wall including setup', () => {
 
 test('registered allocation is deterministic and preserves every discovered file', () => {
   const files = collectPaidTestFiles();
-  expect(files).toHaveLength(117);
+  expect(files).toHaveLength(119);
   const m = livePlan(files);
   expect(livePlan([...files].reverse())).toEqual(m);
   expect(m.entries.map(e => e.file).sort()).toEqual([...files].sort());
@@ -178,7 +178,7 @@ test('current detach supervision covers the live-census floor', () => {
   const configured = Number(pkg.scripts['eval:bg:periodic'].match(/--timeout\s+(\d+)/)[1]);
   expect(floor).toBe(65268);
   expect(configured).toBeGreaterThanOrEqual(floor);
-  expect(pkg.scripts['eval:bg:gate']).toContain('--timeout 33780');
+  expect(pkg.scripts['eval:bg:gate']).toContain('--timeout 35640');
 });
 
 for (const jobs of [1, 2, 3]) test(`FIFO bound covers partial durations with ${jobs} workers`, () => {
