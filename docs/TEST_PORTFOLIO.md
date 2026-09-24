@@ -92,7 +92,9 @@ directory-wide exemption is introduced.
 **Local scheduling.** Default free workers use available CPU affinity, with a
 floor of one and the existing cap of six. Each shard stays serial internally,
 and explicit `GSTACK_FREE_JOBS` overrides keep their previous meaning. The
-separate 20-machine CI plan is unchanged; local worker gains are not CI gains.
+separate 20-machine CI plan is unchanged. Windows free-test CI explicitly retains
+its two-worker budget rather than inheriting the local default; local worker
+gains are not CI gains.
 
 ## Measurement contract
 

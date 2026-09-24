@@ -27,11 +27,13 @@ Use `bun run test` for complete free validation; the quick subset is still only 
 
 #### Changed
 
-- Local free-test workers follow available CPU affinity, with a minimum of one and the existing maximum of six. Explicit worker overrides and the separate CI matrix retain their behavior.
+- Local free-test workers follow available CPU affinity, with a minimum of one and the existing maximum of six. Explicit worker overrides and the separate CI matrix retain their behavior; Windows CI explicitly keeps its two-worker budget.
 - Deployment reports distinguish deployment status, production health, staging verification and completed rollback. Requests to stage before production stop before merge with a handoff to the configured pipeline.
 
 #### Fixed
 
+- Browser-consent checks distinguish a promised new consent question from an immediate drive offer, while still rejecting conditional drive permission before Aside is ready.
+- Review fixtures accept explicit no-change answers and coverage-reporting statements without authorizing source edits or index-flag changes.
 - Merge fallback requires authoritative confirmation that neither an auto-merge request nor a queue entry exists. Confirmed merges are never replayed, and changed heads or destination branches invalidate earlier approval.
 - Rollback distinguishes true merge commits, squash merges and rebase ranges. Failed or unverified deployment and canary checks remain visible rather than becoming success labels.
 

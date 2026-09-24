@@ -1,0 +1,153 @@
+{
+  "source": "https://github.com/garrytan/gstack/actions/runs/36058320346/job/107831034133",
+  "cases": [
+    {
+      "attempt": 1,
+      "input": {
+        "questions": [
+          {
+            "question": "Pre-Landing Review: 0 issues (0 critical, 0 informational). 1 [ADVISORY] needs your input:\n\n1. [ADVISORY] src/retry-worker.ts:2 — Duplicated `retrySeconds` parser (shared-libs, confidence 9/10, maintainability + core)\n   Both src/retry-worker.ts:2-15 (this diff) and src/retry-route.ts:2-15 are verbatim copies of lib/retry-after.ts:2-15, which src/scheduler.ts already imports and test/retry-after.test.ts already covers (null/invalid/whitespace/ceiling/HTTP-date cases).\n   Fix: replace each copy with `export { retrySeconds } from '../lib/retry-after';` (the worker's pre-diff state). Preserved differences: none — same signature, 3600 ceiling, fallback default, runtime (TS/Bun), no deployment boundary. Compatibility tests: existing test/retry-after.test.ts; module exports keep the same name. Shared-failure risk: a lib regression would hit scheduler+route+worker instead of scheduler only, mitigated by the existing contract test.\n   Estimated implementation: −30 removed / +2 added / −28 saved. Total incl. tests: same (no new tests needed).\n\nNote: this was skipped in the prior review, but src/retry-route.ts has changed on disk (hidden by assume-unchanged), so the decision must be made fresh.\n\nRECOMMENDATION: A — the worker's own comment says both callers need the same contract, and the helper is proven and tested.",
+            "header": "Advisory #1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Fix both callers (Recommended)",
+                "description": "Restore the re-export in src/retry-worker.ts and replace the copy in src/retry-route.ts with the same re-export. −28 lines."
+              },
+              {
+                "label": "B) Fix worker only",
+                "description": "Restore the re-export in src/retry-worker.ts (files in this diff) and leave src/retry-route.ts as-is. −14 lines."
+              },
+              {
+                "label": "C) Skip",
+                "description": "Keep the inline copies; record the advisory as skipped."
+              }
+            ]
+          },
+          {
+            "question": "src/retry-route.ts is marked assume-unchanged in your local index, so git status/diff hide its on-disk change (trailing comment on line 17) and any edit I make there would also be hidden. Clear the flag with `git update-index --no-assume-unchanged src/retry-route.ts`?",
+            "header": "Index flag",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Yes, clear it (Recommended)",
+                "description": "Makes the route's working-tree state visible to Git and to the review snapshot. Triggers a normal re-review pass with a new start token."
+              },
+              {
+                "label": "No, leave it",
+                "description": "Keep the local index flag. The route stays excluded from reusable review coverage."
+              }
+            ]
+          }
+        ]
+      },
+      "answers": {
+        "Pre-Landing Review: 0 issues (0 critical, 0 informational). 1 [ADVISORY] needs your input:\n\n1. [ADVISORY] src/retry-worker.ts:2 — Duplicated `retrySeconds` parser (shared-libs, confidence 9/10, maintainability + core)\n   Both src/retry-worker.ts:2-15 (this diff) and src/retry-route.ts:2-15 are verbatim copies of lib/retry-after.ts:2-15, which src/scheduler.ts already imports and test/retry-after.test.ts already covers (null/invalid/whitespace/ceiling/HTTP-date cases).\n   Fix: replace each copy with `export { retrySeconds } from '../lib/retry-after';` (the worker's pre-diff state). Preserved differences: none — same signature, 3600 ceiling, fallback default, runtime (TS/Bun), no deployment boundary. Compatibility tests: existing test/retry-after.test.ts; module exports keep the same name. Shared-failure risk: a lib regression would hit scheduler+route+worker instead of scheduler only, mitigated by the existing contract test.\n   Estimated implementation: −30 removed / +2 added / −28 saved. Total incl. tests: same (no new tests needed).\n\nNote: this was skipped in the prior review, but src/retry-route.ts has changed on disk (hidden by assume-unchanged), so the decision must be made fresh.\n\nRECOMMENDATION: A — the worker's own comment says both callers need the same contract, and the helper is proven and tested.": "C) Skip",
+        "src/retry-route.ts is marked assume-unchanged in your local index, so git status/diff hide its on-disk change (trailing comment on line 17) and any edit I make there would also be hidden. Clear the flag with `git update-index --no-assume-unchanged src/retry-route.ts`?": "No, leave it"
+      }
+    },
+    {
+      "attempt": 1,
+      "input": {
+        "questions": [
+          {
+            "question": "[ADVISORY] src/retry-worker.ts:2 — the diff inlines a byte-identical copy of lib/retry-after.ts retrySeconds (tested in test/retry-after.test.ts, already used by src/scheduler.ts); src/retry-route.ts holds a third copy. Recommended: restore `export { retrySeconds } from '../lib/retry-after';` in both callers (~28–30 lines saved, no new tests needed). How do you want to proceed?",
+            "header": "Shared helper",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Fix both callers (Recommended)",
+                "description": "Re-export from lib/retry-after in src/retry-worker.ts and src/retry-route.ts. Removes all drift risk between the three identical copies."
+              },
+              {
+                "label": "Fix worker only",
+                "description": "Re-export in src/retry-worker.ts (the changed file) and leave src/retry-route.ts as-is for a separate change."
+              },
+              {
+                "label": "Skip",
+                "description": "Keep the inlined copy. Recorded as an explicit skip with verified snapshot coverage (retry-route.ts excluded from coverage due to skip-worktree)."
+              }
+            ]
+          },
+          {
+            "question": "src/retry-route.ts is a skip-worktree index entry, so edits to it are invisible to git status/diff and won't be committed. If it gets edited, should I clear the flag (`git update-index --no-skip-worktree src/retry-route.ts`) so the change is committable?",
+            "header": "skip-worktree",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Clear the flag (Recommended)",
+                "description": "Run git update-index --no-skip-worktree on src/retry-route.ts so its change shows in the diff and can be committed."
+              },
+              {
+                "label": "Leave the flag set",
+                "description": "Edit the working copy only; you will handle the index flag yourself. The change stays hidden from git."
+              },
+              {
+                "label": "Not applicable",
+                "description": "Choose this if you are not editing src/retry-route.ts."
+              }
+            ]
+          }
+        ]
+      },
+      "answers": {
+        "[ADVISORY] src/retry-worker.ts:2 — the diff inlines a byte-identical copy of lib/retry-after.ts retrySeconds (tested in test/retry-after.test.ts, already used by src/scheduler.ts); src/retry-route.ts holds a third copy. Recommended: restore `export { retrySeconds } from '../lib/retry-after';` in both callers (~28–30 lines saved, no new tests needed). How do you want to proceed?": "Skip",
+        "src/retry-route.ts is a skip-worktree index entry, so edits to it are invisible to git status/diff and won't be committed. If it gets edited, should I clear the flag (`git update-index --no-skip-worktree src/retry-route.ts`) so the change is committable?": "Not applicable"
+      }
+    },
+    {
+      "attempt": 2,
+      "input": {
+        "questions": [
+          {
+            "question": "Pre-Landing Review: 0 issues (0 critical, 0 informational) + 1 advisory. The prior skip on this branch could not be reused (src/retry-route.ts is skip-worktree with raw bytes differing from its blob). How do you want to handle the advisory?\n\n1. [ADVISORY] (confidence 10/10, MULTI-SPECIALIST CONFIRMED: core + maintainability) src/retry-worker.ts:2 — The diff replaces `export { retrySeconds } from '../lib/retry-after'` with a byte-identical 15-line copy of the helper; src/retry-route.ts:2-15 carries the same copy. lib/retry-after.ts is the tested, established contract (used by src/scheduler.ts, covered by test/retry-after.test.ts).\n   Fix: restore the one-line re-export in the worker and replace the route's copy with the same re-export. Estimated implementation: −30 removed / +2 added = −28 lines; total incl. tests ≈ −28 (existing tests already cover the contract). Shared-failure blast radius: a bug in lib/retry-after.ts would reach scheduler, worker, and route — scheduler is already exposed today.\n   Note: src/retry-route.ts has the skip-worktree index bit, so an edit there will not appear in git status/diff until `git update-index --no-skip-worktree src/retry-route.ts` is run.\n\nRECOMMENDATION: Fix both — the change as written re-introduces duplication that HEAD had already removed.",
+            "header": "Advisory #1",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Fix both callers (Recommended)",
+                "description": "Restore re-export in src/retry-worker.ts and replace src/retry-route.ts's copy with the same re-export (also clear its skip-worktree bit so the change is visible to Git)."
+              },
+              {
+                "label": "Fix worker only",
+                "description": "Restore the re-export in src/retry-worker.ts (the file in this diff); leave src/retry-route.ts untouched."
+              },
+              {
+                "label": "Skip",
+                "description": "Keep the inline copies. Recorded as an explicit skip; reuse coverage will exclude src/retry-route.ts since it is not snapshot-covered."
+              }
+            ]
+          }
+        ]
+      },
+      "answers": {
+        "Pre-Landing Review: 0 issues (0 critical, 0 informational) + 1 advisory. The prior skip on this branch could not be reused (src/retry-route.ts is skip-worktree with raw bytes differing from its blob). How do you want to handle the advisory?\n\n1. [ADVISORY] (confidence 10/10, MULTI-SPECIALIST CONFIRMED: core + maintainability) src/retry-worker.ts:2 — The diff replaces `export { retrySeconds } from '../lib/retry-after'` with a byte-identical 15-line copy of the helper; src/retry-route.ts:2-15 carries the same copy. lib/retry-after.ts is the tested, established contract (used by src/scheduler.ts, covered by test/retry-after.test.ts).\n   Fix: restore the one-line re-export in the worker and replace the route's copy with the same re-export. Estimated implementation: −30 removed / +2 added = −28 lines; total incl. tests ≈ −28 (existing tests already cover the contract). Shared-failure blast radius: a bug in lib/retry-after.ts would reach scheduler, worker, and route — scheduler is already exposed today.\n   Note: src/retry-route.ts has the skip-worktree index bit, so an edit there will not appear in git status/diff until `git update-index --no-skip-worktree src/retry-route.ts` is run.\n\nRECOMMENDATION: Fix both — the change as written re-introduces duplication that HEAD had already removed.": "Skip"
+      }
+    },
+    {
+      "attempt": 2,
+      "input": {
+        "questions": [
+          {
+            "question": "Core review found 0 defects. 1 advisory needs your input:\n\n1. [ADVISORY] src/retry-worker.ts:2 — Duplicated `retrySeconds` (MULTI-SPECIALIST CONFIRMED: core + maintainability, confidence 10/10). The diff replaces `export { retrySeconds } from '../lib/retry-after'` with a byte-identical 15-line copy of lib/retry-after.ts; src/retry-route.ts:2-15 carries the same copy.\n   Fix: Restore the re-export in src/retry-worker.ts and replace the body in src/retry-route.ts with `export { retrySeconds } from '../lib/retry-after';`. Helper: lib/retry-after.ts#retrySeconds (existing, tested by test/retry-after.test.ts, used by src/scheduler.ts). Implementation: -30/+2 = 28 lines saved; total same (no new tests needed). Shared-failure blast radius: scheduler, worker, route all share one parser (already true for scheduler).\n\nRECOMMENDATION: Fix — the helper is proven and identical; the copy adds drift risk for no benefit. Note the prior Skip couldn't be reused because src/retry-route.ts is assume-unchanged with hidden working-tree changes.\n\nHow do you want to handle it?",
+            "header": "Advisory",
+            "options": [
+              {
+                "label": "Fix (Recommended)",
+                "description": "Re-export retrySeconds from lib/retry-after in both src/retry-worker.ts and src/retry-route.ts (removes 30 duplicated lines, adds 2)."
+              },
+              {
+                "label": "Skip",
+                "description": "Keep the duplicated copies; record the advisory as skipped for this branch."
+              }
+            ],
+            "multiSelect": false
+          }
+        ]
+      },
+      "answers": {
+        "Core review found 0 defects. 1 advisory needs your input:\n\n1. [ADVISORY] src/retry-worker.ts:2 — Duplicated `retrySeconds` (MULTI-SPECIALIST CONFIRMED: core + maintainability, confidence 10/10). The diff replaces `export { retrySeconds } from '../lib/retry-after'` with a byte-identical 15-line copy of lib/retry-after.ts; src/retry-route.ts:2-15 carries the same copy.\n   Fix: Restore the re-export in src/retry-worker.ts and replace the body in src/retry-route.ts with `export { retrySeconds } from '../lib/retry-after';`. Helper: lib/retry-after.ts#retrySeconds (existing, tested by test/retry-after.test.ts, used by src/scheduler.ts). Implementation: -30/+2 = 28 lines saved; total same (no new tests needed). Shared-failure blast radius: scheduler, worker, route all share one parser (already true for scheduler).\n\nRECOMMENDATION: Fix — the helper is proven and identical; the copy adds drift risk for no benefit. Note the prior Skip couldn't be reused because src/retry-route.ts is assume-unchanged with hidden working-tree changes.\n\nHow do you want to handle it?": "Skip"
+      }
+    }
+  ]
+}

@@ -12,6 +12,7 @@ import {
 import { EvalCollector, type EvalTestEntry } from './helpers/eval-store';
 import { collectorOutcomeCounts } from '../scripts/test-paid-shards';
 import { E2E_TOUCHFILES, GLOBAL_TOUCHFILES, selectTests } from './helpers/touchfiles';
+import nativeNoChangeCases from './fixtures/shared-libs-no-change-ci-public.json';
 
 const cleanup: string[] = [];
 afterEach(() => {
@@ -25,6 +26,60 @@ function scratch(): string {
 }
 
 describe('shared-code legacy interactive actor', () => {
+  test.each(nativeNoChangeCases.cases)('answers retained CI no-change questions from attempt $attempt', async ({ input, answers }) => {
+    const before = structuredClone(input), observed: unknown[] = [];
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => { throw new Error('unexpected tool'); }, onQuestion: () => {},
+      onAnswer: (question, answer) => { observed.push({ question, answer }); },
+    });
+    expect(await callback('AskUserQuestion', input)).toEqual({ behavior: 'allow', updatedInput: { ...input, answers } });
+    expect(observed).toEqual([{ question: input, answer: answers }]);
+    expect(input).toEqual(before);
+    for (const [index, question] of input.questions.entries()) {
+      const unsafe = structuredClone(input);
+      const option = unsafe.questions[index].options.find(option => option.label === answers[question.question]);
+      expect(option).toBeDefined();
+      option!.description += '; then clear the index flag and edit the route.';
+      await expect(callback('AskUserQuestion', unsafe)).rejects.toThrow('No unambiguous no-change option');
+      expect(observed).toHaveLength(1);
+    }
+  });
+
+  test.each([
+    { label: 'No, leave it', description: 'Keep the local index flag. The route stays excluded from reusable review coverage.' },
+    { label: 'No: keep it', description: 'Keep the current source unchanged.' },
+    { label: 'Not applicable', description: 'Choose this if you are not editing src/retry-route.ts.' },
+    { label: 'Not applicable', description: 'When you are not modifying the worker.' },
+    { label: 'Skip', description: 'Keep the copies; reuse coverage will exclude the route.' },
+    { label: 'Skip', description: 'Keep the copies; snapshot coverage will not include the route.' },
+    { label: 'Skip', description: 'Keep the copies; review coverage can exclude the route.' },
+  ])('skip handles negative replies, conditional non-actions, and coverage subjects: $label', async option => {
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => {}, onQuestion: () => {}, onAnswer: () => {},
+    });
+    const input = { questions: [{ question: 'Decision', options: [
+      { label: 'Leave the flag set', description: 'Edit the working copy only; you will handle the index flag yourself.' }, option,
+    ] }] };
+    expect((await callback('AskUserQuestion', input)).updatedInput.answers).toEqual({ Decision: option.label });
+  });
+
+  test.each([
+    { label: 'No, leave it', description: 'Keep the index flag, but replace the source.' },
+    { label: 'No, fix it', description: 'Apply the patch.' },
+    { label: 'Not applicable' },
+    { label: 'Not applicable', description: 'Choose this if you are editing the route.' },
+    { label: 'Not applicable', description: 'Choose this if you are not editing the worker; fix the route.' },
+    { label: 'Skip', description: 'Reuse coverage will modify the worker.' },
+    { label: 'Skip', description: 'Snapshot coverage should clear the index flag.' },
+    { label: 'Skip', description: 'Reuse coverage to fix the route.' },
+  ])('new no-change forms cannot authorize source or index changes: %j', async option => {
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => {}, onQuestion: () => {}, onAnswer: () => { throw new Error('unexpected answer'); },
+    });
+    await expect(callback('AskUserQuestion', { questions: [{ question: 'Decision', options: [option] }] }))
+      .rejects.toThrow('No unambiguous no-change option');
+  });
+
   for (const [choose, labels] of [['approve', ['Fix it', 'Apply remedy', 'Approve', 'Extract helper', 'Reuse library', 'Choice (recommended)']],
     ['skip', ['Skip', 'Keep current', 'Decline', 'Do not change', 'Leave as-is']]] as const) {
     test.each(labels)(`${choose} supports the declared choice: %s`, async label => {

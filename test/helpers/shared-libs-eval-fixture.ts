@@ -834,10 +834,12 @@ function skippedReviewOption(question: any): any {
     if (typeof option?.label !== 'string' || ['description', 'preview'].some(field =>
       option[field] !== undefined && typeof option[field] !== 'string')) return [];
     const label = option.label.replace(/[‘’]/g, "'").replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
-      .replace(/\s*\(recommended\)\s*$/i, '').trim();
+      .replace(/\s*\(recommended\)\s*$/i, '').trim().replace(/^no\b[\s,:;-]*(?=(?:keep|leave)\b)/i, '');
     const preservation = /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source|flag)\b/i;
+    const inapplicable = /^not applicable$/i.test(label)
+      && /^(?:choose this(?: option)?\s+)?(?:if|when) you are not (?:editing|changing|modifying)\b/i.test((option.description ?? '').trim());
     const rank = /^(?:skip|decline)(?=$|\s|[,.!])/i.test(label) ? 3
-      : /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i.test(label) ? 2
+      : inapplicable || /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i.test(label) ? 2
         : preservation.test(label) || /^(?:keep|leave)\b/i.test(label)
           && preservation.test((option.description ?? '').trim()) ? 1 : 0;
     if (!rank) return [];
@@ -852,6 +854,7 @@ function skippedReviewOption(question: any): any {
       word.replace(/(?:ed|ing)$/, 'e'), word.replace(/(?:ies|ied)$/, 'y')].some(form => actions.has(form));
     const changes = commitment.toLowerCase().split(/[,;\n]|[.!?](?:\s|$)|\b(?:and|but|then|while)\b/).some(part => {
       const clause = part.replace(/^[^a-z]+/, '')
+        .replace(/^(?:the\s+)?(?:review|reuse|snapshot)\s+coverage\s+(?=(?:will|would|should|must|can|may|does|do)\b)/, '')
         .replace(/^(?:(?:this|that|the|selected|chosen)\s+(?:option|choice|selection)|i|we|you|it|(?:the\s+)?(?:source|code|route|worker|helper|parser|index(?:\s+flag)?))\s+/, '')
         .replace(/^(?:will|would|should|must|can|may|does|do)\s+/, '')
         .replace(/^(?:(?:please|also|still|just|now|be)\s+)+/, '');

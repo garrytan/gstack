@@ -16,6 +16,7 @@
  */
 import { describe, test, expect, spyOn } from 'bun:test';
 import * as os from 'os';
+import { readFileSync } from 'node:fs';
 import {
   fullSuiteJobs,
   MAX_FULL_SUITE_JOBS,
@@ -87,6 +88,16 @@ describe('test-free-shards: fullSuiteJobs (GSTACK_FREE_JOBS override)', () => {
     expect(withJobsEnv('1', fullSuiteJobs)).toBe(1);
     expect(withJobsEnv(' 2 ', fullSuiteJobs)).toBe(2);
     expect(withJobsEnv('02', fullSuiteJobs)).toBe(2);
+  });
+
+  test('Windows CI pins its two-worker budget independently of local CPU defaults', () => {
+    const workflow = Bun.YAML.parse(readFileSync(new URL('../.github/workflows/windows-free-tests.yml', import.meta.url), 'utf8')) as {
+      jobs: Record<string, { steps: Array<{ run?: string; env?: Record<string, string> }> }>;
+    };
+    const step = workflow.jobs['windows-free-tests'].steps.find(step => step.run === 'bun run test:windows');
+    expect(step).toBeDefined();
+    expect(step?.env?.GSTACK_FREE_JOBS).toBe('2');
+    expect(withJobsEnv(step?.env?.GSTACK_FREE_JOBS, fullSuiteJobs)).toBe(2);
   });
 
   test('an explicit override does not probe the available CPUs', () => {
