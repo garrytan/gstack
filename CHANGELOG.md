@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.89.1.0] - 2026-09-24
+## [1.90.1.0] - 2026-09-24
 
 Correctness fixes for configuration, transcript consent, browser output, iOS recovery, and release gates.
 
