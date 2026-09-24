@@ -1,0 +1,41 @@
+{
+  "provenance": {
+    "source": "September 21 fresh plan-design-finding-count confirmation",
+    "runId": "shared-libs-design-confirm-sep21",
+    "sourceCallSha256": "129093ff57df4abafb2184384525bde132620981e3dae7c7b5e756e45582fe1f"
+  },
+  "calls": [
+    {
+      "sessionId": "6001f9ea-6d4b-44e0-a37c-3598680da835",
+      "toolUseId": "toolu_01VRFDkXuLgHgy7cVBmWBpe4",
+      "questions": [
+        {
+          "header": "Issue 1 Save",
+          "question": "D1 — Issue 1: Save is indistinguishable from Reset/Cancel/Export in the header. How should the plan fix it?\n\nProject/branch/task: main branch, design review of the account-settings form plan against DESIGN.md.\nELI10: Four buttons in a row all look the same, so someone who just changed their email has to read every label to find the one that keeps their work. Design principle: hierarchy as service — the user should see first, second, third without thinking. Right now nothing is first.\nStakes if we pick wrong: users mis-hit Reset or Cancel next to Save and lose edits, or hesitate on every save. Either drains the goodwill reservoir on the page whose whole job is confidence.\nRecommendation: A because DESIGN.md already names the exact treatment, so this is a one-token change with no new visual exploration.\nCompleteness: A=10/10, B=5/10, C=0/10\nNet: A restores a single filled primary for one CSS token; B nudges weight only and still fails the DESIGN.md rule; C leaves the top gap in the plan open.",
+          "options": [
+            {
+              "label": "1A Filled primary Save (recommended)",
+              "description": "Save becomes the only filled primary (#1d4ed8, white text). Reset, Cancel, Export become neutral ghost buttons. Same DOM order, same 44px geometry. (human: ~1h / CC: ~5min) ✅ Matches DESIGN.md exactly; one primary per page. ✅ Works at 320px because the mobile stack already puts Save first. ❌ Ghost buttons need their own hover/disabled states verified for contrast."
+            },
+            {
+              "label": "1B Bold label only",
+              "description": "Keep all four the same size and color; bold Save's label weight only. (human: ~15min / CC: ~2min) ✅ Smallest diff, no new button variant. ✅ Keeps the current visual calm. ❌ Weight-only emphasis is weak at a glance and still violates DESIGN.md's filled-primary rule."
+            },
+            {
+              "label": "1C Defer",
+              "description": "Leave the four buttons uniform for now and record it as unresolved design debt. ✅ Zero work in this PR. ✅ Can be revisited with a live /design-review after ship. ❌ Ships a form with no clear primary action, the most visible gap in the plan."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Issue 1: Save is indistinguishable from Reset/Cancel/Export in the header. How should the plan fix it?\n\nProject/branch/task: main branch, design review of the account-settings form plan against DESIGN.md.\nELI10: Four buttons in a row all look the same, so someone who just changed their email has to read every label to find the one that keeps their work. Design principle: hierarchy as service — the user should see first, second, third without thinking. Right now nothing is first.\nStakes if we pick wrong: users mis-hit Reset or Cancel next to Save and lose edits, or hesitate on every save. Either drains the goodwill reservoir on the page whose whole job is confidence.\nRecommendation: A because DESIGN.md already names the exact treatment, so this is a one-token change with no new visual exploration.\nCompleteness: A=10/10, B=5/10, C=0/10\nNet: A restores a single filled primary for one CSS token; B nudges weight only and still fails the DESIGN.md rule; C leaves the top gap in the plan open.": "1A Filled primary Save (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-21T17:22:25.728Z"
+    }
+  ]
+}

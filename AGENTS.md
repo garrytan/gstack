@@ -28,6 +28,7 @@ Invoke them by name (e.g., `/office-hours`).
 | Skill | What it does |
 |-------|-------------|
 | `/review` | Pre-landing PR review. Finds bugs that pass CI but break in prod. |
+| `/deslop-shared-libs` | Find worthwhile shared-code extractions in recent work. Recommendations only. |
 | `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. Available outside the Codex harness. |
 | `/claude-code` | Second opinion via Claude Code. Review, challenge, or consult modes. Available outside the Claude Code harness. |
 | `/investigate` | Systematic root-cause debugging. No fixes without investigation. |
@@ -191,7 +192,7 @@ When fixing failures or preparing `/ship`, follow this order:
    environment; versions and authentication alone do not prove it works. Set
    private artifact modes explicitly and preserve normal fixture permissions.
    Prove a diagnostic snapshot survives fixture cleanup in the final artifact
-   directory before paid work; an unset EVALS_RUN_ID disables native snapshots.
+   directory before paid work; native snapshots require EVALS_RUN_ID or GSTACK_EVAL_DIR.
    Bind complete spool filenames and classify Bun's out-of-tier describe.skip
    placeholders separately, with zero selected-case credit.
    Put standalone Git fixtures outside another checkout; verify their resolved

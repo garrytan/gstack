@@ -50,10 +50,38 @@ describe('plan-count diagnostic artifacts', () => {
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 
-  test('does not persist ordinary free runs without EVALS_RUN_ID', () => {
-    const missing = path.join(os.tmpdir(), `unused-count-artifacts-${crypto.randomUUID()}`);
-    expect(persistPlanCountSnapshot(input, { GSTACK_EVAL_DIR: missing })).toEqual({});
-    expect(fs.existsSync(missing)).toBe(false);
+  test('retains explicitly requested captures without a run ID and isolates invocation fallbacks', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-count-artifacts-'));
+    try {
+      // The paid shard launcher sets GSTACK_EVAL_DIR without EVALS_RUN_ID.
+      const env = { GSTACK_EVAL_DIR: root };
+      const save = createPlanCountSnapshotWriter(env);
+      const progress = save({ ...input, observation: { state: 'in_progress', reviewCount: 1 } });
+      expect(progress.artifactError).toBeUndefined();
+      expect(progress.artifactDir).toBeDefined();
+      const first = JSON.parse(fs.readFileSync(path.join(progress.artifactDir!, 'observation.json'), 'utf8'));
+      expect(first.capture.runId).toMatch(/^local-[0-9a-f-]{36}$/);
+      expect(path.relative(root, progress.artifactDir!)).toStartWith(path.join('pty-count', first.capture.runId));
+
+      const final = save({ ...input, raw: 'final output', observation: { outcome: 'plan_ready', reviewCount: 5 } });
+      expect(final.artifactDir).toBe(progress.artifactDir);
+      const record = JSON.parse(fs.readFileSync(path.join(final.artifactDir!, 'observation.json'), 'utf8'));
+      expect(record).toMatchObject({ outcome: 'plan_ready', capture: { runId: first.capture.runId } });
+      expect(record.state).toBeUndefined();
+      expect(fs.readFileSync(path.join(final.artifactDir!, 'terminal.raw.log'), 'utf8')).toBe('final output');
+      expect(fs.readFileSync(path.join(final.artifactDir!, 'terminal.visible.log'), 'utf8')).toBe(input.visible);
+
+      const retry = persistPlanCountSnapshot(input, env);
+      const retried = JSON.parse(fs.readFileSync(path.join(retry.artifactDir!, 'observation.json'), 'utf8'));
+      expect(retry.artifactDir).not.toBe(final.artifactDir);
+      expect(retried.capture.runId).not.toBe(first.capture.runId);
+      expect(path.dirname(retry.artifactDir!)).not.toBe(path.dirname(final.artifactDir!));
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('does not persist ordinary free runs without either capture setting', () => {
+    expect(persistPlanCountSnapshot(input, {})).toEqual({});
+    expect(persistPlanCountSnapshot(input, { EVALS_RUN_ID: '', GSTACK_EVAL_DIR: '' })).toEqual({});
   });
 
   test('keeps run and skill identifiers within the owned artifact directory', () => {

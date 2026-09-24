@@ -28,11 +28,10 @@ If no findings: output `NO FINDINGS` and nothing else.
 - Docstrings with parameter lists that don't match the current function signature
 - ASCII diagrams in comments that no longer match the code flow
 
-### DRY Violations
-- Similar code blocks (3+ lines) appearing multiple times within the diff
-- Copy-paste patterns where a shared helper would be cleaner
-- Configuration or setup logic duplicated across test files
-- Repeated conditional chains that could be a lookup table or map
+### Duplicated Behavior with Defects
+- Divergent copies that produce a demonstrated incorrect result, miss required error handling, or violate the same contract
+- Report the concrete defect and its evidence through normal Fix-First handling; matching syntax or repeated line counts alone are not findings
+- Optional shared-helper extractions belong to the core shared-code check. Do not duplicate its proposals or turn structural preferences into defects
 
 ### Conditional Side Effects
 - Code paths that branch on a condition but forget a side effect on one branch

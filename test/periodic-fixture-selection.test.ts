@@ -117,7 +117,6 @@ describe('periodic fixture dependencies select their behavioral cases', () => {
     ['test/fixtures/ceo-payment-ledger-decisions.json', ['plan-ceo-finding-count']],
     ['test/setup-gbrain-remote-caller.test.ts', ['setup-gbrain-remote']],
     ['test/skill-fixture.test.ts', ['journey-ideation', 'journey-plan-eng', 'journey-debug', 'journey-qa', 'journey-code-review', 'journey-ship', 'journey-docs', 'journey-retro', 'journey-design-system', 'journey-visual-qa']],
-    ['test/agent-sdk-runner.test.ts', ['brain-privacy-gate', 'setup-gbrain-remote', 'setup-gbrain-bad-token', 'setup-gbrain-path4-local-pglite', ...OVERLAY_FIXTURES.map(fixture => `overlay-harness-${fixture.id}`)]],
     ['test/office-hours-writeback-env.test.ts', ['office-hours-brain-writeback']],
     ['test/review-army-budget.test.ts', ['review-army-red-team', 'review-army-consensus']],
     ['test/helpers/setup-gbrain-sandbox.ts', ['setup-gbrain-bad-token', 'setup-gbrain-path4-local-pglite', 'setup-gbrain-remote']],
@@ -190,6 +189,16 @@ describe('periodic fixture dependencies select their behavioral cases', () => {
   for (const fixture of OVERLAY_FIXTURES) {
     cases.push([`test/skill-e2e-overlay-harness-${fixture.id}.test.ts`, [`overlay-harness-${fixture.id}`]]);
   }
+
+  test('SDK runner changes retain the native gate and existing periodic consumers', () => {
+    const periodic = ['brain-privacy-gate', 'setup-gbrain-remote', 'setup-gbrain-bad-token',
+      'setup-gbrain-path4-local-pglite', ...OVERLAY_FIXTURES.map(fixture => `overlay-harness-${fixture.id}`)];
+    const result = selectTests(['test/agent-sdk-runner.test.ts'], E2E_TOUCHFILES);
+    expect(result.reason).toBe('diff');
+    expect(result.selected.sort()).toEqual(['auq-format-gate', ...periodic].sort());
+    expect(E2E_TIERS['auq-format-gate']).toBe('gate');
+    for (const id of periodic) expect(E2E_TIERS[id]).toBe('periodic');
+  });
 
   for (const [file, expected] of cases) {
     test(file, () => {

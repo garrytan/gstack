@@ -1,0 +1,35 @@
+{
+  "publicCall": {
+    "sessionId": "6465d382-6e7e-4ec4-b8b7-ebe3db9dce52",
+    "toolUseId": "toolu_01RgYcZf1o16DbbJxjkJ1EZy",
+    "questions": [
+      {
+        "question": "D1 — Who should receive the assignment notification email?\nProject/branch/task: On main, spec'ing a task-assignment email notification feature from a one-line intent.\nELI10: When a task gets assigned, we send an email. But to whom? Just the new assignee? Also the person who did the assigning? Task watchers/subscribers too? This is the biggest scope decision because it drives the recipient lookup, the number of emails per event, and the risk of inbox fatigue.\nStakes if we pick wrong: Under-notify and assignees miss real work handoffs; over-notify and people mute the channel and miss the actual signal.\nRecommendation: Assignee only because it matches the literal ask, ships the MVP fastest, and expanding later is purely additive.\nCompleteness: A=7/10, B=8/10, C=9/10, D=10/10\nPros / cons: see options.\nNet: Trading off signal breadth vs inbox noise and build cost — start narrow, add recipients later if the value shows up.",
+        "header": "Recipients",
+        "options": [
+          {
+            "label": "Assignee only (recommended)",
+            "description": "Email goes to the person the task was assigned to.\n✅ Matches the literal request wording exactly, no interpretation drift\n✅ Simplest lookup: assignee_id → user.email, one row, one send\n❌ Task creator won't know their handoff landed unless they check the UI"
+          },
+          {
+            "label": "Assignee + task creator",
+            "description": "Both the new assignee and whoever created the task get emailed.\n✅ Closes the loop for the creator so they know their delegation stuck\n✅ Still tightly bounded — max two emails per assignment event\n❌ Creator often IS the assigner, causing self-notifications unless we suppress"
+          },
+          {
+            "label": "Assignee + creator + watchers",
+            "description": "Everyone with a stake (assignee, creator, subscribers) gets emailed.\n✅ Keeps every interested party synchronized without them polling the UI\n✅ Reuses any existing subscription/watcher plumbing if the project already has it\n❌ Requires a watcher model that may not exist yet, expanding scope well beyond the ask"
+          },
+          {
+            "label": "Per-user preferences",
+            "description": "Users configure which assignment events they want emails for; system honors that.\n✅ Long-term correct answer — users control their own inbox load\n✅ Handles the digest/mute/immediate axes cleanly once built\n❌ Adds a preferences table, settings UI, and default-migration work — much bigger scope than an MVP"
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answered": false,
+    "failed": false,
+    "source": "pre_tool_use"
+  },
+  "viewport": "  multiple unlocked scope decisions — the most load-bearing early one is who the notification actually goes to, because\n  it determines the data model, the lookup path, and the volume of email traffic.\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n ☐ Recipients\n\n│ D1 — Who should receive the assignment notification email?\n│ Project/branch/task: On main, spec'ing a task-assignment email notification feature from a one-line intent.\n│ ELI10: When a task gets assigned, we send an email. But to whom? Just the new assignee? Also the person who did the\n│ assigning? Task watchers/subscribers too? This is the biggest scope decision because it drives the recipient lookup,\n│ the number of emails per event, and the risk of inbox fatigue.\n│ Stakes if we pick wrong: Under-notify and assignees miss real work handoffs; over-notify and people mute the channel\n│ and miss the actual signal.\n│ Recommendation: Assignee only because it matches the literal ask, ships the MVP fastest, and expanding later is purely\n│ additive.\n│ Completeness: A=7/10, B=8/10, C=9/10, D=10/10\n│ Pros / cons: see options.\n│ Net: Trading off signal breadth vs inbox noise and build cost — start narrow, add recipients later if the value shows\n│ up.\n\n❯ 1. Assignee only (recommended)\n     Email goes to the person the task was assigned to.�✅ Matches the literal request wording exactly, no\n     interpretation drift�✅ Simplest lookup: assignee_id → user.email, one row, one send�❌ Task creator won't know\n     their handoff landed unless they check the UI\n  2. Assignee + task creator\n     Both the new assignee and whoever created the task get emailed.�✅ Closes the loop for the creator so they know\n     their delegation stuck�✅ Still tightly bounded — max two emails per assignment event�❌ Creator often IS the\n     assigner, causing self-notifications unless we suppress\n  3. Assignee + creator + watchers\n     Everyone with a stake (assignee, creator, subscribers) gets emailed.�✅ Keeps every interested party synchronized\n     without them polling the UI�✅ Reuses any existing subscription/watcher plumbing if the project already has it�❌\n     Requires a watcher model that may not exist yet, expanding scope well beyond the ask\n  4. Per-user preferences\n     Users configure which assignment events they want emails for; system honors that.�✅ Long-term correct answer —\n     users control their own inbox load�✅ Handles the digest/mute/immediate axes cleanly once built�❌ Adds a\n     preferences table, settings UI, and default-migration work — much bigger scope than an MVP\n  5. Type something.                                                            \n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n  6. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel"
+}

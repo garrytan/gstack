@@ -1,0 +1,25 @@
+{
+  "source": {
+    "run": 35801633192,
+    "head": "16358ef00a69a6d789a7944a17e2b3c037850a16",
+    "ci_merge": "264f48d7",
+    "test": "shared-libs-read-only",
+    "assertion": "shell file output redirection"
+  },
+  "calls": [
+    {
+      "attempt": 1,
+      "tool": "Bash",
+      "input": {
+        "command": "MAIN=2b4dae6e2a2cfb2d25d5c6dfaf7dcb5169dadb0f; BR=71a4a7f7b7d13343d7f51ffa3117e0315786b862\nfor f in .gitattributes .gitignore README.md bootstrap.js generated/sdk-a.ts generated/sdk-b.ts hashlib.py lib/retry-after.ts package.json src/branch-only.ts src/injected.ts src/internal-user.ts src/inventory.py src/public-user.ts src/retry-route.ts src/retry-worker.ts src/scheduler.ts src/search.py templates/client.ts.tmpl test/retry-after.test.ts vendor/copied-sdk.ts; do\n  printf \"%-28s\" \"$f\"\n  for ref in $MAIN $BR; do\n    resp=$(gh api --method GET \"repos/fixture/shared-libs/contents/$f?ref=$ref\" 2>&1)\n    if printf '%s' \"$resp\" | grep -q '\"content\"'; then\n      sha=$(printf '%s' \"$resp\" | sed -n 's/.*\"sha\":\"\\([0-9a-f]*\\)\".*/\\1/p')\n      if printf '%s' \"$resp\" | sed -n 's/.*\"content\":\"\\([^\"]*\\)\".*/\\1/p' | base64 -d | cmp -s - \"$f\"; then st=\"same\"; else st=\"DIFF\"; fi\n      printf \" | %s %s %s\" \"${ref:0:7}\" \"${sha:0:7}\" \"$st\"\n    else\n      printf \" | %s ABSENT(%s)\" \"${ref:0:7}\" \"$(printf '%s' \"$resp\" | head -c 60 | tr '\\n' ' ')\"\n    fi\n  done; echo\ndone"
+      }
+    },
+    {
+      "attempt": 2,
+      "tool": "Bash",
+      "input": {
+        "command": "for ref in 74ee64c04ab825366a803cc7f06ac66213b0e96f d5a8b4de5293dfc0aaee03ed5b1eb72790aecbbf; do for f in src/retry-route.ts src/retry-worker.ts lib/retry-after.ts src/inventory.py; do r=$(gh api --method GET \"repos/fixture/shared-libs/contents/$f?ref=$ref\" 2>&1); if printf '%s' \"$r\" | jq -e .sha >/dev/null 2>&1; then echo \"$f @${ref:0:7}: present blob $(printf '%s' \"$r\" | jq -r .sha)\"; else echo \"$f @${ref:0:7}: $(printf '%s' \"$r\" | head -c 80)\"; fi; done; done"
+      }
+    }
+  ]
+}

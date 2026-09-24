@@ -43,7 +43,7 @@ Based on the scope signals above, select which specialists to dispatch.
 1. **Testing** — read `~/.claude/skills/gstack/review/specialists/testing.md`
 2. **Maintainability** — read `~/.claude/skills/gstack/review/specialists/maintainability.md`
 
-**If DIFF_LINES < 50:** Skip all specialists. Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to Step 5.
+**If DIFF_LINES < 50:** Skip all specialists. Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to Step 5. This threshold only gates specialist dispatch; any core shared-code check still runs.
 
 **Conditional (dispatch if the matching scope signal is true):**
 3. **Security** — if SCOPE_AUTH=true, OR if SCOPE_BACKEND=true AND DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/security.md`
@@ -97,7 +97,9 @@ For each finding, output a JSON object on its own line:
 {\"severity\":\"CRITICAL|INFORMATIONAL\",\"confidence\":N,\"path\":\"file\",\"line\":N,\"category\":\"category\",\"summary\":\"description\",\"fix\":\"recommended fix\",\"fingerprint\":\"path:line:category\",\"specialist\":\"name\"}
 
 Required fields: severity, confidence, path, category, summary, specialist.
-Optional: line, fix, fingerprint, evidence, test_stub.
+Optional: line, fix, fingerprint, evidence, test_stub, advisory, evidence_paths, helper_target.
+
+Optional extraction advice belongs to the core shared-code check; do not duplicate its proposals. Report real defects in duplicated code independently. Preserve advisory metadata when returning structural advice, and never label a demonstrated defect advisory merely because sharing a helper could fix it.
 
 If you can write a test that would catch this issue, include it in the `test_stub` field.
 Use the detected test framework ({TEST_FW}). Write a minimal skeleton — describe/it/test
@@ -129,12 +131,17 @@ For each specialist's output:
 2. Otherwise, parse each line as a JSON object. Skip lines that are not valid JSON.
 3. Collect all parsed findings into a single list, tagged with their specialist name.
 
+**Validate advisory severity first.** If a current finding has `"severity":"CRITICAL"` and `"advisory":true`, remove `advisory` and retain its `CRITICAL` severity. Handle it as a normal defect before fingerprinting, partitioning, deduplication, counting, scoring, and Fix-First. Never downgrade severity to make advisory metadata consistent. Valid INFORMATIONAL advisories remain advisory in every category, including simplification. Apply this validation to core and specialist findings alike before combining them.
+
 **Fingerprint and deduplicate:**
 For each finding, compute its fingerprint:
+- For a shared-code advisory (category `shared-libs` or a `shared-libs:` fingerprint), call the installed `sharedLibsFingerprint` helper from `~/.claude/skills/gstack/lib/review-evidence.ts` with literal JSON on stdin, as in the core pass. Recompute from `evidence_paths` and `helper_target`; never trust a supplied hash or generate hash text yourself. Missing/malformed metadata cannot deduplicate or reuse a saved decision.
 - If `fingerprint` field is present, use it
 - Otherwise: `{path}:{line}:{category}` (if line is present) or `{path}:{category}`
 
-Group findings by fingerprint. For findings sharing the same fingerprint:
+The last two rules apply only to other findings. Preserve `advisory`, `evidence_paths`, and `helper_target` through merging. Core review owns shared-code proposals: consolidate equivalent specialist advice with the core proposal and count overlapping savings once. Keep the actual specialist activity in its stats; core-only advice must not create a specialist dispatch or finding.
+
+Partition defects and advisories BEFORE grouping by fingerprint. A defect and an advisory must never merge with each other, even if a supplied fingerprint collides. A higher-confidence advisory or prior skipped extraction cannot replace, downgrade, or suppress a demonstrated defect. For findings sharing the same fingerprint within the same partition:
 - Keep the finding with the highest confidence score
 - Tag it: "MULTI-SPECIALIST CONFIRMED ({specialist1} + {specialist2})"
 - Boost confidence by +1 (cap at 10)
@@ -146,11 +153,13 @@ Group findings by fingerprint. For findings sharing the same fingerprint:
 - Confidence 3-4: move to appendix (suppress from main findings)
 - Confidence 1-2: suppress entirely
 
-**Advisory carve-out (simplification specialist):**
-Findings with `"advisory": true` are excluded from BOTH the quality_score
+**Advisory carve-out (all sources, including core shared-code and simplification):**
+After severity validation, remaining findings with `"advisory": true` are excluded from BOTH the quality_score
 summation and the findings-count header below — they are structure suggestions,
 not defects, and must not make "5 findings … 10/10" look contradictory. In
-Fix-First they are ASK-only: NEVER auto-applied, even when mechanical.
+Fix-First they are ASK-only: NEVER auto-applied, even when mechanical. Also exclude
+them from unresolved-defect totals and clean-status blockers. Preserve normal
+Fix-First handling for any real defect affecting the same code.
 
 **Compute PR Quality Score:**
 After merging, compute the quality score over NON-advisory findings only:
@@ -180,6 +189,8 @@ PR Quality Score: X/10
   `Simplification: lean already — nothing to cut.`
 - If it was not dispatched, print neither line.
 
+Do not add core shared-code savings to this specialist footer. Explain any overlap once in the core proposal instead of presenting duplicate savings.
+
 These findings flow into Step 5 Fix-First alongside the CRITICAL pass findings from Step 4.
 The Fix-First heuristic applies identically — specialist findings follow the same AUTO-FIX vs ASK classification (except advisory findings, which are ASK-only per the carve-out above).
 
@@ -192,7 +203,8 @@ For each specialist (testing, maintainability, security, performance, data-migra
 - If not applicable (e.g., red-team not activated): omit from the object
 
 Advisory findings COUNT in the stats `findings` field — the advisory
-carve-out governs the quality score and the findings-count header only.
+carve-out governs defect counts, score penalties, and clean-status blockers,
+not specialist activity. Count only findings that specialist actually returned.
 Logging simplification's advisories as `findings: 0` would auto-gate the
 lens into permanent silence after 10 dispatches.
 

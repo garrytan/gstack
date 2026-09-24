@@ -159,13 +159,13 @@ Completeness: use `Completeness: N/10` only when options differ in coverage. 10 
 
 Accepted shortcuts leave a trail: when the user selects an option that is BOTH Completeness ≤ 7 AND a durable-scope call (architecture or scope-cut — never a turn-level choice), log it via `gstack-decision-log` with the ceiling and the upgrade trigger in the rationale, and — as part of implementing that option, same edit, no follow-up question — mark each cut corner in code with `gstack-shortcut(dec-<id>): <ceiling>, upgrade when <trigger>` in the language's comment syntax. Never agent-initiated: the marker exists only downstream of the user's explicit choice. /retro harvests these into a debt ledger, joined on the decision id.
 
-Pros / cons: use ✅ and ❌. Minimum 2 pros and 1 con per option when the choice is real; Minimum 40 characters per bullet. Hard-stop escape for one-way/destructive confirmations: `✅ No cons — this is a hard-stop choice`.
+`Pros / cons:` in question text; descriptions use literal ✅/❌ bullets, not Pro:/Con:. Each real option: ≥2 pros and ≥1 con, ≥40 chars each. One-way/destructive escape: `✅ No cons — this is a hard-stop choice`.
 
 Neutral posture: `Recommendation: <default> — this is a taste call, no strong preference either way`; `(recommended)` STAYS on the default option for AUTO_DECIDE.
 
 Effort both-scales: when an option involves effort, label both human-team and CC+gstack time, e.g. `(human: ~2 days / CC: ~15 min)`. Makes AI compression visible at decision time.
 
-Net line closes the tradeoff. Per-skill instructions may add stricter rules.
+`Net:` line closes question text. Per-skill instructions may add stricter rules.
 
 ### Handling 5+ options — split, never drop
 
@@ -1022,8 +1022,11 @@ Record findings even after resolution; say "No issues, moving on." only with non
 ### 0E. Mode Selection
 Follow the preamble's session rules; `CONDUCTOR_SESSION: true` changes transport only.
 
-1. An explicit choice skips steps 2–3. "Go big", "ambitious" or "cathedral" means SCOPE EXPANSION; "hold scope but tempt me", "show me options" or "cherry-pick" means SELECTIVE EXPANSION. Do not ask again.
-2. Recommend without selecting. Count distinct planned file additions, edits and deletions, labeling estimates. For >15 planned changed files, recommend SCOPE REDUCTION. Otherwise: a new product/system (greenfield) → SCOPE EXPANSION; added capability → SELECTIVE EXPANSION; fix/refactor → HOLD SCOPE. If categories overlap or are unclear, explain why and recommend HOLD SCOPE; step 3 still resolves the choice.
+1. An explicit choice skips steps 2–3. "Go big", "ambitious" or "cathedral" means SCOPE EXPANSION; "hold scope but tempt me", "show me options" or "cherry-pick" means SELECTIVE EXPANSION.
+2. Recommend without selecting. Count distinct planned file additions, edits and deletions, labeling estimates. For >15 planned changed files, recommend SCOPE REDUCTION. Otherwise: a new product/system (greenfield) → SCOPE EXPANSION; added capability → SELECTIVE EXPANSION; fix/refactor → HOLD SCOPE. If categories overlap or are unclear, explain why and recommend HOLD SCOPE.
+   In the Recommendation's `because` clause, connect a concrete plan fact or
+   constraint to this mode's actual benefit or tradeoff. Count/category alone
+   is not a reason.
 3. Resolve that recommendation. When `QUESTION_TUNING: true`, first check
    `question_id=plan-ceo-review-mode` through the preamble. A check that exits 0
    with `AUTO_DECIDE` selects the recommendation; go to the automatic handoff in
@@ -1033,16 +1036,16 @@ Follow the preamble's session rules; `CONDUCTOR_SESSION: true` changes transport
    wins. When `QUESTION_TUNING: true`, include `<gstack-qid:plan-ceo-review-mode>`.
    These modes differ in kind, not coverage; do NOT score completeness.
 
-4. **Mode handoff:** After selection, send brief chat before tools or further questions. Explain the mode's application and rationale. Include every governing approved row's ID, answer reference and accepted scope; do not collapse several choices into one approach.
+4. **Mode handoff:** After selection, send brief chat before tools or further questions: the mode's application and rationale; every governing approved row's ID, answer reference and accepted scope. Keep rows separate.
 - `plan-ceo-review-mode: AUTO_DECIDE`: `Auto-decided review mode → <selected mode> (your preference). Change with /plan-tune. Approved decisions: <rows or none>. <Application and rationale>.`
 - Other selections: `Mode: <selected mode>; approved decisions: <rows or none>. <Application and rationale>.`
 
 Record mode provenance after the handoff:
-- **Explicit user choice:** instruction and selected mode; no question log because none was asked.
+- **Explicit user choice:** instruction and mode; no question log because none was asked.
 - **Successful preference check:** result and recommendation; log `plan-ceo-review-mode`, `auto_decided: true`.
 - **Actual question answer:** question, answer reference and mode; log `auto_decided: false`, including the question ID only when `QUESTION_TUNING: true`.
 
-If 0D needed no new choice, say "No new approach decision was needed". Ask before changing the mode.
+If no new 0D choice: "No new approach decision was needed". Ask before changing mode.
 
 Selecting a mode does not approve changes. Preserve 0D approvals and ask about
 each proposed addition or cut, including those prompted by file-count thresholds.
@@ -1055,7 +1058,7 @@ Follow the selected mode's route:
 | HOLD SCOPE | 0G → 0I |
 | SCOPE REDUCTION | 0G |
 
-After this route, continue to Review Sections for the full review, outputs and report.
+Continue to Review Sections, outputs and report.
 
 ### 0F. Expansion Framing (shared by EXPANSION and SELECTIVE EXPANSION)
 
