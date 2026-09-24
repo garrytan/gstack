@@ -465,6 +465,7 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
     return "ok";
   } catch (err) {
     const e = err as NodeJS.ErrnoException & {
+      stdout?: Buffer | string;
       stderr?: Buffer | string;
       killed?: boolean;
       signal?: NodeJS.Signals | null;
@@ -484,6 +485,14 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
       if (/thin[- ]client/i.test(stderr)) return "thin-client";
       if (stderr.includes("Cannot connect to database")) return "broken-db";
       if (stderr.includes("config.json")) return "broken-config";
+
+      let structuredBusy = false;
+      try {
+        structuredBusy = JSON.parse(e.stdout?.toString() || "")?.error === "pglite_busy";
+      } catch {}
+      if (structuredBusy) {
+        return configuredEngine(env) === "pglite" ? "engine-locked" : "broken-db";
+      }
 
       // PGLite is single-process. A long-lived `gbrain serve` can own the
       // embedded database, causing the CLI to finish with its own exit 124 and
