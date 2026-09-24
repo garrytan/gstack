@@ -13,7 +13,9 @@
  * test bootstrap) goes through the receipted `_aside_exec` prelude, never bare.
  */
 import { describe, test, expect } from 'bun:test';
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { generateAsideSetup, generateAsideCookbook, generateAsideResearch, asideExecPrelude, ASIDE_LOCAL_HOST_RULE } from '../scripts/resolvers/aside';
 import { generateTestBootstrap } from '../scripts/resolvers/testing';
@@ -121,13 +123,55 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     // Opt-out short-circuits to NEEDS_ASIDE before `command -v aside` is even consulted.
     expect(setupProbe).toMatch(/if \[ "\$\{GSTACK_SKIP_ASIDE:-\}" = "1" \] \|\| ! command -v aside >\/dev\/null 2>&1; then\n\s*echo "NEEDS_ASIDE"/);
     // Deadline chain: gtimeout (coreutils on macOS) → timeout (Linux) → perl alarm (stock macOS ships neither).
-    expect(setupProbe).toContain('_T="gtimeout 30"');
-    expect(setupProbe).toContain('_T="timeout 30"');
-    expect(setupProbe).toContain('_T="perl -e alarm(shift);exec(@ARGV) 30"');
-    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e alarm'));
+    expect(setupProbe).toContain('gtimeout 30 "$@"');
+    expect(setupProbe).toContain('timeout 30 "$@"');
+    expect(setupProbe).toContain('perl -e \'alarm shift; exec @ARGV\' 30 "$@"');
+    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e'));
+    // ...carried by a FUNCTION, never a "$_T" string. zsh does not word-split an
+    // unquoted parameter expansion, so `$_T aside ...` there runs a command
+    // literally named "gtimeout 30" and reports ASIDE_NOT_RUNNING on a machine
+    // where Aside is installed and healthy (#2904).
+    expect(setupProbe).toContain('_gs_deadline()');
+    // Against the CODE only: the comment above the function names the old
+    // broken shape on purpose, and an assertion that cannot tell prose from
+    // the line it is guarding is not guarding anything.
+    const probeCode = setupProbe.split('\n').filter((l) => !l.trimStart().startsWith('#')).join('\n');
+    expect(probeCode).not.toMatch(/\$_T/);
     // The bounded call is the readiness probe itself, and READY quotes the version.
-    expect(setupProbe).toContain('$_T aside repl \'console.log("ASIDE_READY " + pwd)\'');
+    expect(setupProbe).toContain('_gs_deadline aside repl \'console.log("ASIDE_READY " + pwd)\'');
     expect(setupProbe).toContain('echo "READY: aside $(aside --version 2>/dev/null)"');
+  });
+
+  test('the probe reports READY under BOTH bash and zsh when Aside answers (#2904)', () => {
+    // The string pins above cannot catch this class on their own: the old
+    // `_T="gtimeout 30"` + `$_T aside ...` shape satisfied every one of them
+    // and still failed, because the probe does not run in bash — it runs in
+    // the USER'S shell, and on macOS that is zsh. zsh performs no word
+    // splitting on an unquoted parameter expansion, so `$_T aside ...` looked
+    // for a command literally named "gtimeout 30", did not find it, and
+    // printed ASIDE_NOT_RUNNING on a machine where Aside was installed and
+    // healthy. So: execute the generated probe, in each shell, for real.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-aside-probe-'));
+    try {
+      // A stub `aside` that answers the probe, and a stub `gtimeout` that
+      // actually forwards — present so the deadline branch is the one taken.
+      const aside = path.join(dir, 'aside');
+      fs.writeFileSync(aside, '#!/bin/bash\nif [ "$1" = "--version" ]; then echo 1.26.0; else echo "ASIDE_READY /tmp/session"; fi\n');
+      fs.chmodSync(aside, 0o755);
+      const gtimeout = path.join(dir, 'gtimeout');
+      fs.writeFileSync(gtimeout, '#!/bin/bash\nshift\nexec "$@"\n');
+      fs.chmodSync(gtimeout, 0o755);
+
+      const env = { ...process.env, PATH: `${dir}:/bin:/usr/bin`, GSTACK_SKIP_ASIDE: '' };
+      for (const shell of ['bash', 'zsh']) {
+        const which = spawnSync('command', ['-v', shell], { shell: '/bin/bash' });
+        if (which.status !== 0) continue; // shell not on this machine — skip, don't fail
+        const r = spawnSync(shell, ['-c', setupProbe], { env, encoding: 'utf8', timeout: 10_000 });
+        expect(`${shell}: ${r.stdout.trim()}`).toBe(`${shell}: READY: aside 1.26.0`);
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('LOCAL host rule: .localhost and .test count, .local (mDNS) does not', () => {

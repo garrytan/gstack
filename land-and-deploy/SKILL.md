@@ -431,11 +431,21 @@ A step sometimes requires action on an external website the user controls: regis
 1. **Never hand the user a manual step list for a third-party site without first offering to drive it.** The recommended driver is the Aside AI browser — the user's real browser, already signed in to the accounts vendor dashboards need. Detect it at runtime, every task, with the /browse skill's readiness probe:
 
    ```bash
-   _T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-   [ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+   # Deadline chain: gtimeout (coreutils on macOS) -> timeout (Linux) -> perl alarm
+   # (stock macOS ships neither). A FUNCTION, not a "$_T" string: the wrapper has
+   # to survive being run under the user's shell, and zsh does not word-split an
+   # unquoted parameter expansion, so `$_T aside ...` there looks for a command
+   # literally named "gtimeout 30", fails, and reports ASIDE_NOT_RUNNING on a
+   # machine where Aside is installed and healthy.
+   _gs_deadline() {
+     if command -v gtimeout >/dev/null 2>&1; then gtimeout 30 "$@"
+     elif command -v timeout >/dev/null 2>&1; then timeout 30 "$@"
+     elif command -v perl >/dev/null 2>&1; then perl -e 'alarm shift; exec @ARGV' 30 "$@"
+     else "$@"; fi
+   }
    if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
      echo "NEEDS_ASIDE"
-   elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
+   elif _gs_deadline aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
      echo "READY: aside $(aside --version 2>/dev/null)"
    else
      echo "ASIDE_NOT_RUNNING"
@@ -457,11 +467,21 @@ A step sometimes requires action on an external website the user controls: regis
 gstack drives the Aside AI browser first. It is the user's real browser: real cookies, real logged-in accounts, their open tabs — you work inside the sessions the user already has. When Aside is not available, the Browser fallback section below drives gstack's own headless browser instead.
 
 ```bash
-_T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-[ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+# Deadline chain: gtimeout (coreutils on macOS) -> timeout (Linux) -> perl alarm
+# (stock macOS ships neither). A FUNCTION, not a "$_T" string: the wrapper has
+# to survive being run under the user's shell, and zsh does not word-split an
+# unquoted parameter expansion, so `$_T aside ...` there looks for a command
+# literally named "gtimeout 30", fails, and reports ASIDE_NOT_RUNNING on a
+# machine where Aside is installed and healthy.
+_gs_deadline() {
+  if command -v gtimeout >/dev/null 2>&1; then gtimeout 30 "$@"
+  elif command -v timeout >/dev/null 2>&1; then timeout 30 "$@"
+  elif command -v perl >/dev/null 2>&1; then perl -e 'alarm shift; exec @ARGV' 30 "$@"
+  else "$@"; fi
+}
 if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
+elif _gs_deadline aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
   echo "READY: aside $(aside --version 2>/dev/null)"
 else
   echo "ASIDE_NOT_RUNNING"
