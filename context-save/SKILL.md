@@ -496,7 +496,7 @@ eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
 CHECKPOINT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/checkpoints"
 mkdir -p "$CHECKPOINT_DIR"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-# Bash-side title sanitize. Pass the raw title as $1 when running this block.
+# Bash-side title sanitize. Pass the raw title via TITLE_RAW when running this block.
 # Example: TITLE_RAW="wintermute progress" bash -c '...'
 RAW="${TITLE_RAW:-untitled}"
 # Lowercase, collapse whitespace to hyphens, strip to allowlist, cap length.

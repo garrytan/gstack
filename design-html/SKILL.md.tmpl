@@ -301,7 +301,7 @@ _OUTPUT_DIR=$(dirname <path-to-finalized.html>)
 cd "$_OUTPUT_DIR"
 python3 -m http.server 0 --bind 127.0.0.1 &
 _SERVER_PID=$!
-_PORT=$(lsof -i -P -n | grep "$_SERVER_PID" | grep LISTEN | awk '{print $9}' | cut -d: -f2 | head -1)
+_PORT=$(lsof -i -P -n | grep "$_SERVER_PID" | grep LISTEN | awk '{print $(9)}' | cut -d: -f2 | head -1)
 echo "SERVER: http://localhost:$_PORT/finalized.html"
 echo "PID: $_SERVER_PID"
 ```
