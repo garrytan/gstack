@@ -414,6 +414,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/fixtures/ceo-expansion-pacing-77.json',
   ],
   'plan-design-with-ui-scope':   [
+    'test/fixtures/design-focus-areas-question.json',
     'lib/claude-public-transcript.ts',
     'test/autoplan-public-narration.test.ts', 'test/fixtures/autoplan-public-narration-ad.json',
     'test/helpers/plan-count-fixture.ts', 'test/plan-count-fixture.test.ts',

@@ -1,0 +1,15 @@
+{
+  "question": "D2 — Review all 7 design dimensions, or focus on the biggest gaps?\nProject/branch/task: main branch; design review of PLAN.md (User Dashboard Page), rated 4/10 on design completeness.\nELI10: The plan says what the server does and lists which states must exist, but not what a person actually sees when they land after login. The biggest holes are page hierarchy (which of the three panels matters most), what each loading/empty/error state looks like, and accessibility/responsive detail. I'll generate visual mockups next, then work through the review passes and fix the plan pass by pass.\nStakes if we pick wrong: Skipping passes leaves gaps an engineer fills with defaults (\"No items found.\", stacked cards on mobile); running all 7 costs more questions but lands a complete plan.\nRecommendation: A because AI makes the complete review cheap and the plan is thin on every visual dimension, not just three.\nCompleteness: A=10/10, B=6/10\nPros / cons:\nA) All 7 passes (recommended)\n  ✅ Every dimension gets rated and fixed: hierarchy, states, journey, slop risk, tokens, a11y, open decisions\n  ✅ Produces a plan an implementer can build without guessing (human: ~half day / CC: ~30 min of questions)\n  ❌ More AskUserQuestion stops, roughly one per finding across seven passes\nB) Focus on hierarchy, states, and a11y/responsive only\n  ✅ Fastest path to fixing the three worst gaps\n  ✅ Fewer interruptions if you already have taste decisions made elsewhere\n  ❌ Slop risk, token specificity and the decision register go unrated, and there is no DESIGN.md to fall back on\nNet: thoroughness now versus fewer stops now and more guesses at build time.",
+  "header": "Focus",
+  "multiSelect": false,
+  "options": [
+    {
+      "label": "All 7 passes (recommended)",
+      "description": "✅ Every dimension rated and fixed; plan buildable without guessing. ✅ Full coverage in ~30 min of CC questions. ❌ More decision stops, about one per finding."
+    },
+    {
+      "label": "Focus on hierarchy, states, a11y",
+      "description": "✅ Fastest path to the three worst gaps. ✅ Fewer interruptions. ❌ Slop, tokens and decision register unrated with no DESIGN.md fallback."
+    }
+  ]
+}
