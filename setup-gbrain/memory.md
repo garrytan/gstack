@@ -71,7 +71,8 @@ bun run bin/gstack-memory-ingest.ts --bulk --scan-secrets
 GSTACK_MEMORY_INGEST_SCAN_SECRETS=1 bun run bin/gstack-memory-ingest.ts --bulk
 ```
 
-When enabled, gitleaks covers:
+When enabled, gitleaks scans each rendered page, the exact markdown that
+gets imported, rather than the raw `.jsonl`. It covers:
 
 - AWS / GCP / Azure access keys
 - ANTHROPIC_API_KEY, OPENAI_API_KEY, GitHub tokens
@@ -86,7 +87,9 @@ shows new vs. updated counts) or by reviewing the helper's output during
 
 If gitleaks is not installed (run `brew install gitleaks` on macOS, or
 `apt install gitleaks` on Linux) and you passed `--scan-secrets` anyway,
-the helper warns once and disables secret scanning for that run.
+the helper warns once and every file it cannot scan is skipped, not
+imported unscanned. The same goes for a scan that fails partway. Skipped
+files stay pending and are retried on the next run.
 
 ## Where it goes
 
