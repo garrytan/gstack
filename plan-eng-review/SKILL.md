@@ -66,14 +66,16 @@ Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C.
 
 After target selection, every question uses the preamble's full decision brief, transport and continuous D-numbering. Setup, prerequisite and preparation questions do not approve engineering remedies.
 
+**Format precedence:** Copy required command, output and question formats exactly. Apply Voice to newly composed prose.
+
 **Startup sequence** (after target selection):
-1. Run the Preamble, including Context Recovery and its setup questions.
+1. Run the Preamble command and its startup instructions (Context Recovery and setup questions). Defer Operational Self-Improvement, Telemetry and Plan Status Footer to finish; format/transport rules apply throughout.
 2. Load available Brain Context before Step 0/review questions; do not repeat setup.
 3. Check web-research readiness at **Web research runs in Aside**.
 4. Run **Design Doc Check**, then **Prerequisite Skill Offer**.
-5. Continue at **Engineering review → Step 0** below; its section Read loads Review preparation and Scope Challenge together.
+5. Continue at **Engineering review → Step 0** below: full section Read → **Review preparation** → **Scope Challenge**.
 
-Keep the reviewed target fixed when selecting the section's separate report destination.
+Keep the reviewed target fixed when selecting the report destination.
 
 ## Preamble (after scope gate)
 
@@ -471,8 +473,6 @@ telemetry — it never blocks the workflow.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Use the selected report file and honor the Review record and write policy for every artifact.
 
-**Format precedence:** Copy required command, output and question formats exactly. Apply Voice to newly composed prose.
-
 
 
 ## Priority hierarchy
@@ -677,7 +677,7 @@ Scope Challenge is mandatory before Section 1.
 ## Section self-check (before you finish)
 
 Confirm you read the section and completed Scope Challenge, Sections 1–4,
-Outside Voice and outputs. If evidence is missing, Read `sections/review-sections.md`
+Outside Voice and outputs. If evidence is missing, Read `~/.claude/skills/gstack/plan-eng-review/sections/review-sections.md`
 and repair only gaps through its decision/output recovery steps. Preserve
 verified work.
 

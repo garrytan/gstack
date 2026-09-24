@@ -1,12 +1,16 @@
 ## Review preparation
 
-After startup, follow the preparation sections below through Confidence
-Calibration. Read Decision procedure as the rule for later choices. Start the
-review at Scope Challenge, then complete Sections 1–4 in order.
+After startup, complete in order:
+1. **Review record and write policy**
+2. **Prior Learnings**
+3. **Retrospective learning**
+4. **Confidence Calibration**
+
+Read Decision procedure as the rule for later choices. Start the review at
+Scope Challenge, then complete Sections 1–4 in order.
 
 ## Review record and write policy
 
-Use these terms throughout the review:
 - **Target:** the plan, diff or code path selected at the Scope gate. It stays fixed.
 - **Working plan:** the proposed work and its current approvals. For a plan target,
   start with that plan; for code, build a remedy plan from the findings. This is
@@ -46,8 +50,7 @@ path authorizes no other; implementation edits require explicit authority.
 
 The QA Test Plan and task JSONL intentionally use legacy discovery paths under
 `~/.gstack/projects/{slug}/`: `{user}-{branch}-eng-review-test-plan-{datetime}.md`
-and `tasks-eng-review-{datetime}.jsonl`. QA and /autoplan require these paths even
-with a different report root. Use their formats/commands below; do not relocate them.
+and `tasks-eng-review-{datetime}.jsonl`. Use their formats/commands below; do not relocate them.
 
 A failed permitted save is different from forbidden writing. Use the failed
 step's stated recovery; if saving or read-back still fails, take **Blocked
@@ -80,18 +83,19 @@ building proposed code. Keep suppressed findings for the output appendix.
 
 ## Decision procedure
 
-Run this six-step loop for findings from Scope Challenge, Sections 1–4, Outside
-Voice, late changes and TODO choices. Finish one choice before the next.
+For Scope Challenge, Sections 1–4, Outside Voice, late changes and TODOs, finish
+one choice at a time through steps 1–6.
 
 Setup gates—Context Recovery/prerequisites, Prior Learnings configuration,
 target and Scope Challenge complexity selectors—use local rules without a
 pre-answer ledger. These answers approve no engineering remedy.
 
-Flow: issue -> compare -> save/read -> ask/wait -> apply -> next issue.
-
-One question for one choice per AskUserQuestion call. Use the preamble for
-question transport/fallback and authorized auto-decisions. Use Review
-record/write policy only for saved records, reports and logs.
+One question for one choice per AskUserQuestion call. Authorities:
+- Preamble: question format, transport/fallback and authorized auto-decisions.
+- Steps 1–6 below: substantive choices and actual answers.
+- Use Review record/write policy only for saved records, reports and logs.
+- Entrypoint: **Paused question** for pending answers; **Blocked outcome** for missing work or failed recovery.
+- Finish: Approval readiness → Required outputs → entrypoint verification.
 
 ### 1. Establish current state
 
@@ -295,7 +299,7 @@ audit trail, leaving User Challenges for its final gate.
 
 ## Scope Challenge
 
-Before reviewing, answer:
+**Analyze scope (all targets).** Answer as reviewer analysis, not user questions:
 1. **What already solves each sub-problem?** Inspect helpers, libraries, callers and reusable outputs: behavior and dependency/deployment boundaries. Cite authored sources; label proposed callers with their motivating plan requirement and assumptions.
 2. **What minimum changes achieve the goal?** Flag work deferrable without blocking it; challenge scope creep.
 3. **Complexity check:** Count files and new classes/services; seek fewer moving parts. Apply the gate below.
@@ -323,8 +327,9 @@ Before reviewing, answer:
 7. **Distribution check:** For new artifacts, verify build/publish CI/CD, target
    OS/architectures and download/install channels. Put deferrals in "NOT in scope".
 
-At 8+ files or 2+ new classes/services, STOP before Section 1. Use the
+**Conditional complexity gate.** At 8+ files or 2+ new classes/services, STOP before Section 1. Use the
 preamble's decision-brief format for this complexity gate.
+Below threshold, continue at **Resolve Scope Challenge findings**.
 
 Initial scope selectors need no grid or **pre-answer** ledger write. Ask and
 wait before changes.
@@ -347,7 +352,9 @@ wait before changes.
 Save this record under the write policy; no retroactive pending record.
 
 After any complexity answers, apply only accepted scope changes. Do not re-argue
-reduction or skip approved components. Below the threshold, start at step 1.
+reduction or skip approved components. Both paths join below.
+
+**Resolve Scope Challenge findings (all targets).**
 
 1. Present numbered Scope Challenge findings with calibrated severity, confidence
    and source; use "No issues found" for an empty list.
@@ -399,7 +406,7 @@ extractions still need coverage for real duplicated-code defects.
 
 {{TEST_COVERAGE_AUDIT_PLAN}}
 
-After the Test Plan Artifact is saved or presented, report the Test review findings and their dispositions and continue to Performance review. The Test review's **Add missing tests to the plan** step resolves test and eval decisions before that artifact is written.
+After **Add missing tests to the plan** resolves test/eval decisions and the Test Plan Artifact is saved or presented, report findings/dispositions and continue to Performance review.
 
 ### 4. Performance review
 Evaluate:
@@ -409,11 +416,11 @@ Evaluate:
 
 ### Continue after Outside Voice
 
-Complete the chosen Outside Voice branch, including its accurate coverage record. Only completed reviews enter Cross-model tension. Continue to Final planning decisions and the approval check before Required outputs; report disabled or unavailable coverage in the Completion summary.
+Complete the chosen Outside Voice branch and its coverage record. Only completed reviews enter Cross-model tension. Report disabled/unavailable coverage in the Completion summary, then continue below.
 
 ## Final planning decisions
 
-After Sections 1–4 and the Outside Voice path, resolve the TODO choices below. Then run the approval check before preparing final outputs.
+After Sections 1–4 and Outside Voice, resolve TODO choices below, then pass Approval readiness before Required outputs.
 
 ### TODOS.md updates
 Review every potential TODO. Reuse an exact prior disposition under Decision procedure; ask about each unanswered proposal in its own AskUserQuestion. Never batch TODOs or silently skip them. Use `~/.claude/skills/gstack/review/TODOS-format.md`.
@@ -430,42 +437,36 @@ Option C records accepted implementation scope; still do not edit product code.
 
 ## Required outputs
 
-Run this finish sequence after Approval readiness passes. The reference sections
-below supply content, formats and commands for the named step; they do not start
-another review cycle.
+After Approval readiness passes, follow this finish sequence using the reference
+sections below; those references are not another review cycle.
 
-On recovery, resume at the failed step. Reuse a successful Review Log for
-unchanged saved outputs; changed outputs must pass steps 1–4 again.
+Resume failed steps. Reuse a successful Review Log only for unchanged saved
+outputs; changed outputs must pass steps 1–4 again.
 
-1. **Prepare the review body.** Use the output reference below to complete the
-   working plan, Implementation Tasks and Completion summary. Derive unresolved
-   choices from each record's current State, actual answer and accepted scope;
-   leave them pending. Save permitted auxiliary artifacts under the write policy.
+1. **Prepare the review body.** Complete the working plan, Implementation Tasks
+   and Completion summary below. Leave choices pending according to each record's
+   current State, actual answer and accepted scope. Save permitted auxiliary artifacts under the write policy.
 2. **Save and Read back.** Use Plan File Review Report to save the complete body
-   and append its terminal `## GSTACK REVIEW REPORT`. Pass that writer's Read-back
-   gate. If report persistence is forbidden or the save cannot be recovered,
-   follow **Blocked outcome**; do not continue to logging.
-3. **Log the saved review.** Run Review Log with the saved Completion summary's
-   values. If the required log is forbidden, show its fields as not persisted
-   and take **Blocked outcome**. If it fails, apply the write policy's recovery.
-   Neither case supplies completion or saved-dashboard credit.
+   and terminal `## GSTACK REVIEW REPORT`; pass its Read-back gate. Forbidden
+   persistence or an unrecovered save requires **Blocked outcome**, not logging.
+3. **Log the saved review.** Run Review Log with saved Completion summary values.
+   If the required log is forbidden, show fields as not persisted and take **Blocked outcome**;
+   failures use the write policy's recovery. Neither supplies completion or saved-dashboard credit.
 4. **Publish.** Display the Review Readiness Dashboard, then present the saved
    Completion summary to the user.
-5. **Choose navigation.** Use Next Steps — Review Chaining and wait for its answer.
-   Navigation grants no implementation authority. If a substantive change arises,
-   resolve it through Decision procedure, repeat Approval readiness, and redo the
-   affected outputs from step 1 through publication before asking navigation again.
-6. **Finish.** Run Learning hooks, then return to the entrypoint's Section
-   self-check and read-only EXIT PLAN MODE GATE. Run these checks in every host
-   mode. Brain Calibration Write-Back is one gated Learning hook. Only after
-   both pass, run success telemetry and cache refresh; call ExitPlanMode only in
-   host plan mode.
+5. **Choose navigation.** Use Next Steps — Review Chaining; wait for its answer.
+   Navigation grants no implementation authority. For substantive changes, use
+   Decision procedure, repeat Approval readiness, and redo affected outputs from
+   step 1 through publication before asking navigation again.
+6. **Finish.** Run Learning hooks, including gated Brain Calibration Write-Back;
+   then return to the entrypoint's Section self-check and read-only EXIT PLAN MODE GATE in
+   every host mode. Only after both pass, run success telemetry and cache refresh;
+   call ExitPlanMode only in host plan mode.
 
 ### Output reference — review body
 
-Keep the working plan, findings, ledger and the sections below together in the
-report file. Place `Suppressed findings` as a body appendix before the terminal
-`## GSTACK REVIEW REPORT`; nothing follows that terminal report.
+Put `Suppressed findings` in its body appendix. End with `## GSTACK REVIEW REPORT`;
+nothing follows that terminal report.
 
 ### "NOT in scope" section
 List considered work that was explicitly deferred, with one sentence explaining each deferral.
@@ -531,7 +532,7 @@ From final decisions/outputs; publish after report Read-back and Review Log:
 
 ## Review Log
 
-Use these commands in finish step 3, after successful Read-back. The required review log and best-effort decision log each follow the write policy.
+Use these commands in finish step 3, after successful Read-back. Both logs follow the write policy: required review log, best-effort decision log.
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"issues_found":N,"mode":"MODE","commit":"COMMIT"}' || exit $?
@@ -541,7 +542,6 @@ Use these commands in finish step 3, after successful Read-back. The required re
 Second command: `ARCH_SUMMARY` = findings/dispositions; `KEY_DECISION` = durable
 architecture choice. Omit it when none exists.
 
-Substitute values from the Completion Summary:
 - **TIMESTAMP**: current ISO 8601 datetime
 - **STATUS**: "clean" if `issues_found=0`, `unresolved=0` and `critical_gaps=0`; else "issues_open". Count resolved findings too; "issues_open" can mean mapped work, not failure.
 - **unresolved**: this review's "Unresolved decisions" count; do not include prior reviews
@@ -565,22 +565,23 @@ Flag stale CEO/design reviews from contradictory assumptions or significant comm
 drift. If no further review is needed or `skip_eng_review: true`, state
 "All relevant reviews complete. Run /ship when ready."
 
-AskUserQuestion with only the applicable options. This is **navigation only**:
-copy the working plan's task prerequisites, dependencies and execution order
-without adding or strengthening them in the question or descriptions. A test
-required before editing one function does not make every independent lane wait.
-A next-step answer approves no implementation change.
+AskUserQuestion with only applicable options. This is **navigation only**: copy
+the working plan's prerequisites, dependencies and execution order without adding
+or strengthening them. Do not serialize independent lanes. A next-step answer
+approves no implementation change.
 
-For a substantive late change, follow the repeat path in finish step 5. Refresh
-affected tasks, dependencies and parallelization along with the other outputs.
+For substantive late changes, repeat finish step 5, including affected tasks,
+dependencies and parallelization in refreshed outputs.
 
 ## Learning hooks
 
-In finish step 6, keep the working plan/approvals fixed. Review operational learnings
-per preamble; use Capture Learnings below for other discoveries. Never log twice.
+In finish step 6, keep the working plan/approvals fixed. Use the preamble for
+operational learnings, Capture Learnings for other discoveries. Never log twice.
 
 {{LEARNINGS_LOG}}
 
 {{GBRAIN_SAVE_RESULTS}}
+
+**Calibration gate status:** No supported preamble/config produces `BRAIN_CALIBRATION_WRITEBACK`. Skip unless that source explicitly enables it. Personal trust/MCP availability cannot enable it; never set it yourself.
 
 {{BRAIN_WRITE_BACK}}
