@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import { errors, type Page } from 'playwright';
 import { CookieImportError } from './cookie-import-browser';
 import { withCdpSession } from './cdp-bridge';
 
@@ -111,8 +111,8 @@ export async function verifyCookieAuthentication(
       }
       return { verified: false, reason: lastFailure, ...(status === undefined ? {} : { status }) };
     })()]);
-  } catch {
-    const reason = finished || performance.now() >= deadline ? 'timeout'
+  } catch (error) {
+    const reason = error instanceof errors.TimeoutError || finished || performance.now() >= deadline ? 'timeout'
       : page.isClosed() ? 'target_closed' : 'verification_failed';
     return { verified: false, reason, ...(status === undefined ? {} : { status }) };
   } finally {

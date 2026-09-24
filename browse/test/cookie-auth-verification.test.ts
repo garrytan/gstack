@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { runInNewContext } from 'node:vm';
 import { EventEmitter } from 'node:events';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { chromium, errors, type Browser, type BrowserContext, type Page } from 'playwright';
 import { CookieImportError } from '../src/cookie-import-browser';
 import { clearCookieTargetStorage, validateCookieAuthOptions, validateCookieStorageSupport, verifyCookieAuthentication } from '../src/cookie-auth-verification';
 
@@ -116,6 +116,30 @@ describe('cookie auth configuration and bounded operations', () => {
     await Promise.resolve();
     expect(evaluateAll).not.toHaveBeenCalled();
     expect(calls.locator).not.toHaveBeenCalled();
+  });
+
+  for (const stage of ['reload', 'selector']) {
+    test(`classifies Playwright's ${stage} timeout before the outer timer expires`, async () => {
+      const { page, calls, evaluateAll } = mockPage();
+      const fail = async () => { throw new errors.TimeoutError(`${credentialUrl.href} ${identity}`); };
+      if (stage === 'reload') calls.reload.mockImplementation(fail);
+      else evaluateAll.mockImplementation(fail);
+      const clock = spyOn(performance, 'now').mockReturnValue(0);
+      try {
+        const result = await verifyCookieAuthentication(page, options, unitOrigin);
+        expect(result).toEqual({ verified: false, reason: 'timeout', ...(stage === 'selector' ? { status: 200 } : {}) });
+        expect(JSON.stringify(result)).not.toContain(identity);
+        expect(JSON.stringify(result)).not.toContain(credentialUrl.href);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+  }
+
+  test('does not classify generic error text or a copied name as a Playwright timeout', async () => {
+    const { page, calls } = mockPage();
+    calls.reload.mockImplementation(async () => { throw Object.assign(new Error('synthetic timeout exceeded'), { name: 'TimeoutError' }); });
+    expect(await verifyCookieAuthentication(page, options, unitOrigin)).toEqual({ verified: false, reason: 'verification_failed' });
   });
 
   test('shares one deadline between reload and the identity assertion', async () => {
