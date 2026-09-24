@@ -19,6 +19,7 @@ Correctness fixes for configuration, transcript consent, browser output, iOS rec
 - Added native boundary, privacy, transport, output, and workflow regressions, plus bounded enrollment, credential-presence, and ship/landing evaluations. Command-outcome checks distinguish read-only CLI discovery from required validation failures.
 - Combined evaluation watchdogs cover the registered case census and existing retries without increasing individual model budgets or lowering pass thresholds.
 - Workflow fixtures launch owned scripts through explicit interpreters on Windows. Workflow, preference, and publication fixtures configure their own disposable Git identities, including when an isolated HOME hides the runner's configuration.
+- Native review-floor checks recognize current target-setting decisions without requiring fixed sentences and withhold automatic finding credit from historical, withdrawn, or unrelated examples.
 
 ## [1.89.0.0] - 2026-09-24
 

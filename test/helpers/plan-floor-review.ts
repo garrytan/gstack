@@ -161,35 +161,42 @@ function deterministicPlanFloorSetup(input: PlanFloorReview): PlanFloorAssessmen
 function deterministicPlanFloorFinding(input: PlanFloorReview): PlanFloorAssessment | null {
   if (input.candidate.transport !== 'native') return null;
   const q = input.candidate.question;
-  const combined = `${q.header}\n${q.question}`.replace(/\s+/g, ' ');
-  const lower = combined.toLowerCase();
-  const hasTthwTargetConcept =
-    /\b(?:tthw|time-to-first-call|time to first call|time-to-hello-world|time to hello world)\b/.test(lower) ||
-    (/\b(?:yardstick|score against|bar i compare|target is recorded)\b/.test(lower) &&
-      /\b(?:under-?10|2-5|min|minutes|clock)\b/.test(lower));
-  const isDevexTthwTarget =
-    hasTthwTargetConcept &&
-    /\b(?:quickstart|first-call journey|sdk quickstart|onboarding flow|8-step onboarding|gap report)\b/.test(lower) &&
-    /\b(?:email|key|wait|unattended)\b/.test(lower) &&
-    q.options.some(o => /(?:under|<)\s*10\s*min|measured wait|competitive|champion|current trajectory|copy-pasteable first call|key turnaround/i.test(`${o.label}\n${o.description}`));
-  if (!isDevexTthwTarget) return null;
-
-  const seedQuote = [
-    'Step 7: register an API key by emailing the team.',
-    'No quickstart command, no hosted sandbox, no copy-pasteable curl example.',
-  ].find(text => input.seed.includes(text));
-  const questionQuote = q.question.match(/Which (?:time-to-first-call|TTHW|Time-to-Hello-World) target should this quickstart (?:aim for|be measured against|be held to)\?/i)?.[0]
-    ?? q.question.match(/Which Time-to-Hello-World target fits this first-call journey\?/i)?.[0]
-    ?? q.question.match(/Which time-to-first-call target should this review (?:hold the plan to|aim the plan at)\?/i)?.[0]
-    ?? q.question.match(/Which yardstick should the gap report score against\?/i)?.[0];
-  const optionIndex = q.options.findIndex(o => /<\s*10\s*min|measured wait|competitive|champion|current trajectory|copy-pasteable first call|key turnaround/i.test(`${o.label}\n${o.description}`));
-  const option = optionIndex >= 0 ? q.options[optionIndex] : undefined;
-  const optionQuote = option && /<\s*10\s*min/i.test(option.label) ? option.label
-    : option && /competitive|champion|current trajectory/i.test(option.label) ? option.label
-    : option?.description.match(/[^.]*?(?:under|<)\s*10\s*min[^.]*\./i)?.[0]
-      ?? option?.description.match(/[^.]*copy-pasteable first call[^.]*\./i)?.[0]
-      ?? option?.description.match(/[^.]*measured wait[^.]*\./i)?.[0];
-  if (!seedQuote || !questionQuote || optionIndex < 0 || !optionQuote) return null;
+  if (q.multiSelect || !/^(?:TTHW|time[- ]to[- ](?:first[- ]call|hello[- ]world)) target$/i.test(q.header.trim())) return null;
+  const lines = q.question.trim().split('\n');
+  const opening = /^D[1-9]\d*(?: \(re-ask\))?\s*[—–:-]\s*(.+)$/.exec(lines[0]!);
+  if (!opening) return null;
+  const decision = opening[1]!.replace(/^The previous reply [^.?!]*\bdid not choose a target\.\s*/, '');
+  const questionQuote = /^Which (?:(?:TTHW|time[- ]to[- ](?:first[- ]call|hello[- ]world)) target|yardstick) (?:should|fits|would fit) (?:this|the) (?:quickstart(?: journey)?|first[- ]call journey|review|gap report)\b[^.?!;\n]*\?$/i.exec(decision)?.[0];
+  if (!questionQuote || /\b(?:quote|example|historical|previous|other|unrelated|hypothetical|approve|waive|delete|launch|ship|deploy|merge|ignore)\b/i.test(questionQuote)) return null;
+  const text = [q.question, ...q.options.flatMap(o => [o.label, o.description!])].join('\n');
+  if (/^\s*(?:>|`{3,}|~{3,}|(?:Source|Example|Previously|Earlier review):)|\b(?:historical|hypothetical|quoted|withdrawn|superseded|cancelled|canceled)\b|\b(?:finding|decision|question|target) (?:is|was|has been) (?:resolved|closed|not current|no longer current)\b/im.test(text) ||
+      [...text.matchAll(/\b[\w./-]+\.md\b/gi)].some(match => match[0] !== 'PLAN.md')) return null;
+  const context = lines.slice(1).join(' ');
+  if (!/\b(?:quickstart|first[- ]call journey|onboarding)\b/i.test(context) ||
+      !/\b(?:email(?:ed|ing)?[- ](?:api[- ]?)?key|email[- ]gated key|key[^.!?]*email)\b/i.test(context) ||
+      !/\b(?:wait|gate|gated|blocker|blocked|unknown|unmeasured)\b/i.test(context)) return null;
+  const seedQuote = 'Step 7: register an API key by emailing the team.';
+  if (/^\s*(?:>|`{3,}|~{3,}|(?:Source|Example|Previously|Earlier review):)|\b(?:historical|hypothetical|quoted|withdrawn|superseded|cancelled|canceled)\b|\b(?:plan|source|seed|finding|target) (?:is|was|has been) (?:resolved|closed|not current|no longer current)\b/im.test(input.seed) ||
+      !input.seed.split('\n').includes(seedQuote) ||
+      !input.seed.split('\n').includes('No quickstart command, no hosted sandbox, no copy-pasteable curl example.')) return null;
+  const labels = q.options.map(o => o.label.trim().replace(/^[A-D][).:]\s*/, '')
+    .replace(/\s*\(recommended\)$/i, '').trim());
+  const targetLabel = /^(?:Champion|Competitive|Current(?: trajectory)?|(?:under|<)\s*\d+(?:-\d+)?\s*min(?:\s*\+\s*measured wait)?)(?:\s*\([^()\n]*\))?(?:,\s*(?:polished|made honest and measurable))?$/i;
+  const customLabel = /^Tell me what(?:'s| is) realistic$/i;
+  const splitLabel = /^(?:Realistic )?split(?: clock| target)?$/i;
+  if (new Set(labels).size !== labels.length || !labels.every(label => targetLabel.test(label) || customLabel.test(label) || splitLabel.test(label)) ||
+      labels.some(label => [...label.matchAll(/\(([^()]*)\)/g)].some(match =>
+        !/^(?:[~<>+\d\s.,-]|min(?:ute)?s?|active|unknown|unmeasured|key|wait|estimated|est)+$/i.test(match[1]!))) ||
+      q.options.some((o, i) => /\b(?:approve|waive|delete|launch|ship|deploy|merge|instead|example|sample)\b/i.test(`${o.label}\n${o.description}`) ||
+        (splitLabel.test(labels[i]!)
+          ? !/\bactive[- ]time\b[^.!?]*\d+(?:-\d+)?\s*min\b/i.test(o.description!) ||
+            !/\bkey[- ]wait\b[^.!?]*\bmeasured separately\b/i.test(o.description!)
+          : !(customLabel.test(labels[i]!)
+          ? /\b(?:number|target|clock|wait|threshold|constraints|turnaround)\b/i
+          : /\b(?:min(?:ute)?s?|bar|tier|baseline|threshold|clock|target|scope|blocked|gate|gated)\b/i).test(o.description!)))) return null;
+  const optionIndex = labels.findIndex(label => targetLabel.test(label));
+  if (optionIndex < 0) return null;
+  const optionQuote = q.options[optionIndex]!.label;
 
   return validatePlanFloorAssessment(input, {
     kind: 'finding',
@@ -197,7 +204,7 @@ function deterministicPlanFloorFinding(input: PlanFloorReview): PlanFloorAssessm
     questionQuote,
     optionIndex: optionIndex + 1,
     optionQuote,
-    reason: 'Deterministic finding classifier: the current TTHW target question resolves the seeded email-key quickstart obstacle.',
+    reason: 'Deterministic finding classifier: the current question asks the user to choose a TTHW target in light of the seeded email-key quickstart obstacle; remedies remain undecided.',
   });
 }
 
