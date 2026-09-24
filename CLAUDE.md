@@ -176,7 +176,7 @@ or as a reference doc, (3) only compress carefully-tuned prose as a last resort 
 cuts to the coverage audit, review army, or voice directive have real quality cost.
 
 A second, harder ceiling guards the DISCOVERY surface: `test/catalog-budget.test.ts`
-caps the aggregate frontmatter `name` + `description` across all skills at 1,150
+caps the aggregate frontmatter `name` + `description` across all skills at 1,171
 token-equivalents (260-byte per-skill sub-cap), counted through the shared census
 in `test/helpers/skill-census.ts`. This one is enforced, not a warning — every
 host loads the full catalog every session, so growth here taxes every

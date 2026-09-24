@@ -64,13 +64,13 @@ describe('generateAskUserFormat — v1.7.0.0 Pros/Cons format', () => {
 
   test('documents ✅ pro markers with min count + min length rule', () => {
     expect(out).toContain('✅');
-    expect(out).toMatch(/[Mm]inimum 2 pros/);
+    expect(out).toMatch(/(?:[Mm]inimum |≥)2 pros/);
     expect(out).toMatch(/40 characters|≥40 chars/);
   });
 
   test('documents ❌ con markers with min count rule', () => {
     expect(out).toContain('❌');
-    expect(out).toMatch(/1 con per option|minimum.*1 con/i);
+    expect(out).toMatch(/1 con per option|minimum.*1 con|Each real option: [^\n]*≥1 con/i);
   });
 
   test('documents hard-stop escape with exact phrase', () => {
@@ -108,7 +108,7 @@ describe('generateAskUserFormat — v1.7.0.0 Pros/Cons format', () => {
   test('includes self-check before emitting', () => {
     expect(out).toContain('Self-check before emitting');
     expect(out).toMatch(/D<N> header present/);
-    expect(out).toMatch(/Net line closes/);
+    expect(out).toContain("`Net:` closes question text");
   });
 
   test('documents D-numbering as model-level not runtime state', () => {

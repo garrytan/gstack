@@ -224,7 +224,7 @@ describe("S1: exclusion scoped to the push-target remote", () => {
     const head = run(["rev-parse", "HEAD"]).trim();
     const { code, stderr } = runHook(
       `refs/heads/feature ${head} refs/heads/feature ${originTip}\n`,
-      ["origin", "file:///ignored"],
+      ["origin", run(["remote", "get-url", "--push", "origin"]).trim()],
     );
     expect(code).toBe(1);
     expect(stderr).toContain("BLOCKED");
@@ -242,7 +242,7 @@ describe("S1: exclusion scoped to the push-target remote", () => {
     const head = run(["rev-parse", "HEAD"]).trim();
     const { code, stderr } = runHook(
       `refs/heads/feature ${head} refs/heads/feature ${originTip}\n`,
-      ["origin", "file:///ignored"],
+      ["origin", run(["remote", "get-url", "--push", "origin"]).trim()],
     );
     expect(stderr).not.toContain("BLOCKED");
     expect(code).toBe(0);
@@ -263,7 +263,7 @@ describe("S1: exclusion scoped to the push-target remote", () => {
     expect(code).toBe(0);
   });
 
-  test("an unconfigured name (URL push) also falls back rather than erroring", () => {
+  test("an unconfigured URL push cannot borrow another remote's published history", () => {
     const { originTip } = buildSecretOnSecondRemote();
     const head = run(["rev-parse", "HEAD"]).trim();
     const url = "file:///not-a-configured-remote";
@@ -271,7 +271,7 @@ describe("S1: exclusion scoped to the push-target remote", () => {
       `refs/heads/feature ${head} refs/heads/feature ${originTip}\n`,
       [url, url],
     );
-    expect(stderr).not.toContain("could not");
-    expect(code).toBe(0);
+    expect(stderr).toContain("aws.access_key");
+    expect(code).toBe(1);
   });
 });

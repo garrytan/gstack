@@ -336,6 +336,27 @@ describe('CSO runtime staging gates', () => {
     expect(gate['continue-on-error']).not.toBe(true);
   });
 
+  test('native macOS ownership and settings regressions are required by the free gate', () => {
+    const workflow = Bun.YAML.parse(readFileSync(join(ROOT, '.github/workflows/free-tests.yml'), 'utf8')) as any;
+    const job = workflow.jobs['cso-macos-launcher'];
+    const gate = job.steps.find((step: any) => step.name === 'Exercise native agent ownership and linked settings');
+    expect(job['runs-on']).toBe('macos-latest');
+    expect(gate.env.TMPDIR).toBe('/tmp');
+    expect(gate.run).toContain('test -f "$file"');
+    expect(gate.run).toContain('bun test "${files[@]}"');
+    for (const file of [
+      'browse/test/terminal-agent-lifecycle.test.ts',
+      'browse/test/terminal-agent-native-observation.test.ts',
+      'browse/test/terminal-agent-watchdog.test.ts',
+      'browse/test/server-embedder-terminal-port.test.ts',
+      'browse/test/server-factory.test.ts',
+      'test/gstack-settings-hook-symlink.test.ts',
+      'test/gstack-settings-hook-schema-aware.test.ts',
+    ]) expect(gate.run).toContain(file);
+    expect(gate['continue-on-error']).not.toBe(true);
+    expect(workflow.jobs['free-tests'].needs).toContain('cso-macos-launcher');
+  });
+
   test('publication requires manual protected-main review, signed evidence, and native containment checks', () => {
     const raw = readFileSync(join(ROOT, '.github/workflows/cso-runtime-images.yml'), 'utf8');
     const workflow = Bun.YAML.parse(raw) as any;

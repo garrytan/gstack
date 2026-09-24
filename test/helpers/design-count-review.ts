@@ -55,50 +55,111 @@ function numberedVisualHierarchyFinding(fp: AskUserQuestionFingerprint): boolean
     /^Leave the gap named but unresolved\. Engineer decides the button styles at implementation time without a spec\. Risk: inconsistency with the design system or re-work after review\.$/i.test(q.options[defer]!.description?.trim() ?? '');
 }
 
+interface PrimaryFindingFacts {
+  primary: string;
+  currentGap: boolean;
+  controlCount: number;
+  namedPeers?: string[];
+  remedy: { peers: string[]; role: boolean; tokens: boolean; authority: boolean; current: boolean };
+  alternative: { unresolved: boolean; retainedCounts: number[]; current: boolean };
+}
+
+/** Presentation adapters supply facts; this is the shared finding boundary. */
+function validPrimaryFinding(facts: PrimaryFindingFacts): boolean {
+  const peers = facts.remedy.peers;
+  return facts.currentGap && facts.controlCount > 1 && peers.length + 1 === facts.controlCount &&
+    peers.every(peer => /^[a-z][a-z0-9 _-]{0,39}$/i.test(peer)) &&
+    new Set(peers).size === peers.length && !peers.includes(facts.primary.toLowerCase()) &&
+    (!facts.namedPeers || JSON.stringify(peers) === JSON.stringify(facts.namedPeers)) &&
+    facts.remedy.role && facts.remedy.tokens && facts.remedy.authority && facts.remedy.current &&
+    facts.alternative.unresolved && facts.alternative.current &&
+    facts.alternative.retainedCounts.every(count => count === facts.controlCount);
+}
+
 /** A qidless Issue with its own design gap is a finding, independent of D numbering. */
-function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
+function ordinaryDesignIssue(fp: AskUserQuestionFingerprint, scope: { primary: boolean; ownsPrimaryPremise?: boolean }): boolean {
   const call = fp.nativeCall;
-  if (!call || call.answered !== true || call.failed !== false || !call.sessionId || !call.toolUseId ||
-      call.questions.length !== 1 || !Array.isArray(call.unansweredQuestionIndices) || call.unansweredQuestionIndices.length ||
-      fp.signature !== `${call.sessionId}:${call.toolUseId}` ||
-      (fp.nativeQuestionIndex !== undefined && fp.nativeQuestionIndex !== 0)) return false;
+  if (!call?.questions.length) return false;
+  const nativeValid = call.answered === true && call.failed === false && !!call.sessionId && !!call.toolUseId &&
+    call.questions.length === 1 && Array.isArray(call.unansweredQuestionIndices) && !call.unansweredQuestionIndices.length &&
+    fp.signature === `${call.sessionId}:${call.toolUseId}` &&
+    (fp.nativeQuestionIndex === undefined || fp.nativeQuestionIndex === 0);
   const q = call.questions[0]!;
   const title = q.question.split('\n')[0]!.trim();
+  const headerIdentity = /^Issue ([1-9]\d*)(?:: ([A-Za-z][A-Za-z0-9 _-]{0,39}))?$/i.exec(q.header.trim());
+  const titleSubject = title.replace(/^D[1-9]\d*\s*[—–:-]\s*/i, '')
+    .replace(/^Issue [1-9]\d*: /i, '');
+  // Identity can live in either native field. A local actor/role relation is
+  // distinct from the surrounding decision wording; both fields must agree
+  // when they name an issue or actor. The facts below still prove the finding.
+  const actorRole = /^(?!(?:How|What|Which|Who|Why|Where|When)\b)([A-Za-z][A-Za-z0-9 _-]{0,39}) (?:become|be|is|as) (?:the )?(?:(?:only|single|visible|visually) )?(?:filled )?primary (?:header )?action\b/i;
+  const roleSubject = (text: string) => text.replace(/^(?:Should|Can|Could|Must|Will|Would) /i, '');
+  const titleRole = actorRole.exec(roleSubject(titleSubject));
+  // Recognizing this actor/role family is separate from accepting evidence.
+  // Quotation or invalid native identity must not reopen generic qid fallback.
+  scope.primary = !!titleRole || actorRole.test(roleSubject(titleSubject.replace(/^["“'‘—–\s]+|["”'’\s]+$/g, '')));
+  const headerOwnedIssue = headerIdentity && titleRole && !/\bIssue [1-9]\d*\b/i.test(titleSubject) &&
+    !/\b(?:reviewer|scope|setup|routing|learnings|outside voices|next steps?)\b/i.test(titleSubject)
+    ? [title, headerIdentity[1]!, titleSubject] : null;
   // This primary-action decision can name the control in its Issue header.
   // F labels annotate findings; they do not establish review identity alone.
   const headerActionIssue = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*)(?: \(F[1-9]\d*\))?: (How should the header action group establish the primary action)\?$/i.exec(title);
   const signaledPrimaryIssue = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*) \(G[1-9]\d*\): (How should the header action group signal that [A-Za-z][A-Za-z0-9 _-]{0,39} is the primary action)\?$/i.exec(title);
-  const distinguishedPrimaryIssue = /^D[1-9]\d*\s*[—–:-]\s*Issue ([1-9]\d*): How should ([A-Za-z][A-Za-z0-9 _-]{0,39}) (?:be distinguished|stand out) from ([A-Za-z][A-Za-z0-9 ,_-]{0,119}?)(?: in the header)?\?$/i.exec(title);
+  // Parse the owned comparison independently of the following decision's prose.
+  // Both forms return the same issue, primary and peer facts for the checks below.
+  const comparisonTitle = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*): ([A-Za-z][A-Za-z0-9 _-]{0,39}) (?:is visually identical to|is indistinguishable from) ([A-Za-z][A-Za-z0-9 ,/_-]{0,119}?)(?: in the header)?\. ([^?]+\?)$/i.exec(title);
+  const compoundPrimaryIssue = comparisonTitle && /\b(?:fix|resolve|distinguish(?:ed)?|primary action)\b/i.test(comparisonTitle[4]!) ? comparisonTitle : null;
+  const distinguishedPrimaryIssue = /^D[1-9]\d*\s*[—–:-]\s*Issue ([1-9]\d*): How should ([A-Za-z][A-Za-z0-9 _-]{0,39}) (?:be distinguished|stand out) from ([A-Za-z][A-Za-z0-9 ,/_-]{0,119}?)(?: in the header)?\?$/i.exec(title) ?? compoundPrimaryIssue;
   const questionIssue = /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*)(?: \((?:(?:G[1-9]\d*|Pass [1-7]), )?(?:Visual Hierarchy|Spacing|Color|Typography|Motion)\))?: ([^?]+)\?$/i.exec(title) ?? headerActionIssue ?? signaledPrimaryIssue;
   // A declaration can own the same primary-action decision. Its body and
   // native choices below must prove the gap, complete styling and deferral.
   const declaredPrimaryIssue = (!questionIssue || /\nELI10: (?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) header buttons currently /i.test(q.question)) &&
-    /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*)(?: \(G[1-9]\d*\))?: ([^?\n]+)\??$/i.exec(title);
+    /^(?:D[1-9]\d*\s*[—–:-]\s*)?Issue ([1-9]\d*)(?: \(G[1-9]\d*\))?: ([^?\n]+)\??$/i.exec(title) ||
+    (titleRole && (questionIssue ?? headerOwnedIssue));
   const issue = questionIssue || declaredPrimaryIssue;
+  if (!issue) return false;
+  const subject = issue[2]!.replace(/\.$/, '');
   const declaredGap = declaredPrimaryIssue && /\(G([1-9]\d*)\)/.exec(title)?.[1];
   const descriptivePrimaryHeader = (signaledPrimaryIssue && /^(?!(?:focus|scope|setup|routing|learnings|outside voices|next steps?)$)[A-Za-z][A-Za-z _-]{0,39}$/i.test(q.header.trim())) ||
-    (distinguishedPrimaryIssue && /^(?:Visual )?Hierarchy$/i.test(q.header.trim()));
-  if (!issue || !(new RegExp(`^Issue ${issue[1]}(?:: [A-Za-z][A-Za-z0-9 _-]{0,39})?$`, 'i').test(q.header.trim()) || descriptivePrimaryHeader) ||
-      /<gstack-qid:/i.test(q.question) || q.multiSelect ||
-      q.options.length < 2 || new Set(q.options.map(o => o.label)).size !== q.options.length ||
-      fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
-      !q.options.some(o => o.label === call.answers?.[q.question])) return false;
+    (distinguishedPrimaryIssue && /^(?:Visual )?Hierarchy$/i.test(q.header.trim())) ||
+    (compoundPrimaryIssue && (q.header.trim().toLowerCase() === `${compoundPrimaryIssue[2]} primary`.toLowerCase() ||
+      q.header.trim().toLowerCase() === `Issue ${compoundPrimaryIssue[1]} ${compoundPrimaryIssue[2]}`.toLowerCase()));
   // The numbered headline must ask about a concrete design requirement.
   // Reviewer participation or workflow navigation can also use Issue labels.
-  if (!distinguishedPrimaryIssue && !/\b(?:buttons?|primary(?: header)? actions?|primary emphasis|hierarchy|spacing|contrast|colou?rs?|labels?|typography|fonts?|loading|spinner|skeleton|motion)\b/i.test(issue[2]!)) return false;
-  const opposed = q.options.filter(o => /^(?:[1-9]\d*[A-Z](?:[).:]\s*|\s+))?(?:Defer|Decline|Leave|Keep|Accept the gap)\b/i.test(o.label) ||
+  if (!distinguishedPrimaryIssue && !/\b(?:buttons?|primary(?: header)? actions?|primary emphasis|primacy|hierarchy|spacing|contrast|colou?rs?|labels?|typography|fonts?|loading|spinner|skeleton|motion)\b/i.test(issue[2]!)) return false;
+  const choiceLabel = (label: string) => label.trim().replace(/^[1-9]\d*[A-Z](?:\s*[—–).:]\s*|\s+)/, '').replace(/\s*\(recommended\)\s*$/i, '');
+  const opposed = q.options.filter(o => /^(?:Defer|Decline|Leave|Keep|Accept the gap)\b/i.test(choiceLabel(o.label)) ||
     (distinguishedPrimaryIssue && /^(?:Keep|Leave)\b/i.test(o.description?.trim() ?? '')));
   const repair = !headerActionIssue && !distinguishedPrimaryIssue && !declaredPrimaryIssue && /\b(?:fix|resolve|address)\b/i.test(title) &&
     q.options.some(o => /\b(?:closing|closes|fixes|resolves?|applies?)\b/i.test(o.description ?? ''));
   // A source citation alone can describe a report or the next reviewer.
   // Bind the alternate wording to a named control's concrete style amendment
   // and the opposed choice that leaves the documented violation unresolved.
-  const primary = /^Make ([A-Za-z][A-Za-z0-9 _-]{0,39}) the (?:visible|visually|(?:only|single)(?: filled| visually)?) primary (?:header )?action(?: in the header)?$/i.exec(issue[2]!) ??
-    /^Give ([A-Za-z][A-Za-z0-9 _-]{0,39}) primary emphasis in the header action group$/i.exec(issue[2]!) ??
-    /^How should the header action group signal that ([A-Za-z][A-Za-z0-9 _-]{0,39}) is the primary action$/i.exec(issue[2]!) ??
-    /^How should (?:the )?(?:header )?actions establish that ([A-Za-z][A-Za-z0-9 _-]{0,39}) is the primary action$/i.exec(issue[2]!) ??
-    (distinguishedPrimaryIssue && /^How should ([A-Za-z][A-Za-z0-9 _-]{0,39}) (?:be distinguished|stand out) from /i.exec(issue[2]!)) ??
+  const primary = /^Make ([A-Za-z][A-Za-z0-9 _-]{0,39}) the (?:visible|visually|(?:only|single)(?: filled| visually)?) primary (?:header )?action(?: in the header)?$/i.exec(subject) ??
+    /^([A-Za-z][A-Za-z0-9 _-]{0,39}) (?:has no|lacks) (?:visual primacy|primary emphasis)(?: in the header action group)?$/i.exec(subject) ??
+    /^Give ([A-Za-z][A-Za-z0-9 _-]{0,39}) primary emphasis in the header action group$/i.exec(subject) ??
+    /^How should the header action group signal that ([A-Za-z][A-Za-z0-9 _-]{0,39}) is the primary action$/i.exec(subject) ??
+    /^How should (?:the )?(?:header )?actions establish that ([A-Za-z][A-Za-z0-9 _-]{0,39}) is the primary action$/i.exec(subject) ??
+    titleRole ??
+    (distinguishedPrimaryIssue && [distinguishedPrimaryIssue[0], distinguishedPrimaryIssue[2]!]) ??
     (headerActionIssue && new RegExp(`^Issue ${issue[1]}: ([A-Za-z][A-Za-z0-9 _-]{0,39})$`, 'i').exec(q.header.trim()));
+  scope.primary ||= !!primary;
+  // Recognize the ordinary parser's premise grammar before validating its
+  // evidence. Invalid source/roles/status within that grammar must not fall
+  // through to the broader native-field parser merely by adding gap prose.
+  const rawAssessments = [...q.question.matchAll(/^(?:>\s*)?ELI10: (.+)$/gm)].map(match => match[1]!);
+  scope.ownsPrimaryPremise = !!primary && (!!titleRole || !!declaredPrimaryIssue || !!compoundPrimaryIssue || rawAssessments.some(value =>
+    /^(?:(?:Right now|Today) )?[A-Za-z][A-Za-z0-9 ,/_-]{0,159}? (?:(?:all )?look (?:the same|identical)|are (?:all )?(?:(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) )?identical buttons)\b/i.test(value) &&
+      !/^(?:Right now|Today) (?:all|the)\b|\bcurrently\b/i.test(value) ||
+    /^(?:Right now|Today) (?:all|the) (?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) header buttons (?:look (?:the same|identical)|(?:are|have|share) the same [A-Za-z ,]+)\./i.test(value)));
+  if (!nativeValid) return false;
+  const ownedPrimaryHeader = primary && (q.header.trim().toLowerCase() === `${primary[1]} primary`.toLowerCase() ||
+    q.header.trim().toLowerCase() === `Issue ${issue[1]} ${primary[1]}`.toLowerCase());
+  if (!(new RegExp(`^Issue ${issue[1]}(?:: [A-Za-z][A-Za-z0-9 _-]{0,39})?$`, 'i').test(q.header.trim()) || descriptivePrimaryHeader || ownedPrimaryHeader) ||
+      /<gstack-qid:/i.test(q.question) || q.multiSelect ||
+      q.options.length < 2 || new Set(q.options.map(o => o.label)).size !== q.options.length ||
+      fp.options.length !== q.options.length || !fp.options.every((o, i) => o.index === i + 1 && o.label === q.options[i]!.label) ||
+      !q.options.some(o => o.label === call.answers?.[q.question])) return false;
   if (declaredPrimaryIssue && (!primary || q.options.length > 4 || Object.keys(call.answers ?? {}).length !== 1)) return false;
   // An attributed native option can put the fill before or after its color.
   // It still names the primary, every ghost peer and DESIGN.md in one action.
@@ -127,13 +188,14 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   const primaryHeader = !q.header.includes(':') || q.header.split(':')[1]!.trim().toLowerCase() === primary?.[1]?.toLowerCase();
   const ownedStatus = (value: string, index: number, source: string) =>
     /^(?:withdrawn|superseded|resolved|closed|historical|hypothetical|rejected|cancelled|canceled|not current|no longer current)$/i.test(value) &&
-    /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:(?:This (?:issue|finding|question|amendment|deferral|style|fix|remedy|choice|option|(?:DESIGN\.md |token )?(?:requirement|contract))|(?:Issue |G)[1-9]\d*) (?:is|was|has been)|(?:these|the|this) (?:tokens?|styles?|primary treatment) (?:are|is|were|was|have been|has been)) $/i.test(source.slice(0, index));
+    /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:(?:(?:This|That|The) (?:issue|finding|question|amendment|deferral|style|fix|remedy|choice|option|(?:DESIGN\.md |token )?(?:requirement|contract))|(?:Issue |G)[1-9]\d*) (?:is|was|has been)|(?:these|the|this) (?:tokens?|styles?|primary treatment) (?:are|is|were|was|have been|has been)) $/i.test(source.slice(0, index));
   // The style wordings share one owned decision: a current equal-weight gap,
   // a named control's DESIGN.md amendment, and a different choice retaining it.
   // A following status assertion remains current after a parenthesized effort
   // estimate. Preserve the estimate and expose its boundary to the same guards.
   const currentText = (text: string) => (scopedPrimaryStatus
     ? text.replace(/(\(human: ~?[0-9]+(?:\.[0-9]+)?(?:h|min) \/ CC: ~?[0-9]+(?:\.[0-9]+)?(?:h|min)\))(?=\s+\S)/g, '$1.')
+      .replace(/\(recommended\)(?=\s+\S)/gi, '$&.')
     : text)
     .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, '')
     .replace(/^(?:\s*>| {4}|\t).*$/gm, '')
@@ -163,18 +225,33 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   const equalProperties = distinguishedPrimaryIssue && new RegExp('^(?:Right now|Today) (?:all|the) (two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) header buttons (?:are|have|share) the same (' + properties + ')\\.', 'i').exec(assessment);
   const countedHeader = equalProperties && /\b(?:weight|colou?r|fill|emphasis)\b/i.test(equalProperties[2]!) && equalProperties ||
     distinguishedPrimaryIssue && /^(?:Right now|Today) (?:all|the) (two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) header buttons look (?:the same|identical)\./i.exec(assessment) ||
+    distinguishedPrimaryIssue && /^The header shows (two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) buttons that look exactly alike\./i.exec(assessment) ||
+    (distinguishedPrimaryIssue || declaredPrimaryIssue) && /^(two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) buttons (?:sit in a row and |in a row )all look the same[,.]/i.exec(assessment) ||
     declaredPrimaryIssue && /^(two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) header buttons currently (?:share one style|look identical)\./i.exec(assessment);
   const primaryAssessment = distinguishedPrimaryIssue || declaredPrimaryIssue ? countedHeader?.[0] : headerActionIssue ? headerPeers?.[0] :
     primary && new RegExp(`^(?:Right now|Today) ${primary[1]}(?:, [A-Za-z][A-Za-z0-9 _-]{0,39})+(?:,? and [A-Za-z][A-Za-z0-9 _-]{0,39})? (?:(?:all )?look (?:the same|identical)|are (?:all )?(?:(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) )?identical buttons)\\b`, 'i').exec(assessment)?.[0];
   const premiseSentence = assessment.split(/[.!?](?:\s|$)/)[0] ?? '';
-  const currentPrimary = !!primaryAssessment && !/\b(?:not|never|no longer)\b/i.test(primaryAssessment) &&
-    !/\b(?:archived|historical|hypothetical|quoted|example|previous|earlier)\b/i.test(premiseSentence);
+  const currentPremise =
+    !/\b(?:archived|historical|hypothetical|quoted|example|previous|earlier)\b/i.test(premiseSentence) &&
+    !/\bPLAN\.md (?:onboarding|post-review TODO|engineering review)\b/i.test(prefix.join(' '));
+  const currentPrimary = !!primaryAssessment && !/\b(?:not|never|no longer)\b/i.test(primaryAssessment) && currentPremise;
   // The current assessment can state the full token contract while an offered
   // amendment names the existing component variants that implement it.
   const numberValue = (value: string) => /^\d+$/.test(value) ? Number(value) :
     ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'].indexOf(value.toLowerCase());
-  const controlNames = (text: string) => text.toLowerCase().split(/,\s*(?:and\s+)?|\s+and\s+/).map(s => s.trim()).sort();
+  const controlNames = (text: string) => text.toLowerCase().split(/\s*\/\s*|,\s*(?:and\s+)?|\s+and\s+/).map(s => s.trim()).sort();
+  const validControls = (controls: string[]) => controls.length > 0 &&
+    controls.every(control => /^[a-z][a-z0-9 _-]{0,39}$/i.test(control)) && new Set(controls).size === controls.length;
   const headerControls = distinguishedPrimaryIssue ? controlNames(distinguishedPrimaryIssue[3]!) : headerPeers ? controlNames(headerPeers[1]!) : [];
+  const namedPremiseMatch = /^(?:(?:Right now|Today) )?([A-Za-z][A-Za-z0-9 ,/_-]{0,159}?) (?:(?:all )?look (?:the same|identical)|are (?:all )?((?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) )?identical buttons)\b/i.exec(assessment);
+  const namedPremise = primary && namedPremiseMatch &&
+    new RegExp(`\\b${primary[1]}\\b`, 'i').test(namedPremiseMatch[1]!) ? namedPremiseMatch : null;
+  const premiseActors = namedPremise ? controlNames(namedPremise[1]!) : [];
+  const namedCurrentGap = primary && namedPremise && validControls(premiseActors) &&
+    premiseActors.includes(primary[1]!.toLowerCase()) && premiseActors.length > 1 &&
+    currentPremise && !/\b(?:not|never|no longer)\b/i.test(namedPremise[0]) &&
+    (!namedPremise[2] || numberValue(namedPremise[2].trim()) === premiseActors.length);
+  const premiseCount = countedHeader ? numberValue(countedHeader[1]!) : namedCurrentGap ? premiseActors.length : 0;
   const otherControls = headerActionIssue || distinguishedPrimaryIssue ? headerControls.length : primary && primaryAssessment
     ? primaryAssessment.replace(new RegExp(`^(?:Right now|Today) ${primary[1]},\\s*`, 'i'), '')
       .replace(/\s+(?:(?:all )?look (?:the same|identical)|are (?:all )?(?:(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) )?identical buttons)$/, '')
@@ -183,7 +260,7 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
     '\\(#[0-9a-f]{6} with (?:white|black) text(?:, about [0-9]+(?:\\.[0-9]+)?:1 contrast)?\\) and the other ' +
     '(two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) are neutral ghost buttons\\.', 'i').exec(assessment);
   const statusBoundary = scopedPrimaryStatus ? '[.!?;]' : '[.!?]';
-  const invalidContract = new RegExp(`(?:^|${statusBoundary}\\s+|\\n)(?:Correction:\\s*)?(?:this|that|the) (?:(?:DESIGN\\.md|token) )?(?:requirement|contract) (?:is|was|has been) (?:withdrawn|superseded|rejected|cancelled|canceled|not current|no longer current)\\b`, 'i');
+  const invalidContract = new RegExp(`(?:^|${statusBoundary}\\s+|\\n)(?:[✅❌]\\s*)?(?:Correction:\\s*)?(?:this|that|the) (?:(?:DESIGN\\.md|token) )?(?:requirement|contract) (?:is|was|has been) (?:withdrawn|superseded|rejected|cancelled|canceled|not current|no longer current)\\b`, 'i');
   const namedContract = primary && new RegExp(`(?:^|[.!?]\\s+)DESIGN\\.md already says ${primary[1]} is the only filled primary button and the other (two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) are neutral ghost buttons\\.`, 'i').exec(assessment);
   const headerContract = primary && headerActionIssue && new RegExp(`(?:^|[.!?]\\s+)DESIGN\\.md already answers it: ${primary[1]} is the only filled primary button, the other (two|three|four|five|six|seven|eight|nine|ten|[1-9]\\d*) are neutral ghost buttons\\.`, 'i').exec(assessment);
   const conditionalHeader = (text: string) => /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:If|When|Unless|Assuming|Provided)\b/i.test(text) || /\b(?:only if|unless|pending approval|subject to approval)\b/i.test(text);
@@ -192,25 +269,35 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
   const pendingPrimaryApproval = (text: string) => primaryEmphasisIssue && (
     /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:If|When|Once|Provided|Assuming|Pending)\s+(?:approval|approved|acceptance|accepted|(?:we|you)\s+(?:approve|accept))\b/i.test(text) ||
     (declaredPrimaryIssue && new RegExp(`(?:^|[.!?;]\\s+|\\n)(?:Correction:\\s*)?(?:This (?:issue|finding|amendment|deferral|option)|Issue ${issue[1]}${declaredGap ? `|G${declaredGap}` : ''}) (?:requires approval|applies only if approved)\\b`, 'i').test(text)));
-  const currentHeaderContract = declaredPrimaryIssue ? countedHeader && !conditionalHeader(questionText) : distinguishedPrimaryIssue ? (countedHeader && headerControls.length > 0 &&
-    new Set(headerControls).size === headerControls.length && !headerControls.includes(primary![1]!.toLowerCase()) &&
-    numberValue(countedHeader[1]!) === headerControls.length + 1 && !conditionalHeader(questionText)) : !headerActionIssue || (headerContract && headerControls.length > 0 &&
-    new Set(headerControls).size === headerControls.length && !headerControls.includes(primary![1]!.toLowerCase()) &&
+  const currentHeaderContract = declaredPrimaryIssue || distinguishedPrimaryIssue ?
+    (countedHeader || namedCurrentGap) && !conditionalHeader(questionText) : !headerActionIssue || (headerContract && headerControls.length > 0 &&
+    validControls(headerControls) && !headerControls.includes(primary![1]!.toLowerCase()) &&
     numberValue(headerContract[1]!) === headerControls.length && !conditionalHeader(questionText));
   const statedVariant = (variantContract || namedContract) &&
     numberValue((variantContract || namedContract)![1]!) === otherControls &&
     !/\b(?:proposed|hypothetical|quoted|historical|source)\s+(?:example|contract|requirement)\b/i.test(assessment.slice(0, (variantContract || namedContract)!.index)) &&
     !invalidContract.test(questionText);
-  const withdrawn = new RegExp(`(?:^|${statusBoundary}\\s+|\\n)(?:Correction:\\s*)?(?:(?:This (?:issue|finding|question|amendment|deferral|style|fix|remedy|choice|option)|Issue ${issue[1]}${declaredGap ? `|G${declaredGap}` : ''}) (?:is|was|has been) (?:withdrawn|superseded|resolved|closed|historical|hypothetical|rejected|cancelled|canceled|not current|no longer current)|We have (?:resolved|closed|withdrawn) this (?:issue|finding)|No current (?:issue|finding|gap|violation) (?:remains|exists))\\b`, 'i');
-  const closedGap = /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:this|the|that) (?:gap|violation) (?:is|was|has been) (?:already\s+|now\s+)?(?:resolved|fixed|closed)\b/i;
-  const cancelledStyle = /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw)\s+(?:apply|use|add|keep)\s+(?:(?:these|the|this)\s+)?(?:tokens?|styles?|primary treatment)\b/i;
-  const withdrawnStyles = /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:these|the|this) (?:tokens?|styles?|primary treatment) (?:are|is|were|was|have been|has been) (?:withdrawn|rejected|cancelled|canceled|not current|no longer current)\b/i;
-  const choiceIds = q.options.map(o => /^([1-9]\d*)[A-Z](?:[).:]?\s+)/.exec(o.label));
-  const primaryRepair = primaryHeader && amendments && currentPrimary && currentHeaderContract &&
+  const withdrawn = new RegExp(`(?:^|${statusBoundary}\\s+|\\n)(?:[✅❌]\\s*)?(?:Correction:\\s*)?(?:(?:(?:This|That|The) (?:issue|finding|question|amendment|deferral|style|fix|remedy|choice|option)|Issue ${issue[1]}${declaredGap ? `|G${declaredGap}` : ''}) (?:is|was|has been) (?:withdrawn|superseded|resolved|closed|historical|hypothetical|rejected|cancelled|canceled|not current|no longer current)|We have (?:resolved|closed|withdrawn) this (?:issue|finding)|No current (?:issue|finding|gap|violation) (?:remains|exists))\\b`, 'i');
+  const closedGap = /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:this|the|that) (?:(?:design )?debt|gap|violation) (?:is|was|has been) (?:already\s+|now\s+)?(?:resolved|fixed|closed)\b/i;
+  const cancelledStyle = /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw)\s+(?:apply|use|add|keep)\s+(?:(?:these|the|this)\s+)?(?:tokens?|styles?|primary treatment)\b/i;
+  const withdrawnStyles = /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:these|the|this) (?:tokens?|styles?|primary treatment) (?:are|is|were|was|have been|has been) (?:withdrawn|rejected|cancelled|canceled|not current|no longer current)\b/i;
+  const currentOptionEvidence = (text: string) => !pendingPrimaryApproval(text) && !conditionalHeader(text) &&
+    !sourceAssessment.test(text) && !withdrawn.test(text) && !closedGap.test(text) &&
+    !invalidContract.test(text) && !cancelledStyle.test(text) && !withdrawnStyles.test(text);
+  const contradictsDesign = (text: string) => /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:these|the|this) (?:tokens?|styles?|variants?) (?:(?:do|does) not match DESIGN\.md|(?:are|is|were|was) (?:not approved|unapproved))\b/i.test(text);
+  const consistentRemedyEvidence = (text: string, owner: string, peers: string[]) => currentOptionEvidence(text) &&
+    !contradictsDesign(text) &&
+    !new RegExp(`\\b${owner}(?:\\s*[:=]\\s*|\\s+)(?:(?:is|as|becomes) )?(?:the |a )?(?:neutral )?(?:ghost|outlined|secondary)\\b`, 'i').test(text) &&
+    !peers.some(peer => new RegExp(`\\b(?:primary(?: button| action)? ${peer}(?=$|[\\s,.;])|${peer}(?:\\s*[:=]\\s*|\\s+)(?:(?:is|as|becomes) )?(?:the |a )?(?:filled(?: primary)?|primary|outlined))\\b`, 'i').test(text));
+  const choiceIds = q.options.map(o => /^([1-9]\d*)[A-Z](?:\s*[—–).:]\s*|\s+)/.exec(o.label));
+  const primaryRepair = primaryHeader && amendments &&
+    (declaredPrimaryIssue || distinguishedPrimaryIssue ? currentPrimary || namedCurrentGap : currentPrimary) && currentHeaderContract &&
     prefix.filter(line => /^Project\/branch\/task:/.test(line)).length === 1 &&
     !!call.answeredAt && Number.isFinite(Date.parse(call.answeredAt)) &&
     choiceIds.every(id => id?.[1] === issue[1]) &&
     !pendingPrimaryApproval(questionText) &&
+    !conditionalHeader(titleSubject) && !sourceAssessment.test(titleSubject) &&
+    currentText(titleSubject) === titleSubject &&
     !sourceAssessment.test(questionText) &&
     !withdrawn.test(questionText) && !closedGap.test(questionText) && !withdrawnStyles.test(questionText) && !invalidContract.test(questionText) &&
     q.options.some(amendment => {
@@ -219,28 +306,44 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
       // Roles and their concrete tokens belong to one native option; a familiar
       // label alone cannot supply the style or borrow DESIGN.md from a peer.
       const roleLabel = currentText(amendment.label);
+      if (!currentOptionEvidence(roleLabel)) return false;
       const propertyStyle = primary && distinguishedPrimaryIssue && new RegExp(`^(?:✅\\s*)?${primary[1]} (?:is|becomes) the (?:only|single) filled(?: primary)? #[0-9a-f]{6}(?: button)? with (?:white|black) text; ([A-Za-z][A-Za-z0-9 ,/_-]{0,119}) (?:are|become) neutral ghost(?: buttons)?\\.`, 'i').exec(body);
+      const optionAuthority = /(?:^|[.;]\s+)(?:✅\s*)?(?:Matches DESIGN\.md exactly|Per DESIGN\.md)(?=[:.;,]|$)/i.test(body);
       const roleAuthority = new RegExp(`^${issue[1]}[A-Z][).:]?\\s+(?:(?:Apply|Use|Reuse) )?DESIGN\\.md\\b`, 'i').test(roleLabel) ||
-        /(?:^|[.;]\s+)(?:Matches DESIGN\.md exactly|Per DESIGN\.md)\b/i.test(body);
+        optionAuthority;
       const roleStyle = propertyStyle && roleAuthority && !conditionalHeader(roleLabel) &&
         !/\b(?:not|never|no|if|historical|hypothetical|source|quoted|withdrawn|superseded|cancelled|canceled)\b/i.test(roleLabel) &&
         !headerControls.some(peer => new RegExp(`\\b(?:primary(?: button| action)? ${peer}|${peer} (?:as )?(?:the )?(?:filled )?primary)\\b`, 'i').test(roleLabel)) ? propertyStyle : null;
       const declaredStyle = primary && declaredPrimaryIssue &&
         new RegExp(`^(?:✅\\s*)?${primary[1]} filled #[0-9a-f]{6}(?: with)? (?:white|black)(?: text)?; ([A-Za-z][A-Za-z0-9 ,/_-]{0,119}) neutral ghost(?: buttons)?\\.`, 'i').exec(body);
-      if (declaredPrimaryIssue) {
-        const peers = declaredStyle && controlNames(declaredStyle[1]!.replaceAll('/', ','));
-        if (!peers || peers.length !== numberValue(countedHeader![1]!) - 1 ||
-            new Set(peers).size !== peers.length || peers.includes(primary![1]!.toLowerCase()) ||
-            !new RegExp(`^${issue[1]}[A-Z][).:]?\\s+Apply DESIGN\\.md tokens?(?: \\(recommended\\))?$`, 'i').test(amendment.label) ||
-            conditionalHeader(body) || invalidContract.test(body)) return false;
-      }
       const headerStyle = primary && headerActionIssue && new RegExp(`^(?:✅\\s*)?${primary[1]} becomes the only filled #[0-9a-f]{6} button with (?:white|black) text; ([A-Za-z][A-Za-z0-9 ,_-]{0,119}) become neutral ghost buttons, exactly as DESIGN\\.md states\\.`, 'i').exec(body);
       // A descriptive header still owns a concrete primary and every peer.
-      // Its native option supplies the primary/secondary roles and tokens.
+      // Extract the primary token clause and peer clause independently of their
+      // separator. Their DESIGN.md authority must be in this same native option.
+      const primaryClause = primary && (distinguishedPrimaryIssue || declaredPrimaryIssue) && new RegExp(`^(?:✅\\s*)?(?:Matches DESIGN\\.md exactly: )?${primary[1]}(?:\\s*[:=]\\s*|\\s+)` +
+        '(?:(?:is|becomes) (?:the (?:only|single) )?)?(filled(?: primary)?(?: button)? )?' +
+        '(?:\\(#[0-9a-f]{6}, (?:white|black) text\\)|#[0-9a-f]{6}(?: button)?(?: with)? (?:white|black)(?: text)?)' +
+        '(?:,\\s*[1-9]\\d*(?:\\.\\d+)?px)?[.;,]\\s+', 'i').exec(body);
+      const peerClause = primaryClause && /^([A-Za-z][A-Za-z0-9 ,/_-]{0,119}?)(?:\s*[:=]\s*|\s+)(?:(?:are|become|as) )?neutral ghost(?: buttons)?[.;,]/i.exec(body.slice(primaryClause[0].length));
+      const semanticLabel = choiceLabel(roleLabel);
+      const labelledRole = primary && (new RegExp(`^${primary[1]} filled primary(?:,|$)`, 'i').test(semanticLabel) ||
+        new RegExp(`^Filled (?:primary (?:(?:\\+|and|with) ghosts|${primary[1]})|${primary[1]}, ghost others)$`, 'i').test(semanticLabel));
+      const designAction = /^(?:Apply|Use|Reuse) DESIGN\.md (?:tokens?|styles)$/i.test(semanticLabel);
+      const namedDesignRole = /^(?:(?:Apply|Use|Reuse) )?DESIGN\.md (?:primary|tokens?|styles?)\b/i.test(semanticLabel);
+      const approvedTokens = /(?:^|[.;]\s+)(?:✅\s*)?(?:Uses?|Applies?|Reuses?|Matches?) (?:the )?(?:exact )?approved (?:tokens?|styles?)(?=[.;]|$)/i.test(body);
+      const clauseAuthority = optionAuthority || designAction || (namedDesignRole && approvedTokens) || (primaryClause && peerClause &&
+        /^exactly per DESIGN\.md(?:[.;]|\n|$)/i.test(body.slice(primaryClause[0].length + peerClause[0].length).trimStart()));
+      const clauseRole = !!labelledRole || !!primaryClause?.[1];
+      const styleLabel = labelledRole || designAction || roleStyle || namedDesignRole ||
+        (/\b(?:filled|primary)\b/i.test(semanticLabel) && !/\b(?:review|reviewer|prepare|start|next|setup|source|example)\b/i.test(semanticLabel));
+      const clauseStyle = primaryClause && peerClause && clauseAuthority && clauseRole && styleLabel
+        ? [primaryClause[0] + peerClause[0], peerClause[1]!] : null;
       const distinguishedStyle = primary && distinguishedPrimaryIssue && (
+        clauseStyle ??
         new RegExp(`^(?:✅\\s*)?${primary[1]} is #[0-9a-f]{6} with (?:white|black) text; ([A-Za-z][A-Za-z0-9 ,_-]{0,119}) are neutral ghost buttons per DESIGN\\.md\\.`, 'i').exec(body) ??
         new RegExp(`^(?:✅\\s*)?${primary[1]} becomes the only filled button \\(#[0-9a-f]{6}, (?:white|black) text\\); ([A-Za-z][A-Za-z0-9 ,/_-]{0,119}) use the existing neutral ghost variant` +
           '(?: \\(human: ~?[0-9]+(?:\\.[0-9]+)?(?:h|min) / CC: ~?[0-9]+(?:\\.[0-9]+)?(?:h|min)\\))?\\. (?:✅\\s*)?Matches DESIGN\\.md exactly\\b', 'i').exec(body) ?? roleStyle);
+      const findingStyle = clauseStyle ?? (declaredPrimaryIssue && designAction ? declaredStyle : null) ?? distinguishedStyle;
       const attributedStyle = namedTokenStyle?.exec(body);
       let namedTokenValid = false;
       if (namedTokenIssue) {
@@ -266,12 +369,11 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
             JSON.stringify(controlNames(attributedStyle[1]!.replaceAll('/', ','))) === JSON.stringify(controlNames(peers)) &&
             new Set(controlNames(peers)).size === otherControls && !invalidContract.test(body));
       }
-      const style = declaredPrimaryIssue ? declaredStyle?.[0] : distinguishedPrimaryIssue ? distinguishedStyle?.[0] : headerActionIssue ? headerStyle?.[0] : (namedTokenValid ? attributedStyle?.[0] : undefined) ?? amendments.map(pattern => pattern.exec(body)).find(Boolean)?.[0];
+      const style = declaredPrimaryIssue || distinguishedPrimaryIssue ? findingStyle?.[0] : headerActionIssue ? headerStyle?.[0] : (namedTokenValid ? attributedStyle?.[0] : undefined) ?? amendments.map(pattern => pattern.exec(body)).find(Boolean)?.[0];
       if ((declaredPrimaryIssue || distinguishedPrimaryIssue) &&
-          /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:the|this) (?:current )?(?:amendment|fix) keeps (?:all )?(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:header )?buttons identical\b/i.test(body)) return false;
-      if (distinguishedPrimaryIssue && (!distinguishedStyle || conditionalHeader(body) || invalidContract.test(body) ||
-          !(roleStyle || new RegExp(`^[1-9]\\d*[A-Z][).:]?\\s+Filled primary (?:(?:\\+|and|with) ghosts|${primary![1]})(?: \\(recommended\\))?$`, 'i').test(amendment.label)) ||
-          JSON.stringify(controlNames(distinguishedStyle[1]!.replaceAll('/', ','))) !== JSON.stringify(headerControls))) return false;
+          /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:the|this) (?:current )?(?:amendment|fix) keeps (?:all )?(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:header )?buttons identical\b/i.test(body)) return false;
+      if ((declaredPrimaryIssue || distinguishedPrimaryIssue) && (!findingStyle || conditionalHeader(body) || invalidContract.test(body) ||
+          !(roleStyle || labelledRole || designAction || clauseStyle))) return false;
       if (headerActionIssue && (!headerStyle || conditionalHeader(body) || invalidContract.test(body) ||
           JSON.stringify(controlNames(headerStyle[1]!)) !== JSON.stringify(headerControls))) return false;
       const variantLine = /^✅\s*Uses the existing Button primary and ghost variants from DESIGN\.md; no new styles\./m.exec(body);
@@ -285,17 +387,20 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
         benefits.every(line => /^✅\s*(?!(?:If|When|Unless|Historical|Hypothetical|Quoted|Source|Example)\b)\S/i.test(line)) &&
         !/\b(?:archived|historical|hypothetical|quoted|previous|earlier)\b/i.test(benefits.join(' ')))) &&
         !/(?:^|[.!?]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:apply|use|add|keep) (?:the |these )?(?:Button )?primary and ghost variants\b/i.test(body) &&
-        !/(?:^|[.!?]\s+|\n)(?:Correction:\s*)?(?:these|the|this) (?:tokens?|styles?|variants?) (?:do|does) not match DESIGN\.md\b/i.test(body) &&
+        !contradictsDesign(body) &&
         !/(?:^|[.!?]\s+|\n)(?:Correction:\s*)?(?:the|this) (?:current )?amendment keeps all (?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) buttons identical\b/i.test(body);
       // A named primary cannot simultaneously occur in the ghost-control list.
-      if ((!style && !variantRepair) || (style && new RegExp(`\\b${primary![1]}\\b`, 'i').test(style.slice(style.indexOf(';') + 1))) ||
-          sourceAssessment.test(body) || withdrawn.test(body) || closedGap.test(body) || cancelledStyle.test(body) || withdrawnStyles.test(body)) return false;
+      const secondaryStyle = findingStyle?.[1] ?? style?.slice(style.indexOf(';') + 1);
+      if ((!style && !variantRepair) || (secondaryStyle && new RegExp(`\\b${primary![1]}\\b`, 'i').test(secondaryStyle)) ||
+          sourceAssessment.test(body) || withdrawn.test(body) || closedGap.test(body) || cancelledStyle.test(body) || withdrawnStyles.test(body) || contradictsDesign(body)) return false;
       return opposed.some(defer => {
         const declined = currentText(defer.description ?? '');
+        const declinedLabel = currentText(defer.label);
+        if (!currentOptionEvidence(declinedLabel)) return false;
         if (pendingPrimaryApproval(declined) || (namedTokenIssue && (conditionalHeader(declined) ||
           /(?:^|[.!?;]\s+|\n)(?:this|the) (?:option|deferral) (?:(?:now|already|actually) )?(?:fixes|resolves|closes) (?:the |this )?(?:hierarchy |primary-action )?gap\b/i.test(declined)))) return false;
-        if (declaredPrimaryIssue) return defer !== amendment &&
-          new RegExp(`^${issue[1]}[A-Z][).:]?\\s+Defer(?: \\(recommended\\))?$`, 'i').test(defer.label) &&
+        const declaredDeferral = declaredPrimaryIssue &&
+          /^Defer$/i.test(choiceLabel(declinedLabel)) &&
           new RegExp(`^Leave ${declaredGap ? `G${declaredGap}` : `Issue ${issue[1]}`} open and record it as unresolved\\.`, 'i').test(declined) &&
           !new RegExp(`(?:^|[.!?;]\\s+|\\n)(?:Correction:\\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:leave|keep|defer) (?:${declaredGap ? `G${declaredGap}|` : ''}Issue ${issue[1]})\\b`, 'i').test(declined) &&
           !conditionalHeader(declined) && !sourceAssessment.test(declined) && !withdrawn.test(declined) &&
@@ -308,13 +413,47 @@ function ordinaryDesignIssue(fp: AskUserQuestionFingerprint): boolean {
         const cancelledHeaderDeferral = headerDeferral && /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:keep|leave) (?:the )?header unchanged\b/i.test(declined);
         const pros = /^(?:✅(?!\s*(?:If|When|Unless|Historical|Hypothetical|Quoted|Source|Example)\b)\s*[^✅❌]+)+❌\s*/i.exec(deferralBody);
         const remaining = pros && !sourceAssessment.test(pros[0]) ? deferralBody.slice(pros[0].length) : deferralBody;
-        const retainedEmphasis = distinguishedPrimaryIssue && new RegExp(`^(?:Keep|Leave) identical (?:header )?buttons, bold (?:the )?${primary![1]} (?:text|label)\\. (?:Weak(?: visual)? signal, )?off-token\\.`, 'i').test(remaining);
+        const retainedEmphasis = distinguishedPrimaryIssue && (
+          new RegExp(`^(?:Keep|Leave) identical (?:header )?buttons, bold (?:the )?${primary![1]} (?:text|label)\\. (?:Weak(?: visual)? signal, )?off-token\\.`, 'i').test(remaining) ||
+          new RegExp(`^Weight alone is a weak signal at a glance and violates DESIGN\\.md, which names ${primary![1]} the only filled action\\. (?:❌\\s*)?Leaves the primary action undiscoverable for scanning users\\.`, 'i').test(remaining));
         const retainedHierarchyGap = distinguishedPrimaryIssue && /^(?:❌\s*)?Ships a (?:known|documented) DESIGN\.md violation and the plan['’]s own Visual Hierarchy gap (?:stays|remains) open\./i.test(remaining);
         const retainedRoleGap = roleStyle && /^(?:No change[.;]\s*)?(?:the |this )?(?:finding|issue|gap) (?:stays|remains) (?:open|unresolved)\b/i.test(remaining);
-        if (distinguishedPrimaryIssue) return defer !== amendment && !!(retainedEmphasis || retainedHierarchyGap || retainedRoleGap) &&
-          !conditionalHeader(declined) && !sourceAssessment.test(declined) && !withdrawn.test(declined) &&
-          !/(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:keep|leave) identical (?:header )?buttons\b/i.test(declined) &&
-          !closedGap.test(declined) && !invalidContract.test(declined) && !cancelledStyle.test(declined) && !withdrawnStyles.test(declined);
+        const retainedControls = /^(?:Leave|Keep) (?:the |all )?(two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:header )?buttons (?:uniform|identical|equal)(?: for now)?(?:[.;]\s+| and )/i.exec(declined);
+        const unresolvedDebt = retainedControls && numberValue(retainedControls[1]!) === headerControls.length + 1 &&
+          /^record (?:it|(?:the|this) gap) as (?:unresolved|open) design debt\./i.test(declined.slice(retainedControls[0].length));
+        const cancelledRetention = /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:keep|leave) (?:the |all )?(?:two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:header )?buttons (?:uniform|identical|equal)\b/i.test(declined);
+        const cancelledDebt = /(?:^|[.!?;]\s+|\n)(?:[✅❌]\s*)?(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:record|log|track) (?:it|this|(?:the|this) gap) as (?:unresolved|open) design debt\b/i.test(declined);
+        const retainedLabel = /^(?:Keep|Leave) (?:all |the )?(two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:(?:identical|equal|uniform) (?:header )?buttons|(?:header )?buttons (?:identical|equal|uniform))\b/i.exec(choiceLabel(declinedLabel));
+        const retainedPrimaryGap = retainedLabel && /^Violates DESIGN\.md\b/i.test(remaining) &&
+          /\bleaves the primary action (?:indistinguishable|undiscoverable)\b/i.test(remaining);
+        const retainedNoPrimary = retainedLabel && /^Ships the documented violation; no primary action;/i.test(remaining);
+        // The opposed option's label and body share ownership too. A retained
+        // actor count can precede ordinary tradeoffs before the explicit gap.
+        const retainedViolation = retainedLabel && declined.split(/[.!?;]\s+/).some(clause =>
+          /^(?:❌\s*)?(?:Leaves?|Ships?|Keeps?|Retains?) (?:a )?(?:known |documented )?DESIGN\.md violation\b/i.test(clause) &&
+          /\bno primary action\b/i.test(clause));
+        if (declaredPrimaryIssue || distinguishedPrimaryIssue) return defer !== amendment && validPrimaryFinding({
+          primary: primary![1]!, currentGap: !!(currentPrimary || namedCurrentGap) && !!currentHeaderContract &&
+            (!namedPremise || !!namedCurrentGap) &&
+            (!namedCurrentGap || !countedHeader || premiseActors.length === premiseCount) &&
+            (!namedCurrentGap || !distinguishedPrimaryIssue || JSON.stringify(premiseActors.filter(actor => actor !== primary![1]!.toLowerCase())) === JSON.stringify(headerControls)),
+          controlCount: premiseCount,
+          namedPeers: distinguishedPrimaryIssue ? headerControls : namedCurrentGap ? premiseActors.filter(actor => actor !== primary![1]!.toLowerCase()) : undefined,
+          remedy: {
+            peers: controlNames(findingStyle![1]!),
+            role: clauseStyle ? clauseRole : !!(roleStyle || labelledRole || (declaredStyle && designAction)),
+            tokens: !!style,
+            authority: clauseStyle ? !!clauseAuthority : !!(distinguishedStyle || (declaredStyle && designAction)),
+            current: [roleLabel, body].every(text => consistentRemedyEvidence(text, primary![1]!, controlNames(findingStyle![1]!))),
+          },
+          alternative: {
+            unresolved: !!(declaredDeferral || retainedEmphasis || retainedHierarchyGap || retainedRoleGap || unresolvedDebt || retainedPrimaryGap || retainedNoPrimary || retainedViolation),
+            retainedCounts: [retainedLabel?.[1], retainedControls?.[1]].filter((count): count is string => !!count).map(numberValue),
+            current: !cancelledRetention && !cancelledDebt && currentOptionEvidence(declined) && currentOptionEvidence(declinedLabel) &&
+              !/(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:keep|leave) identical (?:header )?buttons\b/i.test(declined) &&
+              !closedGap.test(declined) && !invalidContract.test(declined) && !cancelledStyle.test(declined) && !withdrawnStyles.test(declined),
+          },
+        });
         const retainedButtons = /^(?:❌\s*)?Keep all (two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:header )?buttons identical; gap stays documented\./i.exec(remaining);
         const cancelledRetainedButtons = /(?:^|[.!?;]\s+|\n)(?:Correction:\s*)?(?:do not|don't|never|skip|cancel|withdraw) (?:keep|leave) (?:all )?(two|three|four|five|six|seven|eight|nine|ten|[1-9]\d*) (?:header )?buttons identical\b/i.exec(declined);
         if (headerActionIssue) {
@@ -471,6 +610,12 @@ function designSystemChoiceIssue(fp: AskUserQuestionFingerprint): boolean {
         const opposed = current(declined);
         const ownedOpposition = !/\b(?:other|another|different|unrelated|foreign) (?:gap|issue|finding|decision)\b/i.test(opposed) &&
           [...opposed.matchAll(/\bIssue ([1-9]\d*)\b/gi)].every(match => match[1] === issueNumber);
+        // A retained violation must be an affirmative current consequence,
+        // not words inside a prohibition or a consequence awaiting approval.
+        // Read the whole option so a later correction can withdraw the claim.
+        const retainedViolation = /(?:^|[.!?;]\s+|\n|[✅❌]\s*)(?:Leaves|Keeps) (?:the |this )?(?:plan|design|page|header) violating DESIGN\.md\b/i.test(opposed) &&
+          !/\b(?:not|never|no longer|cannot|can't|don't|doesn't|didn't|won't)\b[^.!?;\n]*\b(?:leaves?|keeps?) (?:the |this )?(?:plan|design|page|header) violating DESIGN\.md\b/i.test(opposed) &&
+          !/\b(?:if|when|once|unless|assuming|provided|pending|contingent|conditional)\b|\b(?:before|after|requires?|needs?|subject to|depends? on)\s+(?:(?:user|later|further|your|owner|explicit)\s+)?(?:approval|acceptance)\b/i.test(opposed);
         return ownedOpposition && other !== option && /^(?:Keep|Leave|Defer|Decline|No)\b/i.test(other.label.replace(new RegExp(`^${ids[otherIndex]}[).:]?\\s+`), '')) &&
           !sourceOnly.test(declined) && !inactiveCurrent(current(declined)) &&
           !/\b(?:(?:does?|did) not|no longer|never) violates? DESIGN\.md\b/i.test(opposed) &&
@@ -487,7 +632,8 @@ function designSystemChoiceIssue(fp: AskUserQuestionFingerprint): boolean {
               (!!nativeIssue && /\bviolates DESIGN\.md(?:'s)?\b/i.test(opposed) && kind.subject.test(opposed) &&
                 !/\b(?:(?:does?|did) not|no longer|never) violates?\b|\b(?:historical|previous|earlier|example|quoted|hypothetical)\b/i.test(opposed)) ||
               (!!nativeIssue && /\bviolates DESIGN\.md(?:'s)? (?:stated |existing |documented )?(?:primary treatment|two-role rule|spacing scale|contrast requirement)\b/i.test(current(declined))) ||
-              /\b(?:plan|design|page|header)\b[^.!?]*\b(?:keeps|retains|leaves|ships)\b[^.!?]*\bDESIGN\.md violation\b/i.test(current(declined))) &&
+              /\b(?:plan|design|page|header)\b[^.!?]*\b(?:keeps|retains|leaves|ships)\b[^.!?]*\bDESIGN\.md violation\b/i.test(current(declined)) ||
+              retainedViolation) &&
               [...q.options.flatMap(o => [...`${o.label} ${o.description ?? ''}`.matchAll(/\bG([1-9]\d*)\b/g)])]
                 .every(m => m[1] === gapNumber)));
       });
@@ -608,7 +754,16 @@ export function isDesignCountFirstReview(fp: AskUserQuestionFingerprint): boolea
   const call = fp.nativeCall;
   if (!call?.answered || call.failed) return false;
   if (isDesignCountSetup(fp)) return false;
-  if (numberedVisualHierarchyFinding(fp) || ordinaryDesignIssue(fp) || designSystemChoiceIssue(fp) || compactPrimaryDecision(fp)) return true;
+  if (numberedVisualHierarchyFinding(fp)) return true;
+  const findingScope = { primary: false, ownsPrimaryPremise: false };
+  if (ordinaryDesignIssue(fp, findingScope)) return true;
+  if (findingScope.ownsPrimaryPremise) return false;
+  // A complete native decision can supply its own source, current defect,
+  // remedy and opposition in review fields. Validate those independently
+  // before closing the loose marker fallback for recognized primary issues.
+  if (designSystemChoiceIssue(fp)) return true;
+  if (findingScope.primary) return false;
+  if (compactPrimaryDecision(fp)) return true;
   if (designFirstReviewAUQ(fp)) return true;
   return call.questions.some(q => {
     if (!call.answers?.[q.question] || q.options.length < 2) return false;

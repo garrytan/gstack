@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+import { canRevokeReads } from './helpers/fs-caps';
 
 // Integration tests spawn real git/gh/glab subprocesses. The default 5s
 // per-test timeout is tight on developer machines; raise to 30s to match
@@ -150,6 +151,7 @@ function run(argv: string[], opts: { env?: Record<string, string>; input?: strin
     GSTACK_HOME: tmpHome,
     USER: 'testuser',
     HOME: tmpHome,
+    GIT_CONFIG_NOSYSTEM: '1',
     ...(opts.env || {}),
   };
   const res = spawnSync(INIT_BIN, argv, {
@@ -166,9 +168,21 @@ function run(argv: string[], opts: { env?: Record<string, string>; input?: strin
   };
 }
 
+function gitInFixture(argv: string[]) {
+  return spawnSync('git', argv, {
+    encoding: 'utf-8',
+    timeout: 30_000,
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' },
+  });
+}
+
 function readCalls(file: string): string[] {
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean);
+}
+
+function expectNoAllowlistTemps() {
+  expect(fs.readdirSync(tmpHome).filter((name) => name.startsWith('.brain-allowlist.'))).toEqual([]);
 }
 
 beforeEach(() => {
@@ -239,6 +253,7 @@ describe('gstack-artifacts-init provider selection', () => {
   });
 
   test('only glab authed → defaults to gitlab (no prompt)', () => {
+    makeFakeGh({ authStatus: 'fail' });
     makeFakeGlab({});
     const r = run([]);
     expect(r.status).toBe(0);
@@ -246,7 +261,8 @@ describe('gstack-artifacts-init provider selection', () => {
   });
 
   test('neither authed → falls through to manual URL paste', () => {
-    // No gh, no glab fakes.
+    makeFakeGh({ authStatus: 'fail' });
+    makeFakeGlab({ authStatus: 'fail' });
     const r = run([], { input: 'https://github.com/testuser/gstack-artifacts-testuser\n' });
     expect(r.status).toBe(0);
     expect(r.stderr).toContain('Neither gh nor glab');
@@ -278,7 +294,7 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     makeFakeGh({ webUrl: 'https://github.com/testuser/gstack-artifacts-testuser' });
     const r = run(['--host', 'github']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
+    const remote = gitInFixture(['-C', tmpHome, 'remote', 'get-url', 'origin']);
     expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
   });
 
@@ -289,7 +305,7 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     });
     const r = run(['--host', 'github']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
+    const remote = gitInFixture(['-C', tmpHome, 'remote', 'get-url', 'origin']);
     expect(remote.stdout.trim()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
   });
 
@@ -297,7 +313,7 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     makeFakeGh({ gitProtocol: 'unset' });
     const r = run(['--host', 'github']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
+    const remote = gitInFixture(['-C', tmpHome, 'remote', 'get-url', 'origin']);
     expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
   });
 
@@ -305,7 +321,7 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     makeFakeGlab({ gitProtocol: 'ssh' });
     const r = run(['--host', 'gitlab']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
+    const remote = gitInFixture(['-C', tmpHome, 'remote', 'get-url', 'origin']);
     expect(remote.stdout.trim()).toBe('git@gitlab.com:testuser/gstack-artifacts-testuser.git');
   });
 });
@@ -360,7 +376,7 @@ describe('gstack-artifacts-init idempotency', () => {
     makeFakeGh({ gitProtocol: 'ssh' });
     const r = run(['--remote', 'https://github.com/testuser/gstack-artifacts-testuser']);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
+    const remote = gitInFixture(['-C', tmpHome, 'remote', 'get-url', 'origin']);
     expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
   });
 
@@ -373,7 +389,7 @@ describe('gstack-artifacts-init idempotency', () => {
       'ssh',
     ]);
     expect(r.status).toBe(0);
-    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8', timeout: 30_000 });
+    const remote = gitInFixture(['-C', tmpHome, 'remote', 'get-url', 'origin']);
     expect(remote.stdout.trim()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
   });
 
@@ -390,6 +406,164 @@ describe('gstack-artifacts-init idempotency', () => {
     run(['--remote', url]);
     const r2 = run(['--remote', url]);
     expect(r2.status).toBe(0);
+  });
+
+  test('re-run preserves the user allowlist suffix byte-for-byte', () => {
+    makeFakeGh({});
+    const url = 'https://github.com/testuser/gstack-artifacts-testuser';
+    expect(run(['--remote', url]).status).toBe(0);
+    const allowlist = path.join(tmpHome, '.brain-allowlist');
+    const marker = '# ---- USER ADDITIONS BELOW ---- (survives re-init; above is managed)\n';
+    const suffix = '\n# user comment\n\ncustom/path-*.jsonl';
+    const original = fs.readFileSync(allowlist, 'utf-8');
+    fs.writeFileSync(allowlist, original.replace('projects/*/timeline.jsonl', 'projects/*/stale-managed-path.jsonl'));
+    fs.chmodSync(allowlist, 0o600);
+    fs.appendFileSync(allowlist, suffix);
+
+    expect(run(['--remote', url]).status).toBe(0);
+    const updated = fs.readFileSync(allowlist);
+    expect(updated.subarray(updated.indexOf(marker) + Buffer.byteLength(marker))).toEqual(Buffer.from(suffix));
+    expect(updated.toString().split(marker).length - 1).toBe(1);
+    expect(updated.toString()).toContain('projects/*/timeline.jsonl');
+    expect(updated.toString()).not.toContain('projects/*/stale-managed-path.jsonl');
+    expect(fs.statSync(allowlist).mode & 0o777).toBe(0o600);
+    expectNoAllowlistTemps();
+  });
+
+  test('empty allowlist is initialized with only the current managed rules', () => {
+    makeFakeGh({});
+    const url = 'https://github.com/testuser/gstack-artifacts-testuser';
+    expect(run(['--remote', url]).status).toBe(0);
+    const allowlist = path.join(tmpHome, '.brain-allowlist');
+    fs.writeFileSync(allowlist, '');
+
+    expect(run(['--remote', url]).status).toBe(0);
+    const updated = fs.readFileSync(allowlist, 'utf-8');
+    expect(updated).toContain('projects/*/timeline.jsonl');
+    expect(updated.split('# ---- USER ADDITIONS BELOW ----').length - 1).toBe(1);
+    expectNoAllowlistTemps();
+  });
+
+  test('marker-only file without a final newline is refreshed without duplication', () => {
+    makeFakeGh({});
+    const url = 'https://github.com/testuser/gstack-artifacts-testuser';
+    expect(run(['--remote', url]).status).toBe(0);
+    const allowlist = path.join(tmpHome, '.brain-allowlist');
+    const marker = '# ---- USER ADDITIONS BELOW ---- (survives re-init; above is managed)';
+    fs.writeFileSync(allowlist, marker);
+
+    expect(run(['--remote', url]).status).toBe(0);
+    const updated = fs.readFileSync(allowlist, 'utf-8');
+    expect(updated.split(marker).length - 1).toBe(1);
+    expect(updated.endsWith('\n')).toBe(true);
+    expectNoAllowlistTemps();
+  });
+
+  test('duplicate managed markers are refused without changing the file', () => {
+    makeFakeGh({});
+    const url = 'https://github.com/testuser/gstack-artifacts-testuser';
+    expect(run(['--remote', url]).status).toBe(0);
+    const allowlist = path.join(tmpHome, '.brain-allowlist');
+    const original = fs.readFileSync(allowlist);
+    fs.appendFileSync(allowlist, original.subarray(original.indexOf(Buffer.from('# ---- USER ADDITIONS BELOW ----'))));
+    const ambiguous = fs.readFileSync(allowlist);
+
+    const r = run(['--remote', url]);
+    expect(r.status).not.toBe(0);
+    expect(fs.readFileSync(allowlist)).toEqual(ambiguous);
+    expectNoAllowlistTemps();
+  });
+
+  test('markerless legacy allowlist is retained and re-init refuses ambiguity', () => {
+    makeFakeGh({});
+    const url = 'https://github.com/testuser/gstack-artifacts-testuser';
+    expect(run(['--remote', url]).status).toBe(0);
+    const allowlist = path.join(tmpHome, '.brain-allowlist');
+    const legacy = Buffer.from('# user rules\ncustom/legacy.jsonl');
+    fs.writeFileSync(allowlist, legacy);
+
+    const r = run(['--remote', url]);
+    expect(r.status).not.toBe(0);
+    expect(fs.readFileSync(allowlist)).toEqual(legacy);
+    expectNoAllowlistTemps();
+  });
+
+  test('failed allowlist replacement leaves the old file intact', () => {
+    makeFakeGh({});
+    const url = 'https://github.com/testuser/gstack-artifacts-testuser';
+    expect(run(['--remote', url]).status).toBe(0);
+    const allowlist = path.join(tmpHome, '.brain-allowlist');
+    fs.appendFileSync(allowlist, '\ncustom/failure-control.jsonl');
+    const previous = fs.readFileSync(allowlist);
+    const fakeMv = path.join(fakeBinDir, 'mv');
+    fs.writeFileSync(fakeMv, `#!/bin/bash\nlast=\"\"\nfor arg in \"$@\"; do last=\"$arg\"; done\nif [ \"$last\" = \"$GSTACK_HOME/.brain-allowlist\" ]; then exit 73; fi\nexec /bin/mv \"$@\"\n`, { mode: 0o755 });
+
+    const r = run(['--remote', url]);
+    expect(r.status).not.toBe(0);
+    expect(fs.readFileSync(allowlist)).toEqual(previous);
+    expectNoAllowlistTemps();
+  });
+
+  test('allowlist read failure leaves the old file intact', () => {
+    makeFakeGh({});
+    const url = 'https://github.com/testuser/gstack-artifacts-testuser';
+    expect(run(['--remote', url]).status).toBe(0);
+    const allowlist = path.join(tmpHome, '.brain-allowlist');
+    fs.appendFileSync(allowlist, '\ncustom/read-failure-control.jsonl');
+    const previous = fs.readFileSync(allowlist);
+    const fakeGrep = path.join(fakeBinDir, 'grep');
+    fs.writeFileSync(fakeGrep, `#!/bin/bash\nfor arg in \"$@\"; do if [ \"$arg\" = \"$GSTACK_HOME/.brain-allowlist\" ]; then exit 2; fi; done\nexec /bin/grep \"$@\"\n`, { mode: 0o755 });
+
+    const r = run(['--remote', url]);
+    expect(r.status).not.toBe(0);
+    expect(fs.readFileSync(allowlist)).toEqual(previous);
+    expectNoAllowlistTemps();
+  });
+
+  _test.skipIf(!canRevokeReads())('real unreadable allowlist is preserved when chmod blocks reads', () => {
+    makeFakeGh({});
+    const url = 'https://github.com/testuser/gstack-artifacts-testuser';
+    expect(run(['--remote', url]).status).toBe(0);
+    const allowlist = path.join(tmpHome, '.brain-allowlist');
+    fs.appendFileSync(allowlist, '\ncustom/unreadable-control.jsonl');
+    const previous = fs.readFileSync(allowlist);
+    fs.chmodSync(allowlist, 0);
+
+    try {
+      const r = run(['--remote', url]);
+      expect(r.status).not.toBe(0);
+      expectNoAllowlistTemps();
+    } finally {
+      fs.chmodSync(allowlist, 0o600);
+    }
+    expect(fs.readFileSync(allowlist)).toEqual(previous);
+  }, 30_000);
+
+  test('partial allowlist assembly failure preserves the original and cleans temporary files', () => {
+    makeFakeGh({});
+    const url = 'https://github.com/testuser/gstack-artifacts-testuser';
+    expect(run(['--remote', url]).status).toBe(0);
+    const allowlist = path.join(tmpHome, '.brain-allowlist');
+    fs.appendFileSync(allowlist, '\ncustom/assembly-failure-control.jsonl');
+    const previous = fs.readFileSync(allowlist);
+    const fakeCat = path.join(fakeBinDir, 'cat');
+    fs.writeFileSync(fakeCat, [
+      '#!/bin/bash',
+      'for arg in "$@"; do',
+      '  case "$arg" in',
+      '    "$GSTACK_HOME"/.brain-allowlist.*)',
+      '      if /bin/grep -qF \'# Canonical allowlist of paths that gstack-brain-sync will publish.\' "$arg"; then /bin/head -c 32 "$arg"; exit 73; fi',
+      '      ;;',
+      '  esac',
+      'done',
+      'exec /bin/cat "$@"',
+      '',
+    ].join('\n'), { mode: 0o755 });
+
+    const r = run(['--remote', url]);
+    expect(r.status).not.toBe(0);
+    expect(fs.readFileSync(allowlist)).toEqual(previous);
+    expectNoAllowlistTemps();
   });
 
   test('re-run with DIFFERENT --remote exits 1 with conflict message', () => {

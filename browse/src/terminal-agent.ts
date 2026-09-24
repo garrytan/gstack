@@ -26,7 +26,7 @@ import * as crypto from 'crypto';
 import { writeSecureFile, restrictFilePermissions, mkdirSecure } from './file-permissions';
 import { atomicWriteSync, atomicWriteQuiet } from '../../lib/fs-atomic';
 import { safeUnlink } from './error-handling';
-import { writeAgentRecord, clearAgentRecord } from './terminal-agent-control';
+import { writeAgentRecord, readAgentRecord, clearAgentRecord, readAgentStartTime, acquireAgentStateLock } from './terminal-agent-control';
 import { findAvailablePort } from './port-allocator';
 import { extractPtyCookie } from './pty-session-cookie';
 import {
@@ -38,6 +38,7 @@ const STATE_FILE = process.env.BROWSE_STATE_FILE || path.join(process.env.HOME |
 const PORT_FILE = path.join(path.dirname(STATE_FILE), 'terminal-port');
 const BROWSE_SERVER_PORT = parseInt(process.env.BROWSE_SERVER_PORT || '0', 10);
 const BROWSE_OWNER_PID = parseInt(process.env.BROWSE_OWNER_PID || '0', 10);
+const BROWSE_OWNER_START_TIME = process.env.BROWSE_OWNER_START_TIME || (BROWSE_OWNER_PID > 0 ? readAgentStartTime(BROWSE_OWNER_PID) : '');
 const OWNER_WATCHDOG_MS = parseInt(
   process.env.GSTACK_TERMINAL_OWNER_WATCHDOG_MS || '15000',
   10,
@@ -51,7 +52,7 @@ const INTERNAL_TOKEN = crypto.randomBytes(32).toString('base64url'); // shared w
  * header means "legacy caller" and is accepted (backward compat); a
  * present-but-mismatched header returns 409 stale generation.
  */
-const CURRENT_GEN = crypto.randomBytes(16).toString('base64url');
+const CURRENT_GEN = process.env.BROWSE_AGENT_GEN || crypto.randomBytes(16).toString('base64url');
 
 // In-memory attach-token registry. Parent posts /internal/grant after
 // /pty-session; we validate WS upgrades against this map.
@@ -1004,6 +1005,25 @@ function readBrowseToken(): string {
 
 // Boot.
 async function main() {
+  const dir = path.dirname(PORT_FILE);
+  if (process.env.BROWSE_AGENT_GEN) {
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      const pending = readAgentRecord(dir);
+      if (pending?.gen === CURRENT_GEN && pending.pid === process.pid) break;
+      if (pending && pending.gen !== CURRENT_GEN) throw new Error('terminal-agent startup record was replaced');
+      await Bun.sleep(25);
+    }
+    const recorded = readAgentRecord(dir);
+    if (recorded?.pid !== process.pid || recorded.ownerPid !== BROWSE_OWNER_PID || recorded.ownerStartTime !== BROWSE_OWNER_START_TIME) {
+      throw new Error('terminal-agent startup record was not confirmed');
+    }
+  }
+  const pauseFile = process.env.NODE_ENV === 'test' ? process.env.GSTACK_TERMINAL_TEST_PUBLISH_BARRIER : undefined;
+  if (pauseFile) {
+    fs.writeFileSync(`${pauseFile}.ready`, 'ready');
+    while (!fs.existsSync(pauseFile)) await Bun.sleep(10);
+  }
   writeClaudeAvailable();
   // #2314: allocate from the shared fixed scan range, then bind. Probe-then-
   // bind has a TOCTOU window — a concurrent process can take the port between
@@ -1032,17 +1052,21 @@ async function main() {
 
   // Write port file atomically so the parent server can pick it up.
   // Throws on failure — a boot without a discoverable port file is broken.
-  const dir = path.dirname(PORT_FILE);
-  try { mkdirSecure(dir); } catch {}
-  atomicWriteSync(PORT_FILE, String(port), { mode: 0o600 });
-  restrictFilePermissions(PORT_FILE); // Windows ACL hardening
-
-  // Write identity-based agent record (pid + per-boot gen). Replaces the
-  // v1.43- `pkill -f terminal-agent\.ts` regex teardown that could kill
-  // sibling gstack sessions. Callers (cli.ts spawn site, server.ts
-  // shutdown, the v1.44 watchdog) now route through killAgentByRecord in
-  // terminal-agent-control.ts.
-  writeAgentRecord(dir, { pid: process.pid, gen: CURRENT_GEN, startedAt: Date.now() });
+  const releasePublication = acquireAgentStateLock(dir);
+  let record;
+  try {
+    const current = readAgentRecord(dir);
+    if (current && current.pid !== process.pid && current.pid > 0) throw new Error('terminal-agent record was replaced before bind');
+    record = process.env.BROWSE_AGENT_GEN ? current : {
+      pid: process.pid, gen: CURRENT_GEN, startedAt: Date.now(), startTime: readAgentStartTime(process.pid),
+      ownerPid: BROWSE_OWNER_PID, ownerStartTime: BROWSE_OWNER_START_TIME,
+    };
+    if (!record || record.pid !== process.pid || record.gen !== CURRENT_GEN) throw new Error('terminal-agent record was replaced before bind');
+    if (!process.env.BROWSE_AGENT_GEN) writeAgentRecord(dir, record);
+    writeSecureFile(INTERNAL_TOKEN_FILE, INTERNAL_TOKEN);
+    atomicWriteSync(PORT_FILE, String(port), { mode: 0o600 });
+    restrictFilePermissions(PORT_FILE);
+  } finally { releasePublication(); }
 
   // Hand the parent the internal token so it can call /internal/grant.
   // Parent learns INTERNAL_TOKEN via env (TERMINAL_AGENT_INTERNAL_TOKEN below).
@@ -1055,9 +1079,16 @@ async function main() {
   const cleanup = () => {
     if (cleaningUp) return;
     cleaningUp = true;
-    safeUnlink(PORT_FILE);
-    safeUnlink(INTERNAL_TOKEN_FILE);
-    clearAgentRecord(dir);
+    try {
+      const releaseCleanup = acquireAgentStateLock(dir, 25);
+      try {
+        if (readAgentRecord(dir)?.gen === CURRENT_GEN) {
+          safeUnlink(PORT_FILE);
+          safeUnlink(INTERNAL_TOKEN_FILE);
+          clearAgentRecord(dir, record);
+        }
+      } finally { releaseCleanup(); }
+    } catch {}
     process.exit(0);
   };
   process.on('SIGTERM', cleanup);
@@ -1070,11 +1101,8 @@ async function main() {
   // the same cleanup path as an intentional shutdown when it disappears.
   if (BROWSE_OWNER_PID > 0) {
     const ownerWatchdog = setInterval(() => {
-      try {
-        process.kill(BROWSE_OWNER_PID, 0);
-      } catch {
-        cleanup();
-      }
+      if (!BROWSE_OWNER_START_TIME || readAgentStartTime(BROWSE_OWNER_PID) !== BROWSE_OWNER_START_TIME
+        || readAgentRecord(dir)?.gen !== CURRENT_GEN) cleanup();
     }, OWNER_WATCHDOG_MS);
     (ownerWatchdog as any)?.unref?.();
   }
@@ -1087,10 +1115,6 @@ async function main() {
 // In practice, the agent generates INTERNAL_TOKEN once at boot and writes it
 // to a state file the parent reads. This avoids env-passing races. See main().
 const INTERNAL_TOKEN_FILE = path.join(path.dirname(STATE_FILE), 'terminal-internal-token');
-try {
-  mkdirSecure(path.dirname(INTERNAL_TOKEN_FILE));
-  writeSecureFile(INTERNAL_TOKEN_FILE, INTERNAL_TOKEN);
-} catch {}
 
 main().catch((err) => {
   console.error(`[terminal-agent] boot failed: ${err instanceof Error ? err.message : String(err)}`);

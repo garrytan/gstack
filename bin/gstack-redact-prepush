@@ -29,12 +29,18 @@ import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { scan, type Finding } from "../lib/redact-engine";
+import { normalizeWithMap, scan, type Finding } from "../lib/redact-engine";
 import { mkdirpSync } from "../lib/fs-utils";
 
 const ZERO = /^0+$/;
-// The canonical empty-tree object; diffing against it yields all content as added.
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+let emptyTree: string | undefined;
+function emptyTreeOid(): string {
+  if (emptyTree) return emptyTree;
+  const oid = gitStrict(["hash-object", "-w", "-t", "tree", "--stdin"]).trim();
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(oid)) throw new Error("git could not resolve the empty tree");
+  emptyTree = oid;
+  return oid;
+}
 
 /**
  * Permissive git for legitimately-fallible PROBES (symbolic-ref, rev-parse,
@@ -81,46 +87,59 @@ function objectExists(sha: string): boolean {
  * scanned when later pushed to a PUBLIC remote — "already left this machine"
  * is not "already reached THIS remote". Git hands pre-push the push remote's
  * name as $1 (and its URL as $2); the installed hook wrapper forwards "$@".
- * Fallbacks keep the historical all-remotes behavior when the name is
- * unavailable (stdin/CLI invocation) or is not a configured remote (URL
- * pushes have no remote-tracking namespace) — falling back scans LESS than
- * the narrowed form would, but never less than the hook historically did.
+ * A URL push has no tracking namespace, even if origin happens to contain
+ * the same commits. Direct invocations without Git's argv keep the historical
+ * all-remotes behavior for compatibility.
  */
-let _remotesExclusion: string | undefined;
-function remotesExclusion(): string {
-  if (_remotesExclusion === undefined) {
-    const name = process.argv[2];
-    const configured = name
-      ? git(["remote"]).split("\n").map((s) => s.trim()).filter(Boolean).includes(name)
-      : false;
-    _remotesExclusion = configured ? `--remotes=${name}/*` : "--remotes";
-  }
-  return _remotesExclusion;
+type PushTarget = { kind: "remote"; name: string } | { kind: "url" } | { kind: "unknown" };
+let cachedPushTarget: PushTarget | undefined;
+function pushTarget(): PushTarget {
+  if (cachedPushTarget) return cachedPushTarget;
+  const name = process.argv[2];
+  const url = process.argv[3];
+  if (!name && !url) return cachedPushTarget = { kind: "unknown" };
+  if (!name || !url) return cachedPushTarget = { kind: "url" };
+  const remotes = git(["remote"]).split("\n");
+  if (!remotes.includes(name)) return cachedPushTarget = { kind: "url" };
+  const pushUrls = git(["remote", "get-url", "--push", "--all", name]).trim().split("\n");
+  const fetchUrls = git(["remote", "get-url", "--all", name]).trim().split("\n");
+  return cachedPushTarget = pushUrls.includes(url) && fetchUrls[0] === url
+    ? { kind: "remote", name }
+    : { kind: "url" };
 }
 
-function defaultRemoteBranch(): string {
-  // origin/HEAD → origin/main, fall back to main/master.
-  const sym = git(["symbolic-ref", "refs/remotes/origin/HEAD"]).trim();
-  if (sym) return sym.replace("refs/remotes/", "");
-  for (const b of ["origin/main", "origin/master"]) {
-    if (git(["rev-parse", "--verify", b]).trim()) return b;
+function remotesExclusionArgs(): string[] {
+  const target = pushTarget();
+  if (target.kind === "remote") return [`--remotes=${target.name}/*`];
+  return target.kind === "unknown" ? ["--remotes"] : [];
+}
+
+function defaultRemoteBranch(): string | null {
+  const target = pushTarget();
+  if (target.kind === "url") return null;
+  const remote = target.kind === "remote" ? target.name : "origin";
+  const sym = git(["symbolic-ref", `refs/remotes/${remote}/HEAD`]).trim();
+  if (sym.startsWith(`refs/remotes/${remote}/`) && git(["rev-parse", "--verify", `${sym}^{commit}`]).trim()) return sym;
+  for (const b of [`${remote}/main`, `${remote}/master`]) {
+    const qualified = `refs/remotes/${b}`;
+    if (git(["rev-parse", "--verify", `${qualified}^{commit}`]).trim()) return qualified;
   }
-  return "origin/main";
+  return null;
 }
 
 /**
- * Base commit for a push whose remote tip we cannot use directly, ordered from
- * most precise to most conservative. Returns null when nothing can anchor the
- * range, i.e. the whole history really is new content.
+ * Base commit for a new remote ref, ordered from most precise to most
+ * conservative. Returns null when nothing can anchor the range.
  */
 function unknownRemoteTipBase(localSha: string): string | null {
   // 1. The common case: a merge-base with the remote's default branch.
-  const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
+  const defaultBranch = defaultRemoteBranch();
+  const base = defaultBranch ? git(["merge-base", localSha, defaultBranch]).trim() : "";
   if (base) return base;
 
-  // 2. No merge-base. defaultRemoteBranch() guessed a ref that does not exist
-  //    (default branch named trunk/develop, origin/HEAD unset), or history is
-  //    disjoint. Anything reachable from localSha but from NO remote-tracking
+  // 2. No merge-base. The target's default branch may be unavailable
+  //    (named trunk/develop, remote/HEAD unset), or history may be disjoint.
+  //    Anything reachable from localSha but from NO remote-tracking
   //    branch is what this push actually adds; the parent of its oldest commit
   //    is the real base.
   //
@@ -133,11 +152,12 @@ function unknownRemoteTipBase(localSha: string): string | null {
   //    NOTHING — "scans more, never less" inverted into "scans nothing".
   //
   //    The exclusion is scoped to the PUSH TARGET's tracking refs (see
-  //    remotesExclusion): content on some OTHER remote has left this machine,
+  //    remotesExclusionArgs): content on some OTHER remote has left this machine,
   //    but it has not reached the remote being pushed to — a secret that only
   //    ever hit a private remote must still be scanned on its way to a public
   //    one (S1).
-  const newCommits = git(["rev-list", "--reverse", localSha, "--not", remotesExclusion()]).trim();
+  const exclusions = remotesExclusionArgs();
+  const newCommits = git(["rev-list", "--reverse", localSha, ...(exclusions.length ? ["--not", ...exclusions] : [])]).trim();
   if (newCommits) {
     const oldest = newCommits.split("\n")[0];
     const parent = git(["rev-parse", "--verify", `${oldest}^`]).trim();
@@ -180,7 +200,7 @@ function unknownRemoteTipBase(localSha: string): string | null {
  * base excludes both. `rev-list --not --remotes=<push-remote>/*` is the
  * operation that does, and this file already reasons that way in
  * `unknownRemoteTipBase` step 2. The exclusion is scoped to the push target's
- * tracking namespace (see remotesExclusion): the upstream commits a catch-up
+ * tracking namespace (see remotesExclusionArgs): the upstream commits a catch-up
  * merge brings in came from the SAME remote being pushed to, so scoping keeps
  * the #2592 fix intact while a secret known only to some OTHER (private)
  * remote is still scanned on its way to this one (S1).
@@ -199,7 +219,7 @@ function addedLinesFromNewCommits(localSha: string, remoteSha: string): string |
   // direction. So it stays the base; `--remotes` only ADDS exclusions on top.
   if (ZERO.test(remoteSha) || !objectExists(remoteSha)) return null;
 
-  const narrowed = git(["rev-list", localSha, "--not", remoteSha, remotesExclusion()]).trim();
+  const narrowed = git(["rev-list", localSha, "--not", remoteSha, ...remotesExclusionArgs()]).trim();
   if (!narrowed) return null;
 
   // If excluding remote-tracking refs changes nothing, this push has no
@@ -236,12 +256,8 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
 
   let range: string;
   if (ZERO.test(remoteSha) || !objectExists(remoteSha)) {
-    // Either a new branch (zero remote sha), or the remote tip object is absent
-    // locally (shallow clone, force-push without a prior fetch, CI checkout) so
-    // remote..local cannot resolve. Both need a base derived locally; scan MORE
-    // rather than hard-blocking a legitimate push (adversarial review finding 8).
-    const base = unknownRemoteTipBase(localSha);
-    range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
+    const base = ZERO.test(remoteSha) ? unknownRemoteTipBase(localSha) : null;
+    range = base ? `${base}..${localSha}` : `${emptyTreeOid()}..${localSha}`;
   } else {
     // Existing branch (incl. force-push): net new content remote..local.
     range = `${remoteSha}..${localSha}`;
@@ -293,9 +309,12 @@ function collectAddedLines(diff: string): string {
  * DEFAULT_MAX_BYTES (1 MiB) so a slice never trips its oversize guard.
  */
 const SCAN_CHUNK_BYTES = 768 * 1024;
+const SCAN_OVERLAP_CHARS = 16 * 1024;
+const MAX_SCAN_BYTES = 1024 * 1024;
 
 /**
- * Scan added lines in line-aligned slices, unioning the findings.
+ * Scan complete-line core slices with bounded left and right context. Admit
+ * only findings whose original captured start lies inside that core.
  *
  * Why: the engine refuses input over its byte cap and fails closed, which is
  * right for one scan() call but wrong as a push policy — a feature branch
@@ -306,11 +325,11 @@ const SCAN_CHUNK_BYTES = 768 * 1024;
  * people to reach for --no-verify, defeating the guardrail far more thoroughly
  * than a large diff does.
  *
- * Slicing loses NO detection coverage, because every pattern is single-line:
- * none in redact-patterns.ts carries the `m` or `s` flag, the
- * BEGIN-PRIVATE-KEY patterns capture only the header line rather than the key
- * body, and the engine itself iterates line by line. A line boundary therefore
- * cannot bisect a detectable secret, so no inter-slice overlap is needed.
+ * A match may need context on either adjacent line (`nearWindow` reaches 300
+ * normalized characters). The full core lines keep opaque spans intact; the
+ * engine's normalization map selects context in normalized units without
+ * changing the raw input. A partial context may create an artificial boundary,
+ * but its findings are never admitted as core findings.
  *
  * Fail-closed is preserved: a SINGLE line over the budget is still passed to
  * the engine intact, so a genuinely unscannable blob (minified bundle,
@@ -322,26 +341,75 @@ const SCAN_CHUNK_BYTES = 768 * 1024;
  */
 function scanAddedLines(added: string, opts: Parameters<typeof scan>[1]): Finding[] {
   const findings: Finding[] = [];
-  let slice: string[] = [];
-  let sliceBytes = 0;
+  const cores: Array<{ start: number; end: number }> = [];
+  const lines = added.split("\n");
+  let start = 0;
+  let end = 0;
+  let bytes = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const newline = i < lines.length - 1 ? 1 : 0;
+    const lineBytes = Buffer.byteLength(line, "utf8") + newline;
+    if (bytes && bytes + lineBytes > SCAN_CHUNK_BYTES) {
+      cores.push({ start, end });
+      start = end;
+      bytes = 0;
+    }
+    end += line.length + newline;
+    bytes += lineBytes;
+    if (lineBytes > SCAN_CHUNK_BYTES) {
+      cores.push({ start, end });
+      start = end;
+      bytes = 0;
+    }
+  }
+  if (bytes) cores.push({ start, end });
 
-  const flush = () => {
-    if (slice.length === 0) return;
-    findings.push(...scan(slice.join("\n"), opts).findings);
-    slice = [];
-    sliceBytes = 0;
+  const contextStart = (boundary: number): number => {
+    if (!boundary) return 0;
+    let length = Math.min(boundary, SCAN_OVERLAP_CHARS * 2);
+    while (true) {
+      const from = boundary - length;
+      const raw = added.slice(from, boundary);
+      if (Buffer.byteLength(raw, "utf8") > MAX_SCAN_BYTES) return from;
+      const { normalized, map } = normalizeWithMap(raw);
+      if (!from || normalized.length > SCAN_OVERLAP_CHARS) {
+        return from + (map[Math.max(0, normalized.length - SCAN_OVERLAP_CHARS - 1)] ?? 0);
+      }
+      length = Math.min(boundary, length * 2);
+    }
   };
 
-  for (const line of added.split("\n")) {
-    // +1 for the newline that rejoins it.
-    const lineBytes = Buffer.byteLength(line, "utf8") + 1;
-    // Close the current slice BEFORE overflowing it. A single oversized line
-    // lands in a slice of its own and is handed to the engine as-is.
-    if (sliceBytes > 0 && sliceBytes + lineBytes > SCAN_CHUNK_BYTES) flush();
-    slice.push(line);
-    sliceBytes += lineBytes;
+  const contextEnd = (boundary: number): number => {
+    if (boundary === added.length) return boundary;
+    let length = Math.min(added.length - boundary, SCAN_OVERLAP_CHARS * 2);
+    while (true) {
+      const to = boundary + length;
+      const raw = added.slice(boundary, to);
+      if (Buffer.byteLength(raw, "utf8") > MAX_SCAN_BYTES) return to;
+      const { normalized, map } = normalizeWithMap(raw);
+      if (to === added.length || normalized.length > SCAN_OVERLAP_CHARS) {
+        return boundary + (map[Math.min(normalized.length, SCAN_OVERLAP_CHARS + 1)] ?? length);
+      }
+      length = Math.min(added.length - boundary, length * 2);
+    }
+  };
+
+  for (const core of cores) {
+    const left = contextStart(core.start);
+    const text = added.slice(left, contextEnd(core.end));
+    const result = scan(text, opts);
+    if (result.oversize) {
+      findings.push(...result.findings);
+      return findings;
+    }
+    const starts = [0];
+    for (let i = 0; i < text.length; i++) if (text[i] === "\n") starts.push(i + 1);
+    for (const finding of result.findings) {
+      const offset = starts[finding.line - 1] + finding.col - 1 + left;
+      if (offset >= core.start && offset < core.end) findings.push(finding);
+    }
   }
-  flush();
 
   return findings;
 }
@@ -437,11 +505,8 @@ function main() {
     // detected, on a diff that was never read. Blocking is still right (fail
     // closed), but the reason must be the true one: a guardrail that cries wolf
     // is a guardrail that gets bypassed by reflex, which is worse than none.
-    // Seen live 2026-07-30: a diff of a few hundred bytes reported HIGH
-    // engine.input_too_large, because an unresolvable base branch made the hook
-    // fall back to EMPTY_TREE..local — i.e. the WHOLE repo (~7 MiB) as "added
-    // lines". The size the operator sees and the size the hook measures can
-    // therefore differ by four orders of magnitude.
+    // The computed range can be much larger than the visible tip diff, and a
+    // single over-cap line is deliberately withheld rather than partly scanned.
     const unscanned = allHigh.filter((f) => f.id.startsWith("engine."));
     const secrets = allHigh.filter((f) => !f.id.startsWith("engine."));
 
@@ -466,9 +531,8 @@ function main() {
         process.stderr.write(`  ${f.id}: ${f.description}\n`);
       }
       process.stderr.write(
-        "\nLikely cause: the base branch could not be resolved, so the whole repo was\n" +
-          "treated as added lines. Check `git rev-parse --abbrev-ref origin/HEAD` and\n" +
-          "`git merge-base HEAD origin/main`, then push again. Scan the diff yourself\n" +
+        "\nA long line, large first push, or unavailable remote tip may exceed the\n" +
+          "per-slice safety cap. Check the destination and range; scan the diff yourself\n" +
           "before bypassing: `git diff <base>..HEAD | grep -inE \'password|secret|token|api.?key\'`.\n",
       );
     }

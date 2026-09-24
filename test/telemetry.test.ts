@@ -321,13 +321,9 @@ describe('gstack-telemetry-log', () => {
     expect(events[0].error_message.length).toBeLessThanOrEqual(200);
   });
 
-  test('fails closed: error_message becomes null when the engine cannot relocate a span (#1947)', () => {
+  test('redacts an anchored error_message value at its original offset (#1947, #2930)', () => {
     setConfig('telemetry', 'anonymous');
     const secret = '8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJq';
-    // env.kv-shaped finding (line-anchored, so the assignment leads the
-    // message): the span (value) starts past the regex match start,
-    // locateSpan misses it, redactFindingSpans returns null — the bin must
-    // drop the whole message, never pass it through raw.
     run(
       `${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-message 'API_KEY=${secret} rejected by daemon' --session-id red-4`,
     );
@@ -335,7 +331,7 @@ describe('gstack-telemetry-log', () => {
     const lines = readJsonl();
     expect(lines).toHaveLength(1);
     const event = JSON.parse(lines[0]);
-    expect(event.error_message).toBeNull();
+    expect(event.error_message).toBe('API_KEY=<REDACTED-env.kv> rejected by daemon');
     expect(lines[0]).not.toContain(secret);
   });
 

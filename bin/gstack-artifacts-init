@@ -277,7 +277,13 @@ cat > "$GSTACK_HOME/.gitignore" <<'EOF'
 *
 EOF
 
-cat > "$GSTACK_HOME/.brain-allowlist" <<'EOF'
+ALLOWLIST="$GSTACK_HOME/.brain-allowlist"
+ALLOWLIST_TMP=$(mktemp "$GSTACK_HOME/.brain-allowlist.XXXXXX")
+ALLOWLIST_ASSEMBLED=$(mktemp "$GSTACK_HOME/.brain-allowlist.XXXXXX")
+trap 'rm -f "$ALLOWLIST_TMP" "$ALLOWLIST_ASSEMBLED"' EXIT
+ALLOWLIST_MARKER='# ---- USER ADDITIONS BELOW ---- (survives re-init; above is managed)'
+
+cat > "$ALLOWLIST_TMP" <<'EOF'
 # Canonical allowlist of paths that gstack-brain-sync will publish.
 # One glob per line. Anything not matching stays local.
 # Do not edit directly; managed by gstack-artifacts-init. User additions go
@@ -324,6 +330,33 @@ transcripts/run-*/**/*.md
 #   projects/*/question-events.jsonl (same)
 # ---- USER ADDITIONS BELOW ---- (survives re-init; above is managed)
 EOF
+
+if [ -s "$ALLOWLIST" ]; then
+  if marker_count=$(grep -Fxc "$ALLOWLIST_MARKER" "$ALLOWLIST"); then
+    :
+  else
+    grep_status=$?
+    if [ "$grep_status" -gt 1 ]; then
+      echo "gstack-artifacts-init: could not read $ALLOWLIST; refusing to replace it" >&2
+      exit 1
+    fi
+    marker_count=0
+  fi
+  if [ "$marker_count" -ne 1 ]; then
+    if [ "$marker_count" -eq 0 ]; then reason="has no managed marker"; else reason="has multiple managed markers"; fi
+    echo "gstack-artifacts-init: $ALLOWLIST $reason; refusing to replace ambiguous user data" >&2
+    exit 1
+  fi
+  marker_line=$(grep -nFx "$ALLOWLIST_MARKER" "$ALLOWLIST" | cut -d: -f1)
+  suffix_start=$(head -n "$marker_line" "$ALLOWLIST" | wc -c)
+  cp -p "$ALLOWLIST" "$ALLOWLIST_ASSEMBLED"
+  : > "$ALLOWLIST_ASSEMBLED"
+  cat "$ALLOWLIST_TMP" >> "$ALLOWLIST_ASSEMBLED"
+  tail -c +"$((suffix_start + 1))" "$ALLOWLIST" >> "$ALLOWLIST_ASSEMBLED"
+else
+  cat "$ALLOWLIST_TMP" > "$ALLOWLIST_ASSEMBLED"
+fi
+mv -f "$ALLOWLIST_ASSEMBLED" "$ALLOWLIST"
 
 cat > "$GSTACK_HOME/.brain-privacy-map.json" <<'EOF'
 [

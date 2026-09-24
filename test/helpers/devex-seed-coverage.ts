@@ -14,7 +14,7 @@ function explainedReversedSignatures(q: NativePlanQuestion, title: string): bool
   // field. Bind subject, source identities and repair instead of menu wording.
   const subject = title.replace(/^Journey stage(?: REAL USAGE:|: REAL USAGE\.)\s*/i, '');
   const evidenced = !question && !declared &&
-    /^(?:the )?(?:two|both) public (?:evaluation )?functions take\b/i.test(subject) &&
+    /^(?:the )?(?:two|both) (?:public (?:evaluation )?|evaluation )functions take\b/i.test(subject) &&
     /\bthe same two arguments\b/i.test(subject) && /\b(?:opposite|reversed) (?:positional )?order\.?$/i.test(subject);
   const declaration = declared || evidenced;
   if (!question && !declaration) return false;
@@ -57,20 +57,25 @@ function explainedReversedSignatures(q: NativePlanQuestion, title: string): bool
     // Only an asserted citation at the start of this decision's field owns
     // the pair; quoted examples, later borrowed prose and split fields do not.
     const fields = lines.slice(1, explanation + 1).filter(line => /^(?:Evidence|ELI10):/.test(line));
-    const pair = /^(?:Evidence|ELI10):\s*[\w./-]+(?: lines? \d+(?:[-–]\d+)?|:\d+(?:[-–]\d+)?)?:\s*(`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\1 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\2(?:[.;]|$)/;
+    const pair = /^(?:Evidence|ELI10):\s*[\w./-]+(?: lines? \d+(?:\s*(?:[-–]|to)\s*\d+)?|:\d+(?:[-–]\d+)?)?:\s*(`?)run_eval\(\s*dataset\s*,\s*evaluator\s*\)\1 and (`?)run_batch\(\s*evaluator\s*,\s*dataset\s*\)\2(?:[.;]|$)/;
     if (!fields.some(line => pair.test(line)) || fields.some(line =>
       /^(?:Evidence|ELI10):\s*(?:>|`|"|“|Source\b|Quoted\b|Historical\b|Earlier\b|Example\b|Hypothetical\b|If\b|Assuming\b|Provided\b)/i.test(line))) return false;
     return q.options.some(option => {
       const label = currentProse(option.label.replace(/`(\(\s*dataset\s*,\s*evaluator\s*\))`/g, '$1'));
       const remedy = currentProse(option.description ?? '');
       const first = remedy.split(/[.!?\n]/)[0] ?? '';
-      return /^(?:[A-D]\)\s*)?(?:Align|Unify|Standardize)\b/i.test(label) && /\(\s*dataset\s*,\s*evaluator\s*\)/.test(label) &&
+      // The named pair above owns "Both" and the run_x signature shorthand.
+      // This offered repair enforces the same keyword-only shape on that pair,
+      // retaining a warning for existing positional callers during the beta.
+      const stagedKeywords = /^(?:[A-D]\)\s*)?(?:Align|Unify|Standardize) order \+ keyword-only with beta deprecation(?: \(recommended\))?$/i.test(label) &&
+        /^Both(?: functions)? become run_x\(\*\s*,\s*dataset\s*,\s*evaluator\s*\)\. Positional (?:calls )?accepted for one beta cycle with a DeprecationWarning naming the fix\.$/i.test(remedy);
+      return (stagedKeywords || (/^(?:[A-D]\)\s*)?(?:Align|Unify|Standardize)\b/i.test(label) && /\(\s*dataset\s*,\s*evaluator\s*\)/.test(label) &&
         /\bsame (?:positional )?order\b/i.test(first) && /\bboth functions\b/i.test(first) &&
         /\bkeywords? (?:accepted|supported)\b|\baccept keywords\b/i.test(remedy) &&
-        /\bswaps? (?:is |are )?(?:detected|caught|rejected)\b/i.test(remedy) && /\b(?:clear|actionable) (?:error|message)\b/i.test(remedy) &&
+        /\bswaps? (?:is |are )?(?:detected|caught|rejected)\b/i.test(remedy) && /\b(?:clear|actionable) (?:error|message)\b/i.test(remedy))) &&
         !/\b(?:if|unless|when|once|after|pending)\b|\b(?:no|not|never|without|do not|don't)\b|\b(?:other|another|foreign|different) (?:functions?|API|pair|project|issue)\b/i.test(`${label}\n${remedy}`) &&
         !/(?:^|[.!?\n]\s*)(?:Correction:\s*)?(?:this|that|the) (?:option|action|correction) (?:is|was|has been) (?:historical|withdrawn|rejected|cancelled|canceled|superseded|(?:not|no longer) current)\b/i.test(remedy) &&
-        !/\brun_(?!eval\b|batch\b)\w+\b/.test(remedy);
+        (stagedKeywords || !/\brun_(?!eval\b|batch\b)\w+\b/.test(remedy));
     });
   }
   // A declared reversal may offer a keyword-only repair instead of a swap
@@ -136,9 +141,10 @@ function decisionGaps(q: NativePlanQuestion): DevexSeededGap[] {
   // A defect heading can assert a prerequisite or compare named signatures
   // without a finite verb. Keep these semantic families narrow: a topic label,
   // healthy signature pair or optional check is not an asserted defect.
-  const nominalDefect = /^(?:The )?(?:Mandatory|Required) (?:\d+(?:\.\d+)?[- ](?:minute|second) )?(?:remote )?CI (?:check|gate) before (?:the )?first local (?:result|evaluation|run)[.?]?$/i.test(assertionTitle) ||
+  const nominalDefect = /^(?:The )?(?:Mandatory|Required) (?:\d+(?:\.\d+)?[- ](?:minute|second) )?(?:remote )?CI (?:check|gate) (?:before|gates) (?:the )?first local (?:result|evaluation|run)[.?]?$/i.test(assertionTitle) ||
     /^run_eval\(\s*dataset\s*,\s*evaluator\s*\) (?:vs\.?|versus|and) run_batch\(\s*evaluator\s*,\s*dataset\s*\): (?:reversed|opposite|swapped) (?:positional|argument) order[.?]?$/i.test(assertionTitle);
   const nominalSubject = /^(?:Mandatory|Required|Optional)\b[^?!\n]*\bCI (?:check|gate)\b/i.test(assertionTitle) ||
+    /^(?:The )?(?:Mandatory|Required|Optional)\b[^?!\n]*\bCI (?:check|gate) gates\b/i.test(assertionTitle) ||
     /^run_eval\([^)]+\) (?:vs\.?|versus|and) run_batch\([^)]+\):/i.test(assertionTitle);
   if (nominalSubject && !nominalDefect && !evidenceJourney) return [];
   const signatureDeclaration = /^run_eval\(\s*dataset\s*,\s*evaluator\s*\) and run_batch\(\s*evaluator\s*,\s*dataset\s*\) (?:take|takes)\b/i.test(assertionTitle);

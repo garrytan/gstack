@@ -1,0 +1,113 @@
+{
+  "source": "ci-16358-revalidation-fix-v2 / secondary-0QDOf1 / 1790126919121-shared-libs-review-revalidation-1-3.json",
+  "qualification": "Exact public final persistence and read-back blocks. Native error_max_turns remains failed despite a CURRENT completed persisted review; the wider invocation was cancelled.",
+  "events": [
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01HmcJdGgU33AH4ZBtMqCVKC",
+            "name": "Bash",
+            "input": {
+              "command": "/home/vercel-sandbox/gstack/bin/gstack-review-log '{\"skill\":\"review\",\"timestamp\":\"2026-09-23T01:28:17Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10.0,\"specialists\":{\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"category\":\"shared-libs\",\"path\":\"src/retry-worker.ts\",\"line\":2,\"confidence\":9,\"summary\":\"Reuse the tested parser\",\"specialist\":\"maintainability\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"54880d2\",\"completed\":true,\"converged\":true,\"cycles\":0}' --finish 289b9a29-9514-436e-a077-03828b306894; echo \"exit=$?\"",
+              "description": "Persist the final review record with start token"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "message": {
+        "content": [
+          {
+            "tool_use_id": "toolu_01HmcJdGgU33AH4ZBtMqCVKC",
+            "type": "tool_result",
+            "content": "exit=0",
+            "is_error": false
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01Jf5YEeGk8G3GEZRzX52mcT",
+            "name": "Bash",
+            "input": {
+              "command": "/home/vercel-sandbox/gstack/bin/gstack-review-read | tail -n +2 | head -1 | cut -c1-1200; echo; echo \"--- footer:\"; /home/vercel-sandbox/gstack/bin/gstack-review-read | sed -n '/---CONFIG---/,$p'",
+              "description": "Verify the persisted review record and its binding"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "message": {
+        "content": [
+          {
+            "tool_use_id": "toolu_01Jf5YEeGk8G3GEZRzX52mcT",
+            "type": "tool_result",
+            "content": "{\"skill\":\"review\",\"timestamp\":\"2026-09-23T01:28:17Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"category\":\"shared-libs\",\"path\":\"src/retry-worker.ts\",\"line\":2,\"confidence\":9,\"summary\":\"Reuse the tested parser\",\"specialist\":\"maintainability\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"54880d2\",\"completed\":true,\"converged\"\n\n--- footer:\n---CONFIG---\nfalse---HEAD---\n54880d2\n---WTREE---\n858ac83c88dbfbed592f38309e8115ae1f041be4\n---TREE---\n0d6f7d79e489259c97311903f75fe9570a21645d\n---DIRTY---\ntrue",
+            "is_error": false
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01BZ1zmL5boWNTkrZunpvRPs",
+            "name": "Bash",
+            "input": {
+              "command": "/home/vercel-sandbox/gstack/bin/gstack-review-read | tail -n +2 | head -1 | grep -o '\"completed\".*'",
+              "description": "Show binding and freshness fields of the new record"
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "message": {
+        "content": [
+          {
+            "tool_use_id": "toolu_01BZ1zmL5boWNTkrZunpvRPs",
+            "type": "tool_result",
+            "content": "\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"54880d215e8104a2ab77c59f5e9bf135bccc962b\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"858ac83c88dbfbed592f38309e8115ae1f041be4\",\"end_wtree\":\"858ac83c88dbfbed592f38309e8115ae1f041be4\",\"started_at\":\"2026-09-23T01:24:35.774Z\",\"branch_id\":\"951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"},\"wtree\":\"858ac83c88dbfbed592f38309e8115ae1f041be4\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}",
+            "is_error": false
+          }
+        ]
+      }
+    }
+  ],
+  "terminal": {
+    "type": "result",
+    "subtype": "error_max_turns",
+    "terminal_reason": "max_turns",
+    "num_turns": 31,
+    "duration_ms": 274904,
+    "errors": [
+      "Reached maximum number of turns (30)"
+    ],
+    "is_error": true
+  }
+}

@@ -30,19 +30,16 @@ triggers:
 
 {{THIRD_PARTY_ACTIONS}}
 
-{{BASE_BRANCH_DETECT}}
-
-{{GBRAIN_CONTEXT_LOAD}}
-
 # Ship: Fully Automated Ship Workflow
 
-You are running the `/ship` workflow. Automate routine work without confirmation. The user said `/ship` which authorizes that work, but does not waive the explicit safety and user-decision gates below. Run through to the PR URL unless a gate requires input or reports a blocker.
+Run `/ship` through to the PR URL. This request authorizes routine work without confirmation; explicit safety and user-decision gates still apply.
 
-**Stop for blockers and explicit decision gates.** Follow every STOP or AskUserQuestion instruction in the steps below and the preamble. Common gates include:
+**Follow every STOP and AskUserQuestion gate**, including:
 - On the base branch (abort)
 - Merge conflicts that can't be auto-resolved (stop, show conflicts)
 - In-branch test failures (pre-existing failures are triaged, not auto-blocking)
 - Pre-landing review finds ASK items that need user judgment
+- Prior Learnings needs its first-time cross-project setting (Step 8)
 - MINOR or MAJOR version bump needed (ask — see Step 12)
 - Greptile review comments that need user decision (complex fixes, false positives)
 - AI-assessed coverage below target (see Step 7 for minimum/target decisions)
@@ -59,17 +56,15 @@ You are running the `/ship` workflow. Automate routine work without confirmation
 - Multi-file changesets (auto-split into bisectable commits)
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
-- Test coverage gaps within target threshold (auto-generate and commit, or flag in PR body)
+- Test coverage gaps within target threshold (generate, verify, then commit with Step 15; flag any remaining gaps in the PR body)
 
 **Re-run behavior (idempotency):**
-Re-running `/ship` means "run the whole checklist again." Every verification step
-(tests, coverage audit, plan completion, pre-landing review, adversarial review,
-VERSION/CHANGELOG check, TODOS, document-release) runs on every invocation.
-Only *actions* are idempotent:
+Every invocation repeats verification: tests, coverage, plan completion, both
+reviews, VERSION/CHANGELOG, TODOS and doc-sync. Only *actions* are idempotent:
 - Step 12: If VERSION already bumped, skip the bump but still read the version
 - Step 17: If already pushed, skip the push command
 - Step 19: If PR exists, update the body instead of creating a new PR
-Never skip a verification step because a prior `/ship` run already performed it.
+Prior execution never exempts verification.
 
 ---
 
@@ -77,16 +72,20 @@ Never skip a verification step because a prior `/ship` run already performed it.
 
 ---
 
+{{BASE_BRANCH_DETECT}}
+
+`<base>` means the detected branch name for fetch/helper arguments;
+`origin/<base>` is its remote-tracking ref for comparisons. Step 1 fetches it.
+
+{{GBRAIN_CONTEXT_LOAD}}
+
 ## Step 0.9: Apple target detection
 
-Shipping to the App Store is not landing a PR. If the repository contains an
-`.xcodeproj`, `.xcworkspace`, or a Swift package with an app product AND the
-user's ask is store distribution (App Store, TestFlight, "release my app"),
-**STOP and Read `~/.claude/skills/gstack/ship/sections/apple-release.md` FIRST**
-— before the branch gate and any preflight below. Store distribution proceeds
-from whatever branch the user is on (a clean tree on the base branch is the
-solo developer's normal case, not an error) and follows the adapter end to
-end. The branch gate and repository-landing pipeline below apply ONLY to
+If the repo has an `.xcodeproj`, `.xcworkspace`, or Swift app package AND the ask
+is App Store/TestFlight distribution, **STOP and Read
+`~/.claude/skills/gstack/ship/sections/apple-release.md` FIRST**. Store distribution proceeds
+through that adapter from the current branch, including a clean base branch.
+The branch gate and repository-landing pipeline below apply ONLY to
 repository-landing asks, including on Apple repos.
 
 ## Step 1: Pre-flight
@@ -95,23 +94,24 @@ repository-landing asks, including on Apple repos.
 
 2. Run `git status` (never use `-uall`). Uncommitted changes are always included — no need to ask.
 
-3. Run `git diff <base>...HEAD --stat` and `git log <base>..HEAD --oneline` to understand what's being shipped.
+3. Run `git fetch origin <base>` before inspecting the diff. If fetch fails, STOP:
+   report the error and restore access before continuing. Then inspect
+   `git diff origin/<base> --stat`, untracked files from status, and
+   `git log origin/<base>..HEAD --oneline`.
 
-4. Check review readiness:
+4. Display historical review readiness. This preflight snapshot does not replace
+   Step 9's mandatory review or its blocker, ASK, and convergence gates — even
+   when prior reviews are CLEAR or the dashboard's global skip is enabled.
 
 {{REVIEW_DASHBOARD}}
 
-If the Eng Review is NOT "CLEAR":
-
-Print: "No prior eng review found — ship will run its own pre-landing review in Step 9."
-
-Check diff size: `git diff <base>...HEAD --stat | tail -1`. If the diff is >200 lines, add: "Note: This is a large diff. Consider running `/plan-eng-review` or `/autoplan` for architecture-level review before shipping."
+If Eng Review is not CLEAR, print its actual status and reason: "Eng Review: {status} — {reason}. Ship will run its pre-landing review in Step 9." For diffs >200 lines (`git diff origin/<base> --stat | tail -1`), recommend `/plan-eng-review` or `/autoplan` for architecture review.
 
 If CEO Review is missing, mention as informational ("CEO Review not run — recommended for product changes") but do NOT block.
 
-For Design Review: run `source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review (plan-design-review or design-review-lite) exists in the dashboard, mention: "Design Review not run — this PR changes frontend code. The lite design check will run automatically in Step 9, but consider running /design-review for a full visual audit post-implementation." Still never block.
+For Design Review: run `source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review exists, mention: "Design Review not run — Step 9 includes the lite check; consider /design-review for a full visual audit."
 
-Continue to Step 2 — do NOT block or ask. Ship runs its own review in Step 9.
+Continue to Step 2 without a preflight approval question. Apply the review gates when Step 9 runs.
 
 ---
 
@@ -124,6 +124,7 @@ service with existing deployment — verify that a distribution pipeline exists.
    ```bash
    git diff origin/<base> --name-only | grep -E '(cmd/.*/main\.go|bin/|Cargo\.toml|setup\.py|package\.json)' | head -5
    ```
+   Also inspect matching untracked files from Step 1's status.
 
 2. If new artifact detected, check for a release workflow:
    ```bash
@@ -135,7 +136,7 @@ service with existing deployment — verify that a distribution pipeline exists.
    - "This PR adds a new binary/tool but there's no CI/CD pipeline to build and publish it.
      Users won't be able to download the artifact after merge."
    - A) Add a release workflow now (CI/CD release pipeline — GitHub Actions or GitLab CI depending on platform)
-   - B) Defer — add to TODOS.md
+   - B) Defer — add a P1 distribution TODO in Step 14
    - C) Not needed — this is internal/web-only, existing deployment covers it
 
 4. **If release pipeline exists:** Continue silently.
@@ -145,10 +146,10 @@ service with existing deployment — verify that a distribution pipeline exists.
 
 ## Step 3: Merge the base branch (BEFORE tests)
 
-Fetch and merge the base branch into the feature branch so tests run against the merged state:
+Merge the base ref fetched in Step 1 so tests cover the same state used by Step 2:
 
 ```bash
-git fetch origin <base> && git merge origin/<base> --no-edit
+git merge origin/<base> --no-edit
 ```
 
 **If there are merge conflicts:** Try to auto-resolve if they are simple (VERSION, schema.rb, CHANGELOG ordering). If conflicts are complex or ambiguous, **STOP** and show them.
@@ -180,21 +181,22 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    ```
    Save the JSON `baseVersion` as `BASE_VERSION`, then read `state` and dispatch:
    - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → skip the bump, but run the queue-drift check (step 3) with the reported `currentVersion`. If the queue moved (next free version differs), **AskUserQuestion**: rebump to the new version (rewrites CHANGELOG header + PR title) or keep current (CI version-gate will reject until resolved).
-   - **DRIFT_STALE_PKG** → run `gstack-version-bump repair` (syncs package.json to VERSION). No re-bump; reuse `currentVersion` for CHANGELOG + PR.
+   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`; recover the prior `BUMP_LEVEL` from the release decision (or base/current version difference), then run step 3's queue check. Do not bump again without approval.
+   - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify. On success, follow **ALREADY_BUMPED**, including its queue check; on failure, STOP. Repair alone never re-bumps.
    - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
 2. **Decide the bump level** from the diff (agent judgment):
    - **MICRO**: <50 lines, trivial tweaks/config. **PATCH**: 50+ lines, no feature signals.
-   - **MINOR**: AskUserQuestion for any feature signal (new route/page, migration, new module), OR 500+ lines. **MAJOR**: AskUserQuestion for milestones or breaking changes. Offer the recommended level with rationale, a smaller level, or cancel; wait for the answer.
-   Save as `BUMP_LEVEL`. The level is the user-intended bump; queue-aware placement may advance the slot without changing the level.
+   - **MINOR**: AskUserQuestion for any feature signal (new route/page, migration, new module), OR 500+ lines. **MAJOR**: AskUserQuestion for milestones or breaking changes. Offer the recommended level with rationale, a smaller level, or cancel; wait for the answer. Cancel ends this ship attempt before release writes or push; preserve existing work.
+   Save `BUMP_LEVEL` as lowercase `micro`, `patch`, `minor`, or `major`. Queue placement may advance the slot without changing the intended level.
 
 3. **Queue-aware pick** (workspace-aware ship):
    ```bash
    QUEUE_JSON=$(bun run ~/.claude/skills/gstack/bin/gstack-next-version --base <base> --bump "$BUMP_LEVEL" --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
-   NEW_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
+   CANDIDATE_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
    ```
-   If `offline`/util fails: fall back to local `BUMP_LEVEL` arithmetic and print `⚠ workspace-aware ship offline — using local bump only`. If `claimed` is non-empty, render the queue table so the user sees landing order. If an active sibling workspace holds a version `>= NEW_VERSION`, **AskUserQuestion**: advance past (unrelated work) or abort and sync with the sibling.
+   - **Usable candidate** (including `offline:true` with `fallback:"git"`): print warnings and any claimed queue. FRESH sets `NEW_VERSION` to `CANDIDATE_VERSION`. ALREADY_BUMPED compares it with `currentVersion`; if different, ask to rebump (refresh CHANGELOG/PR title) or keep current (CI rejects a collision). Only approval changes the existing version. An active sibling is a workspace listed in JSON `active_siblings`; use its `branch` and `version`. If one holds `>= NEW_VERSION`, ask to advance past it or stop this attempt and sync.
+   - **No usable candidate** (utility failure or empty result): print queue-unverified; FRESH sets `NEW_VERSION` using local `BUMP_LEVEL` arithmetic, while ALREADY_BUMPED keeps `currentVersion`. Do not use the candidate branch above.
 
 4. **Write the bump** (FRESH, or an approved rebump):
    ```bash
@@ -214,159 +216,57 @@ for slot selection. Bump level and queue collisions remain agent decisions.
 
 ## Step 14: TODOS.md (auto-update)
 
-Match TODOS.md to this diff. Mark completed items automatically; ask if missing or disorganized.
+Persist approved follow-ups, then conservatively mark completed work.
 
 Read `.claude/skills/review/TODOS-format.md` for the canonical format reference.
 
-**1. Check if TODOS.md exists** in the repository root.
+**1. Open or create:** Read root `TODOS.md`. An earlier explicit "add TODO" choice authorizes its creation with `# TODOS` and `## Completed`. Otherwise, if missing, ask: "Create a component/priority-organized TODOS.md?" Options: A) Create now, B) Skip. If B, continue to Step 15 with the outcome in the summary below.
 
-**If TODOS.md does not exist:** Use AskUserQuestion:
-- Message: "GStack recommends maintaining a TODOS.md organized by skill/component, then priority (P0 at top through P4, then Completed at bottom). See TODOS-format.md for the full format. Would you like to create one?"
-- Options: A) Create it now, B) Skip for now
-- If A: Create `TODOS.md` with a skeleton (# TODOS heading + ## Completed section). Continue to step 3.
-- If B: Skip the rest of Step 14. Continue to Step 15.
+**2. Organization:** Expect component headings, `**Priority:**` P0–P4 fields, and `## Completed` at the bottom. If disorganized, ask: A) Reorganize (recommended), B) Leave as-is. A preserves all content; B continues without restructuring.
 
-**2. Check structure and organization:**
+**3. Add approved deferrals:**
+- Step 2: add the approved distribution follow-up as P1 with the missing pipeline and affected artifact.
+- Step 8: add each approved P1 plan deferral with `Deferred from plan: {plan file path}` and the missing work.
+- Step 5: retain P0 test-failure entries already written; deduplicate by failure and source, adding missing approved entries with error output and branch.
+Never turn dropped scope into TODOs or invent unapproved follow-ups. Reuse matching existing entries rather than duplicating them.
 
-Read TODOS.md and verify it follows the recommended structure:
-- Items grouped under `## <Skill/Component>` headings
-- Each item has `**Priority:**` field with P0-P4 value
-- A `## Completed` section at the bottom
+**4. Detect completed TODOs:** Match titles, files, and behavior against `git diff origin/<base>`, untracked files from status, and `git log origin/<base>..HEAD --oneline`. Only clear evidence earns completion; leave uncertain items open. Move completed items to `## Completed` and append `**Completed:** vX.Y.Z (YYYY-MM-DD)`.
 
-**If disorganized** (missing priority fields, no component groupings, no Completed section): Use AskUserQuestion:
-- Message: "TODOS.md doesn't follow the recommended structure (skill/component groupings, P0-P4 priority, Completed section). Would you like to reorganize it?"
-- Options: A) Reorganize now (recommended), B) Leave as-is
-- If A: Reorganize in-place following TODOS-format.md. Preserve all content — only restructure, never delete items.
-- If B: Continue to step 3 without restructuring.
-
-**3. Detect completed TODOs:**
-
-Automatically use the previously gathered diff and history:
-- `git diff <base>...HEAD` (full diff against the base branch)
-- `git log <base>..HEAD --oneline` (all commits being shipped)
-
-Match each TODO's title, files, and described behavior against commits and the diff.
-
-**Be conservative:** Only mark a TODO as completed if there is clear evidence in the diff. If uncertain, leave it alone.
-
-**4. Move completed items** to the `## Completed` section at the bottom. Append: `**Completed:** vX.Y.Z (YYYY-MM-DD)`
-
-**5. Output summary:**
-- `TODOS.md: N items marked complete (item1, item2, ...). M items remaining.`
-- Or: `TODOS.md: No completed items detected. M items remaining.`
-- Or: `TODOS.md: Created.` / `TODOS.md: Reorganized.`
-
-**6. If TODOS.md cannot be written:** warn and continue; a TODO write failure never blocks shipping.
-
-Save this summary — it goes into the PR body in Step 19.
+**5. Save the summary:** Report added/deferred items, items marked complete, remaining count, and any creation/reorganization. If creation was declined or a write fails, warn and retain the unpersisted follow-ups in the Step 19 PR summary; never claim they were saved. A TODO write failure remains non-blocking.
 
 ---
 
 ## Step 15: Commit (bisectable chunks)
 
-### Step 15.0: WIP Commit Squash (continuous checkpoint mode only)
+### Step 15.0: Preserve checkpoint context
 
-If `CHECKPOINT_MODE` is `"continuous"`, the branch likely contains `WIP:` commits
-from auto-checkpointing. These must be squashed INTO the corresponding logical
-commits before the bisectable-grouping logic in Step 15.1 runs. Non-WIP commits
-on the branch (earlier landed work) must be preserved.
-
-**Detection:**
-```bash
-WIP_COUNT=$(git log <base>..HEAD --oneline --grep="^WIP:" 2>/dev/null | wc -l | tr -d ' ')
-echo "WIP_COMMITS: $WIP_COUNT"
-```
-
-If `WIP_COUNT` is 0: skip this sub-step entirely.
-
-If `WIP_COUNT` > 0, collect the WIP context first so it survives the squash:
+Run `~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode`. `continuous` means automatic `WIP:`
+checkpoint commits; any other value skips WIP consolidation. In continuous mode,
+count `WIP:` commits in `origin/<base>..HEAD`. If none exist, skip Step 15.2.
+Otherwise preserve their context before committing or rewriting history:
 
 ```bash
-# Export [gstack-context] blocks from all WIP commits on this branch.
-# This file becomes input to the CHANGELOG entry and may inform PR body context.
 mkdir -p "$(git rev-parse --show-toplevel)/.gstack"
-git log <base>..HEAD --grep="^WIP:" --format="%H%n%B%n---END---" > \
-  "$(git rev-parse --show-toplevel)/.gstack/wip-context-before-squash.md" 2>/dev/null || true
+git log origin/<base>..HEAD --grep="^WIP:" --format="%H%n%B%n---END---" > \
+  "$(git rev-parse --show-toplevel)/.gstack/wip-context-before-squash.md"
 ```
 
-**Non-destructive squash strategy:**
-
-`git reset --soft <merge-base>` WOULD uncommit everything including non-WIP commits.
-DO NOT DO THAT. Instead, use `git rebase` scoped to filter WIP commits only.
-
-Option 1 (preferred, if there are non-WIP commits mixed in):
-Only rewrite unpublished commits. If any are already on the remote, stop and ask
-before rewriting; never force-push. Prepare a rebase todo in a temporary file:
-list commits oldest-first, keep every non-WIP commit as `pick` in its original
-relative order, move each WIP directly after its corresponding logical commit,
-and mark it `fixup`. Inspect the diffs to choose each target; if a WIP's target
-is ambiguous or outside this branch, stop and ask. Every commit must appear
-exactly once, and the first entry must be `pick`. Set `WIP_TODO` below to that
-prepared file's absolute path. Do not run with an empty or unreviewed todo.
-
-```bash
-export WIP_TODO="<absolute path to prepared todo>"
-test -s "$WIP_TODO" || exit 1
-ORIGINAL_TREE=$(git rev-parse 'HEAD^{tree}')
-GIT_SEQUENCE_EDITOR='cp "$WIP_TODO"' git rebase -i "$(git merge-base HEAD origin/<base>)" || {
-    echo "Rebase conflict. Aborting: git rebase --abort"
-    git rebase --abort
-    echo "STATUS: BLOCKED — manual WIP squash required"
-    exit 1
-  }
-test "$ORIGINAL_TREE" = "$(git rev-parse 'HEAD^{tree}')" || {
-  echo "STATUS: BLOCKED — squash changed file contents; inspect before continuing"
-  exit 1
-}
-```
-
-Option 2 (simpler, if the branch is ALL WIP commits so far — no landed work):
-```bash
-# Branch contains only WIP commits. Reset-soft is safe here because there's
-# nothing non-WIP to preserve. Verify first.
-NON_WIP=$(git log <base>..HEAD --oneline --invert-grep --grep="^WIP:" 2>/dev/null | wc -l | tr -d ' ')
-if [ "$NON_WIP" -eq 0 ]; then
-  git reset --soft $(git merge-base HEAD origin/<base>)
-  echo "WIP-only branch, reset-soft to merge base. Step 15.1 will create clean commits."
-fi
-```
-
-Decide at runtime which option applies. If unsure, prefer stopping and asking the
-user via AskUserQuestion rather than destroying non-WIP commits.
-
-**Anti-footgun rules:**
-- NEVER blind `git reset --soft` if there are non-WIP commits. Codex flagged this
-  as destructive — it would uncommit real landed work and turn the push step into
-  a non-fast-forward push for anyone who already pushed.
-- Only proceed to Step 15.1 after WIP commits are successfully squashed/absorbed
-  or the branch has been verified to contain only WIP work.
+If export fails, do not rewrite history. Step 13 already read these bodies for
+CHANGELOG; retain this PR context locally, outside commits.
 
 ### Step 15.1: Bisectable Commits
 
-Create small, logical commits for `git bisect`. If all changes are already committed, skip to Step 16; never create an empty commit.
+Create small, logical commits for `git bisect`. If all changes are already committed, continue to Step 15.2; never create an empty commit.
 
-1. Analyze the diff and group changes into logical commits. Each commit should represent **one coherent change** — not one file, but one logical unit.
-
-2. **Commit ordering** (earlier commits first):
-   - **Infrastructure:** migrations, config changes, route additions
-   - **Models & services:** new models, services, concerns (with their tests)
-   - **Controllers & views:** controllers, views, JS/React components (with their tests)
-   - **VERSION + CHANGELOG + TODOS.md:** always in the final commit
-
-3. **Rules for splitting:**
-   - A model and its test file go in the same commit
-   - A service and its test file go in the same commit
-   - A controller, its views, and its test go in the same commit
-   - Migrations are their own commit (or grouped with the model they support)
-   - Config/route changes can group with the feature they enable
-   - If the total diff is small (< 50 lines across < 4 files), a single commit is fine
-
-4. **Each commit must be independently valid** — no broken imports, no references to code that doesn't exist yet. Order commits so dependencies come first.
-
-5. Compose each commit message:
-   - First line: `<type>: <summary>` (type = feat/fix/chore/refactor/docs)
-   - Body: brief description of what this commit contains
-   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag and co-author trailer:
+1. Group by coherent change. Keep each model/service/controller with its tests;
+   keep controller views together. Migrations may stand alone or accompany their
+   model; config/routes may accompany the feature they enable. A diff under
+   50 lines across fewer than 4 files may use one commit.
+2. Order dependencies first: infrastructure → models/services → controllers/views.
+   Each commit must work independently, without broken imports or missing code.
+   VERSION + CHANGELOG + TODOS.md belong in the final commit.
+3. Use `<type>: <summary>` (feat/fix/chore/refactor/docs) and a brief body.
+   Only the final VERSION/CHANGELOG commit gets the version tag and co-author trailer:
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -377,46 +277,94 @@ EOF
 )"
 ```
 
+### Step 15.2: Consolidate WIP commits when safe
+
+After Step 15.1, run only for continuous-mode WIP commits. Require a clean working
+tree except the context export. Run `git fetch origin`; failure means STOP.
+Inspect `WIP_BASE..HEAD`, where `WIP_BASE` is `git merge-base HEAD origin/<base>`:
+
+- **merge commits:** do not replay or flatten Step 3's integration merge.
+- **published commits** (`git branch -r --contains <sha>` returns a ref): never rewrite.
+- For either, ask to preserve WIP history and continue to Step 16 (recommended),
+  or stop for manual consolidation. Never rebase or force-push these paths.
+
+For a linear, unpublished range, prepare and inspect an oldest-first todo.
+Keep non-WIP commits as `pick` in relative order; put each WIP after its verified
+logical target as `fixup`. Include every commit exactly once. An ambiguous or
+out-of-range target needs a preserve-history/stop decision. First entry stays
+`pick` or `reword`; all-WIP ranges retain a logical `reword` anchor. Rewording
+requires a noninteractive `WIP_EDITOR` script that writes descriptive messages;
+picks/fixups alone use `true`. Set the reviewed todo's absolute path below:
+
+```bash
+export WIP_TODO="<absolute path to prepared todo>"
+test -s "$WIP_TODO" || exit 1
+WIP_BASE=$(git merge-base HEAD origin/<base>) || exit 1
+test -z "$(git status --porcelain -- . ':(exclude).gstack/wip-context-before-squash.md')" || exit 1
+test -z "$(git rev-list --merges "$WIP_BASE"..HEAD)" || exit 1
+for sha in $(git rev-list "$WIP_BASE"..HEAD); do
+  test -z "$(git branch -r --contains "$sha")" || exit 1
+done
+ORIGINAL_TREE=$(git rev-parse 'HEAD^{tree}')
+GIT_EDITOR="${WIP_EDITOR:-true}" GIT_SEQUENCE_EDITOR='cp "$WIP_TODO"' git rebase -i "$WIP_BASE" || {
+  git rebase --abort
+  echo "STATUS: BLOCKED — WIP consolidation conflicted; original history restored"
+  exit 1
+}
+test "$ORIGINAL_TREE" = "$(git rev-parse 'HEAD^{tree}')" || {
+  echo "STATUS: BLOCKED — consolidation changed contents; inspect before continuing"
+  exit 1
+}
+```
+
+Only an unchanged tree after successful consolidation may proceed to Step 16.
+
 ---
 
 ## Step 16: Verification Gate
 
 **IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
 
-The evidence ledger is the mechanical arm of this law. Check it FIRST:
+Find generation/build commands in CLAUDE.md/AGENTS.md, package scripts, and build
+configuration; run them first, skipping only when none are defined. A failed build blocks push. If it changes tracked files, inspect the
+changes, run affected checks from Steps 6–11, refresh release facts, and commit
+under Step 15 before returning here. Reuse unchanged results and actual approvals.
+
+Then check test evidence against the final content:
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-evidence check --label tests --expect-cmd '<exact tests-lane command from Step 5>' --label vitest --expect-cmd '<exact vitest-lane command from Step 5>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md
 ```
 
-Include only lane labels actually run in Step 5; `vitest` is an example, not a required framework.
-Pass each `--expect-cmd` the exact command string the wrapped Step 5 lane ran —
-that binds FRESH to the real suite (a green `echo ok` recorded under the label
-can never satisfy the check). Residual risk, accepted: `package.json` sits on
-the allow-list because Step 12's version bump writes its version field between
-the test run and this gate (and, in the gstack repo, regenerates the
-version-stamped `agents-digest/gstack-AGENTS.md`); a behavior-changing
-package.json edit in that window would not invalidate evidence. The check is
-advisory either way.
+Use only Step 5's actual lane labels and exact commands; `vitest` is an example.
+If Step 4 explicitly declined testing and no lanes exist, report that gap instead
+of inventing FRESH evidence. Build verification still applies.
 
-- **Every line FRESH (exit 0):** the recorded runs were green and the working-tree
-  content is identical to what was tested, modulo the allow-listed release files
-  (this mechanizes the "CHANGELOG edits don't count" rule — VERSION/CHANGELOG
-  commits between Step 5 and here don't invalidate the run). Cite the evidence
-  lines (label, exit, ts, log path) as the verification evidence and continue.
-- **Any STALE/MISSING (exit non-zero):** run live, wrapped, so the fresh run is
-  recorded: `~/.claude/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`.
-  The check is an advisory guardrail — a failed CHECK never blocks; a failed RUN does.
+The allow-list covers release bookkeeping, including Step 12's package/digest
+version stamps. Behavioral package.json edits still require live tests despite
+the path exemption. Do not add `TODOS.md` or generated tests to the allow-list:
+Step 7 tests, review fixes, and Step 14 TODO edits intentionally make evidence STALE.
 
-Before pushing, re-verify if code changed at any point after Step 5:
+- **Every line FRESH (exit 0):** recorded runs passed on identical content except
+  the listed release files. Cite label, exit, timestamp, and log path; continue.
+- **Any STALE/MISSING (exit non-zero):** rerun the stale/missing lanes on final
+  content, wrapped as `~/.claude/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`.
+  Read results and recheck once. A content, command, or age mismatch requires
+  relevant fresh verification. If the ledger alone cannot record or verify a
+  successful live run, confirm unchanged final content and cite the exact command,
+  exit, and log; report ledger unavailable and continue, but never label the ledger FRESH.
+  If unchanged content cannot be confirmed, STOP. Do not rerun green suites solely for bookkeeping.
+  A failed CHECK selects live verification: a failed CHECK never blocks; a failed RUN does, except for the explicit triage waiver below.
 
-1. **Test verification:** If ANY code changed after Step 5's test run (fixes from review findings, CHANGELOG edits don't count), re-run the test suite. The evidence check above IS this rule, mechanized — trust FRESH, re-run on STALE. Paste fresh output when you re-run. Stale output from Step 5 with changed content is NOT acceptable.
+Paste build and rerun results. Later code, test, or build-input changes return
+through this gate before pushing. Step 18 owns validation of its post-push
+docs-only edits; follow repository-required checks there too. Do not claim an
+earlier test run covered changed inputs.
 
-2. **Build verification:** If the project has a build step, run it. Paste output.
-
-3. Confidence, earlier results on different code, and "trivial change" are not verification. Run the checks.
-
-**If tests fail here:** STOP. Do not push. Fix the issue and return to Step 5.
+**If tests fail here:** apply Step 5's triage. A prior explicit waiver remains valid
+only for the same verified pre-existing failures and approved scope; cite that
+approval and actual failing counts, never FRESH or all-green evidence. New,
+changed, or unwaived failures STOP publication and return to Step 5.
 
 Claiming work is complete without verification is dishonesty, not efficiency.
 
@@ -485,9 +433,13 @@ Branch on the echoed values:
 **Idempotency check:** Check if the branch is already pushed and up to date.
 
 ```bash
-git fetch origin <branch-name> 2>/dev/null
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/<branch-name> 2>/dev/null || echo "none")
+LOCAL=$(git rev-parse HEAD) || exit 1
+REMOTE_REF=$(git ls-remote --heads origin refs/heads/<branch-name>) || {
+  echo "STATUS: BLOCKED — cannot verify remote branch; restore access before pushing"
+  exit 1
+}
+REMOTE=$(printf '%s\n' "$REMOTE_REF" | awk '{print $1}')
+REMOTE=${REMOTE:-none}
 echo "LOCAL: $LOCAL  REMOTE: $REMOTE"
 [ "$LOCAL" = "$REMOTE" ] && echo "ALREADY_PUSHED" || echo "PUSH_NEEDED"
 ```
@@ -498,7 +450,15 @@ If `ALREADY_PUSHED`, skip the push but continue to Step 18. Otherwise push with 
 git push -u origin <branch-name>
 ```
 
-**You are NOT done.** The code is pushed but Step 18 (dispatch the /document-release subagent to sync docs) and Step 19 (create the PR/MR) are mandatory final steps. Continue to Step 18.
+**If the push fails, STOP.** Report its error; do not run Steps 18–19 or claim
+publication. For a non-fast-forward rejection, fetch and inspect the remote branch,
+merge its changes without rewriting history, and return to Step 5 through Step 16
+before retrying. Resolve ambiguous conflicts with the user; never force-push.
+For authentication, hook, or network failures, fix that cause, rerun affected checks
+if content changed, then recheck Step 16 before retrying. Never bypass a failed guard.
+Only a successful push or verified `ALREADY_PUSHED` proceeds.
+
+Continue to mandatory Step 18 (dispatch /document-release), then Step 19 (create/update PR/MR). A push alone does not complete /ship.
 
 ---
 
@@ -510,14 +470,10 @@ git push -u origin <branch-name>
 
 ## Step 20: Persist ship metrics
 
-Log coverage and plan completion data so `/retro` can track trends.
-
-Route the append through `gstack-review-log`. It resolves the project slug and
-the canonical branch form itself, creates the directory, validates the JSON, and
-enqueues the row for gbrain sync. It takes **no path argument** — never build a
-`<branch>-reviews.jsonl` path by hand. A branch with a `/` in it turns a
-hand-built path into a subdirectory write, and the row goes somewhere `/retro`
-will never look.
+Log coverage and plan completion for `/retro` through `gstack-review-log`.
+It resolves the project/branch, validates JSON, creates storage and queues sync.
+It takes **no path argument**: hand-built `<branch>-reviews.jsonl` paths break
+branches containing `/`.
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"'"$(git rev-parse --abbrev-ref HEAD)"'"}'

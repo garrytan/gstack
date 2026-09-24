@@ -51,7 +51,7 @@ import { safeUnlink, safeUnlinkQuiet, safeKill } from './error-handling';
 import {
   findAvailablePort, formatExplicitPortUnavailableError, formatRandomPortUnavailableError,
 } from './port-allocator';
-import { readAgentRecord, killAgentByRecord, agentRecordPath, spawnTerminalAgent } from './terminal-agent-control';
+import { acquireAgentStateLock, readAgentRecord, clearAgentRecord, isOurAgent, isAgentRecordLive, isAgentRecordGone, stopAgentByRecord, spawnTerminalAgent } from './terminal-agent-control';
 import { isProcessAlive } from './error-handling';
 import { sanitizeBody, stripLoneSurrogateEscapes, stripLoneSurrogates, sanitizeReplacer } from './sanitize';
 import { startSocksBridge, testUpstream, type BridgeHandle } from './socks-bridge';
@@ -74,6 +74,18 @@ import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
 import * as crypto from 'crypto';
+
+const SERVER_INSTANCE_ID = crypto.randomUUID();
+
+function removeOwnedDaemonStateQuiet(): void {
+  try {
+    const release = acquireAgentStateLock(path.dirname(config.stateFile), 0);
+    try {
+      const state = JSON.parse(fs.readFileSync(config.stateFile, 'utf8'));
+      if (state.pid === process.pid && state.instanceId === SERVER_INSTANCE_ID) safeUnlinkQuiet(config.stateFile);
+    } finally { release(); }
+  } catch {}
+}
 
 // ─── Unicode Sanitization ───────────────────────────────────────
 // Unpaired UTF-16 surrogate halves (\uD800–\uDFFF) in page DOM text, OCR
@@ -466,11 +478,15 @@ async function startTunnel(opts: {
     console.log(`[browse] Tunnel listener bound on 127.0.0.1:${tunnelPort}, ngrok → ${tunnelUrl}`);
 
     // Update state file
-    const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
-    stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
-    const tmpState = tmpStatePath();
-    fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
-    fs.renameSync(tmpState, config.stateFile);
+    const releaseStateLock = acquireAgentStateLock(config.stateDir);
+    try {
+      const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
+      if (stateContent.pid !== process.pid || stateContent.instanceId !== SERVER_INSTANCE_ID) throw new Error('daemon state was replaced');
+      stateContent.tunnel = { url: tunnelUrl, domain: domain || null, startedAt: new Date().toISOString() };
+      const tmpState = tmpStatePath();
+      fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
+      fs.renameSync(tmpState, config.stateFile);
+    } finally { releaseStateLock(); }
 
     return { ok: true, url: tunnelUrl! };
   } catch (err: any) {
@@ -735,6 +751,7 @@ const idleCheckInterval = setInterval(idleCheckTick, 60_000);
 // Production code must never import this — see `idle timer + onDisconnect
 // dual-instance fix` describe block for usage.
 export const __testInternals__ = {
+  serverInstanceId: SERVER_INSTANCE_ID,
   idleCheckTick,
   // Watchdog seams (watchdog.test.ts): drive the 15s poll against an
   // arbitrary (dead) PID, trigger the handoff-promotion suppression exactly
@@ -1432,9 +1449,7 @@ if (import.meta.main) {
   // Windows: taskkill /F bypasses SIGTERM, but 'exit' fires for some shutdown paths.
   // Defense-in-depth — primary cleanup is the CLI's stale-state detection via health check.
   if (process.platform === 'win32') {
-    process.on('exit', () => {
-      safeUnlinkQuiet(config.stateFile);
-    });
+    process.on('exit', removeOwnedDaemonStateQuiet);
   }
 }
 
@@ -1452,6 +1467,7 @@ function emergencyCleanup() {
     if (fs.existsSync(config.stateFile)) {
       const raw = fs.readFileSync(config.stateFile, 'utf-8');
       const state = JSON.parse(raw);
+      if (state.pid !== process.pid || state.instanceId !== SERVER_INSTANCE_ID) return;
       if (state.xvfbPid && state.xvfbStartTime) {
         // Lazy import — emergencyCleanup may run on platforms where
         // ./xvfb's Linux-specific helpers fail to load. Best effort.
@@ -1472,7 +1488,7 @@ function emergencyCleanup() {
   if (activeBrowserManager.getConnectionMode() === 'headed' || process.env.BROWSE_HEADED === '1') {
     cleanSingletonLocks(resolveChromiumProfile());
   }
-  safeUnlinkQuiet(config.stateFile);
+  removeOwnedDaemonStateQuiet();
 }
 // Same import.meta.main gate as SIGINT/SIGTERM — embedders register their
 // own crash handlers.
@@ -1582,6 +1598,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     AGENT_WATCHDOG_TICK_MS * (RESPAWN_GUARD_MAX + 2),
   );
   let agentRespawnGuardTripped = false;
+  let consecutiveSpawnFailures = 0;
 
   if (ownsTerminalAgent) {
     agentWatchdogInterval = setInterval(() => {
@@ -1594,7 +1611,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
       // intentionally fall through here — split-brain is worse than
       // unresponsiveness, and slow recovery is handled by the user via
       // restart.
-      if (record && isProcessAlive(record.pid)) return;
+      if (record && !isAgentRecordGone(record)) return;
       // Either no record (never spawned, or cleaned up after crash) or
       // PID is dead. Try to respawn.
       const now = Date.now();
@@ -1617,12 +1634,19 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           cwd: cfg.config.projectDir,
         });
         if (pid) {
+          consecutiveSpawnFailures = 0;
           console.log(`[browse] terminal-agent respawned by watchdog (PID: ${pid})`);
         } else {
+          consecutiveSpawnFailures++;
           console.warn('[browse] terminal-agent respawn skipped — script not found on disk');
         }
       } catch (err: any) {
+        consecutiveSpawnFailures++;
         console.warn('[browse] terminal-agent respawn failed:', err?.message || err);
+      }
+      if (consecutiveSpawnFailures >= RESPAWN_GUARD_MAX) {
+        agentRespawnGuardTripped = true;
+        console.error('[browse] terminal-agent respawn guard tripped after repeated failed starts — manual restart required');
       }
     }, AGENT_WATCHDOG_TICK_MS);
     // Detach the watchdog timer from Node's event-loop ref count so a
@@ -1654,23 +1678,44 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     // State and terminal files belong to this instance, including embedders
     // whose cfg differs from the standalone daemon's module-level config.
     const config = cfg.config;
+    const stateOwner = (() => {
+      try { return JSON.parse(fs.readFileSync(config.stateFile, 'utf8')); } catch { return null; }
+    })();
+    const foreignState = Number.isSafeInteger(stateOwner?.pid) && stateOwner.pid > 0
+      && (stateOwner.pid !== process.pid || (stateOwner.instanceId && stateOwner.instanceId !== SERVER_INSTANCE_ID));
 
     console.log('[browse] Shutting down...');
-    if (ownsTerminalAgent) {
+    if (ownsTerminalAgent && !foreignState) {
       // Identity-based kill (v1.44+). Replaces the v1.43- `pkill -f
       // terminal-agent\.ts` regex teardown which matched sibling gstack
       // sessions on the same host. Only the PID recorded in
       // `<stateDir>/terminal-agent-pid` by THIS daemon's agent is signaled.
       try {
         const stateDir = path.dirname(config.stateFile);
-        const record = readAgentRecord(stateDir);
-        if (record) killAgentByRecord(record, 'SIGTERM');
+        const releaseAgentLock = acquireAgentStateLock(stateDir);
+        try {
+          let currentState: { pid?: number; instanceId?: string } | null = null;
+          try { currentState = JSON.parse(fs.readFileSync(config.stateFile, 'utf8')); } catch {}
+          if (currentState?.pid && (currentState.pid !== process.pid
+            || (currentState.instanceId && currentState.instanceId !== SERVER_INSTANCE_ID))) {
+            console.warn('[browse] terminal-agent state now belongs to a successor; retaining its files');
+          } else {
+            const record = readAgentRecord(stateDir);
+            const agentStopped = !record || (record.pid !== 0
+              && (!isAgentRecordLive(record) || (isOurAgent(record, process.pid) && stopAgentByRecord(record))));
+            const current = readAgentRecord(stateDir);
+            if (agentStopped && (!record || (current?.pid === record.pid && current.gen === record.gen))) {
+              safeUnlinkQuiet(path.join(stateDir, 'terminal-port'));
+              safeUnlinkQuiet(path.join(stateDir, 'terminal-internal-token'));
+              if (record) clearAgentRecord(stateDir, record);
+            } else if (!agentStopped) {
+              console.warn('[browse] terminal-agent identity or exit could not be confirmed; retaining its record');
+            }
+          }
+        } finally { releaseAgentLock(); }
       } catch (err: any) {
-        console.warn('[browse] Failed to kill terminal-agent:', err.message);
+        console.warn('[browse] Failed to stop terminal-agent; retaining its state:', err.message);
       }
-      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-port'));
-      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-internal-token'));
-      safeUnlinkQuiet(agentRecordPath(path.dirname(config.stateFile)));
     }
     try { detachSession(); } catch (err: any) {
       console.warn('[browse] Failed to detach CDP session:', err.message);
@@ -1712,7 +1757,17 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     if (cfgBrowserManager.getConnectionMode() === 'headed') {
       cleanSingletonLocks(resolveChromiumProfile());
     }
-    safeUnlinkQuiet(config.stateFile);
+    if (!foreignState) {
+      try {
+        const releaseStateLock = acquireAgentStateLock(path.dirname(config.stateFile));
+        try {
+          const currentState = JSON.parse(fs.readFileSync(config.stateFile, 'utf8'));
+          if (currentState.pid === process.pid && currentState.instanceId === SERVER_INSTANCE_ID) safeUnlinkQuiet(config.stateFile);
+        } finally { releaseStateLock(); }
+      } catch (err: any) {
+        if (fs.existsSync(config.stateFile)) console.warn('[browse] Daemon state cleanup could not confirm ownership:', err?.message || err);
+      }
+    }
     process.exit(exitCode);
   }
 
@@ -3182,6 +3237,7 @@ export async function start() {
   // Write state file (atomic: write .tmp then rename)
   const state: Record<string, unknown> = {
     pid: process.pid,
+    instanceId: SERVER_INSTANCE_ID,
     port,
     token: envCfg.authToken,
     startedAt: new Date().toISOString(),
@@ -3206,7 +3262,28 @@ export async function start() {
   };
   const tmpFile = tmpStatePath();
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
-  fs.renameSync(tmpFile, config.stateFile);
+  try {
+    const releaseStateLock = acquireAgentStateLock(config.stateDir);
+    try { fs.renameSync(tmpFile, config.stateFile); } finally { releaseStateLock(); }
+  } catch (err) {
+    safeUnlinkQuiet(tmpFile);
+    throw err;
+  }
+
+  const stateWatchMs = parseInt(process.env.GSTACK_STATE_WATCH_MS || '60000', 10);
+  if (stateWatchMs > 0) {
+    let missed = 0;
+    const stateWatch = setInterval(() => {
+      let owner: { pid?: number; instanceId?: string } | null = null;
+      try { owner = JSON.parse(fs.readFileSync(config.stateFile, 'utf8')); } catch {}
+      if (owner?.pid === process.pid && owner.instanceId === SERVER_INSTANCE_ID) { missed = 0; return; }
+      if (++missed < 2) return;
+      clearInterval(stateWatch);
+      console.warn('[browse] daemon state is no longer reachable; shutting down this instance');
+      handle.shutdown();
+    }, stateWatchMs);
+    (stateWatch as any).unref?.();
+  }
 
   browserManager.serverPort = port;
 
@@ -3338,11 +3415,15 @@ export async function start() {
       tunnelActive = true;
       const tunnelPort = boundTunnel.port;
       console.log(`[browse] Tunnel listener bound (local-only test mode) on 127.0.0.1:${tunnelPort}`);
-      const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
-      stateContent.tunnelLocalPort = tunnelPort;
-      const tmpState = tmpStatePath();
-      fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
-      fs.renameSync(tmpState, config.stateFile);
+      const releaseStateLock = acquireAgentStateLock(config.stateDir);
+      try {
+        const stateContent = JSON.parse(fs.readFileSync(config.stateFile, 'utf-8'));
+        if (stateContent.pid !== process.pid || stateContent.instanceId !== SERVER_INSTANCE_ID) throw new Error('daemon state was replaced');
+        stateContent.tunnelLocalPort = tunnelPort;
+        const tmpState = tmpStatePath();
+        fs.writeFileSync(tmpState, JSON.stringify(stateContent, null, 2), { mode: 0o600 });
+        fs.renameSync(tmpState, config.stateFile);
+      } finally { releaseStateLock(); }
     } catch (err: any) {
       console.error(`[browse] BROWSE_TUNNEL_LOCAL_ONLY=1 listener bind failed: ${err.message}`);
     }

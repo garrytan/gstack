@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, spyOn } from 'bun:test';
+import * as childProcess from 'node:child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -103,34 +104,54 @@ describe('process liveness probe (Windows terminal-agent leak)', () => {
     expect(offenders).toEqual([]);
   });
 
-  test('5. spawnTerminalAgent passes windowsHide so no console is shown', () => {
+  test('5. spawnTerminalAgent passes windowsHide so no console is shown', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-hide-'));
     const script = path.join(tmpDir, 'fake-agent.ts');
     fs.writeFileSync(script, '// no-op\n');
     const origSpawn = (Bun as any).spawn;
+    const originalProbe = Bun.spawnSync;
+    const originalWindowsProbe = childProcess.spawnSync;
+    const probe = spyOn(Bun, 'spawnSync').mockImplementation(((command: string[], options: any) => {
+      if (command[0] === 'ps' && command[2] === String(process.pid)) {
+        return { exitCode: 0, stdout: Buffer.from('fixture-owner-start'), stderr: Buffer.alloc(0) };
+      }
+      return originalProbe(command, options);
+    }) as typeof Bun.spawnSync);
+    const windowsProbe = spyOn(childProcess, 'spawnSync').mockImplementation(((command: string, args: string[], options: any) => {
+      if (command === 'powershell.exe') {
+        const owner = args.join(' ').includes(`ProcessId = ${process.pid}'`);
+        return { status: 0, stdout: JSON.stringify(owner ? { CreationDate: 'fixture-owner-start', CommandLine: 'test-owner' } : null), stderr: '' };
+      }
+      return originalWindowsProbe(command, args, options);
+    }) as typeof childProcess.spawnSync);
+    const exited = Promise.resolve(0);
     let captured: any = null;
     (Bun as any).spawn = (_cmd: any, opts: any) => {
       captured = opts;
-      return { pid: 4242, unref() {} };
+      return { pid: 2147483647, exited, kill() {}, unref() {} };
     };
     try {
-      const pid = spawnTerminalAgent({
+      expect(() => spawnTerminalAgent({
         stateFile: path.join(tmpDir, 'state.json'),
         serverPort: 12345,
         ownerPid: process.pid,
         cwd: tmpDir,
         scriptPath: script,
-      });
-      expect(pid).toBe(4242);
+      })).toThrow('terminal-agent process identity is unavailable');
       expect(captured).not.toBeNull();
       expect(captured.windowsHide).toBe(true);
       // Owner-PID lifetime tie (#2019): the agent polls this and exits when
       // its owning browse server dies, so it can't be adopted by PID 1.
       expect(captured.env.BROWSE_OWNER_PID).toBe(String(process.pid));
+      expect(captured.env.BROWSE_OWNER_START_TIME).toBe('fixture-owner-start');
       // Detached background daemon — must not inherit a terminal either.
       expect(captured.stdio).toEqual(['ignore', 'ignore', 'ignore']);
+      await exited;
+      expect(fs.existsSync(path.join(tmpDir, 'terminal-agent-pid'))).toBe(false);
     } finally {
       (Bun as any).spawn = origSpawn;
+      windowsProbe.mockRestore();
+      probe.mockRestore();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });

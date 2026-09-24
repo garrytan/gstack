@@ -275,7 +275,7 @@ Store this number for the PR body.`);
     ? `**Step 1. Trace every codepath in the plan:**
 
 Read the plan document. For each new feature, service, endpoint, or component described, trace how data will flow through the code — don't just list planned functions, actually follow the planned execution:`
-    : `**${mode === 'ship' ? '1' : 'Step 1'}. Trace every codepath changed** using \`git diff origin/<base>...HEAD\`:
+    : `**${mode === 'ship' ? '1' : 'Step 1'}. Trace every codepath changed** using \`git diff origin/<base>${mode === 'ship' ? '' : '...HEAD'}\`:
 
 Read every changed file. For each one, trace how data flows through the code — don't just list functions, actually follow the execution:`;
 
@@ -301,8 +301,8 @@ branch diff. A **prototype** is existing runnable code referenced by the plan,
 not a proposed future component.
 
 When grounded in concrete source and test files, read them in a dedicated tool
-call before drawing the diagram. For targeted audits only, do this after Scope
-Challenge resolves and before Step 2. Map user flows. Do not mix diff, grep,
+call before drawing the diagram. Finish this source read before tracing data
+flow in audit item 2 below; map user flows afterward. Do not mix diff, grep,
 package/config, git, or commentary into that read; use separate calls for
 context. Base the diagram on that read.
 `}2. **Trace data flow.** Starting from each entry point (route handler, exported function, event listener, component render), follow the data through every branch:

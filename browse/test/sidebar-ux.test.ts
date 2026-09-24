@@ -967,9 +967,10 @@ describe('shutdown cleanup (server.ts)', () => {
     // by browse/test/terminal-agent-pid-identity.test.ts).
     const shutdownFn = serverSrc.slice(
       serverSrc.indexOf('async function shutdown('),
-      serverSrc.indexOf('async function shutdown(') + 1200,
+      serverSrc.indexOf('try { detachSession()', serverSrc.indexOf('async function shutdown(')),
     );
-    expect(shutdownFn).toContain('killAgentByRecord');
+    expect(shutdownFn).toContain('stopAgentByRecord');
+    expect(shutdownFn).toContain('isOurAgent(record, process.pid)');
     expect(shutdownFn).toContain('readAgentRecord');
     // No pkill CALL — the word may appear in the explanatory comment, so
     // match invocation shapes only. The repo-wide reintroduction tripwire
@@ -994,4 +995,3 @@ describe('cookie import button (sidebar)', () => {
     expect(js).toContain('cookie-picker');
   });
 });
-

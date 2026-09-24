@@ -6,51 +6,58 @@ import { CsoError, RunReportV3, canonical, completeness, fingerprint, renderRepo
 import { redact, sanitizeForJson, sanitizeHelperForJson } from './process';
 const MAX_STATE_FILE=1024*1024;
 
-type AtomicRecoveryIdentity={dev:number;ino:number;nlink:number;size:number;mode:number;uid:number;mtimeMs:number;ctimeMs:number};
+type ExactStats=Pick<fs.BigIntStats,'dev'|'ino'|'mtimeNs'|'ctimeNs'|'isFile'|'isSymbolicLink'|'isDirectory'> & Pick<fs.Stats,'nlink'|'size'|'mode'|'uid'>;
+function exactStats(stat:fs.BigIntStats):ExactStats{
+  for(const value of [stat.nlink,stat.size,stat.mode,stat.uid])if(value>BigInt(Number.MAX_SAFE_INTEGER)||value< -BigInt(Number.MAX_SAFE_INTEGER))throw new CsoError('UNSAFE_PATH','Filesystem metadata exceeds safe bounds');
+  return{dev:stat.dev,ino:stat.ino,mtimeNs:stat.mtimeNs,ctimeNs:stat.ctimeNs,nlink:Number(stat.nlink),size:Number(stat.size),mode:Number(stat.mode),uid:Number(stat.uid),isFile:()=>stat.isFile(),isSymbolicLink:()=>stat.isSymbolicLink(),isDirectory:()=>stat.isDirectory()};
+}
+function exactLstat(path:string):ExactStats{return exactStats(fs.lstatSync(path,{bigint:true}));}
+function exactFstat(fd:number):ExactStats{return exactStats(fs.fstatSync(fd,{bigint:true}));}
+type AtomicRecoveryIdentity={dev:bigint;ino:bigint;nlink:number;size:number;mode:number;uid:number;mtimeNs:bigint;ctimeNs:bigint};
 export interface AtomicNoReplaceRecoveryOptions {
   label:string;maxBytes:number;
   validate?:(value:unknown,publisherPid:number)=>void;
   publisherAlive?:(value:unknown,publisherPid:number)=>boolean;
 }
 class AtomicPublicationTransition extends CsoError { constructor(message:string){super('SNAPSHOT_RACE',message);this.name='AtomicPublicationTransition';} }
-function recoveryIdentity(stat:fs.Stats):AtomicRecoveryIdentity{return{dev:stat.dev,ino:stat.ino,nlink:stat.nlink,size:stat.size,mode:stat.mode,uid:stat.uid,mtimeMs:stat.mtimeMs,ctimeMs:stat.ctimeMs};}
-function sameRecoveryIdentity(left:AtomicRecoveryIdentity,right:AtomicRecoveryIdentity):boolean{return left.dev===right.dev&&left.ino===right.ino&&left.nlink===right.nlink&&left.size===right.size&&left.mode===right.mode&&left.uid===right.uid&&left.mtimeMs===right.mtimeMs&&left.ctimeMs===right.ctimeMs;}
+function recoveryIdentity(stat:ExactStats):AtomicRecoveryIdentity{return{dev:stat.dev,ino:stat.ino,nlink:stat.nlink,size:stat.size,mode:stat.mode,uid:stat.uid,mtimeNs:stat.mtimeNs,ctimeNs:stat.ctimeNs};}
+function sameRecoveryIdentity(left:AtomicRecoveryIdentity,right:AtomicRecoveryIdentity):boolean{return left.dev===right.dev&&left.ino===right.ino&&left.nlink===right.nlink&&left.size===right.size&&left.mode===right.mode&&left.uid===right.uid&&left.mtimeNs===right.mtimeNs&&left.ctimeNs===right.ctimeNs;}
 function recoveryProcessAlive(pid:number):boolean{try{process.kill(pid,0);return true;}catch(error:any){return error?.code==='EPERM';}}
 function liveRecognizedPublication(temp:string,target:string,pid:number,options:AtomicNoReplaceRecoveryOptions):boolean{
   if(!recoveryProcessAlive(pid))return false;
-  try{const temporary=fs.lstatSync(temp);if(temporary.isSymbolicLink()||!temporary.isFile()||temporary.nlink<1||temporary.nlink>2||(process.getuid&&temporary.uid!==process.getuid())||(process.platform!=='win32'&&(temporary.mode&0o077)!==0))return false;if(temporary.size===0)return temporary.nlink===1;if(temporary.nlink!==2||!privatePublicationFile(temporary,options))return false;const published=fs.lstatSync(target);return published.nlink===2&&samePublicationInode(temporary,published,options);}catch{return false;}
+  try{const temporary=exactLstat(temp);if(temporary.isSymbolicLink()||!temporary.isFile()||temporary.nlink<1||temporary.nlink>2||(process.getuid&&temporary.uid!==process.getuid())||(process.platform!=='win32'&&(temporary.mode&0o077)!==0))return false;if(temporary.size===0)return temporary.nlink===1;if(temporary.nlink!==2||!privatePublicationFile(temporary,options))return false;const published=exactLstat(target);return published.nlink===2&&samePublicationInode(temporary,published,options);}catch{return false;}
 }
-function liveEmptyPublication(path:string,pid:number):boolean{if(!recoveryProcessAlive(pid))return false;try{const stat=fs.lstatSync(path);return stat.isFile()&&!stat.isSymbolicLink()&&stat.size===0&&stat.nlink===1&&(!process.getuid||stat.uid===process.getuid())&&(process.platform==='win32'||(stat.mode&0o077)===0);}catch{return false;}}
-function privatePublicationObservation(stat:fs.Stats,options:AtomicNoReplaceRecoveryOptions):boolean{return stat.isFile()&&!stat.isSymbolicLink()&&stat.size>=0&&stat.size<=options.maxBytes&&stat.nlink>=1&&stat.nlink<=2&&(!process.getuid||stat.uid===process.getuid())&&(process.platform==='win32'||(stat.mode&0o077)===0);}
-function livePublicationAdvanced(temp:string,pid:number,observed:fs.Stats|undefined,options:AtomicNoReplaceRecoveryOptions):boolean{
+function liveEmptyPublication(path:string,pid:number):boolean{if(!recoveryProcessAlive(pid))return false;try{const stat=exactLstat(path);return stat.isFile()&&!stat.isSymbolicLink()&&stat.size===0&&stat.nlink===1&&(!process.getuid||stat.uid===process.getuid())&&(process.platform==='win32'||(stat.mode&0o077)===0);}catch{return false;}}
+function privatePublicationObservation(stat:ExactStats,options:AtomicNoReplaceRecoveryOptions):boolean{return stat.isFile()&&!stat.isSymbolicLink()&&stat.size>=0&&stat.size<=options.maxBytes&&stat.nlink>=1&&stat.nlink<=2&&(!process.getuid||stat.uid===process.getuid())&&(process.platform==='win32'||(stat.mode&0o077)===0);}
+function livePublicationAdvanced(temp:string,pid:number,observed:ExactStats|undefined,options:AtomicNoReplaceRecoveryOptions):boolean{
   if(!observed||!privatePublicationObservation(observed,options)||!recoveryProcessAlive(pid))return false;
   Atomics.wait(LEASE_ELECTION_WAIT,0,0,LEASE_ELECTION_POLL_MS);
-  let current:fs.Stats;try{current=fs.lstatSync(temp);}catch(error:any){return error?.code==='ENOENT';}
+  let current:ExactStats;try{current=exactLstat(temp);}catch(error:any){return error?.code==='ENOENT';}
   if(!privatePublicationObservation(current,options)||current.dev!==observed.dev||current.ino!==observed.ino)return false;
   if(current.nlink!==observed.nlink||current.size!==observed.size)return true;
   return false;
 }
 function publicationOwnerAlive(value:unknown,publisherPid:number,options:AtomicNoReplaceRecoveryOptions):boolean{return options.publisherAlive?.(value,publisherPid)??recoveryProcessAlive(publisherPid);}
-function privatePublicationFile(stat:fs.Stats,options:AtomicNoReplaceRecoveryOptions):boolean{return stat.isFile()&&!stat.isSymbolicLink()&&stat.size>0&&stat.size<=options.maxBytes&&
+function privatePublicationFile(stat:ExactStats,options:AtomicNoReplaceRecoveryOptions):boolean{return stat.isFile()&&!stat.isSymbolicLink()&&stat.size>0&&stat.size<=options.maxBytes&&
   (!process.getuid||stat.uid===process.getuid())&&(process.platform==='win32'||(stat.mode&0o077)===0);}
-function samePublicationObject(left:fs.Stats,right:fs.Stats,options:AtomicNoReplaceRecoveryOptions):boolean{return privatePublicationFile(left,options)&&privatePublicationFile(right,options)&&
+function samePublicationObject(left:ExactStats,right:ExactStats,options:AtomicNoReplaceRecoveryOptions):boolean{return privatePublicationFile(left,options)&&privatePublicationFile(right,options)&&
   left.dev===right.dev&&left.ino===right.ino&&left.size===right.size&&left.mode===right.mode&&left.uid===right.uid;}
-function samePublicationInode(left:fs.Stats,right:fs.Stats,options:AtomicNoReplaceRecoveryOptions):boolean{return samePublicationObject(left,right,options)&&left.mtimeMs===right.mtimeMs;}
-function publicationLinkTransition(observed:fs.Stats,current:fs.Stats,links:1|2,options:AtomicNoReplaceRecoveryOptions):boolean{
+function samePublicationInode(left:ExactStats,right:ExactStats,options:AtomicNoReplaceRecoveryOptions):boolean{return samePublicationObject(left,right,options)&&left.mtimeNs===right.mtimeNs;}
+function publicationLinkTransition(observed:ExactStats,current:ExactStats,links:1|2,options:AtomicNoReplaceRecoveryOptions):boolean{
   const from=links===1?1:2,to=links===1?2:1;
   return observed.nlink===from&&current.nlink===to&&samePublicationInode(observed,current,options);
 }
-function publicationPathRemoved(observed:fs.Stats,current:fs.Stats,options:AtomicNoReplaceRecoveryOptions):boolean{return observed.nlink>=1&&observed.nlink<=2&&current.nlink>=0&&current.nlink<observed.nlink&&samePublicationObject(observed,current,options);}
-function publicationProgress(left:fs.Stats,right:fs.Stats,options:AtomicNoReplaceRecoveryOptions):boolean{return left.nlink>=0&&left.nlink<=2&&right.nlink>=0&&right.nlink<=2&&left.nlink!==right.nlink&&samePublicationInode(left,right,options);}
+function publicationPathRemoved(observed:ExactStats,current:ExactStats,options:AtomicNoReplaceRecoveryOptions):boolean{return observed.nlink>=1&&observed.nlink<=2&&current.nlink>=0&&current.nlink<observed.nlink&&samePublicationObject(observed,current,options);}
+function publicationProgress(left:ExactStats,right:ExactStats,options:AtomicNoReplaceRecoveryOptions):boolean{return left.nlink>=0&&left.nlink<=2&&right.nlink>=0&&right.nlink<=2&&left.nlink!==right.nlink&&samePublicationInode(left,right,options);}
 function atomicTempTarget(path:string,publisherPid?:number):{target:string;pid:number}|undefined{
   const match=basename(path).match(/^(.*)\.tmp\.(\d{1,10})\.[a-f0-9]{8}$/),pid=match?Number(match[2]):0;
   return match&&match[1]&&Number.isSafeInteger(pid)&&pid>1&&(publisherPid===undefined||pid===publisherPid)?{target:join(dirname(path),match[1]),pid}:undefined;
 }
-function settledAtomicTemp(path:string,observed:fs.Stats,options:AtomicNoReplaceRecoveryOptions):boolean{
+function settledAtomicTemp(path:string,observed:ExactStats,options:AtomicNoReplaceRecoveryOptions):boolean{
   const publication=atomicTempTarget(path);if(!publication)return false;
-  let target:fs.Stats;try{target=fs.lstatSync(publication.target);}catch{return false;}
+  let target:ExactStats;try{target=exactLstat(publication.target);}catch{return false;}
   return observed.nlink>=1&&observed.nlink<=2&&target.nlink===1&&privatePublicationFile(observed,options)&&privatePublicationFile(target,options)&&
-    observed.dev===target.dev&&observed.ino===target.ino&&observed.size===target.size&&observed.mode===target.mode&&observed.uid===target.uid&&observed.mtimeMs===target.mtimeMs;
+    observed.dev===target.dev&&observed.ino===target.ino&&observed.size===target.size&&observed.mode===target.mode&&observed.uid===target.uid&&observed.mtimeNs===target.mtimeNs;
 }
 function readPublicationBytes(fd:number,size:number,label:string):string{
   const bytes=Buffer.alloc(size);let offset=0;
@@ -58,12 +65,12 @@ function readPublicationBytes(fd:number,size:number,label:string):string{
   const extra=Buffer.alloc(1);if(fs.readSync(fd,extra,0,1,size)!==0)throw new CsoError('SNAPSHOT_RACE',`${label} interrupted publication changed while it was read`);
   return bytes.toString('utf8');
 }
-function recoveryJson(path:string,links:1|2,options:AtomicNoReplaceRecoveryOptions,observed?:fs.Stats):{identity:AtomicRecoveryIdentity;value:unknown}{
+function recoveryJson(path:string,links:1|2,options:AtomicNoReplaceRecoveryOptions,observed?:ExactStats):{identity:AtomicRecoveryIdentity;value:unknown}{
   let fd:number|undefined;
   try{
-    const before=fs.lstatSync(path);
+    const before=exactLstat(path);
     if(before.nlink===0){
-      let current:fs.Stats;try{current=fs.lstatSync(path);}catch(error:any){if(error?.code==='ENOENT')throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} was removed while it was inspected`);throw error;}
+      let current:ExactStats;try{current=exactLstat(path);}catch(error:any){if(error?.code==='ENOENT')throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} was removed while it was inspected`);throw error;}
       if(samePublicationInode(before,current,options)&&(current.nlink===0||current.nlink===links))throw new AtomicPublicationTransition(`${options.label} changed link state while it was inspected`);
       throw new CsoError('UNSAFE_PATH',`${options.label} was replaced while it was inspected`);
     }
@@ -72,14 +79,14 @@ function recoveryJson(path:string,links:1|2,options:AtomicNoReplaceRecoveryOptio
     if(!before.isFile()||before.isSymbolicLink()||before.nlink!==links||before.size<=0||before.size>options.maxBytes||
       (process.getuid&&before.uid!==process.getuid())||(process.platform!=='win32'&&(before.mode&0o077)!==0))
       throw new CsoError('UNSAFE_PATH',`${options.label} interrupted publication is not one private regular file`);
-    fd=fs.openSync(path,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW??0));const opened=fs.fstatSync(fd);
+    fd=fs.openSync(path,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW??0));const opened=exactFstat(fd);
     if(!sameRecoveryIdentity(recoveryIdentity(before),recoveryIdentity(opened))){
       if(publicationLinkTransition(before,opened,links,options))throw new AtomicPublicationTransition(`${options.label} interrupted publication changed link state while it was opened`);
       if(publicationProgress(before,opened,options))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} changed phase during concurrent recovery while it was opened`);
       throw new CsoError('SNAPSHOT_RACE',`${options.label} interrupted publication changed while it was opened`);
     }
     const serialized=readPublicationBytes(fd,opened.size,options.label);let value:unknown;try{value=JSON.parse(serialized);}catch{throw new CsoError('UNSAFE_PATH',`${options.label} interrupted publication is not valid JSON`);}
-    const final=fs.fstatSync(fd);if(readPublicationBytes(fd,opened.size,options.label)!==serialized)throw new CsoError('SNAPSHOT_RACE',`${options.label} interrupted publication changed while it was read`);let after:fs.Stats;try{after=fs.lstatSync(path);}catch(error:any){if(error?.code==='ENOENT'&&publicationPathRemoved(opened,final,options))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} was removed by another recovery helper while it was read`);throw error;}const openedIdentity=recoveryIdentity(opened),finalIdentity=recoveryIdentity(final),afterIdentity=recoveryIdentity(after);
+    const final=exactFstat(fd);if(readPublicationBytes(fd,opened.size,options.label)!==serialized)throw new CsoError('SNAPSHOT_RACE',`${options.label} interrupted publication changed while it was read`);let after:ExactStats;try{after=exactLstat(path);}catch(error:any){if(error?.code==='ENOENT'&&publicationPathRemoved(opened,final,options))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} was removed by another recovery helper while it was read`);throw error;}const openedIdentity=recoveryIdentity(opened),finalIdentity=recoveryIdentity(final),afterIdentity=recoveryIdentity(after);
     if(!sameRecoveryIdentity(openedIdentity,finalIdentity)||!sameRecoveryIdentity(openedIdentity,afterIdentity)){
       const coherentTransition=(sameRecoveryIdentity(openedIdentity,finalIdentity)&&publicationLinkTransition(opened,after,links,options))||
         (publicationLinkTransition(opened,final,links,options)&&sameRecoveryIdentity(finalIdentity,afterIdentity));
@@ -95,23 +102,23 @@ function atomicTempCandidates(target:string):Array<{path:string;pid:number}>{
   const directory=dirname(target),name=basename(target),escaped=name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),pattern=new RegExp(`^${escaped}\\.tmp\\.(\\d{1,10})\\.([a-f0-9]{8})$`);
   return fs.readdirSync(directory).flatMap(entry=>{const match=entry.match(pattern),pid=match?Number(match[1]):0;return match&&Number.isSafeInteger(pid)&&pid>1?[{path:join(directory,entry),pid}]:[];});
 }
-function matchesRecoveryInode(stat:fs.Stats,identity:AtomicRecoveryIdentity,options:AtomicNoReplaceRecoveryOptions):boolean{return privatePublicationFile(stat,options)&&stat.dev===identity.dev&&stat.ino===identity.ino&&stat.size===identity.size&&stat.mode===identity.mode&&stat.uid===identity.uid&&stat.mtimeMs===identity.mtimeMs;}
+function matchesRecoveryInode(stat:ExactStats,identity:AtomicRecoveryIdentity,options:AtomicNoReplaceRecoveryOptions):boolean{return privatePublicationFile(stat,options)&&stat.dev===identity.dev&&stat.ino===identity.ino&&stat.size===identity.size&&stat.mode===identity.mode&&stat.uid===identity.uid&&stat.mtimeNs===identity.mtimeNs;}
 /** Recover only the hard-link publication window of atomicWriteSync(noReplace). */
 export function recoverAtomicNoReplaceJson(target:string,options:AtomicNoReplaceRecoveryOptions):void{
-  let targetStat:fs.Stats;try{targetStat=fs.lstatSync(target);}catch(error:any){if(error?.code==='ENOENT')return;throw new CsoError('UNSAFE_PATH',`${options.label} could not be inspected`);}
+  let targetStat:ExactStats;try{targetStat=exactLstat(target);}catch(error:any){if(error?.code==='ENOENT')return;throw new CsoError('UNSAFE_PATH',`${options.label} could not be inspected`);}
   // Callers own legacy-directory and special-file handling. Only a regular
   // file can be the no-replace hard-link publication this helper recognizes.
   if(!targetStat.isFile()||targetStat.isSymbolicLink())return;
   if(targetStat.nlink===1)return;
   if(targetStat.nlink===0){
-    let current:fs.Stats;try{current=fs.lstatSync(target);}catch(error:any){if(error?.code==='ENOENT')throw new AtomicPublicationTransition(`${options.label} was removed while it was inspected`);throw new CsoError('UNSAFE_PATH',`${options.label} could not be reinspected`);}
+    let current:ExactStats;try{current=exactLstat(target);}catch(error:any){if(error?.code==='ENOENT')throw new AtomicPublicationTransition(`${options.label} was removed while it was inspected`);throw new CsoError('UNSAFE_PATH',`${options.label} could not be reinspected`);}
     if(samePublicationInode(targetStat,current,options)&&current.nlink>=0&&current.nlink<=2)throw new AtomicPublicationTransition(`${options.label} changed link state while it was inspected`);
     throw new CsoError('UNSAFE_PATH',`${options.label} was replaced while it was inspected`);
   }
   if(targetStat.nlink!==2)throw new CsoError('UNSAFE_PATH',`${options.label} has an unrecognized hard-link count`);
-  const canonical=recoveryJson(target,2,options,targetStat),matches=atomicTempCandidates(target).flatMap(candidate=>{try{const observed=fs.lstatSync(candidate.path);return observed.dev===canonical.identity.dev&&observed.ino===canonical.identity.ino?[{...candidate,observed}]:[];}catch{return[];}});
+  const canonical=recoveryJson(target,2,options,targetStat),matches=atomicTempCandidates(target).flatMap(candidate=>{try{const observed=exactLstat(candidate.path);return observed.dev===canonical.identity.dev&&observed.ino===canonical.identity.ino?[{...candidate,observed}]:[];}catch{return[];}});
   if(matches.length!==1){
-    let settled:fs.Stats|undefined;try{settled=fs.lstatSync(target);}catch(error:any){
+    let settled:ExactStats|undefined;try{settled=exactLstat(target);}catch(error:any){
       if(matches.length===0&&error?.code==='ENOENT')throw new AtomicPublicationTransition(`${options.label} was removed during candidate enumeration`);
     }
     if(settled&&publicationLinkTransition(targetStat,settled,2,options))throw new AtomicPublicationTransition(`${options.label} interrupted publication settled during candidate enumeration`);
@@ -121,10 +128,10 @@ export function recoverAtomicNoReplaceJson(target:string,options:AtomicNoReplace
   if(!sameRecoveryIdentity(canonical.identity,temporary.identity))throw new CsoError('UNSAFE_PATH',`${options.label} hard link changed identity`);
   options.validate?.(canonical.value,candidate.pid);options.validate?.(temporary.value,candidate.pid);
   if(publicationOwnerAlive(canonical.value,candidate.pid,options))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} publication is still owned by a live helper`);
-  let finalTarget:fs.Stats,finalTemp:fs.Stats;
-  try{finalTarget=fs.lstatSync(target);finalTemp=fs.lstatSync(candidate.path);}catch(error:any){
+  let finalTarget:ExactStats,finalTemp:ExactStats;
+  try{finalTarget=exactLstat(target);finalTemp=exactLstat(candidate.path);}catch(error:any){
     if(error?.code!=='ENOENT')throw error;
-    for(const path of [target,candidate.path]){try{const stat=fs.lstatSync(path);if(!matchesRecoveryInode(stat,canonical.identity,options))throw new CsoError('UNSAFE_PATH',`${options.label} was replaced during concurrent recovery`);}catch(recoveryError:any){if(recoveryError instanceof CsoError)throw recoveryError;if(recoveryError?.code!=='ENOENT')throw recoveryError;}}
+    for(const path of [target,candidate.path]){try{const stat=exactLstat(path);if(!matchesRecoveryInode(stat,canonical.identity,options))throw new CsoError('UNSAFE_PATH',`${options.label} was replaced during concurrent recovery`);}catch(recoveryError:any){if(recoveryError instanceof CsoError)throw recoveryError;if(recoveryError?.code!=='ENOENT')throw recoveryError;}}
     throw new AtomicPublicationTransition(`${options.label} was settled by another recovery helper`);
   }
   if(!sameRecoveryIdentity(canonical.identity,recoveryIdentity(finalTarget))||!sameRecoveryIdentity(canonical.identity,recoveryIdentity(finalTemp))){
@@ -142,7 +149,7 @@ export function recoverAtomicNoReplaceJson(target:string,options:AtomicNoReplace
 
 /** Remove a never-published temp, or validate a temp that became published while observed. */
 export function discardAtomicNoReplaceTemp(path:string,publisherPid:number,options:AtomicNoReplaceRecoveryOptions):void{
-  let observed:fs.Stats;try{observed=fs.lstatSync(path);}catch(error:any){
+  let observed:ExactStats;try{observed=exactLstat(path);}catch(error:any){
     if(error?.code==='ENOENT'){
       const publication=atomicTempTarget(path,publisherPid);
       if(publication){
@@ -154,7 +161,7 @@ export function discardAtomicNoReplaceTemp(path:string,publisherPid:number,optio
   }
   if(observed.nlink===2&&privatePublicationFile(observed,options)){
     const target=atomicTempTarget(path,publisherPid)?.target;
-    let published:fs.Stats|undefined;try{if(target)published=fs.lstatSync(target);}catch{}
+    let published:ExactStats|undefined;try{if(target)published=exactLstat(target);}catch{}
     if(target&&published&&published.dev===observed.dev&&published.ino===observed.ino&&published.nlink===2&&privatePublicationFile(published,options)){
       recoverAtomicNoReplaceJson(target,options);
       const settled=recoveryJson(target,1,options);
@@ -166,7 +173,7 @@ export function discardAtomicNoReplaceTemp(path:string,publisherPid:number,optio
   }
   const temporary=recoveryJson(path,1,options,observed);options.validate?.(temporary.value,publisherPid);
   if(publicationOwnerAlive(temporary.value,publisherPid,options))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} publication is still owned by a live helper`);
-  let final:fs.Stats;try{final=fs.lstatSync(path);}catch(error:any){if(error?.code==='ENOENT')throw new AtomicPublicationTransition(`${options.label} temp was removed by another recovery helper`);throw error;}
+  let final:ExactStats;try{final=exactLstat(path);}catch(error:any){if(error?.code==='ENOENT')throw new AtomicPublicationTransition(`${options.label} temp was removed by another recovery helper`);throw error;}
   if(!sameRecoveryIdentity(temporary.identity,recoveryIdentity(final)))throw new CsoError('SNAPSHOT_RACE',`${options.label} temp changed before recovery`);
   try{fs.unlinkSync(path);}catch(error:any){if(error?.code==='ENOENT')throw new AtomicPublicationTransition(`${options.label} temp was removed by another recovery helper`);throw new CsoError('PERSISTENCE_FAILED',`${options.label} unpublished temp could not be removed`);}
 }
@@ -253,16 +260,16 @@ export function writeJsonExclusive(path:string,value:unknown):void{
 function readPrivateJson(path:string):unknown{
   let fd:number|undefined;
   try{
-    const before=fs.lstatSync(path);
+    const before=exactLstat(path);
     if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1||before.size<=0||before.size>MAX_STATE_FILE||
       (process.getuid&&before.uid!==process.getuid())||(process.platform!=='win32'&&(before.mode&0o077)!==0))
       throw new CsoError('UNSAFE_PATH','Invalid private state file');
     fd=fs.openSync(path,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW??0));
-    const opened=fs.fstatSync(fd);
+    const opened=exactFstat(fd);
     if(!sameRecoveryIdentity(recoveryIdentity(before),recoveryIdentity(opened)))
       throw new CsoError('SNAPSHOT_RACE','Private state file changed while it was opened');
     const raw=fs.readFileSync(fd,'utf8');
-    const final=fs.fstatSync(fd),after=fs.lstatSync(path);
+    const final=exactFstat(fd),after=exactLstat(path);
     if(!sameRecoveryIdentity(recoveryIdentity(opened),recoveryIdentity(final))||
       !sameRecoveryIdentity(recoveryIdentity(opened),recoveryIdentity(after)))
       throw new CsoError('SNAPSHOT_RACE','Private state file changed while it was read');
@@ -315,7 +322,7 @@ const LEASE_CANDIDATE=/^([a-f0-9]{32})\.json$/;
 const LEASE_DECISION=/^([a-f0-9]{32})\.decision$/;
 const LEASE_ACTIVE=/^([a-f0-9]{32})\.active\.([a-f0-9]{16})$/;
 type LockOwner={pid:number;processIdentity?:string;token:string;createdAt:number};
-type LockIdentity={dev:number;ino:number};
+type LockIdentity={dev:bigint;ino:bigint};
 type LeaseLinks=1|2;
 type LeaseDecision={schemaVersion:1;token:string;kind:'ticket'|'withdraw';ticket?:string;candidateDev:string;candidateIno:string;ownerPid:number;ownerProcessIdentity?:string;ownerCreatedAt:number;publisherPid:number;publisherProcessIdentity?:string;createdAt:number};
 function processAlive(pid:number):boolean{if(!Number.isInteger(pid)||pid<=1)return false;try{process.kill(pid,0);return true;}catch(error:any){return error?.code==='EPERM';}}
@@ -334,8 +341,8 @@ function validateLeaseDecision(value:unknown,expectedToken?:string):LeaseDecisio
   const decision=value as Record<string,unknown>,kind=decision.kind,ticket=decision.ticket;
   if(decision.schemaVersion!==1||typeof decision.token!=='string'||!LOCK_TOKEN.test(decision.token)||(expectedToken!==undefined&&decision.token!==expectedToken)||
     (kind!=='ticket'&&kind!=='withdraw')||(kind==='ticket'&&(typeof ticket!=='string'||!/^[a-f0-9]{16}$/.test(ticket)||ticket==='0000000000000000'))||(kind==='withdraw'&&ticket!==undefined)||
-    typeof decision.candidateDev!=='string'||!/^\d+$/.test(decision.candidateDev)||!Number.isSafeInteger(Number(decision.candidateDev))||
-    typeof decision.candidateIno!=='string'||!/^\d+$/.test(decision.candidateIno)||!Number.isSafeInteger(Number(decision.candidateIno))||
+    typeof decision.candidateDev!=='string'||!/^(0|[1-9]\d*)$/.test(decision.candidateDev)||BigInt(decision.candidateDev)>0xffffffffffffffffn||
+    typeof decision.candidateIno!=='string'||!/^(0|[1-9]\d*)$/.test(decision.candidateIno)||BigInt(decision.candidateIno)>0xffffffffffffffffn||
     !Number.isInteger(decision.ownerPid)||Number(decision.ownerPid)<=1||!Number.isFinite(decision.ownerCreatedAt)||Number(decision.ownerCreatedAt)<0||
     !Number.isInteger(decision.publisherPid)||Number(decision.publisherPid)<=1||!Number.isFinite(decision.createdAt)||Number(decision.createdAt)<0||
     (decision.ownerProcessIdentity!==undefined&&(typeof decision.ownerProcessIdentity!=='string'||!PROCESS_IDENTITY.test(decision.ownerProcessIdentity)))||
@@ -347,23 +354,23 @@ function decisionPublisher(decision:LeaseDecision):LockOwner{return{pid:decision
 function leaseDecisionRecoveryOptions(token:string):AtomicNoReplaceRecoveryOptions{return{label:'Run mutation lease decision',maxBytes:LOCK_OWNER_MAX_BYTES,
   validate:(value,pid)=>{const decision=validateLeaseDecision(value,token);if(decision.publisherPid!==pid)throw new CsoError('UNSAFE_PATH','Run mutation lease decision temp does not match its publisher');},
   publisherAlive:(value,pid)=>{const decision=validateLeaseDecision(value,token);if(decision.publisherPid!==pid)throw new CsoError('UNSAFE_PATH','Run mutation lease decision temp does not match its publisher');return ownerIsAlive(decisionPublisher(decision));}};}
-function ownerLinkTransition(left:fs.Stats,right:fs.Stats):boolean{return left.isFile()&&right.isFile()&&left.dev===right.dev&&left.ino===right.ino&&left.size===right.size&&left.mode===right.mode&&left.uid===right.uid&&
+function ownerLinkTransition(left:ExactStats,right:ExactStats):boolean{return left.isFile()&&right.isFile()&&left.dev===right.dev&&left.ino===right.ino&&left.size===right.size&&left.mode===right.mode&&left.uid===right.uid&&
   left.nlink>=0&&left.nlink<=2&&right.nlink>=0&&right.nlink<=2&&left.nlink!==right.nlink;}
-function readOwner(path:string,expectedToken?:string,expectedLinks:LeaseLinks=1,observed?:fs.Stats):{owner:LockOwner;identity:LockIdentity}{
+function readOwner(path:string,expectedToken?:string,expectedLinks:LeaseLinks=1,observed?:ExactStats):{owner:LockOwner;identity:LockIdentity}{
   let fd:number|undefined;
   try{
-    const before=fs.lstatSync(path);
+    const before=exactLstat(path);
     if(observed&&ownerLinkTransition(observed,before))throw new CsoError('INSUFFICIENT_CAPACITY','Run mutation lease changed phase while it was read');
     if(before.isSymbolicLink()||!before.isFile()||before.nlink!==expectedLinks||before.size<=0||before.size>LOCK_OWNER_MAX_BYTES||
       (process.getuid&&before.uid!==process.getuid())||(process.platform!=='win32'&&(before.mode&0o077)!==0))
       throw new CsoError('UNSAFE_PATH','Run mutation lease is invalid');
     fd=fs.openSync(path,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW??0));
-    const opened=fs.fstatSync(fd);
+    const opened=exactFstat(fd);
     if(ownerLinkTransition(before,opened))throw new CsoError('INSUFFICIENT_CAPACITY','Run mutation lease changed phase while it was read');
     if(!opened.isFile()||opened.dev!==before.dev||opened.ino!==before.ino||opened.nlink!==expectedLinks||opened.size!==before.size)
       throw new CsoError('UNSAFE_PATH','Run mutation lease changed while it was read');
     let parsed:unknown;try{parsed=JSON.parse(fs.readFileSync(fd,'utf8'));}catch{throw new CsoError('UNSAFE_PATH','Run mutation lease is malformed');}
-    const final=fs.fstatSync(fd),after=fs.lstatSync(path);
+    const final=exactFstat(fd),after=exactLstat(path);
     const coherentTransition=(ownerLinkTransition(opened,final)&&final.dev===after.dev&&final.ino===after.ino&&final.nlink===after.nlink)||
       (opened.dev===final.dev&&opened.ino===final.ino&&opened.nlink===final.nlink&&ownerLinkTransition(opened,after));
     if(coherentTransition)throw new CsoError('INSUFFICIENT_CAPACITY','Run mutation lease changed phase while it was read');
@@ -390,7 +397,7 @@ function recoverLeasePublications(leases:string):void{
           validate:(value,pid)=>{const owner=validateOwner(value,token);if(owner.pid!==pid)throw new CsoError('UNSAFE_PATH','Run mutation lease temp does not match its publisher');},
           publisherAlive:(value,pid)=>{const owner=validateOwner(value,token);if(owner.pid!==pid)throw new CsoError('UNSAFE_PATH','Run mutation lease temp does not match its publisher');return ownerIsAlive(owner);}}:
           leaseDecisionRecoveryOptions(token);
-        let publicationObserved:fs.Stats|undefined;try{publicationObserved=fs.lstatSync(temp);}catch{}
+        let publicationObserved:ExactStats|undefined;try{publicationObserved=exactLstat(temp);}catch{}
         if(liveEmptyPublication(temp,publisherPid))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} publication is still changing under a live helper`);
         try{
           if(fs.existsSync(target))recoverAtomicNoReplaceJson(target,options);
@@ -415,14 +422,14 @@ function recoverLeasePublications(leases:string):void{
 function readLegacyOwner(path:string):{pid:number;processIdentity?:string;token:string;createdAt:number}{
   let fd:number|undefined;
   try{
-    const before=fs.lstatSync(path);
+    const before=exactLstat(path);
     if(before.isSymbolicLink()||!before.isFile()||before.nlink!==1||before.size<=0||before.size>LOCK_OWNER_MAX_BYTES||(process.getuid&&before.uid!==process.getuid()))
       throw new CsoError('UNSAFE_PATH','Legacy run mutation lock owner is invalid');
     fd=fs.openSync(path,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW??0));
-    const opened=fs.fstatSync(fd);
+    const opened=exactFstat(fd);
     if(opened.dev!==before.dev||opened.ino!==before.ino||opened.nlink!==1)throw new CsoError('UNSAFE_PATH','Legacy run mutation lock owner changed while it was read');
     let value:unknown;try{value=JSON.parse(fs.readFileSync(fd,'utf8'));}catch{throw new CsoError('UNSAFE_PATH','Legacy run mutation lock owner is malformed');}
-    const after=fs.lstatSync(path),record=value as Record<string,unknown>;
+    const after=exactLstat(path),record=value as Record<string,unknown>;
     if(after.dev!==opened.dev||after.ino!==opened.ino||!record||typeof record!=='object'||Array.isArray(record)||!Number.isInteger(record.pid)||Number(record.pid)<=1||
       typeof record.token!=='string'||record.token.length<1||record.token.length>256||
       (record.processIdentity!==undefined&&(typeof record.processIdentity!=='string'||!PROCESS_IDENTITY.test(record.processIdentity))))
@@ -440,7 +447,7 @@ function exactUnlink(path:string,token:string,identity:LockIdentity,links:LeaseL
   if(current.identity.dev!==identity.dev||current.identity.ino!==identity.ino)throw new CsoError('PERSISTENCE_FAILED','Run mutation lease ownership changed before exact release');
   // One final pathname check narrows lstat/read/unlink replacement races. Lease
   // names are immutable and never reused by cooperating helpers.
-  let final:fs.Stats;try{final=fs.lstatSync(path);}catch{throw new CsoError('PERSISTENCE_FAILED','Run mutation lease ownership changed before exact release');}
+  let final:ExactStats;try{final=exactLstat(path);}catch{throw new CsoError('PERSISTENCE_FAILED','Run mutation lease ownership changed before exact release');}
   if(final.isSymbolicLink()||final.dev!==identity.dev||final.ino!==identity.ino||final.nlink!==links)throw new CsoError('PERSISTENCE_FAILED','Run mutation lease ownership changed before exact release');
   try{fs.unlinkSync(path);}catch{throw new CsoError('PERSISTENCE_FAILED','Run mutation lease ownership changed before exact release');}
 }
@@ -471,7 +478,7 @@ function ensureLockProtocol(dir:string):string{
     if(error?.code!=='EEXIST')throw new CsoError('PERSISTENCE_FAILED','Run mutation lock protocol could not be initialized');
     recoverAtomicNoReplaceJson(lock,{label:'Run mutation lock protocol',maxBytes:LOCK_OWNER_MAX_BYTES,
       validate:value=>{if(!value||typeof value!=='object'||Array.isArray(value)||(value as any).protocol!==LOCK_PROTOCOL)throw new CsoError('UNSAFE_PATH','Run mutation lock protocol is invalid');}});
-    const stat=fs.lstatSync(lock);
+    const stat=exactLstat(lock);
     if(stat.isSymbolicLink())throw new CsoError('UNSAFE_PATH','Run mutation lock is a symlink');
     if(stat.isFile()){
       let protocol='';try{if(stat.nlink!==1||stat.size<=0||stat.size>LOCK_OWNER_MAX_BYTES||(process.platform!=='win32'&&(stat.mode&0o077)!==0))throw new Error('invalid');protocol=JSON.parse(fs.readFileSync(lock,'utf8')).protocol;}catch{}
@@ -482,7 +489,7 @@ function ensureLockProtocol(dir:string):string{
       // so it is never age-reclaimed. Fully published dead owners can migrate.
       const owner=readLegacyOwner(join(lock,'owner.json'));
       if(ownerIsAlive(owner as LockOwner))throw new CsoError('INSUFFICIENT_CAPACITY','Another helper is updating this run');
-      const migration=join(lock,'.v3-migration'),claim=acquireMigrationClaim(migration),current=fs.lstatSync(lock);
+      const migration=join(lock,'.v3-migration'),claim=acquireMigrationClaim(migration),current=exactLstat(lock);
       if(current.dev!==stat.dev||current.ino!==stat.ino){try{exactUnlink(migration,claim.owner.token,claim.identity);}catch{}throw new CsoError('INSUFFICIENT_CAPACITY','Another helper changed this run during recovery');}
       const tomb=join(dir,`.mutation-lock.legacy-${process.pid}-${randomBytes(4).toString('hex')}`);
       try{fs.renameSync(lock,tomb);atomicWriteSync(lock,marker,{mode:0o600,noReplace:true});fs.rmSync(tomb,{recursive:true,force:true});}
@@ -491,13 +498,13 @@ function ensureLockProtocol(dir:string):string{
   }
   const leases=join(dir,'.mutation-lock-leases');
   if(!fs.existsSync(leases))try{fs.mkdirSync(leases,{mode:0o700});}catch(error:any){if(error?.code!=='EEXIST')throw error;}
-  const stat=fs.lstatSync(leases);if(stat.isSymbolicLink()||!stat.isDirectory()||(process.getuid&&stat.uid!==process.getuid()))throw new CsoError('UNSAFE_PATH','Run mutation lease directory is invalid');
+  const stat=exactLstat(leases);if(stat.isSymbolicLink()||!stat.isDirectory()||(process.getuid&&stat.uid!==process.getuid()))throw new CsoError('UNSAFE_PATH','Run mutation lease directory is invalid');
   if(process.platform!=='win32')fs.chmodSync(leases,0o700);
   return leases;
 }
 type LeaseState={token:string;owner:LockOwner;identity:LockIdentity;candidate?:string;decisionPath?:string;decision?:LeaseDecision;decisionIdentity?:LockIdentity;active?:string;number?:bigint};
 type HeldRunLease={path:string;decision:string;decisionIdentity:LockIdentity;active:string;token:string;identity:LockIdentity};
-function privateLeaseArtifact(stat:fs.Stats):boolean{return stat.isFile()&&!stat.isSymbolicLink()&&stat.size>0&&stat.size<=LOCK_OWNER_MAX_BYTES&&
+function privateLeaseArtifact(stat:ExactStats):boolean{return stat.isFile()&&!stat.isSymbolicLink()&&stat.size>0&&stat.size<=LOCK_OWNER_MAX_BYTES&&
   (!process.getuid||stat.uid===process.getuid())&&(process.platform==='win32'||(stat.mode&0o077)===0);}
 function readLeaseDecision(path:string,token:string):{decision:LeaseDecision;identity:LockIdentity}{
   const options=leaseDecisionRecoveryOptions(token);recoverAtomicNoReplaceJson(path,options);
@@ -529,9 +536,9 @@ function scanRunLeases(leases:string):LeaseState[]{
       if(group.decision)try{decisionRecord=readLeaseDecision(group.decision,token);}catch(error){if(error instanceof CsoError&&(error.code==='SNAPSHOT_RACE'||error.code==='INSUFFICIENT_CAPACITY')){if(error.code==='INSUFFICIENT_CAPACITY'){if(Date.now()>=deadline)throw error;contention=error;}retry=true;break;}throw error;}
       if(group.actives[0]&&(!decisionRecord||decisionRecord.decision.kind!=='ticket'||decisionRecord.decision.ticket!==group.actives[0].encoded))throw new CsoError('UNSAFE_PATH','Run mutation lease active phase does not match its ticket decision');
       const ownerPath=group.candidate??group.actives[0]?.path;let inspected:{owner:LockOwner;identity:LockIdentity}|undefined;
-      if(ownerPath){const expected=(group.candidate&&group.actives[0]?2:1) as LeaseLinks;let observed:fs.Stats;try{observed=fs.lstatSync(ownerPath);}catch(error:any){if(error?.code==='ENOENT'){retry=true;break;}throw error;}if(!privateLeaseArtifact(observed)){throw new CsoError('UNSAFE_PATH','Run mutation lease owner phase is not one private regular file');}if(observed.nlink!==expected){retry=true;break;}try{inspected=readOwner(ownerPath,token,expected,observed);}catch(error){if(error instanceof CsoError&&error.code==='INSUFFICIENT_CAPACITY'){if(Date.now()>=deadline)throw error;contention=error;retry=true;break;}throw error;}}
-      if(group.candidate&&group.actives[0]){let activeStat:fs.Stats;try{activeStat=fs.lstatSync(group.actives[0].path);}catch(error:any){if(error?.code==='ENOENT'){retry=true;break;}throw error;}if(!privateLeaseArtifact(activeStat)||activeStat.dev!==inspected!.identity.dev||activeStat.ino!==inspected!.identity.ino)throw new CsoError('UNSAFE_PATH','Run mutation lease active phase does not match its candidate inode');if(activeStat.nlink!==2){retry=true;break;}}
-      const identity=inspected?.identity??{dev:Number(decisionRecord!.decision.candidateDev),ino:Number(decisionRecord!.decision.candidateIno)},owner=inspected?.owner??decisionOwner(decisionRecord!.decision);
+      if(ownerPath){const expected=(group.candidate&&group.actives[0]?2:1) as LeaseLinks;let observed:ExactStats;try{observed=exactLstat(ownerPath);}catch(error:any){if(error?.code==='ENOENT'){retry=true;break;}throw error;}if(!privateLeaseArtifact(observed)){throw new CsoError('UNSAFE_PATH','Run mutation lease owner phase is not one private regular file');}if(observed.nlink!==expected){retry=true;break;}try{inspected=readOwner(ownerPath,token,expected,observed);}catch(error){if(error instanceof CsoError&&error.code==='INSUFFICIENT_CAPACITY'){if(Date.now()>=deadline)throw error;contention=error;retry=true;break;}throw error;}}
+      if(group.candidate&&group.actives[0]){let activeStat:ExactStats;try{activeStat=exactLstat(group.actives[0].path);}catch(error:any){if(error?.code==='ENOENT'){retry=true;break;}throw error;}if(!privateLeaseArtifact(activeStat)||activeStat.dev!==inspected!.identity.dev||activeStat.ino!==inspected!.identity.ino)throw new CsoError('UNSAFE_PATH','Run mutation lease active phase does not match its candidate inode');if(activeStat.nlink!==2){retry=true;break;}}
+      const identity=inspected?.identity??{dev:BigInt(decisionRecord!.decision.candidateDev),ino:BigInt(decisionRecord!.decision.candidateIno)},owner=inspected?.owner??decisionOwner(decisionRecord!.decision);
       if(decisionRecord&&(!decisionMatchesIdentity(decisionRecord.decision,identity)||!decisionMatchesOwner(decisionRecord.decision,owner)))throw new CsoError('UNSAFE_PATH','Run mutation lease decision does not match its candidate owner');
       const number=decisionRecord?.decision.kind==='ticket'?BigInt(`0x${decisionRecord.decision.ticket}`):undefined;
       states.push({token,owner,identity,...(group.candidate?{candidate:group.candidate}:{}),...(group.decision&&decisionRecord?{decisionPath:group.decision,decision:decisionRecord.decision,decisionIdentity:decisionRecord.identity}:{}),...(group.actives[0]?{active:group.actives[0].path}:{}),...(number!==undefined?{number}:{})});
@@ -550,14 +557,14 @@ function releaseLeaseState(state:LeaseState):void{
 function exactDecisionUnlink(path:string,token:string,identity:LockIdentity):void{
   let current:{decision:LeaseDecision;identity:LockIdentity};try{current=readLeaseDecision(path,token);}catch{throw new CsoError('PERSISTENCE_FAILED','Run mutation lease decision changed before exact release');}
   if(current.identity.dev!==identity.dev||current.identity.ino!==identity.ino)throw new CsoError('PERSISTENCE_FAILED','Run mutation lease decision changed before exact release');
-  let final:fs.Stats;try{final=fs.lstatSync(path);}catch{throw new CsoError('PERSISTENCE_FAILED','Run mutation lease decision changed before exact release');}
+  let final:ExactStats;try{final=exactLstat(path);}catch{throw new CsoError('PERSISTENCE_FAILED','Run mutation lease decision changed before exact release');}
   if(!privateLeaseArtifact(final)||final.nlink!==1||final.dev!==identity.dev||final.ino!==identity.ino)throw new CsoError('PERSISTENCE_FAILED','Run mutation lease decision changed before exact release');
   try{fs.unlinkSync(path);}catch{throw new CsoError('PERSISTENCE_FAILED','Run mutation lease decision changed before exact release');}
 }
 function publishLeasePhase(candidate:string,target:string,token:string,identity:LockIdentity):void{
   const before=readOwner(candidate,token,1);if(before.identity.dev!==identity.dev||before.identity.ino!==identity.ino)throw new CsoError('PERSISTENCE_FAILED','Run mutation lease changed before phase publication');
   try{fs.linkSync(candidate,target);}catch{throw new CsoError('PERSISTENCE_FAILED','Run mutation lease phase could not be published');}
-  const source=fs.lstatSync(candidate),phase=fs.lstatSync(target);if(source.dev!==identity.dev||source.ino!==identity.ino||phase.dev!==identity.dev||phase.ino!==identity.ino||source.nlink!==2||phase.nlink!==2)throw new CsoError('PERSISTENCE_FAILED','Run mutation lease phase changed during publication');
+  const source=exactLstat(candidate),phase=exactLstat(target);if(source.dev!==identity.dev||source.ino!==identity.ino||phase.dev!==identity.dev||phase.ino!==identity.ino||source.nlink!==2||phase.nlink!==2)throw new CsoError('PERSISTENCE_FAILED','Run mutation lease phase changed during publication');
 }
 function makeLeaseDecision(owner:LockOwner,identity:LockIdentity,kind:'ticket'|'withdraw',ticket?:string):LeaseDecision{
   const publisherIdentity=processIdentity(process.pid);
@@ -567,9 +574,9 @@ function publishLeaseDecision(path:string,decision:LeaseDecision):void{
   try{atomicWriteSync(path,JSON.stringify(decision)+'\n',{mode:0o600,noReplace:true});}catch(error:any){if(error?.code!=='EEXIST')throw new CsoError('PERSISTENCE_FAILED','Run mutation lease decision could not be published');}
 }
 function releaseKnownLease(candidate:string,decisionPath:string,active:string|undefined,token:string,identity:LockIdentity,expectedDecisionIdentity?:LockIdentity,requireActive=false):void{
-  let candidateStat:fs.Stats;try{candidateStat=fs.lstatSync(candidate);}catch{throw new CsoError('PERSISTENCE_FAILED','Run mutation lease ownership changed before exact release');}
+  let candidateStat:ExactStats;try{candidateStat=exactLstat(candidate);}catch{throw new CsoError('PERSISTENCE_FAILED','Run mutation lease ownership changed before exact release');}
   if(!privateLeaseArtifact(candidateStat)||candidateStat.dev!==identity.dev||candidateStat.ino!==identity.ino)throw new CsoError('PERSISTENCE_FAILED','Run mutation lease ownership changed before exact release');
-  let activeStat:fs.Stats|undefined;try{if(active)activeStat=fs.lstatSync(active);}catch(error:any){if(error?.code!=='ENOENT')throw new CsoError('PERSISTENCE_FAILED','Run mutation lease active phase changed before cleanup');}
+  let activeStat:ExactStats|undefined;try{if(active)activeStat=exactLstat(active);}catch(error:any){if(error?.code!=='ENOENT')throw new CsoError('PERSISTENCE_FAILED','Run mutation lease active phase changed before cleanup');}
   if(requireActive&&!activeStat)throw new CsoError('PERSISTENCE_FAILED','Run mutation lease active phase changed before exact release');
   if(activeStat&&(!privateLeaseArtifact(activeStat)||activeStat.dev!==identity.dev||activeStat.ino!==identity.ino))throw new CsoError('PERSISTENCE_FAILED','Run mutation lease active phase changed before cleanup');
   const expected=activeStat?2:1;if(candidateStat.nlink!==expected||activeStat&&activeStat.nlink!==2)throw new CsoError('PERSISTENCE_FAILED','Run mutation lease link state changed before cleanup');
@@ -583,8 +590,8 @@ function recoverDeadLease(state:LeaseState):boolean{
   if(ownerIsAlive(state.owner))return false;
   try{releaseLeaseState(state);}catch(error){
     if(!(error instanceof CsoError)||error.code!=='PERSISTENCE_FAILED')throw error;
-    for(const path of [state.candidate,state.active].filter((value):value is string=>Boolean(value))){try{const stat=fs.lstatSync(path);if(!privateLeaseArtifact(stat)||stat.dev!==state.identity.dev||stat.ino!==state.identity.ino)throw new CsoError('UNSAFE_PATH','Dead run mutation lease was replaced during recovery');}catch(recoveryError:any){if(recoveryError instanceof CsoError)throw recoveryError;if(recoveryError?.code!=='ENOENT')throw recoveryError;}}
-    if(state.decisionPath&&state.decisionIdentity)try{const stat=fs.lstatSync(state.decisionPath);if(!privateLeaseArtifact(stat)||stat.dev!==state.decisionIdentity.dev||stat.ino!==state.decisionIdentity.ino)throw new CsoError('UNSAFE_PATH','Dead run mutation lease decision was replaced during recovery');}catch(recoveryError:any){if(recoveryError instanceof CsoError)throw recoveryError;if(recoveryError?.code!=='ENOENT')throw recoveryError;}
+    for(const path of [state.candidate,state.active].filter((value):value is string=>Boolean(value))){try{const stat=exactLstat(path);if(!privateLeaseArtifact(stat)||stat.dev!==state.identity.dev||stat.ino!==state.identity.ino)throw new CsoError('UNSAFE_PATH','Dead run mutation lease was replaced during recovery');}catch(recoveryError:any){if(recoveryError instanceof CsoError)throw recoveryError;if(recoveryError?.code!=='ENOENT')throw recoveryError;}}
+    if(state.decisionPath&&state.decisionIdentity)try{const stat=exactLstat(state.decisionPath);if(!privateLeaseArtifact(stat)||stat.dev!==state.decisionIdentity.dev||stat.ino!==state.decisionIdentity.ino)throw new CsoError('UNSAFE_PATH','Dead run mutation lease decision was replaced during recovery');}catch(recoveryError:any){if(recoveryError instanceof CsoError)throw recoveryError;if(recoveryError?.code!=='ENOENT')throw recoveryError;}
     Atomics.wait(LEASE_ELECTION_WAIT,0,0,LEASE_ELECTION_POLL_MS);
   }
   return true;
@@ -646,7 +653,7 @@ function acquireRunLease(dir:string):HeldRunLease{
   const leases=ensureLockProtocol(dir);recoverLeasePublications(leases);
   const token=randomBytes(16).toString('hex'),lease=join(leases,`${token}.json`),owner:LockOwner={pid:process.pid,processIdentity:processIdentity(process.pid),token,createdAt:Date.now()};
   atomicWriteSync(lease,JSON.stringify(owner)+'\n',{mode:0o600,noReplace:true});
-  const ownStat=fs.lstatSync(lease),ownIdentity={dev:ownStat.dev,ino:ownStat.ino};
+  const ownStat=exactLstat(lease),ownIdentity={dev:ownStat.dev,ino:ownStat.ino};
   const decision=join(leases,`${token}.decision`);let decisionIdentity:LockIdentity|undefined,active:string|undefined;
   try{
     const chosen=chooseRunLeaseTicket(leases,token,owner,ownIdentity);decisionIdentity=chosen.identity;
@@ -763,7 +770,7 @@ function cleanupRun(dir:string,run:string,now:number,pinned:boolean,admit:()=>vo
     const created=Number(run.split('-')[0]),runExpired=now-created>30*86400_000,retainedBundle=repairBundleExpiry(dir,run,now,runExpired,admit);
     admit();const ephemeral=fs.existsSync(join(dir,EPHEMERAL_REPLAY));
     if(ephemeral||(runExpired&&!pinned&&!retainedBundle)){
-      admit();const before=fs.lstatSync(dir),tomb=join(dirname(dir),`.retired-${run}-${randomBytes(16).toString('hex')}`);fs.renameSync(dir,tomb);releasePath=join(tomb,'.mutation-lock-leases',basename(lease.path));admit();const after=fs.lstatSync(tomb);
+      admit();const before=exactLstat(dir),tomb=join(dirname(dir),`.retired-${run}-${randomBytes(16).toString('hex')}`);fs.renameSync(dir,tomb);releasePath=join(tomb,'.mutation-lock-leases',basename(lease.path));admit();const after=exactLstat(tomb);
       if(before.dev!==after.dev||before.ino!==after.ino)throw new CsoError('SNAPSHOT_RACE','Expired run changed while it was retired');
       // The retired name is outside the public run namespace. Consume the
       // exclusive lease with the tree so no release/delete gap can admit a

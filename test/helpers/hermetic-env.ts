@@ -63,12 +63,18 @@ const ALLOW_EXACT = new Set([
 /** Prefix rules: eval-harness knobs + CI metadata. Deliberately NOT here:
  * CONDUCTOR_* / CLAUDE_* (incl. CLAUDECODE, CLAUDE_CODE_ENTRYPOINT) /
  * GSTACK_* / MCP_* / GBRAIN_* — session-context contamination; and operator
- * credentials (GH_TOKEN, SSH_AUTH_SOCK, GIT_*, OPENAI_API_KEY,
+ * credentials (GH_TOKEN, GITHUB_*_TOKEN, SSH_AUTH_SOCK, GIT_*, OPENAI_API_KEY,
  * VOYAGE_API_KEY) — CI doesn't have them and eval children have no business
  * using them. A test that legitimately needs one opts in via its own env
  * override; a provider runner (codex/gemini) re-admits its auth vars via
- * opts.extraAllow. */
+ * opts.extraAllow. Prefix matches reject credential-shaped suffixes; exact
+ * and explicit runner admissions still win. */
 const ALLOW_PREFIXES = ['EVALS_', 'GITHUB_'];
+const CREDENTIAL_SUFFIXES = new Set([
+  'KEY', 'KEYS', 'TOKEN', 'TOKENS', 'SECRET', 'SECRETS', 'PASSWORD', 'PASSWD',
+  'PASS', 'CREDENTIAL', 'CREDENTIALS', 'AUTH', 'PAT', 'DSN', 'COOKIE',
+  'SESSION', 'PRIVATE',
+]);
 
 export interface HermeticEnvOpts {
   /** Per-runner additional allowed names (exact match) or prefixes (entries
@@ -115,7 +121,8 @@ export function buildHermeticEnv(
     const allowed =
       ALLOW_EXACT.has(k) ||
       extraExact.has(k) ||
-      ALLOW_PREFIXES.some((p) => k.startsWith(p)) ||
+      (ALLOW_PREFIXES.some((p) => k.startsWith(p)) &&
+        !CREDENTIAL_SUFFIXES.has(k.slice(k.lastIndexOf('_') + 1).toUpperCase())) ||
       extraPrefixes.some((p) => k.startsWith(p));
     if (allowed) out[k] = v;
   }

@@ -91,6 +91,19 @@ test.each(rejected)('%s cannot start review', (_, change) => {
   expect(isDesignCountFirstReview(edit(change))).toBe(false);
 });
 
+test('additional native-field gap prose cannot bypass owned primary facts or rejection guards', () => {
+  for (const suffix of [' Leaves the plan violating DESIGN.md.', ' The gap remains open.']) {
+    expect(isDesignCountFirstReview(edit(q => { q.options[2]!.description += suffix; })), suffix).toBe(true);
+    for (const [name, change] of rejected) {
+      const fp = edit(q => {
+        q.options[2]!.description += suffix;
+        change(q);
+      });
+      expect(isDesignCountFirstReview(fp), name + suffix).toBe(false);
+    }
+  }
+});
+
 test('quoted historical withdrawal does not cancel the current issue', () => {
   expect(isDesignCountFirstReview(edit(q => { q.question += '\nHistorical note: "This issue is withdrawn."'; }))).toBe(true);
 });

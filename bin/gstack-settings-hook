@@ -110,6 +110,10 @@ function gsMain(fn) {
   try {
     fn();
   } catch (e) {
+    if (e && e.gstackUnreadableSettings === true) {
+      process.stderr.write("gstack-settings-hook: " + e.message + " -- refusing to mutate\n");
+      process.exit(3);
+    }
     process.stderr.write("gstack-settings-hook: internal error (" + (e && e.message) + ") -- refusing to mutate\n");
     process.exit(4);
   }
@@ -160,6 +164,49 @@ function gsWinPath(p) {
     return p.charAt(1) + ":" + p.slice(2);
   }
   return p;
+}
+function gsResolveSettingsPath(input) {
+  var fs = require("fs");
+  var path = require("path");
+  var absolute = path.resolve(gsWinPath(input));
+  var resolved;
+  try { resolved = fs.realpathSync(absolute); }
+  catch (e) {
+    if (e && (e.code === "EACCES" || e.code === "EPERM")) {
+      throw Object.assign(new Error("cannot read " + absolute + " (" + e.code + ")"), { gstackUnreadableSettings: true });
+    }
+    if (!e || e.code !== "ENOENT") throw e;
+    try {
+      if (fs.lstatSync(absolute).isSymbolicLink()) throw new Error("settings link has no target");
+    } catch (missing) {
+      if (!missing || missing.code !== "ENOENT") throw missing;
+    }
+    resolved = path.join(gsResolveSettingsPath(path.dirname(absolute)), path.basename(absolute));
+  }
+  return process.platform === "win32" ? resolved.replace(/\\/g, "/") : resolved;
+}
+function gsAssertSettingsTarget(settingsPath) {
+  if (gsResolveSettingsPath(process.env.GSTACK_SETTINGS_INPUT) !== settingsPath) {
+    throw new Error("settings target changed while waiting or writing");
+  }
+}
+function gsSettingsIdentity(settingsPath) {
+  var fs = require("fs");
+  try {
+    var stat = fs.lstatSync(settingsPath, { bigint: true });
+    if (!stat.isFile()) throw new Error("settings target is not a regular file");
+    return [stat.dev, stat.ino, stat.size, stat.mode, stat.mtimeNs, stat.ctimeNs].join(":");
+  } catch (e) {
+    if (e && e.code === "ENOENT") return null;
+    throw e;
+  }
+}
+var gsLoadedIdentity;
+function gsAssertSettingsUnchanged(settingsPath) {
+  gsAssertSettingsTarget(settingsPath);
+  if (gsSettingsIdentity(settingsPath) !== gsLoadedIdentity) {
+    throw new Error("settings changed during mutation");
+  }
 }
 function gsIsAlive(cmd) {
   var fs = require("fs");
@@ -214,6 +261,8 @@ function gsRotateBackups(settingsPath, keep) {
 }
 function gsLoadSettings(path) {
   var fs = require("fs");
+  gsAssertSettingsTarget(path);
+  gsLoadedIdentity = gsSettingsIdentity(path);
   var raw = null;
   try { raw = fs.readFileSync(path, "utf8"); }
   catch (e) {
@@ -231,6 +280,7 @@ function gsWriteIfChanged(path, beforeText, settings, existed) {
   var fs = require("fs");
   var afterText = JSON.stringify(settings, null, 2);
   if (afterText === beforeText) return false;
+  gsAssertSettingsUnchanged(path);
   // Preserve the live file mode across the tmp+rename (settings.json can
   // carry API keys in its env block -- a user-tightened 0600 must never be
   // silently broadened to the default 0644). Fresh files start 0600.
@@ -242,12 +292,23 @@ function gsWriteIfChanged(path, beforeText, settings, existed) {
     gsRotateBackups(path, 10);
   }
   var tmp = process.env.GSTACK_TMP_PATH;
-  fs.writeFileSync(tmp, afterText + "\n");
-  try { fs.chmodSync(tmp, mode); } catch (e) {}
-  fs.renameSync(tmp, path);
+  fs.writeFileSync(tmp, afterText + "\n", { mode: mode, flag: "wx" });
+  try {
+    fs.chmodSync(tmp, mode);
+    gsAssertSettingsUnchanged(path);
+    fs.renameSync(tmp, path);
+  } finally {
+    try { fs.unlinkSync(tmp); } catch (e) { if (e.code !== "ENOENT") throw e; }
+  }
   return true;
 }
 '
+
+GSTACK_SETTINGS_INPUT="$SETTINGS_FILE"
+export GSTACK_SETTINGS_INPUT
+SETTINGS_FILE=$(bun -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
+  process.stdout.write(gsResolveSettingsPath(process.env.GSTACK_SETTINGS_INPUT));
+});') || exit $?
 
 # ─── Mutation lock ────────────────────────────────────────────────────
 # Accepted tradeoffs (adversarial-reviewed): (1) the lock serializes gstack
@@ -805,6 +866,7 @@ case "$ACTION" in
     ;;
 
   rollback)
+    _acquire_lock || exit 1
     if [ ! -f "$SETTINGS_FILE.bak-latest" ]; then
       echo "rollback: no backup pointer at $SETTINGS_FILE.bak-latest" >&2
       exit 1
@@ -831,10 +893,23 @@ case "$ACTION" in
       echo "rollback: pointer references missing backup $LATEST" >&2
       exit 1
     fi
-    _acquire_lock || exit 1
-    _RB_TMP="$SETTINGS_FILE.tmp.$$.$RANDOM"
-    cp "$LATEST" "$_RB_TMP"
-    mv "$_RB_TMP" "$SETTINGS_FILE"
+    _mutation_env
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_RESTORE_PATH="$LATEST" \
+    bun -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
+      var fs = require("fs");
+      var target = process.env.GSTACK_SETTINGS_PATH;
+      var backup = process.env.GSTACK_RESTORE_PATH;
+      var tmp = process.env.GSTACK_TMP_PATH;
+      gsAssertSettingsTarget(target);
+      gsLoadedIdentity = gsSettingsIdentity(target);
+      try {
+        fs.copyFileSync(backup, tmp, fs.constants.COPYFILE_EXCL);
+        gsAssertSettingsUnchanged(target);
+        fs.renameSync(tmp, target);
+      } finally {
+        try { fs.unlinkSync(tmp); } catch (e) { if (e.code !== "ENOENT") throw e; }
+      }
+    });'
     echo "OK: restored $SETTINGS_FILE from $LATEST"
     ;;
 

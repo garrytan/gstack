@@ -79,6 +79,17 @@ jobs:
         run: bun run test:cso:macos
         env:
           GSTACK_CSO_MACOS_TESTS: "1"
+      - name: Build browser lifecycle prerequisites
+        run: |
+          bunx playwright install chromium
+          bun run build
+      - name: Exercise native agent ownership and linked settings
+        env:
+          TMPDIR: /tmp
+        run: |
+          files=(browse/test/terminal-agent-lifecycle.test.ts browse/test/terminal-agent-native-observation.test.ts browse/test/terminal-agent-watchdog.test.ts browse/test/server-embedder-terminal-port.test.ts browse/test/server-factory.test.ts test/gstack-settings-hook-symlink.test.ts test/gstack-settings-hook-schema-aware.test.ts)
+          for file in "${files[@]}"; do test -f "$file"; done
+          bun test "${files[@]}"
 
   cso-windows-launcher:
     runs-on: windows-latest

@@ -29,7 +29,7 @@ separately. Include actual decisions in Outside Voice's bounded input.
 Choose the **report file** before any ledger write:
 1. Use the output/report path explicitly requested by the user.
 2. Otherwise use the selected plan file, if there is one.
-3. Otherwise use `$GSTACK_STATE_ROOT/projects/$SLUG/$BRANCH-eng-review-{YYYYMMDD-HHMMSS}.md`, adding a suffix on collision. Run `~/.claude/skills/gstack/bin/gstack-paths` and `~/.claude/skills/gstack/bin/gstack-slug` and construct the literal path from their returned assignments. A failed command or missing value makes this destination unavailable.
+3. Otherwise use `$GSTACK_STATE_ROOT/projects/$SLUG/$BRANCH-eng-review-{YYYYMMDD-HHMMSS}.md`, adding a suffix on collision. Obtain assignments from `~/.claude/skills/gstack/bin/gstack-paths` and `~/.claude/skills/gstack/bin/gstack-slug`; failed commands or missing values make this path unavailable.
 
 Name the target in the report header. Never substitute an unrelated active plan
 or silently replace a requested destination.
@@ -48,9 +48,8 @@ path authorizes no other; implementation edits require explicit authority.
 
 The QA Test Plan and task JSONL intentionally use legacy discovery paths under
 `~/.gstack/projects/{slug}/`: `{user}-{branch}-eng-review-test-plan-{datetime}.md`
-and `tasks-eng-review-{datetime}.jsonl`. QA and /autoplan look there, even when the
-report uses a different state root. Keep these paths; do not relocate the artifacts
-beside the report. Their sections below specify the formats and write commands.
+and `tasks-eng-review-{datetime}.jsonl`. QA and /autoplan require these paths even
+with a different report root. Use their formats/commands below; do not relocate them.
 
 A failed permitted save is different from forbidden writing. Use the failed
 step's stated recovery; if saving or read-back still fails, take **Blocked
@@ -111,10 +110,9 @@ findings below: quote the motivating plan requirement (file:line) and check exis
 where applicable. Do not require future code or call a proposed regression observed.
 Code-specific examples concern existing code.
 
-Bounded probes answer named uncertainties about current behavior/interfaces;
-report evidence and limits. Record unknowns, unmeasured results and future
-verification. Complete all sections, approvals and outputs without building
-proposed code to settle unknowns. Keep suppressed findings for the output appendix.
+Bounded probes address named current-behavior/interface uncertainties. Report
+evidence, limits, unknowns and future verification. Complete the review without
+building proposed code. Keep suppressed findings for the output appendix.
 
 ## Confidence Calibration
 
@@ -397,9 +395,9 @@ audit trail, leaving User Challenges for its final gate.
 ## Scope Challenge
 
 Before reviewing, answer:
-1. **What existing code partly or fully solves each sub-problem?** Can existing outputs replace parallel flows?
+1. **What already solves each sub-problem?** Inspect helpers, libraries, callers and reusable outputs: behavior and dependency/deployment boundaries. Cite authored sources; label proposed callers with their motivating plan requirement and assumptions.
 2. **What minimum changes achieve the goal?** Flag work deferrable without blocking it; challenge scope creep.
-3. **Complexity check:** Count touched files and new classes/services; consider whether the same goal needs fewer moving parts. Apply the complexity gate below.
+3. **Complexity check:** Count files and new classes/services; seek fewer moving parts. Apply the gate below.
 4. **Search check:** For each new architectural pattern, infrastructure component
    or concurrency approach, research built-ins, current practice and pitfalls
    through Aside (entrypoint readiness), one read-only request per pattern:
@@ -412,19 +410,17 @@ Before reviewing, answer:
    If Aside is unavailable, use host WebSearch for these queries. With neither,
    skip and note: "Search unavailable — proceeding with in-distribution knowledge only."
 
-   Flag custom work with an available built-in as a reduction opportunity. Label
-   recommendations **[Layer 1]**, **[Layer 2]**, **[Layer 3]** or **[EUREKA]** per
-   Search Before Building. Explain a case against standard practice as an architectural insight.
+   Prefer available built-ins. Label recommendations **[Layer 1]**, **[Layer 2]**,
+   **[Layer 3]** or **[EUREKA]** per Search Before Building; explain departures
+   from standard practice.
 5. **TODOS cross-reference:** Read existing `TODOS.md`: what blocks this plan,
    fits this PR without expanding scope, or needs a new TODO?
 
-6. **Completeness check:** Full tests, edges and error paths cost 10-100x less
-   with AI. Recommend completeness over shortcuts saving human-hours but only
-   CC+gstack minutes. Boil the ocean.
+6. **Completeness check:** Full tests, edges and errors cost 10-100x less with AI.
+   Prefer completeness when a shortcut saves only CC+gstack minutes. Boil the ocean.
 
-7. **Distribution check:** For new CLIs, libraries, containers or mobile apps,
-   verify build/publish CI/CD, target OS/architectures and user download/install
-   channels. Record deferred distribution explicitly in "NOT in scope".
+7. **Distribution check:** For new artifacts, verify build/publish CI/CD, target
+   OS/architectures and download/install channels. Put deferrals in "NOT in scope".
 
 At 8+ files or 2+ new classes/services, STOP before Section 1. Use the
 preamble's decision-brief format for this complexity gate.
@@ -449,22 +445,19 @@ wait before changes.
 
 Save this record under the write policy; no retroactive pending record.
 
-Other remedies need separate accept/reject/defer answers through Decision
-procedure after findings exist.
+After any complexity answers, apply only accepted scope changes. Do not re-argue
+reduction or skip approved components. Below the threshold, start at step 1.
 
-Once the gate resolves, apply only accepted scope changes. Without a complexity gate, proceed directly to findings.
-
-**Commit to actual scope answers.** Do not re-argue reduction later, silently cut
-scope or skip planned components.
-
-Present numbered Scope Challenge findings with calibrated severity, confidence,
-source and accepted/rejected/deferred/pending disposition; use "No issues found"
-for an empty list. Carry scope answers forward; findings approve no remedies.
+1. Present numbered Scope Challenge findings with calibrated severity, confidence
+   and source; use "No issues found" for an empty list.
+2. Resolve each remedy through Decision procedure, reusing exact answers.
+   Findings and scope answers approve no remedies.
+3. Report accepted/rejected/deferred/pending dispositions from those answers.
+   Continue to Section 1 only when no answer is pending.
 
 ## Review Sections (after scope is agreed)
 
-Before Section 1, resolve Scope Challenge remedies through Decision procedure;
-reuse exact answers. Evaluate Architecture → Code Quality → Tests → Performance,
+Evaluate Architecture → Code Quality → Tests → Performance,
 at most 8 top issues each. Never condense, abbreviate or skip a section, including
 strategy/spec/infra plans. With zero findings, report "No issues found" and continue.
 
@@ -473,29 +466,62 @@ procedure, report findings and dispositions, then continue.
 
 ### 1. Architecture review
 Evaluate:
-* Overall system design and component boundaries.
-* Dependency graph and coupling concerns.
-* Data flow patterns and potential bottlenecks.
-* Scaling characteristics and single points of failure.
-* Security architecture (auth, data access, API boundaries).
-* Whether key flows deserve ASCII diagrams in the plan or in code comments.
-* For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it.
-* **Distribution architecture:** If this introduces a new artifact (binary, package, container), how does it get built, published, and updated? Is the CI/CD pipeline part of the plan or deferred?
+* System/component boundaries, dependencies and coupling.
+* Data flow, bottlenecks, scaling and single points of failure.
+* Security: auth, data access and API boundaries.
+* Key flows needing ASCII diagrams in plans/code.
+* One realistic production failure per new path/integration; does the plan handle it?
+* **Distribution architecture:** New artifacts' build, publish and update paths; included or deferred CI/CD.
 
 ### 2. Code quality review
 Evaluate:
-* Code organization and module structure.
-* DRY violations—be aggressive here.
-* Error handling patterns and missing edge cases (call these out explicitly).
-* Technical debt hotspots.
-* Areas that are fragile or unnecessarily complex, using the entrypoint's engineering preferences.
-* Existing ASCII diagrams in touched files — are they still accurate after this change?
+* Organization and module structure.
+* Shared-code opportunities in the target and related callers, using the rubric below. No standalone history/PR sweep or quotas. Check proposed caller assumptions against existing interfaces.
+* Explicitly flag error handling gaps and missing edge cases.
+* Technical debt, fragility and needless complexity per engineering preferences.
+* Accuracy of touched files' ASCII diagrams.
+
+### Shared-code evaluation rubric
+
+- **Prove the callers.** Require at least two verified, first-party authored source
+  locations, with functions and lines. Actual added or uncommitted source qualifies.
+  Only an engineering-plan review may use proposed callers; label those assumptions
+  and distinguish them from existing source. Similar names or formatting alone do
+  not establish equivalent behavior. Generated and third-party copies cannot qualify
+  as callers or contribute savings. Follow generated copies back to authored
+  templates/resolvers. Existing dependencies remain valid reuse targets.
+- **Reuse before extracting.** Inspect existing libraries and helpers first. Compare
+  behavior, inputs, outputs, error handling, side effects, security requirements,
+  dependencies, and deployment/runtime boundaries. Preserve differences callers need;
+  do not bridge languages or isolated deployments without a practical shared contract.
+- **Keep the helper small.** Name its destination and contract, the callers to migrate,
+  and the smallest adoption sequence. Avoid option-heavy helpers and coupling unrelated
+  components. Point to existing tests or established use, specify shared-contract and
+  caller-integration coverage, and describe the blast radius of a shared failure.
+- **Account for the whole change.** Name removed blocks and their replacements. Show
+  estimated implementation lines removed, added, and saved separately from total lines
+  removed, added, and saved including tests and integration. Savings = removed - added.
+  Count moved code on both sides, exclude generated/vendor lines, use ranges when
+  uncertain, and do not count overlapping removals twice across opportunities. State
+  when tests or integration may make the total change grow.
+- **Rank useful changes.** Favor reliability gains and total net savings, then low
+  adoption and testing risk. Prefer proven code used by several callers. Use recent
+  activity to break ties between comparable benefits, not as evidence by itself.
+  Explain choices centered on older code. Reject similarities with incompatible
+  contracts and opportunities whose benefits do not justify the abstraction.
+
+Use Decision procedure for new/reopened extraction choices; scope approval does not approve extraction.
 
 ### 3. Test review
 
 For a plan target, review proposed coverage against proposed paths. For a
 branch-diff target, diagram changed code paths plus callers/tests; the working
 plan is the remedy plan from diff findings.
+
+For shared-code changes, audit existing/missing shared-contract tests (behavior,
+errors, side effects, boundaries) and each migrated caller's integration/differences.
+Reuse meaningful tests; account for their costs and shared failure risk per rubric. Rejected
+extractions still need coverage for real duplicated-code defects.
 
 100% coverage is the goal. Identify the tests each planned codepath needs. Add required proof for an exact approved behavior without asking again; take new policies or optional verification depth through the decision gate before treating their tests as accepted work. Review the requirements here; do not build the proposed tests.
 
@@ -705,10 +731,7 @@ After the Test Plan Artifact is saved or presented, report the Test review findi
 
 ### 4. Performance review
 Evaluate:
-* N+1 queries and database access patterns.
-* Memory-usage concerns.
-* Caching opportunities.
-* Slow or high-complexity code paths.
+* N+1/database access, memory, caching, and slow or complex paths.
 
 ## Outside Voice — Independent Plan Challenge (default-on)
 
@@ -974,19 +997,13 @@ After Sections 1–4 and the Outside Voice path, resolve the TODO choices below.
 ### TODOS.md updates
 Review every potential TODO. Reuse an exact prior disposition under Decision procedure; ask about each unanswered proposal in its own AskUserQuestion. Never batch TODOs or silently skip them. Use `~/.claude/skills/gstack/review/TODOS-format.md`.
 
-For each TODO, describe:
-* **What:** One-line description of the work.
-* **Why:** The concrete problem it solves or value it unlocks.
-* **Pros:** What you gain by doing this work.
-* **Cons:** Cost, complexity, or risks of doing it.
-* **Context:** Enough detail that someone picking this up in 3 months understands the motivation, the current state, and where to start.
-* **Depends on / blocked by:** Any prerequisites or ordering constraints.
+For each TODO, record **What**, **Why**, **Pros**, **Cons** (cost/complexity/risk),
+**Context** (motivation, current state, where to start in 3 months), and
+**Depends on / blocked by** (prerequisites/order).
 
 Then present options: **A)** Add to TODOS.md **B)** Skip — not valuable enough **C)** Build it now in this PR instead of deferring.
 
 Option C records accepted implementation scope; still do not edit product code.
-
-Record this context with each accepted TODO; a vague bullet is insufficient.
 
 ## Approval readiness
 
@@ -1046,46 +1063,38 @@ report file. Place `Suppressed findings` as a body appendix before the terminal
 List considered work that was explicitly deferred, with one sentence explaining each deferral.
 
 ### "What already exists" section
-List existing code or flows that partly solve the problem. Say whether the working plan reuses them or unnecessarily rebuilds them.
+Link existing solutions and distinguish reuse/rebuilding. For accepted shared-code
+choices, reference their Code Quality/Test decisions and complete rubric evidence.
+Explain safer separation or net growth; never re-ask settled remedies.
 
 ### Diagrams
-Use ASCII diagrams for non-trivial data flows, state machines and pipelines. Name implementation files that need inline diagrams, especially complex model transitions, service pipelines and non-obvious mixin behavior.
+Diagram non-trivial flows, states and pipelines in ASCII. Name files needing inline
+diagrams for complex model, service or mixin behavior.
 
 ### Failure modes
-For each new path in the test diagram, name a realistic production failure and whether:
-1. A test covers that failure
-2. Error handling exists for it
-3. The user would see a clear error or a silent failure
+For each new diagrammed path, name a realistic production failure, its test/error
+handling coverage, and whether users see a clear error or a silent failure.
 
 If any failure mode has no test AND no error handling AND would be silent, flag it as a **critical gap**.
 
 ### Worktree parallelization strategy
 
-Group implementation steps for parallel git worktrees (`isolation: "worktree"`
-or parallel workspaces).
+Group implementation into parallel git worktrees (`isolation: "worktree"`) or workspaces.
 
 With one primary module or fewer than 2 independent workstreams, write:
 "Sequential implementation, no parallelization opportunity."
 
-**Otherwise, produce:**
-
-1. **Dependency table** — for each implementation step/workstream:
+Otherwise provide each step/workstream's **Dependency table**:
 
 | Step | Modules touched | Depends on |
 |------|----------------|------------|
 | (step name) | (directories/modules, NOT specific files) | (other steps, or —) |
 
-Use modules/directories, not guessed files: plans describe intent.
-
-2. **Parallel lanes:** separate independent, disjoint modules; sequence shared
-   modules together and dependencies later.
-
-Format: `Lane A: step1 → step2 (sequential, shared models/)` / `Lane B: step3 (independent)`
-
-3. **Execution order:** name launch/wait points: "Launch A + B in parallel worktrees. Merge both. Then C."
-
-4. **Conflict flags:** name shared modules across parallel lanes and recommend
-   sequential execution or coordination to avoid merge conflicts.
+Use modules, not guessed files. **Parallel lanes:** disjoint modules run together;
+shared modules run sequentially, dependencies later. Example:
+`Lane A: step1 → step2 (shared models/)` / `Lane B: step3 (independent)`.
+**Execution order:** name launch/wait points, e.g. "Launch A + B. Merge both. Then C."
+**Conflict flags:** identify cross-lane shared modules; sequence or coordinate them.
 
 ## Implementation Tasks
 
@@ -1159,10 +1168,12 @@ this run (an empty file means "ran, no findings" — distinct from "didn't run")
 
 
 ### Unresolved decisions
-List unanswered or interrupted choices as "Unresolved decisions that may bite you later", with their IDs and missing answers. Never default silently. Count each open choice once, separately from prior reviews; the terminal report adds those independently.
+List unanswered/interrupted choices as "Unresolved decisions that may bite you later",
+with IDs and missing answers. Never silently default. Count each once, excluding
+prior reviews; the terminal report adds those separately.
 
 ### Completion summary
-Use the final decision record and outputs. The finish sequence publishes this summary after the report Read-back and Review Log:
+From final decisions/outputs; publish after report Read-back and Review Log:
 - Step 0: Scope Challenge — ___ (scope accepted as-is / scope reduced per recommendation)
 - Architecture Review: ___ issues found
 - Code Quality Review: ___ issues found
@@ -1175,7 +1186,7 @@ Use the final decision record and outputs. The finish sequence publishes this su
 - Unresolved decisions: ___ in this review
 - Outside voice: recorded provider, completed / unavailable / disabled / skipped (reason)
 - Parallelization: ___ lanes, ___ parallel / ___ sequential
-- Lake Score: X/Y. Y counts answered coverage choices; X counts those selecting 10/10. Exclude choices that differ in kind; use N/A when Y is zero.
+- Lake Score: X/Y = 10/10 choices / answered coverage choices. Exclude kind choices; N/A if Y=0.
 
 ## Plan File Review Report
 
@@ -1284,13 +1295,12 @@ Use these commands in finish step 3, after successful Read-back. The required re
 ~/.claude/skills/gstack/bin/gstack-decision-log '{"decision":"Eng review (MODE): ARCH_SUMMARY","rationale":"KEY_DECISION","scope":"branch","source":"skill","confidence":8}' 2>/dev/null || true
 ```
 
-The second command records a durable architecture decision and is best-effort.
-Use the finding/disposition summary for `ARCH_SUMMARY` and the key architecture
-choice for `KEY_DECISION`. Omit it if the review found nothing durable.
+Second command: `ARCH_SUMMARY` = findings/dispositions; `KEY_DECISION` = durable
+architecture choice. Omit it when none exists.
 
 Substitute values from the Completion Summary:
 - **TIMESTAMP**: current ISO 8601 datetime
-- **STATUS**: "clean" when `issues_found=0`, `unresolved=0` and `critical_gaps=0`; otherwise "issues_open". Resolved findings still count in `issues_found`, so "issues_open" can mean mapped work, not a failed review.
+- **STATUS**: "clean" if `issues_found=0`, `unresolved=0` and `critical_gaps=0`; else "issues_open". Count resolved findings too; "issues_open" can mean mapped work, not failure.
 - **unresolved**: this review's "Unresolved decisions" count; do not include prior reviews
 - **critical_gaps**: number from "Failure modes: ___ critical gaps flagged"
 - **issues_found**: total issues found across all review sections (Architecture + Code Quality + Performance + Test gaps)
@@ -1355,18 +1365,15 @@ Display:
 
 ## Next Steps — Review Chaining
 
-In finish step 5, use the published dashboard to offer only applicable routes:
-- **A) Run /plan-design-review:** UI scope exists and no design review ran. Detect
-  UI scope from frontend components, CSS, views or user-facing interactions found
-  in the diagram or review sections.
-- **B) Run /plan-ceo-review:** a significant product change has no CEO review.
-  Mention it as an optional suggestion for new user-facing features, changed
-  product direction or substantial scope expansion.
+In finish step 5, offer applicable routes from the published dashboard:
+- **A) Run /plan-design-review:** unreviewed UI scope (frontend, CSS, views or
+  interactions in the diagram/findings).
+- **B) Run /plan-ceo-review:** optionally, an unreviewed significant product change
+  (new user-facing features, changed direction or substantial scope expansion).
 - **C) Ready to implement — run /ship when done**
 
-Note when existing CEO or design reviews may be stale because this review found
-contradictory assumptions or significant commit drift. If no additional review
-is needed, or dashboard config has `skip_eng_review: true`, state
+Flag stale CEO/design reviews from contradictory assumptions or significant commit
+drift. If no further review is needed or `skip_eng_review: true`, state
 "All relevant reviews complete. Run /ship when ready."
 
 AskUserQuestion with only the applicable options. This is **navigation only**:
@@ -1380,7 +1387,8 @@ affected tasks, dependencies and parallelization along with the other outputs.
 
 ## Learning hooks
 
-Use these hooks in finish step 6 without changing the working plan or approval record. Review durable operational learnings as required by the preamble, and use the Capture Learnings format below for other discoveries; do not log the same learning twice.
+In finish step 6, keep the working plan/approvals fixed. Review operational learnings
+per preamble; use Capture Learnings below for other discoveries. Never log twice.
 
 ## Capture Learnings
 

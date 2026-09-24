@@ -43,8 +43,13 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     periodic: ['test/skill-e2e-workflow.test.ts'],
   },
   review: {
-    gate: ['test/skill-e2e-review.test.ts', 'test/skill-coverage-floor.test.ts'],
+    gate: ['test/skill-e2e-review.test.ts', 'test/skill-e2e-shared-libs.test.ts', 'test/skill-e2e-shared-libs-paths.test.ts', 'test/shared-libs-evidence.test.ts', 'test/shared-libs-rendering.test.ts', 'test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-review-army.test.ts', 'test/regression-1539-review-self-verify.test.ts'],
+  },
+  'deslop-shared-libs': {
+    gate: ['test/shared-libs-rendering.test.ts', 'test/skill-e2e-shared-libs.test.ts', 'test/skill-coverage-floor.test.ts'],
+    periodic: ['test/skill-e2e-shared-libs-periodic.test.ts', 'test/codex-e2e-shared-libs.test.ts'],
+    rationale: 'Free host/discovery checks; native gate traces enforce read-only source access and the actual review advisory lifecycle. Periodic evaluates opportunity and PR coverage judgment.',
   },
   qa: {
     gate: ['test/skill-e2e-qa-workflow.test.ts', 'test/skill-coverage-floor.test.ts'],
@@ -92,11 +97,13 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   },
   'plan-eng-review': {
     gate: [
+      'test/shared-libs-rendering.test.ts',
       'test/skill-e2e-plan-eng-finding-floor.test.ts',
       'test/skill-e2e-plan-eng-plan-mode.test.ts',
       'test/skill-coverage-floor.test.ts',
     ],
     periodic: [
+      'test/skill-e2e-shared-libs-periodic.test.ts',
       'test/skill-e2e-plan-eng-finding-count.test.ts',
       'test/skill-e2e-plan-eng-multi-finding-batching.test.ts',
     ],

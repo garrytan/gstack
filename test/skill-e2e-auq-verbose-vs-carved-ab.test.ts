@@ -1,6 +1,6 @@
 /**
  * AUQ no-degradation A/B: verbose (full-token) vs carved (slimmed) — periodic,
- * paid, SDK capture.
+ * paid, native SDK tool capture.
  *
  * The keystone empirical proof behind the token-reduction work: carving
  * /plan-ceo-review into an 80KB skeleton + on-demand section did NOT degrade the
@@ -11,9 +11,9 @@
  *
  * Method — identical prompt, two SKILL.md versions, compare:
  *   - CARVED  : this branch's plan-ceo-review/SKILL.md (80KB skeleton) + sections.
- *   - VERBOSE : the pre-carve monolith (137KB) read from git (ab66193e^).
- * Both are driven to Step 0F mode selection via the SDK $OUT_FILE capture path
- * (clean text, no TTY mangling). We score the 7 decision-brief format elements
+ *   - VERBOSE : the frozen pre-carve monolith (137KB) vendored as a fixture.
+ * Both are driven to Mode Selection through the real AskUserQuestion tool.
+ * Its public permission-callback fields are captured without an answer. We score the 7 decision-brief format elements
  * and grade recommendation substance, then assert the carved version is NOT
  * WORSE than verbose. Relative parity is the bar (absolute compliance is the
  * format-compliance gate test's job).

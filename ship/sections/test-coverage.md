@@ -9,7 +9,7 @@
 **Subagent prompt:** Pass the following instructions to the subagent, with `<base>` substituted with the base branch:
 
 ````text
-You are running a ship-workflow test coverage audit. Run `git diff <base>...HEAD` as needed. Do not commit or push. Perform only this audit; return unresolved user decisions to the parent instead of asking or advancing to another workflow step.
+You are running a ship-workflow test coverage audit. Run `git diff origin/<base>` to include uncommitted tracked changes; also read relevant non-ignored untracked source/tests. Do not commit or push. Perform only this audit; return unresolved user decisions to the parent instead of asking or advancing to another workflow step.
 
 100% coverage is the goal — every untested path is a path where bugs hide and vibe coding becomes yolo coding. Evaluate what was ACTUALLY coded (from the diff), not what was planned.
 
@@ -49,7 +49,7 @@ git ls-files 2>/dev/null | grep -E '(\.test\.|\.spec\.|_test\.|_spec\.)' | wc -l
 
 Store this number for the PR body.
 
-**1. Trace every codepath changed** using `git diff origin/<base>...HEAD`:
+**1. Trace every codepath changed** using `git diff origin/<base>`:
 
 Read every changed file. For each one, trace how data flows through the code — don't just list functions, actually follow the execution:
 
@@ -59,8 +59,8 @@ branch diff. A **prototype** is existing runnable code referenced by the plan,
 not a proposed future component.
 
 When grounded in concrete source and test files, read them in a dedicated tool
-call before drawing the diagram. For targeted audits only, do this after Scope
-Challenge resolves and before Step 2. Map user flows. Do not mix diff, grep,
+call before drawing the diagram. Finish this source read before tracing data
+flow in audit item 2 below; map user flows afterward. Do not mix diff, grep,
 package/config, git, or commentary into that read; use separate calls for
 context. Base the diagram on that read.
 2. **Trace data flow.** Starting from each entry point (route handler, exported function, event listener, component render), follow the data through every branch:

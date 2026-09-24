@@ -246,11 +246,11 @@ describe('buildFetchHandler factory contract', () => {
     fs.mkdirSync(path.dirname(globalState), { recursive: true });
     fs.mkdirSync(path.dirname(instanceState), { recursive: true });
     fs.writeFileSync(globalState, 'unrelated daemon state');
-    fs.writeFileSync(instanceState, 'owned instance state');
     const script = `
       import fs from 'node:fs';
-      import { buildFetchHandler } from ${JSON.stringify(path.resolve(__dirname, '../src/server.ts'))};
+      import { buildFetchHandler, __testInternals__ } from ${JSON.stringify(path.resolve(__dirname, '../src/server.ts'))};
       import { resolveConfig } from ${JSON.stringify(path.resolve(__dirname, '../src/config.ts'))};
+      fs.writeFileSync(${JSON.stringify(instanceState)}, JSON.stringify({ pid: process.pid, instanceId: __testInternals__.serverInstanceId }));
       const handle = buildFetchHandler({
         authToken: 'factory-shutdown-ownership-test', browsePort: 34567,
         config: resolveConfig({ BROWSE_STATE_FILE: ${JSON.stringify(instanceState)} }),

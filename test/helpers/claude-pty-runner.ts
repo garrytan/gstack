@@ -4834,7 +4834,7 @@ export const PLAN_SKILL_COUNT_FINALIZE_MS = 10_000;
  * dumps when an assertion fails.
  */
 export interface PlanSkillCountObservation {
-  /** Durable full raw/visible PTY output plus JSON observation, when EVALS_RUN_ID is set. */
+  /** Durable full raw/visible PTY output plus JSON observation, when EVALS_RUN_ID or GSTACK_EVAL_DIR is set. */
   artifactDir?: string;
   artifactError?: string;
   outcome:

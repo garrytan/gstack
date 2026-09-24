@@ -116,6 +116,49 @@ describe('buildHermeticEnv allowlist', () => {
     expect(e.GH_TOKEN).toBeUndefined(); // not in extraAllow
   });
 
+  test('prefixes keep CI metadata but do not admit credential-shaped operator names', () => {
+    const base = {
+      ...CONTAMINATED,
+      GITHUB_TOKEN: 'synthetic-token',
+      GITHUB_PERSONAL_ACCESS_TOKEN: 'synthetic-pat',
+      GITHUB_APP_PRIVATE_KEY: 'synthetic-private-key',
+      GITHUB_CLIENT_SECRET: 'synthetic-client-secret',
+      GITHUB_PAT: 'synthetic-pat-short',
+      EVALS_API_KEY: 'synthetic-eval-key',
+      GITHUB_SHA: 'abc123',
+      GITHUB_PATH: '/tmp/actions-path',
+      GITHUB_TOKENIZER: 'metadata-tokenizer',
+      GITHUB_KEYRING: 'metadata-keyring',
+      EVALS_RUN_ID: 'run-123',
+      EVALS_SELECTION_JSON: '{}',
+    };
+    const result = buildHermeticEnv(base, HERMETIC_VARS);
+    for (const name of [
+      'GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_APP_PRIVATE_KEY',
+      'GITHUB_CLIENT_SECRET', 'GITHUB_PAT', 'EVALS_API_KEY', 'GH_TOKEN',
+    ]) expect(result[name]).toBeUndefined();
+    for (const name of [
+      'GITHUB_ACTIONS', 'GITHUB_SHA', 'GITHUB_PATH', 'GITHUB_TOKENIZER',
+      'GITHUB_KEYRING', 'EVALS_MODEL', 'EVALS_RUN_ID', 'EVALS_SELECTION_JSON',
+    ]) expect(result[name]).toBe(base[name]);
+  });
+
+  test('explicit provider auth, runner admissions, and overrides still win', () => {
+    const base = {
+      ...CONTAMINATED,
+      GITHUB_TOKEN: 'synthetic-token',
+      GEMINI_API_KEY: 'synthetic-gemini',
+    };
+    const result = buildHermeticEnv(base, HERMETIC_VARS, {
+      GITHUB_APP_PRIVATE_KEY: 'synthetic-override',
+    }, { extraAllow: ['GEMINI_*', 'GITHUB_TOKEN'] });
+    expect(result.ANTHROPIC_API_KEY).toBe(base.ANTHROPIC_API_KEY);
+    expect(result.GEMINI_API_KEY).toBe(base.GEMINI_API_KEY);
+    expect(result.GITHUB_TOKEN).toBe(base.GITHUB_TOKEN);
+    expect(result.GITHUB_APP_PRIVATE_KEY).toBe('synthetic-override');
+    expect(buildHermeticEnv(base, HERMETIC_VARS).GITHUB_TOKEN).toBeUndefined();
+  });
+
   test('TERM falls back when base omits it', () => {
     const base = { ...CONTAMINATED } as NodeJS.ProcessEnv;
     delete base.TERM;

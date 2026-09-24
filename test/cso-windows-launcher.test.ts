@@ -310,6 +310,72 @@ describe('CSO native Windows build contract', () => {
     const started=spawnSync(actual,['start','--repo',repository,'--offline'],{cwd:repository,encoding:'utf8',env,timeout:30_000});expectSuccessfulProcess(started,'gstack-cso start');expect(JSON.parse(started.stdout).schemaVersion).toBe(3);expect(fs.existsSync(path.join(profile,'.gstack','security','cso'))).toBe(true);
   }, 120_000);
 
+  test('NTFS high file IDs survive repeated native commands and ambiguous old decisions remain blocked', () => {
+    const repository=path.join(temporary,'lease lifecycle repository'),profile=path.join(temporary,'lease lifecycle profile');
+    fs.mkdirSync(repository);fs.mkdirSync(profile);
+    const git='C:\\Program Files\\Git\\cmd\\git.exe',gitEnv={...process.env,HOME:profile};
+    for(const args of [['init','-q'],['config','user.email','fixture@example.test'],['config','user.name','Fixture']] as string[][]){const result=spawnSync(git,args,{cwd:repository,encoding:'utf8',env:gitEnv,timeout:10_000});expect(result.status).toBe(0);}
+    fs.writeFileSync(path.join(repository,'app.js'),'console.log("fixture")\n');
+    for(const args of [['add','app.js'],['commit','-qm','fixture']] as string[][]){const result=spawnSync(git,args,{cwd:repository,encoding:'utf8',env:gitEnv,timeout:10_000});expect(result.status).toBe(0);}
+    const actual=path.join(ROOT,'bin','gstack-cso-launcher.exe'),env={...process.env,HOME:'',GSTACK_HOME:'',CLAUDE_PLUGIN_ROOT:'',CLAUDE_PLUGIN_DATA:'',USERPROFILE:profile,PATH:temporary};
+    const command=(args:string[])=>spawnSync(actual,args,{cwd:repository,encoding:'utf8',env,timeout:30_000}),submission=path.join(profile,'submission.json');
+    fs.writeFileSync(submission,'{}\n');
+    for(let i=0;i<3;i++){
+      const started=command(['start','--repo',repository,'--offline']);expectSuccessfulProcess(started,'gstack-cso start');
+      const run=JSON.parse(started.stdout),dir=path.join(profile,'.gstack','security','cso',run.repoId,run.runId),leases=path.join(dir,'.mutation-lock-leases');
+      const initialized=command(['resume',run.runId]);expectSuccessfulProcess(initialized,'gstack-cso initialize mutation lease');
+      expect(fs.realpathSync(leases).startsWith(fs.realpathSync(profile)+path.sep)).toBe(true);
+      if(i===0){
+        const churn=path.join(leases,'churn');let inode=0n;
+        for(let attempt=0;attempt<1024;attempt++){
+          fs.writeFileSync(churn,'x');inode=fs.lstatSync(churn,{bigint:true}).ino;fs.unlinkSync(churn);
+          if(inode>BigInt(Number.MAX_SAFE_INTEGER))break;
+        }
+        expect(inode).toBeGreaterThan(BigInt(Number.MAX_SAFE_INTEGER));
+      }
+      const inspected=command(['inspect',run.runId]);expectSuccessfulProcess(inspected,'gstack-cso inspect');
+      expect(JSON.parse(inspected.stdout).report.status).toBe('running');
+      const read=command(['read',run.runId,'app.js']);expectSuccessfulProcess(read,'gstack-cso read');expect(read.stdout).toContain('fixture');
+      const history=command(['history',run.runId]);expectSuccessfulProcess(history,'gstack-cso history');
+      const submitted=command(['submit',run.runId,submission]);expectSuccessfulProcess(submitted,'gstack-cso submit');
+      const resumed=command(['resume',run.runId]);expectSuccessfulProcess(resumed,'gstack-cso resume');
+      const finished=command(['finish',run.runId]);expectSuccessfulProcess(finished,'gstack-cso finish');
+      expect(JSON.parse(finished.stdout).completeness).not.toBe('complete');
+      const report=JSON.parse(fs.readFileSync(path.join(dir,'report.json'),'utf8'));
+      expect(report.coverage.some((entry:any)=>entry.status==='not_assessed')).toBe(true);
+      expect(fs.readdirSync(leases)).toEqual([]);
+      if(i!==2)continue;
+      const token='d'.repeat(32),candidate=path.join(leases,`${token}.json`),decision=path.join(leases,`${token}.decision`);
+      for(const rounded of [false,true]){
+        let selected:string|undefined;
+        for(let batch=0;batch<16&&!selected;batch++){
+          const paths:string[]=[];
+          for(let index=0;index<64;index++){
+            const file=path.join(leases,`fixture-${batch}-${index}`);
+            fs.writeFileSync(file,JSON.stringify({pid:2147483647,token,createdAt:0})+'\n');paths.push(file);
+            const inode=fs.lstatSync(file,{bigint:true}).ino;
+            if(!selected&&inode>BigInt(Number.MAX_SAFE_INTEGER)&&String(Number(inode))!==String(inode))selected=file;
+          }
+          for(const file of paths){if(file===selected)fs.renameSync(file,candidate);else fs.unlinkSync(file);}
+        }
+        expect(selected).toBeDefined();
+        const stat=fs.lstatSync(candidate,{bigint:true}),record={schemaVersion:1,token,kind:'ticket',ticket:'0000000000000001',candidateDev:String(stat.dev),candidateIno:rounded?String(Number(stat.ino)):String(stat.ino),ownerPid:2147483647,ownerCreatedAt:0,publisherPid:2147483647,createdAt:0};
+        fs.writeFileSync(decision,JSON.stringify(record)+'\n');
+        const result=command(['resume',run.runId]);expect(result.status).not.toBe(0);
+        if(rounded){
+          expect(record.candidateIno).not.toBe(String(stat.ino));expect(result.stderr).toContain('UNSAFE_PATH');
+          expect(fs.existsSync(candidate)).toBe(true);expect(fs.existsSync(decision)).toBe(true);
+          fs.unlinkSync(decision);fs.unlinkSync(candidate);
+        }else{
+          expect(result.stderr).toContain('INVALID_SCHEMA');
+          expect(fs.existsSync(candidate)).toBe(false);expect(fs.existsSync(decision)).toBe(false);
+        }
+      }
+      const next=command(['start','--repo',repository,'--offline']);expectSuccessfulProcess(next,'gstack-cso start after legacy state');
+      expect(JSON.parse(next.stdout).runId).not.toBe(run.runId);
+    }
+  }, 180_000);
+
   test('the actual helper rejects source mutation during snapshot capture without certifying a report', async () => {
     const repository=path.join(temporary,'racing repository'),profile=path.join(temporary,'race profile'),padding=path.join(repository,'padding'),target=path.join(repository,'zzzz-race-target.js');
     fs.mkdirSync(repository);fs.mkdirSync(profile);fs.mkdirSync(padding);

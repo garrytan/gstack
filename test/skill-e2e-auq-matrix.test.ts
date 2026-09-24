@@ -1,6 +1,6 @@
 /**
  * AUQ behavioral matrix — drive each AUQ-heavy skill to its first
- * AskUserQuestion and grade it to plan-ceo's bar (periodic, paid, SDK capture).
+ * AskUserQuestion and grade it to plan-ceo's bar (periodic, paid, native capture).
  *
  * Layer 0 (auq-format-always-loaded.test.ts) deterministically guarantees each
  * listed skill SHIPS the format spec in its always-loaded skeleton. This test
@@ -9,9 +9,11 @@
  * recommendation (>= 4). One parametrized case per skill so a single weak skill
  * is an isolated failure, not a blocker for the rest.
  *
- * Capture is the SDK $OUT_FILE path (clean text, no TTY mangling), with the skill
- * pinned to an absolute path and the agent restricted to Read/Write so it can't
- * wander to the global install. See test/helpers/auq-sdk-capture.ts.
+ * Capture records the actual public AskUserQuestion payload and verifies its
+ * native display, with the skill pinned to an absolute path and only Read,
+ * Write, and AskUserQuestion available. The exact fields are graded without
+ * adding format labels or reading private reasoning. See
+ * test/helpers/auq-native-capture.ts.
  *
  * Scope: skills whose first AUQ is reliably reachable from a text fixture. Skills
  * that gate their first decision on external resources (a running browser for

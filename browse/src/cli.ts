@@ -527,6 +527,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   // Parse as int so stray whitespace ("0\n") still opts out — matches the
   // server's own parseInt at server.ts:760.
   const parentPid = parseInt(process.env.BROWSE_PARENT_PID || '', 10) === 0 ? '0' : String(process.pid);
+  let spawnedServer: { pid: number; startTime: string } | null = null;
 
   if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
     // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
@@ -561,12 +562,14 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     // (PPID=1, STAT=Ss) and survives the spawning shell's exit. Mirrors
     // the Windows path's rationale — same root cause, different OS API.
     const daemonLogFd = openDaemonLogSink();
-    nodeSpawn('bun', ['run', SERVER_SCRIPT], {
+    const child = nodeSpawn('bun', ['run', SERVER_SCRIPT], {
       detached: true,
       windowsHide: true,
       stdio: ['ignore', daemonLogFd, daemonLogFd],
       env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...extraEnv },
-    }).unref();
+    });
+    child.unref();
+    if (child.pid) spawnedServer = { pid: child.pid, startTime: readPidStartTime(child.pid) };
   }
 
   // Wait for server to become healthy.
@@ -590,6 +593,17 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   const lateState = readState();
   if (lateState && await isServerHealthy(lateState.port)) {
     return lateState;
+  }
+
+  if (spawnedServer?.startTime) {
+    const { pid, startTime } = spawnedServer;
+    const stillOurs = () => readPidStartTime(pid) === startTime && readPidCmdline(pid).split(/\s+/).includes(SERVER_SCRIPT);
+    if (stillOurs()) {
+      safeKill(pid, 'SIGTERM');
+      const deadline = Date.now() + 500;
+      while (Date.now() < deadline && stillOurs()) await Bun.sleep(50);
+      if (stillOurs()) safeKill(pid, 'SIGKILL');
+    }
   }
 
   // Server didn't start in time — check the on-disk startup error log.
@@ -1670,6 +1684,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         const newPid = spawnTerminalAgent({
           stateFile: config.stateFile,
           serverPort: newState.port,
+          ownerPid: newState.pid,
           cwd: config.projectDir,
         });
         if (newPid) {
@@ -1762,6 +1777,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
           spawnTerminalAgent({
             stateFile: config.stateFile,
             serverPort: respawned.port,
+            ownerPid: respawned.pid,
             cwd: config.projectDir,
           });
         } catch (err: any) {

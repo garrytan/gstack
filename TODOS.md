@@ -249,9 +249,10 @@ global-path registration + re-point). Remaining:
   update the locale pin test. Filed via /ship review army (maintainability).
   **Priority:** P3. Effort S.
 - **Accepted threat-model notes (documented, no action planned):**
-  redact-prepush treats content pushed to ANY private remote as already-left
-  (accident-only threat model); a parcel-shaped twin within 400 chars can
-  suppress phone redaction (WARN-tier pattern, attacker-influence accepted);
+  redact-prepush's no-argv compatibility mode retains all-remotes exclusions;
+  installed hooks bind scans to the actual destination. A parcel-shaped twin
+  within 400 chars can suppress phone redaction (WARN-tier pattern,
+  attacker-influence accepted);
   codex-probe's 400-signature grep can misread a transient proxy 400 as
   MODEL_UNUSABLE (bounded by the 15-min negative-cache TTL).
 
@@ -316,9 +317,11 @@ silent regression:
   by test/setup-playwright-best-effort.test.ts (fork-port Wave A). Still
   unpinned: `_clear_playwright_quarantine` (the P0 #2554 heal's shell half).
   Effort S.
-- **redact-prepush `scanAddedLines` slicing** — the >1MiB catch-up-diff chunk
-  path (the reason the function exists) is unexercised; a regression
-  reintroduces blocking-while-unscanned. Effort S.
+- **redact-prepush `scanAddedLines` slicing** — the >1MiB chunk path was
+  unexercised at v1.67. Installed-hook controls in
+  test/redact-prepush-target.test.ts now cover large clean diffs, seam
+  proximity/normalization, duplicate findings, and long-line refusal
+  (v1.88.1.0).
 - **supabase telemetry-ingest edge function** — zero tests; producer caps at
   200 chars vs ingest's 500 (dead server cap); no column↔migration pin.
 - **gbrain-repo-policy-client** — no direct test file; the spawn-failed vs

@@ -19,8 +19,8 @@ describe('terminal-agent watchdog (v1.44+)', () => {
     expect(src).toMatch(/export function spawnTerminalAgent\(/);
     // Must clean up prior PID before spawning (no zombies).
     expect(src).toContain('readAgentRecord(stateDir)');
-    expect(src).toContain('killAgentByRecord(prior');
-    expect(src).toContain('clearAgentRecord(stateDir)');
+    expect(src).toContain('stopAgentByRecord(prior)');
+    expect(src).toContain('clearAgentRecord(stateDir, prior)');
   });
 
   test('2. watchdog is gated on ownsTerminalAgent', () => {
@@ -39,7 +39,11 @@ describe('terminal-agent watchdog (v1.44+)', () => {
     // identity-based liveness. Slow-but-alive agents must NOT trigger
     // respawn (split-brain defense).
     expect(block).toContain('readAgentRecord(stateDir)');
-    expect(block).toContain('isProcessAlive(record.pid)');
+    expect(block).toContain('isAgentRecordGone(record)');
+    const control = fs.readFileSync(CONTROL_TS, 'utf-8');
+    expect(control).toContain('if (result.status === 0) state = result.stdout?.trim()?.[0];');
+    expect(control).toContain("if (state === 'Z') return 'gone'");
+    expect(control.indexOf("if (state === 'Z') return 'gone'")).toBeLessThan(control.indexOf('return actual.commandLine.split'));
     // Negative: no executable name-based process lookup. Allow the strings
     // to appear in prose comments (the watchdog doc explains what it
     // replaces), reject only actual invocations.

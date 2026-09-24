@@ -1,5 +1,59 @@
 import { describe, test, expect } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { parseNDJSON } from './session-runner';
+
+test('runSkillTest launches a child without operator credentials', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-hermetic-session-'));
+  try {
+    const bin = path.join(root, 'claude');
+    fs.writeFileSync(bin, `#!/usr/bin/env node
+const names = ['GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_APP_PRIVATE_KEY', 'GH_TOKEN', 'GITHUB_ACTIONS', 'GITHUB_PATH', 'GITHUB_TOKENIZER', 'EVALS_RUN_ID'];
+const present = Object.fromEntries(names.map(name => [name, Object.hasOwn(process.env, name)]));
+console.log(JSON.stringify({type: 'result', subtype: 'success', result: JSON.stringify(present)}));
+`, { mode: 0o700 });
+    const script = `import { runSkillTest } from ${JSON.stringify(pathToFileURL(path.join(import.meta.dir, 'session-runner.ts')).href)};
+const result = await runSkillTest({prompt: 'synthetic fixture', workingDirectory: ${JSON.stringify(root)}, model: 'fixture', timeout: 5000, startupGraceMs: 5000, allowedTools: []});
+console.log(JSON.stringify({exitReason: result.exitReason, child: JSON.parse(result.output)}));`;
+    const result = spawnSync(process.execPath, ['-e', script], {
+      cwd: path.resolve(import.meta.dir, '..', '..'),
+      encoding: 'utf8',
+      timeout: 30_000,
+      env: {
+        PATH: `${root}${path.delimiter}${process.env.PATH ?? '/usr/bin:/bin'}`,
+        HOME: root,
+        TMPDIR: os.tmpdir(),
+        GITHUB_TOKEN: 'synthetic-token',
+        GITHUB_PERSONAL_ACCESS_TOKEN: 'synthetic-pat',
+        GITHUB_APP_PRIVATE_KEY: 'synthetic-private-key',
+        GH_TOKEN: 'synthetic-gh-token',
+        GITHUB_ACTIONS: 'true',
+        GITHUB_PATH: '/tmp/actions-path',
+        GITHUB_TOKENIZER: 'metadata-tokenizer',
+        EVALS_RUN_ID: 'synthetic-run',
+      },
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      exitReason: 'success',
+      child: {
+        GITHUB_TOKEN: false,
+        GITHUB_PERSONAL_ACCESS_TOKEN: false,
+        GITHUB_APP_PRIVATE_KEY: false,
+        GH_TOKEN: false,
+        GITHUB_ACTIONS: true,
+        GITHUB_PATH: true,
+        GITHUB_TOKENIZER: true,
+        EVALS_RUN_ID: true,
+      },
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 // Fixture: minimal NDJSON session (system init, assistant with tool_use, tool result, assistant text, result)
 const FIXTURE_LINES = [
