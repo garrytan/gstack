@@ -161,8 +161,7 @@ If \`NEEDS_SETUP\`:
  * {{BROWSE_FALLBACK}} — gstack's own headless browser as the fallback driver.
  *
  * Rendered directly after {{ASIDE_SETUP}} in every browsing skill. It fires
- * only when the Aside probe printed NEEDS_ASIDE / ASIDE_NOT_RUNNING (Linux,
- * Windows, or the Aside app closed): it carries a compact `$B` detection block
+ * when the Aside probe is not READY: it carries a compact `$B` detection block
  * (the one-time build and bun install are ./setup's job; the full SETUP text
  * lives in generateBrowseSetup for skills that render through `$B` directly) and a
  * step-by-step translation of the Aside cookbook to `$B` commands so a skill's
@@ -187,7 +186,7 @@ B=""
 If \`NEEDS_SETUP\`: tell the user "gstack's own browser needs a one-time build (~10 seconds). OK to proceed?", STOP for the answer, then run \`cd <SKILL_DIR> && ./setup\` (it installs bun when missing). If neither Aside nor \`$B\` is available after that, stop and say so — never substitute unit tests or curl for the browser step.`;
   return `## Browser fallback: gstack's own headless browser
 
-Applies when BROWSER SETUP printed \`NEEDS_ASIDE\` or \`ASIDE_NOT_RUNNING\` (Linux, Windows, or the Aside app closed), or when the user chose gstack's own browser in a Third-Party Web Actions question. Otherwise skip this section. Drive gstack's own headless Chromium through \`$B\`: same skill, same evidence, same report — different driver. Say once which driver you use.
+Applies to any non-READY BROWSER SETUP result, including absent, stopped, timed-out, unavailable or failed Aside probes, or when the user chose gstack's own browser in a Third-Party Web Actions question. Otherwise skip this section. Drive gstack's own headless Chromium through \`$B\`: same skill, same evidence, same report — different driver. Say once which driver you use.
 
 ${setup}
 

@@ -562,19 +562,25 @@ If the bug spans the entire repo or the scope is genuinely unclear, skip the loc
 
 ## Web research runs in Aside
 
-When a step calls for looking something up on the web (competitors, current best practices, a known bug, prior art), do it through Aside's own agent first: it searches with the user's real browser, signed-in sessions included. If Aside is not ready, fall back to the WebSearch tool when this host provides one. If neither is available, say so once and continue on what you already know.
+For web research, do it through Aside's own agent first, using the user's signed-in browser. If Aside is not ready, fall back to the WebSearch tool when this host provides one.
 
-Check once per run that Aside is ready (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
+Check once (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
 
 ```bash
 _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
-elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else "$@"; fi; }
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
 if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1); echo "$_o" | grep -q '^ASIDE_READY'; then
-  echo "READY: aside $(aside --version 2>/dev/null)"
 else
-  echo "ASIDE_NOT_RUNNING: $(echo "$_o" | grep -m1 '^[A-Z]')"
+  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  case "$_rc" in
+    124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
+    125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+       else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
+    *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
+  esac
+  unset _o
 fi
 ```
 
@@ -585,7 +591,7 @@ fi
   _aside_exec "Search the web for <query>. Read-only: do not sign in, submit, or change anything. Reply with <format, e.g. up to 8 bullets, each with its source URL>, then stop."
   ```
 
-- `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`: run the same queries with the WebSearch tool if this host provides it — same read-only intent, same untrusted-content rule. If it does not, skip the research and say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. The rest of the skill continues.
+- Any non-READY result: report only the safe status, never raw diagnostics. Run the same queries with the WebSearch tool if available, still read-only and untrusted. Otherwise say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. Continue the skill.
 
 Sanitize every query before it leaves the machine: strip hostnames, IPs, file paths, SQL fragments, and anything that looks like a secret. Search for the error class and the library, not the user's data.
 

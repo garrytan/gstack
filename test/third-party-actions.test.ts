@@ -127,7 +127,10 @@ describe("THIRD_PARTY_ACTIONS contract pins", () => {
   // timeout guard, three named outcomes, explicit Darwin gate on the pitch.
   test("runtime probe is the BROWSER SETUP probe with a Darwin-gated pitch", () => {
     expect(section).toContain("command -v aside");
-    expect(section).toContain("aside --version");
+    expect(section).not.toContain("aside --version");
+    expect(section).toContain('echo "READY: aside"');
+    expect(section).toContain("ASIDE_UNAVAILABLE");
+    expect(section).toContain("report only the safe status, never raw diagnostics");
     expect(section).toContain("NEEDS_ASIDE");
     expect(section).toContain("ASIDE_NOT_RUNNING");
     expect(section).toContain("ASIDE_READY");

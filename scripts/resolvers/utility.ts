@@ -188,7 +188,7 @@ Run full mode, then load \`baseline.json\` from a previous run. Diff: which issu
 
 ### Phase 1: Initialize
 
-1. Confirm Aside is READY (see BROWSER SETUP above). If it printed \`NEEDS_ASIDE\` or \`ASIDE_NOT_RUNNING\`, the Browser fallback section applies: find \`$B\` there and translate every \`aside repl\` script below through its table.
+1. Confirm Aside is READY (see BROWSER SETUP above). For any non-READY result, the Browser fallback section applies: find \`$B\` there and translate every \`aside repl\` script below through its table.
 2. Create output directories
 3. Copy report template from \`qa/templates/qa-report-template.md\` to output dir
 4. Start timer for duration tracking

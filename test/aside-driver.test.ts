@@ -127,8 +127,7 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     expect(setupProbe).toContain('timeout 30 "$@"');
     expect(setupProbe).toContain('perl -e \'alarm(shift);exec(@ARGV)\' 30 "$@"');
     expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e'));
-    // …and a 4th arm: with none of the three present the call still runs, unbounded.
-    expect(setupProbe).toContain('else "$@"');
+    expect(setupProbe).toContain('else return 125');
     // The deadline is a FUNCTION, not a string in a variable. A string has to be expanded
     // unquoted to become several words, and zsh does not word-split unquoted expansions:
     // `$_T aside repl …` looked for one command named "gtimeout 30" and the probe answered
@@ -136,14 +135,15 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     // It must NOT come back as a variable, and must NOT be routed through `eval` either:
     // eval re-parses the string, so the parens and `;` of the perl arm become syntax.
     expect(setupProbe).toContain('_gs_d() {');
-    expect(setupProbe).toContain("elif _o=$(_gs_d aside repl 'console.log(\"ASIDE_READY \" + pwd)' 2>&1); echo \"$_o\" | grep -q '^ASIDE_READY'; then");
+    expect(setupProbe).toContain("_o=$(_gs_d aside repl 'console.log(\"ASIDE_READY \" + pwd)' 2>&1) || _rc=$?");
     expect(setupProbe).not.toContain('$_T aside repl');
     expect(setupProbe).not.toContain('_T="gtimeout 30"');
     expect(setupProbe).not.toMatch(/eval .*aside repl/);
-    expect(setupProbe).toContain('echo "READY: aside $(aside --version 2>/dev/null)"');
+    expect(setupProbe).toContain('echo "READY: aside"');
+    expect(setupProbe).not.toContain('aside --version');
   });
 
-  test('the rendered probe answers READY in sh, bash and zsh on every deadline arm, and a failure carries the CLI\'s own reason', () => {
+  test('the rendered probe answers READY on bounded shell arms and reports only safe failure statuses', () => {
     // The pins above are text; this one runs the bash they pin. The bug they missed was not
     // a wrong string, it was a string that only splits into words in a shell that word-splits
     // unquoted expansions — so the probe has to be EXECUTED, in the shells users actually run
@@ -161,8 +161,6 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
       // on whether this machine has coreutils. `grep` has to come along — the probe pipes into it.
       write(path.join(dir, 'base', 'aside'), '#!/bin/sh\n[ "$1" = "--version" ] && { echo 9.9.9; exit 0; }\necho "ASIDE_READY /tmp/x"\n');
       link(lookup('grep')!, path.join(dir, 'base', 'grep'));
-      // Installed but failing, two ways: the CLI's own sentence, and a Node crash whose useful
-      // line sits below the loader frame. The verdict has to carry the reason, not the frame.
       const failing = {
         window: ['No browser window is open for account u0', '    at stack frame'],
         preload: ['node:internal/modules/cjs/loader:1573', '  throw err;', '', "Error: Cannot find module '/x/preload.cjs'"],
@@ -185,14 +183,16 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
         const PATH = arm === 'none' ? base : `${path.join(dir, arm)}:${base}`;
         for (const shell of shells) {
           const r = spawnSync(shell, ['-c', setupProbe], { env: { PATH }, encoding: 'utf8', timeout: 30_000 });
-          expect(`${path.basename(shell)}/${arm}: ${r.stdout.trim()}`).toBe(`${path.basename(shell)}/${arm}: READY: aside 9.9.9`);
+          const status = arm === 'none' ? 'ASIDE_UNAVAILABLE: bounded probe unavailable' : 'READY: aside';
+          expect(`${path.basename(shell)}/${arm}: ${r.stdout.trim()}`).toBe(`${path.basename(shell)}/${arm}: ${status}`);
         }
       }
       const reasons = { window: 'No browser window is open for account u0', preload: "Error: Cannot find module '/x/preload.cjs'" };
       for (const [name, reason] of Object.entries(reasons)) {
         for (const shell of shells) {
           const r = spawnSync(shell, ['-c', setupProbe], { env: { PATH: `${path.join(dir, 'gt')}:${path.join(dir, name)}` }, encoding: 'utf8', timeout: 30_000 });
-          expect(`${path.basename(shell)}/${name}: ${r.stdout.trim()}`).toBe(`${path.basename(shell)}/${name}: ASIDE_NOT_RUNNING: ${reason}`);
+          expect(`${path.basename(shell)}/${name}: ${r.stdout.trim()}`).toBe(`${path.basename(shell)}/${name}: ASIDE_CLI_ERROR: exit 1; inspect aside --help locally`);
+          expect(r.stdout).not.toContain(reason);
         }
       }
       // Both ways out stay reachable: opted out, and Aside not installed (empty PATH dir).
@@ -257,11 +257,21 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
 });
 
 describe('browser fallback ({{BROWSE_FALLBACK}})', () => {
+  test('shell-probe consumers accept every non-READY status and optional research waives setup before the fallback', () => {
+    for (const file of ['browse/SKILL.md.tmpl', 'design-consultation/SKILL.md.tmpl', 'scripts/resolvers/utility.ts']) {
+      const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+      expect({ file, nonReady: text.includes('any non-READY') }).toEqual({ file, nonReady: true });
+    }
+    const consultation = fs.readFileSync(path.join(ROOT, 'design-consultation/SKILL.md.tmpl'), 'utf8');
+    expect(consultation).toContain('skip the one-time `$B` build offer');
+    expect(consultation.indexOf('The browser is optional here.')).toBeLessThan(consultation.indexOf('{{BROWSE_FALLBACK}}'));
+  });
+
   test('is registered and scoped to the non-READY probe outcomes or the TPA gstack-drive choice', () => {
     expect(RESOLVERS.BROWSE_FALLBACK).toBe(generateBrowseFallback);
     expect(fallback.startsWith("## Browser fallback: gstack's own headless browser")).toBe(true);
-    expect(fallback).toContain('`NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`');
-    expect(fallback).toContain('Linux, Windows, or the Aside app closed');
+    expect(fallback).toContain('any non-READY BROWSER SETUP result');
+    expect(fallback).toContain('absent, stopped, timed-out, unavailable or failed Aside probes');
     expect(fallback).toContain("or when the user chose gstack's own browser in a Third-Party Web Actions question. Otherwise skip this section");
   });
 
@@ -342,7 +352,8 @@ describe('web research ({{ASIDE_RESEARCH}})', () => {
 
   test('degrades to the WebSearch tool, then to in-distribution knowledge — and never installs Aside', () => {
     expect(research).toContain('If Aside is not ready, fall back to the WebSearch tool when this host provides one.');
-    expect(research).toContain('`NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`: run the same queries with the WebSearch tool if this host provides it');
+    expect(research).toContain('Any non-READY result: report only the safe status, never raw diagnostics.');
+    expect(research).toContain('Run the same queries with the WebSearch tool if available, still read-only and untrusted.');
     expect(research).toContain('"Search unavailable — proceeding with in-distribution knowledge only."');
     expect(research).toContain('Never install Aside yourself; mention aside.com at most once per run.');
     expect(research).toContain('Sanitize every query before it leaves the machine');

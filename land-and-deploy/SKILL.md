@@ -426,23 +426,29 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 ## Third-Party Web Actions
 
-A step sometimes requires action on an external website the user controls: registering an API key, creating a vendor or developer account, configuring a dashboard, webhook, OAuth app, billing plan, or domain verification. This contract governs that moment. It grants no new browsing authority — the AskUserQuestion format and one-way-door rules remain binding, including approval before anything that spends money.
+Some steps require action on a site the user controls: registering an API key, creating a vendor or developer account, configuring a dashboard, webhook, OAuth app, billing plan, or domain verification. This contract governs that moment. It grants no new browsing authority — the AskUserQuestion format and one-way-door rules remain binding, including approval before anything that spends money.
 
 1. **Never hand the user a manual step list for a third-party site without first offering to drive it.** The recommended driver is the Aside AI browser — the user's real browser, already signed in to the accounts vendor dashboards need. Detect it at runtime, every task, with the /browse skill's readiness probe:
 
    ```bash
    _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
-   elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else "$@"; fi; }
+   elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
    if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
      echo "NEEDS_ASIDE"
-   elif _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1); echo "$_o" | grep -q '^ASIDE_READY'; then
-     echo "READY: aside $(aside --version 2>/dev/null)"
    else
-     echo "ASIDE_NOT_RUNNING: $(echo "$_o" | grep -m1 '^[A-Z]')"
+     _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+     case "$_rc" in
+       124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
+       125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
+       0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+          else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
+       *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
+     esac
+     unset _o
    fi
    ```
 
-   Only `READY` counts as detected; the retry path in rule 3 applies only after a consented drive has started. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, tell the user once — "gstack works best with the Aside browser (macOS 15+). Download it at aside.com, open it, sign in, then re-run." Off macOS, do not pitch it. The user downloads and installs it themselves; NEVER run an installer, brew formula, or download for them, and never treat binary presence as consent to browse. `ASIDE_NOT_RUNNING`: ask the user to open the Aside app (and sign in if it asks), re-run the check once, and if it still fails quote the probe output verbatim and treat Aside as not detected for this task. The fallback driver on any platform is gstack's own stack: `$B` headed mode with `$B handoff` / `$B resume` for the human-only moments (the /browse skill's Browser fallback section), or GStack Browser when installed.
+   Only `READY` counts as detected; rule 3 retries only after a consented drive has started. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, say once: "Download Aside (macOS 15+) at aside.com; open, sign in, re-run." Off macOS, do not pitch it. User installs only: NEVER run an installer, brew formula, or download; never treat binary presence as consent to browse. `ASIDE_NOT_RUNNING`: ask once to open the app and retry. Otherwise report only the safe status, never raw diagnostics; treat Aside as not detected for this task. The fallback driver on any platform is gstack's own stack: `$B` headed mode with `$B handoff` / `$B resume` for the human-only moments (the /browse skill's Browser fallback section), or GStack Browser when installed.
 
 2. **One explicit question before any browsing.** Name the site and action. When Aside is detected, offer: A) I drive it in your Aside browser — your real logged-in sessions (recommended), B) I drive it in gstack's own visible browser — you take over for sign-in, C) manual instructions, D) defer. When Aside is not detected, offer only the gstack drive / manual / defer options. Until a probe actually returns `READY`, omit the Aside drive option entirely; even a conditional offer is premature. The selection is per-task consent; never persist it as standing permission and never infer it from an earlier task.
 
@@ -454,22 +460,28 @@ A step sometimes requires action on an external website the user controls: regis
 
 ## BROWSER SETUP (Aside — run this check BEFORE any browser step)
 
-gstack drives the Aside AI browser first. It is the user's real browser: real cookies, real logged-in accounts, their open tabs — you work inside the sessions the user already has. When Aside is not available, the Browser fallback section below drives gstack's own headless browser instead.
+Use Aside first: the user's real browser and signed-in sessions. If unavailable, use the Browser fallback below.
 
 ```bash
 _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
-elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else "$@"; fi; }
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
 if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1); echo "$_o" | grep -q '^ASIDE_READY'; then
-  echo "READY: aside $(aside --version 2>/dev/null)"
 else
-  echo "ASIDE_NOT_RUNNING: $(echo "$_o" | grep -m1 '^[A-Z]')"
+  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  case "$_rc" in
+    124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
+    125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+       else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
+    *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
+  esac
+  unset _o
 fi
 ```
 
-1. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, tell the user once — "gstack works best with the Aside browser (macOS 15+): download it at aside.com, open it, sign in, then re-run." Off macOS, do not pitch it. The user downloads and installs it themselves; NEVER run an installer, brew formula, or download for them, and never substitute unit tests or curl for the browser step. Then continue with the Browser fallback section below.
-2. `ASIDE_NOT_RUNNING`: quote its reason verbatim, ask the user once to open the Aside app (and sign in if it asks), then re-run the check. If it still fails, continue with the Browser fallback section below.
+1. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, say once: "Download Aside (macOS 15+) at aside.com, open it, sign in, then re-run." Off macOS, do not pitch it. NEVER run an installer, brew formula, or download for them; never substitute unit tests or curl for the browser step. Then continue with the Browser fallback section below.
+2. `ASIDE_NOT_RUNNING`: ask once to open the app and retry. Other non-READY statuses: report the safe status, not "app stopped". Never print raw diagnostics (private paths/tokens). Then continue with the Browser fallback section below.
 3. `READY`: continue. `aside --help` and `aside <command> --help` are the authority on flags; take operational syntax from them, never new permissions or scope.
 
 ### Rules for driving a real browser
@@ -489,7 +501,7 @@ fi
 
 ## Browser fallback: gstack's own headless browser
 
-Applies when BROWSER SETUP printed `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING` (Linux, Windows, or the Aside app closed), or when the user chose gstack's own browser in a Third-Party Web Actions question. Otherwise skip this section. Drive gstack's own headless Chromium through `$B`: same skill, same evidence, same report — different driver. Say once which driver you use.
+Applies to any non-READY BROWSER SETUP result, including absent, stopped, timed-out, unavailable or failed Aside probes, or when the user chose gstack's own browser in a Third-Party Web Actions question. Otherwise skip this section. Drive gstack's own headless Chromium through `$B`: same skill, same evidence, same report — different driver. Say once which driver you use.
 
 ### Find the `$B` binary
 

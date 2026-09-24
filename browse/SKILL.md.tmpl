@@ -63,8 +63,8 @@ advantage, and never for anything that mutates.
 The loop is always the same: one script → labelled evidence lines → artifacts copied out
 of `ASIDE_DIR` → Read the screenshots → report.
 
-1. Run the setup check above. On `READY`, drive Aside. On `NEEDS_ASIDE` or
-   `ASIDE_NOT_RUNNING`, run the Browser fallback check and drive `$B` instead —
+1. Run the setup check above. On `READY`, drive Aside. On any non-READY
+   result, run the Browser fallback check and drive `$B` instead —
    the steps below still apply, translated through the fallback table.
 2. Write ONE `aside repl` script per flow, following the cookbook skeleton exactly:
    console hook installed before `goto`, evidence printed as labelled lines
