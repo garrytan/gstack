@@ -104,6 +104,8 @@ function strand(text = '# safe stranded transcript\n') {
 function advanceRemote() {
   const other = join(root, 'other');
   git(['clone', '-q', remote, other], root);
+  git(['config', '--local', 'user.name', 'Publication Fixture'], other);
+  git(['config', '--local', 'user.email', 'publication-fixture@example.invalid'], other);
   mkdirSync(join(other, 'retros'), { recursive: true });
   writeFileSync(join(other, 'retros/other.md'), '# Other machine\n');
   git(['add', '-f', '--', 'retros/other.md'], other);
@@ -119,6 +121,8 @@ beforeEach(() => {
   mkdirSync(home);
   git(['init', '--bare', '-q', '-b', 'main', remote], root);
   expect(run('gstack-artifacts-init', ['--remote', remote]).status).toBe(0);
+  git(['config', '--local', 'user.name', 'Publication Fixture']);
+  git(['config', '--local', 'user.email', 'publication-fixture@example.invalid']);
   config('incremental');
 });
 
@@ -446,6 +450,21 @@ describe('transcript Git publication boundary', () => {
     git(['merge-base', '--is-ancestor', advanced, 'HEAD'], remote);
     expect(git(['ls-tree', '-r', '--name-only', 'HEAD'], remote)).toContain(TRANSCRIPT);
   }, 30_000);
+
+  test('fixture merge commits do not need ambient Git identity', () => {
+    const emptyConfig = join(root, 'empty.gitconfig');
+    writeFileSync(emptyConfig, '');
+    const advanced = advanceRemote();
+    enqueue(TRANSCRIPT, page('# safe content\n'));
+    const result = run('gstack-brain-sync', ['--once'], {
+      GIT_CONFIG_SYSTEM: emptyConfig,
+      GIT_CONFIG_GLOBAL: emptyConfig,
+    });
+    expect(result.status).toBe(0);
+    expect(status().status).toBe('ok');
+    expect(git(['rev-parse', 'HEAD^2'], remote)).toBe(advanced);
+    expect(queue()).toEqual([]);
+  });
 
   test('consent is rechecked before the post-merge retry push', () => {
     const advanced = advanceRemote();

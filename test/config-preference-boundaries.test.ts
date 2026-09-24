@@ -124,9 +124,21 @@ fi
 describe('canonical preference writer and native hook', () => {
   function initRepo() {
     run(['git', 'init', '-q']);
+    run(['git', 'config', '--local', 'user.name', 'Preference Fixture']);
+    run(['git', 'config', '--local', 'user.email', 'preference-fixture@example.invalid']);
     run(['git', 'commit', '--allow-empty', '-m', 'fixture seed']);
     run(['git', 'remote', 'add', 'origin', 'https://example.invalid/owner/actual-project.git']);
   }
+
+  test('fixture seed commits do not need ambient Git identity', () => {
+    const emptyConfig = join(fixture, 'empty.gitconfig');
+    writeFileSync(emptyConfig, '');
+    env.GIT_CONFIG_SYSTEM = emptyConfig;
+    env.GIT_CONFIG_GLOBAL = emptyConfig;
+    initRepo();
+    expect(run(['git', 'rev-list', '--count', 'HEAD']).trim()).toBe('1');
+    expect(run(['git', 'config', '--local', 'user.email']).trim()).toBe('preference-fixture@example.invalid');
+  });
 
   function writePreference(pref = 'never-ask') {
     bin('gstack-question-preference', '--write', JSON.stringify({ question_id: 'test-q', preference: pref, source: 'plan-tune' }));
