@@ -196,20 +196,21 @@ export function readVersionHash(execPath: string = process.execPath): string | n
 /**
  * Resolve the gstack home directory.
  *
- * Honors the existing convention used by telemetry.ts and domain-skills.ts:
- *   1. GSTACK_HOME env (explicit override)
- *   2. $HOME/.gstack (default)
+ * Precedence: GSTACK_STATE_ROOT, GSTACK_HOME, legacy GSTACK_STATE_DIR,
+ * gstack's CLAUDE_PLUGIN_DATA, then $HOME/.gstack.
  */
 export function resolveGstackHome(): string {
-  return process.env.GSTACK_HOME || path.join(os.homedir(), '.gstack');
+  return process.env.GSTACK_STATE_ROOT || process.env.GSTACK_HOME || process.env.GSTACK_STATE_DIR ||
+    (process.env.CLAUDE_PLUGIN_ROOT?.toLowerCase().includes('gstack') ? process.env.CLAUDE_PLUGIN_DATA : '') ||
+    path.join(os.homedir(), '.gstack');
 }
 
 /**
  * Read one key from the flat-YAML config store at <gstack home>/config.yaml
  * (the shape bin/gstack-config writes: `key: value` lines). Tolerates
  * optional single/double quotes around the value and a trailing `# comment`.
- * Returns the unquoted value string, or null when the file is missing or
- * unreadable or the key is absent.
+ * Returns the unquoted value string (empty for malformed values), or null
+ * when the file is missing or unreadable or the key is absent.
  *
  * Single source of truth for flat-YAML key reads — isPairAgentEnabled
  * (pair_agent) and telemetry.ts (telemetry tier) both route through it so
@@ -219,10 +220,11 @@ export function readGstackConfigYamlKey(key: string): string | null {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   try {
     const yaml = fs.readFileSync(path.join(resolveGstackHome(), 'config.yaml'), 'utf-8');
-    // Last match wins: bin/gstack-config's `get` reads duplicates with
-    // `tail -1`, and both surfaces must agree on the same line.
-    const all = [...yaml.matchAll(new RegExp(`^\\s*${escaped}\\s*:\\s*['"]?([^'"#\\n]*?)['"]?\\s*(?:#.*)?$`, 'gm'))];
-    return all.length > 0 ? all[all.length - 1][1] : null;
+    const all = [...yaml.matchAll(new RegExp(`^[ \\t]*${escaped}[ \\t]*:([^\\n]*)$`, 'gm'))];
+    if (all.length === 0) return null;
+    const value = all[all.length - 1][1].trim();
+    const scalar = value.match(/^(?:"([^"]*)"|'([^']*)'|([^'"#]*?))\s*(?:#.*)?$/);
+    return scalar ? (scalar[1] ?? scalar[2] ?? scalar[3].trim()) : '';
   } catch {
     return null;
   }
@@ -249,11 +251,8 @@ export function isPairAgentEnabled(): boolean {
   // by bin/gstack-config — which is what the /pair-agent consent step runs).
   // The fork read config.json; porting that verbatim would have made the gate
   // silently un-enableable on main. JSON kept as a fallback shape only.
-  // Anything other than exactly on/off (missing key, malformed value) falls
-  // through to the JSON fallback and ultimately fails closed.
   const yamlValue = readGstackConfigYamlKey('pair_agent');
-  if (yamlValue === 'on') return true;
-  if (yamlValue === 'off') return false;
+  if (yamlValue !== null) return yamlValue === 'on';
   try {
     const raw = fs.readFileSync(path.join(resolveGstackHome(), 'config.json'), 'utf-8');
     return JSON.parse(raw)?.pair_agent === 'on';

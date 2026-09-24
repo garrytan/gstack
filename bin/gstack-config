@@ -17,7 +17,11 @@
 #   GSTACK_STATE_DIR  — legacy alias for GSTACK_HOME (kept for backwards compat)
 set -euo pipefail
 
-STATE_DIR="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}}"
+STATE_DIR="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-${GSTACK_STATE_DIR:-}}}"
+if [ -z "$STATE_DIR" ]; then
+  eval "$("$(dirname "$0")/gstack-paths")"
+  STATE_DIR="$GSTACK_STATE_ROOT"
+fi
 CONFIG_FILE="$STATE_DIR/config.yaml"
 
 # Swap a freshly-rendered tmp dir into the live render location (#2569
@@ -344,11 +348,28 @@ resolve_user_slug() {
 read_config_value() {
   local key="$1"
   if [ ! -f "$CONFIG_FILE" ]; then
-    return 0
+    return 1
   fi
-  grep -E "^${key}:" "$CONFIG_FILE" 2>/dev/null \
-    | tail -1 \
-    | sed -E "s/^${key}:[[:space:]]*//; s/[[:space:]]+$//"
+  awk -v key="$key" '
+    function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
+    {
+      colon = index($0, ":")
+      if (!colon || trim(substr($0, 1, colon - 1)) != key) next
+      found = 1
+      value = ""
+      raw = trim(substr($0, colon + 1))
+      quote = substr(raw, 1, 1)
+      if (quote == "\"" || quote == sprintf("%c", 39)) {
+        rest = substr(raw, 2)
+        end = index(rest, quote)
+        if (end && trim(substr(rest, end + 1)) ~ /^(#.*)?$/) value = substr(rest, 1, end - 1)
+      } else {
+        sub(/#.*/, "", raw)
+        if (raw !~ /[\047\042]/) value = trim(raw)
+      }
+    }
+    END { if (!found) exit 1; printf "%s", value }
+  ' "$CONFIG_FILE"
 }
 
 case "${1:-}" in
@@ -362,8 +383,7 @@ case "${1:-}" in
       echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<endpoint-id> suffix" >&2
       exit 1
     fi
-    VALUE=$(read_config_value "$KEY" || true)
-    if [ -z "$VALUE" ]; then
+    if ! VALUE=$(read_config_value "$KEY"); then
       # lookup_default exits non-zero for a key it does not know. Propagate
       # that, so the caller's `|| echo "<default>"` can fire. A known key whose
       # default is empty still exits 0 and prints "".
@@ -499,11 +519,10 @@ case "${1:-}" in
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do
-      VALUE=$(read_config_value "$KEY" || true)
-      SOURCE="default"
-      if [ -n "$VALUE" ]; then
+      if VALUE=$(read_config_value "$KEY"); then
         SOURCE="set"
       else
+        SOURCE="default"
         VALUE=$(lookup_default "$KEY")
       fi
       printf '  %-24s %s (%s)\n' "$KEY:" "$VALUE" "$SOURCE"

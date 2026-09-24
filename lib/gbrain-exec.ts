@@ -39,6 +39,7 @@ import { homedir } from "os";
 import { spawnSync, spawn, execFileSync, type SpawnSyncReturns, type ChildProcess, type SpawnOptions } from "child_process";
 
 interface GbrainConfig {
+  engine?: string;
   database_url?: string;
 }
 
@@ -95,7 +96,7 @@ export function gbrainConfigDir(env: NodeJS.ProcessEnv = process.env): string {
  * unchanged when:
  *   - `GSTACK_RESPECT_ENV_DATABASE_URL=1` (intentional opt-out),
  *   - the config file is missing or unparseable,
- *   - the config has no `database_url`,
+ *   - the config has no `database_url` and is not explicitly PGLite,
  *   - the caller already set DATABASE_URL to the same value.
  *
  * GBRAIN_PREPARE is never set here (#1965): gbrain auto-disables prepared
@@ -122,7 +123,14 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
   } catch {
     return out;
   }
-  if (!cfg.database_url) return out;
+  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) return out;
+  if (cfg.engine === "pglite") {
+    out.DATABASE_URL = "";
+    out.GBRAIN_DATABASE_URL = "";
+    return out;
+  }
+  if (cfg.engine !== undefined && cfg.engine !== "postgres") return out;
+  if (typeof cfg.database_url !== "string" || !cfg.database_url.trim()) return out;
 
   const hadCaller = baseEnv.DATABASE_URL !== undefined;
   const alreadyMatch = baseEnv.DATABASE_URL === cfg.database_url;
