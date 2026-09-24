@@ -598,29 +598,21 @@ export async function handleWriteCommand(
       const [selector, ...filePaths] = args;
       if (!selector || filePaths.length === 0) throw new Error('Usage: browse upload <selector> <file1> [file2...]');
 
-      // Validate paths are within safe directories (same check as cookie-import)
-      for (const fp of filePaths) {
+      const validatedPaths = filePaths.map(fp => {
         if (!fs.existsSync(fp)) throw new Error(`File not found: ${fp}`);
-        if (path.isAbsolute(fp)) {
-          let resolvedFp: string;
-          try { resolvedFp = fs.realpathSync(path.resolve(fp)); } catch (err: any) { if (err?.code !== 'ENOENT') throw err; resolvedFp = path.resolve(fp); }
-          if (!SAFE_DIRECTORIES.some(dir => isPathWithin(resolvedFp, dir))) {
-            throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
-          }
-        }
-        if (path.normalize(fp).includes('..')) {
-          throw new Error('Path traversal sequences (..) are not allowed');
-        }
-      }
+        const realPath = fs.realpathSync(path.resolve(fp));
+        validateReadPath(realPath);
+        return realPath;
+      });
 
       const resolved = await session.resolveRef(selector);
       if ('locator' in resolved) {
-        await resolved.locator.setInputFiles(filePaths);
+        await resolved.locator.setInputFiles(validatedPaths);
       } else {
-        await target.locator(resolved.selector).setInputFiles(filePaths);
+        await target.locator(resolved.selector).setInputFiles(validatedPaths);
       }
 
-      const fileInfo = filePaths.map(fp => {
+      const fileInfo = validatedPaths.map(fp => {
         const stat = fs.statSync(fp);
         return `${path.basename(fp)} (${stat.size}B)`;
       }).join(', ');
