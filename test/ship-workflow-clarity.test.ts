@@ -136,3 +136,11 @@ test('shared-code snapshot verification names a raw blob read and preserves fail
     'sparse index entries', 'snapshot_covered_paths']) expect(check).toContain(required);
   expect(text).toContain('Suppress only when ALL eligibility checks passed and the helper returns true');
 });
+
+test('the TODO format reference uses the installed skill root rather than the project directory', () => {
+  const root = read('SKILL.md');
+  const todos = root.slice(root.indexOf('## Step 14:'), root.indexOf('## Step 15:'));
+  expect(todos).toContain('Read `~/.claude/skills/gstack/review/TODOS-format.md`');
+  expect(todos).not.toContain('Read `.claude/skills/review/TODOS-format.md`');
+  expect(read('../review/TODOS-format.md')).toContain('Priority');
+});
