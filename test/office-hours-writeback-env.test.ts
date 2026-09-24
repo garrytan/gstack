@@ -54,6 +54,7 @@ console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false
 `);
   // POSIX executable shims (#!/bin/bash); no provider or operator gbrain can run.
   const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
+  fs.writeFileSync(path.join(driverBin, 'bun'), `#!/bin/bash\nexec ${quote(process.execPath)} "$@"\n`, { mode: 0o755 });
   fs.writeFileSync(path.join(driverBin, 'claude'), `#!/bin/bash\nexec ${quote(process.execPath)} ${quote(driver)}\n`, { mode: 0o755 });
   fs.writeFileSync(path.join(driverBin, 'gbrain'), `#!/bin/bash\nprintf forbidden > ${quote(sentinel)}\nexit 91\n`, { mode: 0o755 });
   const suiteSource = fs.readFileSync(SUITE, 'utf8');
@@ -95,6 +96,7 @@ await import(${JSON.stringify(suiteCopy)});
     expect(fs.existsSync(sentinel)).toBe(false);
     expect(fs.existsSync(path.join(operatorHome, '.gbrain'))).toBe(false);
     expect(fs.existsSync(path.join(operatorHome, '.gstack'))).toBe(false);
+    expect(fs.existsSync(receipt), stdout + stderr).toBe(true);
     return { code, output: stdout + stderr, facts: JSON.parse(fs.readFileSync(receipt, 'utf8')) };
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }

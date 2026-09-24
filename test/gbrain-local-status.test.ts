@@ -610,7 +610,7 @@ describe("lib/gbrain-local-status — thin-client (#2051)", () => {
     env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", thinClientConfig: true });
     const detectBin = join(import.meta.dir, "..", "bin", "gstack-gbrain-detect");
     const bunDir = dirname(process.execPath);
-    const r = spawnSync(detectBin, ["--is-ok"], {
+    const r = spawnSync(process.execPath, [detectBin, "--is-ok"], {
       encoding: "utf-8",
       env: {
         HOME: env.home,
@@ -620,14 +620,14 @@ describe("lib/gbrain-local-status — thin-client (#2051)", () => {
       },
       timeout: 30_000,
     });
-    expect(r.status).toBe(0);
+    expect(r.status, r.stderr).toBe(0);
   });
 
   it("--is-ok still exits 1 on broken-config (thin-client did not widen the gate)", () => {
     env = makeEnv({ withGbrain: true, gbrainBehavior: "broken-config", withConfig: true });
     const detectBin = join(import.meta.dir, "..", "bin", "gstack-gbrain-detect");
     const bunDir = dirname(process.execPath);
-    const r = spawnSync(detectBin, ["--is-ok"], {
+    const r = spawnSync(process.execPath, [detectBin, "--is-ok"], {
       encoding: "utf-8",
       env: {
         HOME: env.home,
@@ -637,7 +637,7 @@ describe("lib/gbrain-local-status — thin-client (#2051)", () => {
       },
       timeout: 30_000,
     });
-    expect(r.status).toBe(1);
+    expect(r.status, r.stderr).toBe(1);
   });
 });
 
@@ -864,7 +864,7 @@ describe("lib/gbrain-local-status — bearer-token thin-client (#2520)", () => {
     });
     const detectBin = join(import.meta.dir, "..", "bin", "gstack-gbrain-detect");
     const bunDir = dirname(process.execPath);
-    const r = spawnSync(detectBin, ["--is-ok"], {
+    const r = spawnSync(process.execPath, [detectBin, "--is-ok"], {
       encoding: "utf-8",
       env: {
         HOME: env.home,
@@ -874,6 +874,6 @@ describe("lib/gbrain-local-status — bearer-token thin-client (#2520)", () => {
       },
       timeout: 30_000,
     });
-    expect(r.status).toBe(0);
+    expect(r.status, r.stderr).toBe(0);
   });
 });
