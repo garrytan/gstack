@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { runGeneration } from '../scripts/gen-skill-docs';
@@ -10,7 +10,7 @@ const root = mkdtempSync(join(tmpdir(), 'skill-positional-'));
 const rendered = join(root, 'rendered');
 const tenArguments = Array.from({ length: 10 }, (_, n) => `argument${n}`);
 const literals = {
-  checksum: `actual_sha=$(sha256sum "$tmpfile" | awk '{print $(1)}')`,
+  checksum: `actual_sha=$(sha256sum < "$tmpfile" | awk '{print $(1)}')`,
   snoozeVersion: `_SNOOZED_VER=$(awk '{print $(1)}' "$_SNOOZE_FILE")`,
   snoozeLevel: `_CUR_LEVEL=$(awk '{print $(2)}' "$_SNOOZE_FILE")`,
   capture: `printf 'ERROR:typecheck CAPTURE:%s\\n' "\${1}" >&2`,
@@ -64,14 +64,15 @@ for (const host of ['claude', 'codex'] as const) for (const args of [[], tenArgu
     }
     expect(skill(host, 'benchmark-models')).toContain('Adds about USD 0.05/run.');
   });
-  test(`${label}: both checksum tools retain the digest field`, () => {
-    const file = join(root, 'install-script');
+  for (const backslashPath of [false, true]) test(`${label}: both checksum tools ${backslashPath ? 'handle backslash paths' : 'retain the digest field'}`, () => {
+    const file = backslashPath ? join(root, 'checksum\\path', 'install-script') : join(root, 'install-script');
+    mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, 'synthetic installer bytes\n');
     for (const name of ['open-gstack-browser', 'pair-agent', 'setup-browser-cookies']) {
       const lines = apply(skill(host, name)).split('\n').filter(line => line.includes('actual_sha=$('));
       expect(lines.map(line => line.trim())).toEqual([
         literals.checksum,
-        `actual_sha=$(shasum -a 256 "$tmpfile" | awk '{print $(1)}')`,
+        `actual_sha=$(shasum -a 256 < "$tmpfile" | awk '{print $(1)}')`,
       ]);
       for (const line of lines) {
         const result = run(`${line}\nprintf '%s' "$actual_sha"`, { tmpfile: file });
