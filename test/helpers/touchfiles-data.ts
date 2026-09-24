@@ -105,7 +105,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
 
   // Review Army (specialist dispatch)
   'review-army-migration-safety': ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review-army.ts', 'bin/gstack-diff-scope', 'test/skill-e2e-review-army.test.ts'],
-  'review-army-perf-n-plus-one':  ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review-army.ts', 'bin/gstack-diff-scope', 'test/skill-e2e-review-army.test.ts'],
+  'review-army-perf-n-plus-one':  ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review-army.ts', 'bin/gstack-diff-scope', 'test/skill-e2e-review-army.test.ts', 'test/review-army-budget.test.ts', 'test/review-n-plus-one-contract.test.ts', 'test/fixtures/review-n-plus-one-dispatch.json'],
   'review-army-delivery-audit':   ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review.ts', 'scripts/resolvers/review-army.ts', 'test/skill-e2e-review-army.test.ts'],
   'review-army-quality-score':    ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review-army.ts', 'test/skill-e2e-review-army.test.ts'],
   'review-army-json-findings':    ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review-army.ts', 'test/skill-e2e-review-army.test.ts'],

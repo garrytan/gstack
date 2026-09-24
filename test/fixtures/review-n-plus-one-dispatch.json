@@ -1,0 +1,20 @@
+{
+  "provenance": "Public root Agent dispatch metadata, with unused prompts omitted. CI's completed dispatches still ended in a timeout; the later nominal pass omitted Red Team. Synthetic terminal success in unit controls earns no live credit.",
+  "ci": {
+    "run": "36018432870",
+    "merge": "6b364397558f38623e10d3e9134a3de8dae1ed0f",
+    "originalExitReason": "timeout",
+    "events": [
+      {"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","id":"toolu_01DwhBp5Z6AaAExyxqHrgXRC","name":"Agent","input":{"description":"Performance specialist review","subagent_type":"general-purpose","run_in_background":false}}]}},
+      {"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","id":"toolu_01LjLxQzv5PPQHhofY586oYC","name":"Agent","input":{"description":"Red team review","subagent_type":"general-purpose","run_in_background":false}}]}}
+    ]
+  },
+  "omission": {
+    "source": "F1 lifecycle-only probe, 2026-09-24T16:08:44Z, patch 6b3f5d87ab510bf7f0cd2def36f5e72947771554e8fd8222943cd80fd8a5ea5c",
+    "originalExitReason": "success",
+    "publicAcknowledgement": "Red Team's activation condition was met (a specialist produced a CRITICAL), but I did not dispatch it since you scoped the run to Performance only. Say the word if you want it.",
+    "events": [
+      {"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","id":"toolu_01NjuDG8es8v5rFpcciKbyuQ","name":"Agent","input":{"description":"Performance specialist review","subagent_type":"general-purpose","run_in_background":false}}]}}
+    ]
+  }
+}
