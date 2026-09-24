@@ -33,7 +33,7 @@ export function buildCookieWorkflowJudgeInput(root: string): WorkflowJudgeInput 
       endLine: source.slice(0, end - 1).split('\n').length,
     };
   });
-  if (!files[0].content.includes('../BROWSER.md#choosing-a-source-and-checking-sign-in')) {
+  if (!files[0].content.includes('`BROWSER.md`') || !files[0].content.includes('**Choosing a source and checking sign-in**')) {
     throw new Error('setup-browser-cookies/SKILL.md: missing cookie reference link');
   }
   const text = [

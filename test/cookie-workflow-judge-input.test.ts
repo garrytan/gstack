@@ -15,7 +15,7 @@ import { JUDGE_MS } from './helpers/eval-budgets';
 const ROOT = resolve(import.meta.dir, '..');
 const NAME = 'setup-browser-cookies/SKILL.md workflow';
 const scratch: string[] = [];
-const skill = 'excluded preamble\n# Setup Browser Cookies\nUse [reference](../BROWSER.md#choosing-a-source-and-checking-sign-in).\nExact body.\n';
+const skill = 'excluded preamble\n# Setup Browser Cookies\nRead the gstack root\'s `BROWSER.md`, **Choosing a source and checking sign-in**.\nExact body.\n';
 const browser = 'excluded browser introduction\n#### Choosing a source and checking sign-in\nExact reference.\n\n### Tabs + frames\nexcluded tab commands\n';
 
 function fixture(entry: string | null = skill, reference: string | null = browser): string {
@@ -136,7 +136,24 @@ describe('cookie workflow judge input', () => {
     expect(() => buildCookieWorkflowJudgeInput(fixture('# Setup Browser Cookies\n'))).toThrow('empty or reversed');
     expect(() => buildCookieWorkflowJudgeInput(fixture(skill, '#### Choosing a source and checking sign-in\n\n### Tabs + frames\n'))).toThrow('empty or reversed');
     expect(() => buildCookieWorkflowJudgeInput(fixture(skill, '### Tabs + frames\n#### Choosing a source and checking sign-in\nContent\n'))).toThrow('empty or reversed');
-    expect(() => buildCookieWorkflowJudgeInput(fixture(skill.replace('../BROWSER.md#choosing-a-source-and-checking-sign-in', 'other.md')))).toThrow('missing cookie reference link');
+    expect(() => buildCookieWorkflowJudgeInput(fixture(skill.replace('`BROWSER.md`', '`other.md`')))).toThrow('missing cookie reference link');
+    expect(() => buildCookieWorkflowJudgeInput(fixture(skill.replace('**Choosing a source and checking sign-in**', '**Other section**')))).toThrow('missing cookie reference link');
+  });
+
+  test('generated host workflows resolve shared references from the installation root and check Aside first', () => {
+    for (const file of ['setup-browser-cookies/SKILL.md', '.agents/skills/gstack-setup-browser-cookies/SKILL.md']) {
+      const source = readFileSync(join(ROOT, file), 'utf8');
+      const body = source.slice(source.indexOf('# Setup Browser Cookies'));
+      expect(body).toContain('Use this checkout as the gstack root if it contains `BROWSER.md` and `browse/SKILL.md`');
+      expect(body).toContain('the installed root containing `bin/gstack-skill-start`, never a generated host stub');
+      expect(body).toContain("Read that root's `browse/SKILL.md`");
+      expect(body).toContain('On `READY`, stop importing');
+      expect(body.indexOf('**BROWSER SETUP**')).toBeLessThan(body.indexOf('## SETUP'));
+      expect(body).toContain("Read that same root's `BROWSER.md`, **Choosing a source and checking sign-in**");
+      expect(body).not.toContain('../BROWSER.md');
+    }
+    expect(readFileSync(join(ROOT, 'browse/SKILL.md'), 'utf8')).toContain('## BROWSER SETUP (Aside');
+    expect(readFileSync(join(ROOT, 'BROWSER.md'), 'utf8')).toContain('#### Choosing a source and checking sign-in');
   });
 
   test('each owned dependency selects this judge in the fast PR profile', () => {

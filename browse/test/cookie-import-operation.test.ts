@@ -31,11 +31,19 @@ function installProfile(name = 'Default', domain = '.example.test', badCookie = 
   db.close();
 }
 
-function route(method: string, pathname: string, body?: unknown, cookie?: string) {
+async function route(method: string, pathname: string, body?: unknown, cookie?: string) {
   const url = new URL('http://127.0.0.1:9470/cookie-picker' + pathname);
+  let pickerInstance = '';
+  if (cookie) {
+    const document = await handleCookiePickerRoute(new URL(url.origin + '/cookie-picker'), new Request(url.origin + '/cookie-picker', {
+      headers: { Cookie: cookie },
+    }), bm, 'fixture');
+    const html = await document.text();
+    pickerInstance = JSON.parse(html.match(/<script id="picker-config" type="application\/json">(.*?)<\/script>/s)![1]).pickerInstance;
+  }
   return handleCookiePickerRoute(url, new Request(url, {
     method,
-    headers: cookie ? { Cookie: cookie, Origin: url.origin, 'Content-Type': 'application/json' } : { Authorization: 'Bearer fixture', 'Content-Type': 'application/json' },
+    headers: cookie ? { Cookie: cookie, Origin: url.origin, 'Content-Type': 'application/json', 'X-Gstack-Picker-Instance': pickerInstance } : { Authorization: 'Bearer fixture', 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   }), bm, 'fixture');
 }

@@ -8,6 +8,7 @@
  */
 
 export function getCookiePickerHTML(serverPort: number, options: {
+  pickerInstance?: string;
   browser?: string;
   profile?: string;
   targetOrigin?: string;
@@ -23,6 +24,7 @@ export function getCookiePickerHTML(serverPort: number, options: {
     if (['http:', 'https:'].includes(target.protocol)) targetOrigin = target.origin;
   } catch {}
   const config = JSON.stringify({
+    pickerInstance: options.pickerInstance,
     browser: options.browser,
     profile: options.profile,
     targetOrigin,
@@ -402,6 +404,7 @@ export function getCookiePickerHTML(serverPort: number, options: {
   let generation = 0;
   let mutation = false;
   const errorMessages = {
+    picker_changed: 'This picker is stale because another picker was opened. Reopen the picker from the intended page before continuing.',
     keychain_denied: 'Keychain access was denied. Allow access in the OS permission prompt or settings, then retry manually.',
     keychain_timeout: 'Credential lookup timed out. Check for a pending OS permission prompt, then retry manually.',
     keychain_error: 'Credential lookup failed. Check the OS credential store or sign in manually in GStack Browser.',
@@ -467,7 +470,9 @@ export function getCookiePickerHTML(serverPort: number, options: {
   }
 
   async function api(path, opts) {
-    const response = await fetch(BASE + '/cookie-picker' + path, { ...opts, credentials: 'same-origin' });
+    const headers = new Headers(opts && opts.headers);
+    headers.set('X-Gstack-Picker-Instance', config.pickerInstance || '');
+    const response = await fetch(BASE + '/cookie-picker' + path, { ...opts, headers, credentials: 'same-origin' });
     const data = await response.json();
     if (!response.ok) {
       const error = new Error('Cookie picker request failed.');

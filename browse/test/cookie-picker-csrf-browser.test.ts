@@ -9,7 +9,10 @@ test('a same-site cross-port browser request carries the picker cookie but canno
   const picker = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
     const response = await handleCookiePickerRoute(new URL(request.url), request, bm);
     if (request.method === 'POST') observed.push({ origin: request.headers.get('origin'), cookiePresent: /(?:^|;\s*)gstack_picker=/.test(request.headers.get('cookie') ?? ''), status: response.status, contentType: request.headers.get('content-type') });
-    if (request.method === 'GET' && response.status === 200) return new Response('<title>Synthetic authorized picker</title>', { headers: { 'Content-Type': 'text/html' } });
+    if (request.method === 'GET' && response.status === 200) {
+      const config = (await response.text()).match(/<script id="picker-config" type="application\/json">.*?<\/script>/s)![0];
+      return new Response('<title>Synthetic authorized picker</title>' + config, { headers: { 'Content-Type': 'text/html' } });
+    }
     return response;
   } });
   const attacker = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('<title>Synthetic cross-port source</title>', { headers: { 'Content-Type': 'text/html' } }) });
@@ -21,7 +24,8 @@ test('a same-site cross-port browser request carries the picker cookie but canno
     const attackerOrigin = `http://127.0.0.1:${attacker.port}`;
     await page.goto(`${pickerOrigin}/cookie-picker?code=${generatePickerCode()}`);
     const sameOriginStatus = await page.evaluate(async () => (await fetch('/cookie-picker/remove', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domains: ['synthetic.test'] }),
+      method: 'POST', headers: { 'Content-Type': 'application/json',
+        'X-Gstack-Picker-Instance': JSON.parse(document.getElementById('picker-config')!.textContent!).pickerInstance }, body: JSON.stringify({ domains: ['synthetic.test'] }),
     })).status);
     expect(sameOriginStatus).toBe(200);
     expect(removed).toBe(1);

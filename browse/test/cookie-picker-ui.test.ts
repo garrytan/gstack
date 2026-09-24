@@ -3,7 +3,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { getCookiePickerHTML } from '../src/cookie-picker-ui';
 
 type PickerOptions = NonNullable<Parameters<typeof getCookiePickerHTML>[1]>;
-type ApiRequest = { path: string; method: string; browser: string | null; profile: string | null; body?: any };
+type ApiRequest = { path: string; method: string; browser: string | null; profile: string | null; pickerInstance: string | null; body?: any };
 
 describe('rendered cookie picker', () => {
   let browser: Browser;
@@ -27,6 +27,7 @@ describe('rendered cookie picker', () => {
       if (!url.pathname.startsWith('/cookie-picker/')) return new Response(null, { status: 204 });
       const record = { path: url.pathname.slice('/cookie-picker'.length), method: request.method,
         browser: url.searchParams.get('browser'), profile: url.searchParams.get('profile'),
+        pickerInstance: request.headers.get('X-Gstack-Picker-Instance'),
         ...(request.method === 'POST' ? { body: await request.json() } : {}) };
       requests.push(record);
       const response = handler(record);
@@ -75,6 +76,28 @@ describe('rendered cookie picker', () => {
     await page.goto(`${origin}/cookie-picker`);
     await page.locator('.pill').first().waitFor();
   }
+
+  test('sends the rendered instance on every discovery and mutation request', async () => {
+    options = { pickerInstance: 'synthetic-picker-instance' };
+    await openPicker();
+    await page.getByRole('button', { name: 'Import .chrome-default.test', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Cookies imported.' }).waitFor();
+    await page.getByRole('button', { name: 'Remove .chrome-default.test', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Removed imported cookies' }).waitFor();
+    expect([...new Set(requests.map(request => request.path))].sort()).toEqual(['/browsers', '/domains', '/import', '/imported', '/profiles', '/remove']);
+    expect(requests.every(request => request.pickerInstance === options.pickerInstance)).toBe(true);
+  });
+
+  test('a stale picker fails with actionable reopen guidance instead of a success receipt', async () => {
+    options = { pickerInstance: 'stale-picker-instance' };
+    handler = request => request.path === '/import'
+      ? Response.json({ code: 'picker_changed', error: 'Reopen the picker.' }, { status: 403 }) : undefined;
+    await openPicker();
+    await page.getByRole('button', { name: 'Import .chrome-default.test', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Reopen the picker from the intended page before continuing.' }).waitFor();
+    expect(await page.getByRole('status').textContent()).toContain('Authentication was not verified.');
+    expect(await page.locator('#imported-domains').textContent()).toContain('No cookies imported yet');
+  });
 
   test('preserves default storage and leaves verification disabled without a bound target', async () => {
     await openPicker();

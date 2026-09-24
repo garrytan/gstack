@@ -40,7 +40,7 @@ const CODE_TTL_MS = 5 * 60_000;
 
 // Session cookies for authenticated picker access (session → expiry timestamp).
 // Sessions are created after a valid code exchange and last 1 hour.
-const validSessions = new Map<string, PickerContext & { expiry: number }>();
+const validSessions = new Map<string, PickerContext & { expiry: number; pickerInstance: string }>();
 const SESSION_TTL_MS = 3_600_000; // 1 hour
 
 /** Generate a one-time code for opening the cookie picker UI. */
@@ -131,7 +131,7 @@ export async function handleCookiePickerRoute(
       headers: {
         'Access-Control-Allow-Origin': corsOrigin(port),
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Gstack-Picker-Instance',
       },
     });
   }
@@ -153,7 +153,7 @@ export async function handleCookiePickerRoute(
         }
         pendingCodes.delete(code); // one-time use
         const session = crypto.randomUUID();
-        validSessions.set(session, { ...context, expiry: Date.now() + SESSION_TTL_MS });
+        validSessions.set(session, { ...context, expiry: Date.now() + SESSION_TTL_MS, pickerInstance: crypto.randomUUID() });
         return new Response(null, {
           status: 302,
           headers: {
@@ -178,6 +178,7 @@ export async function handleCookiePickerRoute(
           try { validateCookieStorageSupport(context.target.page); storageResetAvailable = true; } catch {}
         }
         const html = getCookiePickerHTML(port, {
+          pickerInstance: context.pickerInstance,
           browser: context.browser,
           profile: context.profile,
           clearStorage: context.clearStorage,
@@ -213,7 +214,10 @@ export async function handleCookiePickerRoute(
     if (req.method === 'POST' && !hasBearer && req.headers.get('origin') !== url.origin) {
       return errorResponse('Cookie picker mutations require a same-origin request.', 'invalid_origin', { port, status: 403 });
     }
-    const pickerContext = hasSession ? validSessions.get(sessionId!)! : undefined;
+    const pickerContext = !hasBearer && hasSession ? validSessions.get(sessionId!)! : undefined;
+    if (pickerContext && req.headers.get('X-Gstack-Picker-Instance') !== pickerContext.pickerInstance) {
+      return errorResponse('This picker no longer matches the active picker session. Reopen the picker from the intended page before continuing.', 'picker_changed', { port, status: 403 });
+    }
 
     // GET /cookie-picker/browsers — list installed browsers
     if (pathname === '/cookie-picker/browsers' && req.method === 'GET') {
