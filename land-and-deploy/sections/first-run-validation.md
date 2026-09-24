@@ -6,24 +6,14 @@ You are here because the Step 1.5 detection in the skeleton printed `FIRST_RUN`
 or `CONFIG_CHANGED` (a `CONFIRMED` run never reads this section). Nothing has
 been merged or deployed yet.
 
-**If CONFIG_CHANGED:** The deploy configuration has changed since the last confirmed deploy.
-Re-trigger the dry run. Tell the user:
+**If CONFIG_CHANGED:** Tell the user the saved deployment configuration changed
+(platform, workflow or URLs), so the dry run must be repeated.
 
-"I've deployed this project before, but your deploy configuration has changed since the last
-time. That could mean a new platform, a different workflow, or updated URLs. I'm going to
-do a quick dry run to make sure I still understand how your project deploys."
+**If FIRST_RUN:** Explain this is the first deployment for this project.
 
-Then proceed to the FIRST_RUN flow below (steps 1.5a through 1.5e).
-
-**If FIRST_RUN:** This is the first time `/land-and-deploy` is running for this project. Before doing anything irreversible, show the user exactly what will happen. This is a dry run — explain, validate, and confirm.
-
-Tell the user:
-
-"This is the first time I'm deploying this project, so I'm going to do a dry run first.
-
-Here's what that means: I'll detect your deploy infrastructure, test that my commands actually work, and show you exactly what will happen — step by step — before I touch anything. Deploys are irreversible once they hit production, so I want to earn your trust before I start merging.
-
-Let me take a look at your setup."
+For either branch, before anything irreversible: "I'll detect your infrastructure,
+validate the commands and show the deployment steps for confirmation before any
+merge." Then perform steps 1.5a–1.5e; this is a dry run, not merge permission.
 
 ### 1.5a: Deploy infrastructure detection
 
@@ -89,37 +79,23 @@ gh auth status 2>&1 | head -3
 
 Run whichever commands are relevant based on the detected platform. Build the results into this table:
 
-```
-╔══════════════════════════════════════════════════════════╗
-║         DEPLOY INFRASTRUCTURE VALIDATION                  ║
-╠══════════════════════════════════════════════════════════╣
-║                                                            ║
-║  Platform:    {platform} (from {source})                   ║
-║  App:         {app name or "N/A"}                          ║
-║  Prod URL:    {url or "not configured"}                    ║
-║                                                            ║
-║  COMMAND VALIDATION                                        ║
-║  ├─ gh auth status:     ✓ PASS                             ║
-║  ├─ {platform CLI}:     ✓ PASS / ⚠ NOT INSTALLED / ✗ FAIL ║
-║  ├─ curl prod URL:      ✓ PASS (200 OK) / ⚠ UNREACHABLE   ║
-║  └─ deploy workflow:    {file or "none detected"}          ║
-║                                                            ║
-║  STAGING DETECTION                                         ║
-║  ├─ Staging URL:        {url or "not configured"}          ║
-║  ├─ Staging workflow:   {file or "not found"}              ║
-║  └─ Preview deploys:    {detected or "not detected"}       ║
-║                                                            ║
-║  WHAT WILL HAPPEN                                          ║
-║  1. Run pre-merge readiness checks (reviews, tests, docs)  ║
-║  2. Wait for CI if pending                                 ║
-║  3. Merge PR via {merge method}                            ║
-║  4. {Wait for deploy workflow / Wait 60s / Skip}           ║
-║  5. {Run canary verification / Skip (no URL)}              ║
-║                                                            ║
-║  MERGE METHOD: {squash/merge/rebase} (from repo settings)  ║
-║  MERGE QUEUE:  {detected / not detected}                   ║
-╚══════════════════════════════════════════════════════════╝
-```
+**DEPLOY INFRASTRUCTURE VALIDATION**
+
+| Field | Detected value / result |
+|-------|-------------------------|
+| Platform / app | {platform, source} / {app or N/A} |
+| Production URL | {url or not configured} |
+| gh auth status | PASS / FAIL |
+| Platform CLI | PASS / NOT INSTALLED / FAIL |
+| curl production URL | PASS (200 OK) / UNREACHABLE |
+| Deploy workflow | {file or none detected} |
+| Staging URL / workflow | {url or not configured} / {file or not found} |
+| Preview deploys | {detected or not detected} |
+| Merge method / queue | {squash/merge/rebase, from repo settings} / {detected or not} |
+
+**WHAT WILL HAPPEN:** Run readiness checks (reviews, tests, docs); wait for pending
+CI; obtain merge confirmation; merge via {method}; {wait for deploy workflow /
+wait 60s / skip}; {run canary / skip because no URL}. Explain the detected path.
 
 **Validation failures are WARNINGs, not BLOCKERs** (except `gh auth status` which already
 failed at Step 1). If `curl` fails, note "I couldn't reach that URL — might be a network
@@ -147,9 +123,12 @@ done
 
 3. **Vercel/Netlify preview deploys:** Check PR status checks for preview URLs:
 ```bash
-gh pr checks --json name,targetUrl 2>/dev/null | head -20
+gh pr checks "$PR_NUMBER" --json name,link
 ```
-Look for check names containing "vercel", "netlify", or "preview" and extract the target URL.
+Look for check names containing "vercel", "netlify", or "preview" and inspect the
+`link` as a candidate details/preview URL, not proof that a preview is deployed.
+Parse the complete JSON; an API error is unavailable staging discovery, not an
+empty success. This optional preview lookup does not replace Step 2's CI gate.
 
 Record any staging targets found. These will be offered in Step 5.
 
@@ -184,7 +163,9 @@ Present the full dry-run results to the user via AskUserQuestion:
 - B) Something's off — let me tell you what's wrong (Completeness: 10/10)
 - C) I want to configure this more carefully first (runs /setup-deploy) (Completeness: 10/10)
 
-**If A:** Tell the user: "Great — I've saved this configuration. Next time you run `/land-and-deploy`, I'll skip the dry run and go straight to readiness checks. If your deploy setup changes (new platform, different workflows, updated URLs), I'll automatically re-run the dry run to make sure I still have it right."
+**If A:** Tell the user the configuration is saved: future runs skip the dry run
+unless platform/workflow/URL settings change. Readiness and merge confirmation
+still run every time.
 
 Save the deploy config fingerprint so we can detect future changes:
 ```bash
@@ -196,8 +177,9 @@ echo "${CURRENT_HASH}-${WORKFLOW_HASH}" > ~/.gstack/projects/$SLUG/land-deploy-c
 ```
 Continue to Step 2.
 
-**If B:** **STOP.** "Tell me what's different about your setup and I'll adjust. You can also run `/setup-deploy` to walk through the full configuration."
+**If B:** **STOP.** Ask what detection got wrong; offer `/setup-deploy` for full configuration.
 
-**If C:** **STOP.** "Running `/setup-deploy` will walk through your deploy platform, production URL, and health checks in detail. It saves everything to CLAUDE.md so I'll know exactly what to do next time. Run `/land-and-deploy` again when that's done."
+**If C:** **STOP.** Direct the user to `/setup-deploy` for platform, URL and health
+checks saved in CLAUDE.md, then rerun `/land-and-deploy`.
 
 ---

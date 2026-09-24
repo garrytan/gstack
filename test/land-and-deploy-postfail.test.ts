@@ -62,7 +62,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
 
   test("Authoritative state query uses gh pr view --json", () => {
     const body = readTmpl();
-    expect(body).toMatch(/gh pr view --json state,mergeCommit,mergedAt,mergedBy/);
+    expect(body).toMatch(/gh pr view "\$PR_NUMBER" --json state,mergeCommit,mergedAt,mergedBy/);
   });
 
   test("All three state branches named: MERGED, OPEN, CLOSED", () => {
@@ -74,7 +74,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
 
   test("MERGED branch captures merge SHA via mergeCommit.oid", () => {
     const body = readTmpl();
-    expect(body).toMatch(/gh pr view --json mergeCommit -q \.mergeCommit\.oid/);
+    expect(body).toMatch(/gh pr view "\$PR_NUMBER" --json mergeCommit -q \.mergeCommit\.oid/);
   });
 
   test("MERGED worktree cleanup is non-destructive (uncommitted-work guard)", () => {
@@ -96,7 +96,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
   // base checkout's origin, because fork branches do not exist in origin.
   test("MERGED branch reconciles the PR head repository (ls-remote, confirm-first delete)", () => {
     const body = readTmpl();
-    expect(body).toMatch(/gh pr view --json headRepositoryOwner,headRepository,headRefName/);
+    expect(body).toMatch(/gh pr view "\$PR_NUMBER" --json headRepositoryOwner,headRepository,headRefName/);
     // gh leaves .headRepository.nameWithOwner empty (verified live, gh 2.83) —
     // owner/name is composed from headRepositoryOwner.login + headRepository.name.
     expect(body).toMatch(/headRepositoryOwner\.login/);
@@ -120,7 +120,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
 
   test("OPEN branch checks autoMergeRequest before treating as failure", () => {
     const body = readTmpl();
-    expect(body).toMatch(/gh pr view --json autoMergeRequest/);
+    expect(body).toMatch(/gh pr view "\$PR_NUMBER" --json autoMergeRequest/);
     expect(body).toMatch(/auto-merge is enabled or merge queue is in use/);
   });
 

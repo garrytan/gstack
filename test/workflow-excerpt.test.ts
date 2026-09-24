@@ -71,9 +71,12 @@ describe('workflow judge excerpts', () => {
 
   test('ship uses project-native commands and never jumps over mandatory gates', () => {
     const text = readWorkflowExcerpt('ship/SKILL.md', '# Ship:', '## Important Rules');
-    expect(text).toContain("Use the project's test commands discovered in Step 4");
-    expect(text).toContain('**Project-native path:**');
-    expect(text).toContain('Use the documented selector and pre-merge command.');
+    expect(text).toContain('Resolve every required test, lint, typecheck and eval lane once');
+    expect(text).toContain('(working directory, exact command bytes, evidence label)');
+    expect(text).toContain("Use Step 5's tuples and evidence wrapper.");
+    expect(text).toContain("Keep the project's pre-merge tier,");
+    expect(text).toContain('required selection with zero cases');
+    expect(text).toContain('eval command is **missing validation**, not a pass or no-match skip.');
     expect(text).not.toMatch(/skipping evals[^\n]*Step 9/);
     const reviewAndTriage = text.slice(text.indexOf('## Step 9:'), text.indexOf('## Step 11:'));
     expect(reviewAndTriage.match(/continue to Step 12/i)).toBeNull();

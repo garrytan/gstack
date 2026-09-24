@@ -871,10 +871,13 @@ under Step 15 before returning here. Reuse unchanged results and actual approval
 Then check test evidence against the final content:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-evidence check --label tests --expect-cmd '<exact tests-lane command from Step 5>' --label vitest --expect-cmd '<exact vitest-lane command from Step 5>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md
+(cd '<lane working directory>' && ~/.claude/skills/gstack/bin/gstack-evidence check --label '<lane label>' --expect-cmd '<exact lane command>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md)
 ```
 
-Use only Step 5's actual lane labels and exact commands; `vitest` is an example.
+Check EVERY required tuple resolved in Steps 5–6, including eval, lint and typecheck
+lanes; missing evidence is not permission to omit a lane. Run the check from the
+same working directory and pass `--expect-cmd` the exact command string that lane
+ran. A different runner under the same label cannot satisfy the check.
 If Step 4 explicitly declined testing and no lanes exist, report that gap instead
 of inventing FRESH evidence. Build verification still applies.
 
@@ -893,6 +896,10 @@ Step 7 tests, review fixes, and Step 14 TODO edits intentionally make evidence S
   exit, and log; report ledger unavailable and continue, but never label the ledger FRESH.
   If unchanged content cannot be confirmed, STOP. Do not rerun green suites solely for bookkeeping.
   A failed CHECK selects live verification: a failed CHECK never blocks; a failed RUN does, except for the explicit triage waiver below.
+
+Carry the resolved tuples and their evidence log references into the PR test plan
+for `/land-and-deploy`. A changed working directory, command or tested tree requires
+new evidence; a new session must not substitute another runner for the same label.
 
 Paste build and rerun results. Later code, test, or build-input changes return
 through this gate before pushing. Step 18 owns validation of its post-push

@@ -105,6 +105,7 @@ export const STRICT_RETRY_CASE_BUDGETS = [...FINDING_RETRY_BUDGETS, AUQ_CONSISTE
 export const FILE_RETRY_BUDGETS = [
   ...STRICT_RETRY_CASE_BUDGETS,
   ...[
+    { file: 'test/skill-e2e-ship-land-contracts.test.ts', attemptMs: 29 * (120_000 + 10_000), retries: 1 },
     // Fifteen workflow judges include their 10s recording grace; the other
     // eleven judges retain 120s. Supervise all 26 and the existing one retry.
     { file: 'test/skill-llm-eval.test.ts', attemptMs: 15 * (JUDGE_MS + 10_000) + 11 * JUDGE_MS, retries: 1 },

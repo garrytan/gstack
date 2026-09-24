@@ -59,6 +59,7 @@ readiness first.
 - GitHub CLI not authenticated
 - No PR found for this branch
 - CI failures or merge conflicts
+- Missing required validation commands or unknown/unmet requested human review (Step 3.5)
 - Permission denied on merge
 - Deploy workflow failure (offer revert)
 - Production health issues detected by canary (offer revert)
@@ -95,7 +96,7 @@ gh auth status
 ```
 If not authenticated, **STOP**: "I need GitHub CLI access to merge your PR. Run `gh auth login` to connect, then try `/land-and-deploy` again."
 
-2. Parse arguments. If the user specified `#NNN`, use that PR number. If a URL was provided, save it for canary verification in Step 7.
+2. Parse arguments. If the user specified `#NNN`, use that PR number. If a URL was provided, save it for canary verification in Step 7. Set `PR_NUMBER` to the resolved PR and use it for every subsequent PR query and merge, even when it differs from the checked-out branch. Resolve its base repository as `{owner}/{repo}`; do not query a fork's review history by mistake.
 
 3. If no PR number specified, detect from current branch:
 ```bash
@@ -153,17 +154,22 @@ Tell the user: "Checking CI status and merge readiness..."
 Check CI status and merge readiness:
 
 ```bash
-gh pr checks --json name,state,status,conclusion
+gh pr checks "$PR_NUMBER" --json name,state,bucket
 ```
 
-Parse the output:
-1. If any required checks are **FAILING**: **STOP.** "CI is failing on this PR. Here are the failing checks: {list}. Fix these before deploying — I won't merge code that hasn't passed CI."
-2. If required checks are **PENDING**: Tell the user "CI is still running. I'll wait for it to finish." Proceed to Step 3.
-3. If all checks pass (or no required checks): Tell the user "CI passed." Skip only Step 3's wait loop; continue to Step 3.4, then Step 3.5 before merging.
+Use the supported `bucket` classification with `state` for detail. Inspect output
+even on nonzero exit (`gh pr checks` uses exit 8 for pending); an API/auth/parse
+failure is UNKNOWN, never green. `fail` or `cancel` means **STOP**; `pending` means
+wait in Step 3. `skipping` is not a successful run: confirm the project's declared
+CI/branch rules allow that omission, otherwise stop. Unknown buckets/states block.
+Only all applicable checks at `pass` means "CI passed." An empty check list needs
+confirmation from the declared CI and applicable branch rules that no checks are
+required; report "No CI checks required", not "CI passed". Missing required checks
+block. If clear, skip only Step 3's wait loop; continue to Step 3.4, then Step 3.5.
 
 Also check for merge conflicts:
 ```bash
-gh pr view --json mergeable -q .mergeable
+gh pr view "$PR_NUMBER" --json mergeable -q .mergeable
 ```
 If `CONFLICTING`: **STOP.** "This PR has merge conflicts with the base branch. Resolve the conflicts and push, then run `/land-and-deploy` again."
 
@@ -174,12 +180,14 @@ If `CONFLICTING`: **STOP.** "This PR has merge conflicts with the base branch. R
 If required checks are still pending, wait for them to complete. Use a timeout of 15 minutes:
 
 ```bash
-gh pr checks --watch --fail-fast
+gh pr checks "$PR_NUMBER" --watch --fail-fast
 ```
 
 Record the CI wait time for the deploy report.
 
-If CI passes within the timeout: Tell the user "CI passed after {duration}. Moving to readiness checks." Continue to Step 3.4, then Step 3.5 before merging.
+If the watch completes: rerun Step 2's JSON check and classification; a completed
+watch alone does not prove CI passed. When clear, report the outcome and duration,
+then continue to Step 3.4, then Step 3.5 before merging.
 If CI fails: **STOP.** "CI failed. Here's what broke: {failures}. This needs to pass before I can merge."
 If timeout (15 min): **STOP.** "CI has been running for over 15 minutes — that's unusual. Check the GitHub Actions tab to see if something is stuck."
 
@@ -191,7 +199,7 @@ Before gathering readiness evidence, verify that the VERSION this PR claims is s
 
 ```bash
 BRANCH_VERSION=$(git show HEAD:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
-BASE_BRANCH=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)
+BASE_BRANCH=$(gh pr view "$PR_NUMBER" --json baseRefName -q .baseRefName 2>/dev/null || echo main)
 BASE_VERSION=$(git show origin/$BASE_BRANCH:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
 
 # Imply bump level by comparing branch VERSION to base (crude but good enough for drift detection)

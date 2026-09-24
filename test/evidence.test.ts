@@ -55,6 +55,30 @@ afterEach(() => {
 });
 
 describe('gstack-evidence run', () => {
+  test('binds the same exact command and label to its working directory', () => {
+    fs.mkdirSync(path.join(repoDir, 'nested'));
+    fs.writeFileSync(path.join(repoDir, 'nested', 'input.txt'), 'nested\n');
+    git('add nested/input.txt');
+    git('commit -q -m nested');
+    const command = 'printf "native suite\\n"';
+    expect(run(['run', '--label', 'tests', '--', command]).status).toBe(0);
+    const otherDirectory = run(['check', '--label', 'tests', '--expect-cmd', command], { cwd: path.join(repoDir, 'nested') });
+    expect(otherDirectory.status).toBe(1);
+    expect(otherDirectory.stdout).toContain('working directory changed');
+    expect(run(['check', '--label', 'tests', '--expect-cmd', command]).status).toBe(0);
+    expect(records().pop().cwd).toBe(fs.realpathSync(repoDir));
+  });
+
+  test('legacy records without a working directory require a live rerun', () => {
+    expect(run(['run', '--label', 'tests', '--', 'echo ok']).status).toBe(0);
+    const rec = records().pop();
+    delete rec.cwd;
+    fs.writeFileSync(ledgerFile(), JSON.stringify(rec) + '\n');
+    const check = run(['check', '--label', 'tests', '--expect-cmd', 'echo ok']);
+    expect(check.status).toBe(1);
+    expect(check.stdout).toContain('record has no working directory');
+  });
+
   test('records a complete evidence record and propagates exit 0', () => {
     const r = run(['run', '--label', 'tests', '--', 'echo ok']);
     expect(r.status).toBe(0);
