@@ -852,7 +852,7 @@ Remember `RUN_ID` and restate it literally in later blocks (each bash block is a
 **Phase 0: mechanical scan** (only after `IMPECCABLE_READY`). Pick the mode once: a URL target (any URL, localhost included) is DOM mode; diff-aware with no URL is source mode. Source mode scans the changed frontend files now, against the base branch (`gh pr view --json baseRefName -q .baseRefName`, else `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`; never assume `main`; an unknown base is refused, exit 1):
 
 ```bash
-_DJ=$(mktemp); bun --no-env-file run $HOME/.claude/skills/gstack/bin/gstack-design-detect.ts scan --changed <base> --format gstack --host claude > "$_DJ"; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
+_DJ=$(mktemp "${TMPDIR:-/tmp}/gstack.XXXXXX"); bun --no-env-file run $HOME/.claude/skills/gstack/bin/gstack-design-detect.ts scan --changed <base> --format gstack --host claude > "$_DJ"; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
 ```
 
 DOM mode never scans source (Rule 4): Phase 3 dumps each page's rendered DOM into `$REPORT_DIR/dom/$RUN_ID/` and scans once after the last page. Exit 2 means findings; exit 1 means a target could not be scanned (note which, move on); exit 0 with an empty `$_DJ` means the probe state changed since Setup (read the sentinel on stderr); exit 3 is a gstack bug (`DESIGN_DETECT_INTERNAL_ERROR`: report it, never retry). Each rule in the `DETECT_TOP` block becomes one `FINDING-NNN` tagged `[rule-id]` with the printed impact and its location list, never one finding per hit. A detector hit is evidence, not a verdict: confirm it in the rendered page before it counts, drop it when DESIGN.md tokens bless the value, never pad the report with advisory rows. Phase 9 recomputes the same way (DOM mode re-dumps the affected pages after reload; source mode rescans the touched files) and Phase 10 reports `Detector: N → M`. When `IMPECCABLE_SKILL: present`, end each deferred finding with the `handoff=` command the scan printed (`/impeccable typeset`, `layout`, `colorize`, `harden`, `clarify`, `polish`, `animate`, `quieter`); recommend it, never open its files.
@@ -1125,7 +1125,7 @@ console.log("ASIDE_DIR=" + pwd); await closeTab(pg); console.log("GSTACK_STEP_OK
 Fallback engine (`$B js` calls the function in the page, spliced the same way; `--out` accepts only temp dirs or cwd; never `$B html`, which wraps output in content markers):
 
 ```bash
-_TMP=$(mktemp -d); _DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")
+_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack.XXXXXX"); _DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")
 $B js '('"$_DUMP"')()' --out "$_TMP/{page}.dom.html" --raw && echo "DUMP=$_TMP/{page}.dom.html"
 ```
 
@@ -1142,7 +1142,7 @@ else mkdir -p "$_REPORT/dom/$_RUN" && cp "$_D" "$_REPORT/dom/$_RUN/" && chmod 60
 After the LAST page's dump, scan the run directory once (source mode scanned in Setup instead):
 
 ```bash
-_DJ=$(mktemp); bun --no-env-file run $HOME/.claude/skills/gstack/bin/gstack-design-detect.ts scan --format gstack --host claude "<REPORT_DIR from Setup>/dom/<RUN_ID>" > "$_DJ"; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
+_DJ=$(mktemp "${TMPDIR:-/tmp}/gstack.XXXXXX"); bun --no-env-file run $HOME/.claude/skills/gstack/bin/gstack-design-detect.ts scan --format gstack --host claude "<REPORT_DIR from Setup>/dom/<RUN_ID>" > "$_DJ"; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
 ```
 
 Say once in the report: "static scan of the rendered DOM; cross-origin CSS not resolved". A DOM-mode `file:line` points into `{page}.dom.html` and is approximate (HTML findings carry line 0); the `snippet` locates the element. Confirm each hit in the rendered page, never by hunting a source line. `design-system-*` rows compare the page against THIS repository's DESIGN.md: keep them only when the page is this repository's own app. An empty `$_DJ` with exit 0 means the probe state changed since Setup: read the sentinel the scan printed on stderr. Dumps are deleted after Phase 9 unless the user passed `--keep-dom`.

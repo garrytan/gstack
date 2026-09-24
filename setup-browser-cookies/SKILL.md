@@ -195,7 +195,7 @@ If `NEEDS_SETUP`:
    if ! command -v bun >/dev/null 2>&1; then
      BUN_VERSION="1.3.10"
      BUN_INSTALL_SHA="bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd"
-     tmpfile=$(mktemp)
+     tmpfile=$(mktemp "${TMPDIR:-/tmp}/gstack.XXXXXX")
      curl -fsSL "https://bun.sh/install" -o "$tmpfile"
      # shasum is macOS/perl; coreutils-only Linux ships sha256sum instead —
      # resolve whichever exists so the verify never fails on a missing tool.

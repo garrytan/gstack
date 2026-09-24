@@ -141,7 +141,7 @@ do_write() {
   fi
   ensure_file
   local TMPERR
-  TMPERR=$(mktemp)
+  TMPERR=$(mktemp "${TMPDIR:-/tmp}/gstack.XXXXXX")
   # Use function-local cleanup via RETURN trap so variable lookup only happens
   # while the function is on the stack (avoids EXIT-trap unbound-var race).
   trap "rm -f '$TMPERR'" RETURN

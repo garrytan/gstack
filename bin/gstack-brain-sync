@@ -646,9 +646,9 @@ subcmd_once() {
   fi
 
   local paths_file class_file snapshot_file
-  paths_file=$(mktemp /tmp/brain-sync-paths.XXXXXX) || { rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
-  class_file=$(mktemp /tmp/brain-sync-class.XXXXXX) || { rm -f "$paths_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
-  snapshot_file=$(mktemp /tmp/brain-sync-snapshot.XXXXXX) || { rm -f "$paths_file" "$class_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
+  paths_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-paths.XXXXXX") || { rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
+  class_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-class.XXXXXX") || { rm -f "$paths_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
+  snapshot_file=$(mktemp "${TMPDIR:-/tmp}/brain-sync-snapshot.XXXXXX") || { rm -f "$paths_file" "$class_file"; rm -rf "$lock_dir" 2>/dev/null; write_status "error" "mktemp failed"; exit 1; }
   # Single trap covers all: lock cleanup AND tempfile cleanup.
   trap 'rm -f "$paths_file" "$class_file" "$snapshot_file" 2>/dev/null; rm -rf "$lock_dir" 2>/dev/null || true' EXIT INT TERM
 

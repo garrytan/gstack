@@ -36,7 +36,7 @@ fi
 # ─── Fetch aggregated stats from edge function ────────────────
 # HTTP status captured (#1947): a backend failure must read as "unknown",
 # never as a healthy "Weekly active installs: 0".
-TMPBODY="$(mktemp)"
+TMPBODY="$(mktemp "${TMPDIR:-/tmp}/gstack.XXXXXX")"
 trap 'rm -f "$TMPBODY"' EXIT
 SUPA_HOST="${SUPABASE_URL#*://}"; SUPA_HOST="${SUPA_HOST%%/*}"
 HTTP_CODE="$(_receipted_curl open community-dashboard "$SUPA_HOST" community-pulse-fetch "user-invoked dashboard" --no-payload \

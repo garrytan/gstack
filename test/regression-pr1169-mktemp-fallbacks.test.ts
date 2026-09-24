@@ -69,15 +69,15 @@ describe("#2679: skill-content mktemp guards", () => {
     // source, so match to end-of-line rather than [^}]* (which stops at the
     // interpolation's closing brace).
     const body = readScript("scripts/resolvers/redact-doc.ts");
-    expect(body).toMatch(/REDACT_FILE=\$\(mktemp\)\s*\|\|\s*\{.*exit 1/);
+    expect(body).toMatch(/REDACT_FILE=\$\(mktemp[^)]*\)\s*\|\|\s*\{.*exit 1/);
     // And the rendered output (interpolation resolved) carries the guard too.
     const rendered = readScript("spec/sections/gate-and-file.md");
-    expect(rendered).toMatch(/REDACT_FILE=\$\(mktemp\)\s*\|\|\s*\{[^}]*exit 1/);
+    expect(rendered).toMatch(/REDACT_FILE=\$\(mktemp[^)]*\)\s*\|\|\s*\{[^}]*exit 1/);
   });
 
   test("ship pr-body template guards PR_BODY_FILE=$(mktemp) with a loud exit", () => {
     const body = readScript("ship/sections/pr-body.md.tmpl");
-    expect(body).toMatch(/PR_BODY_FILE=\$\(mktemp\)\s*\|\|\s*\{[^}]*exit 1/);
+    expect(body).toMatch(/PR_BODY_FILE=\$\(mktemp[^)]*\)\s*\|\|\s*\{[^}]*exit 1/);
   });
 
   test("ship pr-body GitLab path sends the SCANNED file, never a re-rendered heredoc", () => {
@@ -88,7 +88,7 @@ describe("#2679: skill-content mktemp guards", () => {
 
   test("gstack-upgrade vendored block guards mktemp -d and clone with loud aborts", () => {
     const body = readScript("gstack-upgrade/SKILL.md.tmpl");
-    expect(body).toMatch(/TMP_DIR=\$\(mktemp -d\)\s*\|\|\s*\{[^}]*exit 1/);
+    expect(body).toMatch(/TMP_DIR=\$\(mktemp -d[^)]*\)\s*\|\|\s*\{[^}]*exit 1/);
     expect(body).toMatch(/git clone[^\n]*\|\|\s*\{[^}]*exit 1/);
   });
 
@@ -149,5 +149,27 @@ describe("PR #1169 bug #5: supabase/verify-rls.sh mktemp fallback", () => {
       /mktemp\s+[^\n]+\)["']\s*\|\|\s*\{[^}]*(?:return|exit)\s+\d/
     );
     expect(guard).not.toBeNull();
+  });
+});
+
+// Sandbox portability: on macOS, bare `mktemp`, `mktemp -d`, and `mktemp -t`
+// ignore $TMPDIR and create under /var/folders/.../T, which sandboxed agent
+// shells (Claude Code Seatbelt) deny; hardcoded /tmp/... is denied too. Every
+// temp file must use an explicit template under ${TMPDIR:-/tmp}.
+describe("mktemp honors $TMPDIR (sandbox portability)", () => {
+  test("no bin/, resolver, or .tmpl site uses bare, -t, or hardcoded-/tmp mktemp", () => {
+    const { execFileSync } = require("node:child_process");
+    const files = execFileSync("git", ["ls-files", "bin", "scripts/resolvers", "*.tmpl", "**/*.tmpl"], {
+      cwd: ROOT, encoding: "utf-8",
+    }).split("\n").filter(Boolean).filter((f: string) => fs.existsSync(path.join(ROOT, f)));
+    const bad = /\bmktemp(\s+-d)?\s*\)|\bmktemp\s+-t\s|\bmktemp(\s+-d)?\s+\/tmp\//;
+    const offenders: string[] = [];
+    for (const rel of new Set<string>(files)) {
+      readScript(rel).split("\n").forEach((line, i) => {
+        if (/^\s*(#|\/\/)/.test(line)) return;
+        if (bad.test(line)) offenders.push(`${rel}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    expect(offenders).toEqual([]);
   });
 });

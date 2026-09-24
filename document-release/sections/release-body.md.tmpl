@@ -224,7 +224,7 @@ near the write-back.
 1. Create a private run directory, then replace **every** `<run-dir>` below with its printed absolute path. This literal path survives separate shell calls; do not substitute `$$`.
 
 ```bash
-mktemp -d /tmp/gstack-doc-release-XXXXXXXX
+mktemp -d "${TMPDIR:-/tmp}/gstack-doc-release-XXXXXXXX"
 ```
 
 Fetch the existing PR/MR body using the platform from the shared Step 0. If no PR/MR exists, skip body/title updates and continue to the summary.

@@ -2517,7 +2517,7 @@ describe('DESIGN_DETECTOR resolver', () => {
     expect(c).not.toContain('document.documentElement.cloneNode');
     expect(c).toContain('_DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")');
     expect(c).toContain(`const html = await pg.evaluate('"$_DUMP"');`);
-    expect(c).toContain('_TMP=$(mktemp -d); _DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")');
+    expect(c).toContain('_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack.XXXXXX"); _DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")');
   });
 
   test('every rendered Aside script is single-quoted: a page-controlled <url> is never inside a double-quoted bash string', () => {
