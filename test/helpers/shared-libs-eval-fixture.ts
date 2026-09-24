@@ -445,7 +445,7 @@ export function isInternalClaudeGitRequest(request: SourceRequest, commands: str
   // Require direct process ancestry AND the exact observed host prefix AND no
   // matching model request. A shell/model-issued unguarded Git call still fails.
   return request.tool === 'git' && !!request.ppid &&
-    /(?:^|[/\\])claude(?:$|[/\\])/.test(request.parentExecutable || '') &&
+    /(?:^|[/\\])claude(?:\.exe)?$/.test(request.parentExecutable || '') &&
     JSON.stringify(request.args.slice(0, hostPrefix.length)) === JSON.stringify(hostPrefix) &&
     !commands.some(command => command.includes('core.safecrlf=false') || command.includes('protocol.ext.allow=never'));
 }
@@ -835,9 +835,11 @@ function skippedReviewOption(question: any): any {
       option[field] !== undefined && typeof option[field] !== 'string')) return [];
     const label = option.label.replace(/[‘’]/g, "'").replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
       .replace(/\s*\(recommended\)\s*$/i, '').trim();
+    const preservation = /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source|flag)\b/i;
     const rank = /^(?:skip|decline)(?=$|\s|[,.!])/i.test(label) ? 3
       : /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i.test(label) ? 2
-        : /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source)\b/i.test(label) ? 1 : 0;
+        : preservation.test(label) || /^(?:keep|leave)\b/i.test(label)
+          && preservation.test((option.description ?? '').trim()) ? 1 : 0;
     if (!rank) return [];
     // A leading decline names rejected work. Classify later commitments rather
     // than action words inside recorded metadata or hypothetical consequences.

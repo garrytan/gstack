@@ -7,7 +7,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import {
   createSharedInteractiveToolHandler, createSharedLibsFixture, fixtureGit, fixtureWrite, installSourceShims,
   readRequests, seedOpportunitySources, sharedReadOnlyViolations, shellQuote, snapshotFixture, type SharedLibsFixture,
-  SharedCaptureAccumulator, type SharedCaptureAttempt,
+  SharedCaptureAccumulator, type SharedCaptureAttempt, isInternalClaudeGitRequest,
 } from './helpers/shared-libs-eval-fixture';
 import { EvalCollector, type EvalTestEntry } from './helpers/eval-store';
 import { collectorOutcomeCounts } from '../scripts/test-paid-shards';
@@ -746,5 +746,270 @@ test('outer-timeout', () => captures.runAttempt('outer-timeout', ['audit'], 50, 
       expect(collectorOutcomeCounts([result])).toEqual({ executed: 1, reused: 0,
         passed: mode === 'retry' ? 1 : 0, failed: mode === 'retry' ? 0 : 1, attempts: mode === 'retry' ? 2 : 1 });
     }
+  });
+});
+
+const nativeCallbackReceipts = {
+  "intrinsic": [
+    {
+      "source": "/home/user/.capy/work/shared-libs-captures/1790267940497-shared-libs-read-only-1-1.json",
+      "source_sha256": "5c4b660f37f0a100e5eef97896241b1b139ec4c57f38d9d450fb153543da6fac",
+      "public_request": {
+        "tool": "git",
+        "args": [
+          "-c",
+          "protocol.ext.allow=never",
+          "-c",
+          "submodule.recurse=false",
+          "-c",
+          "log.showSignature=false",
+          "-c",
+          "gc.auto=0",
+          "-c",
+          "maintenance.auto=false",
+          "--literal-pathspecs",
+          "-c",
+          "core.hooksPath=/dev/null",
+          "-c",
+          "core.fsmonitor=",
+          "-c",
+          "core.askPass=",
+          "-c",
+          "core.quotePath=false",
+          "-c",
+          "core.safecrlf=false",
+          "ls-files",
+          "-z",
+          "--stage"
+        ],
+        "cwd": "/tmp/gp.31WCir/gstack-paid-shard-vrRGND/tmp/gstack-shared-read-only-2MmRCJ/repo",
+        "pid": 143899,
+        "ppid": 142186,
+        "parentExecutable": "/home/user/.capy/work/auq-parallel/live-runtime/node/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+        "parentCommand": "claude -p --model claude-fable-5-1 --output-format stream-json --verbose --dangerously-skip-permissions --max-turns 24 --allowed-tools Bash Read Write Edit Glob Grep --tools Bash,Read,Write,Edit,Glob,Grep --strict-mcp-config "
+      },
+      "matching_model_commands": []
+    },
+    {
+      "source": "/home/user/.capy/work/shared-libs-captures/1790267831562-shared-libs-unsupported-git-2-1.json",
+      "source_sha256": "b8ba13edc9d9145aa0d706474e65cde07ad139dc48586363a4293a31ba0433ee",
+      "public_request": {
+        "tool": "git",
+        "args": [
+          "-c",
+          "protocol.ext.allow=never",
+          "-c",
+          "submodule.recurse=false",
+          "-c",
+          "log.showSignature=false",
+          "-c",
+          "gc.auto=0",
+          "-c",
+          "maintenance.auto=false",
+          "--literal-pathspecs",
+          "-c",
+          "core.hooksPath=/dev/null",
+          "-c",
+          "core.fsmonitor=",
+          "-c",
+          "core.askPass=",
+          "-c",
+          "core.quotePath=false",
+          "-c",
+          "core.safecrlf=false",
+          "ls-files",
+          "-z",
+          "--stage"
+        ],
+        "cwd": "/tmp/gp.31WCir/gstack-paid-shard-vrRGND/tmp/gstack-shared-unsupported-9F2Sn4/repo",
+        "pid": 143802,
+        "ppid": 142187,
+        "parentExecutable": "/home/user/.capy/work/auq-parallel/live-runtime/node/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+        "parentCommand": "claude -p --model claude-fable-5-1 --output-format stream-json --verbose --dangerously-skip-permissions --max-turns 24 --allowed-tools Bash Read Write Edit Glob Grep --tools Bash,Read,Write,Edit,Glob,Grep --strict-mcp-config "
+      },
+      "matching_model_commands": []
+    },
+    {
+      "source": "/home/user/.capy/work/shared-libs-captures/1790267998748-shared-libs-unsupported-git-3-1.json",
+      "source_sha256": "8d96bd61f292dd06dd36751f10f0bed3ae476d2548b1edcc36cd799ed2b3a3d0",
+      "public_request": {
+        "tool": "git",
+        "args": [
+          "-c",
+          "protocol.ext.allow=never",
+          "-c",
+          "submodule.recurse=false",
+          "-c",
+          "log.showSignature=false",
+          "-c",
+          "gc.auto=0",
+          "-c",
+          "maintenance.auto=false",
+          "--literal-pathspecs",
+          "-c",
+          "core.hooksPath=/dev/null",
+          "-c",
+          "core.fsmonitor=",
+          "-c",
+          "core.askPass=",
+          "-c",
+          "core.quotePath=false",
+          "-c",
+          "core.safecrlf=false",
+          "ls-files",
+          "-z",
+          "--stage"
+        ],
+        "cwd": "/tmp/gp.31WCir/gstack-paid-shard-vrRGND/tmp/gstack-shared-unsupported-rjrwjI/repo",
+        "pid": 150423,
+        "ppid": 148331,
+        "parentExecutable": "/home/user/.capy/work/auq-parallel/live-runtime/node/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+        "parentCommand": "claude -p --model claude-fable-5-1 --output-format stream-json --verbose --dangerously-skip-permissions --max-turns 24 --allowed-tools Bash Read Write Edit Glob Grep --tools Bash,Read,Write,Edit,Glob,Grep --strict-mcp-config "
+      },
+      "matching_model_commands": []
+    },
+    {
+      "source": "/home/user/.capy/work/shared-libs-captures/1790268179335-shared-libs-read-only-4-1.json",
+      "source_sha256": "c83606c5ab05752cc06cf521876e95590a667248cb8671679f7d96ff7e3b1e50",
+      "public_request": {
+        "tool": "git",
+        "args": [
+          "-c",
+          "protocol.ext.allow=never",
+          "-c",
+          "submodule.recurse=false",
+          "-c",
+          "log.showSignature=false",
+          "-c",
+          "gc.auto=0",
+          "-c",
+          "maintenance.auto=false",
+          "--literal-pathspecs",
+          "-c",
+          "core.hooksPath=/dev/null",
+          "-c",
+          "core.fsmonitor=",
+          "-c",
+          "core.askPass=",
+          "-c",
+          "core.quotePath=false",
+          "-c",
+          "core.safecrlf=false",
+          "ls-files",
+          "-z",
+          "--stage"
+        ],
+        "cwd": "/tmp/gp.31WCir/gstack-paid-shard-vrRGND/tmp/gstack-shared-read-only-5hvPxS/repo",
+        "pid": 152778,
+        "ppid": 151592,
+        "parentExecutable": "/home/user/.capy/work/auq-parallel/live-runtime/node/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+        "parentCommand": "claude -p --model claude-fable-5-1 --output-format stream-json --verbose --dangerously-skip-permissions --max-turns 24 --allowed-tools Bash Read Write Edit Glob Grep --tools Bash,Read,Write,Edit,Glob,Grep --strict-mcp-config "
+      },
+      "matching_model_commands": []
+    }
+  ],
+  "actor": {
+    "source": "/home/user/.capy/work/shared-libs-captures/1790267826913-shared-libs-review-index-flags-gstack-shared-path-assume-unchanged-SLsqS1.jsonl.failure.json",
+    "source_sha256": "e2d579052e2d18329bb6ab5b672be64405da5485afd5fefa035b6881d675a5f3",
+    "public_question": {
+      "questions": [
+        {
+          "question": "1. [ADVISORY] src/retry-worker.ts:2-15 — The diff replaces `export { retrySeconds } from '../lib/retry-after'` with a byte-identical copy of the helper. src/retry-route.ts:2-15 holds a third identical copy. Proposal: reuse existing lib/retry-after.ts#retrySeconds (tested in test/retry-after.test.ts, used by src/scheduler.ts). Migrate both callers back to the one-line re-export. Implementation: -30/+2 lines (28 saved); total the same unless you want an import smoke test (+~4). No preserved differences — all copies identical, same TS runtime, no separate-deployment evidence in the repo. Shared-failure blast radius unchanged (scheduler already depends on the helper). Your prior Skip can't be inherited because the route's raw bytes changed under an assume-unchanged flag. Apply this extraction?",
+          "header": "Advisory",
+          "options": [
+            {
+              "label": "Fix as recommended (Recommended)",
+              "description": "Restore the re-export in src/retry-worker.ts and src/retry-route.ts; remove the two duplicate function bodies."
+            },
+            {
+              "label": "Fix worker only",
+              "description": "Restore the re-export only in the changed file src/retry-worker.ts; leave src/retry-route.ts as is."
+            },
+            {
+              "label": "Skip",
+              "description": "Keep the duplicated copies; record the skip with fresh snapshot coverage."
+            }
+          ],
+          "multiSelect": false
+        },
+        {
+          "question": "2. Git state note (not a code finding): src/retry-route.ts is flagged assume-unchanged in the index, so its working-tree edit (a trailing comment line) is invisible to `git diff`/`git status` and would not be committed by `git add`. Should I clear the flag with `git update-index --no-assume-unchanged src/retry-route.ts`? This changes the snapshot fingerprint, so I would restart the review pass with a new start token.",
+          "header": "Index flag",
+          "options": [
+            {
+              "label": "Clear the flag (Recommended)",
+              "description": "Make the hidden route change visible to Git; re-run the review pass against the corrected snapshot."
+            },
+            {
+              "label": "Leave it",
+              "description": "Keep the assume-unchanged flag; I will report it in the summary and exclude the path from reusable coverage."
+            }
+          ],
+          "multiSelect": false
+        }
+      ]
+    }
+  }
+};
+
+describe('retained native runtime callback failures', () => {
+  test.each(nativeCallbackReceipts.intrinsic)('recognizes the protected native probe from $source_sha256', receipt => {
+    const request = receipt.public_request, commands = receipt.matching_model_commands;
+    expect(request.parentExecutable.endsWith('/claude.exe')).toBe(true);
+    expect(request.args.slice(-3)).toEqual(['ls-files', '-z', '--stage']);
+    expect(commands).toEqual([]);
+    expect(isInternalClaudeGitRequest(request, commands)).toBe(true);
+    expect(isInternalClaudeGitRequest({ ...request, parentExecutable: request.parentExecutable.replace(/\.exe$/, '') }, commands)).toBe(true);
+    expect(isInternalClaudeGitRequest({ ...request, parentExecutable: 'C:\\runtime\\claude.exe' }, commands)).toBe(true);
+    for (const parentExecutable of ['/usr/bin/bash', '/runtime/claude.exe.sh', '/runtime/claude/worker', '/runtime/notclaude.exe', '']) {
+      expect(isInternalClaudeGitRequest({ ...request, parentExecutable }, commands)).toBe(false);
+    }
+    expect(isInternalClaudeGitRequest({ ...request, ppid: undefined }, commands)).toBe(false);
+    expect(isInternalClaudeGitRequest({ ...request, tool: 'gh' }, commands)).toBe(false);
+    expect(isInternalClaudeGitRequest({ ...request, args: request.args.slice(2) }, commands)).toBe(false);
+    expect(isInternalClaudeGitRequest({ ...request, args: request.args.map(arg => arg === 'core.hooksPath=/dev/null' ? 'core.hooksPath=/foreign' : arg) }, commands)).toBe(false);
+    for (const command of ['git -c protocol.ext.allow=never ls-files -z --stage', 'git -c core.safecrlf=false ls-files']) {
+      expect(isInternalClaudeGitRequest(request, [...commands, command])).toBe(false);
+    }
+  });
+
+  test('answers the exact captured two-question skip-only request without altering its input', async () => {
+    const input = structuredClone(nativeCallbackReceipts.actor.public_question), before = structuredClone(input);
+    const observed: unknown[] = [];
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => { throw new Error('unexpected tool'); },
+      onQuestion: question => observed.push({ question }),
+      onAnswer: (question, answers) => observed.push({ question, answers }),
+      onRefusal: error => observed.push({ refusal: error.message }),
+    });
+    const answers = { [input.questions[0].question]: 'Skip', [input.questions[1].question]: 'Leave it' };
+    expect(await callback('AskUserQuestion', input)).toEqual({ behavior: 'allow', updatedInput: { ...input, answers } });
+    expect(observed).toEqual([{ question: input }, { question: input, answers }]);
+    expect(input).toEqual(before);
+  });
+
+  test.each(['Leave it', 'Keep it', 'Leave that alone'])('classifies preservation from the complete %s option', async label => {
+    const input = structuredClone(nativeCallbackReceipts.actor.public_question);
+    input.questions[1].options[1].label = label;
+    const callback = createSharedInteractiveToolHandler('skip', { nonQuestion: () => {}, onQuestion: () => {}, onAnswer: () => {} });
+    expect((await callback('AskUserQuestion', input)).updatedInput.answers[input.questions[1].question]).toBe(label);
+  });
+
+  test.each([
+    'Clear the assume-unchanged flag and modify the route.',
+    'Keep the assume-unchanged flag; apply both source edits.',
+    'Keep the code unchanged, but the route will import the helper.',
+    'Keep the flag; this option updates the worker.',
+    'Keep the flag; reuse the parser in the worker.',
+  ])('refuses a preservation label with an affirmative description: %s', async description => {
+    const input = structuredClone(nativeCallbackReceipts.actor.public_question);
+    input.questions[1].options[1].description = description;
+    const events: string[] = [];
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => {}, onQuestion: () => events.push('question'),
+      onAnswer: () => events.push('answer'), onRefusal: () => events.push('refusal'),
+    });
+    await expect(callback('AskUserQuestion', input)).rejects.toThrow('No unambiguous no-change option');
+    expect(events).toEqual(['question', 'refusal']);
   });
 });
