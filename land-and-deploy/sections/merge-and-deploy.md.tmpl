@@ -7,8 +7,12 @@ Try auto-merge first (respects repo merge settings and merge queues):
 
 Resolve `MERGE_METHOD` from Deploy Configuration, checking GitHub's allowed methods via `gh api repos/{owner}/{repo} --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'`. With no configured method, prefer squash, then merge, then rebase among allowed methods. If a configured method is disallowed or no method is allowed, stop and ask. Set `MERGE_FLAG` to exactly `--squash`, `--merge`, or `--rebase` accordingly.
 
+**Worktree-safe invocation.** Always pass `-R "$PR_REPO" "$PR_NUMBER"` to both `gh pr merge` calls below. Without `-R`, `gh` runs `git checkout <base>` locally after a successful server merge; when `<base>` is checked out in a sibling worktree (Conductor and other multi-workspace setups), that fails with `fatal: '<base>' is already used by worktree at ...`. The server merge still lands in that failure mode, but `--delete-branch` does not run — leaving an orphan head ref on the remote and forcing recovery through the §4a-postfail path. `-R` routes every step through the API and skips the local git operations entirely; in a non-worktree repo it just replicates the auto-detected repo, so it is strictly safer.
+
 ```bash
-gh pr merge "$MERGE_FLAG" --auto --delete-branch
+PR_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+PR_NUMBER=$(gh pr view --json number -q .number)
+gh pr merge -R "$PR_REPO" "$PR_NUMBER" "$MERGE_FLAG" --auto --delete-branch
 ```
 
 If `--auto` succeeds: record `MERGE_PATH=auto`. This means the repo has auto-merge enabled
@@ -29,7 +33,7 @@ the flow is unaffected — but do not report the second one as "auto-merge is di
    before this step runs.
 
 ```bash
-gh pr merge "$MERGE_FLAG" --delete-branch
+gh pr merge -R "$PR_REPO" "$PR_NUMBER" "$MERGE_FLAG" --delete-branch
 ```
 
 If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged successfully. The branch has been cleaned up."

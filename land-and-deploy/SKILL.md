@@ -568,7 +568,7 @@ If all fail, fall back to `main`.
 
 Print the detected base branch name. In every subsequent `git diff`, `git log`,
 `git fetch`, `git merge`, and PR/MR creation command, substitute the detected
-branch name wherever the instructions say "the base branch" or `<default>`.
+branch name wherever the instructions say "the base branch", `<base>`, or `<default>`.
 
 ---
 
