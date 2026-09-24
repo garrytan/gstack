@@ -10,6 +10,8 @@
  */
 
 import { discoverTemplates, discoverSectionTemplates, includesSkill } from './discover-skills';
+import { externalSkillName, extractNameAndDescription } from './external-skill-names';
+export { extractNameAndDescription } from './external-skill-names';
 import { generateLlmsTxt } from './gen-llms-txt';
 import { generateAgentsDigest, DIGEST_RELPATH, DIGEST_BYTE_BUDGET } from './gen-agents-digest';
 import { generateDesignChecklistMd } from './resolvers/design-checklist';
@@ -144,57 +146,6 @@ function rewriteSectionBase(content: string, linkRoot: string | null): string {
 // live in ./resolvers/constants and are consumed by resolvers directly.
 
 // ─── External Host Helpers ───────────────────────────────────
-
-// Canonical implementation (the codex-helpers.ts shadow copy was deleted —
-// it was imported, immediately shadowed by this declaration, and stale)
-// Accepts optional frontmatter name to support directory/invocation name divergence
-function externalSkillName(skillDir: string, frontmatterName?: string): string {
-  // Root skill (skillDir === '' or '.') always maps to 'gstack' regardless of frontmatter
-  if (skillDir === '.' || skillDir === '') return 'gstack';
-  // Use frontmatter name when it differs from directory name (e.g., run-tests/ with name: test)
-  const baseName = frontmatterName && frontmatterName !== skillDir ? frontmatterName : skillDir;
-  // Don't double-prefix: gstack-upgrade → gstack-upgrade (not gstack-gstack-upgrade)
-  if (baseName.startsWith('gstack-')) return baseName;
-  return `gstack-${baseName}`;
-}
-
-export function extractNameAndDescription(content: string): { name: string; description: string } {
-  const fmStart = content.indexOf('---\n');
-  if (fmStart !== 0) return { name: '', description: '' };
-  const fmEnd = content.indexOf('\n---', fmStart + 4);
-  if (fmEnd === -1) return { name: '', description: '' };
-
-  const frontmatter = content.slice(fmStart + 4, fmEnd);
-  const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
-  const name = nameMatch ? nameMatch[1].trim() : '';
-
-  let description = '';
-  const lines = frontmatter.split('\n');
-  let inDescription = false;
-  const descLines: string[] = [];
-  for (const line of lines) {
-    if (line.match(/^description:\s*\|?\s*$/)) {
-      inDescription = true;
-      continue;
-    }
-    if (line.match(/^description:\s*\S/)) {
-      description = line.replace(/^description:\s*/, '').trim();
-      break;
-    }
-    if (inDescription) {
-      if (line === '' || line.match(/^\s/)) {
-        descLines.push(line.replace(/^  /, ''));
-      } else {
-        break;
-      }
-    }
-  }
-  if (descLines.length > 0) {
-    description = descLines.join('\n').trim();
-  }
-
-  return { name, description };
-}
 
 // ─── Voice Trigger Processing ────────────────────────────────
 

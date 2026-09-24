@@ -350,7 +350,10 @@ describe('terminal-agent owned lifecycle regression', () => {
       expect(old.ownerPid).toBe(daemon.pid);
       expect(isOurAgent(old, daemon.pid)).toBe(true);
       expect(killAgentByRecord(old, 'SIGKILL')).toBe(true);
-      expect(await waitFor(() => !!readAgentRecord(stateDir) && readAgentRecord(stateDir)!.gen !== old.gen, 5000)).toBe(true);
+      expect(await waitFor(() => {
+        const record = readAgentRecord(stateDir);
+        return !!record && record.gen !== old.gen;
+      }, 5000)).toBe(true);
       const successor = { ...JSON.parse(fs.readFileSync(stateFile, 'utf8')), pid: process.pid, instanceId: 'synthetic-successor' };
       fs.writeFileSync(stateFile, JSON.stringify(successor));
       expect(await waitFor(() => daemon.exitCode !== null, 5000)).toBe(true);

@@ -1052,7 +1052,7 @@ async function main() {
 
   // Write port file atomically so the parent server can pick it up.
   // Throws on failure — a boot without a discoverable port file is broken.
-  const releasePublication = acquireAgentStateLock(dir);
+  const releasePublication = acquireAgentStateLock(dir, 5000, process.env.BROWSE_AGENT_GEN);
   let record;
   try {
     const current = readAgentRecord(dir);

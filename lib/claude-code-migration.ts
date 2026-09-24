@@ -251,7 +251,7 @@ export function migrateClaudeCodeSkills(opts: RenameOptions): { migrated: number
   }
   // A failed/colliding host can still depend on a shared old render. Keep all
   // old renders until every known dependent installation has its replacement.
-  if (result.pending.length === 0 && candidates.length > 0) {
+  if (result.pending.length === 0 && candidates.length > 0 && env.GSTACK_DEFER_CLAUDE_RENAME_PRUNE !== '1') {
     for (const subdir of new Set(targets.map(t => t.subdir))) {
       const oldRender = path.join(root, subdir, 'skills', OLD);
       if (fs.lstatSync(oldRender, { throwIfNoEntry: false })?.isDirectory() && generated(path.join(oldRender, 'SKILL.md'))) {

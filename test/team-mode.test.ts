@@ -351,10 +351,14 @@ describe('setup --team / --no-team / -q', () => {
       fs.writeFileSync(file, content, { mode: 0o755 });
     };
     try {
-      for (const rel of ['setup', 'VERSION', 'SKILL.md', 'qa/SKILL.md', 'bin/gstack-config', 'bin/gstack-patch-names', 'scripts/resolve-codex-generation-model.ts', 'scripts/models.ts']) {
+      for (const rel of ['setup', 'VERSION', 'SKILL.md', 'qa/SKILL.md', 'bin/gstack-config', 'bin/gstack-patch-names', 'scripts/resolve-codex-generation-model.ts', 'scripts/models.ts', 'scripts/preflight-codex-overlap.ts', 'scripts/discover-skills.ts', 'scripts/external-skill-names.ts', 'scripts/host-config.ts']) {
         const dest = path.join(cwd, rel);
         fs.mkdirSync(path.dirname(dest), { recursive: true });
         fs.copyFileSync(path.join(ROOT, rel), dest);
+      }
+      fs.mkdirSync(path.join(cwd, 'hosts'));
+      for (const name of fs.readdirSync(path.join(ROOT, 'hosts')).filter(name => name.endsWith('.ts'))) {
+        fs.copyFileSync(path.join(ROOT, 'hosts', name), path.join(cwd, 'hosts', name));
       }
       for (const dir of ['browse/src', 'make-pdf/src', 'design/src', 'lib']) fs.mkdirSync(path.join(cwd, dir), { recursive: true });
       // Same executable-presence contract as setup-needs-build.test.ts. These
@@ -378,6 +382,14 @@ case "$*" in
     exit 0 ;;
   'run gen:skill-docs --host codex --model gpt-6-astra') mkdir -p .agents/skills; exit 0 ;;
   'run scripts/resolve-codex-generation-model.ts') exec ${quote(process.execPath)} "$@" ;;
+  *'/scripts/preflight-codex-overlap.ts --source '*)
+    [[ "$#" -eq 13 && "$1" = ${quote(path.join(cwd, 'scripts/preflight-codex-overlap.ts'))}
+      && "$2" = --source && "$3" = ${quote(cwd)}
+      && "$4" = --namespace && "$5" = ${quote(path.join(home, '.codex/skills'))}
+      && "$6" = --selected && "$7" = 0 && "$8" = --local && "$9" = 0
+      && "\${10}" = --windows && "\${11}" = ${process.platform === 'win32' ? '1' : '0'}
+      && "\${12}" = --relocation && "\${13}" = ${quote(path.join(home, '.gstack/repos/gstack'))} ]] || exit 90
+    exec ${quote(process.execPath)} "$@" ;;
   *) echo "Unexpected setup prerequisite: $*" >&2; exit 90 ;;
 esac
 `, { mode: 0o755 });

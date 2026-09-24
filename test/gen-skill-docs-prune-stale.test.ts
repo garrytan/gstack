@@ -39,7 +39,7 @@ describe('gen-skill-docs stale-render prune', () => {
     const source = path.join(out, 'source');
     fs.mkdirSync(path.join(source, 'scripts'), { recursive: true });
     fs.copyFileSync(path.join(ROOT, 'scripts', 'gen-skill-docs.ts'), path.join(source, 'scripts', 'gen-skill-docs.ts'));
-    for (const file of ['discover-skills.ts', 'gen-llms-txt.ts', 'gen-agents-digest.ts', 'models.ts']) {
+    for (const file of ['discover-skills.ts', 'external-skill-names.ts', 'gen-llms-txt.ts', 'gen-agents-digest.ts', 'models.ts']) {
       fs.symlinkSync(path.join(ROOT, 'scripts', file), path.join(source, 'scripts', file), 'file');
     }
     fs.symlinkSync(path.join(ROOT, 'scripts', 'resolvers'), path.join(source, 'scripts', 'resolvers'), 'dir');
