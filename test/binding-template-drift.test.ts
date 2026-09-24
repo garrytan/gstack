@@ -45,7 +45,8 @@ describe('content-binding template drift', () => {
   test('ship Step 16 carries the evidence check (mechanized IRON LAW)', () => {
     const ship = rendered('ship/SKILL.md');
     expect(ship).toMatch(/gstack-evidence check --label tests --expect-cmd '[^']+' --label vitest --expect-cmd '[^']+' --max-age 24 --allow-paths CHANGELOG\.md,VERSION,package\.json/);
-    expect(ship).toContain('a failed CHECK never blocks');
+    expect(ship).toContain('A failed CHECK identifies evidence to repair; it is not a test failure');
+    expect(ship).toContain('required live RUN must pass');
   });
 
   test('ship Step 5 lanes run wrapped with per-lane labels', () => {

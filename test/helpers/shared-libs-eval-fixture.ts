@@ -836,17 +836,19 @@ function skippedReviewOption(question: any): any {
     const label = option.label.replace(/[‘’]/g, "'").replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
       .replace(/\s*\(recommended\)\s*$/i, '').trim()
       .replace(/^no\s*[,.:!?]\s*(?=(?:skip|decline|keep|leave|do not|don't)\b)/i, '');
-    const referentialRetention = /^(?:keep|leave)\s+(?:it|this|that|them)$/i.test(label);
+    const referentialRetention = /^(?:keep|leave)\s+(?:it|this|that|them|these)$/i.test(label);
     const preservation = option.description?.trim().match(/^(?:keep|leave|retain|preserve)\s+([^,;.!?]+)/i);
     const preservedObject = preservation?.[1].split(/\b(?:and|but|while)\b/i)[0]
       .replace(/\b(?:the|this|that|current|existing|local|as[- ]is|unchanged|untouched|set|hidden)\b/gi, '').trim();
     const describedRetention = !!preservedObject
       && !/^\w+ing\b/i.test(preservedObject)
       && /^(?:(?:duplicated|original|prior|tracked|untracked)\s+)*(?:(?:index|skip-worktree|assume-unchanged)\s+)?(?:flags?|code|source|implementations?|copies|copy|files?|routes?|workers?|helpers?|parsers?|changes?|contents?|state|branches|branch|worktrees?)$/i.test(preservedObject);
-    const preservationRank = referentialRetention ? describedRetention
+    const description = (option.description ?? '').replace(/[‘’]/g, "'").trim();
+    const declinesChange = /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i;
+    const preservationRank = referentialRetention ? describedRetention || declinesChange.test(description)
       : /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source)\b/i.test(label);
     const rank = /^(?:skip|decline)(?=$|\s|[,.!])/i.test(label) ? 3
-      : /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i.test(label) ? 2
+      : declinesChange.test(label) ? 2
         : preservationRank ? 1 : 0;
     if (!rank) return [];
     // A leading decline names rejected work. Classify later commitments rather

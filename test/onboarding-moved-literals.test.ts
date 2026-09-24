@@ -31,7 +31,6 @@ const MOVED: Record<string, string> = {
   'spawned-session': 'spawned by an AI orchestrator',
   'privacy-stop-gate': 'How much should sync?',
   'upgrade-flow': 'Inline upgrade flow',
-  'feature-discovery': 'Continuous checkpoint auto-commits',
 };
 
 function generatedSkillFiles(): string[] {
@@ -49,6 +48,14 @@ function generatedSkillFiles(): string[] {
 }
 
 describe('onboarding moved-literals tombstone (F5)', () => {
+  test('checkpoint prompts and automatic WIP instructions are absent from runtime and skills', () => {
+    expect(SCRIPT).not.toMatch(/checkpoint|auto-commit|WIP:/i);
+    for (const file of generatedSkillFiles()) {
+      expect(fs.readFileSync(file, 'utf8'), path.relative(ROOT, file))
+        .not.toMatch(/Continuous Checkpoint Mode|CHECKPOINT_MODE|CHECKPOINT_PUSH|\[gstack-context\]|wip-context-before-squash/);
+    }
+  });
+
   test('every moved flow lives in bin/gstack-skill-start', () => {
     const missing = Object.entries(MOVED).filter(([, lit]) => !SCRIPT.includes(lit));
     expect(

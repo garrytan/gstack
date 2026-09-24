@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, spyOn, test } from 'bun:test';
 import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -26,6 +26,7 @@ const record = stage => {
   }
 };
 record('descendant_start');
+await Bun.sleep(Number(process.env.DESCENDANT_DELAY_MS || 0));
 setInterval(() => {}, 1000);
 await new Promise(resolve => process.stdout.write(' ', resolve));
 record('stdout_flushed');
@@ -48,6 +49,10 @@ const prompt = await Bun.stdin.text();
 record('stdin_read');
 writeFileSync(process.env.CAPTURE!, JSON.stringify({args:process.argv.slice(2),prompt,cwd:process.cwd(),model:process.env.ANTHROPIC_MODEL,auth:process.env.ANTHROPIC_API_KEY}));
 const mode = process.env.FAKE_MODE;
+if (mode === 'startup-timeout') {
+  setInterval(() => {}, 1000);
+  await new Promise(() => {});
+}
 if (mode === 'timeout' || mode === 'descendant' || mode === 'escaped') {
   rmSync(process.env.PID_FILE!, { force: true });
   // libuv on Windows kills non-detached children when this fake exits. The
@@ -273,11 +278,30 @@ describe('Claude Code restricted execution', () => {
     rmSync(ACTOR_STAGES, { force: true });
     rmSync(DESCENDANT_STAGES, { force: true });
     const before = ['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name));
-    const start = Date.now();
+    const startedAtUnixMs = Date.now();
     const startedProcessNs = process.hrtime.bigint().toString();
     let returned: { atUnixMs: number; processNs: string; timedOut: boolean } | undefined;
+    const schedule = globalThis.setTimeout;
+    let fireTimeout: (() => void) | undefined;
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) => {
+      if (delay !== 500) return schedule(callback, delay, ...args);
+      fireTimeout = () => callback(...args);
+      return schedule(() => {}, 0);
+    });
+    let invocation: ReturnType<typeof run>;
     try {
-      const result = await run('timeout', {timeoutMs:500});
+      invocation = run('timeout', {timeoutMs:500, env:{...env('timeout'), DESCENDANT_DELAY_MS:'750'}});
+    } finally { timer.mockRestore(); }
+    try {
+      expect(fireTimeout).toBeDefined();
+      const readyBy = Date.now() + 2000;
+      while (!existsSync(PID) && Date.now() < readyBy) await Bun.sleep(5);
+      expect(running(Number(readFileSync(PID, 'utf8')))).toBe(true);
+      const start = Date.now();
+      const expire = fireTimeout!;
+      fireTimeout = undefined;
+      expire();
+      const result = await invocation;
       returned = { atUnixMs: Date.now(), processNs: process.hrtime.bigint().toString(), timedOut: result.error?.code === 'timeout' };
       expect(result.status).toBe('unavailable');
       expect(result.error?.code).toBe('timeout');
@@ -285,9 +309,23 @@ describe('Claude Code restricted execution', () => {
       expect(['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name))).toEqual(before);
       await expectDescendantDead();
     } finally {
-      console.error(JSON.stringify({ claudeTimeoutStages: { startedAtUnixMs: start, startedProcessNs, timeoutMs: 500, readinessMs: 2000, returned, pidPublished: existsSync(PID), actor: timeoutStageReceipt(ACTOR_STAGES), descendant: timeoutStageReceipt(DESCENDANT_STAGES) } }));
+      console.error(JSON.stringify({ claudeTimeoutStages: { startedAtUnixMs, startedProcessNs, timeoutMs: 500, readinessMs: 2000, returned, pidPublished: existsSync(PID), actor: timeoutStageReceipt(ACTOR_STAGES), descendant: timeoutStageReceipt(DESCENDANT_STAGES) } }));
+      fireTimeout?.();
+      await invocation;
       cleanupDescendant();
     }
+  });
+
+  test('the real deadline bounds startup before descendant readiness', async () => {
+    rmSync(PID, { force: true });
+    const before = ['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name));
+    const start = Date.now();
+    const result = await run('startup-timeout', {timeoutMs:500});
+    expect(result.status).toBe('unavailable');
+    expect(result.error?.code).toBe('timeout');
+    expect(Date.now() - start).toBeLessThan(2000);
+    expect(['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name))).toEqual(before);
+    expect(() => readFileSync(PID)).toThrow();
   });
 
   test('a child exiting with inherited pipes is unavailable within the drain deadline', async () => {

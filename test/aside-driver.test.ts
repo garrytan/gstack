@@ -20,6 +20,7 @@ import { generateTestBootstrap } from '../scripts/resolvers/testing';
 import { generateBrowseFallback, generateBrowseSetup } from '../scripts/resolvers/browse';
 import { RESOLVERS } from '../scripts/resolvers/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
+import { extractDesignResearchContract } from './helpers/skill-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ctx = { skillName: 'qa', tmplPath: '', host: 'claude' as const, paths: HOST_PATHS['claude'] };
@@ -304,15 +305,16 @@ describe('web research ({{ASIDE_RESEARCH}})', () => {
       const md = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
       expect({ skill, count: md.split('## Web research runs in Aside').length - 1 }).toEqual({ skill, count: 1 });
       expect({ skill, hasFallbackLine: md.includes('Search unavailable — proceeding with in-distribution knowledge only.') }).toEqual({ skill, hasFallbackLine: true });
-      // The rendered RESOLVER output (heading through its closing sentence) carries the receipted
-      // prelude and no bare send. Skill-authored blocks after the placeholder are the template's own.
-      const start = md.indexOf('## Web research runs in Aside');
-      const closing = "not the user's data.";
-      const end = md.indexOf(closing, start);
-      expect({ skill, hasClosing: end > start }).toEqual({ skill, hasClosing: true });
-      const rendered = md.slice(start, end + closing.length);
+      const routing = generateAsideResearch({ ...ctx, skillName: skill });
+      expect({ skill, count: md.split(routing).length - 1 }).toEqual({ skill, count: 1 });
+      const rendered = skill === 'design-consultation' ? extractDesignResearchContract(md) : routing;
       expect({ skill, hasPrelude: rendered.includes('_aside_exec() {'), sameProbe: rendered.includes(setupProbe.trimEnd()) }).toEqual({ skill, hasPrelude: true, sameProbe: true });
       expect({ skill, bareAsideExec: BARE_ASIDE_EXEC.test(rendered) }).toEqual({ skill, bareAsideExec: false });
+      if (skill === 'design-consultation') {
+        expect(routing).toContain('Reuse the Phase 0 BROWSER SETUP result; do not repeat the probe here');
+        expect(rendered.split(setupProbe.trimEnd())).toHaveLength(2);
+        expect(rendered.split('_aside_exec() {')).toHaveLength(2);
+      }
     }
   });
 });

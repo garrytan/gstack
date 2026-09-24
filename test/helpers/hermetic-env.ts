@@ -213,7 +213,6 @@ export function seedHermeticGstackHome(gstackHome: string): void {
     '.telemetry-prompted',
     '.proactive-prompted',
     '.first-loop-tip-shown',
-    '.feature-prompted-continuous-checkpoint',
     '.feature-prompted-model-overlay',
   ]) {
     fs.writeFileSync(path.join(gstackHome, f), '');

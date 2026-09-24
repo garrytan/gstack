@@ -1,0 +1,87 @@
+{
+  "source": "CI run 36048177576, shared-libs-review-index-flags, merge ref 1215f799 (head b1dc44e7)",
+  "cases": [
+    {
+      "attempt": 1,
+      "input": {
+        "questions": [
+          {
+            "question": "1 advisory needs your input (no defects were found).\n\n1. [ADVISORY] src/retry-worker.ts:2 — The diff replaces `export { retrySeconds } from '../lib/retry-after'` with a byte-identical inline copy of the helper. src/retry-route.ts:2 (raw file; hidden from `git diff` by its assume-unchanged flag) carries the same copy. lib/retry-after.ts:2 is the proven helper, already used by src/scheduler.ts:1 and covered by test/retry-after.test.ts (`retry parser contract`).\n   Fix: restore the one-line re-export in the worker and replace the route's copy with the same re-export. Est. implementation: −32 / +2 lines (≈30 saved); no new tests needed; shared-failure blast radius = scheduler + worker + route, all same TS package, no runtime/deployment boundary crossed.\n\nRECOMMENDATION: Fix both callers — the helper already exists and is tested, and the copies preserve no differences.\n\nHow do you want to handle this?",
+            "header": "Advisory",
+            "options": [
+              {
+                "label": "Fix both callers (Recommended)",
+                "description": "Restore `export { retrySeconds } from '../lib/retry-after'` in src/retry-worker.ts and src/retry-route.ts."
+              },
+              {
+                "label": "Fix worker only",
+                "description": "Only revert src/retry-worker.ts (the file in the diff); leave src/retry-route.ts as-is."
+              },
+              {
+                "label": "Skip",
+                "description": "Keep the duplicated copies. Recorded as an explicit skip for this snapshot."
+              }
+            ],
+            "multiSelect": false
+          },
+          {
+            "question": "src/retry-route.ts has the Git assume-unchanged index bit set (`git ls-files -v` shows `h`). This hides real edits to that file from `git diff`, `git status`, and the review fingerprint — which is exactly why the prior skipped decision could not be trusted. Should I clear it?",
+            "header": "Index flag",
+            "options": [
+              {
+                "label": "Clear the flag (Recommended)",
+                "description": "Run `git update-index --no-assume-unchanged src/retry-route.ts` so the file's changes become visible to Git and future reviews."
+              },
+              {
+                "label": "Leave it",
+                "description": "Do not touch the index. I will note it in the summary; the path stays excluded from reusable coverage."
+              }
+            ],
+            "multiSelect": false
+          }
+        ]
+      }
+    },
+    {
+      "attempt": 2,
+      "input": {
+        "questions": [
+          {
+            "question": "Pre-Landing Review: 0 issues (0 critical, 0 informational). 1 advisory needs your input:\n\n1. [ADVISORY] src/retry-worker.ts:2 — This diff replaces the worker's re-export of lib/retry-after.ts with a byte-identical inline copy of `retrySeconds`; src/retry-route.ts:2 carries a third identical copy. lib/retry-after.ts is already used by src/scheduler.ts and tested by test/retry-after.test.ts ('retry parser contract').\n   Fix: restore `export { retrySeconds } from '../lib/retry-after';` in retry-worker.ts and apply the same one-line re-export in retry-route.ts. Impl: −30/+2 = 28 lines saved; no new tests needed (existing contract test covers the helper); shared-failure blast radius = scheduler + worker + route (scheduler already depends on it).\n\nRECOMMENDATION: Fix both — the worker change is a regression of existing reuse, and the route copy is the same contract. (Prior skip on this branch could not be reused: src/retry-route.ts is assume-unchanged and its raw bytes differ from the snapshot.)\n\nHow should I handle the advisory?",
+            "header": "Advisory",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Fix both files (Recommended)",
+                "description": "Re-export retrySeconds from lib/retry-after.ts in both src/retry-worker.ts and src/retry-route.ts (−28 lines)."
+              },
+              {
+                "label": "Fix worker only",
+                "description": "Restore the re-export in src/retry-worker.ts (revert this diff); leave src/retry-route.ts's copy in place."
+              },
+              {
+                "label": "Skip",
+                "description": "Keep the inline copies as-is; record the advisory as skipped."
+              }
+            ]
+          },
+          {
+            "question": "src/retry-route.ts is flagged assume-unchanged in the Git index (`git ls-files -v` shows `h`), so its on-disk edit (an appended comment) is invisible to `git status`/`git diff` and to the review snapshot. Should I clear that flag?",
+            "header": "Index flag",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "Clear the flag (Recommended)",
+                "description": "Run `git update-index --no-assume-unchanged src/retry-route.ts` so Git and future reviews see the file's real contents."
+              },
+              {
+                "label": "Leave it",
+                "description": "Don't touch the index flag; I'll note it in the review summary and exclude the path from reusable coverage."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
