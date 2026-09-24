@@ -5,4 +5,4 @@
 import '../lib/conductor-env-shim'; // --exact needs GSTACK_ANTHROPIC_API_KEY promotion inside Conductor
 import { contextBillMain } from '../lib/context-bill';
 
-process.exit(await contextBillMain(process.argv.slice(2)));
+process.exitCode = await contextBillMain(process.argv.slice(2));

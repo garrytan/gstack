@@ -118,6 +118,39 @@ describe('taste-engine: first-write lifecycle', () => {
 });
 
 describe('taste-engine: Laplace-smoothed confidence', () => {
+  test('first and repeated rejections use their own bucket confidence', () => {
+    for (let count = 1; count <= 5; count++) {
+      expect(run(['rejected', `variant-${count}`, '--reason', 'fonts: Comic Sans']).status).toBe(0);
+      const pref = readProfile().dimensions.fonts.rejected[0];
+      expect(pref.rejected_count).toBe(count);
+      expect(pref.approved_count).toBe(0);
+      expect(pref.confidence).toBeCloseTo(count / (count + 1), 5);
+    }
+  });
+
+  test('mixed feedback preserves independent positive and negative confidence', () => {
+    expect(run(['approved', 'v1', '--reason', 'fonts: Inter']).status).toBe(0);
+    expect(run(['approved', 'v2', '--reason', 'fonts: Inter']).status).toBe(0);
+    expect(run(['rejected', 'v3', '--reason', 'fonts: Inter']).status).toBe(0);
+    const { approved, rejected } = readProfile().dimensions.fonts;
+    expect(approved[0].confidence).toBeCloseTo(2 / 3, 5);
+    expect(rejected[0].confidence).toBeCloseTo(1 / 2, 5);
+    expect(approved[0].rejected_count).toBe(0);
+    expect(rejected[0].approved_count).toBe(0);
+  });
+
+  test.each(['approved', 'rejected'] as const)('show ranks %s feedback by strength rather than insertion order', (action) => {
+    expect(run([action, 'weak', '--reason', 'colors: beige']).status).toBe(0);
+    for (let i = 0; i < 4; i++) {
+      expect(run([action, `strong-${i}`, '--reason', 'colors: crimson']).status).toBe(0);
+    }
+    const result = run(['show']);
+    expect(result.status).toBe(0);
+    expect(result.stdout.indexOf('crimson')).toBeGreaterThanOrEqual(0);
+    expect(result.stdout.indexOf('beige')).toBeGreaterThanOrEqual(0);
+    expect(result.stdout.indexOf('crimson')).toBeLessThan(result.stdout.indexOf('beige'));
+  });
+
   test('repeated approvals raise confidence toward 1', () => {
     for (let i = 0; i < 5; i++) {
       run(['approved', `variant-${i}`, '--reason', 'fonts: Geist Sans']);
@@ -265,9 +298,18 @@ describe('taste-engine: session cap', () => {
 });
 
 describe('taste-engine: taste drift conflict detection', () => {
+  test.each(['approved', 'rejected'] as const)('real %s feedback reaches the existing drift threshold', (action) => {
+    const opposite = action === 'approved' ? 'rejected' : 'approved';
+    for (let count = 1; count <= 3; count++) {
+      expect(run([action, `signal-${count}`, '--reason', 'fonts: Inter']).status).toBe(0);
+      const result = run([opposite, `opposite-${count}`, '--reason', 'fonts: Inter']);
+      expect(result.status).toBe(0);
+      expect(result.stderr.includes('taste drift')).toBe(count >= 3);
+      if (count >= 3) expect(result.stderr).toContain(`previously ${action} with confidence 0.75`);
+    }
+  });
+
   test('warns when approved value has strong opposite signal', () => {
-    // Seed a strong rejected entry: 4 rejections, no approvals → Laplace = 0/5 but that's
-    // not > 0.6. Let's seed it directly with confidence 0.8.
     writeProfile({
       version: 1,
       updated_at: new Date().toISOString(),

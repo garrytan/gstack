@@ -1193,6 +1193,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'canary-workflow':               ['test/session-runner-stream-lifecycle.test.ts', 'canary/**', 'scripts/resolvers/aside.ts', 'browse/src/**', 'test/skill-e2e-deploy.test.ts'],
   'benchmark-workflow':            ['test/session-runner-stream-lifecycle.test.ts', 'benchmark/**', 'scripts/resolvers/aside.ts', 'browse/src/**', 'test/skill-e2e-deploy.test.ts'],
   'setup-deploy-workflow':         ['test/session-runner-stream-lifecycle.test.ts', 'setup-deploy/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-deploy.test.ts'],
+  'setup-deploy-render-unset': ['setup-deploy/**', 'test/skill-e2e-setup-deploy-render.test.ts', 'test/setup-deploy-render-presence.test.ts'],
+  'setup-deploy-render-empty': ['setup-deploy/**', 'test/skill-e2e-setup-deploy-render.test.ts', 'test/setup-deploy-render-presence.test.ts'],
+  'setup-deploy-render-present': ['setup-deploy/**', 'test/skill-e2e-setup-deploy-render.test.ts', 'test/setup-deploy-render-presence.test.ts'],
 
 
   // Autoplan
@@ -1761,6 +1764,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'canary-workflow': 'gate',
   'benchmark-workflow': 'gate',
   'setup-deploy-workflow': 'gate',
+  'setup-deploy-render-unset': 'gate',
+  'setup-deploy-render-empty': 'gate',
+  'setup-deploy-render-present': 'gate',
 
 
   // Autoplan — periodic (not yet implemented)
