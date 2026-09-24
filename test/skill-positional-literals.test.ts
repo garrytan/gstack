@@ -9,6 +9,13 @@ import { runGeneration } from '../scripts/gen-skill-docs';
 const root = mkdtempSync(join(tmpdir(), 'skill-positional-'));
 const rendered = join(root, 'rendered');
 const tenArguments = Array.from({ length: 10 }, (_, n) => `argument${n}`);
+const windowsShasumShim = `shasum() {
+  if [ "$#" -ne 2 ] || [ "$1" != "-a" ] || [ "$2" != "256" ]; then
+    printf 'fixture shasum requires exactly -a 256\\n' >&2
+    return 2
+  fi
+  sha256sum
+}`;
 const literals = {
   checksum: `actual_sha=$(sha256sum < "$tmpfile" | awk '{print $(1)}')`,
   snoozeVersion: `_SNOOZED_VER=$(awk '{print $(1)}' "$_SNOOZE_FILE")`,
@@ -75,7 +82,8 @@ for (const host of ['claude', 'codex'] as const) for (const args of [[], tenArgu
         `actual_sha=$(shasum -a 256 < "$tmpfile" | awk '{print $(1)}')`,
       ]);
       for (const line of lines) {
-        const result = run(`${line}\nprintf '%s' "$actual_sha"`, { tmpfile: process.platform === 'win32' ? file.replaceAll('\\', '/') : file });
+        const prelude = process.platform === 'win32' ? windowsShasumShim : '';
+        const result = run(`${prelude}\n${line}\nprintf '%s' "$actual_sha"`, { tmpfile: process.platform === 'win32' ? file.replaceAll('\\', '/') : file });
         expect(result.status).toBe(0);
         expect(result.stderr).toBe('');
         expect(result.stdout).toBe(createHash('sha256').update(readFileSync(file)).digest('hex'));
@@ -102,6 +110,19 @@ for (const host of ['claude', 'codex'] as const) for (const args of [[], tenArgu
     expect(result.stdout).toBe('3456');
   });
 }
+
+test('Windows shasum fixture validates its algorithm arguments and hashes stdin', () => {
+  const valid = run(`${windowsShasumShim}\nprintf fixture | shasum -a 256`);
+  expect(valid.status).toBe(0);
+  expect(valid.stderr).toBe('');
+  expect(valid.stdout.trim().split(/\s+/)[0]).toBe(createHash('sha256').update('fixture').digest('hex'));
+  for (const args of ['', '-a', '-a 1', '-x 256', '-a 256 extra']) {
+    const invalid = run(`${windowsShasumShim}\nshasum ${args}`);
+    expect(invalid.status).toBe(2);
+    expect(invalid.stdout).toBe('');
+    expect(invalid.stderr).toBe('fixture shasum requires exactly -a 256\n');
+  }
+});
 
 test('pinned Linux CLI zero-argument observation preserves bare numbered literals', () => {
   expect(substitute('$1 | $2 | $9 | ~$0.05 | $ARGUMENTS', [])).toBe('$1 | $2 | $9 | ~$0.05 | ');
