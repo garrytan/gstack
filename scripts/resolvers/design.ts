@@ -785,7 +785,7 @@ Use AskUserQuestion:
 > A) Yes — run outside design voices
 > B) No — proceed without
 
-If user chooses B, ${isDesignConsultation ? 'record one declined result as described below, skip both voices, and continue to Phase 3.' : 'skip this step and continue.'}`;
+If user chooses B, ${isDesignConsultation ? 'record one declined result as described below, skip both voices, and continue to Q2 with your draft.' : 'skip this step and continue.'}`;
 
   // Build the synthesis section
   const synthesisSection = isPlanDesignReview ? `
@@ -816,7 +816,7 @@ Fill in each cell from the ${outsideVoiceFor(ctx).label} and subagent outputs. C
 - Litmus CONFIRMED failures → pre-loaded as known issues in the relevant pass
 - Passes can skip discovery and go straight to fixing for pre-identified issues` :
     isDesignConsultation ? `
-**Handoff:** Retain every completed proposal (two, one, or none) with its source/status. Do not choose a direction here. Read Phase 3 next; Q2 compares these proposals with your earlier draft.` : `
+**Handoff:** Retain every completed proposal (two, one, or none) with its source/status. Do not choose a direction here. Q2 compares these proposals with your earlier draft.` : `
 **Synthesis — Litmus scorecard:**
 
 Use the same scorecard format as /plan-design-review (shown above). Fill in from both outputs.
@@ -826,17 +826,17 @@ Merge findings into the triage with \`[${outsideVoiceFor(ctx).id}]\` / \`[subage
   return `## Design Outside Voices (independent)
 ${optInSection}${isDesignConsultation ? `
 
-**Before Phase 3, if accepted:** Create a private shared brief:
+**If accepted:** Create a private file for the Phase 1 product brief, including Phase 2 research status:
 \`\`\`bash
 _DESIGN_BRIEF=$(mktemp /tmp/gstack-design-brief-XXXXXXXX) || exit 1
 printf 'DESIGN_BRIEF=%s\\n' "$_DESIGN_BRIEF"
 \`\`\`
-Write confirmed product/users, project type, memorable-thing answer, constraints and research (or skipped/unavailable) to that path. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file; give the native Agent its absolute path. Rebind \`$_DESIGN_BRIEF\` per Bash call. Keep your draft direction out of both prompts. Never paste brief text into shell source.` : ''}
+Write the product brief to that path; remember the absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file; give the native Agent its absolute path. Keep your draft direction out of both prompts. Never paste brief text into shell source.` : ''}
 
 **Check ${outsideVoiceFor(ctx).label} availability:**
 ${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
 
-Declined: skip both voices. Non-ready: retain the repair notice, use only the native voice, and record \`outside_status: unavailable\` even if it succeeds. The invocation rechecks the harness before spawning.
+${isDesignConsultation ? 'Non-ready CLI: retain its repair notice and use only the native voice. The invocation deliberately rechecks the harness before spawning; native success never replaces external coverage.' : 'Declined: skip both voices. Non-ready: retain the repair notice, use only the native voice, and record `outside_status: unavailable` even if it succeeds. The invocation rechecks the harness before spawning.'}
 
 **When ready**, run both voices and await both before synthesis. Overlap calls
 if supported; keep the native call blocking.
@@ -856,16 +856,23 @@ ${outsideVoiceInvocation(ctx, { timeoutMs: 300000, reasoningEffort, ...(isDesign
 - **Timeout:** "${outsideVoiceFor(ctx).label} timed out after 5 minutes."
 - **Empty response:** "${outsideVoiceFor(ctx).label} returned no response."
 - On any ${outsideVoiceFor(ctx).label} error: proceed with ${outsideVoiceFor(ctx).nativeLabel} subagent output only${isDesignConsultation ? '; identify it as the only completed independent proposal' : ', tagged \`[single-model]\`'}.
-- If ${outsideVoiceFor(ctx).nativeLabel} subagent also fails: "Outside voices unavailable — ${isDesignConsultation ? 'continuing to Phase 3 with my draft direction' : 'continuing with primary review'}."
+- If ${outsideVoiceFor(ctx).nativeLabel} subagent also fails: "Outside voices unavailable — ${isDesignConsultation ? 'continuing to Q2 with my draft direction' : 'continuing with primary review'}."
 
 ${isDesignConsultation ? 'Present only completed, available voice outputs with their actual source and status.\n' : ''}Output headers: \`${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (design ${isPlanDesignReview ? 'critique' : isDesignReview ? 'source audit' : 'direction'}):\` and \`${outsideVoiceFor(ctx).nativeLabel.toUpperCase()} SUBAGENT (design ${isPlanDesignReview ? 'completeness' : isDesignReview ? 'consistency' : 'direction'}):\`.
-${synthesisSection}${isDesignConsultation ? '\nAfter both voices finish (including failure), remove the private brief with `rm -f -- "$_DESIGN_BRIEF"`.' : ''}
+${synthesisSection}${isDesignConsultation ? '\nAfter both voices finish (including failure), delete only the private brief you created, using its remembered absolute path.' : ''}
 
 **Log the result:**${isDesignConsultation ? ' If the user accepted, run the command twice: one record for each voice, including any unavailable voice. If the user declined, run it once with STATUS=skipped, SOURCE=none, OUTSIDE_STATUS=skipped.' : ''}
 \`\`\`bash
 ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-${isDesignConsultation ? `STATUS: usable proposal=clean, unresolved product constraints=issues_found, no completion=unavailable. Taste differences are alternatives. SOURCE: completed CLI=\"${outsideVoiceFor(ctx).id}\", completed native=\"in-host\", otherwise \"none\". Both records carry the actual CLI outcome: OUTSIDE_STATUS=completed only for valid CLI output, otherwise unavailable. Native success alone keeps outside_status=\"unavailable\".` : 'STATUS=\"clean\" requires a completed review with no findings; use \"issues_found\" for findings, \"unavailable\" if neither completed. SOURCE is the completed provider or in-host.'}
+${isDesignConsultation ? `For each accepted-run record, STATUS=clean for a usable proposal, issues_found for unresolved product constraints, unavailable for no valid completion. Taste differences are alternatives, not issues.
+
+| Record | SOURCE |
+|---|---|
+| External CLI | ${outsideVoiceFor(ctx).id} when completed, otherwise "none" |
+| Native subagent | in-host when completed, otherwise "none" |
+
+Both records carry the actual CLI outcome: OUTSIDE_STATUS=completed only for successful execution with valid markers, otherwise unavailable. \`outside_provider\`/\`outside_status\` describe external coverage, not each record's source. A native-only success has STATUS=clean, SOURCE=in-host, outside_status="unavailable".` : 'STATUS="clean" requires a completed review with no findings; use "issues_found" for findings, "unavailable" if neither completed. SOURCE is the completed provider or in-host.'}
 
 ${isDesignConsultation ? 'Keep the historical skill identifier. Historical source:"claude" still means a native Claude subagent. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.' : outsideVoiceProvenance(ctx, 'design')}`;
 }
@@ -968,12 +975,17 @@ ${check}
   }
   return `**DESIGN.md format** (the open format; Phase 6 has the template):
 
+**Update-only gate:** Only **Update** with DESIGN.md enters this block (command and all result branches). **Start fresh**, **No existing file**, or a lone design-system.md: skip to **Gather product context from the codebase**. **Cancel** has already stopped the skill.
+
 ${check}
 
 - \`${SENTINEL.DESIGN_MD_FORMAT}: spec\` → already the open format; \`${bin} tokens DESIGN.md\` prints the flat token map. Update tokens in the front matter, rationale in the sections.
-- \`legacy\` with \`${SENTINEL.DESIGN_MD_MARKER}: none\` → ask once (AskUserQuestion): **A) Convert** (recommended; \`${bin} convert --write\` keeps a \`.legacy.bak\` and every section) **B) Keep legacy** (\`${bin} mark legacy-keep\`; read as prose from now on) **C) Start fresh**. The answer lives in the file, so no skill asks again; a marker already present is obeyed silently.
-- \`unknown\` → read as prose, say why once (\`${SENTINEL.DESIGN_MD_REASON}\`); \`${SENTINEL.DESIGN_MD_CONVERT_REFUSED}\` means both formats are mixed: leave it, tell the user.
-- \`missing\` → Phase 6 writes one. Exit 3 (\`${SENTINEL.DESIGN_MD_INTERNAL_ERROR}\`) is a gstack bug: report it, do not retry.`;
+- \`legacy\` with \`${SENTINEL.DESIGN_MD_MARKER}: none\` → ask once (AskUserQuestion): **A) Convert** (recommended; preview with \`${bin} convert\`, without \`--write\`) **B) Keep legacy** (retain its prose structure) **C) Start fresh** (take Phase 0's fresh path). Record the choice for Q-final. Obey an existing marker silently.
+- **Convert/Keep legacy:** After Q-final approval outside plan mode, \`${bin} convert --write\` keeps a \`.legacy.bak\` and every section, or \`${bin} mark legacy-keep\` persists the choice. In plan mode, record the chosen format in Proposed DESIGN.md instead.
+- \`unknown\` → preserve its prose shape for Update; disclose \`${SENTINEL.DESIGN_MD_REASON}\`. \`${SENTINEL.DESIGN_MD_CONVERT_REFUSED}\` → leave unchanged, ask whether to keep its shape or start fresh, then resume the proposal.
+- \`missing\` → Phase 6 writes one. Exit 3 (\`${SENTINEL.DESIGN_MD_INTERNAL_ERROR}\`) is a gstack bug: report it, do not retry.
+
+**End of Update-only format check.**`;
 }
 
 // ─── Overused fonts (role-scoped) + slop bullets for the proposal skills ───
@@ -1113,12 +1125,14 @@ else
 fi
 \`\`\`
 
-If \`DESIGN_NOT_AVAILABLE\`: skip visual mockup generation and fall back to the
+${ctx.skillName === 'design-consultation' ? `If \`DESIGN_NOT_AVAILABLE\`: use Phase 5 Path B (HTML preview). Mockups are optional.
+
+For interactive feedback, use \`compare --serve\` and its printed HTTP URL; opening board HTML directly is only a static preview.` : `If \`DESIGN_NOT_AVAILABLE\`: skip visual mockup generation and fall back to the
 existing HTML wireframe approach (\`DESIGN_SKETCH\`). Design mockups are a
 progressive enhancement, not a hard requirement.
 
 Comparison boards are local HTML files: open them with \`open file://...\` on macOS
-(\`xdg-open\` elsewhere). The user just needs to see the file in their default browser.
+(\`xdg-open\` elsewhere). The user just needs to see the file in their default browser.`}
 
 If \`DESIGN_READY\`: the design binary is available for visual mockup generation.
 Commands:
@@ -1127,7 +1141,10 @@ Commands:
 - \`$D compare --images "a.png,b.png,c.png" --output /path/board.html --serve\` — comparison board + HTTP server
 - \`$D serve --html /path/board.html\` — serve comparison board and collect feedback via HTTP
 - \`$D check --image /path.png --brief "..."\` — vision quality gate
-- \`$D iterate --session /path/session.json --feedback "..." --output /path.png\` — iterate
+- \`$D iterate --session /path/session.json --feedback "..." --output /path.png\` — iterate${ctx.skillName === 'design-consultation' ? `
+- \`$D extract --image /absolute/path.png\` — print tokens and automatically update DESIGN.md in the current Git repository; no read-only flag
+
+\`generate\` returns \`sessionFile\`; \`iterate\` requires that existing session. \`variants\` returns \`paths\` but creates no session: regenerate with an updated brief instead.` : ''}
 
 **CRITICAL PATH RULE:** Design artifacts belong in \`$GSTACK_STATE_ROOT/projects/$SLUG/designs/\`.
 Use \`bin/gstack-paths\`: GSTACK_HOME → plugin storage → ~/.gstack. Keep it even if temporary; never substitute
@@ -1215,7 +1232,44 @@ echo '{"approved_variant":"<VARIANT>","feedback":"<FEEDBACK>","date":"'$(date -u
 Reference the saved mockup in the design doc or plan.`;
 }
 
-export function generateDesignShotgunLoop(_ctx: TemplateContext): string {
+export function generateDesignShotgunLoop(ctx: TemplateContext): string {
+  if (ctx.skillName === 'design-consultation') return `### Comparison Board + Feedback Loop
+
+Use the successful, quality-checked paths in this example:
+
+\`\`\`bash
+$D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
+\`\`\`
+
+This publishes to a persistent daemon, opens the board and exits. Read captured stderr for the startup marker; a PID is not readiness. Exit 0 with \`BOARD_URL\` means the daemon is serving. Save its full \`http://127.0.0.1:N/boards/<id>/\` URL. Only legacy \`--no-daemon\` needs a host background task; \`SERVE_STARTED: port=N\` gives root URL \`http://127.0.0.1:N/\`.
+
+**Wait with AskUserQuestion:** "Review <BOARD_URL>, Submit or request new variants, then tell me; or paste preferences here." The board chooses; the question waits. Do not poll.
+
+After the response, read current feedback next to the board HTML:
+- \`feedback.json\`: Submit (preferred/overall may be null):
+\`\`\`json
+{"preferred":"A","ratings":{"A":4},"comments":{"A":"Good spacing"},"overall":"Go with A","regenerated":false}
+\`\`\`
+- \`feedback-pending.json\`: Regenerate:
+\`\`\`json
+{"preferred":"B","ratings":{"B":4},"comments":{},"overall":"Keep layout","regenerated":true,"regenerateAction":"more_like_B"}
+\`\`\`
+
+\`regenerateAction\`: \`different\`, \`match\`, \`more_like_<letter>\` or custom text (including remix). The board uses text; it does not emit a required \`remixSpec\`. Honor a pasted map (\`{"layout":"A","colors":"B"}\`) if present; clarify missing detail.
+
+**Board or chat:** revisions regenerate; a final choice needs summary confirmation; skip goes to Phase 6 without a mockup. Ask if no choice/detail; never infer approval from a missing file. Submit with revision notes is a revision.
+
+**Regenerate:**
+1. Revise the brief, preserving unrelated constraints. Archive this round's feedback files so old Submit cannot approve new images.
+2. Run \`$D variants\` with the new brief (no session). Re-run the quality check and visual self-gate on every new image.
+3. Rebuild: \`$D compare --images "<new successful paths>" --output "$_DESIGN_DIR/design-board.html"\`, without \`--serve\`.
+4. Reload at the saved URL (keep its per-board path; legacy uses root):
+   \`jq -nc --arg html "$_DESIGN_DIR/design-board.html" '{html: $html}' | curl -sS -X POST "\${BOARD_URL}api/reload" -H 'Content-Type: application/json' --data-binary @-\`
+5. Check reload succeeded, then AskUserQuestion at the same URL until a final choice, skip or stop. Failed generation/reload uses the fallback, not another wait.
+
+**SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline with Read, then AskUserQuestion: "The comparison board server failed to start. Which variant? Any changes?" Route chat feedback as above.
+
+**After receiving feedback (any path):** summarize PREFERRED, RATINGS, YOUR NOTES, DIRECTION; AskUserQuestion "Is this right?" A confirmed final choice permits Write of \`$_DESIGN_DIR/approved.json\` with \`approved_variant\`, \`feedback\`, \`date\` (UTC), \`screen\`, \`branch\`. Use valid JSON, never shell interpolation. This approves the image only; Q-final gates project writes.`;
   return `### Comparison Board + Feedback Loop
 
 Create the comparison board and serve it over HTTP:
@@ -1338,7 +1392,7 @@ else
 fi
 \`\`\`
 
-**If TASTE_PROFILE_FOUND:** Parse the full JSON; malformed/unreadable uses the legacy fallback. After decay, rank each dimension by confidence * approved_count (or rejected_count); take three per kind. Count retained sessions (at most 50, not lifetime). Include in the brief:
+**If TASTE_PROFILE_FOUND:** Parse the full JSON; malformed/unreadable uses the legacy fallback. After decay, rank each dimension by confidence * approved_count (or rejected_count); take three per kind. Count retained sessions (at most 50, not lifetime). Include in ${ctx.skillName === 'design-consultation' ? 'the Phase 1 product brief (later shared unchanged with both independent voices)' : 'the brief'}:
 
 "Based on [number of retained sessions] recorded sessions, this user's taste leans toward:
 fonts [top-3], colors [top-3], layouts [top-3], aesthetics [top-3]. Bias

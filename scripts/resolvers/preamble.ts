@@ -44,7 +44,6 @@ import { generateWritingStyle } from './preamble/generate-writing-style';
 import { generateCompletenessSection } from './preamble/generate-completeness-section';
 import { generateConfusionProtocol } from './preamble/generate-confusion-protocol';
 import { generateEvidenceDirective } from './preamble/generate-evidence-directive';
-import { generateContinuousCheckpoint } from './preamble/generate-continuous-checkpoint';
 import { generateContextHealth } from './preamble/generate-context-health';
 
 // Tier 3+ repo mode + search
@@ -58,7 +57,7 @@ export { generateTestFailureTriage } from './preamble/generate-test-failure-tria
 // Preamble Composition (tier → sections)
 // ─────────────────────────────────────────────
 // T1: core + upgrade + lake + telemetry + voice(trimmed) + completion
-// T2: T1 + voice(full) + ask + completeness + context-recovery + confusion + checkpoint + context-health
+// T2: T1 + voice(full) + ask + completeness + context-recovery + confusion + context-health
 // T3: T2 + repo-mode + search
 // T4: (same as T3 — TEST_FAILURE_TRIAGE is a separate {{}} placeholder, not preamble)
 //
@@ -106,7 +105,6 @@ export function generatePreamble(ctx: TemplateContext): string {
       generateCompletenessSection(ctx),
       generateConfusionProtocol(ctx),
       generateEvidenceDirective(ctx),
-      generateContinuousCheckpoint(),
       generateContextHealth(ctx),
       generateQuestionTuning(ctx),
     ] : []),

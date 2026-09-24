@@ -1,39 +1,7 @@
 <!-- The font-selection procedure and the three-looks calibration in this section are derived from pbakaus/impeccable reference/new-work.md (Apache-2.0), rewritten and modified. See NOTICE.md. -->
 ## Phase 3: The Complete Proposal
 
-Develop your draft with the design knowledge below. Compare completed outside proposals: explain agreements, differences, and ideas adopted with attribution. Tie the recommendation to the memorable-thing answer. Do not count agreement as a vote or invent a missing proposal. Q2 names completed, unavailable, or declined voices and presents the recommendation.
-
-**AskUserQuestion Q2 — present the full proposal with SAFE/RISK breakdown:**
-
-```
-Based on [product context] and [research findings / my design knowledge]:
-
-AESTHETIC: [direction] — [one-line rationale]
-DECORATION: [level] — [why this pairs with the aesthetic]
-LAYOUT: [approach] — [why this fits the product type]
-COLOR: [approach] + proposed palette (hex values) — [rationale]
-TYPOGRAPHY: [display, body, label, mono assignments; a face may serve multiple roles] — [why these fonts]
-SPACING: [base unit + density] — [rationale]
-MOTION: [approach] — [rationale]
-
-This system is coherent because [explain how choices reinforce each other].
-
-INDEPENDENT INPUT: [completed/unavailable/skipped voices; agreements, differences, ideas adopted and product-specific reasons — omit comparisons if none completed]
-
-SAFE CHOICES (category baseline — your users expect these):
-  - [2-3 decisions that match category conventions, with rationale for playing safe]
-
-RISKS (where your product gets its own face):
-  - [2-3 deliberate departures from convention]
-  - For each risk: what it is, why it works, what you gain, what it costs
-
-Safe choices meet category expectations; risks make the product memorable.
-Which risks appeal to you? Try others or adjust anything else?
-```
-
-Coherence alone can look generic. Propose at least 2 creative risks—type, accent, spacing, layout or motion—with rationale, benefit and cost alongside the category's safe choices.
-
-**Options:** A) Looks great — generate the preview page. B) I want to adjust [section]. C) I want different risks — show me wilder options. D) Start over with a different direction. E) Skip the preview, just write DESIGN.md.
+Read this section in full, then apply its design/font rules → draft independently → offer outside voices → synthesize for Q2. Preview and writes require their later approvals.
 
 ### Your Design Knowledge (use to inform proposals — do NOT display as tables)
 
@@ -74,6 +42,48 @@ Coherence alone can look generic. Propose at least 2 creative risks—type, acce
 
 After any override, gently flag mismatches and offer alternatives: Brutalist/Minimal + expressive motion → quieter motion or keep intentionally; Drenched + minimal decoration → supporting decoration; editorial + dense data → hybrid layout. Never block; accept the user's final choice and proceed.
 
+### Independent proposals, then synthesis
+
+Draft your own direction from the product brief using the rules above. Keep that draft out of both reviewers' prompts; send the product context, not your answer.
+
+{{DESIGN_OUTSIDE_VOICES}}
+
+Compare completed outside proposals: explain agreements, differences, and ideas adopted with attribution. Verify any newly suggested fonts before adopting them using the same procedure above. Tie the recommendation to the memorable-thing answer. Do not count agreement as a vote or invent a missing proposal. Q2 names completed, unavailable, or declined voices and presents the recommendation.
+
+**AskUserQuestion Q2 — present the full proposal with SAFE/RISK breakdown:**
+
+```
+Based on [product context] and [research findings / my design knowledge]:
+
+AESTHETIC: [direction] — [one-line rationale]
+DECORATION: [level] — [why this pairs with the aesthetic]
+LAYOUT: [approach] — [why this fits the product type]
+COLOR: [approach] + proposed palette (hex values) — [rationale]
+TYPOGRAPHY: [display, body, label, mono assignments; a face may serve multiple roles] — [why these fonts]
+SPACING: [base unit + density] — [rationale]
+MOTION: [approach] — [rationale]
+
+This system is coherent because [explain how choices reinforce each other].
+
+INDEPENDENT INPUT: [completed/unavailable/skipped voices; agreements, differences, ideas adopted and product-specific reasons — omit comparisons if none completed]
+
+SAFE CHOICES (category baseline — your users expect these):
+  - [2-3 decisions that match category conventions, with rationale for playing safe]
+
+RISKS (where your product gets its own face):
+  - [2-3 deliberate departures from convention]
+  - For each risk: what it is, why it works, what you gain, what it costs
+
+Safe choices meet category expectations; risks make the product memorable.
+Which risks appeal to you? Try others or adjust anything else?
+```
+
+Coherence alone can look generic. Propose at least 2 creative risks—type, accent, spacing, layout or motion—with rationale, benefit and cost alongside the category's safe choices.
+
+**Options:** A) Looks great — proceed to Phase 5 if fonts are verified. B) Adjust [section] — Phase 4, then Q2 again. C) Different risks — revise the proposal, then Q2 again. D) Start over — draft another direction using the same confirmed brief. E) Skip the preview — proceed to Phase 6's Q-final, not straight to writing.
+
+Revisions recheck fonts and coherence. If the product brief changes, label old proposals stale and offer fresh independent voices; do not claim they reviewed new context.
+
 ---
 
 ## Phase 4: Drill-downs (only if user requests adjustments)
@@ -83,6 +93,8 @@ Use one focused AskUserQuestion per requested drill-down: **Fonts:** 3-5 candida
 ---
 
 ## Phase 5: Design System Preview (default ON)
+
+After Q2 approval: pending fonts or a preview skip → Phase 6 with limitations. Generation unavailable/failed → offer Path B or skip, not unbounded retries.
 
 ### Path A: AI Mockups (if DESIGN_READY)
 
@@ -102,24 +114,37 @@ Brief: Phase 3 aesthetic/colors/type/spacing/layout plus Phase 1 product context
 $D variants --brief "<product name: [name]. Product type: [type]. Aesthetic: [direction]. Colors: primary [hex], secondary [hex], neutrals [range]. Typography: display [font], body [font]. Layout: [approach]. Show a realistic [page type] screen with [specific content for this product].>" --count 3 --output-dir "$_DESIGN_DIR/"
 ```
 
-Run quality check on each variant:
+Run quality check on each successful path returned by `variants`; never include failed variants:
 
 ```bash
 $D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the original brief>"
 ```
 
-Read each PNG to show the variants inline.
+Read JSON, not exit code: `pass: false` means regenerate addressing `issues`, then recheck. `pass: true` with an unavailable/skipped warning is missing automated coverage; disclose it and inspect visually.
 
 **Before presenting, self-gate:** Would a human designer be embarrassed to sign each variant? If yes, discard and regenerate. Hard rejects: purple gradient hero, 3-column SaaS grid, centered-everything, overused display face, generic stock photo, system-ui, gradient CTA, bubble-radius everything. Any trigger requires regeneration.
 
-Open the board before inviting the user to choose or remix.
+Read each accepted PNG inline, then open the board with those paths before inviting choices/remix.
 
 {{DESIGN_SHOTGUN_LOOP}}
 
-After the user picks a direction:
+After final image confirmation, `$D extract` would write DESIGN.md in a Git repo: run it only in a fresh non-repository scratch directory. Bind `$D` and `APPROVED_IMAGE` to absolute paths:
 
-- `$D extract --image "$_DESIGN_DIR/variant-<CHOSEN>.png"`: Phase 6 color/type/spacing tokens come from the approved visual, not text alone.
-- Further iteration: `$D iterate --feedback "<user's feedback>" --output "$_DESIGN_DIR/refined.png"`
+```bash
+_EXTRACT_DIR=$(mktemp -d /tmp/gstack-design-extract-XXXXXXXX) || exit 1
+(
+  cd "$_EXTRACT_DIR" || exit 1
+  if git rev-parse --show-toplevel >/dev/null 2>&1; then
+    echo "Extraction refused: scratch directory resolves to a Git repository" >&2
+    exit 1
+  fi
+  "$D" extract --image "$APPROVED_IMAGE"
+)
+```
+
+Compare extracted tokens with the approved image and verified fonts; show discrepancies at Q-final. Empty arrays, an "Unable to extract" mood or command failure → disclose fallback to Phase 3 values, never invent measured tokens.
+
+Late visual changes return to the feedback loop: regenerate, recheck, reconfirm, then extract again. Only `generate` supplies `sessionFile` for `$D iterate --session "<returned sessionFile>" --feedback "<feedback>" --output "$_DESIGN_DIR/refined.png"`; variants must regenerate.
 
 **Plan mode:** Carry the approved mockup paths/tokens into Phase 6's "## Proposed DESIGN.md" plan section. Its Q-final approval governs saving that content; defer the actual DESIGN.md to implementation.
 
@@ -167,18 +192,18 @@ If the user says skip the preview, go directly to Phase 6.
 
 ## Phase 6: Write DESIGN.md & Confirm
 
-Only Path A invokes `$D extract` for approved mockup tokens. For Path B, use the approved HTML preview's CSS values. No preview: approved Phase 3 values with pending fonts. Retain Phase 3 rationale.
+Only Path A invokes `$D extract`, isolated as above. For Path B, use the approved HTML preview's CSS values. No preview: approved Phase 3 values; mark only unverified fonts pending. Retain rationale and unchanged existing decisions.
 
 **Confirm before writing.** Prepare the contents below; show decisions and agent-selected defaults. AskUserQuestion Q-final:
 - A) Approve — write DESIGN.md and CLAUDE.md; in plan mode, save Proposed DESIGN.md in the plan only
 - B) Revise — return to Phase 3, then confirm again
 - C) Start over — return to Phase 1
 
-Wait. Only A permits the writes below; B/C leave project files untouched. Honor prior explicit approval of these exact writes without re-asking.
+Wait. Only A permits the writes below; B/C leave project files untouched. Honor prior explicit approval of these exact writes without re-asking. Any subsequent token, font or direction change invalidates that approval: update the proposal, reverify affected fonts/preview, and ask Q-final again. A changed product brief also invalidates prior independent proposals.
 
 **If in plan mode:** Write the DESIGN.md content into the plan file as a "## Proposed DESIGN.md" section. Do NOT write the actual file — that happens at implementation time.
 
-**If NOT in plan mode:** Write root `DESIGN.md` in google-labs-code/design.md format. All tokens belong in the five normative YAML groups below; prose explains rationale/use without repeating values. Preserve the line-2 format marker to prevent conversion re-asks. A Phase 0 kept-legacy file instead retains its own shape.
+**If NOT in plan mode:** apply the approved Phase 0 format choice, then write root `DESIGN.md`. New, fresh and converted files use google-labs-code/design.md format below: all tokens belong in the five normative YAML groups; prose explains rationale/use without repeating values. Preserve the line-2 format marker. A kept-legacy or unknown-format Update instead retains its own shape; persist `legacy-keep` only for the chosen legacy path. Preserve the prior file in a backup before a fresh replacement.
 
 ```markdown
 ---
@@ -295,7 +320,7 @@ components:
 | [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
 ```
 
-Use real token values, no placeholders; omit invented `components` entries. Outside plan mode, after writing DESIGN.md, require `bun --no-env-file run ~/.claude/skills/gstack/bin/gstack-design-md.ts check DESIGN.md` to print `DESIGN_MD_FORMAT: spec`.
+Use real token values, no placeholders; omit invented `components` entries and unverified fontFamily values. Describe pending font roles in prose instead. Outside plan mode, after writing DESIGN.md, run `bun --no-env-file run ~/.claude/skills/gstack/bin/gstack-design-md.ts check DESIGN.md`: require `DESIGN_MD_FORMAT: spec` for new/fresh/converted/spec files, `legacy` with `legacy-keep` for a kept legacy file, or the disclosed `unknown` format for a preserved unknown file. Never convert a kept file just to make validation say spec.
 
 **Outside plan mode, update CLAUDE.md** (or create it if it doesn't exist) — append this section:
 

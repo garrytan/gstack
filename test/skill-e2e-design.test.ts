@@ -12,7 +12,7 @@ import {
 } from './helpers/e2e-helpers';
 import { asideAvailable } from './helpers/aside-available';
 import { installFakeImpeccable, DETECT_SAMPLE } from './helpers/fake-impeccable';
-import { sliceBetween } from './helpers/skill-fixture';
+import { sliceBetween, extractDesignResearchContract } from './helpers/skill-fixture';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -203,10 +203,7 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
     // Extract only the research contract (CLAUDE.md: extract, don't copy). The tree's
     // SKILL.md unless GSTACK_E2E_DOCS_ROOT points at a `gen:skill-docs --out-dir` render.
     const skill = fs.readFileSync(path.join(process.env.GSTACK_E2E_DOCS_ROOT || ROOT, 'design-consultation', 'SKILL.md'), 'utf-8');
-    const sectionStart = skill.indexOf('## Web research runs in Aside');
-    if (sectionStart < 0) throw new Error('design-consultation/SKILL.md has no "Web research runs in Aside" section — regenerate with: bun run gen:skill-docs');
-    const sectionEnd = skill.indexOf('\n## ', sectionStart + 1);
-    fs.writeFileSync(path.join(researchDir, 'research-contract.md'), skill.slice(sectionStart, sectionEnd > sectionStart ? sectionEnd : undefined));
+    fs.writeFileSync(path.join(researchDir, 'research-contract.md'), extractDesignResearchContract(skill));
     const live = asideAvailable();
 
     const result = await runSkillTest({

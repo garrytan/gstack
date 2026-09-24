@@ -745,7 +745,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/pty-workspace-trust.test.ts', 'test/fixtures/pty-companion-cli.ts', 'lib/fs-atomic.ts', 'test/helpers/pty-current-screen.ts', 'test/pty-current-screen.test.ts', 'test/fixtures/native-viewport.ts', 'test/helpers/plan-skill-questions.ts', 'test/fixtures/eng-auq-validation-error.json', 'test/fixtures/bash-directory-permission.json', 'test/fixtures/design-tasks-bash-permission.json', 'test/plan-skill-read-permission.test.ts', 'test/fixtures/read-permission.json', 'test/pty-numbered-option-indent-native.test.ts', 'test/fixtures/ceo-split-e5-numbered-description-491.json', 'test/plan-skill-questions.test.ts', 'test/helpers/plan-skill-question-events.ts', 'test/plan-skill-question-events.test.ts', 'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/skill-census.ts', 'test/plan-skill-question-hook-scope.test.ts', 'test/helpers/ceo-finding-fixture.ts', 'test/ceo-finding-fixture.test.ts', 'test/plan-design-floor-fixture.test.ts'
   ],
   'plan-devex-finding-floor':    [
-    'test/plan-floor-dx-actor.test.ts', 'test/fixtures/plan-floor-dx-custom-491.json',
+    'test/plan-floor-dx-actor.test.ts', 'test/fixtures/plan-floor-dx-custom-491.json', 'test/fixtures/plan-floor-dx-editor-hint.json',
     'test/paid-retry-supervision.test.ts',
     'lib/claude-public-transcript.ts', 'test/plan-create-prepublication.test.ts', 'test/fixtures/plan-create-prepublication-491.json', 'test/plan-create-combined-permission.test.ts', 'test/fixtures/plan-create-combined-permission-70b.json', 'test/fixtures/plan-floor-quote-70b.json', 'test/fixtures/plan-floor-product-type-70b.json',
     'test/plan-create-permission.test.ts',
@@ -1111,7 +1111,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Design
   'design-consultation-core':       ['test/session-runner-stream-lifecycle.test.ts', 'design-consultation/**', 'lib/design-catalog.ts', 'lib/design-md.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/llm-judge.ts', 'test/skill-e2e-design.test.ts', 'scripts/resolvers/design.ts', 'scripts/resolvers/outside-voice.ts', 'design-consultation/sections/**', 'test/design-consultation-contract.test.ts'],
   'design-consultation-existing':   ['test/session-runner-stream-lifecycle.test.ts', 'design-consultation/**', 'lib/design-md.ts', 'bin/gstack-design-md.ts', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts'],
-  'design-consultation-research':   ['test/session-runner-stream-lifecycle.test.ts', 'design-consultation/**', 'scripts/resolvers/aside.ts', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts', 'scripts/resolvers/design.ts', 'scripts/resolvers/outside-voice.ts', 'design-consultation/sections/**', 'test/design-consultation-contract.test.ts'],
+  'design-consultation-research':   ['test/session-runner-stream-lifecycle.test.ts', 'design-consultation/**', 'scripts/resolvers/aside.ts', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts', 'test/helpers/skill-fixture.ts', 'test/design-research-fixture.test.ts', 'scripts/resolvers/design.ts', 'scripts/resolvers/outside-voice.ts', 'design-consultation/sections/**', 'test/design-consultation-contract.test.ts'],
   'design-consultation-preview':    ['test/session-runner-stream-lifecycle.test.ts', 'design-consultation/**', 'scripts/gen-skill-docs.ts', 'test/skill-e2e-design.test.ts', 'test/design-board-reload.test.ts'],
   'plan-design-review-no-ui-scope': ['test/session-runner-stream-lifecycle.test.ts',
     "test/plan-scope-recovery-av.test.ts",
