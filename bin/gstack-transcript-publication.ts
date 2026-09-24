@@ -225,7 +225,11 @@ function main(): number {
   checkLock(repo, owner);
   checkHead(repo, current.sha, current.branch);
   if (result.status !== 0 || result.error) {
-    console.error(/auth|permission|403|401|forbidden/i.test(result.stderr || '') ? 'push failed: auth' : 'push failed; local commit retained');
+    const authFailure = (result.stderr || '').split(/\r?\n/).some(line =>
+      /^(?:remote:\s*)?(?:(?:fatal|error):\s*)?(?:authentication failed\b|permission denied\b|permission to .+ denied to\b|write access to repository not granted\b|invalid username or (?:password|token)\b|could not read (?:username|password)\b|(?:HTTP(?:\/[\d.]+)?\s+)?(?:401 unauthorized|403 forbidden)\b)/i.test(line) ||
+      /^[^\s@]+@[^\s:]+:\s*permission denied\b/i.test(line) ||
+      /^(?:fatal|error|remote):[^\n]*The requested URL returned error:\s*(?:401|403)\s*$/i.test(line));
+    console.error(authFailure ? 'push failed: auth' : 'push failed; local commit retained');
     return PUSH_FAILED;
   }
   return 0;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -465,6 +465,39 @@ describe('transcript Git publication boundary', () => {
     expect(git(['rev-parse', 'HEAD^2'], remote)).toBe(advanced);
     expect(queue()).toEqual([]);
   });
+
+  test('authentication-shaped remote paths do not suppress merge and consent checks', () => {
+    const renamed = join(root, 'auth-permission-401-403-forbidden.git');
+    renameSync(remote, renamed);
+    remote = renamed;
+    git(['remote', 'set-url', 'origin', remote]);
+    const advanced = advanceRemote();
+    hook('post-merge', "printf 'artifacts_sync_mode: full\\ntranscript_ingest_mode: off\\n' > config.yaml");
+    enqueue(TRANSCRIPT, page('# safe content\n'));
+    const pending = queue();
+    const result = run('gstack-brain-sync', ['--once']);
+    expect(result.status).toBe(0);
+    expect(status().status).toBe('blocked');
+    expect(queue()).toEqual(pending);
+    expect(git(['rev-parse', 'HEAD'], remote)).toBe(advanced);
+    expect(readFileSync(join(home, 'config.yaml'), 'utf8')).toContain('transcript_ingest_mode: off');
+  }, 30_000);
+
+  for (const message of [
+    '403 Forbidden',
+    'fatal: Authentication failed for the fixture remote',
+    'Permission to fixture/repo denied to fixture-user.',
+    'fatal: unable to access fixture: The requested URL returned error: 401',
+  ]) {
+    test(`genuine remote authentication failure does not retry a merge: ${message}`, () => {
+      hook('pre-receive', `printf '%s\\n' '${message}' >&2\nexit 1`, remote);
+      enqueue(TRANSCRIPT, page('# safe content\n'));
+      expect(run('gstack-brain-sync', ['--once']).status).toBe(0);
+      expect(status().status).toBe('push_failed');
+      expect(status().message).toContain('auth error');
+      expect(readFileSync(join(home, 'security/egress.jsonl'), 'utf8')).not.toContain('curated-memory-git-fetch');
+    }, 30_000);
+  }
 
   test('consent is rechecked before the post-merge retry push', () => {
     const advanced = advanceRemote();

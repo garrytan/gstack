@@ -8,6 +8,7 @@ Correctness fixes for configuration, transcript consent, browser output, iOS rec
 
 - Configuration readers, preference hooks, and background helpers use the canonical state roots and agree on configuration values. Local PGLite sessions no longer inherit a remote database URL.
 - Transcript ingestion requires explicit enrollment, including for small corpora, and honors off and future-only choices. Publication checks the exact outgoing bytes, refuses missing or failed credential scans, and rechecks consent before dispatch; held or failed pages are not marked published.
+- Transcript publication recognizes actual Git authentication errors without treating status-like text in repository paths or commit hashes as a reason to skip safe merge retries and consent checks.
 - Saved offline PDF previews block automatic network loads while preserving deliberate links and local assets. Browser output validates exact destinations, including dangling links and scrape-generated files, and failed clicks keep diagnostics within a bounded deadline.
 - iOS proxy requests have a complete deadline covering response bodies as well as connection setup. Silent, stalled, and dribbling responses release their transport resources without replaying ambiguous mutations.
 - Shipping and landing preserve the project's declared validation commands, working directories, and evidence labels. Landing uses supported GitHub check fields and requires current requested human reviews or an explicit, scoped waiver, followed by separate merge permission bound to the reviewed head.
