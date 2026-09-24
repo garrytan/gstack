@@ -194,7 +194,20 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 
 ## Step 5: Run tests (on merged code)
 
-Use the project's test commands discovered in Step 4 or documented in CLAUDE.md/AGENTS.md. Run every applicable suite; do not assume Rails or Vitest. The commands below are examples only for repositories that actually provide them. Use the same lane labels and exact commands again in Step 16.
+Resolve the project's validation lanes once, using applicable AGENTS.md/CLAUDE.md
+instructions and the actual CI jobs, manifests and wrappers they reference. Include
+every required test, lint, typecheck and evaluation lane; do not infer commands
+from a language marker. Preserve CI working directories, environment prefixes,
+wrappers and flags. If instructions and CI genuinely conflict, or a required
+command is missing/unavailable, ask before proceeding; do not invent a fallback.
+
+For each lane retain `(working directory, exact command bytes, evidence label)`
+and its declaration source in the existing test/PR evidence. Keep existing labels
+(such as `tests`) and unique labels for additional lanes. Reuse these tuples in
+Step 6, Step 16 and `/land-and-deploy`; do not rediscover or normalize commands.
+If a declaration changes, resolve the conflict and rerun that lane. Run test,
+lint and typecheck lanes here. Resolve evaluation tuples now, but select and run
+them only in Step 6. Rails and Vitest are not assumed.
 
 **For Rails projects using `bin/test-lane`, do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
 `db:test:prepare` internally, which loads the schema into the correct lane database.
@@ -202,15 +215,19 @@ Running bare test migrations without INSTANCE hits an orphan DB and corrupts str
 
 Run independent test suites in parallel, each wrapped in the evidence ledger. The
 wrapper is transparent (streams output live, exit code passes through) and
-records `{command, exit, working-tree fingerprint, log path}` to
+records `{cwd, command, exit, working-tree fingerprint, log path}` to
 `~/.gstack/projects/<slug>/<branch>-evidence.jsonl` — Step 16 cites this
 record instead of re-running when the content hasn't changed:
 
+For each resolved lane, substitute its tuple (the placeholders are not commands):
+
 ```bash
-~/.claude/skills/gstack/bin/gstack-evidence run --label tests -- 'bin/test-lane 2>&1' &
-~/.claude/skills/gstack/bin/gstack-evidence run --label vitest -- 'npm run test 2>&1' &
-wait
+(cd '<lane working directory>' && ~/.claude/skills/gstack/bin/gstack-evidence run --label '<lane label>' -- '<exact lane command>')
 ```
+
+Pass the command as one shell-quoted argument, preserving its bytes. Do not add
+`2>&1` or a `tee` pipeline: the wrapper already captures both streams and preserves
+the exit status. Parallel lanes must retain each individual result.
 
 After all suites complete, check the `gstack-evidence: recorded label=... exit=...
 log=...` summary lines — each carries the lane's exit code and a per-run log
@@ -331,51 +348,32 @@ Use AskUserQuestion:
 
 ## Step 6: Eval Suites (conditional)
 
-Evals are mandatory when prompt-related files change. Skip this step entirely if no prompt files are in the diff.
+Evals are mandatory when prompt-related files change. Use the project's declared
+prompt dependencies, selector and pre-merge tier, including templates, judges,
+harnesses and fixtures, rather than a language-specific filename list.
 
-Use the project's documented eval selection and pre-merge command first (including changed skill templates and judge/harness code). The Rails patterns and commands below apply only when that runner exists. For other stacks, use their native eval scripts and dependency map. If prompts changed but no eval command is documented, report the missing validation and ask before shipping; never silently treat that as no affected prompts.
-
-**1. Check if the diff touches prompt-related files:**
+**1. Determine applicability from the complete diff and project declarations:**
 
 ```bash
 git diff origin/<base> --name-only
 ```
 
-Match against these patterns (from CLAUDE.md):
-- `app/services/*_prompt_builder.rb`
-- `app/services/*_generation_service.rb`, `*_writer_service.rb`, `*_designer_service.rb`
-- `app/services/*_evaluator.rb`, `*_scorer.rb`, `*_classifier_service.rb`, `*_analyzer.rb`
-- `app/services/concerns/*voice*.rb`, `*writing*.rb`, `*prompt*.rb`, `*token*.rb`
-- `app/services/chat_tools/*.rb`, `app/services/x_thread_tools/*.rb`
-- `config/system_prompts/*.txt`
-- `test/evals/**/*` (eval infrastructure changes affect all suites)
+If no eval lane is declared and no prompt-related content changed, report
+"No evaluation lane declared; not applicable" and continue to Step 7. If declared
+selection proves no affected prompt dependencies, report that result and its source.
+A failed selector, unknown mapping, required selection with zero cases, or changed
+prompts without a documented eval command is **missing validation**, not a pass or
+a no-match skip. Stop and ask for the missing command/coverage before shipping.
 
-**If no matches:** Print "No prompt-related files changed — skipping evals." and continue to Step 7.
+**2. Resolve and run affected eval lanes:**
 
-**2. Identify affected eval suites:**
-
-Each eval runner (`test/evals/*_eval_runner.rb`) declares `PROMPT_SOURCE_FILES` listing which source files affect it. Grep these to find which suites match the changed files:
-
-```bash
-grep -l "changed_file_basename" test/evals/*_eval_runner.rb
-```
-
-Map runner → test file: `post_generation_eval_runner.rb` → `post_generation_eval_test.rb`.
-
-**Special cases:**
-- Changes to `test/evals/judges/*.rb`, `test/evals/support/*.rb`, or `test/evals/fixtures/` affect ALL suites that use those judges/support files. Check imports in the eval test files to determine which.
-- Changes to `config/system_prompts/*.txt` — grep eval runners for the prompt filename to find affected suites.
-- If unsure which suites are affected, run ALL suites that could plausibly be impacted. Over-testing is better than missing a regression.
-
-**3. Run affected suites at `EVAL_JUDGE_TIER=full`:**
-
-`/ship` is a pre-merge gate, so always use full tier (Sonnet structural + Opus persona judges).
-
-```bash
-EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval_test.rb 2>&1 | tee /tmp/ship_evals.txt
-```
-
-If multiple suites need to run, run them sequentially (each needs a test lane). If the first suite fails, stop immediately — don't burn API cost on remaining suites.
+Use the same tuple contract from Step 5. Record selection and expected case counts;
+verify selected files exist. Run required cheap checks and selected quality judges
+before long behavioral evals when the project requires that order. Preserve the
+project's pre-merge tier and budgets; never force another project's tier or runner.
+Run each eval lane through the evidence wrapper in its declared working directory.
+Missing credentials/tools are unavailable coverage, not successful evals. If a
+suite fails, stop before starting more paid work and report the failure.
 
 **Long eval suites (30+ min): launch detached so a turn boundary can't kill them.**
 A plain backgrounded eval lives in the harness's process group and dies to a
@@ -393,18 +391,14 @@ Then poll the printed log path; break on the `EXIT=` sentinel (covers both pass
 and crash — silence is never success). The detached run survives even if your
 poller is reaped.
 
-**4. Check results:**
+**3. Check results:**
 
 - **If any eval fails:** Show the failures, the cost dashboard, and **STOP**. Do not proceed.
-- **If all pass:** Note pass counts and cost. Continue to Step 7.
+- **If all required selected cases ran and passed:** Note pass/fail/skip counts and
+  cost. Continue to Step 7. Skipped or unstarted required cases do not count as passes.
 
-**5. Save eval output** — include eval results and cost dashboard in the PR body (Step 19).
-
-**Tier reference (for context — /ship always uses `full`):**
-| Tier | When | Speed (cached) | Cost |
-|------|------|----------------|------|
-| `fast` (Haiku) | Dev iteration, smoke tests | ~5s (14x faster) | ~$0.07/run |
-| `standard` (Sonnet) | Default dev, `bin/test-lane --eval` | ~17s (4x faster) | ~$0.37/run |
-| `full` (Opus persona) | **`/ship` and pre-merge** | ~72s (baseline) | ~$1.27/run |
+**4. Save eval output** — include the tuples, selection, evidence log paths, results
+and cost dashboard in the PR body (Step 19). Any expressly authorized validation
+exception must remain visible, never relabeled as a passing run.
 
 ---

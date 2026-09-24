@@ -1,0 +1,75 @@
+{
+  "sourceEvidenceSha256": "c16d8b3f8597eba9ca478e14080c2fffcd08718f5ef30f993acd3e159306b6a2",
+  "events": [
+    {
+      "type": "user",
+      "session_id": "75dde51f-1236-4679-9074-fc70149cf7da",
+      "parent_tool_use_id": null,
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01BJUfjFHDrV5uNhHGW9ipWy",
+            "is_error": false,
+            "content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nexit=0"
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "session_id": "75dde51f-1236-4679-9074-fc70149cf7da",
+      "parent_tool_use_id": null,
+      "message": {
+        "id": "msg_011CfMiycPGteo1wdMBH2cBB",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "All 3.5a-human data is in. Reconciliation:\n\n- `REVIEW_HEAD` = `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` (both head reads agree).\n- **alice** (`type: User`): requested by `owner` 2026-09-20 → request removed 2026-09-21 (actor alice, the normal side-effect of submitting a review) → **APPROVED** 2026-09-21 at `commit_id == REVIEW_HEAD` → COMMENTED 2026-09-22 at the same head. The comment does not erase the effective approval; no dismissal, no re-request after the approval, no CHANGES_REQUESTED. **Met.**\n- Current `reviewRequests`: empty. No teams, no bots, no unknown actors. `reviewDecision`: `APPROVED`. Declared repo rules (AGENTS.md): no additional branch review rule or team quorum.\n\nNo unmet or unknown review conditions → no waiver needed. Proceeding to the readiness report.\n\n**Here's the full readiness report. This is everything I checked before merging.**\n\n**PRE-MERGE READINESS REPORT**\n\nPR #42 — `fixture` → `main`; head `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`.\n\n| Check | Evidence / result |\n|-------|-------------------|\n| CI | `Validation` (the only declared required check): `pass` / `SUCCESS`, exit 0. Mergeable: `MERGEABLE`. **CI passed.** |\n| Human review | alice (User): APPROVED at head 2026-09-21, later COMMENTED (non-erasing). No open requests. `reviewDecision=APPROVED`. **Met.** |\n| Waiver | None needed / none granted |\n| Eng Review | CURRENT — verified on this head prior to this run (per invocation scope) |\n| CEO / Design / Codex reviews | Verified on this head prior to this run (per invocation scope) |\n| Required validation | tests / lint / typecheck / evals — PASS locally per invocation; CI `Validation` PASS |\n| E2E tests | Not applicable to this fixture / not in scope |\n| LLM evals | evals lane PASS (local deterministic runner; covered above) |\n| CHANGELOG / VERSION | Version drift verified — no drift (per invocation scope) |\n| Doc release | Verified (per invocation scope) |\n| PR body | Current (per invocation scope) |\n\nWARNINGS: 1; BLOCKERS: 0.\n\n- **Warning (minor):** the local checkout has an uncommitted modification to `AGENTS.md` (replaces the validation-lane list with a \"Fixture CI\" note). It isn't part of the PR head and both versions agree that `Validation` is the single required check, so it doesn't affect merge readiness — I have not touched it."
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "session_id": "75dde51f-1236-4679-9074-fc70149cf7da",
+      "parent_tool_use_id": null,
+      "message": {
+        "id": "msg_011CfMiycPGteo1wdMBH2cBB",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01ShNa7uam4jzgPYiHzU9Hbu",
+            "name": "AskUserQuestion",
+            "input": {
+              "questions": [
+                {
+                  "question": "Ready to merge PR #42 — 'fixture' into main. CI Validation passed, alice's approval is current at head aaaaaaaa…, no open review requests, no conflicts. The only warning is a minor one: an uncommitted local edit to AGENTS.md that isn't part of the PR. How do you want to proceed?",
+                  "header": "Merge PR #42",
+                  "multiSelect": false,
+                  "options": [
+                    {
+                      "label": "A) Merge it (Recommended)",
+                      "description": "Everything looks good — all gates green, one minor local-only warning. Completeness: 10/10"
+                    },
+                    {
+                      "label": "B) Hold off",
+                      "description": "Stop here; I want to look at the warning / fix things first. Completeness: 10/10"
+                    },
+                    {
+                      "label": "C) Merge anyway",
+                      "description": "I understand the warnings and want to proceed regardless. Completeness: 3/10"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -5,6 +5,35 @@ import { isPaidTestFile } from '../test/helpers/paid-test-set';
 
 /** Existing short behavioral probes; intersect with changed-input selection. */
 export const PR_PROFILE_CASE_IDS = [
+  'ship-land-commands-python',
+  'ship-land-commands-node',
+  'ship-land-commands-no-eval',
+  'ship-land-commands-zero-eval',
+  'ship-land-commands-selector-error',
+  'ship-land-commands-conflict',
+  'ship-land-commands-missing',
+  'ship-land-commands-unavailable',
+  'ship-land-review-pending',
+  'ship-land-review-commented',
+  'ship-land-review-changes-requested',
+  'ship-land-review-dismissed',
+  'ship-land-review-stale',
+  'ship-land-review-approved',
+  'ship-land-review-approved-comment',
+  'ship-land-review-rerequested',
+  'ship-land-review-team',
+  'ship-land-review-unknown',
+  'ship-land-review-bot',
+  'ship-land-review-solo',
+  'ship-land-review-waiver',
+  'ship-land-review-generic-waiver',
+  'ship-land-review-head-change',
+  'ship-land-review-protected',
+  'ship-land-ci-pending',
+  'ship-land-ci-failed',
+  'ship-land-ci-cancelled',
+  'ship-land-ci-skipped',
+  'ship-land-ci-empty',
   'hermetic-canary', 'hermetic-sentinel',
   'browse-basic', 'browse-snapshot', 'skillmd-setup-discovery',
   'qa-bootstrap', 'review-sql-injection', 'review-coverage-audit',
@@ -19,6 +48,7 @@ export const PR_PROFILE_CASE_IDS = [
 
 /** Audited ownership: unknown/direct-describe files remain broad coverage. */
 export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
+  'test/skill-e2e-ship-land-contracts.test.ts': ['ship-land-commands-python', 'ship-land-commands-node', 'ship-land-commands-no-eval', 'ship-land-commands-zero-eval', 'ship-land-commands-selector-error', 'ship-land-commands-conflict', 'ship-land-commands-missing', 'ship-land-commands-unavailable', 'ship-land-review-pending', 'ship-land-review-commented', 'ship-land-review-changes-requested', 'ship-land-review-dismissed', 'ship-land-review-stale', 'ship-land-review-approved', 'ship-land-review-approved-comment', 'ship-land-review-rerequested', 'ship-land-review-team', 'ship-land-review-unknown', 'ship-land-review-bot', 'ship-land-review-solo', 'ship-land-review-waiver', 'ship-land-review-generic-waiver', 'ship-land-review-head-change', 'ship-land-review-protected', 'ship-land-ci-pending', 'ship-land-ci-failed', 'ship-land-ci-cancelled', 'ship-land-ci-skipped', 'ship-land-ci-empty'],
   'test/skill-e2e-hermetic-canary.test.ts': ['hermetic-canary', 'hermetic-sentinel'],
   'test/skill-e2e-bws.test.ts': ['browse-basic', 'browse-snapshot', 'skillmd-setup-discovery'],
   'test/skill-e2e-qa-workflow.test.ts': ['qa-bootstrap'],

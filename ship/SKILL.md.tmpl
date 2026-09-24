@@ -386,11 +386,12 @@ EOF
 The evidence ledger is the mechanical arm of this law. Check it FIRST:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-evidence check --label tests --expect-cmd '<exact tests-lane command from Step 5>' --label vitest --expect-cmd '<exact vitest-lane command from Step 5>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md
+(cd '<lane working directory>' && ~/.claude/skills/gstack/bin/gstack-evidence check --label '<lane label>' --expect-cmd '<exact lane command>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md)
 ```
 
-Include only lane labels actually run in Step 5; `vitest` is an example, not a required framework.
-Pass each `--expect-cmd` the exact command string the wrapped Step 5 lane ran —
+Check EVERY required tuple resolved in Steps 5–6, including eval, lint and typecheck
+lanes; missing evidence is not permission to omit a lane. Run the check from the
+same working directory. Pass each `--expect-cmd` the exact command string that lane ran —
 that binds FRESH to the real suite (a green `echo ok` recorded under the label
 can never satisfy the check). Residual risk, accepted: `package.json` sits on
 the allow-list because Step 12's version bump writes its version field between
@@ -405,10 +406,15 @@ advisory either way.
   commits between Step 5 and here don't invalidate the run). Cite the evidence
   lines (label, exit, ts, log path) as the verification evidence and continue.
 - **Any STALE/MISSING (exit non-zero):** run live, wrapped, so the fresh run is
-  recorded: `~/.claude/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`.
+  recorded, from that tuple's working directory:
+  `~/.claude/skills/gstack/bin/gstack-evidence run --label <lane> -- '<command>'`.
   The check is an advisory guardrail — a failed CHECK never blocks; a failed RUN does.
 
 Before pushing, re-verify if code changed at any point after Step 5:
+
+Carry the resolved tuples and their evidence log references into the PR test plan
+for `/land-and-deploy`. A changed working directory, command or tested tree requires
+new evidence; a new session must not substitute another runner for the same label.
 
 1. **Test verification:** If ANY code changed after Step 5's test run (fixes from review findings, CHANGELOG edits don't count), re-run the test suite. The evidence check above IS this rule, mechanized — trust FRESH, re-run on STALE. Paste fresh output when you re-run. Stale output from Step 5 with changed content is NOT acceptable.
 

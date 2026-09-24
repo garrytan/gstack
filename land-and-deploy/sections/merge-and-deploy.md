@@ -5,19 +5,28 @@
 Record the start timestamp for timing data. Also record which merge path is taken
 (auto-merge vs direct) for the deploy report.
 
+Before each attempt, including direct fallback, require refreshed Step 3.5
+review/CI gates and separate merge permission. Head mismatch or failed readback
+means STOP: redo readiness, waiver and confirmation. `--match-head-commit` closes
+the subsequent head race. Never bypass branch protection with `--admin`.
+
+```bash
+CURRENT_HEAD=$(gh pr view "$PR_NUMBER" --json headRefOid -q .headRefOid) && test -n "$REVIEW_HEAD" && test "$CURRENT_HEAD" = "$REVIEW_HEAD"
+```
+
 Try auto-merge first (respects repo merge settings and merge queues):
 
 Resolve `MERGE_METHOD` from Deploy Configuration, checking GitHub's allowed methods via `gh api repos/{owner}/{repo} --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'`. With no configured method, prefer squash, then merge, then rebase among allowed methods. If a configured method is disallowed or no method is allowed, stop and ask. Set `MERGE_FLAG` to exactly `--squash`, `--merge`, or `--rebase` accordingly.
 
 ```bash
-gh pr merge "$MERGE_FLAG" --auto --delete-branch
+gh pr merge "$PR_NUMBER" "$MERGE_FLAG" --match-head-commit "$REVIEW_HEAD" --auto --delete-branch
 ```
 
 If `--auto` succeeds: record `MERGE_PATH=auto`. This means the repo has auto-merge enabled
 and may use merge queues.
 
-`--auto` fails for two unrelated reasons. Both fall through to the direct merge below, so
-the flow is unaffected — but do not report the second one as "auto-merge is disabled":
+These two `--auto` rejections permit one direct fallback, but only after
+§4a-postfail confirms OPEN with no auto-merge request and readiness is refreshed:
 
 1. **Auto-merge is disabled for the repo** — `Auto-merge is not allowed for this repository`.
 2. **The PR is not waiting on anything.** `--auto` only *queues* a merge behind pending
@@ -31,7 +40,7 @@ the flow is unaffected — but do not report the second one as "auto-merge is di
    before this step runs.
 
 ```bash
-gh pr merge "$MERGE_FLAG" --delete-branch
+gh pr merge "$PR_NUMBER" "$MERGE_FLAG" --match-head-commit "$REVIEW_HEAD" --delete-branch
 ```
 
 If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged successfully. The branch has been cleaned up."
@@ -43,7 +52,7 @@ On any failure, run the state check below first. Only if it confirms the PR is s
 **Universal invariant:** after ANY non-zero exit from `gh pr merge`, query authoritative PR state before retrying or stopping. Do NOT retry blindly. The only permitted retry is the one direct attempt described above, after readback confirms OPEN with no auto-merge request and the original error is one of the two documented auto-merge rejections. All other failures use the branches below. Related: cli/cli#3442, cli/cli#13380.
 
 ```bash
-gh pr view --json state,mergeCommit,mergedAt,mergedBy
+gh pr view "$PR_NUMBER" --json state,mergeCommit,mergedAt,mergedBy
 ```
 
 **If `state == "MERGED"`:**
@@ -52,7 +61,7 @@ The server-side merge succeeded (possibly completed before the local cleanup pha
 
 Capture merge SHA:
 ```bash
-gh pr view --json mergeCommit -q .mergeCommit.oid
+gh pr view "$PR_NUMBER" --json mergeCommit -q .mergeCommit.oid
 ```
 
 Squash/rebase merge readback guard:
@@ -60,8 +69,8 @@ Squash/rebase merge readback guard:
 - Once GitHub reports `state == "MERGED"` with a non-null `mergeCommit.oid`, treat that as authoritative. Record the merge SHA and continue.
 - If local cleanup or readback is needed, fetch the base branch and compare/sync against the merge commit, not the old PR branch commit:
 ```bash
-BASE=$(gh pr view --json baseRefName -q .baseRefName)
-MERGE_SHA=$(gh pr view --json mergeCommit -q .mergeCommit.oid)
+BASE=$(gh pr view "$PR_NUMBER" --json baseRefName -q .baseRefName)
+MERGE_SHA=$(gh pr view "$PR_NUMBER" --json mergeCommit -q .mergeCommit.oid)
 git fetch origin "$BASE"
 git diff --quiet "$MERGE_SHA" origin/"$BASE" || git log --oneline --decorate -1 "$MERGE_SHA" origin/"$BASE"
 ```
@@ -82,7 +91,7 @@ Remote-branch reconciliation — the failed `gh pr merge` carried `--delete-bran
 ```bash
 # NB: gh leaves .headRepository.nameWithOwner EMPTY (verified against gh
 # 2.83); compose owner/name from headRepositoryOwner.login + headRepository.name.
-gh pr view --json headRepositoryOwner,headRepository,headRefName \
+gh pr view "$PR_NUMBER" --json headRepositoryOwner,headRepository,headRefName \
   --jq '"\(.headRepositoryOwner.login)/\(.headRepository.name)\t\(.headRefName)"'
 git ls-remote --heads "https://github.com/<head-repository>.git" "<head-branch>"
 ```
@@ -106,15 +115,17 @@ Record `MERGE_PATH=direct`, then continue to §4b (CI auto-deploy detection).
 
 Check whether auto-merge is enabled:
 ```bash
-gh pr view --json autoMergeRequest -q .autoMergeRequest
+gh pr view "$PR_NUMBER" --json autoMergeRequest -q .autoMergeRequest
 ```
 
 - If non-null: auto-merge is enabled or merge queue is in use. The open state is expected — proceed to §4a's merge-queue wait path.
-- If null: genuine failure. Surface both errors — the `gh pr merge` stderr AND the current PR open state — then **STOP**.
+- If null after either documented `--auto` rejection: refresh readiness and try the single direct fallback. Otherwise, surface the merge stderr and OPEN state, then **STOP**.
 
 **If `state == "CLOSED"`:** PR was closed without merging. **STOP.**
 
-**Hard rule: never call `gh pr merge` a second time** after a non-zero exit. Server state is authoritative.
+**Hard rule: never call `gh pr merge` a second time** after a non-zero exit except
+the single documented direct fallback, with authoritative OPEN/no-auto-merge
+readback and refreshed head/readiness checks. All other failures follow server state.
 
 ### 4a: Merge queue detection and messaging
 
@@ -126,7 +137,7 @@ in a **merge queue**. Tell the user:
 Poll for the PR to actually merge:
 
 ```bash
-gh pr view --json state -q .state
+gh pr view "$PR_NUMBER" --json state -q .state
 ```
 
 Poll every 30 seconds, up to 30 minutes. Show a progress message every 2 minutes:
@@ -206,7 +217,7 @@ If you want to persist deploy settings for future runs, suggest the user run `/s
 Then run `gstack-diff-scope` to classify the changes:
 
 ```bash
-eval $(~/.claude/skills/gstack/bin/gstack-diff-scope $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main) 2>/dev/null)
+eval $(~/.claude/skills/gstack/bin/gstack-diff-scope $(gh pr view "$PR_NUMBER" --json baseRefName -q .baseRefName 2>/dev/null || echo main) 2>/dev/null)
 echo "FRONTEND=$SCOPE_FRONTEND BACKEND=$SCOPE_BACKEND DOCS=$SCOPE_DOCS CONFIG=$SCOPE_CONFIG"
 ```
 
