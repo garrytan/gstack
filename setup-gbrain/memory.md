@@ -182,8 +182,10 @@ verdict block. If a row is RED, the row tells you what to do.
 
 Common cases:
 
-- **Salience block is empty** — your transcripts may not be ingested
-  yet. Run `bun run bin/gstack-gbrain-sync.ts --full` to do a full pass.
+- **Salience block is empty** — transcripts may be disabled or outside your
+  enrolled scope. Run `/setup-gbrain` to review enrollment. If you chose A, B,
+  or C, run `bun run bin/gstack-gbrain-sync.ts --full` for that scope; D does not
+  import historical sessions, and E keeps transcripts off.
 
 - **"gbrain CLI missing" in the preamble output** — gbrain isn't on
   your PATH. Run `/setup-gbrain` to install/wire it.

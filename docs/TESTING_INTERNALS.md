@@ -303,8 +303,8 @@ including two minutes for cleanup. No per-case budget grows. Overlay wrappers
 have a 1,830-second minimum shard wall and run without Bun retries; see the
 [overlay contract](OVERLAY_BENCHMARK_CONTRACT.md) for their unchanged work budget.
 
-The quality file reserves 6,400 seconds for all 25 cases and their existing
-retry, plus cleanup. Each still has 120 seconds of model work. Its 14 workflow
+The quality file reserves 6,660 seconds for all 26 cases and their existing
+retry, plus cleanup. Each still has 120 seconds of model work. Its 15 workflow
 judges own their deadline and abort signal, with five seconds for terminal
 recording inside a ten-second Bun grace; the other 11 retain their existing
 120-second Bun timeout. Late responses cannot create records or cache passes.
@@ -319,9 +319,9 @@ Planner entries and execution results record the effective wall,
 its source and policy identifier. Custom drivers must resolve each job instead
 of passing their ordinary 1800-second default as an explicit Autoplan cap;
 their outer controller/detach wall must also cover the allocated work and cleanup.
-`eval:bg:pr` and `eval:bg:periodic` have 72000/66000-second outer caps; the PR
+`eval:bg:pr` and `eval:bg:periodic` have 84000/66000-second outer caps; the PR
 wrapper covers a full-gate fallback at its default two workers. The broad gate
-wrapper reserves 33600 seconds, and release reserves 100000 seconds for both
+wrapper reserves 45000 seconds, and release reserves 110000 seconds for both
 tiers. Legacy monolithic
 `eval:bg`/`eval:bg:all` retain their shorter 5400/7200-second caps and do not
 promise two complete Autoplan attempts; use the sharded periodic path for this policy.
@@ -331,8 +331,8 @@ When overlays are selected, the seventh is reserved for their serial wrappers;
 registered finding files are distributed across the remaining ordinary slices
 by their supervised walls. Each slice job has a 355-minute cap; Autoplan retains
 its 172-minute shard wall. Reconciliation rejects missing, duplicated or misplaced
-registered work and absent budget records. The weekly gate census has a
-350-minute cap and PR slices have a 220-minute cap. Free supervision tests
+registered work and absent budget records. The weekly gate census uses seven
+slices with a 352-minute cap per slice, and PR slices have a 255-minute cap. Free supervision tests
 verify these bounds against the complete current census, configured retries,
 and setup reserve. Ordinary paid tiers and the default 1800-second
 shard wall remain unchanged; the registered and overlay policies above supply
