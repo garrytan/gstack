@@ -39,7 +39,7 @@ describe('/ship review fix loop (#2391)', () => {
     expect(content).toContain('3 fix cycles');
     // The loop re-runs tests AND the review, and only a converged pass continues.
     expect(content).toContain('re-run the test suite (Step 5)');
-    expect(content).toContain('re-run this review (Step 9 items 2-6)');
+    expect(content).toContain("re-run the whole Step 9 cycle from a new pass's start-token capture");
   });
 
   test('the non-convergence stop is a blocker report, not a rerun request', () => {

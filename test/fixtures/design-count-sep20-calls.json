@@ -1,0 +1,341 @@
+{
+  "provenance": {
+    "source": "2026-09-20 shared-libs ship periodic plan-design-finding-count retry",
+    "sourceLogSha256": "a7604146887bf04ef50aad495463c3bc639a24bd7cafa27db3eb1843490b528f",
+    "kind": "Exact completed public native question calls from the failed observation; no hidden reasoning.",
+    "outcome": "ceiling_reached",
+    "reviewCount": 8,
+    "expectedCeiling": 7,
+    "unseededHeaders": [
+      "Issue 3",
+      "Issue 7",
+      "Issue 8"
+    ]
+  },
+  "calls": [
+    {
+      "sessionId": "a55ade1a-0cdd-4811-9479-29db6282ad87",
+      "toolUseId": "toolu_01YA8ZvjXcqHcbzLWit9wVtY",
+      "questions": [
+        {
+          "question": "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch of the settings-page plan fixture; one-time gstack onboarding before the design review.\nELI10: gstack skills work best when CLAUDE.md tells the agent which slash skill matches which kind of request (bugs → /investigate, ship → /ship, and so on). Without it you invoke each skill by hand. This is a one-time setup prompt per project.\nStakes if we pick wrong: Wrong pick means either an unwanted CLAUDE.md section, or repeatedly typing skill names manually. Both are easy to reverse.\nRecommendation: A because routing rules save typing and make the review pipeline discoverable; note that plan mode blocks file edits, so the CLAUDE.md append and commit would happen after plan mode ends.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience of auto-routing vs keeping CLAUDE.md untouched.",
+          "header": "Routing",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Add routing rules (recommended)",
+              "description": "✅ Skills auto-route from natural requests, so you stop memorizing slash names. ✅ Makes the CEO/design/eng review pipeline discoverable to anyone on the repo. ❌ Adds a ~15-line section to CLAUDE.md; the append and commit must wait until plan mode exits."
+            },
+            {
+              "label": "No thanks, invoke manually",
+              "description": "✅ CLAUDE.md stays exactly as checked in, nothing extra to review. ✅ You keep full control over when a skill runs. ❌ Every skill has to be typed by name each time, and this prompt won't repeat for this project."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Add gstack skill routing rules to this project's CLAUDE.md?\nProject/branch/task: main branch of the settings-page plan fixture; one-time gstack onboarding before the design review.\nELI10: gstack skills work best when CLAUDE.md tells the agent which slash skill matches which kind of request (bugs → /investigate, ship → /ship, and so on). Without it you invoke each skill by hand. This is a one-time setup prompt per project.\nStakes if we pick wrong: Wrong pick means either an unwanted CLAUDE.md section, or repeatedly typing skill names manually. Both are easy to reverse.\nRecommendation: A because routing rules save typing and make the review pipeline discoverable; note that plan mode blocks file edits, so the CLAUDE.md append and commit would happen after plan mode ends.\nNote: options differ in kind, not coverage — no completeness score.\nNet: convenience of auto-routing vs keeping CLAUDE.md untouched.": "Add routing rules (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-20T18:36:49.788Z"
+    },
+    {
+      "sessionId": "a55ade1a-0cdd-4811-9479-29db6282ad87",
+      "toolUseId": "toolu_01FGGnCKa72C27F8FoZgGqay",
+      "questions": [
+        {
+          "question": "D2 — Let gstack search learnings from your other projects on this machine?\nProject/branch/task: main branch, settings-page plan review; one-time gstack learnings setup.\nELI10: gstack saves small lessons from each session (pitfalls, project quirks). It can search only this project's lessons, or also lessons from other repos on this machine. Nothing leaves your computer either way.\nStakes if we pick wrong: Cross-project on a multi-client machine could surface one client's quirks in another's review; project-only means fewer hints.\nRecommendation: A because this is a solo fixture repo with no client separation concern.\nNote: options differ in kind, not coverage — no completeness score.\nNet: more reusable hints vs strict per-repo isolation.",
+          "header": "Learnings",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "Enable cross-project (recommended)",
+              "description": "✅ Reviews can reuse patterns learned in your other repos on this machine. ✅ Stays local; no data leaves the machine. ❌ Lessons from unrelated codebases may occasionally surface as noise."
+            },
+            {
+              "label": "Project-scoped only",
+              "description": "✅ Strict isolation, right for machines that hold multiple client codebases. ✅ Zero chance of cross-repo hints appearing. ❌ Each repo starts from zero and learns more slowly."
+            }
+          ]
+        },
+        {
+          "question": "D3 — Review all 7 design dimensions, or focus on specific ones?\nProject/branch/task: main branch, PLAN.md settings-page redesign rated 6/10 on design completeness.\nELI10: The plan already nails behavior. Its five listed gaps (Save not visually primary, uneven spacing, failing error contrast, three label sizes, no Save spinner) are the biggest holes, and each maps to a DESIGN.md token but still needs your call. You asked for all seven dimensions; I'll confirm that here so I don't narrow scope on my own.\nStakes if we pick wrong: Focusing too narrowly leaves a gap unreviewed; going wide costs a few more decision prompts.\nRecommendation: A because you asked for all seven and the five gaps span hierarchy, spacing, color, type, and motion anyway.\nCompleteness: A=10/10, B=6/10\nNet: full coverage with a handful more prompts vs a shorter session that only fixes the five named gaps.",
+          "header": "Focus",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "All 7 dimensions (recommended)",
+              "description": "✅ Every pass gets a score and a fix path, including state coverage and the journey storyboard. ✅ Catches anything the five named gaps missed, such as the missing Export error state detail. ❌ More decision prompts, roughly one per unresolved finding."
+            },
+            {
+              "label": "Only the five named gaps",
+              "description": "✅ Fastest path: five decisions, then done. ✅ Each already has a DESIGN.md token to apply. ❌ Passes 2, 3, and 7 get a quick score only, so unlisted gaps stay unreviewed."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Let gstack search learnings from your other projects on this machine?\nProject/branch/task: main branch, settings-page plan review; one-time gstack learnings setup.\nELI10: gstack saves small lessons from each session (pitfalls, project quirks). It can search only this project's lessons, or also lessons from other repos on this machine. Nothing leaves your computer either way.\nStakes if we pick wrong: Cross-project on a multi-client machine could surface one client's quirks in another's review; project-only means fewer hints.\nRecommendation: A because this is a solo fixture repo with no client separation concern.\nNote: options differ in kind, not coverage — no completeness score.\nNet: more reusable hints vs strict per-repo isolation.": "Enable cross-project (recommended)",
+        "D3 — Review all 7 design dimensions, or focus on specific ones?\nProject/branch/task: main branch, PLAN.md settings-page redesign rated 6/10 on design completeness.\nELI10: The plan already nails behavior. Its five listed gaps (Save not visually primary, uneven spacing, failing error contrast, three label sizes, no Save spinner) are the biggest holes, and each maps to a DESIGN.md token but still needs your call. You asked for all seven dimensions; I'll confirm that here so I don't narrow scope on my own.\nStakes if we pick wrong: Focusing too narrowly leaves a gap unreviewed; going wide costs a few more decision prompts.\nRecommendation: A because you asked for all seven and the five gaps span hierarchy, spacing, color, type, and motion anyway.\nCompleteness: A=10/10, B=6/10\nNet: full coverage with a handful more prompts vs a shorter session that only fixes the five named gaps.": "All 7 dimensions (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-20T18:38:37.833Z"
+    },
+    {
+      "sessionId": "a55ade1a-0cdd-4811-9479-29db6282ad87",
+      "toolUseId": "toolu_014BD1k8vjdBsHwzvDGegQRE",
+      "questions": [
+        {
+          "question": "D4 — Issue 1: How should the header action group signal that Save is the primary action?\nProject/branch/task: main branch, PLAN.md settings form; Pass 1 Information Architecture, gap G1.\nELI10: Save, Reset, Cancel and Export currently look identical. A user who just edited their email has to read all four labels to find the one that stores their change. Making one button visually dominant answers \"what do I see first\" without adding anything to the page. Principle: hierarchy as service; if everything shouts, nothing is heard.\nStakes if we pick wrong: Ship four look-alike buttons and users hesitate at the moment of highest intent, or misclick Reset next to Save.\nRecommendation: 1A because DESIGN.md already names the tokens (filled #1d4ed8 Save, neutral ghost for the other three) and the Button component has those variants, so this is a zero-invention fix.\nCompleteness: 1A=10/10, 1B=8/10, 1C=2/10\nNet: one filled button with three ghosts uses the approved system; anything else is new visual exploration the plan explicitly excludes.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A Apply DESIGN.md tokens (recommended)",
+              "description": "✅ Save becomes the only filled button (#1d4ed8, white text); Reset, Cancel, Export become neutral ghost buttons with existing variants (human: ~30min / CC: ~3min). ✅ White-on-#1d4ed8 passes AA and matches the focus ring, so the hierarchy reads for color-blind users too. ❌ Export loses visual weight, which is correct for a rarely used action but worth confirming."
+            },
+            {
+              "label": "1B Filled Save plus outlined Export",
+              "description": "✅ Gives Export a middle tier so power users find the download faster. ✅ Still makes Save the single dominant control. ❌ Adds a third button style DESIGN.md does not define, which counts as visual exploration the plan rules out (human: ~1h / CC: ~5min)."
+            },
+            {
+              "label": "1C Keep four identical buttons",
+              "description": "✅ No visual change to review or test. ✅ Zero implementation cost. ❌ Leaves the plan violating DESIGN.md and users scanning four labels at the moment they want to save."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D4 — Issue 1: How should the header action group signal that Save is the primary action?\nProject/branch/task: main branch, PLAN.md settings form; Pass 1 Information Architecture, gap G1.\nELI10: Save, Reset, Cancel and Export currently look identical. A user who just edited their email has to read all four labels to find the one that stores their change. Making one button visually dominant answers \"what do I see first\" without adding anything to the page. Principle: hierarchy as service; if everything shouts, nothing is heard.\nStakes if we pick wrong: Ship four look-alike buttons and users hesitate at the moment of highest intent, or misclick Reset next to Save.\nRecommendation: 1A because DESIGN.md already names the tokens (filled #1d4ed8 Save, neutral ghost for the other three) and the Button component has those variants, so this is a zero-invention fix.\nCompleteness: 1A=10/10, 1B=8/10, 1C=2/10\nNet: one filled button with three ghosts uses the approved system; anything else is new visual exploration the plan explicitly excludes.": "1A Apply DESIGN.md tokens (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-20T18:39:09.487Z"
+    },
+    {
+      "sessionId": "a55ade1a-0cdd-4811-9479-29db6282ad87",
+      "toolUseId": "toolu_019FsvN42ar1ctGn5M5sEUox",
+      "questions": [
+        {
+          "question": "D5 — Issue 2: What does the user see during the 2 to 5 second Save?\nProject/branch/task: main branch, PLAN.md settings form; Pass 2 state coverage, gap G5.\nELI10: Today the page freezes after clicking Save with no sign anything happened, so people click again or assume it broke. The plan lists \"spinner or skeleton\" as options but never picks one. The fix has to fit the accepted rule that pending feedback belongs to the Save button and the status live region stays quiet. Principle: visibility of system status (Nielsen); users muddle through, so the signal must be where their eyes already are.\nStakes if we pick wrong: A skeleton hides the fields the user just typed into and breaks \"preserve unsaved values\"; a status-line message double-announces to screen readers.\nRecommendation: 2A because DESIGN.md already defines the pattern, the Export button uses the same one, and it keeps the live region rule intact.\nCompleteness: 2A=10/10, 2B=5/10, 2C=4/10\nNet: reuse the established in-button spinner vs invent a form-wide loading treatment that contradicts two accepted rules.",
+          "header": "Issue 2",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "2A In-button spinner beside “Saving…” (recommended)",
+              "description": "✅ Existing DESIGN.md pattern: inline spinner plus “Saving…” inside the aria-disabled Save button, aria-busy=true, static text under reduced motion (human: ~1h / CC: ~5min). ✅ Matches Export's pending state, so the two request buttons behave identically. ❌ The button label changes width slightly; reserve min-width so the row does not reflow."
+            },
+            {
+              "label": "2B Skeleton over the form while saving",
+              "description": "✅ Very obvious that something is happening. ✅ Reuses the existing loading skeleton component. ❌ Hides the values the user just entered and fights the accepted \"preserve unsaved values\" and \"do not move focus\" rules (human: ~2h / CC: ~10min)."
+            },
+            {
+              "label": "2C “Saving…” text in the InlineStatus line",
+              "description": "✅ One place for all status text. ✅ Trivial to implement. ❌ Directly contradicts the accepted rule that the live region stays unchanged while pending, and double-announces for screen reader users."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D5 — Issue 2: What does the user see during the 2 to 5 second Save?\nProject/branch/task: main branch, PLAN.md settings form; Pass 2 state coverage, gap G5.\nELI10: Today the page freezes after clicking Save with no sign anything happened, so people click again or assume it broke. The plan lists \"spinner or skeleton\" as options but never picks one. The fix has to fit the accepted rule that pending feedback belongs to the Save button and the status live region stays quiet. Principle: visibility of system status (Nielsen); users muddle through, so the signal must be where their eyes already are.\nStakes if we pick wrong: A skeleton hides the fields the user just typed into and breaks \"preserve unsaved values\"; a status-line message double-announces to screen readers.\nRecommendation: 2A because DESIGN.md already defines the pattern, the Export button uses the same one, and it keeps the live region rule intact.\nCompleteness: 2A=10/10, 2B=5/10, 2C=4/10\nNet: reuse the established in-button spinner vs invent a form-wide loading treatment that contradicts two accepted rules.": "2A In-button spinner beside “Saving…” (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-20T18:40:10.840Z"
+    },
+    {
+      "sessionId": "a55ade1a-0cdd-4811-9479-29db6282ad87",
+      "toolUseId": "toolu_011nY7e1xqcLFfwyBDn9DGsT",
+      "questions": [
+        {
+          "question": "D6 — Issue 3: What do the network-failure messages say for Save, Export, and initial load?\nProject/branch/task: main branch, PLAN.md settings form; Pass 2 state coverage, unlisted gap.\nELI10: The plan says a failed save, export, or load shows \"the error message\" next to a Retry button, but nobody has written the message. Left open, the engineer ships \"Something went wrong\" or a raw HTTP error. Good error copy says what happened, that the user's typing is safe, and what to do next. Principle: help users recognize, diagnose, and recover from errors (Nielsen); replenish the goodwill reservoir by telling them their work is safe.\nStakes if we pick wrong: Vague copy makes users think their edits were lost and retype or abandon; technical copy erodes trust.\nRecommendation: 3A because it fixes exact strings now in the plan's own voice (utility language, one sentence each) and confirms edits are kept, so implementation and tests have a single source.\nCompleteness: 3A=10/10, 3B=6/10, 3C=3/10\nNet: three short sentences decided now vs whatever the engineer types under deadline.",
+          "header": "Issue 3",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "3A Specify the three strings now (recommended)",
+              "description": "✅ Save: “Couldn’t save your changes. Your edits are still here.” Export: “Couldn’t prepare your export.” Load: “Couldn’t load your settings.” each with the existing error icon and a sibling Retry (human: ~20min / CC: ~2min). ✅ Names the recovery path and confirms unsaved values survive, matching the accepted preserve-edits rule. ❌ Copy may still get a wording pass from whoever owns product voice."
+            },
+            {
+              "label": "3B One generic string for all three",
+              "description": "✅ Single string to translate and test: “Something went wrong. Try again.” ✅ Fastest to implement. ❌ Does not tell the user whether their edits survived, which is the one thing they want to know after a failed save."
+            },
+            {
+              "label": "3C Leave copy to implementation",
+              "description": "✅ No decision needed now. ✅ Zero plan edits. ❌ The plan stays ambiguous on a user-visible string and the QA pass has nothing to assert against."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D6 — Issue 3: What do the network-failure messages say for Save, Export, and initial load?\nProject/branch/task: main branch, PLAN.md settings form; Pass 2 state coverage, unlisted gap.\nELI10: The plan says a failed save, export, or load shows \"the error message\" next to a Retry button, but nobody has written the message. Left open, the engineer ships \"Something went wrong\" or a raw HTTP error. Good error copy says what happened, that the user's typing is safe, and what to do next. Principle: help users recognize, diagnose, and recover from errors (Nielsen); replenish the goodwill reservoir by telling them their work is safe.\nStakes if we pick wrong: Vague copy makes users think their edits were lost and retype or abandon; technical copy erodes trust.\nRecommendation: 3A because it fixes exact strings now in the plan's own voice (utility language, one sentence each) and confirms edits are kept, so implementation and tests have a single source.\nCompleteness: 3A=10/10, 3B=6/10, 3C=3/10\nNet: three short sentences decided now vs whatever the engineer types under deadline.": "3A Specify the three strings now (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-20T18:40:54.075Z"
+    },
+    {
+      "sessionId": "a55ade1a-0cdd-4811-9479-29db6282ad87",
+      "toolUseId": "toolu_01H8kFd8awCUoExFGLT8Z5Nb",
+      "questions": [
+        {
+          "question": "D7 — Issue 4: Which vertical spacing rhythm should the form use?\nProject/branch/task: main branch, PLAN.md settings form; Pass 5 design system alignment, gap G2.\nELI10: Section gaps are currently 24px in some places, 32px in others, and 16px in a third. Uneven gaps make related things look unrelated and vice versa, so the eye cannot tell where Profile ends and Notifications begins. DESIGN.md already sets an 8px scale: 32px between sections, 24px between field groups, 8px from label to input. Principle: Gestalt proximity; spacing is how the layout says \"these belong together\".\nStakes if we pick wrong: Users misread grouping, and every future field added to the form inherits a different gap.\nRecommendation: 4A because the tokens exist and the fix is three CSS values on the existing fieldset, field, and label rules.\nCompleteness: 4A=10/10, 4B=7/10, 4C=2/10\nNet: adopt the approved 32/24/8 scale vs keep today's mixture or invent a tighter one.",
+          "header": "Issue 4",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "4A Apply DESIGN.md 32/24/8 scale (recommended)",
+              "description": "✅ Sections 32px apart, field groups 24px, label-to-input 8px, all multiples of the 8px base (human: ~30min / CC: ~3min). ✅ Also applies to the header: 24px from action group to InlineStatus and 32px from status to the first fieldset, so the whole column shares one rhythm. ❌ Slightly taller page than the 16px variant on a 320px viewport; no horizontal impact."
+            },
+            {
+              "label": "4B Tighter 24/16/8 scale",
+              "description": "✅ Shorter page on small screens. ✅ Still a consistent 8px-based rhythm. ❌ Departs from the DESIGN.md tokens, so this form would differ from every other settings surface that follows them (human: ~30min / CC: ~3min)."
+            },
+            {
+              "label": "4C Leave spacing as is",
+              "description": "✅ No CSS change. ✅ No visual regression risk on the current layout. ❌ Keeps three different section gaps and the plan stays out of line with DESIGN.md."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D7 — Issue 4: Which vertical spacing rhythm should the form use?\nProject/branch/task: main branch, PLAN.md settings form; Pass 5 design system alignment, gap G2.\nELI10: Section gaps are currently 24px in some places, 32px in others, and 16px in a third. Uneven gaps make related things look unrelated and vice versa, so the eye cannot tell where Profile ends and Notifications begins. DESIGN.md already sets an 8px scale: 32px between sections, 24px between field groups, 8px from label to input. Principle: Gestalt proximity; spacing is how the layout says \"these belong together\".\nStakes if we pick wrong: Users misread grouping, and every future field added to the form inherits a different gap.\nRecommendation: 4A because the tokens exist and the fix is three CSS values on the existing fieldset, field, and label rules.\nCompleteness: 4A=10/10, 4B=7/10, 4C=2/10\nNet: adopt the approved 32/24/8 scale vs keep today's mixture or invent a tighter one.": "4A Apply DESIGN.md 32/24/8 scale (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-20T18:42:33.756Z"
+    },
+    {
+      "sessionId": "a55ade1a-0cdd-4811-9479-29db6282ad87",
+      "toolUseId": "toolu_01Hn3gx75i3mGztAye3ZFXBK",
+      "questions": [
+        {
+          "question": "D8 — Issue 5: How many text sizes should the form use, and which?\nProject/branch/task: main branch, PLAN.md settings form; Pass 5 design system alignment, gap G4.\nELI10: Labels currently come in 14px, 16px, and 18px with no rule for which is which, so size stops meaning anything. DESIGN.md defines two roles: 16px for body, labels, and helper text, and 20px for the Profile and Notifications headings. Fewer sizes with a clear jump makes the hierarchy readable at a glance. Principle: flat or arbitrary type hierarchy is noise; users scan, and size is the first cue they read.\nStakes if we pick wrong: 14px text fails the plan's own no-small-type rule on a 320px phone, and three sizes leave every new field guessing.\nRecommendation: 5A because it matches DESIGN.md exactly, drops the 14px size that hurts legibility, and the h1 keeps the existing shell size.\nCompleteness: 5A=10/10, 5B=6/10, 5C=2/10\nNet: two roles from the approved system vs a bespoke three-tier scale that needs its own rulebook.",
+          "header": "Issue 5",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "5A Two roles: 16px text, 20px section headings (recommended)",
+              "description": "✅ Labels, inputs, helper text, status, error copy and button labels all 16px; Profile and Notifications h2 at 20px; h1 keeps the shell size (human: ~30min / CC: ~3min). ✅ Nothing below 16px, so body text passes the universal small-type rule on every viewport. ❌ Helper text loses its current 14px de-emphasis; use color contrast within AA rather than size to make it quieter."
+            },
+            {
+              "label": "5B Three roles: 14px helper, 16px labels, 20px headings",
+              "description": "✅ Keeps a visibly smaller helper text tier some teams prefer. ✅ Still removes the stray 18px label size. ❌ 14px helper text sits below the 16px body-text floor and adds a role DESIGN.md does not define (human: ~45min / CC: ~4min)."
+            },
+            {
+              "label": "5C Leave sizes as they are",
+              "description": "✅ No change to review. ✅ No risk of wrapping differences at 320px. ❌ Three unexplained label sizes remain and the plan stays inconsistent with DESIGN.md."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D8 — Issue 5: How many text sizes should the form use, and which?\nProject/branch/task: main branch, PLAN.md settings form; Pass 5 design system alignment, gap G4.\nELI10: Labels currently come in 14px, 16px, and 18px with no rule for which is which, so size stops meaning anything. DESIGN.md defines two roles: 16px for body, labels, and helper text, and 20px for the Profile and Notifications headings. Fewer sizes with a clear jump makes the hierarchy readable at a glance. Principle: flat or arbitrary type hierarchy is noise; users scan, and size is the first cue they read.\nStakes if we pick wrong: 14px text fails the plan's own no-small-type rule on a 320px phone, and three sizes leave every new field guessing.\nRecommendation: 5A because it matches DESIGN.md exactly, drops the 14px size that hurts legibility, and the h1 keeps the existing shell size.\nCompleteness: 5A=10/10, 5B=6/10, 5C=2/10\nNet: two roles from the approved system vs a bespoke three-tier scale that needs its own rulebook.": "5A Two roles: 16px text, 20px section headings (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-20T18:43:27.090Z"
+    },
+    {
+      "sessionId": "a55ade1a-0cdd-4811-9479-29db6282ad87",
+      "toolUseId": "toolu_011tirX2ENtfDpANQhU651eP",
+      "questions": [
+        {
+          "question": "D9 — Issue 6: How should error messages be colored so they pass WCAG AA?\nProject/branch/task: main branch, PLAN.md settings form; Pass 6 accessibility, gap G3.\nELI10: The error text is red on light pink at about 3:1 contrast. WCAG AA needs 4.5:1 for text that size, so people with low vision or a dim phone screen cannot read the one message telling them what went wrong. DESIGN.md already defines error.text #991b1b on error.surface #fef2f2 (about 7.6:1) with an icon and explicit text, so the state never depends on color alone. Principle: accessibility is not optional; trust is earned at the pixel level, and the error moment is where trust is most fragile.\nStakes if we pick wrong: Failed saves become unreadable for the users most likely to need the message, and the plan ships a known AA failure.\nRecommendation: 6A because the tokens exist, exceed AA with margin, and the icon plus text already satisfy the no-color-alone rule.\nCompleteness: 6A=10/10, 6B=8/10, 6C=1/10\nNet: apply the approved error tokens vs hand-tune a new red that still needs its own contrast check.",
+          "header": "Issue 6",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "6A Apply error.text #991b1b on error.surface #fef2f2 (recommended)",
+              "description": "✅ About 7.6:1 contrast, comfortably above the 4.5:1 AA floor, with the existing error icon and explicit text so color is never the only cue (human: ~20min / CC: ~2min). ✅ Same tokens for field errors, the error summary, and the inline network-error area, so all three read as one system. ❌ Darker red reads heavier than the current pink treatment; that weight is appropriate for an error."
+            },
+            {
+              "label": "6B Keep pink surface, darken text only",
+              "description": "✅ Minimal visual shift from today. ✅ Can reach AA by picking a darker red on the existing pink. ❌ Introduces a second red that is not a DESIGN.md token and must be contrast-measured separately (human: ~30min / CC: ~5min)."
+            },
+            {
+              "label": "6C Leave the current colors",
+              "description": "✅ No change. ✅ No visual regression. ❌ Ships a measured WCAG AA failure on the most important message in the form."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D9 — Issue 6: How should error messages be colored so they pass WCAG AA?\nProject/branch/task: main branch, PLAN.md settings form; Pass 6 accessibility, gap G3.\nELI10: The error text is red on light pink at about 3:1 contrast. WCAG AA needs 4.5:1 for text that size, so people with low vision or a dim phone screen cannot read the one message telling them what went wrong. DESIGN.md already defines error.text #991b1b on error.surface #fef2f2 (about 7.6:1) with an icon and explicit text, so the state never depends on color alone. Principle: accessibility is not optional; trust is earned at the pixel level, and the error moment is where trust is most fragile.\nStakes if we pick wrong: Failed saves become unreadable for the users most likely to need the message, and the plan ships a known AA failure.\nRecommendation: 6A because the tokens exist, exceed AA with margin, and the icon plus text already satisfy the no-color-alone rule.\nCompleteness: 6A=10/10, 6B=8/10, 6C=1/10\nNet: apply the approved error tokens vs hand-tune a new red that still needs its own contrast check.": "6A Apply error.text #991b1b on error.surface #fef2f2 (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-20T18:44:20.430Z"
+    },
+    {
+      "sessionId": "a55ade1a-0cdd-4811-9479-29db6282ad87",
+      "toolUseId": "toolu_01CraZfgsGShEKqe7jE2um2L",
+      "questions": [
+        {
+          "question": "D10 — Issue 7: Should Save be enabled when the form has no unsaved changes?\nProject/branch/task: main branch, PLAN.md settings form; Pass 7 unresolved decisions.\nELI10: The plan says dirty state must not rely on whether Save is enabled, but it never says whether Save IS enabled on a clean form. If enabled, a click re-sends identical values and the timestamp changes, which is harmless but odd. If disabled, the primary button greys out on arrival and the row of four has no filled control until the user types. Principle: users muddle through; a primary button that does nothing, or that sometimes cannot be reached, both cost goodwill.\nStakes if we pick wrong: Either a confusing greyed-out primary on page load, or a Save that appears to do something when nothing changed.\nRecommendation: 7A because the page's visual anchor stays present, keyboard users always have a focusable Save, and the accepted status text already tells them there is nothing pending.\nCompleteness: 7A=9/10, 7B=8/10\nNet: a stable, always-available primary that no-ops cleanly vs a primary that greys out to signal cleanliness the status line already communicates.",
+          "header": "Issue 7",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "7A Save stays enabled; clean click is a no-op (recommended)",
+              "description": "✅ The filled Save is always visible and focusable, so the header hierarchy from Decision 1 holds on page load and after a save (human: ~30min / CC: ~3min). ✅ A clean click sends no request and changes nothing, including the “Saved at” timestamp, so the status stays truthful. ❌ Some users expect a press to do something; the unchanged status is the only feedback."
+            },
+            {
+              "label": "7B Save disabled when clean",
+              "description": "✅ Makes “nothing to save” obvious at a glance for sighted users. ✅ Mirrors how Reset is already disabled when clean. ❌ Primary button greys out on arrival and aria-disabled state churn adds screen reader noise; the plan already says enabled state must not carry dirty meaning (human: ~30min / CC: ~3min)."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D10 — Issue 7: Should Save be enabled when the form has no unsaved changes?\nProject/branch/task: main branch, PLAN.md settings form; Pass 7 unresolved decisions.\nELI10: The plan says dirty state must not rely on whether Save is enabled, but it never says whether Save IS enabled on a clean form. If enabled, a click re-sends identical values and the timestamp changes, which is harmless but odd. If disabled, the primary button greys out on arrival and the row of four has no filled control until the user types. Principle: users muddle through; a primary button that does nothing, or that sometimes cannot be reached, both cost goodwill.\nStakes if we pick wrong: Either a confusing greyed-out primary on page load, or a Save that appears to do something when nothing changed.\nRecommendation: 7A because the page's visual anchor stays present, keyboard users always have a focusable Save, and the accepted status text already tells them there is nothing pending.\nCompleteness: 7A=9/10, 7B=8/10\nNet: a stable, always-available primary that no-ops cleanly vs a primary that greys out to signal cleanliness the status line already communicates.": "7A Save stays enabled; clean click is a no-op (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-20T18:45:15.804Z"
+    },
+    {
+      "sessionId": "a55ade1a-0cdd-4811-9479-29db6282ad87",
+      "toolUseId": "toolu_018E4ENQbQqKbWEWoLD5oEcm",
+      "questions": [
+        {
+          "question": "D11 — Issue 8: What filename should the Export download use?\nProject/branch/task: main branch, PLAN.md settings form; Pass 7 unresolved decisions.\nELI10: Export downloads the saved preferences as JSON, but the plan never names the file. Left open, the browser saves it as download.json or whatever the server emits, and a user with several exports cannot tell them apart in their Downloads folder. Principle: the design does not end at the viewport; the file on disk is the last thing the user sees from this feature.\nStakes if we pick wrong: Indistinguishable or cryptic files erode trust in the export and generate support questions.\nRecommendation: 8A because a fixed prefix plus the local date is readable, sortable, safe on every filesystem, and needs no personal data in the name.\nCompleteness: 8A=10/10, 8B=7/10, 8C=2/10\nNet: a predictable dated name decided now vs whatever the download attribute defaults to.",
+          "header": "Issue 8",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "8A account-settings-YYYY-MM-DD.json (recommended)",
+              "description": "✅ Readable, sorts chronologically, and contains no email or display name, so nothing personal leaks into a filename (human: ~15min / CC: ~2min). ✅ Date uses the user's local calendar day, consistent with the local-time “Saved at” timestamp. ❌ Two exports on the same day get the same name; the browser appends (1), which is acceptable."
+            },
+            {
+              "label": "8B account-settings.json",
+              "description": "✅ Shortest, simplest name. ✅ Trivial to implement and test. ❌ Every export collides in the Downloads folder and the user cannot tell which is current (human: ~10min / CC: ~1min)."
+            },
+            {
+              "label": "8C Leave to implementation",
+              "description": "✅ No decision now. ✅ No plan edit. ❌ Ships as download.json or a server default, and QA has nothing to assert."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D11 — Issue 8: What filename should the Export download use?\nProject/branch/task: main branch, PLAN.md settings form; Pass 7 unresolved decisions.\nELI10: Export downloads the saved preferences as JSON, but the plan never names the file. Left open, the browser saves it as download.json or whatever the server emits, and a user with several exports cannot tell them apart in their Downloads folder. Principle: the design does not end at the viewport; the file on disk is the last thing the user sees from this feature.\nStakes if we pick wrong: Indistinguishable or cryptic files erode trust in the export and generate support questions.\nRecommendation: 8A because a fixed prefix plus the local date is readable, sortable, safe on every filesystem, and needs no personal data in the name.\nCompleteness: 8A=10/10, 8B=7/10, 8C=2/10\nNet: a predictable dated name decided now vs whatever the download attribute defaults to.": "8A account-settings-YYYY-MM-DD.json (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-20T18:45:49.550Z"
+    }
+  ]
+}

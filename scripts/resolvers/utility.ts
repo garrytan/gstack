@@ -462,20 +462,20 @@ export function generateSetupCommand(ctx: TemplateContext): string {
   return ctx.host === 'claude' ? './setup' : `./setup --host ${ctx.host}`;
 }
 
-export function generateChangelogWorkflow(_ctx: TemplateContext): string {
+export function generateChangelogWorkflow(ctx: TemplateContext): string {
   return `## Step 13: CHANGELOG (auto-generate)
 
 1. Read \`CHANGELOG.md\` header to know the format.
 
 2. **First, enumerate every commit on the branch:**
    \`\`\`bash
-   git log <base>..HEAD --oneline
+   git log ${ctx.skillName === 'ship' ? 'origin/<base>' : '<base>'}..HEAD --oneline
    \`\`\`
    Copy the full list. Count the commits. You will use this as a checklist.
 
 3. **Read the full diff** to understand what each commit actually changed:
    \`\`\`bash
-   git diff <base>...HEAD
+   git diff ${ctx.skillName === 'ship' ? 'origin/<base>' : '<base>...HEAD'}
    \`\`\`
 
 4. **Group commits by theme** before writing anything. Common themes:
@@ -494,7 +494,7 @@ export function generateChangelogWorkflow(_ctx: TemplateContext): string {
      - \`### Fixed\` — bug fixes
      - \`### Removed\` — removed features
    - Write concise, descriptive bullet points
-   - Insert after the file header (line 5), dated today
+   - ${ctx.skillName === 'ship' ? 'Insert after the observed file header, before the first release entry, dated today' : 'Insert after the file header (line 5), dated today'}
    - Format: \`## [X.Y.Z.W] - YYYY-MM-DD\`
    - **Voice:** Lead with what the user can now **do** that they couldn't before. Use plain language, not implementation details. Never mention TODOS.md, internal tracking, or contributor-facing details.
 

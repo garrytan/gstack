@@ -913,7 +913,7 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     }
     expect(normalizedPlanSkill).toContain('For every target, run these five Test steps inside Section 3, after Scope Challenge and the Architecture/Code Quality reviews');
     expect(normalizedPlanSkill).toContain('Within Test step 1, read concrete source/tests before tracing or diagramming; Test step 2 adds user flows');
-    expect(normalizedShipSkill).toContain('after Scope Challenge resolves and before Step 2. Map user flows');
+    expect(normalizedShipSkill).toContain('Finish this source read before tracing data flow in audit item 2 below; map user flows afterward');
     // Plan mode traces the plan, not a git diff
     expect(planSkill).toContain('Trace every codepath in the plan');
     expect(planSkill).not.toContain('git diff origin');
@@ -1137,7 +1137,8 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
 
   test('ship SKILL.md contains re-run idempotency behavior', () => {
     expect(shipSkill).toContain('Re-run behavior (idempotency)');
-    expect(shipSkill).toContain('Never skip a verification step');
+    expect(shipSkill).toContain('Every invocation repeats verification:');
+    expect(shipSkill).toContain('Prior execution never exempts verification.');
   });
 });
 
@@ -1979,7 +1980,7 @@ describe('CHANGELOG_WORKFLOW resolver', () => {
 
   test('ship SKILL.md contains changelog workflow', () => {
     expect(shipContent).toContain('CHANGELOG (auto-generate)');
-    expect(shipContent).toContain('git log <base>..HEAD --oneline');
+    expect(shipContent).toContain('git log origin/<base>..HEAD --oneline');
   });
 
   test('changelog workflow includes cross-check step', () => {
@@ -3865,9 +3866,9 @@ describe('community fixes wave', () => {
   });
 
   // #510 — Context warnings: plan-eng-review has explicit anti-warning
-  test('plan-eng-review/SKILL.md contains "Do not preemptively warn"', () => {
+  test('plan-eng-review/SKILL.md explicitly forbids preemptive context warnings', () => {
     const content = readSkillUnion('plan-eng-review'); // carved: review body moved to section
-    expect(content).toContain('Do not preemptively warn');
+    expect(content.toLowerCase()).toContain('do not preemptively warn');
   });
 
   // #474 — Safety Net: no SKILL.md uses find with -delete

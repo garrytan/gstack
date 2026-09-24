@@ -38,6 +38,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/context-save`](#context-save) | **Save State** | Save working context (git state, decisions, remaining work) so any future session can resume. |
 | [`/context-restore`](#context-restore) | **Restore State** | Resume from a saved context, even across Conductor workspace handoffs. |
 | [`/health`](#health) | **Code Quality Dashboard** | Wraps type checker, linter, tests, dead code detection. Computes a weighted 0-10 score; tracks trends over time. |
+| [`/deslop-shared-libs`](#deslop-shared-libs) | **Shared Code Reviewer** | Find worthwhile shared-code extractions in recent work. Recommendations only. |
 | [`/landing-report`](#landing-report) | **Ship Queue Dashboard** | Read-only snapshot of the workspace-aware ship queue. Which version slots are claimed, which sibling workspaces have WIP. |
 | [`/benchmark-models`](#benchmark-models) | **Model Benchmark** | Side-by-side cross-model benchmark for skills (Claude vs GPT vs Gemini). Latency, tokens, cost, optional LLM-judged quality. |
 | | | |
@@ -739,6 +740,33 @@ Claude: Monitoring 8 pages every 2 minutes...
 ```
 
 ---
+
+## `/deslop-shared-libs`
+
+Find shared code worth extracting from recent work. By default, the skill reviews
+the preceding 14 UTC days of commits and PRs, plus relevant current-branch work.
+It checks existing helpers, verifies compatible authored callers, and compares
+up to five new opportunities before recommending up to three. Estimates include
+tests and integration, so moving code into a new file does not count as savings.
+Fewer recommendations, including none, are valid.
+
+```text
+You: /deslop-shared-libs
+You: /deslop-shared-libs — focus on the API and workers over the past 30 days
+```
+
+The report links the reviewed source, names the smallest useful helper and its
+callers, explains reliability gains and shared-failure risks, and separates work
+already covered by PRs. It checks older open PRs for candidate overlap within a
+bounded scan and discloses inaccessible history or incomplete coverage. It reads
+raw uncommitted source without running project hooks or filters. It never edits
+code, runs project tests, saves a report, or creates issues or PRs.
+
+`/plan-eng-review` applies the same criteria to the plan and proposed callers.
+`/review` checks the diff and related callers even on tiny changes. These scoped
+checks do not run the history audit. Optional extractions are advisory and require
+approval; they do not block a clean review or reduce its score. Actual defects
+keep their normal fix handling.
 
 ## `/benchmark`
 

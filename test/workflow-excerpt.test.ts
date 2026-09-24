@@ -72,7 +72,8 @@ describe('workflow judge excerpts', () => {
   test('ship uses project-native commands and never jumps over mandatory gates', () => {
     const text = readWorkflowExcerpt('ship/SKILL.md', '# Ship:', '## Important Rules');
     expect(text).toContain("Use the project's test commands discovered in Step 4");
-    expect(text).toContain("Use the project's documented eval selection");
+    expect(text).toContain('**Project-native path:**');
+    expect(text).toContain('Use the documented selector and pre-merge command.');
     expect(text).not.toMatch(/skipping evals[^\n]*Step 9/);
     const reviewAndTriage = text.slice(text.indexOf('## Step 9:'), text.indexOf('## Step 11:'));
     expect(reviewAndTriage.match(/continue to Step 12/i)).toBeNull();
@@ -83,6 +84,16 @@ describe('workflow judge excerpts', () => {
     expect(text).not.toContain("--exec 'true'");
     expect(text).not.toContain('-X ours');
     expect(text).toContain('````text\nYou are running a ship-workflow');
+  });
+
+  test('ship review shortcuts retain dedup and fixes repeat the whole review cycle', () => {
+    const text = readWorkflowExcerpt('ship/SKILL.md', '# Ship:', '## Important Rules');
+    expect(text).toContain('Continue to Step 9.3 (cross-review dedup)');
+    expect(text).toContain('## Step 9.4: Fix-First and persistence');
+    expect(text).toContain('including design, specialists, Red Team, and dedup');
+    const audit = text.slice(text.indexOf('## Step 7:'), text.indexOf('## Step 8:'));
+    expect(audit).not.toContain('Scope Challenge');
+    expect(text).toContain('Ship anyway retains VERIFY_RESULT=fail');
   });
 
   test('a sliced section is not appended again with its generated header', () => {
@@ -106,7 +117,7 @@ describe('workflow judge excerpts', () => {
     expect(text).toContain('never create an empty commit');
     const review = text.slice(text.indexOf('## Step 9:'), text.indexOf('## Step 10:'));
     expect(review.indexOf('## Confidence Calibration')).toBeLessThan(review.indexOf('1. Read'));
-    expect(review).toContain('only continue to Step 10 after item 9');
+    expect(review).toContain('Continue to Step 10 only after a completed, converged review is persisted');
   });
 
   test('ship approval gates stay outside the subagent prompts', () => {
@@ -196,15 +207,19 @@ describe('workflow judge excerpts', () => {
   test('CEO capture locates Mode Selection by name for current and frozen skill copies', () => {
     const dir = mkdtempSync(join(tmpdir(), 'ceo-semantic-capture-'));
     const helper = join(import.meta.dir, 'helpers', 'auq-sdk-capture.ts');
-    const runner = join(import.meta.dir, 'helpers', 'session-runner.ts');
+    const runner = join(import.meta.dir, 'helpers', 'agent-sdk-runner.ts');
     const script = join(dir, 'capture.ts');
     writeFileSync(script, `import { mock } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 const calls = [];
-mock.module(${JSON.stringify(runner)}, () => ({runSkillTest: async options => {
+mock.module(${JSON.stringify(runner)}, () => ({resolveClaudeBinary:()=>'/fixture/claude',runAgentSdkTest: async options => {
   calls.push(options);
-  fs.writeFileSync(path.join(options.workingDirectory, 'ask-capture.md'), 'captured mode choice');
+  void options.canUseTool('AskUserQuestion', {questions:[{header:'Mode',question:'captured mode choice',
+    options:['SCOPE EXPANSION','SELECTIVE EXPANSION','HOLD SCOPE','SCOPE REDUCTION'].map(label=>({label,description:''}))}]},
+    {toolUseID:'native-mode',signal:options.signal});
+  options.signal.throwIfAborted();
+  throw Error('capture failed to stop before answering');
 }}));
 const {captureModeSelectionAuq, verboseSkill} = await import(${JSON.stringify(helper)});
 const current = fs.readFileSync(${JSON.stringify(join(import.meta.dir, '..', 'plan-ceo-review', 'SKILL.md'))}, 'utf8');
@@ -224,16 +239,17 @@ console.log(JSON.stringify({calls, results}));
       expect(child.status, `${child.error ?? ''}\n${child.stderr}`).toBe(0);
       const { calls, results } = JSON.parse(child.stdout.trim().split('\n').at(-1)!);
       expect(results).toEqual([
-        { variant: 'current', heading: expect.stringMatching(/^0[A-Z]$/), captured: 'captured mode choice' },
-        { variant: 'frozen', heading: '0F', captured: 'captured mode choice' },
+        { variant: 'current', heading: expect.stringMatching(/^0[A-Z]$/), captured: expect.stringContaining('captured mode choice') },
+        { variant: 'frozen', heading: '0F', captured: expect.stringContaining('captured mode choice') },
       ]);
       expect(calls).toHaveLength(2);
       for (const call of calls) {
-        expect(call.prompt).toContain('Proceed to Mode Selection,');
-        expect(call.prompt).not.toMatch(/Step 0[A-Z]/);
-        expect(call.prompt).toContain(join(call.workingDirectory, 'plan-ceo-review', 'SKILL.md'));
-        expect(call.prompt).toContain('Do NOT search for, Glob, find, or read any OTHER SKILL.md');
-        expect(call).toMatchObject({ allowedTools: ['Read', 'Write'], maxTurns: 12, timeout: 240_000, model: 'fake-model' });
+        expect(call.userPrompt).toContain('Proceed to Mode Selection,');
+        expect(call.userPrompt).not.toMatch(/Step 0[A-Z]/);
+        expect(call.userPrompt).toContain(join(call.workingDirectory, 'plan-ceo-review', 'SKILL.md'));
+        expect(call.userPrompt).toContain('Do NOT search for, Glob, find, or read any OTHER SKILL.md');
+        expect(call.userPrompt).toContain('Ask the user through the AskUserQuestion tool and wait for their answer.');
+        expect(call).toMatchObject({ allowedTools: ['Read', 'Write', 'AskUserQuestion'], maxTurns: 12, maxRetries: 0, model: 'fake-model' });
       }
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });

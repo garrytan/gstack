@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.89.0.0] - 2026-09-24
+
+**Find shared code worth keeping.**
+**Get the evidence before you extract it.**
+
+`/deslop-shared-libs` finds places where sharing code could remove duplication and prevent repeated fixes. It starts with the preceding 14 UTC days of commits and PRs, plus relevant work on your branch, then follows the callers and helpers behind promising candidates. Each recommendation names compatible source locations, a small helper, the tests needed, and estimated savings after integration work. The skill recommends changes and stops; it does not edit your project or create issues or PRs.
+
+### The three numbers that matter
+
+Source: the workflow contracts in `deslop-shared-libs/SKILL.md.tmpl`, `plan-eng-review/sections/review-sections.md.tmpl`, and `review/SKILL.md.tmpl`, plus the generated catalog census. Run `bun test test/shared-libs-rendering.test.ts test/catalog-budget.test.ts` to verify distribution and catalog size. These are feature and source-size counts against v1.87.5.0, not performance measurements.
+
+| Metric | Before | After | Δ |
+|---|---:|---:|---:|
+| Dedicated recent-work shared-code audit skills | 0 | 1 | +1 |
+| Parent reviews using the shared-code rubric | 0 | 2 | +2 |
+| Generated catalog name and description bytes | 4,593 | 4,675 | +82 |
+
+`/plan-eng-review` and `/review` now apply the same criteria within the plan or diff you are already reviewing. They check existing helpers, caller compatibility, tests, and the risk of sharing a bug. They do not run the broader history audit.
+
+### What this means for developers
+
+You get up to five supported opportunities and up to three recommendations, with PR-covered work separated and missing evidence disclosed. Optional extractions require approval and do not lower the review score or block a clean result. A skipped extraction is reused only when its identity, branch, and verified source snapshot still match; actual defects keep normal fix handling. Run `/deslop-shared-libs`, or name a narrower area and time window.
+
+### Itemized changes
+
+#### Added
+
+- **`/deslop-shared-libs` recommends useful shared-code extractions.** Reports link authored callers, prefer existing helpers, account for tests and integration, and explain reliability gains and risks. Generated and third-party copies do not count toward savings. Fewer recommendations, including none, are valid.
+- **Recent work includes PR overlap checks.** The audit distinguishes code changes from comment activity, checks relevant older open PRs within a bounded scan, charges repeated page requests against the limit, and reports inaccessible history or truncated coverage. API reads never create response files, including temporary files outside the project.
+
+#### Changed
+
+- **Engineering plans and code reviews share one extraction rubric.** `/plan-eng-review` can evaluate proposed callers with labeled assumptions. `/review` checks actual changed code and related callers even for small diffs and Codex installations without Review Army.
+- **Extraction advice stays separate from defects.** Advice requires approval, survives review persistence with its source evidence, and cannot suppress a real defect. Reusing a previous skip requires matching structural identity, verified source coverage, and branch binding.
+- **Decision briefs retain their headings and closing tradeoff in native question tools.** The question carries its pros-and-cons heading and final summary; options retain their own benefits and drawbacks.
+
+#### For contributors
+
+- Added generated-host, discovery, identity, fixture, source-binding, and behavioral coverage. Gate evaluations exercise read-only access and the review action/persistence lifecycle; periodic evaluations cover ranking, PR overlap, and live Codex behavior.
+- Coverage evaluations now recognize complete combined source reads and explicit diagram legends while retaining checks for source ownership, missing output, and contradictory evidence.
+- First-question evaluations capture public native questions with a restricted tool set. Mode selection uses the actual question-tool callback and stops without answering. Provider failures and stale output remain failures. Interactive captures survive fixture cleanup when an output directory is configured, including local runs without a named run ID.
+
 ## [1.88.1.0] - 2026-09-22
 
 Credential masking follows the exact detected source, and pre-push scans follow the actual destination. Browser agents and CSO operations retain precise ownership, while settings updates and artifact reinitialization preserve user-owned data.

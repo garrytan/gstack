@@ -1,0 +1,41 @@
+{
+  "provenance": {
+    "source": "September 21 final design-count diagnostic",
+    "runId": "shared-libs-design-final-sep21",
+    "sourceCallSha256": "a377c46b875e3c22841403a75aa088e363882249622a8351591c05e0bd7fb529"
+  },
+  "calls": [
+    {
+      "sessionId": "f88caf33-9daa-4975-b2be-584db7424e05",
+      "toolUseId": "toolu_01KHwBM18zikG3ooKJQYyPo7",
+      "questions": [
+        {
+          "question": "D2 — Issue 1: Save has no visual primacy in the header action group\nProject/branch/task: main — account-settings form update reviewed against DESIGN.md.\nELI10: Four buttons sit in a row and all look the same. The person who just edited their email has to read every label to find the one that keeps their work. DESIGN.md already says Save is the only filled blue button and the other three are quiet ghost buttons, but the proposed form ignores that. Nothing else on the page tells them which action is the safe, expected one.\nStakes if we pick wrong: users misclick Reset or Cancel next to Save and hit a discard dialog, or hesitate on every save; the header reads as noise rather than hierarchy.\nRecommendation: 1A because DESIGN.md already defines the exact tokens and the Button component already has both variants, so this is zero new design and restores the scan order (title → Save → status).\nCompleteness: A=10/10, B=3/10, C=7/10\nPrinciple: Visual hierarchy is everything — if everything shouts, nothing is heard.\nNet: we are trading a one-token change for whether the page has a primary action at all.",
+          "header": "Issue 1",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A — Save filled primary, others ghost (Recommended)",
+              "description": "✅ Matches DESIGN.md exactly: Save #1d4ed8 with white text, Reset/Cancel/Export neutral ghost buttons, 44px targets unchanged. ✅ Reuses the existing Button variants; no new component or exploration (human: ~30min / CC: ~3min). ❌ Export loses visual weight even though some users come only to download."
+            },
+            {
+              "label": "1B — Keep four identical buttons, rely on Save being first",
+              "description": "✅ Zero visual change to the current form; nothing to re-verify. ✅ Position still gives Save a mild advantage in tab order and scan order. ❌ Violates DESIGN.md and leaves the primary action indistinguishable at a glance, especially at 640px where all four are the same width."
+            },
+            {
+              "label": "1C — Save filled primary, Export outlined secondary, Reset/Cancel ghost",
+              "description": "✅ Gives Export a middle tier so download-only visitors still find it quickly. ✅ Save remains the single filled anchor, preserving the primary scan target. ❌ Introduces a third button tier DESIGN.md does not define, so it needs a new token and a DESIGN.md amendment (human: ~2h / CC: ~10min)."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D2 — Issue 1: Save has no visual primacy in the header action group\nProject/branch/task: main — account-settings form update reviewed against DESIGN.md.\nELI10: Four buttons sit in a row and all look the same. The person who just edited their email has to read every label to find the one that keeps their work. DESIGN.md already says Save is the only filled blue button and the other three are quiet ghost buttons, but the proposed form ignores that. Nothing else on the page tells them which action is the safe, expected one.\nStakes if we pick wrong: users misclick Reset or Cancel next to Save and hit a discard dialog, or hesitate on every save; the header reads as noise rather than hierarchy.\nRecommendation: 1A because DESIGN.md already defines the exact tokens and the Button component already has both variants, so this is zero new design and restores the scan order (title → Save → status).\nCompleteness: A=10/10, B=3/10, C=7/10\nPrinciple: Visual hierarchy is everything — if everything shouts, nothing is heard.\nNet: we are trading a one-token change for whether the page has a primary action at all.": "1A — Save filled primary, others ghost (Recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-21T17:39:30.327Z"
+    }
+  ]
+}

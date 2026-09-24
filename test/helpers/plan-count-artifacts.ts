@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { getProjectEvalDir } from './eval-store';
 
 interface PlanCountSnapshot {
@@ -16,12 +17,15 @@ interface PlanCountSnapshot {
 export function createPlanCountSnapshotWriter(env: NodeJS.ProcessEnv = process.env):
   (input: PlanCountSnapshot) => { artifactDir?: string; artifactError?: string } {
   let artifactDir: string | undefined;
+  // An explicit output directory requests retention even outside CI's named
+  // runs. Keep its fallback stable across checkpoints and unique per writer.
+  const runId = env.EVALS_RUN_ID || (env.GSTACK_EVAL_DIR ? `local-${randomUUID()}` : undefined);
   return (input) => {
-    if (!env.EVALS_RUN_ID) return {};
+    if (!runId) return {};
     try {
       if (!artifactDir) {
         const segment = (text: string) => text.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120) || 'run';
-        const root = path.resolve(env.GSTACK_EVAL_DIR || getProjectEvalDir(), 'pty-count', segment(env.EVALS_RUN_ID));
+        const root = path.resolve(env.GSTACK_EVAL_DIR || getProjectEvalDir(), 'pty-count', segment(runId));
         fs.mkdirSync(root, { recursive: true, mode: 0o700 });
         artifactDir = fs.mkdtempSync(path.join(root, `${segment(input.skillName)}-${Date.now()}-`));
       }
@@ -35,7 +39,7 @@ export function createPlanCountSnapshotWriter(env: NodeJS.ProcessEnv = process.e
       if (input.viewport !== undefined) write('terminal.screen.log', input.viewport);
       write('observation.json', JSON.stringify({
         ...input.observation, artifactDir,
-        capture: { skill: input.skillName, runId: env.EVALS_RUN_ID, cwd: input.cwd,
+        capture: { skill: input.skillName, runId, cwd: input.cwd,
           claudeConfigDir: input.claudeConfigDir, at: new Date().toISOString() },
       }, null, 2) + '\n');
       return { artifactDir };
