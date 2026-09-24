@@ -7,8 +7,8 @@
  * on-demand section — prompt-token-load-reduction carve; the skeleton keeps
  * only the STOP-Read pointer). After ANY non-zero `gh pr merge`, the skill
  * must query authoritative PR state via
- * `gh pr view --json state,mergeCommit,mergedAt,mergedBy` and
- * branch on the result instead of retrying `gh pr merge` (cli/cli#3442,
+ * GraphQL (including queue membership) and
+ * branch on the result instead of blindly retrying `gh pr merge` (cli/cli#3442,
  * cli/cli#13380).
  *
  * Static invariants pin:
@@ -20,7 +20,7 @@
  *   - MERGED branch: continues to §4a CI watch
  *   - OPEN branch: checks autoMergeRequest before treating as failure
  *   - CLOSED branch: STOPs
- *   - Hard rule: never retry `gh pr merge`
+ *   - Hard rule: no replay after MERGED; one guarded auto-to-direct fallback
  *   - .tmpl edit propagated to generated SKILL.md (atomic per T-Codex-3)
  */
 import { describe, expect, test } from "bun:test";
@@ -60,9 +60,11 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/cli\/cli#13380/);
   });
 
-  test("Authoritative state query uses gh pr view --json", () => {
+  test("Authoritative state query includes auto request and queue membership", () => {
     const body = readTmpl();
-    expect(body).toMatch(/gh pr view --json state,mergeCommit,mergedAt,mergedBy/);
+    expect(body).toMatch(/gh api graphql/);
+    expect(body).toContain('state headRefOid baseRefName mergedAt mergeCommit { oid }');
+    expect(body).toContain('autoMergeRequest { enabledAt } mergeQueueEntry { id state }');
   });
 
   test("All three state branches named: MERGED, OPEN, CLOSED", () => {
@@ -74,7 +76,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
 
   test("MERGED branch captures merge SHA via mergeCommit.oid", () => {
     const body = readTmpl();
-    expect(body).toMatch(/gh pr view --json mergeCommit -q \.mergeCommit\.oid/);
+    expect(body).toMatch(/jq -er '\.data\.repository\.pullRequest\.mergeCommit\.oid'/);
   });
 
   test("MERGED worktree cleanup is non-destructive (uncommitted-work guard)", () => {
@@ -96,7 +98,7 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
   // base checkout's origin, because fork branches do not exist in origin.
   test("MERGED branch reconciles the PR head repository (ls-remote, confirm-first delete)", () => {
     const body = readTmpl();
-    expect(body).toMatch(/gh pr view --json headRepositoryOwner,headRepository,headRefName/);
+    expect(body).toMatch(/gh pr view "\$PR_NUMBER" --repo "\$REPO" --json headRepositoryOwner,headRepository,headRefName/);
     // gh leaves .headRepository.nameWithOwner empty (verified live, gh 2.83) —
     // owner/name is composed from headRepositoryOwner.login + headRepository.name.
     expect(body).toMatch(/headRepositoryOwner\.login/);
@@ -120,8 +122,8 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
 
   test("OPEN branch checks autoMergeRequest before treating as failure", () => {
     const body = readTmpl();
-    expect(body).toMatch(/gh pr view --json autoMergeRequest/);
-    expect(body).toMatch(/auto-merge is enabled or merge queue is in use/);
+    expect(body).toMatch(/autoMergeRequest != null or \.mergeQueueEntry != null/);
+    expect(body).toMatch(/auto-merge is enabled or\s+merge queue is in use/);
   });
 
   test("CLOSED branch STOPs", () => {
@@ -129,9 +131,12 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     expect(body).toMatch(/state == "CLOSED".*[\s\S]{0,200}STOP/);
   });
 
-  test("Hard rule: never retry gh pr merge after non-zero exit", () => {
+  test("Hard rule: no replay after MERGED and only one guarded direct fallback", () => {
     const body = readTmpl();
-    expect(body).toMatch(/never call `gh pr merge` a second time/);
+    expect(body).toMatch(/never\s+replay a merge after MERGED/);
+    expect(body).toContain('one direct fallback');
+    expect(body).toContain('There is no fallback from a direct attempt');
+    expect(body).toContain('readback has confirmed OPEN, no auto request and no queue entry');
   });
 
   test("Generated merge-and-deploy.md carries the §4a-postfail section (atomic regen per T-Codex-3)", () => {
