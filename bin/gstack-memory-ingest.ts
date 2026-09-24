@@ -1434,6 +1434,7 @@ function preparePages(
   skippedPolicyDeny: number;
   parseFailed: number;
   partialPages: number;
+  policyStoreExists: boolean;
   /**
    * #2392: set when the per-remote policy store EXISTS but could not be
    * read (corrupt file, spawn failure). The caller must abort before any
@@ -1622,6 +1623,7 @@ function preparePages(
     skippedPolicyDeny,
     parseFailed,
     partialPages,
+    policyStoreExists,
     policyError,
   };
 }
@@ -2107,13 +2109,20 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   // instead of deleting it (the SIGTERM forwarder's preserve branch only runs
   // when the PARENT is signalled, which an internal timeout never does).
   let preserveStaging = resuming && args.scanSecrets;
+  const enforceResumePolicy = resuming && hasRepoPolicyStore();
   try {
     let staging: StagingResult;
     if (resuming) {
       const stagedPagePaths = new Set<string>();
       const stagedPathToSource = new Map<string, string>();
-      if (args.scanSecrets) {
+      if (args.scanSecrets || enforceResumePolicy) {
         try {
+          if (enforceResumePolicy && !prep.policyStoreExists) {
+            throw new Error("[repo policy] policy store appeared after source preparation");
+          }
+          const eligiblePages = enforceResumePolicy
+            ? new Map(prep.prepared.map((p) => [stagedRelPath(p.slug), p]))
+            : null;
           const pending = [stagingDir];
           while (pending.length > 0) {
             const dir = pending.pop()!;
@@ -2122,32 +2131,54 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
               if (entry.isDirectory()) pending.push(path);
               else if (entry.isFile()) {
                 if (path === join(stagingDir, STAGING_MARKER)) continue;
-                const scan = secretScanFile(path);
-                if (!scan.scanned || scan.scanner !== "gitleaks" || scan.findings.length > 0) {
-                  const reason = scan.scanned ? "match" : scan.scanner;
-                  throw new Error(`[secret-scan ${reason}] ${path}`);
+                if (args.scanSecrets) {
+                  const scan = secretScanFile(path);
+                  if (!scan.scanned || scan.scanner !== "gitleaks" || scan.findings.length > 0) {
+                    const reason = scan.scanned ? "match" : scan.scanner;
+                    throw new Error(`[secret-scan ${reason}] ${path}`);
+                  }
                 }
-                if (entry.name.endsWith(".md")) stagedPagePaths.add(relative(stagingDir, path).split("\\").join("/"));
+                if (entry.name.endsWith(".md")) {
+                  const relPath = relative(stagingDir, path).split("\\").join("/");
+                  stagedPagePaths.add(relPath);
+                  if (eligiblePages) {
+                    const page = eligiblePages.get(relPath);
+                    if (!page || readFileSync(path, "utf-8") !== page.rendered_body) {
+                      throw new Error(`[repo policy] staged page is not a current permitted source: ${relPath}`);
+                    }
+                    stagedPathToSource.set(relPath, page.source_path);
+                  }
+                } else if (enforceResumePolicy) {
+                  throw new Error(`[repo policy] unrecognized staged file: ${path}`);
+                }
               } else {
-                throw new Error(`[secret-scan error] unsupported staging entry: ${path}`);
+                throw new Error(`[${args.scanSecrets ? "secret-scan error" : "repo policy"}] unsupported staging entry: ${path}`);
               }
             }
           }
-          if (stagedPagePaths.size === 0) throw new Error("[secret-scan error] resumed staging contains no pages");
-          for (const p of prep.prepared) {
-            const path = stagedRelPath(p.slug);
-            if (stagedPagePaths.has(path) && readFileSync(join(stagingDir, path), "utf-8") === p.rendered_body) {
-              stagedPathToSource.set(path, p.source_path);
+          if (stagedPagePaths.size === 0) {
+            throw new Error(`[${args.scanSecrets ? "secret-scan error" : "repo policy"}] resumed staging contains no pages`);
+          }
+          if (!enforceResumePolicy) {
+            for (const p of prep.prepared) {
+              const path = stagedRelPath(p.slug);
+              if (stagedPagePaths.has(path) && readFileSync(join(stagingDir, path), "utf-8") === p.rendered_body) {
+                stagedPathToSource.set(path, p.source_path);
+              }
             }
           }
         } catch (err) {
           preserveStaging = true;
-          const msg = `${(err as Error).message}; resumed import refused. ` +
-            "Staging preserved; repair gitleaks and retry, or rerun without resume to restage.";
+          const cause = (err as Error).message;
+          const scannerFailed = cause.startsWith("[secret-scan");
+          const msg = `${cause}; resumed import refused. Staging preserved; ` +
+            (scannerFailed
+              ? "repair gitleaks and retry, or rerun without resume to restage."
+              : "rerun without resume to restage under the current repo policy.");
           console.error(`[memory-ingest] ERR: ${msg}`);
           return {
             written: 0,
-            skipped_secret: prep.skippedSecret + 1,
+            skipped_secret: prep.skippedSecret + (scannerFailed ? 1 : 0),
             skipped_dedup: prep.skippedDedup,
             skipped_unattributed: prep.skippedUnattributed,
             skipped_policy_readonly: prep.skippedPolicyReadonly,
@@ -2172,14 +2203,14 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       // readNewFailures() can still map gbrain's per-file failures back to
       // sources on resume. An empty map made every failed file fall through to
       // state-recording — i.e. silently marked ingested despite failing.
-      if (!args.scanSecrets) {
+      if (!args.scanSecrets && !enforceResumePolicy) {
         for (const p of prep.prepared) {
           stagedPathToSource.set(stagedRelPath(p.slug), p.source_path);
         }
       }
       staging = {
         staging_dir: stagingDir,
-        written: args.scanSecrets ? stagedPagePaths.size : prep.prepared.length,
+        written: args.scanSecrets || enforceResumePolicy ? stagedPagePaths.size : prep.prepared.length,
         errors: [],
         stagedPathToSource,
       };
@@ -2420,7 +2451,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // run artifacts-init, collect_files returns 0 for every batch.
     //
     // `skipped` counts content_hash no-ops, which ARE successful landings.
-    const expectedLandings = (args.scanSecrets ? staging.written : prep.prepared.length) - failedSources.size;
+    const expectedLandings = (args.scanSecrets || enforceResumePolicy ? staging.written : prep.prepared.length) - failedSources.size;
     const accountedLandings =
       (importJson.imported ?? 0) + (importJson.skipped ?? 0);
     if (accountedLandings < expectedLandings) {
@@ -2458,8 +2489,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     for (const p of prep.prepared) {
       if (failedSources.has(p.source_path)) continue;
       try {
-        if (args.scanSecrets && staging.stagedPathToSource.get(stagedRelPath(p.slug)) !== p.source_path) continue;
-        if (resuming && args.scanSecrets &&
+        if ((args.scanSecrets || enforceResumePolicy) && staging.stagedPathToSource.get(stagedRelPath(p.slug)) !== p.source_path) continue;
+        if (resuming && (args.scanSecrets || enforceResumePolicy) &&
           readFileSync(join(stagingDir, stagedRelPath(p.slug)), "utf-8") !== p.rendered_body) continue;
         const fingerprint = sourceFingerprintForStamp(p);
         if (!fingerprint) continue;
@@ -2483,7 +2514,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       }
     }
 
-    if (resuming && args.scanSecrets) preserveStaging = written < staging.written || failedSources.size > 0;
+    if (resuming && (args.scanSecrets || enforceResumePolicy)) preserveStaging = written < staging.written || failedSources.size > 0;
 
     if (!args.quiet) {
       console.error(

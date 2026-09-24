@@ -272,6 +272,103 @@ if (process.env.LIMIT_STAGE_WRITES === '1') {
       expect(existsSync(dir)).toBe(true);
     });
 
+    for (const tier of ["deny", "read-only"]) {
+      for (const scanned of [false, true]) {
+        it(`refuses a saved ${tier} page in a mixed-policy ${scanned ? "scanned" : "default"} resume`, () => {
+          scanner("clean");
+          const denied = source("denied source ordinary text");
+          const allowed = source("allowed source ordinary text");
+          const repo = join(home, "allowed-repo");
+          mkdirSync(repo);
+          expect(spawnSync("git", ["init", "-q", repo], { env, cwd: home, timeout: 10000 }).status).toBe(0);
+          expect(spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://example.com/allowed.git"], { env, cwd: home, timeout: 10000 }).status).toBe(0);
+          const records = readFileSync(allowed, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+          records[0].payload.cwd = repo;
+          writeFileSync(allowed, records.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+          const dir = interruptedStage();
+          expect(imported()).toHaveLength(2);
+          const policy = spawnSync(join(import.meta.dir, "..", "bin", "gstack-gbrain-repo-policy"), ["set", "_unattributed", tier], {
+            env, cwd: home, encoding: "utf8", timeout: 10000,
+          });
+          expect(policy.status).toBe(0);
+          rmSync(join(home, "imported.json"));
+          const result = run(scanned ? ["--scan-secrets"] : []);
+          expect(result.status).toBe(1);
+          expect(result.stderr).toContain("[repo policy] staged page is not a current permitted source");
+          expect(result.stderr).toContain("resumed import refused");
+          expect(imported()).toEqual([]);
+          expect(readFileSync(join(home, "imports"), "utf8")).toBe("import\n");
+          expect(sessions()).toEqual({});
+          expect(existsSync(dir)).toBe(true);
+          delete env.GSTACK_INGEST_RESUME_DIR;
+          expect(run(scanned ? ["--scan-secrets"] : []).status).toBe(0);
+          expect(imported().map((p) => p.body).join("\n")).toContain("allowed source ordinary text");
+          expect(imported().map((p) => p.body).join("\n")).not.toContain("denied source ordinary text");
+          expect(sessions()[allowed]).toBeDefined();
+          expect(sessions()[denied]).toBeUndefined();
+        });
+      }
+    }
+
+    for (const scanned of [false, true]) {
+      it(`rejects extra staged pages with a policy store in ${scanned ? "scanned" : "default"} resume`, () => {
+        scanner("clean");
+        const path = source();
+        const dir = interruptedStage();
+        const policy = spawnSync(join(import.meta.dir, "..", "bin", "gstack-gbrain-repo-policy"), ["set", "_unattributed", "read-write"], {
+          env, cwd: home, encoding: "utf8", timeout: 10000,
+        });
+        expect(policy.status).toBe(0);
+        mkdirSync(join(dir, "nested"));
+        writeFileSync(join(dir, "nested", "extra.md"), "unexpected ordinary content");
+        rmSync(join(home, "imported.json"));
+        const result = run(scanned ? ["--scan-secrets"] : []);
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("[repo policy] staged page is not a current permitted source");
+        expect(imported()).toEqual([]);
+        expect(sessions()[path]).toBeUndefined();
+        expect(existsSync(dir)).toBe(true);
+        rmSync(join(dir, "nested", "extra.md"));
+        expect(run(scanned ? ["--scan-secrets"] : []).status).toBe(0);
+        expect(imported()).toHaveLength(1);
+        expect(sessions()[path]).toBeDefined();
+      });
+    }
+
+    for (const scanned of [false, true]) {
+      it(`rejects a changed source with a policy store in ${scanned ? "scanned" : "default"} resume`, () => {
+        scanner("clean");
+        const path = source();
+        const dir = interruptedStage();
+        const policy = spawnSync(join(import.meta.dir, "..", "bin", "gstack-gbrain-repo-policy"), ["set", "_unattributed", "read-write"], {
+          env, cwd: home, encoding: "utf8", timeout: 10000,
+        });
+        expect(policy.status).toBe(0);
+        writeFileSync(path, readFileSync(path, "utf8") + appendRecord());
+        rmSync(join(home, "imported.json"));
+        const result = run(scanned ? ["--scan-secrets"] : []);
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain("[repo policy] staged page is not a current permitted source");
+        expect(imported()).toEqual([]);
+        expect(sessions()[path]).toBeUndefined();
+        expect(existsSync(dir)).toBe(true);
+      });
+    }
+
+    it("refuses an unreadable policy store before importing a saved stage", () => {
+      scanner("clean");
+      const path = source();
+      const dir = interruptedStage();
+      writeFileSync(join(env.GSTACK_HOME, "gbrain-repo-policy.json"), "not valid JSON");
+      rmSync(join(home, "imported.json"));
+      const result = run();
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("repo policy store exists but");
+      expect(imported()).toEqual([]);
+      expect(sessions()[path]).toBeUndefined();
+      expect(existsSync(dir)).toBe(true);
+    });
+
     for (const resumed of [false, true]) {
       it(`does not stamp an append during ${resumed ? "resumed" : "fresh"} import`, () => {
         scanner("clean");

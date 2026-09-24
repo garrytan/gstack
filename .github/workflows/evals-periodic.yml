@@ -119,7 +119,7 @@ jobs:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
     # Eight slices retain every registered case and retry. The complete
-    # census needs at most 318m40 per slice, plus 20 minutes setup/upload.
+    # census needs at most 323 minutes per slice, plus 20 minutes setup/upload.
     timeout-minutes: 355
     permissions:
       contents: read
@@ -212,7 +212,7 @@ jobs:
   gate-census:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
-    # Seven slices need at most 302m each, plus 20 minutes setup/upload.
+    # Seven slices need at most 304m each, plus 20 minutes setup/upload.
     timeout-minutes: 352
     permissions:
       contents: read
