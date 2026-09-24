@@ -448,5 +448,5 @@ function breakAvoidRules(): string {
 }
 
 function escapeCssString(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+  return s.replace(/\\/g, "\\\\").replace(/"/g, "\\\"").replace(/</g, "\\3c ");
 }

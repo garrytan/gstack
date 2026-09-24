@@ -355,11 +355,11 @@ export async function handleWriteCommand(
         }
       } catch (err: any) {
         // Enhanced error guidance: clicking <option> elements always fails (not visible / timeout)
-        const isOption = 'locator' in resolved
-          ? await resolved.locator.evaluate(el => el.tagName === 'OPTION').catch(() => false)
-          : await target.locator(resolved.selector).evaluate(
-              el => el.tagName === 'OPTION'
-            ).catch(() => false);
+        const locator = 'locator' in resolved ? resolved.locator : target.locator(resolved.selector);
+        const count = await locator.count().catch(() => 0);
+        const isOption = count === 1 && await locator.evaluate(
+          el => el.tagName === 'OPTION', undefined, { timeout: 500 }
+        ).catch(() => false);
         if (isOption) {
           throw new Error(
             `Cannot click <option> elements. Use 'browse select <parent-select> <value>' instead of 'click' for dropdown options.`

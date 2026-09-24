@@ -3,10 +3,10 @@
  *
  * Pipeline:
  *   1. marked parses markdown → HTML
- *   2. Sanitize: strip <script>, <iframe>, <object>, <embed>, <link>,
+ *   2. Decode typographic entities and apply Smartypants (code/URL-safe).
+ *   3. Sanitize: strip <script>, <iframe>, <object>, <embed>, <link>,
  *      <meta>, <base>, <form>, and all on* event handlers + javascript:
  *      URLs. (Codex round 2 #9: untrusted markdown can embed raw HTML.)
- *   3. Smartypants transform (code/URL-safe).
  *   4. Assemble full HTML document with print CSS inlined and
  *      semantic structure (cover, TOC placeholder, body).
  */
@@ -31,6 +31,7 @@ export interface RenderOptions {
   watermark?: string;
   noChapterBreaks?: boolean;
   confidential?: boolean;         // default: true
+  allowNetwork?: boolean;
 
   // Page layout
   pageSize?: "letter" | "a4" | "legal" | "tabloid";
@@ -76,18 +77,15 @@ export function render(opts: RenderOptions): RenderResult {
   // text never reaches smartypants or the final page.
   const directedHtml = applyImageDirectives(rawHtml);
 
-  // 2. Sanitize
-  const cleanHtml = sanitizeUntrustedHtml(directedHtml);
-
-  // 3. Decode common entities so smartypants can match raw " and '.
+  // 2. Decode common entities so smartypants can match raw " and '.
   //    marked HTML-encodes quotes in text ("hello" → &quot;hello&quot;);
   //    without decoding, smartypants' regex never fires. These get re-encoded
   //    implicitly by the browser's HTML parser downstream, and for the ones
   //    that should stay as curly-quote Unicode, that IS the final form.
-  const decoded = decodeTypographicEntities(cleanHtml);
+  const decoded = decodeTypographicEntities(directedHtml);
 
-  // 4. Smartypants (code-safe)
-  const typographicHtml = smartypants(decoded);
+  // 3. Smartypants (code-safe), then sanitize the transformed HTML.
+  const typographicHtml = sanitizeUntrustedHtml(smartypants(decoded));
 
   // 4. Derive metadata (title from first H1 if not provided)
   const derivedTitle = opts.title ?? extractFirstHeading(typographicHtml) ?? "Document";
@@ -150,6 +148,9 @@ export function render(opts: RenderOptions): RenderResult {
     `<html lang="en">`,
     `<head>`,
     `<meta charset="utf-8">`,
+    opts.allowNetwork === false
+      ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: file:; media-src data: file:; font-src data: file:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">`
+      : ``,
     `<title>${escapeHtml(derivedTitle)}</title>`,
     derivedAuthor ? `<meta name="author" content="${escapeHtml(derivedAuthor)}">` : ``,
     `<style>`,
@@ -157,6 +158,9 @@ export function render(opts: RenderOptions): RenderResult {
     `</style>`,
     `</head>`,
     `<body>`,
+    opts.allowNetwork === false
+      ? `<p role="note"><strong>Offline preview:</strong> network resources are blocked.</p>`
+      : ``,
     watermarkBlock,
     coverBlock,
     tocBlock,
@@ -223,21 +227,21 @@ export function sanitizeUntrustedHtml(html: string): string {
   ];
   for (const tag of DANGER_TAGS) {
     const re = new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}>`, "gi");
-    s = s.replace(re, "");
+    s = s.replace(re, " ");
     // Self-closing / unclosed variants
     const selfRe = new RegExp(`<${tag}\\b[^>]*/?>`, "gi");
-    s = s.replace(selfRe, "");
+    s = s.replace(selfRe, " ");
   }
 
   // SVG <script>
   s = s.replace(/<svg([^>]*)>([\s\S]*?)<\/svg>/gi, (_, attrs, body) => {
-    return `<svg${attrs}>${body.replace(/<script\b[\s\S]*?<\/script>/gi, "")}</svg>`;
+    return `<svg${attrs}>${body.replace(/<script\b[\s\S]*?<\/script>/gi, " ")}</svg>`;
   });
 
   // Event handler attributes (on* in any case).
-  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*"[^"]*"/gi, "");
-  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*'[^']*'/gi, "");
-  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*[^\s>]+/gi, "");
+  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*"[^"]*"/gi, " ");
+  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*'[^']*'/gi, " ");
+  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*[^\s>]+/gi, " ");
 
   // javascript: URLs in href/src/action/formaction
   s = s.replace(
@@ -247,8 +251,8 @@ export function sanitizeUntrustedHtml(html: string): string {
 
   // srcdoc attribute (iframe escape hatch — already stripped via iframe above,
   // but defense-in-depth).
-  s = s.replace(/\s+srcdoc\s*=\s*"[^"]*"/gi, "");
-  s = s.replace(/\s+srcdoc\s*=\s*'[^']*'/gi, "");
+  s = s.replace(/\s+srcdoc\s*=\s*"[^"]*"/gi, " ");
+  s = s.replace(/\s+srcdoc\s*=\s*'[^']*'/gi, " ");
 
   // style="url(javascript:..)" — strip javascript: inside style attrs.
   s = s.replace(/url\(\s*javascript:[^)]*\)/gi, "url(#)");
@@ -275,10 +279,10 @@ export function sanitizeUntrustedHtml(html: string): string {
     //     drop the whole statement through `;`, `{`, or end-of-value.
     let out = css.replace(
       /@[-\w\\&#;]*?(?:\\|&#0*92(?![0-9]);?|&#x0*5c(?![0-9a-f]);?|&bsol;)[-\w\\&#;]*[^;{}]*(?:;|\{|$)/gi,
-      "");
+      " ");
     // (b) Literal @import is always a fetch (relative ones can't resolve
     //     under load-html either) — drop outright.
-    out = out.replace(/@import\b[^;]*(;|$)/gi, "");
+    out = out.replace(/@import\b[^;]*(;|$)/gi, " ");
     // (c) Any function-like token whose name or arguments carry a backslash
     //     escape → url(#). Covers escaped schemes (url("\68ttps://…")) and
     //     escaped function names (u\72l(…)) in one fail-closed pass. The
@@ -377,7 +381,7 @@ export function sanitizeUntrustedHtml(html: string): string {
   // local/data: srcset values are left alone.
   const remoteSrcsetCandidate = /(?:^|[,\s])\s*(?:https?:)?\/\//i;
   s = s.replace(/\s+srcset\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (m, val) =>
-    remoteSrcsetCandidate.test(String(val).replace(/^["']|["']$/g, "")) ? "" : m);
+    remoteSrcsetCandidate.test(String(val).replace(/^["']|["']$/g, "")) ? " " : m);
 
   // Remote src/poster on media elements (<video poster>, <source src>, …).
   s = s.replace(/<(?:video|audio|source|track)\b[^>]*>/gi, (tag) =>
