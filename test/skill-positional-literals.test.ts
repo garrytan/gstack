@@ -75,8 +75,9 @@ for (const host of ['claude', 'codex'] as const) for (const args of [[], tenArgu
         `actual_sha=$(shasum -a 256 < "$tmpfile" | awk '{print $(1)}')`,
       ]);
       for (const line of lines) {
-        const result = run(`${line}\nprintf '%s' "$actual_sha"`, { tmpfile: file });
+        const result = run(`${line}\nprintf '%s' "$actual_sha"`, { tmpfile: process.platform === 'win32' ? file.replaceAll('\\', '/') : file });
         expect(result.status).toBe(0);
+        expect(result.stderr).toBe('');
         expect(result.stdout).toBe(createHash('sha256').update(readFileSync(file)).digest('hex'));
       }
     }
