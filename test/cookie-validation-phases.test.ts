@@ -56,6 +56,13 @@ test('curated Windows and native qualification use the same pinned Node runtime'
   }
 });
 
+test('Windows retains complete shard logs on successful and failed runs', () => {
+  const windows = Bun.YAML.parse(readFileSync(path.join(root, '.github/workflows/windows-free-tests.yml'), 'utf8')) as any;
+  const upload = windows.jobs['windows-free-tests'].steps.find((step: any) => step.with?.name === 'windows-free-test-shard-logs');
+  expect(upload.if).toBe('always()');
+  expect(upload.with.path).toBe('${{ runner.temp }}/gstack-free-test-*.log');
+});
+
 test('focused Windows diagnostics include the repaired lock and close cases without default-profile qualification', () => {
   const windows = Bun.YAML.parse(readFileSync(path.join(root, '.github/workflows/windows-free-tests.yml'), 'utf8')) as any;
   const run = windows.jobs['windows-free-tests'].steps.find((step: any) => step.name === 'Run focused native launch and credential diagnostics').run;

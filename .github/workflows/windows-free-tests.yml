@@ -167,8 +167,8 @@ jobs:
       # (#2561 was written against the old hand-listed subset; its two new
       # test files are pure-TS and flow into the --windows-only curation
       # automatically, so no per-file entry is needed here.)
-      - name: Upload shard logs on failure
-        if: failure()
+      - name: Upload full shard logs
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: windows-free-test-shard-logs

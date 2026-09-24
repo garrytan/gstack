@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, opendirSync, readdirSync, readFileSync, realpathSync, rmSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -49,6 +49,53 @@ function fixtureFileOwners(file: string, timeout = 5_000): object {
   catch { return { available: false, reason: 'owner_probe_no_receipt', exitCode: result.status }; }
 }
 
+function fixtureRemovalEvidence(error: unknown, directory: string, identity: { dev: bigint; ino: bigint }): object {
+  const failure = error as NodeJS.ErrnoException;
+  const evidence = {
+    code: ['EBUSY', 'EPERM', 'EACCES', 'ENOENT', 'ENOTEMPTY', 'ENOTDIR'].includes(failure?.code || '') ? failure.code : 'filesystem_error',
+    syscall: ['rm', 'rmdir', 'unlink', 'scandir', 'lstat'].includes(failure?.syscall || '') ? failure.syscall : 'unavailable',
+    errno: Number.isSafeInteger(failure?.errno) ? failure.errno : undefined,
+    pendingChildCloses: fixtureChildren.size,
+  };
+  try {
+    const rootState = lstatSync(root, { bigint: true });
+    if (rootState.isSymbolicLink() || rootState.dev !== initialRootState.dev || rootState.ino !== initialRootState.ino || realpathSync(root) !== resolvedRoot) {
+      return { ...evidence, inspected: false, reason: 'root_identity_changed' };
+    }
+    const relative = path.relative(resolvedRoot, path.resolve(directory));
+    const parts = relative ? relative.split(path.sep) : [];
+    if (relative.startsWith('..') || path.isAbsolute(relative) || parts.length > 16) return { ...evidence, inspected: false, reason: 'outside_owned_fixture' };
+    let current = root;
+    for (const part of parts) {
+      current = path.join(current, part);
+      if (lstatSync(current).isSymbolicLink()) return { ...evidence, inspected: false, reason: 'linked_object' };
+    }
+    const state = lstatSync(directory, { bigint: true });
+    if (!state.isDirectory() || state.dev !== identity.dev || state.ino !== identity.ino) return { ...evidence, inspected: false, reason: 'object_identity_changed' };
+    const reported = typeof failure.path === 'string' ? path.relative(directory, path.resolve(failure.path)) : null;
+    const entries: { nameHash: string; type: string }[] = [];
+    const listing = opendirSync(directory);
+    let entriesTruncated = false;
+    try {
+      while (entries.length < 16) {
+        const entry = listing.readSync();
+        if (!entry) break;
+        entries.push({ nameHash: createHash('sha256').update(entry.name).digest('hex'), type: entry.isSymbolicLink() ? 'link' : entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : 'other' });
+      }
+      entriesTruncated = entries.length === 16 && listing.readSync() !== null;
+    } finally { listing.closeSync(); }
+    return {
+      ...evidence, inspected: true, directoryIdentityMatched: true, directoryMode: Number(state.mode),
+      reportedPath: reported === null ? 'unavailable' : reported === '' ? 'target' : reported.startsWith('..') || path.isAbsolute(reported) ? 'outside_target' : 'child',
+      reportedPathHash: reported !== null && !reported.startsWith('..') && !path.isAbsolute(reported) ? createHash('sha256').update(reported).digest('hex') : undefined,
+      entries, entriesTruncated,
+    };
+  } catch (inspectionError) {
+    const code = (inspectionError as NodeJS.ErrnoException).code;
+    return { ...evidence, inspected: false, reason: 'inspection_failed', inspectionCode: ['ENOENT', 'EBUSY', 'EPERM', 'EACCES', 'ENOTDIR'].includes(code || '') ? code : 'filesystem_error' };
+  }
+}
+
 function clearOwnedFixtureContents(fixture: string, identity: { path: string; dev: bigint; ino: bigint }, listEntries: (directory: string) => string[] = readdirSync): void {
   const before = lstatSync(fixture, { bigint: true });
   if (before.isSymbolicLink() || realpathSync(fixture) !== identity.path || before.dev !== identity.dev || before.ino !== identity.ino) {
@@ -94,6 +141,7 @@ afterAll(() => {
     if (existsSync(root) && realpathSync(root) !== resolvedRoot) throw new Error('Native fixture root ownership changed');
     rmSync(root, { recursive: true, force: true });
   } catch (error) {
+    console.error(JSON.stringify({ nativeFixtureRemovalFailure: { stage: 'after_all', ...fixtureRemovalEvidence(error, root, initialRootState) } }));
     const entries: { path: string; type: string; mode?: number; code?: string }[] = [];
     let rootVerified = false;
     let rootMode: number | null = null;
@@ -271,6 +319,31 @@ function simulation(options: { reply?: NativeCookieReply; replyAt?: number; exit
 }
 
 describe('owned native-cookie lifecycle', () => {
+  test('removal diagnostics preserve errors and inspect only the unchanged synthetic directory', () => {
+    const fixture = mkdtempSync(path.join(root, 'removal-evidence-'));
+    const identity = lstatSync(fixture, { bigint: true });
+    writeFileSync(path.join(fixture, 'sensitive-sentinel'), 'fixture-only');
+    const error = Object.assign(new Error('sensitive-sentinel'), { code: 'EBUSY', syscall: 'rm', errno: -4082, path: fixture });
+    const evidence = fixtureRemovalEvidence(error, fixture, identity);
+    expect(evidence).toMatchObject({ code: 'EBUSY', syscall: 'rm', errno: -4082, inspected: true, directoryIdentityMatched: true, reportedPath: 'target', entries: [{ type: 'file' }] });
+    expect(JSON.stringify(evidence)).not.toContain('sensitive-sentinel');
+    expect(JSON.stringify(evidence)).not.toContain(fixture);
+    expect(readFileSync(path.join(fixture, 'sensitive-sentinel'), 'utf8')).toBe('fixture-only');
+    expect(error.path).toBe(fixture);
+    expect(fixtureRemovalEvidence(error, fixture, { dev: identity.dev, ino: identity.ino + 1n })).toMatchObject({ inspected: false, reason: 'object_identity_changed' });
+    expect(fixtureRemovalEvidence(error, path.dirname(root), identity)).toMatchObject({ inspected: false, reason: 'outside_owned_fixture' });
+    const missing = path.join(fixture, 'missing');
+    expect(fixtureRemovalEvidence(error, missing, identity)).toMatchObject({ inspected: false, inspectionCode: 'ENOENT' });
+    const link = path.join(root, 'removal-evidence-link');
+    symlinkSync(fixture, link, process.platform === 'win32' ? 'junction' : 'dir');
+    expect(fixtureRemovalEvidence(error, link, identity)).toMatchObject({ inspected: false, reason: 'linked_object' });
+    unlinkSync(link);
+    for (let index = 0; index < 20; index++) writeFileSync(path.join(fixture, String(index)), 'fixture-only');
+    const bounded = fixtureRemovalEvidence(error, fixture, identity) as { entries: unknown[]; entriesTruncated: boolean };
+    expect(bounded.entries).toHaveLength(16);
+    expect(bounded.entriesTruncated).toBe(true);
+  });
+
   test('positive fixture environments create matching Windows known-folder directories', () => {
     const fixture = mkdtempSync(path.join(root, 'environment-'));
     const node = Bun.which('node');
@@ -932,10 +1005,17 @@ describe('native Windows launch diagnostics', () => {
       const supervisor = nativeSupervisor(input, environment);
       const contained = await supervisor.done;
       const containedLaunch = safeLaunchEvidence(observation);
+      console.log(JSON.stringify({ nativeEdgeBeforeReset: { comparison: 'launch', layout, contained: 'error' in contained ? contained : { cookiesRead: contained.cookies.length }, containedLaunch, pendingChildCloses: fixtureChildren.size } }));
       if ('error' in contained && contained.error === 'native_cleanup_failed') throw new Error('Contained cleanup was not confirmed; direct comparison refused');
       if (existsSync(userDataDir)) {
         if (realpathSync(userDataDir).toLowerCase() !== path.resolve(userDataDir).toLowerCase()) throw new Error('Synthetic profile ownership changed; comparison refused');
-        rmSync(userDataDir, { recursive: true, force: true });
+        let identity: { dev: bigint; ino: bigint } | undefined;
+        try { identity = lstatSync(userDataDir, { bigint: true }); } catch {}
+        try { rmSync(userDataDir, { recursive: true, force: true }); }
+        catch (error) {
+          console.error(JSON.stringify({ nativeFixtureRemovalFailure: { stage: 'launch_reset', layout, ...(identity ? fixtureRemovalEvidence(error, userDataDir, identity) : { inspected: false, reason: 'no_pre_reset_identity' }) } }));
+          throw error;
+        }
       }
       const containedObservation = existsSync(observation) ? JSON.parse(readFileSync(observation, 'utf8')) : null;
       rmSync(observation, { force: true });
@@ -990,13 +1070,20 @@ describe('native Windows launch diagnostics', () => {
       const first = await nativeSupervisor(input, environment).done;
       const firstLaunch = safeLaunchEvidence(observation);
       const firstObservation = JSON.parse(readFileSync(observation, 'utf8'));
+      console.log(JSON.stringify({ nativeEdgeBeforeReset: { comparison: 'initialization', state, first: 'error' in first ? first : { cookiesRead: first.cookies.length }, firstLaunch, pendingChildCloses: fixtureChildren.size } }));
       if ('error' in first && first.error === 'native_cleanup_failed') throw new Error('Initial containment cleanup was not confirmed');
       if (realpathSync(fixture) !== ownedRoot) throw new Error('Initialization fixture ownership changed');
       if (state === 'fresh') {
         clearOwnedFixtureContents(fixture, rootIdentity);
       } else {
         if (existsSync(userDataDir) && realpathSync(userDataDir) !== path.join(ownedRoot, 'User Data')) throw new Error('Synthetic profile ownership changed');
-        rmSync(userDataDir, { recursive: true, force: true });
+        let identity: { dev: bigint; ino: bigint } | undefined;
+        try { identity = lstatSync(userDataDir, { bigint: true }); } catch {}
+        try { rmSync(userDataDir, { recursive: true, force: true }); }
+        catch (error) {
+          console.error(JSON.stringify({ nativeFixtureRemovalFailure: { stage: 'initialization_reset', state, ...(identity ? fixtureRemovalEvidence(error, userDataDir, identity) : { inspected: false, reason: 'no_pre_reset_identity' }) } }));
+          throw error;
+        }
         rmSync(observation, { force: true });
       }
       writeFileSync(playwrightEntry, wrapper);
