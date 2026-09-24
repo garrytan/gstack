@@ -54,5 +54,36 @@
         ]
       }
     }
+  ],
+  "regressions": [
+    {
+      "sourceRun": 36044212977,
+      "sourceRevision": "70b023b3424453207c95e5b05298955f3094b50f",
+      "attempt": 1,
+      "toolUseId": "toolu_01DLWrTd85Uf3PA4gagJCFrW",
+      "input": {
+        "questions": [
+          {
+            "question": "Pre-Landing Review: 0 issues (0 critical, 0 informational). 1 [ADVISORY] needs your input — the prior 'skipped' decision could not be reused because src/retry-route.ts is skip-worktree with hidden raw changes.\n\n1. [ADVISORY] src/retry-worker.ts:2 — The diff replaces `export { retrySeconds } from '../lib/retry-after'` with a verbatim 15-line copy of the tested helper; src/retry-route.ts:2-15 carries the same copy. Helper: lib/retry-after.ts `retrySeconds` (already used by src/scheduler.ts, covered by test/retry-after.test.ts). Migration: worker → one-line re-export (revert to HEAD form); route → same one-liner. Estimated implementation: −30 / +2 = 28 lines saved; total change same (existing test already covers the contract, no new tests needed). Shared-failure blast radius: scheduler, worker, route — all three copies are identical today, so consolidation removes drift risk without new behavior. Caveat: src/retry-route.ts has the skip-worktree index flag, so an edit there stays invisible to git until the flag is cleared (`git update-index --no-skip-worktree`).\n\nRECOMMENDATION: A — reuse the existing tested helper in both files.\n\nHow should I handle this advisory?",
+            "header": "Advisory",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Fix both (Recommended)",
+                "description": "Replace the copies in src/retry-worker.ts and src/retry-route.ts with `export { retrySeconds } from '../lib/retry-after';`. I will NOT change the skip-worktree flag; you decide how to stage the route file."
+              },
+              {
+                "label": "A2) Fix worker only",
+                "description": "Only revert the changed file in this diff (src/retry-worker.ts) to the one-line re-export. Leave src/retry-route.ts untouched."
+              },
+              {
+                "label": "B) Skip",
+                "description": "Keep the duplicated copies. Recorded as an explicit skip; reuse of this skip will still require revalidation while src/retry-route.ts is skip-worktree."
+              }
+            ]
+          }
+        ]
+      }
+    }
   ]
 }

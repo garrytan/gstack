@@ -100,6 +100,25 @@ describe('shared-code legacy interactive actor', () => {
       .toEqual(['shared-libs-review-index-flags']);
   });
 
+  test('the registered callback acknowledges the complete first-attempt native skip despite descriptive reuse', async () => {
+    const native = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/shared-libs-index-flags-native-questions.json'), 'utf8'));
+    const { sourceRun, attempt, input } = native.regressions[0];
+    expect({ sourceRun, attempt }).toEqual({ sourceRun: 36044212977, attempt: 1 });
+    const before = structuredClone(input), questions: unknown[] = [], answers: unknown[] = [], refusals: Error[] = [];
+    const expected = { [input.questions[0].question]: 'B) Skip' };
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => { throw new Error('unexpected tool'); },
+      onQuestion: question => { questions.push(question); },
+      onAnswer: (question, answer) => { answers.push({ question, answer }); },
+      onRefusal: error => { refusals.push(error); },
+    });
+    expect(await callback('AskUserQuestion', input)).toEqual({ behavior: 'allow', updatedInput: { ...input, answers: expected } });
+    expect(questions).toEqual([input]);
+    expect(answers).toEqual([{ question: input, answer: expected }]);
+    expect(refusals).toEqual([]);
+    expect(input).toEqual(before);
+  });
+
   test.each([
     { label: 'Leave it', description: 'Keep the index flag as-is and record the decision in the review log.' },
     { label: 'No, leave it', description: 'Preserve the current index flag. Report its hidden source without modifying it.' },
@@ -126,6 +145,17 @@ describe('shared-code legacy interactive actor', () => {
     [{ label: 'Leave it', description: 'Keep source changing.' }],
     [{ label: 'Leave it', description: 'Keep the changes going.' }],
     [{ label: 'Leave it', description: 'Preserve the implementation by rewriting the helper.' }],
+    [{ label: 'Skip', description: 'Keep the duplicated copies. Reuse of this skip.' }],
+    [{ label: 'Skip', description: 'Keep the duplicated copies. The reuse of this decision.' }],
+    [{ label: 'Skip', description: 'Keep the duplicated copies. Reuse of the review decision will still clear the flag.' }],
+    [{ label: 'Skip', description: 'Keep the duplicated copies. Reuse of the review decision will eventually modify source.' }],
+    [{ label: 'Skip', description: 'Keep the duplicated copies. Reuse of the review decision can quietly replace the helper.' }],
+    [{ label: 'Skip', description: 'Keep the duplicated copies. Reuse of this decision will still be applied to source.' }],
+    [{ label: 'Skip', description: 'Keep the duplicated copies. Reuse of this decision will need to clear the flag.' }],
+    [{ label: 'Skip', description: 'Keep the duplicated copies. Reuse the recorded decision will still clear the flag.' }],
+    [{ label: 'Skip', description: 'Keep the code unchanged; the recorded decision says the route will be reused.' }],
+    [{ label: 'Skip', description: 'Keep the code unchanged; the decision names the source so it will be reused.' }],
+    [{ label: 'Skip', description: 'Keep both duplicated copies; a later review can reuse this decision to clear the flag.' }],
     [{ label: 'No, leave it', description: 'No changes.' }],
     [{ label: 'Leave it', description: 'Clear the index flag and report it.' }],
     [{ label: 'No, leave it', description: 'Keep the index flag as-is; apply the worker fix.' }],
@@ -157,6 +187,10 @@ describe('shared-code legacy interactive actor', () => {
     { label: 'Leave it set', description: 'Do not touch the index flag. Any edit to retry-route.ts stays local-only until you clear it yourself; it stays excluded from snapshot coverage.' },
     { label: 'Skip', description: 'Keep the duplicated implementation as-is. Recorded as an explicit skipped advisory with full snapshot coverage so it can be reused next review.' },
     { label: 'Skip', description: 'Keep both inline copies. Recorded as an explicit skip with verified snapshot coverage for future reuse.' },
+    { label: 'Skip', description: 'Keep the duplicated copies. Reuse of this skip will still require revalidation while the route remains hidden.' },
+    { label: 'Skip', description: 'Keep the duplicated copies. The reuse of this decision is recorded as requiring revalidation.' },
+    { label: 'Skip', description: 'Keep both duplicated copies; a later review can reuse this decision.' },
+    { label: 'Skip', description: 'Keep both copies. The recorded review decision can be reused in a later review.' },
     { label: 'Skip', description: 'Update the review log with the skipped advisory; reuse the recorded decision next review.' },
     { label: 'Skip', description: 'This option does not refactor the route. You should not fix the worker.' },
     { label: 'Skip', description: 'This option updates the review log. We will reuse the recorded decision.' },

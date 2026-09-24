@@ -864,15 +864,24 @@ function skippedReviewOption(question: any): any {
         .replace(/^(?:will|would|should|must|can|may|does|do)\s+/, '')
         .replace(/^(?:(?:please|also|still|just|now|be)\s+)+/, '');
       if (/^(?:not|does not|don't|doesn't|won't|without|no)\b/.test(clause)) return false;
-      // The no-change choice may persist/reuse its review decision. That is not
-      // permission to modify source or clear an index flag.
-      if (/^(?:updates?|updated|updating|reuses?|reused|reusing)\s+(?:the\s+)?(?:(?:prior|recorded|existing)\s+)?(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)\b/.test(clause)) return false;
       const first = clause.match(/^[a-z]+(?:-[a-z]+)*/)?.[0];
-      const future = clause.match(/\bwill\s+(?:be\s+)?([a-z]+(?:-[a-z]+)*)/)?.[1];
+      const futureMatch = clause.match(/\b(?:will|would|should|must|can|may)\s+(?:(?:still|also|now|just|[a-z]+ly)\s+)*(?:be\s+)?(?:(?:still|also|now|just|[a-z]+ly)\s+)*([a-z]+(?:-[a-z]+)*)/);
+      const future = futureMatch?.[1];
       const method = /^(?:keep|leave|retain|preserve)\b/.test(clause)
         && [...clause.matchAll(/\b(?:by|through|via)\s+([a-z]+(?:-[a-z]+)*)/g)].some(match => isAction(match[1]));
       const state = /^(?:change|modification|file|flag|state|content)\s+(?:stays?|remains?)\b/.test(clause);
-      return (!state && isAction(first)) || isAction(future) || method;
+      const recordedDecision = /^(?:updates?|updated|updating|reuses?|reused|reusing)\s+(?:the\s+)?(?:(?:prior|recorded|existing)\s+)?(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)\b/.test(clause);
+      const nominalReuse = /^(?:the\s+)?reuse\s+of\b/.test(clause);
+      const describedReuse = /\b(?:is|are|was|were|remains?|stays?|requires?|needs?|will|would|should|must|can|may)\s+(?:(?:still|also|now|just|not|never|[a-z]+ly)\s+)*[a-z]+(?:-[a-z]+)*/.test(clause);
+      const futureSubject = clause.slice(0, futureMatch?.index ?? 0).trim();
+      const passiveDecision = /\b(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)$/.test(futureSubject)
+        || /\b(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)\b(?:(?!\b(?:source|code|route|worker|helper|parser|file|flag)\b).)*\bit$/.test(futureSubject);
+      const futureDecision = /\b(?:can|will|would|should|must|may)\s+(?:(?:still|also|now|just|[a-z]+ly)\s+)*reuse\s+(?:(?:this|the|prior|recorded|existing)\s+)*(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)\b/.test(clause);
+      const purpose = [...clause.matchAll(/\b(?:to|by|through|via)\s+(?:[a-z]+ly\s+)*([a-z]+(?:-[a-z]+)*)/g)]
+        .some(match => isAction(match[1]));
+      return (isAction(future) && !(future === 'reused' && passiveDecision) && !(future === 'reuse' && futureDecision)) || method || purpose
+        || (nominalReuse && !describedReuse)
+        || (!state && !recordedDecision && !nominalReuse && isAction(first));
     });
     return changes ? [] : [{ option, rank }];
   });
