@@ -15,6 +15,7 @@ export const PR_PROFILE_CASE_IDS = [
   'setup-deploy-workflow', 'context-restore-loads-latest', 'plan-tune-inspect',
   'skillify-provenance-refusal', 'diagram-triplet', 'learnings-show',
   'gstack-upgrade-happy-path',
+  'setup-gbrain-transcript-enrollment',
 ] as const;
 
 /** Audited ownership: unknown/direct-describe files remain broad coverage. */
@@ -36,6 +37,7 @@ export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
   'test/skill-e2e-skillify.test.ts': ['skillify-provenance-refusal'],
   'test/skill-e2e-diagram.test.ts': ['diagram-triplet'],
   'test/skill-e2e-learnings.test.ts': ['learnings-show'],
+  'test/skill-e2e-transcript-enrollment.test.ts': ['setup-gbrain-transcript-enrollment'],
 };
 
 export interface PrProfileMaps {

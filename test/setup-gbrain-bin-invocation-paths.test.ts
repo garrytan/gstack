@@ -78,13 +78,15 @@ describe('setup-gbrain templates (skeleton + sections) — bin invocation paths'
 
   test('the silent-bulk mention uses bun run + .ts (R2, transcript-gate section)', () => {
     expect(transcriptGate).toContain(
-      'bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --bulk --quiet'
+      'bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --bulk --sources transcript'
     );
+    expect(transcriptGate).toContain('Only after A, B or C succeeds');
+    expect(transcriptGate).toContain('Do not enable it silently');
   });
 
   test('the post-answer full-sync step uses bun run + .ts (R3, transcript-gate section)', () => {
     expect(transcriptGate).toContain(
-      'bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --full --no-brain-sync'
+      'bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --enroll <A-E>'
     );
   });
 
@@ -96,8 +98,9 @@ describe('setup-gbrain templates (skeleton + sections) — bin invocation paths'
 
   test('the neighboring gstack-config line in the post-answer block is untouched (bash script, no extension)', () => {
     expect(transcriptGate).toContain(
-      '~/.claude/skills/gstack/bin/gstack-config set transcript_ingest_mode <choice>'
+      'For E,\ndo not import transcripts and never reset its mode to incremental.'
     );
+    expect(transcriptGate).not.toContain('transcript_ingest_mode <choice>');
   });
 
   test('the prose-only mention naming the tool as a sentence subject is left unchanged (KTD4 — not a literal invocation; Step 10 verdict, skeleton)', () => {
@@ -115,9 +118,9 @@ describe('setup-gbrain/memory.md — bin invocation paths', () => {
   });
 
   test('the secret-scanning example uses bun run + .ts (R5)', () => {
-    expect(memoryDoc).toContain('bun run bin/gstack-memory-ingest.ts --bulk --scan-secrets');
+    expect(memoryDoc).toContain('`--scan-secrets` remains accepted');
     expect(memoryDoc).toContain(
-      'GSTACK_MEMORY_INGEST_SCAN_SECRETS=1 bun run bin/gstack-memory-ingest.ts --bulk'
+      'the old environment value cannot disable'
     );
   });
 

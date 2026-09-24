@@ -940,5 +940,19 @@ ${voiceSection}`);
   }, JUDGE_MS);
 });
 
+describeIfSelected('Memory setup skill evals', ['setup-gbrain transcript enrollment'], () => {
+  testIfSelected('setup-gbrain transcript enrollment', async () => {
+    await runWorkflowJudge({
+      testName: 'setup-gbrain transcript enrollment',
+      suite: 'Memory setup skill evals',
+      skillPath: 'setup-gbrain/sections/transcript-gate.md',
+      startMarker: 'After memory sync is wired',
+      endMarker: null,
+      judgeContext: 'a transcript-consent setup workflow',
+      judgeGoal: 'Require explicit consent before enabling any corpus, including small or empty; allow an empty corpus to be reported with settings unchanged; bind A/B/C/D to actual repository/history cutoffs; keep E off; import only after successful A/B/C enrollment and never historical D/E; report held data and the pre-dispatch revocation boundary',
+    });
+  }, WORKFLOW_JUDGE_TEST_MS);
+});
+
 // Module-level afterAll — finalize eval collector after all tests complete
 afterAll(() => finalizeEvalCollector(evalCollector));

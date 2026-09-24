@@ -219,24 +219,20 @@ describe("#1611 decideResume — checkpoint + staging detection", () => {
 });
 
 describe("#1611 SIGTERM staging preservation — static invariants", () => {
-  test("memory-ingest signal handler checks stagingDirIsCheckpointed before cleanup", () => {
+  test("memory-ingest signal handler preserves staging while the child checkpoints", () => {
     const body = fs.readFileSync(
       path.join(ROOT, "bin", "gstack-memory-ingest.ts"),
       "utf-8",
     );
-    // The forward handler must read the checkpoint before deciding whether
-    // to clean up. Locks in the "preserve when checkpointed" branch.
     expect(body).toMatch(/stagingDirIsCheckpointed/);
     expect(body).toMatch(/preserving staging dir for resume/);
-    // The branch order must be: checkpointed → preserve, else → cleanup
-    const handlerStart = body.indexOf("if (_activeStagingDir)");
+    const handlerStart = body.indexOf("function installSignalForwarder");
     expect(handlerStart).toBeGreaterThan(-1);
-    const handlerSlice = body.slice(handlerStart, handlerStart + 1000);
-    const preserveAt = handlerSlice.indexOf("preserving staging dir for resume");
-    const cleanupAt = handlerSlice.indexOf("cleanupStagingDir");
-    expect(preserveAt).toBeGreaterThan(-1);
-    expect(cleanupAt).toBeGreaterThan(-1);
-    expect(preserveAt).toBeLessThan(cleanupAt);
+    const handlerSlice = body.slice(handlerStart, body.indexOf("const DEFAULT_IMPORT_TIMEOUT_MS", handlerStart));
+    expect(handlerSlice).toContain("_shuttingDown = true");
+    expect(handlerSlice).toContain('child.once("close", drained)');
+    expect(handlerSlice).not.toContain("cleanupStagingDir");
+    expect(body).toContain("preserveStaging ||= _shuttingDown || stagingDirIsCheckpointed(stagingDir)");
   });
 
   test("memory-ingest reads GSTACK_INGEST_RESUME_DIR env to reuse staging dir", () => {
@@ -255,10 +251,10 @@ describe("#1611 SIGTERM staging preservation — static invariants", () => {
     );
     expect(body).toMatch(/GSTACK_INGEST_RESUME_DIR/);
     expect(body).toMatch(/resuming from gbrain checkpoint/);
-    expect(body).toMatch(/previous checkpoint stale/);
-    expect(body).toMatch(/restaging from scratch/);
+    expect(body).toMatch(/checkpoint held/);
+    expect(body).toMatch(/no fresh import dispatched/);
     // #1802: the caller distinguishes "refused as unowned" from "actually gone".
-    expect(body).toMatch(/staging dir not usable/);
+    expect(body).toMatch(/snapshot missing or ownership unproven/);
   });
 });
 
@@ -376,7 +372,8 @@ describe("#1802 D1 — remote-http finally gate (static invariant)", () => {
   test("finally gates cleanupStagingDir on !remoteHttpMode", () => {
     // Tolerates additional guards (e.g. C3's !preserveStaging) in the same
     // condition — the load-bearing invariant is that remote-http never deletes.
-    expect(ingest).toMatch(/if \(!remoteHttpMode[^)]*\) cleanupStagingDir\(stagingDir\)/);
+    expect(ingest).toMatch(/renameSync\(stagingDir, persistentDir\)/);
+    expect(ingest).not.toMatch(/cleanupStagingDir\(persistentDir\)/);
   });
 
   test("the only finally-scoped cleanup call is the gated one", () => {
@@ -412,7 +409,7 @@ describe("#1802 C3 — import-timeout preserve (static invariant)", () => {
 
   test("finally honors preserveStaging", () => {
     expect(ingest).toMatch(
-      /if \(!remoteHttpMode && !preserveStaging\) cleanupStagingDir\(stagingDir\)/,
+      /if \(!preserveStaging && existsSync\(stagingDir\)\) cleanupStagingDir\(stagingDir\)/,
     );
   });
 });

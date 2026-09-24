@@ -232,6 +232,7 @@ describe('selectTests', () => {
       'setup-gbrain-bad-token': 'periodic',
       'setup-gbrain-path4-local-pglite': 'periodic',
       'setup-gbrain-remote': 'periodic',
+      'setup-gbrain-transcript-enrollment': 'gate',
       'review-army-red-team': 'periodic',
       'review-coverage-audit': 'gate',
       'plan-eng-coverage-audit': 'gate',
@@ -535,7 +536,7 @@ describe('TOUCHFILES completeness', () => {
     );
 
     const unique = registeredJudgeTestNames(llmContent);
-    expect(unique).toHaveLength(25);
+    expect(unique).toHaveLength(26);
 
     const missing = unique.filter(name => !(name in LLM_JUDGE_TOUCHFILES));
     if (missing.length > 0) {
@@ -554,7 +555,7 @@ describe('TOUCHFILES completeness', () => {
       testIfSelected('unmapped judge case', async () => {}, 120_000);
     `;
     const names = registeredJudgeTestNames(withUnmappedCase);
-    expect(names).toHaveLength(26);
+    expect(names).toHaveLength(27);
     expect(names.filter(name => !(name in LLM_JUDGE_TOUCHFILES))).toEqual(['unmapped judge case']);
   });
 

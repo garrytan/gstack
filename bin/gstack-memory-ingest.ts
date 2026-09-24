@@ -26,7 +26,6 @@
  *   ~/.gstack/builder-profile.jsonl                 — typed: builder-profile-entry
  *
  * State: ~/.gstack/.transcript-ingest-state.json (LOCAL per ED1, never synced).
- * Secret scanning: gitleaks via lib/gstack-memory-helpers#secretScanFile (D19).
  * Concurrent-write handling: partial-flag + re-ingest on next pass (D10).
  *
  * V1.0 NOTE: Cursor SQLite extraction is a V1.0.1 follow-up. The plan promoted it to
@@ -53,15 +52,19 @@ import {
   closeSync,
   rmSync,
   realpathSync,
+  lstatSync,
+  chmodSync,
 } from "fs";
-import { join, basename, dirname, delimiter } from "path";
+import { join, basename, dirname, delimiter, isAbsolute, relative } from "path";
 import { execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
 import { homedir } from "os";
 import { createHash } from "crypto";
 
 import {
   canonicalizeRemote,
-  secretScanFile,
+  scanSerializedPage,
+  serializedPagePolicy,
+  transcriptIngestEnabled,
   detectEngineTier,
   withErrorContext,
 } from "../lib/gstack-memory-helpers";
@@ -83,12 +86,7 @@ interface CliArgs {
   sources: Set<MemoryType>;
   limit: number | null;
   noWrite: boolean;
-  /**
-   * Opt-in per-file gitleaks scan during the prepare phase. Off by
-   * default — the cross-machine boundary (gstack-brain-sync, git push)
-   * has its own scanner. Setting this adds ~4-8 min to cold runs.
-   */
-  scanSecrets: boolean;
+  enroll?: string;
 }
 
 type MemoryType =
@@ -123,6 +121,7 @@ interface IngestState {
   schema_version: 1;
   last_writer: string;
   last_full_walk?: string;
+  enrollment?: { remote: string | null; since: string | null };
   sessions: Record<
     string,
     {
@@ -151,6 +150,7 @@ interface ProbeReport {
   skipped_policy_deny: number;
   skipped_policy_readonly: number;
   estimate_minutes: number;
+  policy_eligible_transcripts: number;
 }
 
 interface BulkResult {
@@ -216,9 +216,9 @@ Options:
   --limit <N>          Stop after N pages written (smoke testing).
   --no-write           Skip gbrain put calls (still updates state file).
                        Used by tests + dry runs without actual ingest.
-  --scan-secrets       Opt-in per-file gitleaks scan during prepare. Off by
-                       default; gstack-brain-sync already gates the git-push
-                       boundary. Adds ~4-8 min to cold runs.
+  --scan-secrets       Compatible redundant flag: exact serialized bytes are
+                       always scanned; HIGH/MEDIUM, oversize and errors hold.
+  --enroll <A-E>       Persist the explicitly chosen setup scope; no import.
   --help               This text.
 `);
 }
@@ -233,7 +233,7 @@ function parseArgs(): CliArgs {
   let limit: number | null = null;
   let sources: Set<MemoryType> = new Set(ALL_TYPES);
   let noWrite = process.env.GSTACK_MEMORY_INGEST_NO_WRITE === "1";
-  let scanSecrets = process.env.GSTACK_MEMORY_INGEST_SCAN_SECRETS === "1";
+  let enroll: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -246,7 +246,13 @@ function parseArgs(): CliArgs {
       case "--include-unattributed": includeUnattributed = true; break;
       case "--all-history": allHistory = true; break;
       case "--no-write": noWrite = true; break;
-      case "--scan-secrets": scanSecrets = true; break;
+      case "--scan-secrets": break;
+      case "--enroll":
+        enroll = args[++i];
+        if (!enroll || !/^[A-E]$/.test(enroll)) {
+          throw new Error("--enroll requires an explicitly selected A, B, C, D or E");
+        }
+        break;
       case "--limit":
         limit = parseInt(args[++i] || "0", 10);
         if (!Number.isFinite(limit) || limit <= 0) {
@@ -274,12 +280,12 @@ function parseArgs(): CliArgs {
     }
   }
 
-  return { mode, quiet, benchmark, includeUnattributed, allHistory, sources, limit, noWrite, scanSecrets };
+  return { mode, quiet, benchmark, includeUnattributed, allHistory, sources, limit, noWrite, enroll };
 }
 
 // ── State file ─────────────────────────────────────────────────────────────
 
-function loadState(): IngestState {
+function loadState(readOnly = false, strict = false): IngestState {
   if (!existsSync(STATE_PATH)) {
     return {
       schema_version: 1,
@@ -290,10 +296,16 @@ function loadState(): IngestState {
   try {
     const raw = readFileSync(STATE_PATH, "utf-8");
     const parsed = JSON.parse(raw) as IngestState;
-    if (parsed.schema_version !== 1) {
+    if (strict && parsed.enrollment !== undefined && (!parsed.enrollment ||
+        (parsed.enrollment.remote !== null && (typeof parsed.enrollment.remote !== "string" || !parsed.enrollment.remote)) ||
+        (parsed.enrollment.since !== null && (typeof parsed.enrollment.since !== "string" || !Number.isFinite(Date.parse(parsed.enrollment.since)))))) {
+      throw new Error("invalid enrollment state");
+    }
+    if (parsed.schema_version !== 1 || !parsed.sessions || typeof parsed.sessions !== "object") {
+      if (strict) throw new Error("invalid ingestion state");
       console.error(`State file at ${STATE_PATH} has unknown schema_version ${parsed.schema_version}; backing up + resetting.`);
       try {
-        writeFileSync(STATE_PATH + ".bak", raw, "utf-8");
+        if (!readOnly) writeFileSync(STATE_PATH + ".bak", raw, { mode: 0o600 });
       } catch {
         // backup failure is non-fatal
       }
@@ -301,10 +313,11 @@ function loadState(): IngestState {
     }
     return parsed;
   } catch (err) {
+    if (strict) throw new Error("ingestion state unreadable; review locally before resuming");
     console.error(`State file at ${STATE_PATH} corrupt; backing up + resetting.`);
     try {
       const raw = readFileSync(STATE_PATH, "utf-8");
-      writeFileSync(STATE_PATH + ".bak", raw, "utf-8");
+      if (!readOnly) writeFileSync(STATE_PATH + ".bak", raw, { mode: 0o600 });
     } catch {
       // best-effort
     }
@@ -319,10 +332,50 @@ function saveState(state: IngestState): void {
   try {
     mkdirSync(dirname(STATE_PATH), { recursive: true });
     const tmp = `${STATE_PATH}.tmp.${process.pid}`;
-    writeFileSync(tmp, JSON.stringify(state, null, 2), "utf-8");
+    writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
     renameSync(tmp, STATE_PATH);
   } catch (err) {
     console.error(`[state] write failed: ${(err as Error).message}`);
+  }
+}
+
+function withinEnrollment(remote: string, start: string | undefined, state: IngestState): boolean {
+  if (!state.enrollment) return true;
+  const { remote: enrolled, since } = state.enrollment;
+  if (enrolled !== null && (typeof enrolled !== "string" || !enrolled || remote !== enrolled)) return false;
+  if (since === null) return true;
+  return typeof since === "string" && Number.isFinite(Date.parse(since)) &&
+    typeof start === "string" && Date.parse(start) >= Date.parse(since);
+}
+
+function enroll(choice: string): void {
+  if (choice !== "E") {
+    const remote = choice === "C" ? null : resolveGitRemote(process.cwd());
+    if (remote === "") throw new Error("Enrollment needs a resolvable current repository remote");
+    const state = loadState(true);
+    state.enrollment = {
+      remote,
+      since: choice === "B" ? null : new Date(Date.now() - (choice === "D" ? 0 : 90 * 86400_000)).toISOString(),
+    };
+    mkdirSync(GSTACK_HOME, { recursive: true, mode: 0o700 });
+    const tmp = `${STATE_PATH}.tmp.${process.pid}`;
+    writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
+    renameSync(tmp, STATE_PATH);
+  }
+  execFileSync("bash", [join(import.meta.dir, "gstack-config"), "set", "transcript_ingest_mode", choice === "E" ? "off" : "incremental"], { timeout: 10_000, stdio: ["ignore", "pipe", "pipe"] });
+  console.log(choice === "E" ? "Transcript ingestion disabled; existing data is unchanged." : `Transcript scope ${choice} enrolled; no historical import has run.`);
+}
+
+function readProbePolicies(remotes: string[]): Map<string, { tier: string }> {
+  try {
+    const policy = JSON.parse(readFileSync(join(GSTACK_HOME, "gbrain-repo-policy.json"), "utf8"));
+    if (!policy || typeof policy !== "object" || Array.isArray(policy)) throw new Error();
+    return new Map(remotes.map((remote) => {
+      const tier = policy[canonicalizeRemote(remote)] ?? "none";
+      return [remote, { tier: ["none", "allow", "read-write", "read-only", "deny"].includes(tier) ? tier : "deny" }];
+    }));
+  } catch {
+    return new Map(remotes.map((remote) => [remote, { tier: "deny" }]));
   }
 }
 
@@ -374,7 +427,7 @@ function makeWalkContext(args: CliArgs, state: IngestState): WalkContext {
   return {
     args,
     state,
-    windowStartMs: args.allHistory ? 0 : ninetyDaysAgoMs,
+    windowStartMs: state.enrollment ? 0 : args.allHistory ? 0 : ninetyDaysAgoMs,
   };
 }
 
@@ -539,7 +592,7 @@ function* walkGstackArtifacts(ctx: WalkContext): Generator<{ path: string; type:
 }
 
 function* walkAllSources(ctx: WalkContext): Generator<{ path: string; type: MemoryType }> {
-  if (ctx.args.sources.has("transcript")) {
+  if (ctx.args.sources.has("transcript") && (ctx.args.mode === "probe" || transcriptIngestEnabled())) {
     yield* walkClaudeCodeProjects(ctx);
     yield* walkCodexSessions(ctx);
   }
@@ -850,21 +903,6 @@ function buildArtifactPage(path: string, type: MemoryType): PageRecord {
 //
 // Architecture (post plan-eng-review + Codex outside-voice):
 //
-//   walkAllSources(ctx)
-//     → for each path: mtime-skip / source-file gitleaks (D3) / parse / buildPage
-//     → renderPageBody injects title/type/tags into YAML frontmatter
-//     → writeStaged: mkdir -p slug subdirs (D1), write ${slug}.md
-//   → snapshot ~/.gbrain/sync-failures.jsonl byte-offset           (D7)
-//   → spawnSync `gbrain import <stagingDir> --no-embed --json`     (D6)
-//   → parseImportJson(stdout) → { imported, skipped, errors, ... } (D6 OK/ERR)
-//   → readNewFailures(preImportOffset, slugMap) → Set<sourcePath>  (D7)
-//   → state.sessions[path] = { ... } for prepared files NOT in failed set
-//   → saveStateAtomic (F6 tmp+rename) + cleanupStagingDir
-//
-// We trust gbrain's content_hash idempotency (verified in
-// ~/git/gbrain/src/core/import-file.ts:242-243, :478) — repeated imports
-// of identical content are cheap. So we do NOT track per-file skip_reasons,
-// do NOT keep a SIGTERM checkpoint, and do NOT advance a three-state verdict.
 
 let _gbrainAvailability: boolean | null = null;
 function gbrainAvailable(): boolean {
@@ -953,6 +991,9 @@ interface PreparedPage {
    * remote — artifacts are never policy-filtered).
    */
   git_remote?: string;
+  source_sha256?: string;
+  source_mtime_ns?: number;
+  start_time?: string;
 }
 
 interface StagingResult {
@@ -961,6 +1002,7 @@ interface StagingResult {
   errors: Array<{ slug: string; error: string }>;
   /** Map from staging-dir-relative path (e.g. "transcripts/foo.md") → source path. */
   stagedPathToSource: Map<string, string>;
+  held?: number;
 }
 
 /**
@@ -985,24 +1027,140 @@ export function stagedRelPath(slug: string): string {
   return `${slug}.md`;
 }
 
-function writeStaged(prepared: PreparedPage[], stagingDir: string): StagingResult {
-  mkdirSync(stagingDir, { recursive: true });
+function writeStaged(prepared: PreparedPage[], stagingDir: string, limit: number | null): StagingResult {
+  mkdirSync(stagingDir, { recursive: true, mode: 0o700 });
   const stagedPathToSource = new Map<string, string>();
   const errors: Array<{ slug: string; error: string }> = [];
   let written = 0;
+  let held = 0;
   for (const p of prepared) {
+    if (limit !== null && written >= limit) break;
     const relPath = stagedRelPath(p.slug);
     const absPath = join(stagingDir, relPath);
     try {
-      mkdirSync(dirname(absPath), { recursive: true });
-      writeFileSync(absPath, p.rendered_body, "utf-8");
-      stagedPathToSource.set(relPath, p.source_path);
-      written++;
+      if (!safeStagedPath(relPath)) throw new Error("unsafe staging path");
+      mkdirSync(dirname(absPath), { recursive: true, mode: 0o700 });
+      writeFileSync(absPath, p.rendered_body, { encoding: "utf-8", mode: 0o600, flag: "wx" });
     } catch (err) {
       errors.push({ slug: p.slug, error: (err as Error).message });
+      continue;
+    }
+    const bytes = readFileSync(absPath);
+    const verdict = scanSerializedPage(bytes);
+    if (!verdict.ok) {
+      console.error(`[memory-ingest] held: ${verdict.reason}`);
+      if (verdict.systemic) throw new Error("scanner unavailable; publication held for this run");
+      rmSync(absPath);
+      held++;
+      continue;
+    }
+    if (!bytes.equals(Buffer.from(p.rendered_body))) throw new Error("snapshot bytes changed while scanning");
+    stagedPathToSource.set(relPath, p.source_path);
+    written++;
+  }
+  return { staging_dir: stagingDir, written, errors, stagedPathToSource, held };
+}
+
+const SNAPSHOT_MANIFEST = ".gstack-pages.json";
+
+function safeStagedPath(path: string): boolean {
+  return !isAbsolute(path) && path.endsWith(".md") && !path.includes("\\") &&
+    path.split("/").every((part) => part !== "" && part !== "." && part !== ".." && !part.startsWith("."));
+}
+
+function snapshotFiles(dir: string): string[] {
+  const files: string[] = [];
+  function walk(at: string, prefix: string): void {
+    for (const name of readdirSync(at)) {
+      const path = join(at, name);
+      const rel = prefix + name;
+      const st = lstatSync(path);
+      if (st.isSymbolicLink()) throw new Error("snapshot contains a link");
+      if (st.isDirectory()) {
+        if (name.startsWith(".")) throw new Error("snapshot contains an unexpected directory");
+        walk(path, `${rel}/`);
+      } else if (!st.isFile()) throw new Error("snapshot contains a non-regular file");
+      else if (!prefix && [STAGING_MARKER, SNAPSHOT_MANIFEST].includes(name)) continue;
+      else if (safeStagedPath(rel)) files.push(rel);
+      else throw new Error("snapshot contains an unexpected file");
     }
   }
-  return { staging_dir: stagingDir, written, errors, stagedPathToSource };
+  walk(dir, "");
+  return files.sort();
+}
+
+function writeSnapshotManifest(dir: string, pages: PreparedPage[]): void {
+  writeFileSync(join(dir, SNAPSHOT_MANIFEST), JSON.stringify(pages.map(({ rendered_body, ...page }) => ({
+    ...page, rendered_sha256: createHash("sha256").update(rendered_body).digest("hex"),
+  }))), { mode: 0o600, flag: "wx" });
+}
+
+function validateSnapshot(dir: string, pages: PreparedPage[], state: IngestState): void {
+  const files = snapshotFiles(dir);
+  const expected = pages.map((p) => stagedRelPath(p.slug)).sort();
+  if (JSON.stringify(files) !== JSON.stringify(expected) || new Set(expected).size !== expected.length) throw new Error("snapshot membership changed");
+  for (const page of pages) validatePageMapping(page);
+  const transcripts = pages.filter((p) => p.type === "transcript");
+  if (transcripts.length && !transcriptIngestEnabled()) throw new Error("transcript consent disabled before dispatch");
+  const policies = repoPolicyTierBatch([...new Set(transcripts.map((p) => p.git_remote || "_unattributed"))]);
+  for (const page of pages) {
+    if (!readFileSync(join(dir, stagedRelPath(page.slug))).equals(Buffer.from(page.rendered_body))) throw new Error("snapshot bytes changed before dispatch");
+    if (page.type !== "transcript") continue;
+    const policy = policies.get(page.git_remote || "_unattributed");
+    if (!policy || policy.error || policy.tier === "deny" || policy.tier === "read-only") throw new Error("transcript remote policy holds this batch");
+    if (!withinEnrollment(page.git_remote || "", page.start_time, state)) throw new Error("snapshot exceeds current enrolled transcript scope");
+  }
+}
+
+function validatePageMapping(page: PreparedPage): void {
+  const policy = serializedPagePolicy(page.rendered_body);
+  if (policy.type !== page.type || page.slug.split("/")[0] !== `${policy.type}s`) throw new Error("snapshot type does not match serialized metadata and path");
+  if (policy.type === "transcript" && (policy.source_path !== page.source_path || policy.git_remote !== page.git_remote ||
+      policy.start_time !== (page.start_time ?? ""))) throw new Error("snapshot source mapping does not match serialized metadata");
+}
+
+function loadSnapshot(dir: string, state: IngestState): { pages: PreparedPage[]; completed: Set<string> } {
+  const owned = checkOwnedStagingDir(dir, GSTACK_HOME);
+  if (!owned.ok || lstatSync(dir).isSymbolicLink()) throw new Error("checkpoint snapshot ownership is unproven");
+  const checkpoint = JSON.parse(readFileSync(join(HOME, ".gbrain/import-checkpoint.json"), "utf8"));
+  if (checkpoint.dir !== realpathSync(dir) || !Array.isArray(checkpoint.completedPaths) ||
+      (checkpoint.owner !== undefined && checkpoint.owner !== "gbrain") ||
+      (checkpoint.kind !== undefined && checkpoint.kind !== "import") ||
+      (checkpoint.schema_version !== undefined && checkpoint.schema_version !== 1) ||
+      typeof checkpoint.timestamp !== "string") throw new Error("unsupported checkpoint; preserve it and review with the supported gbrain CLI");
+  const files = snapshotFiles(dir);
+  if (!files.length || !checkpoint.completedPaths.every((p: unknown) => typeof p === "string" && files.includes(p)) ||
+      new Set(checkpoint.completedPaths).size !== checkpoint.completedPaths.length) throw new Error("checkpoint membership is unproven");
+  let manifest: any[] | undefined;
+  if (existsSync(join(dir, SNAPSHOT_MANIFEST))) {
+    manifest = JSON.parse(readFileSync(join(dir, SNAPSHOT_MANIFEST), "utf8"));
+    if (!Array.isArray(manifest) || manifest.length !== files.length) throw new Error("snapshot mapping is malformed");
+  }
+  const pages = files.map((rel): PreparedPage => {
+    const bytes = readFileSync(join(dir, rel));
+    const verdict = scanSerializedPage(bytes);
+    if (!verdict.ok) throw new Error(`checkpoint held: ${verdict.reason}`);
+    const body = bytes.toString("utf8");
+    const entry = manifest?.find((p) => p && stagedRelPath(p.slug) === rel);
+    if (manifest && (!entry || entry.rendered_sha256 !== createHash("sha256").update(bytes).digest("hex"))) throw new Error("snapshot mapping or bytes changed");
+    const policy = serializedPagePolicy(body);
+    if (!entry && policy.type !== "transcript") throw new Error("legacy snapshot source mapping is unknown");
+    const page: PreparedPage = entry ? { ...entry, rendered_body: body } : {
+      slug: rel.slice(0, -3), page_slug: rel.slice(0, -3), rendered_body: body,
+      source_path: policy.source_path!, type: policy.type as MemoryType,
+      partial: true, git_remote: policy.git_remote, start_time: policy.start_time,
+    };
+    validatePageMapping(page);
+    if (!ALL_TYPES.includes(page.type) || !isAbsolute(page.source_path) || page.page_slug !== page.slug) throw new Error("unknown snapshot source mapping");
+    const roots = page.type === "transcript" ? [join(HOME, ".claude/projects"), join(HOME, ".codex/sessions")] : [GSTACK_HOME];
+    if (!roots.some((root) => { const rel = relative(root, page.source_path); return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel); })) throw new Error("snapshot source outside owned roots");
+    if (manifest && (typeof page.source_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(page.source_sha256) || !Number.isFinite(page.source_mtime_ns))) throw new Error("snapshot source hash is unknown");
+    chmodSync(join(dir, rel), 0o600);
+    return page;
+  });
+  chmodSync(dir, 0o700);
+  validateSnapshot(dir, pages, state);
+  return { pages, completed: new Set(checkpoint.completedPaths) };
 }
 
 interface ImportJsonResult {
@@ -1013,6 +1171,9 @@ interface ImportJsonResult {
   errors?: number;
   chunks?: number;
   total_files?: number;
+  unchanged?: number;
+  malformed_skipped?: number;
+  failures?: Array<{ path: string; error?: string }>;
 }
 
 /**
@@ -1031,7 +1192,9 @@ function parseImportJson(stdout: string): ImportJsonResult | null {
     if (line.startsWith("{") && line.endsWith("}")) {
       try {
         const parsed = JSON.parse(line);
-        if (typeof parsed === "object" && parsed && "imported" in parsed) {
+        if (typeof parsed === "object" && parsed && "imported" in parsed &&
+            ["imported", "skipped", "errors", "total_files", "unchanged", "malformed_skipped"].every((key) => parsed[key] === undefined || (Number.isInteger(parsed[key]) && parsed[key] >= 0)) &&
+            (parsed.failures === undefined || (Array.isArray(parsed.failures) && parsed.failures.every((f: any) => f && typeof f.path === "string")))) {
           return parsed as ImportJsonResult;
         }
       } catch {
@@ -1090,9 +1253,6 @@ export function readNewFailures(
       closeSync(fd);
     }
   } catch {
-    // Best-effort. If we can't read failures, we conservatively assume
-    // none — caller will state-record all prepared files. Worst case:
-    // failed files get a retry-on-next-run shot anyway via content_hash.
   }
   return failed;
 }
@@ -1199,7 +1359,7 @@ function transcriptCwdFromPrefix(path: string): string {
 }
 
 async function probeMode(args: CliArgs): Promise<ProbeReport> {
-  const state = loadState();
+  const state = loadState(true);
   const ctx = makeWalkContext(args, state);
 
   const byType: Record<MemoryType, { count: number; bytes: number }> = {
@@ -1251,11 +1411,11 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
   if (hasRepoPolicyStore()) {
     const remotes = [...new Set(candidates.filter((c) => c.type === "transcript" && c.remote).map((c) => c.remote))];
     if (remotes.length > 0) {
-      const verdicts = repoPolicyTierBatch(remotes);
+      const verdicts = readProbePolicies(remotes);
       for (let i = candidates.length - 1; i >= 0; i--) {
         const c = candidates[i];
         if (c.type !== "transcript" || !c.remote) continue;
-        const tier = verdicts.get(c.remote)?.tier ?? "none";
+        const tier = verdicts.get(c.remote)?.tier ?? "deny";
         if (tier === "deny") {
           skippedPolicyDeny++;
           candidates.splice(i, 1);
@@ -1300,6 +1460,7 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
     skipped_policy_deny: skippedPolicyDeny,
     skipped_policy_readonly: skippedPolicyReadonly,
     estimate_minutes: estimateMinutes,
+    policy_eligible_transcripts: transcriptIngestEnabled() ? candidates.filter((c) => c.type === "transcript" && withinEnrollment(c.remote, parseTranscriptJsonl(c.path)?.start_time, state)).length : 0,
   };
 }
 
@@ -1371,28 +1532,6 @@ export function disambiguateSlugs(
   }
 }
 
-/**
- * Prepare phase: walk sources, apply incremental + optional-secret-scan filters,
- * parse transcripts/artifacts into PageRecord, render bodies with
- * frontmatter. Returns the PreparedPage[] to stage + counts of files
- * filtered at each gate.
- *
- * Secret scanning policy (post 2026-05-10 perf review):
- *
- *   The actual cross-machine exfiltration boundary is `gstack-brain-sync`,
- *   which runs a regex-based secret scanner on the staged diff before
- *   `git commit` (see bin/gstack-brain-sync:78-110: AWS keys, GitHub
- *   tokens, OpenAI keys, PEM blocks, JWTs, bearer-token-in-JSON). That's
- *   the right place — it gates content leaving the machine.
- *
- *   memory-ingest, by contrast, moves data from one local file to a
- *   local PGLite database. Scanning every source file at ingest time
- *   doesn't change exposure (the secret already lives in plaintext
- *   where the user keeps their transcripts and artifacts) but costs
- *   ~470s on cold runs. We removed the per-file gitleaks gate as
- *   redundant defense-in-depth and made it opt-in via `--scan-secrets`
- *   for users who want belt-and-suspenders.
- */
 function preparePages(
   args: CliArgs,
   ctx: WalkContext,
@@ -1429,34 +1568,18 @@ function preparePages(
   const policyStoreExists = hasRepoPolicyStore();
 
   for (const { path, type } of walkAllSources(ctx)) {
-    if (args.limit !== null && !policyStoreExists && prepared.length >= args.limit) break;
+    if (args.noWrite && args.limit !== null && !policyStoreExists && prepared.length >= args.limit) break;
 
     if (args.mode === "incremental" && !fileChangedSinceState(path, state)) {
       skippedDedup++;
       continue;
     }
 
-    // Optional belt-and-suspenders: when --scan-secrets is set, scan the
-    // source file with gitleaks and skip dirty ones. Off by default
-    // because gstack-brain-sync already gates the cross-machine boundary
-    // and per-file gitleaks costs ~256ms/file (4-8 min on a real corpus).
-    if (args.scanSecrets) {
-      const scan = secretScanFile(path);
-      if (scan.scanner === "gitleaks" && scan.findings.length > 0) {
-        skippedSecret++;
-        if (!args.quiet) {
-          console.error(
-            `[secret-scan match] ${path} (${scan.findings.length} finding${
-              scan.findings.length === 1 ? "" : "s"
-            }); skipped`,
-          );
-        }
-        continue;
-      }
-    }
-
     let page: PageRecord;
+    let sourceMtime = 0;
     try {
+      sourceMtime = Math.floor(statSync(path).mtimeMs * 1e6);
+      const sourceHash = fileSha256(path);
       if (type === "transcript") {
         const session = parseTranscriptJsonl(path);
         if (!session) {
@@ -1472,25 +1595,40 @@ function preparePages(
           continue;
         }
         page = buildTranscriptPage(path, session);
+        if (!withinEnrollment(page.git_remote || "", page.start_time, state)) continue;
       } else {
         page = buildArtifactPage(path, type);
       }
+      if (!sourceHash || sourceHash !== page.content_sha256 || sourceMtime !== Math.floor(statSync(path).mtimeMs * 1e6)) throw new Error("source changed during preparation; retry next run");
     } catch (err) {
       parseFailed++;
       console.error(`[parse-error] ${path}: ${(err as Error).message}`);
       continue;
     }
 
+    const rendered = Buffer.from(renderPageBody(page)).toString("utf8");
+    if (args.noWrite) {
+      const verdict = scanSerializedPage(rendered);
+      if (!verdict.ok) {
+        skippedSecret++;
+        console.error(`[memory-ingest] held: ${verdict.reason}`);
+        if (verdict.systemic) return { prepared: [], skippedSecret, skippedDedup, skippedUnattributed, skippedPolicyReadonly: 0, skippedPolicyDeny: 0, parseFailed, partialPages: 0, policyError: "scanner unavailable; publication held for this run" };
+        continue;
+      }
+    }
     prepared.push({
       slug: page.slug,
       source_path: path,
-      rendered_body: renderPageBody(page),
+      rendered_body: rendered,
       page_slug: page.slug,
       partial: page.partial ?? false,
       type,
       // Only transcripts carry a real remote; buildArtifactPage's git_remote
       // is a project slug, and artifacts are never policy-filtered (#2392).
       git_remote: type === "transcript" ? page.git_remote : undefined,
+      source_sha256: page.content_sha256,
+      source_mtime_ns: sourceMtime,
+      start_time: page.start_time,
     });
   }
 
@@ -1552,7 +1690,7 @@ function preparePages(
   // --limit applies AFTER policy filtering, over permitted pages only. In the
   // no-store fast path the walk already stopped at the limit, so this slice
   // is a no-op there.
-  if (args.limit !== null && finalPrepared.length > args.limit) {
+  if (args.noWrite && args.limit !== null && finalPrepared.length > args.limit) {
     finalPrepared = finalPrepared.slice(0, args.limit);
   }
 
@@ -1587,14 +1725,14 @@ function preparePages(
  */
 function makeStagingDir(): string {
   const dir = join(GSTACK_HOME, `.staging-ingest-${process.pid}-${Date.now()}`);
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Mint the ownership marker (#1802) so cleanupStagingDir() and decideResume()
   // can prove this dir was created by us before any recursive delete or resume.
   // #1802 C5: fail hard if the marker can't be written — a marker-less dir would
   // be refused by the guard forever (leaked, never cleaned). Tear down the
   // partial dir and rethrow so the caller fails loudly instead of leaking.
   try {
-    writeFileSync(join(dir, STAGING_MARKER), `${process.pid}\n${Date.now()}\n`, "utf-8");
+    writeFileSync(join(dir, STAGING_MARKER), `${process.pid}\n${Date.now()}\n`, { mode: 0o600 });
   } catch (err) {
     try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
     throw err;
@@ -1620,7 +1758,8 @@ function makePersistentTranscriptDir(): string {
     "transcripts",
     `run-${process.pid}-${Date.now()}`,
   );
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dirname(dir), { recursive: true, mode: 0o700 });
+  if (lstatSync(dirname(dir)).isSymbolicLink() || realpathSync(dirname(dirname(dir))) !== realpathSync(GSTACK_HOME)) throw new Error("persistent transcript directory ownership is unproven");
   return dir;
 }
 
@@ -1680,25 +1819,10 @@ function cleanupStagingDir(dir: string): void {
   }
 }
 
-/**
- * Track the currently-running gbrain import child + active staging dir so
- * SIGTERM/SIGINT on the parent process can:
- *   1. forward the signal to the child (otherwise gbrain orphans, holds the
- *      PGLite write lock, and burns CPU — observed during 2026-05-10 cold-run
- *      testing)
- *   2. PRESERVE the staging dir when gbrain has written an import-checkpoint
- *      pointing at it (the next /sync-gbrain run can resume from
- *      processedIndex+1). Otherwise synchronously clean up before
- *      process.exit, since `finally` blocks in ingestPass never run after
- *      process.exit fires from inside a signal handler.
- *
- * Resume semantics added for #1611: prior behavior unconditionally cleaned
- * up the staging dir on SIGTERM, so the gbrain checkpoint always pointed at
- * a missing dir and the next run had to restage from scratch.
- */
 let _activeImportChild: ChildProcess | null = null;
 let _activeStagingDir: string | null = null;
 let _signalHandlersInstalled = false;
+let _shuttingDown = false;
 
 /**
  * Returns true if gbrain has written ~/.gbrain/import-checkpoint.json with
@@ -1722,36 +1846,22 @@ function stagingDirIsCheckpointed(stagingDir: string): boolean {
 function installSignalForwarder(): void {
   if (_signalHandlersInstalled) return;
   _signalHandlersInstalled = true;
-  const forward = (signal: NodeJS.Signals) => () => {
-    if (_activeImportChild && _activeImportChild.pid && !_activeImportChild.killed) {
-      try {
-        process.kill(_activeImportChild.pid, signal);
-      } catch {
-        // child may have already exited between the alive-check and the kill
-      }
+  const forward = (signal: NodeJS.Signals) => async () => {
+    if (_shuttingDown) return;
+    _shuttingDown = true;
+    const stagingDir = _activeStagingDir;
+    const child = _activeImportChild;
+    if (child?.pid && child.exitCode === null && child.signalCode === null) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 5_000);
+        const drained = () => { clearTimeout(timer); resolve(); };
+        child.once("close", drained);
+        child.once("error", drained);
+        try { child.kill(signal); } catch { drained(); }
+      });
     }
-    if (_activeStagingDir) {
-      if (stagingDirIsCheckpointed(_activeStagingDir)) {
-        // Preserve for next-run resume. The orchestrator's decideResume()
-        // (in gstack-gbrain-sync.ts) will see the checkpoint + dir and
-        // re-invoke gbrain import against this same staging dir, picking
-        // up from processedIndex+1. See #1611.
-        try {
-          process.stderr.write(
-            `[memory-ingest] ${signal} received — preserving staging dir for resume: ${_activeStagingDir}\n`,
-          );
-        } catch {
-          // best-effort: stderr may be closed already
-        }
-      } else {
-        // No checkpoint pointing here — the import never reached gbrain or
-        // crashed before writing one. Clean up so we don't leak the dir.
-        cleanupStagingDir(_activeStagingDir);
-      }
-      _activeStagingDir = null;
-    }
-    // Re-raise to default action so the parent actually exits. Without this,
-    // a SIGTERM handler that doesn't exit holds the process alive.
+    if (stagingDir) process.stderr.write(`[memory-ingest] ${signal} received — preserving staging dir for resume: ${stagingDir}\n`);
+    _activeStagingDir = null;
     process.exit(signal === "SIGINT" ? 130 : 143);
   };
   process.on("SIGTERM", forward("SIGTERM"));
@@ -1800,7 +1910,9 @@ function failedOnUnknownIncludeGitignored(status: number | null, stderr: string)
 async function runGbrainImport(
   stagingDir: string,
   timeoutMs: number,
+  beforeDispatch: () => void,
 ): Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }> {
+  beforeDispatch();
   const first = await runGbrainImportOnce(stagingDir, timeoutMs, true);
   if (failedOnUnknownIncludeGitignored(first.status, first.stderr)) {
     // Older gbrain: retry without the flag. If .gitignore then hides the
@@ -1813,6 +1925,7 @@ async function runGbrainImport(
         "retrying without it. If the import then collects 0 files, upgrade gbrain " +
         "(gstack-gbrain-install) so staged pages inside gitignored dirs are visible.",
     );
+    beforeDispatch();
     return runGbrainImportOnce(stagingDir, timeoutMs, false);
   }
   return first;
@@ -1913,11 +2026,33 @@ function runGbrainImportOnce(
 
 async function ingestPass(args: CliArgs): Promise<BulkResult> {
   const t0 = Date.now();
-  const state = loadState();
+  const state = loadState(false, args.sources.has("transcript") && transcriptIngestEnabled());
   const ctx = makeWalkContext(args, state);
-
-  // Phase 1: prepare (parse + secret-scan + filter + render frontmatter).
-  const prep = preparePages(args, ctx, state);
+  const remoteHttpMode = isRemoteHttpMcpMode();
+  let resumeDir = process.env.GSTACK_INGEST_RESUME_DIR;
+  if (!resumeDir && existsSync(join(HOME, ".gbrain/import-checkpoint.json"))) {
+    try {
+      const checkpoint = JSON.parse(readFileSync(join(HOME, ".gbrain/import-checkpoint.json"), "utf8"));
+      if (typeof checkpoint.dir !== "string" || !checkpoint.dir) throw new Error();
+      resumeDir = checkpoint.dir;
+    } catch {
+      throw new Error("checkpoint held: malformed checkpoint; no fresh import dispatched");
+    }
+  }
+  let resumed: ReturnType<typeof loadSnapshot> | undefined;
+  let resumeError: string | undefined;
+  if (resumeDir) {
+    try {
+      if (remoteHttpMode) throw new Error("local checkpoint cannot be routed to remote publication");
+      resumed = loadSnapshot(resumeDir, state);
+    } catch {
+      resumeError = "checkpoint held: ownership, metadata, source mapping or scan validation failed; inspect the retained snapshot locally; pending files and history are unchanged";
+    }
+  }
+  const prep = resumeDir ? {
+    prepared: resumed?.pages ?? [], skippedSecret: 0, skippedDedup: 0, skippedUnattributed: 0,
+    skippedPolicyReadonly: 0, skippedPolicyDeny: 0, parseFailed: 0, partialPages: 0, policyError: resumeError,
+  } : preparePages(args, ctx, state);
 
   let written = 0;
   let failed = 0;
@@ -1950,8 +2085,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     for (const p of prep.prepared) {
       try {
         state.sessions[p.source_path] = {
-          mtime_ns: Math.floor(statSync(p.source_path).mtimeMs * 1e6),
-          sha256: fileSha256(p.source_path),
+          mtime_ns: p.source_mtime_ns!,
+          sha256: p.source_sha256!,
           ingested_at: nowIso,
           page_slug: p.page_slug,
           partial: p.partial,
@@ -1961,9 +2096,11 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
         // best-effort state record
       }
     }
-    state.last_full_walk = new Date().toISOString();
-    state.last_writer = "gstack-memory-ingest";
-    saveState(state);
+    if (written > 0) {
+      state.last_full_walk = new Date().toISOString();
+      state.last_writer = "gstack-memory-ingest";
+      saveState(state);
+    }
     return {
       written,
       skipped_secret: prep.skippedSecret,
@@ -1978,10 +2115,11 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   }
 
   if (prep.prepared.length === 0) {
-    // Nothing to import — still touch state.last_full_walk and exit.
-    state.last_full_walk = new Date().toISOString();
-    state.last_writer = "gstack-memory-ingest";
-    saveState(state);
+    if ([...args.sources].some((type) => type !== "transcript")) {
+      state.last_full_walk = new Date().toISOString();
+      state.last_writer = "gstack-memory-ingest";
+      saveState(state);
+    }
     return {
       written: 0,
       skipped_secret: prep.skippedSecret,
@@ -1995,7 +2133,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     };
   }
 
-  if (!gbrainAvailable()) {
+  if (!remoteHttpMode && !gbrainAvailable()) {
     const msg =
       "gbrain CLI not in PATH or missing `import` subcommand. Run /setup-gbrain.";
     console.error(`[memory-ingest] ERR: ${msg}`);
@@ -2026,27 +2164,14 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   // at an existing dir from a prior SIGTERM'd run), reuse that staging dir
   // and skip the prepare/writeStaged phase entirely. gbrain's checkpoint
   // tells it where to resume.
-  const remoteHttpMode = isRemoteHttpMcpMode();
-  const resumeDir = process.env.GSTACK_INGEST_RESUME_DIR;
   // #1802 second entry point: this binary is runnable directly, so it must not
   // trust GSTACK_INGEST_RESUME_DIR just because it exists — a stale/poisoned env
   // could make us `gbrain import` (and later clean up) an arbitrary directory.
   // Prove ownership here too, independently of the orchestrator's decideResume.
-  const resuming = !remoteHttpMode
-    && typeof resumeDir === "string"
-    && resumeDir.length > 0
-    && existsSync(resumeDir)
-    && checkOwnedStagingDir(resumeDir, GSTACK_HOME).ok;
-  if (!remoteHttpMode && resumeDir && resumeDir.length > 0 && !resuming) {
-    console.error(
-      `[memory-ingest] ignoring GSTACK_INGEST_RESUME_DIR="${resumeDir}" — not a proven staging dir (#1802); staging fresh.`,
-    );
-  }
+  const resuming = resumed !== undefined;
   const stagingDir = resuming
     ? resumeDir!
-    : remoteHttpMode
-      ? makePersistentTranscriptDir()
-      : makeStagingDir();
+    : makeStagingDir();
   // Register staging dir with the signal forwarder so SIGTERM/SIGINT can
   // either preserve (when gbrain checkpointed it) or synchronously clean up.
   // The async finally block below does NOT run after a signal-handler exit.
@@ -2058,14 +2183,10 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
   // pointing at this staging dir, so the finally preserves it for the next run
   // instead of deleting it (the SIGTERM forwarder's preserve branch only runs
   // when the PARENT is signalled, which an internal timeout never does).
-  let preserveStaging = false;
+  let preserveStaging = resuming;
   try {
     let staging: StagingResult;
     if (resuming) {
-      // Pages are already on disk from the previous run. Skip writeStaged.
-      // The "written" count for the verdict reflects what's on disk now;
-      // gbrain's import will skip already-completed entries via its own
-      // checkpoint (processedIndex+1).
       if (!args.quiet) {
         console.error(
           `[memory-ingest] resuming previous staging dir ${stagingDir} (skipping prepare phase)`,
@@ -2081,9 +2202,16 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       }
       staging = { staging_dir: stagingDir, written: prep.prepared.length, errors: [], stagedPathToSource };
     } else {
-      staging = writeStaged(prep.prepared, stagingDir);
+      staging = writeStaged(prep.prepared, stagingDir, args.limit);
+      prep.skippedSecret += staging.held ?? 0;
+      prep.prepared = prep.prepared.filter((p) => staging.stagedPathToSource.has(stagedRelPath(p.slug)));
+      prep.partialPages = prep.prepared.filter((p) => p.partial).length;
+      writeSnapshotManifest(stagingDir, prep.prepared);
     }
     failed += staging.errors.length;
+    if (staging.written === 0) return { written: 0, skipped_secret: prep.skippedSecret, skipped_dedup: prep.skippedDedup,
+      skipped_unattributed: prep.skippedUnattributed, skipped_policy_readonly: prep.skippedPolicyReadonly,
+      skipped_policy_deny: prep.skippedPolicyDeny, failed: failed + prep.parseFailed, duration_ms: Date.now() - t0, partial_pages: 0 };
     if (!args.quiet && staging.errors.length > 0) {
       for (const e of staging.errors.slice(0, 5)) {
         console.error(`[stage-error] ${e.slug}: ${e.error}`);
@@ -2121,12 +2249,17 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // brain admin's pull pipeline is the authoritative gate; from this
     // machine's perspective, the act of staging IS the write.
     if (remoteHttpMode) {
+      validateSnapshot(stagingDir, prep.prepared, loadState(true, true));
+      const persistentDir = makePersistentTranscriptDir();
+      rmSync(join(stagingDir, SNAPSHOT_MANIFEST));
+      rmSync(join(stagingDir, STAGING_MARKER));
+      renameSync(stagingDir, persistentDir);
       const nowIso = new Date().toISOString();
       for (const p of prep.prepared) {
         try {
           state.sessions[p.source_path] = {
-            mtime_ns: Math.floor(statSync(p.source_path).mtimeMs * 1e6),
-            sha256: fileSha256(p.source_path),
+            mtime_ns: p.source_mtime_ns!,
+            sha256: p.source_sha256!,
             ingested_at: nowIso,
             page_slug: p.page_slug,
             partial: p.partial,
@@ -2143,7 +2276,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       saveState(state);
       if (!args.quiet) {
         console.error(
-          `[memory-ingest] persisted ${written} pages to ${stagingDir} (brain admin will index on next pull)`,
+          `[memory-ingest] persisted ${written} pages to ${persistentDir} (brain admin will index on next pull)`,
         );
       }
       // Skip the gbrain-import error handling + cleanupStagingDir paths
@@ -2202,7 +2335,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
         system_error: msg,
       };
     }
-    const importResult = await runGbrainImport(stagingDir, resolveImportTimeoutMs());
+    const importResult = await runGbrainImport(stagingDir, resolveImportTimeoutMs(), () => validateSnapshot(stagingDir, prep.prepared, loadState(true, true)));
 
     const stdout = importResult.stdout || "";
     const stderr = importResult.stderr || "";
@@ -2240,8 +2373,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
           system_error: msg,
         };
       }
-      const tail = (stderr.trim().split("\n").pop() || "").slice(0, 300);
-      const msg = `gbrain import exited ${importResult.status}: ${tail}`;
+      const msg = `gbrain import exited ${importResult.status}; no source state advanced`;
       console.error(`[memory-ingest] ERR: ${msg}`);
       // We conservatively state-record nothing on a non-zero exit — per-run
       // partial progress is invisible to us when the importer crashed.
@@ -2259,13 +2391,6 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
         partial_pages: prep.partialPages,
         system_error: msg,
       };
-    }
-
-    if (!args.quiet) {
-      // Echo gbrain's own progress lines on stderr through so the user sees
-      // them when running interactively. Already on our stderr from the
-      // child via `stdio: pipe`, but we explicitly forward for clarity.
-      process.stderr.write(stderr);
     }
 
     if (importJson === null) {
@@ -2298,6 +2423,11 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
       preImportOffset,
       staging.stagedPathToSource,
     );
+    for (const entry of importJson.failures ?? []) {
+      const source = staging.stagedPathToSource.get(entry.path);
+      if (!source) throw new Error("import failure source mapping unknown; no state advanced");
+      failedSources.add(source);
+    }
     failed += failedSources.size;
 
     // Reconcile gbrain's own accounting against what we staged. Without this,
@@ -2316,9 +2446,10 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     //
     // `skipped` counts content_hash no-ops, which ARE successful landings.
     const expectedLandings = prep.prepared.length - failedSources.size;
-    const accountedLandings =
-      (importJson.imported ?? 0) + (importJson.skipped ?? 0);
-    if (accountedLandings < expectedLandings) {
+    const currentLandings = (importJson.imported ?? 0) + (importJson.unchanged ?? importJson.skipped ?? 0);
+    const accountedLandings = currentLandings === expectedLandings ? currentLandings : currentLandings + (resumed?.completed.size ?? 0);
+    if (accountedLandings !== expectedLandings || (importJson.errors ?? 0) > failedSources.size ||
+        (importJson.malformed_skipped ?? 0) > 0 || (importJson.total_files !== undefined && importJson.total_files !== staging.written)) {
       const collected =
         importJson.total_files !== undefined
           ? ` gbrain collected ${importJson.total_files} file(s) from the staging dir.`
@@ -2352,15 +2483,16 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     const nowIso = new Date().toISOString();
     for (const p of prep.prepared) {
       if (failedSources.has(p.source_path)) continue;
+      written++;
+      if (!p.source_sha256 || p.source_mtime_ns === undefined) continue;
       try {
         state.sessions[p.source_path] = {
-          mtime_ns: Math.floor(statSync(p.source_path).mtimeMs * 1e6),
-          sha256: fileSha256(p.source_path),
+          mtime_ns: p.source_mtime_ns,
+          sha256: p.source_sha256,
           ingested_at: nowIso,
           page_slug: p.page_slug,
           partial: p.partial,
         };
-        written++;
         if (!args.quiet) {
           const tag = p.partial ? " [partial]" : "";
           console.log(`[${written}] ${p.page_slug}${tag}`);
@@ -2395,6 +2527,15 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
           `check gbrain's import.collect_files log line and your gbrain version.`,
       );
     }
+    preserveStaging = stagingDirIsCheckpointed(stagingDir);
+  } catch (error) {
+    preserveStaging = resuming || stagingDirIsCheckpointed(stagingDir);
+    const msg = (error as Error).message;
+    console.error(`[memory-ingest] ERR: ${msg}`);
+    return { written: 0, skipped_secret: prep.skippedSecret, skipped_dedup: prep.skippedDedup,
+      skipped_unattributed: prep.skippedUnattributed, skipped_policy_readonly: prep.skippedPolicyReadonly,
+      skipped_policy_deny: prep.skippedPolicyDeny, failed: prep.prepared.length, duration_ms: Date.now() - t0,
+      partial_pages: prep.partialPages, system_error: msg };
   } finally {
     // #1802 D1: in remote-http mode `stagingDir` is the PERSISTENT transcript
     // dir (makePersistentTranscriptDir, under ~/.gstack/transcripts/) that
@@ -2404,7 +2545,8 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // `finally` runs on its `return`, so the gate has to live here. Gating on
     // mode (rather than widening the ownership guard) keeps checkOwnedStagingDir
     // strict: it only ever sees `.staging-ingest-*` dirs.
-    if (!remoteHttpMode && !preserveStaging) cleanupStagingDir(stagingDir);
+    preserveStaging ||= _shuttingDown || stagingDirIsCheckpointed(stagingDir);
+    if (!preserveStaging && existsSync(stagingDir)) cleanupStagingDir(stagingDir);
     _activeStagingDir = null;
   }
 
@@ -2442,6 +2584,7 @@ function printProbeReport(r: ProbeReport, json: boolean): void {
   console.log("Memory ingest probe");
   console.log("───────────────────");
   console.log(`Total files in window: ${r.total_files}`);
+  console.log(`Policy-eligible transcripts: ${r.policy_eligible_transcripts} (candidate count only; pages still require scanning)`);
   console.log(`Total bytes:           ${formatBytes(r.total_bytes)}`);
   console.log(`New (never ingested):  ${r.new_count}`);
   console.log(`Updated (mtime/hash):  ${r.updated_count}`);
@@ -2490,16 +2633,39 @@ function printBulkResult(r: BulkResult, args: CliArgs): void {
 async function main(): Promise<void> {
   const args = parseArgs();
 
+  if (args.mode === "probe") {
+    if (args.enroll) throw new Error("--probe cannot enroll or change configuration");
+    printProbeReport(await probeMode(args), false);
+    return;
+  }
+  mkdirSync(GSTACK_HOME, { recursive: true, mode: 0o700 });
+  const lock = join(GSTACK_HOME, ".memory-ingest.lock");
+  try {
+    mkdirSync(lock, { mode: 0o700 });
+  } catch {
+    throw new Error("memory ingest is locked; stop any active ingest before removing a stale .memory-ingest.lock");
+  }
+  const release = () => { try { rmSync(lock, { recursive: true }); } catch {} };
+  process.once("exit", release);
+  try {
+    await runMain(args);
+  } finally {
+    release();
+    process.removeListener("exit", release);
+  }
+}
+
+async function runMain(args: CliArgs): Promise<void> {
+  if (args.enroll) {
+    enroll(args.enroll);
+    return;
+  }
+  if (args.sources.has("transcript") && !transcriptIngestEnabled()) console.error("[memory-ingest] transcripts disabled; curated artifact policy is unchanged");
+
   // Engine tier detection — informational; routing happens in gbrain server-side.
   const engine = detectEngineTier();
   if (!args.quiet) {
     console.error(`[engine] ${engine.engine}${engine.engine === "supabase" ? ` (${engine.supabase_url || "configured"})` : ""}`);
-  }
-
-  if (args.mode === "probe") {
-    const report = await probeMode(args);
-    printProbeReport(report, false);
-    return;
   }
 
   if (args.mode === "incremental" && args.quiet) {
@@ -2512,7 +2678,7 @@ async function main(): Promise<void> {
     }
     // D6: system_error → process-level failure; orchestrator sees ERR.
     // Per-file errors do NOT exit non-zero.
-    if (result.system_error) process.exit(1);
+    if (result.system_error && !_shuttingDown) process.exit(1);
     return;
   }
 

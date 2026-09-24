@@ -25,14 +25,17 @@ const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-memory-ingest.ts");
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function makeTestHome(): string {
-  return mkdtempSync(join(tmpdir(), "gstack-memory-ingest-"));
+  const home = mkdtempSync(join(tmpdir(), "gstack-memory-ingest-"));
+  mkdirSync(join(home, ".gstack"));
+  writeFileSync(join(home, ".gstack/config.yaml"), "transcript_ingest_mode: incremental\n");
+  return home;
 }
 
 function runScript(args: string[], env: Record<string, string> = {}): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync("bun", [SCRIPT, ...args], {
     encoding: "utf-8",
     timeout: 30000,
-    env: { ...process.env, ...env },
+    env: { ...process.env, GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_CONFIG_NOSYSTEM: "1", ...env },
   });
   return {
     stdout: result.stdout || "",
@@ -53,7 +56,7 @@ function writeCodexSession(home: string, ymd: string, content: string): string {
   const [y, m, d] = ymd.split("-");
   const dir = join(home, ".codex", "sessions", y, m, d);
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `rollout-${Date.now()}.jsonl`);
+  const file = join(dir, `rollout-${new Date().toISOString().replaceAll(":", "-")}.jsonl`);
   writeFileSync(file, content, "utf-8");
   return file;
 }
@@ -182,7 +185,7 @@ describe("gstack-memory-ingest state file", () => {
     const statePath = join(gstackHome, ".transcript-ingest-state.json");
     writeFileSync(statePath, JSON.stringify({ schema_version: 999, sessions: {} }), "utf-8");
 
-    const r = runScript(["--incremental", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
+    const r = runScript(["--incremental", "--quiet", "--sources", "eureka"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
     expect(existsSync(statePath + ".bak")).toBe(true);
 
@@ -198,7 +201,7 @@ describe("gstack-memory-ingest state file", () => {
     const statePath = join(gstackHome, ".transcript-ingest-state.json");
     writeFileSync(statePath, "{ this is not valid json", "utf-8");
 
-    const r = runScript(["--incremental", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
+    const r = runScript(["--incremental", "--quiet", "--sources", "eureka"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
     expect(existsSync(statePath + ".bak")).toBe(true);
     rmSync(home, { recursive: true, force: true });
@@ -843,7 +846,7 @@ exit 0
     const sessionA =
       `{"type":"user","message":{"role":"user","content":"clean"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n`;
     const sessionB =
-      `{"type":"user","message":{"role":"user","content":"dirty"},"timestamp":"2026-05-02T00:00:00Z","cwd":"/tmp/bar"}\n`;
+      JSON.stringify({ type: "user", message: { role: "user", content: "ghp_" + "q9Xk3M2v8Bt5W4r6Z7c1D0sQaLhNfUjYePzR" }, timestamp: "2026-05-02T00:00:00Z", cwd: "/tmp/bar" }) + "\n";
     writeClaudeCodeSession(home, "tmp-foo", "cleansess123", sessionA);
     // Force the path to contain the "dirty" marker.
     writeClaudeCodeSession(home, "tmp-dirty-bar", "dirtysess456", sessionB);
@@ -861,7 +864,7 @@ exit 0
     expect(r.stdout).toMatch(/skipped \(secret-scan\):\s+1/);
     // Stderr from the secret-scan match path (printed when !quiet) includes the dirty path's basename.
     // Match generously: any occurrence of "secret-scan match" line.
-    expect(r.stderr + r.stdout).toMatch(/secret-scan match/);
+    expect(r.stderr + r.stdout).toMatch(/held: HIGH finding/);
 
     rmSync(home, { recursive: true, force: true });
   });

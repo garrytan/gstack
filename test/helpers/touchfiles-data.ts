@@ -21,6 +21,16 @@
  * Each test lists the file patterns that, if changed, require the test to run.
  */
 export const E2E_TOUCHFILES: Record<string, string[]> = {
+  'setup-gbrain-transcript-enrollment': [
+    'test/skill-e2e-transcript-enrollment.test.ts', 'test/helpers/transcript-enrollment-fixture.ts',
+    'test/transcript-enrollment-fixture.test.ts', 'test/transcript-enrollment-native.test.ts',
+    'setup-gbrain/sections/transcript-gate.md', 'setup-gbrain/sections/transcript-gate.md.tmpl',
+    'setup-gbrain/sections/manifest.json', 'setup-gbrain/SKILL.md.tmpl', 'setup-gbrain/memory.md',
+    'bin/gstack-memory-ingest.ts', 'lib/gstack-memory-helpers.ts', 'lib/claude-bin.ts',
+    'test/helpers/agent-sdk-runner.ts', 'test/helpers/hermetic-env.ts',
+    'test/helpers/office-hours-attempt.ts', 'test/helpers/setup-gbrain-sandbox.ts',
+    'test/helpers/e2e-gate.ts', 'test/helpers/eval-store.ts', 'test/helpers/eval-budgets.ts', 'lib/eval-model.ts',
+  ],
   // Browse core (+ test-server dependency)
   'browse-basic':    ['test/session-runner-stream-lifecycle.test.ts', 'browse/src/**', 'browse/test/test-server.ts', 'test/skill-e2e-bws.test.ts'],
   'browse-snapshot': ['test/session-runner-stream-lifecycle.test.ts', 'browse/src/**', 'browse/test/test-server.ts', 'test/skill-e2e-bws.test.ts'],
@@ -1394,6 +1404,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
  * Must have exactly the same keys as E2E_TOUCHFILES.
  */
 export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
+  'setup-gbrain-transcript-enrollment': 'gate',
   // Browse core — gate (if browse breaks, everything breaks)
   'browse-basic': 'gate',
   'browse-snapshot': 'gate',
@@ -1740,6 +1751,15 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
  * LLM-judge test touchfiles — keyed by test description string.
  */
 export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
+  'setup-gbrain transcript enrollment': [
+    'setup-gbrain/sections/transcript-gate.md', 'setup-gbrain/sections/transcript-gate.md.tmpl',
+    'setup-gbrain/sections/manifest.json', 'setup-gbrain/SKILL.md.tmpl', 'setup-gbrain/memory.md',
+    'bin/gstack-memory-ingest.ts', 'lib/gstack-memory-helpers.ts', 'bin/gstack-config',
+    'browse/src/config.ts', 'lib/redact-engine.ts', 'lib/redact-patterns.ts',
+    'test/skill-llm-eval.test.ts', 'test/helpers/llm-judge.ts', 'test/helpers/workflow-judge-input.ts',
+    'test/helpers/workflow-judge-cache.ts', 'test/helpers/e2e-helpers.ts',
+    'test/helpers/eval-store.ts', 'test/helpers/eval-budgets.ts', 'lib/eval-model.ts',
+  ],
   'command reference table':          ['browse/sections/**', 'SKILL.md', 'SKILL.md.tmpl', 'browse/src/commands.ts', 'test/skill-llm-eval.test.ts'],
   'snapshot flags reference':         ['browse/sections/**', 'SKILL.md', 'SKILL.md.tmpl', 'browse/src/snapshot.ts', 'test/skill-llm-eval.test.ts'],
   'browse/SKILL.md reference':        ['browse/sections/**', 'browse/SKILL.md', 'browse/SKILL.md.tmpl', 'browse/src/**', 'test/skill-llm-eval.test.ts'],
