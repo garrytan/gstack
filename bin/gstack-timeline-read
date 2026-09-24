@@ -17,11 +17,21 @@ BRANCH=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --since) SINCE="$2"; shift 2 ;;
-    --limit) LIMIT="$2"; shift 2 ;;
+    --limit)
+      if [[ $# -lt 2 ]]; then
+        echo "gstack-timeline-read: --limit requires a positive integer" >&2
+        exit 1
+      fi
+      LIMIT="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
+
+if ! [[ "$LIMIT" =~ ^0*[1-9][0-9]*$ ]]; then
+  echo "gstack-timeline-read: --limit requires a positive integer" >&2
+  exit 1
+fi
 
 TIMELINE_FILE="$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
 
