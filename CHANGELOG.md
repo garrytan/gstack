@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.90.2.0] - 2026-09-24
+
+**Spend less time waiting for tests.**
+**Merge with clearer safeguards.**
+
+The local test runner uses available CPUs and removes repeated setup without removing test scenarios. Independent question checks run concurrently rather than waiting for one another. `/land-and-deploy` ties your approval to the selected PR, head and destination branch, checks server state before a merge fallback, and keeps missing deployment evidence visible.
+
+### The three numbers that matter
+
+Source: matched Linux component benchmarks in [docs/TEST_PORTFOLIO.md](docs/TEST_PORTFOLIO.md), which names the test files, workload and coverage. The live comparison runs both periodic AUQ files with five independent captures. These are separate component measurements, not a complete paid-suite or CI speedup.
+
+| Workload | Before | After | Δ |
+|---|---:|---:|---:|
+| Nine synthetic-terminal test files | 165.87s | 72.98s | −56% |
+| Publication polling and watchdog tests | 56.57s | 9.63s | −83% |
+| Two independent-question test files | 325.09s | 136.40s | −58% |
+
+The synthetic-terminal checks save about 93 seconds of repeated waiting. Question checks retain every independent trial and their original grading rules; parallel execution is not permission to substitute one successful answer for several samples.
+
+### What this means for developers
+
+Use `bun run test` for complete free validation; the quick subset is still only a feedback lane. When landing a PR, a changed target requires fresh readiness and approval. A staging check after merge no longer implies production is held, and a healthy old page does not prove the new revision deployed. Run your checks, then use `/land-and-deploy` to review the evidence before merging.
+
+### Itemized changes
+
+#### Changed
+
+- Local free-test workers follow available CPU affinity, with a minimum of one and the existing maximum of six. Explicit worker overrides and the separate CI matrix retain their behavior.
+- Deployment reports distinguish deployment status, production health, staging verification and completed rollback. Requests to stage before production stop before merge with a handoff to the configured pipeline.
+
+#### Fixed
+
+- Merge fallback requires authoritative confirmation that neither an auto-merge request nor a queue entry exists. Confirmed merges are never replayed, and changed heads or destination branches invalidate earlier approval.
+- Rollback distinguishes true merge commits, squash merges and rebase ranges. Failed or unverified deployment and canary checks remain visible rather than becoming success labels.
+
+#### For contributors
+
+- Repository release guidance defaults to autonomous patch bumps, including queue collisions. Merge approval remains separate.
+- Synthetic terminals signal readiness; publication tests advance a scoped clock through the original polling sequence; watchdog scenarios share compilation but retain isolated executables and state.
+- Free-only dependency exemptions are explicit, mapped dependencies take precedence, and unknown changes retain conservative paid selection. The portfolio document assigns separate responsibilities to structural tests, quality judges, native behaviors, simulations and platform integrations.
+- Native question, shared-code review and design-detector fixtures validate their actual supported interactions and executed evidence. Source-detector assertion failures are recorded after validation, with attempt-specific diagnostics retained beyond cleanup.
+
 ## [1.89.0.0] - 2026-09-24
 
 **Find shared code worth keeping.**

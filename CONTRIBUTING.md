@@ -208,14 +208,16 @@ unknown-input results cannot be reused.
 Timing goals are under one minute for edit feedback, 3–5 minutes for typical PR
 checks, and 60–90 seconds for complete free test execution across isolated CI
 machines. They are targets, not timeout reductions or guarantees. The complete
-local suite keeps six workers and currently takes roughly 4–5 minutes; use
-`test:quick` for the shorter edit loop. CI setup, build and queue time are reported
+local suite uses available CPU affinity, up to six workers; use `test:quick` for
+the shorter edit loop. The historical six-worker result below and the
+[four-CPU portfolio comparison](docs/TEST_PORTFOLIO.md#measurement-contract)
+are machine-specific measurements. CI setup, build and queue time are reported
 separately. Refresh measurements with `bun run test:free --record-durations`;
 the required free CI lane packs the complete inventory across isolated runners,
 then checks every shard's receipt before reporting success. Local worker counts
 remain bounded to avoid browser/process contention.
 
-Measurements from this PR on 2026-09-21:
+Historical measurements from 2026-09-21:
 
 | Run | Coverage | Elapsed |
 |---|---|---|
@@ -226,7 +228,10 @@ Measurements from this PR on 2026-09-21:
 The [Linux CI run](https://github.com/garrytan/gstack/actions/runs/35642667809)
 on `25030d68` included one recorded successful retry. Its slowest test step was 77 seconds;
 staggered starts made the complete test span longer. Typical PR paid-gate timing
-still needs measurement on a small change; test-runner changes use the full fallback.
+still needs measurement on a small change. Explicitly exempt free-only runner
+changes do not select paid work; mapped dependencies take precedence, and unknown
+dependencies retain the broad fallback. See the
+[coverage boundaries](docs/TEST_PORTFOLIO.md#repeated-work-removed).
 
 Follow [Validation discipline in AGENTS.md](AGENTS.md#validation-discipline):
 reproduce known failures with focused checks, verify adjacent source and

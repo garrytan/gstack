@@ -100,6 +100,14 @@ reported separately. See [Overlay benchmark contract v2](OVERLAY_BENCHMARK_CONTR
 for exact correctness requirements, retired fanout cases, immutable evidence,
 and the limits of a passing result.
 
+## Coverage ownership
+
+[The test portfolio audit](TEST_PORTFOLIO.md) separates deterministic harness
+checks, prompt judges, live first-question captures, completed workflows and
+platform integrations. Shared setup is reusable; evidence with different
+scenario or independent-trial requirements is not. It records the preserved
+coverage and measured component savings from the test-speed refactor.
+
 ## Runners: how the suites execute (2026-08 overhaul)
 
 **Aside-only E2E tests self-skip without a live Aside; browser-driving tests
@@ -153,7 +161,9 @@ load-sensitive on a busy dev box, runs only in CI or on explicit opt-in
 
 **Free suite (`bun run test:free`).** `scripts/test-free-shards.ts` runs N
 concurrent shard processes (serial within each) with strict-output
-classification per shard. Full-suite shards are packed by RECORDED PER-FILE
+classification per shard. Local defaults use the available CPU affinity,
+floored at one and capped at six; `GSTACK_FREE_JOBS` remains an explicit override.
+This does not change the separate CI machine count. Full-suite shards are packed by RECORDED PER-FILE
 DURATIONS (LPT, `packShardsByDuration`) when the committed seed
 `scripts/free-test-durations.json` exists — refresh it occasionally with
 `bun run test:free --record-durations` (each file timed in its own child;

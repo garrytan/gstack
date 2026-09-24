@@ -693,9 +693,9 @@ This is my **deploy pipeline mode**.
 
 `/ship` creates the PR. `/land-and-deploy` finishes the job: merge, deploy, verify.
 
-It merges the PR, waits for CI, waits for the deploy to finish, then runs canary checks against production. One command from "approved" to "verified in production." If the deploy breaks, it tells you what failed and whether to rollback.
+It confirms PR readiness and your merge approval, merges, then monitors CI and deployment before checking production. If deployment breaks, it reports what failed and whether rollback is available. If the new revision's deployment cannot be confirmed, it reports that uncertainty rather than treating a healthy old page as proof.
 
-First run on a new project triggers a dry-run walk-through so you can verify the pipeline before it does anything irreversible. After that, it trusts the config and runs straight through.
+The first run, or a changed deployment configuration, triggers a dry-run walk-through so you can verify the pipeline before anything irreversible happens. An unchanged, previously confirmed configuration skips that walkthrough, not readiness checks or merge approval. Approval is bound to the exact PR head and destination branch; changing either requires fresh readiness and approval.
 
 ### Setup
 
