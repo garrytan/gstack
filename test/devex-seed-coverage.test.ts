@@ -3,6 +3,7 @@ import { DEVEX_SEEDED_GAPS, devexSeedCoverage } from './helpers/devex-seed-cover
 import type { PlanCountTranscript, NativePlanQuestionCall } from './helpers/plan-count-transcript';
 import fixture from './fixtures/devex-seed-coverage-ad-v3.json';
 import declarativeFixture from './fixtures/dx-declarative-choices-am.json';
+import septemberFixture from './fixtures/devex-seed-sep21-calls.json';
 import journeyEvidence from './fixtures/devex-journey-evidence-cab3.json';
 import { E2E_TOUCHFILES, matchGlob } from './helpers/touchfiles';
 
@@ -13,6 +14,119 @@ function extra(id: string, sessionId: string): NativePlanQuestionCall {
   const question = 'A new useful DX improvement: should we provide an offline diagnostics command?';
   return {sessionId,toolUseId:id,questions:[{header:'Extra',question,multiSelect:false,options:[{label:'Add command',description:'Add the command after the beta.'},{label:'Defer',description:'Defer the command.'}]}],answered:true,failed:false,answers:{[question]:'Defer'},unansweredQuestionIndices:[],answeredAt:'2026-09-09T20:23:00Z'};
 }
+
+function septemberTranscript(): PlanCountTranscript {
+  return { status: 'ready', calls: structuredClone(septemberFixture.calls) as NativePlanQuestionCall[], assistantMessages: [] };
+}
+
+describe('September 21 native DX seed decisions', () => {
+  test('the exact completed public calls cover all five seeds without borrowing their summary', () => {
+    const t = septemberTranscript(), coverage = devexSeedCoverage(t);
+    expect(coverage.complete).toBe(true);
+    expect(coverage.missing).toEqual([]);
+    expect(new Set(Object.values(coverage.decisions).flat()).size).toBe(5);
+    for (let i = 0; i < t.calls.length; i++) {
+      const absent = structuredClone(t); absent.calls.splice(i, 1);
+      expect(devexSeedCoverage(absent).missing).toHaveLength(1);
+    }
+  });
+  test('alternate answers, menu order, citation ranges and the owned plural subject retain the decisions', () => {
+    for (const index of [1, 2]) {
+      const t = septemberTranscript(), c = t.calls[index]!, q = c.questions[0]!;
+      q.options.reverse();
+      for (const option of q.options) {
+        c.answers = { [q.question]: option.label };
+        expect(devexSeedCoverage(t).complete).toBe(true);
+      }
+    }
+    for (const edit of [
+      (s: string) => s.replace('D5 —', 'D19 —'),
+      (s: string) => s.replace('two evaluation functions', 'two public evaluation functions'),
+      (s: string) => s.replace('lines 5 to 9:', 'lines 5–9:'),
+      (s: string) => s.replace('docs/api.md lines 5 to 9:', 'docs/public-api.md:12-16:'),
+    ]) {
+      const t = septemberTranscript(); changeDeclaration(t, 2, edit);
+      expect(devexSeedCoverage(t).complete).toBe(true);
+    }
+    const t = septemberTranscript();
+    t.calls[2]!.questions[0]!.options[0]!.description = 'Both functions become run_x(*, dataset, evaluator). Positional calls accepted for one beta cycle with a DeprecationWarning naming the fix.';
+    expect(devexSeedCoverage(t).complete).toBe(true);
+  });
+  test('the new gate assertion cannot borrow quoted, optional, healthy or later-run evidence', () => {
+    for (const edit of [
+      (s: string) => '> ' + s,
+      (s: string) => s.replace('HELLO WORLD: the', 'HELLO WORLD: If approved, the'),
+      (s: string) => s.replace('the mandatory', 'the optional'),
+      (s: string) => s.replace('check gates', 'check does not gate'),
+      (s: string) => s.replace('gates the first local result', 'gates the later live result'),
+      (s: string) => s.replace('ELI10: ', 'ELI10: Historical example: '),
+    ]) {
+      const t = septemberTranscript(); changeDeclaration(t, 1, edit);
+      expect(devexSeedCoverage(t).missing, edit(t.calls[1]!.questions[0]!.question)).toContain('local-ci-gate');
+    }
+    const t = septemberTranscript(), c = t.calls[1]!, q = c.questions[0]!;
+    q.options = [{ label: 'Continue', description: 'Go to the next section.' }, { label: 'Pause', description: 'Pause the review.' }];
+    c.answers = { [q.question]: q.options[0]!.label };
+    expect(devexSeedCoverage(t).missing).toContain('local-ci-gate');
+  });
+  test('the signature pair must be reversed and asserted in this decision before its repair', () => {
+    for (const edit of [
+      (s: string) => s.replace('opposite positional order', 'the same positional order'),
+      (s: string) => s.replace('`run_batch(evaluator, dataset)`', '`run_batch(dataset, evaluator)`'),
+      (s: string) => s.replace('`run_eval(dataset, evaluator)`', '`other_eval(dataset, evaluator)`'),
+      (s: string) => s.replace(' and `run_batch(evaluator, dataset)`', ''),
+      (s: string) => s.replace('ELI10: ', 'ELI10: Another issue first. '),
+      (s: string) => s.replace('ELI10: ', 'ELI10: > '),
+      (s: string) => s.replace('ELI10: ', 'ELI10: Source excerpt: '),
+      (s: string) => s.replace('ELI10: ', 'ELI10: If approved, '),
+      (s: string) => s.replace(/^(ELI10:.*)$/m, '```\n$1\n```'),
+      (s: string) => s + '\nELI10: A different explanation.',
+    ]) {
+      const t = septemberTranscript(); changeDeclaration(t, 2, edit);
+      expect(devexSeedCoverage(t).missing, edit(t.calls[2]!.questions[0]!.question)).toContain('reversed-arguments');
+    }
+  });
+  test('the offered shorthand must correct both named signatures with keyword-only order and the beta warning', () => {
+    for (const edit of [
+      (s: string) => s.replace('Both become', 'Another function becomes'),
+      (s: string) => s.replace('run_x(', 'run_other('),
+      (s: string) => s.replace('dataset, evaluator', 'evaluator, dataset'),
+      (s: string) => s.replace('(*, ', '('),
+      (s: string) => s.replace('with a DeprecationWarning naming the fix.', 'without a warning.'),
+      (s: string) => 'If approved, ' + s,
+      (s: string) => JSON.stringify(s),
+      (s: string) => s + ' This option is withdrawn.',
+    ]) {
+      const t = septemberTranscript(), q = t.calls[2]!.questions[0]!;
+      q.options[0]!.description = edit(q.options[0]!.description!);
+      expect(devexSeedCoverage(t).missing, q.options[0]!.description).toContain('reversed-arguments');
+    }
+    const t = septemberTranscript(), c = t.calls[2]!, q = c.questions[0]!;
+    q.options.shift(); c.answers = { [q.question]: q.options[0]!.label };
+    expect(devexSeedCoverage(t).missing).toContain('reversed-arguments');
+  });
+  test('current withdrawals and native completion still govern both new forms', () => {
+    for (const index of [1, 2]) {
+      for (const status of ['This finding is withdrawn.', 'This finding is no longer current.', `D${index + 3} is cancelled.`]) {
+        const t = septemberTranscript(); changeDeclaration(t, index, s => s + '\n' + status);
+        expect(devexSeedCoverage(t).complete).toBe(false);
+      }
+      for (const mutate of [
+        (c: NativePlanQuestionCall) => { c.answered = false; },
+        (c: NativePlanQuestionCall) => { c.failed = true; },
+        (c: NativePlanQuestionCall) => { c.answeredAt = 'invalid'; },
+        (c: NativePlanQuestionCall) => { c.sessionId = 'foreign'; },
+        (c: NativePlanQuestionCall) => { c.unansweredQuestionIndices = [0]; },
+        (c: NativePlanQuestionCall) => { c.answers = { 'Other question': c.questions[0]!.options[0]!.label }; },
+        (c: NativePlanQuestionCall) => { c.questions[0]!.multiSelect = true; },
+        (c: NativePlanQuestionCall) => { c.questions.push(structuredClone(c.questions[0]!)); },
+      ]) {
+        const t = septemberTranscript(); mutate(t.calls[index]!);
+        expect(devexSeedCoverage(t).complete).toBe(false);
+      }
+    }
+  });
+});
 
 // Minimal public AZ D6 evidence and offered correction. Keep the exact full
 // failed attempt for replay; recognizing this decision grants no paid pass.

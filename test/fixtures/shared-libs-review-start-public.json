@@ -1,0 +1,1416 @@
+[
+  {
+    "scenario": "filtered",
+    "attempt": 1,
+    "expected": {
+      "repo": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-eex8qh/repo",
+      "directory": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-eex8qh/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature/a",
+      "wtree": "288a3521b692882b9936606504a4b7999286702f",
+      "startedAt": "2026-09-23T00:40:01.741Z",
+      "state": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-eex8qh/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01UnYh2YSvSRUE5wnnupccdv",
+              "name": "Bash",
+              "input": {
+                "command": "git fetch origin main --quiet; echo \"fetch exit: $?\"; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; /__w/gstack/gstack/bin/gstack-review-log --start review",
+                "description": "Fetch base, compute merge base, capture review start token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01UnYh2YSvSRUE5wnnupccdv",
+              "type": "tool_result",
+              "content": "fetch exit: 0\nDIFF_BASE=176c7b7616cb424d074bad054bf7bb13bb1ab9a4\n099c0b80-598d-4625-8bb6-d60c430ef9f6",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01KQKGUPVUdoTGNMopkwfPxk",
+              "name": "Bash",
+              "input": {
+                "command": "cd /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-eex8qh/repo; echo \"GSTACK_REVIEW_DIR=${GSTACK_REVIEW_DIR:-<unset>}\"; find /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-eex8qh/state -name '099c0b80-*' -exec sh -c 'echo \"== $1\"; cat \"$1\"; echo' _ {} \\;",
+                "description": "Read current REVIEW_START token record without consuming it"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01KQKGUPVUdoTGNMopkwfPxk",
+              "type": "tool_result",
+              "content": "GSTACK_REVIEW_DIR=<unset>\n== /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-eex8qh/state/projects/fixture-shared-libs/.review-starts/099c0b80-598d-4625-8bb6-d60c430ef9f6.json\n{\"skill\":\"review\",\"repo\":\"/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-eex8qh/repo\",\"branch\":\"feature/a\",\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:40:01.741Z\"}",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01Gzh7wbQLm4Vy3SSaqT4rSo",
+              "name": "Bash",
+              "input": {
+                "command": "cd /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-eex8qh/repo\n/__w/gstack/gstack/bin/gstack-review-log '{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:44:02Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10.0,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"confidence\":10,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"176c7b7\",\"completed\":true,\"converged\":true,\"cycles\":0}' --finish 099c0b80-598d-4625-8bb6-d60c430ef9f6; echo \"exit: $?\"; echo \"--- verify persisted ---\"; /__w/gstack/gstack/bin/gstack-review-read | sed -n '/---CONFIG---/q;p' | tail -1 | head -c 1500",
+                "description": "Persist final review record and verify it was written"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01Gzh7wbQLm4Vy3SSaqT4rSo",
+              "type": "tool_result",
+              "content": "exit: 0\n--- verify persisted ---\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:44:02Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"confidence\":10,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"176c7b7\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"176c7b7616cb424d074bad054bf7bb13bb1ab9a4\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:40:01.741Z\",\"branch_id\":\"951d42dc02dc",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "unchanged",
+    "attempt": 2,
+    "expected": {
+      "repo": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-u1C0F4/repo",
+      "directory": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-u1C0F4/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature/a",
+      "wtree": "288a3521b692882b9936606504a4b7999286702f",
+      "startedAt": "2026-09-23T00:44:50.218Z",
+      "state": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-u1C0F4/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_019JGuatu8TtukMpcHSMUaQX",
+              "name": "Bash",
+              "input": {
+                "command": "git fetch origin main --quiet 2>&1; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; /__w/gstack/gstack/bin/gstack-review-log --start review",
+                "description": "Fetch base and capture review start token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_019JGuatu8TtukMpcHSMUaQX",
+              "type": "tool_result",
+              "content": "DIFF_BASE=390c9e7848db2b44e0e44e1728fba9c8236cbdc2\n547f07ed-03cc-4ed3-9f52-b12d09424fc1",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_012mqQQJ42H9vT6T9e57KQhs",
+              "name": "Bash",
+              "input": {
+                "command": "cd /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-u1C0F4/repo\nTOKEN=547f07ed-03cc-4ed3-9f52-b12d09424fc1\necho \"--- token file\"; find / -name \"$TOKEN.json\" -path \"*review-starts*\" 2>/dev/null | while read f; do echo \"$f\"; cat \"$f\"; echo; done\necho \"--- current repo/branch\"; git rev-parse --show-toplevel; git symbolic-ref --quiet --short HEAD\necho \"--- branch digest\"; bun -e 'const {createHash}=await import(\"node:crypto\"); const b=Bun.spawnSync([\"git\",\"symbolic-ref\",\"--quiet\",\"--short\",\"HEAD\"]).stdout.toString().replace(/\\r?\\n$/,\"\"); console.log(JSON.stringify(b), createHash(\"sha256\").update(b,\"utf8\").digest(\"hex\"))'\necho \"--- prior branch_id: 951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"\necho \"--- wtree object\"; git cat-file -t 288a3521b692882b9936606504a4b7999286702f 2>&1; git ls-tree -r 288a3521b692882b9936606504a4b7999286702f 2>&1",
+                "description": "Read start token, branch digest, and snapshot tree"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_012mqQQJ42H9vT6T9e57KQhs",
+              "type": "tool_result",
+              "content": "--- token file\n/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-u1C0F4/state/projects/fixture-shared-libs/.review-starts/547f07ed-03cc-4ed3-9f52-b12d09424fc1.json\n{\"skill\":\"review\",\"repo\":\"/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-u1C0F4/repo\",\"branch\":\"feature/a\",\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:44:50.218Z\"}\n--- current repo/branch\n/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-u1C0F4/repo\nfeature/a\n--- branch digest\n\"feature/a\" 951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\n--- prior branch_id: 951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\n--- wtree object\ntree\n100644 blob bb5af942f63559a016674999cc537a73cd78c6a5\t.gitignore\n100644 blob bd2d0ac4930be6c76142f6a6c8d10e920413fc46\tREADME.md\n100644 blob 00dfe6a156bae81aefc94ff1e9db54e32d774c75\tlib/retry-after.ts\n100644 blob 8f6dd51314e9960b7bc3add9d95b8f530b85087d\tsrc/retry-route.ts\n100644 blob 8f6dd51314e9960b7bc3add9d95b8f530b85087d\tsrc/retry-worker.ts\n100644 blob c362fe9878839740d82db85053758be5b95834cd\tsrc/scheduler.ts\n100644 blob a470f2c203c43e66c47991c64654dd524f9c5c29\ttest/retry-after.test.ts",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01EQGia2PWhhYC7X3HEJmpDz",
+              "name": "Bash",
+              "input": {
+                "command": "cd /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-u1C0F4/repo\nCOMMIT=$(git rev-parse --short HEAD); TS=$(date -u +%Y-%m-%dT%H:%M:%SZ); echo \"commit=$COMMIT ts=$TS\"\n/__w/gstack/gstack/bin/gstack-review-log \"{\\\"skill\\\":\\\"review\\\",\\\"timestamp\\\":\\\"$TS\\\",\\\"status\\\":\\\"clean\\\",\\\"issues_found\\\":0,\\\"critical\\\":0,\\\"informational\\\":0,\\\"quality_score\\\":10.0,\\\"specialists\\\":{\\\"testing\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"maintainability\\\":{\\\"dispatched\\\":true,\\\"findings\\\":1,\\\"critical\\\":0,\\\"informational\\\":1},\\\"security\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"performance\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"data-migration\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"api-contract\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"design\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"simplification\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"}},\\\"findings\\\":[],\\\"commit\\\":\\\"$COMMIT\\\",\\\"completed\\\":true,\\\"converged\\\":true,\\\"cycles\\\":0}\" --finish 547f07ed-03cc-4ed3-9f52-b12d09424fc1\necho \"exit=$?\"; echo \"=== persisted tail ===\"; /__w/gstack/gstack/bin/gstack-review-read | sed -n '1,/---CONFIG---/p' | tail -n 2 | head -n 1",
+                "description": "Persist final review record with start token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01EQGia2PWhhYC7X3HEJmpDz",
+              "type": "tool_result",
+              "content": "commit=390c9e7 ts=2026-09-23T00:47:28Z\nexit=0\n=== persisted tail ===\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:47:28Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[],\"commit\":\"390c9e7\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"390c9e7848db2b44e0e44e1728fba9c8236cbdc2\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:44:50.218Z\",\"branch_id\":\"951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "unchanged",
+    "attempt": 1,
+    "capture": "ci-16358-shared-fix/initial-unchanged",
+    "qualification": "This scenario completed but failed the observer assertion; its broader invocation was cancelled. This subsequence is observer evidence, not a passing case.",
+    "expected": {
+      "repo": "/tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/repo",
+      "directory": "/tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature/a",
+      "wtree": "288a3521b692882b9936606504a4b7999286702f",
+      "startedAt": "2026-09-23T01:14:11.768Z",
+      "state": "/tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01JFwGJJz1cRRgLtt6KBbcFM",
+              "name": "Bash",
+              "input": {
+                "command": "git fetch origin main --quiet; echo \"fetch exit=$?\"; git remote -v; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; echo \"HEAD=$(git rev-parse HEAD) short=$(git rev-parse --short HEAD)\"; /home/vercel-sandbox/gstack/bin/gstack-review-log --start review",
+                "description": "Fetch origin/main, compute merge base, capture REVIEW_START token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01JFwGJJz1cRRgLtt6KBbcFM",
+              "type": "tool_result",
+              "content": "fetch exit=0\norigin\thttps://github.com/fixture/shared-libs.git (fetch)\norigin\thttps://github.com/fixture/shared-libs.git (push)\nDIFF_BASE=c7c1a47f43697524c8f7a8bb76867367392c6a94\nHEAD=c7c1a47f43697524c8f7a8bb76867367392c6a94 short=c7c1a47\nef41947a-643b-4494-aaee-149f288a9b29",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01SVVqma47fyLXXTNPBSdtAY",
+              "name": "Bash",
+              "input": {
+                "command": "cd /tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/repo; find /tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/state -type f | head -20; echo \"--- start token record:\"; cat \"$(find /tmp/gshr.lEzXG8 -path '*/.review-starts/ef41947a-643b-4494-aaee-149f288a9b29.json' 2>/dev/null | head -1)\"; echo; echo \"--- raw branch:\"; git symbolic-ref --quiet --short HEAD; echo \"--- branch digest (code):\"; bun -e 'const {createHash}=await import(\"node:crypto\"); const b=Bun.spawnSync([\"git\",\"symbolic-ref\",\"--quiet\",\"--short\",\"HEAD\"]).stdout.toString().replace(/\\r?\\n$/,\"\"); console.log(JSON.stringify(b), createHash(\"sha256\").update(b,\"utf8\").digest(\"hex\"));'; echo \"prior binding.branch_id: 951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"; echo \"--- snapshot tree object:\"; git cat-file -t 288a3521b692882b9936606504a4b7999286702f 2>&1; git cat-file -t 0d6f7d79e489259c97311903f75fe9570a21645d 2>&1; echo \"--- git toplevel:\"; git rev-parse --show-toplevel",
+                "description": "Read start token record, compute branch digest, check snapshot tree objects"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01SVVqma47fyLXXTNPBSdtAY",
+              "type": "tool_result",
+              "content": "/tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/state/slug-cache/_tmp_gshr.lEzXG8_gstack-shared-revalidate-unchanged-b2JG1q_repo\n/tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/state/projects/fixture-shared-libs/.review-starts/ef41947a-643b-4494-aaee-149f288a9b29.json\n/tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/state/projects/fixture-shared-libs/feature-a-reviews.jsonl\n--- start token record:\n{\"skill\":\"review\",\"repo\":\"/tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/repo\",\"branch\":\"feature/a\",\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T01:14:11.768Z\"}\n--- raw branch:\nfeature/a\n--- branch digest (code):\n\"feature/a\" 951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\nprior binding.branch_id: 951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\n--- snapshot tree object:\ntree\ntree\n--- git toplevel:\n/tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/repo",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01JF5ZXgySpfKqJZe9dizXTu",
+              "name": "Bash",
+              "input": {
+                "command": "cd /tmp/gshr.lEzXG8/gstack-shared-revalidate-unchanged-b2JG1q/repo; TS=$(date -u +%Y-%m-%dT%H:%M:%SZ); /home/vercel-sandbox/gstack/bin/gstack-review-log \"{\\\"skill\\\":\\\"review\\\",\\\"timestamp\\\":\\\"$TS\\\",\\\"status\\\":\\\"clean\\\",\\\"issues_found\\\":0,\\\"critical\\\":0,\\\"informational\\\":0,\\\"quality_score\\\":10.0,\\\"specialists\\\":{\\\"testing\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"maintainability\\\":{\\\"dispatched\\\":true,\\\"findings\\\":1,\\\"critical\\\":0,\\\"informational\\\":1},\\\"security\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"performance\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"data-migration\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"api-contract\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"design\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"simplification\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"}},\\\"findings\\\":[],\\\"commit\\\":\\\"c7c1a47\\\",\\\"completed\\\":true,\\\"converged\\\":true,\\\"cycles\\\":0}\" --finish ef41947a-643b-4494-aaee-149f288a9b29; echo \"exit=$?\"; echo \"--- persisted record:\"; /home/vercel-sandbox/gstack/bin/gstack-review-read | sed -n '/---CONFIG---/q;p' | tail -1",
+                "description": "Persist final review record and show it"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01JF5ZXgySpfKqJZe9dizXTu",
+              "type": "tool_result",
+              "content": "exit=0\n--- persisted record:\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T01:17:15Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[],\"commit\":\"c7c1a47\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"c7c1a47f43697524c8f7a8bb76867367392c6a94\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T01:14:11.768Z\",\"branch_id\":\"951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "unchanged",
+    "attempt": 1,
+    "capture": "ci-16358-shared-fix-v2/unchanged",
+    "qualification": "This scenario completed but failed the observer assertion; its broader invocation was cancelled. This subsequence is observer evidence, not a passing case.",
+    "expected": {
+      "repo": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-unchanged-DuyG05/repo",
+      "directory": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-unchanged-DuyG05/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature/a",
+      "wtree": "288a3521b692882b9936606504a4b7999286702f",
+      "startedAt": "2026-09-23T01:24:28.110Z",
+      "state": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-unchanged-DuyG05/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01TKsQ4sBqqQFapq12uBUeRD",
+              "name": "Bash",
+              "input": {
+                "command": "git fetch origin main --quiet; echo \"fetch exit=$?\"; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; /home/vercel-sandbox/gstack/bin/gstack-review-log --start review",
+                "description": "Fetch base, compute merge base, capture review start token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01TKsQ4sBqqQFapq12uBUeRD",
+              "type": "tool_result",
+              "content": "fetch exit=0\nDIFF_BASE=05a2dffd836dc4402774b7302da920b6effdbb55\n201f687a-e805-45ff-985a-549398376e67",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01BdU16FGNJkCUopU2WsWVch",
+              "name": "Bash",
+              "input": {
+                "command": "cd /tmp/gshr.kcSYhI/gstack-shared-revalidate-unchanged-DuyG05; echo \"--- start token record:\"; cat state/projects/fixture-shared-libs/.review-starts/201f687a-e805-45ff-985a-549398376e67.json; echo; echo \"--- prior reviews jsonl (raw):\"; cat state/projects/fixture-shared-libs/feature-a-reviews.jsonl; echo; echo \"--- slug cache:\"; cat state/slug-cache/_tmp_gshr.kcSYhI_gstack-shared-revalidate-unchanged-DuyG05_repo",
+                "description": "Read start-token record and prior review log without modifying them"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01BdU16FGNJkCUopU2WsWVch",
+              "type": "tool_result",
+              "content": "--- start token record:\n{\"skill\":\"review\",\"repo\":\"/tmp/gshr.kcSYhI/gstack-shared-revalidate-unchanged-DuyG05/repo\",\"branch\":\"feature/a\",\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T01:24:28.110Z\"}\n--- prior reviews jsonl (raw):\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T01:24:01.619Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"findings\":[{\"severity\":\"INFORMATIONAL\",\"confidence\":9,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"advisory\":true,\"action\":\"skipped\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"05a2dffd836dc4402774b7302da920b6effdbb55\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T01:24:01.614Z\",\"branch_id\":\"951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\"}\n\n--- slug cache:\nfixture-shared-libs\nShell cwd was reset to /tmp/gshr.kcSYhI/gstack-shared-revalidate-unchanged-DuyG05/repo",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01Ncmqu8fMWARhq27vRetfRY",
+              "name": "Bash",
+              "input": {
+                "command": "cd /tmp/gshr.kcSYhI/gstack-shared-revalidate-unchanged-DuyG05/repo; /home/vercel-sandbox/gstack/bin/gstack-review-log '{\"skill\":\"review\",\"timestamp\":\"2026-09-23T01:27:38Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10.0,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[],\"commit\":\"05a2dff\",\"completed\":true,\"converged\":true,\"cycles\":0}' --finish 201f687a-e805-45ff-985a-549398376e67; echo \"exit=$?\"; echo \"--- persisted record:\"; /home/vercel-sandbox/gstack/bin/gstack-review-read | sed -n '1,/---CONFIG---/p' | tail -n 2",
+                "description": "Persist the final review record and read it back"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01Ncmqu8fMWARhq27vRetfRY",
+              "type": "tool_result",
+              "content": "exit=0\n--- persisted record:\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T01:27:38Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[],\"commit\":\"05a2dff\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"05a2dffd836dc4402774b7302da920b6effdbb55\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T01:24:28.110Z\",\"branch_id\":\"951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}\n---CONFIG---",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "unchanged",
+    "attempt": 1,
+    "capture": "CI/attempt-1/unchanged",
+    "observerOnly": true,
+    "qualification": "Exact public start/read/finish subsequence only. Observation does not establish terminal completion or a passing scenario; original failures and cancellations remain recorded.",
+    "terminal": [
+      {
+        "subtype": "success",
+        "is_error": false,
+        "duration_ms": 222430
+      }
+    ],
+    "expected": {
+      "repo": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-aHn48E/repo",
+      "directory": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-aHn48E/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature/a",
+      "wtree": "288a3521b692882b9936606504a4b7999286702f",
+      "startedAt": "2026-09-23T00:36:18.054Z",
+      "state": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-aHn48E/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01SVBU56FjBsiDNac2zjAYA5",
+              "name": "Bash",
+              "input": {
+                "command": "git fetch origin main --quiet; echo \"fetch exit: $?\"; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; /__w/gstack/gstack/bin/gstack-review-log --start review",
+                "description": "Fetch base, compute merge base, capture review start token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01SVBU56FjBsiDNac2zjAYA5",
+              "type": "tool_result",
+              "content": "fetch exit: 0\nDIFF_BASE=176c7b7616cb424d074bad054bf7bb13bb1ab9a4\n4c7269b7-47df-4ddb-a08c-c2b7afb0247e",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_013ZYcnUwAp9dFG3EbhLc5LC",
+              "name": "Bash",
+              "input": {
+                "command": "GSTACK_HOME=\"${GSTACK_HOME:-$HOME/.gstack}\"; f=$(find \"$GSTACK_HOME/projects\" -path '*/.review-starts/4c7269b7-47df-4ddb-a08c-c2b7afb0247e.json' 2>/dev/null | head -1); echo \"token file: $f\"; cat \"$f\"; echo; echo \"--- current repo/branch ---\"; git rev-parse --show-toplevel; git symbolic-ref --short HEAD; echo \"--- current WTREE ---\"; /__w/gstack/gstack/bin/gstack-wtree; echo \"--- branch digest (computed in code) ---\"; printf '%s' \"$(git symbolic-ref --short HEAD)\" | sha256sum | cut -d' ' -f1; echo \"prior binding.branch_id: 951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"",
+                "description": "Read start token non-consumingly, compare repo/branch/wtree/digest"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_013ZYcnUwAp9dFG3EbhLc5LC",
+              "type": "tool_result",
+              "content": "token file: /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-aHn48E/state/projects/fixture-shared-libs/.review-starts/4c7269b7-47df-4ddb-a08c-c2b7afb0247e.json\n{\"skill\":\"review\",\"repo\":\"/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-aHn48E/repo\",\"branch\":\"feature/a\",\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:36:18.054Z\"}\n--- current repo/branch ---\n/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-unchanged-aHn48E/repo\nfeature/a\n--- current WTREE ---\n288a3521b692882b9936606504a4b7999286702f\n--- branch digest (computed in code) ---\n951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\nprior binding.branch_id: 951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01UXUGi3hafWgXEV3kNmbdSh",
+              "name": "Bash",
+              "input": {
+                "command": "echo \"wtree now: $(/__w/gstack/gstack/bin/gstack-wtree)\"; git status --short; TS=$(date -u +%Y-%m-%dT%H:%M:%SZ); /__w/gstack/gstack/bin/gstack-review-log \"{\\\"skill\\\":\\\"review\\\",\\\"timestamp\\\":\\\"$TS\\\",\\\"status\\\":\\\"clean\\\",\\\"issues_found\\\":0,\\\"critical\\\":0,\\\"informational\\\":0,\\\"quality_score\\\":10.0,\\\"specialists\\\":{\\\"testing\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"maintainability\\\":{\\\"dispatched\\\":true,\\\"findings\\\":1,\\\"critical\\\":0,\\\"informational\\\":1},\\\"security\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"performance\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"data-migration\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"api-contract\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"design\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"simplification\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"}},\\\"findings\\\":[],\\\"commit\\\":\\\"176c7b7\\\",\\\"completed\\\":true,\\\"converged\\\":true,\\\"cycles\\\":0}\" --finish 4c7269b7-47df-4ddb-a08c-c2b7afb0247e; echo \"log exit: $?\"; echo \"--- verify persisted ---\"; /__w/gstack/gstack/bin/gstack-review-read | sed -n '/---CONFIG---/q;p' | tail -1",
+                "description": "Persist the review record with the start token and verify"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01UXUGi3hafWgXEV3kNmbdSh",
+              "type": "tool_result",
+              "content": "wtree now: 288a3521b692882b9936606504a4b7999286702f\n M src/retry-worker.ts\nlog exit: 0\n--- verify persisted ---\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:39:27Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[],\"commit\":\"176c7b7\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"176c7b7616cb424d074bad054bf7bb13bb1ab9a4\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:36:18.054Z\",\"branch_id\":\"951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "secondary",
+    "attempt": 1,
+    "capture": "CI/attempt-1/secondary",
+    "observerOnly": true,
+    "qualification": "Exact public start/read/finish subsequence only. Observation does not establish terminal completion or a passing scenario; original failures and cancellations remain recorded.",
+    "terminal": [
+      {
+        "subtype": "success",
+        "is_error": false,
+        "duration_ms": 232877
+      }
+    ],
+    "expected": {
+      "repo": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-secondary-qbo9UX/repo",
+      "directory": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-secondary-qbo9UX/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature/a",
+      "wtree": "858ac83c88dbfbed592f38309e8115ae1f041be4",
+      "startedAt": "2026-09-23T00:36:21.228Z",
+      "state": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-secondary-qbo9UX/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01QVxs8jfuqEyHHfjbmXvTmm",
+              "name": "Bash",
+              "input": {
+                "command": "git fetch origin main --quiet; echo \"fetch rc=$?\"; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; echo \"HEAD=$(git rev-parse --short HEAD)\"; echo \"--- START TOKEN ---\"; /__w/gstack/gstack/bin/gstack-review-log --start review; echo \"--- DIFF ---\"; git diff \"$DIFF_BASE\"; echo \"--- UNTRACKED ---\"; git ls-files --others --exclude-standard",
+                "description": "Fetch base, compute merge base, capture review start token, show diff"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01QVxs8jfuqEyHHfjbmXvTmm",
+              "type": "tool_result",
+              "content": "fetch rc=0\nDIFF_BASE=176c7b7616cb424d074bad054bf7bb13bb1ab9a4\nHEAD=176c7b7\n--- START TOKEN ---\n93b7002e-b31a-4df6-b9dd-f07be78aedc3\n--- DIFF ---\ndiff --git a/src/retry-route.ts b/src/retry-route.ts\nindex 8f6dd51..0034109 100644\n--- a/src/retry-route.ts\n+++ b/src/retry-route.ts\n@@ -13,3 +13,5 @@ export function retrySeconds(value: string | null, now: number, fallback = 5): n\n   if (remaining < 0) return 0;\n   return Math.min(remaining, 3600);\n }\n+\n+// Caller integration changed after the skipped review.\ndiff --git a/src/retry-worker.ts b/src/retry-worker.ts\nindex 8ab4b18..8f6dd51 100644\n--- a/src/retry-worker.ts\n+++ b/src/retry-worker.ts\n@@ -1 +1,15 @@\n-export { retrySeconds } from '../lib/retry-after';\n+// Both callers require Retry-After seconds/date parsing, 3600-second ceiling and caller fallback.\n+export function retrySeconds(value: string | null, now: number, fallback = 5): number {\n+  if (value == null || value.trim() === '') return fallback;\n+  const normalized = value.trim();\n+  if (/^\\d+$/.test(normalized)) {\n+    const seconds = Number(normalized);\n+    if (!Number.isSafeInteger(seconds)) return fallback;\n+    return Math.min(seconds, 3600);\n+  }\n+  const deadline = Date.parse(normalized);\n+  if (!Number.isFinite(deadline)) return fallback;\n+  const remaining = Math.ceil((deadline - now) / 1000);\n+  if (remaining < 0) return 0;\n+  return Math.min(remaining, 3600);\n+}\n--- UNTRACKED ---",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01SFvwNhWfCc5oYPDeLxSqM1",
+              "name": "Bash",
+              "input": {
+                "command": "cd /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-secondary-qbo9UX/repo\neval \"$(/__w/gstack/gstack/bin/gstack-slug 2>/dev/null)\"; GSTACK_HOME=\"${GSTACK_HOME:-$HOME/.gstack}\"\nTOK=93b7002e-b31a-4df6-b9dd-f07be78aedc3\necho \"--- start token (read-only) ---\"; cat \"$GSTACK_HOME/projects/$SLUG/.review-starts/$TOK.json\"; echo\necho \"--- current repo/branch ---\"; git rev-parse --show-toplevel; git symbolic-ref --short HEAD\necho \"--- reuse helper ---\"\nbun -e '\nconst { createHash } = await import(\"node:crypto\");\nconst { canReuseSharedLibsAdvisory } = await import(process.argv[1]);\nconst input = JSON.parse(await Bun.stdin.text());\nlet branch = Bun.spawnSync([\"git\", \"symbolic-ref\", \"--quiet\", \"--short\", \"HEAD\"]);\nif (branch.exitCode !== 0) branch = Bun.spawnSync([\"git\", \"rev-parse\", \"HEAD\"]);\nif (branch.exitCode !== 0) { console.log(false); process.exit(0); }\nconst rawBranch = branch.stdout.toString().replace(/\\r?\\n$/, \"\");\nconst snapshot = { ...input.currentSnapshot, branch_id: createHash(\"sha256\").update(rawBranch, \"utf8\").digest(\"hex\") };\nconsole.log(\"branch_id:\", snapshot.branch_id);\nconsole.log(canReuseSharedLibsAdvisory(input.priorFinding, input.currentFinding, input.priorReview, snapshot));\n' \"/__w/gstack/gstack/lib/review-evidence.ts\" <<'GSTACK_SHARED_LIBS_REUSE_JSON'\n{\"priorFinding\":{\"severity\":\"INFORMATIONAL\",\"confidence\":9,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"advisory\":true,\"action\":\"skipped\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]},\n\"currentFinding\":{\"severity\":\"INFORMATIONAL\",\"confidence\":9,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"advisory\":true,\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\"},\n\"priorReview\":{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:35:58.489Z\",\"status\":\"clean\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"176c7b7616cb424d074bad054bf7bb13bb1ab9a4\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:35:58.488Z\",\"branch_id\":\"951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\"},\n\"currentSnapshot\":{\"wtree\":\"858ac83c88dbfbed592f38309e8115ae1f041be4\",\"covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}}\nGSTACK_SHARED_LIBS_REUSE_JSON",
+                "description": "Peek start token and run canReuseSharedLibsAdvisory with real records"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01SFvwNhWfCc5oYPDeLxSqM1",
+              "type": "tool_result",
+              "content": "--- start token (read-only) ---\n{\"skill\":\"review\",\"repo\":\"/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-secondary-qbo9UX/repo\",\"branch\":\"feature/a\",\"wtree\":\"858ac83c88dbfbed592f38309e8115ae1f041be4\",\"started_at\":\"2026-09-23T00:36:21.228Z\"}\n--- current repo/branch ---\n/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-secondary-qbo9UX/repo\nfeature/a\n--- reuse helper ---\nbranch_id: 951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\nfalse",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01Wtnii8Zksf388Db5ZTND6S",
+              "name": "Bash",
+              "input": {
+                "command": "cd /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-secondary-qbo9UX/repo\nTS=$(date -u +%Y-%m-%dT%H:%M:%SZ); COMMIT=$(git rev-parse --short HEAD)\n/__w/gstack/gstack/bin/gstack-review-log \"{\\\"skill\\\":\\\"review\\\",\\\"timestamp\\\":\\\"$TS\\\",\\\"status\\\":\\\"clean\\\",\\\"issues_found\\\":0,\\\"critical\\\":0,\\\"informational\\\":0,\\\"quality_score\\\":10.0,\\\"specialists\\\":{\\\"testing\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"maintainability\\\":{\\\"dispatched\\\":true,\\\"findings\\\":1,\\\"critical\\\":0,\\\"informational\\\":1},\\\"security\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"performance\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"data-migration\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"api-contract\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"design\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"},\\\"simplification\\\":{\\\"dispatched\\\":false,\\\"reason\\\":\\\"scope\\\"}},\\\"findings\\\":[{\\\"fingerprint\\\":\\\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\\\",\\\"severity\\\":\\\"INFORMATIONAL\\\",\\\"action\\\":\\\"skipped\\\",\\\"advisory\\\":true,\\\"category\\\":\\\"shared-libs\\\",\\\"path\\\":\\\"src/retry-worker.ts\\\",\\\"line\\\":2,\\\"confidence\\\":9,\\\"summary\\\":\\\"Reuse the tested parser\\\",\\\"specialist\\\":\\\"maintainability\\\",\\\"evidence_paths\\\":[\\\"src/retry-worker.ts\\\",\\\"src/retry-route.ts\\\",\\\"lib/retry-after.ts\\\"],\\\"helper_target\\\":{\\\"path\\\":\\\"lib/retry-after.ts\\\",\\\"symbol\\\":\\\"retrySeconds\\\"},\\\"snapshot_covered_paths\\\":[\\\"src/retry-worker.ts\\\",\\\"src/retry-route.ts\\\",\\\"lib/retry-after.ts\\\"]}],\\\"commit\\\":\\\"$COMMIT\\\",\\\"completed\\\":true,\\\"converged\\\":true,\\\"cycles\\\":0}\" --finish 93b7002e-b31a-4df6-b9dd-f07be78aedc3\necho \"rc=$?\"; echo \"--- persisted record ---\"; /__w/gstack/gstack/bin/gstack-review-read | sed -n '1,/---CONFIG---/p' | tail -n 2",
+                "description": "Persist final review record with start token and verify it was written"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01Wtnii8Zksf388Db5ZTND6S",
+              "type": "tool_result",
+              "content": "rc=0\n--- persisted record ---\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:39:36Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"category\":\"shared-libs\",\"path\":\"src/retry-worker.ts\",\"line\":2,\"confidence\":9,\"summary\":\"Reuse the tested parser\",\"specialist\":\"maintainability\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"176c7b7\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"176c7b7616cb424d074bad054bf7bb13bb1ab9a4\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"858ac83c88dbfbed592f38309e8115ae1f041be4\",\"end_wtree\":\"858ac83c88dbfbed592f38309e8115ae1f041be4\",\"started_at\":\"2026-09-23T00:36:21.228Z\",\"branch_id\":\"951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"},\"wtree\":\"858ac83c88dbfbed592f38309e8115ae1f041be4\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}\n---CONFIG---",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "branch",
+    "attempt": 1,
+    "capture": "CI/attempt-1/branch",
+    "observerOnly": true,
+    "qualification": "Exact public start/read/finish subsequence only. Observation does not establish terminal completion or a passing scenario; original failures and cancellations remain recorded.",
+    "terminal": [
+      {
+        "subtype": "success",
+        "is_error": false,
+        "duration_ms": 290684
+      }
+    ],
+    "expected": {
+      "repo": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-z79itm/repo",
+      "directory": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-z79itm/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature-a",
+      "wtree": "288a3521b692882b9936606504a4b7999286702f",
+      "startedAt": "2026-09-23T00:36:13.606Z",
+      "state": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-z79itm/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_011jn9p8d9MfCKgq1MaX2Sb9",
+              "name": "Bash",
+              "input": {
+                "command": "git fetch origin main --quiet; echo \"fetch exit: $?\"; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; /__w/gstack/gstack/bin/gstack-review-log --start review; echo \"start exit: $?\"",
+                "description": "Fetch base, compute merge base, capture review start token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_011jn9p8d9MfCKgq1MaX2Sb9",
+              "type": "tool_result",
+              "content": "fetch exit: 0\nDIFF_BASE=176c7b7616cb424d074bad054bf7bb13bb1ab9a4\nabd4e745-188a-42a4-9d48-b019785aaef7\nstart exit: 0",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_012mckzzhrf9aLAJZGjvpgZ9",
+              "name": "Bash",
+              "input": {
+                "command": "cd /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-z79itm/repo\nTOKEN=abd4e745-188a-42a4-9d48-b019785aaef7\nF=$(find /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-z79itm/state \"$HOME\" -name \"$TOKEN.json\" -path '*/.review-starts/*' 2>/dev/null | head -1)\necho \"token file: $F\"; [ -n \"$F\" ] && cat \"$F\"; echo\necho \"--- current repo toplevel ---\"; git rev-parse --show-toplevel\necho \"--- raw branch ---\"; git symbolic-ref --quiet --short HEAD | od -c | head -3\necho \"--- branch sha256 (code) ---\"; git symbolic-ref --quiet --short HEAD | tr -d '\\n' | sha256sum",
+                "description": "Read start token record without consuming; compute branch digest"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_012mckzzhrf9aLAJZGjvpgZ9",
+              "type": "tool_result",
+              "content": "token file: /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-z79itm/state/projects/fixture-shared-libs/.review-starts/abd4e745-188a-42a4-9d48-b019785aaef7.json\n{\"skill\":\"review\",\"repo\":\"/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-z79itm/repo\",\"branch\":\"feature-a\",\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:36:13.606Z\"}\n--- current repo toplevel ---\n/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-z79itm/repo\n--- raw branch ---\n0000000   f   e   a   t   u   r   e   -   a  \\n\n0000012\n--- branch sha256 (code) ---\n0a5491edbc02e79bd89844f5712d8097adb4326dd471c1dcfe83ce266369cfc0  -",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01VDkSCNkcrcZPu5Ym2s7biw",
+              "name": "Bash",
+              "input": {
+                "command": "cd /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-z79itm/repo\n/__w/gstack/gstack/bin/gstack-review-log '{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:40:19Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10.0,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"category\":\"shared-libs\",\"path\":\"src/retry-worker.ts\",\"line\":2,\"confidence\":10,\"summary\":\"Reuse the tested parser\",\"specialist\":\"core + maintainability\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"176c7b7\",\"completed\":true,\"converged\":true,\"cycles\":0}' --finish abd4e745-188a-42a4-9d48-b019785aaef7\necho \"exit: $?\"\necho \"--- persisted record (verification) ---\"\n/__w/gstack/gstack/bin/gstack-review-read | sed -n '/---CONFIG---/q;p' | tail -1",
+                "description": "Persist final review record and verify the saved entry"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01VDkSCNkcrcZPu5Ym2s7biw",
+              "type": "tool_result",
+              "content": "exit: 0\n--- persisted record (verification) ---\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:40:19Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"category\":\"shared-libs\",\"path\":\"src/retry-worker.ts\",\"line\":2,\"confidence\":10,\"summary\":\"Reuse the tested parser\",\"specialist\":\"core + maintainability\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"176c7b7\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"176c7b7616cb424d074bad054bf7bb13bb1ab9a4\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:36:13.606Z\",\"branch_id\":\"0a5491edbc02e79bd89844f5712d8097adb4326dd471c1dcfe83ce266369cfc0\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "branch",
+    "attempt": 2,
+    "capture": "CI/attempt-2/branch",
+    "observerOnly": true,
+    "qualification": "Exact public start/read/finish subsequence only. Observation does not establish terminal completion or a passing scenario; original failures and cancellations remain recorded.",
+    "terminal": [
+      {
+        "subtype": "success",
+        "is_error": false,
+        "duration_ms": 261442
+      }
+    ],
+    "expected": {
+      "repo": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-FQmXdK/repo",
+      "directory": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-FQmXdK/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature-a",
+      "wtree": "288a3521b692882b9936606504a4b7999286702f",
+      "startedAt": "2026-09-23T00:44:47.776Z",
+      "state": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-FQmXdK/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01H8as82FfDmuU9X4ChXSnWq",
+              "name": "Bash",
+              "input": {
+                "command": "git fetch origin main --quiet; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; /__w/gstack/gstack/bin/gstack-review-log --start review",
+                "description": "Fetch base, compute merge base, capture review start token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01H8as82FfDmuU9X4ChXSnWq",
+              "type": "tool_result",
+              "content": "DIFF_BASE=390c9e7848db2b44e0e44e1728fba9c8236cbdc2\nff18d6a3-7ab5-4398-bbc9-8eaad7b1c3a7",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01KSJYB7JTnskzf2q9CydQh9",
+              "name": "Bash",
+              "input": {
+                "command": "D=/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-FQmXdK/state/projects/fixture-shared-libs/.review-starts; ls -la \"$D\"; for f in \"$D\"/*; do echo \"== $f ==\"; cat \"$f\"; echo; done",
+                "description": "Read the start-token capture record without consuming it"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01KSJYB7JTnskzf2q9CydQh9",
+              "type": "tool_result",
+              "content": "total 12\ndrwx------ 2 runner runner 4096 Sep 23 00:44 .\ndrwxr-xr-x 3 runner runner 4096 Sep 23 00:44 ..\n-rw------- 1 runner runner  232 Sep 23 00:44 ff18d6a3-7ab5-4398-bbc9-8eaad7b1c3a7.json\n== /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-FQmXdK/state/projects/fixture-shared-libs/.review-starts/ff18d6a3-7ab5-4398-bbc9-8eaad7b1c3a7.json ==\n{\"skill\":\"review\",\"repo\":\"/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-FQmXdK/repo\",\"branch\":\"feature-a\",\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:44:47.776Z\"}",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_011u3Wdx7Epg15wKVnZUKgts",
+              "name": "Bash",
+              "input": {
+                "command": "cd /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-branch-FQmXdK/repo\n/__w/gstack/gstack/bin/gstack-review-log '{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:48:25Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10.0,\"specialists\":{\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"confidence\":9,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"advisory\":true,\"action\":\"skipped\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"390c9e7\",\"completed\":true,\"converged\":true,\"cycles\":0}' --finish ff18d6a3-7ab5-4398-bbc9-8eaad7b1c3a7\necho \"exit=$?\"; echo \"--- persisted record ---\"; /__w/gstack/gstack/bin/gstack-review-read | sed '/---CONFIG---/,$d' | tail -1",
+                "description": "Persist final review record with the captured start token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_011u3Wdx7Epg15wKVnZUKgts",
+              "type": "tool_result",
+              "content": "exit=0\n--- persisted record ---\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:48:25Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"confidence\":9,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"advisory\":true,\"action\":\"skipped\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"390c9e7\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"390c9e7848db2b44e0e44e1728fba9c8236cbdc2\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:44:47.776Z\",\"branch_id\":\"0a5491edbc02e79bd89844f5712d8097adb4326dd471c1dcfe83ce266369cfc0\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "filtered",
+    "attempt": 2,
+    "capture": "CI/attempt-2/filtered",
+    "observerOnly": true,
+    "qualification": "Exact public start/read/finish subsequence only. Observation does not establish terminal completion or a passing scenario; original failures and cancellations remain recorded.",
+    "terminal": [
+      {
+        "subtype": "success",
+        "is_error": false,
+        "duration_ms": 221516
+      }
+    ],
+    "expected": {
+      "repo": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-XGTlf6/repo",
+      "directory": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-XGTlf6/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature/a",
+      "wtree": "288a3521b692882b9936606504a4b7999286702f",
+      "startedAt": "2026-09-23T00:48:12.831Z",
+      "state": "/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-XGTlf6/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_019FmeGkYvFSLpRUfTLXBsP9",
+              "name": "Bash",
+              "input": {
+                "command": "git fetch origin main --quiet; echo \"fetch rc=$?\"; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; /__w/gstack/gstack/bin/gstack-review-log --start review",
+                "description": "Fetch base, compute merge base, capture REVIEW_START token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_019FmeGkYvFSLpRUfTLXBsP9",
+              "type": "tool_result",
+              "content": "fetch rc=0\nDIFF_BASE=390c9e7848db2b44e0e44e1728fba9c8236cbdc2\nb6b85941-5bc9-426f-83a2-231f09f9117c",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_016QjSHiNeXUVEfDVfWuENZv",
+              "name": "Bash",
+              "input": {
+                "command": "cat /home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-XGTlf6/state/projects/fixture-shared-libs/.review-starts/b6b85941-5bc9-426f-83a2-231f09f9117c.json; echo",
+                "description": "Read REVIEW_START token record without consuming it"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_016QjSHiNeXUVEfDVfWuENZv",
+              "type": "tool_result",
+              "content": "{\"skill\":\"review\",\"repo\":\"/home/runner/.cache/gstack-paid-shard-ORA2bg/tmp/gstack-shared-revalidate-filtered-XGTlf6/repo\",\"branch\":\"feature/a\",\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:48:12.831Z\"}",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01NzG1KoyiQ51cwXAEswNRTX",
+              "name": "Bash",
+              "input": {
+                "command": "/__w/gstack/gstack/bin/gstack-review-log '{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:51:03Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10.0,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"confidence\":10,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"advisory\":true,\"action\":\"skipped\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"lib/retry-after.ts\"],\"specialist\":\"core + maintainability\"}],\"commit\":\"390c9e7\",\"completed\":true,\"converged\":true,\"cycles\":0}' --finish b6b85941-5bc9-426f-83a2-231f09f9117c; echo \"rc=$?\"; echo \"=== verify persisted:\"; /__w/gstack/gstack/bin/gstack-review-read | head -3",
+                "description": "Persist final review record with REVIEW_START token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01NzG1KoyiQ51cwXAEswNRTX",
+              "type": "tool_result",
+              "content": "rc=0\n=== verify persisted:\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:44:32.964Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"findings\":[{\"severity\":\"INFORMATIONAL\",\"confidence\":9,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"advisory\":true,\"action\":\"skipped\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"snapshot_covered_paths\":[]}],\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"390c9e7848db2b44e0e44e1728fba9c8236cbdc2\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:44:32.962Z\",\"branch_id\":\"951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T00:51:03Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"confidence\":10,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"advisory\":true,\"action\":\"skipped\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"lib/retry-after.ts\"],\"specialist\":\"core + maintainability\"}],\"commit\":\"390c9e7\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"390c9e7848db2b44e0e44e1728fba9c8236cbdc2\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T00:48:12.831Z\",\"branch_id\":\"951d42dc02dc743167ac3dd9d8decc5eee71860498c4b1707e1d38816df1ed1d\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}\n---CONFIG---",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "branch",
+    "attempt": 1,
+    "capture": "local1/attempt-1/branch",
+    "observerOnly": true,
+    "qualification": "Exact public start/read/finish subsequence only. Observation does not establish terminal completion or a passing scenario; original failures and cancellations remain recorded.",
+    "terminal": [
+      {
+        "subtype": "success",
+        "is_error": false,
+        "duration_ms": 288126
+      }
+    ],
+    "expected": {
+      "repo": "/tmp/gshr.lEzXG8/gstack-shared-revalidate-branch-vltdFf/repo",
+      "directory": "/tmp/gshr.lEzXG8/gstack-shared-revalidate-branch-vltdFf/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature-a",
+      "wtree": "288a3521b692882b9936606504a4b7999286702f",
+      "startedAt": "2026-09-23T01:14:14.453Z",
+      "state": "/tmp/gshr.lEzXG8/gstack-shared-revalidate-branch-vltdFf/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01C33jXTwmNEX2VLBhjEkyUZ",
+              "name": "Bash",
+              "input": {
+                "command": "/home/vercel-sandbox/gstack/bin/gstack-review-log --start review",
+                "description": "Capture REVIEW_START token before reading diff"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01C33jXTwmNEX2VLBhjEkyUZ",
+              "type": "tool_result",
+              "content": "ff9426d9-ea12-47c4-b65a-d60df3a1ab86",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_019QC4KwwMWnwhsaHRgCBFnB",
+              "name": "Bash",
+              "input": {
+                "command": "GSTACK_HOME=\"${GSTACK_HOME:-$HOME/.gstack}\"; echo \"GSTACK_HOME=$GSTACK_HOME\"; ls -la \"$GSTACK_HOME/projects/fixture-shared-libs/\" \"$GSTACK_HOME/projects/fixture-shared-libs/.review-starts/\" 2>&1; echo \"--- start token:\"; cat \"$GSTACK_HOME/projects/fixture-shared-libs/.review-starts/ff9426d9-ea12-47c4-b65a-d60df3a1ab86.json\"; echo; echo \"--- repo toplevel:\"; git rev-parse --show-toplevel; echo \"--- current wtree via helper:\"; git -c core.fsmonitor=false --no-optional-locks status --porcelain >/dev/null; /home/vercel-sandbox/gstack/bin/gstack-wtree",
+                "description": "Read start token file non-consumingly and current wtree"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_019QC4KwwMWnwhsaHRgCBFnB",
+              "type": "tool_result",
+              "content": "GSTACK_HOME=/tmp/gshr.lEzXG8/gstack-shared-revalidate-branch-vltdFf/state\n/tmp/gshr.lEzXG8/gstack-shared-revalidate-branch-vltdFf/state/projects/fixture-shared-libs/:\ntotal 4\ndrwxr-xr-x 3 vercel-sandbox vercel-sandbox   59 Sep 23 01:13 .\ndrwxr-xr-x 3 vercel-sandbox vercel-sandbox   33 Sep 23 01:13 ..\ndrwx------ 2 vercel-sandbox vercel-sandbox   55 Sep 23 01:14 .review-starts\n-rw-r--r-- 1 vercel-sandbox vercel-sandbox 1155 Sep 23 01:13 feature-a-reviews.jsonl\n\n/tmp/gshr.lEzXG8/gstack-shared-revalidate-branch-vltdFf/state/projects/fixture-shared-libs/.review-starts/:\ntotal 4\ndrwx------ 2 vercel-sandbox vercel-sandbox  55 Sep 23 01:14 .\ndrwxr-xr-x 3 vercel-sandbox vercel-sandbox  59 Sep 23 01:13 ..\n-rw------- 1 vercel-sandbox vercel-sandbox 200 Sep 23 01:14 ff9426d9-ea12-47c4-b65a-d60df3a1ab86.json\n--- start token:\n{\"skill\":\"review\",\"repo\":\"/tmp/gshr.lEzXG8/gstack-shared-revalidate-branch-vltdFf/repo\",\"branch\":\"feature-a\",\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T01:14:14.453Z\"}\n--- repo toplevel:\n/tmp/gshr.lEzXG8/gstack-shared-revalidate-branch-vltdFf/repo\n--- current wtree via helper:\n288a3521b692882b9936606504a4b7999286702f",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01HKtrZTnHfSqGx9sShKkvZH",
+              "name": "Bash",
+              "input": {
+                "command": "cd /tmp/gshr.lEzXG8/gstack-shared-revalidate-branch-vltdFf/repo\n/home/vercel-sandbox/gstack/bin/gstack-review-log '{\"skill\":\"review\",\"timestamp\":\"2026-09-23T01:17:59Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10.0,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"category\":\"shared-libs\",\"path\":\"src/retry-worker.ts\",\"line\":2,\"confidence\":9,\"summary\":\"Reuse the tested parser\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"c7c1a47\",\"completed\":true,\"converged\":true,\"cycles\":0}' --finish ff9426d9-ea12-47c4-b65a-d60df3a1ab86; echo \"exit=$?\"; echo \"--- persisted record check:\"; /home/vercel-sandbox/gstack/bin/gstack-review-read | sed -n '/---CONFIG---/q;p' | tail -1 | bun -e 'const r=JSON.parse(await Bun.stdin.text()); console.log(JSON.stringify({status:r.status,completed:r.completed,converged:r.converged,cycles:r.cycles,wtree:r.wtree,binding:r.review_binding,findings:r.findings.map(f=>({fp:f.fingerprint,action:f.action,advisory:f.advisory,cov:f.snapshot_covered_paths}))},null,1))'",
+                "description": "Persist final review record and verify what was written"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01HKtrZTnHfSqGx9sShKkvZH",
+              "type": "tool_result",
+              "content": "exit=0\n--- persisted record check:\n{\n \"status\": \"clean\",\n \"completed\": true,\n \"converged\": true,\n \"cycles\": 0,\n \"wtree\": \"288a3521b692882b9936606504a4b7999286702f\",\n \"binding\": {\n  \"state\": \"verified\",\n  \"start_wtree\": \"288a3521b692882b9936606504a4b7999286702f\",\n  \"end_wtree\": \"288a3521b692882b9936606504a4b7999286702f\",\n  \"started_at\": \"2026-09-23T01:14:14.453Z\",\n  \"branch_id\": \"0a5491edbc02e79bd89844f5712d8097adb4326dd471c1dcfe83ce266369cfc0\"\n },\n \"findings\": [\n  {\n   \"fp\": \"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\n   \"action\": \"skipped\",\n   \"advisory\": true,\n   \"cov\": [\n    \"src/retry-worker.ts\",\n    \"src/retry-route.ts\",\n    \"lib/retry-after.ts\"\n   ]\n  }\n ]\n}",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "secondary",
+    "attempt": 1,
+    "capture": "local2/attempt-1/secondary",
+    "observerOnly": true,
+    "qualification": "Exact public start/read/finish subsequence only. Observation does not establish terminal completion or a passing scenario; original failures and cancellations remain recorded.",
+    "terminal": [
+      {
+        "subtype": "error_max_turns",
+        "is_error": true,
+        "duration_ms": 274904
+      }
+    ],
+    "expected": {
+      "repo": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-secondary-0QDOf1/repo",
+      "directory": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-secondary-0QDOf1/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature/a",
+      "wtree": "858ac83c88dbfbed592f38309e8115ae1f041be4",
+      "startedAt": "2026-09-23T01:24:35.774Z",
+      "state": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-secondary-0QDOf1/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01YbXULiV1DQoz1sqMcF1WFo",
+              "name": "Bash",
+              "input": {
+                "command": "which git && git fetch origin main --quiet; echo \"fetch exit=$?\"; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; echo \"HEAD=$(git rev-parse --short HEAD)\"; /home/vercel-sandbox/gstack/bin/gstack-review-log --start review",
+                "description": "Fetch origin, compute merge base, capture review start token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01YbXULiV1DQoz1sqMcF1WFo",
+              "type": "tool_result",
+              "content": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-secondary-0QDOf1/bin/git\nfetch exit=0\nDIFF_BASE=54880d215e8104a2ab77c59f5e9bf135bccc962b\nHEAD=54880d2\n289b9a29-9514-436e-a077-03828b306894",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01NHRFRDvCpWbgxbBeygMJKa",
+              "name": "Read",
+              "input": {
+                "file_path": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-secondary-0QDOf1/state/projects/fixture-shared-libs/.review-starts/289b9a29-9514-436e-a077-03828b306894.json"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01NHRFRDvCpWbgxbBeygMJKa",
+              "type": "tool_result",
+              "content": "1\t{\"skill\":\"review\",\"repo\":\"/tmp/gshr.kcSYhI/gstack-shared-revalidate-secondary-0QDOf1/repo\",\"branch\":\"feature/a\",\"wtree\":\"858ac83c88dbfbed592f38309e8115ae1f041be4\",\"started_at\":\"2026-09-23T01:24:35.774Z\"}"
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_01HmcJdGgU33AH4ZBtMqCVKC",
+              "name": "Bash",
+              "input": {
+                "command": "/home/vercel-sandbox/gstack/bin/gstack-review-log '{\"skill\":\"review\",\"timestamp\":\"2026-09-23T01:28:17Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10.0,\"specialists\":{\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"category\":\"shared-libs\",\"path\":\"src/retry-worker.ts\",\"line\":2,\"confidence\":9,\"summary\":\"Reuse the tested parser\",\"specialist\":\"maintainability\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"54880d2\",\"completed\":true,\"converged\":true,\"cycles\":0}' --finish 289b9a29-9514-436e-a077-03828b306894; echo \"exit=$?\"",
+                "description": "Persist the final review record with start token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_01HmcJdGgU33AH4ZBtMqCVKC",
+              "type": "tool_result",
+              "content": "exit=0",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "branch",
+    "attempt": 1,
+    "capture": "local2/attempt-1/branch",
+    "observerOnly": true,
+    "qualification": "Exact public start/read/finish subsequence only. Observation does not establish terminal completion or a passing scenario; original failures and cancellations remain recorded.",
+    "terminal": [
+      {
+        "subtype": "success",
+        "is_error": false,
+        "duration_ms": 230215
+      }
+    ],
+    "expected": {
+      "repo": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-branch-Riiwnp/repo",
+      "directory": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-branch-Riiwnp/state/projects/fixture-shared-libs/.review-starts",
+      "branch": "feature-a",
+      "wtree": "288a3521b692882b9936606504a4b7999286702f",
+      "startedAt": "2026-09-23T01:24:23.860Z",
+      "state": "/tmp/gshr.kcSYhI/gstack-shared-revalidate-branch-Riiwnp/state",
+      "slug": "fixture-shared-libs"
+    },
+    "events": [
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_019nxop74fCW8aaTuUAQuS6A",
+              "name": "Bash",
+              "input": {
+                "command": "git fetch origin main --quiet; echo \"fetch exit=$?\"; DIFF_BASE=$(git merge-base origin/main HEAD); echo \"DIFF_BASE=$DIFF_BASE\"; echo \"HEAD=$(git rev-parse HEAD) short=$(git rev-parse --short HEAD)\"; echo \"origin/main=$(git rev-parse origin/main)\"; /home/vercel-sandbox/gstack/bin/gstack-review-log --start review",
+                "description": "Fetch base, compute merge base, capture REVIEW_START token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_019nxop74fCW8aaTuUAQuS6A",
+              "type": "tool_result",
+              "content": "fetch exit=0\nDIFF_BASE=54880d215e8104a2ab77c59f5e9bf135bccc962b\nHEAD=54880d215e8104a2ab77c59f5e9bf135bccc962b short=54880d2\norigin/main=54880d215e8104a2ab77c59f5e9bf135bccc962b\nea646713-2933-48d6-b80e-24887a656157",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_017yjgVJ3udZLbgisRGubWG8",
+              "name": "Bash",
+              "input": {
+                "command": "cd /tmp/gshr.kcSYhI/gstack-shared-revalidate-branch-Riiwnp/repo\necho \"== REVIEW_START record (read-only) ==\"; cat /tmp/gshr.kcSYhI/gstack-shared-revalidate-branch-Riiwnp/state/projects/fixture-shared-libs/.review-starts/ea646713-2933-48d6-b80e-24887a656157.json; echo\necho \"== current WTREE object exists? ==\"; git cat-file -t 288a3521b692882b9936606504a4b7999286702f 2>&1\necho \"== WTREE listing ==\"; git ls-tree -r 288a3521b692882b9936606504a4b7999286702f 2>&1\necho \"== raw byte compare each evidence path vs WTREE blob ==\"\nfor p in src/retry-worker.ts src/retry-route.ts lib/retry-after.ts; do\n  blob=$(git rev-parse --verify -q \"288a3521b692882b9936606504a4b7999286702f:$p\" 2>/dev/null)\n  wd=$(git hash-object --no-filters -- \"$p\")\n  if [ -n \"$blob\" ] && git cat-file blob \"$blob\" | cmp -s - \"$p\"; then r=MATCH; else r=MISMATCH; fi\n  echo \"$p blob=$blob workdir=$wd $r\"\ndone\necho \"== also confirm HEAD blobs for context ==\"; git ls-tree -r HEAD -- src lib | cat",
+                "description": "Read start token and byte-compare evidence paths to snapshot blobs"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_017yjgVJ3udZLbgisRGubWG8",
+              "type": "tool_result",
+              "content": "== REVIEW_START record (read-only) ==\n{\"skill\":\"review\",\"repo\":\"/tmp/gshr.kcSYhI/gstack-shared-revalidate-branch-Riiwnp/repo\",\"branch\":\"feature-a\",\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T01:24:23.860Z\"}\n== current WTREE object exists? ==\ntree\n== WTREE listing ==\n100644 blob bb5af942f63559a016674999cc537a73cd78c6a5\t.gitignore\n100644 blob bd2d0ac4930be6c76142f6a6c8d10e920413fc46\tREADME.md\n100644 blob 00dfe6a156bae81aefc94ff1e9db54e32d774c75\tlib/retry-after.ts\n100644 blob 8f6dd51314e9960b7bc3add9d95b8f530b85087d\tsrc/retry-route.ts\n100644 blob 8f6dd51314e9960b7bc3add9d95b8f530b85087d\tsrc/retry-worker.ts\n100644 blob c362fe9878839740d82db85053758be5b95834cd\tsrc/scheduler.ts\n100644 blob a470f2c203c43e66c47991c64654dd524f9c5c29\ttest/retry-after.test.ts\n== raw byte compare each evidence path vs WTREE blob ==\nsrc/retry-worker.ts blob=8f6dd51314e9960b7bc3add9d95b8f530b85087d workdir=8f6dd51314e9960b7bc3add9d95b8f530b85087d MATCH\nsrc/retry-route.ts blob=8f6dd51314e9960b7bc3add9d95b8f530b85087d workdir=8f6dd51314e9960b7bc3add9d95b8f530b85087d MATCH\nlib/retry-after.ts blob=00dfe6a156bae81aefc94ff1e9db54e32d774c75 workdir=00dfe6a156bae81aefc94ff1e9db54e32d774c75 MATCH\n== also confirm HEAD blobs for context ==\n100644 blob 00dfe6a156bae81aefc94ff1e9db54e32d774c75\tlib/retry-after.ts\n100644 blob 8f6dd51314e9960b7bc3add9d95b8f530b85087d\tsrc/retry-route.ts\n100644 blob 8ab4b18d9a2bd337433526c96343d251aaee8539\tsrc/retry-worker.ts\n100644 blob c362fe9878839740d82db85053758be5b95834cd\tsrc/scheduler.ts",
+              "is_error": false
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "message": {
+          "content": [
+            {
+              "type": "tool_use",
+              "id": "toolu_018XamUmoFCKiEDYysQZrrvK",
+              "name": "Bash",
+              "input": {
+                "command": "cd /tmp/gshr.kcSYhI/gstack-shared-revalidate-branch-Riiwnp/repo\nTS=$(date -u +%Y-%m-%dT%H:%M:%SZ)\n/home/vercel-sandbox/gstack/bin/gstack-review-log '{\"skill\":\"review\",\"timestamp\":\"'\"$TS\"'\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10.0,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"confidence\":10,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"specialist\":\"core + maintainability\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"54880d2\",\"completed\":true,\"converged\":true,\"cycles\":0}' --finish ea646713-2933-48d6-b80e-24887a656157\necho \"exit=$?\"\necho \"== persisted tail ==\"\n/home/vercel-sandbox/gstack/bin/gstack-review-read | sed '/---CONFIG---/,$d' | tail -1",
+                "description": "Persist final review record with REVIEW_START token"
+              },
+              "caller": {
+                "type": "direct"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "message": {
+          "content": [
+            {
+              "tool_use_id": "toolu_018XamUmoFCKiEDYysQZrrvK",
+              "type": "tool_result",
+              "content": "exit=0\n== persisted tail ==\n{\"skill\":\"review\",\"timestamp\":\"2026-09-23T01:27:37Z\",\"status\":\"clean\",\"issues_found\":0,\"critical\":0,\"informational\":0,\"quality_score\":10,\"specialists\":{\"testing\":{\"dispatched\":false,\"reason\":\"scope\"},\"maintainability\":{\"dispatched\":true,\"findings\":1,\"critical\":0,\"informational\":1},\"security\":{\"dispatched\":false,\"reason\":\"scope\"},\"performance\":{\"dispatched\":false,\"reason\":\"scope\"},\"data-migration\":{\"dispatched\":false,\"reason\":\"scope\"},\"api-contract\":{\"dispatched\":false,\"reason\":\"scope\"},\"design\":{\"dispatched\":false,\"reason\":\"scope\"},\"simplification\":{\"dispatched\":false,\"reason\":\"scope\"}},\"findings\":[{\"fingerprint\":\"shared-libs:af037ba20b8a3674855fb65b04f1855c7f0cb5581d3b31f1c4cf5ab648ee6d33\",\"severity\":\"INFORMATIONAL\",\"action\":\"skipped\",\"advisory\":true,\"confidence\":10,\"path\":\"src/retry-worker.ts\",\"line\":2,\"category\":\"shared-libs\",\"summary\":\"Reuse the tested parser\",\"specialist\":\"core + maintainability\",\"evidence_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"],\"helper_target\":{\"path\":\"lib/retry-after.ts\",\"symbol\":\"retrySeconds\"},\"snapshot_covered_paths\":[\"src/retry-worker.ts\",\"src/retry-route.ts\",\"lib/retry-after.ts\"]}],\"commit\":\"54880d2\",\"completed\":true,\"converged\":true,\"cycles\":0,\"commit_full\":\"54880d215e8104a2ab77c59f5e9bf135bccc962b\",\"tree\":\"0d6f7d79e489259c97311903f75fe9570a21645d\",\"dirty\":true,\"review_binding\":{\"state\":\"verified\",\"start_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"end_wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"started_at\":\"2026-09-23T01:24:23.860Z\",\"branch_id\":\"0a5491edbc02e79bd89844f5712d8097adb4326dd471c1dcfe83ce266369cfc0\"},\"wtree\":\"288a3521b692882b9936606504a4b7999286702f\",\"review_freshness\":{\"status\":\"CURRENT\",\"reason\":\"completed clean pass on unchanged content\"}}",
+              "is_error": false
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

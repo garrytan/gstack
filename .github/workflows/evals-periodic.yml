@@ -212,8 +212,8 @@ jobs:
   gate-census:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
-    # Six slices need at most 330m each, plus 20 minutes setup/upload.
-    timeout-minutes: 350
+    # Six slices need at most 332m each, plus 20 minutes setup/upload.
+    timeout-minutes: 352
     permissions:
       contents: read
       packages: read

@@ -693,8 +693,9 @@ describeIfSelected('Ship & Release skill evals', ['ship/SKILL.md workflow', 'doc
     await runWorkflowJudge({
       testName: 'ship/SKILL.md workflow',
       suite: 'Ship & Release skill evals',
+      // The contract now precedes platform detection; keep the complete workflow.
       skillPath: 'ship/SKILL.md',
-      startMarker: '## Step 0: Detect platform and base branch',
+      startMarker: '# Ship:',
       endMarker: '## Important Rules',
       judgeContext: 'a ship/release workflow document',
       judgeGoal: 'how to create a PR: merge base branch, run tests, review diff, bump version, update changelog, push, and open PR',

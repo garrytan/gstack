@@ -6,61 +6,51 @@
 
 ## Step 5: Run tests (on merged code)
 
-Resolve the project's validation lanes once, using applicable AGENTS.md/CLAUDE.md
-instructions and the actual CI jobs, manifests and wrappers they reference. Include
-every required test, lint, typecheck and evaluation lane; do not infer commands
-from a language marker. Preserve CI working directories, environment prefixes,
-wrappers and flags. If instructions and CI genuinely conflict, or a required
-command is missing/unavailable, ask before proceeding; do not invent a fallback.
+Resolve every required test, lint, typecheck and eval lane once from applicable
+AGENTS.md/CLAUDE.md and referenced CI jobs, manifests and wrappers. Keep CI cwd,
+environment prefixes, wrappers and flags; never infer commands from language
+markers. Ask on genuine conflicts or missing/unavailable commands before
+proceeding; do not invent fallbacks.
 
-For each lane retain `(working directory, exact command bytes, evidence label)`
-and its declaration source in the existing test/PR evidence. Keep existing labels
-(such as `tests`) and unique labels for additional lanes. Reuse these tuples in
-Step 6, Step 16 and `/land-and-deploy`; do not rediscover or normalize commands.
-If a declaration changes, resolve the conflict and rerun that lane. Run test,
-lint and typecheck lanes here. Resolve evaluation tuples now, but select and run
-them only in Step 6. Rails and Vitest are not assumed.
+Record `(working directory, exact command bytes, evidence label)` and declaration
+source in existing test/PR evidence. Keep existing labels; label added lanes
+uniquely. Reuse tuples in Steps 6 and 16 and `/land-and-deploy`; never rediscover or
+normalize them. Resolve changed declarations and rerun those lanes. Run tests,
+lint and typechecks now; resolve eval tuples now but select and run only in Step 6.
+Do not assume Rails or Vitest.
 
-**For Rails projects using `bin/test-lane`, do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
-`db:test:prepare` internally, which loads the schema into the correct lane database.
-Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
+**Rails with `bin/test-lane`: do NOT run `RAILS_ENV=test bin/rails db:migrate`.**
+The wrapper's `db:test:prepare` loads the correct lane schema; bare migrations
+without INSTANCE hit an orphan DB and corrupt structure.sql.
 
-Run independent test suites in parallel, each wrapped in the evidence ledger. The
-wrapper is transparent (streams output live, exit code passes through) and
-records `{cwd, command, exit, working-tree fingerprint, log path}` to
-`~/.gstack/projects/<slug>/<branch>-evidence.jsonl` — Step 16 cites this
-record instead of re-running when the content hasn't changed:
-
-For each resolved lane, substitute its tuple (the placeholders are not commands):
+Wrap independent lanes in parallel with the evidence ledger. It streams output,
+preserves exit status and records each tuple, tested tree and log for reuse in
+Step 16 when content is unchanged. Substitute tuples below; placeholders are not commands:
 
 ```bash
 (cd '<lane working directory>' && ~/.claude/skills/gstack/bin/gstack-evidence run --label '<lane label>' -- '<exact lane command>')
 ```
 
-Pass the command as one shell-quoted argument, preserving its bytes. Do not add
-`2>&1` or a `tee` pipeline: the wrapper already captures both streams and preserves
-the exit status. Parallel lanes must retain each individual result.
+Shell-quote the exact command as one argument; do not add `2>&1` or `tee` (both
+streams are captured). Retain each parallel result. Read each
+`gstack-evidence: recorded label=... exit=... log=...` summary and its unique log
+for failures.
 
-After all suites complete, check the `gstack-evidence: recorded label=... exit=...
-log=...` summary lines — each carries the lane's exit code and a per-run log
-file (no shared /tmp collisions between concurrent ships). Read the log files
-for failure detail.
-
-**If any test fails:** Do NOT immediately stop. Apply the Test Failure Ownership Triage:
+**If any test fails:** Apply Test Failure Ownership Triage before deciding to stop:
 
 {{TEST_FAILURE_TRIAGE}}
 
-**After triage:** If any in-branch failures remain unfixed, **STOP**. Do not proceed. If all failures were pre-existing and handled (fixed, TODOed, assigned, or skipped), continue to Step 6.
-
-**If all pass:** Continue silently — just note the counts briefly.
+**After triage:** Unfixed in-branch failures **STOP**. Continue to Step 6 only if
+all failures were pre-existing and handled (fixed, TODOed, assigned, or skipped).
+If all tests pass, note counts briefly and continue silently.
 
 ---
 
 ## Step 6: Eval Suites (conditional)
 
-Evals are mandatory when prompt-related files change. Use the project's declared
-prompt dependencies, selector and pre-merge tier, including templates, judges,
-harnesses and fixtures, rather than a language-specific filename list.
+Prompt-related changes require evals. Use the project's declared prompt dependencies,
+selector and pre-merge tier, covering templates, judges, harnesses and fixtures—not
+a language-specific filename list.
 
 **1. Determine applicability from the complete diff and project declarations:**
 
@@ -68,47 +58,40 @@ harnesses and fixtures, rather than a language-specific filename list.
 git diff origin/<base> --name-only
 ```
 
-If no eval lane is declared and no prompt-related content changed, report
-"No evaluation lane declared; not applicable" and continue to Step 7. If declared
-selection proves no affected prompt dependencies, report that result and its source.
-A failed selector, unknown mapping, required selection with zero cases, or changed
-prompts without a documented eval command is **missing validation**, not a pass or
-a no-match skip. Stop and ask for the missing command/coverage before shipping.
+No declared eval lane and no prompt-related changes: report "No evaluation lane declared;
+not applicable" and continue to Step 7. If declared selection proves no affected
+prompt dependencies, report the result and source. A failed selector, unknown
+mapping, required selection with zero cases, or changed prompt-related files without a documented
+eval command is **missing validation**, not a pass or no-match skip. Stop and ask
+for the missing command/coverage before shipping.
 
-**2. Resolve and run affected eval lanes:**
+**2. Run affected eval lanes:**
 
-Use the same tuple contract from Step 5. Record selection and expected case counts;
+Use Step 5's tuples and evidence wrapper. Record selection and expected case counts;
 verify selected files exist. Run required cheap checks and selected quality judges
-before long behavioral evals when the project requires that order. Preserve the
-project's pre-merge tier and budgets; never force another project's tier or runner.
-Run each eval lane through the evidence wrapper in its declared working directory.
-Missing credentials/tools are unavailable coverage, not successful evals. If a
-suite fails, stop before starting more paid work and report the failure.
+before long behavioral evals when required. Keep the project's pre-merge tier,
+budgets, cwd, concurrency and retries; never substitute another project's tier or
+runner. Run shared lanes sequentially. Missing credentials/tools mean unavailable
+coverage. Report failures and stop before more paid work.
 
-**Long eval suites (30+ min): launch detached so a turn boundary can't kill them.**
-A plain backgrounded eval lives in the harness's process group and dies to a
-SIGTERM ("polite quit") on a turn boundary, a stopped monitor, or an interruption
-(observed mid-`/ship`: `script terminated by signal SIGTERM`). Run it through
-`~/.claude/skills/gstack/bin/gstack-detach` instead — it survives in its own
-session, serializes against other worktrees via a machine lock (no API
-saturation), and writes a guaranteed `### gstack-detach EXIT=<code> ###` sentinel:
+**Long eval suites (30+ min):** Use the detached runner and eval lock to survive
+turn boundaries. The outer timeout must cover declared duration and retries;
+never change individual limits. If the full bound fits 5400s:
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-detach --label ship-evals --lock gstack-evals --timeout 5400 -- <project eval command>
 ```
 
-Then poll the printed log path; break on the `EXIT=` sentinel (covers both pass
-and crash — silence is never success). The detached run survives even if your
-poller is reaped.
+Poll the log for `### gstack-detach EXIT=<code> ###`; silence is not success.
+Retain every configured attempt. Skipped or unstarted cases do not satisfy coverage.
 
-**3. Check results:**
+**3. Check results and save evidence for Step 19:**
 
-- **If any eval fails:** Show the failures, the cost dashboard, and **STOP**. Do not proceed.
-- **If all required selected cases ran and passed:** Note pass/fail/skip counts and
-  cost. Continue to Step 7. Skipped or unstarted required cases do not count as passes.
+Show results and available costs. Save tuples, selection, evidence logs,
+pass/fail/skip counts, reused evidence with its source, and the cost dashboard in
+the PR body. Keep expressly authorized validation exceptions visible, never as passes.
 
-**4. Save eval output** — include the tuples, selection, evidence log paths, results
-and cost dashboard in the PR body (Step 19). Any expressly authorized validation
-exception must remain visible, never relabeled as a passing run.
+- **Any eval failure:** Show failures and **STOP**.
+- **All required selected cases ran and passed:** Continue to Step 7.
 
 ---

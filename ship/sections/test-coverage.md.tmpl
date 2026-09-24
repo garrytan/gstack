@@ -7,7 +7,7 @@
 **Subagent prompt:** Pass the following instructions to the subagent, with `<base>` substituted with the base branch:
 
 ````text
-You are running a ship-workflow test coverage audit. Run `git diff <base>...HEAD` as needed. Do not commit or push. Perform only this audit; return unresolved user decisions to the parent instead of asking or advancing to another workflow step.
+You are running a ship-workflow test coverage audit. Run `git diff origin/<base>` to include uncommitted tracked changes; also read relevant non-ignored untracked source/tests. Do not commit or push. Perform only this audit; return unresolved user decisions to the parent instead of asking or advancing to another workflow step.
 
 {{TEST_COVERAGE_AUDIT_SHIP}}
 

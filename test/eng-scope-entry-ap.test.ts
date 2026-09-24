@@ -54,6 +54,8 @@ test('entry binds a current target and delays bootstrap until scope resolves', (
     'web-research readiness', 'Design Doc Check', 'Review preparation'].map(step => startup.indexOf(step));
   expect(order.every(position => position >= 0)).toBe(true);
   expect(order).toEqual([...order].sort((a, b) => a - b));
+  expect(startup).toContain('3. Check web-research readiness at **Web research runs in Aside**.');
+  expect(startup).toContain('4. Run **Design Doc Check**, then **Prerequisite Skill Offer**.');
   expect(startup).toContain('Keep the reviewed target fixed');
   expect(startup).toContain('Continue at **Engineering review → Step 0** below');
   expect(startup).not.toContain('Read `sections/review-sections.md` in full');

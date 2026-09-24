@@ -197,6 +197,29 @@ export function readPendingQuestion(file: string | undefined, cwd: string, confi
   } catch { return undefined; }
 }
 
+/**
+ * Display-only first-call identity for AUQ format capture. The caller must bind
+ * this payload to the current native viewport before grading it. Unlike the
+ * counting reader, this never opens a transcript or supplies answer evidence.
+ * A launcher-assigned session and a fresh recorder exclude other invocations;
+ * a completed or skipped first call cannot be replaced with a later question.
+ */
+export function readFirstPendingQuestionForDisplay(file: string | undefined, cwd: string,
+  configDir: string | null, startedAt: number, sessionId: string,
+): (NativePlanQuestionCall & {source:'pre_tool_use'}) | undefined {
+  if (!file || !configDir || !identifier(sessionId) || !Number.isFinite(startedAt)) return undefined;
+  try {
+    if (fs.existsSync(file + '.invalid') || fs.existsSync(file + '.lock')) return undefined;
+    const state = readState(file, cwd, configDir);
+    const p = state.pending;
+    if (!p || p.sessionId !== sessionId || state.seenIds.length !== 1 || state.seenIds[0] !== p.toolUseId) return undefined;
+    const time = Date.parse(p.timestamp);
+    if (!Number.isFinite(time) || time < startedAt || time > Date.now()) return undefined;
+    return {sessionId:p.sessionId, toolUseId:p.toolUseId, questions:p.questions,
+      answered:false, failed:false, source:'pre_tool_use'};
+  } catch { return undefined; }
+}
+
 if (import.meta.main && process.argv[2] === '--record') {
   const [file, cwd, configDir] = process.argv.slice(3);
   if (file && cwd && configDir) {

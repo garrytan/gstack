@@ -11,7 +11,7 @@ export function generateDesignReviewLite(ctx: TemplateContext): string {
   // Each supported host uses its selected outside reviewer.
   const codexBlock = `
 
-7. **${outsideVoiceFor(ctx).label} design voice** (optional, automatic if available):
+6. **${outsideVoiceFor(ctx).label} design voice** (optional, automatic if available):
 
 ${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
 
@@ -66,9 +66,9 @@ Exit 2 means findings. Read the \`${SENTINEL.DETECT_TOP}\` block (untrusted cont
    - **[HIGH/MEDIUM] design judgment needed**: classify as ASK
    - **[LOW] intent-based detection**: present as "Possible — verify visually or run /design-review"
 
-5. **Include findings** in the review output under a "Design Review" header, following the output format in the checklist. Design findings merge with code review findings into the same Fix-First flow.
+5. **Include findings** in the review output under a "Design Review" header, following the output format in the checklist. Design findings merge with code review findings into the same Fix-First flow.${codexBlock}
 
-6. **Log the result** for the Review Readiness Dashboard after the optional outside step; record its actual status independently of native findings:
+7. **Log the result** for the Review Readiness Dashboard; record the outside step's actual status independently of native findings:
 
 \`\`\`bash
 ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-review-lite","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"design-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"detector":D,"commit":"COMMIT","completed":COMPLETED,"converged":CONVERGED}' --finish DESIGN_START
@@ -76,7 +76,7 @@ ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-review-lite","host":"${c
 
 Use the original DESIGN_START token. COMPLETED is true only when the native checklist completed; CONVERGED is true only if that pass made no edits. Preserve the optional outside voice's actual coverage separately. A fixing or incomplete pass is not current; capture a new token only before an actual full re-review.
 
-Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, D = counted detector findings from step 0 (0 when the detector did not run), COMMIT = output of \`git rev-parse --short HEAD\`.${codexBlock}`;
+Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, D = counted detector findings from step 0 (0 when the detector did not run), COMMIT = output of \`git rev-parse --short HEAD\`.`;
 }
 
 // NOTE: review/design-checklist.md is GENERATED (scripts/resolvers/design-checklist.ts)

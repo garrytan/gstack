@@ -9,7 +9,7 @@
 **Subagent prompt:** Pass these instructions to the subagent:
 
 ````text
-You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff <base>...HEAD` to see what shipped. Do not commit or push. Report only: classify every item, but do not execute Gate Logic, ask the user, or advance the workflow. The parent applies those gates to your report.
+You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff origin/<base>` and inspect untracked files from `git status` to see the full proposed change. Do not commit or push. Report only: classify every item, but do not execute Gate Logic, ask the user, or advance the workflow. The parent applies those gates to your report.
 
 ### Plan File Discovery
 
@@ -39,7 +39,7 @@ done
 
 **Error handling:**
 - No plan file found → skip with "No plan file detected — skipping."
-- Plan file found but unreadable (permissions, encoding) → skip with "Plan file found but unreadable — skipping."
+- Plan file found but unreadable (permissions, encoding) → return an audit error to the parent. Do not report no plan or successful zero counts; the parent applies its audit-failure recovery and skip/stop decision.
 
 ### Actionable Item Extraction
 
@@ -71,7 +71,7 @@ For each item, note:
 
 Before judging completion, classify HOW each item can be verified. The diff alone cannot prove every kind of work. Items outside the current repo or system are structurally invisible to `git diff`.
 
-- **DIFF-VERIFIABLE** — A code change in this repo would manifest in `git diff <base>...HEAD`. Examples: "add UserService" (file appears), "validate input X" (validation logic appears), "create users table" (migration file appears).
+- **DIFF-VERIFIABLE** — A code change in this repo would manifest in `git diff origin/<base>`. Examples: "add UserService" (file appears), "validate input X" (validation logic appears), "create users table" (migration file appears).
 - **CROSS-REPO** — Item names a file or change in a sibling repo (e.g., `domain-hq/docs/dashboard.md`, `~/Development/<other-repo>/...`). The current diff CANNOT prove this.
 - **EXTERNAL-STATE** — Item names state in an external system: Supabase config/RLS, Cloudflare DNS, Vercel env vars, OAuth provider allowlists, third-party SaaS, DNS records. The current diff CANNOT prove this.
 - **CONTENT-SHAPE** — Item requires a file to follow a specific convention. If the file is in this repo: diff-verifiable. If in another repo or system: see CROSS-REPO / EXTERNAL-STATE.
@@ -91,7 +91,7 @@ Before judging completion, classify HOW each item can be verified. The diff alon
 
 ### Cross-Reference Against Diff
 
-Run `git diff origin/<base>...HEAD` and `git log origin/<base>..HEAD --oneline` to understand what was implemented.
+Run `git diff origin/<base>` and `git log origin/<base>..HEAD --oneline` to understand what was implemented.
 
 For each extracted plan item, run the verification dispatch from the previous section, then classify:
 
@@ -142,12 +142,12 @@ Counts map one-to-one to the classifications above and sum to total_items. No pl
 
 **Parent processing:**
 
-1. Parse the LAST line of the subagent's output as JSON.
+1. Parse the LAST line as JSON. A non-null `error`, any missing count or count that is not a nonnegative integer, classification count sum unequal to `total_items`, or non-string `summary` takes the audit-failure fallback below. Validate every count field in the contract above. Valid no-plan/no-actionable-item reports retain zero counts and their summary.
 2. Store the counts for Step 20 metrics; use `summary` in PR body.
-3. Apply Gate Logic below to `not_done` and `unverifiable` before continuing. Track user-approved deferrals separately; `partial` items receive a PR note, not the NOT DONE gate.
+3. Apply Gate Logic below to `not_done` and `unverifiable` before continuing. Carry approved deferrals, with item text and plan path, to Step 14; keep them separate from dropped scope. `partial` items receive a PR note, not the NOT DONE gate.
 4. Embed `summary` in PR body's `## Plan Completion` section (Step 19). For the UNVERIFIABLE gate, also embed `## Plan Completion — Manual Verifications` with each Y response's evidence and each D response's dropped item.
 
-**If the subagent fails, returns invalid JSON, or never completes (backgrounded despite the flag, or no final output after ~10 minutes — stop waiting; if a backgrounded task is still running, stop it first so a late result never races the fallback):** Fall back to running the audit inline (parent processes the same plan-extraction + classification logic). If the inline fallback also fails (e.g., plan file unreadable, parser error), do NOT silently pass — surface the failure as an explicit AskUserQuestion: "Plan Completion audit could not run ({reason}). Options: (A) Skip audit and ship anyway — record that the audit was skipped in PR body and Step 20 metrics; (B) Stop and fix the audit." Default and recommended option is (B). Silent fail-open is the failure shape that VAS-449 surfaced.
+**If the subagent fails, returns invalid JSON, or has no final output after ~10 minutes:** Stop any still-running background task before an inline fallback using the same extraction/classification logic; never race its late result. If fallback also fails, AskUserQuestion: "Audit failed ({reason}): A) Skip audit and ship anyway, recording the skip in PR body and Step 20 metrics; B) Stop and fix the audit (recommended/default)." Silent fail-open is the failure shape that VAS-449 surfaced.
 
 ---
 
@@ -244,20 +244,29 @@ Follow the /qa-only workflow with these modifications:
 
 ### 4. Gate logic
 
-- **All verification items PASS:** Continue silently. "Plan verification: PASS."
-- **Any FAIL:** Use AskUserQuestion:
+Record the actual result even when the user accepts a failure.
+
+- **All verification items PASS:** Set VERIFY_RESULT=pass. Continue silently. "Plan verification: PASS."
+- **Any FAIL:** Set VERIFY_RESULT=fail, then use AskUserQuestion:
   - Show the failures with screenshot evidence
   - RECOMMENDATION: Choose A if failures indicate broken functionality. Choose B if cosmetic only.
   - Options:
     A) Fix the failures before shipping (recommended for functional issues)
     B) Ship anyway — known issues (acceptable for cosmetic issues)
-- **No verification section / no server / unreadable skill:** Skip (non-blocking).
+- **No verification section / no server / unreadable skill:** Set VERIFY_RESULT=skipped; record the reason (non-blocking).
+
+Fix before shipping returns to implementation, then reruns affected tests and this
+verification. Ship anyway retains VERIFY_RESULT=fail and lists the accepted
+failures in the PR; approval never turns failed verification into a pass.
 
 ### 5. Include in PR body
 
 Add a `## Verification Results` section to the PR body (Step 19):
 - If verification ran: summary of results (N PASS, M FAIL, K SKIPPED)
 - If skipped: reason for skipping (no plan, no server, no verification section)
+
+The parent now runs Prior Learnings and its cross-project setting question when
+offered, before Step 9, even when no plan file was found.
 
 ## Prior Learnings
 

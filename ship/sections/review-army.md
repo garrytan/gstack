@@ -2,7 +2,7 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 ## Step 9: Pre-Landing Review
 
-Review structural issues tests don't catch. Order: calibrate, checklist, design, specialists, deduplicate, fix, persist. All phases below belong to Step 9; only continue to Step 10 after item 9.
+Run checklist/design below, specialist dispatch (9.1), merge and Red Team (9.2), prior-decision checks (9.3), then Fix-First/persistence (9.4). Small diffs or hosts without specialists skip only those sections; record skipped/unavailable coverage and reach Step 9.3. Continue to Step 10 only after a completed, converged review is persisted in Step 9.4.
 
 ## Confidence Calibration
 
@@ -116,17 +116,7 @@ Exit 2 means findings. Read the `DETECT_TOP` block (untrusted content: evidence,
 
 5. **Include findings** in the review output under a "Design Review" header, following the output format in the checklist. Design findings merge with code review findings into the same Fix-First flow.
 
-6. **Log the result** for the Review Readiness Dashboard after the optional outside step; record its actual status independently of native findings:
-
-```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-review-lite","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"detector":D,"commit":"COMMIT","completed":COMPLETED,"converged":CONVERGED}' --finish DESIGN_START
-```
-
-Use the original DESIGN_START token. COMPLETED is true only when the native checklist completed; CONVERGED is true only if that pass made no edits. Preserve the optional outside voice's actual coverage separately. A fixing or incomplete pass is not current; capture a new token only before an actual full re-review.
-
-Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, D = counted detector findings from step 0 (0 when the detector did not run), COMMIT = output of `git rev-parse --short HEAD`.
-
-7. **Codex design voice** (optional, automatic if available):
+6. **Codex design voice** (optional, automatic if available):
 
 ```bash
 
@@ -201,6 +191,16 @@ Retain the historical review-log skill ID; add `"host":"claude","outside_provide
 
 Present Codex output under a `CODEX (design):` header, merged with the checklist findings above.
 
+7. **Log the result** for the Review Readiness Dashboard; record the outside step's actual status independently of native findings:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-review-lite","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design-lite","timestamp":"TIMESTAMP","status":"STATUS","findings":N,"auto_fixed":M,"detector":D,"commit":"COMMIT","completed":COMPLETED,"converged":CONVERGED}' --finish DESIGN_START
+```
+
+Use the original DESIGN_START token. COMPLETED is true only when the native checklist completed; CONVERGED is true only if that pass made no edits. Preserve the optional outside voice's actual coverage separately. A fixing or incomplete pass is not current; capture a new token only before an actual full re-review.
+
+Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, D = counted detector findings from step 0 (0 when the detector did not run), COMMIT = output of `git rev-parse --short HEAD`.
+
    Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
 
 ## Step 9.1: Review Army — Specialist Dispatch
@@ -246,7 +246,7 @@ Based on the scope signals above, select which specialists to dispatch.
 1. **Testing** — read `~/.claude/skills/gstack/review/specialists/testing.md`
 2. **Maintainability** — read `~/.claude/skills/gstack/review/specialists/maintainability.md`
 
-**If DIFF_LINES < 50:** Skip all specialists. Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to the Fix-First flow (item 4).
+**If DIFF_LINES < 50:** Skip all specialists. Print: "Small diff ($DIFF_LINES lines) — specialists skipped." Continue to Step 9.3 (cross-review dedup). This threshold only gates specialist dispatch; any core shared-code check still runs.
 
 **Conditional (dispatch if the matching scope signal is true):**
 3. **Security** — if SCOPE_AUTH=true, OR if SCOPE_BACKEND=true AND DIFF_LINES > 100. Read `~/.claude/skills/gstack/review/specialists/security.md`
@@ -300,7 +300,9 @@ For each finding, output a JSON object on its own line:
 {\"severity\":\"CRITICAL|INFORMATIONAL\",\"confidence\":N,\"path\":\"file\",\"line\":N,\"category\":\"category\",\"summary\":\"description\",\"fix\":\"recommended fix\",\"fingerprint\":\"path:line:category\",\"specialist\":\"name\"}
 
 Required fields: severity, confidence, path, category, summary, specialist.
-Optional: line, fix, fingerprint, evidence, test_stub.
+Optional: line, fix, fingerprint, evidence, test_stub, advisory, evidence_paths, helper_target.
+
+Optional extraction advice belongs to the core shared-code check; do not duplicate its proposals. Report real defects in duplicated code independently. Preserve advisory metadata when returning structural advice, and never label a demonstrated defect advisory merely because sharing a helper could fix it.
 
 If you can write a test that would catch this issue, include it in the `test_stub` field.
 Use the detected test framework ({TEST_FW}). Write a minimal skeleton — describe/it/test
@@ -332,12 +334,17 @@ For each specialist's output:
 2. Otherwise, parse each line as a JSON object. Skip lines that are not valid JSON.
 3. Collect all parsed findings into a single list, tagged with their specialist name.
 
+**Validate advisory severity first.** If a current finding has `"severity":"CRITICAL"` and `"advisory":true`, remove `advisory` and retain its `CRITICAL` severity. Handle it as a normal defect before fingerprinting, partitioning, deduplication, counting, scoring, and Fix-First. Never downgrade severity to make advisory metadata consistent. Valid INFORMATIONAL advisories remain advisory in every category, including simplification. Apply this validation to core and specialist findings alike before combining them.
+
 **Fingerprint and deduplicate:**
 For each finding, compute its fingerprint:
+- For a shared-code advisory (category `shared-libs` or a `shared-libs:` fingerprint), call the installed `sharedLibsFingerprint` helper from `~/.claude/skills/gstack/lib/review-evidence.ts` with literal JSON on stdin, as in the core pass. Recompute from `evidence_paths` and `helper_target`; never trust a supplied hash or generate hash text yourself. Missing/malformed metadata cannot deduplicate or reuse a saved decision.
 - If `fingerprint` field is present, use it
 - Otherwise: `{path}:{line}:{category}` (if line is present) or `{path}:{category}`
 
-Group findings by fingerprint. For findings sharing the same fingerprint:
+The last two rules apply only to other findings. Preserve `advisory`, `evidence_paths`, and `helper_target` through merging. Core review owns shared-code proposals: consolidate equivalent specialist advice with the core proposal and count overlapping savings once. Keep the actual specialist activity in its stats; core-only advice must not create a specialist dispatch or finding.
+
+Partition defects and advisories BEFORE grouping by fingerprint. A defect and an advisory must never merge with each other, even if a supplied fingerprint collides. A higher-confidence advisory or prior skipped extraction cannot replace, downgrade, or suppress a demonstrated defect. For findings sharing the same fingerprint within the same partition:
 - Keep the finding with the highest confidence score
 - Tag it: "MULTI-SPECIALIST CONFIRMED ({specialist1} + {specialist2})"
 - Boost confidence by +1 (cap at 10)
@@ -349,11 +356,13 @@ Group findings by fingerprint. For findings sharing the same fingerprint:
 - Confidence 3-4: move to appendix (suppress from main findings)
 - Confidence 1-2: suppress entirely
 
-**Advisory carve-out (simplification specialist):**
-Findings with `"advisory": true` are excluded from BOTH the quality_score
+**Advisory carve-out (all sources, including core shared-code and simplification):**
+After severity validation, remaining findings with `"advisory": true` are excluded from BOTH the quality_score
 summation and the findings-count header below — they are structure suggestions,
 not defects, and must not make "5 findings … 10/10" look contradictory. In
-Fix-First they are ASK-only: NEVER auto-applied, even when mechanical.
+Fix-First they are ASK-only: NEVER auto-applied, even when mechanical. Also exclude
+them from unresolved-defect totals and clean-status blockers. Preserve normal
+Fix-First handling for any real defect affecting the same code.
 
 **Compute PR Quality Score:**
 After merging, compute the quality score over NON-advisory findings only:
@@ -383,7 +392,9 @@ PR Quality Score: X/10
   `Simplification: lean already — nothing to cut.`
 - If it was not dispatched, print neither line.
 
-These findings flow into the Fix-First flow (item 4) alongside the checklist pass (Step 9).
+Do not add core shared-code savings to this specialist footer. Explain any overlap once in the core proposal instead of presenting duplicate savings.
+
+These findings flow into Step 9.3 dedup, then Step 9.4 Fix-First alongside the checklist pass (Step 9).
 The Fix-First heuristic applies identically — specialist findings follow the same AUTO-FIX vs ASK classification (except advisory findings, which are ASK-only per the carve-out above).
 
 **Compile per-specialist stats:**
@@ -395,7 +406,8 @@ For each specialist (testing, maintainability, security, performance, data-migra
 - If not applicable (e.g., red-team not activated): omit from the object
 
 Advisory findings COUNT in the stats `findings` field — the advisory
-carve-out governs the quality score and the findings-count header only.
+carve-out governs defect counts, score penalties, and clean-status blockers,
+not specialist activity. Count only findings that specialist actually returned.
 Logging simplification's advisories as `findings: 0` would auto-gate the
 lens into permanent silence after 10 dispatches.
 
@@ -423,14 +435,18 @@ concerns, integration boundary issues, and failure modes that specialist checkli
 don't cover."
 
 If the Red Team finds additional issues, merge them into the findings list before
-the Fix-First flow (item 4). Red Team findings are tagged with `"specialist":"red-team"`.
+Step 9.3 dedup, then Step 9.4 Fix-First. Red Team findings are tagged with `"specialist":"red-team"`.
 
 If the Red Team returns NO FINDINGS, note: "Red Team review: no additional issues found."
-If the Red Team subagent fails or times out, skip silently and continue.
+If the Red Team subagent fails or times out, continue through dedup and persistence with dispatched coverage incomplete. Step 9.4 must not certify that pass as completed or clean.
 
 ### Step 9.3: Cross-review finding dedup
 
+**Validate advisory severity first.** If a current finding has `"severity":"CRITICAL"` and `"advisory":true`, remove `advisory` and retain its `CRITICAL` severity. Handle it as a normal defect before suppression, classification, counting, scoring, and persistence. Never downgrade severity to make advisory metadata consistent. Valid INFORMATIONAL advisories remain advisory in every category, including simplification. A prior saved finding with contradictory CRITICAL/advisory metadata cannot establish a skipped defect or advisory decision: exclude it from reuse and revalidate the current finding.
+
 Before classifying findings, check if any were previously skipped by the user in a prior review on this branch.
+
+**Execution:** Read prior records once. If there are no explicitly skipped findings, continue to Step 9.4. For ordinary findings use the primary-file rule below. Run the shared-code procedure only for a matching skipped advisory. Stop its eligibility checks at the first missing or unverifiable condition and re-review the supporting source for a fresh decision; incomplete evidence never permits suppression.
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-read
@@ -438,7 +454,12 @@ Before classifying findings, check if any were previously skipped by the user in
 
 Parse the output: only lines BEFORE `---CONFIG---` are JSONL entries (the output also contains `---CONFIG---` and `---HEAD---` footer sections that are not JSONL — ignore those).
 
-For each JSONL entry that has a `findings` array:
+**Shared-code advisory decisions use the stricter rule below.** Do not send a
+finding through the ordinary primary-file rule if its category is `shared-libs`,
+its fingerprint starts `shared-libs:`, or it has `evidence_paths` / `helper_target`.
+Missing legacy metadata requires revalidation, not fallback to a line fingerprint.
+
+For each JSONL entry that has a `findings` array, for ordinary findings only:
 1. Collect all fingerprints where `action: "skipped"`
 2. Note the `commit` field from that entry
 
@@ -451,8 +472,69 @@ git diff --name-only <prior-review-commit> HEAD
 For each current finding (from both the checklist pass (Step 9) and specialist review (Step 9.1-9.2)), check:
 - Does its fingerprint match a previously skipped finding?
 - Is the finding's file path NOT in the changed-files set?
+- Is it the same advisory/defect kind? Never use a skipped advisory to suppress a real defect, including a defect with a colliding supplied fingerprint.
 
-If both conditions are true: suppress the finding. It was intentionally skipped and the relevant code hasn't changed.
+If all conditions are true: suppress the finding. It was intentionally skipped and the relevant code hasn't changed.
+
+**Reuse a skipped shared-code advisory only with complete structural evidence:**
+
+1. Recompute both structural identities with `sharedLibsFingerprint` from
+   `~/.claude/skills/gstack/lib/review-evidence.ts` before deduplication. Both must
+   be valid, both findings must explicitly be advisory, the prior saved hash must
+   match its recomputation, and the prior action must explicitly be `skipped`.
+   Retain `evidence_paths` and `helper_target`; line numbers and a primary path
+   alone cannot identify an extraction.
+2. Require a prior completed, converged `review` with verified binding and
+   start/end/record fingerprints equal to current `---WTREE---`. Read REVIEW_START
+   without consuming it; its repo, raw branch and fingerprint must match the current
+   repo, branch and snapshot. Missing, changed or unknown fields/token require
+   revalidation. Do not mint a new token to enable suppression.
+3. Match prior trusted `review_binding.branch_id` to SHA-256 of the exact
+   current raw branch, matching the capture. Compute the digest in code, never
+   as model-generated text. Sanitized log filenames are not branch identity:
+   `topic/a` and `topic-a` can collide.
+4. Verify EVERY evidence path against the snapshot. Enumerate tracked/non-ignored
+   untracked paths, then raw-read/lstat each file and path component; `ls-files`
+   alone is insufficient. Revalidate symlink targets/ancestors, submodules,
+   ignored/outside files and missing/unreadable paths: the parent fingerprint
+   does not cover them. Inspect effective Git attributes/config without conversion:
+   filter, working-tree-encoding, ident, text/eol and core.autocrlf can hide raw
+   changes. Active/unknown transformations require fresh raw-source review even
+   with an unchanged filtered tree. Disable fsmonitor and optional locks.
+   Exclude assume-unchanged, skip-worktree and sparse index entries. Compare each
+   raw file byte-for-byte with its blob in that exact working-tree snapshot,
+   using Git object reads without external diff/textconv or normalization.
+   Missing blobs, mismatches or unknown coverage require revalidation.
+   Only verified regular, untransformed,
+   in-repository paths enter `covered_paths`.
+   The prior finding's `snapshot_covered_paths` must also cover every evidence
+   path; current eligibility cannot prove what prior filters/index flags hid.
+   Missing prior coverage is legacy metadata; revalidate it.
+5. Call pure `canReuseSharedLibsAdvisory` with actually read records and verified
+   snapshot fields as literal JSON on stdin. The command below computes the live branch digest;
+   replace the empty example objects and keep the quoted delimiter:
+
+```bash
+bun -e '
+const { createHash } = await import("node:crypto");
+const { canReuseSharedLibsAdvisory } = await import(process.argv[1]);
+const input = JSON.parse(await Bun.stdin.text());
+let branch = Bun.spawnSync(["git", "symbolic-ref", "--quiet", "--short", "HEAD"]);
+if (branch.exitCode !== 0) branch = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
+if (branch.exitCode !== 0) { console.log(false); process.exit(0); }
+const rawBranch = branch.stdout.toString().replace(/\r?\n$/, "");
+const snapshot = { ...input.currentSnapshot, branch_id: createHash("sha256").update(rawBranch, "utf8").digest("hex") };
+console.log(canReuseSharedLibsAdvisory(input.priorFinding, input.currentFinding, input.priorReview, snapshot));
+' "$HOME/.claude/skills/gstack/lib/review-evidence.ts" <<'GSTACK_SHARED_LIBS_REUSE_JSON'
+{"priorFinding":{},"currentFinding":{},"priorReview":{},"currentSnapshot":{"wtree":"","covered_paths":[]}}
+GSTACK_SHARED_LIBS_REUSE_JSON
+```
+
+Suppress only when ALL eligibility checks passed and the helper returns true.
+Otherwise re-read all supporting callers and present any still-supported advice
+for a fresh decision. A changed secondary caller or changed raw bytes matter even
+when the primary anchor, commit, or normalized Git tree appears unchanged. A real
+defect always retains normal Fix-First handling independently of this advice.
 
 Print: "Suppressed N findings from prior reviews (previously skipped by user)"
 
@@ -460,40 +542,45 @@ Print: "Suppressed N findings from prior reviews (previously skipped by user)"
 
 If no prior reviews exist or none have a `findings` array, skip this step silently.
 
-Output a summary header: `Pre-Landing Review: N issues (X critical, Y informational)`
+Output a summary header: `Pre-Landing Review: N issues (X critical, Y informational)`.
+Count only non-advisory defects in that header; list optional advice separately
+with `[ADVISORY]`. Preserve advisory records and explicit decisions for
+persistence, but exclude advisories from score penalties, unresolved-defect
+totals, and clean-status blockers. This does not relax completion, convergence,
+or missing-reviewer rules.
 
-### Step 9: Fix-First and persistence (items 4-9)
+## Step 9.4: Fix-First and persistence
 
-4. **Classify each finding from both the checklist pass and specialist review (Step 9.1-Step 9.2) as AUTO-FIX or ASK** per the Fix-First Heuristic in
+1. **Classify each finding from both the checklist pass and specialist review (Step 9.1-Step 9.2) as AUTO-FIX or ASK** per the Fix-First Heuristic in
    checklist.md. Critical findings lean toward ASK; informational lean toward AUTO-FIX.
 
-5. **Auto-fix all AUTO-FIX items.** Apply each fix. Output one line per fix:
+2. **Auto-fix all AUTO-FIX items.** Apply each fix. Output one line per fix:
    `[AUTO-FIXED] [file:line] Problem → what you did`
 
-6. **If ASK items remain,** present them in ONE AskUserQuestion:
+3. **If ASK items remain,** present them in ONE AskUserQuestion:
    - List each with number, severity, problem, recommended fix
    - Per-item options: A) Fix  B) Skip
    - Overall RECOMMENDATION
    - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
 
-7. **After all fixes (auto + user-approved):**
-   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5) on the fixed code, then re-run this review (Step 9 items 2-6) against the updated diff. Repeat until one full pass applies ZERO fixes — tests green and review clean — then summarize and persist (items 8-9). NEVER stop to tell the user to run `/ship` again; a fix-and-rerun cycle has no user decision in it, and stopping there breaks the fully-automated contract (#2391).
-   - **Bound: 3 fix cycles.** If the 3rd cycle still applies fixes, persist item 9 with `converged:false` using that pass's original REVIEW_START, then STOP and report which findings keep reappearing — a review that won't converge is a genuine blocker worth human eyes, not a re-run request.
-   - If no fixes applied (all ASK items skipped, or no issues found): summarize and persist (items 8-9).
+4. **After all fixes (auto + user-approved):**
+   - If fixes were applied, commit named fixed files (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5), then re-run the whole Step 9 cycle from a new pass's start-token capture, including design, specialists, Red Team, and dedup. Repeat until a complete pass applies ZERO fixes with tests green or the same explicit Step 5 waiver. NEVER tell the user to run `/ship` again just for this cycle.
+   - **Bound: 3 fix cycles.** If cycle 3 still fixes code, persist item 6 below with `converged:false` and that pass's original REVIEW_START, then STOP and report which findings keep reappearing.
+   - A zero-fix pass (including explicit skips) proceeds to summary and persistence below; missing dispatched coverage still prevents completion.
 
-8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
+5. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
 
    If no issues found: `Pre-Landing Review: No issues found.`
 
-9. Persist the review result to the review log:
+6. Persist the review result to the review log:
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship","completed":COMPLETED,"converged":CONVERGED,"cycles":CYCLES}' --finish REVIEW_START
 ```
 Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
 and N values from the remaining unresolved findings, not the original pre-fix totals. The `via:"ship"` distinguishes from standalone `/review` runs.
-- `REVIEW_START` = the token captured in item 2 before this pass read the diff. `COMPLETED` = true only if the checklist and dispatched specialists completed; missing coverage is false, never clean. `CONVERGED` = true only for a completed pass that applied zero fixes. `CYCLES` = fix cycles performed (0 for a first-pass completion). Never recapture at persistence to certify fixes that have not been reviewed.
-- `quality_score` = the PR Quality Score computed in Step 9.2 (e.g., 7.5). If specialists were skipped (small diff), use `10.0`
-- `specialists` = the per-specialist stats object compiled in Step 9.2. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
+- `REVIEW_START` = the token captured at the start of Step 9 before this pass read the diff. `COMPLETED` = true only if the checklist and dispatched specialists completed; failed or missing dispatched coverage is false, never clean. A host-unsupported or intentionally gated specialist was not dispatched and does not block completion; retain the skip/unavailable label. `CONVERGED` = true only for a completed pass that applied zero fixes. `CYCLES` = fix cycles performed (0 for a first-pass completion). Never recapture at persistence to certify fixes that have not been reviewed.
+- `quality_score` = the PR Quality Score computed in Step 9.2 (e.g., 7.5). If specialists were skipped or unsupported by this host, use `10.0`
+- `specialists` = the per-specialist stats object compiled in Step 9.2. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped.
 - `findings` = array of per-finding records. For each finding (from checklist pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"`, `"fixed"` (user approved), or `"skipped"` (user chose Skip).
 
 Save the review output — it goes into the PR body in Step 19.
