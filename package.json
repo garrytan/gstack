@@ -58,7 +58,7 @@
     "test:quick": "bun run scripts/test-free-shards.ts --quick",
     "test:pr": "EVALS_JOBS=${EVALS_JOBS:-2} bun run scripts/test-paid-shards.ts --tier gate --profile pr",
     "test:release": "EVALS_ALL=1 EVALS_FRESH=1 EVALS_CACHE_PURPOSE=release bun run scripts/test-paid-shards.ts --tier gate --profile full && EVALS_ALL=1 EVALS_FRESH=1 EVALS_CACHE_PURPOSE=release bun run scripts/test-paid-shards.ts --tier periodic --profile full",
-    "eval:bg:pr": "bin/gstack-detach --label evals-pr --lock gstack-evals --timeout 72000 -- bun run test:pr",
+    "eval:bg:pr": "bin/gstack-detach --label evals-pr --lock gstack-evals --timeout 73164 -- bun run test:pr",
     "eval:bg:release": "bin/gstack-detach --label evals-release --lock gstack-evals --timeout 100000 -- bun run test:release"
   },
   "dependencies": {

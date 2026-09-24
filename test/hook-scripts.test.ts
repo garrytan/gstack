@@ -1147,8 +1147,8 @@ describe('gstack_hook_log_fire writes under the resolved state root', () => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-backstop-'));
     const fakeBin = path.join(base, 'bin');
     fs.mkdirSync(fakeBin);
-    fs.writeFileSync(path.join(fakeBin, 'head'), '#!/bin/sh\nexit 1\n');
-    fs.chmodSync(path.join(fakeBin, 'head'), 0o755);
+    fs.writeFileSync(path.join(fakeBin, 'sed'), '#!/bin/sh\nexit 1\n');
+    fs.chmodSync(path.join(fakeBin, 'sed'), 0o755);
     try {
       withFreezeDir(BOUNDARY, (stateDir) => {
         const { exitCode, output } = runHook(FREEZE_SCRIPT, freezeInput('/Users/dev/project/src/x.ts'),

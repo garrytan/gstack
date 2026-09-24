@@ -536,17 +536,23 @@ _FREEZE_SCRIPT="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
 [ -x "$_FREEZE_SCRIPT" ] && echo "FREEZE_AVAILABLE" || echo "FREEZE_UNAVAILABLE"
 ```
 
-**If FREEZE_AVAILABLE:** Identify the narrowest directory containing the affected files. Write it to the freeze state file:
+**If FREEZE_AVAILABLE:** Identify the narrowest directory containing the affected files. Acquire a run-owned boundary; the helper resolves its physical absolute path and leaves any pre-existing user or other-run boundary untouched:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-STATE_DIR="$GSTACK_STATE_ROOT"
-mkdir -p "$STATE_DIR"
-echo "<detected-directory>/" > "$STATE_DIR/freeze-dir.txt"
-echo "Debug scope locked to: <detected-directory>/"
+bash "$HOME/.claude/skills/gstack/freeze/bin/freeze-state.sh" acquire "<detected-directory>"
 ```
 
-Substitute `<detected-directory>` with the actual directory path (e.g., `src/auth/`). Tell the user: "Edits restricted to `<dir>/` for this debug session. This prevents changes to unrelated code. Run `/unfreeze` to remove the restriction."
+Substitute `<detected-directory>` with the actual path (e.g., `src/auth/`). Retain the exact returned `FREEZE_OWNER` token in this run's context (including any checkpoint); never reconstruct it from the current state file. Only a returned token means this run owns a new lock. `FREEZE_PRESERVED` means keep the existing boundary and do not clean it up. On acquisition error, pause before edits and report it; never claim a lock was acquired. Relative legacy state is ambiguous: ask the user to re-establish an absolute boundary via `/freeze`, rather than guessing its original cwd.
+
+Tell the user the boundary and its owner disposition. Hooks enforce Edit/Write restrictions only on hosts supporting those callbacks; on Capy they are advisory. Bash remains outside hook enforcement.
+
+**Terminal cleanup:** On completion, explicit abort, or any known error that ends this investigation, run the following with this run's retained token, before the final response. Skip it when this run acquired no token:
+
+```bash
+bash "$HOME/.claude/skills/gstack/freeze/bin/freeze-state.sh" release "<retained-owner-token>"
+```
+
+The helper compares ownership and removes state under the same mutation lock used by `/freeze`, `/guard`, and `/unfreeze`; a replacement boundary is preserved, even at the same path. Report cleanup errors or `FREEZE_PRESERVED`, never retry by deleting state directly. A hard-killed session cannot run this cleanup: recovery is explicit `/unfreeze` (user-requested removal) or `/freeze` (user-selected replacement). If a mutation lock was abandoned, inspect it with the user after confirming no writer is active; never automatically delete an ambiguous lock.
 
 If the bug spans the entire repo or the scope is genuinely unclear, skip the lock and note why.
 
@@ -667,6 +673,8 @@ Once root cause is confirmed:
 **Fresh verification:** Reproduce the original bug scenario and confirm it's fixed. This is not optional.
 
 Run the test suite and paste the output.
+
+Run the Scope Lock terminal cleanup before reporting completion or an ending error; only use this investigation's retained owner token.
 
 Output a structured debug report:
 ```
