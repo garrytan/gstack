@@ -25,7 +25,7 @@
  * This source-level guard locks two invariants:
  *   1. No remaining `stateFile + '.tmp'` literals in server.ts (regression
  *      catch — a future copy-paste or revert would re-introduce the bug)
- *   2. The 4 known state-write call sites all use `tmpStatePath()`
+ *   2. The 5 known state-write call sites all use `tmpStatePath()`
  *      (positive coverage)
  *
  * Same pattern as terminal-agent.test.ts and dual-listener.test.ts:
@@ -92,7 +92,7 @@ describe('server.ts — state-file temp-path uniqueness', () => {
     // Lock the suffix shape so a future contributor doesn't accidentally
     // strip the uniqueness back out by simplifying the helper.
     const declMatch = SERVER_TS.match(
-      /function tmpStatePath\(\)[^{]*\{([\s\S]*?)\n\}/,
+      /function tmpStatePath\(stateFile: string = config\.stateFile\)[^{]*\{([\s\S]*?)\n\}/,
     );
     expect(declMatch, 'tmpStatePath() declaration not found').not.toBeNull();
     const body = declMatch![1]!;

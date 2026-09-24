@@ -23,7 +23,7 @@ import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { launchWithXProtectHeal } from './xprotect-heal';
-import { readPidStartTime } from './xvfb';
+import { readPidStartTime, shouldSpawnXvfb, pickFreeDisplay, spawnXvfb, xvfbInstallHint, type XvfbHandle } from './xvfb';
 import { withCdpSession } from './cdp-bridge';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
 
@@ -341,6 +341,41 @@ export class BrowserManager {
    */
   onHeadedPromotion?: () => void;
   private intentionalDisconnect = false;
+  private xvfb: XvfbHandle | null = null;
+  private displayAllocation: Promise<void> | null = null;
+  private handoffPending: Promise<string> | null = null;
+  private closing = false;
+  private handoffPrevious: { browser: Browser; pages: Map<number, Page>; tabSessions: Map<number, TabSession>; activeTabId: number } | null = null;
+
+  getXvfbHandle(): XvfbHandle | null { return this.xvfb; }
+
+  async ensureHeadedDisplay(): Promise<void> {
+    if (this.closing) throw new Error('Browser is shutting down');
+    if (this.xvfb) return;
+    if (this.displayAllocation) return this.displayAllocation;
+    if (!shouldSpawnXvfb({ ...process.env, BROWSE_HEADED: '1' }, process.platform).spawn) return;
+    this.displayAllocation = (async () => {
+      const displayNum = pickFreeDisplay();
+      if (displayNum == null) throw new Error('no free X display in range :99-:120 — refusing to clobber existing X servers');
+      try {
+        const handle = await spawnXvfb(displayNum);
+        if (this.closing) {
+          handle.close();
+          throw new Error('Browser is shutting down');
+        }
+        this.xvfb = handle;
+      } catch (err) {
+        throw new Error(`${err instanceof Error ? err.message : String(err)}. ${xvfbInstallHint()}`);
+      }
+    })();
+    try { await this.displayAllocation; }
+    finally { this.displayAllocation = null; }
+  }
+
+  closeOwnedDisplay(): void {
+    this.xvfb?.close();
+    this.xvfb = null;
+  }
 
   // ─── Tab Count Guardrail (D5 + Codex single-tab flag) ───────
   // Idempotent threshold trackers: each guardrail fires exactly once per
@@ -483,6 +518,7 @@ export class BrowserManager {
   }
 
   async launch() {
+    this.closing = false;
     // ─── Extension Support ────────────────────────────────────
     // BROWSE_EXTENSIONS_DIR points to an unpacked Chrome extension directory.
     // Extensions only work in headed mode, so we use an off-screen window.
@@ -605,6 +641,8 @@ export class BrowserManager {
    * every action Claude takes in real time.
    */
   async launchHeaded(authToken?: string): Promise<void> {
+    this.closing = false;
+    await this.ensureHeadedDisplay();
     // Clear old state before repopulating
     this.pages.clear();
     this.tabSessions.clear();
@@ -743,6 +781,7 @@ export class BrowserManager {
     // reinstalled over (probePoisonedChromiumBundle's scope contract).
     this.context = await launchWithXProtectHeal(() => chromium.launchPersistentContext(userDataDir, {
       headless: false,
+      ...(this.xvfb ? { env: { ...process.env, DISPLAY: this.xvfb.display } } : {}),
       // #2220: daemon owns signal policy — see launch() for the rationale.
       handleSIGINT: false,
       handleSIGTERM: false,
@@ -898,14 +937,17 @@ export class BrowserManager {
   private closeRaceMs = 5000;
 
   async close() {
+    this.closing = true;
+    const previousBrowser = this.handoffPrevious?.browser;
+    const currentBrowser = this.browser;
     // unref'd race timer: without unref, every successful close still pins
     // the caller's event loop for the full window.
     const raceTimeout = (ms: number) => new Promise<false>((resolve) => {
       const t = setTimeout(() => resolve(false), ms);
       (t as { unref?: () => void }).unref?.();
     });
-    if (this.browser || (this.connectionMode === 'headed' && this.context)) {
-      if (this.connectionMode === 'headed') {
+    if (this.browser || ((this.connectionMode === 'headed' || this.handoffPrevious) && this.context)) {
+      if (this.connectionMode === 'headed' || this.handoffPrevious) {
         // Headed/persistent context mode: close the context (which closes the browser)
         this.intentionalDisconnect = true;
         if (this.browser) this.browser.removeAllListeners('disconnected');
@@ -932,6 +974,18 @@ export class BrowserManager {
       }
       this.browser = null;
     }
+    if (previousBrowser && previousBrowser !== currentBrowser) {
+      previousBrowser.removeAllListeners('disconnected');
+      const child = previousBrowser.process?.();
+      const closed = await Promise.race([
+        previousBrowser.close().then(() => true), raceTimeout(this.closeRaceMs),
+      ]).catch(() => false);
+      if (!closed && child && child.exitCode === null && !child.killed) {
+        try { child.kill('SIGKILL'); } catch {}
+      }
+    }
+    await this.displayAllocation?.catch(() => {});
+    this.closeOwnedDisplay();
   }
 
   /** Health check — verifies Chromium is connected AND responsive */
@@ -1756,6 +1810,14 @@ export class BrowserManager {
    *   If step 2 fails → return error, headless browser untouched
    */
   async handoff(message: string): Promise<string> {
+    if (this.handoffPending) return this.handoffPending;
+    this.handoffPending = this.promoteToHeaded(message);
+    try { return await this.handoffPending; }
+    finally { this.handoffPending = null; }
+  }
+
+  private async promoteToHeaded(message: string): Promise<string> {
+    if (this.closing) return 'ERROR: Browser is shutting down';
     if (this.connectionMode === 'headed' || this.isHeaded) {
       return `HANDOFF: Already in headed mode at ${this.getCurrentUrl()}`;
     }
@@ -1765,12 +1827,15 @@ export class BrowserManager {
 
     // 1. Save state from current browser
     const state = await this.saveState();
+    if (this.closing) return 'ERROR: Browser is shutting down';
     const currentUrl = this.getCurrentUrl();
+    const previousDisplay = this.xvfb;
 
     // 2. Launch new headed browser with extension (same as launchHeaded)
     //    Uses launchPersistentContext so the extension auto-loads.
     let newContext: BrowserContext;
     try {
+      await this.ensureHeadedDisplay();
       const fs = require('fs');
       const path = require('path');
       const extensionPath = this.findExtensionPath();
@@ -1820,6 +1885,7 @@ export class BrowserManager {
       // exactly as in launch()/launchHeaded().
       newContext = await launchWithXProtectHeal(() => chromium.launchPersistentContext(userDataDir, {
         headless: false,
+        ...(this.xvfb ? { env: { ...process.env, DISPLAY: this.xvfb.display } } : {}),
         // #2220: daemon owns signal policy — see launch() for the rationale.
         handleSIGINT: false,
         handleSIGTERM: false,
@@ -1834,29 +1900,33 @@ export class BrowserManager {
         ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
         timeout: 15000,
       }));
+      if (this.closing) {
+        await newContext.close().catch(() => {});
+        throw new Error('Browser is shutting down');
+      }
     } catch (err: unknown) {
+      if (!previousDisplay) this.closeOwnedDisplay();
+      if (this.closing) return 'ERROR: Browser is shutting down';
       const msg = err instanceof Error ? err.message : String(err);
       return `ERROR: Cannot open headed browser — ${msg}. Headless browser still running.`;
     }
 
-    // 3. Restore state into new headed browser
+    const previous = {
+      browser: this.browser, context: this.context,
+      pages: this.pages, tabSessions: this.tabSessions, tabOwnership: this.tabOwnership,
+      activeTabId: this.activeTabId, nextTabId: this.nextTabId,
+      connectionMode: this.connectionMode, isHeaded: this.isHeaded,
+      dialogAutoAccept: this.dialogAutoAccept, intentionalDisconnect: this.intentionalDisconnect,
+      chromiumProcInfo: this.chromiumProcInfo,
+      tabGuardrailSoftHit: this.tabGuardrailSoftHit, tabGuardrailHardHit: this.tabGuardrailHardHit,
+    };
+    this.handoffPrevious = previous;
     try {
-      // Swap to new browser/context before restoreState (it uses this.context)
-      const oldBrowser = this.browser;
-
       this.context = newContext;
       this.browser = newContext.browser();
-      this.pages.clear();
-      this.tabSessions.clear();
-      this.connectionMode = 'headed';
-
-      // Promotion, not a headed boot. The server registered a parent-process
-      // watchdog because this daemon started headless, and that watchdog kills
-      // headed daemons when their parent exits — which for a CLI-spawned daemon
-      // is immediately. Without this the handed-off browser dies ~15s later,
-      // taking whatever the user was mid-way through (a login, an MFA prompt)
-      // with it.
-      this.onHeadedPromotion?.();
+      this.pages = new Map();
+      this.tabSessions = new Map();
+      this.tabOwnership = new Map();
 
       // Same Layer C stealth as launch()/launchHeaded(). Must run BEFORE
       // restoreState() navigates so the init scripts apply to the restored
@@ -1869,9 +1939,9 @@ export class BrowserManager {
         await newContext.setExtraHTTPHeaders(this.extraHeaders);
       }
 
-      // Register disconnect handler on new browser. Same clean-vs-crash
-      // discrimination as launch() / launchHeaded() above so a user-initiated
-      // Cmd+Q after a handoff doesn't trigger gbd's restart loop.
+      await this.restoreState(state);
+      if (this.closing) throw new Error('Browser is shutting down');
+
       if (this.browser) {
         const browserRef = this.browser;
         this.browser.on('disconnected', () => {
@@ -1880,24 +1950,35 @@ export class BrowserManager {
         });
       }
 
-      await this.restoreState(state);
+      this.connectionMode = 'headed';
       this.isHeaded = true;
       this.dialogAutoAccept = false;  // User controls dialogs in headed mode
+      this.chromiumProcInfo = null;
+      try { this.onHeadedPromotion?.(); }
+      catch (err) { console.warn('[browse] Headed promotion callback failed:', err); }
 
       // 4. Close old headless browser (fire-and-forget)
-      oldBrowser.removeAllListeners('disconnected');
-      oldBrowser.close().catch(() => {});
+      previous.browser.removeAllListeners('disconnected');
+      previous.browser.close().catch(() => {});
 
       return [
         `HANDOFF: Browser opened at ${currentUrl}`,
+        ...(this.xvfb ? ['DISPLAY: Off-screen Xvfb; a separate remote desktop is required for human interaction.'] : []),
         `MESSAGE: ${message}`,
         `STATUS: Waiting for user. Run 'resume' when done.`,
       ].join('\n');
     } catch (err: unknown) {
-      // Restore failed — close the new context, keep old state
       await newContext.close().catch(() => {});
+      if (!this.closing) {
+        Object.assign(this, previous);
+        this.recheckTabGuardrailsOnClose();
+      }
+      if (!previousDisplay) this.closeOwnedDisplay();
+      if (this.closing) return 'ERROR: Browser is shutting down';
       const msg = err instanceof Error ? err.message : String(err);
       return `ERROR: Handoff failed during state restore — ${msg}. Headless browser still running.`;
+    } finally {
+      this.handoffPrevious = null;
     }
   }
 
@@ -1938,22 +2019,25 @@ export class BrowserManager {
 
   // ─── Console/Network/Dialog/Ref Wiring ────────────────────
   private wirePageEvents(page: Page) {
+    const pages = this.pages;
+    const tabSessions = this.tabSessions;
     // Track tab close — remove from pages and sessions maps, switch to another tab
     page.on('close', () => {
-      for (const [id, p] of this.pages) {
+      for (const [id, p] of pages) {
         if (p === page) {
-          this.pages.delete(id);
-          this.tabSessions.delete(id);
-          console.log(`[browse] Tab closed (id=${id}, remaining=${this.pages.size})`);
+          pages.delete(id);
+          tabSessions.delete(id);
+          console.log(`[browse] Tab closed (id=${id}, remaining=${pages.size})`);
           // If the closed tab was active, switch to another
-          if (this.activeTabId === id) {
-            const remaining = [...this.pages.keys()];
-            this.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : 0;
+          const state = pages === this.pages ? this : this.handoffPrevious?.pages === pages ? this.handoffPrevious : null;
+          if (state?.activeTabId === id) {
+            const remaining = [...pages.keys()];
+            state.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : 0;
           }
           break;
         }
       }
-      this.recheckTabGuardrailsOnClose();
+      if (pages === this.pages) this.recheckTabGuardrailsOnClose();
     });
 
     // Clear ref map on navigation — refs point to stale elements after page change
@@ -1961,7 +2045,7 @@ export class BrowserManager {
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame()) {
         // Find the TabSession for this page and clear its per-tab state
-        for (const session of this.tabSessions.values()) {
+        for (const session of tabSessions.values()) {
           if (session.page === page) {
             session.onMainFrameNavigated();
             break;

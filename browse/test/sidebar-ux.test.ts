@@ -23,6 +23,8 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { EventEmitter } from 'node:events';
+import { BrowserManager } from '../src/browser-manager';
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -81,9 +83,56 @@ describe('browser→sidebar tab sync', () => {
   });
 
   test('page close handler removes tab from pages map', () => {
-    expect(bmSrc).toContain("page.on('close'");
-    expect(bmSrc).toContain('this.pages.delete(id)');
-    expect(bmSrc).toContain('Tab closed');
+    const manager = new BrowserManager() as any;
+    const closed = new EventEmitter();
+    const remaining = new EventEmitter();
+    manager.pages = new Map([[1, closed], [2, remaining]]);
+    manager.tabSessions = new Map([[1, { page: closed }], [2, { page: remaining }]]);
+    manager.activeTabId = 1;
+    manager.wirePageEvents(closed);
+
+    closed.emit('close');
+
+    expect(manager.pages.has(1)).toBe(false);
+    expect(manager.tabSessions.has(1)).toBe(false);
+    expect(manager.pages.get(2)).toBe(remaining);
+    expect(manager.tabSessions.get(2).page).toBe(remaining);
+    expect(manager.activeTabId).toBe(2);
+  });
+
+  test('old page close during handoff preserves the replacement browser tabs', () => {
+    const manager = new BrowserManager() as any;
+    const closed = new EventEmitter();
+    const remaining = new EventEmitter();
+    const replacement = new EventEmitter();
+    manager.pages = new Map([[1, closed], [2, remaining]]);
+    manager.tabSessions = new Map([[1, { page: closed }], [2, { page: remaining }]]);
+    manager.activeTabId = 1;
+    manager.wirePageEvents(closed);
+    manager.wirePageEvents(remaining);
+    const previous = { pages: manager.pages, tabSessions: manager.tabSessions, activeTabId: 1 };
+    manager.handoffPrevious = previous;
+    manager.pages = new Map([[1, replacement]]);
+    manager.tabSessions = new Map([[1, { page: replacement }]]);
+
+    closed.emit('close');
+
+    expect(previous.pages.has(1)).toBe(false);
+    expect(previous.tabSessions.has(1)).toBe(false);
+    expect(previous.pages.get(2)).toBe(remaining);
+    expect(previous.activeTabId).toBe(2);
+    expect(manager.pages.get(1)).toBe(replacement);
+    expect(manager.tabSessions.get(1).page).toBe(replacement);
+    expect(manager.activeTabId).toBe(1);
+
+    manager.handoffPrevious = null;
+    remaining.emit('close');
+
+    expect(previous.pages.size).toBe(0);
+    expect(previous.tabSessions.size).toBe(0);
+    expect(manager.pages.get(1)).toBe(replacement);
+    expect(manager.tabSessions.get(1).page).toBe(replacement);
+    expect(manager.activeTabId).toBe(1);
   });
 
   test('syncActiveTabByUrl skips when only 1 tab (no ambiguity)', () => {

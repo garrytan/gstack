@@ -58,7 +58,7 @@ import { startSocksBridge, testUpstream, type BridgeHandle } from './socks-bridg
 import { parseProxyConfig, toUpstreamConfig, ProxyConfigError } from './proxy-config';
 import { writeReceipt } from '../../lib/egress-receipt';
 import { redactProxyUrl } from './proxy-redact';
-import { shouldSpawnXvfb, pickFreeDisplay, spawnXvfb, xvfbInstallHint, type XvfbHandle } from './xvfb';
+import { type XvfbHandle } from './xvfb';
 import { logTunnelDenial } from './tunnel-denial-log';
 import {
   mintSseSessionToken, validateSseSessionToken, extractSseCookie,
@@ -662,8 +662,8 @@ const DIALOG_LOG_PATH = config.dialogLog;
  * for the final state.json content; the only behavior change is that
  * concurrent writers no longer kill each other on the rename.
  */
-function tmpStatePath(): string {
-  return `${config.stateFile}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
+function tmpStatePath(stateFile: string = config.stateFile): string {
+  return `${stateFile}.tmp.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
 }
 
 
@@ -868,9 +868,29 @@ if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
  * death no longer kills the daemon for BEING HEADED, but still kills it when
  * a tunnel is active.
  */
-function suppressHeadedParentShutdown(): void {
+function suppressHeadedParentShutdown(stateConfig: ServerConfig['config'] = config, manager: BrowserManager = activeBrowserManager): void {
   if (headedParentShutdownSuppressed) return;
   headedParentShutdownSuppressed = true;
+  try {
+    const release = acquireAgentStateLock(stateConfig.stateDir);
+    try {
+      const state = JSON.parse(fs.readFileSync(stateConfig.stateFile, 'utf8'));
+      if (state.pid === process.pid && state.instanceId === SERVER_INSTANCE_ID) {
+        const xvfb = manager.getXvfbHandle();
+        state.mode = 'headed';
+        delete state.chromiumPid;
+        delete state.chromiumStartTime;
+        if (xvfb) Object.assign(state, { xvfbPid: xvfb.pid, xvfbStartTime: xvfb.startTime, xvfbDisplay: xvfb.display });
+        const tmpFile = tmpStatePath(stateConfig.stateFile);
+        try {
+          fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
+          fs.renameSync(tmpFile, stateConfig.stateFile);
+        } finally { safeUnlinkQuiet(tmpFile); }
+      }
+    } finally { release(); }
+  } catch (err) {
+    console.warn('[browse] Could not persist headed promotion:', err instanceof Error ? err.message : String(err));
+  }
   console.log('[browse] Parent-death headed shutdown suppressed (promoted to headed at runtime); watchdog stays armed as the tunnel-orphan reaper');
 }
 
@@ -1798,7 +1818,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   // suppress the headed parent-death branch. An embedder-supplied manager
   // otherwise promotes silently and the watchdog keeps shutting down on a
   // promotion it can no longer see.
-  cfgBrowserManager.onHeadedPromotion = suppressHeadedParentShutdown;
+  cfgBrowserManager.onHeadedPromotion = () => suppressHeadedParentShutdown(cfg.config, cfgBrowserManager);
 
   // Wire the cfg-instance's onDisconnect to run shutdown when the user
   // closes the headed browser window. CHAIN any caller-provided handler
@@ -3167,32 +3187,7 @@ export async function start() {
     });
   }
 
-  // ─── Xvfb auto-spawn (Linux + headed + no DISPLAY) ─────────────
-  // codex F2: walk display range to pick a free one (never hardcode :99);
-  // record start-time alongside PID so cleanup can validate ownership and
-  // not kill a recycled PID.
-  let xvfb: XvfbHandle | null = null;
-  const xvfbDecision = shouldSpawnXvfb(process.env, process.platform);
-  if (xvfbDecision.spawn) {
-    const displayNum = pickFreeDisplay();
-    if (displayNum == null) {
-      console.error('[browse] no free X display in range :99-:120 — refusing to clobber existing X servers');
-      process.exit(1);
-    }
-    try {
-      xvfb = await spawnXvfb(displayNum);
-      process.env.DISPLAY = xvfb.display;
-      console.log(`[browse] [xvfb] spawned on ${xvfb.display} (pid ${xvfb.pid})`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[browse] [xvfb] FAILED: ${msg}`);
-      console.error(`[browse] [xvfb] hint: ${xvfbInstallHint()}`);
-      process.exit(1);
-    }
-    process.on('exit', () => { try { xvfb?.close(); } catch { /* shutting down */ } });
-  } else if (process.env.BROWSE_HEADED === '1') {
-    console.log(`[browse] [xvfb] skipped: ${xvfbDecision.reason}`);
-  }
+  process.on('exit', () => { browserManager.closeOwnedDisplay(); });
 
   // Read env once — single source of truth for authToken (and other env).
   // Threaded through launchHeaded, buildFetchHandler, and the state file
@@ -3222,7 +3217,6 @@ export async function start() {
     ...envCfg,
     browsePort: port,        // actual bound port (resolveConfigFromEnv default is 0)
     browserManager,          // module-level instance, same as today
-    xvfb,
     proxyBridge,
     startTime,
     ownsTerminalAgent: true, // CLI spawns terminal-agent.ts itself (see cli.ts:1037-1063)
@@ -3234,7 +3228,27 @@ export async function start() {
     fetch: handle.fetchLocal,
   });
 
+  browserManager.serverPort = port;
+
+  // Navigate to welcome page if in headed mode and still on about:blank
+  if (browserManager.getConnectionMode() === 'headed') {
+    try {
+      const currentUrl = browserManager.getCurrentUrl();
+      if (currentUrl === 'about:blank' || currentUrl === '') {
+        const page = browserManager.getPage();
+        await page.goto(`http://127.0.0.1:${port}/welcome`, { timeout: 3000 }).catch((err: any) => {
+          console.warn('[browse] Failed to navigate to welcome page:', err.message);
+        });
+      }
+    } catch (err: any) {
+      console.warn('[browse] Welcome page navigation setup failed:', err.message);
+    }
+  }
+
+  if (isShuttingDown) return;
+
   // Write state file (atomic: write .tmp then rename)
+  const xvfb = browserManager.getXvfbHandle();
   const state: Record<string, unknown> = {
     pid: process.pid,
     instanceId: SERVER_INSTANCE_ID,
@@ -3284,8 +3298,6 @@ export async function start() {
     }, stateWatchMs);
     (stateWatch as any).unref?.();
   }
-
-  browserManager.serverPort = port;
 
   // ─── Opt-in session persistence (#778 class) ─────────────────
   // BROWSE_PERSIST_STATE=1: restore cookies/storage/tabs from the last
@@ -3337,21 +3349,6 @@ export async function start() {
         .finally(() => { persistInFlight = false; });
     }, sessionPersistIntervalMs());
     (sessionPersistInterval as any)?.unref?.();
-  }
-
-  // Navigate to welcome page if in headed mode and still on about:blank
-  if (browserManager.getConnectionMode() === 'headed') {
-    try {
-      const currentUrl = browserManager.getCurrentUrl();
-      if (currentUrl === 'about:blank' || currentUrl === '') {
-        const page = browserManager.getPage();
-        page.goto(`http://127.0.0.1:${port}/welcome`, { timeout: 3000 }).catch((err: any) => {
-          console.warn('[browse] Failed to navigate to welcome page:', err.message);
-        });
-      }
-    } catch (err: any) {
-      console.warn('[browse] Welcome page navigation setup failed:', err.message);
-    }
   }
 
   // Clean up stale state files (older than 7 days)
