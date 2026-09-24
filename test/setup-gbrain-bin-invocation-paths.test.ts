@@ -125,7 +125,12 @@ describe('setup-gbrain/memory.md — bin invocation paths', () => {
   });
 
   test('the troubleshooting full-pass mention uses bun run + .ts (R5)', () => {
-    expect(memoryDoc).toContain('Run `bun run bin/gstack-gbrain-sync.ts --full` to do a full pass.');
+    expect(memoryDoc).toMatch(
+      /If you chose A, B,\s+or C, run `bun run bin\/gstack-gbrain-sync\.ts --full` for that scope/
+    );
+    expect(memoryDoc).toMatch(
+      /D does not\s+import historical sessions, and E keeps transcripts off\./
+    );
   });
 
   test('the troubleshooting incremental-reingest mention uses bun run + .ts (R5)', () => {
