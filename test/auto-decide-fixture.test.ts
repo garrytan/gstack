@@ -10,7 +10,7 @@ import selectorCapture from './fixtures/auto-decide-mode-selector-749df.json';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TARGET = 'plan-ceo-review-mode';
-const UNRELATED = 'feature-continuous-checkpoint';
+const UNRELATED = 'telemetry-consent';
 
 function withFixture(check: (fixture: {
   state: string;
@@ -149,17 +149,17 @@ await import(path.join(root, 'test/skill-e2e-auto-decide-preserved.test.ts'));
       expect(output).not.toContain('GSTACK_INSTRUCTION_BEGIN:');
       expect(run('gstack-config', ['get', 'cross_project_learnings'])).toBe('false');
       expect(run('gstack-question-preference', ['--check', TARGET, '--summary-stdin'], 'Choose the CEO review mode')).toBe('AUTO_DECIDE\n');
-      expect(run('gstack-question-preference', ['--check', UNRELATED, '--summary-stdin'], 'Enable continuous checkpoint auto-commits?')).toBe('ASK_NORMALLY\n');
+      expect(run('gstack-question-preference', ['--check', UNRELATED, '--summary-stdin'], 'Share anonymous usage data?')).toBe('ASK_NORMALLY\n');
       expect(JSON.parse(fs.readFileSync(preferenceFile, 'utf8'))).toEqual({ [TARGET]: 'never-ask' });
     });
   });
 
-  test('the missing checkpoint marker reproduces the unrelated question from both paid failures', () => {
+  test('the missing checkpoint marker no longer introduces an unrelated question', () => {
     withFixture(({ state, run }) => {
-      fs.unlinkSync(path.join(state, '.feature-prompted-continuous-checkpoint'));
+      expect(fs.existsSync(path.join(state, '.feature-prompted-continuous-checkpoint'))).toBe(false);
       const output = run('gstack-skill-start', ['--skill', 'plan-ceo-review']);
-      expect(output).toContain('GSTACK_INSTRUCTION_BEGIN: feature-checkpoint ');
-      expect(output).toContain('Feature discovery: AskUserQuestion for Continuous checkpoint auto-commits.');
+      expect(output).not.toContain('GSTACK_INSTRUCTION_BEGIN:');
+      expect(output).not.toMatch(/checkpoint/i);
       expect(run('gstack-question-preference', ['--check', TARGET])).toBe('AUTO_DECIDE\n');
       expect(run('gstack-question-preference', ['--check', UNRELATED])).toBe('ASK_NORMALLY\n');
     });

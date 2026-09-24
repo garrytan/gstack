@@ -25,6 +25,16 @@ function scratch(): string {
 }
 
 describe('shared-code legacy interactive actor', () => {
+  test('both native index-flag captures select every owning interactive lifecycle case', () => {
+    for (const fixture of ['test/fixtures/shared-libs-index-flags-skip-question.json',
+      'test/fixtures/shared-libs-index-flags-no-change-description.json']) {
+      expect(selectTests([fixture], E2E_TOUCHFILES, GLOBAL_TOUCHFILES).selected.sort()).toEqual([
+        'shared-libs-review-index-flags', 'shared-libs-review-lifecycle', 'shared-libs-review-path-eligibility',
+        'shared-libs-review-prior-coverage', 'shared-libs-review-revalidation',
+      ]);
+    }
+  });
+
   for (const [choose, labels] of [['approve', ['Fix it', 'Apply remedy', 'Approve', 'Extract helper', 'Reuse library', 'Choice (recommended)']],
     ['skip', ['Skip', 'Keep current', 'Decline', 'Do not change', 'Leave as-is']]] as const) {
     test.each(labels)(`${choose} supports the declared choice: %s`, async label => {
@@ -71,6 +81,58 @@ describe('shared-code legacy interactive actor', () => {
     expect(await callback('AskUserQuestion', input)).toEqual({ behavior: 'allow', updatedInput: { ...input, answers: expected } });
     expect(answers).toEqual([{ question: input, answer: expected }]);
     expect(input).toEqual(before);
+  });
+
+  const preservationCaptures = JSON.parse(fs.readFileSync(path.join(import.meta.dir,
+    'fixtures/shared-libs-index-flags-no-change-description.json'), 'utf8')).cases;
+
+  test.each(preservationCaptures)('captured preservation description acknowledges both native choices, attempt $attempt', async ({ input }) => {
+    const before = structuredClone(input), questions: unknown[] = [], answers: unknown[] = [];
+    const refused: Error[] = [];
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => { throw new Error('unexpected tool'); },
+      onQuestion: question => { questions.push(question); },
+      onAnswer: (question, answer) => { answers.push({ question, answer }); },
+      onRefusal: error => { refused.push(error); },
+    });
+    expect(input.questions).toHaveLength(2);
+    const expected = { [input.questions[0].question]: 'Skip', [input.questions[1].question]: 'Leave it' };
+    expect(await callback('AskUserQuestion', input)).toEqual({ behavior: 'allow', updatedInput: { ...input, answers: expected } });
+    expect(questions).toEqual([input]);
+    expect(answers).toEqual([{ question: input, answer: expected }]);
+    expect(refused).toEqual([]);
+    expect(input).toEqual(before);
+  });
+
+  test.each(['Leave this', 'Keep these', 'Leave them', 'Keep it'])('a preservation description supplies explicit no-change evidence for %s', async label => {
+    const input = { questions: [{ question: 'Index flag', options: [
+      { label: 'Clear the flag', description: 'Update the index.' },
+      { label, description: 'Don’t touch the index flag; record missing coverage.' },
+    ] }] };
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => {}, onQuestion: () => {}, onAnswer: () => {},
+    });
+    expect((await callback('AskUserQuestion', input)).updatedInput.answers).toEqual({ 'Index flag': label });
+  });
+
+  test.each([
+    { description: 'Do not touch the worker; clear the index flag.' },
+    { label: 'Leave it and fix the worker' },
+    { preview: '// Apply the route fix.' },
+    { description: 'Keep going.' },
+    { description: '' },
+    { label: 'Investigate', description: 'Do not change source; investigate another repository.' },
+  ])('a captured packet cannot partially acknowledge or authorize changed preservation commitments: %j', async changed => {
+    const input = structuredClone(preservationCaptures[0].input);
+    Object.assign(input.questions[1].options[1], changed);
+    const answered: unknown[] = [], refused: Error[] = [];
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => {}, onQuestion: () => {}, onAnswer: answer => { answered.push(answer); },
+      onRefusal: error => { refused.push(error); },
+    });
+    await expect(callback('AskUserQuestion', input)).rejects.toThrow('No unambiguous no-change option');
+    expect(refused).toHaveLength(1);
+    expect(answered).toEqual([]);
   });
 
   test.each([
@@ -121,6 +183,7 @@ describe('shared-code legacy interactive actor', () => {
     [{ label: 'Leave logging disabled and fix parser' }],
     [{ label: 'Skip' }, { label: 'Decline' }],
     [{ label: 'Keep current' }, { label: 'Leave unchanged' }],
+    [{ label: 'Leave it', description: 'Do not touch the index.' }, { label: 'Keep this', description: 'Do not clear the flag.' }],
     [{ label: 'Skip', preview: { text: 'invalid native field' } }],
   ])('skip refuses ambiguous or affirmative commitments and latches the refusal: %j', async options => {
     const refused: Error[] = [], answered: unknown[] = [];

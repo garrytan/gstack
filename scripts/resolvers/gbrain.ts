@@ -246,7 +246,7 @@ export function generateBrainWriteBack(ctx: TemplateContext): string {
 
   return `## Brain Calibration Write-Back (gated)
 
-Skip unless \`BRAIN_CALIBRATION_WRITEBACK\` is set and the preamble/brain-health
+${ctx.skillName === 'plan-eng-review' ? '`BRAIN_CALIBRATION_WRITEBACK` is a reserved default-off gate; this runtime does not set it. Skip this section and continue the finish sequence. Do not enable it or infer permission from brain availability. The contract below is retained for future gated integration, not an instruction to write now.\n\n' : ''}Skip unless \`BRAIN_CALIBRATION_WRITEBACK\` is set and the preamble/brain-health
 output or gstack config shows \`brain_trust_policy@<endpoint-hash>=personal\`.
 If unknown, skip. If both gates pass, record one durable
 typed prediction with \`mcp__gbrain__takes_add\`; if unavailable, use

@@ -195,10 +195,6 @@ if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
 echo "MODEL_OVERLAY: $MODEL_OVERLAY"
-_CHECKPOINT_MODE=$("$_BIN/gstack-config" get checkpoint_mode 2>/dev/null || echo "explicit")
-_CHECKPOINT_PUSH=$("$_BIN/gstack-config" get checkpoint_push 2>/dev/null || echo "false")
-echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
-echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
 # Plan-mode hint for skills that branch on plan-mode state. Detected best-effort
 # from CLAUDE_PLAN_FILE (set by the harness when plan mode is active); "inactive"
 # is the safe default (file+execute pipeline).
@@ -365,11 +361,7 @@ fi
 # Feature discovery (one prompt per session, marker-gated). These are
 # machine-local UX acknowledgements, so keep them in GSTACK_HOME rather than
 # beside an install path that may resolve through a project-local symlink.
-if [ ! -f "$_GH/.feature-prompted-continuous-checkpoint" ]; then
-  _emit_block feature-checkpoint <<EOI
-Feature discovery: AskUserQuestion for Continuous checkpoint auto-commits. If accepted, run \`$_BIN/gstack-config set checkpoint_mode continuous\`. Always run: \`touch "$_GH/.feature-prompted-continuous-checkpoint"\`.
-EOI
-elif [ ! -f "$_GH/.feature-prompted-model-overlay" ]; then
+if [ ! -f "$_GH/.feature-prompted-model-overlay" ]; then
   _emit_block feature-overlay <<EOI
 Feature discovery: inform "Model overlays are active. MODEL_OVERLAY shows the patch." Always run: \`touch "$_GH/.feature-prompted-model-overlay"\`.
 EOI

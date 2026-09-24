@@ -310,8 +310,8 @@ context. Base the diagram on that read.
    - What transforms it? (validation, mapping, computation)
    - Where does it go? (database write, API response, rendered output, side effect)
    - What can go wrong at each step? (null/undefined, invalid input, network failure, empty collection)
-3. **Diagram the execution.** For each changed file, draw an ASCII diagram showing:
-   - Every function/method that was added or modified
+3. **Diagram the execution.** For each ${mode === 'plan' ? 'existing or proposed component in the selected target' : 'changed file'}, draw an ASCII diagram showing:
+   - Every ${mode === 'plan' ? 'existing or proposed function/method in scope' : 'function/method that was added or modified'}
    - Every conditional branch (if/else, switch, ternary, guard clause, early return)
    - Every error path (try/catch, rescue, error boundary, fallback)
    - Every call to another function (trace into it — does IT have untested branches?)
@@ -323,7 +323,7 @@ This is the critical step — you're building a map of every line of code that c
   sections.push(`
 **${mode === 'ship' ? '2' : 'Step 2'}. Map user flows, interactions, and error states:**
 
-Code coverage isn't enough — you need to cover how real users interact with the changed code. For each changed feature, think through:
+Code coverage isn't enough — you need to cover how real users interact with ${mode === 'plan' ? 'the selected target. For each existing or proposed feature' : 'the changed code. For each changed feature'}, think through:
 
 - **User flows:** What sequence of actions does a user take that touches this code? Map the full journey (e.g., "user clicks 'Pay' → form validates → API call → success/failure screen"). Each step in the journey needs a test.
 - **Interaction edge cases:** What happens when the user does something unexpected?

@@ -287,7 +287,7 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
 
   let repoDir: string;
 
-  function makeRepo(): void {
+  function makeRepo(): string {
     repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-policy-repo-'));
     const git = (...args: string[]) =>
       spawnSync('git', args, { cwd: repoDir, encoding: 'utf-8', timeout: 30_000 });
@@ -296,6 +296,12 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
     fs.writeFileSync(path.join(repoDir, 'README.md'), 'fixture\n');
     git('add', '-A');
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'fixture');
+    const origin = spawnSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: repoDir, encoding: 'utf-8', timeout: 30_000,
+      env: { ...process.env, GSTACK_HOME: tmpHome, HOME: tmpHome },
+    });
+    expect(origin.status, origin.stderr).toBe(0);
+    return origin.stdout.trim();
   }
 
   function runSync(): { status: number; text: string; stages: any[] } {
@@ -326,8 +332,8 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
   });
 
   test('deny → code stage refuses loudly, exit 1, status refused-policy-deny', () => {
-    makeRepo();
-    expect(run(['set', REPO_URL, 'deny']).status).toBe(0);
+    const origin = makeRepo();
+    expect(run(['set', origin, 'deny']).status).toBe(0);
     const r = runSync();
     expect(r.status).toBe(1);
     expect(r.text).toContain('refused');
@@ -337,8 +343,8 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
   });
 
   test('read-only → clean skip (exit 0), status skipped-policy-read-only', () => {
-    makeRepo();
-    expect(run(['set', REPO_URL, 'read-only']).status).toBe(0);
+    const origin = makeRepo();
+    expect(run(['set', origin, 'read-only']).status).toBe(0);
     const r = runSync();
     expect(r.status).toBe(0);
     expect(r.text).toContain('read-only');
@@ -348,8 +354,8 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
 
   test('store exists but unreadable → fail-closed refusal, never bypassed', () => {
     if (!canRevokeReads()) return; // chmod is advisory here (win32, root, DAC-override containers)
-    makeRepo();
-    expect(run(['set', REPO_URL, 'deny']).status).toBe(0);
+    const origin = makeRepo();
+    expect(run(['set', origin, 'deny']).status).toBe(0);
     fs.chmodSync(policyFile(), 0o000);
     try {
       const r = runSync();

@@ -2,16 +2,34 @@
 
 ## [1.90.0.0] - 2026-09-24
 
-`/sync-gbrain` can check whether the current worktree's pages are readable without writing a probe page or deleting guidance when the answer is uncertain.
+This release tightens failure reporting, owned state, browser handoff, and cross-host skill execution.
 
 ### Fixed
-- Readiness now matches the registered source to this worktree before checking its page count, then reads a page from that same source. A foreign pin, failed read, invalid count, or unavailable service stays `unknown` and preserves existing guidance; a verified empty source can still offer reindexing.
-- The Windows readiness fixture invokes the same Bun-backed `gbrain` command through a `.cmd` shim and preserves the inherited PATH spelling and separator.
-- The developer-experience question-floor check recognizes a grounded target choice by its structure rather than one phrasing, without accepting unrelated answers.
-- Engineering review follows its preparation and complexity-gate paths in order, keeps each decision and required report write verifiable, and never enables calibration write-back without its explicit gate.
+- Test-output and shard supervision recognize supported failure formats, reconcile executed cases, and keep skipped or unfinished evaluations out of pass credit.
+- `/investigate` releases only its owned freeze boundary, including interrupted-session recovery; `/ship` refreshes managed credential hooks without overwriting unmanaged policy or losing chained stdin and exit status.
+- Browser uploads validate canonical targets; headed, displayless, and extension-backed sessions retain their instance-owned state and native runtime behavior. ARM64 setup and Chromium have a native smoke workflow.
+- Aside readiness uses a bounded shell-portable probe and safe fallback; optional design research does not require a browser build. Positional shell literals survive skill-argument expansion.
+- GBrain ingestion and source-scoped readiness distinguish unreadable, foreign, busy, and genuinely empty sources without deleting valid guidance. The Windows readiness fixture invokes the Bun-backed command through a `.cmd` shim without changing PATH semantics.
+- Planning reviews keep the preparation, complexity, remedy, approval, saved-report, and recovery gates in order; developer-experience target choices are recognized structurally without accepting unrelated answers.
+- CI installs Python venv support and verifies the interpreter and pip in an isolated environment.
 
 ### Changed
-- The PR evaluation plan includes source-scoped readiness coverage and the resulting judge and supervision budgets without reducing individual test timeouts, retries, or concurrency.
+- The PR evaluation plan covers source-scoped readiness and the expanded selected actors and judges without reducing individual timeouts, retries, or concurrency.
+
+## [1.89.1.0] - 2026-09-24
+
+### Removed
+
+- **Continuous checkpoint commits.** Skills no longer ask users to enable automatic `WIP:` commits or instruct agents to create them. The checkpoint mode and push settings are no longer advertised or consumed, and existing saved settings are left untouched.
+- **Checkpoint-specific shipping cleanup.** `/ship` no longer exports checkpoint context or rewrites WIP history. It keeps its normal bisectable commit workflow and proceeds directly to verification when changes are already committed. Explicit `/context-save` and `/context-restore` remain available.
+
+### Fixed
+
+- **Native DevEx evaluation replies.** The test driver recognizes the editor hint shown when Claude Code focuses a custom answer, while still checking the exact question and reply before submitting.
+- **Shared-code review evaluation replies.** The no-change driver can use an explicit preservation description to interpret a shorthand label, while still rejecting mixed fix/skip choices and ambiguous answers.
+- **Windows timeout test readiness.** The process-cleanup regression waits for a live descendant before firing its registered deadline, while a separate real-clock case keeps startup bounded.
+- **Design consultation workflow.** Font and design rules now precede proposal drafting and independent input. Optional-browser routing, existing-system choices, preview feedback and command/session requirements are explicit, and token extraction cannot write the project's design file before approval.
+- **Shipping and engineering-review gates.** Missing dispatched reviewers now have an explicit stop/resume path, late shipping fixes return through fresh review, and evidence recovery distinguishes stale inputs from an unavailable ledger. Engineering review separates scope assessment, selector answers and remedy decisions, with ordered preparation and recovery.
 
 ## [1.89.0.0] - 2026-09-24
 

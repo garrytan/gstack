@@ -339,7 +339,6 @@ if (evalsEnabled) {
     '.telemetry-prompted',
     '.proactive-prompted',
     '.first-loop-tip-shown',
-    '.feature-prompted-continuous-checkpoint',
     '.feature-prompted-model-overlay',
   ]) {
     const p = path.join(gstackDir, f);

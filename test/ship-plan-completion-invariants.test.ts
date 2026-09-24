@@ -72,27 +72,24 @@ describe('ship/SKILL.md — Plan Completion gate invariants (VAS-449 remediation
     expect(todos).toMatch(/unpersisted[^\n]+Step 19/);
   });
 
-  test('CHANGELOG consumes WIP context before the later squash export', () => {
+  test('CHANGELOG uses the normal workflow without checkpoint context or squash prerequisites', () => {
     const changelog = fs.readFileSync(path.join(SHIP_DIR, 'sections/changelog.md'), 'utf8');
-    const entry = fs.readFileSync(path.join(SHIP_DIR, 'SKILL.md'), 'utf8');
-    const readAt = changelog.indexOf('git log origin/<base>..HEAD --grep="^WIP:" --format="%H%n%B"');
-    expect(readAt).toBeGreaterThanOrEqual(0);
-    expect(readAt).toBeLessThan(changelog.indexOf('**Write the CHANGELOG entry**'));
-    const squash = entry.slice(entry.indexOf('### Step 15.0:'), entry.indexOf('### Step 15.1:'));
-    expect(squash).not.toContain('This file becomes input to the CHANGELOG entry');
-    expect(squash).toContain('Step 13 already read');
+    expect(changelog).toContain('**Write the CHANGELOG entry**');
+    expect(changelog).not.toMatch(/WIP:|gstack-context|checkpoint|squash|Step 15\.0/);
   });
 
   test('live evidence recovery distinguishes bookkeeping failure from stale inputs', () => {
     const entry = fs.readFileSync(path.join(SHIP_DIR, 'SKILL.md'), 'utf8');
     const gate = entry.slice(entry.indexOf('## Step 16:'), entry.indexOf('## Step 17:'));
-    expect(gate).toContain('content, command, or age mismatch');
-    expect(gate).toContain('ledger alone cannot record or verify');
+    expect(gate).toContain('Content, command or age mismatch, or no passing live evidence');
+    expect(gate).toContain('Ledger read/write failure only');
     expect(gate).toContain('unchanged final content');
-    expect(gate).toMatch(/exact command,\s+exit, and log/);
-    expect(gate).toContain('never label the ledger FRESH');
-    expect(gate).toContain('Do not rerun green suites solely for bookkeeping');
-    expect(gate).toContain('a failed RUN does');
+    expect(gate).toMatch(/exact command and permitted age, cite its exit,\s+timestamp and log/);
+    expect(gate).toMatch(/never\s+ledger FRESH/);
+    expect(gate).toMatch(/Do not rerun green suites solely because the ledger cannot save\s+or read its record/);
+    expect(gate).toContain('required live RUN must pass');
+    expect(gate).toMatch(/TODO edits and generated tests are content\s+changes, not ledger-only bookkeeping/);
+    expect(gate).toContain('If unchanged content cannot be confirmed, STOP');
   });
 
   test('ship contract precedes base detection and fresh remote facts precede distribution decisions', () => {
@@ -105,18 +102,15 @@ describe('ship/SKILL.md — Plan Completion gate invariants (VAS-449 remediation
     expect(entry).toContain('commit with Step 15');
   });
 
-  test('WIP consolidation runs on committed content and refuses merge or published-history rewrites', () => {
+  test('bisectable commits proceed directly to verification without rewriting existing history', () => {
     const entry = fs.readFileSync(path.join(SHIP_DIR, 'SKILL.md'), 'utf8');
-    const prepare = entry.slice(entry.indexOf('### Step 15.0:'), entry.indexOf('### Step 15.1:'));
-    const consolidate = entry.slice(entry.indexOf('### Step 15.2:'), entry.indexOf('## Step 16:'));
-    expect(prepare).toContain('checkpoint_mode');
-    expect(prepare).not.toContain('git rebase -i');
-    expect(consolidate).toContain('git fetch origin');
-    expect(consolidate).toMatch(/merge commits[\s\S]+published commits[\s\S]+preserve/);
-    expect(consolidate).toMatch(/clean working\s+tree/);
-    expect(consolidate).toContain('ORIGINAL_TREE');
-    expect(consolidate).toContain('git rebase --abort');
-    expect(consolidate).not.toContain('git reset --soft');
+    const commit = entry.slice(entry.indexOf('## Step 15:'), entry.indexOf('## Step 16:'));
+    expect(commit).toContain('Create small, logical commits for `git bisect`');
+    expect(commit).toContain('If all changes are already committed, continue to Step 16');
+    expect(commit).toContain('never create an empty commit');
+    expect(commit).toContain('Each commit must work independently');
+    expect(commit).not.toMatch(/checkpoint|WIP|squash|git rebase|git reset/);
+    expect(entry).not.toMatch(/Step 15\.[012]/);
   });
 
   test('a rejected push stops publication and routes changed content back through verification', () => {
@@ -129,63 +123,6 @@ describe('ship/SKILL.md — Plan Completion gate invariants (VAS-449 remediation
     expect(push).toContain('Only a successful push');
   });
 });
-
-for (const mode of ['linear', 'merge', 'published', 'dirty'] as const) {
-  test(`WIP shell protocol handles ${mode} history without altering reviewed content`, () => {
-    // Exercise Git's shell-command editor boundary even on non-Windows hosts.
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ship wip safety-'));
-    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
-      GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.invalid',
-      GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.invalid' };
-    const git = (...args: string[]) => {
-      const r = spawnSync('git', args, { cwd, env, encoding: 'utf8', timeout: 5000 });
-      if (r.status !== 0) throw new Error(r.stderr || String(r.error));
-      return r.stdout.trim();
-    };
-    try {
-      git('init', '-b', 'main');
-      fs.writeFileSync(path.join(cwd, 'app'), 'base\n');
-      git('add', 'app'); git('commit', '-m', 'base');
-      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
-      git('switch', '-c', 'feature');
-      for (const text of ['first', 'second']) {
-        fs.writeFileSync(path.join(cwd, 'app'), text + '\n');
-        git('commit', '-am', `WIP: ${text}`);
-      }
-      if (mode === 'merge') {
-        git('switch', 'main');
-        fs.writeFileSync(path.join(cwd, 'upstream'), 'merged base\n');
-        git('add', 'upstream'); git('commit', '-m', 'base moved');
-        git('update-ref', 'refs/remotes/origin/main', 'HEAD');
-        git('switch', 'feature'); git('merge', 'main', '--no-edit');
-      }
-      if (mode === 'published') git('update-ref', 'refs/remotes/origin/feature', 'HEAD');
-      if (mode === 'dirty') fs.appendFileSync(path.join(cwd, 'app'), 'uncommitted\n');
-      const originalHead = git('rev-parse', 'HEAD');
-      const originalTree = git('rev-parse', 'HEAD^{tree}');
-      // Plain interactive rebase omits merge entries; the protocol must refuse
-      // that range before a syntactically valid todo can flatten its history.
-      const commits = git('rev-list', '--reverse', '--no-merges', 'origin/main..HEAD').split('\n');
-      const todo = path.join(cwd, '.git/prepared-todo');
-      fs.writeFileSync(todo, commits.map((sha, i) => `${i ? 'fixup' : 'reword'} ${sha}`).join('\n') + '\n');
-      const editor = path.join(cwd, '.git/reword-editor');
-      fs.writeFileSync(editor, '#!/bin/sh\nprintf "feat: logical change\\n" > "$1"\n', { mode: 0o755 });
-      const source = fs.readFileSync(path.join(SHIP_DIR, 'SKILL.md.tmpl'), 'utf8');
-      const snippet = source.match(/```bash\n(export WIP_TODO=[\s\S]*?)\n```/)![1]
-        .replace('<absolute path to prepared todo>', todo).replaceAll('origin/<base>', 'origin/main');
-      const result = spawnSync('bash', ['-c', snippet], {
-        // GIT_EDITOR is a shell command; raw Windows paths lose their backslashes.
-        cwd, env: { ...env, WIP_EDITOR: 'sh .git/reword-editor' }, encoding: 'utf8', timeout: 10_000,
-      });
-      expect(result.status, result.stderr).toBe(mode === 'linear' ? 0 : 1);
-      expect(git('rev-parse', 'HEAD^{tree}')).toBe(originalTree);
-      if (mode === 'linear') {
-        expect(git('rev-list', '--count', 'origin/main..HEAD')).toBe('1');
-        expect(git('log', '-1', '--format=%s')).toBe('feat: logical change');
-      } else expect(git('rev-parse', 'HEAD')).toBe(originalHead);
-    } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
-  });
-}
 
 test('push idempotency requires the live remote SHA and fails closed on transport errors', () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-push-state-'));
