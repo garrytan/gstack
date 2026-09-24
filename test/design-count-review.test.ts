@@ -14,6 +14,8 @@ import scoredPasses from './fixtures/design-review-n-calls.json';
 import outsideCalls from './fixtures/design-outside-y-calls.json';
 import boundaryCalls from './fixtures/design-boundaries-y-calls.json';
 import gapCalls from './fixtures/design-gap-z-calls.json';
+import septemberFirst from './fixtures/design-count-sep21-first-call.json';
+import septemberConfirmation from './fixtures/design-count-sep21-confirm-first-call.json';
 
 const calls = () => structuredClone(captured.calls) as NativePlanQuestionCall[];
 const fingerprint = (call: NativePlanQuestionCall) => nativePlanCallFingerprint(call, 0, true);
@@ -40,6 +42,190 @@ function replay(input: NativePlanQuestionCall[], first = isDesignCountFirstRevie
   }
   return { ...counts, started, phases };
 }
+
+describe('a compound primary-action question owns the current gap and its native remedies', () => {
+  const current = () => structuredClone(septemberFirst.calls[0]) as NativePlanQuestionCall;
+  const changed = (change: (q: NativePlanQuestionCall['questions'][number]) => void) => {
+    const c = current(), q = c.questions[0]!; change(q);
+    c.answers = {[q.question]: q.options[0]!.label}; return fingerprint(c);
+  };
+  test('the exact September 21 first call starts review for every offered answer', () => {
+    const c = current(), q = c.questions[0]!;
+    for (const option of q.options) {
+      c.answers = {[q.question]: option.label};
+      expect(isDesignCountFirstReview(fingerprint(c))).toBe(true);
+      expect(replay([c])).toMatchObject({step0: 0, review: 1, administrative: 0, started: true});
+    }
+  });
+  test('the same control, count, peer and color relationships work beyond the captured values', () => {
+    expect(isDesignCountFirstReview(changed(q => {
+      q.header = 'Publish primary';
+      q.question = q.question.replaceAll('Save', 'Publish').replace('Four buttons', '4 buttons');
+      q.options = q.options.map(o => ({
+        label: o.label.replaceAll('Save', 'Publish'),
+        description: o.description?.replaceAll('Save', 'Publish').replace('#1d4ed8 with white', '#ffee22 with black')
+          .replace('Reset/Cancel/Export', 'Export, Reset, Cancel'),
+      }));
+    }))).toBe(true);
+  });
+  test('the compound title still needs a current owned gap, bound controls, concrete remedy and unresolved alternative', () => {
+    const changes: Array<(q: NativePlanQuestionCall['questions'][number]) => void> = [
+      q => {q.header = 'Publish primary';},
+      q => {q.header = 'Setup';},
+      q => {q.question = 'Historical example:\n' + q.question;},
+      q => {q.question = q.question.replace('Save is visually', 'Save was visually');},
+      q => {q.question = q.question.replace('ELI10:', '> ELI10:');},
+      q => {q.question = q.question.replace('Four buttons', 'Three buttons');},
+      q => {q.question = q.question.replace('Four buttons', 'If approved, four buttons');},
+      q => {q.question = q.question.replace('all look the same', 'all have the same height');},
+      q => {q.question = q.question.replace('ELI10:', 'ELI10: Historical example:');},
+      q => {q.question += '\nELI10: Four buttons in a row all look the same.';},
+      q => {q.question = q.question.replace('Reset, Cancel, and Export.', 'Reset, Cancel, and Publish.');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('Save filled', 'Publish filled');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('Reset/Cancel/Export', 'Save/Cancel/Export');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('Reset/Cancel/Export', 'Reset/Cancel/Cancel');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('#1d4ed8', 'blue');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('neutral ghost', 'filled primary');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('Matches DESIGN.md exactly:', 'Historical example:');},
+      q => {q.options[0]!.label = '1A: Prepare review';},
+      q => {q.options[0]!.label = '2A: Filled Save, ghost others (recommended)';},
+      q => {q.options[2]!.label = '2C: Keep four equal buttons, bold the Save label only';},
+      q => {q.options[2]!.description = 'Keep all buttons equal. The next review will decide the styles.';},
+      q => {q.options[2]!.description = q.options[2]!.description?.replace('names Save', 'names Publish');},
+      q => {q.options[2]!.description = q.options[2]!.description?.replace('violates DESIGN.md', 'satisfies DESIGN.md');},
+    ];
+    for (const change of changes) expect(isDesignCountFirstReview(changed(change)), change.toString()).toBe(false);
+  });
+  test('owned closures, withdrawals and approval conditions stay effective in all evidence bodies', () => {
+    for (const suffix of [
+      ' This finding is withdrawn.', ' Issue 1 is "closed".', ' This gap is resolved.',
+      ' This token contract is withdrawn.', ' These styles are cancelled.',
+      ' Assuming approval, proceed with this option.', ' This finding applies only to another project.',
+    ]) for (const owner of [-1, 0, 2]) {
+      expect(isDesignCountFirstReview(changed(q => {
+        if (owner === -1) q.question += suffix;
+        else q.options[owner]!.description += suffix;
+      })), owner + suffix).toBe(false);
+    }
+    expect(isDesignCountFirstReview(changed(q => {
+      q.question += '\n"Issue 1 is closed." Issue 2 is closed.';
+      q.options[0]!.description += ' "This amendment is withdrawn."';
+    }))).toBe(true);
+  });
+  test('native completion, answer identity and projected options remain authoritative', () => {
+    for (const change of [
+      (c: NativePlanQuestionCall) => {c.answered = false;},
+      (c: NativePlanQuestionCall) => {c.failed = true;},
+      (c: NativePlanQuestionCall) => {delete c.answeredAt;},
+      (c: NativePlanQuestionCall) => {c.answers = {};},
+      (c: NativePlanQuestionCall) => {c.answers = {foreign: c.questions[0]!.options[0]!.label};},
+      (c: NativePlanQuestionCall) => {c.unansweredQuestionIndices = [0];},
+      (c: NativePlanQuestionCall) => {c.questions.push(structuredClone(c.questions[0]!));},
+      (c: NativePlanQuestionCall) => {c.questions[0]!.multiSelect = true;},
+    ]) {const c = current(); change(c); expect(isDesignCountFirstReview(fingerprint(c))).toBe(false);}
+    expect(isDesignCountFirstReview({...fingerprint(current()), signature: 'foreign'})).toBe(false);
+    expect(isDesignCountFirstReview({...fingerprint(current()), options: []})).toBe(false);
+    expect(isDesignCountFirstReview({...fingerprint(current()), nativeQuestionIndex: 1})).toBe(false);
+  });
+});
+
+describe('primary finding facts compose across native presentation formats', () => {
+  const current = () => structuredClone(septemberConfirmation.calls[0]) as NativePlanQuestionCall;
+  const changed = (change: (q: NativePlanQuestionCall['questions'][number]) => void) => {
+    const c = current(), q = c.questions[0]!; change(q);
+    c.answers = {[q.question]: q.options[0]!.label}; return fingerprint(c);
+  };
+  test('the next captured comparison, remedy and unresolved debt start review for every native answer', () => {
+    const c = current(), q = c.questions[0]!;
+    for (const option of q.options) {
+      c.answers = {[q.question]: option.label};
+      expect(isDesignCountFirstReview(fingerprint(c))).toBe(true);
+      expect(replay([c])).toMatchObject({step0: 0, review: 1, administrative: 0, started: true});
+    }
+  });
+  test('identity, comparison wording, list separators and style clauses vary independently', () => {
+    for (const peers of ['Reset, Cancel, and Export', 'Export/Reset/Cancel', 'Cancel and Export and Reset']) {
+      for (const separator of ['. ', '; ', ', ']) {
+        expect(isDesignCountFirstReview(changed(q => {
+          q.header = 'Issue 3 Publish';
+          q.question = q.question.replace('D1 — Issue 1:', 'Issue 3:').replaceAll('Save', 'Publish')
+            .replace('Reset/Cancel/Export', peers).replace('Four buttons', '4 buttons')
+            .replace('How should the plan fix it?', 'How can we resolve this hierarchy?');
+          q.options = q.options.map(o => ({label: o.label.replace(/^1/, '3').replaceAll('Save', 'Publish'),
+            description: o.description?.replaceAll('Save', 'Publish').replace('#1d4ed8, white', '#ffee22, black')
+              .replace('text). Reset, Cancel, Export', `text)${separator}Export, Reset, Cancel`)
+              .replace('the four buttons', 'the 4 buttons')}));
+          q.options.reverse();
+        })), peers + separator).toBe(true);
+      }
+    }
+    expect(isDesignCountFirstReview(changed(q => {
+      q.header = 'Save primary';
+      q.question = q.question.replace('indistinguishable from Reset/Cancel/Export in the header', 'visually identical to Reset and Cancel')
+        .replace('Four buttons', 'Three buttons');
+      q.options[0]!.description = q.options[0]!.description?.replace('Reset, Cancel, Export', 'Reset/Cancel');
+      q.options[2]!.description = q.options[2]!.description?.replace('four buttons', 'three buttons');
+    }))).toBe(true);
+  });
+  test('comparison and remedy facts cannot borrow identities, authority or debt from other evidence', () => {
+    const changes: Array<(q: NativePlanQuestionCall['questions'][number]) => void> = [
+      q => {q.header = 'Issue 2 Save';},
+      q => {q.header = 'Issue 1 Publish';},
+      q => {q.question = q.question.replace('Save is indistinguishable', 'Save was indistinguishable');},
+      q => {q.question = q.question.replace('Reset/Cancel/Export', 'Reset/Cancel/Cancel');},
+      q => {q.question = q.question.replace('Reset/Cancel/Export', 'Reset/Cancel/Save');},
+      q => {
+        q.question = q.question.replace('Reset/Cancel/Export', 'Reset//Cancel');
+        q.options[0]!.description = q.options[0]!.description?.replace('Reset, Cancel, Export', 'Reset//Cancel');
+      },
+      q => {q.question = q.question.replace('Four buttons', 'Three buttons');},
+      q => {q.question = q.question.replace('ELI10:', 'ELI10: If approved,');},
+      q => {q.question = q.question.replace('ELI10:', '> ELI10:');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('Save becomes', 'Publish becomes');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('#1d4ed8', 'blue');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('filled primary', 'underlined label');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('Reset, Cancel, Export', 'Reset/Cancel/Cancel');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('neutral ghost', 'filled primary');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('Matches DESIGN.md exactly', 'Matches another design system');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('Matches DESIGN.md exactly', '"Matches DESIGN.md exactly"');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('Matches DESIGN.md exactly', 'If approved, matches DESIGN.md exactly');},
+      q => {q.options[0]!.description = q.options[0]!.description?.replace('Matches DESIGN.md exactly', 'Matches DESIGN.md exactly is false');},
+      q => {
+        q.options[0]!.description = q.options[0]!.description?.replace('Matches DESIGN.md exactly', 'Reuses the current component');
+        q.options[1]!.description += ' Matches DESIGN.md exactly.';
+      },
+      q => {q.options[2]!.description = q.options[2]!.description?.replace('four buttons', 'three buttons');},
+      q => {q.options[2]!.description = q.options[2]!.description?.replace('unresolved design debt', 'resolved design debt');},
+      q => {q.options[2]!.description = q.options[2]!.description?.replace('record it as unresolved', 'do not record it as unresolved');},
+      q => {q.options[2]!.description += ' Do not record this as unresolved design debt.';},
+      q => {q.options[0]!.description += ' ❌ These tokens do not match DESIGN.md.';},
+      q => {q.options[2]!.description = 'Prepare the next review; leave the debt question to it.';},
+    ];
+    for (const change of changes) expect(isDesignCountFirstReview(changed(change)), change.toString()).toBe(false);
+  });
+  test('whole evidence retains ownership and contradiction guards after clause extraction', () => {
+    for (const suffix of [
+      ' ✅ This finding is "withdrawn".', ' ❌ Issue 1 is closed.', ' ❌ This debt is resolved.',
+      ' ✅ This token contract is withdrawn.', ' ❌ These styles are cancelled.',
+      ' ✅ Assuming approval, proceed with this option.', ' This finding applies only to another project.',
+    ]) for (const owner of [-1, 0, 2]) {
+      expect(isDesignCountFirstReview(changed(q => {
+        if (owner === -1) q.question += suffix;
+        else q.options[owner]!.description += suffix;
+      })), owner + suffix).toBe(false);
+    }
+    expect(isDesignCountFirstReview(changed(q => {
+      q.options[0]!.description += ' ❌ This amendment keeps all four header buttons identical.';
+    }))).toBe(false);
+    expect(isDesignCountFirstReview(changed(q => {
+      q.options[2]!.description += ' ❌ Do not leave the four buttons uniform.';
+    }))).toBe(false);
+    expect(isDesignCountFirstReview(changed(q => {
+      q.question += '\n"Issue 1 is closed." Issue 2 is closed.';
+      q.options[0]!.description += ' "This amendment is withdrawn."';
+    }))).toBe(true);
+  });
+});
 
 describe('a declared primary-action issue owns its native amendment and open gap', () => {
   // Minimal AZ public question and choices; the full transcript stays local.

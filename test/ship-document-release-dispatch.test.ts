@@ -10,7 +10,7 @@
  *
  *  - the carved section keeps the full dispatch contract (imperative,
  *    subagent_type, JSON return keys, non-blocking failure), and
- *  - the Claude skeleton names "the /document-release subagent" at its
+ *  - the Claude skeleton names /document-release at its
  *    three touchpoints (manifest trigger via section-index + STOP pointer,
  *    Step 17 handoff, hoisted doc-sync invariant) while the imperative
  *    itself stays carved.
@@ -91,7 +91,7 @@ describe('/ship Step 18 dispatches /document-release (carve visibility)', () => 
     }
   });
 
-  test('claude skeleton names the subagent at all three touchpoints', () => {
+  test('claude skeleton names document-release at all three touchpoints', () => {
     const content = fs.readFileSync(CLAUDE_SKELETON, 'utf-8');
     // Manifest trigger — renders into the section-index row AND the STOP
     // pointer, so it must appear at least twice.
@@ -100,7 +100,7 @@ describe('/ship Step 18 dispatches /document-release (carve visibility)', () => 
     expect(content.split(trigger).length - 1).toBeGreaterThanOrEqual(2);
     // Step 17 handoff.
     expect(content).toContain(
-      'Step 18 (dispatch the /document-release subagent to sync docs)'
+      'Continue to mandatory Step 18 (dispatch /document-release)'
     );
     // Hoisted doc-sync invariant (beside the PR-title invariant).
     expect(content).toContain('**Doc-sync invariant');

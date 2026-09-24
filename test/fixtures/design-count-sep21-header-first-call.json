@@ -1,0 +1,41 @@
+{
+  "provenance": {
+    "source": "September 21 design-count facts diagnostic",
+    "runId": "shared-libs-design-facts-sep21",
+    "sourceCallSha256": "37ff256f4b3485c59bf9e823bfa1b4d2c79e39757fdb68397339041b416126c2"
+  },
+  "calls": [
+    {
+      "sessionId": "f46fbe04-3291-4d12-98d7-bddda43b1681",
+      "toolUseId": "toolu_015hpK1GGLDc2UpK1e8RRodu",
+      "questions": [
+        {
+          "header": "Issue 1: Save",
+          "question": "D1 — Should Save become the only filled primary action in the header, per DESIGN.md?\n\nProject/branch/task: gstack-plan-count on main, account-settings form conformance update.\nELI10: Right now Save, Reset, Cancel and Export look identical. A user scanning the header cannot tell which one finishes their task, and Reset and Cancel are destructive-ish choices sitting at the same visual weight as Save. Users satisfice: they click the first plausible button. Equal weight makes a wrong click as likely as a right one.\nStakes if we pick wrong: accidental Reset/Cancel taps on mobile, and a “which button do I press?” pause on every visit that drains goodwill.\nRecommendation: 1A because DESIGN.md already names the exact tokens and it keeps one accent color on the page (Hierarchy as service; Use conventions).\nCompleteness: 1A=10/10, 1B=8/10, 1C=2/10\nNet: one filled button versus a second tier that DESIGN.md does not define, versus leaving the page with no primary action.",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A) DESIGN.md primary (recommended)",
+              "description": "Save: filled #1d4ed8 with white text, 44px. Reset, Cancel, Export: neutral ghost buttons. ✅ Uses the exact approved tokens; nothing new to design or maintain. ✅ Single accent color keeps the header calm and the primary action obvious in a 3-second scan. ❌ Export loses any visual distinction from the two discard actions; its label must carry the meaning alone. (human: ~1h / CC: ~5min)"
+            },
+            {
+              "label": "1B) Three tiers: filled, outlined, ghost",
+              "description": "Save filled #1d4ed8; Export outlined #1d4ed8 border; Reset and Cancel ghost. ✅ Separates the non-destructive Export from the two discard actions at a glance. ✅ Still leaves Save as the only filled button. ❌ Adds a button variant DESIGN.md does not define, so it needs a new token and a DESIGN.md amendment. ❌ Two blue elements in one row compete for the first glance. (human: ~3h / CC: ~15min)"
+            },
+            {
+              "label": "1C) Keep four equal buttons",
+              "description": "No change; rely on position (Save first) alone. ✅ Zero implementation cost. ✅ No risk of visual drift from the current build. ❌ Leaves a known DESIGN.md violation and no primary action; on 640px and below, Save is full-width but still looks like the others. ❌ Lowers Pass 1 and Pass 5 final scores."
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Should Save become the only filled primary action in the header, per DESIGN.md?\n\nProject/branch/task: gstack-plan-count on main, account-settings form conformance update.\nELI10: Right now Save, Reset, Cancel and Export look identical. A user scanning the header cannot tell which one finishes their task, and Reset and Cancel are destructive-ish choices sitting at the same visual weight as Save. Users satisfice: they click the first plausible button. Equal weight makes a wrong click as likely as a right one.\nStakes if we pick wrong: accidental Reset/Cancel taps on mobile, and a “which button do I press?” pause on every visit that drains goodwill.\nRecommendation: 1A because DESIGN.md already names the exact tokens and it keeps one accent color on the page (Hierarchy as service; Use conventions).\nCompleteness: 1A=10/10, 1B=8/10, 1C=2/10\nNet: one filled button versus a second tier that DESIGN.md does not define, versus leaving the page with no primary action.": "1A) DESIGN.md primary (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-21T18:09:29.711Z"
+    }
+  ]
+}
