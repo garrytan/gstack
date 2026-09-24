@@ -466,7 +466,7 @@ Run `/ship` through to the PR URL. This request authorizes routine work without 
 - Multi-file changesets (auto-split into bisectable commits)
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
-- Test coverage gaps within target threshold (generate, verify, then commit with Step 15; flag any remaining gaps in the PR body)
+- Coverage at or above Step 7's target (verify generated tests, then commit with Step 15; below-target or undetermined coverage follows Step 7's decision gate)
 
 **Re-run behavior (idempotency):**
 Every invocation repeats verification: tests, coverage, plan completion, both
@@ -1466,8 +1466,9 @@ COMPLETION: 4/10 DONE, 1 PARTIAL, 2 NOT DONE, 1 CHANGED, 2 UNVERIFIABLE
 ```
 
 After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
-{"total_items":N,"done":N,"changed":N,"partial":N,"not_done":N,"unverifiable":N,"summary":"<markdown checklist for PR body>"}
+{"total_items":N,"done":N,"changed":N,"partial":N,"not_done":N,"unverifiable":N,"summary":"<markdown checklist for PR body>","error":null}
 Counts map one-to-one to the classifications above and sum to total_items. No plan or no actionable items means all counts are zero with the skip reason in summary. Do not classify work as deferred; only the parent can record a user-approved deferral.
+Use `error:null` for a completed audit, including a valid no-plan result. If the audit cannot complete, set `error` to the failure reason; do not present partial counts as a completed audit. The parent takes the failure fallback whenever `error` is non-null.
 ````
 
 **Parent processing:**
@@ -1931,20 +1932,24 @@ If all conditions are true: suppress the finding. It was intentionally skipped a
    current raw branch, matching the capture. Compute the digest in code, never
    as model-generated text. Sanitized log filenames are not branch identity:
    `topic/a` and `topic-a` can collide.
-4. Verify EVERY evidence path against the snapshot. Enumerate tracked/non-ignored
-   untracked paths, then raw-read/lstat each file and path component; `ls-files`
-   alone is insufficient. Revalidate symlink targets/ancestors, submodules,
-   ignored/outside files and missing/unreadable paths: the parent fingerprint
-   does not cover them. Inspect effective Git attributes/config without conversion:
-   filter, working-tree-encoding, ident, text/eol and core.autocrlf can hide raw
-   changes. Active/unknown transformations require fresh raw-source review even
-   with an unchanged filtered tree. Disable fsmonitor and optional locks.
-   Exclude assume-unchanged, skip-worktree and sparse index entries. Compare each
-   raw file byte-for-byte with its blob in that exact working-tree snapshot,
-   using Git object reads without external diff/textconv or normalization.
-   Missing blobs, mismatches or unknown coverage require revalidation.
-   Only verified regular, untransformed,
-   in-repository paths enter `covered_paths`.
+4. Verify EVERY evidence path against the snapshot, in this order. Stop at the
+   first failed or unknown check and revalidate the advice instead of suppressing it:
+   - **Path:** Enumerate tracked/non-ignored untracked paths, then raw-read/lstat
+     each file and path component; `ls-files` alone is insufficient. Revalidate
+     symlink targets/ancestors, submodules, ignored/outside files and
+     missing/unreadable paths: the parent fingerprint does not cover them.
+   - **Git transformations:** Inspect effective Git attributes/config without
+     conversion: filter, working-tree-encoding, ident, text/eol and core.autocrlf
+     can hide raw changes. Active/unknown transformations require fresh raw-source
+     review even with an unchanged filtered tree. Disable fsmonitor and optional locks.
+     Exclude assume-unchanged, skip-worktree and sparse index entries.
+   - **Bytes:** Set WTREE to the verified `---WTREE---` tree ID and EVIDENCE_PATH
+     to the checked repository-relative path. Compare the raw file byte-for-byte with its blob
+     using `git --no-optional-locks -c core.fsmonitor=false cat-file blob "$WTREE:$EVIDENCE_PATH"`
+     and a binary comparison, with no external diff/textconv or normalization.
+     Check the Git command's exit status separately; missing blobs or mismatches
+     require revalidation. Do not compare against HEAD or create a replacement snapshot.
+   Only verified regular, untransformed, in-repository paths enter `covered_paths`.
    The prior finding's `snapshot_covered_paths` must also cover every evidence
    path; current eligibility cannot prove what prior filters/index flags hid.
    Missing prior coverage is legacy metadata; revalidate it.
@@ -2225,9 +2230,9 @@ Show the full response in a `tool-output` fence. Require successful execution an
 
 Set the outer tool timeout to 600000ms so the provider timeout can report its failure.
 
-Present the full output verbatim. This is informational — it never blocks shipping.
+Present the full output verbatim. Collect actionable findings for the Step 11 completion procedure; a structured P1 finding uses the decision gate below.
 
-**Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
+**Error handling:** Execution failures do not block shipping; findings still follow the approval and convergence gates. Record failed passes as missing coverage and continue to the remaining passes, persistence and Step 11 completion.
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Claude Code authentication failed. Run \`claude auth login\` to authenticate."
 - **Timeout:** "Claude Code exceeded 9 minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if Claude Code had reviewed.
 - **Empty response:** "Claude Code returned no response. Stderr: <paste relevant error>."
@@ -2240,7 +2245,7 @@ If `CODEX_MODE` is `not_installed` / `not_authed` / `disabled`: the preflight al
 
 ### Claude Code structured review (large diffs only, 200+ lines)
 
-If `DIFF_TOTAL >= 200` AND `CODEX_MODE` is `ready`:
+If `CODEX_MODE` is `ready` AND either `DIFF_TOTAL >= 200` or the user explicitly requested the structured review:
 
 Prepare a structured review prompt requesting severity-tagged findings ([P1], [P2], [P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
@@ -2317,22 +2322,22 @@ Read stderr for errors (same error handling as Claude Code adversarial above).
 
 
 
-If `DIFF_TOTAL < 200`: skip this section silently. The Codex (in-host) + Claude Code adversarial passes provide sufficient coverage for smaller diffs.
+If `DIFF_TOTAL < 200` and no explicit structured-review request exists, skip this section. Record the actual adversarial coverage; availability alone never establishes completion.
 
 ---
 
 ### Persist the review result
 
-After all passes complete, persist:
+After all passes finish, including failures, write one record per source/phase/attempt:
 ```bash
 $GSTACK_ROOT/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"codex","outside_provider":"claude-code","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED}' --finish PASS_START
 ```
-PASS_START is this source/phase's original start token. COMPLETED is true only for a completed response (false for timeout, failure, refusal, or missing coverage). CONVERGED is true only if the completed pass made no edits. Each token is consumed once; a fixing pass cannot certify the fixed tree without a fresh full pass. Missing/disabled passes have no token: omit `--finish` and log completed/converged false. Log each source/phase separately so a clean native response cannot hide missing outside coverage.
-Substitute: PHASE = "adversarial" or "structured" for the corresponding pass. STATUS = "clean" only for a completed pass with no findings, "issues_found" if any pass found issues. SOURCE = the completed outside provider for its record; use a separate in-host record for the native subagent. GATE = the Claude Code structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Claude Code was unavailable. If all passes failed, persist status "unavailable" with outside_status "unavailable"; never persist "clean". Record the adversarial and structured phases separately if their coverage differs.
-
----
-
-Retain the historical review-log skill ID; add `"host":"codex","outside_provider":"claude-code","outside_status":"completed|unavailable|disabled|skipped","phase":"adversarial"`. Record differing attempt outcomes separately. `source:"claude-code"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.
+Substitute fields from this record's own outcome, never another pass:
+1. PHASE is `adversarial` or `structured`. SOURCE is `in-host` for the native subagent, `claude-code` only for completed outside CLI output, or `unavailable` when no reviewer completed. Historical `source:"claude"` means native Claude. Preserve reported modelUsage; unknown model identity stays unknown.
+2. OUTSIDE_STATUS is `completed`, `unavailable`, `disabled` or `skipped` for the outside attempt; use `skipped` for a native-only record. Availability/native fallback is not outside completion.
+3. STATUS is `clean` only for this completed pass with no findings, `issues_found` for its findings, or `unavailable` without a completed response. COMPLETED is false for timeout, failure, refusal or missing coverage. CONVERGED is true only when completed and no edits were made.
+4. GATE is `pass`/`fail` for a completed structured review, `skipped` when that phase was not requested, and `informational` for adversarial or unavailable passes. Missing coverage never earns `pass`.
+5. PASS_START is this attempt's original token. Each token is consumed once with `--finish`, including after a started pass fails. An unstarted, disabled or skipped pass has no token: omit `--finish`, with completed/converged false. A fixing pass cannot certify the fixed tree without a fresh full pass.
 
 ### Cross-model synthesis
 
@@ -2404,7 +2409,8 @@ If any learnings come back, name which one applies to the version bump or CHANGE
 ## Step 12: Version bump (auto-decide)
 
 Use **`gstack-version-bump`** for classify/write/repair and `gstack-next-version`
-for slot selection. Bump level and queue collisions remain agent decisions.
+for slot selection. Auto-pick routine bumps; obtain the approvals named below
+unless the user's explicit version policy already delegates those decisions.
 
 1. **Classify state** — pure reader, never writes:
    ```bash
@@ -2412,7 +2418,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    ```
    Save the JSON `baseVersion` as `BASE_VERSION`, then read `state` and dispatch:
    - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Use the recorded level for this release; if absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
+   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Look up step 5's release decision with `$GSTACK_ROOT/bin/gstack-decision-search --scope repo --query "Ship <currentVersion>" --json`; use the level only from an exact-version `Ship <currentVersion> (<level>)` entry. If absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify. On success, follow **ALREADY_BUMPED**, including its queue check; on failure, STOP. Repair alone never re-bumps.
    - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
@@ -2937,7 +2943,7 @@ $GSTACK_ROOT/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y
 ```
 
 Substitute from earlier steps:
-- **COVERAGE_PCT**: coverage percentage from Step 7 diagram (integer, or -1 if undetermined)
+- **COVERAGE_PCT**: Step 7's integer percentage; map `null` to -1 for this metrics record only (undetermined, never zero coverage)
 - **PLAN_TOTAL**: total plan items extracted in Step 8 (0 if no plan file)
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 8 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 8.1
@@ -2985,7 +2991,7 @@ through `gstack-version-bump`; never hand-roll the VERSION/package.json write.
 
 ## Important Rules
 
-- **Never skip tests.** If tests fail, stop.
+- **Never skip required tests.** Apply Step 5's failure triage and Step 16's final-evidence gate; only an explicit waiver for the same verified pre-existing failures can proceed with failing counts disclosed.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
 - **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), and Codex structured review [P1] findings (large diffs only).

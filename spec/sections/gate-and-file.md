@@ -131,7 +131,7 @@ fi
 ); then
   if command -v codex >/dev/null 2>&1; then echo 'CODEX_MODE: ready'; else echo 'CODEX_MODE: not_installed'; fi
 else
-  echo 'CODEX_MODE: under_current_harness'
+  echo 'CODEX_MODE: under_codex'
 fi
 ```
 

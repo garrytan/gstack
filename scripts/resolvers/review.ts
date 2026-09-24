@@ -861,9 +861,9 @@ ${outsideVoiceInvocation(ctx, { timeoutMs: 540000, diffCommand: 'DIFF_BASE=$(git
 
 Set the outer tool timeout to 600000ms so the provider timeout can report its failure.
 
-Present the full output verbatim. This is informational — it never blocks shipping.
+Present the full output verbatim. ${isShip ? 'Collect actionable findings for the Step 11 completion procedure; a structured P1 finding uses the decision gate below.' : 'This is informational — it never blocks shipping.'}
 
-**Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
+**Error handling:** ${isShip ? 'Execution failures do not block shipping; findings still follow the approval and convergence gates. Record failed passes as missing coverage and continue to the remaining passes, persistence and Step 11 completion.' : 'All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.'}
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "${outsideVoiceFor(ctx).label} authentication failed. Run \\\`${outsideVoiceFor(ctx).id === 'codex' ? 'codex login' : 'claude auth login'}\\\` to authenticate."
 - **Timeout:** "${outsideVoiceFor(ctx).label} exceeded 9 minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if ${outsideVoiceFor(ctx).label} had reviewed.
 - **Empty response:** "${outsideVoiceFor(ctx).label} returned no response. Stderr: <paste relevant error>."
@@ -876,7 +876,7 @@ If \`CODEX_MODE\` is \`not_installed\` / \`not_authed\` / \`disabled\`: the pref
 
 ### ${outsideVoiceFor(ctx).label} structured review (large diffs only, 200+ lines)
 
-If \`DIFF_TOTAL >= 200\` AND \`CODEX_MODE\` is \`ready\`:
+If \`CODEX_MODE\` is \`ready\` AND either \`DIFF_TOTAL >= 200\` or the user explicitly requested the structured review:
 
 Prepare a structured review prompt requesting severity-tagged findings ([P1], [P2], [P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
@@ -901,22 +901,22 @@ Read stderr for errors (same error handling as ${outsideVoiceFor(ctx).label} adv
 
 
 
-If \`DIFF_TOTAL < 200\`: skip this section silently. The ${outsideVoiceFor(ctx).nativeLabel} + ${outsideVoiceFor(ctx).label} adversarial passes provide sufficient coverage for smaller diffs.
+If \`DIFF_TOTAL < 200\` and no explicit structured-review request exists, skip this section. Record the actual adversarial coverage; availability alone never establishes completion.
 
 ---
 
 ### Persist the review result
 
-After all passes complete, persist:
+After all passes finish, including failures, write one record per source/phase/attempt:
 \`\`\`bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED}' --finish PASS_START
 \`\`\`
-PASS_START is this source/phase's original start token. COMPLETED is true only for a completed response (false for timeout, failure, refusal, or missing coverage). CONVERGED is true only if the completed pass made no edits. Each token is consumed once; a fixing pass cannot certify the fixed tree without a fresh full pass. Missing/disabled passes have no token: omit \`--finish\` and log completed/converged false. Log each source/phase separately so a clean native response cannot hide missing outside coverage.
-Substitute: PHASE = "adversarial" or "structured" for the corresponding pass. STATUS = "clean" only for a completed pass with no findings, "issues_found" if any pass found issues. SOURCE = the completed outside provider for its record; use a separate in-host record for the native subagent. GATE = the ${outsideVoiceFor(ctx).label} structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if ${outsideVoiceFor(ctx).label} was unavailable. If all passes failed, persist status "unavailable" with outside_status "unavailable"; never persist "clean". Record the adversarial and structured phases separately if their coverage differs.
-
----
-
-${outsideVoiceProvenance(ctx, 'adversarial')}
+Substitute fields from this record's own outcome, never another pass:
+1. PHASE is \`adversarial\` or \`structured\`. SOURCE is \`in-host\` for the native subagent, \`${outsideVoiceFor(ctx).id}\` only for completed outside CLI output, or \`unavailable\` when no reviewer completed. Historical \`source:"claude"\` means native Claude. Preserve reported modelUsage; unknown model identity stays unknown.
+2. OUTSIDE_STATUS is \`completed\`, \`unavailable\`, \`disabled\` or \`skipped\` for the outside attempt; use \`skipped\` for a native-only record. Availability/native fallback is not outside completion.
+3. STATUS is \`clean\` only for this completed pass with no findings, \`issues_found\` for its findings, or \`unavailable\` without a completed response. COMPLETED is false for timeout, failure, refusal or missing coverage. CONVERGED is true only when completed and no edits were made.
+4. GATE is \`pass\`/\`fail\` for a completed structured review, \`skipped\` when that phase was not requested, and \`informational\` for adversarial or unavailable passes. Missing coverage never earns \`pass\`.
+5. PASS_START is this attempt's original token. Each token is consumed once with \`--finish\`, including after a started pass fails. An unstarted, disabled or skipped pass has no token: omit \`--finish\`, with completed/converged false. A fixing pass cannot certify the fixed tree without a fresh full pass.
 
 ### Cross-model synthesis
 
@@ -1835,20 +1835,24 @@ If all conditions are true: suppress the finding. It was intentionally skipped a
    current raw branch, matching the capture. Compute the digest in code, never
    as model-generated text. Sanitized log filenames are not branch identity:
    \`topic/a\` and \`topic-a\` can collide.
-4. Verify EVERY evidence path against the snapshot. Enumerate tracked/non-ignored
-   untracked paths, then raw-read/lstat each file and path component; \`ls-files\`
-   alone is insufficient. Revalidate symlink targets/ancestors, submodules,
-   ignored/outside files and missing/unreadable paths: the parent fingerprint
-   does not cover them. Inspect effective Git attributes/config without conversion:
-   filter, working-tree-encoding, ident, text/eol and core.autocrlf can hide raw
-   changes. Active/unknown transformations require fresh raw-source review even
-   with an unchanged filtered tree. Disable fsmonitor and optional locks.
-   Exclude assume-unchanged, skip-worktree and sparse index entries. Compare each
-   raw file byte-for-byte with its blob in that exact working-tree snapshot,
-   using Git object reads without external diff/textconv or normalization.
-   Missing blobs, mismatches or unknown coverage require revalidation.
-   Only verified regular, untransformed,
-   in-repository paths enter \`covered_paths\`.
+4. Verify EVERY evidence path against the snapshot, in this order. Stop at the
+   first failed or unknown check and revalidate the advice instead of suppressing it:
+   - **Path:** Enumerate tracked/non-ignored untracked paths, then raw-read/lstat
+     each file and path component; \`ls-files\` alone is insufficient. Revalidate
+     symlink targets/ancestors, submodules, ignored/outside files and
+     missing/unreadable paths: the parent fingerprint does not cover them.
+   - **Git transformations:** Inspect effective Git attributes/config without
+     conversion: filter, working-tree-encoding, ident, text/eol and core.autocrlf
+     can hide raw changes. Active/unknown transformations require fresh raw-source
+     review even with an unchanged filtered tree. Disable fsmonitor and optional locks.
+     Exclude assume-unchanged, skip-worktree and sparse index entries.
+   - **Bytes:** Set WTREE to the verified \`---WTREE---\` tree ID and EVIDENCE_PATH
+     to the checked repository-relative path. Compare the raw file byte-for-byte with its blob
+     using \`git --no-optional-locks -c core.fsmonitor=false cat-file blob "$WTREE:$EVIDENCE_PATH"\`
+     and a binary comparison, with no external diff/textconv or normalization.
+     Check the Git command's exit status separately; missing blobs or mismatches
+     require revalidation. Do not compare against HEAD or create a replacement snapshot.
+   Only verified regular, untransformed, in-repository paths enter \`covered_paths\`.
    The prior finding's \`snapshot_covered_paths\` must also cover every evidence
    path; current eligibility cannot prove what prior filters/index flags hid.
    Missing prior coverage is legacy metadata; revalidate it.

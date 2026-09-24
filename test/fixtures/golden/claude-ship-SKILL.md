@@ -458,7 +458,7 @@ Run `/ship` through to the PR URL. This request authorizes routine work without 
 - Multi-file changesets (auto-split into bisectable commits)
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
-- Test coverage gaps within target threshold (generate, verify, then commit with Step 15; flag any remaining gaps in the PR body)
+- Coverage at or above Step 7's target (verify generated tests, then commit with Step 15; below-target or undetermined coverage follows Step 7's decision gate)
 
 **Re-run behavior (idempotency):**
 Every invocation repeats verification: tests, coverage, plan completion, both
@@ -686,7 +686,8 @@ git merge origin/<base> --no-edit
 ## Step 12: Version bump (auto-decide)
 
 Use **`gstack-version-bump`** for classify/write/repair and `gstack-next-version`
-for slot selection. Bump level and queue collisions remain agent decisions.
+for slot selection. Auto-pick routine bumps; obtain the approvals named below
+unless the user's explicit version policy already delegates those decisions.
 
 1. **Classify state** — pure reader, never writes:
    ```bash
@@ -694,7 +695,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    ```
    Save the JSON `baseVersion` as `BASE_VERSION`, then read `state` and dispatch:
    - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Use the recorded level for this release; if absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
+   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Look up step 5's release decision with `~/.claude/skills/gstack/bin/gstack-decision-search --scope repo --query "Ship <currentVersion>" --json`; use the level only from an exact-version `Ship <currentVersion> (<level>)` entry. If absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify. On success, follow **ALREADY_BUMPED**, including its queue check; on failure, STOP. Repair alone never re-bumps.
    - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
@@ -947,7 +948,7 @@ branches containing `/`.
 ```
 
 Substitute from earlier steps:
-- **COVERAGE_PCT**: coverage percentage from Step 7 diagram (integer, or -1 if undetermined)
+- **COVERAGE_PCT**: Step 7's integer percentage; map `null` to -1 for this metrics record only (undetermined, never zero coverage)
 - **PLAN_TOTAL**: total plan items extracted in Step 8 (0 if no plan file)
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 8 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 8.1
@@ -995,7 +996,7 @@ through `gstack-version-bump`; never hand-roll the VERSION/package.json write.
 
 ## Important Rules
 
-- **Never skip tests.** If tests fail, stop.
+- **Never skip required tests.** Apply Step 5's failure triage and Step 16's final-evidence gate; only an explicit waiver for the same verified pre-existing failures can proceed with failing counts disclosed.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
 - **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), and Codex structured review [P1] findings (large diffs only).

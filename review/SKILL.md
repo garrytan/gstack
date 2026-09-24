@@ -847,20 +847,24 @@ If all conditions are true: suppress the finding. It was intentionally skipped a
    current raw branch, matching the capture. Compute the digest in code, never
    as model-generated text. Sanitized log filenames are not branch identity:
    `topic/a` and `topic-a` can collide.
-4. Verify EVERY evidence path against the snapshot. Enumerate tracked/non-ignored
-   untracked paths, then raw-read/lstat each file and path component; `ls-files`
-   alone is insufficient. Revalidate symlink targets/ancestors, submodules,
-   ignored/outside files and missing/unreadable paths: the parent fingerprint
-   does not cover them. Inspect effective Git attributes/config without conversion:
-   filter, working-tree-encoding, ident, text/eol and core.autocrlf can hide raw
-   changes. Active/unknown transformations require fresh raw-source review even
-   with an unchanged filtered tree. Disable fsmonitor and optional locks.
-   Exclude assume-unchanged, skip-worktree and sparse index entries. Compare each
-   raw file byte-for-byte with its blob in that exact working-tree snapshot,
-   using Git object reads without external diff/textconv or normalization.
-   Missing blobs, mismatches or unknown coverage require revalidation.
-   Only verified regular, untransformed,
-   in-repository paths enter `covered_paths`.
+4. Verify EVERY evidence path against the snapshot, in this order. Stop at the
+   first failed or unknown check and revalidate the advice instead of suppressing it:
+   - **Path:** Enumerate tracked/non-ignored untracked paths, then raw-read/lstat
+     each file and path component; `ls-files` alone is insufficient. Revalidate
+     symlink targets/ancestors, submodules, ignored/outside files and
+     missing/unreadable paths: the parent fingerprint does not cover them.
+   - **Git transformations:** Inspect effective Git attributes/config without
+     conversion: filter, working-tree-encoding, ident, text/eol and core.autocrlf
+     can hide raw changes. Active/unknown transformations require fresh raw-source
+     review even with an unchanged filtered tree. Disable fsmonitor and optional locks.
+     Exclude assume-unchanged, skip-worktree and sparse index entries.
+   - **Bytes:** Set WTREE to the verified `---WTREE---` tree ID and EVIDENCE_PATH
+     to the checked repository-relative path. Compare the raw file byte-for-byte with its blob
+     using `git --no-optional-locks -c core.fsmonitor=false cat-file blob "$WTREE:$EVIDENCE_PATH"`
+     and a binary comparison, with no external diff/textconv or normalization.
+     Check the Git command's exit status separately; missing blobs or mismatches
+     require revalidation. Do not compare against HEAD or create a replacement snapshot.
+   Only verified regular, untransformed, in-repository paths enter `covered_paths`.
    The prior finding's `snapshot_covered_paths` must also cover every evidence
    path; current eligibility cannot prove what prior filters/index flags hid.
    Missing prior coverage is legacy metadata; revalidate it.

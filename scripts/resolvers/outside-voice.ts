@@ -92,7 +92,7 @@ elif ( ${outsideVoiceGuard(ctx)}
 ); then
   if ${probe}; then echo 'CODEX_MODE: ready'; else echo 'CODEX_MODE: not_installed'; fi
 else
-  echo 'CODEX_MODE: under_current_harness'
+  echo 'CODEX_MODE: ${v.id === 'codex' ? 'under_codex' : 'under_current_harness'}'
 fi
 \`\`\``;
   if (opts.routing === 'caller') return preflight;
