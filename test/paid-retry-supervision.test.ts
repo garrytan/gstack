@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildPaidShardArgs, buildRunManifest, parseRunManifest, planPaidShards,
-  DEFAULT_JOBS, parseCliOptions, paidShardWallUpperBoundMs, resolvePaidShardBudget, retriesForFiles, verifySliceResults,
+  DEFAULT_JOBS, parseCliOptions, paidShardWallUpperBoundMs, resolvePaidShardBudget, retriesForFiles, verifySliceResults, collectPaidTestFiles, selectPaidTestFiles,
 } from '../scripts/test-paid-shards';
 import {
   ALL_TIERS, AUQ_CONSISTENCY_RETRY_BUDGET, FILE_RETRY_BUDGETS,
@@ -196,7 +196,7 @@ const cliOptions = (step: { run: string; env?: Record<string, string> }) => {
 test('both gate executors cover the complete census without increasing aggregate workers', () => {
   const periodic: any = Bun.YAML.parse(read('.github/workflows/evals-periodic.yml'));
   const main: any = Bun.YAML.parse(read('.github/workflows/evals.yml'));
-  for (const [workflow, jobName, workers] of [[main, 'eval-slices', 2], [periodic, 'gate-census', 1]] as const) {
+  for (const [workflow, jobName, workers, slices] of [[main, 'eval-slices', 2, 6], [periodic, 'gate-census', 1, 7]] as const) {
     const planner = workflow.jobs['plan-slices'];
     const executor = workflow.jobs[jobName];
     const emit = planner.steps.filter((step: any) => step.run?.includes('EVALS_TIER=gate ') && step.run.includes('--emit-plan '));
@@ -209,10 +209,13 @@ test('both gate executors cover the complete census without increasing aggregate
     expect(active.jobs).toBe(workers);
     expect(execute[0].env.EVALS_CONCURRENCY).toBe('2');
     expect(executor.strategy['fail-fast']).toBe(false);
-    expect(executor.strategy.matrix.slice).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(planned.slices).toBe(6);
+    expect(executor.strategy.matrix.slice).toEqual(Array.from({ length: slices }, (_, i) => i + 1));
+    expect(planned.slices).toBe(slices);
     const manifest = buildRunManifest({ tier: 'gate', sliceCount: planned.slices, evalsAll: true, env: { EVALS_ALL: '1' } });
-    expect(manifest.entries.filter(row => row.status === 'planned')).toHaveLength(54);
+    expect(manifest.entries.filter(row => row.status === 'planned')).toHaveLength(56);
+    const files = manifest.entries.filter(row => row.status === 'planned').map(row => row.file);
+    expect(new Set(files).size).toBe(56);
+    expect(files.sort()).toEqual(selectPaidTestFiles(collectPaidTestFiles(), 'gate').selected.sort());
     const walls = executor.strategy.matrix.slice.map((slice: number) => paidShardWallUpperBoundMs(
       manifest.entries.filter(row => row.status === 'planned' && row.slice === slice).map(row => row.file), workers,
     ));
@@ -255,7 +258,7 @@ test('the periodic executor supervises every actual case and retry within its CI
   expect(executor['timeout-minutes'] * 60_000).toBeGreaterThanOrEqual(Math.max(...walls) + 20 * 60_000);
 });
 
-test('gate census requires all six distinct slice results and its own reconciliation', () => {
+test('gate census requires all seven distinct slice results and its own reconciliation', () => {
   const workflow: any = Bun.YAML.parse(read('.github/workflows/evals-periodic.yml'));
   const report = workflow.jobs.report;
   const reconcile = report.steps.find((step: any) => step.id === 'gate-reconcile');
@@ -271,8 +274,8 @@ test('gate census requires all six distinct slice results and its own reconcilia
     expect(step.if).toContain("steps.reconcile.outputs.exit != '0'");
     expect(step.if).toContain("needs.eval-slices.result != 'success'");
   }
-  const manifest = buildRunManifest({ tier: 'gate', sliceCount: 6, evalsAll: true, env: { EVALS_ALL: '1' } });
-  const results = Array.from({ length: 6 }, (_, i) => ({ version: 1 as const, tier: 'gate' as const, sliceIndex: i + 1, sliceCount: 6,
+  const manifest = buildRunManifest({ tier: 'gate', sliceCount: 7, evalsAll: true, env: { EVALS_ALL: '1' } });
+  const results = Array.from({ length: 7 }, (_, i) => ({ version: 1 as const, tier: 'gate' as const, sliceIndex: i + 1, sliceCount: 7,
     outcomes: manifest.entries.filter(row => row.status === 'planned' && row.slice === i + 1).map(row => ({
       files: [row.file], status: 'passed' as const, exitCode: 0, elapsedMs: 1, skippedTests: 0,
       executedTests: STRICT_RETRY_CASE_BUDGETS.find(budget => budget.file === row.file)?.cases ?? 1,
@@ -280,7 +283,7 @@ test('gate census requires all six distinct slice results and its own reconcilia
     })),
   }));
   expect(verifySliceResults(manifest, results)).toEqual({ ok: true, problems: [] });
-  for (let missing = 0; missing < 6; missing++) {
+  for (let missing = 0; missing < 7; missing++) {
     expect(verifySliceResults(manifest, results.filter((_, i) => i !== missing)).ok).toBe(false);
   }
   expect(verifySliceResults(manifest, [...results, results[0]!]).ok).toBe(false);

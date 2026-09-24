@@ -15,10 +15,13 @@ export const PR_PROFILE_CASE_IDS = [
   'setup-deploy-workflow', 'context-restore-loads-latest', 'plan-tune-inspect',
   'skillify-provenance-refusal', 'diagram-triplet', 'learnings-show',
   'gstack-upgrade-happy-path',
+  'investigate-owned-completion', 'investigate-owned-abort', 'investigate-owned-ending-error',
 ] as const;
 
 /** Audited ownership: unknown/direct-describe files remain broad coverage. */
 export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
+  'test/skill-e2e-investigate-owned-completion.test.ts': ['investigate-owned-completion'],
+  'test/skill-e2e-investigate-owned-termination.test.ts': ['investigate-owned-abort', 'investigate-owned-ending-error'],
   'test/skill-e2e-hermetic-canary.test.ts': ['hermetic-canary', 'hermetic-sentinel'],
   'test/skill-e2e-bws.test.ts': ['browse-basic', 'browse-snapshot', 'skillmd-setup-discovery'],
   'test/skill-e2e-qa-workflow.test.ts': ['qa-bootstrap'],

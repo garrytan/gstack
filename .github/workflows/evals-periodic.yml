@@ -107,7 +107,7 @@ jobs:
       - name: Emit gate census manifest (ALL gate tests)
         env:
           EVALS_ALL: "1"
-        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/gate-census-plan/manifest.json --slices 6
+        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/gate-census-plan/manifest.json --slices 7
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -212,7 +212,7 @@ jobs:
   gate-census:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
-    # Six slices need at most 332m each, plus 20 minutes setup/upload.
+    # Seven slices need at most 302m each, plus 20 minutes setup/upload.
     timeout-minutes: 352
     permissions:
       contents: read
@@ -228,7 +228,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        slice: [1, 2, 3, 4, 5, 6]
+        slice: [1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
