@@ -849,7 +849,7 @@ If user chooses B, record one declined result as described below, skip both voic
 
 **Before Phase 3, if accepted:** Create a private shared brief:
 ```bash
-_DESIGN_BRIEF=$(mktemp /tmp/gstack-design-brief-XXXXXXXX) || exit 1
+_DESIGN_BRIEF=$(mktemp "${TMPDIR:-/tmp}/gstack-design-brief-XXXXXXXX") || exit 1
 printf 'DESIGN_BRIEF=%s\n' "$_DESIGN_BRIEF"
 ```
 Write confirmed product/users, project type, memorable-thing answer, constraints and research (or skipped/unavailable) to that path. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file; give the native Agent its absolute path. Rebind `$_DESIGN_BRIEF` per Bash call. Keep your draft direction out of both prompts. Never paste brief text into shell source.

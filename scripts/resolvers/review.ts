@@ -688,7 +688,7 @@ If B: skip Phase 3.5 entirely. Remember that the second opinion did NOT run (aff
 2. **Write the assembled prompt to a temp file** (prevents shell injection from user-derived content):
 
 \`\`\`bash
-OUTSIDE_PROMPT_FILE=$(mktemp /tmp/gstack-outside-oh-XXXXXXXX)
+OUTSIDE_PROMPT_FILE=$(mktemp "\${TMPDIR:-/tmp}/gstack-outside-oh-XXXXXXXX")
 \`\`\`
 
 Write the full prompt to this file. **Always start with the filesystem boundary:**

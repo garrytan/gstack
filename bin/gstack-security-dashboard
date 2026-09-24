@@ -47,7 +47,7 @@ fi
 # Fetch with the HTTP status captured (#1947). A backend failure must read
 # as "unknown", never as a healthy "0 attacks" — fake zeros on a security
 # surface are indistinguishable from good news.
-TMPBODY="$(mktemp)"
+TMPBODY="$(mktemp "${TMPDIR:-/tmp}/gstack.XXXXXX")"
 trap 'rm -f "$TMPBODY"' EXIT
 SUPA_HOST="${SUPABASE_URL#*://}"; SUPA_HOST="${SUPA_HOST%%/*}"
 HTTP_CODE="$(_receipted_curl open security-dashboard "$SUPA_HOST" community-pulse-fetch "user-invoked dashboard" --no-payload \

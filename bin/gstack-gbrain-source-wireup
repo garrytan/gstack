@@ -91,7 +91,7 @@ elif [ -f "$GBRAIN_CONFIG" ]; then
   # Python heredoc reads config.json. On JSON parse failure or any IO error,
   # we WARN (not silently swallow) so the user knows the URL lock fell back
   # to gbrain's own loadConfig (which would still read this same file).
-  _py_err=$(mktemp -t wireup-pyerr 2>/dev/null || mktemp /tmp/wireup-pyerr.XXXXXX)
+  _py_err=$(mktemp "${TMPDIR:-/tmp}/wireup-pyerr.XXXXXX")
   _locked_url=$(GBRAIN_CONFIG_PATH="$GBRAIN_CONFIG" python3 -c '
 import json, os, sys
 try:

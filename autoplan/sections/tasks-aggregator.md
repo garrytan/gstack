@@ -18,7 +18,7 @@ if command -v jq >/dev/null 2>&1; then
   # For each phase, keep only the latest run_id. Within the surviving set,
   # dedupe by (component, sorted(files), title) — exact match only.
   # Sort by priority (P1 > P2 > P3) then by phase order.
-  ALL_JSONL=$(mktemp -t autoplan-tasks.XXXXXXXX)
+  ALL_JSONL=$(mktemp "${TMPDIR:-/tmp}/autoplan-tasks.XXXXXXXX")
   for phase in ceo-review design-review eng-review devex-review; do
     # Use find instead of glob expansion — zsh nomatch errors otherwise when
     # a phase produced no JSONL files. Sorting by name keeps the order stable.

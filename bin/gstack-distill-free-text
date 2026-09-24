@@ -127,7 +127,7 @@ fi
 
 # Heredoc into temp file (avoids $(cat <<'PROMPT'...) which choked the
 # bash parser on apostrophes elsewhere in the script).
-DISTILL_PROMPT_FILE=$(mktemp)
+DISTILL_PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack.XXXXXX")
 trap 'rm -f "$DISTILL_PROMPT_FILE"' EXIT
 cat > "$DISTILL_PROMPT_FILE" <<'PROMPT'
 You are gstack dream-cycle distiller. Below are free-text responses the
