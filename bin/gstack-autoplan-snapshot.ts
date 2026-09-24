@@ -505,7 +505,8 @@ function methodologyContent(phase: string, skillFile: string) {
   };
   const main = readPart(skillFile);
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(main.text);
-  if (!frontmatter?.[1]!.split(/\r?\n/).includes(`name: ${skill}`)) {
+  const frontmatterLines = frontmatter?.[1]!.split(/\r?\n/) ?? [];
+  if (!frontmatterLines.includes(`name: ${skill}`) && !frontmatterLines.includes(`name: gstack-${skill}`)) {
     throw new Error('Methodology skill identity does not match this phase');
   }
   const mainProse = referenceProse(main.text).join('\n');
