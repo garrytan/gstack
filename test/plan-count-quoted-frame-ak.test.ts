@@ -84,11 +84,12 @@ let stage='startup';process.stdin.setRawMode?.(true);const dispatch=async input=
  const q={header:'Finding',question:'Apply the reviewed fix?',options:[{label:'Fix'},{label:'Keep'}]};
  native('assistant',[{type:'tool_use',name:'AskUserQuestion',id:'finding',input:{questions:[q]}}]);native('user',[{type:'tool_result',tool_use_id:'finding',content:'Answered'}],{toolUseResult:{answers:{[q.question]:'Fix'}}});paint('Done.\n');
 };process.stdin.on('data',async data=>{const chunk=data.toString();log({type:'chunk',stage,input:chunk});for(const input of receive(chunk))await dispatch(input);});process.on('SIGINT',()=>process.exit(0));process.stdin.resume();
+process.stdout.write('PTY_READY:'+item.events+'\x1b[2J\x1b[H');
 `);fs.chmodSync(fake,0o755);
  // Keep every physical terminal row inside the quote; adding a prefix to an
  // already120-column capture would otherwise wrap an unquoted continuation.
  const quotedScreen=exact.screen.split('\n').flatMap(row=>row.trimEnd().match(/.{1,116}/gu)??['']).map(row=>'> '+row).join('\n');
- const args={skillName:'plan-ceo-review',slashCommand:'/plan-ceo-review',followUpPrompt:'Review the disposable fixture.',expectedPlanPath:report,reviewCountCeiling:1,timeoutMs:25000,env:{QUOTED_FRAME_CASE:JSON.stringify({events,report,screen:owned.screen,quotedScreen})}};
+ const args={skillName:'plan-ceo-review',slashCommand:'/plan-ceo-review',followUpPrompt:'Review the disposable fixture.',expectedPlanPath:report,reviewCountCeiling:1,timeoutMs:25000,startupReadyMarker:'PTY_READY:'+events,env:{QUOTED_FRAME_CASE:JSON.stringify({events,report,screen:owned.screen,quotedScreen})}};
  fs.writeFileSync(worker,`import {runPlanSkillCounting} from ${JSON.stringify(pathToFileURL(path.join(import.meta.dir,'helpers/claude-pty-runner.ts')).href)};const result=await runPlanSkillCounting({...${JSON.stringify(args)},isLastStep0AUQ:()=>false,isReviewAUQ:()=>true});await Bun.write(${JSON.stringify(output)},JSON.stringify(result));`);
  const child=Bun.spawn([process.execPath,worker],{env:{...process.env,BROWSE_TERMINAL_BINARY:fake,EVALS_HERMETIC:'1'},stdout:'pipe',stderr:'pipe'}),timer=setTimeout(()=>child.kill('SIGKILL'),30000);
  try{const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);expect(code,out+err).toBe(0);

@@ -418,8 +418,10 @@ export async function captureModeSelectionAuq(opts: {
   testName: string;
   runId?: string;
   model?: string;
+  caseDeadline?: number;
 }): Promise<string> {
-  const startedAt = Date.now(), deadline = startedAt + 240_000;
+  const startedAt = Date.now();
+  let deadline = opts.caseDeadline ?? startedAt + 240_000;
   const cwd = path.resolve(opts.planDir);
   const skillPath = path.join(cwd, 'plan-ceo-review', 'SKILL.md');
   const planPath = path.join(cwd, 'plan.md');
@@ -448,7 +450,14 @@ Ask the user through the AskUserQuestion tool and wait for their answer.`;
   let outcome = 'error', diagnostic: string | undefined, actorFailure: Error | undefined;
   let captured: { toolUseId: string; input: Record<string, unknown>; question: NativePlanQuestion; text: string } | undefined;
   let terminal: { exitReason: string; turnsUsed: number; costUsd: number; sdkClaudeCodeVersion: string; errors?: string[] } | undefined;
-  const timer = setTimeout(() => controller.abort(timeout), Math.max(0, deadline - Date.now()));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const armDeadline = () => {
+    clearTimeout(timer);
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) controller.abort(timeout);
+    else timer = setTimeout(() => controller.abort(timeout), remaining);
+  };
+  armDeadline();
   const fail = (reason: string, detail?: string): never => {
     outcome = reason;
     throw new Error(`${opts.testName}: AUQ capture failed (${reason})${detail ? `: ${detail}` : ''}`);
@@ -470,6 +479,10 @@ Ask the user through the AskUserQuestion tool and wait for their answer.`;
         workingDirectory: cwd, model, maxTurns: 12, maxRetries: 0,
         allowedTools: ['Read', 'Write', 'AskUserQuestion'], permissionMode: 'default', settingSources: [],
         pathToClaudeCodeExecutable: binary, signal: controller.signal,
+        onAdmission: opts.caseDeadline === undefined ? undefined : () => {
+          deadline = Math.min(opts.caseDeadline!, Date.now() + 240_000);
+          armDeadline();
+        },
         env: { CLAUDE_CONFIG_DIR: configDir, GSTACK_HOME: stateDir, GSTACK_HEADLESS: '' },
         testName: opts.testName, runId: opts.runId,
         canUseTool: async (name, input, options) => {

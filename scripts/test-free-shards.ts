@@ -91,9 +91,12 @@ import {
   installChildSignalForwarding,
   isTerminationRequested,
   killProcessGroup,
+  normalizeRelativePath,
   strictTestExitCode,
   stripAnsiLine,
 } from './test-strict-output';
+
+export { normalizeRelativePath } from './test-strict-output';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 // design/test was silently absent from BOTH the package.json test script and
@@ -420,10 +423,14 @@ export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_
   return Math.max(baseMs, Math.ceil(predictedMs * 3), fileCount * PER_FILE_WALL_MS);
 }
 /**
- * Full-suite parallelism: leave RESERVED_CPUS cores for the parent runner +
- * OS, cap at MAX_FULL_SUITE_JOBS — beyond ~6 concurrent bun processes the
- * playwright-heavy shards contend on browser launches instead of finishing
- * sooner (measured on an M-series dev box).
+ * Full-suite parallelism: use all available CPUs, with a floor of one and a
+ * cap of MAX_FULL_SUITE_JOBS. Shards stay serial internally; separate shard
+ * processes can overlap subprocess and I/O waits without a fixed CPU reserve.
+ * Prefer availableParallelism() to honor CPU affinity, falling back to cpus()
+ * on runtimes without it. Keep the existing cap: beyond ~6 concurrent bun
+ * processes, playwright-heavy shards contended on browser launches in the
+ * original M-series measurement. More shards are not a guaranteed speedup;
+ * compare complete-suite runs before raising the default further.
  *
  * GSTACK_FREE_JOBS overrides the computed count (the free runner's analogue
  * of the paid runner's EVALS_JOBS). Exists for syscall-supervised sandboxes:
@@ -437,7 +444,6 @@ export function wallTimeoutForPackedShard(predictedMs: number, baseMs = DEFAULT_
  * beefy box can also raise it deliberately.
  */
 export const MAX_FULL_SUITE_JOBS = 6;
-export const RESERVED_CPUS = 2;
 
 export function fullSuiteJobs(): number {
   const raw = process.env.GSTACK_FREE_JOBS;
@@ -449,7 +455,8 @@ export function fullSuiteJobs(): number {
     }
     return Number.parseInt(raw, 10);
   }
-  return Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, os.cpus().length - RESERVED_CPUS));
+  const availableCpus = os.availableParallelism?.() ?? os.cpus().length;
+  return Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, availableCpus));
 }
 
 /**
@@ -485,10 +492,6 @@ export const WORKER_HOSTILE: Record<string, string> = {
  * a renamed file fails the suite instead of silently dropping serialization.
  */
 export const TREE_MUTATING: Record<string, string> = {};
-
-export function normalizeRelativePath(filePath: string): string {
-  return filePath.replace(/\\/g, '/');
-}
 
 export function isFreeTestFile(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath);

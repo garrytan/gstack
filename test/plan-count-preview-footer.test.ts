@@ -113,12 +113,13 @@ process.stdin.setRawMode?.(true);process.stdin.on('data',data=>{
  native('user',[{type:'tool_result',tool_use_id:'finding',content:'Answered'}],{toolUseResult:{answers:{[q.question]:'Fix'}}});
  process.stdout.write('\x1b[2J\x1b[HDone.\r\n');
 });process.on('SIGINT',()=>process.exit(0));process.stdin.resume();
+process.stdout.write('PTY_READY:'+item.events+'\x1b[2J\x1b[H');
 `);
   fs.chmodSync(fake, 0o755);
   const runner=pathToFileURL(path.join(import.meta.dir,'helpers/claude-pty-runner.ts')).href;
   const picker=pathToFileURL(path.join(import.meta.dir,'helpers/ceo-approach-pick.ts')).href;
   fs.writeFileSync(worker, `import {runPlanSkillCounting} from ${JSON.stringify(runner)};import {pickCeoCountQuestion} from ${JSON.stringify(picker)};
-const result=await runPlanSkillCounting({skillName:'plan-ceo-review',slashCommand:'/plan-ceo-review',followUpPrompt:'Review this fixture.',isLastStep0AUQ:()=>true,defaultPick:2,reviewCountCeiling:1,timeoutMs:26000,env:{PREVIEW_CASE:${JSON.stringify(JSON.stringify({events, screen, question:completed.questions[0]}))}}});await Bun.write(${JSON.stringify(output)},JSON.stringify(result));`);
+const result=await runPlanSkillCounting({skillName:'plan-ceo-review',slashCommand:'/plan-ceo-review',followUpPrompt:'Review this fixture.',isLastStep0AUQ:()=>true,defaultPick:2,reviewCountCeiling:1,timeoutMs:26000,startupReadyMarker:${JSON.stringify('PTY_READY:' + events)},env:{PREVIEW_CASE:${JSON.stringify(JSON.stringify({events, screen, question:completed.questions[0]}))}}});await Bun.write(${JSON.stringify(output)},JSON.stringify(result));`);
   const child=Bun.spawn([process.execPath,worker], {env:{...process.env,BROWSE_TERMINAL_BINARY:fake,EVALS_HERMETIC:'1'},stdout:'pipe',stderr:'pipe'});
   const timer=setTimeout(()=>child.kill('SIGKILL'),30000);
   try {

@@ -108,6 +108,7 @@ export interface RunAgentSdkOptions {
   queryProvider?: QueryProvider;
   /** Cancel queueing, SDK work and retries under the caller's case deadline. */
   signal?: AbortSignal;
+  onAdmission?: () => void;
   /** Max 429 retries per call. Default 3. */
   maxRetries?: number;
   /**
@@ -330,6 +331,7 @@ export async function runAgentSdkTest(
 
   let attempt = 0;
   let lastErr: unknown = null;
+  let admitted = false;
 
   while (attempt <= maxRetries) {
     await sem.acquire(opts.signal);
@@ -376,6 +378,10 @@ export async function runAgentSdkTest(
 
     try {
       opts.signal?.throwIfAborted();
+      if (!admitted) {
+        admitted = true;
+        opts.onAdmission?.();
+      }
       // When canUseTool is supplied, the SDK must route tool-use approval
       // decisions through the callback. bypassPermissions short-circuits
       // that. Flip to 'default' mode so canUseTool actually fires. Tests
@@ -415,6 +421,7 @@ export async function runAgentSdkTest(
         sdkOpts.systemPrompt = opts.systemPrompt;
       }
 
+      opts.signal?.throwIfAborted();
       const q = queryImpl({
         prompt: opts.userPrompt,
         options: sdkOpts,

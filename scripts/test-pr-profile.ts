@@ -92,6 +92,11 @@ function matches(file: string, patterns: readonly string[]): boolean {
   return patterns.some(pattern => matchGlob(file, pattern));
 }
 
+export const FREE_ONLY_PR_FILES = [
+  'scripts/test-free-shards.ts',
+  'test/helpers/auq-parallel-worker.ts',
+] as const;
+
 function knownNonBehaviorFile(file: string): boolean {
   // A mapped dependency still wins over these exemptions. New helper/fixture,
   // runtime, dependency, or workflow files are deliberately not exempted.
@@ -99,6 +104,7 @@ function knownNonBehaviorFile(file: string): boolean {
     // Hermetic skill views exclude checkout instructions; these are maintained
     // by free doc/generation checks and are not copied into paid fixtures.
     || ['AGENTS.md', 'CLAUDE.md', 'agents-digest/gstack-AGENTS.md'].includes(file)
+    || FREE_ONLY_PR_FILES.some(freeOnly => freeOnly === file)
     || (file.startsWith('test/') && /\.test\.tsx?$/.test(file) && !isPaidTestFile(file));
 }
 

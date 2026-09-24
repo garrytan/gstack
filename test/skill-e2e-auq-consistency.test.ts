@@ -35,21 +35,33 @@ describeE2E('AUQ consistency across runs (periodic)', () => {
   test(
     `carved /plan-ceo-review AUQ format + substance stable across ${N_RUNS} runs`,
     async () => {
+      const caseDeadline = Date.now() + N_RUNS * CAPTURE_MS + 60_000;
       const runs: Array<{ i: number; present: Set<string>; substance: number; empty: boolean }> = [];
+      const problems: string[] = [];
+      const dirs: string[] = [];
+      let captures: PromiseSettledResult<string>[];
 
-      for (let i = 0; i < N_RUNS; i++) {
-        const carved = carvedSkill();
-        const dir = setupPlanCeoDir({
-          skillMd: carved.skillMd,
-          sectionsFrom: carved.sectionsFrom,
-          tmpPrefix: `auq-consistency-${i}-`,
-        });
-        let text = '';
-        try {
-          text = await captureModeSelectionAuq({ planDir: dir, testName: `auq-consistency-${i}`, runId });
-        } finally {
-          fs.rmSync(dir, { recursive: true, force: true });
+      try {
+        captures = await Promise.allSettled(Array.from({ length: N_RUNS }, async (_, i) => {
+          const carved = carvedSkill();
+          const dir = setupPlanCeoDir({
+            skillMd: carved.skillMd,
+            sectionsFrom: carved.sectionsFrom,
+            tmpPrefix: `auq-consistency-${i}-`,
+          });
+          dirs.push(dir);
+          return captureModeSelectionAuq({ planDir: dir, testName: `auq-consistency-${i}`, runId, caseDeadline });
+        }));
+      } finally {
+        for (const dir of dirs) {
+          try { fs.rmSync(dir, { recursive: true, force: true }); }
+          catch (error) { problems.push(`fixture cleanup failed: ${error}`); }
         }
+      }
+
+      for (const [i, capture] of captures.entries()) {
+        if (capture.status === 'rejected') problems.push(`run ${i + 1} capture failed: ${capture.reason}`);
+        const text = capture.status === 'fulfilled' ? capture.value : '';
         const present = new Set(AUQ_FORMAT_ELEMENTS.filter(e => e.re.test(text)).map(e => e.field));
         let substance = 0;
         if (text.trim()) {
@@ -65,8 +77,6 @@ describeE2E('AUQ consistency across runs (periodic)', () => {
             `substance=${substance}${runs[i]?.empty ? ' (EMPTY CAPTURE)' : ''}`,
         );
       }
-
-      const problems: string[] = [];
 
       const anyEmpty = runs.filter(r => r.empty).map(r => r.i + 1);
       if (anyEmpty.length > 0) problems.push(`run(s) produced no AUQ at all: ${anyEmpty.join(',')}`);

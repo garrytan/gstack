@@ -738,6 +738,58 @@ describe('rate-limit detectors', () => {
 // ---------------------------------------------------------------------------
 
 describe('runAgentSdkTest — concurrency', () => {
+  test('admission runs only once across a rate-limit retry', async () => {
+    __resetSemaphoreForTests(1);
+    let admissions = 0;
+    const stub: StubConfig = {
+      streams: [[systemInit(), resultRateLimit()], [systemInit(), resultSuccess()]], calls: [],
+    };
+    await runAgentSdkTest({ ...BASE_OPTS, queryProvider: makeStubProvider(stub), maxRetries: 1,
+      onAdmission: () => { admissions++; } });
+    expect(admissions).toBe(1);
+    expect(stub.calls).toHaveLength(2);
+  });
+
+  test.each(['throw', 'abort'] as const)('admission %s prevents transport creation and releases its slot', async mode => {
+    __resetSemaphoreForTests(1);
+    const controller = new AbortController(), failure = new Error(`admission ${mode}`);
+    const stub: StubConfig = { streams: [[systemInit(), resultSuccess()]], calls: [] };
+    const queryProvider = makeStubProvider(stub);
+    const failed = runAgentSdkTest({ ...BASE_OPTS, queryProvider, signal: controller.signal,
+      onAdmission: () => { if (mode === 'throw') throw failure; controller.abort(failure); } });
+    const sibling = runAgentSdkTest({ ...BASE_OPTS, queryProvider });
+    const results = await Promise.allSettled([failed, sibling]);
+    expect(results[0]).toEqual({ status: 'rejected', reason: failure });
+    expect(results[1].status).toBe('fulfilled');
+    expect(stub.calls).toHaveLength(1);
+  });
+
+  test('queued cancellation never calls admission or transport and leaves later siblings runnable', async () => {
+    __resetSemaphoreForTests(1);
+    const controller = new AbortController(), reason = new Error('queued cancellation');
+    let unblock!: () => void, started!: () => void;
+    const held = new Promise<void>(resolve => { unblock = resolve; });
+    const ready = new Promise<void>(resolve => { started = resolve; });
+    const provider: QueryProvider = () => (async function* () {
+      started(); await held; yield resultSuccess();
+    })() as unknown as Query;
+    const occupying = runAgentSdkTest({ ...BASE_OPTS, queryProvider: provider });
+    await ready;
+    let admissions = 0;
+    const stub: StubConfig = { streams: [[resultSuccess()]], calls: [] };
+    const queryProvider = makeStubProvider(stub);
+    const queued = runAgentSdkTest({ ...BASE_OPTS, queryProvider, signal: controller.signal,
+      onAdmission: () => { admissions++; } });
+    const sibling = runAgentSdkTest({ ...BASE_OPTS, queryProvider });
+    controller.abort(reason);
+    const cancelled = await Promise.allSettled([queued]);
+    expect(cancelled[0]).toEqual({ status: 'rejected', reason });
+    expect(admissions).toBe(0); expect(stub.calls).toHaveLength(0);
+    unblock();
+    await Promise.all([occupying, sibling]);
+    expect(stub.calls).toHaveLength(1);
+  });
+
   test('process-level semaphore caps concurrent queries', async () => {
     __resetSemaphoreForTests(2);
     let inFlight = 0;
