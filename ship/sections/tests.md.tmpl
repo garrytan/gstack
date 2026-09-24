@@ -41,80 +41,63 @@ for failure detail.
 
 ## Step 6: Eval Suites (conditional)
 
-Evals are mandatory when prompt-related files change. Skip this step entirely if no prompt files are in the diff.
+Evals are mandatory when prompt-related files change. Select from the full diff,
+including uncommitted changes, before deciding whether to skip.
 
-Use the project's documented eval selection and pre-merge command first (including changed skill templates and judge/harness code). The Rails patterns and commands below apply only when that runner exists. For other stacks, use their native eval scripts and dependency map. If prompts changed but no eval command is documented, report the missing validation and ask before shipping; never silently treat that as no affected prompts.
+**1. Select affected suites using the project's contract.**
 
-**1. Check if the diff touches prompt-related files:**
+**Project-native path:** Read CLAUDE.md/AGENTS.md, package scripts and the eval
+dependency map. Include changed prompts, skill templates, judges and harness
+code. Use the documented selector and pre-merge command. If it reports no
+affected suites, record that result and continue to Step 7. If prompt-related
+files changed but selection or the command is unknown, report the validation
+gap and ask before shipping. A missing Rails-pattern match is not a skip signal
+for another stack.
 
-```bash
-git diff origin/<base> --name-only
-```
+**Rails example only — when this repository provides `bin/test-lane` and
+`test/evals/*_eval_runner.rb`:**
 
-Match against these patterns (from CLAUDE.md):
-- `app/services/*_prompt_builder.rb`
-- `app/services/*_generation_service.rb`, `*_writer_service.rb`, `*_designer_service.rb`
-- `app/services/*_evaluator.rb`, `*_scorer.rb`, `*_classifier_service.rb`, `*_analyzer.rb`
-- `app/services/concerns/*voice*.rb`, `*writing*.rb`, `*prompt*.rb`, `*token*.rb`
-- `app/services/chat_tools/*.rb`, `app/services/x_thread_tools/*.rb`
-- `config/system_prompts/*.txt`
-- `test/evals/**/*` (eval infrastructure changes affect all suites)
+- Match the diff against the project's documented prompt paths, such as
+  `app/services/*_prompt_builder.rb`, generation/writer/designer services,
+  evaluator/scorer/classifier/analyzer services, voice/writing/prompt/token
+  concerns, chat tools, `config/system_prompts/*.txt` and `test/evals/**/*`.
+- Match changed files to each runner's `PROMPT_SOURCE_FILES`; follow shared
+  judge/support/fixture imports to all affected suites. A runner such as
+  `post_generation_eval_runner.rb` maps to `post_generation_eval_test.rb`.
+- Use the project's full pre-merge tier (`EVAL_JUDGE_TIER=full` for this runner).
+  Do not substitute a cheaper development tier. If selection remains uncertain,
+  include every plausibly affected suite.
 
-**If no matches:** Print "No prompt-related files changed — skipping evals." and continue to Step 7.
+**2. Run the selected command and preserve its exit status.**
 
-**2. Identify affected eval suites:**
-
-Each eval runner (`test/evals/*_eval_runner.rb`) declares `PROMPT_SOURCE_FILES` listing which source files affect it. Grep these to find which suites match the changed files:
-
-```bash
-grep -l "changed_file_basename" test/evals/*_eval_runner.rb
-```
-
-Map runner → test file: `post_generation_eval_runner.rb` → `post_generation_eval_test.rb`.
-
-**Special cases:**
-- Changes to `test/evals/judges/*.rb`, `test/evals/support/*.rb`, or `test/evals/fixtures/` affect ALL suites that use those judges/support files. Check imports in the eval test files to determine which.
-- Changes to `config/system_prompts/*.txt` — grep eval runners for the prompt filename to find affected suites.
-- If unsure which suites are affected, run ALL suites that could plausibly be impacted. Over-testing is better than missing a regression.
-
-**3. Run affected suites at `EVAL_JUDGE_TIER=full`:**
-
-`/ship` is a pre-merge gate, so always use full tier (Sonnet structural + Opus persona judges).
+For the Rails example:
 
 ```bash
+set -o pipefail
 EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval_test.rb 2>&1 | tee /tmp/ship_evals.txt
 ```
 
-If multiple suites need to run, run them sequentially (each needs a test lane). If the first suite fails, stop immediately — don't burn API cost on remaining suites.
+Use the native command for other stacks. Respect the project's concurrency and
+retry policy. Rails suites sharing a test lane run sequentially; stop on the
+first failure before starting another paid suite.
 
 **Long eval suites (30+ min): launch detached so a turn boundary can't kill them.**
-A plain backgrounded eval lives in the harness's process group and dies to a
-SIGTERM ("polite quit") on a turn boundary, a stopped monitor, or an interruption
-(observed mid-`/ship`: `script terminated by signal SIGTERM`). Run it through
-`~/.claude/skills/gstack/bin/gstack-detach` instead — it survives in its own
-session, serializes against other worktrees via a machine lock (no API
-saturation), and writes a guaranteed `### gstack-detach EXIT=<code> ###` sentinel:
+Use the detached runner and eval lock; set its outer timeout to cover the
+project's declared suite duration and retries. Do not change individual eval
+limits. For a suite whose full bound fits 5400 seconds:
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-detach --label ship-evals --lock gstack-evals --timeout 5400 -- <project eval command>
 ```
 
-Then poll the printed log path; break on the `EXIT=` sentinel (covers both pass
-and crash — silence is never success). The detached run survives even if your
-poller is reaped.
+Poll the printed log for `### gstack-detach EXIT=<code> ###`. Silence is not
+success. Retain every configured attempt; skipped or unstarted cases do not
+satisfy coverage.
 
-**4. Check results:**
+**3. Check results and save evidence for Step 19.**
 
-- **If any eval fails:** Show the failures, the cost dashboard, and **STOP**. Do not proceed.
-- **If all pass:** Note pass counts and cost. Continue to Step 7.
-
-**5. Save eval output** — include eval results and cost dashboard in the PR body (Step 19).
-
-**Tier reference (for context — /ship always uses `full`):**
-| Tier | When | Speed (cached) | Cost |
-|------|------|----------------|------|
-| `fast` (Haiku) | Dev iteration, smoke tests | ~5s (14x faster) | ~$0.07/run |
-| `standard` (Sonnet) | Default dev, `bin/test-lane --eval` | ~17s (4x faster) | ~$0.37/run |
-| `full` (Opus persona) | **`/ship` and pre-merge** | ~72s (baseline) | ~$1.27/run |
+- **If any eval fails:** Show failures and available costs, then **STOP**.
+- **If all selected evals pass:** Record actual counts, any reused evidence and
+  its source, and available costs. Continue to Step 7.
 
 ---

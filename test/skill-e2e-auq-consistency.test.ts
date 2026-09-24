@@ -4,7 +4,7 @@
  * The user's core anxiety: AUQ is fine one run and broken the next — sometimes
  * no ELI10, sometimes no recommendation, sometimes minimal context. A single
  * snapshot can't see drift. This drives the carved /plan-ceo-review mode-selection
- * AUQ N times via the SDK capture path (clean text, no TTY mangling) and asserts
+ * AUQ N times via the native SDK tool capture (exact public fields, no answer) and asserts
  * the decision-brief format holds EVERY time and substance never craters.
  *
  * Pass bar:
@@ -13,7 +13,7 @@
  *   - Substance: every run >= 3, spread (max-min) <= 2.
  *
  * Reports per-run scores so drift is visible even on a pass. Periodic tier
- * (N SDK runs, ~$0.50-1 each).
+ * (N native SDK captures, ~$0.50-1 each).
  */
 import { test } from 'bun:test';
 import { CAPTURE_MS } from './helpers/eval-budgets';

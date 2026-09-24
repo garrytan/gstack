@@ -62,13 +62,15 @@ test('pending, failed, foreign and unoffered native acknowledgments never establ
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { designCountExistingInteractionStates } from './helpers/design-count-fixture';
 test('both fixture documents define existing error layout and export behavior while preserving all five gaps', () => {
   const source = readFileSync(join(import.meta.dir, 'skill-e2e-plan-design-finding-count.test.ts'), 'utf8');
-  const start = source.indexOf('const existingInteractionStates = ');
+  expect(source).toContain("import { designCountExistingInteractionStates as existingInteractionStates } from './helpers/design-count-fixture';");
+  const start = source.indexOf('const designSystem = ');
   const end = source.indexOf("describeE2E(", start);
   expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
-  const build = new Function(new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice(start, end) + '\nreturn { designSystem, plan: planDesign5Findings("/owned/review.md") };'));
-  const { designSystem, plan } = build();
+  const build = new Function('existingInteractionStates', new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice(start, end) + '\nreturn { designSystem, plan: planDesign5Findings("/owned/review.md") };'));
+  const { designSystem, plan } = build(designCountExistingInteractionStates);
   for (const text of [designSystem, plan]) {
     expect(text).toContain('The existing ErrorSummary mounts in the status/error area below the action\ngroup and above Profile.');
     expect(text).toContain('Retry wraps below the text as a full-width 44px ghost button');

@@ -1,0 +1,43 @@
+{
+  "provenance": {
+    "source": "September 21 bounded plan-design-finding-count confirmation",
+    "runId": "shared-libs-design-count-sep21",
+    "observedReviewCount": 0,
+    "observedStep0Count": 6,
+    "sourceCallSha256": "e56b9c057b1a69193d2a932eafac5ca81c8dbe8ed21009d147adc59c881b2052"
+  },
+  "calls": [
+    {
+      "sessionId": "1a7d5895-da78-46d8-9fa9-e8b681038344",
+      "toolUseId": "toolu_01Fes64xV7Kq6QiS9HH49Drc",
+      "questions": [
+        {
+          "question": "D1 — Issue 1: Save is visually identical to Reset, Cancel, and Export. How should the primary action be distinguished?\nProject/branch/task: gstack-plan-count-PXjOyl on main, design review of PLAN.md (Settings Page UI redesign).\nELI10: Four buttons in a row all look the same, so the person has to read every label to find the one they came for. Making Save the only filled button turns a reading task into a glance. The stakes: mis-taps on Reset or Cancel open a discard dialog, and the page reads as unfinished.\nStakes if we pick wrong: users hesitate at the action row or hit a secondary action, and the redesign ships looking like the old form.\nRecommendation: 1A because DESIGN.md already names the token (filled #1d4ed8 with white text, ghosts for the rest) and the existing Button component supports it. Principle: hierarchy as service. \nCompleteness: A=10/10, B=6/10, C=3/10\nNet: 1A applies the approved system; 1B and 1C invent something DESIGN.md does not sanction.",
+          "header": "Save primary",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "1A: Filled Save, ghost others (recommended)",
+              "description": "✅ Matches DESIGN.md exactly: Save filled #1d4ed8 with white text, Reset/Cancel/Export neutral ghost buttons. ✅ Uses existing Button variants; no new styles, 44px geometry and focus ring unchanged. ❌ Ghost buttons rely on the existing Button component's neutral text color meeting AA; verify in QA. (human: ~1h / CC: ~5min)"
+            },
+            {
+              "label": "1B: Filled Save plus visual divider before Export",
+              "description": "✅ Also separates the non-destructive Export from the two discard actions. ✅ Keeps DOM and tab order intact. ❌ Adds a divider element DESIGN.md does not define, so it needs its own token and responsive rule at 640px. ❌ More chrome on an already busy header row. (human: ~2h / CC: ~10min)"
+            },
+            {
+              "label": "1C: Keep four equal buttons, bold the Save label only",
+              "description": "✅ Smallest change to the existing markup and stylesheet. ✅ No color work, so no contrast verification needed. ❌ Weight alone is a weak signal at a glance and violates DESIGN.md, which names Save the only filled action. ❌ Leaves the primary action undiscoverable for scanning users. (human: ~20min / CC: ~2min)"
+            }
+          ]
+        }
+      ],
+      "answered": true,
+      "failed": false,
+      "answers": {
+        "D1 — Issue 1: Save is visually identical to Reset, Cancel, and Export. How should the primary action be distinguished?\nProject/branch/task: gstack-plan-count-PXjOyl on main, design review of PLAN.md (Settings Page UI redesign).\nELI10: Four buttons in a row all look the same, so the person has to read every label to find the one they came for. Making Save the only filled button turns a reading task into a glance. The stakes: mis-taps on Reset or Cancel open a discard dialog, and the page reads as unfinished.\nStakes if we pick wrong: users hesitate at the action row or hit a secondary action, and the redesign ships looking like the old form.\nRecommendation: 1A because DESIGN.md already names the token (filled #1d4ed8 with white text, ghosts for the rest) and the existing Button component supports it. Principle: hierarchy as service. \nCompleteness: A=10/10, B=6/10, C=3/10\nNet: 1A applies the approved system; 1B and 1C invent something DESIGN.md does not sanction.": "1A: Filled Save, ghost others (recommended)"
+      },
+      "unansweredQuestionIndices": [],
+      "answeredAt": "2026-09-21T17:11:29.350Z"
+    }
+  ]
+}

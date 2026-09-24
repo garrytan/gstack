@@ -18,7 +18,7 @@
 /** LLM-judge call over an existing capture (no agent session). */
 export const JUDGE_MS = 120_000;
 
-/** One `claude -p` / SDK capture, bounded turns. */
+/** One bounded capture: SDK execution or the first displayed native question. */
 export const CAPTURE_MS = 300_000;
 
 /** Multi-capture or long multi-turn `claude -p` flows. */

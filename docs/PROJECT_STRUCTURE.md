@@ -48,6 +48,7 @@ gstack/
 ├── design-review/    # /design-review skill (design audit + fix loop)
 ├── ship/            # Ship workflow skill
 ├── review/          # PR review skill (checklist.md is hand-written; design-checklist.md is GENERATED from lib/design-catalog.ts)
+├── deslop-shared-libs/ # Recommendations-only audit for worthwhile shared-code extractions
 ├── plan-ceo-review/ # /plan-ceo-review skill
 ├── plan-eng-review/ # /plan-eng-review skill
 ├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → DX → eng, eng always last)

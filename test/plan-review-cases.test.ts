@@ -291,7 +291,7 @@ test('Eng loads its one remedy procedure before Scope Challenge findings and ret
     expect(compactProse(scope)).toContain('With no proposed cuts, keep the feature list and go directly to the structure question');
     expect(compactProse(scope)).toContain('If no smaller arrangement preserves these commitments');
     expect(compactProse(scope)).toContain('offer confirmation of the original arrangement or a pause to investigate a smaller one. Wait for the answer');
-    expect(compactProse(scope)).toContain('Other remedies need separate accept/reject/defer answers');
+    expect(compactProse(scope)).toContain('Resolve each remedy through Decision procedure, reusing exact answers');
     const complexityRule = scope.indexOf('Initial scope selectors need no grid or **pre-answer** ledger write');
     expect(complexityRule).toBeGreaterThan(0);
     expect(complexityRule).toBeLessThan(scope.indexOf('1. Explain the complexity'));
@@ -324,10 +324,20 @@ test('Eng loads its one remedy procedure before Scope Challenge findings and ret
     expect(0 < calibration && calibration < procedure && procedure < scopeStart).toBe(true);
     expect(sections.match(/^## Scope Challenge$/gm)).toHaveLength(1);
     expect(sections).not.toContain('## Step 0 findings');
-    expect(compactProse(scope)).toContain('Present numbered Scope Challenge findings with calibrated severity, confidence, source');
+    expect(compactProse(scope)).toContain('Present numbered Scope Challenge findings with calibrated severity, confidence and source');
     expect(compactProse(scope)).toContain('accepted/rejected/deferred/pending');
     expect(compactProse(scope)).toContain('"No issues found" for an empty list');
-    expect(compactProse(scope)).toContain('Carry scope answers forward; findings approve no remedies');
+    expect(compactProse(scope)).toContain('Findings and scope answers approve no remedies');
+    const scopeFinish = ['Below the threshold, start at step 1', '1. Present numbered Scope Challenge findings',
+      '2. Resolve each remedy through Decision procedure', '3. Report accepted/rejected/deferred/pending dispositions from those answers',
+      'Continue to Section 1 only when no answer is pending'].map(step => scope.indexOf(step));
+    expect(scopeFinish.every(position => position >= 0)).toBe(true);
+    expect(scopeFinish).toEqual([...scopeFinish].sort((a, b) => a - b));
+    const selfCheck = compactProse(skeleton.slice(skeleton.indexOf('## Section self-check'), skeleton.indexOf('**Paused question:**')));
+    expect(selfCheck).toContain('Confirm you read the section and completed Scope Challenge, Sections 1–4, Outside Voice and outputs');
+    expect(selfCheck).toContain('If evidence is missing, Read `sections/review-sections.md` and repair only gaps through its decision/output recovery steps');
+    expect(selfCheck).toContain('Preserve verified work');
+    expect(selfCheck).not.toContain('Redo memory-only work');
     const stages = skeleton.indexOf('After target selection, every question uses');
     const prerequisite = skeleton.indexOf(suffix ? '{{BENEFITS_FROM}}' : '## Prerequisite Skill Offer');
     expect(stages).toBeGreaterThan(0);
@@ -346,7 +356,7 @@ test('Eng loads its one remedy procedure before Scope Challenge findings and ret
     const boundary = sections.slice(inventory, sections.indexOf('### 1. Architecture review')).replace(/\s+/g, ' ');
     expect(compactProse(boundary)).toContain("Read the request, source and actual answers");
     expect(compactProse(boundary)).toContain("Run this six-step loop for findings from Scope Challenge, Sections 1–4, Outside Voice, late changes and TODO choices. Finish one choice before the next");
-    expect(compactProse(boundary)).toContain('Before Section 1, resolve Scope Challenge remedies through Decision procedure; reuse exact answers');
+    expect(compactProse(boundary)).toContain('Continue to Section 1 only when no answer is pending');
     expect(compactProse(boundary)).toContain("If the user can accept one while another stays approved or undecided");
     expect(compactProse(boundary)).toContain("they are separate choices even in the same finding, function or patch");
     expect(compactProse(boundary)).toContain("list each current value and proposed change: behavior, approach, guarantee or bound");

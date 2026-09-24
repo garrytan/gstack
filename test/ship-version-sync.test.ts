@@ -114,6 +114,32 @@ node -e 'const fs=require("fs"),p=require("./package.json");p.version=process.ar
 const pkgVersion = () =>
   JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version;
 
+test("rendered drift repair rejoins the existing-version queue check", () => {
+  const ship = readFileSync(join(import.meta.dir, '../ship/SKILL.md'), 'utf8');
+  const version = ship.slice(ship.indexOf('## Step 12:'), ship.indexOf('## Step 14:'));
+  expect(version).toMatch(/DRIFT_STALE_PKG[^\n]+repair[^\n]+reclassify[^\n]+ALREADY_BUMPED[^\n]+queue/);
+  expect(version).toContain('--current-version "$BASE_VERSION"');
+  expect(version).toContain('CANDIDATE_VERSION');
+  expect(version).toMatch(/keep[^\n]+NEW_VERSION[^\n]+currentVersion/);
+});
+
+test("rendered queue dispatch preserves offline git candidates without empty fallback fallthrough", () => {
+  const ship = readFileSync(join(import.meta.dir, '../ship/SKILL.md'), 'utf8');
+  const usableAt = ship.indexOf('**Usable candidate**');
+  const missingAt = ship.indexOf('**No usable candidate**');
+  expect(usableAt).toBeGreaterThanOrEqual(0);
+  expect(missingAt).toBeGreaterThan(usableAt);
+  const usable = ship.slice(usableAt, missingAt);
+  const missing = ship.slice(missingAt, ship.indexOf('4. **Write the bump**', missingAt));
+  expect(usable).toContain('offline:true');
+  expect(usable).toContain('fallback:"git"');
+  expect(usable).toContain('warnings and any claimed queue');
+  expect(usable).toContain('CANDIDATE_VERSION');
+  expect(missing).toContain('local `BUMP_LEVEL` arithmetic');
+  expect(missing).toContain('ALREADY_BUMPED keeps `currentVersion`');
+  expect(missing).not.toContain('CANDIDATE_VERSION');
+});
+
 // --- Idempotency classification: 6 cases ---
 
 test("FRESH: VERSION == base, pkg synced", () => {
