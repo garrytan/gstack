@@ -96,4 +96,7 @@ test("the enrollment paid fixture uses its calibrated provider and supported bin
   expect(source).toContain("const source = queryEnrollmentFixture(input);");
   expect(source).toContain("const binary = resolveClaudeBinary();");
   expect(source).toContain("pathToClaudeCodeExecutable: binary");
+  expect(source).toContain('const model = resolveEvalModel("capture");');
+  expect(source).toContain("model, budgetMs: CAPTURE_MS");
+  expect(source).toContain("runAgentSdkTest({\n              model,");
 });

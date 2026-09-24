@@ -1,0 +1,30 @@
+[
+  {
+    "questions": [
+      {
+        "header": "Transcript scope",
+        "question": "Found 2 transcript candidates (1KB) on this machine. Would you like gbrain to remember coding sessions? Searchable session pages can help later skills find your earlier work. The default is off until you choose; curated artifact sync remains a separate setting.\n\nEnabled transcripts go to your configured gbrain database, which may be remote. With remote-HTTP gbrain they enter the artifact Git publication queue. Exact rendered pages are scanned before import and again at publication. HIGH findings block; MEDIUM findings wait for review. Scan errors and pages over 1 MiB are held, not sent or silently redacted. Remote deny/read-only policies still apply.\n\nTurning this off later stops the next batch, but cannot recall bytes already handed to an importer or erase earlier database pages or Git history. Manual cleanup of existing data is separate and needs your approval.\n\nWhich scope?",
+        "multiSelect": false,
+        "options": [
+          { "label": "A: This repo, 90d + future", "description": "This repository, sessions started in the last 90 days and future sessions. Requires a resolvable current repository remote. Will import matching history after enrollment." },
+          { "label": "B: This repo, all + future", "description": "This repository, all history and future sessions. Requires a resolvable current repository remote. Will import all matching history after enrollment." },
+          { "label": "C: All repos, 90d + future", "description": "All repositories on this machine, sessions started in the last 90 days and future sessions. Will import matching history after enrollment." },
+          { "label": "No historical import", "description": "Choose the D/E group: enroll only future sessions (D) or never ingest transcripts (E). Selecting this group is NOT consent to import; I will ask D vs E next." }
+        ]
+      }
+    ]
+  },
+  {
+    "questions": [
+      {
+        "header": "D or E",
+        "question": "No historical import selected. Which specifically?",
+        "multiSelect": false,
+        "options": [
+          { "label": "D: Future sessions only", "description": "This repository, only sessions started from now; do not import history. Sets consent for future incremental passes (enforcing the enrollment timestamp). Requires a resolvable current repository remote. No historical import runs." },
+          { "label": "E: Never ingest", "description": "Never ingest transcripts; keep or set transcript ingestion off. No import runs and its mode is never reset to incremental." }
+        ]
+      }
+    ]
+  }
+]

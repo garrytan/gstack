@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, rmSync } from "fs";
+import { mkdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 import { spawnSync } from "child_process";
 import { enrollmentViolations, makeEnrollmentFixture } from "./helpers/transcript-enrollment-fixture";
+import capturedQuestions from "./fixtures/transcript-enrollment-group-followup.json";
 
 test("enrollment actor executes its declared helper and refuses unrelated work", async () => {
   const fixture = makeEnrollmentFixture("E", 2);
@@ -89,4 +90,48 @@ test("group consent in an option description still requires a final D/E answer",
     expect(spawnSync("bun", [fixture.helper, "--enroll", "D"], { timeout: 10_000 }).status).toBe(0);
     expect(enrollmentViolations(fixture.events(), "D", 2)).toEqual([]);
   } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+});
+
+test("captured native group follow-up completes only its declared D/E enrollment", async () => {
+  for (const choice of ["D", "E"] as const) {
+    const fixture = makeEnrollmentFixture(choice, 2);
+    try {
+      expect(spawnSync("bun", [fixture.helper, "--probe"], { timeout: 10_000 }).status).toBe(0);
+      expect((await fixture.permission("AskUserQuestion", capturedQuestions[0])).behavior).toBe("allow");
+      expect(fixture.events().at(-1)).toEqual({ kind: "answer", choice: "group" });
+      const result = await fixture.permission("AskUserQuestion", capturedQuestions[1]);
+      expect(result.behavior).toBe("allow");
+      expect(fixture.events().at(-1)).toEqual({ kind: "answer", choice });
+      expect(spawnSync("bun", [fixture.helper, "--enroll", choice], { timeout: 10_000 }).status).toBe(0);
+      expect(enrollmentViolations(fixture.events(), choice, 2)).toEqual([]);
+      expect(JSON.parse(readFileSync(join(fixture.root, "enrollment.json"), "utf8")).choice).toBe(choice);
+      expect(fixture.denied).toEqual([]);
+    } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+  }
+});
+
+test("deferred scope context neither precedes its group nor authorizes unrelated questions", async () => {
+  for (const choice of ["D", "E"] as const) {
+    const fixture = makeEnrollmentFixture(choice, 2);
+    try {
+      expect((await fixture.permission("AskUserQuestion", capturedQuestions[1])).behavior).toBe("deny");
+      expect((await fixture.permission("AskUserQuestion", capturedQuestions[0])).behavior).toBe("allow");
+      const followup = capturedQuestions[1].questions[0];
+      expect((await fixture.permission("AskUserQuestion", { questions: [{ ...followup, header: "Cleanup", question: "Delete unrelated files?" }] })).behavior).toBe("deny");
+      expect((await fixture.permission("AskUserQuestion", { questions: [{ ...followup, options: [...followup.options, { label: "Delete unrelated files" }] }] })).behavior).toBe("deny");
+      expect((await fixture.permission("AskUserQuestion", capturedQuestions[1])).behavior).toBe("allow");
+      expect((await fixture.permission("AskUserQuestion", capturedQuestions[1])).behavior).toBe("deny");
+      expect(fixture.events()).toEqual([{ kind: "answer", choice: "group" }, { kind: "answer", choice }]);
+    } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+  }
+});
+
+test("future-only wording identifies the direct declared D choice", async () => {
+  for (const label of ["Future sessions only", "Only future sessions"]) {
+    const fixture = makeEnrollmentFixture("D", 2);
+    try {
+      expect((await fixture.permission("AskUserQuestion", { questions: [{ question: "Which transcript scope?", options: [{ label }, { label: "Never ingest transcripts" }] }] })).behavior).toBe("allow");
+      expect(fixture.events()).toEqual([{ kind: "answer", choice: "D" }]);
+    } finally { rmSync(fixture.root, { recursive: true, force: true }); }
+  }
 });

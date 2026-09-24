@@ -49,23 +49,30 @@ else if (args.includes('--enroll')) {
 else throw new Error('Unsupported fixture interaction');
 `, { mode: 0o600 });
   const denied: string[] = [];
+  let awaitingDeferredChoice = false;
   const events = () => readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
   const patterns: Record<EnrollmentChoice, RegExp> = {
     A: /this (?:repository|repo).*90|current (?:repository|repo).*90/i,
     B: /(?:this|current) (?:repository|repo).*all (?:history|time)/i,
     C: /all repositor|this (?:repository|repo).*other repos|all repos/i,
-    D: /only.*(?:now|new)|new.*(?:only|now)|track new|skip historical.*new/i,
+    D: /only.*(?:now|new)|new.*(?:only|now)|track new|skip historical.*new|future (?:sessions )?only|only future(?: sessions)?/i,
     E: /never ingest|(?:keep|set|remain).*off|never.*transcript|disable.*transcript/i,
   };
   const deny = (message: string) => { denied.push(message); return { behavior: "deny" as const, message }; };
   const permission = async (tool: string, input: Record<string, unknown>) => {
     if (tool === "Read") return input.file_path === skill ? { behavior: "allow" as const, updatedInput: input } : deny("Read is limited to the supplied section");
     if (tool === "AskUserQuestion") {
-      const questions = input.questions as Array<{ question: string; options: Array<{ label: string; description?: string }> }>;
+      const questions = input.questions as Array<{ header?: string; question: string; options: Array<{ label: string; description?: string }> }>;
       if (!Array.isArray(questions) || questions.length !== 1 || !Array.isArray(questions[0].options) || questions[0].options.length > 4) return deny("Unsupported question shape");
       const q = questions[0];
-      if (typeof q.question !== "string" || !/transcript|coding sessions|gbrain.*(?:remember|history|sessions)/i.test(q.question) ||
+      if (typeof q.question !== "string" ||
           !q.options.every((o) => typeof o.label === "string" && (o.description === undefined || typeof o.description === "string"))) return deny("Actor only answers transcript enrollment questions");
+      const deferredQuestion = awaitingDeferredChoice &&
+        /historical import|\bD\s*(?:\/|or|vs\.?)\s*E\b/i.test(`${q.header ?? ""} ${q.question}`) &&
+        q.options.some((o) => patterns.D.test(o.label + " " + (o.description ?? ""))) &&
+        q.options.some((o) => patterns.E.test(o.label + " " + (o.description ?? ""))) &&
+        q.options.every((o) => patterns.D.test(o.label + " " + (o.description ?? "")) || patterns.E.test(o.label + " " + (o.description ?? "")));
+      if (!/transcript|coding sessions|gbrain.*(?:remember|history|sessions)/i.test(q.question) && !deferredQuestion) return deny("Actor only answers transcript enrollment questions");
       const selected = q.options.find((o) => patterns[choice].test(o.label + " " + (o.description ?? ""))) ??
         ((choice === "D" || choice === "E") ? q.options.find((o) => /D\/E|no historical import|skip.*never/i.test(o.label + " " + (o.description ?? ""))) : undefined);
       if (!selected) return deny("Actor only answers the declared transcript scope question");
@@ -74,6 +81,7 @@ else throw new Error('Unsupported fixture interaction');
         (/\bor\b/i.test(option) && patterns.D.test(option) && patterns.E.test(option)) ||
         (!patterns[choice].test(option) && /no historical import|skip.*never/i.test(option));
       appendFileSync(log, JSON.stringify({ kind: "answer", choice: grouped ? "group" : choice }) + "\n");
+      awaitingDeferredChoice = grouped;
       return { behavior: "allow" as const, updatedInput: { ...input, answers: { [q.question]: selected.label } } };
     }
     if (tool === "Bash") {

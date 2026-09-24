@@ -12,6 +12,7 @@ import { resolveEvalModel } from "../lib/eval-model";
 import { ENROLLMENT_CASES, enrollmentViolations, makeEnrollmentFixture, queryEnrollmentFixture } from "./helpers/transcript-enrollment-fixture";
 
 const describeE2E = describeE2ETier("gate");
+const model = resolveEvalModel("capture");
 const collector = e2eTierEnabled("gate") ? new EvalCollector("e2e", undefined, "setup-gbrain-transcript-enrollment") : null;
 afterAll(async () => { await collector?.finalize(); });
 
@@ -35,7 +36,7 @@ describeE2E("setup-gbrain transcript enrollment", () => {
       try {
         await runRecordedOfficeHoursAttempt({
           collector, name: `transcript enrollment ${choice} ${count}`, suite: "setup-gbrain transcript enrollment",
-          model: resolveEvalModel(), budgetMs: CAPTURE_MS,
+          model, budgetMs: CAPTURE_MS,
           run: async (signal) => {
             const queryProvider: QueryProvider = (input) => {
               const source = queryEnrollmentFixture(input);
@@ -47,6 +48,7 @@ describeE2E("setup-gbrain transcript enrollment", () => {
               return Object.assign(observed, { close: () => source.close() }) as ReturnType<QueryProvider>;
             };
             const result = await runAgentSdkTest({
+              model,
               systemPrompt: { type: "preset", preset: "claude_code" },
               userPrompt: `Load gstack's setup-gbrain workflow section at ${fixture.skill}. Earlier setup steps are complete. Execute only this transcript enrollment stage and stop before Step 8. The fixture provides the helper named in the section. The user will answer transcript questions; do not assume consent.`,
               workingDirectory: fixture.root, env: { HOME: fixture.home, GSTACK_HOME: join(fixture.home, ".gstack"), CLAUDE_CONFIG_DIR: join(fixture.home, ".claude"), TMPDIR: fixture.root },

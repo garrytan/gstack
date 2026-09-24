@@ -24,6 +24,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'setup-gbrain-transcript-enrollment': [
     'test/skill-e2e-transcript-enrollment.test.ts', 'test/helpers/transcript-enrollment-fixture.ts',
     'test/transcript-enrollment-fixture.test.ts', 'test/transcript-enrollment-native.test.ts',
+    'test/fixtures/transcript-enrollment-group-followup.json',
     'setup-gbrain/sections/transcript-gate.md', 'setup-gbrain/sections/transcript-gate.md.tmpl',
     'setup-gbrain/sections/manifest.json', 'setup-gbrain/SKILL.md.tmpl', 'setup-gbrain/memory.md',
     'bin/gstack-memory-ingest.ts', 'lib/gstack-memory-helpers.ts', 'lib/claude-bin.ts',
