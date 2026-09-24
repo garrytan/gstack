@@ -212,7 +212,7 @@ test('both gate executors cover the complete census without increasing aggregate
     expect(executor.strategy.matrix.slice).toEqual([1, 2, 3, 4, 5, 6]);
     expect(planned.slices).toBe(6);
     const manifest = buildRunManifest({ tier: 'gate', sliceCount: planned.slices, evalsAll: true, env: { EVALS_ALL: '1' } });
-    expect(manifest.entries.filter(row => row.status === 'planned')).toHaveLength(52);
+    expect(manifest.entries.filter(row => row.status === 'planned')).toHaveLength(54);
     const walls = executor.strategy.matrix.slice.map((slice: number) => paidShardWallUpperBoundMs(
       manifest.entries.filter(row => row.status === 'planned' && row.slice === slice).map(row => row.file), workers,
     ));
@@ -246,7 +246,7 @@ test('the periodic executor supervises every actual case and retry within its CI
   const manifest = buildRunManifest({ tier: 'periodic', sliceCount: planned.slices,
     dedicatedAutoplanSlice: planned.dedicatedAutoplanSlice, evalsAll: true, env: { EVALS_ALL: '1' } });
   const census = manifest.entries.filter(row => row.status === 'planned');
-  expect(census).toHaveLength(97);
+  expect(census).toHaveLength(99);
   expect(census.find(row => row.file === 'test/skill-llm-eval.test.ts')?.budget?.timeoutMs).toBe(6_400_000);
   expect(manifest.autoplanSlice).toBe(8);
   const walls = executor.strategy.matrix.slice.map((slice: number) => paidShardWallUpperBoundMs(

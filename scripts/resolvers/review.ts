@@ -75,6 +75,8 @@ ${['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName) ? 'Display a fr
 - Plan-tier rows (plan-ceo-review, plan-eng-review, plan-design-review, codex-plan-review) grade a plan file, not the repo tree — never apply the wtree rule to them; they keep the 7-day freshness logic. If an entry carries \`plan_sha256\`, you MAY compare it with the plan file and note "plan changed since review" on mismatch.
 - Plan-tier fallback only: parse \`---HEAD---\`. For entries with a different \`commit\`, count elapsed commits: \`git rev-list --count STORED_COMMIT..HEAD\`. If that command FAILS, grade UNKNOWN and treat as stale. Display: "Note: {skill} review from {date} may be stale — {N} commits since review". Missing commit tracking retains the legacy note to consider re-running.
 - If all reviews grade CURRENT, do not display staleness notes`;
+  if (ctx.skillName === 'ship') return result.replace(/^- \*\*Eng Review \(required by default\):\*\*.*$/m,
+    '- **Eng Review (historical readiness):** Required for a CLEARED dashboard, not for continuing Step 1. Step 9 remains mandatory, with its finding, approval and convergence gates. The skip_eng_review setting changes this dashboard only.');
   return ctx.skillName === 'plan-eng-review' ? result.replaceAll('\\`', '`') : result;
 }
 
@@ -1375,7 +1377,7 @@ Continue to Step 9 to commit and publish the approved documentation edits.
 
 // ─── Plan File Discovery (shared helper) ──────────────────────────────
 
-function generatePlanFileDiscovery(): string {
+function generatePlanFileDiscovery(ship = false): string {
   return `### Plan File Discovery
 
 1. **Conversation context (primary):** Check if there is an active plan file in this conversation. The host agent's system messages include plan file paths when in plan mode. If found, use it directly — this is the most reliable signal.
@@ -1404,7 +1406,7 @@ done
 
 **Error handling:**
 - No plan file found → skip with "No plan file detected — skipping."
-- Plan file found but unreadable (permissions, encoding) → skip with "Plan file found but unreadable — skipping."`;
+${ship ? '- Plan file found but unreadable (permissions, encoding) → return an audit error to the parent. Do not report no plan or successful zero counts; the parent applies its audit-failure recovery and skip/stop decision.' : '- Plan file found but unreadable (permissions, encoding) → skip with "Plan file found but unreadable — skipping."'}`;
 }
 
 // ─── Plan Completion Audit ────────────────────────────────────────────
@@ -1416,7 +1418,7 @@ function generatePlanCompletionAuditInner(mode: PlanCompletionMode, part: 'audit
   let gate = '';
 
   // ── Plan file discovery (shared) ──
-  sections.push(generatePlanFileDiscovery());
+  sections.push(generatePlanFileDiscovery(mode === 'ship'));
 
   // ── Item extraction ──
   sections.push(`
@@ -1452,7 +1454,7 @@ For each item, note:
 
 Before judging completion, classify HOW each item can be verified. The diff alone cannot prove every kind of work. Items outside the current repo or system are structurally invisible to \`git diff\`.
 
-- **DIFF-VERIFIABLE** — A code change in this repo would manifest in \`git diff <base>...HEAD\`. Examples: "add UserService" (file appears), "validate input X" (validation logic appears), "create users table" (migration file appears).
+- **DIFF-VERIFIABLE** — A code change in this repo would manifest in \`git diff ${mode === 'ship' ? 'origin/<base>' : '<base>...HEAD'}\`. Examples: "add UserService" (file appears), "validate input X" (validation logic appears), "create users table" (migration file appears).
 - **CROSS-REPO** — Item names a file or change in a sibling repo (e.g., \`domain-hq/docs/dashboard.md\`, \`~/Development/<other-repo>/...\`). The current diff CANNOT prove this.
 - **EXTERNAL-STATE** — Item names state in an external system: Supabase config/RLS, Cloudflare DNS, Vercel env vars, OAuth provider allowlists, third-party SaaS, DNS records. The current diff CANNOT prove this.
 - **CONTENT-SHAPE** — Item requires a file to follow a specific convention. If the file is in this repo: diff-verifiable. If in another repo or system: see CROSS-REPO / EXTERNAL-STATE.
@@ -1474,7 +1476,7 @@ Before judging completion, classify HOW each item can be verified. The diff alon
   sections.push(`
 ### Cross-Reference Against Diff
 
-Run \`git diff origin/<base>...HEAD\` and \`git log origin/<base>..HEAD --oneline\` to understand what was implemented.
+Run \`git diff origin/<base>${mode === 'ship' ? '' : '...HEAD'}\` and \`git log origin/<base>..HEAD --oneline\` to understand what was implemented.
 
 For each extracted plan item, run the verification dispatch from the previous section, then classify:
 
@@ -1714,14 +1716,20 @@ Follow the /qa-only workflow with these modifications:
 
 ### 4. Gate logic
 
-- **All verification items PASS:** Continue silently. "Plan verification: PASS."
-- **Any FAIL:** Use AskUserQuestion:
+Record the actual result even when the user accepts a failure.
+
+- **All verification items PASS:** Set VERIFY_RESULT=pass. Continue silently. "Plan verification: PASS."
+- **Any FAIL:** Set VERIFY_RESULT=fail, then use AskUserQuestion:
   - Show the failures with screenshot evidence
   - RECOMMENDATION: Choose A if failures indicate broken functionality. Choose B if cosmetic only.
   - Options:
     A) Fix the failures before shipping (recommended for functional issues)
     B) Ship anyway — known issues (acceptable for cosmetic issues)
-- **No verification section / no server / unreadable skill:** Skip (non-blocking).
+- **No verification section / no server / unreadable skill:** Set VERIFY_RESULT=skipped; record the reason (non-blocking).
+
+Fix before shipping returns to implementation, then reruns affected tests and this
+verification. Ship anyway retains VERIFY_RESULT=fail and lists the accepted
+failures in the PR; approval never turns failed verification into a pass.
 
 ### 5. Include in PR body
 
@@ -1741,7 +1749,11 @@ export function generateCrossReviewDedup(ctx: TemplateContext): string {
 
   return `### Step ${stepNum}: Cross-review finding dedup
 
-Before classifying findings, check if any were previously skipped by the user in a prior review on this branch.
+**Validate advisory severity first.** If a current finding has \`"severity":"CRITICAL"\` and \`"advisory":true\`, remove \`advisory\` and retain its \`CRITICAL\` severity. Handle it as a normal defect before suppression, classification, counting, scoring, and persistence. Never downgrade severity to make advisory metadata consistent. Valid INFORMATIONAL advisories remain advisory in every category, including simplification. A prior saved finding with contradictory CRITICAL/advisory metadata cannot establish a skipped defect or advisory decision: exclude it from reuse and revalidate the current finding.
+
+Before classifying findings, check if any were previously skipped by the user in a prior review on this branch.${isShip ? `
+
+**Execution:** Read prior records once. If there are no explicitly skipped findings, continue to Step 9.4. For ordinary findings use the primary-file rule below. Run the shared-code procedure only for a matching skipped advisory. Stop its eligibility checks at the first missing or unverifiable condition and re-review the supporting source for a fresh decision; incomplete evidence never permits suppression.` : ''}
 
 \`\`\`bash
 ~/.claude/skills/gstack/bin/gstack-review-read
@@ -1749,7 +1761,12 @@ Before classifying findings, check if any were previously skipped by the user in
 
 Parse the output: only lines BEFORE \`---CONFIG---\` are JSONL entries (the output also contains \`---CONFIG---\` and \`---HEAD---\` footer sections that are not JSONL — ignore those).
 
-For each JSONL entry that has a \`findings\` array:
+**Shared-code advisory decisions use the stricter rule below.** Do not send a
+finding through the ordinary primary-file rule if its category is \`shared-libs\`,
+its fingerprint starts \`shared-libs:\`, or it has \`evidence_paths\` / \`helper_target\`.
+Missing legacy metadata requires revalidation, not fallback to a line fingerprint.
+
+For each JSONL entry that has a \`findings\` array, for ordinary findings only:
 1. Collect all fingerprints where \`action: "skipped"\`
 2. Note the \`commit\` field from that entry
 
@@ -1762,8 +1779,69 @@ git diff --name-only <prior-review-commit> HEAD
 For each current finding (from both ${findingsRef}), check:
 - Does its fingerprint match a previously skipped finding?
 - Is the finding's file path NOT in the changed-files set?
+- Is it the same advisory/defect kind? Never use a skipped advisory to suppress a real defect, including a defect with a colliding supplied fingerprint.
 
-If both conditions are true: suppress the finding. It was intentionally skipped and the relevant code hasn't changed.
+If all conditions are true: suppress the finding. It was intentionally skipped and the relevant code hasn't changed.
+
+**Reuse a skipped shared-code advisory only with complete structural evidence:**
+
+1. Recompute both structural identities with \`sharedLibsFingerprint\` from
+   \`${ctx.paths.skillRoot}/lib/review-evidence.ts\` before deduplication. Both must
+   be valid, both findings must explicitly be advisory, the prior saved hash must
+   match its recomputation, and the prior action must explicitly be \`skipped\`.
+   Retain \`evidence_paths\` and \`helper_target\`; line numbers and a primary path
+   alone cannot identify an extraction.
+2. Require a prior completed, converged \`review\` with verified binding and
+   start/end/record fingerprints equal to current \`---WTREE---\`. Read REVIEW_START
+   without consuming it; its repo, raw branch and fingerprint must match the current
+   repo, branch and snapshot. Missing, changed or unknown fields/token require
+   revalidation. Do not mint a new token to enable suppression.
+3. Match prior trusted \`review_binding.branch_id\` to SHA-256 of the exact
+   current raw branch, matching the capture. Compute the digest in code, never
+   as model-generated text. Sanitized log filenames are not branch identity:
+   \`topic/a\` and \`topic-a\` can collide.
+4. Verify EVERY evidence path against the snapshot. Enumerate tracked/non-ignored
+   untracked paths, then raw-read/lstat each file and path component; \`ls-files\`
+   alone is insufficient. Revalidate symlink targets/ancestors, submodules,
+   ignored/outside files and missing/unreadable paths: the parent fingerprint
+   does not cover them. Inspect effective Git attributes/config without conversion:
+   filter, working-tree-encoding, ident, text/eol and core.autocrlf can hide raw
+   changes. Active/unknown transformations require fresh raw-source review even
+   with an unchanged filtered tree. Disable fsmonitor and optional locks.
+   Exclude assume-unchanged, skip-worktree and sparse index entries. Compare each
+   raw file byte-for-byte with its blob in that exact working-tree snapshot,
+   using Git object reads without external diff/textconv or normalization.
+   Missing blobs, mismatches or unknown coverage require revalidation.
+   Only verified regular, untransformed,
+   in-repository paths enter \`covered_paths\`.
+   The prior finding's \`snapshot_covered_paths\` must also cover every evidence
+   path; current eligibility cannot prove what prior filters/index flags hid.
+   Missing prior coverage is legacy metadata; revalidate it.
+5. Call pure \`canReuseSharedLibsAdvisory\` with actually read records and verified
+   snapshot fields as literal JSON on stdin. The command below computes the live branch digest;
+   replace the empty example objects and keep the quoted delimiter:
+
+\`\`\`bash
+bun -e '
+const { createHash } = await import("node:crypto");
+const { canReuseSharedLibsAdvisory } = await import(process.argv[1]);
+const input = JSON.parse(await Bun.stdin.text());
+let branch = Bun.spawnSync(["git", "symbolic-ref", "--quiet", "--short", "HEAD"]);
+if (branch.exitCode !== 0) branch = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
+if (branch.exitCode !== 0) { console.log(false); process.exit(0); }
+const rawBranch = branch.stdout.toString().replace(/\\r?\\n$/, "");
+const snapshot = { ...input.currentSnapshot, branch_id: createHash("sha256").update(rawBranch, "utf8").digest("hex") };
+console.log(canReuseSharedLibsAdvisory(input.priorFinding, input.currentFinding, input.priorReview, snapshot));
+' "${toShellPath(ctx.paths.skillRoot)}/lib/review-evidence.ts" <<'GSTACK_SHARED_LIBS_REUSE_JSON'
+{"priorFinding":{},"currentFinding":{},"priorReview":{},"currentSnapshot":{"wtree":"","covered_paths":[]}}
+GSTACK_SHARED_LIBS_REUSE_JSON
+\`\`\`
+
+Suppress only when ALL eligibility checks passed and the helper returns true.
+Otherwise re-read all supporting callers and present any still-supported advice
+for a fresh decision. A changed secondary caller or changed raw bytes matter even
+when the primary anchor, commit, or normalized Git tree appears unchanged. A real
+defect always retains normal Fix-First handling independently of this advice.
 
 Print: "Suppressed N findings from prior reviews (previously skipped by user)"
 
@@ -1771,5 +1849,10 @@ Print: "Suppressed N findings from prior reviews (previously skipped by user)"
 
 If no prior reviews exist or none have a \`findings\` array, skip this step silently.
 
-Output a summary header: \`Pre-Landing Review: N issues (X critical, Y informational)\``;
+Output a summary header: \`Pre-Landing Review: N issues (X critical, Y informational)\`.
+Count only non-advisory defects in that header; list optional advice separately
+with \`[ADVISORY]\`. Preserve advisory records and explicit decisions for
+persistence, but exclude advisories from score penalties, unresolved-defect
+totals, and clean-status blockers. This does not relax completion, convergence,
+or missing-reviewer rules.`;
 }

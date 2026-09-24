@@ -18,6 +18,30 @@ function rendered(rel: string): string {
 }
 
 describe('content-binding template drift', () => {
+  test('design-lite records outside coverage after the outside step in ship', () => {
+    const text = rendered('ship/sections/review-army.md');
+    const outside = text.indexOf('design voice**');
+    expect(outside).toBeGreaterThan(-1);
+    expect(text.indexOf('--finish DESIGN_START')).toBeGreaterThan(outside);
+    expect(text).toContain('Use the original DESIGN_START token');
+  });
+
+  test('ship eval selection scopes the Rails example below the project-native path', () => {
+    const text = rendered('ship/sections/tests.md');
+    const native = text.indexOf('**Project-native path:**');
+    const rails = text.indexOf('**Rails example only');
+    expect(native).toBeGreaterThan(-1);
+    expect(rails).toBeGreaterThan(native);
+    expect(text).not.toContain('**If no matches:**');
+    expect(text).toContain('If any eval fails');
+  });
+
+  test('ship historical readiness does not replace the current pre-landing gate', () => {
+    const text = rendered('ship/SKILL.md');
+    expect(text).not.toContain('The only review that gates shipping');
+    expect(text).toContain('Step 9 remains mandatory');
+  });
+
   test('ship Step 16 carries the evidence check (mechanized IRON LAW)', () => {
     const ship = rendered('ship/SKILL.md');
     expect(ship).toMatch(/gstack-evidence check --label tests --expect-cmd '[^']+' --label vitest --expect-cmd '[^']+' --max-age 24 --allow-paths CHANGELOG\.md,VERSION,package\.json/);
@@ -80,7 +104,7 @@ describe('content-binding template drift', () => {
     const army = rendered('ship/sections/review-army.md');
     expect(army.indexOf('gstack-review-log --start review')).toBeLessThan(army.indexOf('run `git diff origin/<base>`'));
     expect(army).toContain('--finish REVIEW_START');
-    expect(army).toContain('persist item 9 with `converged:false`');
+    expect(army).toContain('persist item 6 below with `converged:false`');
     expect(army).toContain('--start design-review-lite');
     expect(army).toContain('--finish DESIGN_START');
     const codex = rendered('codex/sections/review-mode.md');

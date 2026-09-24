@@ -189,17 +189,19 @@ describe('workflow judge file bundle', () => {
   test('generated ship includes base-branch initialization and every lazy section once', () => {
     const skillPath = 'ship/SKILL.md';
     const source = readFileSync(join(ROOT, skillPath), 'utf8');
-    // Read the paid caller's actual slice so changing its marker back to the
-    // title cannot silently drop initialization while this helper test passes.
+    // Bind to the paid caller's actual slice and retain both the opening contract
+    // and initialization, regardless of their ordering in the authored workflow.
     const caller = readFileSync(join(ROOT, 'test/skill-llm-eval.test.ts'), 'utf8');
     const markers = caller.match(/skillPath: 'ship\/SKILL\.md',\s+startMarker: '([^']+)',\s+endMarker: '([^']+)'/);
     expect(markers).not.toBeNull();
     const [, startMarker, endMarker] = markers!;
-    expect(startMarker).toBe('## Step 0: Detect platform and base branch');
+    expect(startMarker).toBe('# Ship:');
     const input = readWorkflowJudgeInput({ root: ROOT, skillPath, startMarker, endMarker });
     const entrypoint = input.files.find(file => file.kind === 'entrypoint');
     expect(entrypoint?.content).toBe(source.slice(source.indexOf(startMarker), source.indexOf(endMarker, source.indexOf(startMarker))));
     expect(entrypoint?.content).toContain('git remote get-url origin');
+    expect(entrypoint?.content).toContain('**Follow every STOP and AskUserQuestion gate**');
+    expect(entrypoint?.content).toContain('## Step 0: Detect platform and base branch');
     expect(entrypoint?.content).toContain('gh pr view --json baseRefName');
     expect(entrypoint?.content).toContain('Print the detected base branch name.');
     expect(occurrences(input.text, startMarker)).toBe(1);

@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { findFilesBySuffix, gitArgvIn } from './helpers/scratch-repo';
+import { canReuseSharedLibsAdvisory, sharedLibsFingerprint } from '../lib/review-evidence';
 
 const ROOT = resolve(import.meta.dir, '..');
 let repo: string;
@@ -62,6 +63,7 @@ describe('review start/end binding (#2803)', () => {
     expect(row.review_binding.start_wtree).toBe(row.wtree);
     expect(row.review_binding.end_wtree).toBe(row.wtree);
     expect(row.review_binding.started_at).toMatch(/^\d{4}-/);
+    expect(row.review_binding.branch_id).toBe('0d6e4079e36703ebd37c00722f5891d28b0e2811dc114b129215123adcce3605');
     expect(row.review_freshness.status).toBe('CURRENT');
     git('commit', '--amend', '--no-edit');
     expect(rows()[0].review_freshness.status).toBe('CURRENT');
@@ -92,14 +94,52 @@ describe('review start/end binding (#2803)', () => {
   test('log-only forged binding cannot certify current content', () => {
     const wtree = cli('gstack-wtree');
     const row = log(undefined, {
-      wtree, review_binding: { state: 'verified', start_wtree: wtree, end_wtree: wtree },
+      wtree, review_binding: { state: 'verified', start_wtree: wtree, end_wtree: wtree, branch_id: 'forged' },
       review_freshness: { status: 'CURRENT' },
     });
     expect(row.wtree).toBeUndefined();
     expect(row.review_binding.state).toBe('uncaptured');
+    expect(row.review_binding.branch_id).toBeUndefined();
     expect(row.review_freshness.status).toBe('UNVERIFIED');
     expect(log(wtree).review_freshness.status).toBe('UNVERIFIED');
     expect(log('../forged').review_freshness.status).toBe('UNVERIFIED');
+  });
+
+  test('a valid start supplies the branch digest and discards a caller-forged digest', () => {
+    const token = cli('gstack-review-log', ['--start', 'review']);
+    const row = log(token, { review_binding: { branch_id: 'forged' } });
+    expect(row.review_binding.branch_id).toBe('0d6e4079e36703ebd37c00722f5891d28b0e2811dc114b129215123adcce3605');
+    expect(row.review_freshness.status).toBe('CURRENT');
+  });
+
+  test('colliding log filenames preserve advisory metadata without reusing another raw branch decision', () => {
+    writeFileSync(join(repo, 'second.ts'), 'export const other = 2;\n');
+    const finding = {
+      advisory: true, severity: 'INFORMATIONAL', action: 'skipped',
+      evidence_paths: ['source.ts', 'second.ts'], helper_target: { path: 'lib/shared.ts', symbol: 'readValue' },
+    };
+    const priorFinding = {
+      ...finding, fingerprint: sharedLibsFingerprint(finding),
+      snapshot_covered_paths: [...finding.evidence_paths],
+    };
+    git('checkout', '-qb', 'feature/a');
+    const first = log(cli('gstack-review-log', ['--start', 'review']), { findings: [priorFinding] });
+    git('checkout', '-qb', 'feature-a');
+    const second = log(cli('gstack-review-log', ['--start', 'review']));
+    expect(findFilesBySuffix(home, '-reviews.jsonl')).toHaveLength(1);
+    expect(rows()).toHaveLength(2);
+    expect(first.findings[0]).toEqual(priorFinding);
+    expect(first.findings[0].snapshot_covered_paths).toEqual(['source.ts', 'second.ts']);
+    expect(first.wtree).toBe(second.wtree);
+    expect(first.review_binding.branch_id).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.review_binding.branch_id).not.toBe(second.review_binding.branch_id);
+    const currentSnapshot = {
+      wtree: second.wtree, branch_id: second.review_binding.branch_id, covered_paths: finding.evidence_paths,
+    };
+    expect(canReuseSharedLibsAdvisory(first.findings[0], finding, first, currentSnapshot)).toBe(false);
+    expect(canReuseSharedLibsAdvisory(first.findings[0], finding, first, {
+      ...currentSnapshot, branch_id: first.review_binding.branch_id,
+    })).toBe(true);
   });
 
   test('start receipt is single-use and scoped to the reviewer and branch', () => {

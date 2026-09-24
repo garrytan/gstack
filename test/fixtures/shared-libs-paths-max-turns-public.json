@@ -1,0 +1,76 @@
+{
+  "source": {
+    "head": "b9f6893",
+    "ciMerge": "116ba1cc528e6bc6c6b31f65aa9f106a229bfb1a",
+    "artifact": "paid-slice-2.zip",
+    "entry": "shards/skill-e2e-shared-libs-paths/1.88.0-HEAD-e2e-2026-09-23-0222.json",
+    "name": "shared-libs-review-index-flags",
+    "attempt": 2,
+    "scenario": "skip-worktree"
+  },
+  "qualification": "Exact public final native question and answered result, immediately followed by error_max_turns. The actor answered Skip correctly; no finish or final summary followed. This historical attempt remains failed.",
+  "events": [
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01JxhVBm6Qkb1JZgUyxvVvsN",
+            "name": "AskUserQuestion",
+            "input": {
+              "questions": [
+                {
+                  "question": "I found 0 defects. 1 optional advisory needs your input:\n\n1. [ADVISORY] src/retry-worker.ts:2-15 \u2014 This diff replaces the one-line re-export of lib/retry-after.ts#retrySeconds with a byte-identical 14-line copy. src/retry-route.ts:2-15 (raw file read directly; skip-worktree hides it from git diff) holds the same identical copy. src/scheduler.ts:1 already imports the lib helper, and test/retry-after.test.ts covers its contract (5 assertions, passing). No behavior differences to preserve; same runtime/repo.\n   Fix: worker \u2192 `export { retrySeconds } from '../lib/retry-after';` route \u2192 same one-liner. Implementation: \u221230/+2 = 28 lines saved; total \u2248 \u221228 (no new tests needed; existing contract test covers all callers). Shared-failure blast radius is unchanged \u2014 the three copies are identical today.\n   Note: a prior review on this branch skipped this exact advisory, but that decision can't be reused because retry-route.ts changed under skip-worktree.\n\nRECOMMENDATION: Fix \u2014 it's a pure reuse of a proven helper with zero preserved differences.\n\nApply the extraction?",
+                  "header": "Advisory",
+                  "multiSelect": false,
+                  "options": [
+                    {
+                      "label": "Fix as recommended (Recommended)",
+                      "description": "Replace both inline copies (src/retry-worker.ts and src/retry-route.ts) with a one-line re-export from lib/retry-after.ts."
+                    },
+                    {
+                      "label": "Fix worker only",
+                      "description": "Re-export in src/retry-worker.ts only; leave the skip-worktree src/retry-route.ts copy untouched."
+                    },
+                    {
+                      "label": "Skip",
+                      "description": "Keep the inline copies. Recorded as an explicit skipped advisory (no score impact)."
+                    }
+                  ]
+                }
+              ]
+            },
+            "caller": {
+              "type": "direct"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "message": {
+        "content": [
+          {
+            "type": "tool_result",
+            "content": "Your questions have been answered: \"I found 0 defects. 1 optional advisory needs your input:\n\n1. [ADVISORY] src/retry-worker.ts:2-15 \u2014 This diff replaces the one-line re-export of lib/retry-after.ts#retrySeconds with a byte-identical 14-line copy. src/retry-route.ts:2-15 (raw file read directly; skip-worktree hides it from git diff) holds the same identical copy. src/scheduler.ts:1 already imports the lib helper, and test/retry-after.test.ts covers its contract (5 assertions, passing). No behavior differences to preserve; same runtime/repo.\n   Fix: worker \u2192 `export { retrySeconds } from '../lib/retry-after';` route \u2192 same one-liner. Implementation: \u221230/+2 = 28 lines saved; total \u2248 \u221228 (no new tests needed; existing contract test covers all callers). Shared-failure blast radius is unchanged \u2014 the three copies are identical today.\n   Note: a prior review on this branch skipped this exact advisory, but that decision can't be reused because retry-route.ts changed under skip-worktree.\n\nRECOMMENDATION: Fix \u2014 it's a pure reuse of a proven helper with zero preserved differences.\n\nApply the extraction?\"=\"Skip\". You can now continue with these answers in mind.",
+            "tool_use_id": "toolu_01JxhVBm6Qkb1JZgUyxvVvsN"
+          }
+        ]
+      }
+    }
+  ],
+  "terminal": {
+    "type": "result",
+    "subtype": "error_max_turns",
+    "is_error": true,
+    "errors": [
+      "Reached maximum number of turns (30)"
+    ],
+    "num_turns": 31,
+    "duration_ms": 274014,
+    "total_cost_usd": 1.1031620000000002,
+    "stop_reason": "tool_use"
+  }
+}

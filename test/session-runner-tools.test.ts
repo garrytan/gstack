@@ -75,7 +75,17 @@ const FAKE_CLAUDE = String.raw`
   }
   const outputFile = fs.existsSync('active-plan-output') ? 'PLAN.md' : 'REPORT.md';
   console.log(JSON.stringify({ type: 'system', subtype: 'init' }));
-  if (fs.existsSync('diagnostic-case')) {
+  if (fs.existsSync('auq-case.json')) {
+    const spec = JSON.parse(fs.readFileSync('auq-case.json', 'utf8'));
+    if (spec.write) fs.writeFileSync('ask-capture.md', spec.write);
+    console.log(JSON.stringify({ type: 'assistant', message: { content: [
+      { type: 'thinking', thinking: 'PRIVATE_AUQ_REASONING', signature: 'PRIVATE_AUQ_SIGNATURE' },
+    ] } }));
+    console.log(JSON.stringify({ type: 'result', subtype: spec.subtype ?? 'success',
+      is_error: !!spec.is_error, result: spec.result ?? 'Finished',
+    }));
+    process.exitCode = spec.exitCode ?? 0;
+  } else if (fs.existsSync('diagnostic-case')) {
     if (fs.readFileSync('diagnostic-case', 'utf8') === 'non-objects') {
       for (const value of [null, ['PRIVATE_NON_OBJECT'], 'PRIVATE_NON_OBJECT', 42, true]) console.log(JSON.stringify(value));
     }
@@ -184,6 +194,9 @@ async function withFakeClaude(run: (dir: string, readObserved: () => Observed) =
 }
 
 describe.skipIf(process.platform === 'win32')('session-runner explicit tool availability', () => {
+  // First-question and mode capture have actual native-boundary controls in
+  // auq-native-capture.test.ts and auq-mode-capture.test.ts respectively.
+
   test('long section work fits the existing long capture tier with reporting headroom', () => {
     expect(LONG_SECTION_CAPTURE_MS).toBeGreaterThan(CAPTURE_MS);
     expect(CAPTURE_LONG_MS - LONG_SECTION_CAPTURE_MS).toBe(120_000);

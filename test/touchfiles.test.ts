@@ -19,6 +19,7 @@ import {
 } from './helpers/touchfiles';
 
 import { readWorkflowExcerpt } from './helpers/workflow-excerpt';
+import { sharedLibsPlanExcerpt } from './helpers/shared-libs-plan-excerpt';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -78,9 +79,9 @@ describe('selectTests', () => {
     expect(fs.readFileSync(path.join(ROOT, 'plan-eng-review/sections/review-sections.md.tmpl'), 'utf8'))
       .toContain('{{LEARNINGS_SEARCH}}');
     const consumers = selectTests(['plan-eng-review/sections/review-sections.md'], E2E_TOUCHFILES).selected
-      // These cases use an outside-only excerpt or descriptive Eng metadata.
+      // These cases use an outside-only/Code Quality excerpt or descriptive metadata.
       .filter(id => !['outside-plan-disabled-no-fallback', 'plan-ceo-review-prosons-cadence',
-        'plan-review-prosons-format'].includes(id));
+        'plan-review-prosons-format', 'shared-libs-plan-callers'].includes(id));
     const existing = ['learnings-show', 'codex-plan-ceo-format-mode', 'codex-plan-ceo-format-approach',
       'codex-plan-eng-format-coverage', 'codex-plan-eng-format-kind'];
     const result = selectTests(['scripts/resolvers/learnings.ts'], E2E_TOUCHFILES);
@@ -161,7 +162,8 @@ describe('selectTests', () => {
     const generated = selectTests(consumers.map(([output]) => output), E2E_TOUCHFILES);
     // These two CEO-format cases already depend on every resolver through
     // scripts/resolvers/**; keep that existing selection alongside consumers.
-    const expected = [...new Set([...generated.selected,
+    // The bounded Code Quality fixture stops before Test review.
+    const expected = [...new Set([...generated.selected.filter(id => id !== 'shared-libs-plan-callers'),
       'codex-plan-ceo-format-mode', 'codex-plan-ceo-format-approach',
     ])].sort();
     const actual = selectTests(['scripts/resolvers/testing.ts'], E2E_TOUCHFILES);
@@ -185,6 +187,33 @@ describe('selectTests', () => {
     const result = selectTests(['scripts/resolvers/testing.ts'], LLM_JUDGE_TOUCHFILES);
     expect(result.reason).toBe('diff');
     expect(result.selected.sort()).toEqual(['plan-eng-review/SKILL.md sections', 'ship/SKILL.md workflow']);
+  });
+
+  test('bounded shared-code planning selects its consumed resolvers, excluding other Eng sections', () => {
+    const entrypoint = fs.readFileSync(path.join(ROOT, 'plan-eng-review/SKILL.md'), 'utf8');
+    const review = fs.readFileSync(path.join(ROOT, 'plan-eng-review/sections/review-sections.md'), 'utf8');
+    const excerpt = sharedLibsPlanExcerpt(entrypoint, review);
+    for (const [start, end] of [
+      ['## Prior Learnings', '## Retrospective learning'],
+      ['### 3. Test review', '### 4. Performance review'],
+    ]) {
+      const begin = review.indexOf(start), finish = review.indexOf(end, begin);
+      expect(begin).toBeGreaterThan(0);
+      expect(finish).toBeGreaterThan(begin);
+      const changed = review.slice(0, begin + start.length) + '\nChanged excluded instructions.\n' + review.slice(finish);
+      expect(sharedLibsPlanExcerpt(entrypoint, changed)).toBe(excerpt);
+    }
+    for (const source of ['scripts/resolvers/learnings.ts', 'scripts/resolvers/testing.ts']) {
+      expect(selectTests([source], E2E_TOUCHFILES).selected).not.toContain('shared-libs-plan-callers');
+    }
+    expect(excerpt).toContain('## Confidence Calibration');
+    expect(excerpt).toContain('## AskUserQuestion Format');
+    expect(excerpt).toContain('### Shared-code evaluation rubric');
+    for (const source of ['scripts/resolvers/confidence.ts',
+      'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/shared-libs.ts',
+      'test/helpers/shared-libs-plan-excerpt.ts']) {
+      expect(selectTests([source], E2E_TOUCHFILES).selected).toContain('shared-libs-plan-callers');
+    }
   });
 
   test.each([
@@ -268,6 +297,36 @@ describe('selectTests', () => {
     expect(result.selected).not.toContain('retro');
   });
 
+  test('mode-question capture dependencies select its native gate', () => {
+    for (const file of [
+      'test/auq-mode-capture.test.ts', 'test/skill-ceo-section-ordering.test.ts',
+      'test/helpers/agent-sdk-runner.ts', 'test/helpers/auq-native-capture.ts',
+      'test/helpers/hermetic-env.ts', 'test/helpers/eval-store.ts',
+      'lib/claude-bin.ts', 'test/workflow-excerpt.test.ts',
+    ]) {
+      expect(selectTests([file], E2E_TOUCHFILES).selected).toContain('auq-format-gate');
+    }
+  });
+
+  test('shared-code evidence regressions select their consuming evaluations', () => {
+    expect(selectTests(['test/fixtures/shared-libs-readonly-substitution-ci16358.json'], E2E_TOUCHFILES).selected.sort())
+      .toEqual(['shared-libs-codex-read-only', 'shared-libs-opportunity-judgment', 'shared-libs-pr-coverage',
+        'shared-libs-read-only', 'shared-libs-unsupported-git'].sort());
+    for (const file of ['test/helpers/shared-libs-review-start-evidence.ts', 'test/shared-libs-review-start-evidence.test.ts',
+      'test/fixtures/shared-libs-review-start-public.json',
+      'test/fixtures/shared-libs-revalidation-max-turns-public.json']) {
+      expect(selectTests([file], E2E_TOUCHFILES).selected).toEqual(['shared-libs-review-revalidation']);
+    }
+    const pathCases = ['shared-libs-review-path-eligibility', 'shared-libs-review-index-flags',
+      'shared-libs-review-prior-coverage'];
+    expect(selectTests(['test/shared-libs-revalidation-prompt.test.ts'], E2E_TOUCHFILES).selected.sort())
+      .toEqual([...pathCases, 'shared-libs-review-revalidation'].sort());
+    expect(selectTests(['test/fixtures/shared-libs-index-flags-skip-question.json'], E2E_TOUCHFILES).selected.sort())
+      .toEqual([...pathCases, 'shared-libs-review-revalidation', 'shared-libs-review-lifecycle'].sort());
+    expect(selectTests(['test/fixtures/shared-libs-paths-max-turns-public.json'], E2E_TOUCHFILES).selected)
+      .toEqual(['shared-libs-review-index-flags']);
+  });
+
   test('skill-specific change selects only that skill and related tests', () => {
     const result = selectTests(['plan-ceo-review/SKILL.md'], E2E_TOUCHFILES);
     expect(result.selected).toContain('plan-ceo-review');
@@ -333,10 +392,10 @@ describe('selectTests', () => {
     expect(result.selected).not.toContain('retro');
   });
 
-  test('session tool isolation regression selects its four capture workflows', () => {
+  test('session tool isolation regression selects its capture workflows', () => {
     const result = selectTests(['test/session-runner-tools.test.ts'], E2E_TOUCHFILES);
     expect(result.selected.sort()).toEqual([
-      'carve-section-loading', 'plan-ceo-section-loading', 'plan-design-review-plan-mode', 'ship-section-loading',
+      'auq-format-gate', 'carve-section-loading', 'plan-ceo-section-loading', 'plan-design-review-plan-mode', 'ship-section-loading',
     ]);
     expect(result.reason).toBe('diff');
   });
