@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.90.0.0] - 2026-09-24
+## [1.91.0.0] - 2026-09-24
 
 This release tightens failure reporting, owned state, browser handoff, and cross-host skill execution.
 
