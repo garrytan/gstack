@@ -9,13 +9,22 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const source = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-plan-tune-cathedral.test.ts'), 'utf8');
 const names = ['plan-tune-hook-capture', 'plan-tune-enforcement', 'plan-tune-annotation', 'plan-tune-codex-import', 'plan-tune-dream-cycle'];
 
-async function exercise(selected = names, fault?: 'missing-log-lib' | 'missing-hook-lib' | 'first-hook' | 'setup', hostEnv: Record<string, string> = {}) {
+async function exercise(selected = names, fault?: 'missing-log-lib' | 'missing-hook-lib' | 'missing-slug-lib' | 'missing-state-config' | 'missing-state-permissions' | 'missing-state-error-bridge' | 'missing-state-error-lib' | 'first-hook' | 'setup', hostEnv: Record<string, string> = {}) {
   // Execute the actual selected callbacks with real local bins. Never import
   // E2E initialization, call a provider, or pass ambient auth/host state.
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'cathedral-contract-'));
   const suites: any[] = [], finalizers: any[] = [], rows: any[] = [], attempts: any[] = [], dirs: string[] = [], removals: any[] = [];
   const invoked: string[] = [];
   let current: any, failedHook = false;
+  const missingLibraries: Record<string, string> = {
+    'missing-log-lib': '/lib/jsonl-store.ts',
+    'missing-hook-lib': '/lib/is-conductor.ts',
+    'missing-slug-lib': '/lib/bin-context.ts',
+    'missing-state-config': '/browse/src/config.ts',
+    'missing-state-permissions': '/browse/src/file-permissions.ts',
+    'missing-state-error-bridge': '/browse/src/error-handling.ts',
+    'missing-state-error-lib': '/lib/error-handling.ts',
+  };
   const owned = (p: string) => { if (!p.startsWith(scratch + path.sep)) throw new Error('Foreign fixture path'); };
   const env = { PATH: process.env.PATH, HOME: path.join(scratch, 'home'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', ...hostEnv };
   fs.mkdirSync(env.HOME);
@@ -35,7 +44,7 @@ async function exercise(selected = names, fault?: 'missing-log-lib' | 'missing-h
       copyFileSync(a: string,b: string) {
         owned(b);
         if(fault==='setup') throw new Error('Synthetic fixture copy failure');
-        if((fault==='missing-log-lib' && a.endsWith('/lib/jsonl-store.ts')) || (fault==='missing-hook-lib' && a.endsWith('/lib/is-conductor.ts'))) return;
+        if(fault && missingLibraries[fault] && a.replaceAll('\\', '/').endsWith(missingLibraries[fault])) return;
         fs.copyFileSync(a,b);
       },
       rmSync(p: string,opts: any) {
@@ -125,5 +134,19 @@ test('Plain Claude cathedral contracts stay isolated from either inherited Condu
     expect(x.rows.map(row => row.passed)).toEqual([true, true, true, true]);
     for (const attempt of x.attempts) expect(attempt.error).toBeUndefined();
     expect(x.allRemoved).toBe(true);
+  }
+});
+
+test.each(['missing-slug-lib', 'missing-state-config', 'missing-state-permissions', 'missing-state-error-bridge', 'missing-state-error-lib'] as const)('the installed preference hook rejects %s before producing a passing row', async fault => {
+  const x = await exercise(['plan-tune-enforcement'], fault);
+  expect(x.rows.map(row => row.passed)).toEqual([false, false]);
+  expect(x.allRemoved).toBe(true);
+  for (const attempt of x.attempts) expect(attempt.error).toBeDefined();
+});
+
+test('canonical state and slug imports select every fixture that copies them', () => {
+  for (const file of ['lib/bin-context.ts', 'lib/error-handling.ts', 'browse/src/config.ts', 'browse/src/file-permissions.ts', 'browse/src/error-handling.ts']) {
+    const owners = Object.entries(E2E_TOUCHFILES).filter(([name, paths]) => names.includes(name) && paths.includes(file)).map(([name]) => name);
+    expect(owners).toEqual(names);
   }
 });
