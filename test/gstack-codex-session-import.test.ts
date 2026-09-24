@@ -60,7 +60,7 @@ function userMessage(text: string): Record<string, unknown> {
   };
 }
 
-function runImport(sessionPath: string): { stdout: string; stderr: string; status: number } {
+function runImport(sessionPath: string, bin = BIN): { stdout: string; stderr: string; status: number } {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined) env[k] = v;
@@ -68,7 +68,7 @@ function runImport(sessionPath: string): { stdout: string; stderr: string; statu
   env.GSTACK_STATE_ROOT = stateRoot;
   env.GSTACK_QUESTION_LOG_NO_DERIVE = '1';
   delete env.GSTACK_HOME;
-  const res = spawnSync(BIN, [sessionPath], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+  const res = spawnSync('bash', [bin, sessionPath], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
   return {
     stdout: res.stdout ?? '',
     stderr: res.stderr ?? '',
@@ -92,6 +92,37 @@ function readImportedEvents(): Array<Record<string, unknown>> {
 // ----------------------------------------------------------------------
 
 describe('marker-first import (source=codex-import-marker)', () => {
+  test('imports through a non-executable question logger and does not count rejected writes', () => {
+    const install = path.join(stateRoot, 'owned install');
+    const bin = path.join(install, 'bin');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.mkdirSync(path.join(install, 'lib'));
+    for (const name of ['gstack-codex-session-import', 'gstack-question-log', 'gstack-slug']) {
+      const target = path.join(bin, name);
+      fs.copyFileSync(path.join(ROOT, 'bin', name), target);
+      expect(fs.realpathSync(target).startsWith(fs.realpathSync(install) + path.sep)).toBe(true);
+      fs.chmodSync(target, name === 'gstack-slug' ? 0o700 : 0o600);
+    }
+    fs.copyFileSync(path.join(ROOT, 'lib/jsonl-store.ts'), path.join(install, 'lib/jsonl-store.ts'));
+    const sessionPath = writeSessionFile([
+      agentMessage('D1 — Native dispatch <gstack-qid:ship-test-failure-triage>\nA) Fix now (recommended)\nB) Investigate'),
+      userMessage('A'),
+    ]);
+    const importer = path.join(bin, 'gstack-codex-session-import');
+    const imported = runImport(sessionPath, importer);
+    expect(imported.status, imported.stderr).toBe(0);
+    expect(imported.stdout).toContain('IMPORTED: 1 events from 1 session(s)');
+    expect(readImportedEvents()).toHaveLength(1);
+    expect(readImportedEvents()[0]).toMatchObject({
+      source: 'codex-import-marker', question_id: 'ship-test-failure-triage', user_choice: 'Fix now',
+    });
+    fs.writeFileSync(path.join(bin, 'gstack-question-log'), 'exit 7\n');
+    const rejected = runImport(sessionPath, importer);
+    expect(rejected.status, rejected.stderr).toBe(0);
+    expect(rejected.stdout).toContain('IMPORTED: 0 events from 1 session(s)');
+    expect(readImportedEvents()).toHaveLength(1);
+  });
+
   test('extracts marker id from agent_message and pairs with next user_message', () => {
     const sessionPath = writeSessionFile([
       agentMessage(
@@ -196,7 +227,7 @@ describe('default mode (no args → latest)', () => {
       }
       env.GSTACK_STATE_ROOT = stateRoot;
       env.CODEX_SESSIONS_ROOT = emptyDir;
-      const res = spawnSync(BIN, [], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
+      const res = spawnSync('bash', [BIN], { env, encoding: 'utf-8', cwd: ROOT, timeout: 30_000 });
       expect(res.status).toBe(0);
       expect(res.stdout).toMatch(/NO_SESSIONS/);
     } finally {

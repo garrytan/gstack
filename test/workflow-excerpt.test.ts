@@ -89,7 +89,7 @@ describe('workflow judge excerpts', () => {
     expect(text).not.toContain('Steps 4-6:');
     expect(text).toContain('During pre-flight, read the existing review log');
     expect(text).toContain('Save the JSON `baseVersion` as `BASE_VERSION`');
-    expect(text).toContain("GIT_SEQUENCE_EDITOR='cp");
+    expect(text).not.toContain('GIT_SEQUENCE_EDITOR');
     expect(text).not.toContain("--exec 'true'");
     expect(text).not.toContain('-X ours');
     expect(text).toContain('````text\nYou are running a ship-workflow');
@@ -172,8 +172,8 @@ describe('workflow judge excerpts', () => {
     const { skillPath, startMarker, endMarker } = ENG_REVIEW_EXCERPT;
     const eng = readWorkflowExcerpt(skillPath, startMarker, endMarker);
     const stages = ['## Review preparation', '## Retrospective learning', '## Confidence Calibration', '## Decision procedure',
-      '### 1. Establish current state', '## Scope Challenge', '### A. Inspect the proposed scope',
-      '### B. Resolve the complexity gate', '### C. Resolve scope findings', '## Review Sections',
+      '### 1. Establish current state', '## Scope Challenge', '### A. Assess the target',
+      '### B. Resolve complexity selectors', '### C. Resolve findings', '## Review Sections',
       '### 1. Architecture review', '### 2. Code quality review', '### 3. Test review', '### 4. Performance review']
       .map(heading => eng.indexOf(heading));
     expect(stages.every(index => index >= 0)).toBe(true);
@@ -188,8 +188,8 @@ describe('workflow judge excerpts', () => {
     expect(procedure).toContain("### 6. Apply and refresh");
     const scope = eng.slice(eng.indexOf('## Scope Challenge'), eng.indexOf('## Review Sections'));
     const scopeHeadings = marked.lexer(scope).filter(token => token.type === 'heading' && token.depth === 3);
-    expect(scopeHeadings.map(token => token.text)).toEqual(['A. Inspect the proposed scope',
-      'B. Resolve the complexity gate', 'C. Resolve scope findings']);
+    expect(scopeHeadings.map(token => token.text)).toEqual(['A. Assess the target',
+      'B. Resolve complexity selectors', 'C. Resolve findings']);
     const outputs = ['### TODOS.md updates', '## Approval readiness', '## Required outputs', '## Implementation Tasks',
       '### Unresolved decisions', '### Completion summary', '## Plan File Review Report',
       '### Write to the report file', '## Review Log'].map(heading => eng.indexOf(heading));
@@ -340,41 +340,13 @@ console.log(JSON.stringify({calls, results}));
     }
   });
 
-  test('WIP squash example consumes the prepared todo and preserves file contents', () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'ship-wip-example-'));
-    const env = {
-      ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
-      GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com',
-      GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com',
-    };
-    const git = (...args: string[]) => {
-      const result = spawnSync('git', args, { cwd, env, encoding: 'utf8', timeout: 10_000 });
-      if (result.status !== 0) throw new Error(result.stderr || String(result.error));
-      return result.stdout.trim();
-    };
-    try {
-      git('init', '-b', 'main');
-      writeFileSync(join(cwd, 'file'), 'base\n');
-      git('add', 'file');
-      git('commit', '-m', 'base');
-      git('switch', '-c', 'feature');
-      for (const message of ['logical change', 'WIP: finish change', 'other logical change']) {
-        writeFileSync(join(cwd, 'file'), message + '\n');
-        git('commit', '-am', message);
-      }
-      const commits = git('rev-list', '--reverse', 'main..HEAD').split('\n');
-      const todo = join(cwd, '.git', 'prepared-todo');
-      writeFileSync(todo, commits.map((sha, i) => `${i === 1 ? 'fixup' : 'pick'} ${sha}`).join('\n') + '\n');
-      const source = readFileSync(join(import.meta.dir, '../ship/SKILL.md.tmpl'), 'utf8');
-      const snippet = source.match(/```bash\n(export WIP_TODO=[\s\S]*?)\n```/)![1]
-        .replace('<absolute path to prepared todo>', todo).replaceAll('origin/<base>', 'main');
-      const originalTree = git('rev-parse', 'HEAD^{tree}');
-      const result = spawnSync('bash', ['-c', snippet], { cwd, env, encoding: 'utf8', timeout: 10_000 });
-      expect(result.status, result.stderr).toBe(0);
-      expect(git('rev-list', '--count', 'main..HEAD')).toBe('2');
-      expect(git('rev-parse', 'HEAD^{tree}')).toBe(originalTree);
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
+  test('ship commits logical chunks without rewriting existing checkpoint commits', () => {
+    const text = readWorkflowExcerpt('ship/SKILL.md', '# Ship:', '## Important Rules');
+    const commit = text.slice(text.indexOf('## Step 15:'), text.indexOf('## Step 16:'));
+    expect(commit).toContain('Create small, logical commits');
+    expect(commit).toContain('If all changes are already committed, continue to Step 16');
+    expect(commit).toContain('Each commit must work independently');
+    expect(commit).not.toMatch(/rebase|reset|squash|fixup|WIP_TODO|gstack-context/);
+    expect(text).not.toContain('Step 15.0');
   });
 });

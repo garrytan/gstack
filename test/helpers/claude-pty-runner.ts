@@ -5542,7 +5542,7 @@ export function planFloorDXReplyInput(visible: string, call: NativePlanQuestionC
   if (first < 0) return null;
   lines[first] = lines[first]!.replace(/^  1\./, '❯ 1.');
   const footer = lines.findLastIndex(line => line.trim().length > 0);
-  lines[footer] = lines[footer]!.replace(/^[ \t]*(Enter to select · ↑\/↓ to navigate) · ctrl\+g to edit in [^\x00-\x1f\x7f·]+( · Esc to cancel)[ \t]*$/, '$1$2');
+  lines[footer] = lines[footer]!.replace(/^[ \t]*(Enter to select · ↑\/↓ to navigate(?: · n to add notes)?) · ctrl\+g to edit in [^\x00-\x1f\x7f·]+( · Esc to cancel)[ \t]*$/, '$1$2');
   const pane = planFloorDXPane(lines.join('\n'), call);
   if (!pane || compact(pane) !== compact(state.pane)) return null;
   return state.stage === 'paste'

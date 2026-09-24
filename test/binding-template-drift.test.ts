@@ -49,7 +49,8 @@ describe('content-binding template drift', () => {
     expect(ship).toContain("(cd '<lane working directory>' && ~/.claude/skills/gstack/bin/gstack-evidence check --label '<lane label>' --expect-cmd '<exact lane command>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md)");
     expect(ship).toContain('Check EVERY required tuple resolved in Steps 5–6, including eval, lint and typecheck');
     expect(ship).toContain('A different runner under the same label cannot satisfy the check.');
-    expect(ship).toContain('a failed CHECK never blocks');
+    expect(ship).toContain('A failed CHECK identifies evidence to repair; it is not a test failure');
+    expect(ship).toContain('required live RUN must pass');
   });
 
   test('ship Step 5 lanes run wrapped with per-lane labels', () => {

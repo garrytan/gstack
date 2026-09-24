@@ -24,9 +24,11 @@ describe('registered ship/land command outcome calibration', () => {
         const discovery = fixture.run('gstack-evidence', ['--help']);
         expect(discovery.status).toBe(2);
         for (const lane of fixture.lanes) {
-          expect(fixture.run('gstack-evidence', ['run', '--label', lane.label, '--', lane.command], lane.cwd).status).toBe(0);
+          const run = fixture.run('gstack-evidence', ['run', '--label', lane.label, '--', lane.command], lane.cwd);
+          expect(run.status, run.stdout + run.stderr).toBe(0);
           for (let i = 0; i < 2; i++) {
-            expect(fixture.run('gstack-evidence', ['check', '--label', lane.label, '--expect-cmd', lane.command], lane.cwd).status).toBe(0);
+            const check = fixture.run('gstack-evidence', ['check', '--label', lane.label, '--expect-cmd', lane.command], lane.cwd);
+            expect(check.status, check.stdout + check.stderr).toBe(0);
           }
         }
         const events = fixture.events();
@@ -48,6 +50,9 @@ describe('registered ship/land command outcome calibration', () => {
 
 describe('ship/land native fixture calibration', () => {
   test('isolated fixture commits do not require an ambient Git identity', () => {
+    const configRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-land-git-config-'));
+    const globalConfig = path.join(configRoot, 'empty.gitconfig');
+    fs.writeFileSync(globalConfig, '', { mode: 0o600 });
     const source = `
       import { createShipLandFixture } from ${JSON.stringify(path.join(import.meta.dir, 'helpers/ship-land-fixture.ts'))};
       const fixture = createShipLandFixture('review-approved');
@@ -57,16 +62,18 @@ describe('ship/land native fixture calibration', () => {
         console.log(result.stdout.trim());
       } finally { fixture.cleanup(); }
     `;
-    const result = spawnSync(process.execPath, ['-e', source], {
-      cwd: ROOT,
-      env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_COUNT: '0' },
-      encoding: 'utf8', timeout: 15_000,
-    });
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim().split(/\r?\n/)).toEqual([
-      'Ship Land Fixture <ship-land-fixture@example.invalid>',
-      'Ship Land Fixture <ship-land-fixture@example.invalid>',
-    ]);
+    try {
+      const result = spawnSync(process.execPath, ['-e', source], {
+        cwd: ROOT,
+        env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_COUNT: '0' },
+        encoding: 'utf8', timeout: 15_000,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout.trim().split(/\r?\n/)).toEqual([
+        'Ship Land Fixture <ship-land-fixture@example.invalid>',
+        'Ship Land Fixture <ship-land-fixture@example.invalid>',
+      ]);
+    } finally { fs.rmSync(configRoot, { recursive: true, force: true }); }
   });
 
   test('owned command dispatch does not depend on native shebang resolution or ambient tools', () => {

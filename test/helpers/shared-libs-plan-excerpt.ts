@@ -9,6 +9,6 @@ export function sharedLibsPlanExcerpt(entrypoint: string, review: string): strin
     sliceBetween(review, '**Plan-review evidence:**', '## Decision procedure'),
     sliceBetween(review, '## Decision procedure', '## Scope Challenge'),
     sliceBetween(review, '### 2. Code quality review', '### 3. Test review'),
-    sliceBetween(entrypoint, '**Blocked outcome:**', '## EXIT PLAN MODE GATE'),
+    sliceBetween(entrypoint, '## Recovery routing', '## EXIT PLAN MODE GATE'),
   ].join('\n\n');
 }

@@ -1,5 +1,5 @@
-import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { afterAll, describe, expect, spyOn, test } from 'bun:test';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -16,6 +16,7 @@ const PID = path.join(DIR, 'descendant.pid');
 // inherited pipes; a PID returned by spawn alone does not establish that state.
 writeFileSync(DESCENDANT, `
 import { writeFileSync } from 'node:fs';
+await Bun.sleep(Number(process.env.DESCENDANT_DELAY_MS || 0));
 setInterval(() => {}, 1000);
 await new Promise(resolve => process.stdout.write(' ', resolve));
 await new Promise(resolve => process.stderr.write(' ', resolve));
@@ -28,6 +29,10 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs';
 const prompt = await Bun.stdin.text();
 writeFileSync(process.env.CAPTURE!, JSON.stringify({args:process.argv.slice(2),prompt,cwd:process.cwd(),model:process.env.ANTHROPIC_MODEL,auth:process.env.ANTHROPIC_API_KEY}));
 const mode = process.env.FAKE_MODE;
+if (mode === 'startup-timeout') {
+  setInterval(() => {}, 1000);
+  await new Promise(() => {});
+}
 if (mode === 'timeout' || mode === 'descendant' || mode === 'escaped') {
   rmSync(process.env.PID_FILE!, { force: true });
   // libuv on Windows kills non-detached children when this fake exits. The
@@ -207,15 +212,49 @@ describe('Claude Code restricted execution', () => {
   test('timeout kills its descendants and clears process signal listeners', async () => {
     rmSync(PID, { force: true });
     const before = ['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name));
-    const start = Date.now();
+    const schedule = globalThis.setTimeout;
+    let fireTimeout: (() => void) | undefined;
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) => {
+      if (delay !== 500) return schedule(callback, delay, ...args);
+      fireTimeout = () => callback(...args);
+      return schedule(() => {}, 0);
+    });
+    let invocation: ReturnType<typeof run>;
     try {
-      const result = await run('timeout', {timeoutMs:500});
+      invocation = run('timeout', {timeoutMs:500, env:{...env('timeout'), DESCENDANT_DELAY_MS:'750'}});
+    } finally { timer.mockRestore(); }
+    try {
+      expect(fireTimeout).toBeDefined();
+      const readyBy = Date.now() + 2000;
+      while (!existsSync(PID) && Date.now() < readyBy) await Bun.sleep(5);
+      expect(running(Number(readFileSync(PID, 'utf8')))).toBe(true);
+      const start = Date.now();
+      const expire = fireTimeout!;
+      fireTimeout = undefined;
+      expire();
+      const result = await invocation;
       expect(result.status).toBe('unavailable');
       expect(result.error?.code).toBe('timeout');
       expect(Date.now() - start).toBeLessThan(2000);
       expect(['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name))).toEqual(before);
       await expectDescendantDead();
-    } finally { cleanupDescendant(); }
+    } finally {
+      fireTimeout?.();
+      await invocation;
+      cleanupDescendant();
+    }
+  });
+
+  test('the real deadline bounds startup before descendant readiness', async () => {
+    rmSync(PID, { force: true });
+    const before = ['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name));
+    const start = Date.now();
+    const result = await run('startup-timeout', {timeoutMs:500});
+    expect(result.status).toBe('unavailable');
+    expect(result.error?.code).toBe('timeout');
+    expect(Date.now() - start).toBeLessThan(2000);
+    expect(['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name))).toEqual(before);
+    expect(() => readFileSync(PID)).toThrow();
   });
 
   test('a child exiting with inherited pipes is unavailable within the drain deadline', async () => {

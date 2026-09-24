@@ -205,7 +205,7 @@ for SESSION_FILE in "${SESSION_FILES[@]}"; do
 
     let imported = 0;
     for (const b of briefs) {
-      const res = spawnSync(qlogBin, [JSON.stringify(b)], {
+      const res = spawnSync("bash", [qlogBin, JSON.stringify(b)], {
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "pipe"],
         // Run from the originating cwd so gstack-slug bucks events into the

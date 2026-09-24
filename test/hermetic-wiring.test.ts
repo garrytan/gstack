@@ -62,7 +62,6 @@ describe('hermetic wiring tripwire', () => {
 
   test('feature prompt acknowledgements are seeded in GSTACK_HOME everywhere', () => {
     const markers = [
-      '.feature-prompted-continuous-checkpoint',
       '.feature-prompted-model-overlay',
     ];
     // CI seeding lives in the composite action (v1.77 moved it out of the

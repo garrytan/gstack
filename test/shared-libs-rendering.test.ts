@@ -102,7 +102,9 @@ describe('shared-code skill distribution', () => {
       '### 1. Establish current state', '### 2. Separate independent choices',
       '### 3. Compare one choice', '### 4. Save the pending record',
       '### 5. Ask and wait', '### 6. Apply and refresh',
-      '### 2. Code quality review', '### Shared-code evaluation rubric', '**Blocked outcome:**'];
+      '### 2. Code quality review', '### Shared-code evaluation rubric', '## Recovery routing',
+      '**Paused question:**', '**Repairable write/read failure:**',
+      '**Late change or missing work:**', '**Blocked outcome:**'];
     const positions = headings.map(heading => excerpt.indexOf(heading));
     expect(positions.every(index => index >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
@@ -123,9 +125,11 @@ describe('shared-code skill distribution', () => {
       [review, '## Review record and write policy', '## Prior Learnings'],
       [review, '## Decision procedure', '## Scope Challenge'],
       [review, '### 2. Code quality review', '### 3. Test review'],
+      [entrypoint, '## Recovery routing', '## EXIT PLAN MODE GATE'],
     ]) expect(excerpt).toContain(source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start))));
 
     for (const [source, marker] of [[entrypoint, '## AskUserQuestion Format'],
+      [entrypoint, '## Recovery routing'], [entrypoint, '## EXIT PLAN MODE GATE'],
       [review, '## Review record and write policy'], [review, '## Decision procedure'],
       [review, '## Scope Challenge']] as const) {
       const damaged = source.replace(marker, '## Missing prerequisite');

@@ -835,9 +835,12 @@ function skippedReviewOption(question: any): any {
       option[field] !== undefined && typeof option[field] !== 'string')) return [];
     const label = option.label.replace(/[‘’]/g, "'").replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
       .replace(/\s*\(recommended\)\s*$/i, '').trim();
+    const description = (option.description ?? '').replace(/[‘’]/g, "'").trim();
+    const declinesChange = /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i;
     const rank = /^(?:skip|decline)(?=$|\s|[,.!])/i.test(label) ? 3
-      : /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i.test(label) ? 2
-        : /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source)\b/i.test(label) ? 1 : 0;
+      : declinesChange.test(label) ? 2
+        : /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source)\b/i.test(label)
+          || (/^(?:keep|leave)\b/i.test(label) && declinesChange.test(description)) ? 1 : 0;
     if (!rank) return [];
     // A leading decline names rejected work. Classify later commitments rather
     // than action words inside recorded metadata or hypothetical consequences.

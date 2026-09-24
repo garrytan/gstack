@@ -287,3 +287,16 @@ export function sliceBetween(text: string, start: string, end: string): string {
   if (j < 0) throw new Error(`skill fixture: end marker not found after start: ${end}`);
   return text.slice(i, j);
 }
+
+export function extractDesignResearchContract(skill: string): string {
+  const setup = sliceBetween(skill, '## BROWSER SETUP', '### Rules for driving a real browser');
+  const probe = setup.match(/```bash\n[\s\S]*?\n```/)?.[0];
+  if (!probe) throw new Error('skill fixture: design research readiness probe missing');
+  const routing = sliceBetween(skill, '## Web research runs in Aside', '## Phase 2: Research');
+  const search = sliceBetween(skill, '**Step 1: Identify', '**Step 2: Visual research');
+  const prelude = search.match(/^_EG=.*_aside_exec\(\).*$/m)?.[0];
+  if (!prelude) throw new Error('skill fixture: design research egress prelude missing');
+  return ['Run this readiness probe once before research:', probe, routing,
+    'For each Aside research call, include this prelude before invoking `_aside_exec` with the requested query:',
+    '```bash', prelude, '```'].join('\n\n');
+}

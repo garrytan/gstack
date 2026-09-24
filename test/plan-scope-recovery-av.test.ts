@@ -28,12 +28,12 @@ test('the review handoff repairs a missing public declaration without claiming t
     expect(text.indexOf(check)).toBeLessThan(reviewStart);
     if (skill === 'plan-eng-review') {
       const section = fs.readFileSync(path.join(import.meta.dir, '..', skill, 'sections/review-sections.md.tmpl'), 'utf8');
-      const stages = ['## Scope Challenge', '### A. Inspect the proposed scope', '### B. Resolve the complexity gate',
-        '### C. Resolve scope findings', '## Review Sections (after scope is agreed)'];
+      const stages = ['## Scope Challenge', '### A. Assess the target', '### B. Resolve complexity selectors',
+        '### C. Resolve findings', '## Review Sections (after scope is agreed)'];
       const positions = stages.map(stage => section.indexOf(stage));
       for (const position of positions) expect(position).toBeGreaterThanOrEqual(0);
       expect(positions).toEqual([...positions].sort((a, b) => a - b));
-      expect(section.slice(positions[1], positions[2])).toContain('Collect evidence for the complexity gate and findings below:');
+      expect(section.slice(positions[1], positions[2])).toContain('Complete these checks before the complexity decision in B');
       expect(text.slice(text.indexOf(check), reviewStart)).toContain('Scope Challenge is mandatory before Section 1');
     }
   }
