@@ -73,12 +73,85 @@ describe('shared-code legacy interactive actor', () => {
     expect(input).toEqual(before);
   });
 
+  test('the registered callback answers both complete native index-flag questions without approving changes', async () => {
+    const native = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/shared-libs-index-flags-native-questions.json'), 'utf8'));
+    expect(native.sourceRun).toBe(36036582724);
+    for (const { attempt, input } of native.cases) {
+      const original = structuredClone(input), questions: unknown[] = [], answers: unknown[] = [], refusals: Error[] = [];
+      const callback = createSharedInteractiveToolHandler('skip', {
+        nonQuestion: () => { throw new Error('unexpected tool'); },
+        onQuestion: question => { questions.push(question); },
+        onAnswer: (question, answer) => { answers.push({ question, answer }); },
+        onRefusal: error => { refusals.push(error); },
+      });
+      const expectedLabels = attempt === 1 ? ['B) Skip', 'Leave it'] : ['C) Skip', 'No, leave it'];
+      const expected = Object.fromEntries(input.questions.map((question: any, index: number) =>
+        [question.question, expectedLabels[index]]));
+      expect(await callback('AskUserQuestion', input)).toEqual({ behavior: 'allow', updatedInput: { ...input, answers: expected } });
+      expect(questions).toEqual([input]);
+      expect(answers).toEqual([{ question: input, answer: expected }]);
+      expect(refusals).toEqual([]);
+      expect(input).toEqual(original);
+    }
+  });
+
+  test('the captured native no-change questions select their paid index-flag consumer', () => {
+    expect(selectTests(['test/fixtures/shared-libs-index-flags-native-questions.json'], E2E_TOUCHFILES, []).selected)
+      .toEqual(['shared-libs-review-index-flags']);
+  });
+
+  test.each([
+    { label: 'Leave it', description: 'Keep the index flag as-is and record the decision in the review log.' },
+    { label: 'No, leave it', description: 'Preserve the current index flag. Report its hidden source without modifying it.' },
+    { label: 'Keep it', description: 'Leave the index flag set; update the review log with the skipped advisory.' },
+  ])('a referential retention choice requires an explicit no-change description: $label', async option => {
+    const input = { questions: [{ question: 'Should I clear the index flag?', options: [
+      { label: 'Clear the index flag', description: 'Make its hidden changes visible.' }, option,
+    ] }] };
+    const answer = await createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => {}, onQuestion: () => {}, onAnswer: () => {},
+    })('AskUserQuestion', input);
+    expect(answer.updatedInput.answers).toEqual({ [input.questions[0].question]: option.label });
+  });
+
+  test.each([
+    [{ label: 'Leave it' }],
+    [{ label: 'Leave it', description: 'Keep it.' }],
+    [{ label: 'Leave it', description: 'Keep going.' }],
+    [{ label: 'Leave it', description: 'Keep working on the fix.' }],
+    [{ label: 'Leave it', description: 'Keep trying.' }],
+    [{ label: 'Leave it', description: 'Keep investigating the source state.' }],
+    [{ label: 'Leave it', description: 'Keep pursuing the source fix.' }],
+    [{ label: 'Leave it', description: 'Keep progress going.' }],
+    [{ label: 'Leave it', description: 'Keep source changing.' }],
+    [{ label: 'Leave it', description: 'Keep the changes going.' }],
+    [{ label: 'Leave it', description: 'Preserve the implementation by rewriting the helper.' }],
+    [{ label: 'No, leave it', description: 'No changes.' }],
+    [{ label: 'Leave it', description: 'Clear the index flag and report it.' }],
+    [{ label: 'No, leave it', description: 'Keep the index flag as-is; apply the worker fix.' }],
+    [{ label: 'Leave it', description: 'Keep the flag set; the route change remains hidden yet will clear the flag tomorrow.' }],
+    [{ label: 'No, leave it and clear the flag', description: 'Keep the index flag set.' }],
+    [{ label: 'Leave it', description: 'Update the review log with this decision.' }],
+    [{ label: 'Leave it', description: 'Keep the flag set.' }, { label: 'Keep it', description: 'Preserve the index flag as-is.' }],
+  ])('referential retention refuses vague, mixed, or duplicate choices: %j', async options => {
+    const refusals: Error[] = [], answers: unknown[] = [];
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => {}, onQuestion: () => {}, onAnswer: answer => { answers.push(answer); },
+      onRefusal: error => { refusals.push(error); },
+    });
+    await expect(callback('AskUserQuestion', { questions: [{ question: 'Should I clear the index flag?', options }] }))
+      .rejects.toThrow('No unambiguous no-change option');
+    expect(refusals).toHaveLength(1);
+    expect(answers).toEqual([]);
+  });
+
   test.each([
     { label: 'B) Skip (Recommended)', description: 'Keep the code unchanged; record the advisory as skipped.' },
     { label: 'Decline extraction', description: 'Do not refactor either caller or change the index flag.' },
     { label: 'Decline', description: 'Don’t refactor either caller.' },
     { label: 'Don’t refactor', description: 'Keep the current implementation.' },
     { label: 'Do not change', description: 'Leave source untouched. No code edits or new tests.' },
+    { label: 'Skip', description: 'Do not refactor by extracting a helper. Keep the source unchanged.' },
     { label: 'Leave it set', description: 'Do not touch the index flag; report missing snapshot coverage.' },
     { label: 'Keep current', description: 'Keep both implementations unchanged.', preview: '// no edits; record skipped advisory' },
     { label: 'Leave it set', description: 'Do not touch the index flag. Any edit to retry-route.ts stays local-only until you clear it yourself; it stays excluded from snapshot coverage.' },
@@ -116,6 +189,9 @@ describe('shared-code legacy interactive actor', () => {
     [{ label: 'Skip', description: 'You should fix the worker' }],
     [{ label: 'Skip', description: 'The worker imports the helper' }],
     [{ label: 'Skip', description: 'We will clear the index flag' }],
+    [{ label: 'Skip', description: 'Preserve the implementation by rewriting the helper.' }],
+    [{ label: 'Skip', description: 'Keep the source through applying the fix.' }],
+    [{ label: 'Skip', description: 'Retain the implementation via extracting a helper.' }],
     [{ label: 'Keep going' }],
     [{ label: 'Do not warn' }],
     [{ label: 'Leave logging disabled and fix parser' }],

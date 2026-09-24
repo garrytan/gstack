@@ -834,10 +834,20 @@ function skippedReviewOption(question: any): any {
     if (typeof option?.label !== 'string' || ['description', 'preview'].some(field =>
       option[field] !== undefined && typeof option[field] !== 'string')) return [];
     const label = option.label.replace(/[‘’]/g, "'").replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
-      .replace(/\s*\(recommended\)\s*$/i, '').trim();
+      .replace(/\s*\(recommended\)\s*$/i, '').trim()
+      .replace(/^no\s*[,.:!?]\s*(?=(?:skip|decline|keep|leave|do not|don't)\b)/i, '');
+    const referentialRetention = /^(?:keep|leave)\s+(?:it|this|that|them)$/i.test(label);
+    const preservation = option.description?.trim().match(/^(?:keep|leave|retain|preserve)\s+([^,;.!?]+)/i);
+    const preservedObject = preservation?.[1].split(/\b(?:and|but|while)\b/i)[0]
+      .replace(/\b(?:the|this|that|current|existing|local|as[- ]is|unchanged|untouched|set|hidden)\b/gi, '').trim();
+    const describedRetention = !!preservedObject
+      && !/^\w+ing\b/i.test(preservedObject)
+      && /^(?:(?:duplicated|original|prior|tracked|untracked)\s+)*(?:(?:index|skip-worktree|assume-unchanged)\s+)?(?:flags?|code|source|implementations?|copies|copy|files?|routes?|workers?|helpers?|parsers?|changes?|contents?|state|branches|branch|worktrees?)$/i.test(preservedObject);
+    const preservationRank = referentialRetention ? describedRetention
+      : /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source)\b/i.test(label);
     const rank = /^(?:skip|decline)(?=$|\s|[,.!])/i.test(label) ? 3
       : /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i.test(label) ? 2
-        : /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source)\b/i.test(label) ? 1 : 0;
+        : preservationRank ? 1 : 0;
     if (!rank) return [];
     // A leading decline names rejected work. Classify later commitments rather
     // than action words inside recorded metadata or hypothetical consequences.
@@ -859,7 +869,10 @@ function skippedReviewOption(question: any): any {
       if (/^(?:updates?|updated|updating|reuses?|reused|reusing)\s+(?:the\s+)?(?:(?:prior|recorded|existing)\s+)?(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)\b/.test(clause)) return false;
       const first = clause.match(/^[a-z]+(?:-[a-z]+)*/)?.[0];
       const future = clause.match(/\bwill\s+(?:be\s+)?([a-z]+(?:-[a-z]+)*)/)?.[1];
-      return isAction(first) || isAction(future);
+      const method = /^(?:keep|leave|retain|preserve)\b/.test(clause)
+        && [...clause.matchAll(/\b(?:by|through|via)\s+([a-z]+(?:-[a-z]+)*)/g)].some(match => isAction(match[1]));
+      const state = /^(?:change|modification|file|flag|state|content)\s+(?:stays?|remains?)\b/.test(clause);
+      return (!state && isAction(first)) || isAction(future) || method;
     });
     return changes ? [] : [{ option, rank }];
   });
