@@ -11,6 +11,7 @@
 
 - **Native DevEx evaluation replies.** The test driver recognizes the editor hint shown when Claude Code focuses a custom answer, while still checking the exact question and reply before submitting.
 - **Shared-code review evaluation replies.** The no-change driver can use an explicit preservation description to interpret a shorthand label, while still rejecting mixed fix/skip choices and ambiguous answers.
+- **Windows timeout test readiness.** The process-cleanup regression waits for a live descendant before firing its registered deadline, while a separate real-clock case keeps startup bounded.
 - **Design consultation workflow.** Font and design rules now precede proposal drafting and independent input. Optional-browser routing, existing-system choices, preview feedback and command/session requirements are explicit, and token extraction cannot write the project's design file before approval.
 - **Shipping and engineering-review gates.** Missing dispatched reviewers now have an explicit stop/resume path, late shipping fixes return through fresh review, and evidence recovery distinguishes stale inputs from an unavailable ledger. Engineering review separates scope assessment, selector answers and remedy decisions, with ordered preparation and recovery.
 
