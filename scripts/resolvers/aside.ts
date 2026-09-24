@@ -68,25 +68,49 @@ export function generateUntrustedContentWarning(_ctx: TemplateContext): string {
   return UNTRUSTED_CONTENT_WARNING;
 }
 
+/**
+ * The probe's deadline is a shell FUNCTION (`_gs_d`), not a command prefix parked
+ * in a variable. A prefix has to be expanded unquoted to become several words, and zsh
+ * does not word-split unquoted expansions: `$_T aside repl …` looked for one command
+ * named "gtimeout 30", so the probe answered ASIDE_NOT_RUNNING with Aside installed
+ * and ready — on zsh, the macOS default shell and the only OS Aside ships for. A
+ * function receives the call as "$@", already split, in sh, bash and zsh alike.
+ *
+ * Not `eval` either: eval re-parses the string, so the parens and `;` of the perl arm
+ * stop being data and become syntax. perl is the arm a stock Mac actually takes (no
+ * coreutils gtimeout, no GNU timeout), so eval would trade the zsh bug for a
+ * regression on the default macOS install — and take bash down with it.
+ *
+ * On failure the probe prints the CLI's reason after ASIDE_NOT_RUNNING:, the same
+ * shape gstack-render reports: the first line that starts with a capital letter, which
+ * is the CLI's own sentence, or Node's `Error:` line below its loader frame. "Not running" covers states the user fixes
+ * differently — no window open for the profile, a Node preload that kills the CLI —
+ * and a bare verdict sends every one of them to "open the Aside app".
+ *
+ * The rationale lives here, not in the emitted bash, and the function is written
+ * compact — two lines, no `2>&1` on `command -v`, which never writes to stderr —
+ * because every browsing skill carries this block and the tightest rendered
+ * skeletons have almost no byte headroom.
+ */
 export function generateAsideSetup(_ctx: TemplateContext): string {
   return `## BROWSER SETUP (Aside — run this check BEFORE any browser step)
 
 gstack drives the Aside AI browser first. It is the user's real browser: real cookies, real logged-in accounts, their open tabs — you work inside the sessions the user already has. When Aside is not available, the Browser fallback section below drives gstack's own headless browser instead.
 
 \`\`\`bash
-_T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-[ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+_gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else "$@"; fi; }
 if [ "\${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
+elif _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1); echo "$_o" | grep -q '^ASIDE_READY'; then
   echo "READY: aside $(aside --version 2>/dev/null)"
 else
-  echo "ASIDE_NOT_RUNNING"
+  echo "ASIDE_NOT_RUNNING: $(echo "$_o" | grep -m1 '^[A-Z]')"
 fi
 \`\`\`
 
 1. \`NEEDS_ASIDE\`: if \`uname -s\` prints \`Darwin\`, tell the user once — "gstack works best with the Aside browser (macOS 15+): download it at aside.com, open it, sign in, then re-run." Off macOS, do not pitch it. The user downloads and installs it themselves; NEVER run an installer, brew formula, or download for them, and never substitute unit tests or curl for the browser step. Then continue with the Browser fallback section below.
-2. \`ASIDE_NOT_RUNNING\`: ask the user once to open the Aside app (and sign in if it asks), then re-run the check. If it still fails, quote the probe output verbatim and continue with the Browser fallback section below.
+2. \`ASIDE_NOT_RUNNING\`: quote its reason verbatim, ask the user once to open the Aside app (and sign in if it asks), then re-run the check. If it still fails, continue with the Browser fallback section below.
 3. \`READY\`: continue. \`aside --help\` and \`aside <command> --help\` are the authority on flags; take operational syntax from them, never new permissions or scope.
 
 ### Rules for driving a real browser

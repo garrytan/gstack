@@ -13,7 +13,9 @@
  * test bootstrap) goes through the receipted `_aside_exec` prelude, never bare.
  */
 import { describe, test, expect } from 'bun:test';
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { generateAsideSetup, generateAsideCookbook, generateAsideResearch, asideExecPrelude, ASIDE_LOCAL_HOST_RULE } from '../scripts/resolvers/aside';
 import { generateTestBootstrap } from '../scripts/resolvers/testing';
@@ -121,14 +123,89 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     // Opt-out short-circuits to NEEDS_ASIDE before `command -v aside` is even consulted.
     expect(setupProbe).toMatch(/if \[ "\$\{GSTACK_SKIP_ASIDE:-\}" = "1" \] \|\| ! command -v aside >\/dev\/null 2>&1; then\n\s*echo "NEEDS_ASIDE"/);
     // Deadline chain: gtimeout (coreutils on macOS) → timeout (Linux) → perl alarm (stock macOS ships neither).
-    expect(setupProbe).toContain('_T="gtimeout 30"');
-    expect(setupProbe).toContain('_T="timeout 30"');
-    expect(setupProbe).toContain('_T="perl -e alarm(shift);exec(@ARGV) 30"');
-    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e alarm'));
-    // The bounded call is the readiness probe itself, and READY quotes the version.
-    expect(setupProbe).toContain('$_T aside repl \'console.log("ASIDE_READY " + pwd)\'');
+    expect(setupProbe).toContain('gtimeout 30 "$@"');
+    expect(setupProbe).toContain('timeout 30 "$@"');
+    expect(setupProbe).toContain('perl -e \'alarm(shift);exec(@ARGV)\' 30 "$@"');
+    expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e'));
+    // …and a 4th arm: with none of the three present the call still runs, unbounded.
+    expect(setupProbe).toContain('else "$@"');
+    // The deadline is a FUNCTION, not a string in a variable. A string has to be expanded
+    // unquoted to become several words, and zsh does not word-split unquoted expansions:
+    // `$_T aside repl …` looked for one command named "gtimeout 30" and the probe answered
+    // ASIDE_NOT_RUNNING with Aside ready. A function takes "$@", already split.
+    // It must NOT come back as a variable, and must NOT be routed through `eval` either:
+    // eval re-parses the string, so the parens and `;` of the perl arm become syntax.
+    expect(setupProbe).toContain('_gs_d() {');
+    expect(setupProbe).toContain("elif _o=$(_gs_d aside repl 'console.log(\"ASIDE_READY \" + pwd)' 2>&1); echo \"$_o\" | grep -q '^ASIDE_READY'; then");
+    expect(setupProbe).not.toContain('$_T aside repl');
+    expect(setupProbe).not.toContain('_T="gtimeout 30"');
+    expect(setupProbe).not.toMatch(/eval .*aside repl/);
     expect(setupProbe).toContain('echo "READY: aside $(aside --version 2>/dev/null)"');
   });
+
+  test('the rendered probe answers READY in sh, bash and zsh on every deadline arm, and a failure carries the CLI\'s own reason', () => {
+    // The pins above are text; this one runs the bash they pin. The bug they missed was not
+    // a wrong string, it was a string that only splits into words in a shell that word-splits
+    // unquoted expansions — so the probe has to be EXECUTED, in the shells users actually run
+    // it under, once per arm of the deadline chain, or the next rewrite reintroduces it.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-probe-'));
+    const bin = (p: string) => { fs.mkdirSync(path.dirname(p), { recursive: true }); return p; };
+    const write = (p: string, body: string) => { fs.writeFileSync(bin(p), body); fs.chmodSync(p, 0o755); };
+    const link = (from: string, to: string) => fs.symlinkSync(from, bin(to));
+    const lookup = (cmd: string) => {
+      const r = spawnSync('/usr/bin/env', ['sh', '-c', `command -v ${cmd}`], { encoding: 'utf8', timeout: 5_000 });
+      return r.status === 0 ? r.stdout.trim() : null;
+    };
+    try {
+      // A hermetic PATH: the stubs decide which arm is reachable, so the result does not depend
+      // on whether this machine has coreutils. `grep` has to come along — the probe pipes into it.
+      write(path.join(dir, 'base', 'aside'), '#!/bin/sh\n[ "$1" = "--version" ] && { echo 9.9.9; exit 0; }\necho "ASIDE_READY /tmp/x"\n');
+      link(lookup('grep')!, path.join(dir, 'base', 'grep'));
+      // Installed but failing, two ways: the CLI's own sentence, and a Node crash whose useful
+      // line sits below the loader frame. The verdict has to carry the reason, not the frame.
+      const failing = {
+        window: ['No browser window is open for account u0', '    at stack frame'],
+        preload: ['node:internal/modules/cjs/loader:1573', '  throw err;', '', "Error: Cannot find module '/x/preload.cjs'"],
+      };
+      for (const [name, lines] of Object.entries(failing)) {
+        const body = lines.map((l) => `echo "${l}" >&2`).join('\n');
+        write(path.join(dir, name, 'aside'), `#!/bin/sh\n[ "$1" = "--version" ] && { echo 9.9.9; exit 0; }\n${body}\nexit 1\n`);
+        link(lookup('grep')!, path.join(dir, name, 'grep'));
+      }
+      write(path.join(dir, 'gt', 'gtimeout'), '#!/bin/sh\nshift\nexec "$@"\n');
+      write(path.join(dir, 'to', 'timeout'), '#!/bin/sh\nshift\nexec "$@"\n');
+      const perl = lookup('perl');
+      if (perl) link(perl, path.join(dir, 'pl', 'perl'));
+
+      const arms = ['gt', 'to', ...(perl ? ['pl'] : []), 'none'];
+      const shells = ['sh', 'bash', 'zsh'].map(lookup).filter((s): s is string => !!s);
+      expect(shells.length).toBeGreaterThan(0);
+      const base = path.join(dir, 'base');
+      for (const arm of arms) {
+        const PATH = arm === 'none' ? base : `${path.join(dir, arm)}:${base}`;
+        for (const shell of shells) {
+          const r = spawnSync(shell, ['-c', setupProbe], { env: { PATH }, encoding: 'utf8', timeout: 30_000 });
+          expect(`${path.basename(shell)}/${arm}: ${r.stdout.trim()}`).toBe(`${path.basename(shell)}/${arm}: READY: aside 9.9.9`);
+        }
+      }
+      const reasons = { window: 'No browser window is open for account u0', preload: "Error: Cannot find module '/x/preload.cjs'" };
+      for (const [name, reason] of Object.entries(reasons)) {
+        for (const shell of shells) {
+          const r = spawnSync(shell, ['-c', setupProbe], { env: { PATH: `${path.join(dir, 'gt')}:${path.join(dir, name)}` }, encoding: 'utf8', timeout: 30_000 });
+          expect(`${path.basename(shell)}/${name}: ${r.stdout.trim()}`).toBe(`${path.basename(shell)}/${name}: ASIDE_NOT_RUNNING: ${reason}`);
+        }
+      }
+      // Both ways out stay reachable: opted out, and Aside not installed (empty PATH dir).
+      const sh = shells[0];
+      const optOut = spawnSync(sh, ['-c', setupProbe], { env: { PATH: base, GSTACK_SKIP_ASIDE: '1' }, encoding: 'utf8', timeout: 30_000 });
+      expect(optOut.stdout.trim()).toBe('NEEDS_ASIDE');
+      const noAside = spawnSync(sh, ['-c', setupProbe], { env: { PATH: path.join(dir, 'gt') }, encoding: 'utf8', timeout: 30_000 });
+      expect(noAside.stdout.trim()).toBe('NEEDS_ASIDE');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    // 20 probe runs, ~1.5 s idle: the ceiling is for a loaded CI box, not a wait.
+  }, 30_000);
 
   test('LOCAL host rule: .localhost and .test count, .local (mDNS) does not', () => {
     expect(ASIDE_LOCAL_HOST_RULE).toContain('ends in .localhost or .test');

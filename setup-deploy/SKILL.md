@@ -407,14 +407,14 @@ A step sometimes requires action on an external website the user controls: regis
 1. **Never hand the user a manual step list for a third-party site without first offering to drive it.** The recommended driver is the Aside AI browser — the user's real browser, already signed in to the accounts vendor dashboards need. Detect it at runtime, every task, with the /browse skill's readiness probe:
 
    ```bash
-   _T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-   [ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+   _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
+   elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else "$@"; fi; }
    if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
      echo "NEEDS_ASIDE"
-   elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
+   elif _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1); echo "$_o" | grep -q '^ASIDE_READY'; then
      echo "READY: aside $(aside --version 2>/dev/null)"
    else
-     echo "ASIDE_NOT_RUNNING"
+     echo "ASIDE_NOT_RUNNING: $(echo "$_o" | grep -m1 '^[A-Z]')"
    fi
    ```
 
