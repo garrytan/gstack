@@ -85,7 +85,8 @@ describeE2E('Ship/land command and requested-review contracts', () => {
                     expect(checks.every(event => event.cwd === lane.cwd && event.args.includes(lane.command))).toBe(true);
                   }
                   expect(commands.filter(event => event.kind === 'lane')).toHaveLength(fixture.lanes.length);
-                  expect(commands.filter(event => event.kind === 'gstack-evidence' && event.phase === 'end').every(event => event.exit === 0)).toBe(true);
+                  expect(commands.filter(event => event.kind === 'gstack-evidence' && event.phase === 'end'
+                    && ['run', 'check'].includes(event.args[0])).every(event => event.exit === 0)).toBe(true);
                 } else {
                   expect(actor.questions.length).toBeGreaterThan(0);
                   expect(starts.some(event => event.kind === 'gstack-evidence' && event.args[0] === 'check')).toBe(false);

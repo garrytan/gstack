@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.89.1.0] - 2026-09-24
+
+Correctness fixes for configuration, transcript consent, browser output, iOS recovery, and release gates.
+
+### Fixed
+
+- Configuration readers, preference hooks, and background helpers use the canonical state roots and agree on configuration values. Local PGLite sessions no longer inherit a remote database URL.
+- Transcript ingestion requires explicit enrollment, including for small corpora, and honors off and future-only choices. Publication checks the exact outgoing bytes, refuses missing or failed credential scans, and rechecks consent before dispatch; held or failed pages are not marked published.
+- Saved offline PDF previews block automatic network loads while preserving deliberate links and local assets. Browser output validates exact destinations, including dangling links and scrape-generated files, and failed clicks keep diagnostics within a bounded deadline.
+- iOS proxy requests have a complete deadline covering response bodies as well as connection setup. Silent, stalled, and dribbling responses release their transport resources without replaying ambiguous mutations.
+- Shipping and landing preserve the project's declared validation commands, working directories, and evidence labels. Landing uses supported GitHub check fields and requires current requested human reviews or an explicit, scoped waiver, followed by separate merge permission bound to the reviewed head.
+- Taste confidence accounts for rejected samples, large context-bill output drains before exit, and Render setup reports credential presence without displaying a key prefix.
+
+### For contributors
+
+- Added native boundary, privacy, transport, output, and workflow regressions, plus bounded enrollment, credential-presence, and ship/landing evaluations. Command-outcome checks distinguish read-only CLI discovery from required validation failures.
+- Combined evaluation watchdogs cover the registered case census and existing retries without increasing individual model budgets or lowering pass thresholds.
+
 ## [1.89.0.0] - 2026-09-24
 
 **Find shared code worth keeping.**

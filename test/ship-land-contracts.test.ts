@@ -7,6 +7,43 @@ import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
+describe('registered ship/land command outcome calibration', () => {
+  const source = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-ship-land-contracts.test.ts'), 'utf8');
+  const start = source.indexOf('validate: result => {');
+  const end = source.indexOf('\n            },\n          });', start);
+  if (start < 0 || end < 0) throw new Error('Registered workflow validator is missing');
+  const makeValidator = new Function('expect', 'fixture', 'actor', 'name', 'canMerge', 'REVIEW_HEAD',
+    `return (${source.slice(start + 'validate: '.length, end)}\n});`);
+
+  for (const name of ['commands-python', 'commands-node'] as const) {
+    test(`${name} distinguishes CLI discovery from required validation outcomes`, () => {
+      const fixture = createShipLandFixture(name);
+      try {
+        const discovery = fixture.run('gstack-evidence', ['--help']);
+        expect(discovery.status).toBe(2);
+        for (const lane of fixture.lanes) {
+          expect(fixture.run('gstack-evidence', ['run', '--label', lane.label, '--', lane.command], lane.cwd).status).toBe(0);
+          for (let i = 0; i < 2; i++) {
+            expect(fixture.run('gstack-evidence', ['check', '--label', lane.label, '--expect-cmd', lane.command], lane.cwd).status).toBe(0);
+          }
+        }
+        const events = fixture.events();
+        const validate = (commands: typeof events) => makeValidator(expect,
+          { ...fixture, events: () => commands }, { questions: [] }, name, false, REVIEW_HEAD)(
+          { exitReason: 'success', output: 'All required validation lanes passed.' });
+        expect(() => validate(events)).not.toThrow();
+        for (const verb of ['run', 'check']) {
+          const target = events.findIndex(event => event.kind === 'gstack-evidence' && event.phase === 'end' && event.args[0] === verb);
+          expect(target).toBeGreaterThanOrEqual(0);
+          expect(() => validate(events.map((event, i) => i === target ? { ...event, exit: 1 } : event))).toThrow();
+        }
+        const missingRun = events.filter(event => !(event.kind === 'gstack-evidence' && event.args[0] === 'run' && event.args.includes('tests')));
+        expect(() => validate(missingRun)).toThrow();
+      } finally { fixture.cleanup(); }
+    }, 30_000);
+  }
+});
+
 describe('ship/land native fixture calibration', () => {
   for (const name of ['commands-python', 'commands-node'] as const) {
     test(`${name} executes real declared tuples and reuses only matching evidence`, () => {
