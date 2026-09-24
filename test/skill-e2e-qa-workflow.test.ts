@@ -137,6 +137,7 @@ Write your report to ${qaOnlyDir}/qa-reports/qa-only-report.md`,
       workingDirectory: qaOnlyDir,
       maxTurns: 40,
       allowedTools: ['Bash', 'Read', 'Write', 'Glob'],  // NO Edit — the critical guardrail
+      tools: ['Bash', 'Read', 'Write', 'Glob'],
       timeout: CAPTURE_MS,
       testName: 'qa-only-no-fix',
       runId,
