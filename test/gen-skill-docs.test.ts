@@ -412,8 +412,8 @@ describe('gen-skill-docs', () => {
     // Gate half 1: the update-check binary exits silently when opted out.
     const updateCheck = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-update-check'), 'utf-8');
     expect(updateCheck, 'binary must read update_check config').toContain('get update_check');
-    expect(updateCheck, 'binary must exit silently on update_check=false')
-      .toMatch(/if \[ "\$_UC" = "false" \]; then\n\s*exit 0/);
+    expect(updateCheck, 'binary must exit silently unless update_check is canonical true')
+      .toMatch(/if \[ "\$_UC" != "true" \]; then\n\s*exit 0/);
     // Gate half 2: the upgrade-flow instruction block emits only when the
     // binary emitted something (empty when opted out, cached, or up to date).
     expect(SKILL_START_SCRIPT, 'upgrade-flow must be gated on update-check output')

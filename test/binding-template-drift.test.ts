@@ -28,12 +28,14 @@ describe('content-binding template drift', () => {
 
   test('ship eval selection scopes the Rails example below the project-native path', () => {
     const text = rendered('ship/sections/tests.md');
-    const native = text.indexOf('**Project-native path:**');
-    const rails = text.indexOf('**Rails example only');
+    const native = text.indexOf('Resolve every required test, lint, typecheck and eval lane');
+    const rails = text.indexOf('**Rails with `bin/test-lane`:');
     expect(native).toBeGreaterThan(-1);
     expect(rails).toBeGreaterThan(native);
     expect(text).not.toContain('**If no matches:**');
-    expect(text).toContain('If any eval fails');
+    expect(text).toContain("Use the project's declared prompt dependencies");
+    expect(text).toContain('missing validation');
+    expect(text).toContain('**Any eval failure:** Show failures and **STOP**.');
   });
 
   test('ship historical readiness does not replace the current pre-landing gate', () => {
@@ -44,14 +46,19 @@ describe('content-binding template drift', () => {
 
   test('ship Step 16 carries the evidence check (mechanized IRON LAW)', () => {
     const ship = rendered('ship/SKILL.md');
-    expect(ship).toMatch(/gstack-evidence check --label tests --expect-cmd '[^']+' --label vitest --expect-cmd '[^']+' --max-age 24 --allow-paths CHANGELOG\.md,VERSION,package\.json/);
+    expect(ship).toContain("(cd '<lane working directory>' && ~/.claude/skills/gstack/bin/gstack-evidence check --label '<lane label>' --expect-cmd '<exact lane command>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md)");
+    expect(ship).toContain('Check EVERY required tuple resolved in Steps 5–6, including eval, lint and typecheck');
+    expect(ship).toContain('A different runner under the same label cannot satisfy the check.');
     expect(ship).toContain('a failed CHECK never blocks');
   });
 
   test('ship Step 5 lanes run wrapped with per-lane labels', () => {
     const tests = rendered('ship/sections/tests.md');
-    expect(tests).toContain('gstack-evidence run --label tests');
-    expect(tests).toContain('gstack-evidence run --label vitest');
+    expect(tests).toContain('`(working directory, exact command bytes, evidence label)`');
+    expect(tests).toContain('Keep existing labels; label added lanes\nuniquely.');
+    expect(tests).toContain("(cd '<lane working directory>' && ~/.claude/skills/gstack/bin/gstack-evidence run --label '<lane label>' -- '<exact lane command>')");
+    expect(tests).toContain('Retain each parallel result.');
+    expect(tests).toContain('Do not assume Rails or Vitest.');
   });
 
   test('land-and-deploy grades staleness content-first (wtree rule) and checks evidence', () => {
@@ -60,7 +67,11 @@ describe('content-binding template drift', () => {
     const land = rendered('land-and-deploy/sections/readiness-gate.md');
     expect(land).toContain('wtree');
     expect(land).toContain('---WTREE---');
-    expect(land).toMatch(/gstack-evidence check --label tests --expect-cmd '[^']+' --max-age 24/);
+    expect(land).toContain("(cd '<lane working directory>' && ~/.claude/skills/gstack/bin/gstack-evidence check --label '<lane label>' --expect-cmd '<exact lane command>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md)");
+    expect(land).toContain("Reuse `/ship`'s `(working directory, exact command bytes, evidence label)` tuples");
+    expect(land).toContain('for every required test/lint/typecheck/eval lane.');
+    expect(land).toContain('STALE/MISSING means run the same tuple live.');
+    expect(land).toContain('a failed RUN is.');
     expect(land).toContain('UNKNOWN');
   });
 
