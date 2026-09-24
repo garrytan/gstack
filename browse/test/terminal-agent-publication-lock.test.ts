@@ -49,6 +49,39 @@ describe('owned terminal-agent publication lock recovery', () => {
     expect(fs.readdirSync(root).filter(name => name.includes('.tmp.'))).toEqual([]);
   });
 
+  test.skipIf(process.platform !== 'linux')('a dead zombie with the exact recorded birth cannot retain its publication lock', async () => {
+    const root = directory();
+    const ready = path.join(root, 'zombie-pid');
+    const python = [
+      'import os,time',
+      'pid=os.fork()',
+      'if pid==0: os._exit(0)',
+      `with open(${JSON.stringify(ready)},'w') as f: f.write(str(pid))`,
+      'time.sleep(30)',
+    ].join('\n');
+    const parent = Bun.spawn(['python3', '-c', python], { stdio: ['ignore', 'ignore', 'ignore'] });
+    children.push(parent);
+    for (let n = 0; n < 300 && !fs.existsSync(ready); n++) await Bun.sleep(10);
+    expect(fs.existsSync(ready)).toBe(true);
+    const pid = Number(fs.readFileSync(ready, 'utf8'));
+    let state = '';
+    for (let n = 0; n < 300; n++) {
+      state = fs.readFileSync(`/proc/${pid}/stat`, 'utf8').match(/^\d+ \(.*\) ([A-Z])/u)?.[1] || '';
+      if (state === 'Z') break;
+      await Bun.sleep(10);
+    }
+    expect(state).toBe('Z');
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    const record: AgentRecord = { pid, gen: 'zombie-generation', startedAt: Date.now(),
+      startTime: readAgentStartTime(pid), ownerPid: process.pid, ownerStartTime: readAgentStartTime(process.pid) };
+    writeAgentRecord(root, record);
+    fs.writeFileSync(lockPath(root), JSON.stringify(metadata(record)), { mode: 0o600 });
+    const release = acquireAgentStateLock(root, 0);
+    expect(fs.readFileSync(lockPath(root), 'utf8')).toBe('');
+    release();
+    expect(fs.existsSync(lockPath(root))).toBe(false);
+  }, 10000);
+
   test('a live exact owner is never reclaimed', async () => {
     const { root } = await fixture(false);
     const before = fs.readFileSync(lockPath(root), 'utf8');
@@ -79,6 +112,43 @@ describe('owned terminal-agent publication lock recovery', () => {
       expect(fs.existsSync(lockPath(root))).toBe(true);
     });
   }
+
+  test('an uncertain nested liveness probe retains a live agent lock', async () => {
+    const { root, record } = await fixture(false);
+    const before = fs.readFileSync(lockPath(root), 'utf8');
+    const original = process.kill;
+    let probes = 0;
+    const kill = spyOn(process, 'kill').mockImplementation(((pid: number, signal: any) => {
+      if (pid === record.pid && signal === 0 && ++probes === 3) {
+        throw Object.assign(new Error('unavailable'), { code: 'EIO' });
+      }
+      return original(pid, signal);
+    }) as typeof process.kill);
+    try { expect(() => acquireAgentStateLock(root, 0)).toThrow('state lock unavailable'); }
+    finally { kill.mockRestore(); }
+    expect(probes).toBeGreaterThanOrEqual(2);
+    expect(() => process.kill(record.pid, 0)).not.toThrow();
+    expect(fs.readFileSync(lockPath(root), 'utf8')).toBe(before);
+  });
+
+  test.skipIf(process.platform !== 'linux')('an unreadable zombie-state probe retains a live agent lock', async () => {
+    const { root, record } = await fixture(false);
+    const before = fs.readFileSync(lockPath(root), 'utf8');
+    const original = fs.readFileSync;
+    let probes = 0;
+    const read = spyOn(fs, 'readFileSync').mockImplementation(((file: any, options: any) => {
+      if (String(file) === `/proc/${record.pid}/stat`) {
+        probes++;
+        throw Object.assign(new Error('unavailable'), { code: 'EIO' });
+      }
+      return original(file, options);
+    }) as typeof fs.readFileSync);
+    try { expect(() => acquireAgentStateLock(root, 0)).toThrow('state lock unavailable'); }
+    finally { read.mockRestore(); }
+    expect(probes).toBeGreaterThan(0);
+    expect(() => process.kill(record.pid, 0)).not.toThrow();
+    expect(fs.readFileSync(lockPath(root), 'utf8')).toBe(before);
+  });
 
   for (const variant of ['empty', 'invalid-json', 'unknown-kind', 'generation', 'pid', 'birth', 'daemon', 'daemon-birth', 'missing-record', 'record-replaced']) {
     test(`foreign or ambiguous lock is retained: ${variant}`, async () => {

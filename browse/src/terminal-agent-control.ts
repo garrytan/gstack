@@ -57,10 +57,25 @@ function reclaimPublicationLock(stateDir: string, lockPath: string): boolean {
     const fields = ['pid', 'gen', 'startTime', 'ownerPid', 'ownerStartTime'] as const;
     if (fields.some(field => lock[field] !== record[field])
       || readAgentStartTime(process.pid) !== record.ownerStartTime) return false;
-    try { process.kill(record.pid, 0); return false; }
-    catch (err: any) { if (err?.code !== 'ESRCH') return false; }
+    let present = true;
+    try { process.kill(record.pid, 0); }
+    catch (err: any) {
+      if (err?.code !== 'ESRCH') return false;
+      present = false;
+    }
+    if (present) {
+      if (readAgentStartTime(record.pid) !== record.startTime) return false;
+      if (process.platform === 'linux') {
+        const state = fs.readFileSync(`/proc/${record.pid}/stat`, 'utf8').match(/^\d+ \(.*\) ([A-Z])/u)?.[1];
+        if (state !== 'Z') return false;
+      } else if (process.platform === 'darwin') {
+        const result = spawnSync('ps', ['-p', String(record.pid), '-o', 'stat='], { encoding: 'utf8', windowsHide: true, timeout: 2000 });
+        if (result.status !== 0 || result.stdout?.trim()?.[0] !== 'Z') return false;
+      } else return false;
+    }
     const currentRecord = readAgentRecord(stateDir);
     if (!currentRecord || fields.some(field => currentRecord[field] !== record[field])) return false;
+    if (present && readAgentStartTime(record.pid) !== record.startTime) return false;
     if (fs.readFileSync(lockPath, 'utf8') !== contents) return false;
     const current = fs.lstatSync(lockPath, { bigint: true });
     if (!current.isFile() || current.dev !== inode.dev || current.ino !== inode.ino) return false;
