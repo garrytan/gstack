@@ -22,6 +22,7 @@ import {
   getHermeticDirs,
   gcStaleHermeticDirs,
   hermeticChildEnv,
+  isCredentialShapedName,
   hermeticCeoPlanReadArgs,
   hermeticDesignReadArgs,
 } from './hermetic-env';
@@ -141,6 +142,77 @@ describe('buildHermeticEnv allowlist', () => {
       'GITHUB_ACTIONS', 'GITHUB_SHA', 'GITHUB_PATH', 'GITHUB_TOKENIZER',
       'GITHUB_KEYRING', 'EVALS_MODEL', 'EVALS_RUN_ID', 'EVALS_SELECTION_JSON',
     ]) expect(result[name]).toBe(base[name]);
+  });
+
+  test('a trailing qualifier does not carry a credential past the prefix rule', () => {
+    // Once there is more than one of something, the name grows a qualifier
+    // and the credential word stops being last. These are the ordinary
+    // spellings: the base64 form of the app PEM, a numbered token, an
+    // enterprise-server token.
+    const base = {
+      ...CONTAMINATED,
+      GITHUB_APP_PRIVATE_KEY_BASE64: 'synthetic-pem-base64',
+      GITHUB_PRIVATE_KEY_PEM: 'synthetic-pem',
+      GITHUB_TOKEN_1: 'synthetic-first-token',
+      GITHUB_TOKEN_GHES: 'synthetic-enterprise-token',
+      GITHUB_CLIENT_SECRET_VALUE: 'synthetic-client-secret',
+      EVALS_API_KEY_FALLBACK: 'synthetic-eval-key',
+    };
+    const result = buildHermeticEnv(base, HERMETIC_VARS);
+    for (const name of [
+      'GITHUB_APP_PRIVATE_KEY_BASE64', 'GITHUB_PRIVATE_KEY_PEM', 'GITHUB_TOKEN_1',
+      'GITHUB_TOKEN_GHES', 'GITHUB_CLIENT_SECRET_VALUE', 'EVALS_API_KEY_FALLBACK',
+    ]) expect(result[name]).toBeUndefined();
+
+    // And no value survives under any other name either.
+    const serialized = JSON.stringify(result);
+    for (const value of [
+      'synthetic-pem-base64', 'synthetic-pem', 'synthetic-first-token',
+      'synthetic-enterprise-token', 'synthetic-client-secret', 'synthetic-eval-key',
+    ]) expect(serialized.includes(value)).toBe(false);
+  });
+
+  test('screening is per segment, so near-miss metadata names still pass', () => {
+    // The whole documented runner set, plus the words that merely contain a
+    // credential word: GITHUB_PATH holds PAT, TOKENIZER holds TOKEN, KEYRING
+    // holds KEY. A substring screen would take all three.
+    const METADATA = [
+      'GITHUB_ACTION', 'GITHUB_ACTIONS', 'GITHUB_ACTOR', 'GITHUB_ACTOR_ID',
+      'GITHUB_API_URL', 'GITHUB_BASE_REF', 'GITHUB_ENV', 'GITHUB_EVENT_NAME',
+      'GITHUB_EVENT_PATH', 'GITHUB_GRAPHQL_URL', 'GITHUB_HEAD_REF', 'GITHUB_JOB',
+      'GITHUB_OUTPUT', 'GITHUB_PATH', 'GITHUB_REF', 'GITHUB_REF_NAME',
+      'GITHUB_REF_PROTECTED', 'GITHUB_REF_TYPE', 'GITHUB_REPOSITORY',
+      'GITHUB_REPOSITORY_ID', 'GITHUB_REPOSITORY_OWNER', 'GITHUB_RETENTION_DAYS',
+      'GITHUB_RUN_ATTEMPT', 'GITHUB_RUN_ID', 'GITHUB_RUN_NUMBER',
+      'GITHUB_SERVER_URL', 'GITHUB_SHA', 'GITHUB_STEP_SUMMARY',
+      'GITHUB_TRIGGERING_ACTOR', 'GITHUB_WORKFLOW', 'GITHUB_WORKFLOW_REF',
+      'GITHUB_WORKFLOW_SHA', 'GITHUB_WORKSPACE', 'GITHUB_TOKENIZER',
+      'GITHUB_KEYRING', 'EVALS_RUN_ID', 'EVALS_SELECTION_JSON',
+    ];
+    const base = { ...CONTAMINATED } as NodeJS.ProcessEnv;
+    for (const name of METADATA) base[name] = `v-${name}`;
+    const result = buildHermeticEnv(base, HERMETIC_VARS);
+    for (const name of METADATA) expect(result[name]).toBe(`v-${name}`);
+  });
+
+  test('isCredentialShapedName reads segments, not substrings', () => {
+    for (const name of [
+      'GITHUB_TOKEN', 'GITHUB_APP_PRIVATE_KEY_BASE64', 'GITHUB_TOKEN_1',
+      'EVALS_API_KEY_FALLBACK', 'GITHUB_PAT',
+    ]) expect(isCredentialShapedName(name)).toBe(true);
+    for (const name of [
+      'GITHUB_PATH', 'GITHUB_TOKENIZER', 'GITHUB_KEYRING', 'GITHUB_STEP_SUMMARY',
+      'EVALS_RUN_ID',
+    ]) expect(isCredentialShapedName(name)).toBe(false);
+  });
+
+  test('a qualified runner credential is still re-admitted by extraAllow', () => {
+    // The screen governs prefix rules only; a runner that genuinely needs one
+    // of these names keeps saying so explicitly.
+    const base = { ...CONTAMINATED, GITHUB_TOKEN_1: 'synthetic-first-token' };
+    const result = buildHermeticEnv(base, HERMETIC_VARS, undefined, { extraAllow: ['GITHUB_TOKEN_1'] });
+    expect(result.GITHUB_TOKEN_1).toBe('synthetic-first-token');
+    expect(buildHermeticEnv(base, HERMETIC_VARS).GITHUB_TOKEN_1).toBeUndefined();
   });
 
   test('explicit provider auth, runner admissions, and overrides still win', () => {
