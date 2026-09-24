@@ -299,13 +299,18 @@ describe('terminal-agent owned lifecycle regression', () => {
     const stateFile = path.join(stateDir, 'browse.json');
     const barrier = path.join(stateDir, 'go');
     const ownerStartTime = readAgentStartTime(process.pid);
-    const rawAgent = (gen: string, paused: boolean) => Bun.spawn(['bun', 'run', path.join(sourceDir, 'terminal-agent.ts'), `--agent-gen=${gen}`], {
-      env: { ...process.env, BROWSE_STATE_FILE: stateFile, BROWSE_OWNER_PID: String(process.pid),
-        BROWSE_OWNER_START_TIME: ownerStartTime, BROWSE_AGENT_GEN: gen, NODE_ENV: 'test',
-        GSTACK_TERMINAL_OWNER_WATCHDOG_MS: '25',
-        ...(paused ? { GSTACK_TERMINAL_TEST_PUBLISH_BARRIER: barrier } : {}) },
-      stdio: ['ignore', 'ignore', 'ignore'],
-    });
+    const rawAgent = (gen: string, paused: boolean) => {
+      writeAgentRecord(stateDir, { pid: 0, gen, startedAt: Date.now(), ownerPid: process.pid, ownerStartTime });
+      const child = Bun.spawn(['bun', 'run', path.join(sourceDir, 'terminal-agent.ts'), `--agent-gen=${gen}`], {
+        env: { ...process.env, BROWSE_STATE_FILE: stateFile, BROWSE_OWNER_PID: String(process.pid),
+          BROWSE_OWNER_START_TIME: ownerStartTime, BROWSE_AGENT_GEN: gen, NODE_ENV: 'test',
+          GSTACK_TERMINAL_OWNER_WATCHDOG_MS: '25',
+          ...(paused ? { GSTACK_TERMINAL_TEST_PUBLISH_BARRIER: barrier } : {}) },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+      if (!paused) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+      return child;
+    };
     const old = rawAgent('synthetic-old-generation', true);
     let winner: ReturnType<typeof Bun.spawn> | undefined;
     try {
@@ -315,7 +320,9 @@ describe('terminal-agent owned lifecycle regression', () => {
       winner = rawAgent('synthetic-new-generation', false);
       writeAgentRecord(stateDir, { pid: winner.pid, gen: 'synthetic-new-generation', startedAt: Date.now(),
         startTime: readAgentStartTime(winner.pid), ownerPid: process.pid, ownerStartTime });
-      expect(await waitFor(() => fs.existsSync(path.join(stateDir, 'terminal-port')))).toBe(true);
+      const ready = await waitFor(() => fs.existsSync(path.join(stateDir, 'terminal-port')));
+      if (!ready && winner.exitCode !== null) console.error(await new Response(winner.stderr).text());
+      expect(ready).toBe(true);
       const port = fs.readFileSync(path.join(stateDir, 'terminal-port'), 'utf8');
       const token = fs.readFileSync(path.join(stateDir, 'terminal-internal-token'), 'utf8');
       fs.writeFileSync(barrier, 'continue');
