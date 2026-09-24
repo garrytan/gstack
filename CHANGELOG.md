@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.90.0.0] - 2026-09-24
+## [1.91.0.0] - 2026-09-24
 
 `/sync-gbrain` can check whether the current worktree's pages are readable without writing a probe page or deleting guidance when the answer is uncertain.
 
