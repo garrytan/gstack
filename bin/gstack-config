@@ -62,16 +62,6 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # skill_prefix: false       # true = namespace skills as /gstack-qa, /gstack-ship
 #                           # false = short names /qa, /ship
 #
-# ─── Checkpoint ──────────────────────────────────────────────────────
-# checkpoint_mode: explicit # explicit | continuous
-#                           #   explicit   — commit only when you run /ship or /checkpoint
-#                           #   continuous — auto-commit after each significant change
-#                           #                with WIP: prefix + [gstack-context] body
-#
-# checkpoint_push: false    # true = push WIP commits to remote as you go
-#                           # false = keep WIP commits local only (default)
-#                           # Pushing can trigger CI/deploy hooks — opt in carefully.
-#
 # ─── Writing style (V1) ──────────────────────────────────────────────
 # explain_level: default    # default = jargon-glossed, outcome-framed prose
 #                           #           (V1 default — more accessible for everyone)
@@ -165,8 +155,6 @@ lookup_default() {
     auto_upgrade) echo "false" ;;
     update_check) echo "true" ;;
     skill_prefix) echo "false" ;;
-    checkpoint_mode) echo "explicit" ;;
-    checkpoint_push) echo "false" ;;
     explain_level) echo "default" ;;
     codex_reviews) echo "enabled" ;;
     design_detector) echo "auto" ;; # auto | off — impeccable engine pre-pass in the design skills
@@ -495,7 +483,7 @@ case "${1:-}" in
     echo ""
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
-               skill_prefix checkpoint_mode checkpoint_push explain_level \
+               skill_prefix explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do
@@ -512,7 +500,7 @@ case "${1:-}" in
   defaults)
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
-               skill_prefix checkpoint_mode checkpoint_push explain_level \
+               skill_prefix explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do

@@ -306,7 +306,7 @@ const GENERATED_WITH_GUIDANCE = [
   'autoplan/sections/dx-phase.md',
   // CSO's private startup does not import the shared synchronous-dispatch
   // guidance and its bounded worker policy is specified in its own skeleton.
-  'design-consultation/SKILL.md',
+  'design-consultation/sections/proposal-and-preview.md',
   'design-review/SKILL.md',
   'design-shotgun/SKILL.md',
   'document-release/sections/release-body.md',
@@ -423,14 +423,16 @@ describe('run_in_background guidance (#2440)', () => {
     const requiredRead = skeleton.match(/^> \*\*STOP\.\*\* Before [^\n]*, Read `[^`\n]*\/design-consultation\/sections\/proposal-and-preview\.md` and execute it$/m);
     expect(research).toBeGreaterThan(-1);
     expect(requiredRead).not.toBeNull();
-    const voices = skeleton.indexOf('## Design Outside Voices (independent)');
-    expect(voices).toBeGreaterThan(research);
-    expect(requiredRead!.index).toBeGreaterThan(voices);
-    expect(skeleton.slice(voices, requiredRead!.index)).toContain('await both before synthesis');
-    expect(skeleton.slice(voices, requiredRead!.index)).toContain('Keep your draft direction out of both prompts');
-    expect(skeleton.slice(voices, requiredRead!.index)).toContain('Include its complete contents in the outside prompt file');
+    expect(requiredRead!.index).toBeGreaterThan(research);
+    expect(skeleton).not.toContain('## Design Outside Voices (independent)');
     const proposal = fs.readFileSync(path.join(ROOT, 'design-consultation/sections/proposal-and-preview.md'), 'utf8');
-    expect(proposal).not.toContain('## Design Outside Voices');
+    const voices = proposal.indexOf('## Design Outside Voices (independent)');
+    const q2 = proposal.indexOf('**AskUserQuestion Q2');
+    expect(voices).toBeGreaterThan(proposal.indexOf('Draft your own direction'));
+    expect(q2).toBeGreaterThan(voices);
+    expect(proposal.slice(voices, q2)).toContain('await both before synthesis');
+    expect(proposal.slice(voices, q2)).toContain('Keep your draft direction out of both prompts');
+    expect(proposal.slice(voices, q2)).toContain('Include its complete contents in the outside prompt file');
   });
 
   // Third recurrence (#497 → #2440 → /ship Step 18): a backgrounded doc-sync

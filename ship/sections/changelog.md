@@ -1,15 +1,5 @@
 <!-- AUTO-GENERATED from changelog.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
-**Before drafting:** In continuous checkpoint mode, read the WIP commit bodies
-while they still exist (no WIP commits means no extra context):
-
-```bash
-git log origin/<base>..HEAD --grep="^WIP:" --format="%H%n%B"
-```
-
-Use their `[gstack-context]` notes only where supported by the diff. Step 15.0
-later preserves these bodies for PR context before squashing them.
-
 ## Step 13: CHANGELOG (auto-generate)
 
 1. Read `CHANGELOG.md` header to know the format.

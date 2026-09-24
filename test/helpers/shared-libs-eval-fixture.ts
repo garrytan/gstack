@@ -835,13 +835,15 @@ function skippedReviewOption(question: any): any {
       option[field] !== undefined && typeof option[field] !== 'string')) return [];
     const label = option.label.replace(/[‘’]/g, "'").replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
       .replace(/\s*\(recommended\)\s*$/i, '').trim().replace(/^no\b[\s,:;-]*(?=(?:keep|leave)\b)/i, '');
+    const description = (option.description ?? '').replace(/[‘’]/g, "'").trim();
+    const declinesChange = /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i;
     const preservation = /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source|flag)\b/i;
     const inapplicable = /^not applicable$/i.test(label)
-      && /^(?:choose this(?: option)?\s+)?(?:if|when) you are not (?:editing|changing|modifying)\b/i.test((option.description ?? '').trim());
+      && /^(?:choose this(?: option)?\s+)?(?:if|when) you are not (?:editing|changing|modifying)\b/i.test(description);
     const rank = /^(?:skip|decline)(?=$|\s|[,.!])/i.test(label) ? 3
-      : inapplicable || /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i.test(label) ? 2
+      : inapplicable || declinesChange.test(label) ? 2
         : preservation.test(label) || /^(?:keep|leave)\b/i.test(label)
-          && preservation.test((option.description ?? '').trim()) ? 1 : 0;
+          && (preservation.test(description) || declinesChange.test(description)) ? 1 : 0;
     if (!rank) return [];
     // A leading decline names rejected work. Classify later commitments rather
     // than action words inside recorded metadata or hypothetical consequences.

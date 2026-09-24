@@ -337,31 +337,6 @@ For high-stakes ambiguity (architecture, data model, destructive scope, missing 
 
 A claimed limitation or requirement ("the API can't do this", "X requires a credential", "that's impossible on this platform") is a material claim. State one only with the verbatim error, the documented statement, or a live probe in hand — pattern-matching a failure to a familiar story is not evidence. When a cheap probe settles the question, run it BEFORE asking the user anything or declaring a step blocked.
 
-## Continuous Checkpoint Mode
-
-If `CHECKPOINT_MODE` is `"continuous"`: auto-commit completed logical units with `WIP:` prefix.
-
-Commit after new intentional files, completed functions/modules, verified bug fixes, and before long-running install/build/test commands.
-
-Commit format:
-
-```
-WIP: <concise description of what changed>
-
-[gstack-context]
-Decisions: <key choices made this step>
-Remaining: <what's left in the logical unit>
-Tried: <failed approaches worth recording> (omit if none)
-Skill: </skill-name-if-running>
-[/gstack-context]
-```
-
-Rules: stage only intentional files, NEVER `git add -A`, do not commit broken tests or mid-edit state, and push only if `CHECKPOINT_PUSH` is `"true"`. Do not announce each WIP commit.
-
-`/context-restore` reads `[gstack-context]`; `/ship` squashes WIP commits into clean commits.
-
-If `CHECKPOINT_MODE` is `"explicit"`: ignore this section unless a skill or user asks to commit.
-
 ## Context Health (soft directive)
 
 During long-running skill sessions, periodically write a brief `[PROGRESS]` summary: done, next, surprises.
@@ -476,7 +451,9 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 
 ## Priority hierarchy
-On compression: Step 0 > Test diagram > Opinionated recommendations > Everything else. Never skip Step 0 or the test diagram. The system handles context limits; do not preemptively warn.
+Complete every required stage, decision gate and output. Shorten only optional
+commentary, never Scope Challenge, Sections 1–4, the test diagram or required
+decision/report content. The system handles context limits; do not preemptively warn.
 
 ## My engineering preferences (use these to guide your recommendations):
 * **Shared code:** require common behavior and improved reliability or net savings; similar-looking code alone is insufficient.
@@ -674,16 +651,33 @@ Scope Challenge is mandatory before Section 1.
 > **STOP.** Before starting the Scope Challenge and full review (after target selection and startup), Read `~/.claude/skills/gstack/plan-eng-review/sections/review-sections.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
+## Recovery routing
+
+Use this routing at every STOP or failed verification; do not restart the review.
+
+**Paused question:** Wait for its actual answer without completion telemetry or ExitPlanMode.
+Resume that question's local procedure with the answer. A missing-result call
+that may have surfaced is still pending; do not duplicate it.
+
+**Repairable write/read failure:** Stop before the dependent question or output.
+Use that step's stated recovery, then repeat its full Read-back verification.
+If no recovery is specified or it fails, follow **Blocked outcome**. Never turn
+a failed permitted save into a chat-only success.
+
+**Late change or missing work:** Return to the affected review stage; new or
+reopened choices use Decision procedure. Repeat Approval readiness, then Required
+outputs steps 1–4 for changed outputs before choosing navigation again. Refresh
+affected tests, tasks, dependencies and parallelization. Unchanged saved outputs
+may reuse their successful Review Log. If a final gate discovers stale evidence,
+follow **Blocked outcome** first; resume on this repair path.
+
+**Blocked outcome:** Stop the review and report `BLOCKED`, the missing path/work, actual attempts and what is needed to resume. Label complete chat-only output **not persisted**; it supplies no saved-review or completion credit. If startup values and a permitted telemetry command are available, run **Telemetry (run last)** once with `OUTCOME=error` and the actual `ERROR_MESSAGE`/`FAILED_STEP`. Do not call ExitPlanMode. Resume at the failed step using Recovery routing.
+
 ## Section self-check (before you finish)
 
 Confirm you read the section and completed Scope Challenge, Sections 1–4,
 Outside Voice and outputs. If evidence is missing, Read `sections/review-sections.md`
-and repair only gaps through its decision/output recovery steps. Preserve
-verified work.
-
-**Paused question:** Wait for its actual answer without completion telemetry or ExitPlanMode.
-
-**Blocked outcome:** Stop the review and report `BLOCKED`, the missing path/work, actual attempts and what is needed to resume. Label complete chat-only output **not persisted**; it supplies no saved-review or completion credit. If startup values and a permitted telemetry command are available, run **Telemetry (run last)** once with `OUTCOME=error` and the actual `ERROR_MESSAGE`/`FAILED_STEP`. Do not call ExitPlanMode. Resume at the failed step and repeat affected outputs, read-back and logs.
+and use Recovery routing above. Preserve verified work.
 
 ## EXIT PLAN MODE GATE (BLOCKING)
 

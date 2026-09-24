@@ -64,11 +64,16 @@ As a senior product designer, listen, research and propose a coherent system wit
 ls DESIGN.md design-system.md 2>/dev/null || echo "NO_DESIGN_FILE"
 ```
 
-- If a DESIGN.md exists: Read it. Ask the user: "You already have a design system. Want to **update** it, **start fresh**, or **cancel**?" Then settle its format once:
+If either exists, read it and AskUserQuestion: "Want to **update**, **start fresh**, or **cancel**?" DESIGN.md is authoritative if both exist. A lone design-system.md supplies prior context but stays untouched; Phase 6 targets DESIGN.md.
+
+- **Cancel:** STOP the skill now, with no file changes or further probes.
+- **Update:** carry the existing decisions into Q1 as constraints; ask what should change, preserve the rest. Check DESIGN.md's format below.
+- **Start fresh:** set aside prior visual choices except constraints the user keeps. Skip the format question; propose a new open-format file, replacing nothing until Q-final.
+- **No existing file:** continue with a new open-format proposal.
+
+All conversion, marker and design writes wait for Q-final; Phase 0 only reads and records choices.
 
 {{DESIGN_MD_CHECK}}
-
-- If no DESIGN.md: continue.
 
 **Gather product context from the codebase:**
 
@@ -99,8 +104,6 @@ If the codebase is empty and purpose is unclear, say: *"I don't have a clear pic
 {{ASIDE_SETUP}}
 
 {{BROWSE_FALLBACK}}
-
-The browser is optional here. If BROWSER SETUP prints `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING` and the Browser fallback prints `NEEDS_SETUP`, skip the one-time `$B` build offer, tell the user once, and skip Phase 2 Step 2 (Step 1 still runs through the WebSearch tool when the host has it). Whatever research is missing, fill from your built-in design knowledge.
 
 **Find the gstack designer (optional — enables AI mockup generation):**
 
@@ -139,7 +142,7 @@ Record the one-sentence answer: a feeling, visual, claim, or posture. Every subs
 
 {{TASTE_PROFILE}}
 
-Treat prior taste as preference, not constraint. Explain product-driven departures through the memorable-thing answer.
+The **product brief** combines confirmed context, constraints, memorable-thing answer, taste summary and Phase 2 research/status. Your draft and both independent voices use this same input, with no proposed direction. Taste is a preference, not a constraint; justify departures through the memorable-thing answer.
 
 ---
 
@@ -187,7 +190,7 @@ Use each site's screenshot and snapshot to assess fonts, palette, layout, densit
 
 If a site shows a sign-in wall or a bot check, skip it and note why — never ask the user to sign in to a competitor's site for research.
 
-Without Aside or WebSearch, skip Step 1; skip Step 2 only if Aside and `$B` are both absent. If both skip, say once: "Search unavailable — proceeding with in-distribution knowledge only."
+Without Aside or WebSearch, skip Step 1. Without a browser, or if the user declines all proposed URLs, skip Step 2. With `$B` alone, propose known sites for URL confirmation. If neither step yields evidence, say once: "Research unavailable or declined — proceeding with design knowledge only." Do not present remembered patterns as observed findings.
 
 **Step 3: Synthesize findings**
 
@@ -204,15 +207,12 @@ Summarize conversationally: shared patterns, how competitors feel, the different
 - Aside available → web search + screenshots + snapshots (richest research)
 - Aside absent, WebSearch + `$B` available → search results + headless screenshots + snapshots
 - WebSearch only → search results (still good)
+- `$B` only → confirmed known sites, without search
 - Neither → built-in design knowledge for the direction; typography still follows the verification/fallback procedure in Phase 3
 
 If the user said no research, skip Phase 2 and use your built-in design knowledge. The optional outside-voices choice below still applies.
 
 ---
-
-Draft your own direction now. Keep that draft out of both reviewers' prompts; send the product context. Phase 3 compares completed proposals before Q2.
-
-{{DESIGN_OUTSIDE_VOICES}}
 
 {{SECTION:proposal-and-preview}}
 {{LEARNINGS_LOG}}
