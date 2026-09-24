@@ -42,11 +42,15 @@ else if (args === 'get code/fixture/readme --source client-fixture --json') ${ki
 else { console.error('unsupported operation'); process.exit(3); }
 `);
   fs.chmodSync(path.join(bin, 'gbrain'), 0o755);
+  if (process.platform === 'win32') {
+    fs.writeFileSync(path.join(bin, 'gbrain.cmd'), `@echo off\r\n"${process.execPath}" "%~dp0gbrain" %*\r\n`);
+  }
+  const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === 'path') ?? 'PATH';
   const pin = fs.readFileSync(path.join(workDir, '.gbrain-source'), 'utf8');
   const state = fs.readFileSync(path.join(stateDir, '.gbrain-sync-state.json'), 'utf8');
   return {
     workDir,
-    env: { HOME: home, GSTACK_HOME: stateDir, PATH: `${bin}:${process.env.PATH ?? ''}` },
+    env: { HOME: home, GSTACK_HOME: stateDir, [pathKey]: `${bin}${path.delimiter}${process.env[pathKey] ?? ''}` },
     guidance,
     calls: () => fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : [],
     content: () => fs.readFileSync(path.join(workDir, 'CLAUDE.md'), 'utf8'),
