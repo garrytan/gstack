@@ -251,27 +251,33 @@ export function secretScanFile(path: string): SecretScanResult {
   if (!gitleaksAvailable()) {
     return { scanned: false, findings: [], scanner: "missing" };
   }
+  let dir: string | undefined;
   try {
-    // gitleaks detect --no-git --source <path> --report-format json --report-path -
-    // Returns 0 on clean, 1 on findings, 126/127 on bad invocation.
-    const out = execFileSync(
+    dir = mkdtempSync(join(tmpdir(), "gstack-secret-report-"));
+    const report = join(dir, "report.json");
+    writeFileSync(report, "", { mode: 0o600, flag: "wx" });
+    const maxReportBytes = 16 * 1024 * 1024;
+    execFileSync(
       "gitleaks",
-      ["detect", "--no-git", "--source", path, "--report-format", "json", "--report-path", "/dev/stdout", "--exit-code", "0"],
-      { encoding: "utf-8", env: process.env, maxBuffer: 16 * 1024 * 1024 }
+      ["detect", "--no-git", "--source", path, "--report-format", "json", "--report-path", report, "--exit-code", "0"],
+      { env: process.env, stdio: "ignore", timeout: 60_000, killSignal: "SIGKILL" }
     );
-    const trimmed = out.trim();
-    if (!trimmed) return { scanned: true, findings: [], scanner: "gitleaks" };
-    const parsed = JSON.parse(trimmed) as Array<{
-      RuleID: string;
-      Description: string;
-      StartLine: number;
-      Match?: string;
-      Secret?: string;
-    }>;
-    const findings: SecretFinding[] = (parsed || []).map((f) => ({
-      rule_id: f.RuleID || "unknown",
-      description: f.Description || "",
-      line: f.StartLine || 0,
+    if (statSync(report).size > maxReportBytes) {
+      return { scanned: false, findings: [], scanner: "error" };
+    }
+    const parsed = JSON.parse(readFileSync(report, "utf-8"));
+    if (!Array.isArray(parsed) || !parsed.every((f) =>
+      f && typeof f.RuleID === "string" && f.RuleID.length > 0 &&
+      typeof f.Description === "string" && Number.isInteger(f.StartLine) && f.StartLine > 0 &&
+      (f.Secret === undefined || typeof f.Secret === "string") &&
+      (f.Match === undefined || typeof f.Match === "string")
+    )) {
+      return { scanned: false, findings: [], scanner: "error" };
+    }
+    const findings: SecretFinding[] = parsed.map((f) => ({
+      rule_id: f.RuleID,
+      description: f.Description,
+      line: f.StartLine,
       redacted_match: redactMatch(f.Secret || f.Match || ""),
     }));
     return { scanned: true, findings, scanner: "gitleaks" };
@@ -281,6 +287,8 @@ export function secretScanFile(path: string): SecretScanResult {
       findings: [],
       scanner: "error",
     };
+  } finally {
+    if (dir) rmSync(dir, { recursive: true, force: true });
   }
 }
 

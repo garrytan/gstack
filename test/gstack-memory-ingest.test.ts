@@ -15,12 +15,597 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, statSync, chmodSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, statSync, chmodSync, readdirSync, symlinkSync, utimesSync, copyFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, dirname, join } from "path";
 import { spawnSync } from "child_process";
+import { createHash, randomBytes } from "crypto";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-memory-ingest.ts");
+
+describe("requested secret scanning at the import boundary", () => {
+  let home: string;
+  let bin: string;
+  let env: Record<string, string>;
+  const realScanner = process.env.GSTACK_TEST_GITLEAKS;
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "gstack-scan-"));
+    bin = join(home, "bin");
+    mkdirSync(bin);
+    mkdirSync(join(home, "tmp"));
+    env = {
+      HOME: home, GSTACK_HOME: join(home, ".gstack"),
+      PATH: `${bin}:/usr/bin:/bin`, TMPDIR: join(home, "tmp"),
+      GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: join(home, ".gitconfig"),
+    };
+    writeFileSync(join(bin, "gbrain"), `#!${process.execPath}
+import { appendFileSync, cpSync, mkdirSync, readdirSync, readFileSync, writeFileSync, realpathSync, statSync, utimesSync } from 'fs';
+import { join, relative } from 'path';
+import { spawnSync } from 'child_process';
+const args = process.argv.slice(2);
+if (process.env.LIMIT_STAGE_WRITES === '1') {
+  const reset = spawnSync('/usr/bin/prlimit', ['--pid', String(process.pid), '--fsize=unlimited:unlimited'], { timeout: 10000 });
+  if (reset.status !== 0) process.exit(2);
+}
+if (args[0] === '--help') console.log('  import <dir>');
+else if (args[0] === 'doctor') console.log(JSON.stringify({ engine: 'pglite' }));
+else if (args[0] === 'import') {
+  appendFileSync(join(process.env.HOME, 'imports'), 'import\\n');
+  const files = [];
+  function walk(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.name.endsWith('.md')) files.push({ path: relative(args[1], path), body: readFileSync(path, 'utf8') });
+    }
+  }
+  walk(args[1]);
+  writeFileSync(join(process.env.HOME, 'imported.json'), JSON.stringify(files));
+  if (process.env.SNAPSHOT_STAGE) {
+    if (!process.env.SNAPSHOT_STAGE.startsWith(process.env.GSTACK_HOME + '/.staging-ingest-')) process.exit(2);
+    cpSync(args[1], process.env.SNAPSHOT_STAGE, { recursive: true });
+  }
+  if (process.env.APPEND_DURING_IMPORT) {
+    const path = realpathSync(process.env.APPEND_DURING_IMPORT);
+    if (!path.startsWith(process.env.HOME + '/')) process.exit(2);
+    const before = statSync(path);
+    appendFileSync(path, process.env.APPEND_RECORD);
+    if (process.env.RESTORE_MTIME === '1') utimesSync(path, before.atime, before.mtime);
+  }
+  if (process.env.REJECT_IMPORT === '1') process.exit(1);
+  console.log(JSON.stringify({ status: 'ok', imported: process.env.UNDERCOUNT_IMPORT === '1' ? 0 : files.length, skipped: 0, errors: 0, total_files: files.length }));
+}
+`, { mode: 0o700 });
+  });
+
+  afterEach(() => rmSync(home, { recursive: true, force: true }));
+
+  function source(text = "ordinary conversation"): string {
+    const stamp = new Date().toISOString();
+    const dir = join(home, ".codex", "sessions", ...stamp.slice(0, 10).split("-"));
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `rollout-${randomBytes(4).toString("hex")}.jsonl`);
+    writeFileSync(path, [
+      { type: "session_meta", timestamp: stamp, payload: { id: basename(path), cwd: home } },
+      { type: "response_item", timestamp: stamp, payload: { type: "message", role: "user", content: [{ type: "input_text", text }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    return path;
+  }
+
+  function scanner(mode: string): void {
+    if (mode === "real") {
+      copyFileSync(realScanner!, join(bin, "gitleaks"));
+      chmodSync(join(bin, "gitleaks"), 0o700);
+      return;
+    }
+    writeFileSync(join(bin, "gitleaks"), `#!${process.execPath}
+import { appendFileSync, readFileSync, writeFileSync, statSync, rmSync, realpathSync, utimesSync } from 'fs';
+import { dirname, join, relative, isAbsolute } from 'path';
+import { spawnSync } from 'child_process';
+const args = process.argv.slice(2);
+if (args[0] === 'version') { console.log('8.30.1'); process.exit(0); }
+const input = args[args.indexOf('--source') + 1];
+const report = args[args.indexOf('--report-path') + 1];
+const mode = ${JSON.stringify(mode)};
+const rel = relative(process.env.HOME, report);
+if (report !== '/dev/stdout' && (isAbsolute(rel) || rel.startsWith('..'))) process.exit(2);
+appendFileSync(join(process.env.HOME, 'scans'), JSON.stringify({ input, report, body: readFileSync(input, 'utf8'), inputMode: statSync(input).mode & 511, dirMode: statSync(dirname(report)).mode & 511, reportMode: statSync(report).mode & 511 }) + '\\n');
+if (mode === 'error') process.exit(2);
+if (mode === 'timeout') Bun.sleepSync(63000);
+if (process.env.APPEND_DURING_SCAN) {
+  const path = realpathSync(process.env.APPEND_DURING_SCAN);
+  if (!path.startsWith(process.env.HOME + '/')) process.exit(2);
+  const before = statSync(path);
+  appendFileSync(path, process.env.APPEND_RECORD);
+  if (process.env.RESTORE_MTIME === '1') utimesSync(path, before.atime, before.mtime);
+}
+function emit(text) { if (report === '/dev/stdout') process.stdout.write(text); else writeFileSync(report, text); }
+if (mode === 'malformed') emit('{');
+else if (mode === 'empty') emit('');
+else if (mode === 'null') emit('null');
+else if (mode === 'invalid-finding') emit('[{}]');
+else if (mode === 'overflow') emit('[]' + ' '.repeat(16 * 1024 * 1024 - 1));
+else if (mode === 'ceiling') emit('[]' + ' '.repeat(16 * 1024 * 1024 - 2));
+else if (mode === 'missing-report') { if (report === '/dev/stdout') process.exit(2); rmSync(report); }
+else {
+  const dirty = readFileSync(input, 'utf8').includes('UNSAFE="synthetic"');
+  emit(dirty ? JSON.stringify([{ RuleID: 'fixture', Description: 'synthetic marker', StartLine: 1, Secret: 'synthetic' }]) : '[]');
+}
+if (process.env.LIMIT_STAGE_WRITES === '1') {
+  const limit = spawnSync('/usr/bin/prlimit', ['--pid', String(process.ppid), '--fsize=2048:unlimited'], { timeout: 10000 });
+  if (limit.status !== 0) process.exit(2);
+}
+`, { mode: 0o700 });
+  }
+
+  function run(args: string[] = [], timeout = 30000) {
+    const argv = [SCRIPT, "--include-unattributed", "--sources", "transcript", ...args];
+    const limited = env.LIMIT_STAGE_WRITES === "1";
+    const r = spawnSync(limited ? "/bin/bash" : process.execPath,
+      limited ? ["-c", 'trap "" XFSZ; exec "$@"', "f3-limit", process.execPath, ...argv] : argv, {
+      env, cwd: home, encoding: "utf8", timeout,
+    });
+    expect(r.error).toBeUndefined();
+    return { stdout: r.stdout || "", stderr: r.stderr || "", status: r.status };
+  }
+
+  function sessions(): Record<string, unknown> {
+    const state = join(env.GSTACK_HOME, ".transcript-ingest-state.json");
+    return existsSync(state) ? JSON.parse(readFileSync(state, "utf8")).sessions : {};
+  }
+
+  function imported(): Array<{ path: string; body: string }> {
+    const path = join(home, "imported.json");
+    return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : [];
+  }
+
+  function resume(body: string, sourcePath?: string): string {
+    const dir = join(env.GSTACK_HOME, ".staging-ingest-fixture");
+    mkdirSync(join(dir, "nested"), { recursive: true });
+    writeFileSync(join(dir, ".gstack-staging"), "fixture");
+    let path = join(dir, "nested", "extra.md");
+    if (sourcePath) {
+      const meta = JSON.parse(readFileSync(sourcePath, "utf8").split("\n")[0]);
+      path = join(dir, "transcripts", "codex", "_unattributed", `${meta.timestamp.slice(0, 10)}-${meta.payload.id.slice(0, 12)}.md`);
+      mkdirSync(dirname(path), { recursive: true });
+    }
+    writeFileSync(path, body);
+    env.GSTACK_INGEST_RESUME_DIR = dir;
+    return dir;
+  }
+
+  function interruptedStage(): string {
+    const dir = join(env.GSTACK_HOME, ".staging-ingest-interrupted");
+    env.SNAPSHOT_STAGE = dir;
+    env.REJECT_IMPORT = "1";
+    expect(run(["--scan-secrets"]).status).toBe(1);
+    expect(existsSync(dir)).toBe(true);
+    expect(sessions()).toEqual({});
+    delete env.SNAPSHOT_STAGE;
+    delete env.REJECT_IMPORT;
+    env.GSTACK_INGEST_RESUME_DIR = dir;
+    return dir;
+  }
+
+  function appendRecord(): string {
+    return JSON.stringify({ type: "response_item", timestamp: new Date().toISOString(), payload: {
+      type: "message", role: "user", content: [{ type: "input_text", text: "late ordinary update" }],
+    } }) + "\n";
+  }
+
+  describe("snapshot-bound requested scans", () => {
+    for (const rejected of [false, true]) {
+      it(`accounts only saved pages on interrupted resume (rejected source: ${rejected})`, () => {
+        scanner("clean");
+        const bad = rejected ? source('UNSAFE="synthetic"') : undefined;
+        const clean = source();
+        const dir = interruptedStage();
+        expect(imported()).toHaveLength(1);
+        const result = run(["--scan-secrets"]);
+        expect(result.status).toBe(0);
+        expect(imported()).toHaveLength(1);
+        expect(sessions()[clean]).toBeDefined();
+        if (bad) expect(sessions()[bad]).toBeUndefined();
+        expect(existsSync(dir)).toBe(false);
+        delete env.GSTACK_INGEST_RESUME_DIR;
+        rmSync(join(home, "imported.json"));
+        const retry = run(["--scan-secrets"]);
+        expect(retry.status).toBe(0);
+        expect(imported()).toEqual([]);
+        if (bad) expect(retry.stdout).toMatch(/skipped \(secret-scan\):\s+1/);
+      });
+    }
+
+    it("refuses genuine resumed under-accounting without discarding the saved stage", () => {
+      scanner("clean");
+      const path = source();
+      const dir = interruptedStage();
+      env.UNDERCOUNT_IMPORT = "1";
+      const result = run(["--scan-secrets"]);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("accounted for 0 of 1 staged page(s)");
+      expect(sessions()[path]).toBeUndefined();
+      expect(existsSync(dir)).toBe(true);
+      delete env.UNDERCOUNT_IMPORT;
+      expect(run(["--scan-secrets"]).status).toBe(0);
+      expect(sessions()[path]).toBeDefined();
+    });
+
+    it("keeps an empty owned stage recoverable and never stamps an unstaged source", () => {
+      scanner("clean");
+      const path = source();
+      const dir = resume("placeholder", path);
+      for (const file of readdirSync(dir, { recursive: true })) {
+        if (String(file).endsWith(".md")) rmSync(join(dir, String(file)));
+      }
+      expect(run(["--scan-secrets"]).status).toBe(1);
+      expect(sessions()[path]).toBeUndefined();
+      expect(imported()).toEqual([]);
+      expect(existsSync(dir)).toBe(true);
+    });
+
+    it("retains a saved page without importing or stamping a removed source", () => {
+      scanner("clean");
+      const path = source();
+      const dir = interruptedStage();
+      rmSync(path);
+      rmSync(join(home, "imported.json"));
+      expect(run(["--scan-secrets"]).status).toBe(0);
+      expect(imported()).toEqual([]);
+      expect(sessions()).toEqual({});
+      expect(existsSync(dir)).toBe(true);
+    });
+
+    it("retains the saved stage when current policy filters every source", () => {
+      scanner("clean");
+      source();
+      const dir = interruptedStage();
+      const policy = spawnSync(join(import.meta.dir, "..", "bin", "gstack-gbrain-repo-policy"), ["set", "_unattributed", "deny"], {
+        env, cwd: home, encoding: "utf8", timeout: 10000,
+      });
+      expect(policy.status).toBe(0);
+      rmSync(join(home, "imported.json"));
+      expect(run(["--scan-secrets"]).status).toBe(0);
+      expect(imported()).toEqual([]);
+      expect(sessions()).toEqual({});
+      expect(existsSync(dir)).toBe(true);
+    });
+
+    for (const resumed of [false, true]) {
+      it(`does not stamp an append during ${resumed ? "resumed" : "fresh"} import`, () => {
+        scanner("clean");
+        const path = source();
+        const time = new Date(Math.floor(Date.now() / 1000) * 1000);
+        utimesSync(path, time, time);
+        const dir = resumed ? interruptedStage() : undefined;
+        env.APPEND_DURING_IMPORT = path;
+        env.APPEND_RECORD = appendRecord();
+        env.RESTORE_MTIME = "1";
+        expect(run(["--scan-secrets"]).status).toBe(0);
+        expect(statSync(path).mtimeMs).toBe(time.getTime());
+        expect(imported().every((page) => !page.body.includes("late ordinary update"))).toBe(true);
+        expect(sessions()[path]).toBeUndefined();
+        if (dir) expect(existsSync(dir)).toBe(true);
+        delete env.APPEND_DURING_IMPORT;
+        delete env.GSTACK_INGEST_RESUME_DIR;
+        expect(run(["--scan-secrets"]).status).toBe(0);
+        expect(imported()[0].body).toContain("late ordinary update");
+        expect(sessions()[path]).toMatchObject({
+          mtime_ns: time.getTime() * 1e6,
+          sha256: createHash("sha256").update(readFileSync(path)).digest("hex"),
+        });
+      });
+    }
+
+    for (const mode of ["no-write", "remote-http"]) {
+      it(`does not stamp an append during the ${mode} scan`, () => {
+        scanner("clean");
+        const path = source();
+        if (mode === "remote-http") writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { gbrain: { type: "http", url: "http://fixture.invalid/mcp" } } }));
+        env.APPEND_DURING_SCAN = path;
+        env.APPEND_RECORD = appendRecord();
+        const args = mode === "no-write" ? ["--scan-secrets", "--no-write"] : ["--scan-secrets"];
+        expect(run(args).status).toBe(0);
+        expect(sessions()[path]).toBeUndefined();
+        expect(imported()).toEqual([]);
+        delete env.APPEND_DURING_SCAN;
+        expect(run(args).status).toBe(0);
+        expect(sessions()[path]).toBeDefined();
+      });
+    }
+
+    for (const remote of [false, true]) {
+      it(`never stamps a page that failed to stage (remote-http: ${remote})`, () => {
+        scanner("clean");
+        if (remote) writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { gbrain: { type: "http", url: "http://fixture.invalid/mcp" } } }));
+        const dir = join(env.GSTACK_HOME, "projects", "demo", "ceo-plans");
+        mkdirSync(dir, { recursive: true });
+        const path = join(dir, `${"p".repeat(245)}.md`);
+        writeFileSync(path, "ordinary artifact content");
+        const result = run(["--scan-secrets", "--sources", "ceo-plan"]);
+        expect(result.stderr).toContain("[stage-error]");
+        expect(result.stdout).toMatch(/failed:\s+1/);
+        expect(sessions()[path]).toBeUndefined();
+        expect(imported()).toEqual([]);
+      });
+
+      (process.platform === "linux" ? it : it.skip)(`keeps OS-limited partial writes out of outgoing pages (remote-http: ${remote})`, () => {
+        scanner("clean");
+        if (remote) writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { gbrain: { type: "http", url: "http://fixture.invalid/mcp" } } }));
+        const path = source("ordinary conversation ".repeat(300));
+        env.LIMIT_STAGE_WRITES = "1";
+        const result = run(["--scan-secrets"]);
+        expect(result.stderr).toContain("EFBIG");
+        expect(result.stdout).toMatch(/failed:\s+1/);
+        expect(imported()).toEqual([]);
+        expect(sessions()[path]).toBeUndefined();
+        expect(readdirSync(join(home, "tmp"))).toEqual([]);
+        expect(readdirSync(env.GSTACK_HOME).filter((p) => p.startsWith(".brain-ingest-write-"))).toEqual([]);
+        const outgoing = join(env.GSTACK_HOME, "transcripts");
+        if (existsSync(outgoing)) expect(readdirSync(outgoing, { recursive: true }).filter((p) => String(p).endsWith(".md"))).toEqual([]);
+        delete env.LIMIT_STAGE_WRITES;
+        expect(run(["--scan-secrets"]).status).toBe(0);
+        expect(sessions()[path]).toBeDefined();
+      });
+    }
+
+    it("checks the hash on requested incremental scans even when mtime is unchanged", () => {
+      scanner("clean");
+      const path = source();
+      const time = new Date(Math.floor(Date.now() / 1000) * 1000);
+      utimesSync(path, time, time);
+      expect(run(["--scan-secrets"]).status).toBe(0);
+      writeFileSync(path, readFileSync(path, "utf8") + appendRecord());
+      utimesSync(path, time, time);
+      expect(run(["--scan-secrets"]).status).toBe(0);
+      expect(imported()[0].body).toContain("late ordinary update");
+      expect(readFileSync(join(home, "imports"), "utf8").trim().split("\n")).toHaveLength(2);
+    });
+
+    it("keeps the no-scan import stamping contract unchanged", () => {
+      const path = source();
+      env.APPEND_DURING_IMPORT = path;
+      env.APPEND_RECORD = appendRecord();
+      expect(run().status).toBe(0);
+      expect(sessions()[path]).toMatchObject({ sha256: createHash("sha256").update(readFileSync(path)).digest("hex") });
+    });
+  });
+
+  it("imports clean pages once in one batch and deduplicates the next run", () => {
+    scanner("clean");
+    const paths = [source(), source("another ordinary conversation")];
+    const r = run(["--scan-secrets"]);
+    expect(r.status).toBe(0);
+    expect(imported()).toHaveLength(2);
+    expect(Object.keys(sessions()).sort()).toEqual(paths.sort());
+    expect(run(["--scan-secrets"]).stdout).toMatch(/skipped \(dedup\):\s+2/);
+    expect(readFileSync(join(home, "imports"), "utf8").trim().split("\n")).toHaveLength(1);
+    const scans = readFileSync(join(home, "scans"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(scans).toHaveLength(2);
+    expect(scans.map((s) => s.body).sort()).toEqual(imported().map((p) => p.body).sort());
+    for (const scan of scans) {
+      expect(scan.dirMode).toBe(0o700);
+      expect(scan.reportMode).toBe(0o600);
+      expect(scan.inputMode).toBe(0o600);
+      expect(existsSync(scan.report)).toBe(false);
+      expect(existsSync(scan.input)).toBe(false);
+    }
+  });
+
+  it("blocks a secret visible only after JSON decoding without recording it", () => {
+    scanner("clean");
+    const path = source('UNSAFE="synthetic"');
+    expect(readFileSync(path, "utf8")).not.toContain('UNSAFE="synthetic"');
+    const r = run(["--scan-secrets"]);
+    expect(r.stdout).toMatch(/skipped \(secret-scan\):\s+1/);
+    expect(imported()).toEqual([]);
+    expect(sessions()[path]).toBeUndefined();
+  });
+
+  for (const mode of ["missing", "error", "malformed", "empty", "null", "invalid-finding", "overflow", "missing-report"]) {
+    it(`refuses ${mode} scans and retries after repair`, () => {
+      if (mode !== "missing") scanner(mode);
+      const path = source();
+      const r = run(["--scan-secrets"]);
+      expect(r.stderr).toMatch(/secret-scan (missing|error)/);
+      expect(imported()).toEqual([]);
+      expect(sessions()[path]).toBeUndefined();
+      expect(readdirSync(join(home, "tmp"))).toEqual([]);
+      scanner("clean");
+      expect(run(["--scan-secrets"]).status).toBe(0);
+      expect(imported()).toHaveLength(1);
+      expect(sessions()[path]).toBeDefined();
+    });
+  }
+
+  it("ends a detect invocation at its 60-second deadline and retries after repair", () => {
+    scanner("timeout");
+    const path = source();
+    const r = run(["--scan-secrets"], 75000);
+    expect(r.stderr).toContain("secret-scan error");
+    expect(imported()).toEqual([]);
+    expect(sessions()[path]).toBeUndefined();
+    expect(readdirSync(join(home, "tmp"))).toEqual([]);
+    scanner("clean");
+    expect(run(["--scan-secrets"]).status).toBe(0);
+    expect(sessions()[path]).toBeDefined();
+  }, 80000);
+
+  it("does not stamp --no-write pages that could not pass the requested scan", () => {
+    scanner("error");
+    const path = source();
+    run(["--scan-secrets", "--no-write"]);
+    expect(sessions()[path]).toBeUndefined();
+    scanner("clean");
+    expect(run(["--scan-secrets", "--no-write"]).status).toBe(0);
+    expect(sessions()[path]).toBeDefined();
+    expect(imported()).toEqual([]);
+  });
+
+  it("accepts a complete clean report exactly at the 16 MiB ceiling", () => {
+    scanner("ceiling");
+    const path = source();
+    expect(run(["--scan-secrets"]).status).toBe(0);
+    expect(imported()).toHaveLength(1);
+    expect(sessions()[path]).toBeDefined();
+  });
+
+  it("scans remote-http pages before persistent staging", () => {
+    scanner("clean");
+    writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { gbrain: { type: "http", url: "http://fixture.invalid/mcp" } } }));
+    const bad = source('UNSAFE="synthetic"');
+    const clean = source();
+    expect(run(["--scan-secrets"]).status).toBe(0);
+    expect(imported()).toEqual([]);
+    expect(sessions()[bad]).toBeUndefined();
+    expect(sessions()[clean]).toBeDefined();
+    const root = join(env.GSTACK_HOME, "transcripts");
+    const pages = readdirSync(root, { recursive: true }).filter((path) => String(path).endsWith(".md"));
+    expect(pages).toHaveLength(1);
+    expect(readFileSync(join(root, String(pages[0])), "utf8")).toContain("ordinary conversation");
+  });
+
+  it("leaves scanning opt-in", () => {
+    const path = source('UNSAFE="synthetic"');
+    expect(run().status).toBe(0);
+    expect(imported()).toHaveLength(1);
+    expect(sessions()[path]).toBeDefined();
+    expect(existsSync(join(home, "scans"))).toBe(false);
+  });
+
+  it("refuses unsafe extra resumed bytes and preserves the stage without success state", () => {
+    scanner("clean");
+    const path = source();
+    const dir = resume('UNSAFE="synthetic"');
+    expect(run(["--scan-secrets"]).status).toBe(1);
+    expect(imported()).toEqual([]);
+    expect(sessions()[path]).toBeUndefined();
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  it("rescans clean resumed bytes and retries a failed scanner without restaging", () => {
+    const path = source();
+    env.REJECT_IMPORT = "1";
+    expect(run().status).toBe(1);
+    const stagedBody = imported()[0].body;
+    rmSync(join(home, "imported.json"));
+    delete env.REJECT_IMPORT;
+    const dir = resume(stagedBody, path);
+    scanner("error");
+    expect(run(["--scan-secrets"]).status).toBe(1);
+    expect(imported()).toEqual([]);
+    expect(sessions()[path]).toBeUndefined();
+    expect(existsSync(dir)).toBe(true);
+    scanner("clean");
+    expect(run(["--scan-secrets"]).status).toBe(0);
+    expect(imported().map((p) => p.body)).toEqual([stagedBody]);
+    expect(sessions()[path]).toBeDefined();
+  });
+
+  it("does not stamp changed source bytes that were not scanned or imported on resume", () => {
+    scanner("clean");
+    const path = source();
+    env.REJECT_IMPORT = "1";
+    expect(run().status).toBe(1);
+    const stagedBody = imported()[0].body;
+    delete env.REJECT_IMPORT;
+    resume(stagedBody, path);
+    const records = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    records[1].payload.content[0].text = 'UNSAFE="synthetic"';
+    writeFileSync(path, records.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    expect(run(["--scan-secrets"]).status).toBe(0);
+    expect(imported().map((p) => p.body)).toEqual([stagedBody]);
+    expect(sessions()[path]).toBeUndefined();
+    expect(existsSync(env.GSTACK_INGEST_RESUME_DIR)).toBe(true);
+    delete env.GSTACK_INGEST_RESUME_DIR;
+    rmSync(join(home, "imported.json"));
+    expect(run(["--scan-secrets"]).stdout).toMatch(/skipped \(secret-scan\):\s+1/);
+    expect(imported()).toEqual([]);
+    expect(sessions()[path]).toBeUndefined();
+  });
+
+  it("refuses resumed symlinks rather than scanning outside owned staging", () => {
+    scanner("clean");
+    const path = source();
+    const dir = resume("safe page", path);
+    const target = join(home, "outside.md");
+    writeFileSync(target, "outside content");
+    symlinkSync(target, join(dir, "linked.md"));
+    expect(run(["--scan-secrets"]).status).toBe(1);
+    expect(imported()).toEqual([]);
+    expect(sessions()[path]).toBeUndefined();
+    expect(readFileSync(target, "utf8")).toBe("outside content");
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  it("retains the already-correct import exit-1 rejection and retry", () => {
+    scanner("clean");
+    const path = source();
+    env.REJECT_IMPORT = "1";
+    expect(run(["--scan-secrets"]).status).toBe(1);
+    expect(sessions()[path]).toBeUndefined();
+    delete env.REJECT_IMPORT;
+    expect(run(["--scan-secrets"]).status).toBe(0);
+    expect(sessions()[path]).toBeDefined();
+  });
+
+  (realScanner ? it : it.skip)("real gitleaks 8.30.1 imports clean pages and blocks recognized escaped secrets", () => {
+    scanner("real");
+    const version = spawnSync(realScanner!, ["version"], { env, timeout: 10000, encoding: "utf8" });
+    expect(version.stdout.trim()).toBe("8.30.1");
+    const clean = source();
+    expect(run(["--scan-secrets"]).status).toBe(0);
+    expect(imported()).toHaveLength(1);
+    expect(sessions()[clean]).toBeDefined();
+    rmSync(join(home, "imported.json"));
+    const secret = `LINKEDIN_CLIENT_SECRET="${randomBytes(8).toString("hex")}"`;
+    const path = source(secret);
+    const report = join(home, "raw-report.json");
+    const raw = spawnSync(realScanner!, ["detect", "--no-git", "--source", path, "--report-format", "json", "--report-path", report, "--exit-code", "0"], { env, cwd: home, timeout: 10000, encoding: "utf8" });
+    expect(raw.status).toBe(0);
+    expect(JSON.parse(readFileSync(report, "utf8"))).toEqual([]);
+    const rendered = join(home, "rendered.md");
+    writeFileSync(rendered, secret);
+    const positive = spawnSync(realScanner!, ["detect", "--no-git", "--source", rendered, "--report-format", "json", "--report-path", report, "--exit-code", "0"], { env, cwd: home, timeout: 10000, encoding: "utf8" });
+    expect(positive.status).toBe(0);
+    expect(JSON.parse(readFileSync(report, "utf8")).some((finding: { RuleID: string }) => finding.RuleID === "linkedin-client-secret")).toBe(true);
+    const r = run(["--scan-secrets"]);
+    expect(r.stdout).toMatch(/skipped \(secret-scan\):\s+1/);
+    expect(imported()).toEqual([]);
+    expect(sessions()[path]).toBeUndefined();
+    expect(r.stderr).not.toContain(secret);
+  });
+
+  (realScanner ? it : it.skip)("real scanner config errors remain retryable", () => {
+    scanner("real");
+    const path = source();
+    const config = join(home, "broken.toml");
+    writeFileSync(config, "[not-valid");
+    env.GITLEAKS_CONFIG = config;
+    expect(run(["--scan-secrets"]).stderr).toContain("secret-scan error");
+    expect(imported()).toEqual([]);
+    expect(sessions()[path]).toBeUndefined();
+    delete env.GITLEAKS_CONFIG;
+    expect(run(["--scan-secrets"]).status).toBe(0);
+    expect(imported()).toHaveLength(1);
+    expect(sessions()[path]).toBeDefined();
+  });
+
+  (realScanner ? it : it.skip)("real scanner checks unsafe resumed pages, including extra files", () => {
+    scanner("real");
+    const path = source();
+    const secret = `LINKEDIN_CLIENT_SECRET="${randomBytes(8).toString("hex")}"`;
+    const dir = resume(secret);
+    expect(run(["--scan-secrets"]).status).toBe(1);
+    expect(imported()).toEqual([]);
+    expect(sessions()[path]).toBeUndefined();
+    expect(existsSync(dir)).toBe(true);
+    writeFileSync(join(dir, "nested", "extra.md"), "now clean");
+    expect(run(["--scan-secrets"]).status).toBe(0);
+    expect(imported().map((p) => p.body)).toEqual(["now clean"]);
+  });
+});
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -451,18 +1036,19 @@ function installFakeGitleaks(
   const script = `#!/usr/bin/env bash
 if [ "\${1:-}" = "version" ]; then exit ${opts.failProbe ? 1 : 0}; fi
 ${opts.failDetect ? 'echo "fake gitleaks: scan failed" >&2; exit 2' : ""}
-# gitleaks detect --no-git --source <path> --report-format json --report-path /dev/stdout --exit-code 0
 SRC=""
+REPORT=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --source) SRC="$2"; shift 2 ;;
+    --report-path) REPORT="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
 if grep -qF -- '${opts.marker ?? "no-marker-configured"}' "$SRC"; then
-  echo '[{"RuleID":"fake-rule","Description":"fake finding","StartLine":1,"Match":"REDACTED","Secret":"AKIAFAKEFAKEFAKE12345"}]'
+  echo '[{"RuleID":"fake-rule","Description":"fake finding","StartLine":1,"Match":"REDACTED","Secret":"AKIAFAKEFAKEFAKE12345"}]' > "$REPORT"
 else
-  echo '[]'
+  echo '[]' > "$REPORT"
 fi
 exit 0
 `;

@@ -4054,7 +4054,10 @@ export async function launchClaudePty(
   let childEnv = hermeticChildEnv(opts.env);
   // The opted-in viewport emulates xterm; placeholder styles are required to
   // distinguish an empty suggestion from text the user has actually entered.
-  if (opts.observeScreen) childEnv.TERM = 'xterm-256color';
+  if (opts.observeScreen) {
+    childEnv.TERM = 'xterm-256color';
+    childEnv.FORCE_COLOR = '1';
+  }
   let hermeticSkillStateRoot: string | undefined;
   if (opts.seedSkills && hermetic && !opts.env?.CLAUDE_CONFIG_DIR) {
     childEnv.CLAUDE_CONFIG_DIR = hermeticSkillsConfigDir();

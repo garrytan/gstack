@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync, copyFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -125,6 +125,28 @@ describe("secretScanFile", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  (process.env.GSTACK_TEST_GITLEAKS ? it : it.skip)("captures a real clean gitleaks report through private portable storage", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-scan-real-"));
+    const file = join(dir, "clean.md");
+    const oldHome = process.env.HOME;
+    const oldConfig = process.env.GITLEAKS_CONFIG;
+    writeFileSync(file, "ordinary conversation\n");
+    copyFileSync(process.env.GSTACK_TEST_GITLEAKS!, join(dir, "gitleaks"));
+    chmodSync(join(dir, "gitleaks"), 0o700);
+    process.env.HOME = dir;
+    delete process.env.GITLEAKS_CONFIG;
+    try {
+      const result = withFakeOnPath(dir, () => secretScanFile(file));
+      expect(result).toEqual({ scanned: true, findings: [], scanner: "gitleaks" });
+    } finally {
+      if (oldHome === undefined) delete process.env.HOME;
+      else process.env.HOME = oldHome;
+      if (oldConfig === undefined) delete process.env.GITLEAKS_CONFIG;
+      else process.env.GITLEAKS_CONFIG = oldConfig;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("probes the gitleaks executable directly before scanning", () => {
     const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
     const binDir = join(dir, "bin");
@@ -140,7 +162,10 @@ if [ "$1" = "version" ]; then
   exit 0
 fi
 if [ "$1" = "detect" ]; then
-  echo '[]'
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--report-path" ]; then printf '[]' > "$2"; break; fi
+    shift
+  done
   exit 0
 fi
 exit 2
@@ -201,7 +226,10 @@ if [ "$1" = "version" ]; then
   exit 0
 fi
 if [ "$1" = "detect" ]; then
-  echo '[]'
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--report-path" ]; then printf '[]' > "$2"; break; fi
+    shift
+  done
   exit 0
 fi
 exit 2
@@ -347,13 +375,14 @@ describe("secretScanText", () => {
 if [ "$1" = "version" ]; then exit 0; fi
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--source" ]; then SRC="$2"; fi
+  if [ "$1" = "--report-path" ]; then REPORT="$2"; fi
   shift
 done
 printf '%s\\n' "$SRC" >> "${log}"
 if grep -qF 'KEY="' "$SRC"; then
-  echo '[{"RuleID":"fake-rule","Description":"fake finding","StartLine":4}]'
+  echo '[{"RuleID":"fake-rule","Description":"fake finding","StartLine":4}]' > "$REPORT"
 else
-  echo '[]'
+  echo '[]' > "$REPORT"
 fi
 `,
       "utf-8",
