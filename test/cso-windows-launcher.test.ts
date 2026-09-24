@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
+import { createPrecisionLossCandidate } from './helpers/cso-ntfs-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const windows = process.platform === 'win32';
@@ -347,19 +348,11 @@ describe('CSO native Windows build contract', () => {
       if(i!==2)continue;
       const token='d'.repeat(32),candidate=path.join(leases,`${token}.json`),decision=path.join(leases,`${token}.decision`);
       for(const rounded of [false,true]){
-        let selected:string|undefined;
-        for(let batch=0;batch<16&&!selected;batch++){
-          const paths:string[]=[];
-          for(let index=0;index<64;index++){
-            const file=path.join(leases,`fixture-${batch}-${index}`);
-            fs.writeFileSync(file,JSON.stringify({pid:2147483647,token,createdAt:0})+'\n');paths.push(file);
-            const inode=fs.lstatSync(file,{bigint:true}).ino;
-            if(!selected&&inode>BigInt(Number.MAX_SAFE_INTEGER)&&String(Number(inode))!==String(inode))selected=file;
-          }
-          for(const file of paths){if(file===selected)fs.renameSync(file,candidate);else fs.unlinkSync(file);}
-        }
-        expect(selected).toBeDefined();
+        const selected=createPrecisionLossCandidate(candidate,JSON.stringify({pid:2147483647,token,createdAt:0})+'\n');
         const stat=fs.lstatSync(candidate,{bigint:true}),record={schemaVersion:1,token,kind:'ticket',ticket:'0000000000000001',candidateDev:String(stat.dev),candidateIno:rounded?String(Number(stat.ino)):String(stat.ino),ownerPid:2147483647,ownerCreatedAt:0,publisherPid:2147483647,createdAt:0};
+        expect(stat.ino).toBe(selected);
+        expect(stat.ino).toBeGreaterThan(BigInt(Number.MAX_SAFE_INTEGER));
+        expect(String(Number(stat.ino))).not.toBe(String(stat.ino));
         fs.writeFileSync(decision,JSON.stringify(record)+'\n');
         const result=command(['resume',run.runId]);expect(result.status).not.toBe(0);
         if(rounded){

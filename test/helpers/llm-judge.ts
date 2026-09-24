@@ -13,13 +13,43 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { JSONOutputFormat } from '@anthropic-ai/sdk/resources/messages';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { CLAUDE_FRONTIER_EVAL_MODEL, resolveEvalModel } from '../../lib/eval-model';
+import { CLAUDE_FRONTIER_EVAL_MODEL, DEFAULT_JUDGE_MAX_TOKENS, resolveEvalModel } from '../../lib/eval-model';
+export { DEFAULT_JUDGE_MAX_TOKENS } from '../../lib/eval-model';
 
 export interface JudgeScore {
   clarity: number;       // 1-5
   completeness: number;  // 1-5
   actionability: number; // 1-5
   reasoning: string;
+}
+
+export interface JudgeRefusalEvidence {
+  stop_reason: 'refusal';
+  response_id: string | null;
+  request_id: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  text_blocks: number;
+}
+
+export class JudgeRefusalError extends Error {
+  readonly refusal: JudgeRefusalEvidence;
+
+  constructor(response: { id?: unknown; _request_id?: unknown; model?: unknown;
+    usage?: { input_tokens?: unknown; output_tokens?: unknown }; content: Array<{ type: string }> }) {
+    super('Judge provider refused the evaluation; no automated score');
+    this.name = 'JudgeRefusalError';
+    this.refusal = {
+      stop_reason: 'refusal',
+      response_id: typeof response.id === 'string' ? response.id : null,
+      request_id: typeof response._request_id === 'string' ? response._request_id : null,
+      model: typeof response.model === 'string' ? response.model : null,
+      input_tokens: typeof response.usage?.input_tokens === 'number' ? response.usage.input_tokens : null,
+      output_tokens: typeof response.usage?.output_tokens === 'number' ? response.usage.output_tokens : null,
+      text_blocks: response.content.filter(block => block.type === 'text').length,
+    };
+  }
 }
 
 export interface OutcomeJudgeResult {
@@ -89,7 +119,7 @@ export async function callJudge<T>(
   // Thinking and answer text share max_tokens. The old 1024-token budget
   // could be exhausted before a frontier judge emitted any JSON.
   const resolvedModel = resolveEvalModel('judge', model);
-  const maxTokens = opts?.max_tokens ?? 8192;
+  const maxTokens = opts?.max_tokens ?? DEFAULT_JUDGE_MAX_TOKENS;
   const client = new Anthropic();
 
   const makeRequest = () => client.messages.create({
@@ -134,6 +164,7 @@ export async function callJudge<T>(
     .map(block => block.text)
     .join('\n');
   try {
+    if (response.stop_reason === 'refusal') throw new JudgeRefusalError(response);
     if (opts?.jsonSchema !== undefined) {
       if (response.stop_reason !== 'end_turn') throw new Error(`Structured judge did not complete: stop_reason=${response.stop_reason}`);
       return JSON.parse(text) as T;

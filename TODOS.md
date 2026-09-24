@@ -172,10 +172,6 @@ wave"). Each was explicitly deferred with rationale, not dropped:
   the harness-pinned agent-sdk) carry `ignoreUntil` expiries (~2026-11-30) and
   re-justify themselves on expiry. When the agent-sdk pin next moves, drop the
   GHSA-p7fg ignore. Effort S. **Priority:** P3.
-- **#2701 cookie-import profile pills (Local State info_cache)** — confirmed
-  bug + minimal fix known, but PR #2658 rewrites the same file; land or
-  reject #2658 first, then apply the info_cache read + numeric-aware sort.
-  Effort S. **Priority:** P3. **Blocked by:** #2658 disposition.
 - **#2750 split absorption** — the record-scanning Codex JSONL parser (real
   fix; current Codex streams interleave envelopes so sessions vanish from
   /retro global) should be absorbed once the author splits it from the
@@ -3586,6 +3582,14 @@ needs one paid run to validate, so it didn't ride the ship.
 **Effort:** S (human ~2h, CC ~15min + one paid run).
 
 ## Completed
+
+### #2701 cookie-import profile pills (Local State info_cache)
+
+Current Local State names take precedence, Preferences/directory fallbacks remain,
+and Default sorts before numbered profiles in numeric order. Directory labels
+distinguish duplicate names.
+
+**Completed:** v1.90.0.0 (2026-09-24)
 
 ### Reconcile the registered Opus 4.7 overlay efficacy gates
 

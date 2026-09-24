@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import Anthropic from '@anthropic-ai/sdk';
-import { armJudge, callJudge } from './helpers/llm-judge';
+import { armJudge, callJudge, JudgeRefusalError } from './helpers/llm-judge';
 
 describe('frontier Claude judge compatibility', () => {
   let originalKey: string | undefined;
@@ -29,6 +29,18 @@ describe('frontier Claude judge compatibility', () => {
     expect(await callJudge('score this', 'claude-fable-5-1')).toEqual({ score: 4 });
     expect(create.mock.calls[0][0].max_tokens).toBe(8192);
     expect(diagnostics).not.toHaveBeenCalled();
+  });
+
+  test('an explicit provider refusal retains typed public evidence without parsing a score or retrying', async () => {
+    create.mockResolvedValue({ id: 'msg_synthetic', _request_id: 'req_synthetic', model: 'claude-fable-5-1',
+      stop_reason: 'refusal', content: [], usage: { input_tokens: 3886, output_tokens: 0 } } as never);
+    let failure: unknown;
+    try { await callJudge('Synthetic test prompt', 'claude-fable-5-1'); } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(JudgeRefusalError);
+    expect((failure as JudgeRefusalError).refusal).toEqual({ stop_reason: 'refusal', response_id: 'msg_synthetic',
+      request_id: 'req_synthetic', model: 'claude-fable-5-1', input_tokens: 3886, output_tokens: 0, text_blocks: 0 });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(diagnostics.mock.calls[0][0]).stopReason).toBe('refusal');
   });
 
   test('retains complete public response on malformed JSON and fails without another request', async () => {
@@ -150,7 +162,8 @@ describe('frontier Claude judge compatibility', () => {
       create.mockClear(); diagnostics.mockClear();
       create.mockResolvedValue({ stop_reason, content: [{ type: 'text', text: '{"score":4}' }] } as never);
       await expect(callJudge('score this', 'claude-fable-5-1', { max_tokens: 16_384, jsonSchema }))
-        .rejects.toThrow(stop_reason === 'max_tokens' ? 'truncated at max_tokens=16384' : 'Structured judge did not complete');
+        .rejects.toThrow(stop_reason === 'max_tokens' ? 'truncated at max_tokens=16384'
+          : stop_reason === 'refusal' ? 'Judge provider refused the evaluation; no automated score' : 'Structured judge did not complete');
       expect(create).toHaveBeenCalledTimes(1);
     }
   });

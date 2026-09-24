@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
+import { manualReviewFixture } from './helpers/manual-judge-review-fixture';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -75,6 +76,25 @@ function runEvalList(...args: string[]): { stdout: string; stderr: string; statu
 }
 
 describe('eval:list CLI', () => {
+  test('labels validated manual acceptance as unscored and rejects malformed pass claims', () => {
+    const manual = manualReviewFixture();
+    const dir = path.join(tmpHome, '.gstack-dev', 'evals');
+    const body = (entry: typeof manual, timestamp: string) => ({
+      schema_version: 2, version: '1.90.0', branch: 'main', git_sha: 'fixture', timestamp,
+      tier: 'llm-judge', total_tests: 1, passed: 0, failed: 0, total_cost_usd: 0,
+      total_duration_ms: 1, tests: [entry],
+    });
+    fs.writeFileSync(path.join(dir, 'manual.json'), JSON.stringify(body(manual, '2026-05-24T03:00:00Z')));
+    fs.writeFileSync(path.join(dir, 'invalid.json'), JSON.stringify(body({ ...manual, passed: true }, '2026-05-24T04:00:00Z')));
+    const result = runEvalList('--limit', '2');
+    expect(result.status).toBe(0);
+    const lines = result.stdout.split('\n');
+    expect(lines.find(line => line.includes('03:00'))).toContain('MANUAL/unscored');
+    expect(lines.find(line => line.includes('03:00'))).toContain(manual.manual_review!.approval.approval_url);
+    expect(lines.find(line => line.includes('04:00'))).toContain('0/1');
+    expect(lines.find(line => line.includes('04:00'))).not.toContain('MANUAL');
+  });
+
   test('limits displayed eval runs with a valid positive integer', () => {
     const result = runEvalList('--limit', '1');
 

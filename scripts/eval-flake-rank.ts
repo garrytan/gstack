@@ -22,6 +22,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getProjectEvalDir, isPartialEval, isFinalizedEvalResultFile, type EvalResult } from '../test/helpers/eval-store';
+import { evalEntryOutcome } from '../test/helpers/eval-store';
 import { flakeLedgerPath, type FlakeLedgerEntry } from './test-free-shards';
 
 interface TestSeries {
@@ -29,6 +30,7 @@ interface TestSeries {
   runs: number;
   passes: number;
   fails: number;
+  manualAccepted: number;
   retriedPasses: number;
   totalAttempts: number;
   totalCostUsd: number;
@@ -54,14 +56,18 @@ export function aggregate(evalFiles: string[]): Map<string, TestSeries> {
     }
     for (const [name, entries] of byName) {
       const s = series.get(name) ?? {
-        name, runs: 0, passes: 0, fails: 0, retriedPasses: 0,
+        name, runs: 0, passes: 0, fails: 0, manualAccepted: 0, retriedPasses: 0,
         totalAttempts: 0, totalCostUsd: 0, totalDurationMs: 0, lastSeen: '',
       };
       const final = entries[entries.length - 1];
-      s.runs += 1;
       s.totalAttempts += entries.length;
-      if (final.passed) s.passes += 1; else s.fails += 1;
-      if (final.passed && entries.length > 1) s.retriedPasses += 1;
+      const outcome = evalEntryOutcome(final);
+      if (outcome === 'manual-review') s.manualAccepted += 1;
+      else {
+        s.runs += 1;
+        if (outcome === 'passed') s.passes += 1; else s.fails += 1;
+        if (outcome === 'passed' && entries.length > 1) s.retriedPasses += 1;
+      }
       for (const e of entries) {
         s.totalCostUsd += e.cost_usd || 0;
         s.totalDurationMs += e.duration_ms || 0;
@@ -115,21 +121,21 @@ if (import.meta.main) {
 
   const files = collectEvalFiles(dir, sinceDays);
   const series = [...aggregate(files).values()]
-    .sort((a, b) => b.retriedPasses - a.retriedPasses || (b.fails / b.runs) - (a.fails / a.runs));
+    .sort((a, b) => b.retriedPasses - a.retriedPasses || (b.fails / Math.max(1, b.runs)) - (a.fails / Math.max(1, a.runs)));
   const ledger = readFreeLedger();
 
   if (asJson) {
     console.log(JSON.stringify({ dir, runsScanned: files.length, tests: series, freeLedger: ledger }, null, 2));
   } else {
     console.log(`flake-rank: ${files.length} finalized run file(s) under ${dir}`);
-    const flaky = series.filter((s) => s.retriedPasses > 0 || s.fails > 0);
+    const flaky = series.filter((s) => s.retriedPasses > 0 || s.fails > 0 || s.manualAccepted > 0);
     if (flaky.length === 0) {
       console.log('  no retried passes and no failures recorded — clean series');
     } else {
-      console.log('  retries  fails/runs  avg-dur  test');
+      console.log('  retries  fails/runs  manual  avg-dur  test');
       for (const s of flaky.slice(0, 30)) {
-        console.log(`  ${String(s.retriedPasses).padStart(7)}  ${String(s.fails).padStart(5)}/${String(s.runs).padEnd(4)}  `
-          + `${Math.round(s.totalDurationMs / s.totalAttempts / 1000).toString().padStart(5)}s  ${s.name}`);
+        console.log(`  ${String(s.retriedPasses).padStart(7)}  ${String(s.fails).padStart(5)}/${String(s.runs).padEnd(6)}  `
+          + `${String(s.manualAccepted).padStart(6)}  ${Math.round(s.totalDurationMs / s.totalAttempts / 1000).toString().padStart(5)}s  ${s.name}`);
       }
     }
     if (ledger.length > 0) {

@@ -28,7 +28,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/document-generate`](#document-generate) | **Technical Writer** | Generate Diataxis docs (tutorial / how-to / reference / explanation) for a feature from code. |
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Drives your Aside browser first — real sessions, real clicks, real screenshots — through deterministic `aside repl` scripts, and falls back to gstack's own Chromium (~100ms per command) when Aside isn't there. |
-| [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Fallback-browser skill: import cookies from your real browser (Chrome, Arc, Brave, Edge) into gstack's headless session to test authenticated pages. Unnecessary on Aside, which already has your sessions. |
+| [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Copy selected cookies from Chrome, Chromium, Brave, Edge, or macOS-only Comet, Arc, and Dia into the fallback browser. Choose your profile and domains; check sign-in separately. Unnecessary on Aside, which already has your sessions. |
 | [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → DX → eng review automatically (eng always last, so the shipping gate reviews the final amended plan) with encoded decision principles. Surfaces only taste decisions for your approval. |
 | [`/plan-devex-review`](#plan-devex-review) | **DX Reviewer** | Plan-stage DX review. TTHW (time-to-hello-world), magical moments, friction points, persona traces. Three modes: Expansion, Polish, Triage. |
 | [`/devex-review`](#devex-review) | **DX Reviewer (live)** | Live developer experience audit. Walks the actual onboarding flow, measures TTHW, catches the docs lies. |
@@ -949,30 +949,34 @@ The browser preserves all state across the handoff, and after `resume` the agent
 
 This is my **session manager mode** — for the fallback browser. With Aside open, `/qa` and `/browse` already run in your real sessions and this skill has nothing to do.
 
-Before `/qa` or `/browse` can test authenticated pages on gstack's own browser, they need cookies. Instead of manually logging in through the headless browser every time, `/setup-browser-cookies` imports your real sessions directly from your daily browser.
+For authenticated testing on gstack's own browser, `/setup-browser-cookies` copies selected cookies from your daily browser. Sites may also need storage or a fresh login, so copying cookies is not proof that the session works.
 
-It auto-detects installed Chromium browsers (Comet, Chrome, Arc, Brave, Edge), decrypts cookies via the macOS Keychain, and loads them into the Playwright session. An interactive picker UI lets you choose exactly which domains to import — no cookie values are ever displayed.
+The picker detects Chrome, Chromium, Brave, Edge, and macOS-only Comet, Arc, and Dia. Choose the browser, account/profile, and domains. Profile labels use the current `Local State` name with a directory discriminator, so renamed profiles and duplicate names are distinguishable. No cookie values are displayed; source/profile labels are still sensitive.
 
 ```
 You:   /setup-browser-cookies
 
-Claude: Cookie picker opened — select the domains you want to import
-        in your browser, then tell me when you're done.
+Claude: Cookie picker opened. Select your browser, profile, and domains,
+        then tell me when you're done.
 
-        [You pick github.com, myapp.com in the browser UI]
+        [You choose a browser/profile and pick github.com, myapp.com]
 
 You:    done
 
-Claude: Imported 2 domains (47 cookies). Session is ready.
+Claude: Imported 2 domains (47 cookies). Sign-in has not been checked.
 ```
 
-Or skip the UI entirely:
+For direct import, select the browser and profile first and navigate to a matching target. Do not infer an account from the CLI's legacy Comet default:
 
 ```
-You:   /setup-browser-cookies github.com
+You:   /setup-browser-cookies github.com from Chrome, Profile 2
 
-Claude: Imported 12 cookies for github.com from Comet.
+Claude: Imported 12 cookies; sign-in has not been checked.
 ```
+
+`--verify-auth` is explicit and requires a selector and expected identity configured privately in the daemon environment before startup. It checks one exact visible identity on the captured target, not just HTTP 200 or a cookie count. Missing configuration fails before mutation. `--clear-storage` is separate, opt-in recovery for Chromium targets: it clears only the captured origin's localStorage (shared across that origin's tabs) and the target tab's sessionStorage in an isolated world with a native deadline. Other target engines retain import/auth checks but reject reset. It is never automatic and cannot be combined with `--all`. Partial imports and unsuccessful checks remain visible rather than becoming a false "ready."
+
+macOS may prompt for Keychain approval; Linux uses its supported keyring/fallback paths; Windows can import DPAPI-compatible cookies, but native App-Bound Encryption extraction remains disabled pending qualification. Closing Chrome does not bypass Chrome 136+ default-directory protection. Use manual sign-in in the headed fallback browser when needed and a display is available, never a TCP downgrade or real-profile copy. Full flags, configuration, and privacy guidance: [cookie import reference](../BROWSER.md#choosing-a-source-and-checking-sign-in).
 
 ---
 

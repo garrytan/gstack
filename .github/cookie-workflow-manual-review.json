@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "test_name": "setup-browser-cookies/SKILL.md workflow",
+  "prompt_sha256": "7f7f76f49912818d51f25c86d686aab6ad2c95ccdea60ac912c1e4c8b6936e5f",
+  "prompt_bytes": 10159,
+  "model": "claude-fable-5-1",
+  "max_tokens": 8192,
+  "thresholds": { "clarity": 4, "completeness": 3, "actionability": 4 },
+  "approved_by": "garrytan",
+  "approved_at": "2026-09-24",
+  "approval_url": "https://github.com/garrytan/gstack/pull/2964#issuecomment-5822514476",
+  "reason": "Maintainer-approved manual review of this exact cookie workflow after empty provider refusals. No automated quality score or pass credit; other errors and changed inputs remain blocking."
+}

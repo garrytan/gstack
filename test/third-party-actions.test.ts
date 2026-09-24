@@ -21,6 +21,7 @@ import { describe, test, expect } from "bun:test";
 import * as fs from "fs";
 import * as path from "path";
 import { Glob } from "bun";
+import { marked } from "marked";
 import { generateThirdPartyActions } from "../scripts/resolvers/third-party-actions";
 import { generateAsideSetup } from "../scripts/resolvers/aside";
 import { HOST_PATHS } from "../scripts/resolvers/types";
@@ -91,13 +92,13 @@ function generatedSkillDocs(): string[] {
  */
 function asideCommandTokens(text: string): string[] {
   const tokens: string[] = [];
-  const codeChunks = [
-    ...text.matchAll(/`([^`]+)`/g),
-    ...text.matchAll(/```[\s\S]*?```/g),
-  ].map((m) => m[1] ?? m[0]);
+  const codeChunks: string[] = [];
+  marked.walkTokens(marked.lexer(text), token => {
+    if (token.type === 'code' || token.type === 'codespan') codeChunks.push(token.text);
+  });
   for (const chunk of codeChunks) {
-    for (const m of chunk.matchAll(/(?:^|[\s;&|(])aside\s+(--?[A-Za-z][\w-]*|[a-z][\w-]*)/g)) {
-      tokens.push(m[1]);
+    for (const m of chunk.matchAll(/(?:^|[\s;&|(])aside\s+(skills[ \t]+[a-z][\w-]*|--?[A-Za-z][\w-]*|[a-z][\w-]*)/g)) {
+      tokens.push(m[1].replace(/[ \t]+/g, ' '));
     }
   }
   // Prose-form drift: an instruction like "then run aside mcp against the
@@ -109,8 +110,46 @@ function asideCommandTokens(text: string): string[] {
   return tokens;
 }
 
-/** The verified Aside surface: the readiness probe (`repl`) and the two cookbook verbs. */
-const ASIDE_ALLOWLIST = ["--version", "--help", "repl", "exec"];
+describe('Aside command extraction boundaries', () => {
+  test.each(['```bash', '````bash', '~~~bash'])('prose after a %s fence is not inline code', fence => {
+    const closing = fence.replace('bash', '');
+    const text = [fence, 'ls DESIGN.md', closing, '',
+      'Set aside prior visual choices; put aside old assumptions.', '',
+      'Continue with `DESIGN.md`.'].join('\n');
+    expect(asideCommandTokens(text)).toEqual([]);
+  });
+
+  test.each([
+    '`aside invented`',
+    '``aside invented `literal` ``',
+    '```bash\naside invented\n```',
+    '````bash\naside invented\n```\n````',
+    '~~~bash\naside invented\n~~~',
+    '- Run:\n\n  ```bash\n  aside invented\n  ```',
+    '> ```bash\n> aside invented\n> ```',
+    '    aside invented',
+  ])('still detects unsupported commands in %s', text => {
+    expect(asideCommandTokens(text)).toContain('invented');
+  });
+
+  test('retains prose-form drift detection without treating ordinary aside prose as a command', () => {
+    expect(asideCommandTokens('Then run aside mcp against the dashboard.')).toContain('mcp');
+    expect(asideCommandTokens('Set aside prior choices, aside from constraints; visit aside.com.')).toEqual([]);
+  });
+
+  test('the documented read-only skill listing does not allow installation or invented skill actions', () => {
+    for (const command of ['aside skills list', 'aside skills  list']) {
+      expect(asideCommandTokens('`' + command + '`')).toEqual(['skills list']);
+      expect(ASIDE_ALLOWLIST).toContain('skills list');
+    }
+    for (const command of ['aside skills install', 'aside skills invented', 'aside skills']) {
+      expect(asideCommandTokens('`' + command + '`')).toEqual([command.slice('aside '.length)]);
+      expect(ASIDE_ALLOWLIST).not.toContain(command.slice('aside '.length));
+    }
+  });
+});
+
+const ASIDE_ALLOWLIST = ["--version", "--help", "repl", "exec", "skills list"];
 
 describe("THIRD_PARTY_ACTIONS contract pins", () => {
   // (a) Aside is named as the RECOMMENDED driver, with the download pointer +

@@ -13,6 +13,41 @@
 ### Changed
 - The PR evaluation plan includes source-scoped readiness coverage and the resulting judge and supervision budgets without reducing individual test timeouts, retries, or concurrency.
 
+## [1.90.0.0] - 2026-09-24
+
+Cookie imports now keep the chosen browser, profile, and destination explicit, show partial failures, and distinguish copying cookies from proving that you are signed in.
+
+### Added
+- macOS Dia discovery and profile selection, using the existing Chromium cookie reader. Live native Dia import remains unqualified; fixture coverage is not a claim of native compatibility.
+- Optional sign-in verification against an exact, visible identity assertion on the selected destination, with separate copied and verified results.
+- Explicit current-origin storage recovery. Storage is preserved by default; an opted-in reset clears that origin's localStorage and only the target tab's sessionStorage.
+
+### Fixed
+- Prefer renamed profiles from Local State, distinguish duplicate names, and require selection rather than guessing among plausible accounts. Bare and dotted domain selections now match the intended cookie scope without broadening it.
+- Register picker imports with the browser's imported-domain security guard, reject cross-origin picker mutations, and bind asynchronous operations to their original destination. Opening another picker makes old windows fail closed instead of silently changing their target.
+- Show complete, partial, zero, and failed imports accurately. Stale discovery responses and duplicate submissions no longer overwrite the current picker state.
+- Bound credential subprocess output and cleanup, retry only transient database reads, and prevent automatic replay of cookie-import mutations. The Node server uses a real read-only SQLite adapter.
+
+### Changed
+- Picker handoff codes last five minutes and remain single-use. Browser guidance explains profile selection, storage-reset consent, and the difference between copied cookies and verified sign-in.
+- Native Windows extraction uses a sandboxed, owned-process, pipe-only path with bounded cleanup and no TCP fallback. Its qualification allowlist is empty in this release, so encrypted-cookie extraction through this path stays disabled with manual-sign-in guidance.
+- Added isolated platform qualification, launch diagnostics, and regression coverage. Native Dia and protected default-profile Windows qualification remain incomplete; diagnostic passes do not count as successful imports.
+
+## [1.89.1.0] - 2026-09-24
+
+### Removed
+
+- **Continuous checkpoint commits.** Skills no longer ask users to enable automatic `WIP:` commits or instruct agents to create them. The checkpoint mode and push settings are no longer advertised or consumed, and existing saved settings are left untouched.
+- **Checkpoint-specific shipping cleanup.** `/ship` no longer exports checkpoint context or rewrites WIP history. It keeps its normal bisectable commit workflow and proceeds directly to verification when changes are already committed. Explicit `/context-save` and `/context-restore` remain available.
+
+### Fixed
+
+- **Native DevEx evaluation replies.** The test driver recognizes the editor hint shown when Claude Code focuses a custom answer, while still checking the exact question and reply before submitting.
+- **Shared-code review evaluation replies.** The no-change driver can use an explicit preservation description to interpret a shorthand label, while still rejecting mixed fix/skip choices and ambiguous answers.
+- **Windows timeout test readiness.** The process-cleanup regression waits for a live descendant before firing its registered deadline, while a separate real-clock case keeps startup bounded.
+- **Design consultation workflow.** Font and design rules now precede proposal drafting and independent input. Optional-browser routing, existing-system choices, preview feedback and command/session requirements are explicit, and token extraction cannot write the project's design file before approval.
+- **Shipping and engineering-review gates.** Missing dispatched reviewers now have an explicit stop/resume path, late shipping fixes return through fresh review, and evidence recovery distinguishes stale inputs from an unavailable ledger. Engineering review separates scope assessment, selector answers and remedy decisions, with ordered preparation and recovery.
+
 ## [1.89.0.0] - 2026-09-24
 
 **Find shared code worth keeping.**

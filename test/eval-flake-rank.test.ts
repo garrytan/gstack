@@ -10,7 +10,9 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { aggregate, collectEvalFiles } from '../scripts/eval-flake-rank';
+import { manualReviewFixture } from './helpers/manual-judge-review-fixture';
 
 const entry = (name: string, passed: boolean, attempt: number) => ({
   name, suite: 's', tier: 'e2e', passed, attempt, duration_ms: 1000, cost_usd: 0.1,
@@ -24,6 +26,33 @@ const run = (tests: object[], extra: object = {}) => JSON.stringify({
 });
 
 describe('eval-flake-rank aggregate', () => {
+  test('manual acceptance is visible but not a scored failure or retried pass', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flakerank-manual-'));
+    const manual = manualReviewFixture();
+    const { manual_review: _receipt, ...ordinary } = manual;
+    fs.writeFileSync(path.join(dir, 'prior.json'), run([{ ...ordinary, passed: true, exit_reason: 'success',
+      judge_scores: { clarity: 4, completeness: 3, actionability: 4 } }]));
+    fs.writeFileSync(path.join(dir, 'accepted.json'), run([manual]));
+    const series = aggregate(collectEvalFiles(dir)).get(manual.name);
+    expect(series).toMatchObject({ runs: 1, passes: 1, fails: 0, manualAccepted: 1,
+      retriedPasses: 0, totalAttempts: 2 });
+    const display = spawnSync(process.execPath, [path.resolve(import.meta.dir, '../scripts/eval-flake-rank.ts'), '--dir', dir],
+      { encoding: 'utf8', timeout: 10_000 });
+    expect(display.status, display.stderr).toBe(0);
+    expect(display.stdout).toContain('fails/runs  manual');
+    expect(display.stdout).toContain('0/1');
+    expect(display.stdout).toContain(manual.name);
+    fs.writeFileSync(path.join(dir, 'invalid-retry.json'), run([
+      { ...ordinary, attempt: 1 }, { ...manual, attempt: 2 },
+    ]));
+    expect(aggregate(collectEvalFiles(dir)).get(manual.name)).toMatchObject({ runs: 2, passes: 1,
+      fails: 1, manualAccepted: 1, retriedPasses: 0 });
+    fs.writeFileSync(path.join(dir, 'invalid-pass.json'), run([{ ...manual, passed: true }]));
+    expect(aggregate(collectEvalFiles(dir)).get(manual.name)).toMatchObject({ runs: 3, passes: 1,
+      fails: 2, manualAccepted: 1, retriedPasses: 0 });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   test('final attempt decides; retried pass counts as retriedPass, not a fail', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flakerank-'));
     fs.writeFileSync(path.join(dir, 'run1.json'), run([

@@ -159,10 +159,17 @@ globalThis.Bun = {
       parseInt(process.env.GSTACK_SPAWN_MAX_BUFFER || '', 10) || 16 * 1024 * 1024,
     );
     const drain = (stream) => {
-      if (!stream) return { done: Promise.resolve(), chunks: [], truncated: false };
-      const state = { chunks: [], bytes: 0, truncated: false };
+      if (!stream) return { done: Promise.resolve(), chunks: [], cancel() {} };
+      const state = { chunks: [], bytes: 0, truncated: false, cancelled: false, finished: false };
+      let finish;
       const done = new Promise((resolve) => {
+        finish = () => {
+          if (state.finished) return;
+          state.finished = true;
+          resolve();
+        };
         stream.on('data', (chunk) => {
+          if (state.cancelled) return;
           if (state.bytes >= MAX_BUFFER) { state.truncated = true; return; }
           if (state.bytes + chunk.length <= MAX_BUFFER) {
             state.chunks.push(chunk);
@@ -177,11 +184,18 @@ globalThis.Bun = {
         // Any terminal event resolves: 'end' on normal close, 'error' on a
         // stream-level error, 'close' as the belt-and-suspenders for spawn
         // failures where Node fires 'close' but neither 'end' nor 'error'.
-        stream.once('end', resolve);
-        stream.once('error', resolve);
-        stream.once('close', resolve);
+        stream.once('end', finish);
+        stream.once('error', finish);
+        stream.once('close', finish);
       });
-      return { done, chunks: state.chunks };
+      return { done, chunks: state.chunks, cancel() {
+        if (state.cancelled) return;
+        state.cancelled = true;
+        state.chunks.length = 0;
+        state.bytes = 0;
+        finish();
+        stream.destroy();
+      } };
     };
     const stdoutDrain = drain(proc.stdout);
     const stderrDrain = drain(proc.stderr);
@@ -218,20 +232,29 @@ globalThis.Bun = {
         .then(() => resolveExited(exitStatus !== undefined ? exitStatus : 0));
     });
 
-    // Replay buffered output as a fresh Web ReadableStream. `start()` awaits
+    // Replay buffered output as a fresh Web ReadableStream. `start()` observes
     // the drain before enqueueing so `new Response(proc.stdout).text()` yields
     // the complete output regardless of whether the consumer reads before or
     // after awaiting `proc.exited`. Stream is single-shot (locked after one
     // read), matching Bun's behavior.
-    const replay = (d) => new ReadableStream({
-      async start(controller) {
-        await d.done;
-        for (const chunk of d.chunks) {
-          controller.enqueue(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk));
-        }
-        controller.close();
-      },
-    });
+    const replay = (d) => {
+      let cancelled = false;
+      return new ReadableStream({
+        start(controller) {
+          d.done.then(() => {
+            if (cancelled) return;
+            for (const chunk of d.chunks) {
+              controller.enqueue(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk));
+            }
+            controller.close();
+          });
+        },
+        cancel() {
+          cancelled = true;
+          d.cancel();
+        },
+      });
+    };
 
     return {
       pid: proc.pid,

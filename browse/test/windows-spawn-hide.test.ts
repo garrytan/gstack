@@ -42,10 +42,13 @@ describe('windowsHide on Windows-reachable spawns (#1835)', () => {
     // isProcessAlive no longer spawns anything (signal-0 on every platform,
     // #1952) — process-liveness-windows.test.ts pins that it stays
     // subprocess-free, which is stronger than hiding a window.
-    // powershell DPAPI + tasklist in cookie import.
     const cookie = SRC('cookie-import-browser.ts');
     expectHideNearEvery(cookie, "'powershell'");
-    expectHideNearEvery(cookie, "'tasklist'");
+    expect(cookie).not.toContain("'tasklist'");
+    expectHideNearEvery(SRC('cookie-import-native.ts'), 'spawn(bunExecutable');
+    const worker = SRC('cookie-import-native-worker.ts');
+    expectHideNearEvery(worker, 'spawn(process.execPath');
+    expectHideNearEvery(worker, 'spawn(input.request.nodeExecutable');
   });
 
   test('icacls calls in file-permissions.ts pass windowsHide', () => {

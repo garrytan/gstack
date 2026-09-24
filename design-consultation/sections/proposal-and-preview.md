@@ -3,39 +3,7 @@
 <!-- The font-selection procedure and the three-looks calibration in this section are derived from pbakaus/impeccable reference/new-work.md (Apache-2.0), rewritten and modified. See NOTICE.md. -->
 ## Phase 3: The Complete Proposal
 
-Develop your draft with the design knowledge below. Compare completed outside proposals: explain agreements, differences, and ideas adopted with attribution. Tie the recommendation to the memorable-thing answer. Do not count agreement as a vote or invent a missing proposal. Q2 names completed, unavailable, or declined voices and presents the recommendation.
-
-**AskUserQuestion Q2 — present the full proposal with SAFE/RISK breakdown:**
-
-```
-Based on [product context] and [research findings / my design knowledge]:
-
-AESTHETIC: [direction] — [one-line rationale]
-DECORATION: [level] — [why this pairs with the aesthetic]
-LAYOUT: [approach] — [why this fits the product type]
-COLOR: [approach] + proposed palette (hex values) — [rationale]
-TYPOGRAPHY: [display, body, label, mono assignments; a face may serve multiple roles] — [why these fonts]
-SPACING: [base unit + density] — [rationale]
-MOTION: [approach] — [rationale]
-
-This system is coherent because [explain how choices reinforce each other].
-
-INDEPENDENT INPUT: [completed/unavailable/skipped voices; agreements, differences, ideas adopted and product-specific reasons — omit comparisons if none completed]
-
-SAFE CHOICES (category baseline — your users expect these):
-  - [2-3 decisions that match category conventions, with rationale for playing safe]
-
-RISKS (where your product gets its own face):
-  - [2-3 deliberate departures from convention]
-  - For each risk: what it is, why it works, what you gain, what it costs
-
-Safe choices meet category expectations; risks make the product memorable.
-Which risks appeal to you? Try others or adjust anything else?
-```
-
-Coherence alone can look generic. Propose at least 2 creative risks—type, accent, spacing, layout or motion—with rationale, benefit and cost alongside the category's safe choices.
-
-**Options:** A) Looks great — generate the preview page. B) I want to adjust [section]. C) I want different risks — show me wilder options. D) Start over with a different direction. E) Skip the preview, just write DESIGN.md.
+Read this section in full, then apply its design/font rules → draft independently → offer outside voices → synthesize for Q2. Preview and writes require their later approvals.
 
 ### Your Design Knowledge (use to inform proposals — do NOT display as tables)
 
@@ -127,6 +95,185 @@ User asks for a listed face by name: comply, state the tradeoff once.
 
 After any override, gently flag mismatches and offer alternatives: Brutalist/Minimal + expressive motion → quieter motion or keep intentionally; Drenched + minimal decoration → supporting decoration; editorial + dense data → hybrid layout. Never block; accept the user's final choice and proceed.
 
+### Independent proposals, then synthesis
+
+Draft your own direction from the product brief using the rules above. Keep that draft out of both reviewers' prompts; send the product context, not your answer.
+
+## Design Outside Voices (independent)
+
+Use AskUserQuestion:
+> "Want outside design voices? Codex proposes an independent design direction; Claude subagent does an independent design direction proposal."
+>
+> A) Yes — run outside design voices
+> B) No — proceed without
+
+If user chooses B, record one declined result as described below, skip both voices, and continue to Q2 with your draft.
+
+**If accepted:** Create a private file for the Phase 1 product brief, including Phase 2 research status:
+```bash
+_DESIGN_BRIEF=$(mktemp /tmp/gstack-design-brief-XXXXXXXX) || exit 1
+printf 'DESIGN_BRIEF=%s\n' "$_DESIGN_BRIEF"
+```
+Write the product brief to that path; remember the absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file; give the native Agent its absolute path. Keep your draft direction out of both prompts. Never paste brief text into shell source.
+
+**Check Codex availability:**
+```bash
+
+_OUTSIDE_CFG=enabled # This caller has its own opt-in/skip control.
+if [ "$_OUTSIDE_CFG" = disabled ]; then
+  echo 'CODEX_MODE: disabled'
+elif ( # GSTACK_ACTIVE_HOST names the harness, never the model.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
+  fi
+  exit 78
+fi
+); then
+  if command -v codex >/dev/null 2>&1; then echo 'CODEX_MODE: ready'; else echo 'CODEX_MODE: not_installed'; fi
+else
+  echo 'CODEX_MODE: under_current_harness'
+fi
+```
+
+The historical `CODEX_MODE` variable describes **Codex** availability here. Authentication and configured model validity are checked by the actual invocation, without overriding either. Missing/broken CLI: install or repair Codex; authentication failure: run `codex login`. Honor this caller’s existing opt-in/skip choice. Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback. Never substitute another external provider.
+
+Non-ready CLI: retain its repair notice and use only the native voice. The invocation deliberately rechecks the harness before spawning; native success never replaces external coverage.
+
+**When ready**, run both voices and await both before synthesis. Overlap calls
+if supported; keep the native call blocking.
+
+1. **Codex design voice** (via Bash):
+Prompt (include the actual plan/product/frontend source context, not only file paths):
+
+"Given this product context, propose a complete design direction:
+- Visual thesis: one sentence describing mood, material, and energy
+- Typography: specific font names with display/body/UI roles (no Inter/Roboto/Arial/system defaults); the parent verifies font availability before adoption
+- Color system: hex values and CSS variables for background, surface, primary text, muted text, accent
+- Layout: composition-first, not component-first. First viewport as poster, not document
+- Differentiation: 2 deliberate departures from category norms
+- Anti-slop: none of purple gradient palette, the 3-column feature grid, centered everything, decorative blobs and dividers, nested cards, kicker above heading, icon tile above every heading, dark-mode glow
+
+Be opinionated. Be specific. Do not hedge. This is YOUR design direction — own it.
+
+End with Recommendation: <direction> because <product-specific reason>."
+
+Write the **complete prompt and context**, including actual plan/spec/source, to a private file. Substitute its shell-quoted path for `<prepared-prompt-file>`; never interpolate user text into shell source. Request a complete design proposal ending with Recommendation: <direction> because <product-specific reason>.
+
+```bash
+# GSTACK_ACTIVE_HOST names the harness, never the model.
+if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+  echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
+  if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
+    echo 'Inherited harness markers conflict. Run setup --host <actual-harness> (claude or codex); do not guess a replacement provider.' >&2
+  else
+    echo 'Repair installed skills: run setup --host codex from your gstack checkout.' >&2
+  fi
+  exit 78
+fi
+
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
+_OUTSIDE_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
+trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
+_OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
+cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
+
+source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" || exit 1
+_OUTSIDE_PROMPT=$(cat "$_OUTSIDE_INPUT") || exit 1
+_OUTSIDE_EXIT=0
+_gstack_codex_timeout_wrapper 300 codex exec "$_OUTSIDE_PROMPT" -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+# Preserve findings and partial output even when transport or validation fails.
+cat "$_OUTSIDE_TMP/text" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
+
+cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
+if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
+  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
+  exit "$_OUTSIDE_EXIT"
+fi
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
+
+echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
+```
+
+Show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation markers, timeout or CLI failure means `outside_status: unavailable`. Continue completed proposals; native completion does not count as outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+
+2. **Claude design subagent** (Agent tool, `run_in_background: false`; await its result):
+"Read the complete product brief at [the absolute DESIGN_BRIEF path printed above].
+
+Propose a surprising indie-studio direction beyond conventional enterprise UI.
+- Propose an aesthetic direction, typography stack (specific font names), color palette (hex values)
+- 2 deliberate departures from category norms
+- What emotional reaction should the user have in the first 3 seconds?
+
+Be bold and specific."
+
+**Error handling (all non-blocking):**
+- **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run `codex login` to authenticate."
+- **Timeout:** "Codex timed out after 5 minutes."
+- **Empty response:** "Codex returned no response."
+- On any Codex error: proceed with Claude subagent output only; identify it as the only completed independent proposal.
+- If Claude subagent also fails: "Outside voices unavailable — continuing to Q2 with my draft direction."
+
+Present only completed, available voice outputs with their actual source and status.
+Output headers: `CODEX SAYS (design direction):` and `CLAUDE SUBAGENT (design direction):`.
+
+**Handoff:** Retain every completed proposal (two, one, or none) with its source/status. Do not choose a direction here. Q2 compares these proposals with your earlier draft.
+After both voices finish (including failure), delete only the private brief you created, using its remembered absolute path.
+
+**Log the result:** If the user accepted, run the command twice: one record for each voice, including any unavailable voice. If the user declined, run it once with STATUS=skipped, SOURCE=none, OUTSIDE_STATUS=skipped.
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
+```
+For each accepted-run record, STATUS=clean for a usable proposal, issues_found for unresolved product constraints, unavailable for no valid completion. Taste differences are alternatives, not issues.
+
+| Record | SOURCE |
+|---|---|
+| External CLI | codex when completed, otherwise "none" |
+| Native subagent | in-host when completed, otherwise "none" |
+
+Both records carry the actual CLI outcome: OUTSIDE_STATUS=completed only for successful execution with valid markers, otherwise unavailable. `outside_provider`/`outside_status` describe external coverage, not each record's source. A native-only success has STATUS=clean, SOURCE=in-host, outside_status="unavailable".
+
+Keep the historical skill identifier. Historical source:"claude" still means a native Claude subagent. Preserve reported modelUsage, including multiple models; unknown model identity stays unknown.
+
+Compare completed outside proposals: explain agreements, differences, and ideas adopted with attribution. Verify any newly suggested fonts before adopting them using the same procedure above. Tie the recommendation to the memorable-thing answer. Do not count agreement as a vote or invent a missing proposal. Q2 names completed, unavailable, or declined voices and presents the recommendation.
+
+**AskUserQuestion Q2 — present the full proposal with SAFE/RISK breakdown:**
+
+```
+Based on [product context] and [research findings / my design knowledge]:
+
+AESTHETIC: [direction] — [one-line rationale]
+DECORATION: [level] — [why this pairs with the aesthetic]
+LAYOUT: [approach] — [why this fits the product type]
+COLOR: [approach] + proposed palette (hex values) — [rationale]
+TYPOGRAPHY: [display, body, label, mono assignments; a face may serve multiple roles] — [why these fonts]
+SPACING: [base unit + density] — [rationale]
+MOTION: [approach] — [rationale]
+
+This system is coherent because [explain how choices reinforce each other].
+
+INDEPENDENT INPUT: [completed/unavailable/skipped voices; agreements, differences, ideas adopted and product-specific reasons — omit comparisons if none completed]
+
+SAFE CHOICES (category baseline — your users expect these):
+  - [2-3 decisions that match category conventions, with rationale for playing safe]
+
+RISKS (where your product gets its own face):
+  - [2-3 deliberate departures from convention]
+  - For each risk: what it is, why it works, what you gain, what it costs
+
+Safe choices meet category expectations; risks make the product memorable.
+Which risks appeal to you? Try others or adjust anything else?
+```
+
+Coherence alone can look generic. Propose at least 2 creative risks—type, accent, spacing, layout or motion—with rationale, benefit and cost alongside the category's safe choices.
+
+**Options:** A) Looks great — proceed to Phase 5 if fonts are verified. B) Adjust [section] — Phase 4, then Q2 again. C) Different risks — revise the proposal, then Q2 again. D) Start over — draft another direction using the same confirmed brief. E) Skip the preview — proceed to Phase 6's Q-final, not straight to writing.
+
+Revisions recheck fonts and coherence. If the product brief changes, label old proposals stale and offer fresh independent voices; do not claim they reviewed new context.
+
 ---
 
 ## Phase 4: Drill-downs (only if user requests adjustments)
@@ -136,6 +283,8 @@ Use one focused AskUserQuestion per requested drill-down: **Fonts:** 3-5 candida
 ---
 
 ## Phase 5: Design System Preview (default ON)
+
+After Q2 approval: pending fonts or a preview skip → Phase 6 with limitations. Generation unavailable/failed → offer Path B or skip, not unbounded retries.
 
 ### Path A: AI Mockups (if DESIGN_READY)
 
@@ -155,126 +304,73 @@ Brief: Phase 3 aesthetic/colors/type/spacing/layout plus Phase 1 product context
 $D variants --brief "<product name: [name]. Product type: [type]. Aesthetic: [direction]. Colors: primary [hex], secondary [hex], neutrals [range]. Typography: display [font], body [font]. Layout: [approach]. Show a realistic [page type] screen with [specific content for this product].>" --count 3 --output-dir "$_DESIGN_DIR/"
 ```
 
-Run quality check on each variant:
+Run quality check on each successful path returned by `variants`; never include failed variants:
 
 ```bash
 $D check --image "$_DESIGN_DIR/variant-A.png" --brief "<the original brief>"
 ```
 
-Read each PNG to show the variants inline.
+Read JSON, not exit code: `pass: false` means regenerate addressing `issues`, then recheck. `pass: true` with an unavailable/skipped warning is missing automated coverage; disclose it and inspect visually.
 
 **Before presenting, self-gate:** Would a human designer be embarrassed to sign each variant? If yes, discard and regenerate. Hard rejects: purple gradient hero, 3-column SaaS grid, centered-everything, overused display face, generic stock photo, system-ui, gradient CTA, bubble-radius everything. Any trigger requires regeneration.
 
-Open the board before inviting the user to choose or remix.
+Read each accepted PNG inline, then open the board with those paths before inviting choices/remix.
 
 ### Comparison Board + Feedback Loop
 
-Create the comparison board and serve it over HTTP:
+Use the successful, quality-checked paths in this example:
 
 ```bash
 $D compare --images "$_DESIGN_DIR/variant-A.png,$_DESIGN_DIR/variant-B.png,$_DESIGN_DIR/variant-C.png" --output "$_DESIGN_DIR/design-board.html" --serve
 ```
 
-Creates HTML and opens the board. **Run it in the background** (host task, or `&` redirecting stdout/stderr to private files in `$_DESIGN_DIR`). Read captured stderr for the startup marker; a PID is not readiness. Missing marker: use the failure fallback below.
+This publishes to a persistent daemon, opens the board and exits. Read captured stderr for the startup marker; a PID is not readiness. Exit 0 with `BOARD_URL` means the daemon is serving. Save its full `http://127.0.0.1:N/boards/<id>/` URL. Only legacy `--no-daemon` needs a host background task; `SERVE_STARTED: port=N` gives root URL `http://127.0.0.1:N/`.
 
-Default stderr: `BOARD_URL: http://127.0.0.1:N/boards/<id>/`. Use that full per-board URL for AskUserQuestion and as the reload base. Only explicit legacy `--no-daemon` emits `SERVE_STARTED: port=XXXXX`, serving one board at `/` with reload at `/api/reload`.
+**Wait with AskUserQuestion:** "Review <BOARD_URL>, Submit or request new variants, then tell me; or paste preferences here." The board chooses; the question waits. Do not poll.
 
-**PRIMARY WAIT: AskUserQuestion with board URL**
-
-Once serving, wait with AskUserQuestion including the board URL:
-
-"I've opened a comparison board with the design variants:
-<BOARD_URL> — Rate them, leave comments, remix
-elements you like, and click Submit when you're done. Let me know when you've
-submitted your feedback (or paste your preferences here). If you clicked
-Regenerate or Remix on the board, tell me and I'll generate new variants."
-
-Substitute `<BOARD_URL>` from the stderr marker above.
-
-**The user chooses variants in the board; AskUserQuestion only waits.**
-
-**After the user responds to AskUserQuestion:**
-
-Check for feedback files next to the board HTML:
-- `$_DESIGN_DIR/feedback.json` — written when user clicks Submit (final choice)
-- `$_DESIGN_DIR/feedback-pending.json` — written when user clicks Regenerate/Remix/More Like This
-
-```bash
-if [ -f "$_DESIGN_DIR/feedback.json" ]; then
-  echo "SUBMIT_RECEIVED"
-  cat "$_DESIGN_DIR/feedback.json"
-elif [ -f "$_DESIGN_DIR/feedback-pending.json" ]; then
-  echo "REGENERATE_RECEIVED"
-  cat "$_DESIGN_DIR/feedback-pending.json"
-  rm "$_DESIGN_DIR/feedback-pending.json"
-else
-  echo "NO_FEEDBACK_FILE"
-fi
-```
-
-The feedback JSON has this shape:
+After the response, read current feedback next to the board HTML:
+- `feedback.json`: Submit (preferred/overall may be null):
 ```json
-{
-  "preferred": "A",
-  "ratings": { "A": 4, "B": 3, "C": 2 },
-  "comments": { "A": "Love the spacing" },
-  "overall": "Go with A, bigger CTA",
-  "regenerated": false
-}
+{"preferred":"A","ratings":{"A":4},"comments":{"A":"Good spacing"},"overall":"Go with A","regenerated":false}
+```
+- `feedback-pending.json`: Regenerate:
+```json
+{"preferred":"B","ratings":{"B":4},"comments":{},"overall":"Keep layout","regenerated":true,"regenerateAction":"more_like_B"}
 ```
 
-**If `feedback.json` found:** The user clicked Submit on the board.
-Read `preferred`, `ratings`, `comments`, `overall` from the JSON. Proceed with
-the approved variant.
+`regenerateAction`: `different`, `match`, `more_like_<letter>` or custom text (including remix). The board uses text; it does not emit a required `remixSpec`. Honor a pasted map (`{"layout":"A","colors":"B"}`) if present; clarify missing detail.
 
-**If `feedback-pending.json` found:** The user clicked Regenerate/Remix on the board.
-1. Read `regenerateAction` from the JSON (`"different"`, `"match"`, `"more_like_B"`,
-   `"remix"`, or custom text)
-2. If `regenerateAction` is `"remix"`, read `remixSpec` (e.g. `{"layout":"A","colors":"B"}`)
-3. Generate new variants with `$D iterate` or `$D variants` using updated brief
-4. Create new board: `$D compare --images "..." --output "$_DESIGN_DIR/design-board.html"`
-5. Reload the board in the user's browser (same tab) — the URL is per-board
-   under daemon mode, so use `<BOARD_URL>` (from the `BOARD_URL:` stderr
-   line) as the base:
+**Board or chat:** revisions regenerate; a final choice needs summary confirmation; skip goes to Phase 6 without a mockup. Ask if no choice/detail; never infer approval from a missing file. Submit with revision notes is a revision.
+
+**Regenerate:**
+1. Revise the brief, preserving unrelated constraints. Archive this round's feedback files so old Submit cannot approve new images.
+2. Run `$D variants` with the new brief (no session). Re-run the quality check and visual self-gate on every new image.
+3. Rebuild: `$D compare --images "<new successful paths>" --output "$_DESIGN_DIR/design-board.html"`, without `--serve`.
+4. Reload at the saved URL (keep its per-board path; legacy uses root):
    `jq -nc --arg html "$_DESIGN_DIR/design-board.html" '{html: $html}' | curl -sS -X POST "${BOARD_URL}api/reload" -H 'Content-Type: application/json' --data-binary @-`
-   Under `--no-daemon` the reload endpoint is `/api/reload` at the legacy
-   port; this path only matters if the caller explicitly opted out of the
-   daemon.
-6. The board auto-refreshes. **AskUserQuestion again** with the same board URL to
-   wait for the next round of feedback. Repeat until `feedback.json` appears.
+5. Check reload succeeded, then AskUserQuestion at the same URL until a final choice, skip or stop. Failed generation/reload uses the fallback, not another wait.
 
-**If `NO_FEEDBACK_FILE`:** The user typed their preferences directly in the
-AskUserQuestion response instead of using the board. Use their text response
-as the feedback.
+**SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline with Read, then AskUserQuestion: "The comparison board server failed to start. Which variant? Any changes?" Route chat feedback as above.
 
-Exit 0 with `BOARD_URL` means the daemon is serving; use the board feedback flow above.
-**SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline using the Read tool (so the user can see them),
-then use AskUserQuestion:
-"The comparison board server failed to start. I've shown the variants above.
-Which do you prefer? Any feedback?"
+**After receiving feedback (any path):** summarize PREFERRED, RATINGS, YOUR NOTES, DIRECTION; AskUserQuestion "Is this right?" A confirmed final choice permits Write of `$_DESIGN_DIR/approved.json` with `approved_variant`, `feedback`, `date` (UTC), `screen`, `branch`. Use valid JSON, never shell interpolation. This approves the image only; Q-final gates project writes.
 
-**After receiving feedback (any path):** Output a clear summary confirming
-what was understood:
+After final image confirmation, `$D extract` would write DESIGN.md in a Git repo: run it only in a fresh non-repository scratch directory. Bind `$D` and `APPROVED_IMAGE` to absolute paths:
 
-"Here's what I understood from your feedback:
-PREFERRED: Variant [X]
-RATINGS: [list]
-YOUR NOTES: [comments]
-DIRECTION: [overall]
-
-Is this right?"
-
-Use AskUserQuestion to verify before proceeding.
-
-**Save the approved choice:**
 ```bash
-echo '{"approved_variant":"<V>","feedback":"<FB>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"<SCREEN>","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
+_EXTRACT_DIR=$(mktemp -d /tmp/gstack-design-extract-XXXXXXXX) || exit 1
+(
+  cd "$_EXTRACT_DIR" || exit 1
+  if git rev-parse --show-toplevel >/dev/null 2>&1; then
+    echo "Extraction refused: scratch directory resolves to a Git repository" >&2
+    exit 1
+  fi
+  "$D" extract --image "$APPROVED_IMAGE"
+)
 ```
 
-After the user picks a direction:
+Compare extracted tokens with the approved image and verified fonts; show discrepancies at Q-final. Empty arrays, an "Unable to extract" mood or command failure → disclose fallback to Phase 3 values, never invent measured tokens.
 
-- `$D extract --image "$_DESIGN_DIR/variant-<CHOSEN>.png"`: Phase 6 color/type/spacing tokens come from the approved visual, not text alone.
-- Further iteration: `$D iterate --feedback "<user's feedback>" --output "$_DESIGN_DIR/refined.png"`
+Late visual changes return to the feedback loop: regenerate, recheck, reconfirm, then extract again. Only `generate` supplies `sessionFile` for `$D iterate --session "<returned sessionFile>" --feedback "<feedback>" --output "$_DESIGN_DIR/refined.png"`; variants must regenerate.
 
 **Plan mode:** Carry the approved mockup paths/tokens into Phase 6's "## Proposed DESIGN.md" plan section. Its Q-final approval governs saving that content; defer the actual DESIGN.md to implementation.
 
@@ -322,18 +418,18 @@ If the user says skip the preview, go directly to Phase 6.
 
 ## Phase 6: Write DESIGN.md & Confirm
 
-Only Path A invokes `$D extract` for approved mockup tokens. For Path B, use the approved HTML preview's CSS values. No preview: approved Phase 3 values with pending fonts. Retain Phase 3 rationale.
+Only Path A invokes `$D extract`, isolated as above. For Path B, use the approved HTML preview's CSS values. No preview: approved Phase 3 values; mark only unverified fonts pending. Retain rationale and unchanged existing decisions.
 
 **Confirm before writing.** Prepare the contents below; show decisions and agent-selected defaults. AskUserQuestion Q-final:
 - A) Approve — write DESIGN.md and CLAUDE.md; in plan mode, save Proposed DESIGN.md in the plan only
 - B) Revise — return to Phase 3, then confirm again
 - C) Start over — return to Phase 1
 
-Wait. Only A permits the writes below; B/C leave project files untouched. Honor prior explicit approval of these exact writes without re-asking.
+Wait. Only A permits the writes below; B/C leave project files untouched. Honor prior explicit approval of these exact writes without re-asking. Any subsequent token, font or direction change invalidates that approval: update the proposal, reverify affected fonts/preview, and ask Q-final again. A changed product brief also invalidates prior independent proposals.
 
 **If in plan mode:** Write the DESIGN.md content into the plan file as a "## Proposed DESIGN.md" section. Do NOT write the actual file — that happens at implementation time.
 
-**If NOT in plan mode:** Write root `DESIGN.md` in google-labs-code/design.md format. All tokens belong in the five normative YAML groups below; prose explains rationale/use without repeating values. Preserve the line-2 format marker to prevent conversion re-asks. A Phase 0 kept-legacy file instead retains its own shape.
+**If NOT in plan mode:** apply the approved Phase 0 format choice, then write root `DESIGN.md`. New, fresh and converted files use google-labs-code/design.md format below: all tokens belong in the five normative YAML groups; prose explains rationale/use without repeating values. Preserve the line-2 format marker. A kept-legacy or unknown-format Update instead retains its own shape; persist `legacy-keep` only for the chosen legacy path. Preserve the prior file in a backup before a fresh replacement.
 
 ```markdown
 ---
@@ -450,7 +546,7 @@ components:
 | [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
 ```
 
-Use real token values, no placeholders; omit invented `components` entries. Outside plan mode, after writing DESIGN.md, require `bun --no-env-file run ~/.claude/skills/gstack/bin/gstack-design-md.ts check DESIGN.md` to print `DESIGN_MD_FORMAT: spec`.
+Use real token values, no placeholders; omit invented `components` entries and unverified fontFamily values. Describe pending font roles in prose instead. Outside plan mode, after writing DESIGN.md, run `bun --no-env-file run ~/.claude/skills/gstack/bin/gstack-design-md.ts check DESIGN.md`: require `DESIGN_MD_FORMAT: spec` for new/fresh/converted/spec files, `legacy` with `legacy-keep` for a kept legacy file, or the disclosed `unknown` format for a preserved unknown file. Never convert a kept file just to make validation say spec.
 
 **Outside plan mode, update CLAUDE.md** (or create it if it doesn't exist) — append this section:
 

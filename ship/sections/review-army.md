@@ -563,20 +563,22 @@ or missing-reviewer rules.
    - Overall RECOMMENDATION
    - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
 
-4. **After all fixes (auto + user-approved):**
-   - If fixes were applied, commit named fixed files (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5), then re-run the whole Step 9 cycle from a new pass's start-token capture, including design, specialists, Red Team, and dedup. Repeat until a complete pass applies ZERO fixes with tests green or the same explicit Step 5 waiver. NEVER tell the user to run `/ship` again just for this cycle.
+4. **After all fixes (auto + user-approved), take the first matching branch:**
+   - If a dispatched specialist or Red Team failed, emit items 5–6 with `status:"unavailable"`, `completed:false` and `converged:false`. Then **STOP before Step 10**, naming the missing reviewer and retaining applied fixes. When coverage is available, rerun Step 5 and affected Steps 6–8 if code changed, then resume with a new Step 9 pass. Intentionally gated or host-unsupported reviewers were not dispatched and do not trigger this stop.
+   - If fixes were applied, commit named fixed files (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **stay in this invocation and loop**: re-run the test suite (Step 5) and affected Steps 6–8, then re-run the whole Step 9 cycle from a new pass's start-token capture, including design, specialists, Red Team, and dedup. Repeat until a complete pass applies ZERO fixes with tests green or the same explicit Step 5 waiver. NEVER tell the user to run `/ship` again just for this cycle.
    - **Bound: 3 fix cycles.** If cycle 3 still fixes code, persist item 6 below with `converged:false` and that pass's original REVIEW_START, then STOP and report which findings keep reappearing.
-   - A zero-fix pass (including explicit skips) proceeds to summary and persistence below; missing dispatched coverage still prevents completion.
+   - A zero-fix pass (including explicit skips) proceeds to summary and persistence below.
 
 5. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
 
-   If no issues found: `Pre-Landing Review: No issues found.`
+   If coverage is incomplete: `Pre-Landing Review: INCOMPLETE — <missing reviewers>`.
+   Otherwise, if no issues found: `Pre-Landing Review: No issues found.`
 
 6. Persist the review result to the review log:
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship","completed":COMPLETED,"converged":CONVERGED,"cycles":CYCLES}' --finish REVIEW_START
 ```
-Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
+Substitute TIMESTAMP (ISO 8601), STATUS ("unavailable" for missing dispatched coverage, otherwise "issues_found" for unresolved defects or "clean" for none),
 and N values from the remaining unresolved findings, not the original pre-fix totals. The `via:"ship"` distinguishes from standalone `/review` runs.
 - `REVIEW_START` = the token captured at the start of Step 9 before this pass read the diff. `COMPLETED` = true only if the checklist and dispatched specialists completed; failed or missing dispatched coverage is false, never clean. A host-unsupported or intentionally gated specialist was not dispatched and does not block completion; retain the skip/unavailable label. `CONVERGED` = true only for a completed pass that applied zero fixes. `CYCLES` = fix cycles performed (0 for a first-pass completion). Never recapture at persistence to certify fixes that have not been reviewed.
 - `quality_score` = the PR Quality Score computed in Step 9.2 (e.g., 7.5). If specialists were skipped or unsupported by this host, use `10.0`

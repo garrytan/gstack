@@ -2,7 +2,9 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { ALL_HOST_CONFIGS } from '../hosts';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
-import { generateDesignOutsideVoices, generateOverusedFonts, generateDesignShotgunLoop, generateTasteProfile } from '../scripts/resolvers/design';
+import { generateDesignOutsideVoices, generateOverusedFonts, generateDesignShotgunLoop, generateTasteProfile, generateDesignMdCheck, generateDesignSetup } from '../scripts/resolvers/design';
+import { generateBrowseFallback } from '../scripts/resolvers/browse';
+import { generateAsideSetup, generateAsideResearch } from '../scripts/resolvers/aside';
 import { outsideVoiceInvocation } from '../scripts/resolvers/outside-voice';
 import { validateOutsideReview } from '../lib/outside-review-result';
 
@@ -61,15 +63,97 @@ test('preview paths retain verified fonts and select their own token source', ()
 test('consultation drafts before independent dispatch and compares completed input at Q2', () => {
   const root = readFileSync(new URL('../design-consultation/SKILL.md.tmpl', import.meta.url), 'utf8');
   const section = readFileSync(new URL('../design-consultation/sections/proposal-and-preview.md.tmpl', import.meta.url), 'utf8');
-  expect(root.indexOf('Draft your own direction')).toBeLessThan(root.indexOf('{{DESIGN_OUTSIDE_VOICES}}'));
-  expect(root.indexOf('{{DESIGN_OUTSIDE_VOICES}}')).toBeLessThan(root.indexOf('{{SECTION:proposal-and-preview}}'));
-  expect(root).toContain("Keep that draft out of both reviewers' prompts");
+  expect(root).not.toContain('{{DESIGN_OUTSIDE_VOICES}}');
+  expect(root).not.toContain('Draft your own direction');
+  expect(root.indexOf('{{SECTION:proposal-and-preview}}')).toBeGreaterThan(root.indexOf('## Phase 2: Research'));
+  const ordered = ['### Your Design Knowledge', '**Choosing faces:', '{{OVERUSED_FONTS}}', '{{DESIGN_SLOP_BULLETS}}', 'Draft your own direction', '{{DESIGN_OUTSIDE_VOICES}}', '**AskUserQuestion Q2'];
+  for (let i = 0; i < ordered.length; i++) {
+    expect(section.indexOf(ordered[i])).toBeGreaterThan(i === 0 ? -1 : section.indexOf(ordered[i - 1]));
+  }
+  expect(section).toContain("Keep that draft out of both reviewers' prompts");
   expect(root).toContain('The optional outside-voices choice below still applies');
-  const question = section.slice(section.indexOf('**AskUserQuestion Q2'), section.indexOf('### Your Design Knowledge'));
+  const question = section.slice(section.indexOf('**AskUserQuestion Q2'), section.indexOf('## Phase 4'));
   expect(question).toContain('completed/unavailable/skipped voices');
   expect(question).toContain('agreements, differences, ideas adopted and product-specific reasons');
   expect(question).toContain('omit comparisons if none completed');
   expect(section).toContain('Do not count agreement as a vote or invent a missing proposal');
+  expect(section).toContain('Verify any newly suggested fonts before adopting them');
+  expect(section).toContain('label old proposals stale');
+});
+
+test('optional browser research has one unavailable branch and reuses its readiness probe', () => {
+  const ctx = context('claude');
+  const fallback = generateBrowseFallback(ctx);
+  expect(fallback).toContain('Do not offer or run a build');
+  expect(fallback).toContain('skip Phase 2 Step 2; Step 1 still uses WebSearch');
+  expect(fallback).not.toContain('OK to proceed?');
+  expect(generateBrowseFallback(context('claude', 'qa'))).toContain('OK to proceed?');
+  const research = generateAsideResearch(ctx);
+  expect(research).toContain('Reuse the Phase 0 BROWSER SETUP result');
+  expect((generateAsideSetup(ctx) + research).match(/console\.log\("ASIDE_READY /g)).toHaveLength(1);
+  expect(research.toLowerCase()).toContain('read-only: do not sign in, submit, or change anything');
+  expect(research).toContain('Sanitize every query before it leaves the machine');
+});
+
+test('existing-system choices reach their matching final format without early writes', () => {
+  const root = readFileSync(new URL('../design-consultation/SKILL.md.tmpl', import.meta.url), 'utf8');
+  const section = readFileSync(new URL('../design-consultation/sections/proposal-and-preview.md.tmpl', import.meta.url), 'utf8');
+  expect(root).toContain('**Cancel:** STOP the skill now, with no file changes or further probes');
+  expect(root).toContain('**Update:** carry the existing decisions into Q1 as constraints');
+  expect(root).toContain('**Start fresh:** set aside prior visual choices');
+  expect(root).toContain('All conversion, marker and design writes wait for Q-final');
+  const format = generateDesignMdCheck(context('claude'));
+  expect(format).toContain('convert`, without `--write`');
+  expect(format).toContain('After Q-final approval outside plan mode');
+  expect(format).toContain('In plan mode, record the chosen format in Proposed DESIGN.md instead');
+  expect(section).toContain('Never convert a kept file just to make validation say spec');
+  expect(section).toContain('Any subsequent token, font or direction change invalidates that approval');
+  expect(section).toContain('E) Skip the preview — proceed to Phase 6\'s Q-final, not straight to writing');
+});
+
+test.each(ALL_HOST_CONFIGS.map(({ name }) => name))('%s: only Update with DESIGN.md enters the entire format-check block', host => {
+  const root = readFileSync(new URL('../design-consultation/SKILL.md.tmpl', import.meta.url), 'utf8');
+  const format = generateDesignMdCheck(context(host));
+  const gate = format.indexOf('**Update-only gate:**');
+  const command = format.indexOf('```bash');
+  const end = format.indexOf('**End of Update-only format check.**');
+  expect(gate).toBeGreaterThan(-1);
+  expect(command).toBeGreaterThan(gate);
+  expect(end).toBeGreaterThan(format.indexOf('**A) Convert**'));
+  expect(format.slice(gate, command)).toContain('Only **Update** with DESIGN.md enters this block (command and all result branches)');
+  expect(format.slice(gate, command)).toContain('**Start fresh**, **No existing file**, or a lone design-system.md: skip to **Gather product context from the codebase**');
+  expect(format.slice(gate, command)).toContain('**Cancel** has already stopped the skill');
+  expect(root.indexOf('**Gather product context from the codebase:**')).toBeGreaterThan(root.indexOf('{{DESIGN_MD_CHECK}}'));
+  expect(root).toContain('**Cancel:** STOP the skill now, with no file changes or further probes');
+  expect(generateDesignMdCheck(context(host, 'design-review'), ['calibrate'])).not.toContain('Update-only');
+});
+
+test('design command guidance carries session, extraction and quality-check side effects', () => {
+  const setup = generateDesignSetup(context('claude'));
+  const section = readFileSync(new URL('../design-consultation/sections/proposal-and-preview.md.tmpl', import.meta.url), 'utf8');
+  expect(setup).toContain('$D extract --image /absolute/path.png');
+  expect(setup).toContain('automatically update DESIGN.md');
+  expect(setup).toContain('`variants` returns `paths` but creates no session');
+  expect(section).toContain('`pass: false` means regenerate');
+  expect(section).toContain('`pass: true` with an unavailable/skipped warning is missing automated coverage');
+  expect(section).toContain('run it only in a fresh non-repository scratch directory');
+  expect(section).toContain('Empty arrays, an "Unable to extract" mood or command failure');
+  for (const command of (section + generateDesignShotgunLoop(context('claude'))).matchAll(/\$D iterate[^`\n]+/g)) {
+    expect(command[0]).toContain('--session');
+  }
+});
+
+test('board feedback distinguishes sessionless regeneration, final choice and missing input', () => {
+  const loop = generateDesignShotgunLoop(context('claude'));
+  const examples = [...loop.matchAll(/```json\n([\s\S]*?)```/g)].map(match => JSON.parse(match[1]));
+  expect(examples.find(value => value.regenerated === false)).toMatchObject({ preferred: 'A' });
+  expect(examples.find(value => value.regenerated === true)).toMatchObject({ regenerateAction: 'more_like_B' });
+  expect(loop).toContain('it does not emit a required `remixSpec`');
+  expect(loop).toContain('Archive this round\'s feedback files');
+  expect(loop).toContain('revisions regenerate; a final choice needs summary confirmation');
+  expect(loop).toContain('never infer approval from a missing file');
+  expect(loop).toContain('publishes to a persistent daemon, opens the board and exits');
+  expect(loop).toContain('Re-run the quality check and visual self-gate on every new image');
 });
 
 test('taste context has defined count and bounded legacy and malformed-profile fallbacks', () => {
