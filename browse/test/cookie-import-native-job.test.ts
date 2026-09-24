@@ -30,10 +30,14 @@ function removeOwnedFixtureDirectory(directory: string, identity: { dev: bigint;
   let object = directory;
   let objectIdentityMatched = false;
   let rootIdentityMatched = false;
+  let objectIdentity: { dev: bigint; ino: bigint; mode: bigint } | undefined;
   const ancestors: { file: string; dev: bigint; ino: bigint }[] = [{ file: root, dev: initialRootState.dev, ino: initialRootState.ino }];
   const inspect = (file: string) => {
     primitive = 'lstat'; object = file; objectIdentityMatched = false;
-    return operations.lstat(file);
+    objectIdentity = undefined;
+    const state = operations.lstat(file);
+    objectIdentity = { dev: state.dev, ino: state.ino, mode: state.mode };
+    return state;
   };
   const verifyAncestors = (stopBefore?: string) => {
     for (const ancestor of ancestors) {
@@ -116,6 +120,7 @@ function removeOwnedFixtureDirectory(directory: string, identity: { dev: bigint;
     const relative = path.relative(path.resolve(directory), path.resolve(object));
     if (error && typeof error === 'object') fixturePrimitiveFailures.set(error, {
       primitive, rootIdentityMatched, objectIdentityMatched,
+      ...(objectIdentity ? { objectDev: objectIdentity.dev.toString(), objectIno: objectIdentity.ino.toString(), objectMode: Number(objectIdentity.mode) } : {}),
       relativeObjectHash: !relative.startsWith('..') && !path.isAbsolute(relative) ? createHash('sha256').update(relative).digest('hex') : undefined,
       objectScope: object === directory ? 'target' : relative.startsWith('..') || path.isAbsolute(relative) ? 'ancestor' : 'child',
     });
@@ -143,18 +148,21 @@ function nativeFixtureEnvironment(fixture: string, node: string): Record<string,
   });
 }
 
-function fixtureFileOwners(file: string, timeout = 5_000): object {
+function fixtureFileOwners(file: string, timeout = 5_000, expectedIdentity?: { dev: string; ino: string }): object {
   if (process.platform !== 'win32') return { available: false, reason: 'not_windows' };
   const result = spawnSync(process.execPath, [
     '--no-env-file', '--no-install', '--no-macros', '--config=NUL', path.resolve(import.meta.dir, 'fixtures/native-cookie-file-owners.ts'),
-    Buffer.from(JSON.stringify({ root: resolvedRoot, file, testPid: process.pid })).toString('base64'),
+    Buffer.from(JSON.stringify({ root: resolvedRoot, file, testPid: process.pid, expectedIdentity })).toString('base64'),
   ], { env: nativeCookieEnvironment(process.env), encoding: 'utf8', timeout, maxBuffer: 65536, windowsHide: true });
   try { return { ...JSON.parse(result.stdout), exitCode: result.status, stderrBytes: Buffer.byteLength(result.stderr || '') }; }
   catch { return { available: false, reason: 'owner_probe_no_receipt', exitCode: result.status }; }
 }
 
-function fixtureRemovalEvidence(error: unknown, directory: string, identity: { dev: bigint; ino: bigint }): object {
+function fixtureRemovalEvidence(error: unknown, directory: string, identity: { dev: bigint; ino: bigint }, probeOwners = fixtureFileOwners): object {
   const failure = error as NodeJS.ErrnoException;
+  const primitive = error && typeof error === 'object' ? fixturePrimitiveFailures.get(error) as {
+    primitive: string; relativeObjectHash?: string; objectDev?: string; objectIno?: string;
+  } | undefined : undefined;
   const evidence = {
     code: ['EBUSY', 'EPERM', 'EACCES', 'ENOENT', 'ENOTEMPTY', 'ENOTDIR'].includes(failure?.code || '') ? failure.code : 'filesystem_error',
     syscall: ['rm', 'rmdir', 'unlink', 'scandir', 'lstat'].includes(failure?.syscall || '') ? failure.syscall : 'unavailable',
@@ -178,6 +186,24 @@ function fixtureRemovalEvidence(error: unknown, directory: string, identity: { d
     const state = lstatSync(directory, { bigint: true });
     if (!state.isDirectory() || state.dev !== identity.dev || state.ino !== identity.ino) return { ...evidence, inspected: false, reason: 'object_identity_changed' };
     const reported = typeof failure.path === 'string' ? path.relative(directory, path.resolve(failure.path)) : null;
+    let fileOwners: object | undefined;
+    if (failure.code === 'EBUSY' && primitive?.primitive === 'unlink' && reported && !reported.startsWith('..') && !path.isAbsolute(reported)
+      && createHash('sha256').update(reported).digest('hex') === primitive.relativeObjectHash) {
+      try {
+        const file = path.join(directory, reported);
+        const current = lstatSync(file, { bigint: true });
+        const resolved = realpathSync(file);
+        if (!current.isFile() || current.isSymbolicLink() || current.dev.toString() !== primitive.objectDev
+          || current.ino.toString() !== primitive.objectIno || path.relative(realpathSync(directory), resolved) !== reported) {
+          fileOwners = { available: false, reason: 'failed_object_identity_changed' };
+        } else {
+          fileOwners = probeOwners(file, 5_000, { dev: primitive.objectDev!, ino: primitive.objectIno! });
+        }
+      } catch (probeError) {
+        const code = (probeError as NodeJS.ErrnoException).code;
+        fileOwners = { available: false, reason: 'failed_object_unavailable', errorCode: ['ENOENT', 'EBUSY', 'EPERM', 'EACCES'].includes(code || '') ? code : 'filesystem_error' };
+      }
+    }
     const entries: { nameHash: string; type: string }[] = [];
     const listing = opendirSync(directory);
     let entriesTruncated = false;
@@ -193,7 +219,7 @@ function fixtureRemovalEvidence(error: unknown, directory: string, identity: { d
       ...evidence, inspected: true, directoryIdentityMatched: true, directoryMode: Number(state.mode),
       reportedPath: reported === null ? 'unavailable' : reported === '' ? 'target' : reported.startsWith('..') || path.isAbsolute(reported) ? 'outside_target' : 'child',
       reportedPathHash: reported !== null && !reported.startsWith('..') && !path.isAbsolute(reported) ? createHash('sha256').update(reported).digest('hex') : undefined,
-      entries, entriesTruncated,
+      entries, entriesTruncated, ...(fileOwners ? { fileOwners } : {}),
     };
   } catch (inspectionError) {
     const code = (inspectionError as NodeJS.ErrnoException).code;
@@ -631,6 +657,56 @@ describe('owned native-cookie lifecycle', () => {
     const bounded = fixtureRemovalEvidence(error, fixture, identity) as { entries: unknown[]; entriesTruncated: boolean };
     expect(bounded.entries).toHaveLength(16);
     expect(bounded.entriesTruncated).toBe(true);
+  });
+
+  test.each(['unchanged', 'replaced', 'linked', 'missing', 'wrong_path'])('a leaf lock probe is bound to the exact failed object: %s', state => {
+    const fixture = mkdtempSync(path.join(root, 'leaf-owner-'));
+    const target = path.join(fixture, 'target');
+    const nested = path.join(target, 'nested');
+    mkdirSync(nested, { recursive: true });
+    const file = path.join(nested, 'sensitive-sentinel.sqlite');
+    writeFileSync(file, 'fixture-only');
+    const identity = lstatSync(target, { bigint: true });
+    const fileIdentity = lstatSync(file, { bigint: true });
+    const original = Object.assign(new Error('sensitive-sentinel'), { code: 'EBUSY', syscall: 'unlink', errno: -4082, path: file });
+    let removals = 0;
+    let caught: unknown;
+    try {
+      removeOwnedFixtureDirectory(target, identity, {
+        lstat: candidate => lstatSync(candidate, { bigint: true }), enumerate: candidate => readdirSync(candidate),
+        unlink: candidate => { expect(candidate).toBe(file); removals++; throw original; },
+        rmdir: () => { throw new Error('Must stop at the first failure'); },
+      });
+    } catch (error) { caught = error; }
+    expect(caught).toBe(original);
+    if (state === 'replaced') {
+      renameSync(file, path.join(fixture, 'original'));
+      writeFileSync(file, 'replacement-only');
+    } else if (state === 'linked') {
+      const moved = path.join(fixture, 'moved');
+      renameSync(nested, moved);
+      symlinkSync(moved, nested, process.platform === 'win32' ? 'junction' : 'dir');
+    } else if (state === 'missing') unlinkSync(file);
+    else if (state === 'wrong_path') original.path = path.join(fixture, 'elsewhere');
+    const queried: string[] = [];
+    const owners = { available: true, owners: [{ pid: 123, image: 'bun.exe', creationMatched: true, isTestHost: true }] };
+    const receipt = fixtureRemovalEvidence(caught, target, identity, (candidate, timeout, expectedIdentity) => {
+      queried.push(candidate);
+      expect(timeout).toBe(5_000);
+      expect(expectedIdentity).toEqual({ dev: fileIdentity.dev.toString(), ino: fileIdentity.ino.toString() });
+      return owners;
+    });
+    expect(receipt).toMatchObject({ code: 'EBUSY', primitive: 'unlink', objectDev: fileIdentity.dev.toString(), objectIno: fileIdentity.ino.toString() });
+    expect(queried).toEqual(state === 'unchanged' ? [file] : []);
+    if (state === 'unchanged') {
+      expect(receipt).toMatchObject({ fileOwners: owners });
+      expect(readFileSync(file, 'utf8')).toBe('fixture-only');
+    } else if (state !== 'wrong_path') expect(receipt).toMatchObject({ fileOwners: { available: false } });
+    else expect(receipt).not.toHaveProperty('fileOwners');
+    expect(removals).toBe(1);
+    expect(JSON.stringify(receipt)).not.toContain('sensitive-sentinel');
+    expect(JSON.stringify(receipt)).not.toContain(fixture);
+    expect(caught).toBe(original);
   });
 
   test('positive fixture environments create matching Windows known-folder directories', () => {
@@ -1122,6 +1198,8 @@ describe('native Windows launch diagnostics', () => {
         expect((caught as NodeJS.ErrnoException).syscall).toBe(primitive);
         const receipt = fixtureRemovalEvidence(caught, target, identity);
         expect(receipt).toMatchObject({ primitive, rootIdentityMatched: true, objectIdentityMatched: true, directoryIdentityMatched: true, relativeObjectHash: createHash('sha256').update(kind === 'file' ? 'held' : '').digest('hex') });
+        if (kind === 'file') expect(receipt).toMatchObject({ fileOwners: { available: true,
+          owners: expect.arrayContaining([expect.objectContaining({ pid: process.pid, creationMatched: true, isTestHost: true })]) } });
         console.log(JSON.stringify({ nativeFixtureOwnedLockControl: { kind, ...receipt } }));
         expect(lstatSync(locked, { bigint: true }).ino).toBe(lockedIdentity.ino);
         expect(lstatSync(locked, { bigint: true }).dev).toBe(lockedIdentity.dev);
@@ -1183,6 +1261,31 @@ describe('native Windows launch diagnostics', () => {
       kernel.close();
     }
   }, 10_000);
+
+  test('the owner-probe child rejects a changed file identity before loading native APIs', () => {
+    const fixture = mkdtempSync(path.join(root, 'owner-identity-'));
+    const file = path.join(fixture, 'sensitive-sentinel');
+    writeFileSync(file, 'fixture-only');
+    const identity = lstatSync(file, { bigint: true });
+    const input = { root: fixture, file, testPid: process.pid,
+      expectedIdentity: { dev: identity.dev.toString(), ino: (identity.ino + 1n).toString() } };
+    const script = `
+      await import('node:fs');
+      await import('node:path');
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      process.argv = [process.execPath, 'fixture', ${JSON.stringify(Buffer.from(JSON.stringify(input)).toString('base64'))}];
+      await import(${JSON.stringify(path.resolve(import.meta.dir, 'fixtures/native-cookie-file-owners.ts'))});
+    `;
+    const result = spawnSync(process.execPath, ['--no-env-file', '--no-install', `--config=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`, '-e', script], {
+      env: { TEMP: fixture, TMP: fixture, HOME: fixture, USERPROFILE: fixture, ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) },
+      encoding: 'utf8', timeout: 10_000,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toEqual({ available: false, reason: 'failed_object_identity_changed' });
+    expect(result.stdout).not.toContain('sensitive-sentinel');
+    expect(readFileSync(file, 'utf8')).toBe('fixture-only');
+  });
 
   test('receipt assertions preserve the cookie array and all cookie fields', () => {
     const receipt: NativeCookieReply = { cookies: [{ name: 'synthetic', value: 'synthetic', domain: 'example.test', path: '/', expires: -1, httpOnly: true, secure: true, sameSite: 'Lax' }] };

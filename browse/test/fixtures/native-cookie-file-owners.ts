@@ -24,7 +24,17 @@ function inspect() {
   const file = realpathSync(input.file);
   const relative = path.relative(root, file);
   stage = 'file_stat';
-  if (relative.startsWith('..') || path.isAbsolute(relative) || !lstatSync(file).isFile()) return { available: false, reason: 'outside_owned_fixture' };
+  const initial = lstatSync(input.file, { bigint: true });
+  if (relative.startsWith('..') || path.isAbsolute(relative) || !initial.isFile() || initial.isSymbolicLink()
+    || relative !== path.relative(root, path.resolve(input.file))) return { available: false, reason: 'outside_owned_fixture' };
+  if (input.expectedIdentity !== undefined && (input.expectedIdentity?.dev !== initial.dev.toString()
+    || input.expectedIdentity?.ino !== initial.ino.toString())) return { available: false, reason: 'failed_object_identity_changed' };
+  const unchanged = () => {
+    stage = 'file_recheck';
+    const current = lstatSync(input.file, { bigint: true });
+    return current.isFile() && !current.isSymbolicLink() && current.dev === initial.dev && current.ino === initial.ino
+      && realpathSync(input.file) === file;
+  };
   stage = 'load_restart_manager';
   const restart = dlopen(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'rstrtmgr.dll'), {
     RmStartSession: { args: [FFIType.ptr, FFIType.u32, FFIType.ptr], returns: FFIType.u32 },
@@ -58,7 +68,9 @@ function inspect() {
     const rebootReasons = Buffer.alloc(4);
     stage = 'owner_count';
     status = restart.symbols.RmGetList(session, ptr(needed), ptr(count), null, ptr(rebootReasons));
-    if (status === 0 && needed.readUInt32LE(0) === 0) return { available: true, owners: [], rebootReasons: rebootReasons.readUInt32LE(0) };
+    if (status === 0 && needed.readUInt32LE(0) === 0) return unchanged()
+      ? { available: true, owners: [], rebootReasons: rebootReasons.readUInt32LE(0) }
+      : { available: false, reason: 'failed_object_identity_changed' };
     const entries = needed.readUInt32LE(0);
     if (status !== 234 || entries < 1 || entries > 64) return { available: false, reason: 'owner_count', status, entries };
     const information = Buffer.alloc(entries * 668);
@@ -99,7 +111,8 @@ function inspect() {
       }
       owners.push({ pid, image, creationMatched, isTestHost: creationMatched && pid === input.testPid, applicationType: information.readUInt32LE(offset + 652) });
     }
-    return { available: true, owners, rebootReasons: rebootReasons.readUInt32LE(0) };
+    return unchanged() ? { available: true, owners, rebootReasons: rebootReasons.readUInt32LE(0) }
+      : { available: false, reason: 'failed_object_identity_changed' };
   } catch (error) {
     throw new FileOwnerProbeError(stage, error);
   } finally {
