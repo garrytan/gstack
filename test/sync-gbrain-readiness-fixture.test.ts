@@ -28,6 +28,24 @@ test('unknown actor negative replay rejects a contradictory GREEN verdict', () =
 });
 
 test('ready actor negative replay rejects search/write claims from a read probe', () => {
-  expect(readinessVerdictProblems('ready', 'Source read verified; semantic search and write readiness verified.')).not.toEqual([]);
-  expect(readinessVerdictProblems('ready', 'Source-scoped page read verified; semantic search and writes were not tested.')).toEqual([]);
+  const verified = 'Capability ...... OK   source-scoped page read verified; semantic search and writes were not tested.\ngbrain status: YELLOW';
+  expect(readinessVerdictProblems('ready', 'Capability ...... OK   source-scoped page read verified; semantic search and write readiness verified.\ngbrain status: YELLOW')).not.toEqual([]);
+  expect(readinessVerdictProblems('ready', verified)).toEqual([]);
+});
+
+test('ready actor requires a verified scoped read and cannot declare unavailable rows GREEN', () => {
+  expect(readinessVerdictProblems('ready', 'Capability ERR: source-scoped page read failed; gbrain status: RED')).toContain('ready result lacks verified source-scoped Capability OK');
+  expect(readinessVerdictProblems('ready', 'Capability OK: read verified; all other rows unknown; gbrain status: YELLOW')).toContain('ready result lacks verified source-scoped Capability OK');
+  expect(readinessVerdictProblems('ready', 'Capability OK: source-scoped page read verified\nCapability ERR: source-scoped read failed\ngbrain status: YELLOW')).toContain('ready result lacks verified source-scoped Capability OK');
+  expect(readinessVerdictProblems('ready', 'Capability OK: source-scoped page read verified; all other rows unknown; gbrain status: GREEN')).toContain('ready result claims GREEN with unavailable rows');
+  expect(readinessVerdictProblems('ready', 'Capability OK: source-scoped page read verified; all other rows unknown')).toContain('ready result lacks YELLOW overall verdict');
+  expect(readinessVerdictProblems('ready', 'Capability OK: source-scoped page read verified; all other rows unknown; gbrain status: YELLOW')).toEqual([]);
+});
+
+test('ready actor rejects a contradictory FIX capability row', () => {
+  expect(readinessVerdictProblems('ready', 'Capability ...... OK   source-scoped page read verified\nCapability ...... FIX   source-scoped read needs repair\ngbrain status: YELLOW')).toContain('ready result lacks verified source-scoped Capability OK');
+});
+
+test('ready actor rejects contradictory overall verdict rows', () => {
+  expect(readinessVerdictProblems('ready', 'Capability ...... OK   source-scoped page read verified\ngbrain status: YELLOW\ngbrain status: RED')).toContain('ready result has conflicting overall verdict');
 });
