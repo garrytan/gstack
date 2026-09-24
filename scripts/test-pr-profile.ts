@@ -13,6 +13,7 @@ export const PR_PROFILE_CASE_IDS = [
   'tpa-present', 'tpa-absent-linux',
   'ship-local-workflow', 'ship-coverage-audit', 'docsync-spawned',
   'setup-deploy-workflow', 'context-restore-loads-latest', 'plan-tune-inspect',
+  'setup-deploy-render-unset', 'setup-deploy-render-empty', 'setup-deploy-render-present',
   'skillify-provenance-refusal', 'diagram-triplet', 'learnings-show',
   'gstack-upgrade-happy-path',
 ] as const;
@@ -31,6 +32,7 @@ export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
   'test/skill-e2e-workflow.test.ts': ['ship-local-workflow', 'ship-coverage-audit', 'gstack-upgrade-happy-path'],
   'test/skill-e2e-docsync-spawned.test.ts': ['docsync-spawned'],
   'test/skill-e2e-deploy.test.ts': ['setup-deploy-workflow'],
+  'test/skill-e2e-setup-deploy-render.test.ts': ['setup-deploy-render-unset', 'setup-deploy-render-empty', 'setup-deploy-render-present'],
   'test/skill-e2e-session-intelligence.test.ts': ['context-restore-loads-latest'],
   'test/skill-e2e-plan-tune.test.ts': ['plan-tune-inspect'],
   'test/skill-e2e-skillify.test.ts': ['skillify-provenance-refusal'],

@@ -198,7 +198,8 @@ function bumpPref(list: Preference[], value: string, opposite: Preference[], act
   entry.last_seen = now;
   // Laplace-smoothed confidence
   const total = entry.approved_count + entry.rejected_count;
-  entry.confidence = entry.approved_count / (total + 1);
+  const ownCount = action === 'approved' ? entry.approved_count : entry.rejected_count;
+  entry.confidence = ownCount / (total + 1);
   // Flag conflict if the opposite bucket has a strong entry for this value
   const opp = opposite.find(p => p.value.toLowerCase() === value.toLowerCase());
   if (opp && opp.approved_count + opp.rejected_count >= 3 && opp.confidence >= 0.6) {
