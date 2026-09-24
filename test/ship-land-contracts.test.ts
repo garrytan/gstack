@@ -71,7 +71,10 @@ describe('ship/land native fixture calibration', () => {
     for (const name of ['commands-zero-eval', 'commands-selector-error', 'commands-no-eval'] as const) {
       const fixture = createShipLandFixture(name);
       try {
-        if (name === 'commands-no-eval') expect(fixture.lanes.map(lane => lane.label)).not.toContain('evals');
+        if (name === 'commands-no-eval') {
+          expect(fixture.lanes.map(lane => lane.label)).not.toContain('evals');
+          expect(fs.existsSync(path.join(fixture.repo, 'select.py'))).toBe(false);
+        }
         else {
           const selection = fixture.run('python3', ['select.py']);
           expect(selection.status).toBe(name === 'commands-selector-error' ? 9 : 0);
@@ -81,6 +84,26 @@ describe('ship/land native fixture calibration', () => {
       } finally { fixture.cleanup(); }
     }
   });
+
+  test('registered command driver supplies completed base detection without resolving validation for the agent', () => {
+    const source = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-ship-land-contracts.test.ts'), 'utf8');
+    const start = source.indexOf('userPrompt: `');
+    const end = source.indexOf('\n                workingDirectory:', start);
+    if (start < 0 || end < 0) throw new Error('Registered workflow prompt is missing');
+    const prompt = new Function('name', 'fixture', `return (${source.slice(start + 'userPrompt: '.length, end).trim().replace(/,$/, '')});`);
+    for (const name of SHIP_LAND_CASES.filter(name => name.startsWith('commands-'))) {
+      const fixture = createShipLandFixture(name);
+      try {
+        expect(fixture.run('git', ['rev-parse', '--verify', 'origin/main']).status).toBe(0);
+        const input = prompt(name, fixture);
+        expect(input).toContain('base ref origin/main');
+        expect(input).toContain('read repository instructions and CI');
+        expect(input).toContain('fixture control files, harness event logs and helper implementation are outside this task');
+        expect(input).not.toContain('No evaluation lane declared; not applicable');
+        for (const lane of fixture.lanes) expect(input).not.toContain(lane.command);
+      } finally { fixture.cleanup(); }
+    }
+  }, 20_000);
 
   test('all short cases extract current generated gates and retain fixture-only state', () => {
     for (const name of SHIP_LAND_CASES) {

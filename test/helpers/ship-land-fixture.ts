@@ -53,7 +53,9 @@ export function createShipLandFixture(name: ShipLandCase) {
     write(path.join(repo, 'app/checks.py'), native);
     write(path.join(repo, 'app/checks.cjs'), `const fs=require('fs');const assert=require('assert');assert.equal(process.env.FIXTURE_MODE,'ci');assert.deepEqual(process.argv.slice(2),['--lane',process.argv[3],'--scope','fixture app']);fs.appendFileSync(process.env.FIXTURE_COMMAND_LOG,JSON.stringify({kind:'lane',cwd:process.cwd(),args:process.argv.slice(2)})+'\\n');console.log('1 pass, 0 fail, 0 skip');\n`);
     write(path.join(repo, 'app/package.json'), JSON.stringify({ private: true, scripts: Object.fromEntries(lanes.map(lane => [lane.label, `node checks.cjs --lane ${lane.label}`])) }));
-    write(path.join(repo, 'select.py'), `import json,sys\nprint(json.dumps({'required':True,'selected':${name === 'commands-zero-eval' ? '[]' : "['prompt-contract']"},'expected_cases':${name === 'commands-zero-eval' ? '0' : '1'}}))\nsys.exit(${name === 'commands-selector-error' ? '9' : '0'})\n`);
+    if (name !== 'commands-no-eval') {
+      write(path.join(repo, 'select.py'), `import json,sys\nprint(json.dumps({'required':True,'selected':${name === 'commands-zero-eval' ? '[]' : "['prompt-contract']"},'expected_cases':${name === 'commands-zero-eval' ? '0' : '1'}}))\nsys.exit(${name === 'commands-selector-error' ? '9' : '0'})\n`);
+    }
     const declarations = lanes.map(lane => `- ${lane.label}: cwd app; exact command: \`${lane.command}\`; evidence label: ${lane.label}.`).join('\n');
     let instructions = `# Validation\n${declarations}\nThe CI contract below is authoritative alongside these instructions. Preserve the commands and directories.\n`;
     if (name !== 'commands-no-eval') instructions += 'prompts/** is prompt-related. Eval selection from the repository root: `python3 select.py`. One selected case is required for this change. No external model calls: this project has a local deterministic eval runner.\n';
