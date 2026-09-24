@@ -292,13 +292,15 @@ test('Eng loads its one remedy procedure before Scope Challenge findings and ret
     expect(compactProse(scope)).toContain('If no smaller arrangement preserves these commitments');
     expect(compactProse(scope)).toContain('offer confirmation of the original arrangement or a pause to investigate a smaller one. Wait for the answer');
     expect(compactProse(scope)).toContain('Resolve each remedy through Decision procedure, reusing exact answers');
-    const complexityRule = scope.indexOf('Initial scope selectors need no grid or **pre-answer** ledger write');
+    const complexityRule = scope.indexOf('### B. Resolve the complexity gate');
     expect(complexityRule).toBeGreaterThan(0);
-    expect(complexityRule).toBeLessThan(scope.indexOf('1. Explain the complexity'));
-    expect(compactProse(scope.slice(complexityRule))).toContain('Ask and wait before changes');
+    expect(complexityRule).toBeLessThan(scope.indexOf('1. **B1 — Feature scope.**'));
+    expect(compactProse(scope.slice(complexityRule))).toContain('ask them without first saving a pending record or comparison grid');
+    expect(compactProse(scope.slice(complexityRule))).toContain('Wait for actual answers before changing scope');
     expect(compactProse(scope.slice(complexityRule))).toContain('Save the actual feature and structure answers as one scope record');
     expect(compactProse(scope.slice(complexityRule))).toContain('Save this record under the write policy');
-    expect(compactProse(scope.slice(complexityRule))).toContain('no retroactive pending record');
+    expect(compactProse(scope.slice(complexityRule))).toContain('after the answers arrive');
+    expect(compactProse(scope.slice(complexityRule))).toContain('Do not create a backdated pending brief or claim it was saved before asking');
     expect(scope).not.toContain('proceed as-is');
     const stop = skeleton.indexOf('**STOP while a Scope Challenge complexity question');
     const sectionRead = skeleton.indexOf(suffix ? '{{SECTION:review-sections}}' : '> **STOP.** Before starting the Scope Challenge');
@@ -306,7 +308,7 @@ test('Eng loads its one remedy procedure before Scope Challenge findings and ret
     expect(skeleton.slice(stop, sectionRead)).toContain('Do not start Section 1, call ExitPlanMode, or write findings or fixes into a plan file');
     expect(skeleton).toContain('Scope Challenge is mandatory before Section 1');
     expect(skeleton.split(suffix ? '{{SECTION:review-sections}}' : '> **STOP.** Before starting the Scope Challenge')).toHaveLength(2);
-    expect(compactProse(scope)).toContain('apply only accepted scope changes');
+    expect(compactProse(scope)).toContain('Apply only accepted scope changes');
     expect(compactProse(sections)).toContain("follow the preparation sections below through Confidence Calibration");
     expect(compactProse(sections)).toContain("Read Decision procedure as the rule for later choices. Start the review at Scope Challenge, then complete Sections 1–4 in order");
     const preparationOrder = ['## Review record and write policy',
@@ -328,7 +330,7 @@ test('Eng loads its one remedy procedure before Scope Challenge findings and ret
     expect(compactProse(scope)).toContain('accepted/rejected/deferred/pending');
     expect(compactProse(scope)).toContain('"No issues found" for an empty list');
     expect(compactProse(scope)).toContain('Findings and scope answers approve no remedies');
-    const scopeFinish = ['Below the threshold, start at step 1', '1. Present numbered Scope Challenge findings',
+    const scopeFinish = ['### C. Resolve scope findings', '1. Present numbered Scope Challenge findings',
       '2. Resolve each remedy through Decision procedure', '3. Report accepted/rejected/deferred/pending dispositions from those answers',
       'Continue to Section 1 only when no answer is pending'].map(step => scope.indexOf(step));
     expect(scopeFinish.every(position => position >= 0)).toBe(true);
@@ -381,6 +383,48 @@ test('Eng loads its one remedy procedure before Scope Challenge findings and ret
     expect(outside).toContain('new or reopened choices still need their own answers');
   }
 }, 30_000);
+
+describe('Eng scope and performance execution paths', () => {
+  const template = readFileSync('plan-eng-review/sections/review-sections.md.tmpl', 'utf8');
+  const scope = template.slice(template.indexOf('## Scope Challenge'), template.indexOf('## Review Sections'));
+
+  function hasOrderedScopeRoutes(source: string): boolean {
+    const stages = ['### A. Inspect the proposed scope', '### B. Resolve the complexity gate',
+      '1. **B1 — Feature scope.**', '2. **B2 — Structure.**', '3. **B3 — Record and apply.**',
+      '### C. Resolve scope findings', '1. Present numbered Scope Challenge findings',
+      '2. Resolve each remedy through Decision procedure', '3. Report accepted/rejected/deferred/pending',
+      'Continue to Section 1 only when no answer is pending'].map(marker => source.indexOf(marker));
+    const gate = source.slice(stages[1], stages[2]);
+    const record = source.slice(stages[4], stages[5]);
+    return stages.every((position, index) => position >= 0 && (index === 0 || position > stages[index - 1]))
+      && gate.includes('Below both thresholds, skip B1–B3 and continue to **C. Resolve scope findings**')
+      && record.includes('Continue to **C. Resolve scope findings**')
+      && !/start at step \d/i.test(source);
+  }
+
+  test('both complexity outcomes reach findings after inspection, with no anonymous jump', () => {
+    expect(hasOrderedScopeRoutes(scope)).toBe(true);
+    expect(hasOrderedScopeRoutes(scope.replace('**C. Resolve scope findings**', 'step 1'))).toBe(false);
+    expect(hasOrderedScopeRoutes(scope.replace('Continue to **C. Resolve scope findings**.', 'Continue to Section 1.'))).toBe(false);
+    expect(hasOrderedScopeRoutes(scope.replace('2. **B2 — Structure.**', '2. Structure omitted.'))).toBe(false);
+    const reordered = scope.replace('### C. Resolve scope findings', '');
+    expect(hasOrderedScopeRoutes('### C. Resolve scope findings\n' + reordered)).toBe(false);
+  });
+
+  test('performance examines the same four costs before proposing rather than building remedies', () => {
+    const performance = template.slice(template.indexOf('### 4. Performance review'), template.indexOf('{{CODEX_PLAN_REVIEW}}'));
+    for (const dimension of ['Database access', 'Memory', 'Caching', 'Slow paths']) {
+      expect(performance).toContain(`* **${dimension}:**`);
+    }
+    const evidence = performance.indexOf('Ground findings in the target evidence');
+    const approval = performance.indexOf('Use Decision procedure for remedies');
+    expect(evidence).toBeGreaterThan(performance.indexOf('* **Slow paths:**'));
+    expect(approval).toBeGreaterThan(evidence);
+    expect(compactProse(performance)).toContain('mark unmeasured costs as unknown');
+    expect(compactProse(performance)).toContain('preserving approved performance contracts and their required proof');
+    expect(compactProse(performance)).toContain('does not authorize building benchmarks or optimizations');
+  });
+});
 
 // Source/renderer contract controls only: native review behavior remains a paid
 // regression. Resolve the actual Eng clause on every host without trusting an
@@ -562,8 +606,10 @@ describe('Eng approved-work decision gate', () => {
     expect(compactProse(audit)).toContain("Fit headers and labels to host limits now, before saving");
     expect(compactProse(audit)).toContain("Put all deliberation in the native question/descriptions; a saved-only Pros/cons block cannot supply missing decision context");
     expect(compactProse(save)).toContain("Include every native field, the recommendation and all options");
-    expect(compactProse(save)).toContain("A–D record selectors are ledger notation only");
-    expect(compactProse(save)).toContain("Compare the label separately from that notation");
+    expect(compactProse(save)).toContain("In the ledger's Options list, mark options A–D for answer lookup");
+    expect(compactProse(save)).toContain("During Read-back, ignore only a prefix added for the ledger");
+    expect(compactProse(save)).toContain("Compare the remaining text literally with the native label");
+    expect(compactProse(save)).toContain("Send the original `currentDecision` label, never the added ledger prefix");
     expect(compactProse(save)).toContain("Check the Write/Edit result, then use Read to fetch the entire saved record");
     expect(compactProse(save)).toContain('Compare every native field with `currentDecision`');
     expect(compactProse(save)).toContain("Read after the final edit, even if Edit says the content is current in context");
@@ -874,7 +920,7 @@ describe('outside-voice commitment queue', () => {
         expect(eng).not.toContain('codex exec');
       } else {
         expect(eng).toContain('codex exec');
-        expect(eng).toContain('construct the prompt below, then follow **Native fallback**');
+        expect(routing).toContain('construct the same prompt and use Native fallback');
         expect(eng).not.toContain("follow the workflow's native-review instructions below");
       }
     }

@@ -193,9 +193,12 @@ back, then ask the exact saved question. Do not ask from memory.
 
 Save the record, complete grid and exact `currentDecision` in the report file,
 before `## GSTACK REVIEW REPORT`. Include every native field, the recommendation
-and all options. A–D record selectors are ledger notation only: if a saved label
-already starts `A)`/`B)`/`C)`/`D)`, keep that one prefix; otherwise add it. Compare
-the label separately from that notation by removing the selector before matching.
+and all options. In the ledger's Options list, mark options A–D for answer lookup.
+Add `A)` to the first label only if it has no letter prefix; do the same for B–D.
+For example, native label `Keep current` is saved as `A) Keep current`; native
+label `A) Keep current` is saved unchanged. During Read-back, ignore only a prefix
+added for the ledger. Compare the remaining text literally with the native label.
+Send the original `currentDecision` label, never the added ledger prefix.
 
 When revising, replace the whole current payload for this record: comparison
 grid, question, header, options, state, actual answer and accepted scope. Keep
@@ -295,11 +298,13 @@ audit trail, leaving User Challenges for its final gate.
 
 ## Scope Challenge
 
-Before reviewing, answer:
-1. **What already solves each sub-problem?** Inspect helpers, libraries, callers and reusable outputs: behavior and dependency/deployment boundaries. Cite authored sources; label proposed callers with their motivating plan requirement and assumptions.
-2. **What minimum changes achieve the goal?** Flag work deferrable without blocking it; challenge scope creep.
-3. **Complexity check:** Count files and new classes/services; seek fewer moving parts. Apply the gate below.
-4. **Search check:** For each new architectural pattern, infrastructure component
+### A. Inspect the proposed scope
+
+Collect evidence for the complexity gate and findings below:
+- **What already solves each sub-problem?** Inspect helpers, libraries, callers and reusable outputs: behavior and dependency/deployment boundaries. Cite authored sources; label proposed callers with their motivating plan requirement and assumptions.
+- **What minimum changes achieve the goal?** Flag work deferrable without blocking it; challenge scope creep.
+- **Complexity check:** Count files and new classes/services; seek fewer moving parts.
+- **Search check:** For each new architectural pattern, infrastructure component
    or concurrency approach, research built-ins, current practice and pitfalls
    through Aside (entrypoint readiness), one read-only request per pattern:
 
@@ -314,25 +319,28 @@ Before reviewing, answer:
    Prefer available built-ins. Label recommendations **[Layer 1]**, **[Layer 2]**,
    **[Layer 3]** or **[EUREKA]** per Search Before Building; explain departures
    from standard practice.
-5. **TODOS cross-reference:** Read existing `TODOS.md`: what blocks this plan,
+- **TODOS cross-reference:** Read existing `TODOS.md`: what blocks this plan,
    fits this PR without expanding scope, or needs a new TODO?
 
-6. **Completeness check:** Full tests, edges and errors cost 10-100x less with AI.
+- **Completeness check:** Full tests, edges and errors cost 10-100x less with AI.
    Prefer completeness when a shortcut saves only CC+gstack minutes. Boil the ocean.
 
-7. **Distribution check:** For new artifacts, verify build/publish CI/CD, target
+- **Distribution check:** For new artifacts, verify build/publish CI/CD, target
    OS/architectures and download/install channels. Put deferrals in "NOT in scope".
 
-At 8+ files or 2+ new classes/services, STOP before Section 1. Use the
-preamble's decision-brief format for this complexity gate.
+### B. Resolve the complexity gate
 
-Initial scope selectors need no grid or **pre-answer** ledger write. Ask and
-wait before changes.
+At 8+ files or 2+ new classes/services, STOP before Section 1 and follow B1–B3.
+Below both thresholds, skip B1–B3 and continue to **C. Resolve scope findings**.
+Use the preamble's decision-brief format for this complexity gate. These
+questions select features and file/class arrangement, not engineering remedies.
+Unlike the remedy procedure, ask them without first saving a pending record or
+comparison grid. Wait for actual answers before changing scope.
 
-1. Explain the complexity. Ask each proposed feature cut/deferral separately;
+1. **B1 — Feature scope.** Explain the complexity. Ask each proposed feature cut/deferral separately;
    wait before changing scope. With no proposed cuts, keep the feature list and
    go directly to the structure question.
-2. Always ask the structure question when this gate trips, even with no cuts.
+2. **B2 — Structure.** Always ask the structure question when this gate trips, even with no cuts.
    Compare only the file/class arrangement. Use labels `Original arrangement`
    and `Smaller arrangement`; put files/classes in each description. Both retain
    the same approved feature list, contracts and approved
@@ -340,14 +348,16 @@ wait before changes.
    question; unapproved fixes stay pending. If no smaller arrangement preserves
    these commitments, explain that and offer confirmation of the original
    arrangement or a pause to investigate a smaller one. Wait for the answer.
-3. Save the actual feature and structure answers as one scope record: `feature
+3. **B3 — Record and apply.** Save the actual feature and structure answers as one scope record: `feature
    answers: <refs>; structure: <A/B + ref>; accepted scope: <exact scope>;
    pending remedies: <ids or none>`.
 
-Save this record under the write policy; no retroactive pending record.
+   Save this record under the write policy after the answers arrive. Do not create
+   a backdated pending brief or claim it was saved before asking. Apply only
+   accepted scope changes; do not re-argue reduction or skip approved components.
+   Continue to **C. Resolve scope findings**.
 
-After any complexity answers, apply only accepted scope changes. Do not re-argue
-reduction or skip approved components. Below the threshold, start at step 1.
+### C. Resolve scope findings
 
 1. Present numbered Scope Challenge findings with calibrated severity, confidence
    and source; use "No issues found" for an empty list.
@@ -402,8 +412,19 @@ extractions still need coverage for real duplicated-code defects.
 After the Test Plan Artifact is saved or presented, report the Test review findings and their dispositions and continue to Performance review. The Test review's **Add missing tests to the plan** step resolves test and eval decisions before that artifact is written.
 
 ### 4. Performance review
-Evaluate:
-* N+1/database access, memory, caching, and slow or complex paths.
+Trace the target's database access, memory use, caching and slow or complex paths:
+* **Database access:** Look for queries repeated per item (N+1) and unnecessary
+  reads or writes along the same request or job.
+* **Memory:** Check what is retained, copied or loaded at once as input grows.
+* **Caching:** Check what is cached, when it expires or changes, and the cost of
+  a miss; distinguish a proposed cache from one already in use.
+* **Slow paths:** Identify expensive loops, blocking work and their effect on
+  response time or throughput.
+
+Ground findings in the target evidence and existing measurements when available;
+mark unmeasured costs as unknown. Use Decision procedure for remedies, preserving
+approved performance contracts and their required proof. This review proposes
+work; it does not authorize building benchmarks or optimizations.
 
 {{CODEX_PLAN_REVIEW}}
 

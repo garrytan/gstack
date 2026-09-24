@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { createShipLandFixture, REVIEW_HEAD, SHIP_LAND_CASES } from './helpers/ship-land-fixture';
 import { createShipLandActor } from './helpers/ship-land-actor';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -45,6 +47,46 @@ describe('registered ship/land command outcome calibration', () => {
 });
 
 describe('ship/land native fixture calibration', () => {
+  test('isolated fixture commits do not require an ambient Git identity', () => {
+    const source = `
+      import { createShipLandFixture } from ${JSON.stringify(path.join(import.meta.dir, 'helpers/ship-land-fixture.ts'))};
+      const fixture = createShipLandFixture('review-approved');
+      try {
+        const result = fixture.run('git', ['log', '--format=%an <%ae>']);
+        if (result.status !== 0) throw new Error(result.stderr);
+        console.log(result.stdout.trim());
+      } finally { fixture.cleanup(); }
+    `;
+    const result = spawnSync(process.execPath, ['-e', source], {
+      cwd: ROOT,
+      env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_COUNT: '0' },
+      encoding: 'utf8', timeout: 15_000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim().split(/\r?\n/)).toEqual([
+      'Ship Land Fixture <ship-land-fixture@example.invalid>',
+      'Ship Land Fixture <ship-land-fixture@example.invalid>',
+    ]);
+  });
+
+  test('owned command dispatch does not depend on native shebang resolution or ambient tools', () => {
+    const fixture = createShipLandFixture('review-approved');
+    try {
+      fixture.env.PATH = fixture.bin;
+      for (const tool of ['gh', 'gstack-evidence']) {
+        const shim = path.join(fixture.bin, tool);
+        expect(fs.realpathSync(shim).startsWith(fs.realpathSync(fixture.root) + path.sep)).toBe(true);
+        fs.chmodSync(shim, 0o600);
+      }
+      const readback = fixture.run('gh', ['pr', 'view', '42', '--json', 'headRefOid']);
+      expect(readback.status, readback.stderr).toBe(0);
+      expect(JSON.parse(readback.stdout).headRefOid).toBe(REVIEW_HEAD);
+      expect(fixture.run('gstack-evidence', ['--help']).status).toBe(2);
+      expect(fixture.events().filter(event => event.phase === 'end').map(event => [event.kind, event.exit]))
+        .toEqual([['gh', 0], ['gstack-evidence', 2]]);
+    } finally { fixture.cleanup(); }
+  });
+
   for (const name of ['commands-python', 'commands-node'] as const) {
     test(`${name} executes real declared tuples and reuses only matching evidence`, () => {
       const fixture = createShipLandFixture(name);

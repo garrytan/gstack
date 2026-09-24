@@ -169,7 +169,7 @@ describeIfSelected('PlanTune cathedral E2E: hook capture', ['plan-tune-hook-capt
       tool_response: { answers: [{ option_label: 'A) Fix now (recommended)' }] },
       cwd: fixture.workDir,
     };
-    const res = spawnSync(hookPath, [], {
+    const res = spawnSync('bash', [hookPath], {
       env: {
         ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
@@ -223,7 +223,7 @@ describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcemen
       },
       cwd: fixture.workDir,
     };
-    const res = spawnSync(hookPath, [], {
+    const res = spawnSync('bash', [hookPath], {
       env: {
         ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
@@ -298,7 +298,7 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
       },
       cwd: fixture.workDir,
     };
-    const res = spawnSync(hookPath, [], {
+    const res = spawnSync('bash', [hookPath], {
       env: {
         ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
@@ -347,7 +347,7 @@ describeIfSelected('PlanTune cathedral E2E: codex import', ['plan-tune-codex-imp
     ];
     fs.writeFileSync(sessionFile, lines.join('\n') + '\n');
     const bin = path.join(fixture.workDir, 'bin', 'gstack-codex-session-import');
-    const res = spawnSync(bin, [sessionFile], {
+    const res = spawnSync('bash', [bin, sessionFile], {
       env: {
         ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
@@ -402,7 +402,7 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
     );
     // 1. Apply the proposal via gstack-distill-apply.
     const applyBin = path.join(fixture.workDir, 'bin', 'gstack-distill-apply');
-    const applyRes = spawnSync(applyBin, ['--proposal', '0'], {
+    const applyRes = spawnSync('bash', [applyBin, '--proposal', '0'], {
       env: { ...fixture.env, GSTACK_STATE_ROOT: fixture.stateRoot },
       encoding: 'utf-8',
       cwd: fixture.workDir,
@@ -440,7 +440,7 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
       },
       cwd: fixture.workDir,
     };
-    const hookRes = spawnSync(hookPath, [], {
+    const hookRes = spawnSync('bash', [hookPath], {
       env: {
         ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,

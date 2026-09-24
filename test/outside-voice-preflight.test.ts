@@ -14,6 +14,45 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const TEMP = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-outside-preflight-'));
 afterAll(() => fs.rmSync(TEMP, { recursive: true, force: true }));
 
+test('Eng owns routing without changing any preflight shell or implicit caller default', () => {
+  for (const host of ALL_HOST_CONFIGS) {
+    const ctx = { host: host.name, skillName: 'plan-eng-review', paths: HOST_PATHS[host.name] } as TemplateContext;
+    const ordinary = outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all' });
+    const callerOwned = outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all', routing: 'caller' });
+    expect(callerOwned).toBe(ordinary.slice(0, ordinary.indexOf('\n```') + 4));
+    expect(outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all', routing: undefined })).toBe(ordinary);
+    const rendered = generateCodexPlanReview(ctx);
+    expect(rendered).not.toContain('Branch on the echoed `CODEX_MODE`');
+    expect(rendered.match(/\*\*Outcome routing:\*\*/g)).toHaveLength(1);
+    expect(rendered).not.toContain('Pick exactly one row');
+    expect(rendered).toContain('do not run fallback after a completed review');
+    expect(rendered.replace(/\s+/g, ' ')).toContain('explain how the user can select a supported model');
+    expect(rendered.replace(/\s+/g, ' ')).toContain('Do not change the configured model or retry this invocation; use Native fallback as the routing table directs');
+  }
+});
+
+test('Eng routes ready through completion and persistence, never directly to exit', () => {
+  function hasCompleteRoutes(text: string): boolean {
+    const routing = text.slice(text.indexOf('**Outcome routing:**'), text.indexOf('**Disabled is a terminal branch'));
+    const rows = new Map([...routing.matchAll(/^\| ([^|]+) \| ([^|]+) \|$/gm)].map(match => [match[1].trim(), match[2].trim()]));
+    return rows.get('Ready')?.includes('route its result here again') === true
+      && rows.get('Reviewer completes')?.includes('resolve findings in Cross-model tension, then Persist the result') === true
+      && rows.get('Disabled')?.includes('No prompt, outside process or native replacement') === true
+      && rows.get('Outside execution or output validation fails')?.includes('finish termination, then use Native fallback') === true
+      && rows.get('Native fallback unavailable or fails')?.includes('record missing coverage') === true
+      && !routing.includes('Pick exactly one row');
+  }
+  for (const host of ALL_HOST_CONFIGS) {
+    const rendered = generateCodexPlanReview({ host: host.name, skillName: 'plan-eng-review', paths: HOST_PATHS[host.name] } as TemplateContext);
+    expect(hasCompleteRoutes(rendered)).toBe(true);
+    expect(hasCompleteRoutes(rendered.replace('route its result here again', 'leave Outside Voice'))).toBe(false);
+    expect(hasCompleteRoutes(rendered.replace('then Persist the result', 'then continue'))).toBe(false);
+    expect(hasCompleteRoutes(rendered.replace('No prompt, outside process or native replacement', 'Use native fallback'))).toBe(false);
+    expect(hasCompleteRoutes(rendered.replace('finish termination, then use Native fallback', 'start another outside invocation'))).toBe(false);
+    expect(hasCompleteRoutes(rendered.replace('record missing coverage', 'record a clean review'))).toBe(false);
+  }
+});
+
 test('CEO and Eng describe the actual disabled route and completion validator', () => {
   for (const host of ALL_HOST_CONFIGS) {
     for (const skillName of ['plan-ceo-review', 'plan-eng-review']) {

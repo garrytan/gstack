@@ -20,7 +20,13 @@ function expectOutsideReviewControlFlow(text: string, promptHeading: string): vo
     expect(disabled).toContain('if [ "$_DISABLED_REVIEW_MODE" = disabled ]');
   } else {
     expect(disabled).toContain('persist `outside_status: disabled`');
-    expect(disabled.replace(/\s+/g, ' ')).toMatch(/Do not construct a (?:review prompt|challenge), invoke an outside CLI, dispatch an Agent\/Task fallback/);
+    if (text.includes('**Outcome routing:**')) {
+      const routing = text.slice(text.indexOf('**Outcome routing:**'), indices[0]);
+      expect(routing).toMatch(/\| Disabled \|[^\n]*guarded disabled record[^\n]*No prompt, outside process or native replacement\./);
+      expect(disabled).toContain('if [ "$_DISABLED_REVIEW_MODE" = disabled ]');
+    } else {
+      expect(disabled.replace(/\s+/g, ' ')).toMatch(/Do not construct a (?:review prompt|challenge), invoke an outside CLI, dispatch an Agent\/Task fallback/);
+    }
   }
   expect(text.slice(indices[1], indices[2])).toContain('(skip only on `disabled`)');
 
@@ -166,19 +172,24 @@ describe('workflow judge excerpts', () => {
     const { skillPath, startMarker, endMarker } = ENG_REVIEW_EXCERPT;
     const eng = readWorkflowExcerpt(skillPath, startMarker, endMarker);
     const stages = ['## Review preparation', '## Retrospective learning', '## Confidence Calibration', '## Decision procedure',
-      '### 1. Establish current state', '## Review Sections',
+      '### 1. Establish current state', '## Scope Challenge', '### A. Inspect the proposed scope',
+      '### B. Resolve the complexity gate', '### C. Resolve scope findings', '## Review Sections',
       '### 1. Architecture review', '### 2. Code quality review', '### 3. Test review', '### 4. Performance review']
       .map(heading => eng.indexOf(heading));
     expect(stages.every(index => index >= 0)).toBe(true);
     expect(stages).toEqual([...stages].sort((a, b) => a - b));
     expect(eng.match(/^## Decision procedure$/gm)).toHaveLength(1);
-    const procedure = eng.slice(eng.indexOf('## Decision procedure'), eng.indexOf('## Review Sections'));
+    const procedure = eng.slice(eng.indexOf('## Decision procedure'), eng.indexOf('## Scope Challenge'));
     const headings = marked.lexer(procedure).filter(token => token.type === 'heading' && token.depth === 3);
     expect(headings.map(token => token.text)).toEqual(['1. Establish current state', '2. Separate independent choices', '3. Compare one choice',
       '4. Save the pending record', '5. Ask and wait', '6. Apply and refresh']);
     expect(procedure).toContain("### 4. Save the pending record");
     expect(procedure).toContain('### 5. Ask and wait');
     expect(procedure).toContain("### 6. Apply and refresh");
+    const scope = eng.slice(eng.indexOf('## Scope Challenge'), eng.indexOf('## Review Sections'));
+    const scopeHeadings = marked.lexer(scope).filter(token => token.type === 'heading' && token.depth === 3);
+    expect(scopeHeadings.map(token => token.text)).toEqual(['A. Inspect the proposed scope',
+      'B. Resolve the complexity gate', 'C. Resolve scope findings']);
     const outputs = ['### TODOS.md updates', '## Approval readiness', '## Required outputs', '## Implementation Tasks',
       '### Unresolved decisions', '### Completion summary', '## Plan File Review Report',
       '### Write to the report file', '## Review Log'].map(heading => eng.indexOf(heading));

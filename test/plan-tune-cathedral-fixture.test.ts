@@ -54,15 +54,17 @@ async function exercise(selected = names, fault?: 'missing-log-lib' | 'missing-h
       },
     },
     spawnSync: (bin: string,argv: string[],opts: any) => {
+      const target = bin === 'bash' ? argv[0] : bin;
       if(bin!=='git') {
-        owned(bin);
-        expect(['question-log-hook','question-preference-hook','gstack-codex-session-import','gstack-distill-apply']).toContain(path.basename(bin));
+        expect(bin).toBe('bash');
+        owned(target);
+        expect(['question-log-hook','question-preference-hook','gstack-codex-session-import','gstack-distill-apply']).toContain(path.basename(target));
         owned(opts.env.GSTACK_STATE_ROOT);
       }
       if(opts.cwd) owned(opts.cwd);
       expect(Number.isFinite(opts.timeout) && opts.timeout > 0).toBe(true);
-      invoked.push(path.basename(bin));
-      if(fault==='first-hook' && path.basename(bin)==='question-preference-hook' && !failedHook) {
+      invoked.push(path.basename(target));
+      if(fault==='first-hook' && path.basename(target)==='question-preference-hook' && !failedHook) {
         failedHook=true; return {status:1,stdout:'',stderr:'Synthetic transient hook failure'};
       }
       return spawnSync(bin,argv,{...opts,timeout:opts.timeout,env:opts.env??env});

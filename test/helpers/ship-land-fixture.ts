@@ -33,9 +33,13 @@ export function createShipLandFixture(name: ShipLandCase) {
   }
   const env = { HOME: home, GSTACK_HOME: state, GSTACK_STATE_DIR: state,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`, FIXTURE_COMMAND_LOG: eventFile } as Record<string, string>;
-  const run = (cmd: string, args: string[], cwd = repo) => spawnSync(cmd, args, {
-    cwd, env: { ...process.env, ...env }, encoding: 'utf8', timeout: 15_000,
-  });
+  const run = (cmd: string, args: string[], cwd = repo) => {
+    const fixtureTool = cmd === 'gh' || cmd === 'gstack-evidence';
+    return spawnSync(fixtureTool ? process.execPath : cmd,
+      fixtureTool ? [path.join(import.meta.dir, 'ship-land-fixture-command.ts'), controlFile, cmd, ...args] : args, {
+        cwd, env: { ...process.env, ...env }, encoding: 'utf8', timeout: 15_000,
+      });
+  };
   const git = (...args: string[]) => {
     const r = spawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 10_000 });
     if (r.status !== 0) throw new Error(`git fixture setup failed: ${args.join(' ')}: ${r.stderr}`);
@@ -67,6 +71,8 @@ export function createShipLandFixture(name: ShipLandCase) {
     write(path.join(repo, '.github/workflows/ci.yml'), `name: Validation\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n${lanes.map(lane => `      - name: ${lane.label}\n        working-directory: app\n        run: ${name === 'commands-conflict' && lane.label === 'tests' ? 'python3 other-tests.py' : name === 'commands-unavailable' && lane.label === 'evals' ? 'missing-project-eval --required' : lane.command}\n`).join('')}`);
     write(path.join(repo, 'prompts/greeting.txt'), 'Hello\n');
     git('init', '-q', '-b', 'fixture');
+    git('config', 'user.name', 'Ship Land Fixture');
+    git('config', 'user.email', 'ship-land-fixture@example.invalid');
     git('config', 'commit.gpgsign', 'false');
     git('add', '.');
     git('commit', '-qm', 'Seed isolated workflow fixture');

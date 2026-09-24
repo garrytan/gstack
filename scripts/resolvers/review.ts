@@ -959,6 +959,7 @@ fi
 
 export function generateCodexPlanReview(ctx: TemplateContext): string {
   const ceo = ctx.skillName === 'plan-ceo-review';
+  const eng = ctx.skillName === 'plan-eng-review';
   const needsApprovalReadiness = ['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName);
   const result = `## Outside Voice — Independent Plan Challenge (default-on)
 
@@ -970,14 +971,37 @@ review. The user turns this off only by asking explicitly
 
 **Preflight — decide whether and how the outside voice runs:**
 
-${outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all' })}
+${outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all', ...(eng ? { routing: 'caller' as const } : {}) })}
 
-${needsApprovalReadiness ? `**Outcome routing:** ${ceo ? `Follow the row for the current result. After an invocation, route its result
+${eng ? `**Outcome routing:** Follow the row for the current result. After an invocation,
+route its result again. Leave Outside Voice only after recording disabled or
+unavailable coverage, or resolving completed findings and recording the result.
+Missing reviewer coverage is non-blocking; approval and artifact-write rules still apply.
+The historical \`CODEX_MODE\` names ${outsideVoiceFor(ctx).label} availability on this host.
+Never substitute another external provider.
+
+| Outcome | Next step |
+|---|---|
+| Disabled | Use the guarded disabled record below, then continue to Final planning decisions. No prompt, outside process or native replacement. |
+| Ready | Construct the prompt and run the foreground outside invocation; route its result here again. |
+| Other preflight mode, including harness mismatch | Report the diagnosis below, construct the same prompt and use Native fallback. |
+| Outside execution or output validation fails | Retain its output and diagnosis, finish termination, then use Native fallback. Auth: name the login repair; timeout: report the five-minute limit; empty response: say no response. |
+| Reviewer completes | Present its full output once, resolve findings in Cross-model tension, then Persist the result and continue to Final planning decisions. |
+| Native fallback unavailable or fails | Use the Unavailable path to record missing coverage, then continue to Final planning decisions. No clean-review credit. |
+
+**Preflight diagnoses:** \`not_installed\` or \`broken_install\`: install/repair ${outsideVoiceFor(ctx).label}${outsideVoiceFor(ctx).id === 'codex' ? ' with `npm install -g @openai/codex`' : ''};
+\`not_authed\`: run \`${outsideVoiceFor(ctx).id === 'codex' ? 'codex login' : 'claude auth login'}\`;
+\`model_unusable\`: relay HINT lines and explain how the user can select a supported
+model${outsideVoiceFor(ctx).id === 'codex' ? ' (`GSTACK_CODEX_MODEL` or explicit `-c model=...`)' : ''}. Do not change the configured model or retry this invocation;
+use Native fallback as the routing table directs.
+Harness mismatch: report no outside process started and missing coverage; repair
+with \`setup --host <actual-harness>\`. Conflicting inherited markers do not select
+a replacement provider. Relay probe HINT lines for broken installs too.
+${outsideVoiceFor(ctx).id === 'claude-code' ? 'Authentication and configured model validity are checked by the invocation, without overriding either.\n' : ''}
+` : ceo ? `**Outcome routing:** Follow the row for the current result. After an invocation, route its result
 again. Leave only after recording disabled/unavailable coverage, or after
 integrating completed findings, comparing eligible reviews and recording the result.
-Missing reviewer coverage is non-blocking; approvals and artifact rules still apply.` : `Pick exactly one row from this table, finish that row's
-steps, then leave Outside Voice. Missing reviewer coverage is non-blocking;
-approval and artifact-write requirements still apply.`}
+Missing reviewer coverage is non-blocking; approvals and artifact rules still apply.
 
 | Outcome | Next step |
 |---|---|
@@ -985,10 +1009,14 @@ approval and artifact-write requirements still apply.`}
 | Ready | Construct the prompt and run the foreground outside invocation. |
 | Other preflight mode, including harness mismatch | Report the probe's diagnosis, construct the same prompt and use Native fallback. |
 | Outside execution or output validation fails | Retain its output and diagnosis, finish termination, then use Native fallback. Auth: name the login repair; timeout: report the five-minute limit; empty response: say no response. |
-| Reviewer completes | Present its full output and ${ceo ? 'go to Integrate reviewer findings' : 'resolve findings through Decision procedure'}. |
+| Reviewer completes | Present its full output and go to Integrate reviewer findings. |
 | Native fallback unavailable or fails | Record unavailable coverage and continue to planning decisions. No clean-review credit. |
 
-` : ''}${ceo ? `**Record the disabled outcome:** If preflight selected \`disabled\`, use the
+` : ''}${eng ? `**Disabled is a terminal branch for this section.** Print "Codex review skipped
+(codex_reviews disabled). Re-enable: \`gstack-config set codex_reviews enabled\`."
+Then persist \`outside_status: disabled\` with the guarded command below. This
+intentional opt-out never needs a replacement reviewer.
+` : ceo ? `**Record the disabled outcome:** If preflight selected \`disabled\`, use the
 guarded record below, then continue to the remaining planning decisions and
 Approval readiness. This ends Outside Voice without a challenge, CLI invocation,
 Agent/Task fallback or questions about outside findings. It is an intentional
@@ -1068,7 +1096,7 @@ ${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (plan review — outside voice)
 \`\`\`
 
 This fence is the only external-provider output surface. Native fallback prints
-only its \`OUTSIDE VOICE (...)\` subagent report; never print both for one review.${ceo ? '\n\nAfter a completed external review, go directly to **Integrate reviewer findings** below. Run Native fallback only for a provider failure.' : ''}
+only its \`OUTSIDE VOICE (...)\` subagent report; never print both for one review.${eng ? '\n\nReturn to **Outcome routing** with the invocation result; do not run fallback after a completed review.' : ceo ? '\n\nAfter a completed external review, go directly to **Integrate reviewer findings** below. Run Native fallback only for a provider failure.' : ''}
 
 ${ceo ? `**Native fallback — provider unavailable or execution failed, with reviews enabled:**
 
@@ -1087,7 +1115,7 @@ dispatching. Otherwise continue with the same prepared prompt.
 Use this fallback only after the routing row says to use it. Immediately before
 dispatch, check the preflight result again: disabled means no replacement;
 record disabled coverage and do not dispatch. If still enabled, run the bounded
-native attempt below. A native result never supplies outside coverage.` : `**Error handling:** All errors are non-blocking — the outside voice is informational.
+native attempt below.` : `**Error handling:** All errors are non-blocking — the outside voice is informational.
 - Auth failure (stderr contains "auth", "login", "unauthorized"): "${outsideVoiceFor(ctx).label} auth failed. Run \\\`${outsideVoiceFor(ctx).id === 'codex' ? 'codex login' : 'claude auth login'}\\\` to authenticate." Fall back to the ${outsideVoiceFor(ctx).nativeLabel} subagent below.
 - Timeout: "${outsideVoiceFor(ctx).label} timed out after 5 minutes." Fall back to the ${outsideVoiceFor(ctx).nativeLabel} subagent below.
 - Empty response: "${outsideVoiceFor(ctx).label} returned no response." Fall back to the ${outsideVoiceFor(ctx).nativeLabel} subagent below.
@@ -1146,7 +1174,7 @@ with STATUS = "unavailable", SOURCE = "none", OUTSIDE_STATUS = "unavailable";
 then continue directly to ${needsApprovalReadiness ? 'the remaining planning decisions and Approval readiness' : 'outputs'}. The storage policy still applies.
 Do not record a clean review when no reviewer completed within the accepted wait.
 
-${ceo ? '' : '(On `CODEX_MODE: disabled` you already skipped this section per the preflight — do not reach here.)'}
+${ceo || eng ? '' : '(On `CODEX_MODE: disabled` you already skipped this section per the preflight — do not reach here.)'}
 
 ${ctx.skillName === 'plan-eng-review' ? `**Cross-model tension:**
 
