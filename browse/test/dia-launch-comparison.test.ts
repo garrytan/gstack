@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { compareDiaLaunchReceipts, normalizedLaunchHashes } from '../../.github/scripts/dia-launch-driver.mjs';
 import { runDiaLaunchComparison, safeDiaComparisonResponse } from '../../.github/scripts/qualify-dia-macos';
 
-const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'dia-comparison-test-')));
+const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'dc-')));
 const driverFile = path.resolve(import.meta.dir, '../../.github/scripts/dia-launch-driver.mjs');
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
