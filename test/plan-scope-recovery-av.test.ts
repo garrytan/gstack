@@ -28,7 +28,7 @@ test('the review handoff repairs a missing public declaration without claiming t
     expect(text.indexOf(check)).toBeLessThan(reviewStart);
     if (skill === 'plan-eng-review') {
       const section = fs.readFileSync(path.join(import.meta.dir, '..', skill, 'sections/review-sections.md.tmpl'), 'utf8');
-      expect(section).toContain('Before reviewing, answer:');
+      expect(section).toContain('**Analyze scope (all targets).** Answer as reviewer analysis, not user questions:');
       expect(text.slice(text.indexOf(check), reviewStart)).toContain('Scope Challenge is mandatory before Section 1');
     }
   }
