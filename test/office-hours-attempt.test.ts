@@ -9,7 +9,7 @@ import { runSkillTest, SESSION_DRAIN_GRACE_MS, type SkillTestResult } from './he
 import { isPaidTestFile } from './helpers/paid-test-set';
 import { spawnSync } from 'node:child_process';
 import { Messages } from '@anthropic-ai/sdk/resources/messages';
-import { DEFAULT_JUDGE_MAX_TOKENS, judgePosture } from './helpers/llm-judge';
+import { judgePosture } from './helpers/llm-judge';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const result = (exitReason = 'success'): SkillTestResult => ({
@@ -399,7 +399,6 @@ mock.module(join(root, 'test/helpers/session-runner.ts'), () => ({
   },
 }));
 mock.module(join(root, 'test/helpers/llm-judge.ts'), () => ({
-  DEFAULT_JUDGE_MAX_TOKENS: ${DEFAULT_JUDGE_MAX_TOKENS},
   judgeRecommendation: () => { throw new Error('unexpected judge'); },
   judgePosture: async (mode, text, signal) => {
     const id = mode === 'forcing' ? 'office-hours-forcing-energy' : 'office-hours-builder-wildness';

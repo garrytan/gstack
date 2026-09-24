@@ -13,9 +13,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { JSONOutputFormat } from '@anthropic-ai/sdk/resources/messages';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { CLAUDE_FRONTIER_EVAL_MODEL, resolveEvalModel } from '../../lib/eval-model';
-
-export const DEFAULT_JUDGE_MAX_TOKENS = 8192;
+import { CLAUDE_FRONTIER_EVAL_MODEL, DEFAULT_JUDGE_MAX_TOKENS, resolveEvalModel } from '../../lib/eval-model';
+export { DEFAULT_JUDGE_MAX_TOKENS } from '../../lib/eval-model';
 
 export interface JudgeScore {
   clarity: number;       // 1-5

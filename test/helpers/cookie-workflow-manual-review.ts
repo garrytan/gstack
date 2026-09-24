@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildCookieWorkflowJudgeInput, COOKIE_WORKFLOW_JUDGE } from './cookie-workflow-judge-input';
-import { DEFAULT_JUDGE_MAX_TOKENS, type JudgeRefusalEvidence } from './llm-judge';
-import { resolveEvalModel } from '../../lib/eval-model';
+import type { JudgeRefusalEvidence } from './llm-judge';
+import { DEFAULT_JUDGE_MAX_TOKENS, resolveEvalModel } from '../../lib/eval-model';
 
 export const COOKIE_MANUAL_REVIEW_FILE = '.github/cookie-workflow-manual-review.json';
 const CASE = 'setup-browser-cookies/SKILL.md workflow';

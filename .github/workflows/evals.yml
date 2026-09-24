@@ -436,7 +436,7 @@ jobs:
             echo 'Verified collector summary unavailable; manual acceptance is unavailable/unverified.'
           fi
           if [ -n "$VERIFIED" ]; then
-            while IFS=$'\t' read -r f T P F M FL EX RE A C TIER SHARD; do
+            while IFS=$'\t' read -r f T P F M FL EX RE _ATTEMPTS C TIER SHARD; do
               [ "$T" -eq 0 ] && continue
               TOTAL=$((TOTAL + T)); PASSED=$((PASSED + P)); FAILED=$((FAILED + F))
               MANUAL=$((MANUAL + M)); FLAKY=$((FLAKY + FL))

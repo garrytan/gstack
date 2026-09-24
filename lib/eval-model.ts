@@ -19,6 +19,7 @@
  */
 
 export const CLAUDE_FRONTIER_EVAL_MODEL = "claude-fable-5-1";
+export const DEFAULT_JUDGE_MAX_TOKENS = 8192;
 
 // `as const satisfies` keeps EvalModelKind the literal union
 // 'capture' | 'warmup' | 'distill' — a `Record<string, string>` annotation

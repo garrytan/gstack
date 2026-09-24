@@ -3,9 +3,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { isBuiltin } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { resolveEvalModel } from '../../lib/eval-model';
+import { DEFAULT_JUDGE_MAX_TOKENS, resolveEvalModel } from '../../lib/eval-model';
 import { JUDGE_MS } from './eval-budgets';
-import { DEFAULT_JUDGE_MAX_TOKENS, type JudgeScore } from './llm-judge';
+import type { JudgeScore } from './llm-judge';
 import { readWorkflowJudgeInput, buildWorkflowJudgePrompt } from './workflow-judge-input';
 import { buildEvalInputIdentity, lookupEvalInputCache, storeEvalInputCache,
   type EvalCacheValue, type EvalInputIdentity, type EvalPassingProof } from '../../scripts/eval-input-cache';
