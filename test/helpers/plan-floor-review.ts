@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import type { NativePlanQuestion } from './plan-count-transcript';
+import { hermeticChildEnv } from './hermetic-env';
 
 export type PlanFloorQuestion =
   | { transport: 'native'; identity: string; question: NativePlanQuestion }
@@ -230,8 +231,12 @@ export function judgePlanFloorReview(input: PlanFloorReview, opts: {
   }
   try {
     const result = (opts.invoke ?? spawnSync)(opts.binary,
-      ['-p', '--model', opts.model, '--max-turns', '1'],
-      { input: prompt, stdio: ['pipe', 'pipe', 'pipe'], timeout: Math.min(30_000, remaining), encoding: 'utf8' });
+      ['-p', '--model', opts.model, '--max-turns', '1',
+        '--bare', '--disable-slash-commands', '--strict-mcp-config', '--setting-sources', '',
+        '--tools', '', '--system-prompt',
+        'Classify the supplied evidence using the supplied rubric. Return only its strict JSON result.'],
+      { input: prompt, env: hermeticChildEnv({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }), stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: Math.min(30_000, remaining), encoding: 'utf8' });
     Object.assign(diagnostic, { rawOutput: String(result.stdout ?? ''), stderr: String(result.stderr ?? ''), status: result.status });
     if (result.error || result.status !== 0 || Date.now() >= opts.deadlineAt)
       throw Error(`Floor assessment did not complete: ${result.error?.message ?? `exit ${result.status}`} ${String(result.stderr ?? '').slice(-3000)}`.trim());

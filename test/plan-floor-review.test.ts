@@ -62,12 +62,52 @@ test('replacement judge retains the original CLI model, one turn, 30s cap and ab
  for(const remaining of [5000,60_000]){
   const deadlineAt=Date.now()+remaining;let calls=0;
   const actual=judgePlanFloorReview(review(),{binary:'/fake/claude',model:'unchanged-warmup',deadlineAt,invoke:((file,args,opts)=>{
-   calls++;expect(file).toBe('/fake/claude');expect(args).toEqual(['-p','--model','unchanged-warmup','--max-turns','1']);
+   calls++;expect(file).toBe('/fake/claude');expect(args).toEqual(['-p','--model','unchanged-warmup','--max-turns','1',
+    '--bare','--disable-slash-commands','--strict-mcp-config','--setting-sources','',
+    '--tools','','--system-prompt',
+    'Classify the supplied evidence using the supplied rubric. Return only its strict JSON result.']);
    expect(opts.stdio).toEqual(['pipe','pipe','pipe']);expect(opts.encoding).toBe('utf8');
    expect(opts.input).toBe(buildPlanFloorReviewPrompt(review()));
    expect(opts.timeout).toBeGreaterThan(0);expect(opts.timeout).toBeLessThanOrEqual(Math.min(30_000,remaining));
    return {status:0,stdout:JSON.stringify(citationFinding()),stderr:''};
   }) as any});expect(calls).toBe(1);expect(actual.kind).toBe('finding');
+ }
+});
+test('floor assessor isolates its system, tools, settings and inherited session',()=>{
+ const contamination={EVALS_HERMETIC:'1',CLAUDE_CONFIG_DIR:'/operator-session',
+  CLAUDE_CODE_EFFORT_LEVEL:'max',CLAUDECODE:'outer-session',GSTACK_HOME:'/operator-state',
+  MCP_ENDPOINT:'https://unrelated.invalid'};
+ const previous=Object.fromEntries(Object.keys(contamination).map(key=>[key,process.env[key]]));
+ Object.assign(process.env,contamination);
+ try {
+  let calls=0;
+  const actual=judgePlanFloorReview(review(),{binary:'/fake/claude',model:'unchanged-warmup',
+   deadlineAt:Date.now()+60_000,invoke:((_binary,args,opts)=>{
+    calls++;
+    expect(args).toEqual(['-p','--model','unchanged-warmup','--max-turns','1',
+     '--bare','--disable-slash-commands','--strict-mcp-config','--setting-sources','',
+     '--tools','','--system-prompt',
+     'Classify the supplied evidence using the supplied rubric. Return only its strict JSON result.']);
+    expect(opts.input).toBe(buildPlanFloorReviewPrompt(review()));
+    expect(opts.timeout).toBeLessThanOrEqual(30_000);
+    expect(opts.env.CLAUDE_CONFIG_DIR).toBeString();
+    expect(opts.env.CLAUDE_CONFIG_DIR).not.toBe(contamination.CLAUDE_CONFIG_DIR);
+    expect(opts.env.GSTACK_HOME).not.toBe(contamination.GSTACK_HOME);
+    expect(opts.env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+    expect(opts.env.CLAUDECODE).toBeUndefined();
+    expect(opts.env.MCP_ENDPOINT).toBeUndefined();
+    expect(opts.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1');
+    return {status:0,stdout:JSON.stringify({kind:'uncertain',seedId:null,questionId:null,
+     optionId:null,reason:'A transport control cannot award a semantic finding.'}),stderr:''};
+   }) as any});
+  expect(calls).toBe(1);
+  expect(actual).toEqual({kind:'uncertain',seedQuote:'',questionQuote:'',optionIndex:null,
+   optionQuote:'',reason:'A transport control cannot award a semantic finding.'});
+ } finally {
+  for(const [key,value] of Object.entries(previous)) {
+   if(value===undefined)delete process.env[key];
+   else process.env[key]=value;
+  }
  }
 });
 test.each([
