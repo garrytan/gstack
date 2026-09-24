@@ -746,6 +746,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/fixtures/plan-create-permission-361c.json',
     'test/helpers/plan-floor-review.ts',
     'test/plan-floor-review.test.ts',
+    'test/plan-floor-target-options.test.ts',
+    'test/fixtures/plan-floor-dx-target-7b57bf0d4.json',
     'test/fixtures/plan-floor-dx-target-ci-3788b5fcb.json',
     'test/fixtures/plan-floor-routing-361c.json',
 
@@ -764,6 +766,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/fixtures/plan-create-permission-361c.json',
     'test/helpers/plan-floor-review.ts',
     'test/plan-floor-review.test.ts',
+    'test/plan-floor-target-options.test.ts',
+    'test/fixtures/plan-floor-dx-target-7b57bf0d4.json',
     'test/fixtures/plan-floor-dx-target-ci-3788b5fcb.json',
     'test/fixtures/plan-floor-routing-361c.json',
 
@@ -779,6 +783,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/fixtures/plan-create-permission-361c.json',
     'test/helpers/plan-floor-review.ts',
     'test/plan-floor-review.test.ts',
+    'test/plan-floor-target-options.test.ts',
+    'test/fixtures/plan-floor-dx-target-7b57bf0d4.json',
     'test/fixtures/plan-floor-dx-target-ci-3788b5fcb.json',
     'test/fixtures/plan-floor-routing-361c.json',
 
@@ -800,6 +806,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/fixtures/plan-create-permission-361c.json',
     'test/helpers/plan-floor-review.ts',
     'test/plan-floor-review.test.ts',
+    'test/plan-floor-target-options.test.ts',
+    'test/fixtures/plan-floor-dx-target-7b57bf0d4.json',
     'test/fixtures/plan-floor-dx-target-ci-3788b5fcb.json',
     'test/fixtures/plan-floor-routing-361c.json',
 

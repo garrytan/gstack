@@ -187,13 +187,17 @@ function deterministicPlanFloorFinding(input: PlanFloorReview): PlanFloorAssessm
   if (new Set(labels).size !== labels.length || !labels.every(label => targetLabel.test(label) || customLabel.test(label) || splitLabel.test(label)) ||
       labels.some(label => [...label.matchAll(/\(([^()]*)\)/g)].some(match =>
         !/^(?:[~<>+\d\s.,-]|min(?:ute)?s?|active|unknown|unmeasured|key|wait|estimated|est)+$/i.test(match[1]!))) ||
-      q.options.some((o, i) => /\b(?:approve|waive|delete|launch|ship|deploy|merge|instead|example|sample)\b/i.test(`${o.label}\n${o.description}`) ||
-        (splitLabel.test(labels[i]!)
-          ? !/\bactive[- ]time\b[^.!?]*\d+(?:-\d+)?\s*min\b/i.test(o.description!) ||
-            !/\bkey[- ]wait\b[^.!?]*\bmeasured separately\b/i.test(o.description!)
-          : !(customLabel.test(labels[i]!)
+      q.options.some((o, i) => {
+        const option = `${o.label}\n${o.description}`;
+        if (/\b(?:approve|waive|delete|launch|ship|deploy|merge|example|sample)\b/i.test(option)) return true;
+        const withoutNumericComparisons = option.replace(/\b(?:measured|known|actual|supplied)(?:\s+(?:target|time))?\s+(?:number|value|duration|estimate)\s+(?:instead of|rather than|in place of)\s+(?:(?:a|an|the|my|our|your)\s+)?(?:(?:rough|initial|unmeasured)\s+)?estimate\b/gi, '');
+        if (/\b(?:instead|rather than|in place of)\b/i.test(withoutNumericComparisons)) return true;
+        if (splitLabel.test(labels[i]!)) return !/\bactive[- ]time\b[^.!?]*\d+(?:-\d+)?\s*min\b/i.test(o.description!) ||
+          !/\bkey[- ]wait\b[^.!?]*\bmeasured separately\b/i.test(o.description!);
+        return !(customLabel.test(labels[i]!)
           ? /\b(?:number|target|clock|wait|threshold|constraints|turnaround)\b/i
-          : /\b(?:min(?:ute)?s?|bar|tier|baseline|threshold|clock|target|scope|blocked|gate|gated)\b/i).test(o.description!)))) return null;
+          : /\b(?:min(?:ute)?s?|bar|tier|baseline|threshold|clock|target|scope|blocked|gate|gated)\b/i).test(option);
+      })) return null;
   const optionIndex = labels.findIndex(label => targetLabel.test(label));
   if (optionIndex < 0) return null;
   const optionQuote = q.options[optionIndex]!.label;
