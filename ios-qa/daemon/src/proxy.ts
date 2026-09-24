@@ -5,7 +5,7 @@
 // X-Session-Id from the caller.
 
 import { request as httpRequest } from 'http';
-import type { ServerResponse, IncomingMessage } from 'http';
+import type { IncomingMessage } from 'http';
 import { sanitizeReplacer } from './audit';
 import { tierForRoute } from './types';
 
@@ -33,6 +33,7 @@ export async function proxyToDevice(opts: {
   tunnel: DeviceTunnel;
   sessionId: string | null;
   agentIdentity?: string;
+  timeoutMs?: number;
 }): Promise<{ status: number; headers: Record<string, string>; body: Buffer }> {
   const { inbound, body, tunnel, sessionId, agentIdentity } = opts;
   if (body.length > MAX_BODY) {
@@ -55,34 +56,64 @@ export async function proxyToDevice(opts: {
   const hostPart = isIPv6 ? `[${tunnel.ipv6Addr}]` : tunnel.ipv6Addr;
   const url = `http://${hostPart}:${tunnel.port}${inbound.url ?? '/'}`;
   return new Promise((resolve, reject) => {
-    const req = httpRequest(url, {
-      method: inbound.method,
-      headers,
-      timeout: 30_000,
-    }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        const respHeaders: Record<string, string> = {};
-        for (const [k, v] of Object.entries(res.headers)) {
-          if (typeof v === 'string') respHeaders[k] = v;
-        }
-        resolve({
-          status: res.statusCode ?? 502,
-          headers: respHeaders,
-          body: Buffer.concat(chunks),
-        });
-      });
-    });
-    req.on('error', (err) => {
+    let settled = false;
+    let response: IncomingMessage | undefined;
+    const chunks: Buffer[] = [];
+    const finish = (result: Awaited<ReturnType<typeof proxyToDevice>> | Error, destroy = false) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      response?.off('data', onData);
+      response?.off('end', onEnd);
+      response?.off('aborted', onAborted);
+      chunks.length = 0;
+      if (destroy) req.destroy();
+      if (result instanceof Error) reject(result);
+      else resolve(result);
+    };
+    const onError = (err: Error) => {
       const e = err as { code?: string };
       if (e.code === 'ECONNREFUSED' || e.code === 'EHOSTUNREACH') {
-        resolve(makeError(503, 'device_disconnected'));
+        finish(makeError(503, 'device_disconnected'), true);
       } else if (e.code === 'ETIMEDOUT') {
-        resolve(makeError(504, 'upstream_timeout'));
+        finish(makeError(504, 'upstream_timeout'), true);
       } else {
-        reject(err);
+        finish(err, true);
       }
+    };
+    const onAborted = () => onError(Object.assign(new Error('Upstream response aborted'), { code: 'ECONNRESET' }));
+    const onData = (chunk: Buffer) => chunks.push(chunk);
+    const onEnd = () => {
+      const respHeaders: Record<string, string> = {};
+      for (const [k, v] of Object.entries(response!.headers)) {
+        if (typeof v === 'string') respHeaders[k] = v;
+      }
+      finish({
+        status: response!.statusCode ?? 502,
+        headers: respHeaders,
+        body: Buffer.concat(chunks),
+      });
+    };
+    const req = httpRequest(url, { method: inbound.method, headers }, (res) => {
+      response = res;
+      res.on('error', onError);
+      res.once('close', () => {
+        if (!settled) onAborted();
+        res.off('error', onError);
+      });
+      if (settled) {
+        res.destroy();
+        return;
+      }
+      res.on('data', onData);
+      res.once('end', onEnd);
+      res.once('aborted', onAborted);
+    });
+    const deadline = setTimeout(() => finish(makeError(504, 'upstream_timeout'), true), opts.timeoutMs ?? 30_000);
+    req.on('error', onError);
+    req.once('close', () => {
+      if (!settled && !response) onAborted();
+      req.off('error', onError);
     });
     req.write(body);
     req.end();
