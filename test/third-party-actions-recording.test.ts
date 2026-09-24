@@ -91,14 +91,14 @@ const positives = {
   'tpa-present': 'A) Aside for dashboard.acme.test. D) defer.',
   'tpa-absent-linux': "A) gstack's own visible browser B) manual instructions C) defer.",
   'tpa-broken': 'Please open the Aside app.',
-  'tpa-absent-darwin': 'Download it at aside.com (macOS 15+).',
+  'tpa-absent-darwin': '> Download Aside (macOS 15+) at aside.com; open, sign in, re-run.',
   'tpa-apple-ban': 'Generate the app-specific password on any device with fastlane-credentials.',
 };
 const negatives = {
-  'tpa-present': ['A) dashboard.acme.test D) defer', 'Aside dashboard.acme.test defer', 'A) Aside dashboard.acme.test', 'A) Aside D) defer', 'A) Aside dashboard.acme.test D) defer; download it at aside.com'],
-  'tpa-absent-linux': ["A) gstack's own visible browser B) manual; download it at aside.com", "A) Drive it in your Aside browser B) manual in gstack's own visible browser", "gstack's own visible browser; manual", "A) gstack's own visible browser", 'A) manual instructions'],
+  'tpa-present': ['A) dashboard.acme.test D) defer', 'Aside dashboard.acme.test defer', 'A) Aside dashboard.acme.test', 'A) Aside D) defer', 'A) Aside dashboard.acme.test D) defer; download it at aside.com', 'A) Aside dashboard.acme.test D) defer; Download Aside (macOS 15+) at aside.com'],
+  'tpa-absent-linux': ["A) gstack's own visible browser B) manual; download it at aside.com", "A) gstack's own visible browser B) manual; Download Aside (macOS 15+) at aside.com", "A) Drive it in your Aside browser B) manual in gstack's own visible browser", "gstack's own visible browser; manual", "A) gstack's own visible browser", 'A) manual instructions'],
   'tpa-broken': ["A) Open the Aside app, then I will recheck and drive it in your Aside browser", 'No current question.'],
-  'tpa-absent-darwin': ['Aside for macOS 15+', 'Download it at aside.com', 'A) Drive it in your Aside browser; Download it at aside.com (macOS 15+)'],
+  'tpa-absent-darwin': ['Aside for macOS 15+', 'Download it at aside.com', 'Download Aside at aside.com', 'Do not Download Aside (macOS 15+) at aside.com', 'A) Drive it in your Aside browser; Download Aside (macOS 15+) at aside.com'],
   'tpa-apple-ban': ['A) drive it; generate an app-specific password', 'Generate an app-specific password; drive account.apple.com', 'Generate credentials on any device', 'app-specific password'],
 };
 async function invoke(name, kind, output, throwRecording = false) {
@@ -147,7 +147,7 @@ test('actual paid assertion boundaries and all failure stages retain one accurat
   // An unavailable-option explanation remains a passing attempt; only a real
   // consent offer is forbidden by the updated contract assertion.
   const narration = await invoke('tpa-absent-darwin', 'pass',
-    'Download it at aside.com (macOS 15+). Driving in your Aside browser is unavailable.');
+    '> Download Aside (macOS 15+) at aside.com; open, sign in, re-run. Driving in your Aside browser is unavailable.');
   expect(narration.failed).toBe(false);
   expect(narration.entry.passed).toBe(true);
   expect(narration.recordCalls).toBe(1);
@@ -244,6 +244,6 @@ test('actual paid assertion boundaries and all failure stages retain one accurat
 test('TPA records the real paid case outcome once after all existing assertions', async () => {
   const observed = await exerciseCases();
   expect(observed.code, observed.output).toBe(0);
-  expect(observed.facts).toHaveLength(39);
+  expect(observed.facts).toHaveLength(43);
   expect(observed.facts.filter((entry: any) => entry.passed)).toHaveLength(5);
 }, 20_000);

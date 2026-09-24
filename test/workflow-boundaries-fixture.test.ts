@@ -28,7 +28,7 @@ for (const attack of ['read-state', 'cat-state', 'bash-edit', 'receipt-write']) 
   } finally { fs.rmSync(fixture.root, { recursive: true, force: true }); }
 });
 
-function protocolControl(id: BoundaryCase, faults: { skipCleanup?: boolean; duplicateQuestion?: boolean; failVerification?: boolean; rateLimit?: boolean; undeclared?: string; misleadingFinal?: boolean; splitFinal?: boolean } = {}) {
+function protocolControl(id: BoundaryCase, faults: { skipCleanup?: boolean; duplicateQuestion?: boolean; failVerification?: boolean; rateLimit?: boolean; undeclared?: string; deniedBash?: string; includeAvailability?: boolean; misleadingFinal?: boolean; splitFinal?: boolean } = {}) {
   let directory = '';
   let calls = 0;
   const provider: QueryProvider = input => {
@@ -83,6 +83,19 @@ function protocolControl(id: BoundaryCase, faults: { skipCleanup?: boolean; dupl
         }
         expect(fs.readFileSync(path.join(directory, 'workflow.md'), 'utf8')).toContain('Terminal cleanup');
         expect(fs.existsSync(path.join(env.GSTACK_HOME!, 'freeze-dir.txt'))).toBe(false);
+        if (faults.deniedBash) {
+          await expect(executeTool('Bash', { command: faults.deniedBash })).rejects.toThrow('native fixture guard denied Bash');
+          const receipts = path.join(path.dirname(directory), 'receipts');
+          expect(fs.existsSync(receipts) ? fs.readFileSync(receipts, 'utf8') : '').toBe('');
+          expect(fs.existsSync(path.join(env.GSTACK_HOME!, 'freeze-dir.txt'))).toBe(false);
+        }
+        if (faults.includeAvailability) {
+          const workflow = fs.readFileSync(path.join(directory, 'workflow.md'), 'utf8');
+          const availability = workflow.match(/```bash\n([\s\S]*?)```/)![1].trim();
+          const checked = await shell(availability);
+          expect(checked.status).toBe(0);
+          expect(checked.stdout).toContain('FREEZE_AVAILABLE');
+        }
         const acquisition = await shell('bash "$HOME/.claude/skills/gstack/freeze/bin/freeze-state.sh" acquire "src"');
         expect(acquisition.status).toBe(0);
         const owner = acquisition.stdout.match(/FREEZE_OWNER=([a-f0-9]{32})/)![1];
@@ -137,6 +150,26 @@ for (const id of cases) test(`fixture protocol control: ${id} persists receipts 
   expect(retained.evidence.changedProtectedFiles).toEqual([]);
   expect(retained.evidence.receipts).toContain('FREEZE_RELEASED');
   expect(retained.evidence.interactions).toHaveLength(1);
+});
+
+test('captured commentless availability is denied, while the complete block is executable', async () => {
+  const command = `_FREEZE_SCRIPT="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
+[ -x "$_FREEZE_SCRIPT" ] && echo "FREEZE_AVAILABLE" || echo "FREEZE_UNAVAILABLE"`;
+  const driver = protocolControl('investigate-owned-completion', { deniedBash: command, includeAvailability: true });
+  const records: EvalTestEntry[] = [];
+  await expect(runBoundaryActor('investigate-owned-completion', entry => records.push(entry), driver.provider)).rejects.toThrow('undeclared interaction');
+  expect(records[0]).toMatchObject({ passed: false, exit_reason: 'assertion_failed' });
+  const evidence = JSON.parse(records[0].output!).evidence;
+  expect(evidence.executions.find((event: { input: { command?: string } }) => event.input.command === command).allowed).toBe(false);
+  expect(evidence.executions.some((event: { allowed: boolean; input: { command?: string } }) => event.allowed && event.input.command?.includes('FREEZE_AVAILABLE'))).toBe(true);
+  expect(evidence.source).toBe('export function value() { return 2; }\n');
+  expect(evidence.receipts).toContain('FREEZE_RELEASED');
+  expect(evidence.boundary).toBe('');
+  const clean = protocolControl('investigate-owned-completion', { includeAvailability: true });
+  const passing: EvalTestEntry[] = [];
+  await runBoundaryActor('investigate-owned-completion', entry => passing.push(entry), clean.provider);
+  expect(passing[0].passed).toBe(true);
+  expect(JSON.parse(passing[0].output!).evidence.executions.some((event: { allowed: boolean; input: { command?: string } }) => event.allowed && event.input.command?.includes('FREEZE_AVAILABLE'))).toBe(true);
 });
 
 for (const attack of ['read-state', 'cat-state', 'bash-edit', 'receipt-write']) test(`registered native hook rejects and retains denied ${attack}`, async () => {

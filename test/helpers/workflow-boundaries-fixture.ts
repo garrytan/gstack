@@ -90,7 +90,8 @@ bash ./verify.sh. Do not run other investigation phases.
 
 Supported interactions: Read workflow.md and src/value.js; Bash for the supplied
 scope blocks and verifier; Edit only src/value.js, changing only the return value
-from 1 to 2; one continue/abort question. Use the Bash blocks verbatim, substitute
+from 1 to 2; one continue/abort question. Use each entire Bash block verbatim,
+including its comment-only lines. Substitute
 src for <detected-directory>, and your returned token for <retained-owner-token>.
 The only verifier command is exactly bash ./verify.sh. Never combine commands,
 change directories or run a command in the background.

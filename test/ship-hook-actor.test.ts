@@ -20,7 +20,7 @@ test('whole-file supervision covers every F5 case and the unchanged Bun retry', 
   }
 });
 
-function protocol(id: ShipHookCase, fault?: Fault) {
+function protocol(id: ShipHookCase, fault?: Fault, deniedInspection?: string) {
   let calls = 0;
   let directory = '';
   const provider: QueryProvider = ({ options }) => {
@@ -69,6 +69,17 @@ function protocol(id: ShipHookCase, fault?: Fault) {
           expect(result.status, result.stderr).toBe(0);
           expect(result.stdout).toContain('REDACT_PREPUSH: true');
         }
+        if (deniedInspection) {
+          const before = fs.readFileSync(path.join(path.dirname(directory), 'receipts'), 'utf8');
+          await expect(execute('Bash', { command: deniedInspection })).rejects.toThrow('registered hook denied Bash');
+          expect(fs.readFileSync(path.join(path.dirname(directory), 'receipts'), 'utf8')).toBe(before);
+        }
+        for (const command of ['git config --get core.hooksPath', 'git rev-parse --git-path hooks/pre-push', 'git rev-parse --git-path hooks/pre-push.local']) {
+          const approved = await execute('Bash', { command });
+          expect(approved).toMatchObject({ command, timeout: 10000, run_in_background: false });
+          const result = spawnSync('bash', ['-c', approved.command as string], { cwd: directory, env, encoding: 'utf8', timeout: 10000 });
+          expect(result.status).toBe(command.startsWith('git config') ? 1 : 0);
+        }
         if (fault === 'rate-limit' && calls === 1) {
           yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Attempt one executed guard.' }] } } as SDKMessage;
           throw Object.assign(new Error('rate limit'), { status: 429 });
@@ -103,6 +114,27 @@ for (const id of cases) test(`native-hook protocol preflight retains evidence af
     expect(retained.evidence.changedProtectedFiles).toEqual([]);
     expect(retained.evidence.executions.some((item: any) => item.tool === 'Bash' && item.allowed)).toBe(true);
     if (id === 'ship-managed-hook-refresh') expect(retained.evidence.callback.status).toBe(37);
+  } finally { fs.rmSync(artifacts, { recursive: true, force: true }); }
+});
+
+for (const [id, command] of [
+  ['ship-local-hook-preservation', 'git config --get core.hooksPath; echo "exit=$?"; git rev-parse --git-path hooks/pre-push; git rev-parse --git-path hooks/pre-push.local'],
+  ['ship-local-hook-preservation', 'git config --get core.hooksPath; echo "config-exit=$?"; git rev-parse --git-path hooks/pre-push; git rev-parse --git-path hooks/pre-push.local'],
+  ['ship-managed-hook-refresh', 'git config --get core.hooksPath; echo "exit=$?"; git rev-parse --git-path hooks/pre-push; git rev-parse --git-path hooks/pre-push.local'],
+  ['ship-managed-hook-refresh', 'git config --get core.hooksPath; git rev-parse --git-path hooks/pre-push; git rev-parse --git-path hooks/pre-push.local'],
+] as const) test(`captured-style compound inspection stays denied: ${id} ${command.includes('config-exit') ? 'config-exit' : command.includes('echo') ? 'exit' : 'pure chain'}`, async () => {
+  const artifacts = fs.mkdtempSync(path.join(os.tmpdir(), 'shook-art-'));
+  const records: EvalTestEntry[] = [];
+  const driver = protocol(id, undefined, command);
+  try {
+    await expect(runShipHookActor(id, entry => records.push(entry), driver.provider, artifacts)).rejects.toThrow('undeclared interaction');
+    expect(records[0]).toMatchObject({ passed: false, exit_reason: 'assertion_failed' });
+    const evidence = JSON.parse(records[0].output!).evidence;
+    expect(evidence.executions.find((event: { input: { command?: string } }) => event.input.command === command).allowed).toBe(false);
+    expect(evidence.executions.filter((event: { allowed: boolean; input: { command?: string } }) => event.allowed && event.input.command?.startsWith('git '))).toHaveLength(3);
+    expect(evidence.changedProtectedFiles).toEqual([]);
+    if (id === 'ship-managed-hook-refresh') expect(evidence.callback.status).toBe(37);
+    else expect(evidence.receipts).not.toContain('INSTALL:install-prepush-hook');
   } finally { fs.rmSync(artifacts, { recursive: true, force: true }); }
 });
 
