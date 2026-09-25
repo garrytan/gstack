@@ -81,6 +81,12 @@ describe('setup: Chromium bootstrap static invariants', () => {
     expect(block).toContain('GSTACK_SKIP_PLAYWRIGHT');
   });
 
+  test('the Ubuntu 26.04 override is architecture-aware, not hardcoded to x64 (#2916)', () => {
+    expect(codeLines).toContain('case "$(uname -m)" in');
+    expect(codeLines).toMatch(/aarch64\|arm64\)\s*_PLAYWRIGHT_PLATFORM_OVERRIDE="ubuntu24\.04-arm64"/);
+    expect(codeLines).toMatch(/\*\)\s*_PLAYWRIGHT_PLATFORM_OVERRIDE="ubuntu24\.04-x64"/);
+  });
+
   test('the lock EXIT trap still chains cleanup_copied_bun and is restored', () => {
     expect(codeLines).toContain("trap 'rm -rf \"$_PW_LOCK\" 2>/dev/null || true; cleanup_copied_bun' EXIT");
     expect(codeLines).toContain('trap cleanup_copied_bun EXIT');
@@ -178,6 +184,36 @@ function runBlock(opts: {
     env: { PATH: process.env.PATH ?? '', HOME: tmp, ...(opts.env ?? {}) },
   });
   return { stdout: r.stdout ?? '', stderr: r.stderr ?? '', status: r.status ?? -1, elapsedMs: Date.now() - t0, tmp };
+}
+
+/**
+ * Runs just the Ubuntu-26.04 detection `if` (the real source slice, arch
+ * case-statement included) with `_os_id`/`_os_ver` pre-set and `uname`
+ * stubbed — i.e. starting after the `/etc/os-release` read, the same way the
+ * override-injection tests above skip that probe. Proves the arch-aware
+ * branch itself (#2916), not just that a pre-computed override value reaches
+ * the installer.
+ */
+function runOsDetection(opts: { osId: string; osVer: string; unameM: string }): { stdout: string; status: number } {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-pw-osdetect-'));
+  const detection = slice('if [ "$_os_id" = "ubuntu" ] && [ "$_os_ver" = "26.04" ]; then', '# Chromium is BEST-EFFORT');
+  const script = [
+    'set -e',
+    `_os_id="${opts.osId}"`,
+    `_os_ver="${opts.osVer}"`,
+    '_PLAYWRIGHT_PLATFORM_OVERRIDE=""',
+    `uname() { [ "$1" = "-m" ] && echo "${opts.unameM}" || command uname "$@"; }`,
+    // The slice carries two closing `fi`s (the ubuntu-version check, then the
+    // outer `/etc/os-release` probe it normally nests inside) — wrap it in a
+    // matching outer `if` so the second `fi` closes something.
+    'if true; then',
+    detection,
+    'echo "OVERRIDE=$_PLAYWRIGHT_PLATFORM_OVERRIDE"',
+  ].join('\n');
+  const scriptPath = path.join(tmp, 'os-detect.sh');
+  fs.writeFileSync(scriptPath, script);
+  const r = spawnSync('bash', [scriptPath], { encoding: 'utf-8', timeout: 10_000 });
+  return { stdout: r.stdout ?? '', status: r.status ?? -1 };
 }
 
 /** Run the real fallback against a child that reports readiness over a pipe. */
@@ -391,6 +427,24 @@ describe('setup: Chromium bootstrap block — fresh install, lock hygiene, overr
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('REASON=\n');
     expect(fs.readFileSync(path.join(r.tmp, 'mark'), 'utf-8')).toContain('override=ubuntu24.04-x64');
+  });
+
+  for (const [arch, expected] of [
+    ['aarch64', 'ubuntu24.04-arm64'],
+    ['arm64', 'ubuntu24.04-arm64'],
+    ['x86_64', 'ubuntu24.04-x64'],
+  ] as const) {
+    test(`Ubuntu 26.04 detection picks ${expected} for uname -m=${arch} (#2916)`, () => {
+      const r = runOsDetection({ osId: 'ubuntu', osVer: '26.04', unameM: arch });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain(`OVERRIDE=${expected}\n`);
+    });
+  }
+
+  test('Ubuntu 24.04 (not the 26.04 override path) leaves the override empty regardless of arch (#2916)', () => {
+    const r = runOsDetection({ osId: 'ubuntu', osVer: '24.04', unameM: 'aarch64' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('OVERRIDE=\n');
   });
 
   test('Windows without Node.js: reason windows-no-node, setup continues (was: exit 1), post-install probe skipped', () => {
