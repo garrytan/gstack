@@ -239,10 +239,12 @@ function semverKey(v: string): number[] | null {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
 
+function safeReaddir(dir: string): string[] {
+  try { return fs.readdirSync(dir); } catch { return []; }
+}
+
 function newestSemverDir(dir: string): string | null {
-  let entries: string[];
-  try { entries = fs.readdirSync(dir); } catch { return null; }
-  const versions = entries.map(e => ({ e, k: semverKey(e) })).filter(x => x.k) as { e: string; k: number[] }[];
+  const versions = safeReaddir(dir).map(e => ({ e, k: semverKey(e) })).filter(x => x.k) as { e: string; k: number[] }[];
   versions.sort((a, b) => (b.k[0] - a.k[0]) || (b.k[1] - a.k[1]) || (b.k[2] - a.k[2]));
   return versions[0]?.e ?? null;
 }
@@ -285,6 +287,28 @@ function engineSiblings(launcherDir: string): string[] {
   return [...tags].map(t => path.join(launcherDir, 'bin', t, name));
 }
 
+/**
+ * A Claude Code plugin install of impeccable lands at
+ * <root>/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/impeccable/,
+ * never at the traditional <root>/<SKILL_ROOTS entry>/skills/impeccable/ the
+ * ordinary walk below expects. Marketplace/plugin/version names are not
+ * predictable, so walk the three levels (github.com/garrytan/gstack/issues/2838).
+ */
+function pluginCacheImpeccableSkillDirs(root: string): string[] {
+  const cacheDir = path.join(root, '.claude', 'plugins', 'cache');
+  const dirs: string[] = [];
+  for (const marketplace of safeReaddir(cacheDir)) {
+    const marketplaceDir = path.join(cacheDir, marketplace);
+    for (const plugin of safeReaddir(marketplaceDir)) {
+      const pluginDir = path.join(marketplaceDir, plugin);
+      for (const version of safeReaddir(pluginDir)) {
+        dirs.push(path.join(pluginDir, version, 'skills', 'impeccable'));
+      }
+    }
+  }
+  return dirs;
+}
+
 function probe(host: string, verbose = false): Probe {
   const cwd = realpathOrNull(process.cwd()) ?? process.cwd();
   const repoRoot = gitTopLevel(cwd) ?? cwd;
@@ -306,26 +330,34 @@ function probe(host: string, verbose = false): Probe {
   let siblingEngine: string | null = null;
   let siblingVersion: string | null = null;
   let repoLocalLauncher = false;
+  // Shared by the SKILL_ROOTS walk and the plugin-cache walk below: same
+  // presence/launcher/repo-local-exclusion/sibling-engine logic either way,
+  // whichever path convention placed the skill at `skillDir`.
+  const checkSkillDir = (skillDir: string, rootIsRepo: boolean) => {
+    if (fs.existsSync(path.join(skillDir, 'SKILL.md'))) p.skillPresent = true;
+    const launcher = path.join(skillDir, 'scripts', 'impeccable');
+    if (!fs.existsSync(launcher)) return;
+    if (rootIsRepo) { repoLocalLauncher = true; return; }
+    const realLauncher = realpathOrNull(launcher);
+    if (!realLauncher || underProject(realLauncher, repoRoot, cwd)) { repoLocalLauncher = true; return; }
+    p.launcher ??= launcher;
+    for (const cand of engineSiblings(path.dirname(launcher))) {
+      const real = realpathOrNull(cand);
+      if (siblingEngine || !real || !isExecutableFile(real) || !isEngineName(real) || underProject(real, repoRoot, cwd)) continue;
+      siblingEngine = real;
+      try {
+        const v = fs.readFileSync(path.join(path.dirname(launcher), 'VERSION'), 'utf-8').trim();
+        siblingVersion = semverKey(v) ? v.replace(/^v/, '') : null; // a non-semver VERSION is not trusted as text
+      } catch { /* no VERSION file */ }
+    }
+  };
   for (const root of roots) {
     const rootIsRepo = underProject(root, repoRoot, cwd);
     for (const sub of SKILL_ROOTS) {
-      const skillDir = path.join(root, sub, 'skills', 'impeccable');
-      if (fs.existsSync(path.join(skillDir, 'SKILL.md'))) p.skillPresent = true;
-      const launcher = path.join(skillDir, 'scripts', 'impeccable');
-      if (!fs.existsSync(launcher)) continue;
-      if (rootIsRepo) { repoLocalLauncher = true; continue; }
-      const realLauncher = realpathOrNull(launcher);
-      if (!realLauncher || underProject(realLauncher, repoRoot, cwd)) { repoLocalLauncher = true; continue; }
-      p.launcher ??= launcher;
-      for (const cand of engineSiblings(path.dirname(launcher))) {
-        const real = realpathOrNull(cand);
-        if (siblingEngine || !real || !isExecutableFile(real) || !isEngineName(real) || underProject(real, repoRoot, cwd)) continue;
-        siblingEngine = real;
-        try {
-          const v = fs.readFileSync(path.join(path.dirname(launcher), 'VERSION'), 'utf-8').trim();
-          siblingVersion = semverKey(v) ? v.replace(/^v/, '') : null; // a non-semver VERSION is not trusted as text
-        } catch { /* no VERSION file */ }
-      }
+      checkSkillDir(path.join(root, sub, 'skills', 'impeccable'), rootIsRepo);
+    }
+    for (const skillDir of pluginCacheImpeccableSkillDirs(root)) {
+      checkSkillDir(skillDir, rootIsRepo);
     }
   }
   step(`skill=${p.skillPresent} launcher=${p.launcher ?? 'none'} repoLocalLauncher=${repoLocalLauncher} sibling=${siblingEngine ?? 'none'}`);

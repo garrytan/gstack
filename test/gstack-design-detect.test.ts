@@ -342,6 +342,97 @@ describe('probe', () => {
   });
 });
 
+describe('plugin-cache impeccable install', () => {
+  // A Claude Code plugin install places impeccable at
+  // <HOME>/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/impeccable/,
+  // never at the traditional <HOME>/.claude/skills/impeccable/ the SKILL_ROOTS
+  // walk expects (regression for github.com/garrytan/gstack/issues/2838).
+  function pluginCacheDir(root: string, marketplace = 'impeccable', plugin = 'impeccable', version = '4.3.1') {
+    return path.join(root, '.claude', 'plugins', 'cache', marketplace, plugin, version, 'skills', 'impeccable');
+  }
+
+  test('SKILL.md present, no launcher → IMPECCABLE_SKILL: present, no crash, no READY', () => {
+    const home = path.join(SANDBOX, 'fake-home');
+    const skillDir = pluginCacheDir(home);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# impeccable\n');
+    try {
+      const r = run(['probe']);
+      expect(r.out).toContain(`${SENTINEL.SKILL}: present`);
+      expect(r.out).not.toContain(SENTINEL.READY);
+    } finally {
+      fs.rmSync(path.join(home, '.claude'), { recursive: true, force: true });
+    }
+  });
+
+  test.skipIf(!POSIX)('plugin-cache launcher without engine → NOT_CACHED naming the plugin-cache launcher; with sibling engine → READY + VERSION', () => {
+    const home = path.join(SANDBOX, 'fake-home');
+    const skillDir = pluginCacheDir(home);
+    const scripts = path.join(skillDir, 'scripts');
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# impeccable\n');
+    fs.writeFileSync(path.join(scripts, 'impeccable'), '#!/bin/sh\necho "would download"\n');
+    fs.chmodSync(path.join(scripts, 'impeccable'), 0o755);
+    fs.writeFileSync(path.join(scripts, 'VERSION'), '0.1.3\n');
+    try {
+      const r = run(['probe']);
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${path.join(scripts, 'impeccable')}`);
+      expect(r.out).toContain(`${SENTINEL.SKILL}: present`);
+      expect(r.out).toContain(`run \`${path.join(scripts, 'impeccable')} detect --help\` once`);
+      expect(r.out).not.toContain('npx impeccable');
+      expect(r.out).not.toContain('would download');
+
+      const sib = path.join(scripts, 'bin', `${process.platform}-${process.arch}`);
+      fs.mkdirSync(sib, { recursive: true });
+      fs.copyFileSync(FAKE, path.join(sib, 'impeccable'));
+      fs.chmodSync(path.join(sib, 'impeccable'), 0o755);
+      const r2 = run(['probe']);
+      expect(lines(r2.out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(path.join(sib, 'impeccable'))}`);
+      expect(r2.out).not.toContain(SENTINEL.ENGINE_UNTESTED);
+      expect(r2.out).not.toContain(SENTINEL.HINT);
+    } finally {
+      fs.rmSync(path.join(home, '.claude'), { recursive: true, force: true });
+    }
+  });
+
+  test.skipIf(!POSIX)('a plugin-cache install committed INSIDE the repository is never executed: skill-present only, launcher never runs', () => {
+    const skillDir = pluginCacheDir(REPO, 'acme', 'impeccable', '1.0.0');
+    const scripts = path.join(skillDir, 'scripts');
+    const sib = path.join(scripts, 'bin', `${process.platform}-${process.arch}`);
+    fs.mkdirSync(sib, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# impeccable\n');
+    fs.writeFileSync(path.join(scripts, 'impeccable'), '#!/bin/sh\necho "would download"\n');
+    fs.chmodSync(path.join(scripts, 'impeccable'), 0o755);
+    fs.writeFileSync(path.join(scripts, 'VERSION'), '0.1.3\n');
+    const marker = path.join(SANDBOX, 'repo-plugin-engine-ran.txt');
+    fs.writeFileSync(path.join(sib, 'impeccable'), `#!/bin/sh\necho ran > ${JSON.stringify(marker)}\necho "[]"\n`);
+    fs.chmodSync(path.join(sib, 'impeccable'), 0o755);
+    try {
+      const r = run(['probe']);
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: repository-local install`);
+      expect(r.out).toContain(`${SENTINEL.SKILL}: present`);
+      expect(r.out).toContain('never runs a repository-local launcher');
+      expect(fs.existsSync(marker)).toBe(false);
+    } finally {
+      fs.rmSync(path.join(REPO, '.claude'), { recursive: true, force: true });
+    }
+  });
+
+  test('multiple plugin-cache entries (different marketplace/plugin/version) coexist without throwing', () => {
+    const home = path.join(SANDBOX, 'fake-home');
+    fs.mkdirSync(pluginCacheDir(home, 'marketA', 'impeccable', '1.0.0'), { recursive: true });
+    fs.writeFileSync(path.join(pluginCacheDir(home, 'marketA', 'impeccable', '1.0.0'), 'SKILL.md'), '# impeccable\n');
+    fs.mkdirSync(pluginCacheDir(home, 'marketB', 'impeccable', '2.0.0'), { recursive: true });
+    fs.writeFileSync(path.join(pluginCacheDir(home, 'marketB', 'impeccable', '2.0.0'), 'SKILL.md'), '# impeccable\n');
+    try {
+      const r = run(['probe']);
+      expect(r.out).toContain(`${SENTINEL.SKILL}: present`);
+    } finally {
+      fs.rmSync(path.join(home, '.claude'), { recursive: true, force: true });
+    }
+  });
+});
+
 describe('scan', () => {
   test('not READY → prints the probe lines, exit 0, engine never needed', () => {
     const r = run(['scan', 'src/styles.css']);
