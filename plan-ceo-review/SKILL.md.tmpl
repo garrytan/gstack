@@ -397,10 +397,9 @@ Follow the preamble's session rules; `CONDUCTOR_SESSION: true` changes transport
    In the Recommendation's `because` clause, connect a concrete plan fact or
    constraint to this mode's actual benefit or tradeoff. Count/category alone
    is not a reason.
-3. Resolve the recommendation as an admin choice, not a plan decision. When
-   `QUESTION_TUNING: true`, first check
-   `question_id=plan-ceo-review-mode` through the preamble. A check that exits 0
-   with `AUTO_DECIDE` selects the recommendation; go to the automatic handoff in
+3. Resolve that recommendation. Mode selection is an admin choice, not a plan
+   decision. When `QUESTION_TUNING: true`, first check `question_id=plan-ceo-review-mode` through the preamble.
+   A check that exits 0 with `AUTO_DECIDE` selects the recommendation; go to the automatic handoff in
    step 4. When tuning is false, omit the lookup.
    Without that successful check, offer all four modes in one AskUserQuestion,
    using step 2's recommendation. **STOP for the answer**; the user's choice
