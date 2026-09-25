@@ -13,6 +13,7 @@ import { NATIVE_BROWSER_VERSION_COMMAND } from '../src/cookie-import-native-inte
 import { createNativeCookieJob, joinNativeCookieJob, NativeCookieJobError, nativeCookieDiagnostic, parseNativeCookieDiagnostic, type NativeCookieJob } from '../src/cookie-import-native-job';
 import { nativeCookieEnvironment, NATIVE_COOKIE_NODE_SCRIPT, superviseNativeCookieImport, type NativeCookieMember, type NativeCookieReply, type NativeCookieRequest } from '../src/cookie-import-native-worker';
 import { decodeNativeCommandLine } from './fixtures/native-cookie-process-observer';
+import { createFixtureDeleteLease, FixtureDeleteError } from './fixtures/native-cookie-delete-lease';
 
 const root = mkdtempSync(path.join(tmpdir(), 'cookie-job-'));
 const resolvedRoot = realpathSync(root);
@@ -23,7 +24,7 @@ const fixturePrimitiveFailures = new WeakMap<object, object>();
 function removeOwnedFixtureDirectory(directory: string, identity: { dev: bigint; ino: bigint }, operations = {
   lstat: (file: string) => lstatSync(file, { bigint: true }),
   enumerate: (file: string) => readdirSync(file),
-  unlink: (file: string) => unlinkSync(file),
+  unlink: (file: string, _identity: { dev: bigint; ino: bigint; mode: bigint }, _verify: () => void) => unlinkSync(file),
   rmdir: (file: string) => rmdirSync(file),
 }): void {
   let primitive = 'identity';
@@ -73,13 +74,17 @@ function removeOwnedFixtureDirectory(directory: string, identity: { dev: bigint;
         primitive = 'rmdir'; object = file; objectIdentityMatched = true;
         operations.rmdir(file);
       } else {
-        verifyAncestors();
-        const current = inspect(file);
-        if (current.dev !== state.dev || current.ino !== state.ino || current.mode !== state.mode) {
-          primitive = 'identity'; throw new Error('Native fixture entry identity changed');
-        }
-        primitive = 'unlink'; object = file; objectIdentityMatched = true;
-        operations.unlink(file);
+        const verify = () => {
+          verifyAncestors();
+          if (realpathSync(root) !== resolvedRoot) { primitive = 'identity'; throw new Error('Native fixture root path changed'); }
+          const current = inspect(file);
+          if (current.dev !== state.dev || current.ino !== state.ino || current.mode !== state.mode) {
+            primitive = 'identity'; throw new Error('Native fixture entry identity changed');
+          }
+          primitive = 'unlink'; object = file; objectIdentityMatched = true;
+        };
+        verify();
+        operations.unlink(file, state, verify);
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || object !== file) throw error;
@@ -128,6 +133,16 @@ function removeOwnedFixtureDirectory(directory: string, identity: { dev: bigint;
   }
 }
 
+function resetOwnedProfileDirectory(directory: string, identity: { dev: bigint; ino: bigint }, supervisionDeadline: number): void {
+  const lease = createFixtureDeleteLease(Math.min(supervisionDeadline, performance.now() + 5_000));
+  try {
+    removeOwnedFixtureDirectory(directory, identity, {
+      lstat: file => lstatSync(file, { bigint: true }), enumerate: file => readdirSync(file),
+      unlink: lease.unlink, rmdir: file => rmdirSync(file),
+    });
+  } finally { lease.close(); }
+}
+
 function ownFixtureChild<T extends ChildProcess>(child: T): T {
   fixtureChildren.add(child);
   child.once('close', () => fixtureChildren.delete(child));
@@ -165,9 +180,10 @@ function fixtureRemovalEvidence(error: unknown, directory: string, identity: { d
   } | undefined : undefined;
   const evidence = {
     code: ['EBUSY', 'EPERM', 'EACCES', 'ENOENT', 'ENOTEMPTY', 'ENOTDIR'].includes(failure?.code || '') ? failure.code : 'filesystem_error',
-    syscall: ['rm', 'rmdir', 'unlink', 'scandir', 'lstat'].includes(failure?.syscall || '') ? failure.syscall : 'unavailable',
+    syscall: ['rm', 'rmdir', 'unlink', 'scandir', 'lstat', 'open', 'fstat', 'close'].includes(failure?.syscall || '') ? failure.syscall : 'unavailable',
     errno: Number.isSafeInteger(failure?.errno) ? failure.errno : undefined,
     pendingChildCloses: fixtureChildren.size,
+    ...(error instanceof FixtureDeleteError ? { deletionStage: error.stage, win32Error: error.win32Error, deadlineExceeded: error.deadlineExceeded } : {}),
     ...(error && typeof error === 'object' ? fixturePrimitiveFailures.get(error) : undefined),
   };
   try {
@@ -935,6 +951,14 @@ function safeNativeEnvelope(output: string): object {
   }
 }
 
+function assertOwnerReceipt(receipt: { available: boolean; owners: { pid: number; creationMatched: boolean; isTestHost: boolean }[] }, pid: number) {
+  const before = JSON.stringify(receipt);
+  expect(receipt.available).toBe(true);
+  expect(Array.isArray(receipt.owners)).toBe(true);
+  expect(receipt.owners.some(owner => owner.pid === pid && owner.creationMatched && owner.isTestHost)).toBe(true);
+  expect(JSON.stringify(receipt)).toBe(before);
+}
+
 function assertCookieReceipt(receipt: NativeCookieReply, evidence: object = {}) {
   if (!('cookies' in receipt) || !Array.isArray(receipt.cookies)) {
     throw new Error(JSON.stringify({ nativeCookieReceipt: safeNativeEnvelope(JSON.stringify(receipt)), ...evidence }));
@@ -959,6 +983,7 @@ function safeLaunchEvidence(file: string): object {
 }
 
 function nativeSupervisor(input: NativeCookieRequest, env: NodeJS.ProcessEnv) {
+  const cleanupDeadline = performance.now() + 30_000;
   const child = ownFixtureChild(spawn(process.execPath, ['--no-env-file', '--no-install', '--no-macros', '--config=NUL', path.resolve(import.meta.dir, '../src/cookie-import-native-worker.ts')], { env, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }));
   let output = '';
   child.stdout.on('data', chunk => { output += chunk; });
@@ -973,7 +998,7 @@ function nativeSupervisor(input: NativeCookieRequest, env: NodeJS.ProcessEnv) {
   void done.catch(() => {});
   child.stdin.on('error', () => {});
   child.stdin.write(JSON.stringify({ ...input, deadline: Date.now() + 25_000, qualifiedBunVersions: [Bun.version] }) + '\n');
-  return { child, done, envelope: () => safeNativeEnvelope(output) };
+  return { child, done, cleanupDeadline, envelope: () => safeNativeEnvelope(output) };
 }
 
 describe('native Windows process qualification', () => {
@@ -1198,8 +1223,10 @@ describe('native Windows launch diagnostics', () => {
         expect((caught as NodeJS.ErrnoException).syscall).toBe(primitive);
         const receipt = fixtureRemovalEvidence(caught, target, identity);
         expect(receipt).toMatchObject({ primitive, rootIdentityMatched: true, objectIdentityMatched: true, directoryIdentityMatched: true, relativeObjectHash: createHash('sha256').update(kind === 'file' ? 'held' : '').digest('hex') });
-        if (kind === 'file') expect(receipt).toMatchObject({ fileOwners: { available: true,
-          owners: expect.arrayContaining([expect.objectContaining({ pid: process.pid, creationMatched: true, isTestHost: true })]) } });
+        if (kind === 'file') {
+          const owners = (receipt as { fileOwners: { available: boolean; owners: { pid: number; creationMatched: boolean; isTestHost: boolean }[] } }).fileOwners;
+          assertOwnerReceipt(owners, process.pid);
+        }
         console.log(JSON.stringify({ nativeFixtureOwnedLockControl: { kind, ...receipt } }));
         expect(lstatSync(locked, { bigint: true }).ino).toBe(lockedIdentity.ino);
         expect(lstatSync(locked, { bigint: true }).dev).toBe(lockedIdentity.dev);
@@ -1298,6 +1325,21 @@ describe('native Windows launch diagnostics', () => {
     expect(Array.isArray(receipt.cookies)).toBe(true);
     expect(JSON.stringify(receipt)).toBe(before);
     expect(() => assertCookieReceipt({ error: 'native_timeout' })).toThrow('native_timeout');
+  });
+
+  test('holder assertions preserve the real owner array and reject nonmatching identities', () => {
+    const receipt = { available: true, owners: [{ pid: 123, image: 'bun.exe', creationMatched: true, isTestHost: true }] };
+    const before = JSON.stringify(receipt);
+    const owners = receipt.owners;
+    Object.freeze(receipt);
+    Object.freeze(owners);
+    Object.freeze(owners[0]);
+    assertOwnerReceipt(receipt, 123);
+    expect(receipt.owners).toBe(owners);
+    expect(Array.isArray(receipt.owners)).toBe(true);
+    expect(JSON.stringify(receipt)).toBe(before);
+    expect(() => assertOwnerReceipt(receipt, 124)).toThrow();
+    expect(() => assertOwnerReceipt({ available: true, owners: [{ pid: 123, creationMatched: false, isTestHost: true }] }, 123)).toThrow();
   });
 
   test('native Unicode output retains the exact allocation address for short and long buffers', () => {
@@ -1450,7 +1492,7 @@ describe('native Windows launch diagnostics', () => {
       if (existsSync(userDataDir)) {
         if (realpathSync(userDataDir).toLowerCase() !== path.resolve(userDataDir).toLowerCase()) throw new Error('Synthetic profile ownership changed; comparison refused');
         const identity = lstatSync(userDataDir, { bigint: true });
-        try { removeOwnedFixtureDirectory(userDataDir, identity); }
+        try { resetOwnedProfileDirectory(userDataDir, identity, supervisor.cleanupDeadline); }
         catch (error) {
           console.error(JSON.stringify({ nativeFixtureRemovalFailure: { stage: 'launch_reset', layout, ...fixtureRemovalEvidence(error, userDataDir, identity) } }));
           throw error;
@@ -1506,7 +1548,8 @@ describe('native Windows launch diagnostics', () => {
       const environment = nativeCookieEnvironment({ SystemRoot: process.env.SystemRoot!, TEMP: fixture, TMP: fixture, USERPROFILE: fixture, LOCALAPPDATA: fixture, APPDATA: fixture, PATH: path.dirname(node) });
       const input = { ...request, nodeExecutable: node, executablePath: edge, userDataDir, playwrightEntry };
       writeFileSync(playwrightEntry, wrapper);
-      const first = await nativeSupervisor(input, environment).done;
+      const firstSupervisor = nativeSupervisor(input, environment);
+      const first = await firstSupervisor.done;
       const firstLaunch = safeLaunchEvidence(observation);
       const firstObservation = JSON.parse(readFileSync(observation, 'utf8'));
       console.log(JSON.stringify({ nativeEdgeBeforeReset: { comparison: 'initialization', state, first: 'error' in first ? first : { cookiesRead: first.cookies.length }, firstLaunch, pendingChildCloses: fixtureChildren.size } }));
@@ -1517,7 +1560,7 @@ describe('native Windows launch diagnostics', () => {
       } else {
         if (existsSync(userDataDir) && realpathSync(userDataDir) !== path.join(ownedRoot, 'User Data')) throw new Error('Synthetic profile ownership changed');
         const identity = existsSync(userDataDir) ? lstatSync(userDataDir, { bigint: true }) : undefined;
-        try { if (identity) removeOwnedFixtureDirectory(userDataDir, identity); }
+        try { if (identity) resetOwnedProfileDirectory(userDataDir, identity, firstSupervisor.cleanupDeadline); }
         catch (error) {
           console.error(JSON.stringify({ nativeFixtureRemovalFailure: { stage: 'initialization_reset', state, ...(identity ? fixtureRemovalEvidence(error, userDataDir, identity) : { inspected: false, reason: 'no_pre_reset_identity' }) } }));
           throw error;
