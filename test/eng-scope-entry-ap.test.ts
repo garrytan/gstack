@@ -158,7 +158,7 @@ test('the full evaluated bundle routes startup into ordered preparation before s
 test('both complexity paths join findings without bypassing answers or persistence', () => {
   const section = fs.readFileSync(path.join(import.meta.dir, '../plan-eng-review/sections/review-sections.md.tmpl'),'utf8');
   const challenge = section.slice(section.indexOf('## Scope Challenge'),section.indexOf('## Review Sections'));
-  const stages = ['### A. Assess the target', '### B. Resolve complexity selectors', '### C. Resolve findings'];
+  const stages = ['### A. Assess the target', '### B. Resolve complexity selectors', '### C. Resolve findings', '1. Present numbered Scope Challenge findings'];
   const positions = stages.map(stage => challenge.indexOf(stage));
   expect(positions.every(position => position >= 0)).toBe(true);
   expect(positions).toEqual([...positions].sort((a, b) => a - b));

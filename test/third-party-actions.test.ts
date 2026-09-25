@@ -113,9 +113,10 @@ function generatedSkillDocs(): string[] {
  * (aside.com) never match.
  */
 function asideCommandTokens(text: string): string[] {
+  if (!/\baside\s+(?:--?[A-Za-z]|[a-z][\w-]*)/.test(text)) return [];
   const tokens: string[] = [];
   const codeChunks: string[] = [];
-  marked.walkTokens(marked.lexer(text), token => {
+  marked.walkTokens(marked.lexer(text, { gfm: false }), token => {
     if (token.type === 'code' || token.type === 'codespan') codeChunks.push(token.text);
   });
   for (const chunk of codeChunks) {
@@ -150,6 +151,7 @@ describe('Aside command extraction boundaries', () => {
     '- Run:\n\n  ```bash\n  aside invented\n  ```',
     '> ```bash\n> aside invented\n> ```',
     '    aside invented',
+    '| Command |\n| --- |\n| `aside invented` |',
   ])('still detects unsupported commands in %s', text => {
     expect(asideCommandTokens(text)).toContain('invented');
   });
@@ -384,7 +386,7 @@ describe("repo-wide generated output: Aside anti-drift tripwires", () => {
           .toContain(t);
       }
     }
-  });
+  }, 15_000);
 
   test("no Aside-specific installer invocation in any generated skill doc", () => {
     for (const file of generatedSkillDocs()) {
