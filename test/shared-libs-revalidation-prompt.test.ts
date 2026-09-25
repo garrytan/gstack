@@ -65,6 +65,9 @@ describe('bounded shared-code revalidation prompt', () => {
     expect(contract).toContain(`${SHARED_INTERACTIVE_MAX_TURNS} assistant turns`);
     expect(contract).toContain(path.join(f.state, 'projects/fixture-shared-libs/.review-starts/<REVIEW_START>.json'));
     expect(contract).toContain('token actually returned by --start');
+    expect(contract).toContain('separate, successful Read tool call or a single cat command');
+    expect(contract).toContain('Do not combine the record read with --start, the diff or other diagnostic commands');
+    expect(contract).toContain('if the read fails, retry it before proceeding');
     expect(contract).not.toMatch(/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}/);
     expect(contract).toContain('Batch independent required source reads');
     expect(contract).toContain('Preserve every required evidence check and dependency');
