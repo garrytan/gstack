@@ -13,6 +13,7 @@ import {
 } from './helpers/e2e-helpers';
 import { asideAvailable } from './helpers/aside-available';
 import { installFakeImpeccable, DETECT_SAMPLE } from './helpers/fake-impeccable';
+import { hermeticChildEnv } from './helpers/hermetic-env';
 import { sliceBetween, extractDesignResearchContract } from './helpers/skill-fixture';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -770,6 +771,163 @@ function detectorSkillText(sections: Array<[string, string]>): string {
 function makeFakeEngine(): string {
   return installFakeImpeccable('skill-e2e-fake-impeccable-').dir;
 }
+
+function detectorReportEntries(report: string): string[] {
+  return report.split(/(?=^[\t ]*(?:#{1,6}\s+|[-*|]\s*|\d+[.)]\s+)?(?:\*\*|`)?FINDING-\d+)/m);
+}
+
+if (!evalsEnabled) test('detector report handoffs stay with their entry across inline cross-references', () => {
+  const report = `### FINDING-001 \`[low-contrast]\` — impact=high — DEFERRED
+handoff=\`/impeccable colorize\`
+
+### FINDING-002 \`[ai-color-palette]\` — impact=medium — DEFERRED
+The colors also appear in FINDING-001. This is unconfirmed static evidence.
+handoff=\`/impeccable colorize\`
+
+### FINDING-003 \`[skipped-heading]\` — impact=medium — DEFERRED
+handoff=\`/impeccable typeset\`
+`;
+  const hasPaletteHandoff = (text: string) => detectorReportEntries(text).some(entry => entry.includes('[ai-color-palette]') && entry.includes('/impeccable colorize'));
+  expect(hasPaletteHandoff(report)).toBe(true);
+  expect(hasPaletteHandoff(report.replace('handoff=`/impeccable colorize`\n\n### FINDING-003', '### FINDING-003'))).toBe(false);
+  for (const marker of ['.', ')']) {
+    const numbered = report.replace(/^### FINDING-(\d+)/gm, (_, number) => `${Number(number)}${marker} **FINDING-${number}**`);
+    expect(hasPaletteHandoff(numbered)).toBe(true);
+    expect(hasPaletteHandoff(numbered.replace(`handoff=\`/impeccable colorize\`\n\n3${marker}`, `3${marker}`))).toBe(false);
+  }
+});
+
+function pluginDetectorFixture() {
+  const fixture = installFakeImpeccable('skill-e2e-plugin-');
+  const repoDir = path.join(fixture.dir, 'repo');
+  const home = path.join(fixture.dir, 'home');
+  const configDir = path.join(fixture.dir, 'custom-claude');
+  const gstackHome = path.join(fixture.dir, 'gstack');
+  const impeccableHome = path.join(fixture.dir, 'engine-cache');
+  for (const dir of [repoDir, home, configDir, gstackHome, impeccableHome]) fs.mkdirSync(dir);
+  const env = hermeticChildEnv({
+    HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: configDir,
+    GSTACK_HOME: gstackHome, IMPECCABLE_HOME: impeccableHome,
+    CLAUDE_PLUGIN_DATA: '', GSTACK_HEADLESS: '1',
+  });
+  for (const key of Object.keys(env)) if (key.startsWith('IMPECCABLE_') && key !== 'IMPECCABLE_HOME') delete env[key];
+  const engines: Record<string, string> = {};
+  for (const version of ['4.3.1', '4.10.0']) {
+    const skillDir = path.join(configDir, 'plugins/cache/fixture-market/impeccable', version, 'skills/impeccable');
+    const scripts = path.join(skillDir, 'scripts');
+    const engineDir = path.join(scripts, 'bin', `${process.platform}-${process.arch}`);
+    fs.mkdirSync(engineDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# Impeccable fixture marker\n');
+    fs.writeFileSync(path.join(scripts, 'impeccable'), `#!/bin/sh\nprintf launcher > '${fixture.dir}/launcher-ran'\nexit 99\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(scripts, 'VERSION'), '1.6.0\n');
+    engines[version] = path.join(engineDir, 'impeccable');
+    fs.writeFileSync(engines[version], `#!/bin/sh\nIMPECCABLE_FAKE_LOG='${fixture.dir}/${version}.jsonl' exec '${process.execPath}' '${fixture.bin}' "$@"\n`, { mode: 0o755 });
+    engines[version] = fs.realpathSync(engines[version]);
+  }
+  const git = (...args: string[]) => {
+    const result = spawnSync('git', args, { cwd: repoDir, env, encoding: 'utf-8', timeout: 5000 });
+    if (result.status !== 0) throw new Error(`Plugin fixture git ${args[0]} failed: ${result.stderr}`);
+  };
+  git('init', '-b', 'main');
+  git('config', 'user.email', 'test@test.com');
+  git('config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(repoDir, 'index.html'), '<h1>Clean</h1>\n');
+  git('add', '.');
+  git('commit', '-m', 'initial');
+  git('checkout', '-b', 'feature/landing');
+  fs.copyFileSync(path.join(ROOT, 'test/fixtures/review-eval-design-slop.html'), path.join(repoDir, 'index.html'));
+  git('add', '.');
+  git('commit', '-m', 'landing page');
+  fs.writeFileSync(path.join(repoDir, 'design-review-detector.md'), detectorSkillText([
+    ['**Design detector (optional, deterministic):**', '**Create output directories:**'],
+    ['**Phase 0: mechanical scan**', '## Phases 1-6'],
+  ]));
+  return { dir: fixture.dir, repoDir, env, engines };
+}
+
+if (!evalsEnabled) test('plugin detector fixture discovers the selected engine without an override', () => {
+  const fixture = pluginDetectorFixture();
+  try {
+    expect(fixture.env.IMPECCABLE_BIN).toBeUndefined();
+    const probe = spawnSync(process.execPath, ['--no-env-file', 'run', path.join(ROOT, 'bin/gstack-design-detect.ts'), 'probe', '--host', 'claude'], {
+      cwd: fixture.repoDir, env: fixture.env, encoding: 'utf-8', timeout: 10000,
+    });
+    expect(probe.status).toBe(0);
+    expect(probe.stdout).toContain(`IMPECCABLE_READY: ${fixture.engines['4.10.0']}`);
+    expect(probe.stdout).toContain('IMPECCABLE_SKILL: present');
+    const scan = spawnSync(process.execPath, ['--no-env-file', 'run', path.join(ROOT, 'bin/gstack-design-detect.ts'), 'scan', '--changed', 'main', '--host', 'claude'], {
+      cwd: fixture.repoDir, env: fixture.env, encoding: 'utf-8', timeout: 10000,
+    });
+    expect(scan.status).toBe(2);
+    expect(scan.stderr).toContain('handoff=/impeccable colorize');
+    expect(fs.existsSync(path.join(fixture.dir, '4.10.0.jsonl'))).toBe(true);
+    expect(fs.existsSync(path.join(fixture.dir, '4.3.1.jsonl'))).toBe(false);
+    expect(fs.existsSync(path.join(fixture.dir, 'launcher-ran'))).toBe(false);
+  } finally {
+    fs.rmSync(fixture.dir, { recursive: true, force: true });
+  }
+});
+
+describeIfSelected('Design review plugin discovery E2E', ['design-review-plugin-handoff'], () => {
+  testConcurrentIfSelected('design-review-plugin-handoff', async () => {
+    const fixture = pluginDetectorFixture();
+    try {
+      const result = await runSkillTest({
+        prompt: `Load gstack's /design-review workflow by reading design-review-detector.md, the actual Setup detector and Phase 0 excerpt.
+Supported actor scope: read that excerpt, run its detector probe and one source-mode scan, then write detector-output.md. This isolated repository is on feature/landing; its base is main. There is no URL.
+Do not install or download anything, execute a launcher, change environment variables, browse, ask questions, spawn agents, or edit anything except detector-output.md. Do not read Impeccable skill files. If discovery fails, report that failure and stop; do not repair the environment.
+Write the probe's first line and skill-presence line, then one FINDING-NNN entry per DETECT_TOP rule with its [rule-id] and impact. All findings are deferred, unconfirmed static evidence because rendered-page confirmation is outside this actor's scope. Apply the excerpt's deferred-finding reporting requirements. Do not fix source files or claim visual verification.`,
+        workingDirectory: fixture.repoDir,
+        maxTurns: 10,
+        timeout: CAPTURE_MS,
+        testName: 'design-review-plugin-handoff',
+        runId,
+        tools: ['Bash', 'Read', 'Write'],
+        env: fixture.env,
+      });
+      logCost('/design-review plugin handoff', result);
+      const reportPath = path.join(fixture.repoDir, 'detector-output.md');
+      const report = fs.existsSync(reportPath) ? fs.readFileSync(reportPath, 'utf-8') : '';
+      const outputs = result.toolCalls.map(call => String(call.output ?? '')).join('\n');
+      const commands = result.toolCalls.filter(call => call.tool === 'Bash').map(call => String(call.input?.command ?? ''));
+      const handoffs = [...outputs.matchAll(/\[([\w-]+)\] impact=(\w+)[^\n]*handoff=(\/impeccable \w+)/g)];
+      const entries = detectorReportEntries(report);
+      const engineLog = path.join(fixture.dir, '4.10.0.jsonl');
+      const invocations = fs.existsSync(engineLog) ? fs.readFileSync(engineLog, 'utf-8').trim().split('\n') : [];
+      const sourceUnchanged = fs.readFileSync(path.join(fixture.repoDir, 'index.html'), 'utf-8') === fs.readFileSync(path.join(ROOT, 'test/fixtures/review-eval-design-slop.html'), 'utf-8');
+      if (process.env.GSTACK_EVAL_DIR) {
+        const evidenceDir = path.join(process.env.GSTACK_EVAL_DIR, 'plugin-handoff', `${Date.now()}`);
+        fs.mkdirSync(evidenceDir, { recursive: true, mode: 0o700 });
+        for (const [name, text] of Object.entries({
+          'report.md': report,
+          'skill-excerpt.md': fs.readFileSync(path.join(fixture.repoDir, 'design-review-detector.md'), 'utf-8'),
+          'engine-invocations.jsonl': invocations.join('\n'),
+        })) fs.writeFileSync(path.join(evidenceDir, name), text, { mode: 0o600 });
+      }
+      const checks = {
+        success: result.exitReason === 'success',
+        selectedEngine: outputs.includes(`IMPECCABLE_READY: ${fixture.engines['4.10.0']}`),
+        skillPresent: outputs.includes('IMPECCABLE_SKILL: present'),
+        probeReported: report.includes(`IMPECCABLE_READY: ${fixture.engines['4.10.0']}`) && report.includes('IMPECCABLE_SKILL: present'),
+        probeExecuted: commands.some(command => /gstack-design-detect\.ts probe/.test(command)),
+        scanExecuted: commands.some(command => /gstack-design-detect\.ts scan --changed main/.test(command)),
+        noInstallOrOverride: !commands.some(command => /\bnpx\b|gstack-design-detect\.ts install|\b(?:curl|wget|npm install|bun add)\b|IMPECCABLE_BIN\s*=/.test(command)),
+        oneNewEngineInvocation: invocations.length === 1,
+        oldEngineNotExecuted: !fs.existsSync(path.join(fixture.dir, '4.3.1.jsonl')),
+        launcherNotExecuted: !fs.existsSync(path.join(fixture.dir, 'launcher-ran')),
+        sourceUnchanged,
+        findingsReported: report.includes('FINDING-001') && report.includes('[ai-color-palette]') && report.includes('[low-contrast]'),
+        deferred: /deferred/i.test(report),
+        nonemptyHandoffs: handoffs.length > 0,
+        perFindingHandoff: handoffs.every(([, rule, impact, command]) => entries.some(entry => entry.includes(`[${rule}]`) && entry.toLowerCase().includes(impact) && entry.includes(command))),
+      };
+      recordE2E(evalCollector, '/design-review plugin handoff', 'Design review plugin discovery E2E', result, { passed: Object.values(checks).every(Boolean) });
+      expect(Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name)).toEqual([]);
+    } finally {
+      fs.rmSync(fixture.dir, { recursive: true, force: true });
+    }
+  }, CAPTURE_MS);
+});
 
 describeIfSelected('Design review detector shim E2E', ['design-review-detector-shim', 'design-review-detector-shim-dom'], () => {
   let repoDir: string;

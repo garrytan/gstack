@@ -342,6 +342,420 @@ describe('probe', () => {
   });
 });
 
+describe('plugin-cache selection and trust', () => {
+  function fixture(check: (home: string, config: string) => void) {
+    const home = fs.mkdtempSync(path.join(SANDBOX, 'plugin-home-'));
+    try { check(home, path.join(home, '.claude')); }
+    finally { fs.rmSync(home, { recursive: true, force: true }); }
+  }
+
+  function plugin(config: string, version: string, opts: { engine?: boolean; engineVersion?: string; marketplace?: string; name?: string } = {}) {
+    const skill = path.join(config, 'plugins', 'cache', opts.marketplace ?? 'impeccable', opts.name ?? 'impeccable', version, 'skills', 'impeccable');
+    const scripts = path.join(skill, 'scripts');
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.writeFileSync(path.join(skill, 'SKILL.md'), '# impeccable\n');
+    const marker = path.join(config, 'launcher-ran');
+    const launcher = path.join(scripts, 'impeccable');
+    fs.writeFileSync(launcher, `#!/bin/sh\nprintf ran > ${JSON.stringify(marker)}\n`);
+    fs.chmodSync(launcher, 0o755);
+    fs.writeFileSync(path.join(scripts, 'VERSION'), `${opts.engineVersion ?? '0.1.3'}\n`);
+    const engine = path.join(scripts, 'bin', `${process.platform}-${process.arch}`, POSIX ? 'impeccable' : 'impeccable.exe');
+    if (opts.engine) {
+      fs.mkdirSync(path.dirname(engine), { recursive: true });
+      fs.copyFileSync(FAKE, engine);
+      fs.chmodSync(engine, 0o755);
+    }
+    return { skill, scripts, launcher, engine, marker };
+  }
+
+  test.each([
+    [['4.3.1', '4.10.0'], '4.10.0'],
+    [['4.10.0', '4.3.1'], '4.10.0'],
+    [['4.3.1-beta.1', '4.3.1'], '4.3.1'],
+    [['4.4.0-beta.2', '4.4.0-beta.10'], '4.4.0-beta.10'],
+    [['unknown', 'a1b2c3d4'], 'a1b2c3d4'],
+    [['a1b2c3d4'], 'a1b2c3d4'],
+    [['unknown'], 'unknown'],
+    [['unknown', '4.3.1'], '4.3.1'],
+    [['v4.3.1', '4.3.1'], '4.3.1'],
+    [['99.0.0-', '4.3.1'], '4.3.1'],
+    [['99.0.0-beta..1', '4.3.1'], '4.3.1'],
+    [['99.0.0-01', '4.3.1'], '4.3.1'],
+    [['99.0.0+build..1', '4.3.1'], '4.3.1'],
+    [['99.0.0-'], '99.0.0-'],
+    [['4.3.1+build.2', '4.3.1+build.1'], '4.3.1+build.1'],
+  ] as [string[], string][])('orders plugin versions %j and selects %s', (versions, expected) => {
+    fixture((home, config) => {
+      const installs = new Map(versions.map(v => [v, plugin(config, v)]));
+      const r = run(['probe', '--verbose'], { env: { HOME: home } });
+      expect(r.code).toBe(0);
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${installs.get(expected)!.launcher}`);
+      expect(r.out).toContain(`${SENTINEL.SKILL}: present`);
+      if (!/^[v\d]/.test(expected)) expect(r.out).toContain('opaque version; recency unknown');
+      for (const install of installs.values()) expect(fs.existsSync(install.marker)).toBe(false);
+    });
+  });
+
+  test.skipIf(!POSIX)('selected plugin engine and version match; scans produce handoff data without running launchers', () => {
+    fixture((home, config) => {
+      plugin(config, '4.3.1', { engine: true, engineVersion: '0.1.3' });
+      const current = plugin(config, '4.10.0', { engine: true, engineVersion: '0.1.5' });
+      const env = { HOME: home };
+      const p = run(['probe'], { env });
+      expect(lines(p.out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(current.engine)}`);
+      expect(p.out).toContain(`${SENTINEL.ENGINE_UNTESTED}: 0.1.5`);
+      expect(p.out).not.toContain(SENTINEL.INSTALL_OFFER);
+      const log = path.join(home, 'engine-args.jsonl');
+      const scan = run(['scan', 'src/styles.css'], { env: { ...env, IMPECCABLE_FAKE_LOG: log } });
+      expect(scan.code).toBe(2);
+      expect(scan.err).toContain(`${SENTINEL.SKILL}: present`);
+      expect(scan.err).toContain('handoff=/impeccable');
+      expect(JSON.parse(scan.out).engine).toBe(fs.realpathSync(current.engine));
+      expect(JSON.parse(scan.out).engineVersion).toBe('0.1.5');
+      expect(fs.readFileSync(log, 'utf-8').trim().split('\n')).toHaveLength(1);
+      expect(fs.existsSync(current.marker)).toBe(false);
+    });
+  });
+
+  test('a newer launcher-only plugin never borrows an older bundled engine', () => {
+    fixture((home, config) => {
+      plugin(config, '4.3.1', { engine: true });
+      const current = plugin(config, '4.10.0');
+      const r = run(['probe'], { env: { HOME: home } });
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${current.launcher}`);
+      expect(r.out).not.toContain(SENTINEL.READY);
+    });
+  });
+
+  test('custom Claude configuration replaces the default profile for plugins and legacy skills', () => {
+    fixture((home, config) => {
+      const ignored = plugin(config, '99.0.0', { engine: true });
+      const custom = path.join(home, 'custom claude');
+      const selected = plugin(custom, '4.3.1', { engine: true });
+      const env = { HOME: home, CLAUDE_CONFIG_DIR: custom };
+      const r = run(['probe'], { env });
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(selected.engine)}`);
+      expect(r.out).not.toContain(ignored.engine);
+      fs.rmSync(path.join(custom, 'plugins'), { recursive: true });
+      expect(run(['probe'], { env }).out).toContain(`${SENTINEL.SKILL}: absent`);
+      const legacy = path.join(custom, 'skills', 'impeccable');
+      fs.mkdirSync(path.dirname(legacy), { recursive: true });
+      fs.cpSync(ignored.skill, legacy, { recursive: true });
+      const legacyEngine = path.join(legacy, 'scripts', 'bin', `${process.platform}-${process.arch}`, path.basename(ignored.engine));
+      expect(lines(run(['probe'], { env }).out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(legacyEngine)}`);
+    });
+  });
+
+  test.each(['relative', 'missing', 'file', 'project'])('invalid %s custom configuration uses safe default discovery', kind => {
+    fixture((home, config) => {
+      const good = plugin(config, '4.3.1');
+      const file = path.join(home, 'not-directory');
+      fs.writeFileSync(file, 'x');
+      const override = { relative: '.claude', missing: path.join(home, 'missing'), file, project: REPO }[kind]!;
+      const r = run(['probe', '--verbose'], { env: { HOME: home, CLAUDE_CONFIG_DIR: override } });
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${good.launcher}`);
+      expect(r.out).toContain('CLAUDE_CONFIG_DIR');
+    });
+  });
+
+  test('ignores incomplete versions, non-directory entries and directory-shaped skill markers', () => {
+    fixture((home, config) => {
+      const good = plugin(config, '4.3.1');
+      const bad = plugin(config, '99.0.0');
+      fs.rmSync(path.join(bad.skill, 'SKILL.md'));
+      fs.mkdirSync(path.join(bad.skill, 'SKILL.md'));
+      const pluginRoot = path.resolve(good.skill, '../../..');
+      fs.writeFileSync(path.join(pluginRoot, '100.0.0'), 'not a version directory');
+      fs.mkdirSync(path.join(pluginRoot, '101.0.0'));
+      const r = run(['probe', '--verbose'], { env: { HOME: home } });
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${good.launcher}`);
+      expect(r.out).toContain('SKILL.md is not a regular file');
+      expect(r.out).toContain('ENOENT');
+      fs.rmSync(path.join(config, 'plugins'), { recursive: true });
+      fs.mkdirSync(path.join(config, 'plugins'));
+      fs.writeFileSync(path.join(config, 'plugins', 'cache'), 'not a directory');
+      const malformed = run(['probe', '--verbose'], { env: { HOME: home } });
+      expect(malformed.code).toBe(0);
+      expect(malformed.out).toContain('ENOTDIR');
+      expect(malformed.out).toContain(`${SENTINEL.SKILL}: absent`);
+    });
+  });
+
+  test.skipIf(!POSIX || process.getuid?.() === 0)('unreadable cache is diagnosed without crashing', () => {
+    fixture((home, config) => {
+      plugin(config, '4.3.1');
+      const cache = path.join(config, 'plugins', 'cache');
+      fs.chmodSync(cache, 0o000);
+      try {
+        const r = run(['probe', '--verbose'], { env: { HOME: home } });
+        expect(r.code).toBe(0);
+        expect(r.out).toContain('EACCES');
+      } finally { fs.chmodSync(cache, 0o755); }
+    });
+  });
+
+  test.skipIf(!POSIX)('project-resolving launcher, engine, cache and config symlinks are never executed', () => {
+    for (const kind of ['launcher', 'engine', 'cache', 'config']) {
+      fixture((home, config) => {
+        const install = plugin(config, '4.3.1', { engine: true });
+        const projectDir = fs.mkdtempSync(path.join(REPO, 'plugin-owned-'));
+        const marker = path.join(home, 'unsafe-ran');
+        const env: Record<string, string> = { HOME: home };
+        try {
+          const evil = path.join(projectDir, 'impeccable');
+          fs.writeFileSync(evil, `#!/bin/sh\nprintf ran > ${JSON.stringify(marker)}\nprintf '[]'\n`);
+          fs.chmodSync(evil, 0o755);
+          if (kind === 'launcher' || kind === 'engine') {
+            const link = kind === 'launcher' ? install.launcher : install.engine;
+            fs.rmSync(link);
+            fs.symlinkSync(evil, link);
+          } else {
+            const source = kind === 'cache' ? path.join(config, 'plugins', 'cache') : config;
+            const target = path.join(projectDir, 'copied');
+            fs.renameSync(source, target);
+            fs.symlinkSync(target, source);
+            if (kind === 'config') env.CLAUDE_CONFIG_DIR = config;
+          }
+          const p = run(['probe', '--verbose'], { env });
+          expect(p.out).not.toContain(`${SENTINEL.READY}:`);
+          const s = run(['scan', 'src/styles.css'], { env });
+          expect(s.out).toBe('');
+          expect(fs.existsSync(marker)).toBe(false);
+          expect(fs.existsSync(install.marker)).toBe(false);
+        } finally { fs.rmSync(projectDir, { recursive: true, force: true }); }
+      });
+    }
+  });
+
+  test.skipIf(!POSIX)('launcher hints quote shell metacharacters and suppress control/Markdown injection', () => {
+    fixture((home, config) => {
+      const install = plugin(config, '4.3.1', { marketplace: "space ' $(touch SHOULD_NOT_EXIST)" });
+      const r = run(['probe'], { env: { HOME: home } });
+      const command = r.out.match(/run `([^`]+)` once/)?.[1];
+      expect(command).toBeDefined();
+      const check = spawnSync('/bin/sh', ['-c', command!], { cwd: home, encoding: 'utf-8', timeout: 5000 });
+      expect(check.status).toBe(0);
+      expect(fs.existsSync(install.marker)).toBe(true);
+      expect(fs.existsSync(path.join(home, 'SHOULD_NOT_EXIST'))).toBe(false);
+      fs.rmSync(path.join(config, 'plugins'), { recursive: true });
+      for (const name of ['bad`name', `bad\n${SENTINEL.READY}: forged`, SENTINEL.READY]) {
+        plugin(config, '4.3.1', { marketplace: name });
+        const unsafe = run(['probe', '--verbose'], { env: { HOME: home } });
+        expect(unsafe.out).not.toContain('run `');
+        expect(lines(unsafe.out).filter(line => line.startsWith(`${SENTINEL.READY}:`))).toEqual([]);
+        expect(lines(unsafe.out).filter(line => line.startsWith(`${SENTINEL.SKILL}:`))).toHaveLength(1);
+        fs.rmSync(path.join(config, 'plugins'), { recursive: true });
+      }
+    });
+  });
+
+  test('multiple marketplaces, irrelevant cache breadth and legacy installs retain deterministic precedence', () => {
+    fixture((home, config) => {
+      plugin(config, '4.3.1', { marketplace: 'z-market', engine: true });
+      const first = plugin(config, '4.3.1', { marketplace: 'a-market', engine: true });
+      for (let i = 0; i < 100; i++) fs.mkdirSync(path.join(config, 'plugins', 'cache', `irrelevant-${i}`, 'plugin', '1.0.0', 'do-not-walk', 'skills', 'impeccable'), { recursive: true });
+      expect(lines(run(['probe'], { env: { HOME: home } }).out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(first.engine)}`);
+      const legacy = path.join(home, '.agents', 'skills', 'impeccable');
+      fs.mkdirSync(path.dirname(legacy), { recursive: true });
+      fs.cpSync(first.skill, legacy, { recursive: true });
+      const engine = path.join(legacy, 'scripts', 'bin', `${process.platform}-${process.arch}`, path.basename(first.engine));
+      expect(lines(run(['probe'], { env: { HOME: home } }).out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(engine)}`);
+      expect(lines(run(['probe'], { env: { HOME: home, IMPECCABLE_BIN: FAKE } }).out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(FAKE)}`);
+    });
+  });
+
+  test('plugin discovery preserves standalone cache priority, off and never-ask behavior', () => {
+    fixture((home, config) => {
+      const install = plugin(config, '4.3.1', { engine: true });
+      const cache = path.join(home, 'engine-cache');
+      const engine = path.join(cache, 'bin', '0.1.3', path.basename(install.engine));
+      fs.mkdirSync(path.dirname(engine), { recursive: true });
+      fs.copyFileSync(FAKE, engine);
+      fs.chmodSync(engine, 0o755);
+      const state = path.join(home, 'state');
+      fs.mkdirSync(state);
+      const env = { HOME: home, GSTACK_HOME: state, IMPECCABLE_HOME: cache };
+      const p = run(['probe'], { env });
+      expect(lines(p.out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(engine)}`);
+      expect(p.out).not.toContain(SENTINEL.INSTALL_OFFER);
+      fs.writeFileSync(path.join(state, 'config.yaml'), 'design_detector: off\n');
+      const off = run(['probe'], { env });
+      expect(lines(off.out)[0]).toBe(SENTINEL.DISABLED);
+      expect(off.out).toContain(`${SENTINEL.SKILL}: present`);
+      fs.writeFileSync(path.join(state, 'config.yaml'), 'design_detector_install_prompted: true\n');
+      fs.rmSync(cache, { recursive: true });
+      fs.rmSync(install.engine);
+      const nc = run(['probe'], { env });
+      expect(lines(nc.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${install.launcher}`);
+      expect(nc.out).not.toContain(SENTINEL.INSTALL_OFFER);
+      expect(nc.out).not.toContain(SENTINEL.HINT);
+      fs.rmSync(path.join(config, 'plugins'), { recursive: true });
+      expect(lines(run(['probe'], { env }).out)[0]).toBe(SENTINEL.NOT_AVAILABLE);
+      expect(fs.existsSync(install.marker)).toBe(false);
+    });
+  });
+
+  test.skipIf(!POSIX).each([false, true])('symlinked HOME preserves user installs without trusting arbitrary home scan targets (dotfiles=%s)', dotfiles => {
+    fixture((home, config) => {
+      const install = plugin(config, '4.3.1', { engine: true });
+      const alias = `${home}-alias`;
+      fs.symlinkSync(home, alias, 'dir');
+      try {
+        if (dotfiles) git(home, 'init', '-q');
+        const log = path.join(home, 'engine-calls');
+        const opts = { cwd: home, env: { HOME: alias, IMPECCABLE_FAKE_LOG: log } };
+        expect(lines(run(['probe'], opts).out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(install.engine)}`);
+        const target = path.join(home, 'private.css');
+        fs.writeFileSync(target, 'body { color: red; }');
+        const scan = run(['scan', target], opts);
+        expect(scan.code).toBe(0);
+        expect(scan.err).toContain(`${SENTINEL.DETECT_REFUSED}: ${target}`);
+        expect(scan.err).toContain(SENTINEL.DETECT_NO_TARGETS);
+        expect(scan.out).toBe('');
+        expect(fs.existsSync(log)).toBe(false);
+        expect(fs.existsSync(install.marker)).toBe(false);
+      } finally { fs.rmSync(alias); }
+    });
+  });
+
+  test.skipIf(!POSIX).each(['config', 'cache', 'marketplace', 'version'])('repository %s symlinks cannot redirect plugin traversal to a user install', kind => {
+    fixture((home) => {
+      const externalConfig = path.join(home, 'external-config');
+      plugin(externalConfig, '4.3.1', { engine: true });
+      const config = path.join(REPO, '.claude');
+      const tail = {
+        config: '', cache: 'plugins/cache', marketplace: 'plugins/cache/impeccable',
+        version: 'plugins/cache/impeccable/impeccable/4.3.1',
+      }[kind]!;
+      const link = path.join(config, tail);
+      fs.mkdirSync(path.dirname(link), { recursive: true });
+      fs.symlinkSync(path.join(externalConfig, tail), link, 'dir');
+      const log = path.join(home, 'engine-ran');
+      try {
+        const env = { HOME: home, IMPECCABLE_FAKE_LOG: log };
+        const p = run(['probe', '--verbose'], { env });
+        expect(lines(p.out)[0]).toBe(SENTINEL.NOT_AVAILABLE);
+        expect(p.out).toContain(`${SENTINEL.SKILL}: absent`);
+        expect(p.out).not.toContain('plugin selected=');
+        expect(p.out).toContain('plugin skip');
+        expect(run(['scan', 'src/styles.css'], { env }).out).toBe('');
+        expect(fs.existsSync(log)).toBe(false);
+      } finally { fs.rmSync(config, { recursive: true, force: true }); }
+    });
+  });
+
+  test('standalone cache shares strict version ordering but never treats opaque names as versions', () => {
+    fixture((home) => {
+      const cache = path.join(home, 'cache');
+      let stable = '';
+      for (const version of ['0.1.3-rc.1', 'v0.1.3', '99.0.0-', 'unknown']) {
+        const engine = path.join(cache, 'bin', version, POSIX ? 'impeccable' : 'impeccable.exe');
+        fs.mkdirSync(path.dirname(engine), { recursive: true });
+        fs.copyFileSync(FAKE, engine);
+        fs.chmodSync(engine, 0o755);
+        if (version === 'v0.1.3') stable = engine;
+      }
+      const p = run(['probe'], { env: { HOME: home, IMPECCABLE_HOME: cache } });
+      expect(lines(p.out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(stable)}`);
+      expect(p.out).not.toContain(SENTINEL.ENGINE_UNTESTED);
+      fs.rmSync(path.join(cache, 'bin', 'v0.1.3'), { recursive: true });
+      fs.rmSync(path.join(cache, 'bin', '0.1.3-rc.1'), { recursive: true });
+      expect(lines(run(['probe'], { env: { HOME: home, IMPECCABLE_HOME: cache } }).out)[0]).toBe(SENTINEL.NOT_AVAILABLE);
+    });
+  });
+});
+
+describe('plugin-cache impeccable install', () => {
+  // A Claude Code plugin install places impeccable at
+  // <HOME>/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/impeccable/,
+  // never at the traditional <HOME>/.claude/skills/impeccable/ the SKILL_ROOTS
+  // walk expects (regression for github.com/garrytan/gstack/issues/2838).
+  function pluginCacheDir(root: string, marketplace = 'impeccable', plugin = 'impeccable', version = '4.3.1') {
+    return path.join(root, '.claude', 'plugins', 'cache', marketplace, plugin, version, 'skills', 'impeccable');
+  }
+
+  test('SKILL.md present, no launcher → IMPECCABLE_SKILL: present, no crash, no READY', () => {
+    const home = path.join(SANDBOX, 'fake-home');
+    const skillDir = pluginCacheDir(home);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# impeccable\n');
+    try {
+      const r = run(['probe']);
+      expect(r.out).toContain(`${SENTINEL.SKILL}: present`);
+      expect(r.out).not.toContain(SENTINEL.READY);
+    } finally {
+      fs.rmSync(path.join(home, '.claude'), { recursive: true, force: true });
+    }
+  });
+
+  test.skipIf(!POSIX)('plugin-cache launcher without engine → NOT_CACHED naming the plugin-cache launcher; with sibling engine → READY + VERSION', () => {
+    const home = path.join(SANDBOX, 'fake-home');
+    const skillDir = pluginCacheDir(home);
+    const scripts = path.join(skillDir, 'scripts');
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# impeccable\n');
+    fs.writeFileSync(path.join(scripts, 'impeccable'), '#!/bin/sh\necho "would download"\n');
+    fs.chmodSync(path.join(scripts, 'impeccable'), 0o755);
+    fs.writeFileSync(path.join(scripts, 'VERSION'), '0.1.3\n');
+    try {
+      const r = run(['probe']);
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: ${path.join(scripts, 'impeccable')}`);
+      expect(r.out).toContain(`${SENTINEL.SKILL}: present`);
+      expect(r.out).toContain(`run \`${path.join(scripts, 'impeccable')} detect --help\` once`);
+      expect(r.out).not.toContain('npx impeccable');
+      expect(r.out).not.toContain('would download');
+
+      const sib = path.join(scripts, 'bin', `${process.platform}-${process.arch}`);
+      fs.mkdirSync(sib, { recursive: true });
+      fs.copyFileSync(FAKE, path.join(sib, 'impeccable'));
+      fs.chmodSync(path.join(sib, 'impeccable'), 0o755);
+      const r2 = run(['probe']);
+      expect(lines(r2.out)[0]).toBe(`${SENTINEL.READY}: ${fs.realpathSync(path.join(sib, 'impeccable'))}`);
+      expect(r2.out).not.toContain(SENTINEL.ENGINE_UNTESTED);
+      expect(r2.out).not.toContain(SENTINEL.HINT);
+    } finally {
+      fs.rmSync(path.join(home, '.claude'), { recursive: true, force: true });
+    }
+  });
+
+  test.skipIf(!POSIX)('a plugin-cache install committed INSIDE the repository is never executed: skill-present only, launcher never runs', () => {
+    const skillDir = pluginCacheDir(REPO, 'acme', 'impeccable', '1.0.0');
+    const scripts = path.join(skillDir, 'scripts');
+    const sib = path.join(scripts, 'bin', `${process.platform}-${process.arch}`);
+    fs.mkdirSync(sib, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# impeccable\n');
+    fs.writeFileSync(path.join(scripts, 'impeccable'), '#!/bin/sh\necho "would download"\n');
+    fs.chmodSync(path.join(scripts, 'impeccable'), 0o755);
+    fs.writeFileSync(path.join(scripts, 'VERSION'), '0.1.3\n');
+    const marker = path.join(SANDBOX, 'repo-plugin-engine-ran.txt');
+    fs.writeFileSync(path.join(sib, 'impeccable'), `#!/bin/sh\necho ran > ${JSON.stringify(marker)}\necho "[]"\n`);
+    fs.chmodSync(path.join(sib, 'impeccable'), 0o755);
+    try {
+      const r = run(['probe']);
+      expect(lines(r.out)[0]).toBe(`${SENTINEL.NOT_CACHED}: repository-local install`);
+      expect(r.out).toContain(`${SENTINEL.SKILL}: present`);
+      expect(r.out).toContain('never runs a repository-local launcher');
+      expect(fs.existsSync(marker)).toBe(false);
+    } finally {
+      fs.rmSync(path.join(REPO, '.claude'), { recursive: true, force: true });
+    }
+  });
+
+  test('multiple plugin-cache entries (different marketplace/plugin/version) coexist without throwing', () => {
+    const home = path.join(SANDBOX, 'fake-home');
+    fs.mkdirSync(pluginCacheDir(home, 'marketA', 'impeccable', '1.0.0'), { recursive: true });
+    fs.writeFileSync(path.join(pluginCacheDir(home, 'marketA', 'impeccable', '1.0.0'), 'SKILL.md'), '# impeccable\n');
+    fs.mkdirSync(pluginCacheDir(home, 'marketB', 'impeccable', '2.0.0'), { recursive: true });
+    fs.writeFileSync(path.join(pluginCacheDir(home, 'marketB', 'impeccable', '2.0.0'), 'SKILL.md'), '# impeccable\n');
+    try {
+      const r = run(['probe']);
+      expect(r.out).toContain(`${SENTINEL.SKILL}: present`);
+    } finally {
+      fs.rmSync(path.join(home, '.claude'), { recursive: true, force: true });
+    }
+  });
+});
+
 describe('scan', () => {
   test('not READY → prints the probe lines, exit 0, engine never needed', () => {
     const r = run(['scan', 'src/styles.css']);

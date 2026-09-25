@@ -49,6 +49,17 @@ const FAKE_AWS_KEY = ['AKIA', '1234567890ABCDEF'].join('');
 const CONFIG = path.join(ROOT, 'bin', 'gstack-config');
 const POLICY = path.join(ROOT, 'bin', 'gstack-gbrain-repo-policy');
 
+function isolateGitRemote(repo: string, url: string): void {
+  const git = (...args: string[]) => {
+    const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 10_000 });
+    expect(result.status).toBe(0);
+    return result.stdout.trim();
+  };
+  expect(git('config', '--get', 'remote.origin.url')).toBe(url);
+  git('config', '--local', `url.${url}.insteadOf`, url);
+  expect(git('remote', 'get-url', 'origin')).toBe(url);
+}
+
 const FAKE = `#!/bin/sh
 MODE=$(cat "$HOME/mode" 2>/dev/null || echo ok)
 printf '%s\\n' "$*" >> "$HOME/calls.log"
@@ -213,6 +224,7 @@ describe('gate on: the mediated hand-off', () => {
       const git = (args: string[]) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 10_000 });
       git(['init', '-q']);
       git(['remote', 'add', 'origin', 'https://github.com/example/denied-repo.git']);
+      isolateGitRemote(repo, 'https://github.com/example/denied-repo.git');
       const prompt = JSON.stringify({ prompt: 'hello', cwd: repo });
       for (const tier of ['deny', 'read-only']) {
         const set = spawnSync('bash', [POLICY, 'set', 'https://github.com/example/denied-repo.git', tier], { env, encoding: 'utf8', timeout: 20_000 });
@@ -693,6 +705,7 @@ describe('deadline and policy failure paths (review coverage)', () => {
       const git = (args: string[]) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 10_000 });
       git(['init', '-q']);
       git(['remote', 'add', 'origin', 'https://github.com/example/some-repo.git']);
+      isolateGitRemote(repo, 'https://github.com/example/some-repo.git');
       // a directory where the store file should be: hasRepoPolicyStore() is true, every read fails
       const storeDir = path.join(home, '.gstack', 'gbrain-repo-policy.json');
       fs.mkdirSync(storeDir, { recursive: true });
@@ -742,6 +755,7 @@ describe('trust-policy lookup outcomes (review coverage, second pass)', () => {
     try {
       spawnSync('git', ['init', '-q'], { cwd: repo, timeout: 10_000 });
       spawnSync('git', ['remote', 'add', 'origin', 'https://github.com/example/other.git'], { cwd: repo, timeout: 10_000 });
+      isolateGitRemote(repo, 'https://github.com/example/other.git');
       expect(runHook(JSON.stringify({ prompt: 'hello', cwd: repo }), {}, repo).stdout).toContain('remembered');
     } finally {
       fs.rmSync(repo, { recursive: true, force: true });
@@ -755,6 +769,7 @@ describe('trust-policy lookup outcomes (review coverage, second pass)', () => {
       for (const [dir, url] of [[denied, 'https://github.com/example/denied.git'], [allowed, 'https://github.com/example/allowed.git']] as const) {
         spawnSync('git', ['init', '-q'], { cwd: dir, timeout: 10_000 });
         spawnSync('git', ['remote', 'add', 'origin', url], { cwd: dir, timeout: 10_000 });
+        isolateGitRemote(dir, url);
       }
       expect(spawnSync('bash', [POLICY, 'set', 'https://github.com/example/denied.git', 'deny'], { env, encoding: 'utf8', timeout: 20_000 }).status).toBe(0);
       const r = runHook(JSON.stringify({ prompt: 'hello', cwd: denied }), { GIT_DIR: path.join(allowed, '.git'), GIT_WORK_TREE: allowed }, denied);

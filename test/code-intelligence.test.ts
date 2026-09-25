@@ -37,6 +37,15 @@ import {
   LARGE_REPO_FILE_THRESHOLD,
 } from "../lib/code-intelligence";
 
+function isolateGitRemote(repo: string, url: string): void {
+  const git = (...args: string[]) => execFileSync("git", args, {
+    cwd: repo, encoding: "utf8", timeout: 10_000,
+  }).trim();
+  expect(git("config", "--get", "remote.origin.url")).toBe(url);
+  git("config", "--local", `url.${url}.insteadOf`, url);
+  expect(git("remote", "get-url", "origin")).toBe(url);
+}
+
 describe("capability matrix", () => {
   test("every provider advertises the four required capabilities", () => {
     for (const p of [new GbrainProvider(), new SourcebotProvider(), new GraphifyProvider()]) {
@@ -402,6 +411,7 @@ describe("consent unification — deny tier wins (R1)", () => {
     const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, timeout: 30_000 });
     git("init", "-q", ".");
     git("remote", "add", "origin", url);
+    isolateGitRemote(repo, url);
     return repo;
   }
   const POLICY_BIN = path.join(import.meta.dir, "..", "bin", "gstack-gbrain-repo-policy");
@@ -500,6 +510,7 @@ describe("read-only repo policy blocks write-class CLI index (R2)", () => {
       fs.mkdirSync(repo, { recursive: true });
       execFileSync("git", ["init", "-q", "."], { cwd: repo });
       execFileSync("git", ["remote", "add", "origin", URL], { cwd: repo });
+      isolateGitRemote(repo, URL);
       setProvider("gbrain", env);
       setConsent(repo, true, env);
       execFileSync(POLICY_BIN, ["set", URL, "read-only"], { env, encoding: "utf-8" });
@@ -702,6 +713,7 @@ describe("CLI search consent gate (gbrain provider, honest refusal message)", ()
     fs.mkdirSync(repo, { recursive: true });
     execFileSync("git", ["init", "-q", "."], { cwd: repo });
     execFileSync("git", ["remote", "add", "origin", URL], { cwd: repo });
+    isolateGitRemote(repo, URL);
     env = { ...process.env, GSTACK_HOME: home, PATH: `${shimDir}:${process.env.PATH}` };
     setProvider("gbrain", env);
     setRoot("gbrain", repo, env);
