@@ -103,11 +103,24 @@ _U=""
 # Emits COMMIT: lines (newest first, capped) plus every aggregate. Subjects may
 # contain '|', so fields are re-joined from index 6 on. Test-file detection is
 # the union of the historical patterns (dir-based test/|spec/|__tests__/ and
-# suffix-based .test./.spec./_test./_spec.).
+# suffix-based .test./.spec./_test./_spec.), plus CamelCase conventions:
+# capitalized Tests/ dirs (SwiftPM) and FooTests.swift / FooTest.cs filenames.
+# Without those, every Swift and C# project reports a 0% test ratio.
 git log "$REF" "$_S" ${_U:+"$_U"} --date=format-local:'%Y-%m-%d %H:%M' \
     --format='C|%h|%aN|%at|%ad|%s' --numstat 2>/dev/null | awk '
+  # Generated output is not authored code. Without this, a committed build
+  # directory dominates FOCUS_SCORE and its Test/ subdirs count as test LOC.
+  function is_generated(p) {
+    return (p ~ /(^|\/)(\.build|build|dist|out|target|vendor|node_modules|DerivedData|\.next|\.nuxt|__pycache__|coverage)\//)
+  }
+  # "spec" is overloaded: spec/ is RSpec, but docs/.../specs/*.md are written
+  # specifications. Prose is never test code, whatever directory it sits in.
+  function is_prose(p) {
+    return (p ~ /\.(md|mdx|markdown|txt|rst|adoc)$/) || (p ~ /(^|\/)(docs?|documentation)\//)
+  }
   function is_test(p) {
-    return (p ~ /(^|\/)(tests?|spec|__tests__)\//) || (p ~ /(\.(test|spec)\.|_test\.|_spec\.)/)
+    if (is_prose(p)) return 0
+    return (p ~ /(^|\/)([Tt]ests?|[Ss]pecs?|__tests__)\//) || (p ~ /(\.(test|spec)\.|_test\.|_spec\.)/) || (p ~ /[A-Za-z0-9]([Tt]ests?|[Ss]pecs?)\.[A-Za-z0-9]+$/)
   }
   function type_of(s) {
     if (s ~ /^Merge /) return "merge"
@@ -161,13 +174,14 @@ git log "$REF" "$_S" ${_U:+"$_U"} --date=format-local:'%Y-%m-%d %H:%M' \
     next
   }
   /^[0-9-]+\t/ {
+    if (is_generated($3)) next
     if ($1 != "-") cins += $1; if ($2 != "-") cdel += $2
     if ($1 != "-" && is_test($3)) ctins += $1
     cfiles++
     filecount[$3]++
     d = ($3 ~ /\//) ? substr($3, 1, index($3, "/") - 1) "/" : "(root)"
     dircount[d]++; adir[author "|" d]++
-    if ($3 ~ /(\.(test|spec)\.|_test\.|_spec\.)/) testfiles[$3] = 1
+    if (is_test($3)) testfiles[$3] = 1
   }
   END {
     flush()
@@ -297,10 +311,11 @@ echo "PRS_REFERENCED: $(printf '%s' "$_PRS" | wc -w | tr -d ' ')"
 [ -n "$_PRS" ] && echo "PR_REFS: $_PRS" || true
 
 # ── Test health (repo-wide + window) ─────────────────────────────────────────
-# Deliberately suffix-only (narrower than is_test's dir-based patterns): the
+# Deliberately filename-only (narrower than is_test's dir-based patterns): the
 # repo-wide census counts conventional test FILES; is_test additionally counts
-# dir-homed helpers toward test-insertion ratios.
-_TF_TOTAL=$(git ls-files 2>/dev/null | grep -cE '(\.test\.|\.spec\.|_test\.|_spec\.)' || true)
+# dir-homed helpers toward test-insertion ratios. Covers both the punctuated
+# suffixes (.test./_spec.) and the CamelCase form (FooTests.swift).
+_TF_TOTAL=$(git ls-files 2>/dev/null | grep -cE '(\.test\.|\.spec\.|_test\.|_spec\.|[A-Za-z0-9](Tests?|Specs?)\.[A-Za-z0-9]+$)' || true)
 case "$_TF_TOTAL" in ''|*[!0-9]*) _TF_TOTAL=0 ;; esac
 echo "TEST_FILES_TOTAL: $_TF_TOTAL"
 _REG=$(git log "$REF" "$_S" ${_U:+"$_U"} --oneline --grep="test(qa):" --grep="test(design):" --grep="test: coverage" 2>/dev/null || true)
