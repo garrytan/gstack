@@ -119,16 +119,23 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
   });
 
   test('probe honors the GSTACK_SKIP_ASIDE=1 opt-out and bounds the readiness call even on stock macOS', () => {
-    // Opt-out short-circuits to NEEDS_ASIDE before `command -v aside` is even consulted.
-    expect(setupProbe).toMatch(/if \[ "\$\{GSTACK_SKIP_ASIDE:-\}" = "1" \] \|\| ! command -v aside >\/dev\/null 2>&1; then\n\s*echo "NEEDS_ASIDE"/);
+    // Opt-out short-circuits to NEEDS_ASIDE regardless of whether A resolved to an aside binary.
+    expect(setupProbe).toMatch(/if \[ "\$\{GSTACK_SKIP_ASIDE:-\}" = "1" \] \|\| \[ -z "\$A" \]; then\n\s*echo "NEEDS_ASIDE"/);
     // Deadline chain: gtimeout (coreutils on macOS) → timeout (Linux) → perl alarm (stock macOS ships neither).
     expect(setupProbe).toContain('_T="gtimeout 30"');
     expect(setupProbe).toContain('_T="timeout 30"');
     expect(setupProbe).toContain('_T="perl -e alarm(shift);exec(@ARGV) 30"');
     expect(setupProbe.indexOf('gtimeout 30')).toBeLessThan(setupProbe.indexOf('perl -e alarm'));
-    // The bounded call is the readiness probe itself, and READY quotes the version.
-    expect(setupProbe).toContain('$_T aside repl \'console.log("ASIDE_READY " + pwd)\'');
-    expect(setupProbe).toContain('echo "READY: aside $(aside --version 2>/dev/null)"');
+    // The bounded call is the readiness probe itself, run through the resolved binary, and READY quotes the version.
+    expect(setupProbe).toContain('$_T "$A" repl \'console.log("ASIDE_READY " + pwd)\'');
+    expect(setupProbe).toContain('echo "READY: aside $($A --version 2>/dev/null)"');
+  });
+
+  test('falls back to ~/.local/bin/aside when `aside` is not on PATH', () => {
+    // The known Aside CLI install location (not on default macOS login PATH) is probed
+    // as a fallback before concluding NEEDS_ASIDE, per #2902: A resolves via `command -v`
+    // first, then the fixed fallback path, and stays empty only when neither exists.
+    expect(setupProbe).toContain('A=$(command -v aside || command -v "$HOME/.local/bin/aside")');
   });
 
   test('LOCAL host rule: .localhost and .test count, .local (mDNS) does not', () => {

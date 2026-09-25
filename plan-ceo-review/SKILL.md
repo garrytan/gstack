@@ -507,10 +507,11 @@ Check once per run that Aside is ready (if this skill already ran this same prob
 ```bash
 _T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
 [ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
-if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
+A=$(command -v aside || command -v "$HOME/.local/bin/aside")
+if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$A" ]; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
-  echo "READY: aside $(aside --version 2>/dev/null)"
+elif $_T "$A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
+  echo "READY: aside $($A --version 2>/dev/null)"
 else
   echo "ASIDE_NOT_RUNNING"
 fi

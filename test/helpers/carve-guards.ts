@@ -186,7 +186,9 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     mustContain: ['SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'HOLD SCOPE', 'SCOPE REDUCTION'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
     // prose replacing the smaller opt-in question) lands this ~5.2% over baseline.
-    maxSizeRatio: 1.08,
+    // #2902 aside ~/.local/bin fallback (shared {{ASIDE_SETUP}}/{{ASIDE_RESEARCH}}
+    // probe) adds ~34 bytes to every skill carrying it.
+    maxSizeRatio: 1.081,
   },
   'plan-eng-review': {
     skill: 'plan-eng-review',
@@ -218,7 +220,9 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // 1.08 → 1.10: the scope-gate exceptions block (+ its adversarial-review
     // hardening: host-anchored mode signal, precedence, passing-mention
     // guards) and the plan-mode preamble reword land the union at 1.092.
-    maxSizeRatio: 1.15, // + clarity rules for saved decisions/setup gates; measured 1.146
+    // #2902 aside ~/.local/bin fallback (shared {{ASIDE_SETUP}}/{{ASIDE_RESEARCH}}
+    // probe) adds ~34 bytes to every skill carrying it.
+    maxSizeRatio: 1.151, // + clarity rules for saved decisions/setup gates; measured 1.146
   },
   'plan-design-review': {
     skill: 'plan-design-review',
@@ -264,7 +268,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // check grew every plan-review skeleton ~0.7KB. Measured values noted.
     // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
     // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
-    maxSkeletonBytes: 68_500, // + v2.0 {{ASIDE_RESEARCH}} (Aside first, WebSearch fallback); measured 67_129
+    maxSkeletonBytes: 68_540, // + #2902 aside ~/.local/bin fallback (~34 bytes); prior 68_500 measured 67_129
     minUnionBytes: 99_700, // token-reduction Phases 1-2 (v1.69.x branch); measured union 110,833
     mustContain: ['developer experience', 'Getting Started'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
