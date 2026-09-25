@@ -450,6 +450,14 @@ Some steps require action on a site the user controls: registering an API key, c
 
 Run `/ship` through to the PR URL. This request authorizes routine work without confirmation; explicit safety and user-decision gates still apply.
 
+**Route through the workflow:** detect and merge the base (Steps 1–3), test and
+audit the integrated diff (Steps 4–8.2), review and resolve findings (Steps
+9–11), prepare the release and commits (Steps 12–15), then verify, push, sync
+docs, and open or update the PR (Steps 16–19). A review fix returns to affected
+tests and reviews before release preparation; a later code or build-input edit
+returns to affected checks and Step 16 before publication. Reuse still-valid
+results, but never treat an earlier review or test as covering changed inputs.
+
 **Follow every STOP and AskUserQuestion gate**, including:
 - On the base branch (abort)
 - Merge conflicts that can't be auto-resolved (stop, show conflicts)
@@ -625,11 +633,14 @@ Continue to Step 2 without a preflight approval question. Apply the review gates
 If the diff introduces a new standalone artifact (CLI binary, library package, tool) — not a web
 service with existing deployment — verify that a distribution pipeline exists.
 
-1. Check if the diff adds a new `cmd/` directory, `main.go`, or `bin/` entry point:
+1. Check for newly added distribution entry points and package manifests:
    ```bash
-   git diff origin/<base> --name-only | grep -E '(cmd/.*/main\.go|bin/|Cargo\.toml|setup\.py|package\.json)' | head -5
+   git diff origin/<base> --diff-filter=A --name-only | grep -E '(^|/)(cmd/[^/]+/main\.go|bin/[^/]+|Cargo\.toml|setup\.py|package\.json)$' | head -5
    ```
-   Also inspect matching untracked files from Step 1's status.
+   Also inspect matching untracked files from Step 1's status. Read each match:
+   a new `package.json` or `Cargo.toml` alone does not establish a publishable
+   artifact. Also inspect existing manifests for newly declared binaries or
+   package exports. Apply the pipeline gate only when a new distributable is present.
 
 2. If new artifact detected, check for a release workflow:
    ```bash
@@ -1518,7 +1529,7 @@ The parent evaluates the completion checklist in priority order, including after
    - For each item, use AskUserQuestion with the item's *specific* manual check (e.g., "Confirm: does `~/Development/domain-hq/docs/dashboard.md` exist?", not "Have you checked all items?").
    - Options per item:
      Y) Confirmed done — cite what you verified (free-text, embedded in PR body)
-     N) Not done — block ship; treat as NOT DONE and re-enter the priority-1 gate
+     N) Not done — block ship and report the item as NOT DONE; do not offer a second deferral choice
      D) Intentionally dropped — note in PR body: "Plan item intentionally dropped: {item}"
    - RECOMMENDATION per item: Y if the item is concrete and easily verified; N if it's critical-path (auth, DNS, deliverables to other repos) and the user shows hesitation.
 
@@ -1607,20 +1618,6 @@ Add a `## Verification Results` section to the PR body (Step 19):
 - If verification ran: summary of results (N PASS, M FAIL, K SKIPPED)
 - If skipped: reason for skipping (no plan, no server, no verification section)
 
-The parent now runs Prior Learnings and its cross-project setting question when
-offered, before Step 9, even when no plan file was found.
-
-## Prior Learnings
-
-Search for relevant learnings from previous sessions on this project:
-
-```bash
-$GSTACK_BIN/gstack-learnings-search --limit 10 --query "release ship version changelog merge pr" 2>/dev/null || true
-```
-
-If learnings are found, incorporate them into your analysis. When a review finding
-matches a past learning, note it: "Prior learning applied: [key] (confidence N, from [date])"
-
 ## Step 8.2: Scope Drift Detection
 
 Before reviewing code quality, check: **did they build what was requested — nothing more, nothing less?**
@@ -1655,6 +1652,20 @@ Before reviewing code quality, check: **did they build what was requested — no
 6. This is **INFORMATIONAL** — record the result for the PR body and continue to Step 9.
 
 ---
+
+The parent now runs Prior Learnings and its cross-project setting question when
+offered, before Step 9, even when no plan file was found.
+
+## Prior Learnings
+
+Search for relevant learnings from previous sessions on this project:
+
+```bash
+$GSTACK_BIN/gstack-learnings-search --limit 10 --query "release ship version changelog merge pr" 2>/dev/null || true
+```
+
+If learnings are found, incorporate them into your analysis. When a review finding
+matches a past learning, note it: "Prior learning applied: [key] (confidence N, from [date])"
 
 ---
 
@@ -2237,7 +2248,7 @@ Show the full response in a `tool-output` fence. Require successful execution an
 
 Set the outer tool timeout to 600000ms so the provider timeout can report its failure.
 
-Present the full output verbatim. This is informational — it never blocks shipping.
+Present the full output verbatim. An unavailable outside challenge does not block shipping by itself; supported findings still enter Step 11, and the structured P1 and non-convergence gates still apply.
 
 **Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Claude Code authentication failed. Run \`claude auth login\` to authenticate."
@@ -2369,6 +2380,7 @@ High-confidence findings (agreed on by multiple sources) should be prioritized f
 2. Triage the collected FIXABLE findings using Step 9.4 items 1–3: AUTO-FIX or ASK, apply automatic and approved fixes, and retain explicit skips. Do not ask again for a Step 11 P1 fix already approved.
 3. If anything changed, commit only the fixed files. Run Step 5 and affected Steps 6–8, then repeat Step 9 from a fresh start token. After Step 9 converges, return directly to Step 11 and repeat its passes on the changed tree. Prior responses do not certify the fixes; do not repeat unchanged Step 10 comment decisions.
 4. Bound this late-fix loop to three fix cycles. If the third cycle still changes code, record non-convergence and STOP with the recurring findings. A zero-fix cycle continues to Step 12 with actual coverage and any explicit acknowledgments; unavailable or waived coverage is never reported as a clean completed pass.
+   This is a separate three-cycle budget from Step 9.4: each return to Step 9 must satisfy its own convergence gate, and returning here does not reset Step 11's count.
 
 ---
 
@@ -2424,7 +2436,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    ```
    Save the JSON `baseVersion` as `BASE_VERSION`, then read `state` and dispatch:
    - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Use the recorded level for this release; if absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
+   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Reuse this branch's earlier ship decision for `BUMP_LEVEL` if recorded; otherwise compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify. On success, follow **ALREADY_BUMPED**, including its queue check; on failure, STOP. Repair alone never re-bumps.
    - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
@@ -2439,7 +2451,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    CANDIDATE_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
    ```
    - **Usable candidate** (including `offline:true` with `fallback:"git"`): print warnings and any claimed queue. FRESH sets `NEW_VERSION` to `CANDIDATE_VERSION`. ALREADY_BUMPED compares it with `currentVersion`; if different, ask to rebump (refresh CHANGELOG/PR title) or keep current (CI rejects a collision). Only approval changes the existing version. An active sibling is a workspace listed in JSON `active_siblings`; use its `branch` and `version`. If one holds `>= NEW_VERSION`, ask to advance past it or stop this attempt and sync.
-   - **No usable candidate** (utility failure or empty result): print queue-unverified; FRESH sets `NEW_VERSION` using local `BUMP_LEVEL` arithmetic, while ALREADY_BUMPED keeps `currentVersion`. Do not use the candidate branch above.
+   - **No usable candidate** (utility failure or empty result): print queue-unverified; FRESH sets `NEW_VERSION` using local `BUMP_LEVEL` arithmetic, while ALREADY_BUMPED keeps `currentVersion`. Do not follow the usable-candidate instructions above.
 
 4. **Write the bump** (FRESH, or an approved rebump):
    ```bash
@@ -2503,7 +2515,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
 
 Persist approved follow-ups, then conservatively mark completed work.
 
-Read `.agents/skills/gstack/review/TODOS-format.md` for the canonical format reference.
+Read `$GSTACK_ROOT/review/TODOS-format.md` for the canonical format reference (or `review/TODOS-format.md` in a gstack checkout).
 
 **1. Open or create:** Read root `TODOS.md`. An earlier explicit "add TODO" choice authorizes its creation with `# TODOS` and `## Completed`. Otherwise, if missing, ask: "Create a component/priority-organized TODOS.md?" Options: A) Create now, B) Skip. If B, continue to Step 15 with the outcome in the summary below.
 
@@ -2705,11 +2717,11 @@ Continue to mandatory Step 18 (dispatch /document-release), then Step 19 (create
 
 **Foreground required:** pass `run_in_background: false` on the Agent call — subagents run in the BACKGROUND by default since Claude Code v2.1.198. (Merely omitting the flag no longer produces a foreground run; it must be explicitly false.) The dispatch happens ONLY via the Agent tool: invoking the target as a Skill, or executing its workflow inline in your own context, is WRONG even though the skill may appear in your available-skills list — inline execution forfeits the fresh-context isolation this dispatch exists for, and the explicit flag already makes the Agent call block. (Where a step defines an inline FALLBACK, it applies only after a dispatched subagent has failed.) Step 19 consumes this subagent's LAST-line JSON, so the dispatch must block — a backgrounded dispatch strands the entire ship run (#497, #2440: third recurrence of this class). Record `git rev-parse HEAD` immediately before dispatching; the recovery branch below reconciles against it.
 
-**Sequencing:** This step runs AFTER Step 17 (Push) and BEFORE Step 19 (Create PR). The PR is created once from final HEAD with the `## Documentation` section baked into the initial body. No create-then-re-edit dance.
+**Sequencing:** This step runs AFTER Step 17 (Push) and BEFORE Step 19 (Create or update PR). On the first run, the PR is created once from final HEAD with the `## Documentation` section baked into the initial body. On a rerun, Step 19 updates the existing PR. No create-then-re-edit dance.
 
 **Subagent prompt:**
 
-> You are executing the /document-release workflow after a code push, as a SPAWNED subagent: no human reads your output mid-run, and only the LAST line of your response is machine-parsed by the parent /ship session. Read the full skill file `${HOME}/.agents/skills/gstack/document-release/SKILL.md` and execute its complete workflow end-to-end as narrowed by the Scope guard below, including CHANGELOG clobber protection, doc exclusions, risky-change gates, and named staging. Do NOT attempt to edit the PR body — no PR exists yet. Branch: `<branch>`, base: `<base>`.
+> You are executing the /document-release workflow after a code push, as a SPAWNED subagent: no human reads your output mid-run, and only the LAST line of your response is machine-parsed by the parent /ship session. Read the full skill file `${HOME}/.agents/skills/gstack/document-release/SKILL.md` and execute its complete workflow end-to-end as narrowed by the Scope guard below, including CHANGELOG clobber protection, doc exclusions, risky-change gates, and named staging. Do NOT attempt to edit the PR body — the parent creates or updates the PR in Step 19. Branch: `<branch>`, base: `<base>`.
 >
 > Session marking: when the skill's Preamble has you run `gstack-skill-start`, prefix that exact command with `GSTACK_SESSION_KIND=spawned ` on the same command line (e.g. `GSTACK_SESSION_KIND=spawned "$_SS" --skill "document-release" ...`) — bash blocks run in separate shells, so an exported variable from an earlier block does NOT persist; the prefix must ride the invocation itself. The preamble will then echo `SESSION_KIND: spawned` and `SPAWNED_SESSION: true`.
 >

@@ -442,6 +442,14 @@ Some steps require action on a site the user controls: registering an API key, c
 
 Run `/ship` through to the PR URL. This request authorizes routine work without confirmation; explicit safety and user-decision gates still apply.
 
+**Route through the workflow:** detect and merge the base (Steps 1–3), test and
+audit the integrated diff (Steps 4–8.2), review and resolve findings (Steps
+9–11), prepare the release and commits (Steps 12–15), then verify, push, sync
+docs, and open or update the PR (Steps 16–19). A review fix returns to affected
+tests and reviews before release preparation; a later code or build-input edit
+returns to affected checks and Step 16 before publication. Reuse still-valid
+results, but never treat an earlier review or test as covering changed inputs.
+
 **Follow every STOP and AskUserQuestion gate**, including:
 - On the base branch (abort)
 - Merge conflicts that can't be auto-resolved (stop, show conflicts)
@@ -632,11 +640,14 @@ Continue to Step 2 without a preflight approval question. Apply the review gates
 If the diff introduces a new standalone artifact (CLI binary, library package, tool) — not a web
 service with existing deployment — verify that a distribution pipeline exists.
 
-1. Check if the diff adds a new `cmd/` directory, `main.go`, or `bin/` entry point:
+1. Check for newly added distribution entry points and package manifests:
    ```bash
-   git diff origin/<base> --name-only | grep -E '(cmd/.*/main\.go|bin/|Cargo\.toml|setup\.py|package\.json)' | head -5
+   git diff origin/<base> --diff-filter=A --name-only | grep -E '(^|/)(cmd/[^/]+/main\.go|bin/[^/]+|Cargo\.toml|setup\.py|package\.json)$' | head -5
    ```
-   Also inspect matching untracked files from Step 1's status.
+   Also inspect matching untracked files from Step 1's status. Read each match:
+   a new `package.json` or `Cargo.toml` alone does not establish a publishable
+   artifact. Also inspect existing manifests for newly declared binaries or
+   package exports. Apply the pipeline gate only when a new distributable is present.
 
 2. If new artifact detected, check for a release workflow:
    ```bash
@@ -700,7 +711,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    ```
    Save the JSON `baseVersion` as `BASE_VERSION`, then read `state` and dispatch:
    - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Use the recorded level for this release; if absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
+   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Reuse this branch's earlier ship decision for `BUMP_LEVEL` if recorded; otherwise compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify. On success, follow **ALREADY_BUMPED**, including its queue check; on failure, STOP. Repair alone never re-bumps.
    - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
@@ -715,7 +726,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    CANDIDATE_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
    ```
    - **Usable candidate** (including `offline:true` with `fallback:"git"`): print warnings and any claimed queue. FRESH sets `NEW_VERSION` to `CANDIDATE_VERSION`. ALREADY_BUMPED compares it with `currentVersion`; if different, ask to rebump (refresh CHANGELOG/PR title) or keep current (CI rejects a collision). Only approval changes the existing version. An active sibling is a workspace listed in JSON `active_siblings`; use its `branch` and `version`. If one holds `>= NEW_VERSION`, ask to advance past it or stop this attempt and sync.
-   - **No usable candidate** (utility failure or empty result): print queue-unverified; FRESH sets `NEW_VERSION` using local `BUMP_LEVEL` arithmetic, while ALREADY_BUMPED keeps `currentVersion`. Do not use the candidate branch above.
+   - **No usable candidate** (utility failure or empty result): print queue-unverified; FRESH sets `NEW_VERSION` using local `BUMP_LEVEL` arithmetic, while ALREADY_BUMPED keeps `currentVersion`. Do not follow the usable-candidate instructions above.
 
 4. **Write the bump** (FRESH, or an approved rebump):
    ```bash
@@ -738,7 +749,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
 
 Persist approved follow-ups, then conservatively mark completed work.
 
-Read `.claude/skills/review/TODOS-format.md` for the canonical format reference.
+Read `~/.claude/skills/gstack/review/TODOS-format.md` for the canonical format reference (or `review/TODOS-format.md` in a gstack checkout).
 
 **1. Open or create:** Read root `TODOS.md`. An earlier explicit "add TODO" choice authorizes its creation with `# TODOS` and `## Completed`. Otherwise, if missing, ask: "Create a component/priority-organized TODOS.md?" Options: A) Create now, B) Skip. If B, continue to Step 15 with the outcome in the summary below.
 
