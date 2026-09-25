@@ -831,7 +831,7 @@ ${optInSection}${isDesignConsultation ? `
 _DESIGN_BRIEF=$(mktemp /tmp/gstack-design-brief-XXXXXXXX) || exit 1
 printf 'DESIGN_BRIEF=%s\\n' "$_DESIGN_BRIEF"
 \`\`\`
-Write the product brief to that path; remember the absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file; give the native Agent its absolute path. Keep your draft direction out of both prompts. Never paste brief text into shell source.` : ''}
+Write the product brief to that path; remember its absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. For Codex, prepare a private file with that brief and the design-direction request below; substitute its shell-quoted absolute path for the literal <prepared-prompt-file> in the invocation. Keep your draft out of both prompts; give the native Agent its absolute path. Never paste brief text into shell source.` : ''}
 
 **Check ${outsideVoiceFor(ctx).label} availability:**
 ${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
@@ -865,12 +865,17 @@ ${synthesisSection}${isDesignConsultation ? '\nAfter both voices finish (includi
 \`\`\`bash
 ${ctx.paths.binDir}/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 \`\`\`
-${isDesignConsultation ? `For each accepted-run record, STATUS=clean for a usable proposal, issues_found for unresolved product constraints, unavailable for no valid completion. Taste differences are alternatives, not issues.
+${isDesignConsultation ? `Fill the log fields from actual completed proposals. Taste differences are alternatives, not issues; STATUS=issues_found only for a usable proposal with unresolved product constraints.
 
-| Record | SOURCE |
-|---|---|
-| External CLI | ${outsideVoiceFor(ctx).id} when completed, otherwise "none" |
-| Native subagent | in-host when completed, otherwise "none" |
+| Result | STATUS | SOURCE | OUTSIDE_STATUS |
+|---|---|---|---|
+| User declined both (one record) | skipped | none | skipped |
+| ${outsideVoiceFor(ctx).label} completed with valid markers | clean or issues_found | ${outsideVoiceFor(ctx).id} | completed |
+| ${outsideVoiceFor(ctx).label} unavailable or invalid | unavailable | none | unavailable |
+| Native subagent completed | clean or issues_found | in-host | actual ${outsideVoiceFor(ctx).label} outcome: completed or unavailable |
+| Native subagent unavailable | unavailable | none | actual ${outsideVoiceFor(ctx).label} outcome: completed or unavailable |
+
+SOURCE is the completed provider or in-host, otherwise "none". Both accepted-run records are retained even if one voice fails.
 
 Both records carry the actual CLI outcome: OUTSIDE_STATUS=completed only for successful execution with valid markers, otherwise unavailable. \`outside_provider\`/\`outside_status\` describe external coverage, not each record's source. A native-only success has STATUS=clean, SOURCE=in-host, outside_status="unavailable".` : 'STATUS="clean" requires a completed review with no findings; use "issues_found" for findings, "unavailable" if neither completed. SOURCE is the completed provider or in-host.'}
 
@@ -1269,7 +1274,7 @@ After the response, read current feedback next to the board HTML:
 
 **SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline with Read, then AskUserQuestion: "The comparison board server failed to start. Which variant? Any changes?" Route chat feedback as above.
 
-**After receiving feedback (any path):** summarize PREFERRED, RATINGS, YOUR NOTES, DIRECTION; AskUserQuestion "Is this right?" A confirmed final choice permits Write of \`$_DESIGN_DIR/approved.json\` with \`approved_variant\`, \`feedback\`, \`date\` (UTC), \`screen\`, \`branch\`. Use valid JSON, never shell interpolation. This approves the image only; Q-final gates project writes.`;
+**After receiving feedback (any path):** summarize PREFERRED, RATINGS, YOUR NOTES, DIRECTION; AskUserQuestion "Is this right?" A confirmed final choice permits Write of \`$_DESIGN_DIR/approved.json\` with \`approved_variant\`, \`feedback\`, \`date\` (UTC), \`screen\` (the product page depicted by the chosen mockup), and \`branch\` (the current \`git branch --show-current\` result, empty if detached). Use valid JSON, never shell interpolation. This approves the image only; Q-final gates project writes.`;
   return `### Comparison Board + Feedback Loop
 
 Create the comparison board and serve it over HTTP:

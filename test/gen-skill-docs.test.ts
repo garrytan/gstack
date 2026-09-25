@@ -2174,7 +2174,8 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
       expect(content).toContain('use only the native voice');
       expect(content).toContain('give the native Agent its absolute path');
       expect(content).toContain('Read the complete product brief at [the absolute DESIGN_BRIEF path printed above]');
-      expect(content).toContain('Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files/licenses; omit unverified faces');
+      expect(content).toContain("Check each proposed family's official Google Fonts/Fontshare listing via WebSearch/Aside for its exact name, required weights, license and loading URL");
+      expect(content).toContain('Omit faces you cannot verify');
       expect(content).toContain('a face may serve multiple roles');
       expect(content).not.toContain('a single question that covers everything');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }

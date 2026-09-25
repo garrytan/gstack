@@ -64,10 +64,10 @@ As a senior product designer, listen, research and propose a coherent system wit
 ls DESIGN.md design-system.md 2>/dev/null || echo "NO_DESIGN_FILE"
 ```
 
-If either exists, read it and AskUserQuestion: "Want to **update**, **start fresh**, or **cancel**?" DESIGN.md is authoritative if both exist. A lone design-system.md supplies prior context but stays untouched; Phase 6 targets DESIGN.md.
+If either exists, read it and AskUserQuestion: "Want to **update**, **start fresh**, or **cancel**?" DESIGN.md is authoritative if both exist. A lone design-system.md supplies prior context but stays untouched; Phase 6 targets DESIGN.md. Route that answer before any other probe:
 
 - **Cancel:** STOP the skill now, with no file changes or further probes.
-- **Update:** carry the existing decisions into Q1 as constraints; ask what should change, preserve the rest. Check DESIGN.md's format below.
+- **Update:** carry the existing decisions into Q1 as constraints; ask what should change, preserve the rest. If DESIGN.md exists, run the Update-only format check immediately below; if only design-system.md exists, skip that check.
 - **Start fresh:** set aside prior visual choices except constraints the user keeps. Skip the format question; propose a new open-format file, replacing nothing until Q-final.
 - **No existing file:** continue with a new open-format proposal.
 
@@ -101,7 +101,7 @@ If the codebase is empty and purpose is unclear, say: *"I don't have a clear pic
 
 **Check the Aside browser (optional — enables visual competitive research):**
 
-The browser is optional here. If BROWSER SETUP prints any non-READY result and fallback says `NEEDS_SETUP`, skip the one-time `$B` build offer. Tell the user once, skip Phase 2 Step 2; use host WebSearch for Step 1 if available and fill gaps from design knowledge.
+The browser is optional here. Probe Aside first. On any non-READY result, resolve `$B` in Browser fallback. If `$B` says `NEEDS_SETUP`, do not build or offer a build: tell the user once that visual research is unavailable, skip Phase 2 Step 2, use host WebSearch for Step 1 if available, and fill remaining gaps from design knowledge.
 
 {{ASIDE_SETUP}}
 
@@ -144,7 +144,7 @@ Record the one-sentence answer: a feeling, visual, claim, or posture. Every subs
 
 {{TASTE_PROFILE}}
 
-The **product brief** combines confirmed context, constraints, memorable-thing answer, taste summary and Phase 2 research/status. Your draft and both independent voices use this same input, with no proposed direction. Taste is a preference, not a constraint; justify departures through the memorable-thing answer.
+Before Phase 3, assemble one **product brief** with the confirmed product and users, project type and use scene, existing constraints, the memorable-thing answer, a taste summary, and Phase 2 findings with source URLs or an explicit declined/unavailable status. For a v1 taste profile, count its retained `sessions` entries (at most 50), not lifetime approvals; with no usable sessions, do not invent a count. Use the same facts for your draft and both independent voices; keep your proposed direction out of their prompts. Taste is a preference, not a constraint; justify departures through the memorable-thing answer.
 
 ---
 
