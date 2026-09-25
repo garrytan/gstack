@@ -595,6 +595,7 @@ async function runWorkflowJudge(opts: {
   endMarker: string | null;
   judgeContext: string;
   judgeGoal: string;
+  model?: string;
   thresholds?: { clarity: number; completeness: number; actionability: number };
   readInput?: () => WorkflowJudgeInput;
 }) {
@@ -668,7 +669,7 @@ async function runWorkflowJudge(opts: {
       startMarker: opts.startMarker, endMarker: opts.endMarker });
     checkActive();
     const prompt = buildWorkflowJudgePrompt(opts, input);
-    if (opts.readInput) customInputMetadata = { prompt, model: resolveEvalModel('judge') };
+    if (opts.readInput) customInputMetadata = { prompt, model: resolveEvalModel('judge', opts.model) };
     const cache = prepareWorkflowJudgeCache({ ...opts, root: ROOT, thresholds, prompt, attempt });
     checkActive();
     reused = cache.lookup();
@@ -677,7 +678,7 @@ async function runWorkflowJudge(opts: {
     const maxTokens = DEFAULT_JUDGE_MAX_TOKENS;
     let result: JudgeScore;
     try {
-      result = reused?.scores ?? await callJudge<JudgeScore>(prompt, undefined, { signal: controller.signal, max_tokens: maxTokens });
+      result = reused?.scores ?? await callJudge<JudgeScore>(prompt, opts.model, { signal: controller.signal, max_tokens: maxTokens });
     } catch (error) {
       checkActive();
       if (error instanceof JudgeRefusalError && customInputMetadata) {
