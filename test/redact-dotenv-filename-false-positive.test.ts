@@ -55,6 +55,31 @@ describe("internal.hostname — dotenv filenames are not hosts", () => {
   }
 });
 
+describe("internal.hostname — per-machine config filenames are not hosts", () => {
+  const LOCAL_CONFIG: [string, string][] = [
+    ["Claude Code memory file", "no `CLAUDE.local.md`, no @import"],
+    ["settings file", "edit .claude/settings.local.json"],
+    ["helm values", "helm -f values.staging.yaml"],
+    ["toml", "config.prod.toml is read first"],
+  ];
+  for (const [label, input] of LOCAL_CONFIG) {
+    test(label, () => {
+      expect(flagsHost(input)).toBe(false);
+    });
+  }
+
+  const STILL_HOSTS: [string, string][] = [
+    ["host at sentence end", "ping printer.local."],
+    ["host then a path", "http://printer.local/md"],
+    ["host then an unknown suffix", "printer.local.mdx is odd"],
+  ];
+  for (const [label, input] of STILL_HOSTS) {
+    test(label, () => {
+      expect(flagsHost(input)).toBe(true);
+    });
+  }
+});
+
 describe("isDotenvFilename — unit", () => {
   const matchFor = (input: string): RegExpExecArray => {
     const re = /\b([a-z0-9][a-z0-9\-]*\.(?:internal|corp|local|lan|prod|staging))\b/i;

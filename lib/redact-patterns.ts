@@ -325,6 +325,34 @@ export function isDotenvFilename(match: RegExpExecArray): boolean {
   return spanStart > 0 && input[spanStart - 1] === ".";
 }
 
+/** Extensions that mark a `<name>.local.<ext>` span as a file. Closed on
+ * purpose: `.md` is also Moldova's TLD, but no internal suffix sits in front
+ * of a public one, so after `.local` it can only be an extension. */
+const LOCAL_CONFIG_EXTENSIONS = /^\.(?:md|json|jsonc|ya?ml|toml|ini|conf|txt)\b/i;
+
+/**
+ * True when an `internal.hostname` span is really the stem of a per-machine
+ * config FILENAME (`CLAUDE.local.md`, `settings.local.json`,
+ * `values.staging.yaml`) rather than a host.
+ *
+ * The same collision as `.env.local`, from the other end: the pattern's `\b`
+ * stops at the dot before the extension, so `CLAUDE.local.md` reports
+ * `CLAUDE.local`. Claude Code's own per-user files are named this way, so any
+ * decision or doc that mentions them fails closed in the non-interactive
+ * stores.
+ *
+ * Exempts ONLY a span immediately followed by `.<known extension>` and a word
+ * boundary. `printer.local.` at the end of a sentence still reports (nothing
+ * follows the dot), and so does `printer.local` alone.
+ */
+export function isLocalConfigFilename(match: RegExpExecArray): boolean {
+  const input = match.input ?? "";
+  const span = match[1] ?? match[0];
+  const spanStartInMatch = match[1] !== undefined ? match[0].indexOf(match[1]) : 0;
+  const spanEnd = match.index + Math.max(0, spanStartInMatch) + span.length;
+  return LOCAL_CONFIG_EXTENSIONS.test(input.slice(spanEnd, spanEnd + 8));
+}
+
 /**
  * True when the matched span sits ENTIRELY inside a UUID.
  *
@@ -778,8 +806,9 @@ export const PATTERNS: RedactPattern[] = [
     category: "internal",
     description: "Internal hostname (*.internal/.corp/.local/.prod/.staging)",
     regex: /\b([a-z0-9][a-z0-9\-]*\.(?:internal|corp|local|lan|prod|staging))\b/i,
-    // `.env.local` and friends are filenames, not hosts. See isDotenvFilename.
-    validate: (_span, match) => !isDotenvFilename(match),
+    // `.env.local`, `CLAUDE.local.md` and friends are filenames, not hosts.
+    // See isDotenvFilename and isLocalConfigFilename.
+    validate: (_span, match) => !isDotenvFilename(match) && !isLocalConfigFilename(match),
   },
   {
     id: "internal.url_private",
