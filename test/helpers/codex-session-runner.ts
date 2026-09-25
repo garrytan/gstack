@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
+import { StringDecoder } from 'node:string_decoder';
 import { hermeticChildEnv } from './hermetic-env';
 import { extractSkillSections } from './skill-fixture';
 import { killProcessGroup } from '../../scripts/test-strict-output';
@@ -286,6 +287,8 @@ export async function runCodexSkill(opts: {
     let stdoutEnded = false;
     let stderrEnded = false;
     let finalized = false;
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
     let workTimer: ReturnType<typeof setTimeout> | undefined;
     let drainTimer: ReturnType<typeof setTimeout> | undefined;
     let finish!: () => void;
@@ -337,14 +340,14 @@ export async function runCodexSkill(opts: {
     // drained. A destroyed pipe can emit 'close' without either EOF or error.
     const onStdoutDone = () => { if (!finalized) { stdoutDone = true; maybeFinish(); } };
     const onStderrDone = () => { if (!finalized) { stderrDone = true; maybeFinish(); } };
-    const onStdoutEnd = () => { if (!finalized) { stdoutEnded = true; onStdoutDone(); } };
-    const onStderrEnd = () => { if (!finalized) { stderrEnded = true; onStderrDone(); } };
+    const onStdoutEnd = () => { if (!finalized) { stdoutBuffer += stdoutDecoder.end(); stdoutEnded = true; onStdoutDone(); } };
+    const onStderrEnd = () => { if (!finalized) { stderr += stderrDecoder.end(); stderrEnded = true; onStderrDone(); } };
     const onStreamError = (stream: 'stdout' | 'stderr', error: Error) => {
       if (!finalized) streamError ??= { stream, error };
     };
-    const onStdout = (chunk: string) => {
+    const onStdout = (chunk: Buffer) => {
       if (finalized) return;
-      stdoutBuffer += chunk;
+      stdoutBuffer += stdoutDecoder.write(chunk);
       const lines = stdoutBuffer.split('\n');
       stdoutBuffer = lines.pop() || '';
       for (const line of lines) {
@@ -364,12 +367,10 @@ export async function runCodexSkill(opts: {
         } catch { /* malformed JSONL is ignored by parseCodexJSONL too */ }
       }
     };
-    const onStderr = (chunk: string) => { if (!finalized) stderr += chunk; };
+    const onStderr = (chunk: Buffer) => { if (!finalized) stderr += stderrDecoder.write(chunk); };
 
     proc.on('exit', onExit);
     proc.on('error', onSpawnError);
-    proc.stdout!.setEncoding('utf8');
-    proc.stderr!.setEncoding('utf8');
     proc.stdout!.on('data', onStdout);
     proc.stderr!.on('data', onStderr);
     proc.stdout!.on('end', onStdoutEnd).on('close', onStdoutDone).on('error', error => onStreamError('stdout', error));
