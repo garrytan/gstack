@@ -26,7 +26,8 @@
  *   ~/.gstack/builder-profile.jsonl                 — typed: builder-profile-entry
  *
  * State: ~/.gstack/.transcript-ingest-state.json (LOCAL per ED1, never synced).
- * Secret scanning: gitleaks via lib/gstack-memory-helpers#secretScanFile (D19).
+ * Secret scanning: opt-in gitleaks over each rendered page via
+ * lib/gstack-memory-helpers#secretScanText (D19).
  * Concurrent-write handling: partial-flag + re-ingest on next pass (D10).
  *
  * V1.0 NOTE: Cursor SQLite extraction is a V1.0.1 follow-up. The plan promoted it to
@@ -61,7 +62,7 @@ import { createHash } from "crypto";
 
 import {
   canonicalizeRemote,
-  secretScanFile,
+  secretScanText,
   detectEngineTier,
   withErrorContext,
 } from "../lib/gstack-memory-helpers";
@@ -84,7 +85,8 @@ interface CliArgs {
   limit: number | null;
   noWrite: boolean;
   /**
-   * Opt-in per-file gitleaks scan during the prepare phase. Off by
+   * Opt-in gitleaks scan of each rendered page during the prepare phase;
+   * pages with findings, or that could not be scanned, are skipped. Off by
    * default — the cross-machine boundary (gstack-brain-sync, git push)
    * has its own scanner. Setting this adds ~4-8 min to cold runs.
    */
@@ -216,9 +218,11 @@ Options:
   --limit <N>          Stop after N pages written (smoke testing).
   --no-write           Skip gbrain put calls (still updates state file).
                        Used by tests + dry runs without actual ingest.
-  --scan-secrets       Opt-in per-file gitleaks scan during prepare. Off by
-                       default; gstack-brain-sync already gates the git-push
-                       boundary. Adds ~4-8 min to cold runs.
+  --scan-secrets       Opt-in gitleaks scan of each rendered page before it is
+                       staged; pages with findings, or that gitleaks could not
+                       scan, are skipped. Off by default; gstack-brain-sync
+                       already gates the git-push boundary. Adds ~4-8 min to
+                       cold runs.
   --help               This text.
 `);
 }
@@ -851,8 +855,9 @@ function buildArtifactPage(path: string, type: MemoryType): PageRecord {
 // Architecture (post plan-eng-review + Codex outside-voice):
 //
 //   walkAllSources(ctx)
-//     → for each path: mtime-skip / source-file gitleaks (D3) / parse / buildPage
+//     → for each path: mtime-skip / parse / buildPage
 //     → renderPageBody injects title/type/tags into YAML frontmatter
+//     → --scan-secrets: gitleaks the rendered page; skip on finding or no scan
 //     → writeStaged: mkdir -p slug subdirs (D1), write ${slug}.md
 //   → snapshot ~/.gbrain/sync-failures.jsonl byte-offset           (D7)
 //   → spawnSync `gbrain import <stagingDir> --no-embed --json`     (D6)
@@ -1372,10 +1377,10 @@ export function disambiguateSlugs(
 }
 
 /**
- * Prepare phase: walk sources, apply incremental + optional-secret-scan filters,
- * parse transcripts/artifacts into PageRecord, render bodies with
- * frontmatter. Returns the PreparedPage[] to stage + counts of files
- * filtered at each gate.
+ * Prepare phase: walk sources, apply the incremental filter, parse
+ * transcripts/artifacts into PageRecord, render bodies with frontmatter,
+ * then apply the optional secret-scan filter to each rendered body. Returns
+ * the PreparedPage[] to stage + counts of files filtered at each gate.
  *
  * Secret scanning policy (post 2026-05-10 perf review):
  *
@@ -1436,25 +1441,6 @@ function preparePages(
       continue;
     }
 
-    // Optional belt-and-suspenders: when --scan-secrets is set, scan the
-    // source file with gitleaks and skip dirty ones. Off by default
-    // because gstack-brain-sync already gates the cross-machine boundary
-    // and per-file gitleaks costs ~256ms/file (4-8 min on a real corpus).
-    if (args.scanSecrets) {
-      const scan = secretScanFile(path);
-      if (scan.scanner === "gitleaks" && scan.findings.length > 0) {
-        skippedSecret++;
-        if (!args.quiet) {
-          console.error(
-            `[secret-scan match] ${path} (${scan.findings.length} finding${
-              scan.findings.length === 1 ? "" : "s"
-            }); skipped`,
-          );
-        }
-        continue;
-      }
-    }
-
     let page: PageRecord;
     try {
       if (type === "transcript") {
@@ -1481,10 +1467,39 @@ function preparePages(
       continue;
     }
 
+    const renderedBody = renderPageBody(page);
+
+    // Optional belt-and-suspenders: when --scan-secrets is set, gitleaks the
+    // rendered page — the exact bytes writeStaged() hands to gbrain — and
+    // skip the file on any finding. Scanning the source file instead missed
+    // secrets that JSON escaping hides from gitleaks' rules (`KEY=\"v\"` in
+    // the .jsonl, `KEY="v"` in the page). A scan that could not run
+    // (scanner "missing" or "error") skips the file too: the flag promises
+    // nothing unscanned gets imported. Skipped files are not recorded in
+    // state, so the next run retries them. Off by default because
+    // gstack-brain-sync already gates the cross-machine boundary and
+    // per-file gitleaks costs ~256ms/file (4-8 min on a real corpus).
+    if (args.scanSecrets) {
+      const scan = secretScanText(renderedBody);
+      if (scan.scanner !== "gitleaks" || scan.findings.length > 0) {
+        skippedSecret++;
+        if (!args.quiet) {
+          console.error(
+            scan.scanner === "gitleaks"
+              ? `[secret-scan match] ${path} (${scan.findings.length} finding${
+                  scan.findings.length === 1 ? "" : "s"
+                }); skipped`
+              : `[secret-scan ${scan.scanner}] ${path} (gitleaks could not scan it); skipped`,
+          );
+        }
+        continue;
+      }
+    }
+
     prepared.push({
       slug: page.slug,
       source_path: path,
-      rendered_body: renderPageBody(page),
+      rendered_body: renderedBody,
       page_slug: page.slug,
       partial: page.partial ?? false,
       type,
