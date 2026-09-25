@@ -7,6 +7,7 @@
 - Paid CI uses recorded file runtimes to balance matching test selections and start slow files earlier. Historical timings remain scheduling hints: selected cases, retries, per-file deadlines and reserved lanes are unchanged, and a candidate plan cannot increase the previous supervised wall bound.
 - Lightweight free-suite coordination and paid planners use two-CPU Ubicloud runners. Heavy workers and native-platform gates keep their existing capacity and concurrency limits.
 - Free and paid PR workers retain runner-wide CPU and memory measurements alongside their test results. Measurements distinguish system utilization from child-process usage and preserve failures and cancellation.
+- Paid executors honor workflow cancellation rather than continuing under an unconditional status guard. Failed prerequisites still prevent execution.
 
 ## [1.90.2.0] - 2026-09-24
 

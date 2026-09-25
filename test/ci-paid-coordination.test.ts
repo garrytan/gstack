@@ -86,7 +86,7 @@ describe('paid CI coordination stays off the eval image', () => {
       expect(executor.needs).toEqual(['build-image', 'plan-slices']);
       expect(JSON.stringify(executor.container)).toContain('needs.build-image.outputs.image-tag');
       if (name === 'evals.yml') {
-        expect(executor.if).toBe("always() && needs.build-image.result == 'success' && needs.plan-slices.result == 'success'");
+        expect(executor.if).toBe("!cancelled() && needs.build-image.result == 'success' && needs.plan-slices.result == 'success'");
       } else {
         expect(executor.if).toBeUndefined();
       }

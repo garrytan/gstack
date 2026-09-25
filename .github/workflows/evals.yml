@@ -178,7 +178,7 @@ jobs:
   eval-slices:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
-    if: always() && needs.build-image.result == 'success' && needs.plan-slices.result == 'success'
+    if: "!cancelled() && needs.build-image.result == 'success' && needs.plan-slices.result == 'success'"
     # Aggregate spawn-concurrency budget: 6 slices x EVALS_JOBS=2 x
     # EVALS_CONCURRENCY=2 = 24 concurrent tests lane-wide (the old matrix's
     # 40-way per row queued claude session STARTUP behind 39 siblings and ate
