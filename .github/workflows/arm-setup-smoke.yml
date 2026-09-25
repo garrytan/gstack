@@ -75,7 +75,9 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git nodejs npm fonts-noto-color-emoji
           install -m 0755 /input/bun /usr/local/bin/bun
+          ln -s bun /usr/local/bin/bunx
           test "$(bun --version)" = 1.4.0
+          test "$(bunx --version)" = 1.4.0
           test "$(bun -p 'process.arch')" = arm64
           test "$(node -p 'process.arch')" = arm64
           node --version
