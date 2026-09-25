@@ -83,12 +83,13 @@ function recoveryJson(path:string,links:1|2,options:AtomicNoReplaceRecoveryOptio
     if(!sameRecoveryIdentity(recoveryIdentity(before),recoveryIdentity(opened))){
       if(publicationLinkTransition(before,opened,links,options))throw new AtomicPublicationTransition(`${options.label} interrupted publication changed link state while it was opened`);
       if(publicationProgress(before,opened,options))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} changed phase during concurrent recovery while it was opened`);
+      if(before.nlink===opened.nlink&&samePublicationInode(before,opened,options)&&publicationProgress(opened,exactFstat(fd),options))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} changed link state during concurrent recovery while it was opened`);
       throw new CsoError('SNAPSHOT_RACE',`${options.label} interrupted publication changed while it was opened`);
     }
     const serialized=readPublicationBytes(fd,opened.size,options.label);let value:unknown;try{value=JSON.parse(serialized);}catch{throw new CsoError('UNSAFE_PATH',`${options.label} interrupted publication is not valid JSON`);}
     const final=exactFstat(fd);if(readPublicationBytes(fd,opened.size,options.label)!==serialized)throw new CsoError('SNAPSHOT_RACE',`${options.label} interrupted publication changed while it was read`);let after:ExactStats;try{after=exactLstat(path);}catch(error:any){if(error?.code==='ENOENT'&&publicationPathRemoved(opened,final,options))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} was removed by another recovery helper while it was read`);throw error;}const openedIdentity=recoveryIdentity(opened),finalIdentity=recoveryIdentity(final),afterIdentity=recoveryIdentity(after);
     if(!sameRecoveryIdentity(openedIdentity,finalIdentity)||!sameRecoveryIdentity(openedIdentity,afterIdentity)){
-      const coherentTransition=(sameRecoveryIdentity(openedIdentity,finalIdentity)&&publicationLinkTransition(opened,after,links,options))||
+      const coherentTransition=(opened.nlink===final.nlink&&samePublicationInode(opened,final,options)&&publicationLinkTransition(opened,after,links,options))||
         (publicationLinkTransition(opened,final,links,options)&&sameRecoveryIdentity(finalIdentity,afterIdentity));
       if(coherentTransition)throw new AtomicPublicationTransition(`${options.label} interrupted publication changed link state while it was read`);
       if(publicationProgress(opened,final,options)&&publicationProgress(final,after,options))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} changed phase during concurrent recovery while it was read`);
@@ -122,6 +123,7 @@ export function recoverAtomicNoReplaceJson(target:string,options:AtomicNoReplace
       if(matches.length===0&&error?.code==='ENOENT')throw new AtomicPublicationTransition(`${options.label} was removed during candidate enumeration`);
     }
     if(settled&&publicationLinkTransition(targetStat,settled,2,options))throw new AtomicPublicationTransition(`${options.label} interrupted publication settled during candidate enumeration`);
+    if(matches.length===0&&settled?.nlink===0&&samePublicationInode(targetStat,settled,options))throw new AtomicPublicationTransition(`${options.label} was unlinked during candidate enumeration`);
     throw new CsoError('UNSAFE_PATH',`${options.label} hard link does not match one recognized interrupted publication`);
   }
   const candidate=matches[0],temporary=recoveryJson(candidate.path,2,options,candidate.observed);
@@ -397,7 +399,7 @@ function recoverLeasePublications(leases:string):void{
           validate:(value,pid)=>{const owner=validateOwner(value,token);if(owner.pid!==pid)throw new CsoError('UNSAFE_PATH','Run mutation lease temp does not match its publisher');},
           publisherAlive:(value,pid)=>{const owner=validateOwner(value,token);if(owner.pid!==pid)throw new CsoError('UNSAFE_PATH','Run mutation lease temp does not match its publisher');return ownerIsAlive(owner);}}:
           leaseDecisionRecoveryOptions(token);
-        let publicationObserved:ExactStats|undefined;try{publicationObserved=exactLstat(temp);}catch{}
+        let publicationObserved:ExactStats;try{publicationObserved=exactLstat(temp);}catch(error:any){if(error?.code==='ENOENT')continue;throw new CsoError('UNSAFE_PATH',`${options.label} temp could not be inspected`);}
         if(liveEmptyPublication(temp,publisherPid))throw new CsoError('INSUFFICIENT_CAPACITY',`${options.label} publication is still changing under a live helper`);
         try{
           if(fs.existsSync(target))recoverAtomicNoReplaceJson(target,options);

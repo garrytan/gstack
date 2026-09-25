@@ -281,8 +281,11 @@ isolates the test command from other runner activity. Sampling can miss brief
 peaks. Child stdio and status are preserved; cancellation records the requested
 signal even when a child exits successfully after cleanup. A seven-second
 owned-group grace leaves the shard supervisor its existing five-second kill
-and six-second controller-exit windows. Hangup requests use graceful SIGTERM
-forwarding so that same cleanup runs. Receipts contain no child argv or environment.
+and six-second controller-exit windows. After escalation, the wrapper allows
+up to one second to confirm the owned group has stopped; queuing SIGKILL alone
+is not confirmation. Unconfirmed cleanup fails instead of writing a completion
+receipt. Hangup requests use graceful SIGTERM forwarding so that same cleanup
+runs. Receipts contain no child argv or environment.
 
 **CI planner/executor/report.** `--emit-plan <path> --slices K` computes
 selection + the slice plan ONCE (killing per-slice selector divergence);

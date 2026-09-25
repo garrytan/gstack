@@ -1,5 +1,5 @@
 import { availableParallelism, constants } from 'node:os';
-import { writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 
 type CpuTicks = { total: number; idle: number };
@@ -116,15 +116,27 @@ async function run(args: string[]): Promise<number> {
       if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
     }
   };
-  const ownedGroupExists = () => {
+  const ownedGroupIsRunning = async () => {
     if (!child.pid) return false;
     try {
       process.kill(-child.pid, 0);
-      return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
       throw error;
     }
+    for (const entry of await readdir('/proc')) {
+      if (!/^\d+$/.test(entry)) continue;
+      let stat: string;
+      try {
+        stat = await readFile(`/proc/${entry}/stat`, 'utf8');
+      } catch (error) {
+        if (['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) continue;
+        throw error;
+      }
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/);
+      if (Number(fields[2]) === child.pid && fields[0] !== 'Z') return true;
+    }
+    return false;
   };
   const forwardSignal = (signal: NodeJS.Signals) => {
     if (cancellationSignal) return;
@@ -162,11 +174,18 @@ async function run(args: string[]): Promise<number> {
   });
   clearInterval(monitor);
   await pendingSample;
-  if (cleanupTimer && !ownedGroupExists()) {
+  if (cleanupTimer && !await ownedGroupIsRunning()) {
     clearTimeout(cleanupTimer);
     cleanupTimer = undefined;
   }
   if (cleanupDone && cleanupTimer) await cleanupDone;
+  if (cancellationSignal) {
+    const deadline = performance.now() + 1_000;
+    while (await ownedGroupIsRunning()) {
+      if (performance.now() >= deadline) throw new Error('Owned child process group did not stop after SIGKILL');
+      await Bun.sleep(10);
+    }
+  }
   process.off('SIGINT', onInt);
   process.off('SIGTERM', onTerm);
   process.off('SIGHUP', onHup);

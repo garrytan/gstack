@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -7,18 +7,30 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 // Exercise the actual paid registration with only its PTY observation boundary
 // replaced. No EVALS flags, credentials, model process, or paid runner are used.
-function exercise(outcome: string = 'auq_observed') {
+function exercise(outcome: string = 'auq_observed', cleanupFailure = false) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'design-floor-free-'));
   const script = path.join(directory, 'registration.test.ts');
   const facts = path.join(directory, 'facts.json');
   fs.writeFileSync(script, `
-import { describe, expect, mock } from 'bun:test';
+import { describe, expect, mock, spyOn } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { FORCING_FLOOR_DESIGN } from ${JSON.stringify(path.join(ROOT, 'test/fixtures/forcing-finding-seeds.ts'))};
 import { CAPTURE_LONG_MS } from ${JSON.stringify(path.join(ROOT, 'test/helpers/eval-budgets.ts'))};
 const outcome = ${JSON.stringify(outcome)};
+const remove = fs.rmSync;
+spyOn(fs, 'rmSync').mockImplementation((file, options) => {
+  try {
+    if (${JSON.stringify(cleanupFailure)}) {
+      throw Object.assign(new Error('controlled cleanup failure'), { code: 'EBUSY', path: file });
+    }
+    return remove(file, options);
+  } catch (error) {
+    console.error('design-floor cleanup error:', error);
+    throw error;
+  }
+});
 let calls = 0;
 mock.module(${JSON.stringify(path.join(ROOT, 'test/helpers/e2e-gate.ts'))}, () => ({
   describeE2ETier: tier => { expect(tier).toBe('periodic'); return describe; },
@@ -71,7 +83,25 @@ await import(${JSON.stringify(path.join(ROOT, 'test/skill-e2e-plan-design-findin
     const observed = JSON.parse(fs.readFileSync(facts, 'utf8'));
     expect(observed.calls).toBe(1);
     expect(observed.seeded, output).toBe(true);
-    expect(fs.existsSync(observed.cwd), 'owned fixture must be removed after observation').toBe(false);
+    let directoryState: { exists?: boolean; directory?: boolean; symlink?: boolean; entries?: string[]; error?: string };
+    try {
+      const stat = fs.lstatSync(observed.cwd, { throwIfNoEntry: false });
+      directoryState = stat ? {
+        exists: true, directory: stat.isDirectory(), symlink: stat.isSymbolicLink(),
+        ...(stat.isDirectory() ? { entries: fs.readdirSync(observed.cwd) } : {}),
+      } : { exists: false };
+    } catch (error) {
+      directoryState = { error: String(error) };
+    }
+    const cleanupDiagnostic = [
+      'owned fixture must be removed after observation',
+      `child exit=${child.exitCode} signal=${child.signalCode ?? null}`,
+      `cwd=${observed.cwd}`,
+      `directory state: ${JSON.stringify(directoryState)}`,
+      output,
+    ].join('\n');
+    expect(fs.existsSync(observed.cwd), cleanupDiagnostic).toBe(false);
+    expect(directoryState.exists, cleanupDiagnostic).toBe(false);
     return { code: child.exitCode, output };
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -93,4 +123,28 @@ test('design floor cleans its project when observation throws and preserves the 
   const result = exercise('throw');
   expect(result.code, result.output).toBe(1);
   expect(result.output).toContain('controlled floor observation failure');
+}, 20_000);
+
+test('design floor cleanup diagnostics retain the child error and actual leftover directory', () => {
+  let failure: unknown;
+  try { exercise('throw', true); } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(Error);
+  const diagnostic = String(failure);
+  expect(diagnostic).toContain('controlled floor observation failure');
+  expect(diagnostic).toContain('design-floor cleanup error:');
+  expect(diagnostic).toContain('controlled cleanup failure');
+  expect(diagnostic).toContain('EBUSY');
+  expect(diagnostic).toContain('directory state: {"exists":true,"directory":true');
+  expect(diagnostic).toContain('review-input.md');
+}, 20_000);
+
+test('design floor cleanup diagnostics distinguish a polluted existence predicate', () => {
+  const exists = fs.existsSync;
+  const probe = spyOn(fs, 'existsSync').mockImplementation(file =>
+    path.basename(String(file)).startsWith('design-floor-project-') || exists(file));
+  let failure: unknown;
+  try { exercise('throw'); } catch (error) { failure = error; } finally { probe.mockRestore(); }
+  expect(failure).toBeInstanceOf(Error);
+  expect(String(failure)).toContain('controlled floor observation failure');
+  expect(String(failure)).toContain('directory state: {"exists":false}');
 }, 20_000);

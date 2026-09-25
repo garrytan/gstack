@@ -210,6 +210,60 @@ describe.skipIf(process.platform !== 'linux')('ci resource metrics CLI', () => {
     }
   }, 15_000);
 
+  test.each(['delayed', 'withheld'] as const)('verifies group termination after queued SIGKILL (%s)', async delivery => {
+    const delivered = delivery === 'delayed';
+    const output = await tempOutput();
+    const pidFile = `${output}.pid`;
+    const preload = `${output}.preload.ts`;
+    await writeFile(preload, `import { spawn } from 'node:child_process';
+      const kill = process.kill.bind(process);
+      process.kill = ((pid, signal) => {
+        if (pid < 0 && signal === 'SIGKILL') {
+          if (!${delivered}) return true;
+          const delivery = spawn(process.execPath, ['-e',
+            'setTimeout(() => process.kill(' + pid + ', "SIGKILL"), 200)'],
+            { detached: true, stdio: 'ignore' });
+          delivery.unref();
+          return true;
+        }
+        return kill(pid, signal);
+      });`);
+    const child = Bun.spawn([process.execPath, '--preload', preload, script,
+      '--output', output, '--label', 'delayed-signal', '--', '/bin/sh', '-c',
+      `/bin/sh -c 'trap "" TERM; echo $$ > "$1"; exec /usr/bin/sleep 30' grandchild "$1" & trap 'exit 0' TERM; wait`,
+      'child', pidFile], { stdout: 'pipe', stderr: 'pipe' });
+    let pid: number | undefined;
+    try {
+      for (let attempt = 0; attempt < 100 && !await Bun.file(pidFile).exists(); attempt++) await Bun.sleep(20);
+      pid = Number(await readFile(pidFile, 'utf8'));
+      expect(Number.isSafeInteger(pid)).toBe(true);
+      child.kill('SIGTERM');
+      expect(await child.exited).toBe(delivered ? 143 : 1);
+      if (!delivered) {
+        expect(process.kill(pid, 0)).toBe(true);
+        process.kill(pid, 'SIGKILL');
+        expect(await new Response(child.stderr).text()).toContain('Owned child process group did not stop after SIGKILL');
+        return;
+      }
+      let running = false;
+      try {
+        const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+        running = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] !== 'Z';
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      expect(running).toBe(false);
+      expect(JSON.parse(await readFile(output, 'utf8')).cancellation).toEqual({ requestedSignal: 'SIGTERM' });
+    } finally {
+      if (pid) {
+        try { process.kill(pid, 'SIGKILL'); } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+        }
+      }
+      child.kill('SIGKILL');
+    }
+  }, 15_000);
+
   test.each(['SIGTERM', 'SIGHUP'] as const)('lets the real shard supervisor reap its detached group on %s', async signal => {
     const output = await tempOutput();
     const pidFile = `${output}.shard-pid`;
