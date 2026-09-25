@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, jest, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
@@ -25,6 +25,26 @@ async function withNativeProjectDirectory<T>(cwd: string | undefined, work: () =
   finally {
     if (previous === undefined) delete process.env.CLAUDE_PROJECT_DIR;
     else process.env.CLAUDE_PROJECT_DIR = previous;
+  }
+}
+
+async function withPublicationClock<T>(work: () => Promise<T>): Promise<T> {
+  expect(jest.isFakeTimers()).toBe(false);
+  const immediate = globalThis.setImmediate;
+  jest.useFakeTimers();
+  try {
+    let settled = false;
+    const pending = Promise.resolve().then(work);
+    void pending.then(() => { settled = true; }, () => { settled = true; });
+    for (let elapsed = 0; elapsed <= 2_000; elapsed += 50) {
+      await new Promise<void>(resolve => immediate(resolve));
+      if (settled) return await pending;
+      if (elapsed < 2_000) jest.advanceTimersByTime(50);
+    }
+    throw new Error('Publication hook did not settle within its 2000ms polling budget.');
+  } finally {
+    jest.clearAllTimers();
+    jest.useRealTimers();
   }
 }
 
@@ -325,18 +345,18 @@ describe('Autoplan parent publication guard', () => {
   });
 
   for (const project of ['absent', 'empty', 'relative', 'foreign', 'unnormalized'] as const) {
-    test(`native project ownership rejects ${project} original-directory evidence after cd`, async () => {
+    test.serial(`native project ownership rejects ${project} original-directory evidence after cd`, async () => {
       const { f } = changedDirectory();
       const value = project === 'absent' ? undefined : project === 'empty' ? '' : project === 'relative' ? 'relative' :
         project === 'foreign' ? path.join(f.cwd, 'foreign') : f.cwd + '/.';
-      const output: any = await withNativeProjectDirectory(value, () => runPublicationHook(f.input, ROOT));
+      const output: any = await withNativeProjectDirectory(value, () => withPublicationClock(() => runPublicationHook(f.input, ROOT)));
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
     });
   }
 
   for (const mutation of ['foreign-root', 'sidechain', 'dangling', 'competing-root', 'duplicate-root',
     'foreign-session', 'wrong-current-input', 'incomplete-current'] as const) {
-    test(`native project ownership retains ${mutation} rejection after cd`, async () => {
+    test.serial(`native project ownership retains ${mutation} rejection after cd`, async () => {
       const { f, rows, save } = changedDirectory();
       const current = rows.at(-1)!;
       if (mutation === 'foreign-root') rows[0]!.cwd = path.join(f.cwd, 'foreign');
@@ -351,7 +371,7 @@ describe('Autoplan parent publication guard', () => {
         const bytes = fs.readFileSync(f.input.transcript_path, 'utf8');
         fs.writeFileSync(f.input.transcript_path, bytes.slice(0, -1));
       }
-      const output: any = await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
+      const output: any = await withNativeProjectDirectory(f.cwd, () => withPublicationClock(() => runPublicationHook(f.input, ROOT)));
       expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
     });
   }
@@ -618,6 +638,54 @@ describe('Autoplan parent publication guard', () => {
     f.current(); expect(f.evaluate()).toMatchObject({ allow: false, reason: expect.stringContaining('Publish the filled') });
   });
 
+  test.serial('unavailable journal polls every 50ms for the full 2000ms budget', async () => {
+    const f = fixture();
+    await withNativeProjectDirectory(f.cwd, () => withPublicationClock(async () => {
+      const started = performance.now(), timer = jest.spyOn(globalThis, 'setTimeout');
+      try {
+        const output: any = await runPublicationHook(f.input, ROOT);
+        expect(performance.now() - started).toBe(2_000);
+        expect(timer.mock.calls.map(([, delay]) => delay)).toEqual(Array(40).fill(50));
+        expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+        expect(output.hookSpecificOutput.permissionDecisionReason).toContain('no missing-publication conclusion');
+      } finally { timer.mockRestore(); }
+    }));
+  });
+  test.serial('the publication clock restores native timers after success and failure', async () => {
+    const timeout = globalThis.setTimeout, immediate = globalThis.setImmediate, now = performance.now;
+    const failure = new Error('fixture failure');
+    const project = process.env.CLAUDE_PROJECT_DIR;
+    for (const outcome of ['success', 'throw', 'over-budget']) {
+      const pending = withNativeProjectDirectory(undefined, () => withPublicationClock(async () => {
+        await new Promise(resolve => setTimeout(resolve, outcome === 'over-budget' ? 2_050 : 50));
+        if (outcome === 'throw') throw failure;
+        return 'settled';
+      }));
+      const result = await pending.then(value => value, error => error);
+      if (outcome === 'throw') expect(result).toBe(failure);
+      else if (outcome === 'over-budget') {
+        expect(result).toBeInstanceOf(Error);
+        expect(result.message).toContain('did not settle within its 2000ms polling budget');
+      } else expect(result).toBe('settled');
+      expect(jest.isFakeTimers()).toBe(false);
+      expect(globalThis.setTimeout).toBe(timeout);
+      expect(globalThis.setImmediate).toBe(immediate);
+      expect(performance.now).toBe(now);
+      expect(process.env.CLAUDE_PROJECT_DIR).toBe(project);
+    }
+  });
+  test.serial('the owned journal can arrive asynchronously on the last poll before the deadline', async () => {
+    const f = fixture(); f.message(); f.current();
+    await withNativeProjectDirectory(f.cwd, () => withPublicationClock(async () => {
+      const started = performance.now();
+      setTimeout(() => f.journal(), 1_950);
+      expect(await runPublicationHook(f.input, ROOT)).toEqual({});
+      expect(performance.now() - started).toBe(1_950);
+      const decoded = readOwnedClaudePublicTranscript(f.input.transcript_path, f.cwd, f.sessionId);
+      expect(decoded.transcript.status).toBe('ready');
+      expect(decoded.events.some(e => e.kind === 'use' && e.toolUseId === 'next')).toBe(true);
+    }));
+  });
   test('the actual owned native reader and asynchronous hook admit a flushed same-response report', async () => {
     const f = fixture(); f.message(); f.current();
     setTimeout(() => f.journal(), 100);
@@ -651,7 +719,7 @@ describe('Autoplan parent publication guard', () => {
   for (const kind of ['initial-entry', 'new-phase', 'agent', 'foreign-methodology', 'duplicate',
     'foreign-session', 'orphan-current-result', 'pending-prior-entry', 'unpublished-predecessor', 'rearmed-human',
     'forged-prior-range', 'malformed-journal', 'symlinked-journal'] as const)
-    test(`an in-flight native Read does not bypass ${kind}`, async () => {
+    test.serial(`an in-flight native Read does not bypass ${kind}`, async () => {
       const f = fixture(); f.input.tool_input = { file_path: f.method, offset: 1, limit: 1 };
       if (kind === 'initial-entry') f.events.splice(2);
       if (kind === 'new-phase') { f.message(); f.input.tool_input = { file_path: path.join(ROOT, 'autoplan/sections/design-phase.md') }; }
@@ -679,7 +747,7 @@ describe('Autoplan parent publication guard', () => {
         fs.renameSync(f.input.transcript_path, target); fs.symlinkSync(target, f.input.transcript_path);
       }
       if (kind === 'foreign-session') f.input.session_id = randomUUID();
-      const output: any = await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
+      const output: any = await withNativeProjectDirectory(f.cwd, () => withPublicationClock(() => runPublicationHook(f.input, ROOT)));
       expect(output.hookSpecificOutput?.permissionDecision).toBe('deny');
       expect(readOwnedClaudePublicTranscript(f.input.transcript_path, f.cwd, f.sessionId).events
         .filter(e => e.kind === 'use' && e.toolUseId === f.input.tool_use_id)).toHaveLength(0);

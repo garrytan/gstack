@@ -4,24 +4,10 @@ You are here because the Step 1.5 detection in the skeleton printed `FIRST_RUN`
 or `CONFIG_CHANGED` (a `CONFIRMED` run never reads this section). Nothing has
 been merged or deployed yet.
 
-**If CONFIG_CHANGED:** The deploy configuration has changed since the last confirmed deploy.
-Re-trigger the dry run. Tell the user:
-
-"I've deployed this project before, but your deploy configuration has changed since the last
-time. That could mean a new platform, a different workflow, or updated URLs. I'm going to
-do a quick dry run to make sure I still understand how your project deploys."
-
-Then proceed to the FIRST_RUN flow below (steps 1.5a through 1.5e).
-
-**If FIRST_RUN:** This is the first time `/land-and-deploy` is running for this project. Before doing anything irreversible, show the user exactly what will happen. This is a dry run — explain, validate, and confirm.
-
-Tell the user:
-
-"This is the first time I'm deploying this project, so I'm going to do a dry run first.
-
-Here's what that means: I'll detect your deploy infrastructure, test that my commands actually work, and show you exactly what will happen — step by step — before I touch anything. Deploys are irreversible once they hit production, so I want to earn your trust before I start merging.
-
-Let me take a look at your setup."
+**CONFIG_CHANGED:** Say "Your deploy configuration changed; I'll validate it again."
+**FIRST_RUN:** Say "This is the first run for this project. I'll detect the setup,
+test read-only access, and show you what merge would trigger before asking for approval."
+Both follow 1.5a-e. Explain each check in plain English; nothing deploys in this dry run.
 
 ### 1.5a: Deploy infrastructure detection
 
@@ -34,7 +20,8 @@ and any persisted config from CLAUDE.md.
 
 ### 1.5b: Command validation
 
-Test each detected command to verify the detection is accurate. Build a validation table:
+Test each detected read-only command. Gather staging facts in 1.5c before displaying
+the combined validation table below; no deploy trigger runs during this dry run.
 
 ```bash
 # Test gh auth (already passed in Step 1, but confirm)
@@ -55,29 +42,24 @@ Run whichever commands are relevant based on the detected platform. Build the re
 ╔══════════════════════════════════════════════════════════╗
 ║         DEPLOY INFRASTRUCTURE VALIDATION                  ║
 ╠══════════════════════════════════════════════════════════╣
-║                                                            ║
 ║  Platform:    {platform} (from {source})                   ║
 ║  App:         {app name or "N/A"}                          ║
 ║  Prod URL:    {url or "not configured"}                    ║
-║                                                            ║
 ║  COMMAND VALIDATION                                        ║
 ║  ├─ gh auth status:     ✓ PASS                             ║
 ║  ├─ {platform CLI}:     ✓ PASS / ⚠ NOT INSTALLED / ✗ FAIL ║
 ║  ├─ curl prod URL:      ✓ PASS (200 OK) / ⚠ UNREACHABLE   ║
 ║  └─ deploy workflow:    {file or "none detected"}          ║
-║                                                            ║
 ║  STAGING DETECTION                                         ║
 ║  ├─ Staging URL:        {url or "not configured"}          ║
 ║  ├─ Staging workflow:   {file or "not found"}              ║
 ║  └─ Preview deploys:    {detected or "not detected"}       ║
-║                                                            ║
 ║  WHAT WILL HAPPEN                                          ║
-║  1. Run pre-merge readiness checks (reviews, tests, docs)  ║
-║  2. Wait for CI if pending                                 ║
+║  1. Wait for required CI if pending                       ║
+║  2. Readiness checks and explicit merge approval          ║
 ║  3. Merge PR via {merge method}                            ║
 ║  4. {Wait for deploy workflow / Wait 60s / Skip}           ║
 ║  5. {Run canary verification / Skip (no URL)}              ║
-║                                                            ║
 ║  MERGE METHOD: {squash/merge/rebase} (from repo settings)  ║
 ║  MERGE QUEUE:  {detected / not detected}                   ║
 ╚══════════════════════════════════════════════════════════╝
@@ -85,11 +67,10 @@ Run whichever commands are relevant based on the detected platform. Build the re
 
 **Validation failures are WARNINGs, not BLOCKERs** (except `gh auth status` which already
 failed at Step 1). If `curl` fails, note "I couldn't reach that URL — might be a network
-issue, VPN requirement, or incorrect address. I'll still be able to deploy, but I won't
-be able to verify the site is healthy afterward."
+issue, VPN requirement, or incorrect address. Health verification is unavailable."
 If platform CLI is not installed, note "The {platform} CLI isn't installed on this machine.
-I can still deploy through GitHub, but I'll use HTTP health checks instead of the platform
-CLI to verify the deploy worked."
+Platform status is unavailable. HTTP checks can show reachability, not a deployed
+revision; I'll need the configured trigger and its deployment evidence."
 
 ### 1.5c: Staging detection
 
@@ -109,11 +90,13 @@ done
 
 3. **Vercel/Netlify preview deploys:** Check PR status checks for preview URLs:
 ```bash
-gh pr checks --json name,targetUrl 2>/dev/null | head -20
+gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state,bucket,link
 ```
-Look for check names containing "vercel", "netlify", or "preview" and extract the target URL.
+Look for check names containing "vercel", "netlify", or "preview" and inspect the
+link for a preview URL. A check-details link is not necessarily the preview itself.
 
-Record any staging targets found. These will be offered in Step 5.
+Record candidates, not proof that this revision is deployed. Step 3.5 refreshes
+deployment facts on every run, and handles any true staging-first request before merge.
 
 ### 1.5d: Readiness preview
 
@@ -139,14 +122,15 @@ Present the full dry-run results to the user via AskUserQuestion:
 - **Re-ground:** "First deploy dry-run for [project] on branch [branch]. Above is what I detected about your deploy infrastructure. Nothing has been merged or deployed yet — this is just my understanding of your setup."
 - Show the infrastructure validation table from 1.5b above.
 - List any warnings from command validation, with plain-English explanations.
-- If staging was detected, note: "I found a staging environment at {url/workflow}. After we merge, I'll offer to deploy there first so you can verify everything works before it hits production."
-- If no staging was detected, note: "I didn't find a staging environment. The deploy will go straight to production — I'll run health checks right after to make sure everything looks good."
+- If staging was detected: "I found {url/workflow}. A staging URL does not prove production is held. Before merge I'll check the triggers; afterward I can verify an existing staging deployment, but production may already be live."
+- If no staging was detected: "I didn't find staging. I'll identify what merge triggers before asking you to approve it."
 - **RECOMMENDATION:** Choose A if all validations passed. Choose B if there are issues to fix. Choose C to run /setup-deploy for a more thorough configuration.
 - A) That's right — this is how my project deploys. Let's go. (Completeness: 10/10)
 - B) Something's off — let me tell you what's wrong (Completeness: 10/10)
 - C) I want to configure this more carefully first (runs /setup-deploy) (Completeness: 10/10)
 
-**If A:** Tell the user: "Great — I've saved this configuration. Next time you run `/land-and-deploy`, I'll skip the dry run and go straight to readiness checks. If your deploy setup changes (new platform, different workflows, updated URLs), I'll automatically re-run the dry run to make sure I still have it right."
+**If A:** Say "Setup confirmed. I'll save its fingerprint, skip unchanged dry runs,
+and still refresh deployment facts before each merge approval."
 
 Save the deploy config fingerprint so we can detect future changes:
 ```bash

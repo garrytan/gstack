@@ -44,7 +44,7 @@ const FINDING = render(QUESTIONS.ceo);
 type Mode = 'planning-owned' | 'planning-foreign' | 'cropped-edit' | 'cropped-edit-missing' | 'cropped-edit-changed' | 'cropped-edit-completed' | 'captured' | 'owned' | 'owned-no-question' | 'foreign' | 'wrong-session' | 'missing-native' | 'linked-target' |
   'native-question' | 'scope' | 'prose' | 'finding' | 'routing' | 'unrelated' | 'partial' | 'quoted' | 'foreign-question' |
   'stale-question' | 'answered-question' | 'failed-question' | 'mismatched-use' | 'duplicate-use' | 'judge-error' | 'mode' | 'pending-hook' | 'failed-hook' | 'packet' | 'prose-quoted' | 'prose-partial' | 'prose-foreign' | 'prose-stale' | 'product-type' | 'product-type-undeclared' |
-  'unmatched-hook' | 'invalid-hook' | 'missing-hook' | 'idle-hook' | 'transition-hook' | 'unmatched-native' | 'dx-setup' | 'dx-no-finding' | 'dx-undeclared' | 'dx-cropped' | 'dx-unrelated' | 'dx-uncertain' | 'dx-changing-call';
+  'unmatched-hook' | 'invalid-hook' | 'missing-hook' | 'idle-hook' | 'transition-hook' | 'unmatched-native' | 'dx-setup' | 'dx-editor-hint' | 'dx-no-finding' | 'dx-undeclared' | 'dx-cropped' | 'dx-unrelated' | 'dx-uncertain' | 'dx-changing-call';
 interface SnapshotOptions { evalDir: string; failFirst?: boolean; interrupt?: boolean }
 
 // Complete actual floor function; only clock/PTY/public-event and assessor
@@ -244,6 +244,7 @@ async function exercise(mode: Mode, kind: keyof typeof SEEDS = 'ceo', capture?: 
               if(mode==='dx-no-finding') {transcript.calls=[old];screen='';}
               else {publish();transcript.calls.unshift(old);}
             } else throw Error('Unexpected DX custom input: '+JSON.stringify(input));
+            if(mode==='dx-editor-hint' && input!=='\r')screen=screen.replace(' · Esc to cancel',' · ctrl+g to edit in Vim · Esc to cancel');
             history+='\n'+screen;
           } else if (input === '1\r') {
             granted = true;
@@ -523,6 +524,13 @@ test('DX declared context answers setup through native custom input, then awaits
   expect(e.sent).toEqual(['/plan-devex-review PLAN.md\r','4','\x1b[200~'+dxCustom.reply+'\x1b[201~','\r']);
   expect(e.launched.rows).toBe(80);
   expect(e.fixture!.seed).toContain(dxCustom.reply);
+  expect(e.saved.observation.setupContextReplies[0].stage).toBe('done');
+  expect(e.saved.observation.transcript.calls.find((c:any)=>c.answered).answers).toEqual({[dxCustom.call.questions[0]!.question]:dxCustom.reply});
+});
+test('actual DX floor callback consumes editor-hint paste and submit stages before judging the later finding',async()=>{
+  const e=await exercise('dx-editor-hint','devex');
+  expect(e.result.outcome).toBe('auq_observed');expect(e.judgments).toHaveLength(2);
+  expect(e.sent).toEqual(['/plan-devex-review PLAN.md\r','4','\x1b[200~'+dxCustom.reply+'\x1b[201~','\r']);
   expect(e.saved.observation.setupContextReplies[0].stage).toBe('done');
   expect(e.saved.observation.transcript.calls.find((c:any)=>c.answered).answers).toEqual({[dxCustom.call.questions[0]!.question]:dxCustom.reply});
 });

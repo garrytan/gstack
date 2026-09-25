@@ -2,49 +2,95 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 ## Step 4: Merge the PR
 
-Record the start timestamp for timing data. Also record which merge path is taken
-(auto-merge vs direct) for the deploy report.
-
-Try auto-merge first (respects repo merge settings and merge queues):
-
-Resolve `MERGE_METHOD` from Deploy Configuration, checking GitHub's allowed methods via `gh api repos/{owner}/{repo} --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'`. With no configured method, prefer squash, then merge, then rebase among allowed methods. If a configured method is disallowed or no method is allowed, stop and ask. Set `MERGE_FLAG` to exactly `--squash`, `--merge`, or `--rebase` accordingly.
-
-```bash
-gh pr merge "$MERGE_FLAG" --auto --delete-branch
-```
-
-If `--auto` succeeds: record `MERGE_PATH=auto`. This means the repo has auto-merge enabled
-and may use merge queues.
-
-`--auto` fails for two unrelated reasons. Both fall through to the direct merge below, so
-the flow is unaffected — but do not report the second one as "auto-merge is disabled":
-
-1. **Auto-merge is disabled for the repo** — `Auto-merge is not allowed for this repository`.
-2. **The PR is not waiting on anything.** `--auto` only *queues* a merge behind pending
-   required checks. When every required check has already settled — or the repo declares
-   no required status checks at all — GitHub treats the PR as immediately mergeable and
-   rejects the mutation:
-   `Pull request is in clean status` (everything green) or
-   `Pull request is in unstable status` (something red, but nothing required).
-   A repo with zero required status checks therefore takes the direct path 100% of the
-   time no matter how auto-merge is configured, and so does any repo whose CI finishes
-   before this step runs.
-
-```bash
-gh pr merge "$MERGE_FLAG" --delete-branch
-```
-
-If direct merge succeeds: record `MERGE_PATH=direct`. Tell the user: "PR merged successfully. The branch has been cleaned up."
-
-On any failure, run the state check below first. Only if it confirms the PR is still OPEN with no auto-merge request should a permission error stop the workflow.
+Enter only with Step 3.5 approval for this exact `PR_HEAD`. Record start time;
+initialize `MERGE_ATTEMPT=none`, `MERGE_EXIT=0`, `MERGE_ERROR=''`, `WAITED=false`. Keep these values
+across readbacks; never reset them to retry. Resolve `MERGE_METHOD` from Deploy
+Configuration and `gh api "repos/$REPO" --jq '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}'`.
+Prefer squash, then merge, then rebase when not configured. Disallowed/unknown
+methods: **STOP** and ask. Set `MERGE_FLAG` to `--squash`, `--merge` or `--rebase`.
+Run the following readback **before the first attempt**, after every attempt, and
+while waiting. It is the only dispatcher; no command falls through to another merge.
 
 ### 4a-postfail: Post-failure PR-state check
 
-**Universal invariant:** after ANY non-zero exit from `gh pr merge`, query authoritative PR state before retrying or stopping. Do NOT retry blindly. The only permitted retry is the one direct attempt described above, after readback confirms OPEN with no auto-merge request and the original error is one of the two documented auto-merge rejections. All other failures use the branches below. Related: cli/cli#3442, cli/cli#13380.
+**Universal invariant:** after ANY non-zero exit from `gh pr merge`, query authoritative
+PR state before retrying or stopping. Do NOT retry blindly. Related: cli/cli#3442,
+cli/cli#13380. `gh pr view` does not expose queue membership; use GraphQL for both
+`autoMergeRequest` and `mergeQueueEntry`. Failed/unsupported/missing fields are unknown,
+never evidence that a request or queue entry is absent.
 
 ```bash
-gh pr view --json state,mergeCommit,mergedAt,mergedBy
+READBACK=$(gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!) {
+  repository(owner:$owner,name:$name) { pullRequest(number:$number) {
+    state headRefOid baseRefName mergedAt mergeCommit { oid }
+    autoMergeRequest { enabledAt } mergeQueueEntry { id state }
+  } }
+}' -f owner="${REPO%/*}" -f name="${REPO#*/}" -F number="$PR_NUMBER") || exit 1
+printf '%s' "$READBACK" | jq -e '
+  ((.errors // []) | length == 0) and
+  (.data.repository.pullRequest | type == "object" and
+    has("state") and has("headRefOid") and has("baseRefName") and has("mergeCommit") and
+    has("autoMergeRequest") and has("mergeQueueEntry"))' >/dev/null || exit 1
+PR_STATE=$(printf '%s' "$READBACK" | jq -er '.data.repository.pullRequest.state') || exit 1
+CURRENT_HEAD=$(printf '%s' "$READBACK" | jq -er '.data.repository.pullRequest.headRefOid') || exit 1
+CURRENT_BASE=$(printf '%s' "$READBACK" | jq -er '.data.repository.pullRequest.baseRefName') || exit 1
+ACTIVE_REQUEST=$(printf '%s' "$READBACK" | jq -r '.data.repository.pullRequest | .autoMergeRequest != null or .mergeQueueEntry != null')
+MERGE_ACTION=STOP
+case "$PR_STATE" in
+  MERGED)
+    if [ "$CURRENT_HEAD" != "$PR_HEAD" ] || [ "$CURRENT_BASE" != "$BASE_BRANCH" ]; then
+      MERGE_ACTION=MERGED_CHANGED
+    else
+      MERGE_ACTION=MERGED
+    fi ;;
+  OPEN)
+    if [ "$CURRENT_HEAD" != "$PR_HEAD" ]; then
+      MERGE_ACTION=HEAD_CHANGED
+    elif [ "$CURRENT_BASE" != "$BASE_BRANCH" ]; then
+      MERGE_ACTION=BASE_CHANGED
+    elif [ "$ACTIVE_REQUEST" = true ]; then
+      MERGE_ACTION=WAIT
+    elif [ "$WAITED" = true ]; then
+      MERGE_ACTION=STOP
+    elif [ "$MERGE_ATTEMPT" = none ]; then
+      MERGE_ACTION=START
+    elif [ "$MERGE_ATTEMPT" = auto ] && [ "$MERGE_EXIT" -ne 0 ]; then
+      case "$MERGE_ERROR" in
+        *"Auto-merge is not allowed for this repository"*|*"Pull request is in clean status"*|*"Pull request is in unstable status"*) MERGE_ACTION=DIRECT ;;
+      esac
+    fi ;;
+esac
+printf '%s\n' "$MERGE_ACTION"
 ```
+
+Readback failure or unknown state: **STOP**, preserve command errors and do not merge.
+HEAD_CHANGED/BASE_CHANGED: invalidate the approval, **STOP** and return through Step 1
+and readiness for the new target. MERGED_CHANGED: report the authoritative external
+merge, but **STOP** cleanup/deploy/rollback until the changed head/base is reconciled;
+the old scope/approval is unusable. Never replay it. WAIT goes to §4a. STOP surfaces the original stderr
+and current state. **If `state == "CLOSED"`: STOP**, the PR closed without merging.
+
+Only START makes the first attempt. Immediately before either merge command, repeat
+readback and Step 1's local HEAD/branch/cleanliness check. Retargeting or local changes
+invalidate readiness; `--match-head-commit` protects head, not destination.
+```bash
+MERGE_ATTEMPT=auto
+MERGE_EXIT=0
+MERGE_ERROR=$(gh pr merge "$MERGE_FLAG" --auto --delete-branch "$PR_NUMBER" --repo "$REPO" --match-head-commit "$PR_HEAD" 2>&1) || MERGE_EXIT=$?
+```
+Return to readback, even on exit 0. Only DIRECT permits **one direct fallback**:
+readback has confirmed OPEN, no auto request and no queue entry, and the auto attempt
+returned one of the two documented rejection classes: auto-merge disabled, or PR
+already clean/unstable with nothing required pending. The latter does not mean
+auto-merge is disabled. Recheck required CI as in Step 2 before the fallback; failures
+or unknown check results stop, even if GitHub calls the PR mergeable.
+```bash
+MERGE_ATTEMPT=direct
+MERGE_EXIT=0
+MERGE_ERROR=$(gh pr merge "$MERGE_FLAG" --delete-branch "$PR_NUMBER" --repo "$REPO" --match-head-commit "$PR_HEAD" 2>&1) || MERGE_EXIT=$?
+```
+Return to readback. There is no fallback from a direct attempt. **Hard rule: never
+replay a merge after MERGED**, or retry an unknown state/error. No `--admin` bypass.
 
 **If `state == "MERGED"`:**
 
@@ -52,7 +98,7 @@ The server-side merge succeeded (possibly completed before the local cleanup pha
 
 Capture merge SHA:
 ```bash
-gh pr view --json mergeCommit -q .mergeCommit.oid
+MERGE_SHA=$(printf '%s' "$READBACK" | jq -er '.data.repository.pullRequest.mergeCommit.oid') || exit 1
 ```
 
 Squash/rebase merge readback guard:
@@ -60,10 +106,8 @@ Squash/rebase merge readback guard:
 - Once GitHub reports `state == "MERGED"` with a non-null `mergeCommit.oid`, treat that as authoritative. Record the merge SHA and continue.
 - If local cleanup or readback is needed, fetch the base branch and compare/sync against the merge commit, not the old PR branch commit:
 ```bash
-BASE=$(gh pr view --json baseRefName -q .baseRefName)
-MERGE_SHA=$(gh pr view --json mergeCommit -q .mergeCommit.oid)
-git fetch origin "$BASE"
-git diff --quiet "$MERGE_SHA" origin/"$BASE" || git log --oneline --decorate -1 "$MERGE_SHA" origin/"$BASE"
+git fetch "https://github.com/$REPO.git" "$BASE_BRANCH"
+git diff --quiet "$MERGE_SHA" FETCH_HEAD || git log --oneline --decorate -1 "$MERGE_SHA" FETCH_HEAD
 ```
 - If the worktree is clean and only needs to stop looking diverged after a squash merge, prefer a named local branch at the merge commit, for example `git switch -c "codex/post-merge-pr-$PR_NUMBER" "$MERGE_SHA"`. Avoid detached HEAD in Codex Desktop worktrees because git action workers often expect `git symbolic-ref --short HEAD` to return a branch. Do not force-push or reset a user's branch unless they explicitly ask.
 
@@ -77,12 +121,13 @@ Identify candidates: a worktree is stale if (a) it is checked out on the base br
 - If any candidate has uncommitted work: list the files, tell the user, and STOP worktree cleanup without removing anything.
 - Do NOT use `--force`. Do NOT remove the user's primary working tree.
 
-Remote-branch reconciliation — the failed `gh pr merge` carried `--delete-branch`, and this recovery path must not silently drop that half. The success path above says "The branch has been cleaned up"; this path states the branch outcome explicitly instead of staying silent:
+Remote-branch reconciliation: `--delete-branch` may not have completed. Verify the
+branch outcome instead of claiming cleanup from a merge exit code:
 
 ```bash
 # NB: gh leaves .headRepository.nameWithOwner EMPTY (verified against gh
 # 2.83); compose owner/name from headRepositoryOwner.login + headRepository.name.
-gh pr view --json headRepositoryOwner,headRepository,headRefName \
+gh pr view "$PR_NUMBER" --repo "$REPO" --json headRepositoryOwner,headRepository,headRefName \
   --jq '"\(.headRepositoryOwner.login)/\(.headRepository.name)\t\(.headRefName)"'
 git ls-remote --heads "https://github.com/<head-repository>.git" "<head-branch>"
 ```
@@ -100,59 +145,40 @@ Three outcomes — never read a failed check as a clean branch:
 - **Exit 0, one ref line** — the branch survived: the failed merge command never reached its `--delete-branch` half. If `<head-repository>` is the BASE repository, OFFER deletion, confirm-first (matching the worktree-cleanup posture above): "The remote branch `<head-branch>` still exists in `<head-repository>` — the failed merge never ran its --delete-branch half. Delete it?" Only on confirmation: `git push "https://github.com/<head-repository>.git" --delete "<head-branch>"`. If `<head-repository>` is a FORK, do not offer deletion — the branch belongs to the contributor and the maintainer typically has no push rights there; report instead: "The branch lives on the contributor's fork `<head-repository>` — leaving it to them." If a local branch of the same name exists, offer `git branch -d "<head-branch>"` alongside (`-d`, never `-D` — a non-fast-forwarded local branch is the user's call).
 - **Non-zero exit** — the check ITSELF failed (network, auth). Tell the user: "Couldn't verify remote branch state — leaving it alone." and skip the deletion offer entirely; a failed check is unknown state, not a clean branch.
 
-Record `MERGE_PATH=direct`, then continue to §4b (CI auto-deploy detection).
-
-**If `state == "OPEN"`:**
-
-Check whether auto-merge is enabled:
-```bash
-gh pr view --json autoMergeRequest -q .autoMergeRequest
-```
-
-- If non-null: auto-merge is enabled or merge queue is in use. The open state is expected — proceed to §4a's merge-queue wait path.
-- If null: genuine failure. Surface both errors — the `gh pr merge` stderr AND the current PR open state — then **STOP**.
-
-**If `state == "CLOSED"`:** PR was closed without merging. **STOP.**
-
-**Hard rule: never call `gh pr merge` a second time** after a non-zero exit. Server state is authoritative.
+Record the actual path (`auto`, `direct`, `queue`, or `external` when already merged
+before our attempt), then continue to §4b (CI auto-deploy detection).
 
 ### 4a: Merge queue detection and messaging
 
-If `MERGE_PATH=auto` and the PR state does not immediately become `MERGED`, the PR is
-in a **merge queue**. Tell the user:
+**If `state == "OPEN"` and either request is non-null:** auto-merge is enabled or
+merge queue is in use. Explain which is observed; an auto request alone does not
+prove a queue. A queue reruns CI against the proposed merge. Record `MERGE_PATH=queue`
+only when `mergeQueueEntry` was observed, otherwise `auto`.
 
-"Your repo uses a merge queue — that means GitHub will run CI one more time on the final merge commit before it actually merges. This is a good thing (it catches last-minute conflicts), but it means we wait. I'll keep checking until it goes through."
-
-Poll for the PR to actually merge:
-
-```bash
-gh pr view --json state -q .state
-```
-
-Poll every 30 seconds, up to 30 minutes. Show a progress message every 2 minutes:
-"Still in the merge queue... ({X}m so far)"
-
-If the PR state changes to `MERGED`: capture the merge commit SHA. Tell the user:
-"Merge queue finished — PR is merged. Took {duration}."
-
-If the PR is removed from the queue (state goes back to `OPEN`): **STOP.** "The PR was removed from the merge queue — this usually means a CI check failed on the merge commit, or another PR in the queue caused a conflict. Check the GitHub merge queue page to see what happened."
-If timeout (30 min): **STOP.** "The merge queue has been processing for 30 minutes. Something might be stuck — check the GitHub Actions tab and the merge queue page."
+Set `WAITED=true`. Repeat the readback every 30 seconds, up to 30 minutes; report progress every 2 minutes.
+While OPEN with an active auto request **or** queue entry, keep waiting. Once waiting
+has begun, never dispatch START or DIRECT: OPEN with confirmed absence of **both**
+means removal/cancellation, so **STOP** and point to GitHub's checks/queue page.
+MERGED returns to the merge-SHA/cleanup branch above. CLOSED, head change, failed
+readback or timeout stops without replaying or cancelling the server-side request.
+Explain that a timed-out active request may still merge later.
 
 ### 4b: CI auto-deploy detection
 
 After the PR is merged, check if a deploy workflow was triggered by the merge:
 
 ```bash
-gh run list --branch <base> --limit 5 --json name,status,workflowName,headSha
+gh run list --repo "$REPO" --branch "$BASE_BRANCH" --limit 10 --json databaseId,name,status,conclusion,workflowName,headSha
 ```
 
-Look for runs matching the merge commit SHA. If a deploy workflow is found:
+Look for runs matching `MERGE_SHA` and the deploy workflow identified before approval
+(read its jobs, not just its name). Distinguish staging from production. If found:
 - Tell the user: "PR merged. I can see a deploy workflow ('{workflow-name}') kicked off automatically. I'll monitor it and let you know when it's done."
 
 If no deploy workflow is found after merge:
 - Tell the user: "PR merged. I don't see a deploy workflow — your project might deploy a different way, or it might be a library/CLI that doesn't have a deploy step. I'll figure out the right verification in the next step."
 
-If `MERGE_PATH=auto` and the repo uses merge queues AND a deploy workflow exists:
+If `MERGE_PATH=queue` and a deploy workflow exists:
 - Tell the user: "PR made it through the merge queue and the deploy workflow is running. Monitoring it now."
 
 Record merge timestamp, duration, and merge path for the deploy report.
@@ -161,101 +187,51 @@ Record merge timestamp, duration, and merge path for the deploy report.
 
 ## Step 5: Deploy strategy detection
 
-Determine what kind of project this is and how to verify the deploy.
+Use the saved pre-merge scope and deployment facts; do not classify the cleaned-up
+checkout. This skill observes existing deployment triggers, not invents new ones.
 
-First, run the deploy configuration bootstrap to detect or read persisted deploy settings:
+**One precedence rule for Steps 5-7:** an explicit verification URL or an actually triggered deployment takes precedence over a docs-only shortcut. Evaluate in order:
 
-```bash
-# Check for persisted deploy config in CLAUDE.md
-DEPLOY_CONFIG=$(grep -A 20 "## Deploy Configuration" CLAUDE.md 2>/dev/null || echo "NO_CONFIG")
-echo "$DEPLOY_CONFIG"
+Select the production route below, then complete Step 5a **before executing that
+route**. The docs-only no-deploy route can finish immediately; it needs no staging offer.
 
-# If config exists, parse it
-if [ "$DEPLOY_CONFIG" != "NO_CONFIG" ]; then
-  # Cut at the FIRST ": ", not the last. A greedy 's/.*: *//' ate the scheme of
-  # any URL: "Production URL: https://x.com" became "//x.com", because the last
-  # ":" belongs to "https:".
-  PROD_URL=$(echo "$DEPLOY_CONFIG" | grep -i "production.*url" | head -1 | sed 's/^[^:]*: *//')
-  PLATFORM=$(echo "$DEPLOY_CONFIG" | grep -i "platform" | head -1 | sed 's/^[^:]*: *//')
-  echo "PERSISTED_PLATFORM:$PLATFORM"
-  echo "PERSISTED_URL:$PROD_URL"
-fi
+1. Matching deploy run/platform release: monitor it in Step 6, even for docs-only
+   (it may be a docs site). A configured trigger whose run has not appeared remains
+   pending; poll for the matching revision within Step 6's deadline, not another run.
+2. Explicit `VERIFY_URL`: run Step 7 even for docs-only. Without deployment-revision
+   evidence, report site health separately from whether this change is live.
+3. `DOCS_ONLY=true`, no explicit URL, and no triggered/expected deployment: record
+   SKIPPED (docs-only), then Step 9 with MERGED — NO DEPLOY NEEDED. Unknown deployment
+   detection is not proof that nothing was triggered; use the question below instead.
+4. Otherwise use configured production URL/status checks in Steps 6-7. If neither
+   a usable URL nor deploy status exists, ask once. Also ask when Step 6 finishes
+   without a production URL needed for canary:
+   - **Re-ground:** "PR #NNN is merged. {Known deploy state}. I need a URL to check
+     health; merge alone does not prove this revision is live."
+   - **RECOMMENDATION:** A for a web app; B only when no deployment is required.
+   - A) Provide the production URL → save it, continue to Step 7
+   - B) No deploy needed (library/CLI) → Step 9, MERGED — NO DEPLOY NEEDED
+   - C) Finish without verification → Step 9, use the evidence-based verdict table
+   Offer B only with no observed or expected deploy; it cannot erase a running/failing deploy.
 
-# Auto-detect platform from config files
-[ -f fly.toml ] && echo "PLATFORM:fly"
-[ -f render.yaml ] && echo "PLATFORM:render"
-([ -f vercel.json ] || [ -d .vercel ]) && echo "PLATFORM:vercel"
-[ -f netlify.toml ] && echo "PLATFORM:netlify"
-[ -f Procfile ] && echo "PLATFORM:heroku"
-([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
+### 5a: Optional staging verification, not a deployment gate
 
-# Detect deploy workflows
-for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
-  [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
-  [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
-done
-```
+For non-doc changes, offer this only when a staging/preview URL and successful
+deployment record identify `PR_HEAD` (preview) or `MERGE_SHA` (post-merge staging).
+A URL alone is insufficient. If unavailable, record staging N/A and take the
+production route above. No staging trigger or promotion is executed here.
 
-If `PERSISTED_PLATFORM` and `PERSISTED_URL` were found in CLAUDE.md, use them directly
-and skip manual detection. If no persisted config exists, use the auto-detected platform
-to guide deploy verification. If nothing is detected, ask the user via AskUserQuestion
-in the decision tree below.
+- **Re-ground:** "There is a deployment of this change at {staging URL}. I can check
+  it too, but production may already be live; this does not hold or roll back production."
+- **RECOMMENDATION:** A adds staging evidence without dropping production verification.
+- A) Verify staging, then production
+- B) Verify production only
+- C) Verify staging only; leave production verification incomplete
 
-If you want to persist deploy settings for future runs, suggest the user run `/setup-deploy`.
-
-Then run `gstack-diff-scope` to classify the changes:
-
-```bash
-eval $(~/.claude/skills/gstack/bin/gstack-diff-scope $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main) 2>/dev/null)
-echo "FRONTEND=$SCOPE_FRONTEND BACKEND=$SCOPE_BACKEND DOCS=$SCOPE_DOCS CONFIG=$SCOPE_CONFIG"
-```
-
-**Decision tree (evaluate in order):**
-
-1. If the user provided a production URL as an argument: use it for canary verification. Also check for deploy workflows.
-
-2. Check for GitHub Actions deploy workflows:
-```bash
-gh run list --branch <base> --limit 5 --json name,status,conclusion,headSha,workflowName
-```
-Look for workflow names containing "deploy", "release", "production", or "cd". If found: poll the deploy workflow in Step 6, then run canary.
-
-3. If SCOPE_DOCS is the only scope that's true (no frontend, no backend, no config): skip verification entirely. Tell the user: "This was a docs-only change — nothing to deploy or verify. You're all set." Go to Step 9.
-
-4. If no deploy workflows detected and no URL provided: use AskUserQuestion once:
-   - **Re-ground:** "PR is merged, but I don't see a deploy workflow or a production URL for this project. If this is a web app, I can verify the deploy if you give me the URL. If it's a library or CLI tool, there's nothing to verify — we're done."
-   - **RECOMMENDATION:** Choose B if this is a library/CLI tool. Choose A if this is a web app.
-   - A) Here's the production URL: {let them type it}
-   - B) No deploy needed — this isn't a web app
-
-### 5a: Staging-first option
-
-If staging was detected in Step 1.5c (or from CLAUDE.md deploy config), and the changes
-include code (not docs-only), offer the staging-first option:
-
-Use AskUserQuestion:
-- **Re-ground:** "I found a staging environment at {staging URL or workflow}. Since this deploy includes code changes, I can verify everything works on staging first — before it hits production. This is the safest path: if something breaks on staging, production is untouched."
-- **RECOMMENDATION:** Choose A for maximum safety. Choose B if you're confident.
-- A) Deploy to staging first, verify it works, then go to production (Completeness: 10/10)
-- B) Skip staging — go straight to production (Completeness: 7/10)
-- C) Deploy to staging only — I'll check production later (Completeness: 8/10)
-
-**If A (staging first):** Tell the user: "Deploying to staging first. I'll run the same health checks I'd run on production — if staging looks good, I'll move on to production automatically."
-
-Run Steps 6-7 against the staging target first. Use the staging
-URL or staging workflow for deploy verification and canary checks. After staging passes,
-tell the user: "Staging is healthy — your changes are working. Now deploying to production." Then run
-Steps 6-7 again against the production target.
-
-**If B (skip staging):** Tell the user: "Skipping staging — going straight to production." Proceed with production deployment as normal.
-
-**If C (staging only):** Tell the user: "Deploying to staging only. I'll verify it works and stop there."
-
-Run Steps 6-7 against the staging target. After verification,
-print the deploy report (Step 9) with verdict "STAGING VERIFIED — production deploy pending."
-Then tell the user: "Staging looks good. When you're ready for production, run `/land-and-deploy` again."
-**STOP.** The user can re-run `/land-and-deploy` later for production.
-
-**If no staging detected:** Skip this sub-step entirely. No question asked.
+A/C run Step 7 against the staging URL with `TARGET=staging`, preserving separate
+staging and production evidence. Healthy staging sets `STAGING_STATUS=VERIFIED`:
+A returns to the production route above; C goes to Step 9, STAGING VERIFIED —
+PRODUCTION UNVERIFIED. On staging failures use Step 7's decision paths, never
+automatically promote. B records SKIPPED and takes the production route.
 
 ---

@@ -16,13 +16,47 @@ const collector = e2eTierEnabled('gate') ? new EvalCollector('e2e') : null;
 const captures = new SharedCaptureAccumulator();
 afterAll(async () => { await captures.finalize(collector); });
 
-function sourceReadTrace(result: any): string {
-  return result.toolCalls.flatMap((call: any) => {
-    if (call.tool === 'Read') return [String(call.input?.file_path || '')];
-    const command = String(call.input?.command || '');
-    if (call.tool === 'Bash' && /\b(?:cat|sed|head|tail|nl)\b|readFile|Bun\.file/.test(command)) return [command];
-    return [];
-  }).join('\n');
+function sourceReadTrace(result: any, fixture: SharedLibsFixture, sources: string[]): string {
+  const readInput = (tool: string, input: any): string => {
+    if (tool === 'Read') return String(input?.file_path || '');
+    const command = String(input?.command || '');
+    return tool === 'Bash' && /\b(?:cat|sed|head|tail|nl)\b|readFile|Bun\.file/.test(command) ? command : '';
+  };
+  const reads: string[] = result.toolCalls.map((call: any) => readInput(call.tool, call.input)).filter(Boolean);
+  const calls = new Map<string, { tool: string; read: string }>();
+  const returned: Array<{ tool: string; read: string; text: string }> = [];
+  for (const event of result.events ?? []) {
+    if (!Array.isArray(event.message?.content)) continue;
+    for (const block of event.message.content) {
+      if (event.type === 'assistant' && block.type === 'tool_use') {
+        const read = readInput(block.name, block.input);
+        if (read) calls.set(block.id, { tool: block.name, read });
+      }
+      if (event.type !== 'user' || block.type !== 'tool_result' || block.is_error === true) continue;
+      const call = calls.get(block.tool_use_id);
+      if (!call) continue;
+      const text = typeof block.content === 'string' ? block.content
+        : Array.isArray(block.content) ? block.content.filter((part: any) => part.type === 'text').map((part: any) => part.text).join('\n') : '';
+      returned.push({ ...call, text: text.replace(/^\s*\d+→/gm, '') });
+    }
+  }
+  if (!returned.length) return reads.join('\n');
+  const repo = fs.realpathSync(fixture.repo);
+  for (const source of sources) {
+    let resolved: string;
+    try { resolved = fs.realpathSync(path.resolve(repo, source)); }
+    catch { continue; }
+    const relative = path.relative(repo, resolved);
+    if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) continue;
+    if (resolved === path.resolve(repo, source)) continue;
+    const contents = fs.readFileSync(resolved, 'utf8');
+    if (!contents) continue;
+    const spellings = [relative, resolved].map(value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const namedPath = new RegExp(`(?:^|[\\s"'=;])(?:\\./)?(?:${spellings.join('|')})(?=$|[\\s"';|)])`);
+    if (returned.some(({ tool, read, text }) => (tool === 'Read' ? path.resolve(repo, read) === resolved : namedPath.test(read))
+      && text.includes(contents))) reads.push(source);
+  }
+  return reads.join('\n');
 }
 
 async function exerciseEligibility(testId: string, kinds: PathEligibilityCase[]) {
@@ -56,7 +90,7 @@ async function exerciseEligibility(testId: string, kinds: PathEligibilityCase[])
         expect(trace).toContain('gstack-review-log');
         expect(trace).toContain('--start');
         expect(trace).toContain('--finish');
-        const reads = sourceReadTrace(result);
+        const reads = sourceReadTrace(result, f, prepared.sourcePaths);
         expect(reads).toContain('src/retry-worker.ts');
         expect(reads).toContain('lib/retry-after.ts');
         for (const source of prepared.sourcePaths) {

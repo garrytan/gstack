@@ -49,3 +49,4 @@ process.stdin.on('data',async bytes=>{
  save();setTimeout(()=>process.exit(0),100);
 });
 process.on('SIGINT',()=>process.exit(0));
+process.stdout.write('PTY_READY:'+process.env.QA_RESULT+'\x1b[2J\x1b[H');

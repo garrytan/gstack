@@ -14,12 +14,12 @@
  *      unattributed (retrying without knowing what to re-run is meaningless,
  *      so main() must see [] and skip the retry).
  */
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, spyOn } from 'bun:test';
 import * as os from 'os';
+import { readFileSync } from 'node:fs';
 import {
   fullSuiteJobs,
   MAX_FULL_SUITE_JOBS,
-  RESERVED_CPUS,
   runFreeShard,
 } from '../scripts/test-free-shards';
 
@@ -37,16 +37,85 @@ function withJobsEnv<T>(value: string | undefined, fn: () => T): T {
 }
 
 describe('test-free-shards: fullSuiteJobs (GSTACK_FREE_JOBS override)', () => {
-  test('unset and empty string both take the computed default — cpus minus reserve, capped, floor 1', () => {
-    const expected = Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, os.cpus().length - RESERVED_CPUS));
+  test('unset and empty string both take the computed default — available CPUs, capped, floor 1', () => {
+    const expected = Math.max(1, Math.min(MAX_FULL_SUITE_JOBS, os.availableParallelism?.() ?? os.cpus().length));
     expect(withJobsEnv(undefined, fullSuiteJobs)).toBe(expected);
     // A stray `export GSTACK_FREE_JOBS=` must not throw.
     expect(withJobsEnv('', fullSuiteJobs)).toBe(expected);
   });
 
+  test.each([[0, 1], [1, 1], [2, 2], [4, 4], [8, 6]])(
+    '%i available CPUs default to %i serial shard processes regardless of host CPU count',
+    (availableCpus, expected) => {
+      const available = spyOn(os, 'availableParallelism').mockReturnValue(availableCpus);
+      const cpus = spyOn(os, 'cpus').mockReturnValue(Array<os.CpuInfo>(16));
+      try {
+        expect(withJobsEnv(undefined, fullSuiteJobs)).toBe(expected);
+        expect(withJobsEnv('', fullSuiteJobs)).toBe(expected);
+        expect(cpus).not.toHaveBeenCalled();
+      } finally {
+        available.mockRestore();
+        cpus.mockRestore();
+      }
+    },
+  );
+
+  test('runtimes without availableParallelism fall back to the bounded CPU count', () => {
+    const result = Bun.spawnSync([process.execPath, '-e', `
+      import { mock } from 'bun:test';
+      import * as os from 'os';
+      const originalOs = { ...os };
+      let cpuCount = 0;
+      mock.module('os', () => ({
+        ...originalOs,
+        availableParallelism: undefined,
+        cpus: () => Array(cpuCount),
+      }));
+      const { fullSuiteJobs } = await import(${JSON.stringify(import.meta.resolve('../scripts/test-free-shards'))});
+      delete process.env.GSTACK_FREE_JOBS;
+      console.log(JSON.stringify([0, 1, 2, 4, 8].map(count => {
+        cpuCount = count;
+        return fullSuiteJobs();
+      })));
+    `], { timeout: 10_000 });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr.toString()).toBe('');
+    expect(JSON.parse(result.stdout.toString())).toEqual([1, 1, 2, 4, 6]);
+  });
+
   test('a positive integer override is honored exactly (the sandbox recipe sets 2)', () => {
     expect(withJobsEnv('2', fullSuiteJobs)).toBe(2);
     expect(withJobsEnv('1', fullSuiteJobs)).toBe(1);
+    expect(withJobsEnv(' 2 ', fullSuiteJobs)).toBe(2);
+    expect(withJobsEnv('02', fullSuiteJobs)).toBe(2);
+  });
+
+  test('Windows CI pins its two-worker budget independently of local CPU defaults', () => {
+    const workflow = Bun.YAML.parse(readFileSync(new URL('../.github/workflows/windows-free-tests.yml', import.meta.url), 'utf8')) as {
+      jobs: Record<string, { steps: Array<{ run?: string; env?: Record<string, string> }> }>;
+    };
+    const step = workflow.jobs['windows-free-tests'].steps.find(step => step.run === 'bun run test:windows');
+    expect(step).toBeDefined();
+    expect(step?.env?.GSTACK_FREE_JOBS).toBe('2');
+    expect(withJobsEnv(step?.env?.GSTACK_FREE_JOBS, fullSuiteJobs)).toBe(2);
+  });
+
+  test('an explicit override does not probe the available CPUs', () => {
+    const available = spyOn(os, 'availableParallelism').mockImplementation(() => {
+      throw new Error('CPU detection must not run for an explicit override');
+    });
+    const cpus = spyOn(os, 'cpus').mockImplementation(() => {
+      throw new Error('CPU detection must not run for an explicit override');
+    });
+    try {
+      expect(withJobsEnv('2', fullSuiteJobs)).toBe(2);
+      expect(withJobsEnv('12', fullSuiteJobs)).toBe(12);
+      expect(available).not.toHaveBeenCalled();
+      expect(cpus).not.toHaveBeenCalled();
+    } finally {
+      available.mockRestore();
+      cpus.mockRestore();
+    }
   });
 
   test('override is deliberately NOT clamped by MAX_FULL_SUITE_JOBS (beefy boxes may raise it)', () => {
@@ -57,7 +126,7 @@ describe('test-free-shards: fullSuiteJobs (GSTACK_FREE_JOBS override)', () => {
   test('zero, negative, and non-numeric values throw loudly instead of silently defaulting', () => {
     // '2abc' and '3.7' pin the strict digits-only check: parseInt would
     // silently truncate them to 2 and 3, defeating the loud-failure contract.
-    for (const bad of ['0', '-2', 'abc', 'NaN', '2abc', '3.7']) {
+    for (const bad of ['0', '-2', 'abc', 'NaN', '2abc', '3.7', ' ', '+2', '1e2', 'Infinity']) {
       expect(() => withJobsEnv(bad, fullSuiteJobs)).toThrow(/positive integer/);
     }
   });

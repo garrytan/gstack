@@ -212,6 +212,7 @@ process.stdin.on('data',async data=>{
   process.stdout.write('\x1b[2J\x1b[HBOARD_ACKNOWLEDGED\r\n');
 });
 process.on('SIGINT',()=>process.exit(0));process.on('SIGTERM',()=>process.exit(0));
+process.stdout.write('PTY_READY:'+process.env.PROBE_EVENTS+'\x1b[2J\x1b[H');
 `, { mode: 0o755 });
     fs.writeFileSync(worker, `
 import * as fs from 'node:fs';
@@ -220,6 +221,7 @@ if(resolveClaudeBinary()!==${JSON.stringify(fake)})throw Error('fake CLI binding
 let picks=0, originalError;
 try {
   const observation=await runPlanSkillCounting({skillName:'plan-design-review',slashCommand:'/plan-design-review',
+    startupReadyMarker:${JSON.stringify('PTY_READY:' + events)},
     followUpPrompt:'# Owned board ordering control',observeSetupQuestions:true,
     bindDesignBoardState:${mode !== 'unbound'},
     env:${JSON.stringify({ PROBE_EVENTS: events, PROBE_HELP_FRAME: TOOL_HELP_FRAME, PROBE_STATE_MODULE: pathToFileURL(path.resolve(import.meta.dir, '../design/src/daemon-state.ts')).href, DESIGN_DAEMON_STATE_FILE: path.join(root, 'foreign', 'design.json') })},

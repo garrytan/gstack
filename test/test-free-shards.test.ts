@@ -342,6 +342,7 @@ describe('test-free-shards: shard args', () => {
     expect(args).toContain(`--timeout=${FREE_TEST_TIMEOUT_MS}`);
     expect(args).toContain('--max-concurrency=1');
     expect(args).not.toContain('--parallel');
+    expect(args).not.toContain('--concurrent');
   });
 
   test('parallel mode swaps serial max-concurrency for --parallel', () => {

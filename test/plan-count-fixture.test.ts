@@ -546,6 +546,7 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 process.stdin.resume();
+process.stdout.write('\x1b7PTY_READY:' + process.env.FIXTURE_RECORD + '\x1b8\x1b[J');
 `);
       fs.chmodSync(fakePath, 0o755);
       const runnerUrl = pathToFileURL(path.join(ROOT, 'test/helpers/claude-pty-runner.ts')).href;
@@ -572,6 +573,7 @@ const results = await Promise.all(cases.map(async (item) => ({
     skillName: item.skillName,
     slashCommand: '/' + item.skillName + (item.namedTarget ? ' PLAN.md' : ''),
     followUpPrompt: item.prompt,
+    startupReadyMarker: 'PTY_READY:' + item.record,
     fixtureFiles: item.files,
     preconfiguredReviewActor: item.preconfiguredReviewActor,
     expectedPlanPath: item.report,

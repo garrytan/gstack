@@ -61,7 +61,8 @@ describe('content-binding template drift', () => {
     const land = rendered('land-and-deploy/sections/readiness-gate.md');
     expect(land).toContain('wtree');
     expect(land).toContain('---WTREE---');
-    expect(land).toMatch(/gstack-evidence check --label tests --expect-cmd '[^']+' --max-age 24/);
+    expect(land).toContain('gstack-evidence check --label tests --expect-cmd "$TEST_COMMAND" --max-age 24');
+    expect(land).toContain('gstack-evidence run --label tests -- "$TEST_COMMAND"');
     expect(land).toContain('UNKNOWN');
   });
 

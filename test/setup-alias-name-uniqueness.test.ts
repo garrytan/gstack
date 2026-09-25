@@ -31,7 +31,13 @@ function extractFn(name: string): string {
   return SETUP_SRC.slice(start, end + 2);
 }
 
-const installDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-alias-install-'));
+const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-alias-'));
+const sourceDir = path.join(fixtureRoot, 'gstack');
+const installDir = path.join(fixtureRoot, 'skills');
+const skillSources = fs.readdirSync(ROOT)
+  .filter((name) => !name.startsWith('.') && name !== 'node_modules')
+  .filter((name) => fs.existsSync(path.join(ROOT, name, 'SKILL.md')))
+  .map((name) => ({ name, content: fs.readFileSync(path.join(ROOT, name, 'SKILL.md'), 'utf-8') }));
 
 const sourceRootSkill = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
 const sourceOgbSkill = fs.readFileSync(
@@ -40,11 +46,18 @@ const sourceOgbSkill = fs.readFileSync(
 );
 
 beforeAll(() => {
+  fs.mkdirSync(sourceDir);
+  fs.mkdirSync(installDir);
+  fs.writeFileSync(path.join(sourceDir, 'SKILL.md'), sourceRootSkill);
+  for (const { name, content } of skillSources) {
+    fs.mkdirSync(path.join(sourceDir, name));
+    fs.writeFileSync(path.join(sourceDir, name, 'SKILL.md'), content);
+  }
   const installOnce = [
-    `link_claude_skill_dirs "${ROOT}" "${installDir}"`,
-    `link_claude_root_skill_alias "${ROOT}" "${installDir}"`,
+    `link_claude_skill_dirs "${sourceDir}" "${installDir}"`,
+    `link_claude_root_skill_alias "${sourceDir}" "${installDir}"`,
     // The connect-chrome back-compat alias, exactly as the install section does it.
-    `_install_alias_skill_md "${ROOT}/open-gstack-browser/SKILL.md" "${installDir}/connect-chrome" "connect-chrome"`,
+    `_install_alias_skill_md "${sourceDir}/open-gstack-browser/SKILL.md" "${installDir}/connect-chrome" "connect-chrome"`,
   ].join('\n');
   const script = [
     'set -e',
@@ -53,7 +66,8 @@ beforeAll(() => {
     'QUIET=1',
     '_WINDOWS_COPY_NOTE_PRINTED=1',
     '_FOREIGN_SKIPPED_ENTRIES=()',
-    `SOURCE_GSTACK_DIR="${ROOT}"`,
+    `SOURCE_GSTACK_DIR="${sourceDir}"`,
+    `GSTACK_USER_RENDER_DIR="${fixtureRoot}/render"`,
     extractFn('_link_or_copy'),
     extractFn('_gstack_link_target_abs'),
     extractFn('_gstack_target_is_ours'),
@@ -62,7 +76,7 @@ beforeAll(() => {
     extractFn('_claude_entry_owned_strongly'),
     extractFn('_backup_skill_md'),
     '_BACKED_UP_SKILL_MDS=()',
-    `_SKILL_BACKUP_ROOT="${os.tmpdir()}/gstack-alias-test-backups"`,
+    `_SKILL_BACKUP_ROOT="${fixtureRoot}/backups"`,
     extractFn('_write_owned_marker'),
     extractFn('_print_windows_copy_note_once'),
     extractFn('_link_skill_runtime_assets'),
@@ -81,7 +95,7 @@ beforeAll(() => {
 }, 30_000);
 
 afterAll(() => {
-  fs.rmSync(installDir, { recursive: true, force: true });
+  fs.rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
 function frontmatterName(skillMdPath: string): string | null {
@@ -121,6 +135,8 @@ describe('alias installs are rewritten copies (#2511, #2201)', () => {
   });
 
   test('the SOURCE files are byte-intact (E2: sed never wrote through a symlink)', () => {
+    expect(fs.readFileSync(path.join(sourceDir, 'SKILL.md'), 'utf-8')).toBe(sourceRootSkill);
+    expect(fs.readFileSync(path.join(sourceDir, 'open-gstack-browser', 'SKILL.md'), 'utf-8')).toBe(sourceOgbSkill);
     expect(fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8')).toBe(sourceRootSkill);
     expect(
       fs.readFileSync(path.join(ROOT, 'open-gstack-browser', 'SKILL.md'), 'utf-8'),
@@ -129,6 +145,15 @@ describe('alias installs are rewritten copies (#2511, #2201)', () => {
     expect(frontmatterName(path.join(ROOT, 'open-gstack-browser', 'SKILL.md'))).toBe(
       'open-gstack-browser',
     );
+  });
+
+  test('the isolated source retains every canonical skill without runtime-asset copies', () => {
+    expect(fs.readdirSync(sourceDir).sort()).toEqual(['SKILL.md', ...skillSources.map(({ name }) => name)].sort());
+    for (const { name, content } of skillSources) {
+      expect(fs.readdirSync(path.join(sourceDir, name))).toEqual(['SKILL.md']);
+      expect(fs.readFileSync(path.join(sourceDir, name, 'SKILL.md'), 'utf-8')).toBe(content);
+      expect(fs.readFileSync(path.join(ROOT, name, 'SKILL.md'), 'utf-8')).toBe(content);
+    }
   });
 
   test('every installed skill name is globally unique', () => {
@@ -142,21 +167,25 @@ describe('alias installs are rewritten copies (#2511, #2201)', () => {
     expect(names.length).toBeGreaterThan(10);
     const dupes = names.filter((n, i) => names.indexOf(n) !== i);
     expect(dupes).toEqual([]);
+    const canonicalNames = skillSources.map(({ name, content }) => content.match(/^name:\s*(\S+)/m)?.[1] ?? name);
+    expect(names.sort()).toEqual([...new Set([...canonicalNames, '_gstack-command', 'connect-chrome'])].sort());
   });
 
   test('a legacy symlinked alias is replaced, not written through', () => {
     // Simulate a pre-fix install: alias SKILL.md is a symlink to the source.
-    const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-alias-legacy-'));
+    const legacyDir = fs.mkdtempSync(path.join(fixtureRoot, 'legacy-'));
     try {
       const aliasDir = path.join(legacyDir, '_gstack-command');
       fs.mkdirSync(aliasDir);
-      fs.symlinkSync(path.join(ROOT, 'SKILL.md'), path.join(aliasDir, 'SKILL.md'));
+      fs.symlinkSync(path.join(sourceDir, 'SKILL.md'), path.join(aliasDir, 'SKILL.md'));
+      expect(fs.realpathSync(path.join(aliasDir, 'SKILL.md'))).toBe(fs.realpathSync(path.join(sourceDir, 'SKILL.md')));
+      expect(path.relative(fs.realpathSync(fixtureRoot), fs.realpathSync(path.join(aliasDir, 'SKILL.md')))).toBe(path.join('gstack', 'SKILL.md'));
 
       const script = [
         'set -e',
         'IS_WINDOWS=0',
         '_FOREIGN_SKIPPED_ENTRIES=()',
-        `SOURCE_GSTACK_DIR="${ROOT}"`,
+        `SOURCE_GSTACK_DIR="${sourceDir}"`,
         extractFn('_link_or_copy'),
         extractFn('_gstack_link_target_abs'),
         extractFn('_gstack_target_is_ours'),
@@ -166,7 +195,7 @@ describe('alias installs are rewritten copies (#2511, #2201)', () => {
         extractFn('_write_owned_marker'),
         extractFn('_install_alias_skill_md'),
         extractFn('link_claude_root_skill_alias'),
-        `link_claude_root_skill_alias "${ROOT}" "${legacyDir}"`,
+        `link_claude_root_skill_alias "${sourceDir}" "${legacyDir}"`,
       ].join('\n');
       const result = runBashScript(script, { timeout: 30_000 });
       expect(result.status).toBe(0);
@@ -175,6 +204,7 @@ describe('alias installs are rewritten copies (#2511, #2201)', () => {
       expect(fs.lstatSync(aliasSkill).isSymbolicLink()).toBe(false);
       expect(frontmatterName(aliasSkill)).toBe('_gstack-command');
       // The source the legacy symlink pointed at is untouched.
+      expect(fs.readFileSync(path.join(sourceDir, 'SKILL.md'), 'utf-8')).toBe(sourceRootSkill);
       expect(fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8')).toBe(sourceRootSkill);
     } finally {
       fs.rmSync(legacyDir, { recursive: true, force: true });

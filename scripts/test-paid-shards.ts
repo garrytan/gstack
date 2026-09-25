@@ -54,12 +54,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { normalizeRelativePath } from './test-free-shards';
 import {
   BunTestOutputClassifier,
   exactTestFileSelectors,
   forwardAndClassify,
   isTerminationRequested,
+  normalizeRelativePath,
   runShardChild,
   strictTestExitCode,
 } from './test-strict-output';
