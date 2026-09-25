@@ -3,11 +3,13 @@ const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
 const path = require('node:path');
 
-module.exports = ({ observation, playwrightEntry, mode = 'normal-close', inspectCommandLine = false, observerExecutable, seedCookie = { name: 'synthetic', value: 'synthetic', domain: 'example.test', path: '/' } }) => {
+module.exports = ({ observation, playwrightEntry, mode = 'normal-close', marker, inspectCommandLine = false, observerExecutable, seedCookie = { name: 'synthetic', value: 'synthetic', domain: 'example.test', path: '/' } }) => {
   if (inspectCommandLine && process.platform === 'win32' && typeof observerExecutable !== 'string') throw new Error('Native observer executable is required');
+  if (mode === 'held-owner' && typeof marker !== 'string') throw new Error('Native owner marker is required');
   const originalSpawn = cp.spawn;
   let inspected = Promise.resolve();
   let folderEvidence;
+  let browserPid;
   const directoryState = (env, root) => ({
     requestedProfile: fs.existsSync(root),
     localEnvironment: fs.existsSync(env.LOCALAPPDATA || ''),
@@ -48,6 +50,7 @@ module.exports = ({ observation, playwrightEntry, mode = 'normal-close', inspect
   cp.spawn = function(command, args, options) {
     if (args.some(arg => /^--(?:no-sandbox|disable-setuid-sandbox)(?:=|$)/.test(arg))) throw new Error('Native fixture refuses a sandbox-disabled browser');
     const child = originalSpawn.call(this, command, args, options);
+    browserPid = child.pid;
     const evidence = {
       command, args, pid: child.pid,
       argsHash: createHash('sha256').update(JSON.stringify(args)).digest('hex'),
@@ -124,6 +127,11 @@ module.exports = ({ observation, playwrightEntry, mode = 'normal-close', inspect
     const context = await chromium.launchPersistentContext(root, inspectCommandLine && process.platform === 'win32'
       ? { ...options, timeout: Math.max(1, options.timeout - (Date.now() - started)) } : options);
     await inspected;
+    if (mode === 'held-owner') {
+      fs.writeFileSync(marker, JSON.stringify({ pid: browserPid }), { flag: 'wx' });
+      context.cookies = () => new Promise(() => {});
+      return context;
+    }
     await context.addCookies([seedCookie]);
     if (mode === 'stalled-close') context.close = () => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0); };
     return context;
