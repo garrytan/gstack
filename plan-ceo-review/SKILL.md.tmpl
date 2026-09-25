@@ -240,8 +240,9 @@ ExitPlanMode or next-skill handoff.
 | 0H spec-review metrics | Stop with the cause; reviewer availability does not waive this write. |
 | Review, decision and question history logs | Report cause and unsaved fields; continue. The plan's ledger is still required. |
 
-Paths: CEO archive = `CEO_PLANS` (0H), tasks =
-`~/.gstack/projects/`, metrics = `~/.gstack/analytics/`; log helpers choose theirs.
+Paths are per output: resolve the CEO archive as `CEO_PLANS` in 0H; tasks
+use `~/.gstack/projects/`, metrics use `~/.gstack/analytics/`, and log helpers
+choose their own paths. Do not substitute the CEO archive root for these paths.
 
 Keep one decision ledger through Step 0, Spec Review Loop and Outside Voice:
 
@@ -274,7 +275,9 @@ With no required choice, or after those choices settle, go to 0E.
 **Choose the question's route first:**
 - **Admin question:** mode, setup, navigation, document approval or promotion.
   Use its listed menu and the preamble question transport, then wait and record
-  the answer. Skip steps 1–4; this approves no plan changes.
+  the answer. Skip steps 1–4; this approves no plan changes. For mode selection,
+  0E defines the four-option menu and any authorized automatic preference;
+  neither needs a plan-decision row, comparison grid or completeness score.
 - **Plan decision:** review-depth expansion, scope additions/cuts, approach
   choices, TODOs, specs and review/outside findings. Start at step 1. Reuse exact
   prior approvals; run steps 2–4 only when a new answer is needed, even for one option.
@@ -310,9 +313,12 @@ Build one `currentDecision` using these fields and the preamble format:
 | `header` and option labels | Final native text within host limits; exactly one label includes `(recommended)`. |
 | Each option's `description` | A 1–2 sentence summary; S/M/L/XL effort, low/medium/high risk, reuse, verification coverage, at least 2 ✅ pros and 1 ❌ con. Apply the preamble's minimum lengths and destructive-choice exception. |
 
-Without a prescribed menu, offer 2–3 options (prefer 3 for non-trivial plans).
+For a plan decision without a prescribed menu, offer 2–3 options (prefer 3 for
+non-trivial plans). This default does not replace an admin or scope menu.
 For an option with no implementation, use effort S and state zero implementation
-work, never effort 0. Weigh diff size and long-term architecture equally, including rewrites.
+work, never effort 0. Weigh diff size and long-term architecture equally,
+including rewrites: state the immediate changed-file cost and the future
+maintenance cost for each option, then explain both in the recommendation.
 
 In Proposed, compare every commitment in the labels, descriptions and pros/cons:
 
@@ -391,7 +397,8 @@ Follow the preamble's session rules; `CONDUCTOR_SESSION: true` changes transport
    In the Recommendation's `because` clause, connect a concrete plan fact or
    constraint to this mode's actual benefit or tradeoff. Count/category alone
    is not a reason.
-3. Resolve that recommendation. When `QUESTION_TUNING: true`, first check
+3. Resolve the recommendation as an admin choice, not a plan decision. When
+   `QUESTION_TUNING: true`, first check
    `question_id=plan-ceo-review-mode` through the preamble. A check that exits 0
    with `AUTO_DECIDE` selects the recommendation; go to the automatic handoff in
    step 4. When tuning is false, omit the lookup.
@@ -409,7 +416,9 @@ Record mode provenance after the handoff:
 - **Successful preference check:** result and recommendation; log `plan-ceo-review-mode`, `auto_decided: true`.
 - **Actual question answer:** question, answer reference and mode; log `auto_decided: false`, including the question ID only when `QUESTION_TUNING: true`.
 
-If no new 0D choice: "No new approach decision was needed". Ask before changing mode.
+If 0D needed no approach choice, say "No new approach decision was needed" after
+the mode handoff. This records no plan decision, not automatic mode approval.
+Ask before changing a previously chosen mode.
 
 Selecting a mode does not approve changes. Preserve 0D approvals and ask about
 each proposed addition or cut, including those prompted by file-count thresholds.
