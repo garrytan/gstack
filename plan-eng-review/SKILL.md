@@ -662,8 +662,8 @@ Scope Challenge is mandatory before Section 1.
 At every STOP or failed check, use this route; do not restart.
 
 **Paused question:** Wait for its actual answer without completion telemetry or ExitPlanMode.
-Resume its local procedure with the answer. A missing-result call is still pending;
-do not duplicate it.
+Resume its local procedure with the reply. A missing-result call
+that may have surfaced is still pending; do not duplicate it.
 
 **Repairable write/read failure:** Stop before the dependent question or output.
 Use that step's stated recovery, then repeat its full Read-back verification.
