@@ -2,6 +2,7 @@
   "version": 1,
   "tier": "gate",
   "profile": "pr",
+  "evalsAll": false,
   "selection": {
     "e2e": [
       "auq-format-gate",
@@ -19,6 +20,7 @@
       "cso-diff-mode",
       "design-review-detector-shim",
       "design-review-detector-shim-dom",
+      "design-review-plugin-handoff",
       "diagram-triplet",
       "docsync-spawned",
       "document-release",
@@ -165,6 +167,35 @@
       }
     ],
     "interpretation": "Native file wall times including startup, skips and configured retries; scheduling hints only, never case verdicts or safety deadlines.",
+    "selectionRefresh": {
+      "originalSelectedE2ECount": 84,
+      "addedE2E": [
+        "design-review-plugin-handoff"
+      ],
+      "interpretation": "The added case belongs only to the refreshed design file. The other 37 file timings retain their original selection and historical provenance; this is not a fresh measurement of the whole 85-case cohort.",
+      "file": "test/skill-e2e-design.test.ts",
+      "runId": 36178350041,
+      "runAttempt": 1,
+      "controlSha": "7a4cfd45f744fa4984d42968a1410fee0084e40e",
+      "checkoutSha": "9fd6971e85fc814e39ee7917168d524145e509f0",
+      "manifestSha256": "2ec5c5a034f91ac3de9aa8896fdafc5e442371b8f12d6ab6faa72e156913c62b",
+      "artifact": {
+        "id": 10882943062,
+        "digest": "sha256:06adb0dc11d6d40fd11009664b72a60f83cf225ab48e6c0e824757cbfec4855b"
+      },
+      "spoolArtifact": {
+        "id": 10883432435,
+        "digest": "sha256:d1b0f59b91599b3687de84da364fd0feae50ee966099748e636b3962cf00e3d5"
+      },
+      "passed": 4,
+      "failed": 0,
+      "skippedPlaceholders": 13,
+      "reused": 0,
+      "attempts": 4,
+      "bun": "1.4.0",
+      "node": "22.20.0",
+      "claudeCode": "2.1.251"
+    },
     "retriedFiles": [
       "test/skill-e2e-shared-libs-paths.test.ts"
     ],
@@ -183,7 +214,7 @@
     "test/skill-e2e-coverage-audit.test.ts": 55829,
     "test/skill-e2e-cso.test.ts": 314846,
     "test/skill-e2e-deploy.test.ts": 462596,
-    "test/skill-e2e-design.test.ts": 152898,
+    "test/skill-e2e-design.test.ts": 225998,
     "test/skill-e2e-diagram.test.ts": 38472,
     "test/skill-e2e-docsync-spawned.test.ts": 50859,
     "test/skill-e2e-hermetic-canary.test.ts": 9077,

@@ -247,6 +247,7 @@ jobs:
       # if a future edit drops the gate build (or poppler), the lane FAILS
       # instead of the gates silently self-skipping back to false green.
       - name: Run free suite
+        id: measured
         run: bun scripts/ci-resource-metrics.ts --output "$RUNNER_TEMP/free-resources.json" --label free-${{ matrix.shard }} -- xvfb-run -a bun run test:free --ci-run "$RUNNER_TEMP/free-plan.json" --shard ${{ matrix.shard }} --result "$RUNNER_TEMP/free-results/shard-${{ matrix.shard }}.json"
         env:
           GSTACK_EXPECT_BINARIES: "1"
@@ -270,7 +271,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload runner resource measurements
-        if: always()
+        if: always() && steps.measured.outcome != 'skipped' && steps.measured.outcome != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: free-resources-${{ matrix.shard }}

@@ -1027,6 +1027,7 @@ export function loadPaidTestDurations(manifest: PaidRunManifest, rootDir = ROOT,
       judges: selection.judges === null ? null : [...selection.judges].sort(),
     });
     if (seed.version !== 1 || seed.tier !== manifest.tier || seed.profile !== manifest.profile ||
+        seed.evalsAll !== manifest.evalsAll ||
         !manifest.selection || selectionKey(seed.selection) !== selectionKey(manifest.selection)) return null;
     const durations = Object.entries(seed.durations ?? {});
     if (!durations.length || durations.some(([, value]) =>

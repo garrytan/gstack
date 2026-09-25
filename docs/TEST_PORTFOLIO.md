@@ -20,6 +20,14 @@ predicts a longest slice of 1,005.91 seconds instead of 1,308.48 seconds, with
 the same 38 files. This is a scheduling simulation, not a measured hardware
 speedup. The actual baseline test steps ranged from 252 to 1,312 seconds.
 
+Main subsequently added `design-review-plugin-handoff`. Run `36178350041`
+measured the owning design file under the new 85-ID selection: four passes,
+13 out-of-scope placeholders, no retries or reuse, and a 225,998ms native file
+wall. The seed replaces only that file's old timing and records both sources;
+the other 37 timings remain historical. This refresh makes the exact-selection
+guard apply to current coverage without inventing a duration for the new case
+or claiming that the complete 85-case cohort was freshly measured.
+
 Historical artifacts contain no CPU/RAM measurements. New PR runs retain
 `free-resources-*` and `paid-resources-*` artifacts for that evidence. Runner
 size or concurrency comparisons must use the same source, selected cases,

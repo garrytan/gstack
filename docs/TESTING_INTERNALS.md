@@ -261,7 +261,8 @@ and is separate from final release acceptance.
 
 **Measured paid scheduling.** `scripts/paid-test-durations.json` contains native
 file wall times with run, attempt, checkout and artifact provenance. The planner
-uses them only when tier, profile and the complete selected case sets match.
+uses them only when tier, profile, all-tests mode and the complete selected case
+sets match.
 `GSTACK_PAID_TEST_DURATIONS` can point at another seed for a controlled experiment;
 an absent, invalid or nonmatching seed retains the supervised-budget schedule.
 Unknown files use a conservative percentile of the matching measured files.
@@ -278,14 +279,25 @@ the endpoints and roughly once per second. CPU average is weighted by tick
 deltas; zero-tick measurements are unavailable (`null`), not fabricated zeros.
 Memory is sampled runner-wide used memory, not process RSS, and neither metric
 isolates the test command from other runner activity. Sampling can miss brief
-peaks. Child stdio and status are preserved; cancellation records the requested
-signal even when a child exits successfully after cleanup. A seven-second
+peaks. Failed sampling marks the measurement `incomplete` and suppresses CPU
+utilization and peak-memory values; it never stops the child or replaces its
+status. Incomplete measurements cannot support capacity comparisons. Child
+stdio and status are preserved; cancellation records the requested signal even
+when a child exits successfully after cleanup. A seven-second
 owned-group grace leaves the shard supervisor its existing five-second kill
 and six-second controller-exit windows. After escalation, the wrapper allows
 up to one second to confirm the owned group has stopped; queuing SIGKILL alone
-is not confirmation. Unconfirmed cleanup fails instead of writing a completion
-receipt. Hangup requests use graceful SIGTERM forwarding so that same cleanup
-runs. Receipts contain no child argv or environment.
+is not confirmation. Unconfirmed cleanup writes a failure receipt scoped to the
+owned process group, preserving the child's outcome separately from the
+wrapper's nonzero exit. This does not claim that every detached descendant is
+gone; the existing shard supervisor owns those groups. Cancellation handlers stay
+active through final sampling and receipt publication. A first cancellation
+during either phase settles cleanup once and publishes the updated outcome
+before returning. Hangup requests use graceful SIGTERM forwarding so that same
+cleanup runs. Receipts contain no child
+argv, environment or private sampling-error text. Resource uploads are skipped
+when the measured step never ran; missing receipts from a started step remain
+errors.
 
 **CI planner/executor/report.** `--emit-plan <path> --slices K` computes
 selection + the slice plan ONCE (killing per-slice selector divergence);

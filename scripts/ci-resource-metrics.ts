@@ -65,7 +65,7 @@ function detectedCpuCount(contents: string): number {
   return count;
 }
 
-async function sample(): Promise<SystemSample> {
+async function sample(): Promise<SystemSample & { cpuCount: number; totalMemoryBytes: number }> {
   const [stat, meminfo] = await Promise.all([
     Bun.file('/proc/stat').text(),
     Bun.file('/proc/meminfo').text(),
@@ -76,6 +76,8 @@ async function sample(): Promise<SystemSample> {
     at: Date.now(),
     cpu,
     usedMemoryBytes: memory.totalBytes - memory.availableBytes,
+    cpuCount: detectedCpuCount(stat),
+    totalMemoryBytes: memory.totalBytes,
   };
 }
 
@@ -91,14 +93,19 @@ async function run(args: string[]): Promise<number> {
   const options = parseArguments(args);
   if (process.platform !== 'linux') throw new Error('CI resource metrics require Linux procfs');
 
-  const initialStat = await Bun.file('/proc/stat').text();
-  const cpuCount = detectedCpuCount(initialStat);
-  const memoryInfo = parseMemory(await Bun.file('/proc/meminfo').text());
-  const samples: SystemSample[] = [{
-    at: Date.now(),
-    cpu: parseCpuTicks(initialStat),
-    usedMemoryBytes: memoryInfo.totalBytes - memoryInfo.availableBytes,
-  }];
+  const samples: Awaited<ReturnType<typeof sample>>[] = [];
+  let measurementIncomplete = false;
+  let monitor: ReturnType<typeof setInterval> | undefined;
+  const captureSample = async () => {
+    if (measurementIncomplete) return;
+    try { samples.push(await sample()); }
+    catch {
+      measurementIncomplete = true;
+      if (monitor) clearInterval(monitor);
+    }
+  };
+  await captureSample();
+  const startedAt = samples[0]?.at ?? Date.now();
 
   const child = spawn(options.command, options.commandArgs, {
     stdio: 'inherit',
@@ -106,7 +113,6 @@ async function run(args: string[]): Promise<number> {
     detached: true,
   });
   let spawnError: Error | undefined;
-  let measurementError: Error | undefined;
   let cancellationSignal: NodeJS.Signals | undefined;
   let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
   let cleanupDone: Promise<void> | undefined;
@@ -158,11 +164,8 @@ async function run(args: string[]): Promise<number> {
   process.on('SIGHUP', onHup);
 
   let pendingSample = Promise.resolve();
-  const monitor = setInterval(() => {
-    pendingSample = pendingSample.then(async () => { samples.push(await sample()); }).catch((error: unknown) => {
-      measurementError ??= error instanceof Error ? error : new Error(String(error));
-      forwardSignal('SIGTERM');
-    });
+  if (!measurementIncomplete) monitor = setInterval(() => {
+    pendingSample = pendingSample.then(captureSample);
   }, 1_000);
 
   const outcome = await new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
@@ -172,67 +175,109 @@ async function run(args: string[]): Promise<number> {
     });
     child.once('close', (exitCode, signal) => resolve({ exitCode, signal }));
   });
-  clearInterval(monitor);
+  if (monitor) clearInterval(monitor);
   await pendingSample;
-  if (cleanupTimer && !await ownedGroupIsRunning()) {
-    clearTimeout(cleanupTimer);
-    cleanupTimer = undefined;
-  }
-  if (cleanupDone && cleanupTimer) await cleanupDone;
-  if (cancellationSignal) {
-    const deadline = performance.now() + 1_000;
-    while (await ownedGroupIsRunning()) {
-      if (performance.now() >= deadline) throw new Error('Owned child process group did not stop after SIGKILL');
-      await Bun.sleep(10);
+  let cleanupFailure: string | undefined;
+  let settledSignal: NodeJS.Signals | undefined;
+  const settleCancellation = async () => {
+    if (!cancellationSignal || settledSignal) return;
+    try {
+      if (cleanupTimer) {
+        let stopped = false;
+        try { stopped = !await ownedGroupIsRunning(); }
+        catch { cleanupFailure = 'Unable to confirm owned child process group termination'; }
+        if (stopped) {
+          clearTimeout(cleanupTimer);
+          cleanupTimer = undefined;
+        }
+      }
+      if (cleanupDone && cleanupTimer) await cleanupDone;
+      const deadline = performance.now() + 1_000;
+      while (await ownedGroupIsRunning()) {
+        if (performance.now() >= deadline) {
+          cleanupFailure = 'Owned child process group did not stop after SIGKILL';
+          break;
+        }
+        await Bun.sleep(10);
+      }
+    } catch {
+      cleanupFailure ??= 'Unable to confirm owned child process group termination';
+    } finally {
+      if (cleanupTimer) clearTimeout(cleanupTimer);
+      cleanupTimer = undefined;
+      settledSignal = cancellationSignal;
     }
-  }
-  process.off('SIGINT', onInt);
-  process.off('SIGTERM', onTerm);
-  process.off('SIGHUP', onHup);
-  if (measurementError) throw measurementError;
-  const finalSample = await sample();
-  samples.push(finalSample);
-
-  const memory = parseMemory(await Bun.file('/proc/meminfo').text());
-  const cpuSummary = summarizeCpu(samples);
-  const metrics = {
-    schemaVersion: 1,
-    label: options.label,
-    timing: {
-      startedAt: new Date(samples[0].at).toISOString(),
-      endedAt: new Date(finalSample.at).toISOString(),
-      durationMs: finalSample.at - samples[0].at,
-    },
-    cpu: {
-      metricScope: 'Linux runner system-wide aggregate CPU utilization, not child-process CPU',
-      detectedLogicalCpuCount: cpuCount,
-      availableCpuCount: availableParallelism(),
-      averageSampledUtilization: cpuSummary.average,
-      peakSampledUtilization: cpuSummary.peak,
-    },
-    memory: {
-      metricScope: 'Linux runner system-wide used memory, not child-process RSS',
-      totalBytes: memory.totalBytes,
-      baselineUsedBytes: samples[0].usedMemoryBytes,
-      peakSampledUsedBytes: Math.max(...samples.map((entry) => entry.usedMemoryBytes)),
-    },
-    sampleCount: samples.length,
-    ...(cancellationSignal ? { cancellation: { requestedSignal: cancellationSignal } } : {}),
-    child: {
-      exitCode: outcome.exitCode,
-      signal: outcome.signal ?? null,
-      ...(spawnError ? {
-        spawnError: {
-          code: (spawnError as NodeJS.ErrnoException).code ?? null,
-          message: 'Unable to spawn child executable',
-        },
-      } : {}),
-    },
   };
-  await writeFile(options.output, `${JSON.stringify(metrics, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  if (spawnError) return 127;
-  if (cancellationSignal) return 128 + osSignalNumber(cancellationSignal);
-  return outcome.exitCode ?? (outcome.signal ? 128 + (osSignalNumber(outcome.signal)) : 1);
+  try {
+    while (true) {
+      await settleCancellation();
+      await captureSample();
+      if (cancellationSignal !== settledSignal) continue;
+      const endedAt = Date.now();
+      let cpuSummary = { average: null as number | null, peak: null as number | null };
+      if (!measurementIncomplete) {
+        try { cpuSummary = summarizeCpu(samples); }
+        catch { measurementIncomplete = true; }
+      }
+      const exitCode = cleanupFailure ? 1 : spawnError ? 127 : cancellationSignal
+        ? 128 + osSignalNumber(cancellationSignal)
+        : outcome.exitCode ?? (outcome.signal ? 128 + osSignalNumber(outcome.signal) : 1);
+      const metrics = {
+        schemaVersion: 1,
+        label: options.label,
+        timing: {
+          startedAt: new Date(startedAt).toISOString(),
+          endedAt: new Date(endedAt).toISOString(),
+          durationMs: endedAt - startedAt,
+        },
+        measurement: { status: measurementIncomplete ? 'incomplete' : 'complete' },
+        cpu: {
+          metricScope: 'Linux runner system-wide aggregate CPU utilization, not child-process CPU',
+          detectedLogicalCpuCount: samples[0]?.cpuCount ?? null,
+          availableCpuCount: availableParallelism(),
+          averageSampledUtilization: cpuSummary.average,
+          peakSampledUtilization: cpuSummary.peak,
+        },
+        memory: {
+          metricScope: 'Linux runner system-wide used memory, not child-process RSS',
+          totalBytes: samples[0]?.totalMemoryBytes ?? null,
+          baselineUsedBytes: samples[0]?.usedMemoryBytes ?? null,
+          peakSampledUsedBytes: measurementIncomplete ? null : Math.max(...samples.map((entry) => entry.usedMemoryBytes)),
+        },
+        sampleCount: samples.length,
+        ...(cancellationSignal ? { cancellation: { requestedSignal: cancellationSignal } } : {}),
+        wrapper: {
+          exitCode,
+          ...(cleanupFailure ? { cleanupFailure: { scope: 'owned-process-group', message: cleanupFailure } } : {}),
+        },
+        child: {
+          exitCode: outcome.exitCode,
+          signal: outcome.signal ?? null,
+          ...(spawnError ? {
+            spawnError: {
+              code: (spawnError as NodeJS.ErrnoException).code ?? null,
+              message: 'Unable to spawn child executable',
+            },
+          } : {}),
+        },
+      };
+      try {
+        await writeFile(options.output, `${JSON.stringify(metrics, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      } catch (error) {
+        await settleCancellation();
+        throw error;
+      }
+      if (cancellationSignal !== settledSignal) continue;
+      if (measurementIncomplete) process.stderr.write('[ci-resource-metrics] Sampling incomplete; child outcome preserved.\n');
+      if (cleanupFailure) process.stderr.write(`${cleanupFailure}\n`);
+      return exitCode;
+    }
+  } finally {
+    if (cleanupTimer) clearTimeout(cleanupTimer);
+    process.off('SIGINT', onInt);
+    process.off('SIGTERM', onTerm);
+    process.off('SIGHUP', onHup);
+  }
 }
 
 function osSignalNumber(signal: NodeJS.Signals): number {

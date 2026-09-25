@@ -115,14 +115,15 @@ test('the actual planner consumes a matching timing seed and rejects a different
     const options = { tier: 'gate' as const, profile: 'full' as const, sliceCount: 2, evalsAll: true,
       discovered: files, rootDir: root, env: { EVALS_ALL: '1' } };
     const original = buildRunManifest(options);
-    const seed = { version: 1, tier: original.tier, profile: original.profile, selection: original.selection, durations };
+    const seed = { version: 1, tier: original.tier, profile: original.profile, evalsAll: original.evalsAll,
+      selection: original.selection, durations };
     const location = join(root, 'scripts/paid-test-durations.json');
     writeFileSync(location, JSON.stringify(seed));
     const balanced = buildRunManifest(options);
     expect(balanced.entries).toEqual(balancePaidSlices(original, durations));
     expect(wall(balanced.entries)).toBeLessThan(wall(original.entries));
     expect({ ...balanced, entries: [] }).toEqual({ ...original, entries: [] });
-    for (const change of [{ version: 2 }, { tier: 'periodic' }, { profile: 'pr' },
+    for (const change of [{ version: 2 }, { tier: 'periodic' }, { profile: 'pr' }, { evalsAll: false }, { evalsAll: undefined },
       { selection: { e2e: [], judges: null } }, { durations: {} }, { durations: { [files[0]]: -1 } }]) {
       writeFileSync(location, JSON.stringify({ ...seed, ...change }));
       expect(buildRunManifest(options)).toEqual(original);
@@ -155,7 +156,7 @@ test('lightweight coordination uses Ubicloud without changing heavy-worker limit
     expect(job.steps.find((step: any) => step.run?.includes('ci-resource-metrics.ts')).run).toContain(' -- ');
     const metricUploads = job.steps.filter((step: any) => String(step.with?.name).startsWith(`${prefix}-resources-`));
     expect(metricUploads).toHaveLength(1);
-    expect(metricUploads[0].if).toBe('always()');
+    expect(metricUploads[0].if).toBe("always() && steps.measured.outcome != 'skipped' && steps.measured.outcome != ''");
     expect(metricUploads[0].with['if-no-files-found']).toBe('error');
   }
 });

@@ -50,6 +50,18 @@ describe('Linux system resource parsers', () => {
 });
 
 describe.skipIf(process.platform !== 'linux')('ci resource metrics CLI', () => {
+  test('resource uploads require a measured step, while missing started-step receipts fail', async () => {
+    for (const name of ['free-tests', 'evals']) {
+      const workflow = Bun.YAML.parse(await readFile(join(import.meta.dir, `../.github/workflows/${name}.yml`), 'utf8')) as any;
+      const job = Object.values(workflow.jobs).find((job: any) => job.steps?.some((step: any) => step.name === 'Upload runner resource measurements')) as any;
+      const measured = job.steps.find((step: any) => step.id === 'measured');
+      expect(measured.run).toContain('bun scripts/ci-resource-metrics.ts');
+      const upload = job.steps.find((step: any) => step.name === 'Upload runner resource measurements');
+      expect(upload.if).toBe("always() && steps.measured.outcome != 'skipped' && steps.measured.outcome != ''");
+      expect(upload.with['if-no-files-found']).toBe('error');
+    }
+  });
+
   test('the actual paid workflow binds the child tier through the measurement wrapper', async () => {
     const root = join(import.meta.dir, '..');
     const workflow = Bun.YAML.parse(await readFile(join(root, '.github/workflows/evals.yml'), 'utf8')) as any;
@@ -87,6 +99,8 @@ describe.skipIf(process.platform !== 'linux')('ci resource metrics CLI', () => {
     expect(await child.exited).toBe(0);
     const metrics = JSON.parse(await readFile(output, 'utf8'));
     expect(metrics.schemaVersion).toBe(1);
+    expect(metrics.measurement.status).toBe('complete');
+    expect(metrics.wrapper).toEqual({ exitCode: 0 });
     expect(metrics.label).toBe('success-case');
     expect(metrics.cpu.metricScope).toContain('system-wide');
     expect(metrics.cpu.detectedLogicalCpuCount).toBeGreaterThan(0);
@@ -243,6 +257,13 @@ describe.skipIf(process.platform !== 'linux')('ci resource metrics CLI', () => {
         expect(process.kill(pid, 0)).toBe(true);
         process.kill(pid, 'SIGKILL');
         expect(await new Response(child.stderr).text()).toContain('Owned child process group did not stop after SIGKILL');
+        const metrics = JSON.parse(await readFile(output, 'utf8'));
+        expect(metrics.wrapper.exitCode).toBe(1);
+        expect(metrics.wrapper.cleanupFailure).toEqual({
+          scope: 'owned-process-group',
+          message: 'Owned child process group did not stop after SIGKILL',
+        });
+        expect(metrics.cancellation).toEqual({ requestedSignal: 'SIGTERM' });
         return;
       }
       let running = false;

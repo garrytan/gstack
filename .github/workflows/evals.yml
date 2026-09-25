@@ -249,6 +249,7 @@ jobs:
           restore-keys: eval-input-v1-${{ github.repository_id }}-pr-${{ github.event.pull_request.number }}-
 
       - name: Run slice ${{ matrix.slice }}/6
+        id: measured
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -295,7 +296,7 @@ jobs:
           retention-days: 90
 
       - name: Upload runner resource measurements
-        if: always()
+        if: always() && steps.measured.outcome != 'skipped' && steps.measured.outcome != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: paid-resources-${{ matrix.slice }}

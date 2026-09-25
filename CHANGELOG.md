@@ -12,6 +12,7 @@
 ### Fixed
 
 - Confirm that an owned child process group has stopped after cancellation instead of treating a queued kill signal as completed cleanup. Keep the existing supervisor grace and fail when termination cannot be confirmed.
+- Keep resource sampling failures from interrupting tests or replacing their outcomes. Mark incomplete measurements explicitly, retain cancellation cleanup failures in receipts, and skip resource uploads when prerequisites prevented the measured step from running.
 - Recover concurrent CSO lock publications when temporary entries disappear or metadata observations straddle a link-state transition. Foreign inodes, content changes, unsafe permissions and unrecognized hard links still fail closed.
 - Retain child output, removal errors and independent filesystem evidence when the design-floor fixture cleanup assertion fails. This improves diagnosis without weakening the assertion or adding cleanup retries.
 
