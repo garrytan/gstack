@@ -89,6 +89,15 @@ but has no `file_path` (a non-file tool) is allowed. Symlinks are resolved
 through their FINAL component, so an in-boundary symlink pointing outside the
 boundary is checked against its target.
 
+Both sides of the comparison are canonicalized first, so the boundary and the
+tool's `file_path` never have to agree on path dialect. A Windows-native path
+(`C:\dev\proj\src\file.py`, or a `\\server\share\...` UNC path) becomes
+`/c/dev/proj/src/file.py`; `\` separators, drive-letter case and a
+`/cygdrive/c` mount prefix all normalize. Without that, every Edit on Windows
+was denied — including files inside the boundary — because Claude Code always
+reports a drive-letter path and the POSIX "is it absolute?" test read it as
+relative and prepended the cwd.
+
 The freeze boundary persists for the session via the state file. The hook
 script reads it on every Edit/Write invocation. Boundaries containing spaces
 are supported.
@@ -97,5 +106,6 @@ are supported.
 
 - The trailing `/` on the freeze directory prevents `/src` from matching `/src-old`
 - Freeze applies to Edit and Write tools only — Read, Bash, Glob, Grep are unaffected
+- On Windows the boundary may be stored in either form — `C:\dev\proj\src\` or the `/c/dev/proj/src/` that `pwd` reports under Git Bash
 - This prevents accidental edits, not a security boundary — Bash commands like `sed` can still modify files outside the boundary
 - To deactivate, run `/unfreeze` or end the conversation
