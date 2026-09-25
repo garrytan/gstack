@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import type { CanUseTool, HookCallback, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentSdkResult, QueryProvider } from './agent-sdk-runner';
 import type { EvalTestEntry } from './eval-store';
@@ -74,6 +75,12 @@ exit "$_rc"
 `, true);
   write(source, 'export function value() { return 1; }\n');
   protectedFiles.delete(source);
+  const shellSource = process.platform === 'win32'
+    ? spawnSync('bash', ['-c', 'cd "$(cygpath -u "$1")" && pwd -P', '_', path.join(repo, 'src')],
+      { encoding: 'utf8', timeout: 10_000 })
+    : null;
+  if (shellSource && shellSource.status !== 0) throw new Error(`Cannot resolve Bash fixture source: ${shellSource.stderr}`);
+  const physicalSource = shellSource ? shellSource.stdout.trim() : path.join(repo, 'src');
   write(path.join(repo, 'verify.sh'), `#!/bin/bash
 printf 'VERIFY\\n' >> ${quote(receipts)}
 ${id === 'investigate-owned-ending-error'
@@ -104,7 +111,7 @@ already isolated to this fixture. Do not change them.`;
   const invalidTool = (tool: string, input: Record<string, unknown>): string | undefined => {
     const continued = interactions.some(event => event.disposition === 'continue-investigation');
     const owner = read(receipts).match(/^FREEZE_OWNER=([a-f0-9]{32})$/m)?.[1];
-    const owned = !!owner && read(boundary) === `${path.join(repo, 'src')}\ngstack-freeze-v1:${owner}\n`;
+    const owned = !!owner && read(boundary) === `${physicalSource}\ngstack-freeze-v1:${owner}\n`;
     if (tool === 'Read') {
       if (typeof input.file_path !== 'string' || !readable.has(path.resolve(repo, input.file_path))) return 'Read is limited to the workflow and declared source paths.';
     } else if (tool === 'Bash') {
@@ -158,7 +165,7 @@ already isolated to this fixture. Do not change them.`;
   };
   const snapshot = () => ({ receipts: read(receipts), boundary: read(boundary), source: read(source), interactions, executions,
     changedProtectedFiles: [...protectedFiles].filter(([file, bytes]) => read(file) !== bytes).map(([file]) => path.relative(root, file)) });
-  return { id, root, repo, env, prompt, source, receipts, boundary, installed, canUseTool, preToolUse, snapshot };
+  return { id, root, repo, env, prompt, source, receipts, boundary, installed, physicalSource, canUseTool, preToolUse, snapshot };
 }
 
 export function boundaryFailures(fixture: ReturnType<typeof createBoundaryFixture>, result: Pick<AgentSdkResult, 'exitReason' | 'events' | 'assistantTurns'>) {
@@ -176,7 +183,7 @@ export function boundaryFailures(fixture: ReturnType<typeof createBoundaryFixtur
   check(evidence.executions.some(event => event.tool === 'Bash' && event.allowed), 'registered native hook saw no Bash execution');
   const owners = [...evidence.receipts.matchAll(/^FREEZE_OWNER=([a-f0-9]{32})$/gm)].map(match => match[1]);
   check(owners.length === 1, 'actor must acquire exactly one run-owned boundary');
-  check(evidence.receipts.includes(`FREEZE_DIR=${path.join(fixture.repo, 'src')}\n`), 'actor did not acquire the affected module');
+  check(evidence.receipts.includes(`FREEZE_DIR=${fixture.physicalSource}\n`), 'actor did not acquire the affected module');
   check(evidence.receipts.includes(`ACTION:release:${owners[0]}\n`), 'actor did not release its acquired owner token');
   check(evidence.receipts.includes('FREEZE_RELEASED:'), 'helper did not confirm owned cleanup');
   check(!evidence.boundary && !fs.existsSync(fixture.boundary), 'owned boundary remains');

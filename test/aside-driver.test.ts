@@ -152,16 +152,29 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-probe-'));
     const bin = (p: string) => { fs.mkdirSync(path.dirname(p), { recursive: true }); return p; };
     const write = (p: string, body: string) => { fs.writeFileSync(bin(p), body); fs.chmodSync(p, 0o755); };
-    const link = (from: string, to: string) => fs.symlinkSync(from, bin(to));
+    const wrap = (from: string, to: string) => write(to, `#!/bin/sh\nexec '${from.replaceAll("'", "'\"'\"'")}' "$@"\n`);
     const lookup = (cmd: string) => {
-      const r = spawnSync('/usr/bin/env', ['sh', '-c', `command -v ${cmd}`], { encoding: 'utf8', timeout: 5_000 });
+      const r = spawnSync('bash', ['-c', `command -v ${cmd}`], { encoding: 'utf8', timeout: 5_000 });
       return r.status === 0 ? r.stdout.trim() : null;
+    };
+    const executable = (cmd: string) => {
+      const resolved = lookup(cmd);
+      if (!resolved || process.platform !== 'win32') return resolved;
+      const native = spawnSync('bash', ['-c', 'cygpath -w "$1"', '_', resolved], { encoding: 'utf8', timeout: 5_000 });
+      if (native.status !== 0) throw new Error(`Cannot resolve native shell path: ${native.stderr}`);
+      return native.stdout.trim();
+    };
+    const shellPath = (native: string) => {
+      if (process.platform !== 'win32') return native;
+      const converted = spawnSync('bash', ['-c', 'cygpath -u "$1"', '_', native], { encoding: 'utf8', timeout: 5_000 });
+      if (converted.status !== 0) throw new Error(`Cannot resolve shell PATH entry: ${converted.stderr}`);
+      return converted.stdout.trim();
     };
     try {
       // A hermetic PATH: the stubs decide which arm is reachable, so the result does not depend
       // on whether this machine has coreutils. `grep` has to come along — the probe pipes into it.
       write(path.join(dir, 'base', 'aside'), '#!/bin/sh\n[ "$1" = "--version" ] && { echo 9.9.9; exit 0; }\necho "ASIDE_READY /tmp/x"\n');
-      link(lookup('grep')!, path.join(dir, 'base', 'grep'));
+      wrap(lookup('grep')!, path.join(dir, 'base', 'grep'));
       const failing = {
         window: ['No browser window is open for account u0', '    at stack frame'],
         preload: ['node:internal/modules/cjs/loader:1573', '  throw err;', '', "Error: Cannot find module '/x/preload.cjs'"],
@@ -169,30 +182,32 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
       for (const [name, lines] of Object.entries(failing)) {
         const body = lines.map((l) => `echo "${l}" >&2`).join('\n');
         write(path.join(dir, name, 'aside'), `#!/bin/sh\n[ "$1" = "--version" ] && { echo 9.9.9; exit 0; }\n${body}\nexit 1\n`);
-        link(lookup('grep')!, path.join(dir, name, 'grep'));
+        wrap(lookup('grep')!, path.join(dir, name, 'grep'));
       }
       write(path.join(dir, 'gt', 'gtimeout'), '#!/bin/sh\nshift\nexec "$@"\n');
       write(path.join(dir, 'to', 'timeout'), '#!/bin/sh\nshift\nexec "$@"\n');
       const perl = lookup('perl');
-      if (perl) link(perl, path.join(dir, 'pl', 'perl'));
+      if (perl) wrap(perl, path.join(dir, 'pl', 'perl'));
 
       const arms = ['gt', 'to', ...(perl ? ['pl'] : []), 'none'];
-      const shells = ['sh', 'bash', 'zsh'].map(lookup).filter((s): s is string => !!s);
+      const shells = ['sh', 'bash', 'zsh'].map(executable).filter((shell): shell is string => !!shell);
       expect(shells.length).toBeGreaterThan(0);
-      const base = path.join(dir, 'base');
+      const base = shellPath(path.join(dir, 'base'));
       for (const arm of arms) {
-        const PATH = arm === 'none' ? base : `${path.join(dir, arm)}:${base}`;
+        const PATH = arm === 'none' ? base : `${shellPath(path.join(dir, arm))}:${base}`;
         for (const shell of shells) {
           const r = spawnSync(shell, ['-c', setupProbe], { env: { PATH }, encoding: 'utf8', timeout: 30_000 });
           const status = arm === 'none' ? 'ASIDE_UNAVAILABLE: bounded probe unavailable' : 'READY: aside';
-          expect(`${path.basename(shell)}/${arm}: ${r.stdout.trim()}`).toBe(`${path.basename(shell)}/${arm}: ${status}`);
+          const name = path.basename(shell).replace(/\.exe$/i, '');
+          expect(`${name}/${arm}: ${r.stdout.trim()}`).toBe(`${name}/${arm}: ${status}`);
         }
       }
       const reasons = { window: 'No browser window is open for account u0', preload: "Error: Cannot find module '/x/preload.cjs'" };
       for (const [name, reason] of Object.entries(reasons)) {
         for (const shell of shells) {
-          const r = spawnSync(shell, ['-c', setupProbe], { env: { PATH: `${path.join(dir, 'gt')}:${path.join(dir, name)}` }, encoding: 'utf8', timeout: 30_000 });
-          expect(`${path.basename(shell)}/${name}: ${r.stdout.trim()}`).toBe(`${path.basename(shell)}/${name}: ASIDE_CLI_ERROR: exit 1; inspect aside --help locally`);
+          const r = spawnSync(shell, ['-c', setupProbe], { env: { PATH: `${shellPath(path.join(dir, 'gt'))}:${shellPath(path.join(dir, name))}` }, encoding: 'utf8', timeout: 30_000 });
+          const executableName = path.basename(shell).replace(/\.exe$/i, '');
+          expect(`${executableName}/${name}: ${r.stdout.trim()}`).toBe(`${executableName}/${name}: ASIDE_CLI_ERROR: exit 1; inspect aside --help locally`);
           expect(r.stdout).not.toContain(reason);
         }
       }
@@ -200,7 +215,7 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
       const sh = shells[0];
       const optOut = spawnSync(sh, ['-c', setupProbe], { env: { PATH: base, GSTACK_SKIP_ASIDE: '1' }, encoding: 'utf8', timeout: 30_000 });
       expect(optOut.stdout.trim()).toBe('NEEDS_ASIDE');
-      const noAside = spawnSync(sh, ['-c', setupProbe], { env: { PATH: path.join(dir, 'gt') }, encoding: 'utf8', timeout: 30_000 });
+      const noAside = spawnSync(sh, ['-c', setupProbe], { env: { PATH: shellPath(path.join(dir, 'gt')) }, encoding: 'utf8', timeout: 30_000 });
       expect(noAside.stdout.trim()).toBe('NEEDS_ASIDE');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });

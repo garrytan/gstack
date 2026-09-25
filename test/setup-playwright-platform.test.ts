@@ -21,8 +21,12 @@ function platform(id: string, version: string, cpu: string, wholeBlock = false) 
   const dir = temp();
   const osRelease = join(dir, 'os-release');
   writeFileSync(osRelease, `ID=${id}\nVERSION_ID="${version}"\n`);
+  const converted = process.platform === 'win32'
+    ? spawnSync('bash', ['-c', 'cygpath -u "$1"', '_', osRelease], { encoding: 'utf8', timeout: 10_000 })
+    : null;
+  if (converted && converted.status !== 0) throw new Error(`Cannot resolve Bash fixture path: ${converted.stderr}`);
   const selector = slice("# 2. Ensure Playwright's Chromium is available", wholeBlock ? '# 2b. Ensure a color-emoji font' : '# Chromium is BEST-EFFORT')
-    .replaceAll('/etc/os-release', osRelease);
+    .replaceAll('/etc/os-release', JSON.stringify(converted ? converted.stdout.trim() : osRelease));
   return runBashScript([
     'set -e', `uname() { echo ${JSON.stringify(cpu)}; }`,
     `SOURCE_GSTACK_DIR=${JSON.stringify(dir)}`, `TMPDIR=${JSON.stringify(dir)}`, 'IS_WINDOWS=0',
