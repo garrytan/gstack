@@ -1135,6 +1135,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'design-review-detector-shim-dom': ['test/session-runner-stream-lifecycle.test.ts', 'design-review/**', 'scripts/resolvers/design.ts', 'lib/design-detect-contract.ts', 'lib/dom-dump-script.ts', 'lib/dom-dump.js', 'bin/gstack-design-detect.ts', 'browse/src/**', 'test/helpers/fake-impeccable.ts', 'test/fixtures/fake-impeccable.ts', 'test/fixtures/impeccable-detect-sample.json', 'test/fixtures/review-eval-design-slop.*', 'test/skill-e2e-design.test.ts',
     'scripts/resolvers/testing.ts'
   ],
+  'design-review-plugin-handoff': ['test/session-runner-stream-lifecycle.test.ts', 'design-review/**', 'scripts/resolvers/design.ts', 'scripts/resolvers/testing.ts', 'lib/design-catalog.ts', 'lib/design-detect-contract.ts', 'bin/gstack-design-detect.ts', 'test/helpers/hermetic-env.ts', 'test/helpers/fake-impeccable.ts', 'test/fixtures/fake-impeccable.ts', 'test/fixtures/impeccable-detect-sample.json', 'test/fixtures/review-eval-design-slop.html', 'test/skill-e2e-design.test.ts'],
   'design-html-slop-gate':          ['test/session-runner-stream-lifecycle.test.ts', 'test/gstack-paths.test.ts', 'design-html/**', 'scripts/resolvers/design.ts', 'lib/design-detect-contract.ts', 'bin/gstack-design-detect.ts', 'test/helpers/fake-impeccable.ts', 'test/fixtures/fake-impeccable.ts', 'test/fixtures/impeccable-detect-sample.json', 'test/skill-e2e-design.test.ts'],
 
   // /diagram (diagram-render bundle consumers). Triplet = deterministic
@@ -1677,6 +1678,7 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'design-review-fix': 'periodic',
   'design-review-detector-shim': 'gate',       // deterministic sentinels from the fake engine (source mode on a diff)
   'design-review-detector-shim-dom': 'gate',   // same shim, DOM mode through the browse binary's dump; self-skips when the binary is absent
+  'design-review-plugin-handoff': 'gate',
   'design-html-slop-gate': 'periodic',         // one-pass gate behavior is a judgment call on a fake engine's fixed output
 
   // /diagram — triplet is deterministic functional (gstack-render falls back

@@ -828,7 +828,7 @@ test('stderr lifecycle regression selects runtime consumers without a quality-ma
     'outside-voice-codex-to-claude-code', 'outside-voice-claude-code-to-codex', 'outside-plan-disabled-no-fallback', 'ship-coverage-audit', 'review-coverage-audit',
     'plan-eng-coverage-audit', 'ship-triage', 'ship-docsync', 'docsync-spawned', 'design-consultation-core',
     'design-consultation-existing', 'design-consultation-research', 'design-consultation-preview', 'plan-design-review-no-ui-scope', 'design-review-fix',
-    'design-review-detector-shim', 'design-review-detector-shim-dom', 'design-html-slop-gate', 'diagram-triplet', 'diagram-authoring-quality',
+    'design-review-detector-shim', 'design-review-detector-shim-dom', 'design-review-plugin-handoff', 'design-html-slop-gate', 'diagram-triplet', 'diagram-authoring-quality',
     'gstack-upgrade-happy-path', 'land-and-deploy-workflow', 'land-and-deploy-first-run', 'land-and-deploy-review-gate', 'canary-workflow',
     'benchmark-workflow', 'setup-deploy-workflow', 'autoplan-dual-voice', 'scrape-match-path', 'scrape-prototype-path',
     'skillify-happy-path', 'skillify-provenance-refusal', 'skillify-approval-reject', 'journey-ideation', 'journey-plan-eng',

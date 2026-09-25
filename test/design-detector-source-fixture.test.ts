@@ -58,7 +58,7 @@ async function exercise(modes: Mode[], retention?: 'directory' | 'run-id' | 'bot
     },
   };
   const args = {
-    ROOT, fs: localFs, os: { tmpdir: () => scratch }, path, expect, CAPTURE_MS, CAPTURE_LONG_MS,
+    ROOT, fs: localFs, os: { tmpdir: () => scratch }, path, expect, CAPTURE_MS, CAPTURE_LONG_MS, evalsEnabled: true,
     process: { ...process, env: { ...process.env, ...env } }, resolveEvalModel,
     getProjectEvalDir: () => artifactRoot,
     console: { ...console, log: (...args: any[]) => notices.push(args.join(' ')), error: (...args: any[]) => notices.push(args.join(' ')) },

@@ -31,6 +31,8 @@
  *   ~/{.claude,.agents,.cursor,.gemini,.github,.opencode}/skills/impeccable/scripts/
  *          ├─ bin/<os>-<arch>/impeccable[.exe] (engine installed beside the launcher) ──► READY
  *          └─ impeccable (launcher only) ──► IMPECCABLE_NOT_CACHED: <launcher>
+ *   ${CLAUDE_CONFIG_DIR:-~/.claude}/plugins/cache/<marketplace>/<plugin>/<version>/skills/impeccable/
+ *          └─ newest semver skill per plugin, then opaque names in stable order; same trust checks
  *   <repo|cwd>/<same dirs>/impeccable ──► launcher-present only (IMPECCABLE_NOT_CACHED, no run hint)
  *          │
  *   nothing ──► IMPECCABLE_NOT_AVAILABLE
@@ -71,7 +73,7 @@
  * helpers they could outlive the kill (known limit).
  *
  * Env trust: Bun auto-loads a cwd `.env`, so every rendered invocation passes
- * `--no-env-file`, and independently IMPECCABLE_BIN / IMPECCABLE_HOME values
+ * `--no-env-file`, and independently IMPECCABLE_BIN / IMPECCABLE_HOME / CLAUDE_CONFIG_DIR values
  * whose realpath lies inside the repo or cwd are ignored (IMPECCABLE_ENV_IGNORED).
  *
  * Observability: one content-free JSON line per probe/scan appended to
@@ -99,6 +101,7 @@ import { isFrontendPath } from '../lib/frontend-scope';
 
 const WIN = process.platform === 'win32';
 const HOME = os.homedir();
+const REAL_HOME = realpathOrNull(HOME) ?? HOME;
 const ENV = process.env;
 
 /** Where config.yaml lives: the same precedence bin/gstack-config uses. */
@@ -226,7 +229,7 @@ function isEngineName(realFile: string): boolean {
  * the user's own installs into "repository-controlled" files.
  */
 function isProjectDir(dir: string): boolean {
-  return !isInside(HOME, dir);
+  return !isInside(REAL_HOME, dir);
 }
 
 /** Under the project the agent is reviewing: the repository, or cwd, when each is a project directory. */
@@ -239,12 +242,27 @@ function semverKey(v: string): number[] | null {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
 
+function safeReaddir(dir: string): string[] {
+  try { return fs.readdirSync(dir); } catch { return []; }
+}
+
+function strictSemver(name: string): string | null {
+  const normalized = name.replace(/^v/, '');
+  const match = normalized.match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$/);
+  const valid = match && [match[4], match[5]].every(part => part === undefined || part.split('.').every(id => id.length > 0))
+    && (!match[4] || match[4].split('.').every(id => !/^0\d+$/.test(id)));
+  return valid ? normalized : null;
+}
+
+function versionOrder(a: { name: string; version: string | null }, b: { name: string; version: string | null }): number {
+  const order = a.version && b.version ? Bun.semver.order(b.version, a.version) : Number(!!b.version) - Number(!!a.version);
+  return order || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+}
+
 function newestSemverDir(dir: string): string | null {
-  let entries: string[];
-  try { entries = fs.readdirSync(dir); } catch { return null; }
-  const versions = entries.map(e => ({ e, k: semverKey(e) })).filter(x => x.k) as { e: string; k: number[] }[];
-  versions.sort((a, b) => (b.k[0] - a.k[0]) || (b.k[1] - a.k[1]) || (b.k[2] - a.k[2]));
-  return versions[0]?.e ?? null;
+  const versions = safeReaddir(dir).map(name => ({ name, version: strictSemver(name) })).filter(x => x.version);
+  versions.sort(versionOrder);
+  return versions[0]?.name ?? null;
 }
 
 function readJsonFile(file: string): { ok: true; value: unknown } | { ok: false; missing: boolean } {
@@ -285,6 +303,61 @@ function engineSiblings(launcherDir: string): string[] {
   return [...tags].map(t => path.join(launcherDir, 'bin', t, name));
 }
 
+/**
+ * A Claude Code plugin install of impeccable lands at
+ * <config>/plugins/cache/<marketplace>/<plugin>/<version>/skills/impeccable/,
+ * never at the traditional <root>/<SKILL_ROOTS entry>/skills/impeccable/ the
+ * ordinary walk below expects. Marketplace/plugin/version names are not
+ * predictable, so walk the three levels (github.com/garrytan/gstack/issues/2838).
+ */
+function pluginCacheImpeccableSkillDirs(configDir: string, step: (s: string) => void): string[] {
+  const directories = (dir: string): string[] => {
+    try {
+      return fs.readdirSync(dir, { withFileTypes: true }).filter(entry => {
+        if (entry.isDirectory()) return true;
+        if (entry.isSymbolicLink()) step(`plugin skip ${path.join(dir, entry.name)}: cache traversal does not follow directory symlinks`);
+        return false;
+      }).map(entry => entry.name).sort();
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') step(`plugin skip ${dir}: ${code}`);
+      return [];
+    }
+  };
+  const cacheDir = path.join(configDir, 'plugins', 'cache');
+  const dirs: string[] = [];
+  step(`plugin cache=${cacheDir}`);
+  const realConfig = realpathOrNull(configDir);
+  const realCache = realpathOrNull(cacheDir);
+  if (realConfig && realCache && !isInside(realCache, realConfig)) {
+    step(`plugin skip ${cacheDir}: cache resolves outside its configuration directory`);
+    return dirs;
+  }
+  for (const marketplace of directories(cacheDir)) {
+    const marketplaceDir = path.join(cacheDir, marketplace);
+    for (const plugin of directories(marketplaceDir)) {
+      const pluginDir = path.join(marketplaceDir, plugin);
+      const versions = directories(pluginDir).map(name => ({ name, version: strictSemver(name) }));
+      versions.sort(versionOrder);
+      for (const { name, version } of versions) {
+        const skillDir = path.join(pluginDir, name, 'skills', 'impeccable');
+        try {
+          if (!fs.statSync(path.join(skillDir, 'SKILL.md')).isFile()) {
+            step(`plugin skip ${skillDir}: SKILL.md is not a regular file`);
+            continue;
+          }
+          step(`plugin selected=${skillDir}${version ? '' : ' (opaque version; recency unknown)'}`);
+          dirs.push(skillDir);
+          break;
+        } catch (e) {
+          step(`plugin skip ${skillDir}: ${(e as NodeJS.ErrnoException).code}`);
+        }
+      }
+    }
+  }
+  return dirs;
+}
+
 function probe(host: string, verbose = false): Probe {
   const cwd = realpathOrNull(process.cwd()) ?? process.cwd();
   const repoRoot = gitTopLevel(cwd) ?? cwd;
@@ -302,33 +375,77 @@ function probe(host: string, verbose = false): Probe {
   // A launcher inside the repo or cwd counts as "skill present" only: its sibling
   // engine is repository-controlled and is never a READY candidate, and the hint
   // never tells anyone to run it.
-  const roots = [...new Set([repoRoot, cwd, HOME])];
-  let siblingEngine: string | null = null;
-  let siblingVersion: string | null = null;
+  const home = HOME;
+  const roots = [...new Map([repoRoot, cwd, home].map(root => [realpathOrNull(root) ?? root, root])).values()];
+  let claudeConfig = trustedEnvPath('CLAUDE_CONFIG_DIR', repoRoot, cwd, p.notes, step);
+  if (claudeConfig) {
+    try {
+      if (!fs.statSync(claudeConfig).isDirectory()) {
+        p.notes.push(`${SENTINEL.ENV_IGNORED}: CLAUDE_CONFIG_DIR is not a directory`);
+        claudeConfig = null;
+      }
+    } catch (e) {
+      step(`CLAUDE_CONFIG_DIR unavailable: ${(e as NodeJS.ErrnoException).code}`);
+      claudeConfig = null;
+    }
+  }
+  const installs: { launcher: string; engine?: string; version?: string }[] = [];
+  const seenSkills = new Set<string>();
   let repoLocalLauncher = false;
+  // Shared by the SKILL_ROOTS walk and the plugin-cache walk below: same
+  // presence/launcher/repo-local-exclusion/sibling-engine logic either way,
+  // whichever path convention placed the skill at `skillDir`.
+  const checkSkillDir = (skillDir: string, rootIsRepo: boolean) => {
+    const realSkill = realpathOrNull(skillDir);
+    rootIsRepo ||= !!realSkill && underProject(realSkill, repoRoot, cwd);
+    const key = `${rootIsRepo ? 'repo:' : ''}${realSkill}`;
+    if (!realSkill || seenSkills.has(key)) return;
+    seenSkills.add(key);
+    if (fs.existsSync(path.join(skillDir, 'SKILL.md'))) p.skillPresent = true;
+    const launcher = path.join(skillDir, 'scripts', 'impeccable');
+    if (!fs.existsSync(launcher)) return;
+    try {
+      if (!fs.statSync(launcher).isFile()) { step(`launcher skip ${launcher}: not a regular file`); return; }
+    } catch (e) { step(`launcher skip ${launcher}: ${(e as NodeJS.ErrnoException).code}`); return; }
+    if (rootIsRepo) { repoLocalLauncher = true; step(`skill skip ${skillDir}: repository-local install`); return; }
+    const realLauncher = realpathOrNull(launcher);
+    if (!realLauncher || underProject(realLauncher, repoRoot, cwd)) { repoLocalLauncher = true; step(`launcher skip ${launcher}: repository-local or missing target`); return; }
+    const install: typeof installs[number] = { launcher };
+    installs.push(install);
+    for (const cand of engineSiblings(path.dirname(launcher))) {
+      const real = realpathOrNull(cand);
+      if (!real) continue;
+      if (!isExecutableFile(real) || !isEngineName(real) || underProject(real, repoRoot, cwd)) { step(`engine skip ${cand}: not a trusted executable`); continue; }
+      install.engine = real;
+      try {
+        const v = fs.readFileSync(path.join(path.dirname(launcher), 'VERSION'), 'utf-8').trim();
+        install.version = semverKey(v) ? v.replace(/^v/, '') : undefined;
+      } catch { /* no VERSION file */ }
+      break;
+    }
+  };
   for (const root of roots) {
     const rootIsRepo = underProject(root, repoRoot, cwd);
     for (const sub of SKILL_ROOTS) {
-      const skillDir = path.join(root, sub, 'skills', 'impeccable');
-      if (fs.existsSync(path.join(skillDir, 'SKILL.md'))) p.skillPresent = true;
-      const launcher = path.join(skillDir, 'scripts', 'impeccable');
-      if (!fs.existsSync(launcher)) continue;
-      if (rootIsRepo) { repoLocalLauncher = true; continue; }
-      const realLauncher = realpathOrNull(launcher);
-      if (!realLauncher || underProject(realLauncher, repoRoot, cwd)) { repoLocalLauncher = true; continue; }
-      p.launcher ??= launcher;
-      for (const cand of engineSiblings(path.dirname(launcher))) {
-        const real = realpathOrNull(cand);
-        if (siblingEngine || !real || !isExecutableFile(real) || !isEngineName(real) || underProject(real, repoRoot, cwd)) continue;
-        siblingEngine = real;
-        try {
-          const v = fs.readFileSync(path.join(path.dirname(launcher), 'VERSION'), 'utf-8').trim();
-          siblingVersion = semverKey(v) ? v.replace(/^v/, '') : null; // a non-semver VERSION is not trusted as text
-        } catch { /* no VERSION file */ }
-      }
+      if (sub === '.claude' && claudeConfig && root === home) continue;
+      checkSkillDir(path.join(root, sub, 'skills', 'impeccable'), rootIsRepo);
     }
   }
-  step(`skill=${p.skillPresent} launcher=${p.launcher ?? 'none'} repoLocalLauncher=${repoLocalLauncher} sibling=${siblingEngine ?? 'none'}`);
+  if (claudeConfig) checkSkillDir(path.join(claudeConfig, 'skills', 'impeccable'), false);
+  const configs = roots.map(root => ({ dir: root === home && claudeConfig ? claudeConfig : path.join(root, '.claude'), repoLocal: underProject(root, repoRoot, cwd) }));
+  const seenConfigs = new Set<string>();
+  for (const { dir, repoLocal } of configs) {
+    const real = realpathOrNull(dir) ?? dir;
+    if (repoLocal && !underProject(real, repoRoot, cwd)) { step(`plugin skip ${dir}: repository configuration resolves outside the project`); continue; }
+    if (seenConfigs.has(real)) continue;
+    seenConfigs.add(real);
+    for (const skillDir of pluginCacheImpeccableSkillDirs(dir, step)) {
+      checkSkillDir(skillDir, repoLocal || underProject(real, repoRoot, cwd));
+    }
+  }
+  const bundled = installs.find(install => install.engine);
+  p.launcher = (bundled ?? installs[0])?.launcher;
+  step(`skill=${p.skillPresent} launcher=${p.launcher ?? 'none'} repoLocalLauncher=${repoLocalLauncher} sibling=${bundled?.engine ?? 'none'}`);
 
   // Hook manifests, host-aware.
   const mine = HOSTS_WITH_HOOKS[host] ?? [];
@@ -423,10 +540,10 @@ function probe(host: string, verbose = false): Probe {
   }
 
   // engine beside a HOME-rooted launcher
-  if (!p.engine && siblingEngine) {
-    p.engine = siblingEngine;
-    p.engineVersion = siblingVersion ?? undefined;
-    p.sentinel = `${SENTINEL.READY}: ${siblingEngine}`;
+  if (!p.engine && bundled?.engine) {
+    p.engine = bundled.engine;
+    p.engineVersion = bundled.version;
+    p.sentinel = `${SENTINEL.READY}: ${bundled.engine}`;
   }
 
   if (p.engine) {
@@ -453,8 +570,13 @@ function probe(host: string, verbose = false): Probe {
   const launcher = p.launcher ?? launcherOnPath ?? (repoLocalLauncher ? 'repository-local install' : null);
   if (launcher) {
     p.sentinel = `${SENTINEL.NOT_CACHED}: ${launcher}`;
+    const hintPath = p.launcher && !/[\x00-\x1f\x7f`]/.test(p.launcher) && stripControl(p.launcher) === p.launcher && !WIN
+      ? /^[a-zA-Z0-9_./-]+$/.test(p.launcher) ? p.launcher : `'${p.launcher.replaceAll("'", "'\\''")}'`
+      : null;
     const how = p.launcher
-      ? `run \`${p.launcher} detect --help\` once; it fetches the engine version pinned by your install`
+      ? hintPath
+        ? `run \`${hintPath} detect --help\` once in a POSIX shell; it fetches the engine version pinned by your install`
+        : 'use your Impeccable installation to fetch its pinned engine; no shell command is suggested for this path or platform'
       : repoLocalLauncher && !launcherOnPath
         ? 'the skill is installed inside this repository, and gstack never runs a repository-local launcher; install it under your home directory (`npx impeccable install --scope global` outside the repo) if you want the engine here'
         : 'run `npx impeccable install --scope global` yourself (the engine lands beside the skill under your home directory; `npx impeccable detect --help` alone caches it only for npx)';
@@ -630,7 +752,10 @@ function probeLines(p: Probe): string[] {
   lines.push(`${SENTINEL.IGNORED_VALUES}: ${p.ignoredValues.join(',')}`);
   lines.push(...p.notes);
   if (p.steps.length) lines.push(...p.steps.map(s => `${SENTINEL.PROBE_STEP}: ${s}`));
-  return lines;
+  return lines.map(line => {
+    const colon = line.indexOf(':');
+    return colon < 0 ? line : line.slice(0, colon + 1) + stripControl(line.slice(colon + 1));
+  });
 }
 
 // ── Sanitization ─────────────────────────────────────────────────────────────

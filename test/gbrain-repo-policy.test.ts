@@ -25,6 +25,17 @@ const BIN = path.join(ROOT, 'bin', 'gstack-gbrain-repo-policy');
 
 let tmpHome: string;
 
+function isolateGitRemote(repo: string, url: string): void {
+  const git = (...args: string[]) => {
+    const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 10_000 });
+    expect(result.status).toBe(0);
+    return result.stdout.trim();
+  };
+  expect(git('config', '--get', 'remote.origin.url')).toBe(url);
+  git('config', '--local', `url.${url}.insteadOf`, url);
+  expect(git('remote', 'get-url', 'origin')).toBe(url);
+}
+
 function run(args: string[], opts: { env?: Record<string, string> } = {}) {
   const res = spawnSync(BIN, args, {
     env: { ...process.env, GSTACK_HOME: tmpHome, ...(opts.env || {}) },
@@ -52,6 +63,25 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpHome, { recursive: true, force: true });
+});
+
+test('fixture origin isolation overrides a controlled URL rewrite without changing the stored remote', () => {
+  const repo = path.join(tmpHome, 'repo');
+  fs.mkdirSync(repo);
+  const git = (...args: string[]) => {
+    const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', timeout: 10_000 });
+    expect(result.status).toBe(0);
+    return result.stdout.trim();
+  };
+  const url = 'https://fixture.invalid/org/repo.git';
+  git('init', '-q');
+  git('remote', 'add', 'origin', url);
+  git('config', '--local', 'url.https://mirror.invalid/.insteadOf', 'https://fixture.invalid/');
+  expect(git('config', '--get', 'remote.origin.url')).toBe(url);
+  expect(git('remote', 'get-url', 'origin')).toBe('https://mirror.invalid/org/repo.git');
+  isolateGitRemote(repo, url);
+  expect(git('config', '--get', 'remote.origin.url')).toBe(url);
+  expect(git('remote', 'get-url', 'origin')).toBe(url);
 });
 
 describe('normalize', () => {
@@ -293,6 +323,7 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
       spawnSync('git', args, { cwd: repoDir, encoding: 'utf-8', timeout: 30_000 });
     git('init', '-q', '.');
     git('remote', 'add', 'origin', REPO_URL);
+    isolateGitRemote(repoDir, REPO_URL);
     fs.writeFileSync(path.join(repoDir, 'README.md'), 'fixture\n');
     git('add', '-A');
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'fixture');

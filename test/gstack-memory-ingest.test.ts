@@ -28,6 +28,17 @@ function makeTestHome(): string {
   return mkdtempSync(join(tmpdir(), "gstack-memory-ingest-"));
 }
 
+function isolateGitRemote(repo: string, url: string): void {
+  const git = (...args: string[]) => {
+    const result = spawnSync("git", args, { cwd: repo, encoding: "utf8", timeout: 10_000 });
+    expect(result.status).toBe(0);
+    return result.stdout.trim();
+  };
+  expect(git("config", "--get", "remote.origin.url")).toBe(url);
+  git("config", "--local", `url.${url}.insteadOf`, url);
+  expect(git("remote", "get-url", "origin")).toBe(url);
+}
+
 function runScript(args: string[], env: Record<string, string> = {}): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync("bun", [SCRIPT, ...args], {
     encoding: "utf-8",
@@ -918,6 +929,7 @@ describe("#2394: probe applies the same attribution gate as prepare", () => {
     mkdirSync(repo, { recursive: true });
     spawnSync("git", ["-C", repo, "init", "-q"], { encoding: "utf-8", timeout: 30_000 });
     spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/foo/bar.git"], { encoding: "utf-8", timeout: 30_000 });
+    isolateGitRemote(repo, "https://github.com/foo/bar.git");
     return repo;
   }
 
@@ -998,6 +1010,7 @@ describe("#2394: probe applies the same attribution gate as prepare", () => {
     mkdirSync(attributableCwd, { recursive: true });
     spawnSync("git", ["-C", attributableCwd, "init", "-q"], { encoding: "utf-8", timeout: 30_000 });
     spawnSync("git", ["-C", attributableCwd, "remote", "add", "origin", "https://github.com/foo/bar.git"], { encoding: "utf-8", timeout: 30_000 });
+    isolateGitRemote(attributableCwd, "https://github.com/foo/bar.git");
 
     const ts = new Date().toISOString();
     const cwdLine = `{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"${ts}","cwd":"${attributableCwd.replace(/\\/g, "\\\\")}"}\n`;
@@ -1082,6 +1095,7 @@ describe("#2392: transcript ingest honors per-remote trust policy", () => {
     mkdirSync(repo, { recursive: true });
     spawnSync("git", ["-C", repo, "init", "-q"], { encoding: "utf-8", timeout: 30_000 });
     spawnSync("git", ["-C", repo, "remote", "add", "origin", remoteUrl], { encoding: "utf-8", timeout: 30_000 });
+    isolateGitRemote(repo, remoteUrl);
     return repo;
   }
 

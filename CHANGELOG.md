@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.1.0] - 2026-09-25
+## [1.91.2.0] - 2026-09-25
 
 ### Changed
 
@@ -8,6 +8,25 @@
 - Lightweight free-suite coordination and paid planners use two-CPU Ubicloud runners. Heavy workers and native-platform gates keep their existing capacity and concurrency limits.
 - Free and paid PR workers retain runner-wide CPU and memory measurements alongside their test results. Measurements distinguish system utilization from child-process usage and preserve failures and cancellation.
 - Paid executors honor workflow cancellation rather than continuing under an unconditional status guard. Failed prerequisites still prevent execution.
+
+### Fixed
+
+- Confirm that an owned child process group has stopped after cancellation instead of treating a queued kill signal as completed cleanup. Keep the existing supervisor grace and fail when termination cannot be confirmed.
+- Recover concurrent CSO lock publications when temporary entries disappear or metadata observations straddle a link-state transition. Foreign inodes, content changes, unsafe permissions and unrecognized hard links still fail closed.
+- Retain child output, removal errors and independent filesystem evidence when the design-floor fixture cleanup assertion fails. This improves diagnosis without weakening the assertion or adding cleanup retries.
+
+## [1.91.1.0] - 2026-09-25
+
+### Fixed
+
+- Find Impeccable installed through the Claude Code plugin marketplace, including a trusted custom `CLAUDE_CONFIG_DIR`. Preserve traditional skill installs and the existing explicit-engine, PATH and standalone-cache priority.
+- Select plugin versions deterministically with strict semver ordering and support for hash-named versions. Keep a selected installation's launcher, engine and engine version together instead of borrowing an older plugin's engine.
+- Use the same strict ordering for the standalone engine cache, retaining its semver-only policy and precedence. Do not follow cache directory symlinks or repository configuration links into unrelated filesystem trees.
+- Preserve repository and symlink execution boundaries, sanitize discovery diagnostics, and quote or suppress launcher hints when a filename cannot be represented safely. Discovery never downloads or runs a launcher; engine compatibility warnings and install consent remain unchanged.
+- Compare canonical HOME paths at the trust boundary, so home-directory aliases and dotfiles repositories do not hide user-installed engines or admit private home files as scan targets.
+- Add plugin discovery, handoff, malformed-version and adversarial-path regressions, plus Windows-safe discovery cases selected by the native Windows test lane.
+
+Includes the plugin-cache discovery contribution from @SomSamantray in #2976.
 
 ## [1.90.2.0] - 2026-09-24
 

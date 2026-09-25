@@ -13,6 +13,57 @@
 - **Generation-time guard.** The design binary's image prompt carries a "Never:" line built from ten catalog ids.
 - **Attribution.** `NOTICE.md` + `licenses/Apache-2.0.txt`.
 
+## Plugin discovery follow-up (2026-09-25)
+
+The detector recognizes Claude Code marketplace installs at
+`${CLAUDE_CONFIG_DIR:-~/.claude}/plugins/cache/<marketplace>/<plugin>/<version>/skills/impeccable/`
+as well as traditional skill installs. A trusted absolute `CLAUDE_CONFIG_DIR`
+replaces the default Claude user profile for both layouts. Relative, missing,
+non-directory, or repository-resolving overrides are ignored; `probe --verbose`
+explains the fallback. No Claude settings, plugin registry, or hook configuration
+is changed.
+
+Within each marketplace/plugin, discovery selects the newest semver directory
+with a regular `SKILL.md`, including prerelease ordering. Equal versions use the
+directory name as a stable tie-breaker. Hash and `unknown` directories remain
+supported after semver candidates in stable name order; their names do not prove
+recency. An incomplete directory is skipped, but a valid newer skill without an
+engine does not borrow an older plugin's engine. Launcher, bundled engine and
+engine `VERSION` stay associated with the selected installation. Plugin version
+numbers never replace engine compatibility evidence.
+
+Traditional user skill installs precede plugin candidates; explicit
+`IMPECCABLE_BIN`, an accepted PATH binary and the standalone engine cache retain
+their existing higher priority. The standalone engine cache shares strict
+semver ordering so an rc directory cannot win over its stable release; unlike
+plugin discovery, it still rejects opaque names. Multiple marketplaces/plugins are ordered by
+name. A ready engine suppresses the install offer; a missing engine retains the
+existing consent and never-ask controls. `IMPECCABLE_SKILL: present` still means
+files were found on disk, not that a cached plugin is enabled in the current
+Claude session. `IMPECCABLE_ENGINE_UNTESTED` remains an honest warning for engines
+outside the captured test set.
+
+Discovery is a fixed-depth, read-only filesystem walk. It does not execute
+launchers, install plugins, prune caches, or recursively search arbitrary home
+directories. Resolved paths inside the reviewed project are not executable
+candidates, including symlinked installs. Cache traversal skips directory
+symlinks and rejects a cache that resolves outside its configuration directory;
+repository configuration links cannot redirect the walk outside the project.
+Canonical HOME comparisons preserve
+user installs when the home directory is
+accessed through an alias, without allowing arbitrary home files as scan targets.
+Verbose output records rejected paths and filesystem errors without breaking the
+sentinel protocol. Runnable launcher
+hints use POSIX-shell quoting; control-character or Markdown-breaking names and
+Windows receive non-command guidance instead. The raw path used for engine
+execution is separate from its sanitized display.
+
+Regressions live in `test/gstack-design-detect.test.ts`; the plugin handoff agent
+case in `test/skill-e2e-design.test.ts` exercises the actual discovery-to-report
+path without an explicit engine override. Native Windows executable behavior and
+macOS path alias behavior require their own platform results; Linux fixture
+passes are not evidence of those native runs.
+
 ## CEO plan (promoted)
 
 ### CEO Plan: impeccable.style interop for gstack's design skills
