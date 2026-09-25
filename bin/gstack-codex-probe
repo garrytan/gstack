@@ -46,8 +46,12 @@ _gstack_codex_model_probe() {
   #
   # Contract:
   #   MODEL_OK (exit 0)              — round trip succeeded; cached 1h.
-  #   MODEL_UNUSABLE (exit 1)        — deterministic model 400; hints printed.
-  #     Cached 15 min: the 400 is model/entitlement-driven, so re-probing every preflight
+  #   MODEL_UNUSABLE (exit 1)        — deterministic model rejection (a 400
+  #     "is not supported", a 400 "requires a newer version of Codex", or a
+  #     404 "does not exist or you do not have access to it"); hints printed,
+  #     branched by cause because the first two are fixed by model selection
+  #     and the third by upgrading the CLI.
+  #     Cached 15 min: the rejection is model/entitlement-driven, so re-probing every preflight
   #     charged the affected user a 30s round trip + real tokens per review
   #     section, forever. Editing config.toml (the fix) changes the cache
   #     signature and re-probes immediately; the short TTL covers server-side
@@ -110,14 +114,37 @@ _gstack_codex_model_probe() {
     echo "MODEL_OK"
     return 0
   fi
-  if printf '%s' "$_out" | grep -qiE 'model.{0,40}is not supported|"status":[[:space:]]*400'; then
+  # Model rejection arrives in three shapes, and only the first two were matched
+  # before. The 404 is the one that mattered: a retired model answers
+  # `404 Not Found: The model \`X\` does not exist or you do not have access to
+  # it` on the /responses path, which carries neither "is not supported" nor a
+  # 400, so it fell through to the fail-open branch below and the preflight
+  # reported CODEX_MODE: ready on a CLI that could not reach a single model —
+  # the #2742 failure one bucket over. Anchor the 404 on the model-not-found
+  # wording rather than the bare status so an unrelated 404 (a proxy, a wrong
+  # base URL) keeps its fail-open contract.
+  _MODEL_REJECT_SIG='model.{0,40}is not supported|"status":[[:space:]]*400|(does not exist or you do not have access|model.{0,40}does not exist)'
+  if printf '%s' "$_out" | grep -qiE "$_MODEL_REJECT_SIG"; then
     mkdir -p "$_gstack_home" 2>/dev/null || true
     printf 'MODEL_UNUSABLE %s %s\n' "$_now" "$_sig" > "$_cache" 2>/dev/null || true
     echo "MODEL_UNUSABLE"
     printf '%s\n' "$_out" | grep -i "model" | head -3
-    echo "HINT: gstack requested model '$_model'."
-    echo "HINT: set GSTACK_CODEX_MODEL=<supported-model> or pass an explicit -c model=... override."
-    _gstack_codex_log_event "codex_model_unusable" 2>/dev/null || true
+    # Two different fixes hide behind one status. "requires a newer version of
+    # Codex" is the server telling us the CLI is too old, and no amount of
+    # model selection repairs that — pointing the user at GSTACK_CODEX_MODEL
+    # there sends them to edit config forever while the actual fix is an
+    # upgrade. Branch the hint on the cause.
+    if printf '%s' "$_out" | grep -qiE 'requires a newer version|upgrade to the latest (app|version)'; then
+      echo "HINT: the server refused model '$_model' because this Codex CLI is too old."
+      echo "HINT: upgrade the CLI — \`codex doctor\` prints the command for your install"
+      echo "HINT: (typically \`brew upgrade --cask codex\` or \`npm install -g @openai/codex\`)."
+      _gstack_codex_log_event "codex_cli_outdated" 2>/dev/null || true
+    else
+      echo "HINT: gstack requested model '$_model'."
+      echo "HINT: set GSTACK_CODEX_MODEL=<supported-model> or pass an explicit -c model=... override."
+      echo "HINT: if every model is refused, the CLI itself may be outdated — check \`codex doctor\`."
+      _gstack_codex_log_event "codex_model_unusable" 2>/dev/null || true
+    fi
     return 1
   fi
   # A CLI that cannot execute is deterministic, not transient: the fail-open
@@ -138,8 +165,8 @@ _gstack_codex_model_probe() {
     return 2
   fi
   # Timeout (124) or transient failure: fail-open with a warning. The probe
-  # exists to catch the deterministic model 400, not to gate on network luck.
-  echo "MODEL_PROBE_INCONCLUSIVE (exit $_code) — proceeding; if invocations fail with a model 400, see the codex skill's Error Handling entry."
+  # exists to catch a deterministic model rejection, not to gate on network luck.
+  echo "MODEL_PROBE_INCONCLUSIVE (exit $_code) — proceeding; if invocations fail with a model 400/404, see the codex skill's Error Handling entry."
   return 0
 }
 
