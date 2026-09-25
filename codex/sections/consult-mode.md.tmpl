@@ -16,8 +16,8 @@ B) Start a new conversation
 
 2. Create temp files:
 ```bash
-TMPRESP=$(mktemp "$TMP_ROOT/codex-resp-XXXXXX")
-TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")
+TMPRESP=$(mktemp "$TMP_ROOT/codex-resp-XXXXXX") || { echo "ERROR: mktemp failed — cannot capture codex's response." >&2; exit 1; }
+TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX") || { echo "ERROR: mktemp failed — cannot capture codex stderr; refusing to run codex consult unmonitored." >&2; exit 1; }
 ```
 
 3. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,

@@ -24,7 +24,7 @@ instructions get their own path (below).
 
 1. Create temp files for output capture:
 ```bash
-TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")
+TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX") || { echo "ERROR: mktemp failed — cannot capture codex stderr; refusing to run codex review unmonitored." >&2; exit 1; }
 ```
 
 2. Run the review. No prompt argument — scope comes from `--base` (or `--commit <sha>`
@@ -79,7 +79,7 @@ _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo"
 cd "$_REPO_ROOT"
 ~/.claude/skills/gstack/bin/gstack-review-log --start codex-review
 _USER_INSTRUCTIONS="<everything after '/codex review ' in user input>"
-_PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX")
+_PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp failed — cannot write the codex review prompt file." >&2; exit 1; }
 {
   printf '%s\n' "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only."
   printf '\nCustom focus: %s\n\n' "$_USER_INSTRUCTIONS"
