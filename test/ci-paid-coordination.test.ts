@@ -131,11 +131,13 @@ describe('dependency-free CI planner and report execution', () => {
 
   beforeAll(() => {
     fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-paid-coordination-'));
-    fs.cpSync(path.join(ROOT, 'scripts'), path.join(fixture, 'scripts'), { recursive: true });
-    fs.cpSync(path.join(ROOT, 'test/helpers'), path.join(fixture, 'test/helpers'), { recursive: true });
+    const sourceOnly = { recursive: true, filter: (file: string) => path.basename(file) !== 'node_modules' };
+    fs.cpSync(path.join(ROOT, 'scripts'), path.join(fixture, 'scripts'), sourceOnly);
+    fs.cpSync(path.join(ROOT, 'test/helpers'), path.join(fixture, 'test/helpers'), sourceOnly);
     expect(fs.readFileSync(path.join(fixture, 'test/helpers/llm-judge.ts'), 'utf8'))
       .toBe(fs.readFileSync(path.join(ROOT, 'test/helpers/llm-judge.ts'), 'utf8'));
-    fs.cpSync(path.join(ROOT, 'lib'), path.join(fixture, 'lib'), { recursive: true });
+    fs.cpSync(path.join(ROOT, 'lib'), path.join(fixture, 'lib'), sourceOnly);
+    expect(fs.existsSync(path.join(fixture, 'lib/diagram-render/node_modules'))).toBe(false);
     fs.mkdirSync(path.join(fixture, '.github'), { recursive: true });
     for (const file of ['.github/cookie-workflow-manual-review.json', 'setup-browser-cookies/SKILL.md', 'BROWSER.md']) {
       fs.mkdirSync(path.dirname(path.join(fixture, file)), { recursive: true });

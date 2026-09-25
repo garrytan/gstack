@@ -130,11 +130,51 @@ describe('shared-code legacy interactive actor', () => {
     expect(input).toEqual(before);
   });
 
+  test('the registered callback answers the complete 5460 first-attempt native packet', async () => {
+    const native = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/shared-libs-index-flags-native-questions.json'), 'utf8'));
+    const { sourceRun, sourceRevision, attempt, toolUseId, input } = native.regressions[1];
+    expect({ sourceRun, sourceRevision, attempt, toolUseId }).toEqual({ sourceRun: 36080890009,
+      sourceRevision: '5460ce0847574aadfa6cbdd0b9545d2caf9935da', attempt: 1,
+      toolUseId: 'toolu_01Up8B1FR4bhkmRxyhbcAqhY' });
+    const before = structuredClone(input), questions: unknown[] = [], answers: unknown[] = [], refusals: Error[] = [];
+    const expected = { [input.questions[0].question]: 'Skip', [input.questions[1].question]: 'Leave it' };
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => { throw new Error('unexpected tool'); },
+      onQuestion: question => { questions.push(question); },
+      onAnswer: (question, answer) => { answers.push({ question, answer }); },
+      onRefusal: error => { refusals.push(error); },
+    });
+    expect(await callback('AskUserQuestion', input)).toEqual({ behavior: 'allow', updatedInput: { ...input, answers: expected } });
+    expect(questions).toEqual([input]);
+    expect(answers).toEqual([{ question: input, answer: expected }]);
+    expect(refusals).toEqual([]);
+    expect(input).toEqual(before);
+  });
+
   test.each([
     { label: 'Leave it', description: 'Keep the index flag as-is and record the decision in the review log.' },
     { label: 'No, leave it', description: 'Preserve the current index flag. Report its hidden source without modifying it.' },
     { label: 'Keep it', description: 'Leave the index flag set; update the review log with the skipped advisory.' },
   ])('a referential retention choice requires an explicit no-change description: $label', async option => {
+    const input = { questions: [{ question: 'Should I clear the index flag?', options: [
+      { label: 'Clear the index flag', description: 'Make its hidden changes visible.' }, option,
+    ] }] };
+    const answer = await createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => {}, onQuestion: () => {}, onAnswer: () => {},
+    })('AskUserQuestion', input);
+    expect(answer.updatedInput.answers).toEqual({ [input.questions[0].question]: option.label });
+  });
+
+  test.each([
+    { label: 'Leave it', description: 'Keep the assume-unchanged bit; exclude its path from snapshot coverage.' },
+    { label: 'Leave it', description: 'Preserve the `skip-worktree` bit; report its hidden source.' },
+    { label: 'Leave it', description: 'Keep the Git index bits unchanged; record the advisory.' },
+    { label: 'Leave it', description: 'Keep the index attributes; report the hidden route.' },
+    { label: 'Leave it', description: 'Retain the index settings; report without changing them.' },
+    { label: 'Keep the assume-unchanged bit' },
+    { label: 'Leave the `skip-worktree` flag' },
+    { label: 'Keep Git index attributes' },
+  ])('a qualified Git-index state may be preserved without authorizing edits: $label', async option => {
     const input = { questions: [{ question: 'Should I clear the index flag?', options: [
       { label: 'Clear the index flag', description: 'Make its hidden changes visible.' }, option,
     ] }] };
@@ -175,6 +215,29 @@ describe('shared-code legacy interactive actor', () => {
     [{ label: 'Leave it', description: 'Update the review log with this decision.' }],
     [{ label: 'Leave it', description: 'Keep the flag set.' }, { label: 'Keep it', description: 'Preserve the index flag as-is.' }],
   ])('referential retention refuses vague, mixed, or duplicate choices: %j', async options => {
+    const refusals: Error[] = [], answers: unknown[] = [];
+    const callback = createSharedInteractiveToolHandler('skip', {
+      nonQuestion: () => {}, onQuestion: () => {}, onAnswer: answer => { answers.push(answer); },
+      onRefusal: error => { refusals.push(error); },
+    });
+    await expect(callback('AskUserQuestion', { questions: [{ question: 'Should I clear the index flag?', options }] }))
+      .rejects.toThrow('No unambiguous no-change option');
+    expect(refusals).toHaveLength(1);
+    expect(answers).toEqual([]);
+  });
+
+  test.each([
+    [{ label: 'Leave it', description: 'Keep the bit unchanged.' }],
+    [{ label: 'Keep the bit' }],
+    [{ label: 'Keep the index bit and set the other flag' }],
+    [{ label: 'Leave it', description: 'Keep the index bit; set the skip-worktree flag.' }],
+    [{ label: 'Leave it', description: 'Keep the assume-unchanged bit while unsetting the skip-worktree flag.' }],
+    [{ label: 'Leave it', description: 'Keep the index setting by toggling the other flag.' }],
+    [{ label: 'Leave it', description: 'Keep the `assume-unchanged` bit; flip the skip-worktree flag.' }],
+    [{ label: 'Leave it', description: 'Keep the index flag, then reset the other index bit.' }],
+    [{ label: 'Leave it', description: 'Keep the index flag; enable the skip-worktree bit.' }],
+    [{ label: 'Leave it', description: 'Keep the index flag; disable the skip-worktree bit.' }],
+  ])('qualified index retention rejects ambiguous bits and state-changing commitments: %j', async options => {
     const refusals: Error[] = [], answers: unknown[] = [];
     const callback = createSharedInteractiveToolHandler('skip', {
       nonQuestion: () => {}, onQuestion: () => {}, onAnswer: answer => { answers.push(answer); },

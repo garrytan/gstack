@@ -830,23 +830,28 @@ export type SharedQuestionSelector = (input: Record<string, unknown>) => Record<
 /** The skip actor may decline work, never approve a mixed fix/preservation choice. */
 function skippedReviewOption(question: any): any {
   const options = Array.isArray(question?.options) ? question.options : [];
+  const qualifiedIndexState = /^(?:(?:git\s+)?index|skip-worktree|assume-unchanged)\s+(?:bits?|flags?|attributes?|settings?)$/i;
   const candidates = options.flatMap((option: any) => {
     if (typeof option?.label !== 'string' || ['description', 'preview'].some(field =>
       option[field] !== undefined && typeof option[field] !== 'string')) return [];
-    const label = option.label.replace(/[‘’]/g, "'").replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
+    const label = option.label.replace(/[‘’]/g, "'").replace(/`/g, '').replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
       .replace(/\s*\(recommended\)\s*$/i, '').trim()
       .replace(/^no\s*[,.:!?]\s*(?=(?:skip|decline|keep|leave|do not|don't)\b)/i, '');
     const referentialRetention = /^(?:keep|leave)\s+(?:it|this|that|them|these)$/i.test(label);
-    const preservation = option.description?.trim().match(/^(?:keep|leave|retain|preserve)\s+([^,;.!?]+)/i);
+    const preservation = option.description?.trim().replace(/`/g, '').match(/^(?:keep|leave|retain|preserve)\s+([^,;.!?]+)/i);
     const preservedObject = preservation?.[1].split(/\b(?:and|but|while)\b/i)[0]
-      .replace(/\b(?:the|this|that|current|existing|local|as[- ]is|unchanged|untouched|set|hidden)\b/gi, '').trim();
+      .replace(/(?<![-\w])(?:the|this|that|current|existing|local|as[- ]is|unchanged|untouched|set|hidden)\b/gi, '').trim();
     const describedRetention = !!preservedObject
       && !/^\w+ing\b/i.test(preservedObject)
-      && /^(?:(?:duplicated|original|prior|tracked|untracked)\s+)*(?:(?:index|skip-worktree|assume-unchanged)\s+)?(?:flags?|code|source|implementations?|copies|copy|files?|routes?|workers?|helpers?|parsers?|changes?|contents?|state|branches|branch|worktrees?)$/i.test(preservedObject);
+      && (/^(?:(?:duplicated|original|prior|tracked|untracked)\s+)*(?:(?:index|skip-worktree|assume-unchanged)\s+)?(?:flags?|code|source|implementations?|copies|copy|files?|routes?|workers?|helpers?|parsers?|changes?|contents?|state|branches|branch|worktrees?)$/i.test(preservedObject)
+        || qualifiedIndexState.test(preservedObject));
     const description = (option.description ?? '').replace(/[‘’]/g, "'").trim();
     const declinesChange = /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i;
+    const labelObject = label.match(/^(?:keep|leave)\s+(?:the\s+)?(.+)$/i)?.[1]
+      .replace(/\s+(?:as[- ]is|unchanged|untouched|set)$/i, '');
     const preservationRank = referentialRetention ? describedRetention || declinesChange.test(description)
-      : /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source)\b/i.test(label);
+      : /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source)\b/i.test(label)
+        || !!labelObject && qualifiedIndexState.test(labelObject);
     const rank = /^(?:skip|decline)(?=$|\s|[,.!])/i.test(label) ? 3
       : declinesChange.test(label) ? 2
         : preservationRank ? 1 : 0;
@@ -857,9 +862,10 @@ function skippedReviewOption(question: any): any {
       option.description ?? '', option.preview ?? ''].join('\n').replace(/[‘’]/g, "'");
     const actions = new Set(['approve', 'fix', 'apply', 'refactor', 'extract', 'replace', 'rewrite', 'edit', 'modify',
       'change', 'clear', 'remove', 'delete', 'add', 'update', 'implement', 'migrate', 'touch', 're-export',
-      'import', 'reuse', 'share', 'wire', 'convert']);
+      'import', 'reuse', 'share', 'wire', 'convert', 'set', 'unset', 'toggle', 'flip', 'reset', 'enable', 'disable']);
     const isAction = (word = '') => [word, word.replace(/s$/, ''), word.replace(/(?:es|ed|ing)$/, ''),
-      word.replace(/(?:ed|ing)$/, 'e'), word.replace(/(?:ies|ied)$/, 'y')].some(form => actions.has(form));
+      word.replace(/(?:ed|ing)$/, 'e'), word.replace(/(?:ies|ied)$/, 'y'),
+      word.replace(/([a-z])\1(?:ed|ing)$/, '$1')].some(form => actions.has(form));
     const changes = commitment.toLowerCase().split(/[,;\n]|[.!?](?:\s|$)|\b(?:and|but|then|while)\b/).some(part => {
       const clause = part.replace(/^[^a-z]+/, '')
         .replace(/^(?:(?:this|that|the|selected|chosen)\s+(?:option|choice|selection)|i|we|you|it|(?:the\s+)?(?:source|code|route|worker|helper|parser|index(?:\s+flag)?))\s+/, '')

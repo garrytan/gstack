@@ -84,6 +84,50 @@
           }
         ]
       }
+    },
+    {
+      "sourceRun": 36080890009,
+      "sourceRevision": "5460ce0847574aadfa6cbdd0b9545d2caf9935da",
+      "attempt": 1,
+      "toolUseId": "toolu_01Up8B1FR4bhkmRxyhbcAqhY",
+      "input": {
+        "questions": [
+          {
+            "question": "Pre-Landing Review: 0 issues (0 critical, 0 informational) + 1 advisory.\n\n1. [ADVISORY] (confidence 10/10, core + maintainability, MULTI-SPECIALIST CONFIRMED) src/retry-worker.ts:2 — This diff replaces the re-export of the tested helper with a verbatim copy of retrySeconds; src/retry-route.ts:2-15 carries the same copy. Both bodies are byte-identical to lib/retry-after.ts:2-15 (already used by src/scheduler.ts, covered by test/retry-after.test.ts, 5 assertions passing).\n   Fix: `export { retrySeconds } from '../lib/retry-after';` in each caller. Implementation: worker -15/+1, route -15/+1 → ~28 lines saved; no new tests needed (existing contract test covers the shared helper); shared-failure blast radius = scheduler, worker, route all depend on one parser (they already share the contract by copy).\n\nNote: your prior review skipped this same advisory, but src/retry-route.ts has changed on disk since then behind an assume-unchanged index flag, so that decision could not be reused.\n\nRECOMMENDATION: Fix both callers — the copies are identical, the helper is proven, and the diff itself undoes prior reuse.\n\nHow do you want to handle the advisory?",
+            "header": "Advisory",
+            "options": [
+              {
+                "label": "Fix both callers (Recommended)",
+                "description": "Restore the re-export in src/retry-worker.ts and replace the copy in src/retry-route.ts with the same re-export (keeping its trailing comment)."
+              },
+              {
+                "label": "Fix worker only",
+                "description": "Restore the re-export in src/retry-worker.ts (the file changed in this diff); leave src/retry-route.ts as-is."
+              },
+              {
+                "label": "Skip",
+                "description": "Keep the duplicated implementation; record the advisory as skipped."
+              }
+            ],
+            "multiSelect": false
+          },
+          {
+            "question": "src/retry-route.ts is marked assume-unchanged in the index (`git ls-files -v` → `h`), so its uncommitted on-disk edit (trailing comment, line 17) is invisible to `git status`/`git diff` and to the review snapshot fingerprint. Should I clear that flag so the change becomes visible and reviewable?",
+            "header": "Git index",
+            "options": [
+              {
+                "label": "Clear the flag (Recommended)",
+                "description": "Run `git update-index --no-assume-unchanged src/retry-route.ts` so Git tracks the working-tree change normally."
+              },
+              {
+                "label": "Leave it",
+                "description": "Keep the assume-unchanged bit; the path will be excluded from snapshot coverage in the persisted record."
+              }
+            ],
+            "multiSelect": false
+          }
+        ]
+      }
     }
   ]
 }
