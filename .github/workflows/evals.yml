@@ -261,7 +261,7 @@ jobs:
           EVALS_CACHE_REPOSITORY: ${{ github.repository }}
           EVALS_CACHE_PR: ${{ github.event.pull_request.number }}
           EVALS_CACHE_RUNTIME_ID: ${{ needs.build-image.outputs.runtime-id }}
-        run: EVALS_TIER=gate bun scripts/ci-resource-metrics.ts --output /tmp/paid-resources.json --label paid-${{ matrix.slice }} -- bun run scripts/test-paid-shards.ts --tier gate --plan /tmp/paid-plan/manifest.json --slice ${{ matrix.slice }}
+        run: bun scripts/ci-resource-metrics.ts --output /tmp/paid-resources.json --label paid-${{ matrix.slice }} -- env EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --plan /tmp/paid-plan/manifest.json --slice ${{ matrix.slice }}
 
       - name: Find finalized passing receipts
         id: receipts

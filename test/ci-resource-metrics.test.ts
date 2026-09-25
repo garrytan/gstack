@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseCpuTicks, parseMemory, summarizeCpu } from '../scripts/ci-resource-metrics.ts';
@@ -50,6 +50,37 @@ describe('Linux system resource parsers', () => {
 });
 
 describe.skipIf(process.platform !== 'linux')('ci resource metrics CLI', () => {
+  test('the actual paid workflow binds the child tier through the measurement wrapper', async () => {
+    const root = join(import.meta.dir, '..');
+    const workflow = Bun.YAML.parse(await readFile(join(root, '.github/workflows/evals.yml'), 'utf8')) as any;
+    const step = workflow.jobs['eval-slices'].steps.find((step: any) => step.name?.startsWith('Run slice'));
+    expect(step.run).toContain('-- env EVALS_TIER=gate bun run scripts/test-paid-shards.ts');
+    for (const removeBinding of [false, true]) {
+      const output = await tempOutput();
+      const manifest = `${output}.plan`;
+      await writeFile(manifest, JSON.stringify({ version: 1, tier: 'gate', profile: 'full', evalsAll: false,
+        sliceCount: 1, selectionReason: 'No-cost workflow binding regression',
+        selection: { e2e: [], judges: [] }, entries: [] }));
+      let command = step.run.replaceAll('${{ matrix.slice }}', '1')
+        .replace('/tmp/paid-resources.json', output).replace('/tmp/paid-plan/manifest.json', manifest);
+      if (removeBinding) command = command.replace('env EVALS_TIER=gate ', 'env ');
+      const child = Bun.spawn(['bash', '-c', command], { cwd: root, stdout: 'pipe', stderr: 'pipe', env: {
+        ...process.env, ANTHROPIC_API_KEY: undefined, EVALS_TIER: 'invalid-ambient-tier', EVALS_PROFILE: 'full',
+        GSTACK_EVAL_DIR: `${output}.results`,
+      } });
+      const [status, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      expect(status, stderr).toBe(removeBinding ? 1 : 0);
+      const metrics = JSON.parse(await readFile(output, 'utf8'));
+      expect(metrics.child.exitCode).toBe(status);
+      if (removeBinding) expect(stderr).toContain('EVALS_TIER must be gate or periodic');
+      else {
+        const result = JSON.parse(await readFile(`${output}.results/slice-1.json`, 'utf8'));
+        expect(result.tier).toBe('gate');
+        expect(result.outcomes).toEqual([]);
+      }
+    }
+  }, 10_000);
+
   test('runs a real successful child and writes versioned system-wide metrics', async () => {
     const output = await tempOutput();
     const child = invoke(['--output', output, '--label', 'success-case', '--', '/usr/bin/sleep', '1.1']);
