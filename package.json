@@ -62,14 +62,14 @@
     "eval:bg:release": "bin/gstack-detach --label evals-release --lock gstack-evals --timeout 100000 -- bun run test:release"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "^4.3.0",
     "@ngrok/ngrok": "^1.7.0",
     "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
     "html-to-docx": "1.8.0",
-    "marked": "^18.0.11",
-    "playwright": "^1.62.1",
-    "socks": "^2.8.9"
+    "marked": "^18.0.13",
+    "playwright": "^1.63.0",
+    "socks": "^2.8.10"
   },
   "engines": {
     "bun": ">=1.0.0"
