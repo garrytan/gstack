@@ -10,11 +10,13 @@ import {
   isPartialEval,
   listEvalJsonFiles,
   compareEvalResults,
+  evalEntryOutcome,
   formatComparison,
   generateCommentary,
   judgePassed,
 } from './eval-store';
 import type { EvalResult, EvalTestEntry, ComparisonResult } from './eval-store';
+import { manualReviewFixture } from './manual-judge-review-fixture';
 
 let tmpDir: string;
 
@@ -77,6 +79,36 @@ async function captureStderr(fn: () => Promise<void>): Promise<string> {
 // --- EvalCollector tests ---
 
 describe('EvalCollector', () => {
+  test('manual provider refusal stays unscored and executed; malformed claims stay failed', async () => {
+    const manual = manualReviewFixture();
+    const invalidPass = { ...manual, passed: true };
+    const invalidScore = { ...manual, judge_scores: { clarity: 5 } };
+    expect(evalEntryOutcome(manual)).toBe('manual-review');
+    expect(evalEntryOutcome(invalidPass)).toBe('failed');
+    expect(evalEntryOutcome(invalidScore)).toBe('failed');
+    expect(evalEntryOutcome({ ...manual, manual_review: { ...manual.manual_review, approval: { ...manual.manual_review!.approval,
+      prompt_sha256: '0'.repeat(64) } } })).toBe('failed');
+    const collector = new EvalCollector('llm-judge', tmpDir);
+    collector.addTest(makeEntry({ name: 'ordinary', tier: 'llm-judge' }));
+    collector.addTest(manual);
+    collector.addTest(invalidPass);
+    collector.addTest(invalidScore);
+    const partial: EvalResult = JSON.parse(fs.readFileSync(path.join(tmpDir, '_partial-e2e.json'), 'utf8'));
+    expect(partial).toMatchObject({ passed: 1, failed: 2, manual_accepted_tests: 1,
+      executed_tests: 4, reused_tests: 0 });
+    const output = await captureStderr(async () => { await collector.finalize(); });
+    const result: EvalResult = JSON.parse(fs.readFileSync(fs.readdirSync(tmpDir).map(name => path.join(tmpDir, name))
+      .find(name => name.endsWith('.json') && !path.basename(name).startsWith('_'))!, 'utf8'));
+    expect(result).toMatchObject({ passed: 1, failed: 2, manual_accepted_tests: 1, executed_tests: 4 });
+    expect(result.tests[1]).toMatchObject({ passed: false, execution: 'executed', exit_reason: 'provider_refusal' });
+    expect(result.tests[1].judge_scores).toBeUndefined();
+    expect(output).toContain('MANUAL');
+    expect(output).toContain('1 unscored provider refusal');
+    expect(output).toContain(manual.manual_review!.approval.approval_url);
+    expect(result.tests[2].passed).toBe(true);
+    expect(output).toContain(' FAIL ');
+  });
+
   test('reused passing evidence preserves origin and remains separate from newly executed attempts', async () => {
     const collector = new EvalCollector('llm-judge', tmpDir);
     const reused_from = { input_key: 'a'.repeat(64), run_id: '1234/1', revision: 'b'.repeat(40),
@@ -590,6 +622,45 @@ describe('findLatestFinalizedRun', () => {
 // --- compareEvalResults tests ---
 
 describe('compareEvalResults', () => {
+  test('manual acceptance is neither a score regression nor a recovery', () => {
+    const manual = manualReviewFixture();
+    const prior = makeResult({ tests: [makeEntry({ name: manual.name, passed: true })] });
+    const accepted = makeResult({ tests: [manual], passed: 0, failed: 0, manual_accepted_tests: 1 });
+    const toManual = compareEvalResults(prior, accepted, 'prior.json', 'accepted.json');
+    expect(toManual).toMatchObject({ improved: 0, regressed: 0, manual_reviewed: 1 });
+    expect(toManual.deltas[0]).toMatchObject({ status_change: 'manual-review', before: { passed: true },
+      after: { passed: false, manual_review: true } });
+    expect(formatComparison(toManual)).toContain('PASS  → MANUAL');
+    expect(formatComparison(toManual)).not.toContain('REGRESSION:');
+    const fromManual = compareEvalResults(accepted, prior, 'accepted.json', 'prior.json');
+    expect(fromManual).toMatchObject({ improved: 0, regressed: 0, manual_reviewed: 1 });
+    expect(formatComparison(fromManual)).toContain('MANUAL → PASS');
+    const invalid = makeResult({ tests: [{ ...manual, passed: true }] });
+    expect(compareEvalResults(prior, invalid, 'prior.json', 'invalid.json').regressed).toBe(1);
+  });
+
+  test('manual acceptance followed by a real or malformed failure is a blocking regression', () => {
+    const manual = manualReviewFixture();
+    const accepted = makeResult({ tests: [manual], passed: 0, failed: 0, manual_accepted_tests: 1 });
+    const { manual_review: _receipt, ...ordinary } = manual;
+    for (const after of [
+      { ...ordinary, exit_reason: 'timeout' },
+      { ...manual, passed: true },
+      { ...manual, judge_scores: { clarity: 5 } },
+    ]) {
+      const failed = makeResult({ tests: [after] });
+      const comparison = compareEvalResults(accepted, failed, 'accepted.json', 'failed.json');
+      expect(comparison).toMatchObject({ improved: 0, regressed: 1 });
+      expect(comparison.manual_reviewed).toBeUndefined();
+      expect(comparison.deltas[0]).toMatchObject({ status_change: 'regressed', before: { manual_review: true },
+        after: { passed: false } });
+      const output = formatComparison(comparison);
+      expect(output).toContain('MANUAL → FAIL');
+      expect(output).toContain('REGRESSION:');
+      expect(output).toContain('blocking failure');
+    }
+  });
+
   test('detects improved/regressed/unchanged per test', () => {
     const before = makeResult({
       tests: [

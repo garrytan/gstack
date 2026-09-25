@@ -432,6 +432,14 @@ goes through the Third-Party Web Actions contract, not through here. Rendering l
 HTML into a PNG or PDF is the render engine's job: use /make-pdf, /diagram, or
 /design-html for that.
 
+On the fallback path, `/setup-browser-cookies` asks the user to choose the source
+browser and account/profile; Dia is macOS-only. Navigate to the matching target
+before a direct `--domain` import. Cookies copied is **not checked**, not proof
+of login. `--verify-auth` requires a daemon-configured exact visible identity
+assertion; HTTP 200 and cookie counts are not enough. Storage stays intact unless
+the user explicitly approves `--clear-storage` for the captured origin on a Chromium target. Other engines reject reset, not ordinary import or auth checks. Do not
+publish cookie values, passwords, profile/account text, or session details.
+
 ## Fallback command reference
 
 The table in the Browser fallback section covers what the cookbook covers. Everything

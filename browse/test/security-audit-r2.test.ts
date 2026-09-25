@@ -6,7 +6,7 @@
  * that could silently remove a fix without breaking compilation.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll, spyOn } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -364,11 +364,38 @@ describe('cookie-import domain validation', () => {
     expect(block).toContain('does not match current page domain');
   });
 
-  it('cookie-import-browser handler validates --domain against page hostname', () => {
-    const block = sliceBetween(WRITE_SRC, "case 'cookie-import-browser':", "case 'style':");
-    expect(block).toContain('normalizedDomain');
-    expect(block).toContain('pageHostname');
-    expect(block).toContain('does not match current page domain');
+  it('cookie-import-browser handler validates --domain against page hostname', async () => {
+    const operation = await import('../src/cookie-import-operation');
+    const { handleWriteCommand } = await import('../src/write-commands');
+    const imported = spyOn(operation, 'runCookieImport').mockResolvedValue({
+      browser: 'chromium', profile: 'Profile 2', imported: 2, failed: 0,
+      domainCounts: { '.example.test': 2 }, failureReasons: {}, outcome: 'imported',
+      reset: 'not_requested', verification: { verified: false, reason: 'not_requested' }, message: 'Cookie copy complete.',
+    });
+    let currentUrl = 'https://example.test';
+    const page = { url: () => currentUrl, isClosed: () => false };
+    const session = { getPage: () => page, getActiveFrameOrPage: () => page, getFrame: () => null } as any;
+    const manager = { trackCookieImportDomains() {} } as any;
+    try {
+      for (const [target, domain] of [
+        ['https://example.test', 'unrelated.test'],
+        ['https://example.test.evil.invalid', 'example.test'],
+        ['https://badexample.test', 'example.test'],
+      ]) {
+        currentUrl = target;
+        await expect(handleWriteCommand('cookie-import-browser', ['chromium', '--domain', domain], session, manager))
+          .rejects.toMatchObject({ code: 'target_mismatch' });
+      }
+      expect(imported).not.toHaveBeenCalled();
+      currentUrl = 'https://sub.example.test/protected';
+      const result = await handleWriteCommand('cookie-import-browser', ['chromium', '--domain', '.Example.Test.', '--profile', 'Profile 2'], session, manager);
+      expect(imported).toHaveBeenCalledTimes(1);
+      expect(imported.mock.calls[0][0]).toMatchObject({ browser: 'chromium', domains: ['example.test'], profile: 'Profile 2' });
+      expect(imported.mock.calls[0][1]).toEqual({ page, url: currentUrl });
+      expect(result).toContain('Imported 2 cookies from chromium (profile: Profile 2)');
+    } finally {
+      imported.mockRestore();
+    }
   });
 });
 

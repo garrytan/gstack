@@ -8,6 +8,11 @@ on:
         description: 'Run ALL gate tests in the sliced lane (bypass diff selection; also arms the hollow-shard guard)'
         type: boolean
         default: true
+      validation_phase:
+        description: 'Validation branch phase; run quality before behavior on unchanged inputs'
+        type: choice
+        options: [all, quality, cookie-quality, behavior, cookie-behavior]
+        default: all
 
 concurrency:
   group: evals-${{ github.event.pull_request.number || github.run_id }}
@@ -133,9 +138,36 @@ jobs:
           bun-version: 1.4.0
 
       - name: Emit run manifest
+        if: github.event_name != 'workflow_dispatch' || inputs.validation_phase == 'all'
         env:
           EVALS_ALL: ${{ (github.event_name == 'workflow_dispatch' && inputs.evals_all) && '1' || '' }}
         run: EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slices 6
+
+      - name: Emit validation-phase manifest
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_phase != 'all'
+        env:
+          VALIDATION_PHASE: ${{ inputs.validation_phase }}
+          EVALS_ALL: ${{ inputs.evals_all && '1' || '' }}
+          EVALS_TIER: gate
+        run: |
+          bun --no-install -e '
+          import { mkdirSync, writeFileSync } from "node:fs";
+          import { buildRunManifest, collectPaidTestFiles } from "./scripts/test-paid-shards.ts";
+          const phase = process.env.VALIDATION_PHASE;
+          if (!["quality", "cookie-quality", "behavior", "cookie-behavior"].includes(phase)) throw new Error("Invalid validation phase");
+          const cookieBehavior = phase === "cookie-behavior";
+          const discovered = phase === "cookie-quality" ? ["test/skill-llm-eval.test.ts"]
+            : cookieBehavior ? ["test/skill-e2e-bws.test.ts", "test/skill-e2e-qa-workflow.test.ts", "test/skill-e2e-design.test.ts", "test/skill-e2e-diagram.test.ts", "test/skill-e2e-deploy.test.ts"]
+            : collectPaidTestFiles().filter(file => file.startsWith("test/skill-llm-eval") === (phase === "quality"));
+          const manifest = buildRunManifest({ tier: "gate", profile: "full", sliceCount: 6, evalsAll: !cookieBehavior && process.env.EVALS_ALL === "1", discovered,
+            ...(cookieBehavior ? { changedFiles: ["browse/src/cookie-picker-routes.ts", "browse/src/cookie-import-browser.ts", "browse/src/bun-polyfill.cjs"], env: { ...process.env, EVALS_ALL: "" } } : {}) });
+          if (phase === "cookie-quality") manifest.selection = { e2e: [], judges: ["setup-browser-cookies/SKILL.md workflow"] };
+          if (cookieBehavior) manifest.selection = { e2e: ["browse-basic", "browse-snapshot", "qa-quick", "qa-only-no-fix", "design-review-detector-shim-dom", "diagram-triplet", "canary-workflow", "benchmark-workflow"], judges: [] };
+          manifest.selectionReason = phase + " validation subset; " + manifest.selectionReason;
+          mkdirSync("/tmp/paid-plan", { recursive: true });
+          writeFileSync("/tmp/paid-plan/manifest.json", JSON.stringify(manifest, null, 2) + "\n");
+          console.log(phase + ": " + manifest.entries.filter(entry => entry.status === "planned").length + " planned shards");
+          '
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -152,9 +184,9 @@ jobs:
     # 40-way per row queued claude session STARTUP behind 39 siblings and ate
     # per-test budgets — the documented timeout-flake family). Tune with
     # parity data before raising.
-    # The complete gate census needs at most 197 minutes per slice; keep
+    # The complete gate census needs at most 201 minutes per slice; keep
     # 20 minutes for setup/upload without preempting configured retries.
-    timeout-minutes: 220
+    timeout-minutes: 221
     permissions:
       contents: read
       packages: read
@@ -334,7 +366,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: report-verdict
-          path: /tmp/report.txt
+          path: |
+            /tmp/report.txt
+            /tmp/paid-report/collector-outcomes.json
           if-no-files-found: ignore
           retention-days: 30
 
@@ -374,7 +408,8 @@ jobs:
           path: /tmp/verdict
         continue-on-error: true
 
-      # Sourced from the slice artifacts' eval-store JSONs. Keeps the
+      # Verified counts come from the read-only report job, not repo code in
+      # this write-token job. Keeps the
       # "## E2E Evals" marker so the upsert keeps updating the same comment.
       # Runs even when reconciliation failed — a red lane on the PR is the point.
       - name: Post PR comment
@@ -384,8 +419,36 @@ jobs:
         run: |
           # shellcheck disable=SC2086,SC2059
           RESULTS=$(find /tmp/paid-report -name '*.json' ! -name 'manifest.json' ! -name 'slice-*.json' ! -name '_partial*' 2>/dev/null | sort)
-          TOTAL=0; PASSED=0; FAILED=0; FLAKY=0; EXECUTED=0; REUSED=0; COST="0"
+          TOTAL=0; PASSED=0; FAILED=0; MANUAL=0; FLAKY=0; EXECUTED=0; REUSED=0; COST="0"
           SUITE_LINES=""
+          VERIFIED=/tmp/verdict/paid-report/collector-outcomes.json
+          if ! jq -e '
+            . as $summary |
+            .version == 1 and (.files | type == "array") and (.totals | type == "object") and
+            ([.files[] | .total == (.passed + .failed + .manual_accepted) and
+              (.total == (.executed + .reused)) and
+              ([.total,.passed,.failed,.manual_accepted,.executed,.reused,.attempts,.flaky] | all(. >= 0 and (floor == .))) ] | all) and
+            (.totals | .total == (.passed + .failed + .manual_accepted) and .total == (.executed + .reused)) and
+            (["total","passed","failed","manual_accepted","executed","reused","attempts","flaky"] |
+              all(. as $key | ([$summary.files[] | .[$key]] | add // 0) == $summary.totals[$key]))
+          ' "$VERIFIED" >/dev/null 2>&1; then
+            VERIFIED=""
+            echo 'Verified collector summary unavailable; manual acceptance is unavailable/unverified.'
+          fi
+          if [ -n "$VERIFIED" ]; then
+            while IFS=$'\t' read -r f T P F M FL EX RE _ATTEMPTS C TIER SHARD; do
+              [ "$T" -eq 0 ] && continue
+              TOTAL=$((TOTAL + T)); PASSED=$((PASSED + P)); FAILED=$((FAILED + F))
+              MANUAL=$((MANUAL + M)); FLAKY=$((FLAKY + FL))
+              EXECUTED=$((EXECUTED + EX)); REUSED=$((REUSED + RE))
+              COST=$(echo "$COST + $C" | bc)
+              STATUS_ICON="✅"
+              [ "$M" -gt 0 ] && STATUS_ICON="⚠ manual/unscored"
+              [ "$F" -gt 0 ] && STATUS_ICON="❌"
+              [ "$F" -eq 0 ] && [ "$M" -eq 0 ] && [ "$FL" -gt 0 ] && STATUS_ICON="✅⚠"
+              SUITE_LINES="${SUITE_LINES}| ${TIER}/${SHARD} | ${P}/${T} | ${M} | ${EX} | ${RE} | ${STATUS_ICON} | \$${C} |\n"
+            done < <(jq -r '.files[] | [.file,.total,.passed,.failed,.manual_accepted,.flaky,.executed,.reused,.attempts,.cost,.tier,.shard] | @tsv' "$VERIFIED")
+          else
           for f in $RESULTS; do
             if ! jq -e '.total_tests' "$f" >/dev/null 2>&1; then
               echo "Skipping malformed JSON: $f"
@@ -418,22 +481,25 @@ jobs:
             STATUS_ICON="✅"
             [ "$F" -gt 0 ] && STATUS_ICON="❌"
             [ "$F" -eq 0 ] && [ "$FL" -gt 0 ] && STATUS_ICON="✅⚠"
-            SUITE_LINES="${SUITE_LINES}| ${TIER}/${SHARD} | ${P}/${T} | ${EX} | ${RE} | ${STATUS_ICON} | \$${C} |\n"
+            SUITE_LINES="${SUITE_LINES}| ${TIER}/${SHARD} | ${P}/${T} | unverified | ${EX} | ${RE} | ${STATUS_ICON} | \$${C} |\n"
           done
+          fi
 
           COVERAGE=$(jq -r '"Profile: \(.profile // "full") / \(.prCoverage.mode // "broad"); selected behaviors: \(.selection.e2e | if . == null then "all" else length end), judges: \(.selection.judges | if . == null then "all" else length end). Deferred to scheduled/release coverage: \(.prCoverage.deferred // [] | length) behaviors and \(.prCoverage.deferredPromptFiles // [] | length) changed prompt files. Deferred checks did not run and receive no PR-pass credit."' /tmp/paid-report/manifest.json) || COVERAGE='Coverage manifest unavailable; no coverage claim.'
 
           STATUS="✅ PASS"
           if [ "${RECONCILE_EXIT:-1}" != "0" ] || [ "$FAILED" -gt 0 ]; then STATUS="❌ FAIL"; fi
+          if [ "$STATUS" = '✅ PASS' ] && [ "$MANUAL" -gt 0 ]; then STATUS='⚠ MANUAL ACCEPTED (unscored)'; fi
+          if [ -z "$VERIFIED" ]; then STATUS='❌ FAIL (manual acceptance unavailable/unverified)'; fi
 
           BODY="## E2E Evals: ${STATUS}
 
-          **${PASSED}/${TOTAL}** recorded final results passed | **${EXECUTED} executed, ${REUSED} reused** | **\$${COST}** total cost | reconcile exit: ${RECONCILE_EXIT:-missing}$([ "$FLAKY" -gt 0 ] && printf ' | ⚠ %s cases with multiple attempts' "$FLAKY")
+          **${PASSED} automated passed / ${TOTAL} final results** | **${FAILED} failed, ${MANUAL} manual accepted (unscored; no score-cache credit)** | **${EXECUTED} executed, ${REUSED} reused** | **\$${COST}** total cost | reconcile exit: ${RECONCILE_EXIT:-missing}$([ "$FLAKY" -gt 0 ] && printf ' | ⚠ %s cases with multiple attempts' "$FLAKY")
 
           ${COVERAGE}
 
-          | Shard | Result | Executed | Reused | Status | Cost |
-          |-------|--------|----------|--------|--------|------|
+          | Shard | Automated result | Manual/unscored | Executed | Reused | Status | Cost |
+          |-------|------------------|-----------------|----------|--------|--------|------|
           $(echo -e "$SUITE_LINES")
 
           <details><summary>Fail-closed reconciliation</summary>
@@ -450,7 +516,11 @@ jobs:
             FAILURES=""
             for f in $RESULTS; do
               if ! jq -e '.failed' "$f" >/dev/null 2>&1; then continue; fi
-              FAILS=$(jq -r '[.tests | group_by(.name)[] | last | select(.passed == false)][] | "- ❌ \(.name): \(.exit_reason // "unknown")"' "$f" 2>/dev/null || echo "- ⚠️ parse error")
+              if [ -n "$VERIFIED" ]; then
+                FAILS=$(jq -r '[.tests | group_by(.name)[] | last | select(.passed == false and (has("manual_review") | not))][] | "- ❌ \(.name): \(.exit_reason // "unknown")"' "$f" 2>/dev/null || echo "- ⚠️ parse error")
+              else
+                FAILS=$(jq -r '[.tests | group_by(.name)[] | last | select(.passed == false)][] | "- ❌ \(.name): \(.exit_reason // "unknown")"' "$f" 2>/dev/null || echo "- ⚠️ parse error")
+              fi
               FAILURES="${FAILURES}${FAILS}\n"
             done
             BODY="${BODY}

@@ -15,11 +15,14 @@ import { JUDGE_MS } from './helpers/eval-budgets';
 import Anthropic from '@anthropic-ai/sdk';
 import * as fs from 'fs';
 import * as path from 'path';
-import { callJudge, judge } from './helpers/llm-judge';
+import { callJudge, judge, JudgeRefusalError, DEFAULT_JUDGE_MAX_TOKENS } from './helpers/llm-judge';
 import { ENG_REVIEW_EXCERPT } from './helpers/workflow-excerpt';
 import type { JudgeScore } from './helpers/llm-judge';
-import { readWorkflowJudgeInput, buildWorkflowJudgePrompt } from './helpers/workflow-judge-input';
+import { readWorkflowJudgeInput, buildWorkflowJudgePrompt, type WorkflowJudgeInput } from './helpers/workflow-judge-input';
 import { prepareWorkflowJudgeCache } from './helpers/workflow-judge-cache';
+import { buildCookieWorkflowJudgeInput, COOKIE_WORKFLOW_JUDGE } from './helpers/cookie-workflow-judge-input';
+import { getCookieWorkflowManualReview, type ManualJudgeReview } from './helpers/cookie-workflow-manual-review';
+import { resolveEvalModel } from '../lib/eval-model';
 import { LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles';
 // Runs when EVALS=1 is set (requires ANTHROPIC_API_KEY in env) — the EVALS
 // gate lives in the shared describeIfSelected. Selection machinery is shared
@@ -593,6 +596,7 @@ async function runWorkflowJudge(opts: {
   judgeContext: string;
   judgeGoal: string;
   thresholds?: { clarity: number; completeness: number; actionability: number };
+  readInput?: () => WorkflowJudgeInput;
 }) {
   const started = performance.now();
   const previous = workflowJudgeAttempts.get(opts.testName);
@@ -603,6 +607,8 @@ async function runWorkflowJudge(opts: {
   let stage: 'input' | 'judge' | 'validation' | 'recording' = 'input';
   let finalized = false;
   let scores: JudgeScore | undefined;
+  let manualReview: ManualJudgeReview | undefined;
+  let customInputMetadata: { prompt: string; model: string } | undefined;
   let reused: ReturnType<ReturnType<typeof prepareWorkflowJudgeCache>['lookup']> = null;
   let timer: ReturnType<typeof setTimeout>;
   let rejectStopped: (error: Error) => void;
@@ -617,18 +623,23 @@ async function runWorkflowJudge(opts: {
     clearTimeout(timer);
     if (!passed) controller.abort(error);
     evalCollector?.addTest({
-      name: opts.testName, suite: opts.suite, tier: 'llm-judge', passed,
+      name: opts.testName, suite: opts.suite, tier: 'llm-judge', passed, attempt,
       duration_ms: Math.max(0, performance.now() - started),
       cost_usd: reused || !scores ? 0 : 0.02,
       execution: reused ? 'reused' : 'executed',
+      ...customInputMetadata,
+      ...(manualReview ? { manual_review: manualReview } : {}),
       ...(reused ? { reused_from: { input_key: reused.reuse.key, run_id: reused.reuse.source.runId,
         revision: reused.reuse.source.revision, completed_at: new Date(reused.reuse.source.completedAt).toISOString() } } : {}),
       ...(scores ? { judge_scores: { clarity: scores.clarity, completeness: scores.completeness, actionability: scores.actionability },
         judge_reasoning: scores.reasoning } : {}),
-      ...(passed ? {} : { exit_reason: error instanceof Error && error.name === 'WorkflowJudgeDeadline' ? 'timeout'
+      ...(passed ? {} : { exit_reason: error instanceof JudgeRefusalError ? 'provider_refusal'
+        : error instanceof Error && error.name === 'WorkflowJudgeDeadline' ? 'timeout'
         : error instanceof Error && error.name === 'WorkflowJudgeSuperseded' ? 'cancelled'
         : stage === 'validation' ? 'validation_failed' : 'harness_error',
-      error: `${error instanceof Error ? error.message : String(error)}${scores ? '' : '\nNo completed model response; cost and usage unavailable.'}` }),
+      error: `${error instanceof Error ? error.message : String(error)}${scores ? '' : error instanceof JudgeRefusalError
+        ? '\nNo automated score; provider refusal usage retained when manually accepted; cost unavailable.'
+        : '\nNo completed model response; cost and usage unavailable.'}` }),
     });
   };
   const stop = (error: Error) => {
@@ -653,16 +664,35 @@ async function runWorkflowJudge(opts: {
   const work = async () => {
     checkActive();
     const thresholds = { clarity: 4, completeness: 3, actionability: 4, ...opts.thresholds };
-    const input = readWorkflowJudgeInput({ root: ROOT, skillPath: opts.skillPath,
+    const input = opts.readInput ? opts.readInput() : readWorkflowJudgeInput({ root: ROOT, skillPath: opts.skillPath,
       startMarker: opts.startMarker, endMarker: opts.endMarker });
     checkActive();
     const prompt = buildWorkflowJudgePrompt(opts, input);
+    if (opts.readInput) customInputMetadata = { prompt, model: resolveEvalModel('judge') };
     const cache = prepareWorkflowJudgeCache({ ...opts, root: ROOT, thresholds, prompt, attempt });
     checkActive();
     reused = cache.lookup();
     checkActive();
     stage = 'judge';
-    const result = reused?.scores ?? await callJudge<JudgeScore>(prompt, undefined, { signal: controller.signal });
+    const maxTokens = DEFAULT_JUDGE_MAX_TOKENS;
+    let result: JudgeScore;
+    try {
+      result = reused?.scores ?? await callJudge<JudgeScore>(prompt, undefined, { signal: controller.signal, max_tokens: maxTokens });
+    } catch (error) {
+      checkActive();
+      if (error instanceof JudgeRefusalError && customInputMetadata) {
+        const approved = getCookieWorkflowManualReview(ROOT, { testName: opts.testName, prompt,
+          model: customInputMetadata.model, maxTokens, thresholds, attempt }, error.refusal);
+        checkActive();
+        if (approved) {
+          manualReview = approved;
+          console.log(`[workflow-judge] ${opts.testName}: MANUAL ACCEPTANCE, no automated score; ${approved.approval.approval_url}`);
+          finish(false, error);
+          return;
+        }
+      }
+      throw error;
+    }
     checkActive();
     scores = result;
     console.log(`[workflow-judge] ${opts.testName}: ${reused ? `reused ${reused.reuse.source.runId} @ ${reused.reuse.source.revision} (${new Date(reused.reuse.source.completedAt).toISOString()})` : 'executed'}`);
@@ -939,6 +969,20 @@ ${voiceSection}`);
     expect(result.avoids_ai_vocabulary).toBeGreaterThanOrEqual(4);
     expect(result.connects_user_outcomes).toBeGreaterThanOrEqual(4);
   }, JUDGE_MS);
+});
+
+describeIfSelected('Cookie setup workflow quality', ['setup-browser-cookies/SKILL.md workflow'], () => {
+  testIfSelected('setup-browser-cookies/SKILL.md workflow', async () => {
+    await runWorkflowJudge({
+      testName: 'setup-browser-cookies/SKILL.md workflow',
+      suite: 'Cookie setup workflow quality',
+      skillPath: 'setup-browser-cookies/SKILL.md',
+      startMarker: '# Setup Browser Cookies',
+      endMarker: null,
+      ...COOKIE_WORKFLOW_JUDGE,
+      readInput: () => buildCookieWorkflowJudgeInput(ROOT),
+    });
+  }, WORKFLOW_JUDGE_TEST_MS);
 });
 
 // Module-level afterAll — finalize eval collector after all tests complete

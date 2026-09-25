@@ -823,7 +823,7 @@ export function extractTabId(args: string[]): { tabId: number | undefined; args:
 }
 
 // ─── Command Dispatch ──────────────────────────────────────────
-async function sendCommand(state: ServerState, command: string, args: string[], retries = 0): Promise<void> {
+export async function sendCommand(state: ServerState, command: string, args: string[], retries = 0): Promise<void> {
   // Precedence: CLI --tab-id flag > BROWSE_TAB env var.
   // make-pdf always passes --tab-id; human users typically rely on BROWSE_TAB
   // or the active tab.
@@ -832,6 +832,7 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
   const envTab = process.env.BROWSE_TAB;
   const tabId = extracted.tabId ?? (envTab ? parseInt(envTab, 10) : undefined);
   const body = JSON.stringify({ command, args, ...(tabId !== undefined && !isNaN(tabId) ? { tabId } : {}) });
+  const timeoutMs = command === 'cookie-import-browser' ? 90_000 : 30_000;
 
   try {
     const resp = await fetch(`http://127.0.0.1:${state.port}/command`, {
@@ -841,10 +842,11 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
         'Authorization': `Bearer ${state.token}`,
       },
       body,
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (resp.status === 401) {
+      if (command === 'cookie-import-browser') throw new Error('Cookie import authorization changed. Reopen the session and retry manually.');
       // Token mismatch — server may have restarted
       console.error('[browse] Auth failed — server may have restarted. Retrying...');
       const newState = readState();
@@ -871,6 +873,10 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
       process.exit(1);
     }
   } catch (err: any) {
+    if (command === 'cookie-import-browser' && (['AbortError', 'TimeoutError'].includes(err.name)
+      || ['ECONNREFUSED', 'ECONNRESET'].includes(err.code) || err.message?.includes('fetch failed'))) {
+      throw new Error('Cookie import response was lost or timed out. It may have partially completed; inspect the destination before retrying manually. The command was not replayed.');
+    }
     if (err.name === 'AbortError') {
       // #1781: a 30s timeout on a heavy page usually means busy, not dead.
       // Don't kill a live server (that's what triggered the crash-loop) — report
@@ -1535,7 +1541,7 @@ Interaction:    click <sel> | fill <sel> <val> | select <sel> <val>
                 scroll [sel] | wait <sel|--networkidle|--load> | viewport <WxH>
                 upload <sel> <file1> [file2...]
                 cookie-import <json-file>
-                cookie-import-browser [browser] [--domain <d>]
+                cookie-import-browser [browser] [--domain <d> | --all] [--profile <p>] [--clear-storage] [--verify-auth]
 Inspection:     js <expr> | eval <file> | css <sel> <prop> | attrs <sel>
                 console [--clear|--errors] | network [--clear] | dialog [--clear]
                 cookies | storage [set <k> <v>] | perf

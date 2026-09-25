@@ -66,7 +66,8 @@ import {
 import { PAID_TEST_GLOBS, isPaidTestFile } from '../test/helpers/paid-test-set';
 import { PERIODIC_CI_EXCLUDE } from '../test/helpers/periodic-exclude-data';
 import { AUTOPLAN_CHAIN_BUDGET, FILE_RETRY_BUDGETS, STRICT_RETRY_CASE_BUDGETS } from '../test/helpers/eval-budgets';
-import { getProjectEvalDir, getClaudeCliVersion, isFinalizedEvalResultFile } from '../test/helpers/eval-store';
+import { getProjectEvalDir, getClaudeCliVersion, isFinalizedEvalResultFile, evalEntryOutcome } from '../test/helpers/eval-store';
+import { manualReviewProblem } from '../test/helpers/cookie-workflow-manual-review';
 import { preflightAnthropicApi } from '../test/helpers/anthropic-preflight';
 import { OVERLAY_MIN_FILE_WALL_MS } from '../test/helpers/overlay-case-policy';
 import { PR_PROFILE_CASE_IDS, PR_PROFILE_FILES, packageChangeOnlyVersion, selectPrProfile, type PrProfileSelection } from './test-pr-profile';
@@ -1314,19 +1315,20 @@ export function formatProfileCoverage(manifest: PaidRunManifest): string[] {
 
 /** Final outcomes use each case's last attempt; the attempt total stays visible. */
 export function collectorOutcomeCounts(results: Array<{ tests?: Array<{
-  name: string; suite?: string; passed: boolean; execution?: string;
-}> }>): { executed: number; reused: number; passed: number; failed: number; attempts: number } {
-  const counts = { executed: 0, reused: 0, passed: 0, failed: 0, attempts: 0 };
+  name: string; suite?: string; passed: boolean; execution?: string; manual_review?: unknown;
+}> }>): { executed: number; reused: number; passed: number; failed: number; manual_accepted: number; attempts: number } {
+  const counts = { executed: 0, reused: 0, passed: 0, failed: 0, manual_accepted: 0, attempts: 0 };
   for (const result of results) {
     const cases = new Map<string, NonNullable<typeof result.tests>[number]>();
     for (const entry of result.tests ?? []) {
-      if (typeof entry.name !== 'string' || typeof entry.passed !== 'boolean') continue;
+      if (!entry || typeof entry !== 'object' || typeof entry.name !== 'string' || typeof entry.passed !== 'boolean') continue;
       counts.attempts++;
       cases.set(`${entry.suite ?? ''}\0${entry.name}`, entry);
     }
     for (const entry of cases.values()) {
       counts[entry.execution === 'reused' ? 'reused' : 'executed']++;
-      counts[entry.passed ? 'passed' : 'failed']++;
+      const outcome = evalEntryOutcome(entry);
+      counts[outcome === 'manual-review' ? 'manual_accepted' : outcome]++;
     }
   }
   return counts;
@@ -1479,6 +1481,8 @@ async function main(): Promise<number> {
   // ── Report mode: reconcile slice artifacts against the manifest. Fail-closed:
   // a slice whose artifact never landed is a FAILURE, not an absence.
   if (options.reportDir) {
+    const summaryPath = path.join(options.reportDir, 'collector-outcomes.json');
+    fs.rmSync(summaryPath, { force: true });
     const manifest = parseRunManifest(fs.readFileSync(path.join(options.reportDir, 'manifest.json'), 'utf-8'));
     const results: SliceResult[] = fs.readdirSync(options.reportDir)
       .filter((name) => /^slice-\d+\.json$/.test(name))
@@ -1498,16 +1502,54 @@ async function main(): Promise<number> {
     // Source: the finalized eval-store JSONs inside the slice artifacts.
     const flaky: Array<{ name: string; attempts: number; file: string }> = [];
     const collectors: Parameters<typeof collectorOutcomeCounts>[0] = [];
+    const files: Array<{ file: string; tier: string; shard: string | number; cost: number;
+      flaky: number; total: number; executed: number; reused: number; passed: number;
+      failed: number; manual_accepted: number; attempts: number }> = [];
+    const manualProblems: string[] = [];
+    const manualClaims = new Map<string, string>();
     for (const name of fs.readdirSync(options.reportDir, { recursive: true }) as string[]) {
       if (!isFinalizedEvalResultFile(name)) continue;
       try {
         const parsed = JSON.parse(fs.readFileSync(path.join(options.reportDir, name), 'utf-8'));
-        if (Array.isArray(parsed.tests)) collectors.push(parsed);
+        if (!Array.isArray(parsed.tests)) {
+          if (Object.hasOwn(parsed, 'tests') || parsed.total_tests !== undefined || parsed.manual_review !== undefined) {
+            manualProblems.push(`${name}: malformed collector tests[]`);
+          }
+          continue;
+        }
+        const seen = new Map<string, number>();
+        for (const [index, entry] of parsed.tests.entries()) {
+          if (!entry || typeof entry !== 'object' || typeof entry.name !== 'string' || !entry.name
+            || typeof entry.passed !== 'boolean') {
+            manualProblems.push(`${name}: attempt ${index + 1}: malformed collector entry (name/passed required)`);
+            continue;
+          }
+          const key = `${entry.suite ?? ''}\0${entry.name}`;
+          const occurrence = (seen.get(key) ?? 0) + 1;
+          seen.set(key, occurrence);
+          if (Object.hasOwn(entry, 'manual_review') && occurrence !== 1) {
+            manualProblems.push(`${name}: attempt ${index + 1}: manual review is only valid on the first case attempt`);
+          }
+          if (Object.hasOwn(entry, 'manual_review')) {
+            const previous = manualClaims.get(key);
+            if (previous && previous !== name) manualProblems.push(`${name}: duplicate manual-review claim for ${entry.name} (also in ${previous})`);
+            else manualClaims.set(key, name);
+          }
+          const problem = manualReviewProblem(entry, ROOT);
+          if (problem) manualProblems.push(`${name}: attempt ${index + 1}: ${problem}`);
+        }
+        collectors.push(parsed);
+        const counts = collectorOutcomeCounts([parsed]);
+        files.push({ file: name, tier: parsed.tier ?? 'unknown', shard: parsed.shard ?? '-',
+          cost: parsed.total_cost_usd ?? 0, flaky: parsed.flaky_retries?.length ?? 0,
+          total: counts.passed + counts.failed + counts.manual_accepted, ...counts });
         for (const f of parsed.flaky_retries ?? []) flaky.push({ ...f, file: name });
-      } catch { /* non-eval JSON — not this report's business */ }
+      } catch (error) {
+        manualProblems.push(`${name}: malformed collector JSON (${error instanceof Error ? error.message : String(error)})`);
+      }
     }
     const evidence = collectorOutcomeCounts(collectors);
-    console.log(`[test:paid] collector final outcomes: ${evidence.executed} executed, ${evidence.reused} reused; ${evidence.passed} passed, ${evidence.failed} failed (${evidence.attempts} attempt records from ${collectors.length} collectors)`);
+    console.log(`[test:paid] collector final outcomes: ${evidence.executed} executed, ${evidence.reused} reused; ${evidence.passed} passed, ${evidence.failed} failed, ${evidence.manual_accepted} manual accepted (unscored; no score-cache credit) (${evidence.attempts} attempt records from ${collectors.length} collectors)`);
     if (flaky.length > 0) {
       console.log(`[test:paid] report: ⚠ ${flaky.length} cases with multiple attempts this run:`);
       for (const f of flaky) console.log(`  ⚠ ${f.name} (x${f.attempts}) — ${f.file}`);
@@ -1525,12 +1567,24 @@ async function main(): Promise<number> {
         console.log(`  ⚠ ${outcome.files.join(' ')} (${outcome.executedTests} skipped — external service missing or tier mismatch)`);
       }
     }
-    if (!verdict.ok) {
+    if (manualProblems.length) verdict.problems.push(...manualProblems);
+    if (evidence.failed > 0) verdict.problems.push(`${evidence.failed} unapproved final collector failure(s)`);
+    if (files.reduce((sum, file) => sum + file.total, 0) !== evidence.passed + evidence.failed + evidence.manual_accepted
+      || files.reduce((sum, file) => sum + file.executed + file.reused, 0) !== evidence.executed + evidence.reused) {
+      verdict.problems.push('Collector summary totals are inconsistent');
+    }
+    if (!manualProblems.length) fs.writeFileSync(summaryPath, JSON.stringify({ version: 1, files, totals: {
+      ...evidence, total: evidence.passed + evidence.failed + evidence.manual_accepted,
+      flaky: files.reduce((sum, file) => sum + file.flaky, 0),
+    } }, null, 2) + '\n');
+    if (verdict.problems.length) {
       console.error(`[test:paid] report: ${verdict.problems.length} problem(s):`);
       for (const problem of verdict.problems) console.error(`  ✗ ${problem}`);
       return 1;
     }
-    console.log('[test:paid] report: every planned shard accounted and passed');
+    console.log(evidence.manual_accepted
+      ? `[test:paid] report: every planned shard accounted; ${evidence.manual_accepted} manual acceptance(s), no automated-score credit`
+      : '[test:paid] report: every planned shard accounted and passed');
     return 0;
   }
 

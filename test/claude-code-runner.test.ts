@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, spyOn, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -11,22 +11,42 @@ const FAKE = path.join(DIR, 'fake claude.ts');
 const DESCENDANT = path.join(DIR, 'pipe holder.ts');
 const CAPTURE = path.join(DIR, 'capture.json');
 const PID = path.join(DIR, 'descendant.pid');
+const ACTOR_STAGES = path.join(DIR, 'actor-stages.jsonl');
+const DESCENDANT_STAGES = path.join(DIR, 'descendant-stages.jsonl');
+const DIR_IDENTITY = lstatSync(DIR, { bigint: true });
+const RESOLVED_DIR = realpathSync(DIR);
 
 // Publish readiness only after the grandchild has initialized and flushed both
 // inherited pipes; a PID returned by spawn alone does not establish that state.
 writeFileSync(DESCENDANT, `
-import { writeFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
+const record = stage => {
+  if (process.env.FAKE_MODE === 'timeout') {
+    try { appendFileSync(${JSON.stringify(DESCENDANT_STAGES)}, JSON.stringify({ stage, atUnixMs: Date.now(), processNs: process.hrtime.bigint().toString(), pid: process.pid }) + '\\n'); } catch {}
+  }
+};
+record('descendant_start');
 await Bun.sleep(Number(process.env.DESCENDANT_DELAY_MS || 0));
 setInterval(() => {}, 1000);
 await new Promise(resolve => process.stdout.write(' ', resolve));
+record('stdout_flushed');
 await new Promise(resolve => process.stderr.write(' ', resolve));
+record('stderr_flushed');
 writeFileSync(process.env.PID_FILE!, String(process.pid));
+record('pid_published');
 `);
 
 writeFileSync(FAKE, `
 import { spawn } from 'node:child_process';
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
+const record = (stage, pid = process.pid) => {
+  if (process.env.FAKE_MODE === 'timeout') {
+    try { appendFileSync(${JSON.stringify(ACTOR_STAGES)}, JSON.stringify({ stage, atUnixMs: Date.now(), processNs: process.hrtime.bigint().toString(), pid }) + '\\n'); } catch {}
+  }
+};
+record('actor_start');
 const prompt = await Bun.stdin.text();
+record('stdin_read');
 writeFileSync(process.env.CAPTURE!, JSON.stringify({args:process.argv.slice(2),prompt,cwd:process.cwd(),model:process.env.ANTHROPIC_MODEL,auth:process.env.ANTHROPIC_API_KEY}));
 const mode = process.env.FAKE_MODE;
 if (mode === 'startup-timeout') {
@@ -39,11 +59,18 @@ if (mode === 'timeout' || mode === 'descendant' || mode === 'escaped') {
   // drain fixture must survive that exit so its inherited pipes remain open.
   const child = spawn(process.execPath, [process.env.DESCENDANT!], {stdio:['ignore','inherit','inherit'],
     detached:mode === 'escaped' || (process.platform === 'win32' && mode === 'descendant')});
+  record('descendant_spawn_requested');
+  child.once('spawn', () => record('descendant_spawned', child.pid));
+  child.once('exit', () => record('descendant_exited', child.pid));
   const readyBy = Date.now() + 2000;
   while (!existsSync(process.env.PID_FILE!)) {
-    if (child.exitCode !== null || Date.now() >= readyBy) throw new Error('Descendant did not initialize its inherited pipes');
+    if (child.exitCode !== null || Date.now() >= readyBy) {
+      record('readiness_failed');
+      throw new Error('Descendant did not initialize its inherited pipes');
+    }
     await Bun.sleep(5);
   }
+  record('readiness_observed');
   if (mode === 'timeout') await new Promise(() => {});
 }
 if (mode === 'auth') { process.stderr.write('Not logged in. Please run claude /login.'); process.exit(1); }
@@ -79,6 +106,27 @@ function run(mode = 'success', extra: Partial<Parameters<typeof runClaudeCode>[0
 
 function capture() { return JSON.parse(readFileSync(CAPTURE, 'utf8')); }
 
+function timeoutStageReceipt(file: string): object {
+  try {
+    const directory = lstatSync(DIR, { bigint: true });
+    if (directory.isSymbolicLink() || directory.dev !== DIR_IDENTITY.dev || directory.ino !== DIR_IDENTITY.ino || realpathSync(DIR) !== RESOLVED_DIR || ![ACTOR_STAGES, DESCENDANT_STAGES].includes(file)) return { available: false, reason: 'identity_mismatch' };
+    const state = lstatSync(file);
+    if (!state.isFile() || state.isSymbolicLink() || state.size > 4096) return { available: false, reason: 'invalid_receipt' };
+    const lines = readFileSync(file, 'utf8').trim().split('\n');
+    if (lines.length > 16) return { available: false, reason: 'invalid_receipt' };
+    const stages = [];
+    for (const line of lines) {
+      let event;
+      try { event = JSON.parse(line); } catch { return { available: false, reason: 'incomplete_receipt', stages }; }
+      if (!event || !['actor_start', 'stdin_read', 'descendant_spawn_requested', 'descendant_spawned', 'descendant_exited', 'readiness_failed', 'readiness_observed', 'descendant_start', 'stdout_flushed', 'stderr_flushed', 'pid_published'].includes(event.stage) || !Number.isSafeInteger(event.atUnixMs) || event.atUnixMs <= 0 || typeof event.processNs !== 'string' || !/^\d{1,24}$/.test(event.processNs) || !Number.isSafeInteger(event.pid) || event.pid <= 0) return { available: false, reason: 'invalid_receipt', stages };
+      stages.push({ stage: event.stage, atUnixMs: event.atUnixMs, processNs: event.processNs, pid: event.pid });
+    }
+    return { available: true, stages };
+  } catch (error) {
+    return { available: false, reason: (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'not_published' : 'inspection_failed' };
+  }
+}
+
 function running(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -107,6 +155,22 @@ function cleanupDescendant() {
 }
 
 describe('Claude Code restricted execution', () => {
+  test('timeout stage diagnostics retain only bounded safe fixture events', () => {
+    const event = { stage: 'actor_start', atUnixMs: 123, processNs: '123', pid: process.pid };
+    try {
+      expect(timeoutStageReceipt(ACTOR_STAGES)).toEqual({ available: false, reason: 'not_published' });
+      writeFileSync(ACTOR_STAGES, JSON.stringify({ ...event, secret: 'sensitive-sentinel' }) + '\n');
+      expect(timeoutStageReceipt(ACTOR_STAGES)).toEqual({ available: true, stages: [event] });
+      writeFileSync(ACTOR_STAGES, JSON.stringify(event) + '\n{"stage":');
+      expect(timeoutStageReceipt(ACTOR_STAGES)).toEqual({ available: false, reason: 'incomplete_receipt', stages: [event] });
+      writeFileSync(ACTOR_STAGES, JSON.stringify({ ...event, stage: 'sensitive-sentinel' }));
+      expect(JSON.stringify(timeoutStageReceipt(ACTOR_STAGES))).not.toContain('sensitive-sentinel');
+      writeFileSync(ACTOR_STAGES, 'x'.repeat(4097));
+      expect(timeoutStageReceipt(ACTOR_STAGES)).toEqual({ available: false, reason: 'invalid_receipt' });
+      expect(timeoutStageReceipt(CAPTURE)).toEqual({ available: false, reason: 'identity_mismatch' });
+    } finally { rmSync(ACTOR_STAGES, { force: true }); }
+  });
+
   test('explicit model override stays one literal argument across access modes and resume', async () => {
     const model = 'custom-model "quoted" $(touch /never)';
     for (const access of ['none', 'read-only'] as const) {
@@ -211,7 +275,12 @@ describe('Claude Code restricted execution', () => {
 
   test('timeout kills its descendants and clears process signal listeners', async () => {
     rmSync(PID, { force: true });
+    rmSync(ACTOR_STAGES, { force: true });
+    rmSync(DESCENDANT_STAGES, { force: true });
     const before = ['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name));
+    const startedAtUnixMs = Date.now();
+    const startedProcessNs = process.hrtime.bigint().toString();
+    let returned: { atUnixMs: number; processNs: string; timedOut: boolean } | undefined;
     const schedule = globalThis.setTimeout;
     let fireTimeout: (() => void) | undefined;
     const timer = spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) => {
@@ -233,12 +302,14 @@ describe('Claude Code restricted execution', () => {
       fireTimeout = undefined;
       expire();
       const result = await invocation;
+      returned = { atUnixMs: Date.now(), processNs: process.hrtime.bigint().toString(), timedOut: result.error?.code === 'timeout' };
       expect(result.status).toBe('unavailable');
       expect(result.error?.code).toBe('timeout');
       expect(Date.now() - start).toBeLessThan(2000);
       expect(['SIGINT','SIGTERM','exit'].map(name => process.listenerCount(name))).toEqual(before);
       await expectDescendantDead();
     } finally {
+      console.error(JSON.stringify({ claudeTimeoutStages: { startedAtUnixMs, startedProcessNs, timeoutMs: 500, readinessMs: 2000, returned, pidPublished: existsSync(PID), actor: timeoutStageReceipt(ACTOR_STAGES), descendant: timeoutStageReceipt(DESCENDANT_STAGES) } }));
       fireTimeout?.();
       await invocation;
       cleanupDescendant();

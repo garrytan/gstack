@@ -830,20 +830,33 @@ export type SharedQuestionSelector = (input: Record<string, unknown>) => Record<
 /** The skip actor may decline work, never approve a mixed fix/preservation choice. */
 function skippedReviewOption(question: any): any {
   const options = Array.isArray(question?.options) ? question.options : [];
+  const qualifiedIndexState = /^(?:(?:git\s+)?index|skip-worktree|assume-unchanged)\s+(?:bits?|flags?|attributes?|settings?)$/i;
   const candidates = options.flatMap((option: any) => {
     if (typeof option?.label !== 'string' || ['description', 'preview'].some(field =>
       option[field] !== undefined && typeof option[field] !== 'string')) return [];
-    const label = option.label.replace(/[‘’]/g, "'").replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
-      .replace(/\s*\(recommended\)\s*$/i, '').trim().replace(/^no\b[\s,:;-]*(?=(?:keep|leave)\b)/i, '');
+    const label = option.label.replace(/[‘’]/g, "'").replace(/`/g, '').replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
+      .replace(/\s*\(recommended\)\s*$/i, '').trim()
+      .replace(/^no\b[\s,:;.!?-]*(?=(?:skip|decline|keep|leave|do not|don't)\b)/i, '');
+    const referentialRetention = /^(?:keep|leave)\s+(?:it|this|that|them|these)$/i.test(label);
+    const preservation = option.description?.trim().replace(/`/g, '').match(/^(?:keep|leave|retain|preserve)\s+([^,;.!?]+)/i);
+    const preservedObject = preservation?.[1].split(/\b(?:and|but|while)\b/i)[0]
+      .replace(/(?<![-\w])(?:the|this|that|current|existing|local|as[- ]is|unchanged|untouched|set|hidden)\b/gi, '').trim();
+    const describedRetention = !!preservedObject
+      && !/^\w+ing\b/i.test(preservedObject)
+      && (/^(?:(?:duplicated|original|prior|tracked|untracked)\s+)*(?:(?:index|skip-worktree|assume-unchanged)\s+)?(?:flags?|code|source|implementations?|copies|copy|files?|routes?|workers?|helpers?|parsers?|changes?|contents?|state|branches|branch|worktrees?)$/i.test(preservedObject)
+        || qualifiedIndexState.test(preservedObject));
     const description = (option.description ?? '').replace(/[‘’]/g, "'").trim();
     const declinesChange = /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i;
-    const preservation = /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source|flag)\b/i;
     const inapplicable = /^not applicable$/i.test(label)
       && /^(?:choose this(?: option)?\s+)?(?:if|when) you are not (?:editing|changing|modifying)\b/i.test(description);
+    const labelObject = label.match(/^(?:keep|leave)\s+(?:the\s+)?(.+)$/i)?.[1]
+      .replace(/\s+(?:as[- ]is|unchanged|untouched|set)$/i, '');
+    const preservationRank = referentialRetention ? describedRetention || declinesChange.test(description)
+      : /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source)\b/i.test(label)
+        || !!labelObject && qualifiedIndexState.test(labelObject);
     const rank = /^(?:skip|decline)(?=$|\s|[,.!])/i.test(label) ? 3
       : inapplicable || declinesChange.test(label) ? 2
-        : preservation.test(label) || /^(?:keep|leave)\b/i.test(label)
-          && (preservation.test(description) || declinesChange.test(description)) ? 1 : 0;
+        : preservationRank ? 1 : 0;
     if (!rank) return [];
     // A leading decline names rejected work. Classify later commitments rather
     // than action words inside recorded metadata or hypothetical consequences.
@@ -851,9 +864,10 @@ function skippedReviewOption(question: any): any {
       option.description ?? '', option.preview ?? ''].join('\n').replace(/[‘’]/g, "'");
     const actions = new Set(['approve', 'fix', 'apply', 'refactor', 'extract', 'replace', 'rewrite', 'edit', 'modify',
       'change', 'clear', 'remove', 'delete', 'add', 'update', 'implement', 'migrate', 'touch', 're-export',
-      'import', 'reuse', 'share', 'wire', 'convert']);
+      'import', 'reuse', 'share', 'wire', 'convert', 'set', 'unset', 'toggle', 'flip', 'reset', 'enable', 'disable']);
     const isAction = (word = '') => [word, word.replace(/s$/, ''), word.replace(/(?:es|ed|ing)$/, ''),
-      word.replace(/(?:ed|ing)$/, 'e'), word.replace(/(?:ies|ied)$/, 'y')].some(form => actions.has(form));
+      word.replace(/(?:ed|ing)$/, 'e'), word.replace(/(?:ies|ied)$/, 'y'),
+      word.replace(/([a-z])\1(?:ed|ing)$/, '$1')].some(form => actions.has(form));
     const changes = commitment.toLowerCase().split(/[,;\n]|[.!?](?:\s|$)|\b(?:and|but|then|while)\b/).some(part => {
       const clause = part.replace(/^[^a-z]+/, '')
         .replace(/^(?:the\s+)?(?:review|reuse|snapshot)\s+coverage\s+(?=(?:will|would|should|must|can|may|does|do)\b)/, '')
@@ -861,12 +875,24 @@ function skippedReviewOption(question: any): any {
         .replace(/^(?:will|would|should|must|can|may|does|do)\s+/, '')
         .replace(/^(?:(?:please|also|still|just|now|be)\s+)+/, '');
       if (/^(?:not|does not|don't|doesn't|won't|without|no)\b/.test(clause)) return false;
-      // The no-change choice may persist/reuse its review decision. That is not
-      // permission to modify source or clear an index flag.
-      if (/^(?:updates?|updated|updating|reuses?|reused|reusing)\s+(?:the\s+)?(?:(?:prior|recorded|existing)\s+)?(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)\b/.test(clause)) return false;
       const first = clause.match(/^[a-z]+(?:-[a-z]+)*/)?.[0];
-      const future = clause.match(/\bwill\s+(?:be\s+)?([a-z]+(?:-[a-z]+)*)/)?.[1];
-      return isAction(first) || isAction(future);
+      const futureMatch = clause.match(/\b(?:will|would|should|must|can|may)\s+(?:(?:still|also|now|just|[a-z]+ly)\s+)*(?:be\s+)?(?:(?:still|also|now|just|[a-z]+ly)\s+)*([a-z]+(?:-[a-z]+)*)/);
+      const future = futureMatch?.[1];
+      const method = /^(?:keep|leave|retain|preserve)\b/.test(clause)
+        && [...clause.matchAll(/\b(?:by|through|via)\s+([a-z]+(?:-[a-z]+)*)/g)].some(match => isAction(match[1]));
+      const state = /^(?:change|modification|file|flag|state|content)\s+(?:stays?|remains?)\b/.test(clause);
+      const recordedDecision = /^(?:updates?|updated|updating|reuses?|reused|reusing)\s+(?:the\s+)?(?:(?:prior|recorded|existing)\s+)?(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)\b/.test(clause);
+      const nominalReuse = /^(?:the\s+)?reuse\s+of\b/.test(clause);
+      const describedReuse = /\b(?:is|are|was|were|remains?|stays?|requires?|needs?|will|would|should|must|can|may)\s+(?:(?:still|also|now|just|not|never|[a-z]+ly)\s+)*[a-z]+(?:-[a-z]+)*/.test(clause);
+      const futureSubject = clause.slice(0, futureMatch?.index ?? 0).trim();
+      const passiveDecision = /\b(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)$/.test(futureSubject)
+        || /\b(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)\b(?:(?!\b(?:source|code|route|worker|helper|parser|file|flag)\b).)*\bit$/.test(futureSubject);
+      const futureDecision = /\b(?:can|will|would|should|must|may)\s+(?:(?:still|also|now|just|[a-z]+ly)\s+)*reuse\s+(?:(?:this|the|prior|recorded|existing)\s+)*(?:review\s+(?:log|record)|decision|advisory|snapshot|ledger)\b/.test(clause);
+      const purpose = [...clause.matchAll(/\b(?:to|by|through|via)\s+(?:[a-z]+ly\s+)*([a-z]+(?:-[a-z]+)*)/g)]
+        .some(match => isAction(match[1]));
+      return (isAction(future) && !(future === 'reused' && passiveDecision) && !(future === 'reuse' && futureDecision)) || method || purpose
+        || (nominalReuse && !describedReuse)
+        || (!state && !recordedDecision && !nominalReuse && isAction(first));
     });
     return changes ? [] : [{ option, rank }];
   });

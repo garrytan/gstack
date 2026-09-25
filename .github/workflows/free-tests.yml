@@ -182,6 +182,21 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Configure the bundled Chromium sandbox helper
+        run: |
+          set -euo pipefail
+          chrome=$(bun -e 'import { chromium } from "playwright"; import { realpathSync } from "node:fs"; console.log(realpathSync(chromium.executablePath()))')
+          case "$chrome" in
+            "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome) ;;
+            *) echo "Unexpected Chromium installation path" >&2; exit 1 ;;
+          esac
+          helper="${chrome%/*}/chrome_sandbox"
+          installed="${chrome%/*}/chrome-sandbox"
+          test -f "$helper" && test ! -L "$helper"
+          sudo install -T -o root -g root -m 4755 "$helper" "$installed"
+          test "$(stat -c '%u:%a' "$installed")" = '0:4755'
+          cmp -s "$helper" "$installed"
+
       # Headed-browser tests (handoff, extension sidepanel DOM) need a real
       # DISPLAY — first Linux run failed with Playwright's "launched a headed
       # browser without an XServer" banner. xvfb-run below provides it;

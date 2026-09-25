@@ -176,9 +176,9 @@ test('current detach supervision covers the live-census floor', () => {
   const floor = Math.ceil((Math.ceil(files.length / DEFAULT_JOBS) * DEFAULT_SHARD_TIMEOUT_MS + excess) / 1000 * 1.05);
   const pkg = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '../package.json'), 'utf8'));
   const configured = Number(pkg.scripts['eval:bg:periodic'].match(/--timeout\s+(\d+)/)[1]);
-  expect(floor).toBe(64995);
+  expect(floor).toBe(65268);
   expect(configured).toBeGreaterThanOrEqual(floor);
-  expect(pkg.scripts['eval:bg:gate']).toContain('--timeout 33600');
+  expect(pkg.scripts['eval:bg:gate']).toContain('--timeout 33800');
 });
 
 for (const jobs of [1, 2, 3]) test(`FIFO bound covers partial durations with ${jobs} workers`, () => {

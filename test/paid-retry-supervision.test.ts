@@ -13,7 +13,7 @@ import {
 const read = (file: string) => readFileSync(join(import.meta.dir, '..', file), 'utf8');
 const newBudgets = FILE_RETRY_BUDGETS.filter(row => !FINDING_RETRY_BUDGETS.some(old => old.file === row.file));
 const expectedWalls = {
-  'test/skill-llm-eval.test.ts': 6_400_000,
+  'test/skill-llm-eval.test.ts': 6_660_000,
   'test/skill-e2e-auq-consistency.test.ts': 2_040_000,
   'test/codex-e2e-plan-format.test.ts': 5_000_000,
   'test/skill-e2e-auq-matrix.test.ts': 3_720_000,
@@ -140,15 +140,15 @@ test('quality model work, ordinary tiers and the six existing finding registrati
   expect(ALL_TIERS).toEqual({ JUDGE_MS: 120000, CAPTURE_MS: 300000, CAPTURE_LONG_MS: 600000, PTY_MS: 900000, PTY_LONG_MS: 1200000 });
   const quality = 'test/skill-llm-eval.test.ts';
   const qualityBudget = FILE_RETRY_BUDGETS.find(row => row.file === quality)!;
-  expect(resolvePaidShardBudget([quality])).toEqual({ timeoutMs: 6_400_000, source: 'registered', policyId: qualityBudget.id });
+  expect(resolvePaidShardBudget([quality])).toEqual({ timeoutMs: 6_660_000, source: 'registered', policyId: qualityBudget.id });
   expect(retriesForFiles([quality])).toBe(1);
   const qualitySource = read(quality);
   const judgeTimeouts = [...qualitySource.matchAll(/}\s*,\s*(JUDGE_MS|WORKFLOW_JUDGE_TEST_MS)\s*\);/g)].map(match => match[1]);
   expect(judgeTimeouts.filter(timeout => timeout === 'JUDGE_MS')).toHaveLength(11);
-  expect(judgeTimeouts.filter(timeout => timeout === 'WORKFLOW_JUDGE_TEST_MS')).toHaveLength(14);
+  expect(judgeTimeouts.filter(timeout => timeout === 'WORKFLOW_JUDGE_TEST_MS')).toHaveLength(15);
   expect(qualitySource).toContain('WORKFLOW_JUDGE_TEST_MS = JUDGE_MS + 10_000');
   expect(qualitySource).toContain('const workDeadline = started + JUDGE_MS');
-  expect(qualityBudget.shardMs).toBe((11 * ALL_TIERS.JUDGE_MS + 14 * (ALL_TIERS.JUDGE_MS + 10_000)) * 2 + 120_000);
+  expect(qualityBudget.shardMs).toBe((11 * ALL_TIERS.JUDGE_MS + 15 * (ALL_TIERS.JUDGE_MS + 10_000)) * 2 + 120_000);
   expect(FINDING_RETRY_BUDGETS.map(row => [row.cases, row.testMs, row.retries, row.shardMs])).toEqual([
     [2, 1500000, 1, 6120000], ...Array(5).fill([1, 1500000, 1, 3120000]),
   ]);
@@ -248,7 +248,7 @@ test('the periodic executor supervises every actual case and retry within its CI
     dedicatedAutoplanSlice: planned.dedicatedAutoplanSlice, evalsAll: true, env: { EVALS_ALL: '1' } });
   const census = manifest.entries.filter(row => row.status === 'planned');
   expect(census).toHaveLength(99);
-  expect(census.find(row => row.file === 'test/skill-llm-eval.test.ts')?.budget?.timeoutMs).toBe(6_400_000);
+  expect(census.find(row => row.file === 'test/skill-llm-eval.test.ts')?.budget?.timeoutMs).toBe(6_660_000);
   expect(manifest.autoplanSlice).toBe(8);
   const walls = executor.strategy.matrix.slice.map((slice: number) => paidShardWallUpperBoundMs(
     census.filter(row => row.slice === slice).map(row => row.file), active.jobs,

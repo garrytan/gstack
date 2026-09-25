@@ -44,6 +44,26 @@ Use `bun run test` for complete free validation; the quick subset is still only 
 - Free-only dependency exemptions are explicit, mapped dependencies take precedence, and unknown changes retain conservative paid selection. The portfolio document assigns separate responsibilities to structural tests, quality judges, native behaviors, simulations and platform integrations.
 - Native question, shared-code review and design-detector fixtures validate their actual supported interactions and executed evidence. Source-detector assertion failures are recorded after validation, with attempt-specific diagnostics retained beyond cleanup.
 
+## [1.90.0.0] - 2026-09-24
+
+Cookie imports now keep the chosen browser, profile, and destination explicit, show partial failures, and distinguish copying cookies from proving that you are signed in.
+
+### Added
+- macOS Dia discovery and profile selection, using the existing Chromium cookie reader. Live native Dia import remains unqualified; fixture coverage is not a claim of native compatibility.
+- Optional sign-in verification against an exact, visible identity assertion on the selected destination, with separate copied and verified results.
+- Explicit current-origin storage recovery. Storage is preserved by default; an opted-in reset clears that origin's localStorage and only the target tab's sessionStorage.
+
+### Fixed
+- Prefer renamed profiles from Local State, distinguish duplicate names, and require selection rather than guessing among plausible accounts. Bare and dotted domain selections now match the intended cookie scope without broadening it.
+- Register picker imports with the browser's imported-domain security guard, reject cross-origin picker mutations, and bind asynchronous operations to their original destination. Opening another picker makes old windows fail closed instead of silently changing their target.
+- Show complete, partial, zero, and failed imports accurately. Stale discovery responses and duplicate submissions no longer overwrite the current picker state.
+- Bound credential subprocess output and cleanup, retry only transient database reads, and prevent automatic replay of cookie-import mutations. The Node server uses a real read-only SQLite adapter.
+
+### Changed
+- Picker handoff codes last five minutes and remain single-use. Browser guidance explains profile selection, storage-reset consent, and the difference between copied cookies and verified sign-in.
+- Native Windows extraction uses a sandboxed, owned-process, pipe-only path with bounded cleanup and no TCP fallback. Its qualification allowlist is empty in this release, so encrypted-cookie extraction through this path stays disabled with manual-sign-in guidance.
+- Added isolated platform qualification, launch diagnostics, and regression coverage. Native Dia and protected default-profile Windows qualification remain incomplete; diagnostic passes do not count as successful imports.
+
 ## [1.89.1.0] - 2026-09-24
 
 ### Removed

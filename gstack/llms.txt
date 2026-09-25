@@ -97,7 +97,7 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `click <sel>`: Click element
 - `cookie <name>=<value>`: Set cookie on current page domain
 - `cookie-import <json>`: Import cookies from JSON file
-- `cookie-import-browser [browser] [--domain d] [--profile p] [--all]`: Import cookies from installed Chromium-family browsers.
+- `cookie-import-browser [browser] [--domain d] [--profile p] [--all] [--clear-storage] [--verify-auth]`: Copy cookies from chrome, chromium, brave, edge, or macOS-only comet, arc, dia.
 - `dialog-accept [text]`: Auto-accept next alert/confirm/prompt.
 - `dialog-dismiss`: Auto-dismiss next dialog
 - `fill <sel> <val>`: Fill input

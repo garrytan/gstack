@@ -29,7 +29,7 @@ describe('AO completed manual DX handoff preserves report freshness',()=>{
    expect(E2E_TOUCHFILES[owner]).toContain('test/fixtures/dx-manual-handoff-ao.json');
   }
   const arrays=[...Object.values(E2E_TOUCHFILES),...Object.values(LLM_JUDGE_TOUCHFILES),GLOBAL_TOUCHFILES];
-  expect(arrays).toHaveLength(233); // Upstream owners plus eleven shared-code audit/review evals.
+  expect(arrays).toHaveLength(234);
   for(const values of arrays)for(let i=0;i<values.length;i++)expect(typeof values[i]).toBe('string');
  });
  test('exact owned report precedes navigation only, with the current Exit gate recognized',()=>{

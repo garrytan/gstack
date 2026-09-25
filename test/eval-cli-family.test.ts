@@ -29,10 +29,21 @@ import * as os from 'os';
 import * as path from 'path';
 import { runBin } from './helpers/run-bin';
 import { selectTests, E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
+import { manualReviewFixture } from './helpers/manual-judge-review-fixture';
+import { renderDashboard } from '../scripts/eval-watch';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SCRIPT = (name: string) => path.join(ROOT, 'scripts', name);
 const SLUG = 'eval-cli-fixture';
+
+test('eval:watch distinguishes unscored manual acceptance from malformed claims', () => {
+  const manual = manualReviewFixture();
+  const output = renderDashboard(null, { tests: [manual, { ...manual, passed: true }], total_cost_usd: 0 });
+  expect(output).toContain('MANUAL/unscored');
+  expect(output).toContain(manual.manual_review!.approval.approval_url);
+  expect(output).toContain('Manual accepted: 1');
+  expect(output).toContain('✗');
+});
 
 let tmpHome: string;
 let evalDir: string;
@@ -256,6 +267,22 @@ describe('eval:list CLI (scripts/eval-list.ts)', () => {
 // ── eval-compare ─────────────────────────────────────────────────────────────
 
 describe('eval:compare CLI (scripts/eval-compare.ts)', () => {
+  test('shows a manual transition without calling it a scored regression', () => {
+    const manual = manualReviewFixture();
+    const prior = writeRun(evalDir, { tier: 'llm-judge', timestamp: '2026-01-01T01:00:00Z',
+      tests: [{ name: manual.name, passed: true }] });
+    const after = writeRun(evalDir, { tier: 'llm-judge', timestamp: '2026-01-02T01:00:00Z',
+      tests: [{ name: manual.name, passed: false }] });
+    const body = JSON.parse(fs.readFileSync(after, 'utf8'));
+    body.tests = [manual]; body.passed = 0; body.failed = 0; body.manual_accepted_tests = 1;
+    fs.writeFileSync(after, JSON.stringify(body));
+    const result = runEvalCli('eval-compare.ts', prior, after);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('PASS  → MANUAL');
+    expect(result.stdout).toContain('unscored manual review');
+    expect(result.stdout).not.toContain('REGRESSION:');
+  });
+
   test('empty eval dir prints the getting-started hint and exits 0', () => {
     const result = runEvalCli('eval-compare.ts');
     expect(result.status).toBe(0);
@@ -337,6 +364,40 @@ describe('eval:compare CLI (scripts/eval-compare.ts)', () => {
 // ── eval-summary ─────────────────────────────────────────────────────────────
 
 describe('eval:summary CLI (scripts/eval-summary.ts)', () => {
+  test('reports manual provenance without inventing a scored flake', () => {
+    const manual = manualReviewFixture();
+    writeRun(evalDir, { tier: 'llm-judge', timestamp: '2026-01-01T01:00:00Z',
+      tests: [{ name: manual.name, passed: true }] });
+    const accepted = writeRun(evalDir, { tier: 'llm-judge', timestamp: '2026-01-02T01:00:00Z',
+      tests: [{ name: manual.name, passed: false }] });
+    const body = JSON.parse(fs.readFileSync(accepted, 'utf8'));
+    body.tests = [manual]; body.passed = 0; body.failed = 0; body.manual_accepted_tests = 1;
+    fs.writeFileSync(accepted, JSON.stringify(body));
+    const result = runEvalCli('eval-summary.ts');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Manual accepted:   1 unscored provider refusal');
+    expect(result.stdout).toContain(manual.manual_review!.approval.approval_url);
+    expect(result.stdout).not.toContain('Flaky tests');
+  });
+
+  test('retried manual claims remain failed in summary history', () => {
+    const manual = manualReviewFixture();
+    writeRun(evalDir, { tier: 'llm-judge', timestamp: '2026-01-01T01:00:00Z',
+      tests: [{ name: manual.name, passed: true }] });
+    const attempted = writeRun(evalDir, { tier: 'llm-judge', timestamp: '2026-01-02T01:00:00Z',
+      tests: [{ name: manual.name, passed: false }] });
+    const body = JSON.parse(fs.readFileSync(attempted, 'utf8'));
+    const { manual_review: _receipt, ...ordinary } = manual;
+    body.tests = [{ ...ordinary, attempt: 1 }, { ...manual, attempt: 2 }];
+    body.total_tests = 2; body.passed = 0; body.failed = 2;
+    fs.writeFileSync(attempted, JSON.stringify(body));
+    const result = runEvalCli('eval-summary.ts');
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain('Manual accepted:');
+    expect(result.stdout).toContain('Flaky tests (1):');
+    expect(result.stdout).toContain(`llm-judge:${manual.name}`);
+  });
+
   test('empty eval dir prints the getting-started hint and exits 0', () => {
     const result = runEvalCli('eval-summary.ts');
     expect(result.status).toBe(0);

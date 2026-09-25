@@ -7,8 +7,10 @@
 
 import type { TabSession } from './tab-session';
 import type { BrowserManager } from './browser-manager';
-import { findInstalledBrowsers, importCookies, importCookiesViaCdp, hasV20Cookies, listSupportedBrowserNames } from './cookie-import-browser';
+import { CookieImportError, cookieDomainMatches, findInstalledBrowsers, listSupportedBrowserNames } from './cookie-import-browser';
 import { generatePickerCode } from './cookie-picker-routes';
+import { formatCookieImportResult, parseCookieImportArgs, runCookieImport, validateCookieTarget } from './cookie-import-operation';
+import { validateCookieAuthOptions, validateCookieStorageSupport } from './cookie-auth-verification';
 import { validateNavigationUrl } from './url-validation';
 import { validateOutputPath, validateReadPath } from './path-security';
 import { guardScreenshotPath } from './screenshot-size-guard';
@@ -687,80 +689,50 @@ export async function handleWriteCommand(
     }
 
     case 'cookie-import-browser': {
-      // Two modes:
-      // 1. Direct CLI import: cookie-import-browser <browser> --domain <domain> [--profile <profile>]
-      //    Requires --domain (or --all to explicitly import everything).
-      // 2. Open picker UI: cookie-import-browser [browser] (interactive domain selection)
-      const browserArg = args[0];
-      const domainIdx = args.indexOf('--domain');
-      const profileIdx = args.indexOf('--profile');
-      const hasAll = args.includes('--all');
-      const profile = (profileIdx !== -1 && profileIdx + 1 < args.length) ? args[profileIdx + 1] : 'Default';
-
-      if (domainIdx !== -1 && domainIdx + 1 < args.length) {
-        // Direct import mode — scoped to specific domain
-        const domain = args[domainIdx + 1];
-        // Validate --domain against current page hostname to prevent cross-site cookie injection
-        const pageHostname = new URL(page.url()).hostname;
-        const normalizedDomain = domain.startsWith('.') ? domain.slice(1) : domain;
-        if (normalizedDomain !== pageHostname && !pageHostname.endsWith('.' + normalizedDomain)) {
-          throw new Error(`--domain "${domain}" does not match current page domain "${pageHostname}". Navigate to the target site first.`);
+      const options = parseCookieImportArgs(args);
+      const target = { page, url: page.url() };
+      const authOptions = {
+        identitySelector: process.env.GSTACK_COOKIE_AUTH_SELECTOR,
+        expectedIdentity: process.env.GSTACK_COOKIE_AUTH_EXPECTED_IDENTITY,
+      };
+      if (options.domains || options.all) {
+        if (options.domains) {
+          const targetUrl = validateCookieTarget(target);
+          if (!options.domains.every(domain => cookieDomainMatches(targetUrl.hostname, '.' + domain))) {
+            throw new CookieImportError('The requested cookie domain does not match the current page. Navigate to the target site first.', 'target_mismatch');
+          }
         }
-        const browser = browserArg || 'comet';
-        let result = await importCookies(browser, [domain], profile);
-        // If all cookies failed and v20 is detected, try CDP extraction
-        if (result.cookies.length === 0 && result.failed > 0 && hasV20Cookies(browser, profile)) {
-          result = await importCookiesViaCdp(browser, [domain], profile);
+        const result = await runCookieImport(options, target, domains => bm.trackCookieImportDomains(domains), authOptions);
+        const message = formatCookieImportResult(result);
+        if (result.outcome === 'failed' || options.verifyAuth && !result.verification.verified) {
+          throw new CookieImportError(message, 'cookie_import_incomplete');
         }
-        if (result.cookies.length > 0) {
-          await page.context().addCookies(result.cookies);
-          bm.trackCookieImportDomains([domain]);
-        }
-        const msg = [`Imported ${result.count} cookies for ${domain} from ${browser}`];
-        if (result.failed > 0) msg.push(`(${result.failed} failed to decrypt)`);
-        return msg.join(' ');
+        return message + (options.all ? ' Used --all: all source-profile cookie domains were selected.' : '');
       }
 
-      if (hasAll) {
-        // Explicit all-cookies import — requires --all flag as a deliberate opt-in.
-        // Imports every non-expired cookie domain from the browser.
-        const browser = browserArg || 'comet';
-        const { listDomains } = await import('./cookie-import-browser');
-        const { domains } = listDomains(browser, profile);
-        const allDomainNames = domains.map((d: any) => d.domain);
-        if (allDomainNames.length === 0) {
-          return `No cookies found in ${browser} (profile: ${profile})`;
-        }
-        const result = await importCookies(browser, allDomainNames, profile);
-        if (result.cookies.length > 0) {
-          await page.context().addCookies(result.cookies);
-          bm.trackCookieImportDomains(allDomainNames);
-        }
-        const msg = [`Imported ${result.count} cookies across ${Object.keys(result.domainCounts).length} domains from ${browser}`];
-        msg.push('(used --all: all browser cookies imported, consider --domain for tighter scoping)');
-        if (result.failed > 0) msg.push(`(${result.failed} failed to decrypt)`);
-        return msg.join(' ');
-      }
-
-      // Picker UI mode — open in user's browser for interactive domain selection
       const port = bm.serverPort;
-      if (!port) throw new Error('Server port not available');
-
+      if (!port) throw new CookieImportError('Server port not available', 'unavailable');
       const browsers = findInstalledBrowsers();
-      if (browsers.length === 0) {
-        throw new Error(`No Chromium browsers found. Supported: ${listSupportedBrowserNames().join(', ')}`);
-      }
-
-      const code = generatePickerCode();
+      if (browsers.length === 0) throw new CookieImportError(`No Chromium browsers found. Supported: ${listSupportedBrowserNames().join(', ')}`, 'not_installed');
+      if (options.clearStorage || options.verifyAuth) validateCookieTarget(target);
+      if (options.clearStorage) validateCookieStorageSupport(page);
+      if (options.verifyAuth) validateCookieAuthOptions(authOptions);
+      const code = generatePickerCode({
+        target,
+        browser: options.browser,
+        profile: options.profile,
+        clearStorage: options.clearStorage,
+        verifyAuth: options.verifyAuth,
+      });
       const pickerUrl = `http://127.0.0.1:${port}/cookie-picker?code=${code}`;
+      const openCommand = process.platform === 'darwin' ? ['open', pickerUrl]
+        : process.platform === 'win32' ? ['cmd.exe', '/d', '/c', 'start', '', pickerUrl] : ['xdg-open', pickerUrl];
       try {
-        Bun.spawn(['open', pickerUrl], { stdout: 'ignore', stderr: 'ignore', windowsHide: true });
-      } catch (err: any) {
-        // open may fail on non-macOS or if 'open' binary is missing — URL is in the message below
-        if (err?.code !== 'ENOENT' && !err?.message?.includes('spawn')) throw err;
+        Bun.spawn(openCommand, { stdout: 'ignore', stderr: 'ignore', windowsHide: true });
+      } catch {
+        throw new CookieImportError('Could not open the cookie picker in a local browser. Retry from a desktop session.', 'picker_open_failed');
       }
-
-      return `Cookie picker opened at http://127.0.0.1:${port}/cookie-picker\nDetected browsers: ${browsers.map(b => b.name).join(', ')}\nSelect domains to import, then close the picker when done.\n\nTip: For scripted imports, use --domain <domain> to scope cookies to a single domain.`;
+      return `Cookie picker opened at http://127.0.0.1:${port}/cookie-picker\nDetected browsers: ${browsers.map(b => b.name).join(', ')}\nSelect the source profile and domains. Cookies copied does not mean sign-in verified.`;
     }
 
     case 'style': {
