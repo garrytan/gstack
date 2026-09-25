@@ -283,10 +283,27 @@ function clearOwnedFixtureContents(fixture: string, identity: { path: string; de
   }
 }
 
+function removeOwnedFixtureRootWithNode(directory: string, identity: { path: string; dev: bigint; ino: bigint }): void {
+  const node = Bun.which('node');
+  if (!node) throw new Error('Node is required for native fixture cleanup');
+  const result = spawnSync(node, [path.resolve(import.meta.dir, 'fixtures/native-cookie-remove-fixture.cjs'), Buffer.from(JSON.stringify({
+    root: directory, realpath: identity.path, dev: identity.dev.toString(), ino: identity.ino.toString(),
+  })).toString('base64')], { env: nativeCookieEnvironment(process.env), encoding: 'utf8', timeout: 5_000, windowsHide: true, maxBuffer: 65536 });
+  let receipt: { removed?: boolean; code?: string };
+  try { receipt = JSON.parse(result.stdout); }
+  catch { receipt = { removed: false }; }
+  if (result.status === 0 && receipt?.removed === true && !existsSync(directory)) return;
+  throw Object.assign(new Error('Native fixture root cleanup failed'), {
+    code: receipt?.code || 'EIO', syscall: 'rm', path: directory,
+    receipt: { ...receipt, exitCode: result.status },
+  });
+}
+
 afterAll(() => {
   try {
     if (existsSync(root) && realpathSync(root) !== resolvedRoot) throw new Error('Native fixture root ownership changed');
-    rmSync(root, { recursive: true, force: true });
+    if (process.platform === 'win32') removeOwnedFixtureRootWithNode(root, { path: resolvedRoot, dev: initialRootState.dev, ino: initialRootState.ino });
+    else rmSync(root, { recursive: true, force: true });
   } catch (error) {
     console.error(JSON.stringify({ nativeFixtureRemovalFailure: { stage: 'after_all', ...fixtureRemovalEvidence(error, root, initialRootState) } }));
     const entries: { path: string; type: string; mode?: number; code?: string }[] = [];
@@ -310,18 +327,9 @@ afterAll(() => {
     }
     const lockedFile = entries.find(entry => entry.type === 'file' && /^[0-9a-f-]{36}\.tmp$/i.test(path.basename(entry.path)));
     console.error(JSON.stringify({ nativeFixtureCleanup: { code: (error as NodeJS.ErrnoException).code, pendingChildCloses: fixtureChildren.size, rootVerified, rootMode, remaining: entries,
+      ...(error && typeof error === 'object' && 'receipt' in error ? { nodeCleanup: error.receipt } : {}),
       fileOwners: lockedFile ? { file: lockedFile.path, owners: fixtureFileOwners(path.join(root, lockedFile.path)) } : undefined,
     } }));
-    const node = Bun.which('node');
-    if (rootVerified && node) {
-      const comparison = spawnSync(node, [path.resolve(import.meta.dir, 'fixtures/native-cookie-remove-fixture.cjs'), Buffer.from(JSON.stringify({
-        root, realpath: resolvedRoot, dev: initialRootState.dev.toString(), ino: initialRootState.ino.toString(),
-      })).toString('base64')], { env: nativeCookieEnvironment(process.env), encoding: 'utf8', timeout: 5_000, windowsHide: true, maxBuffer: 65536 });
-      let evidence: object;
-      try { evidence = JSON.parse(comparison.stdout); }
-      catch { evidence = { removed: false, reason: 'node_cleanup_no_receipt', exitCode: comparison.status }; }
-      console.error(JSON.stringify({ nativeFixtureNodeCleanupComparison: evidence }));
-    }
     throw error;
   }
 }, 15_000);
@@ -824,6 +832,44 @@ describe('owned native-cookie lifecycle', () => {
     expect(JSON.parse(removed.stdout).removed).toBe(true);
     expect(existsSync(fixture)).toBe(false);
     expect(existsSync(root)).toBe(true);
+  }, 15_000);
+
+  test('native root teardown rejects a changed identity and removes nested owned contents', () => {
+    const fixture = mkdtempSync(path.join(root, 'root-cleanup-'));
+    const state = lstatSync(fixture, { bigint: true });
+    const identity = { path: realpathSync(fixture), dev: state.dev, ino: state.ino };
+    const marker = path.join(fixture, 'nested', 'marker');
+    mkdirSync(path.dirname(marker));
+    writeFileSync(marker, 'fixture-only');
+    expect(() => removeOwnedFixtureRootWithNode(fixture, { ...identity, ino: identity.ino + 1n })).toThrow('Native fixture root cleanup failed');
+    expect(readFileSync(marker, 'utf8')).toBe('fixture-only');
+    removeOwnedFixtureRootWithNode(fixture, identity);
+    expect(existsSync(fixture)).toBe(false);
+  });
+
+  test.skipIf(process.platform !== 'win32')('native root teardown refuses a real delete-sharing lock until its owner closes', () => {
+    const fixture = mkdtempSync(path.join(root, 'root-lock-'));
+    const identity = lstatSync(fixture, { bigint: true });
+    const file = path.join(fixture, 'held.tmp');
+    writeFileSync(file, 'fixture-only');
+    const kernel = dlopen('kernel32.dll', {
+      CreateFileW: { args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.u64], returns: FFIType.u64 },
+      CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
+    });
+    const name = Buffer.from(file + '\0', 'utf16le');
+    const handle = kernel.symbols.CreateFileW(ptr(name), 0x80000000, 3, null, 3, 0x80, 0);
+    try {
+      expect(BigInt(handle)).not.toBe(0xffffffffffffffffn);
+      expect(BigInt(handle)).not.toBe(0n);
+      expect(() => removeOwnedFixtureRootWithNode(fixture, { path: realpathSync(fixture), dev: identity.dev, ino: identity.ino })).toThrow('Native fixture root cleanup failed');
+      expect(readFileSync(file, 'utf8')).toBe('fixture-only');
+    } finally {
+      try {
+        if (BigInt(handle) !== 0xffffffffffffffffn && BigInt(handle) !== 0n) expect(kernel.symbols.CloseHandle(handle)).toBe(1);
+      } finally { kernel.close(); }
+    }
+    removeOwnedFixtureRootWithNode(fixture, { path: realpathSync(fixture), dev: identity.dev, ino: identity.ino });
+    expect(existsSync(fixture)).toBe(false);
   }, 15_000);
 
   test('success is withheld until the entire job is empty and member exits', async () => {

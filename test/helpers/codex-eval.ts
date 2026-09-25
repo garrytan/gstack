@@ -104,6 +104,7 @@ export interface CodexEvalOptions {
   name: string;
   suite: string;
   budgetMs: number;
+  drainGraceMs?: number;
   run: (signal: AbortSignal) => Promise<CodexResult>;
   validate: (result: CodexResult) => void | Promise<void>;
   record: (entry: EvalTestEntry) => void;
@@ -114,7 +115,9 @@ export interface CodexEvalOptions {
 
 export async function runRecordedCodexEval(opts: CodexEvalOptions): Promise<CodexResult> {
   const started = Date.now();
-  const deadlineAt = started + opts.budgetMs + CODEX_DRAIN_GRACE_MS;
+  const drainGraceMs = opts.drainGraceMs ?? CODEX_DRAIN_GRACE_MS;
+  const timeoutMs = opts.budgetMs + drainGraceMs;
+  const deadlineAt = started + timeoutMs;
   const controller = new AbortController();
   let result: CodexResult | undefined;
   let stage: 'runner' | 'validation' = 'runner';
@@ -122,7 +125,7 @@ export async function runRecordedCodexEval(opts: CodexEvalOptions): Promise<Code
   let failure: unknown;
   let deadline: ReturnType<typeof setTimeout>;
 
-  const timeoutError = () => new CodexEvalTimeout(`Codex eval exceeded ${opts.budgetMs}ms plus ${CODEX_DRAIN_GRACE_MS}ms drain grace`);
+  const timeoutError = () => new CodexEvalTimeout(`Codex eval exceeded ${opts.budgetMs}ms plus ${drainGraceMs}ms drain grace`);
   const checkDeadline = () => {
     if (!controller.signal.aborted && Date.now() >= deadlineAt) controller.abort(timeoutError());
     controller.signal.throwIfAborted();
@@ -149,7 +152,7 @@ export async function runRecordedCodexEval(opts: CodexEvalOptions): Promise<Code
         const error = timeoutError();
         controller.abort(error);
         reject(error);
-      }, opts.budgetMs + CODEX_DRAIN_GRACE_MS);
+      }, timeoutMs);
     });
     return await Promise.race([work(), timedOut]);
   } catch (error) {

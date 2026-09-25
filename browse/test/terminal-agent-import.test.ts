@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const roots: string[] = [];
 const agent = new URL('../src/terminal-agent.ts', import.meta.url).href;
@@ -32,7 +33,7 @@ test('importing terminal-agent helpers does not boot the CLI or install process 
 test('direct terminal-agent execution still refuses an unconfirmed startup record', () => {
   const root = mkdtempSync(join(tmpdir(), 'terminal-agent-direct-'));
   roots.push(root);
-  const result = Bun.spawnSync([process.execPath, new URL('../src/terminal-agent.ts', import.meta.url).pathname], {
+  const result = Bun.spawnSync([process.execPath, fileURLToPath(new URL('../src/terminal-agent.ts', import.meta.url))], {
     env: { ...process.env, HOME: root, BROWSE_STATE_FILE: join(root, 'browse.json'), BROWSE_AGENT_GEN: 'missing-record' },
     timeout: 6000,
   });
