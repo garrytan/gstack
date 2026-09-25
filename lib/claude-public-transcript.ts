@@ -179,8 +179,17 @@ function ownedCausalLines(lines: string[], cwd: string, filename: string): strin
     if (!next) return [];
     root = next;
   }
+  // SessionStart hooks journal message-less attachment records ahead of the
+  // first user turn, so that turn's ancestry ends at an attachment, not at a
+  // null-parent user message. Only an unbroken attachment prefix ending at the
+  // first user turn counts as that turn's preamble.
+  const preamble = (r: Record<string, any>) => r.type === 'attachment' && r.message == null;
+  const rootedAtUser = object(root.record.message) && root.record.message.role === 'user';
+  const rootedAtPreamble = root !== first && preamble(root.record) &&
+    object(first.record.message) && first.record.message.role === 'user' && first.record.cwd === cwd &&
+    [...ancestry].every(id => id === first.record.uuid || preamble(byId.get(id)!.record));
   if (root.record.parentUuid !== null || root.record.cwd !== cwd ||
-      !object(root.record.message) || root.record.message.role !== 'user') return [];
+      !(rootedAtUser || rootedAtPreamble)) return [];
   if (nodes.some(x => x !== root && x.record.parentUuid === null &&
       object(x.record.message) && x.record.message.role === 'user')) throw Error('competing owned native roots');
   // Stable topological traversal preserves physical order whenever two ready
@@ -260,6 +269,7 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
         // fixture's first parent user message; legacy records keep exact-cwd scoping.
         let originSeen = false;
         const ancestry = new Set<string>();
+        const preambleIds = new Set<string>();
         let causalMembership: Set<string> | undefined;
         const nativeUuid = (value: unknown): value is string =>
           typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -292,10 +302,16 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
               // not discover a later root or reorder public uses and results.
               (!ownedSnapshot && record.cwd !== cwd && ancestry.size > 0 &&
                 recoveredMember(record.uuid)));
+          // SessionStart hook attachments precede the first user turn; an
+          // unbroken message-less attachment chain from a null parent is that
+          // turn's preamble, never an ownership root of its own.
+          if (!originSeen && parentMetadata && record.cwd === cwd && record.type === 'attachment' &&
+              record.message == null && (record.parentUuid === null || preambleIds.has(record.parentUuid)))
+            preambleIds.add(record.uuid);
           if (!originSeen && object(record.message) && ['user', 'assistant'].includes(record.message.role)) {
             originSeen = true;
             if (parentMetadata && record.cwd === cwd && record.message.role === 'user' &&
-                record.parentUuid === null) ancestry.add(record.uuid);
+                (record.parentUuid === null || preambleIds.has(record.parentUuid))) ancestry.add(record.uuid);
           }
           if (continuation) ancestry.add(record.uuid);
           // Native compaction resets parentUuid but links its prior owned
