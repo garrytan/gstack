@@ -47,7 +47,8 @@ const timeoutExpressions = (file: string) => [...read(file).matchAll(
 test('source allowances retain all captures, cases, and finalization grace', () => {
   const auq = read(AUQ_CONSISTENCY_RETRY_BUDGET.file);
   expect(auq).toContain("const N_RUNS = Number(process.env.AUQ_CONSISTENCY_RUNS ?? '3')");
-  expect(auq).toContain('for (let i = 0; i < N_RUNS; i++)');
+  expect(auq).toContain('Promise.allSettled(Array.from({ length: N_RUNS },');
+  expect(auq).toContain('for (const [i, capture] of captures.entries())');
   expect(auq).toContain('N_RUNS * CAPTURE_MS + 60_000');
   expect(AUQ_CONSISTENCY_RETRY_BUDGET.testMs).toBe(960_000);
   expect(timeoutExpressions('test/codex-e2e-plan-format.test.ts')).toEqual(Array(4).fill('CAPTURE_LONG_MS'));

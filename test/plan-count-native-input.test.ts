@@ -445,6 +445,7 @@ process.stdin.on('data', (data) => {
 });
 process.on('SIGINT', () => process.exit(0));
 process.stdin.resume();
+process.stdout.write('PTY_READY:' + item.record + '\x1b[2J\x1b[H');
 `,
       );
       fs.chmodSync(fake, 0o755);
@@ -459,6 +460,7 @@ const results = await Promise.all(cases.map(async item => ({
     skillName: 'plan-eng-review',
     slashCommand: '/plan-eng-review',
     followUpPrompt: 'Review only this fixture.',
+    startupReadyMarker: 'PTY_READY:' + item.record,
     isLastStep0AUQ: () => false,
     isReviewAUQ: () => true,
     firstAUQPick: item.designQuestions ? undefined : () => 2,

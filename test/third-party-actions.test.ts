@@ -27,6 +27,7 @@ import { generateAsideSetup } from "../scripts/resolvers/aside";
 import { HOST_PATHS } from "../scripts/resolvers/types";
 import { asideDriveOptions } from './helpers/third-party-actions';
 import { E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
+import recoveryFixture from './fixtures/third-party-actions-recovery-public.json';
 
 const ROOT = path.resolve(import.meta.dir, "..");
 
@@ -69,6 +70,27 @@ D) Defer
   test('allows recovery questions but rejects conditional drive consent', () => {
     expect(asideDriveOptions('A) Open the Aside app so I can re-run the probe.')).toEqual([]);
     expect(asideDriveOptions('A) Open the Aside app; if READY, I drive the dashboard.')).toHaveLength(1);
+  });
+
+  test.each(recoveryFixture.responses)('native recovery response $attempt defers drive consent to a new question', ({ text }) => {
+    expect(asideDriveOptions(text)).toEqual([]);
+    expect(asideDriveOptions(text.replace('option included.', 'option included; then I drive in your Aside browser.'))).toHaveLength(1);
+  });
+
+  test('a future question can name its option without offering the drive now', () => {
+    for (const subject of ["I'll", 'I will', 'We’ll', 'we will']) {
+      for (const question of ['re-ask', 'ask again', 're-ask this question']) {
+        for (const label of ['the Aside drive', 'the "drive it in your Aside browser"', 'the “drive it in your Aside browser”']) {
+          const reference = `${subject} ${question} with ${label} option included`;
+          expect(asideDriveOptions(`A) Open Aside and re-probe; if READY, ${reference}.`)).toEqual([]);
+          expect(asideDriveOptions(`A) I drive in Aside first; ${reference}.`)).toHaveLength(1);
+          expect(asideDriveOptions(`A) Open Aside; ${reference}, then I drive the dashboard.`)).toHaveLength(1);
+          expect(asideDriveOptions(`A) Open Aside; ${reference} and navigate the dashboard before that question.`)).toHaveLength(1);
+        }
+      }
+    }
+    expect(asideDriveOptions('A) I will re-ask after I drive in Aside with the drive option included.')).toHaveLength(1);
+    expect(asideDriveOptions('A) Open Aside; I will re-ask with the Aside drive option, then I browse using that option.')).toHaveLength(1);
   });
 });
 

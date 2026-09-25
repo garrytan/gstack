@@ -145,6 +145,7 @@ jobs:
         # red here because it's genuinely POSIX-bound, add it to the curation
         # exclusions — don't resurrect a hand list in this file.
         env:
+          GSTACK_FREE_JOBS: '2'
           # Point os.tmpdir() at the runner temp so the shard logs land
           # somewhere the artifact step below can glob.
           TEMP: ${{ runner.temp }}

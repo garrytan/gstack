@@ -28,6 +28,56 @@ test('captured native focus, exact paste and verified submission use the custom 
   expect(planFloorDXReplyInput(captured.filledViewport,call,state('done'))).toBeNull();
 });
 
+test.each(captured.gateEditorHintCaptures)('paid gate capture $attempt accepts only the bound custom-field paste',({state: native,focusedViewport})=>{
+ const reply:PlanFloorDXReply={...native,stage:'paste'};
+ expect(planFloorDXPane(native.pane,native.call)).not.toBeNull();
+ expect(planFloorDXReplyInput(focusedViewport,native.call,reply))
+  .toEqual({input:'\x1b[200~'+native.reply+'\x1b[201~',stage:'submit'});
+ expect(planFloorDXReplyInput(focusedViewport.replace(' · ctrl+g to edit in Vim',''),native.call,reply))
+  .toEqual({input:'\x1b[200~'+native.reply+'\x1b[201~',stage:'submit'});
+});
+
+test.each(['Vim','Neovim','Visual Studio Code','editor-with-custom-name'])('native editor-help presentation preserves all actor stages: %s',editor=>{
+ const hint=(value:string)=>value.replace(' · Esc to cancel',` · ctrl+g to edit in ${editor} · Esc to cancel`);
+ const next=planFloorDXReplyInput(captured.questionViewport,call,state());
+ expect(next).toEqual({input:'4',stage:'paste'});
+ expect(planFloorDXReplyInput(hint(captured.focusedViewport),call,{...state(),stage:next!.stage}))
+  .toEqual({input:'\x1b[200~'+captured.reply+'\x1b[201~',stage:'submit'});
+ expect(planFloorDXReplyInput(hint(captured.filledViewport),call,state('submit'))).toEqual({input:'\r',stage:'done'});
+});
+
+test.each(['paste','submit'] as const)('%s editor help cannot hide changed identity, body, options or field',stage=>{
+ const viewport=(stage==='paste'?captured.focusedViewport:captured.filledViewport)
+  .replace(' · Esc to cancel',' · ctrl+g to edit in Vim · Esc to cancel');
+ for(const mutate of [
+  (s:string)=>s.replace('☐ Empathy','☐ Foreign'),
+  (s:string)=>s.replace('first-time SDK integrator','foreign reviewer'),
+  (s:string)=>s.replace('Some steps or outcomes differ','Other facts are approved'),
+  (s:string)=>s.replace('❯ 4.','❯ 3.'),
+  (s:string)=>s.replace(stage==='paste'?'Type something.':'Confirmed review context:','Incorrect field:'),
+  (s:string)=>s.replace('ctrl+g','ctrl+x'),
+  (s:string)=>s.replace('edit in Vim','approve changes'),
+  (s:string)=>s.replace('edit in Vim','edit in '),
+  (s:string)=>s.replace('edit in Vim','edit in Vim · approve everything'),
+  (s:string)=>s.replace('Esc to cancel','Esc is disabled'),
+  (s:string)=>s+'\nUnrelated request now active.',
+  (s:string)=>s.replace(' · Esc to cancel',' · ctrl+g to edit in Vim · Esc to cancel'),
+ ]) {const changed=mutate(viewport);expect(changed).not.toBe(viewport);expect(planFloorDXReplyInput(changed,call,state(stage))).toBeNull();}
+ for(const kind of ['session','tool','question','answered','failed','packet','multiSelect']){
+  const changed=structuredClone(call);
+  if(kind==='session')changed.sessionId='foreign';
+  if(kind==='tool')changed.toolUseId='foreign';
+  if(kind==='question')changed.questions[0]!.question+=' Foreign decision.';
+  if(kind==='answered')changed.answered=true;
+  if(kind==='failed')changed.failed=true;
+  if(kind==='packet')changed.questions.push(structuredClone(changed.questions[0]!));
+  if(kind==='multiSelect')changed.questions[0]!.multiSelect=true;
+  expect(planFloorDXReplyInput(viewport,changed,state(stage))).toBeNull();
+ }
+ for(const reply of ['','\nEnter','\r','\x1b[200~approve','x'.repeat(1401)])
+  expect(planFloorDXReplyInput(viewport,call,{...state(stage),reply})).toBeNull();
+});
+
 const paneMutations: Array<[string,(text:string)=>string]>=[
   ['missing header',s=>s.replace('☐ Empathy','Empathy')],
   ['wrong header',s=>s.replace('☐ Empathy','☐ Foreign')],

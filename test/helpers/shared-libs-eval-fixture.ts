@@ -445,7 +445,7 @@ export function isInternalClaudeGitRequest(request: SourceRequest, commands: str
   // Require direct process ancestry AND the exact observed host prefix AND no
   // matching model request. A shell/model-issued unguarded Git call still fails.
   return request.tool === 'git' && !!request.ppid &&
-    /(?:^|[/\\])claude(?:$|[/\\])/.test(request.parentExecutable || '') &&
+    /(?:^|[/\\])claude(?:\.exe)?$/.test(request.parentExecutable || '') &&
     JSON.stringify(request.args.slice(0, hostPrefix.length)) === JSON.stringify(hostPrefix) &&
     !commands.some(command => command.includes('core.safecrlf=false') || command.includes('protocol.ext.allow=never'));
 }
@@ -836,7 +836,7 @@ function skippedReviewOption(question: any): any {
       option[field] !== undefined && typeof option[field] !== 'string')) return [];
     const label = option.label.replace(/[‘’]/g, "'").replace(/`/g, '').replace(/^\s*(?:[A-Z]|\d+)[.)]\s*/i, '')
       .replace(/\s*\(recommended\)\s*$/i, '').trim()
-      .replace(/^no\s*[,.:!?]\s*(?=(?:skip|decline|keep|leave|do not|don't)\b)/i, '');
+      .replace(/^no\b[\s,:;.!?-]*(?=(?:skip|decline|keep|leave|do not|don't)\b)/i, '');
     const referentialRetention = /^(?:keep|leave)\s+(?:it|this|that|them|these)$/i.test(label);
     const preservation = option.description?.trim().replace(/`/g, '').match(/^(?:keep|leave|retain|preserve)\s+([^,;.!?]+)/i);
     const preservedObject = preservation?.[1].split(/\b(?:and|but|while)\b/i)[0]
@@ -847,13 +847,15 @@ function skippedReviewOption(question: any): any {
         || qualifiedIndexState.test(preservedObject));
     const description = (option.description ?? '').replace(/[‘’]/g, "'").trim();
     const declinesChange = /^(?:do not|don't)\s+(?:apply|change|edit|fix|refactor|extract|modify|touch|clear|remove|update|replace|add|migrate|implement|reuse|import)\b/i;
+    const inapplicable = /^not applicable$/i.test(label)
+      && /^(?:choose this(?: option)?\s+)?(?:if|when) you are not (?:editing|changing|modifying)\b/i.test(description);
     const labelObject = label.match(/^(?:keep|leave)\s+(?:the\s+)?(.+)$/i)?.[1]
       .replace(/\s+(?:as[- ]is|unchanged|untouched|set)$/i, '');
     const preservationRank = referentialRetention ? describedRetention || declinesChange.test(description)
       : /^(?:keep|leave)\b.*\b(?:current|existing|unchanged|untouched|as[- ]is|alone|set|copies|copy|implementation|code|source)\b/i.test(label)
         || !!labelObject && qualifiedIndexState.test(labelObject);
     const rank = /^(?:skip|decline)(?=$|\s|[,.!])/i.test(label) ? 3
-      : declinesChange.test(label) ? 2
+      : inapplicable || declinesChange.test(label) ? 2
         : preservationRank ? 1 : 0;
     if (!rank) return [];
     // A leading decline names rejected work. Classify later commitments rather
@@ -868,6 +870,7 @@ function skippedReviewOption(question: any): any {
       word.replace(/([a-z])\1(?:ed|ing)$/, '$1')].some(form => actions.has(form));
     const changes = commitment.toLowerCase().split(/[,;\n]|[.!?](?:\s|$)|\b(?:and|but|then|while)\b/).some(part => {
       const clause = part.replace(/^[^a-z]+/, '')
+        .replace(/^(?:the\s+)?(?:review|reuse|snapshot)\s+coverage\s+(?=(?:will|would|should|must|can|may|does|do)\b)/, '')
         .replace(/^(?:(?:this|that|the|selected|chosen)\s+(?:option|choice|selection)|i|we|you|it|(?:the\s+)?(?:source|code|route|worker|helper|parser|index(?:\s+flag)?))\s+/, '')
         .replace(/^(?:will|would|should|must|can|may|does|do)\s+/, '')
         .replace(/^(?:(?:please|also|still|just|now|be)\s+)+/, '');

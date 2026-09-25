@@ -343,6 +343,10 @@ export function strictTestExitCode(
   return 0;
 }
 
+export function normalizeRelativePath(filePath: string): string {
+  return filePath.replace(/\\/g, '/');
+}
+
 /**
  * Bun treats positional test paths as substring filters. Resolve every
  * canonical relative path before spawning so `test/foo.test.ts` cannot also

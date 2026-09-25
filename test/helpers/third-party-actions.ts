@@ -15,5 +15,11 @@ export function asideDriveOptions(text: string): string[] {
     }
   }
   if (current !== undefined) options.push(current);
-  return options.filter(option => /\bAside\b/i.test(option) && /\b(?:drive|driving|browse|browsing|navigate|click)\b/i.test(option));
+  return options.filter(option => {
+    const currentOffer = option.replace(
+      /\b(?:I|we)(?:['’]ll| will) (?:re[- ]?ask|ask again)(?: (?:you|this question))? with (?:the )?(?:"[^"]+"|“[^”]+”|[\w -]+?) option(?: included)?\b/gi,
+      '',
+    );
+    return /\bAside\b/i.test(option) && /\b(?:drive|driving|browse|browsing|navigate|click)\b/i.test(currentOffer);
+  });
 }

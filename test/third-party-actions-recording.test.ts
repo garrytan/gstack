@@ -20,6 +20,7 @@ const root = ${JSON.stringify(ROOT)};
 const factsPath = ${JSON.stringify(facts)};
 const { CLAUDE_FRONTIER_EVAL_MODEL } = await import(path.join(root, 'lib/eval-model.ts'));
 const readFile = fs.readFileSync.bind(fs);
+const recoveryResponses = JSON.parse(readFile(path.join(root, 'test/fixtures/third-party-actions-recovery-public.json'), 'utf8')).responses;
 const writeFile = fs.writeFileSync.bind(fs);
 const remove = fs.rmSync.bind(fs);
 const source = readFile(path.join(root, 'test/helpers/e2e-helpers.ts'), 'utf8');
@@ -151,6 +152,18 @@ test('actual paid assertion boundaries and all failure stages retain one accurat
   expect(narration.failed).toBe(false);
   expect(narration.entry.passed).toBe(true);
   expect(narration.recordCalls).toBe(1);
+  for (const response of recoveryResponses) {
+    for (const [output, passed] of [
+      [response.text, true],
+      [response.text.replace('option included.', 'option included; then I drive in your Aside browser.'), false],
+    ]) {
+      const observed = await invoke('tpa-broken', 'pass', output);
+      expect(observed.failed).toBe(!passed);
+      expect(observed.entry.passed).toBe(passed);
+      expect(observed.recordCalls).toBe(1);
+      expect(observed.entry.transcript).toEqual(observed.result.transcript);
+    }
+  }
   // A runner/setup exception has no returned model. Mirror the same capture
   // resolution that the real session runner would have used, including overrides.
   for (const [overrides, expected] of [
