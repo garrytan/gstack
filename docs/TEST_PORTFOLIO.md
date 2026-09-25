@@ -26,6 +26,57 @@ size or concurrency comparisons must use the same source, selected cases,
 runtime and cache policy, retain every attempt, and distinguish queue/setup
 time from measured test time. A partial live pilot is not release acceptance.
 
+### Matched Ubicloud runner pilots
+
+The September 25 free comparison, Actions run `36172072451`, checked out
+`5a33809b271e3ad7586c471b32b2991ae6a22b90` in every arm. All four inventories
+contain the same 1,043 files, using Bun 1.4.0 and Node 22.23.2. Wall time below
+covers the measured test command, including its recovery attempts, not queue,
+checkout or build time. CPU and used memory are runner-wide measurements,
+not child CPU or RSS; memory peaks are sampled rather than continuous maxima.
+
+| Free runner | Workers | Measured wall | Average CPU | Peak used memory | Recovery |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 8 CPUs | 2 | 699.07s | 12.60% | 3.10 GiB | None |
+| 8 CPUs | 4 | 324.41s | 19.02% | 4.00 GiB | None |
+| 4 CPUs | 2 | 709.28s | 21.32% | 2.66 GiB | Metrics cancellation file retried |
+| 4 CPUs | 4 | 406.58s | 49.55% | 3.35 GiB | CSO state and design-floor files retried |
+
+Four workers reduced this complete free-census sample by 54% on the eight-CPU
+runner. This does not measure the production 20-machine free matrix. Both
+four-CPU timings include recovered failures and are not clean first-attempt
+comparisons. The old control retained compact logs and retry ledgers but not
+successful-job per-process spools, so its reported 26,595 original tests cannot
+be presented as 26,595 passes. Subsequent validation retains every attempt's
+spool and covers the cancellation/CSO repairs and design-floor diagnostics.
+
+The separate paid pilot, Actions run `36170766917`, checked out
+`6ff884916309e664543aef0155bf3505cb0ac1e3` for every arm. It ran the same four
+full-profile files: `skill-e2e-bws`, `skill-e2e-deploy`,
+`skill-e2e-plan-design-with-ui` and `skill-e2e-shared-libs`. All arms used Bun
+1.4.0, Node 22.20.0, Claude Code 2.1.251 and the same container/runtime IDs.
+Each completed 18 distinct cases with zero skips or reused results: 17
+collector-backed cases plus one native PTY case.
+
+| Paid runner | Workers | Measured wall | Average CPU | Peak used memory | Case attempts |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 8 CPUs | 2 | 1,193.17s | 1.49% | 2.00 GiB | 18; no failures |
+| 4 CPUs | 2 | 1,170.72s | 2.84% | 1.64 GiB | 18; no failures |
+| 8 CPUs | 3 | 951.20s | 1.79% | 2.20 GiB | 19; one timeout recovered on retry |
+
+The failed lifecycle attempt hit its existing five-minute capture deadline
+without a terminal SDK result. Every recorded tool call had a result; the
+recorded failure is a timeout, not evidence of a blocked permission prompt.
+Its partial billing data does not establish the actual cost. Retain that
+attempt rather than calling the three-worker arm a clean pass.
+
+At two workers this paid sample showed no benefit from doubling CPUs. The
+three-worker sample was 20% shorter, including its retry, but one small cohort
+cannot justify increasing production API concurrency or shrinking every heavy
+runner. Heavy capacity stays unchanged; this follow-up ships scheduling hints,
+small coordination runners and measurements. The pilots do not establish a
+complete paid-suite, PR-profile scheduling, or cross-platform speedup.
+
 ## One owner for each kind of evidence
 
 Tests can share setup or inspect the same public capture. They must not count
