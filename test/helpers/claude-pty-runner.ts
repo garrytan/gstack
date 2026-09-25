@@ -4605,7 +4605,7 @@ export async function runPlanSkillObservation(opts: {
     };
     // Entry deadline → boot → owned paste/receipt/ack → slash → observation.
     // Setup consumes the existing case budget; cleanup has its separate grace.
-    await Bun.sleep(Math.min(8000, Math.max(0, deadlineAt - Date.now())));
+    if (!opts.initialPlanContent) await Bun.sleep(Math.min(8000, Math.max(0, deadlineAt - Date.now())));
     if (opts.initialPlanContent) {
       const seed = `Keep this draft plan as context. Briefly acknowledge receipt, then wait for my next message containing a slash command. Do not start the review or call tools yet.\n\n${opts.initialPlanContent}`;
       try {

@@ -124,7 +124,7 @@ for (const mode of ['unseeded-deadline', 'seeded-deadline', 'protocol-error']) t
   try {
     const run = runPlanSkillObservation({ skillName: 'plan-eng-review', cwd: dir,
       ...(seeded ? { initialPlanContent: '# Exact plan\nNo new work allowance.' } : {}), timeoutMs: mode === 'protocol-error' ? 10000 : 600, model: 'fixture',
-      env: { CLAUDE_CONFIG_DIR: config, SEED_CASE: mode === 'protocol-error' ? 'wrong-pid' : 'success' } });
+      env: { CLAUDE_CONFIG_DIR: config, SEED_CASE: mode === 'protocol-error' ? 'wrong-pid' : mode === 'seeded-deadline' ? 'no-ack' : 'success' } });
     if (mode === 'protocol-error') {
       await expect(run).rejects.toThrow('Plan seed PID status does not match this launch');
       expect(fs.existsSync(path.join(config, 'events.jsonl'))).toBe(false);

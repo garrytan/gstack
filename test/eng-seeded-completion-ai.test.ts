@@ -127,7 +127,7 @@ async function mockedObservation(frames: string[], verdict: 'waiting' | 'working
   expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
   const executable = source.slice(start, end).replace('export async function', 'async function') + '\nreturn runPlanSkillObservation;';
   const js = new Bun.Transpiler({ loader: 'ts' }).transformSync(executable);
-  let clock = 0, tick = -1, closed = 0, judged = 0;
+  let clock = 0, tick = -1, closed = 0, judged = 0, seedSubmittedAt: number | null = null;
   const current = () => frames[Math.min(Math.max(tick, 0), frames.length - 1)]!;
   const args: Record<string, unknown> = {
     path, process: { cwd: () => '/synthetic-owned' }, Date: { now: () => clock }, randomUUID: () => 'owned',
@@ -136,7 +136,7 @@ async function mockedObservation(frames: string[], verdict: 'waiting' | 'working
       visibleSince: current, rawOutput: current, currentScreen: async () => current(), hermeticConfigDir: null,
       close: async () => { closed++; } }),
     createPlanCountSnapshotWriter: () => () => ({}), logPtySnapshot: () => {},
-    submitPlanSeed: async () => {}, PlanSeedTimeout: class extends Error {},
+    submitPlanSeed: async () => { seedSubmittedAt = clock; }, PlanSeedTimeout: class extends Error {},
     isRejectedSlashCommand: predicates.isRejectedSlashCommand,
     isProseAUQVisible: predicates.isProseAUQVisible, isPlanReadyVisible: predicates.isPlanReadyVisible,
     isUnknownSlashCommandVisible: predicates.isUnknownSlashCommandVisible,
@@ -149,8 +149,17 @@ async function mockedObservation(frames: string[], verdict: 'waiting' | 'working
   const obs = await run({ skillName: 'plan-eng-review', timeoutMs: 70000,
     ...(seeded ? { initialPlanContent: '# Plan: Required draft' } : {}) });
   expect(closed).toBe(1);
-  return { obs, judged };
+  return { obs, judged, seedSubmittedAt };
 }
+
+test('seeded preflight checks owned readiness without spending eight seconds before submission', async () => {
+  const seeded = await mockedObservation([gate], 'working');
+  expect(seeded.seedSubmittedAt).toBe(0);
+  expect(seeded.obs.outcome).toBe('plan_ready');
+  const unseeded = await mockedObservation([gate], 'working', false);
+  expect(unseeded.seedSubmittedAt).toBeNull();
+  expect(unseeded.obs.outcome).toBe('plan_ready');
+});
 
 for (const [name, current] of [
   ['cursorless approval', gate.replace('❯ ', '')],
