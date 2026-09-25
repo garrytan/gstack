@@ -831,7 +831,7 @@ ${optInSection}${isDesignConsultation ? `
 _DESIGN_BRIEF=$(mktemp /tmp/gstack-design-brief-XXXXXXXX) || exit 1
 printf 'DESIGN_BRIEF=%s\\n' "$_DESIGN_BRIEF"
 \`\`\`
-Write the product brief to that path; remember its absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. For Codex, prepare a private file with that brief and the design-direction request below; substitute its shell-quoted absolute path for the literal <prepared-prompt-file> in the invocation. Keep your draft out of both prompts; give the native Agent its absolute path. Never paste brief text into shell source.` : ''}
+Write the product brief to that path; remember its absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file for Codex, along with the design-direction request below; substitute the shell-quoted absolute prompt path for the literal <prepared-prompt-file> in the invocation. Keep your draft direction out of both prompts; give the native Agent its absolute path (the product brief's path, not the Codex prompt file). Never paste brief text into shell source.` : ''}
 
 **Check ${outsideVoiceFor(ctx).label} availability:**
 ${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
