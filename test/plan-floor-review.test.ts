@@ -1,11 +1,16 @@
 import {expect,test,spyOn} from 'bun:test';
-import {buildPlanFloorReviewPrompt,validatePlanFloorAssessment,resolvePlanFloorCitations,judgePlanFloorReview,pickPlanFloorMode,pickPlanFloorProductType,type PlanFloorReview} from './helpers/plan-floor-review';
+import {PLAN_FLOOR_SYSTEM_PROMPT,buildPlanFloorReviewPrompt,validatePlanFloorAssessment,resolvePlanFloorCitations,judgePlanFloorReview,pickPlanFloorMode,pickPlanFloorProductType,type PlanFloorReview} from './helpers/plan-floor-review';
 import {FORCING_FLOOR_CEO, FORCING_FLOOR_DEVEX} from './fixtures/forcing-finding-seeds';
 import capturedQuotes from './fixtures/plan-floor-quote-70b.json';
 import productTypes from './fixtures/plan-floor-product-type-70b.json';
 import capturedDxTargets from './fixtures/plan-floor-dx-target-ci-3788b5fcb.json';
 import {createHash} from 'node:crypto';
 import {selectTests,E2E_TOUCHFILES,LLM_JUDGE_TOUCHFILES,GLOBAL_TOUCHFILES} from './helpers/touchfiles';
+const currentPromptHashesByCapture = new Map([
+ ['2eee276904660f64831feb14efae271ebbcf554d1170d4131b8838270c090ec2','3edfaf2d8b3c2fcff84333b67b8059a5b8ed6228522cc8936eb4ac40938fcd7d'],
+ ['5bd741a54385f9f6818a19b6fb7345cf8bd3507475ec2ff04b96c214f8a7f61d','f92ea20e8b3f2fb2ab013b316a0b382c7ebca3c6af1c1025766f1a44f9e3b1f7'],
+ ['d44f4c73de6521332365947ecced112770cd55c015418129eec1b1abee345e8f','fe52c3b9ae54d9439f9cb1b3725913ff319ec6cc7c35583feac0394bf11772ab'],
+]);
 const review = ():PlanFloorReview=>({seed:FORCING_FLOOR_CEO,candidate:{transport:'native',identity:'owned:call:question:0',question:{
   header:'Evidence',question:'Pricing is assumed to block adoption without developer interviews. Should we test that premise before launch?',multiSelect:false,
   options:[{label:'Interview developers',description:'Validate pricing as a barrier before changing the tier.'},{label:'Ship the tier',description:'Launch using the current untested premise.'}],
@@ -65,7 +70,7 @@ test('replacement judge retains the original CLI model, one turn, 30s cap and ab
    calls++;expect(file).toBe('/fake/claude');expect(args).toEqual(['-p','--model','unchanged-warmup','--max-turns','1',
     '--bare','--disable-slash-commands','--strict-mcp-config','--setting-sources','',
     '--tools','','--system-prompt',
-    'Classify the supplied evidence using the supplied rubric. Return only its strict JSON result.']);
+    PLAN_FLOOR_SYSTEM_PROMPT]);
    expect(opts.stdio).toEqual(['pipe','pipe','pipe']);expect(opts.encoding).toBe('utf8');
    expect(opts.input).toBe(buildPlanFloorReviewPrompt(review()));
    expect(opts.timeout).toBeGreaterThan(0);expect(opts.timeout).toBeLessThanOrEqual(Math.min(30_000,remaining));
@@ -76,7 +81,7 @@ test('replacement judge retains the original CLI model, one turn, 30s cap and ab
 test('floor assessor isolates its system, tools, settings and inherited session',()=>{
  const contamination={EVALS_HERMETIC:'1',CLAUDE_CONFIG_DIR:'/operator-session',
   CLAUDE_CODE_EFFORT_LEVEL:'max',CLAUDECODE:'outer-session',GSTACK_HOME:'/operator-state',
-  MCP_ENDPOINT:'https://unrelated.invalid'};
+  MCP_ENDPOINT:'https://unrelated.invalid',MAX_THINKING_TOKENS:'31999',CLAUDE_CODE_MAX_OUTPUT_TOKENS:'32000'};
  const previous=Object.fromEntries(Object.keys(contamination).map(key=>[key,process.env[key]]));
  Object.assign(process.env,contamination);
  try {
@@ -87,7 +92,7 @@ test('floor assessor isolates its system, tools, settings and inherited session'
     expect(args).toEqual(['-p','--model','unchanged-warmup','--max-turns','1',
      '--bare','--disable-slash-commands','--strict-mcp-config','--setting-sources','',
      '--tools','','--system-prompt',
-     'Classify the supplied evidence using the supplied rubric. Return only its strict JSON result.']);
+     PLAN_FLOOR_SYSTEM_PROMPT]);
     expect(opts.input).toBe(buildPlanFloorReviewPrompt(review()));
     expect(opts.timeout).toBeLessThanOrEqual(30_000);
     expect(opts.env.CLAUDE_CONFIG_DIR).toBeString();
@@ -97,6 +102,8 @@ test('floor assessor isolates its system, tools, settings and inherited session'
     expect(opts.env.CLAUDECODE).toBeUndefined();
     expect(opts.env.MCP_ENDPOINT).toBeUndefined();
     expect(opts.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1');
+    expect(opts.env.MAX_THINKING_TOKENS).toBe('1024');
+    expect(opts.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe('2048');
     return {status:0,stdout:JSON.stringify({kind:'uncertain',seedId:null,questionId:null,
      optionId:null,reason:'A transport control cannot award a semantic finding.'}),stderr:''};
    }) as any});
@@ -109,6 +116,20 @@ test('floor assessor isolates its system, tools, settings and inherited session'
    else process.env[key]=value;
   }
  }
+});
+test('canonical rubric separates new requirements from setup after grounding the source',()=>{
+ const prompt=buildPlanFloorReviewPrompt(review());
+ expect(prompt.indexOf('1. Ground')).toBeLessThan(prompt.indexOf('2. Identify'));
+ expect(prompt.indexOf('2. Identify')).toBeLessThan(prompt.indexOf('3. Determine'));
+ expect(prompt).toContain('only confirm/correct the reviewer');
+ expect(prompt).toContain('candidate cannot invent the seed');
+ expect(prompt).toContain('A stated exclusion can still be a missing requirement when it contradicts');
+ expect(prompt).toContain('Choosing a NEW concrete acceptance requirement for a seeded problem also qualifies');
+ expect(prompt).toContain('independent implementation remedies remain undecided');
+ expect(prompt).toContain('confirm an already-approved target');
+ expect(prompt).toContain('Do not override a source conflict by calling the question setup');
+ expect(prompt).toContain('All other classifications use null citation IDs');
+ expect(PLAN_FLOOR_SYSTEM_PROMPT).toBe('Classify the supplied evidence using the supplied rubric. Return only its strict JSON result.');
 });
 test.each([
  ['nonzero',{status:1,stdout:'',stderr:'real stderr detail'}],
@@ -171,7 +192,7 @@ for (const capture of capturedDxTargets.captures) {
   const input=capture.input as PlanFloorReview;
   expect(capturedDxTargets.sourceRevision).toBe('3788b5fcb');
   expect(input.candidate.identity).toBe(capture.identity);
-  expect(createHash('sha256').update(buildPlanFloorReviewPrompt(input)).digest('hex')).toBe(capture.inputSha256);
+  expect(createHash('sha256').update(buildPlanFloorReviewPrompt(input)).digest('hex')).toBe(currentPromptHashesByCapture.get(capture.inputSha256));
   for (const reversed of [false,true]) {
    const current=structuredClone(input);
    if(current.candidate.transport!=='native')throw Error('Expected captured native question');
@@ -262,7 +283,7 @@ test('captured DX target fixture changes select all four floor owners and no jud
 });
 test('prior passing native target retains its baseline and explicitly separate split clocks',()=>{
  const capture=capturedDxTargets.priorPassingCapture;
- expect(createHash('sha256').update(buildPlanFloorReviewPrompt(capture.input as PlanFloorReview)).digest('hex')).toBe(capture.inputSha256);
+ expect(createHash('sha256').update(buildPlanFloorReviewPrompt(capture.input as PlanFloorReview)).digest('hex')).toBe(currentPromptHashesByCapture.get(capture.inputSha256));
  for(const reversed of [false,true]) {
   const input=structuredClone(capture.input);if(reversed)input.candidate.question.options.reverse();let calls=0;
   const actual=judgePlanFloorReview(input as PlanFloorReview,{binary:'fake',model:'unchanged-warmup',deadlineAt:Date.now()+60_000,
