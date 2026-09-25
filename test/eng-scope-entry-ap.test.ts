@@ -130,8 +130,10 @@ test('the full evaluated bundle routes startup into ordered preparation before s
   expect(startup).toContain('format/transport rules apply throughout');
   expect(startup).toContain('full section Read → **Review preparation** → **Scope Challenge**');
   const preparation = section.slice(section.indexOf('## Review preparation'), section.indexOf('## Review record'));
-  const stages = ['1. **Review record and write policy**','2. **Prior Learnings**',
-    '3. **Retrospective learning**','4. **Confidence Calibration**','Read Decision procedure','Start the review at'];
+  const stages = ['1. Select the report file and permissions under **Review record and write policy**',
+    '2. Run **Prior Learnings**', '3. Run **Retrospective learning**',
+    '4. Read **Confidence Calibration**', '**Decision procedure**',
+    '**Scope Challenge A → B → C**', 'Sections 1–4 in order'];
   const positions = stages.map(stage=>preparation.indexOf(stage));
   expect(positions.every(position=>position>=0)).toBe(true);
   expect(positions).toEqual([...positions].sort((a,b)=>a-b));
@@ -156,20 +158,26 @@ test('the full evaluated bundle routes startup into ordered preparation before s
 test('both complexity paths join findings without bypassing answers or persistence', () => {
   const section = fs.readFileSync(path.join(import.meta.dir, '../plan-eng-review/sections/review-sections.md.tmpl'),'utf8');
   const challenge = section.slice(section.indexOf('## Scope Challenge'),section.indexOf('## Review Sections'));
-  expect(challenge).toContain('**Analyze scope (all targets).**');
-  expect(challenge).toContain('**Conditional complexity gate.** At 8+ files or 2+ new classes/services, STOP before Section 1');
-  expect(challenge).toContain('Below threshold, continue at **Resolve Scope Challenge findings**');
-  expect(challenge).toContain('After any complexity answers, apply only accepted scope changes');
-  expect(challenge).toContain('Both paths join below.\n\n**Resolve Scope Challenge findings (all targets).**');
-  expect(challenge).toContain('**Resolve Scope Challenge findings (all targets).**');
-  expect(challenge).not.toContain('Below the threshold, start at step 1');
+  const stages = ['### A. Assess the target', '### B. Resolve complexity selectors', '### C. Resolve findings'];
+  const positions = stages.map(stage => challenge.indexOf(stage));
+  expect(positions.every(position => position >= 0)).toBe(true);
+  expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  expect(challenge).toContain('Complete these checks before the complexity decision in B');
+  expect(challenge).toContain("Below both thresholds, skip B's questions and go directly to **C. Resolve findings**");
+  expect(challenge).toContain('At 8+ files or 2+ new classes/services, STOP before Section 1');
+  expect(challenge).toContain('After verification, apply only accepted scope changes');
+  expect(challenge).toContain('Run C whether B was completed or skipped');
   expect(challenge).toContain('Always ask the structure question when this gate trips, even with no cuts');
-  expect(challenge).toContain('Save this record under the write policy; no retroactive pending record');
+  expect(challenge).toContain("This is a post-answer scope summary, not a remedy's pending ledger record");
+  expect(challenge).toContain('Save it under the write policy and Read it back against the actual answers');
+  expect(challenge).toContain('A failed save or Read blocks advancement');
   expect(challenge).toContain('Findings and scope answers approve no remedies');
   expect(challenge).toContain('Continue to Section 1 only when no answer is pending');
   expect(section).toContain('One question for one choice per AskUserQuestion call');
-  expect(section).toContain('save one complete current record, Read that record\nback, then ask the exact saved question');
-  expect(section).toContain('apply the selected option as one complete resolution\nblock, Read it back, then continue');
+  expect(section).toContain('Compare every native field with `currentDecision` and the whole grid with step 3');
+  expect(section).toContain('Repair any difference and repeat the complete Read before asking');
+  expect(section).toContain('Read the selected saved label, full description and grid column together');
+  expect(section).toContain('Check the save result, then Read the entire resolution block, including State');
   expect(section).toContain('Entrypoint: **Paused question** for pending answers; **Blocked outcome** for missing work or failed recovery');
   expect(template).toContain('**Paused question:** Wait for its actual answer without completion telemetry or ExitPlanMode');
   expect(template).toContain('**Blocked outcome:** Stop the review and report `BLOCKED`');

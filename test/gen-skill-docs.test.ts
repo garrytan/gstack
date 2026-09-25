@@ -1611,7 +1611,7 @@ describe('SPEC_REVIEW_LOOP resolver', () => {
     expect(report.replace(/\s+/g, ' ')).toContain('When writing is forbidden, show the actual fields as not persisted and continue without writing');
     expect(report).toContain('failed mkdir or append stops the review');
     expect(report.replace(/\s+/g, ' ')).toContain('Recording the **0H spec-review metrics** is required when writing is permitted, even if the reviewer failed');
-    expect(report).toContain('Reviewer failure therefore continues here; required storage failure stops here');
+    expect(report.replace(/\s+/g, ' ')).toContain('If the reviewer fails, report that limit and continue after recording the outcome; if a required save fails, stop before claiming completion');
     expect(report).toContain('mkdir -p ~/.gstack/analytics || exit 1');
     expect(report).toContain('>> ~/.gstack/analytics/spec-review.jsonl || exit 1');
     expect(report).not.toContain('Your doc survived');

@@ -838,7 +838,7 @@ run Section 11 only for UI. Strategy-only uses capability-level rows and
 Implementation-ready names interfaces, codepaths, rescue behavior and tests.
 For one narrow decision, apply every section to that choice and its dependencies.
 
-**Keep the stated limits.** Record each measure, value, unit and prerequisite. Count all deliverables, including reused code. Changing a limit needs evidence and user approval.
+**Keep the stated limits.** Record each measure, value, unit and prerequisite. Count all deliverables, including reused code, as scope; 0E estimates only files that will change. Changing a limit needs evidence and user approval.
 
 **Storage policy: choose before writing.** Honor user/host artifact and cleanup
 limits. One working plan: requested output, else reviewed plan, else host active
@@ -1152,6 +1152,9 @@ Repo: {owner/repo}
 
 ## Deferred to TODOS.md
 - {items with context}
+
+## Reviewer Concerns
+- {unresolved spec-review issues with their owning input, or "None"}
 ```
 
 #### Spec Review Loop
@@ -1202,7 +1205,8 @@ Recording the **0H spec-review metrics** is
 required when writing is permitted, even if the reviewer failed. Append the
 actual outcome below; failed mkdir or append stops the review. When writing is
 forbidden, show the actual fields as not persisted and continue without writing.
-Reviewer failure therefore continues here; required storage failure stops here.
+If the reviewer fails, report that limit and continue after recording the outcome;
+if a required save fails, stop before claiming completion.
 ```bash
 mkdir -p ~/.gstack/analytics || exit 1
 echo '{"skill":"plan-ceo-review","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","iterations":ITERATIONS,"issues_found":FOUND,"issues_fixed":FIXED,"remaining":REMAINING,"quality_score":SCORE}' >> ~/.gstack/analytics/spec-review.jsonl || exit 1

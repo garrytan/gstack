@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { buildCookieWorkflowJudgeInput, COOKIE_WORKFLOW_JUDGE } from './helpers/cookie-workflow-judge-input';
 import { COOKIE_MANUAL_REVIEW_FILE, getCookieWorkflowManualReview, isManualReviewEntry, manualReviewProblem } from './helpers/cookie-workflow-manual-review';
-import { manualReviewFixture } from './helpers/manual-judge-review-fixture';
+import { approvedCookieWorkflowSource, manualReviewFixture } from './helpers/manual-judge-review-fixture';
 import { validWorkflowJudgeScore } from './helpers/workflow-judge-cache';
 
 const ROOT = resolve(import.meta.dir, '..');
@@ -15,7 +15,8 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'cookie-policy-')); roots.push(root);
   for (const file of [COOKIE_MANUAL_REVIEW_FILE, 'setup-browser-cookies/SKILL.md', 'BROWSER.md']) {
     const target = join(root, file); mkdirSync(resolve(target, '..'), { recursive: true });
-    writeFileSync(target, readFileSync(join(ROOT, file)));
+    const source = readFileSync(join(ROOT, file), 'utf8');
+    writeFileSync(target, file === 'setup-browser-cookies/SKILL.md' ? approvedCookieWorkflowSource(source) : source);
   }
   const entry = manualReviewFixture(root);
   const approval = entry.manual_review!.approval;
@@ -24,12 +25,14 @@ function fixture() {
   return { root, entry, approval, request, refusal: entry.manual_review!.refusal };
 }
 
-test('the committed approval names precisely the complete reviewed request, not a numerical score', () => {
+test('the committed approval names precisely the historical reviewed request, not the current generated workflow', () => {
   const f = fixture();
-  expect(buildCookieWorkflowJudgeInput(ROOT).sha256).toBe(f.approval.prompt_sha256);
+  expect(buildCookieWorkflowJudgeInput(f.root).sha256).toBe(f.approval.prompt_sha256);
+  expect(buildCookieWorkflowJudgeInput(ROOT).sha256).not.toBe(f.approval.prompt_sha256);
+  expect(manualReviewProblem(f.entry, ROOT)).toBe('Manual review does not match current source and approval');
   expect(f.approval.thresholds).toEqual(COOKIE_WORKFLOW_JUDGE.thresholds);
   expect(isManualReviewEntry(f.entry)).toBe(true);
-  expect(manualReviewProblem(f.entry, ROOT)).toBeNull();
+  expect(manualReviewProblem(f.entry, f.root)).toBeNull();
   expect(getCookieWorkflowManualReview(f.root, f.request, f.refusal)).toEqual(f.entry.manual_review);
   expect(validWorkflowJudgeScore(f.entry as any, f.request.thresholds)).toBe(false);
   expect(validWorkflowJudgeScore(f.entry.manual_review as any, f.request.thresholds)).toBe(false);

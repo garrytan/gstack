@@ -105,9 +105,9 @@ export const STRICT_RETRY_CASE_BUDGETS = [...FINDING_RETRY_BUDGETS, AUQ_CONSISTE
 export const FILE_RETRY_BUDGETS = [
   ...STRICT_RETRY_CASE_BUDGETS,
   ...[
-    // Fifteen workflow judges include their 10s recording grace; the other
-    // eleven judges retain 120s. Supervise all 26 and the existing one retry.
-    { file: 'test/skill-llm-eval.test.ts', attemptMs: 15 * (JUDGE_MS + 10_000) + 11 * JUDGE_MS, retries: 1 },
+    // Sixteen workflow judges include their 10s recording grace; the other
+    // eleven judges retain 120s. Supervise all 27 and the existing one retry.
+    { file: 'test/skill-llm-eval.test.ts', attemptMs: 16 * (JUDGE_MS + 10_000) + 11 * JUDGE_MS, retries: 1 },
     { file: 'test/codex-e2e-plan-format.test.ts', attemptMs: 4 * (CAPTURE_LONG_MS + 10_000), retries: 1 },
     { file: 'test/skill-e2e-auq-matrix.test.ts', attemptMs: 6 * CAPTURE_MS, retries: 1 },
     { file: 'test/skill-e2e-plan-format.test.ts', attemptMs: 4 * (CAPTURE_MS + 10_000), retries: 1 },

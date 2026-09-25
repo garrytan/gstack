@@ -591,7 +591,8 @@ Recording the **0H spec-review metrics** is
 required when writing is permitted, even if the reviewer failed. Append the
 actual outcome below; failed mkdir or append stops the review. When writing is
 forbidden, show the actual fields as not persisted and continue without writing.
-Reviewer failure therefore continues here; required storage failure stops here.` : `After the loop completes (PASS, max iterations, or convergence guard):
+If the reviewer fails, report that limit and continue after recording the outcome;
+if a required save fails, stop before claiming completion.` : `After the loop completes (PASS, max iterations, or convergence guard):
 
 1. Tell the user the result — summary by default:
    "Your doc survived N rounds of adversarial review. M issues caught and fixed.

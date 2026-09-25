@@ -31,9 +31,8 @@ for (const budget of FINDING_RETRY_BUDGETS) {
     }
     expect([...source.matchAll(/1_500_000\s*\/\* physical ceiling:/g)]).toHaveLength(budget.cases);
     // Current periodic CI already supports this supervision wall.
-    const workflow = fs.readFileSync(path.join(import.meta.dir, '../.github/workflows/evals-periodic.yml'), 'utf8');
-    expect(workflow).toMatch(/timeout-minutes: 355/);
-    expect(budget.shardMs).toBeLessThan(355 * 60_000);
+    const workflow = Bun.YAML.parse(fs.readFileSync(path.join(import.meta.dir, '../.github/workflows/evals-periodic.yml'), 'utf8')) as any;
+    expect(budget.shardMs).toBeLessThan(workflow.jobs['eval-slices']['timeout-minutes'] * 60_000);
   });
 
   test(`${budget.file}: own-shard allocation leaves ordinary and explicit limits intact`, () => {
@@ -176,9 +175,9 @@ test('current detach supervision covers the live-census floor', () => {
   const floor = Math.ceil((Math.ceil(files.length / DEFAULT_JOBS) * DEFAULT_SHARD_TIMEOUT_MS + excess) / 1000 * 1.05);
   const pkg = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '../package.json'), 'utf8'));
   const configured = Number(pkg.scripts['eval:bg:periodic'].match(/--timeout\s+(\d+)/)[1]);
-  expect(floor).toBe(65268);
+  expect(floor).toBe(65541);
   expect(configured).toBeGreaterThanOrEqual(floor);
-  expect(pkg.scripts['eval:bg:gate']).toContain('--timeout 35640');
+  expect(pkg.scripts['eval:bg:gate']).toContain('--timeout 36000');
 });
 
 for (const jobs of [1, 2, 3]) test(`FIFO bound covers partial durations with ${jobs} workers`, () => {

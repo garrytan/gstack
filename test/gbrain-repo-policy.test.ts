@@ -293,6 +293,9 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
       spawnSync('git', args, { cwd: repoDir, encoding: 'utf-8', timeout: 30_000 });
     git('init', '-q', '.');
     git('remote', 'add', 'origin', REPO_URL);
+    git('config', '--local', 'url.https://git.capy.ai/.insteadOf', 'https://github.com/');
+    expect(git('remote', 'get-url', 'origin').stdout.trim()).toBe('https://git.capy.ai/acme/widget.git');
+    expect(git('config', '--get', 'remote.origin.url').stdout.trim()).toBe(REPO_URL);
     fs.writeFileSync(path.join(repoDir, 'README.md'), 'fixture\n');
     git('add', '-A');
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'fixture');
@@ -323,6 +326,15 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
 
   afterEach(() => {
     if (repoDir) fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('implicit lookup uses the configured remote rather than its rewritten transport URL', () => {
+    makeRepo();
+    expect(run(['set', REPO_URL, 'deny']).status).toBe(0);
+    const r = spawnSync(BIN, ['get'], { cwd: repoDir, env: { ...process.env, GSTACK_HOME: tmpHome },
+      encoding: 'utf8', timeout: 30_000 });
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe('deny');
   });
 
   test('deny → code stage refuses loudly, exit 1, status refused-policy-deny', () => {

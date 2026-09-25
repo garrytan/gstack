@@ -451,8 +451,9 @@ Use the full mode name from Step 0E; replace spaces with underscores only in the
 review log's `MODE` field. "System Audit" summarizes repository findings from
 Step 0 and the review sections. "Lake Score" counts complete options selected:
 Y is the number of answered coverage questions offering a 10/10 option; X is
-how many selected that option. Report X/Y, excluding kind-only and unanswered
-questions; use `N/A` when Y is zero.
+how many selected that option. Count a reopened choice only once, using its
+latest answered option; superseded answers add nothing. Exclude kind-only and
+unanswered questions; use `N/A` when Y is zero.
 
 ```
   +====================================================================+
