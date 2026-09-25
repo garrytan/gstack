@@ -2,14 +2,13 @@
 <!-- Regenerate: bun run gen:skill-docs -->
 ## Review preparation
 
-After startup, complete in order:
-1. **Review record and write policy**
-2. **Prior Learnings**
-3. **Retrospective learning**
-4. **Confidence Calibration**
+After startup, prepare in this order:
+1. Select the report file and permissions under **Review record and write policy**.
+2. Run **Prior Learnings** and resolve its configuration question.
+3. Run **Retrospective learning** on existing target paths.
+4. Read **Confidence Calibration** and **Decision procedure** as rules, not review passes.
 
-Read Decision procedure as the rule for later choices. Start the review at
-Scope Challenge, then complete Sections 1–4 in order.
+Then run **Scope Challenge A → B → C**, followed by Sections 1–4 in order.
 
 ## Review record and write policy
 
@@ -50,15 +49,15 @@ path authorizes no other; implementation edits require explicit authority.
 | Required Review Log | The helper's state location | Present its fields as **not persisted**; the final gate cannot pass without this log. |
 | Best-effort metadata/learning logs | Helper-defined locations | Skip forbidden writes; otherwise keep their best-effort behavior. |
 
-The QA Test Plan and task JSONL intentionally use legacy discovery paths under
-`~/.gstack/projects/{slug}/`: `{user}-{branch}-eng-review-test-plan-{datetime}.md`
-and `tasks-eng-review-{datetime}.jsonl`. Use their formats/commands below; do not relocate them.
+QA Test Plan/task JSONL keep discovery paths `~/.gstack/projects/{slug}/`:
+`{user}-{branch}-eng-review-test-plan-{datetime}.md` and
+`tasks-eng-review-{datetime}.jsonl`. Keep their formats; do not relocate.
 
-A failed permitted save is different from forbidden writing. Use the failed
-step's stated recovery; if saving or read-back still fails, take **Blocked
-outcome**. Do not ask from an unsaved record or convert a failed save into the
-chat-only route. Forbidden auxiliary writes allow the review to continue;
-unrecovered attempted writes block it. Apply this policy at every later write.
+A failed permitted save uses **Recovery routing → Repairable write/read failure**,
+not the forbidden-write branches above. Do not ask from an unsaved record.
+Forbidden auxiliary writes allow the review to continue; unrecovered attempted
+writes block it. Best-effort logs retain their stated non-blocking behavior.
+Apply this policy at every later write.
 
 ## Prior Learnings
 
@@ -187,12 +186,12 @@ one choice at a time through steps 1–6.
 
 Setup gates—Context Recovery/prerequisites, Prior Learnings configuration,
 target and Scope Challenge complexity selectors—use local rules without a
-pre-answer ledger. These answers approve no engineering remedy.
+pre-answer ledger. Scope Challenge B saves actual selector answers afterward,
+outside this remedy loop. These answers approve no engineering remedy.
 
-One question for one choice per AskUserQuestion call. Authorities:
+One choice per AskUserQuestion call. Authorities:
 - Preamble: question format, transport/fallback and authorized auto-decisions.
-- Steps 1–6 below: substantive choices and actual answers.
-- Use Review record/write policy only for saved records, reports and logs.
+- Steps 1–6: substantive choices/answers; Review record/write policy: persistence.
 - Entrypoint: **Paused question** for pending answers; **Blocked outcome** for missing work or failed recovery.
 - Finish: Approval readiness → Required outputs → entrypoint verification.
 
@@ -252,9 +251,7 @@ extra CC effort is marginal. Fit headers and labels to host limits now, before
 saving. Without stated limits, keep both under 5 words; details go in descriptions.
 
 For one fixed approved contract, coverage choices vary implementation or proof
-depth. Use `Completeness: N/10`: 10 covers all relevant in-scope edges, 7 covers
-the happy path, 3 is a shortcut. For different approaches, use
-`Note: options differ in kind, not coverage — no completeness score.`
+depth. Apply the preamble's Completeness scores or kind-note accordingly.
 Test-review scores rate existing/proposed tests, not answer status.
 
 **Audit the commitments.** Build a separate **comparison grid** for the whole
@@ -290,9 +287,6 @@ For example, jitter and a delay cap can be chosen independently. A menu of “bo
 After the jitter answer, carry that value into both options of the later cap question.
 
 ### 4. Save the pending record
-
-Invariant for this step: save one complete current record, Read that record
-back, then ask the exact saved question. Do not ask from memory.
 
 Save the record, complete grid and exact `currentDecision` in the report file,
 before `## GSTACK REVIEW REPORT`. Include every native field, the recommendation
@@ -333,8 +327,7 @@ Compare every native field with `currentDecision` and the whole grid with step 3
 Read after the final edit, even if Edit says the content is current in context.
 Grep, chat references, summaries and planned writes do not verify the record.
 Repair any difference and repeat the complete Read before asking. A failed save
-blocks the question; an unreadable or unverifiable record follows the write
-policy's recovery and then **Blocked outcome** if still unresolved.
+blocks the question; unreadable or unverifiable records use **Recovery routing**.
 
 On the permitted read-only route, present the complete record and grid as **not
 persisted** and compare them with `currentDecision`. This can support the chat
@@ -362,9 +355,6 @@ call, start the next section or call ExitPlanMode while the choice awaits an
 answer. An obvious fix still needs an answer unless exact prior approval covers it.
 
 ### 6. Apply and refresh
-
-Invariant for this step: apply the selected option as one complete resolution
-block, Read it back, then continue. Do not update only the answer line.
 
 Read the selected saved label, full description and grid column together. Carry
 all commitments, conditions, unchanged values and pending choices forward. If
@@ -398,11 +388,15 @@ audit trail, leaving User Challenges for its final gate.
 
 ## Scope Challenge
 
-**Analyze scope (all targets).** Answer as reviewer analysis, not user questions:
-1. **What already solves each sub-problem?** Inspect helpers, libraries, callers and reusable outputs: behavior and dependency/deployment boundaries. Cite authored sources; label proposed callers with their motivating plan requirement and assumptions.
-2. **What minimum changes achieve the goal?** Flag work deferrable without blocking it; challenge scope creep.
-3. **Complexity check:** Count files and new classes/services; seek fewer moving parts. Apply the gate below.
-4. **Search check:** For each new architectural pattern, infrastructure component
+### A. Assess the target
+
+Complete these checks before the complexity decision in B. Do not apply scope
+changes or write findings into the plan yet.
+
+- **What already solves each sub-problem?** Inspect helpers, libraries, callers and reusable outputs: behavior and dependency/deployment boundaries. Cite authored sources; label proposed callers with their motivating plan requirement and assumptions.
+- **What minimum changes achieve the goal?** Flag work deferrable without blocking it; challenge scope creep.
+- **Complexity check:** Count files and new classes/services; seek fewer moving parts. Use these counts in B.
+- **Search check:** For each new architectural pattern, infrastructure component
    or concurrency approach, research built-ins, current practice and pitfalls
    through Aside (entrypoint readiness), one read-only request per pattern:
 
@@ -417,18 +411,20 @@ audit trail, leaving User Challenges for its final gate.
    Prefer available built-ins. Label recommendations **[Layer 1]**, **[Layer 2]**,
    **[Layer 3]** or **[EUREKA]** per Search Before Building; explain departures
    from standard practice.
-5. **TODOS cross-reference:** Read existing `TODOS.md`: what blocks this plan,
+- **TODOS cross-reference:** Read existing `TODOS.md`: what blocks this plan,
    fits this PR without expanding scope, or needs a new TODO?
 
-6. **Completeness check:** Full tests, edges and errors cost 10-100x less with AI.
+- **Completeness check:** Full tests, edges and errors cost 10-100x less with AI.
    Prefer completeness when a shortcut saves only CC+gstack minutes. Boil the ocean.
 
-7. **Distribution check:** For new artifacts, verify build/publish CI/CD, target
+- **Distribution check:** For new artifacts, verify build/publish CI/CD, target
    OS/architectures and download/install channels. Put deferrals in "NOT in scope".
 
-**Conditional complexity gate.** At 8+ files or 2+ new classes/services, STOP before Section 1. Use the
-preamble's decision-brief format for this complexity gate.
-Below threshold, continue at **Resolve Scope Challenge findings**.
+### B. Resolve complexity selectors
+
+Below both thresholds, skip B's questions and go directly to **C. Resolve findings**.
+At 8+ files or 2+ new classes/services, STOP before Section 1. Use the
+preamble's decision-brief format for this complexity gate, in this order:
 
 Initial scope selectors need no grid or **pre-answer** ledger write. Ask and
 wait before changes.
@@ -444,16 +440,23 @@ wait before changes.
    question; unapproved fixes stay pending. If no smaller arrangement preserves
    these commitments, explain that and offer confirmation of the original
    arrangement or a pause to investigate a smaller one. Wait for the answer.
+   A pause leaves the arrangement undecided: investigate only the agreed question,
+   then return to this structure selector. Do not continue to C until it is settled.
 3. Save the actual feature and structure answers as one scope record: `feature
    answers: <refs>; structure: <A/B + ref>; accepted scope: <exact scope>;
    pending remedies: <ids or none>`.
 
-Save this record under the write policy; no retroactive pending record.
+This is a post-answer scope summary, not a remedy's pending ledger record.
+Save it under the write policy and Read it back against the actual answers;
+on the permitted read-only route, present and verify it as **not persisted**.
+Do not invent a pre-answer record afterward. A failed save or Read blocks advancement.
 
-After any complexity answers, apply only accepted scope changes. Do not re-argue
-reduction or skip approved components. Both paths join below.
+After verification, apply only accepted scope changes. Do not re-argue reduction
+or skip approved components. Continue to **C. Resolve findings**.
 
-**Resolve Scope Challenge findings (all targets).**
+### C. Resolve findings
+
+Run C whether B was completed or skipped.
 
 1. Present numbered Scope Challenge findings with calibrated severity, confidence
    and source; use "No issues found" for an empty list.
@@ -521,14 +524,9 @@ Use Decision procedure for new/reopened extraction choices; scope approval does 
 
 ### 3. Test review
 
-For a plan target, review proposed coverage against proposed paths. For a
-branch-diff target, diagram changed code paths plus callers/tests; the working
-plan is the remedy plan from diff findings.
-
 For shared-code changes, audit existing/missing shared-contract tests (behavior,
 errors, side effects, boundaries) and each migrated caller's integration/differences.
-Reuse meaningful tests; account for their costs and shared failure risk per rubric. Rejected
-extractions still need coverage for real duplicated-code defects.
+Rejected extractions still need coverage for real duplicated-code defects.
 
 100% coverage is the goal. Identify the tests each planned codepath needs. Add required proof for an exact approved behavior without asking again; take new policies or optional verification depth through the decision gate before treating their tests as accepted work. Review the requirements here; do not build the proposed tests.
 
@@ -578,8 +576,8 @@ Read the plan document. For each new feature, service, endpoint, or component de
    - What transforms it? (validation, mapping, computation)
    - Where does it go? (database write, API response, rendered output, side effect)
    - What can go wrong at each step? (null/undefined, invalid input, network failure, empty collection)
-3. **Diagram the execution.** For each changed file, draw an ASCII diagram showing:
-   - Every function/method that was added or modified
+3. **Diagram the execution.** For each existing or proposed component in the selected target, draw an ASCII diagram showing:
+   - Every existing or proposed function/method in scope
    - Every conditional branch (if/else, switch, ternary, guard clause, early return)
    - Every error path (try/catch, rescue, error boundary, fallback)
    - Every call to another function (trace into it — does IT have untested branches?)
@@ -589,7 +587,7 @@ This is the critical step — you're building a map of every line of code that c
 
 **Step 2. Map user flows, interactions, and error states:**
 
-Code coverage isn't enough — you need to cover how real users interact with the changed code. For each changed feature, think through:
+Code coverage isn't enough — you need to cover how real users interact with the selected target. For each existing or proposed feature, think through:
 
 - **User flows:** What sequence of actions does a user take that touches this code? Map the full journey (e.g., "user clicks 'Pay' → form validates → API call → success/failure screen"). Each step in the journey needs a test.
 - **Interaction edge cases:** What happens when the user does something unexpected?
@@ -734,7 +732,7 @@ Repo: {owner/repo}
 
 This file is consumed by `/qa` and `/qa-only` as primary test input. Include only the information that helps a QA tester know **what to test and where** — not implementation details.
 
-After **Add missing tests to the plan** resolves test/eval decisions and the Test Plan Artifact is saved or presented, report findings/dispositions and continue to Performance review.
+After **Add missing tests to the plan** resolves test/eval decisions and the Test Plan Artifact is saved or presented, report the Test review findings and their dispositions and continue to Performance review.
 
 ### 4. Performance review
 Evaluate:
@@ -995,11 +993,11 @@ Retain the historical review-log skill ID; add `"host":"claude","outside_provide
 
 ### Continue after Outside Voice
 
-Complete the chosen Outside Voice branch and its coverage record. Only completed reviews enter Cross-model tension. Report disabled/unavailable coverage in the Completion summary, then continue below.
+Finish the Outside Voice branch. Only completed reviews enter Cross-model tension. Record the actual coverage, including disabled or unavailable outcomes, in the Completion summary, then continue below.
 
 ## Final planning decisions
 
-After Sections 1–4 and Outside Voice, resolve TODO choices below, then pass Approval readiness before Required outputs.
+After Sections 1–4 and Outside Voice, resolve the TODO choices, then check Approval readiness before Required outputs.
 
 ### TODOS.md updates
 Review every potential TODO. Reuse an exact prior disposition under Decision procedure; ask about each unanswered proposal in its own AskUserQuestion. Never batch TODOs or silently skip them. Use `~/.claude/skills/gstack/review/TODOS-format.md`.
@@ -1032,8 +1030,9 @@ unresolved decisions in the report.
 After Approval readiness passes, follow this finish sequence using the reference
 sections below; those references are not another review cycle.
 
-Resume failed steps. Reuse a successful Review Log only for unchanged saved
-outputs; changed outputs must pass steps 1–4 again.
+For recovery or changed outputs, use the entrypoint's **Recovery routing**.
+Reuse a successful Review Log only for unchanged saved outputs; changed outputs
+must pass steps 1–4 again.
 
 1. **Prepare the review body.** Complete the working plan, Implementation Tasks
    and Completion summary below. Leave choices pending according to each record's
@@ -1047,9 +1046,8 @@ outputs; changed outputs must pass steps 1–4 again.
 4. **Publish.** Display the Review Readiness Dashboard, then present the saved
    Completion summary to the user.
 5. **Choose navigation.** Use Next Steps — Review Chaining; wait for its answer.
-   Navigation grants no implementation authority. For substantive changes, use
-   Decision procedure, repeat Approval readiness, and redo affected outputs from
-   step 1 through publication before asking navigation again.
+   Navigation grants no implementation authority. A substantive change follows
+   **Recovery routing → Late change or missing work** before navigation resumes.
 6. **Finish.** Run Learning hooks, including gated Brain Calibration Write-Back;
    then return to the entrypoint's Section self-check and read-only EXIT PLAN MODE GATE in
    every host mode. Only after both pass, run success telemetry and cache refresh;
@@ -1057,8 +1055,8 @@ outputs; changed outputs must pass steps 1–4 again.
 
 ### Output reference — review body
 
-Put `Suppressed findings` in its body appendix. End with `## GSTACK REVIEW REPORT`;
-nothing follows that terminal report.
+Place `Suppressed findings` as a body appendix before the terminal
+`## GSTACK REVIEW REPORT`; nothing follows that terminal report.
 
 ### "NOT in scope" section
 List considered work that was explicitly deferred, with one sentence explaining each deferral.
@@ -1381,12 +1379,9 @@ the working plan's prerequisites, dependencies and execution order without addin
 or strengthening them. Do not serialize independent lanes. A next-step answer
 approves no implementation change.
 
-For substantive late changes, repeat finish step 5, including affected tasks,
-dependencies and parallelization in refreshed outputs.
-
 ## Learning hooks
 
-In finish step 6, keep the working plan/approvals fixed. Use the preamble for
+Keep the working plan/approvals fixed. Use the preamble for
 operational learnings, Capture Learnings for other discoveries. Never log twice.
 
 ## Capture Learnings
@@ -1419,6 +1414,8 @@ already knows. A good test: would this insight save time in a future session? If
 **Calibration gate status:** No supported preamble/config produces `BRAIN_CALIBRATION_WRITEBACK`. Skip unless that source explicitly enables it. Personal trust/MCP availability cannot enable it; never set it yourself.
 
 ## Brain Calibration Write-Back (gated)
+
+`BRAIN_CALIBRATION_WRITEBACK` is a reserved default-off gate; this runtime does not set it. Skip this section and continue the finish sequence. Do not enable it or infer permission from brain availability. The contract below is retained for future gated integration, not an instruction to write now.
 
 Skip unless `BRAIN_CALIBRATION_WRITEBACK` is set and the preamble/brain-health
 output or gstack config shows `brain_trust_policy@<endpoint-hash>=personal`.

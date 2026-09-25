@@ -109,7 +109,7 @@ describe('engineering review routing contracts', () => {
     expect(summary).toContain('Do not invent a pre-answer record afterward');
     expect(summary).toContain('A failed save or Read blocks advancement');
     expect(summary).toContain('on the permitted read-only route, present and verify it as **not persisted**');
-    expect(compact(section)).toContain('Scope Challenge B saves actual selector answers afterward; it does not use this remedy loop');
+    expect(compact(section)).toContain('Scope Challenge B saves actual selector answers afterward, outside this remedy loop');
   });
 
   test('engineering remedies still require full save Read ask answer apply Read ordering', () => {
@@ -135,7 +135,7 @@ describe('engineering review routing contracts', () => {
     expect(compact(outside)).toContain('Only completed reviews enter Cross-model tension');
     expect(compact(outside)).toContain('Record the actual coverage, including disabled or unavailable outcomes');
     expect(section).toContain('Outside voice: recorded provider, completed / unavailable / disabled / skipped (reason)');
-    expect(compact(outside)).toContain('Resolve the TODO choices, then check Approval readiness before Required outputs');
+    expect(compact(outside)).toContain('resolve the TODO choices, then check Approval readiness before Required outputs');
   });
 
   test('paused transport and failed persistence have distinct non-success outcomes', () => {

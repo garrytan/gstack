@@ -613,7 +613,7 @@ describe('Eng approved-work decision gate', () => {
         const artifact = body.indexOf('\n#### Test Plan Artifact\n');
         const report = body.indexOf('After **Add missing tests to the plan** resolves test/eval decisions and the Test Plan Artifact is saved or presented');
         expect(0 <= stop && stop < artifact && artifact < report).toBe(true);
-        expect(body.slice(report)).toContain('report findings/dispositions and continue to Performance review');
+        expect(body.slice(report)).toContain('report the Test review findings and their dispositions and continue to Performance review');
         expect(body.slice(stop, artifact)).not.toContain('and continue');
       }
     }
@@ -721,7 +721,7 @@ describe('Eng approved-work decision gate', () => {
     expect(compactProse(policy)).toContain("adding a suffix on collision");
     expect(compactProse(policy)).toContain("Never substitute an unrelated active plan");
     expect(compactProse(policy)).toContain("ledger and final structured report");
-    expect(compactProse(policy)).toContain("intentionally use legacy discovery paths under");
+    expect(compactProse(policy)).toContain('QA Test Plan/task JSONL keep discovery paths `~/.gstack/projects/{slug}/`');
     expect(compactProse(policy)).toContain("including active-plan-only");
     expect(compactProse(policy)).toContain("**Check each artifact and parent directory's permission before writing.**");
     expect(compactProse(policy)).toContain("Permission for one path authorizes no other");
@@ -741,7 +741,7 @@ describe('Eng approved-work decision gate', () => {
     }
     expect(routes['Required Review Log']).toContain("the final gate cannot pass without this log");
     expect(compactProse(policy)).toContain("Forbidden auxiliary writes allow the review to continue; unrecovered attempted writes block it");
-    expect(compactProse(gate)).toContain("Use Review record/write policy only for saved records, reports and logs");
+    expect(compactProse(gate)).toContain('Steps 1–6: substantive choices/answers; Review record/write policy: persistence');
     const log = template.split('## Review Log')[1]!.split('{{REVIEW_DASHBOARD}}')[0]!;
     expect(log).toContain("Use these commands in finish step 3, after successful Read-back");
     expect(compactProse(template)).toContain('If the required log is forbidden, show fields as not persisted and take **Blocked outcome**');

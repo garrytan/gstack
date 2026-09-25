@@ -47,9 +47,9 @@ path authorizes no other; implementation edits require explicit authority.
 | Required Review Log | The helper's state location | Present its fields as **not persisted**; the final gate cannot pass without this log. |
 | Best-effort metadata/learning logs | Helper-defined locations | Skip forbidden writes; otherwise keep their best-effort behavior. |
 
-The QA Test Plan and task JSONL intentionally use legacy discovery paths under
-`~/.gstack/projects/{slug}/`: `{user}-{branch}-eng-review-test-plan-{datetime}.md`
-and `tasks-eng-review-{datetime}.jsonl`. Use their formats/commands below; do not relocate them.
+QA Test Plan/task JSONL keep discovery paths `~/.gstack/projects/{slug}/`:
+`{user}-{branch}-eng-review-test-plan-{datetime}.md` and
+`tasks-eng-review-{datetime}.jsonl`. Keep their formats; do not relocate.
 
 A failed permitted save uses **Recovery routing → Repairable write/read failure**,
 not the forbidden-write branches above. Do not ask from an unsaved record.
@@ -87,13 +87,12 @@ one choice at a time through steps 1–6.
 
 Setup gates—Context Recovery/prerequisites, Prior Learnings configuration,
 target and Scope Challenge complexity selectors—use local rules without a
-pre-answer ledger. Scope Challenge B saves actual selector answers afterward;
-it does not use this remedy loop. These answers approve no engineering remedy.
+pre-answer ledger. Scope Challenge B saves actual selector answers afterward,
+outside this remedy loop. These answers approve no engineering remedy.
 
-One question for one choice per AskUserQuestion call. Authorities:
+One choice per AskUserQuestion call. Authorities:
 - Preamble: question format, transport/fallback and authorized auto-decisions.
-- Steps 1–6 below: substantive choices and actual answers.
-- Use Review record/write policy only for saved records, reports and logs.
+- Steps 1–6: substantive choices/answers; Review record/write policy: persistence.
 - Entrypoint: **Paused question** for pending answers; **Blocked outcome** for missing work or failed recovery.
 - Finish: Approval readiness → Required outputs → entrypoint verification.
 
@@ -415,11 +414,11 @@ Evaluate:
 
 ### Continue after Outside Voice
 
-Complete the chosen Outside Voice branch and its coverage record. Only completed reviews enter Cross-model tension. Report disabled/unavailable coverage in the Completion summary, then continue below.
+Finish the Outside Voice branch. Only completed reviews enter Cross-model tension. Record the actual coverage, including disabled or unavailable outcomes, in the Completion summary, then continue below.
 
 ## Final planning decisions
 
-After Sections 1–4 and Outside Voice, resolve TODO choices below, then pass Approval readiness before Required outputs.
+After Sections 1–4 and Outside Voice, resolve the TODO choices, then check Approval readiness before Required outputs.
 
 ### TODOS.md updates
 Review every potential TODO. Reuse an exact prior disposition under Decision procedure; ask about each unanswered proposal in its own AskUserQuestion. Never batch TODOs or silently skip them. Use `~/.claude/skills/gstack/review/TODOS-format.md`.
@@ -571,7 +570,7 @@ approves no implementation change.
 
 ## Learning hooks
 
-In finish step 6, keep the working plan/approvals fixed. Use the preamble for
+Keep the working plan/approvals fixed. Use the preamble for
 operational learnings, Capture Learnings for other discoveries. Never log twice.
 
 {{LEARNINGS_LOG}}

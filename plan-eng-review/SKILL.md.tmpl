@@ -157,11 +157,11 @@ Scope Challenge is mandatory before Section 1.
 
 ## Recovery routing
 
-Use this routing at every STOP or failed verification; do not restart the review.
+At every STOP or failed verification, use this route; do not restart.
 
 **Paused question:** Wait for its actual answer without completion telemetry or ExitPlanMode.
-Resume that question's local procedure with the answer. A missing-result call
-that may have surfaced is still pending; do not duplicate it.
+Resume its local procedure with the answer. A missing-result call that may have
+surfaced is still pending; do not duplicate it.
 
 **Repairable write/read failure:** Stop before the dependent question or output.
 Use that step's stated recovery, then repeat its full Read-back verification.
@@ -173,7 +173,7 @@ reopened choices use Decision procedure. Repeat Approval readiness, then Require
 outputs steps 1–4 for changed outputs before choosing navigation again. Refresh
 affected tests, tasks, dependencies and parallelization. Unchanged saved outputs
 may reuse their successful Review Log. If a final gate discovers stale evidence,
-follow **Blocked outcome** first; resume on this repair path.
+follow **Blocked outcome** first; then resume here.
 
 **Blocked outcome:** Stop the review and report `BLOCKED`, the missing path/work, actual attempts and what is needed to resume. Label complete chat-only output **not persisted**; it supplies no saved-review or completion credit. If startup values and a permitted telemetry command are available, run **Telemetry (run last)** once with `OUTCOME=error` and the actual `ERROR_MESSAGE`/`FAILED_STEP`. Do not call ExitPlanMode. Resume at the failed step using Recovery routing.
 
