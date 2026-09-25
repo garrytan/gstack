@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.91.1.0] - 2026-09-25
+
+### Fixed
+
+- Find Impeccable installed through the Claude Code plugin marketplace, including a trusted custom `CLAUDE_CONFIG_DIR`. Preserve traditional skill installs and the existing explicit-engine, PATH and standalone-cache priority.
+- Select plugin versions deterministically with strict semver ordering and support for hash-named versions. Keep a selected installation's launcher, engine and engine version together instead of borrowing an older plugin's engine.
+- Use the same strict ordering for the standalone engine cache, retaining its semver-only policy and precedence. Do not follow cache directory symlinks or repository configuration links into unrelated filesystem trees.
+- Preserve repository and symlink execution boundaries, sanitize discovery diagnostics, and quote or suppress launcher hints when a filename cannot be represented safely. Discovery never downloads or runs a launcher; engine compatibility warnings and install consent remain unchanged.
+- Compare canonical HOME paths at the trust boundary, so home-directory aliases and dotfiles repositories do not hide user-installed engines or admit private home files as scan targets.
+- Add plugin discovery, handoff, malformed-version and adversarial-path regressions, plus Windows-safe discovery cases selected by the native Windows test lane.
+
+Includes the plugin-cache discovery contribution from @SomSamantray in #2976.
+
 ## [1.90.0.0] - 2026-09-24
 
 Cookie imports now keep the chosen browser, profile, and destination explicit, show partial failures, and distinguish copying cookies from proving that you are signed in.
