@@ -107,13 +107,13 @@ describe('Codex subprocess lifecycle without API calls', () => {
     await withFakeCodex(`
 const line = Buffer.from(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'gstack review: café' } }) + '\\n');
 for (const byte of line) fs.writeSync(1, Buffer.from([byte]));
-process.stderr.write('fixture warning\\n');
+for (const byte of Buffer.from('fixture warning: café\\n')) fs.writeSync(2, Buffer.from([byte]));
 process.stdout.write(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 7, output_tokens: 3 } }));
 `, async ({ skillDir, tempHome, pids }) => {
       const result = await runCodexSkill({ skillDir, prompt: 'fixture', timeoutMs: 2_000 });
       expect(result.exitCode).toBe(0);
       expect(result.output).toBe('gstack review: café');
-      expect(result.stderr).toBe('fixture warning\n');
+      expect(result.stderr).toBe('fixture warning: café\n');
       expect(result.tokens).toBe(10);
       expect(result.rawLines).toHaveLength(2);
       expect(fs.existsSync(tempHome())).toBe(false);
