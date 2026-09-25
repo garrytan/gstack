@@ -261,6 +261,18 @@ describe('methodology preparation is a required snapshot input', () => {
     expect(readFileSync(method, 'utf8')).not.toContain('Additional methodology.');
   });
 
+  test('skill_prefix installs name the methodology gstack-<skill> and still match their phase', () => {
+    const f = fixture(); const installed = join(f.dir, 'prefixed'); mkdirSync(join(installed, 'sections'), { recursive: true });
+    const entry = join(installed, 'SKILL.md');
+    const source = readFileSync(join(ROOT, 'plan-ceo-review/SKILL.md'), 'utf8');
+    expect(source).toMatch(/^name: plan-ceo-review$/m);
+    writeFileSync(entry, source.replace(/^name: plan-ceo-review$/m, 'name: gstack-plan-ceo-review'));
+    copyFileSync(join(ROOT, 'plan-ceo-review/sections/review-sections.md'), join(installed, 'sections/review-sections.md'));
+    const method = prepareMethodology('ceo', entry, f.restore);
+    expect(createSnapshot('ceo', f.active, f.restore, method.methodologyPath).methodology.sha256).toBe(method.sha256);
+    expect(() => prepareMethodology('design', entry, f.restore)).toThrow('identity');
+  });
+
   test('matching preparation binds metadata without changing the blind native input', () => {
     const f = fixture(); const method = prepareMethodology('ceo', join(ROOT, 'plan-ceo-review/SKILL.md'), f.restore);
     const first = createSnapshot('ceo', f.active, f.restore, method.methodologyPath);
