@@ -134,7 +134,7 @@ CHECKLIST:
 **Subagent configuration:**
 - Use \`subagent_type: "general-purpose"\`
 - Pass \`run_in_background: false\` on every specialist Agent call — subagents run in the BACKGROUND by default since ${CC_BACKGROUND_DEFAULT_SINCE}, and all specialists must complete before merge. (Merely omitting the flag no longer produces a foreground run; it must be explicitly false.)
-- If any specialist subagent fails or times out, log the failure and continue with results from successful specialists. Specialists are additive — partial results are better than no results.`;
+- If any specialist subagent fails or times out, log the failure and retain results from successful specialists for aggregation. Specialists are additive — partial findings are useful evidence, not completed coverage.${ctx.skillName === 'ship' ? ' Step 9.4 stops before Step 10 when a dispatched specialist failed; rerun the missing review before shipping.' : ''}`;
 }
 
 function generateFindingsMerge(ctx: TemplateContext): string {

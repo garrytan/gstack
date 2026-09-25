@@ -41,6 +41,8 @@ describe('native ARM setup smoke workflow', () => {
     expect(scripts).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"');
     expect(scripts).toContain('git archive --format=tar HEAD');
     expect(scripts).toContain('sha256sum setup bun.lock package.json');
+    expect(scripts).toContain('ln -s bun /usr/local/bin/bunx');
+    expect(scripts).toContain('test "$(bunx --version)" = 1.4.0');
     expect(scripts.match(/sha256sum --check \/input\/source.sha256/g)).toHaveLength(2);
     expect(scripts).toContain('bun install --frozen-lockfile');
     expect(scripts).toContain('bash setup --host claude');
