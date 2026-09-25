@@ -834,7 +834,7 @@ printf 'DESIGN_BRIEF=%s\\n' "$_DESIGN_BRIEF"
 Write the product brief to that path; remember its absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file for Codex, along with the design-direction request below; substitute its shell-quoted absolute path for the literal <prepared-prompt-file> in the invocation. Keep your draft direction out of both prompts; give the native Agent its absolute path (the product brief's path, not the Codex prompt file). Never paste brief text into shell source.` : ''}
 
 **Check ${outsideVoiceFor(ctx).label} availability:**
-${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in' })}
+${outsideVoicePreflight(ctx, { disabledBehavior: 'opt-in', acceptedOnly: isDesignConsultation })}
 
 ${isDesignConsultation ? 'Non-ready CLI: retain its repair notice and use only the native voice. The invocation deliberately rechecks the harness before spawning; native success never replaces external coverage.' : 'Declined: skip both voices. Non-ready: retain the repair notice, use only the native voice, and record `outside_status: unavailable` even if it succeeds. The invocation rechecks the harness before spawning.'}
 
@@ -978,9 +978,7 @@ ${check}
 
 \`${SENTINEL.DESIGN_MD_FORMAT}: spec\`: the front matter is normative. Run \`${bin} tokens DESIGN.md\` and calibrate against the flat token map: a value present there is never a finding, and a finding that departs from a token names the token. \`legacy\` or \`unknown\`: read the file as prose. The \`DESIGN_MD_MARKER\` line is the user's persisted format choice; respect it and never offer a conversion here (that is /design-consultation's question). \`missing\`: universal principles.`;
   }
-  return `**DESIGN.md format** (the open format; Phase 6 has the template):
-
-**Update-only gate:** Only **Update** with DESIGN.md enters this block (command and all result branches). **Start fresh**, **No existing file**, or a lone design-system.md: skip to **Gather product context from the codebase**. **Cancel** has already stopped the skill.
+  return `**Update-only gate:** Only **Update** with DESIGN.md enters this block (command and all result branches). **Start fresh**, **No existing file**, or a lone design-system.md: skip to **Gather product context from the codebase**. **Cancel** has already stopped the skill.
 
 ${check}
 

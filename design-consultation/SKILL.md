@@ -449,8 +449,6 @@ If either exists, read it and AskUserQuestion: "Want to **update**, **start fres
 
 All conversion, marker and design writes wait for Q-final; Phase 0 only reads and records choices.
 
-**DESIGN.md format** (the open format; Phase 6 has the template):
-
 **Update-only gate:** Only **Update** with DESIGN.md enters this block (command and all result branches). **Start fresh**, **No existing file**, or a lone design-system.md: skip to **Gather product context from the codebase**. **Cancel** has already stopped the skill.
 
 ```bash

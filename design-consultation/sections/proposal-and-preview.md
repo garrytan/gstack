@@ -119,10 +119,7 @@ Write the product brief to that path; remember its absolute path across fresh Ba
 **Check Codex availability:**
 ```bash
 
-_OUTSIDE_CFG=enabled # This caller has its own opt-in/skip control.
-if [ "$_OUTSIDE_CFG" = disabled ]; then
-  echo 'CODEX_MODE: disabled'
-elif ( # GSTACK_ACTIVE_HOST names the harness, never the model.
+if ( # GSTACK_ACTIVE_HOST names the harness, never the model.
 if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
   echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
   if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then

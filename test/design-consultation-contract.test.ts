@@ -89,6 +89,21 @@ test('consultation drafts before independent dispatch and compares completed inp
   expect(section).toContain('label old proposals stale');
 });
 
+test('consultation opt-in probes the CLI without a disabled branch and rechecks its spawn', () => {
+  const text = generateDesignOutsideVoices(context('claude'));
+  const accepted = text.indexOf('**If accepted:**');
+  const availability = text.indexOf('**Check Codex availability:**');
+  const invocation = text.indexOf('1. **Codex design voice**');
+  expect(availability).toBeGreaterThan(accepted);
+  expect(invocation).toBeGreaterThan(availability);
+  const preflight = text.slice(availability, invocation);
+  expect(preflight).not.toContain('_OUTSIDE_CFG=enabled');
+  expect(preflight).not.toContain('CODEX_MODE: disabled');
+  expect(preflight).toContain('CODEX_MODE: under_current_harness');
+  expect(preflight).toContain('exit 78');
+  expect(text.slice(invocation)).toContain('exit 78');
+});
+
 test('optional browser research has one unavailable branch and reuses its readiness probe', () => {
   const ctx = context('claude');
   const fallback = generateBrowseFallback(ctx);
