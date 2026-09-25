@@ -19,6 +19,22 @@ test('every host exposes the DX per-call rule before the pre-review audit and St
       const content = fs.readFileSync(path.join(outputRoot, artifact.relativePath), 'utf8');
       const audit = content.indexOf('## PRE-REVIEW SYSTEM AUDIT');
       expect(audit).toBeGreaterThan(0);
+      const preReview = content.slice(audit, content.indexOf('## Auto-Detect Product Type', audit));
+      expect(preReview).toContain('origin/<detected-base-branch>...HEAD');
+      expect(preReview).not.toContain('git merge-base HEAD main');
+      expect(preReview).toContain('Defer exhaustive branch exploration until after product type and persona are confirmed.');
+      const productGate = content.slice(content.indexOf('## Auto-Detect Product Type', audit),
+        content.indexOf('## Step 0: DX Investigation', audit));
+      expect(productGate).toContain('STOP. Ask for product-type confirmation before deeper branch research.');
+      const brain = content.indexOf('## Brain Context (preflight)', audit);
+      const productType = content.indexOf('## Auto-Detect Product Type', audit);
+      const persona = content.indexOf('### 0A. Developer Persona Interrogation', productType);
+      const personaStop = content.indexOf('**STOP.** Do NOT proceed until user responds.', persona);
+      const prerequisite = content.indexOf('## Prerequisite Skill Offer', persona);
+      expect(brain).toBeGreaterThan(audit);
+      expect(brain).toBeLessThan(productType);
+      expect(prerequisite).toBeGreaterThan(personaStop);
+      expect(prerequisite).toBeLessThan(content.indexOf('### 0B. Empathy Narrative', persona));
       const beforeAudit = content.slice(0, audit);
       expect(beforeAudit).toContain('including Step 0 and outside voice');
       expect(beforeAudit).toContain('One independent choice per AskUserQuestion call, never separate tabs');
