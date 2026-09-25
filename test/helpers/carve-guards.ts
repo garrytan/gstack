@@ -523,7 +523,7 @@ do not launch the downstream skill or open a browser.`,
       mustPrecedeStop: ['land-deploy-confirmed'],
       mustMoveToSection: [
         'PRE-MERGE READINESS REPORT',
-        'gh pr merge "$MERGE_FLAG" --auto --delete-branch',
+        'gh pr merge "$PR_NUMBER" "$MERGE_FLAG" --match-head-commit "$REVIEW_HEAD" --auto --delete-branch',
         'DEPLOY INFRASTRUCTURE VALIDATION',
       ],
       gateAfterStop: undefined, // operational skill

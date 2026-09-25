@@ -2,6 +2,21 @@ import { describe, expect, test } from 'bun:test';
 import { E2E_TIERS, E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES, selectTests } from './helpers/touchfiles';
 import { OVERLAY_FIXTURES } from './fixtures/overlay-nudges';
 
+const shipLandCases = [
+  'ship-land-commands-python', 'ship-land-commands-node', 'ship-land-commands-no-eval',
+  'ship-land-commands-zero-eval', 'ship-land-commands-selector-error', 'ship-land-commands-conflict',
+  'ship-land-commands-missing', 'ship-land-commands-unavailable', 'ship-land-review-pending',
+  'ship-land-review-commented', 'ship-land-review-changes-requested', 'ship-land-review-dismissed',
+  'ship-land-review-stale', 'ship-land-review-approved', 'ship-land-review-approved-comment',
+  'ship-land-review-rerequested', 'ship-land-review-team', 'ship-land-review-unknown',
+  'ship-land-review-bot', 'ship-land-review-solo', 'ship-land-review-waiver',
+  'ship-land-review-generic-waiver', 'ship-land-review-head-change', 'ship-land-review-protected',
+  'ship-land-ci-pending', 'ship-land-ci-failed', 'ship-land-ci-cancelled',
+  'ship-land-ci-skipped', 'ship-land-ci-empty',
+];
+
+const sharedSandboxGateCases = ['setup-gbrain-transcript-enrollment', ...shipLandCases];
+
 describe('periodic fixture dependencies select their behavioral cases', () => {
   const cases: Array<[string, string[]]> = [
     ['test/ceo-expansion-pacing-native.test.ts', ['plan-ceo-mode-routing']],
@@ -119,7 +134,7 @@ describe('periodic fixture dependencies select their behavioral cases', () => {
     ['test/skill-fixture.test.ts', ['journey-ideation', 'journey-plan-eng', 'journey-debug', 'journey-qa', 'journey-code-review', 'journey-ship', 'journey-docs', 'journey-retro', 'journey-design-system', 'journey-visual-qa']],
     ['test/office-hours-writeback-env.test.ts', ['office-hours-brain-writeback']],
     ['test/review-army-budget.test.ts', ['review-army-red-team', 'review-army-consensus']],
-    ['test/helpers/setup-gbrain-sandbox.ts', ['setup-gbrain-bad-token', 'setup-gbrain-path4-local-pglite', 'setup-gbrain-remote']],
+    ['test/helpers/setup-gbrain-sandbox.ts', ['setup-gbrain-bad-token', 'setup-gbrain-path4-local-pglite', 'setup-gbrain-remote', ...sharedSandboxGateCases]],
     ['test/helpers/setup-gbrain-fixture-command.ts', ['setup-gbrain-bad-token', 'setup-gbrain-path4-local-pglite']],
     ['test/fixtures/autoplan-caller.fixture.test.ts', ['autoplan-chain-pty']],
     ['test/gstack-paths.test.ts', ['autoplan-chain-pty', 'carve-section-loading', 'design-html-slop-gate']],
@@ -205,7 +220,7 @@ describe('periodic fixture dependencies select their behavioral cases', () => {
       const result = selectTests([file], E2E_TOUCHFILES);
       expect(result.reason).toBe('diff');
       expect(result.selected.sort()).toEqual([...expected].sort());
-      for (const id of expected) expect(E2E_TIERS[id]).toBe('periodic');
+      for (const id of expected) expect(E2E_TIERS[id]).toBe(sharedSandboxGateCases.includes(id) ? 'gate' : 'periodic');
     });
   }
 });
@@ -228,8 +243,9 @@ test('offering source lookup dependencies select all four gate audits', () => {
     'test/workflow-judge-input.test.ts', 'test/helpers/workflow-excerpt.ts']) {
     const result = selectTests([file], E2E_TOUCHFILES);
     expect(result.reason).toBe('diff');
-    expect(result.selected.sort()).toEqual(expected);
+    expect(result.selected.sort()).toEqual([...expected, ...(file === 'test/helpers/workflow-excerpt.ts' ? shipLandCases : [])].sort());
     for (const id of expected) expect(E2E_TIERS[id]).toBe('gate');
+    for (const id of shipLandCases) expect(E2E_TIERS[id]).toBe('gate');
   }
   for (const file of ['test/helpers/codex-offering-fixture.ts', 'test/codex-offering-fixture.test.ts',
     'test/fixtures/codex-offering-cdd-public.json', 'test/fixtures/codex-offering-timeout-public.json']) {
@@ -806,6 +822,7 @@ test('the declared engineering actor selects its existing count case', () => {
 
 test('stderr lifecycle regression selects runtime consumers without a quality-map edge', () => {
   const expected = [
+    ...shipLandCases,
     'browse-basic', 'browse-snapshot', 'aside-browse-basic', 'aside-browse-flow', 'aside-qa-quick',
     'aside-scrape-json', 'aside-canary-quick', 'hermetic-canary', 'hermetic-sentinel', 'first-task-scaffold',
     'skillmd-setup-discovery', 'skillmd-no-local-binary', 'skillmd-outside-git', 'session-awareness', 'operational-learning',

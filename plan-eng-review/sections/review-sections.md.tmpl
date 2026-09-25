@@ -191,9 +191,12 @@ After the jitter answer, carry that value into both options of the later cap que
 
 Save the record, complete grid and exact `currentDecision` in the report file,
 before `## GSTACK REVIEW REPORT`. Include every native field, the recommendation
-and all options. A–D record selectors are ledger notation only: if a saved label
-already starts `A)`/`B)`/`C)`/`D)`, keep that one prefix; otherwise add it. Compare
-the label separately from that notation by removing the selector before matching.
+and all options. In the ledger's Options list, mark options A–D for answer lookup.
+Add `A)` to the first label only if it has no letter prefix; do the same for B–D.
+For example, native label `Keep current` is saved as `A) Keep current`; native
+label `A) Keep current` is saved unchanged. During Read-back, ignore only a prefix
+added for the ledger. Compare the remaining text literally with the native label.
+Send the original `currentDecision` label, never the added ledger prefix.
 
 When revising, replace the whole current payload for this record: comparison
 grid, question, header, options, state, actual answer and accepted scope. Keep
@@ -324,11 +327,12 @@ changes or write findings into the plan yet.
 ### B. Resolve complexity selectors
 
 Below both thresholds, skip B's questions and go directly to **C. Resolve findings**.
-At 8+ files or 2+ new classes/services, STOP before Section 1. Use the
-preamble's decision-brief format for this complexity gate, in this order:
+At 8+ files or 2+ new classes/services, STOP before Section 1.
 
-Initial scope selectors need no grid or **pre-answer** ledger write. Ask and
-wait before changes.
+Use the preamble's decision-brief format for this complexity gate. These
+questions select features and file/class arrangement, not engineering remedies.
+Initial scope selectors need no grid or **pre-answer** ledger write.
+Wait for actual answers before changing scope.
 
 1. Explain the complexity. Ask each proposed feature cut/deferral separately;
    wait before changing scope. With no proposed cuts, keep the feature list and
@@ -407,8 +411,19 @@ Rejected extractions still need coverage for real duplicated-code defects.
 After the Test Plan Artifact is saved or presented, report the Test review findings and their dispositions and continue to Performance review.
 
 ### 4. Performance review
-Evaluate:
-* N+1/database access, memory, caching, and slow or complex paths.
+Trace the target's database access, memory use, caching and slow or complex paths:
+* **Database access:** Look for queries repeated per item (N+1) and unnecessary
+  reads or writes along the same request or job.
+* **Memory:** Check what is retained, copied or loaded at once as input grows.
+* **Caching:** Check what is cached, when it expires or changes, and the cost of
+  a miss; distinguish a proposed cache from one already in use.
+* **Slow paths:** Identify expensive loops, blocking work and their effect on
+  response time or throughput.
+
+Ground findings in the target evidence and existing measurements when available;
+mark unmeasured costs as unknown. Use Decision procedure for remedies, preserving
+approved performance contracts and their required proof. This review proposes
+work; it does not authorize building benchmarks or optimizations.
 
 {{CODEX_PLAN_REVIEW}}
 

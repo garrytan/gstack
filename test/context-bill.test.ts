@@ -19,6 +19,7 @@ import { canRevokeWrites } from "./helpers/fs-caps";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import {
   buildBill,
   calibrationTable,
@@ -356,6 +357,78 @@ describe("rendering", () => {
     }
     for (const r of skill.forcedRefs) expect(typeof r.tokens).toBe("number");
   });
+});
+
+describe("real CLI pipe shutdown", () => {
+  let tmp: string;
+  let tree: string;
+  let budget: string;
+  let bill: ReturnType<typeof buildBill>;
+
+  beforeAll(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "context-bill-pipe-"));
+    tree = path.join(tmp, "skills");
+    budget = path.join(tmp, "budget.json");
+    for (let i = 0; i < 1024; i++) {
+      const name = `skill-${i.toString().padStart(4, "0")}`;
+      const dir = path.join(tree, name);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "SKILL.md"), `---\nname: ${name}\ndescription: synthetic pipe fixture\n---\n# ${name}\n`);
+    }
+    bill = buildBill(tree);
+    fs.writeFileSync(budget, JSON.stringify({ eagerPerInvocation: Object.fromEntries(bill.skills.map(s => [s.name, 0])) }));
+  });
+
+  afterAll(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
+
+  async function slowCli(args: string[]) {
+    const child = spawn(process.execPath, [path.join(ROOT, "bin", "gstack-context-bill"), ...args], {
+      cwd: tmp,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 10_000,
+    });
+    const closed = new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code, signal) => resolve({ code, signal }));
+    });
+    let stderr = "";
+    child.stderr!.setEncoding("utf8");
+    child.stderr!.on("data", chunk => { stderr += chunk; });
+    const chunks: Buffer[] = [];
+    try {
+      for await (const chunk of child.stdout!) {
+        chunks.push(Buffer.from(chunk));
+        await Bun.sleep(25);
+      }
+      return { ...await closed, stdout: Buffer.concat(chunks), stderr };
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      await closed;
+    }
+  }
+
+  it.each([false, true])("drains complete large JSON with a slow reader (budget=%s)", async (withBudget) => {
+    const expected = Buffer.from(JSON.stringify(withBudget
+      ? { ok: false, violations: checkBudget(bill, JSON.parse(fs.readFileSync(budget, "utf8"))) }
+      : bill, null, 2) + "\n");
+    expect(expected.byteLength).toBeGreaterThan(65_536);
+    const result = await slowCli([tree, "--json", ...(withBudget ? ["--budget", budget] : [])]);
+    expect(result.signal).toBeNull();
+    expect(result.code).toBe(withBudget ? 2 : 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.byteLength).toBe(expected.byteLength);
+    expect(result.stdout.equals(expected)).toBe(true);
+    expect(JSON.parse(result.stdout.toString())).toEqual(JSON.parse(expected.toString()));
+  }, 15_000);
+
+  it("preserves the error exit status and diagnostic", async () => {
+    const missing = path.join(tmp, "missing-tree");
+    const result = await slowCli([missing, "--json"]);
+    expect(result.signal).toBeNull();
+    expect(result.code).toBe(1);
+    expect(result.stdout.byteLength).toBe(0);
+    expect(result.stderr).toBe(`No such tree: ${missing}\n`);
+  }, 15_000);
 });
 
 describe("--diff", () => {

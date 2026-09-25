@@ -1,0 +1,113 @@
+{
+  "sourceRevision": "3788b5fcb",
+  "source": "PR #2971 eval slice 5, skill-e2e-plan-devex-finding-floor, configured attempts 1 and 2",
+  "captures": [
+    {
+      "attempt": 1,
+      "observationSha256": "583748b6810a509bffd86bc0b99aed927987feb2463b0f7087b63203117f0866",
+      "inputSha256": "2eee276904660f64831feb14efae271ebbcf554d1170d4131b8838270c090ec2",
+      "identity": "11b6fb91-39d9-4004-a365-51797586fc53:toolu_01UGkCTvEpajNpgYRWcRRCaM:question:0",
+      "input": {
+        "seed": "Proceed directly to the requested review; skip the optional /office-hours prerequisite.\n\nThis actor has already declined routing setup, cross-project recall and outside reviewers.\n\nPreserve the supplied product scope. For review-mode questions choose HOLD SCOPE (CEO), DX POLISH (DX), or the full BIG CHANGE review (Eng). Design: review all seven dimensions.\n\nProduct type is confirmed: SDK quickstart documentation, with the complete journey to the first SDK call as context. If asked to classify, choose SDK + Docs when offered, otherwise Documentation. This confirms the review lens; it does not expand the plan.\n\nTarget persona is confirmed: a hands-on developer integrating this SDK for the first time, trying to make one successful call. Product type and persona setup are already answered; proceed to reviewing the supplied plan.\n\nFor setup confirmations, this actor can supply only the following persona/journey correction through the native custom answer. It does not approve a proposed narrative, remedy, or scope change: Confirmed persona: a hands-on developer making a first SDK call. The declared onboarding facts are: Step 1: clone the repo. Step 2: install bun manually if not present. Step 3: copy .env.example to .env and fill in 8 environment variables. Step 4: run database migrations against your local Postgres. Step 5: start the dev server. Step 6: open the docs in a separate tab. Step 7: register an API key by emailing the team. Step 8: paste the key into your .env, restart the server, then make your first SDK call. No quickstart command, no hosted sandbox, no copy-pasteable curl example. No measured turnaround, outputs, or runtime behavior were supplied. Keep predictions and unknowns labeled. This supplies persona and empathy context only; proposed fixes and scope changes remain undecided.\n\nPlease review this plan thoroughly. As you go, write your plan-mode plan to /home/runner/.cache/gstack-paid-shard-X0eQrm/tmp/gstack-plan-count-HAX7Nc/gstack-test-plan-devex-floor.md (use Edit/Write to that exact path).\n\n# Plan: SDK quickstart docs\n\n## Onboarding flow\nStep 1: clone the repo.\nStep 2: install bun manually if not present.\nStep 3: copy .env.example to .env and fill in 8 environment variables.\nStep 4: run database migrations against your local Postgres.\nStep 5: start the dev server.\nStep 6: open the docs in a separate tab.\nStep 7: register an API key by emailing the team.\nStep 8: paste the key into your .env, restart the server, then make\nyour first SDK call.\n\nNo quickstart command, no hosted sandbox, no copy-pasteable curl example.",
+        "candidate": {
+          "transport": "native",
+          "identity": "11b6fb91-39d9-4004-a365-51797586fc53:toolu_01UGkCTvEpajNpgYRWcRRCaM:question:0",
+          "question": {
+            "question": "D2 — Which TTHW target should this quickstart journey be held to?\nProject/branch/task: main branch, PLAN.md SDK quickstart docs, DX POLISH mode.\nELI10: TTHW (time to hello world) is the clock from a developer reading step 1 to their first SDK call returning something they understand. For your persona the declared 8-step journey is ESTIMATED at 25-60 minutes of hands-on work, plus an UNKNOWN wait for an emailed API key. Peers report 2-5 min (Stripe) and 3-20 min (Twilio) from self-serve signup, but their clock excludes running a local server and has no human gate, so the minutes are not directly comparable. The target you pick sets the bar every later score is measured against; it does not approve any specific fix.\nStakes if we pick wrong: too ambitious and the review demands changes DX POLISH cannot deliver; too lenient and the review blesses a journey the rubric calls Red Flag (>10 min, 50-70% abandon).\nRecommendation: B because the rubric's Competitive tier is where peers sit, and it names the gap honestly without pre-committing to a hosted sandbox or new service.\nCompleteness: A=10/10, B=8/10, C=3/10, D=n/a\nPros / cons:\nA) Champion (< 2 min)\n  ✅ Matches the best-in-class bar the rubric ties to 3-4x adoption\n  ✅ Forces every step of the current journey to justify itself\n  ❌ Feasibility: not reachable while the key is email-gated and a local Postgres is required; would push beyond DX POLISH scope\nB) Competitive (2-5 min) (recommended)\n  ✅ Peer-level bar; makes the gap to today's ESTIMATED 25-60 min explicit in every pass\n  ✅ Leaves remedies open: each fix is still its own decision later\n  ❌ Blocker: the email key gate alone likely exceeds this window; hitting it needs at least one process change you have not yet approved\nC) Current trajectory (~25-60 min + key wait)\n  ✅ No pressure on scope; review documents the journey as-is\n  ✅ Honest about what exists today\n  ❌ Rubric classifies this as Red Flag (>10 min); scores will read as failing against no target for improvement\nD) Tell me what's realistic\n  ✅ You know the team's constraints (key policy, infra) that I cannot see\n  ✅ Sets a bar the team will actually own\n  ❌ Requires you to name a number now\nNet: trading an honest peer-level bar (with a known email-gate blocker) against either an unreachable bar or no bar at all.",
+            "header": "TTHW target",
+            "multiSelect": false,
+            "options": [
+              {
+                "label": "A) Champion (< 2 min)",
+                "description": "✅ Best-in-class bar. ❌ Not reachable with email-gated key and local Postgres; exceeds DX POLISH."
+              },
+              {
+                "label": "B) Competitive (2-5 min) (recommended)",
+                "description": "✅ Peer-level bar, remedies stay open. ❌ Email key gate alone likely exceeds this window."
+              },
+              {
+                "label": "C) Current trajectory (~25-60 min)",
+                "description": "✅ No scope pressure. ❌ Rubric classifies this as Red Flag (>10 min)."
+              },
+              {
+                "label": "D) Tell me what's realistic",
+                "description": "✅ You know team constraints I cannot see. ❌ You name the number now."
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "observationSha256": "a5c2a5c0bc01bba3699730fef00c8043e3c2f14d680355e897a2eb04346bd640",
+      "inputSha256": "5bd741a54385f9f6818a19b6fb7345cf8bd3507475ec2ff04b96c214f8a7f61d",
+      "identity": "0d9c6573-f90d-4511-ab92-ad0d7c857bdf:toolu_01WgHP5D8VpC7JYTS9C6yeWK:question:0",
+      "input": {
+        "seed": "Proceed directly to the requested review; skip the optional /office-hours prerequisite.\n\nThis actor has already declined routing setup, cross-project recall and outside reviewers.\n\nPreserve the supplied product scope. For review-mode questions choose HOLD SCOPE (CEO), DX POLISH (DX), or the full BIG CHANGE review (Eng). Design: review all seven dimensions.\n\nProduct type is confirmed: SDK quickstart documentation, with the complete journey to the first SDK call as context. If asked to classify, choose SDK + Docs when offered, otherwise Documentation. This confirms the review lens; it does not expand the plan.\n\nTarget persona is confirmed: a hands-on developer integrating this SDK for the first time, trying to make one successful call. Product type and persona setup are already answered; proceed to reviewing the supplied plan.\n\nFor setup confirmations, this actor can supply only the following persona/journey correction through the native custom answer. It does not approve a proposed narrative, remedy, or scope change: Confirmed persona: a hands-on developer making a first SDK call. The declared onboarding facts are: Step 1: clone the repo. Step 2: install bun manually if not present. Step 3: copy .env.example to .env and fill in 8 environment variables. Step 4: run database migrations against your local Postgres. Step 5: start the dev server. Step 6: open the docs in a separate tab. Step 7: register an API key by emailing the team. Step 8: paste the key into your .env, restart the server, then make your first SDK call. No quickstart command, no hosted sandbox, no copy-pasteable curl example. No measured turnaround, outputs, or runtime behavior were supplied. Keep predictions and unknowns labeled. This supplies persona and empathy context only; proposed fixes and scope changes remain undecided.\n\nPlease review this plan thoroughly. As you go, write your plan-mode plan to /home/runner/.cache/gstack-paid-shard-X0eQrm/tmp/gstack-plan-count-FWFAZU/gstack-test-plan-devex-floor.md (use Edit/Write to that exact path).\n\n# Plan: SDK quickstart docs\n\n## Onboarding flow\nStep 1: clone the repo.\nStep 2: install bun manually if not present.\nStep 3: copy .env.example to .env and fill in 8 environment variables.\nStep 4: run database migrations against your local Postgres.\nStep 5: start the dev server.\nStep 6: open the docs in a separate tab.\nStep 7: register an API key by emailing the team.\nStep 8: paste the key into your .env, restart the server, then make\nyour first SDK call.\n\nNo quickstart command, no hosted sandbox, no copy-pasteable curl example.",
+        "candidate": {
+          "transport": "native",
+          "identity": "0d9c6573-f90d-4511-ab92-ad0d7c857bdf:toolu_01WgHP5D8VpC7JYTS9C6yeWK:question:0",
+          "question": {
+            "header": "TTHW target",
+            "question": "D2 — Which time-to-first-call target should this review grade against?\nProject/branch/task: main, /plan-devex-review of PLAN.md (SDK quickstart docs)\nELI10: For your first-time developer, clone to first SDK call is 8 steps and an estimated 30-60 minutes of hands-on work, plus an unmeasured wait for an emailed API key. Twilio reports ~20 minutes for its SMS quickstart; Stripe is unmeasured but needs no local install. I need one yardstick so every friction point gets graded as 'gap to target' rather than vibes. Picking a target does NOT approve any fix; remedies stay undecided.\nStakes if we pick wrong: too ambitious and every score reads as failure with no actionable path; too lenient and real abandonment risk gets scored as fine.\nRecommendation: B because it's the category baseline peers report, and it makes the two structural blockers (Step 4 local Postgres, Step 7 emailed key) visible as measured gaps instead of hiding them.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Champion (< 2 min)\n  ✅ Matches the Stripe-tier bar the rubric calls best-in-class for adoption\n  ✅ Forces every step to justify itself against a two-minute clock\n  ❌ Not reachable with existing capabilities: needs a hosted sandbox or instant key, both outside DX POLISH scope\nB) Competitive (2-5 min) (recommended)\n  ✅ Peer-reported baseline; makes Steps 4 and 7 show up as concrete measured gaps\n  ✅ Reachable in principle once a key is self-serve and the DB is off the critical path; those remain scope decisions you hold\n  ❌ Blocked today by the emailed key: any wait over minutes fails this target regardless of doc quality\nC) Current trajectory (~30-60 min + key wait, estimated)\n  ✅ Honest to the plan as written; scores reflect polish within the existing 8 steps\n  ✅ No structural change implied; fits HOLD SCOPE cleanly\n  ❌ Sits in the rubric's Red Flag tier (>10 min, 50-70% predicted abandon); the review would grade friction against a bar that already loses developers\nD) Tell me what's realistic\n  ✅ You know key turnaround and team constraints I can't see\n  ✅ Lets you set a bar between B and C with a real number\n  ❌ Costs a round-trip before the trace starts\nNet: choosing the yardstick decides whether the two structural steps are reported as gaps or as accepted cost.",
+            "options": [
+              {
+                "label": "Competitive (2-5 min) (recommended)",
+                "description": "✅ Peer-reported baseline; Steps 4 and 7 surface as measured gaps\n✅ Reachable in principle; remedies stay your call\n❌ Emailed key blocks it today regardless of docs"
+              },
+              {
+                "label": "Champion (< 2 min)",
+                "description": "✅ Stripe-tier bar from the rubric\n✅ Every step must justify itself\n❌ Needs sandbox or instant key, outside POLISH scope"
+              },
+              {
+                "label": "Current trajectory",
+                "description": "✅ Honest to the 8 steps as written; fits HOLD SCOPE\n✅ No structural change implied\n❌ Red Flag tier (>10 min); grades against a losing bar"
+              },
+              {
+                "label": "Tell me what's realistic",
+                "description": "✅ You know key turnaround and constraints\n✅ Sets a real number between B and C\n❌ One round-trip before the trace"
+              }
+            ],
+            "multiSelect": false
+          }
+        }
+      }
+    }
+  ],
+  "priorPassingCapture": {
+    "sourceArtifact": "native-fixture-repair-artifacts/shards/skill-e2e-plan-devex-finding-floor/pty-count/fork-native-fixtures-20260924/plan-devex-review-1790267672940-11YL83/observation.json",
+    "observationSha256": "cbe222009b6ccb7be05700adf7e9578aecf5df7ae10eb7fcb7cdc17f82e818fe",
+    "inputSha256": "d44f4c73de6521332365947ecced112770cd55c015418129eec1b1abee345e8f",
+    "input": {
+      "seed": "Proceed directly to the requested review; skip the optional /office-hours prerequisite.\n\nThis actor has already declined routing setup, cross-project recall and outside reviewers.\n\nPreserve the supplied product scope. For review-mode questions choose HOLD SCOPE (CEO), DX POLISH (DX), or the full BIG CHANGE review (Eng). Design: review all seven dimensions.\n\nProduct type is confirmed: SDK quickstart documentation, with the complete journey to the first SDK call as context. If asked to classify, choose SDK + Docs when offered, otherwise Documentation. This confirms the review lens; it does not expand the plan.\n\nTarget persona is confirmed: a hands-on developer integrating this SDK for the first time, trying to make one successful call. Product type and persona setup are already answered; proceed to reviewing the supplied plan.\n\nFor setup confirmations, this actor can supply only the following persona/journey correction through the native custom answer. It does not approve a proposed narrative, remedy, or scope change: Confirmed persona: a hands-on developer making a first SDK call. The declared onboarding facts are: Step 1: clone the repo. Step 2: install bun manually if not present. Step 3: copy .env.example to .env and fill in 8 environment variables. Step 4: run database migrations against your local Postgres. Step 5: start the dev server. Step 6: open the docs in a separate tab. Step 7: register an API key by emailing the team. Step 8: paste the key into your .env, restart the server, then make your first SDK call. No quickstart command, no hosted sandbox, no copy-pasteable curl example. No measured turnaround, outputs, or runtime behavior were supplied. Keep predictions and unknowns labeled. This supplies persona and empathy context only; proposed fixes and scope changes remain undecided.\n\nPlease review this plan thoroughly. As you go, write your plan-mode plan to /tmp/gfc/gstack-paid-shard-9PFsAS/tmp/gstack-plan-count-VkjAiF/gstack-test-plan-devex-floor.md (use Edit/Write to that exact path).\n\n# Plan: SDK quickstart docs\n\n## Onboarding flow\nStep 1: clone the repo.\nStep 2: install bun manually if not present.\nStep 3: copy .env.example to .env and fill in 8 environment variables.\nStep 4: run database migrations against your local Postgres.\nStep 5: start the dev server.\nStep 6: open the docs in a separate tab.\nStep 7: register an API key by emailing the team.\nStep 8: paste the key into your .env, restart the server, then make\nyour first SDK call.\n\nNo quickstart command, no hosted sandbox, no copy-pasteable curl example.",
+      "candidate": {
+        "transport": "native",
+        "identity": "271918b9-ee6e-4dbc-b259-6d9b87a4f680:toolu_01V7B3Jhb4vqtgi1zgwexLtu:question:0",
+        "question": {
+          "question": "D2 — Which Time-to-Hello-World target should this quickstart aim for?\nProject/branch/task: gstack-plan-count-VkjAiF on main, /plan-devex-review of PLAN.md in DX POLISH mode.\nELI10: TTHW (time to hello world) is the clock from opening the quickstart to seeing the first SDK response that reads as success. For the confirmed persona, clone-to-first-call is ESTIMATED at 30-60 minutes of active work across 8 declared steps, plus an UNMEASURED wait for a human to email back an API key. Reported peer figures (Stripe, Twilio) land in the 3-5 minute band, but against a hosted API with a self-serve key and a canned endpoint, so the numbers are not directly comparable. The skill's tiers: >10 min is the Red Flag band (reported 50-70% abandonment).\nStakes if we pick wrong: too ambitious a target forces scope additions DX POLISH forbids; too lax a target hides that the email-gated key alone puts the plan in the Red Flag tier regardless of polish.\nRecommendation: D because no target in A-C is honest under both the declared facts and the POLISH scope. I propose a split clock: active time target of 5-10 min (Needs Work tier, reachable via docs polish) while the key wait is measured separately and reported as an unresolved blocker, with hosted-sandbox/self-serve-key listed as out-of-scope opportunities.\nNote: options differ in kind, not coverage — no completeness score.\nPros / cons:\nA) Champion (< 2 min)\n  ✅ Matches the Stripe/Twilio tier the persona already expects from any SDK quickstart\n  ✅ Would force the plan to confront the email-gated key and local DB as blockers, not polish items\n  ❌ Infeasible without a hosted sandbox or self-serve key, both scope additions DX POLISH excludes; local Postgres migrations alone exceed 2 min\nB) Competitive (2-5 min)\n  ✅ Aligns with the reported industry 5-minute first-call benchmark\n  ✅ Gives the passes a concrete bar for every step to justify itself against\n  ❌ Still blocked by the email key and local DB; unreachable through documentation changes alone\nC) Current trajectory (est. 30-60 min active + unmeasured key wait)\n  ✅ Honest baseline for the declared 8 steps with nothing invented\n  ✅ Keeps scope exactly as supplied, no pressure to add capabilities\n  ❌ Accepts the Red Flag tier as the goal, which the persona will not tolerate; a target that equals the current state drives no improvement\nD) Tell me what's realistic (recommended)\n  ✅ Lets you set a split target: active-time goal for docs polish, key-wait tracked as a separate measured unknown\n  ✅ Keeps the review honest about what polish can and cannot fix, with out-of-scope opportunities listed instead of smuggled in\n  ❌ Requires you to name the number; the passes cannot score against a target you have not set\nNet: the trade is between a peer-tier number the current scope cannot reach and an honest split clock that tells the passes what polish should shave and what stays a labeled blocker.",
+          "header": "TTHW target",
+          "multiSelect": false,
+          "options": [
+            {
+              "label": "A) Champion (< 2 min)",
+              "description": "✅ Peer tier the persona expects ✅ Forces email key and local DB to be treated as blockers ❌ Infeasible without sandbox/self-serve key (out of POLISH scope)"
+            },
+            {
+              "label": "B) Competitive (2-5 min)",
+              "description": "✅ Matches reported 5-minute industry benchmark ✅ Concrete bar for every step ❌ Blocked by email key and local DB; not reachable by docs alone"
+            },
+            {
+              "label": "C) Current (30-60 min + key wait)",
+              "description": "✅ Honest baseline, nothing invented ✅ Scope stays exactly as supplied ❌ Accepts Red Flag tier as the goal; drives no improvement"
+            },
+            {
+              "label": "D) Realistic split (recommended)",
+              "description": "✅ Active-time goal 5-10 min via polish, key wait measured separately ✅ Honest about what polish cannot fix ❌ You must name the number"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

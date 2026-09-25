@@ -85,11 +85,15 @@ function scaffoldFixture(workDir: string): { workDir: string; stateRoot: string;
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(scriptsDir, f));
   }
 
-  // Both imports are resolved relative to the copied install, not the source checkout.
   const libDir = path.join(workDir, 'lib');
   fs.mkdirSync(libDir, { recursive: true });
-  for (const file of ['jsonl-store.ts', 'is-conductor.ts']) {
+  for (const file of ['jsonl-store.ts', 'is-conductor.ts', 'bin-context.ts', 'error-handling.ts']) {
     fs.copyFileSync(path.join(ROOT, 'lib', file), path.join(libDir, file));
+  }
+  const browseDir = path.join(workDir, 'browse', 'src');
+  fs.mkdirSync(browseDir, { recursive: true });
+  for (const file of ['config.ts', 'file-permissions.ts', 'error-handling.ts']) {
+    fs.copyFileSync(path.join(ROOT, 'browse', 'src', file), path.join(browseDir, file));
   }
 
   // Copy hooks dir.
@@ -165,7 +169,7 @@ describeIfSelected('PlanTune cathedral E2E: hook capture', ['plan-tune-hook-capt
       tool_response: { answers: [{ option_label: 'A) Fix now (recommended)' }] },
       cwd: fixture.workDir,
     };
-    const res = spawnSync(hookPath, [], {
+    const res = spawnSync('bash', [hookPath], {
       env: {
         ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
@@ -175,7 +179,7 @@ describeIfSelected('PlanTune cathedral E2E: hook capture', ['plan-tune-hook-capt
       encoding: 'utf-8',
       timeout: 30_000,
     });
-    expect(res.status).toBe(0);
+    expect(res.status, res.stderr).toBe(0);
     const logPath = path.join(fixture.stateRoot, 'projects', fixture.slug, 'question-log.jsonl');
     expect(fs.existsSync(logPath)).toBe(true);
     const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n');
@@ -219,7 +223,7 @@ describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcemen
       },
       cwd: fixture.workDir,
     };
-    const res = spawnSync(hookPath, [], {
+    const res = spawnSync('bash', [hookPath], {
       env: {
         ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
@@ -229,7 +233,7 @@ describeIfSelected('PlanTune cathedral E2E: enforcement', ['plan-tune-enforcemen
       encoding: 'utf-8',
       timeout: 30_000,
     });
-    expect(res.status).toBe(0);
+    expect(res.status, res.stderr).toBe(0);
     const parsed = JSON.parse(res.stdout || '{}');
     expect(parsed.hookSpecificOutput?.permissionDecision).toBe('deny');
     expect(parsed.hookSpecificOutput?.permissionDecisionReason).toContain('Accept');
@@ -294,7 +298,7 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
       },
       cwd: fixture.workDir,
     };
-    const res = spawnSync(hookPath, [], {
+    const res = spawnSync('bash', [hookPath], {
       env: {
         ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
@@ -304,7 +308,7 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
       encoding: 'utf-8',
       timeout: 30_000,
     });
-    expect(res.status).toBe(0);
+    expect(res.status, res.stderr).toBe(0);
     const parsed = JSON.parse(res.stdout || '{}');
     // #2035: memory-nugget delivery is additionalContext-ONLY. Emitting a
     // permissionDecision here (the old 'defer') pauses the tool call for a
@@ -343,7 +347,7 @@ describeIfSelected('PlanTune cathedral E2E: codex import', ['plan-tune-codex-imp
     ];
     fs.writeFileSync(sessionFile, lines.join('\n') + '\n');
     const bin = path.join(fixture.workDir, 'bin', 'gstack-codex-session-import');
-    const res = spawnSync(bin, [sessionFile], {
+    const res = spawnSync('bash', [bin, sessionFile], {
       env: {
         ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
@@ -398,7 +402,7 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
     );
     // 1. Apply the proposal via gstack-distill-apply.
     const applyBin = path.join(fixture.workDir, 'bin', 'gstack-distill-apply');
-    const applyRes = spawnSync(applyBin, ['--proposal', '0'], {
+    const applyRes = spawnSync('bash', [applyBin, '--proposal', '0'], {
       env: { ...fixture.env, GSTACK_STATE_ROOT: fixture.stateRoot },
       encoding: 'utf-8',
       cwd: fixture.workDir,
@@ -436,7 +440,7 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
       },
       cwd: fixture.workDir,
     };
-    const hookRes = spawnSync(hookPath, [], {
+    const hookRes = spawnSync('bash', [hookPath], {
       env: {
         ...fixture.env,
         GSTACK_STATE_ROOT: fixture.stateRoot,
@@ -446,7 +450,7 @@ describeIfSelected('PlanTune cathedral E2E: dream cycle', ['plan-tune-dream-cycl
       encoding: 'utf-8',
       timeout: 30_000,
     });
-    expect(hookRes.status).toBe(0);
+    expect(hookRes.status, hookRes.stderr).toBe(0);
     const parsed = JSON.parse(hookRes.stdout || '{}');
     expect(parsed.hookSpecificOutput?.additionalContext).toContain('User wants every fix tested');
   });

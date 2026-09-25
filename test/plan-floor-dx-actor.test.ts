@@ -1,6 +1,7 @@
 import {expect,test} from 'bun:test';
 import {planFloorDXPane,planFloorDXReplyInput,matchesNativePlanQuestion,type PlanFloorDXReply} from './helpers/claude-pty-runner';
 import captured from './fixtures/plan-floor-dx-custom-491.json';
+import editorFooter from './fixtures/plan-floor-dx-editor-footer.json';
 import editorHints from './fixtures/plan-floor-dx-editor-hint.json';
 import {E2E_TOUCHFILES,selectTests} from './helpers/touchfiles';
 const call=captured.call;
@@ -80,6 +81,39 @@ test('a short complete native setup still binds while an arbitrary shorter prefi
  expect(planFloorDXPane('☐ Empathy\n'+call.questions[0]!.question.slice(0,300)+'…\n'+menu,call)).toBeNull();
 });
 
+test('the native custom-field editor hint preserves the exact declared DX correction',()=>{
+ const replyState:PlanFloorDXReply={call:structuredClone(editorFooter.call),pane:editorFooter.questionViewport,reply:editorFooter.reply,stage:'focus'};
+ expect(planFloorDXReplyInput(editorFooter.questionViewport,editorFooter.call,replyState)).toEqual({input:'4',stage:'paste'});
+ expect(planFloorDXReplyInput(editorFooter.focusedViewport,editorFooter.call,{...replyState,stage:'paste'}))
+  .toEqual({input:'\x1b[200~'+editorFooter.reply+'\x1b[201~',stage:'submit'});
+ const filled=editorFooter.focusedViewport.replace('❯ 4. Type something.','❯ 4. '+editorFooter.reply);
+ expect(planFloorDXReplyInput(filled,editorFooter.call,{...replyState,stage:'submit'})).toEqual({input:'\r',stage:'done'});
+});
+
+test('a custom-field editor hint cannot authenticate a changed question, choice or control',()=>{
+ const replyState:PlanFloorDXReply={call:structuredClone(editorFooter.call),pane:editorFooter.questionViewport,reply:editorFooter.reply,stage:'paste'};
+ for(const mutate of [
+  (s:string)=>s.replace('☐ Empathy','☐ Foreign'),
+  (s:string)=>s.replace('Does this empathy narrative match','Approve a changed scope instead of'),
+  (s:string)=>s.replace('A) Accurate, proceed (recommended)','A) Approve a new feature'),
+  (s:string)=>s.replace('ctrl+g to edit in Vim','ctrl+g to accept the recommendation'),
+  (s:string)=>s.replace('Esc to cancel','Esc is disabled'),
+  (s:string)=>s.replace('❯ 4. Type something.','❯ 3. Type something.'),
+  (s:string)=>s+'\nUnrelated request now active.',
+ ]){const changed=mutate(editorFooter.focusedViewport);expect(changed).not.toBe(editorFooter.focusedViewport);expect(planFloorDXReplyInput(changed,editorFooter.call,replyState)).toBeNull();}
+});
+
+test.each(['Vim','VS Code','/usr/bin/nano'])('the custom-field editor label is presentation only (%s)',editor=>{
+ const replyState:PlanFloorDXReply={call:structuredClone(editorFooter.call),pane:editorFooter.questionViewport,reply:editorFooter.reply,stage:'paste'};
+ expect(planFloorDXReplyInput(editorFooter.focusedViewport.replace('edit in Vim','edit in '+editor),editorFooter.call,replyState))
+  .toEqual({input:'\x1b[200~'+editorFooter.reply+'\x1b[201~',stage:'submit'});
+});
+
+test('the captured custom-field footer selects the DX floor gate',()=>{
+ expect(Object.entries(E2E_TOUCHFILES).filter(([,files])=>files.includes('test/fixtures/plan-floor-dx-editor-footer.json')).map(([owner])=>owner))
+  .toEqual(['plan-devex-finding-floor']);
+});
+
 test.each(editorHints.cases)('captured attempt $attempt accepts the native editor hint only after custom-field focus',capture=>{
  const reply:PlanFloorDXReply={call:capture.call,pane:capture.questionViewport,reply:capture.reply,stage:'focus'};
  expect(planFloorDXReplyInput(capture.questionViewport,capture.call,reply)).toEqual({input:'4',stage:'paste'});
@@ -102,4 +136,30 @@ test.each(['Vim','Nano','Visual Studio Code'])('custom input with %s hint still 
  expect(planFloorDXReplyInput(hint(captured.focusedViewport),call,state('submit'))).toBeNull();
  expect(planFloorDXReplyInput(hint(captured.filledViewport).replace('Confirmed review context:','Unapproved context:'),call,state('submit'))).toBeNull();
  expect(planFloorDXReplyInput(hint(captured.filledViewport),{...call,answered:true},state('submit'))).toBeNull();
+});
+
+test.each(['',' · n to add notes'])('editor hints retain the authenticated notes control (%j)',notes=>{
+ const footer='Enter to select · ↑/↓ to navigate';
+ const pane=captured.questionViewport.replace(footer,footer+notes);
+ const reply={...state(),pane:planFloorDXPane(pane,call)!};
+ const hint=(text:string)=>text.replace(footer,footer+notes)
+  .replace(' · Esc to cancel',' · ctrl+g to edit in Vim · Esc to cancel');
+ expect(planFloorDXReplyInput(pane,call,reply)).toEqual({input:'4',stage:'paste'});
+ expect(planFloorDXReplyInput(hint(captured.focusedViewport),call,{...reply,stage:'paste'}))
+  .toEqual({input:'\x1b[200~'+captured.reply+'\x1b[201~',stage:'submit'});
+ expect(planFloorDXReplyInput(hint(captured.filledViewport),call,{...reply,stage:'submit'}))
+  .toEqual({input:'\r',stage:'done'});
+ const changed=hint(captured.focusedViewport).replace(footer+notes,footer+(notes?'':' · n to add notes'));
+ expect(planFloorDXReplyInput(changed,call,{...reply,stage:'paste'})).toBeNull();
+});
+
+test('editor-hint normalization cannot rewrite question content that resembles a footer',()=>{
+ const footer='Enter to select · ↑/↓ to navigate · Esc to cancel';
+ const short=structuredClone(call);short.questions[0]!.question='Review the documented controls:\n'+footer;
+ const pane='☐ Empathy\n'+short.questions[0]!.question+'\n'+captured.questionViewport.slice(captured.questionViewport.indexOf('❯ 1.'));
+ const reply:PlanFloorDXReply={call:short,pane,reply:captured.reply,stage:'focus'};
+ expect(planFloorDXReplyInput(pane,short,reply)).toEqual({input:'4',stage:'paste'});
+ const focused=pane.replace('❯ 1.','  1.').replace('  4. Type something.','❯ 4. Type something.');
+ const changed=focused.replaceAll(footer,footer.replace(' · Esc to cancel',' · ctrl+g to edit in Vim · Esc to cancel'));
+ expect(planFloorDXReplyInput(changed,short,{...reply,stage:'paste'})).toBeNull();
 });

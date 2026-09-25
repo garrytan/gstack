@@ -48,6 +48,7 @@ DISCOVER_CURSOR="$GSTACK_HOME/.brain-discover-cursor"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_BIN="$SCRIPT_DIR/gstack-config"
+PUBLICATION_BIN="$SCRIPT_DIR/gstack-transcript-publication.ts"
 
 # Egress receipt helpers (_receipted_git): receipt-before-send, fail-closed.
 . "$SCRIPT_DIR/gstack-egress-lib.sh"
@@ -128,10 +129,7 @@ text = sys.stdin.read()
 for name, rx in patterns:
     m = rx.search(text)
     if m:
-        snippet = m.group(0)
-        if len(snippet) > 30:
-            snippet = snippet[:30] + '...'
-        print(name + ':' + snippet)
+        print(name)
         sys.exit(1)
 sys.exit(0)
 "
@@ -243,10 +241,13 @@ compute_paths_to_stage() {
   local mode="$1"
   local class_file="${2:-}"
   local snapshot_file="${3:-}"
-  python3 - "$GSTACK_HOME" "$QUEUE_DIR" "$ALLOWLIST" "$PRIVACY_MAP" "$SKIP_FILE" "$mode" "$class_file" "$snapshot_file" <<'PYEOF'
-import sys, json, os, fnmatch, glob
+  local transcripts_enabled=false
+  bun "$PUBLICATION_BIN" enabled >/dev/null 2>&1 && transcripts_enabled=true
+  python3 - "$GSTACK_HOME" "$QUEUE_DIR" "$ALLOWLIST" "$PRIVACY_MAP" "$SKIP_FILE" "$mode" "$class_file" "$snapshot_file" "$transcripts_enabled" <<'PYEOF'
+import sys, json, os, fnmatch, glob, re
 
 gstack_home, spool_dir, allowlist_path, privacy_path, skip_path, mode, class_file, snapshot_file = sys.argv[1:9]
+transcripts_enabled = sys.argv[9] == "true"
 
 def load_lines(path):
     try:
@@ -363,6 +364,10 @@ for p in sorted(queue_paths):
     if not path_matches_any(p, allowlist_globs):
         classified["dropped"]["unmatched"].append(p)
         continue
+    curated_staging = re.match(r"^transcripts/run-[^/]+/(eurekas|learnings|timelines|ceo-plans|design-docs|retros|builder-profile-entrys)/", p)
+    if p.startswith("transcripts/") and not curated_staging and not transcripts_enabled:
+        classified["retained"].append(p)
+        continue
     # Must survive privacy mode filter — held entries STAY QUEUED (retained):
     # they would sync under a higher artifacts_sync_mode, and reporting them
     # as "no allowlisted changes" was #2549's misattribution.
@@ -372,7 +377,10 @@ for p in sorted(queue_paths):
         continue
     # Must exist on disk — can't stage what isn't there.
     if not os.path.exists(os.path.join(gstack_home, p)):
-        classified["dropped"]["missing"].append(p)
+        if p.startswith("transcripts/"):
+            classified["retained"].append(p)
+        else:
+            classified["dropped"]["missing"].append(p)
         continue
     final.append(p)
 
@@ -622,9 +630,16 @@ subcmd_once() {
       echo "$det_now" > "$GSTACK_HOME/.brain-last-push-attempt" 2>/dev/null || true
       local det_host
       det_host=$(remote_host)
-      if GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$det_host" curated-memory-git-push "artifacts_sync_mode!=off" \
-          bash -c 'GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=30 -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME"; then
+      local det_sha det_result
+      det_sha=$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null || echo "")
+      det_result=0
+      GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$det_host" curated-memory-git-push "artifacts_sync_mode!=off" \
+          bun "$PUBLICATION_BIN" push "$GSTACK_HOME" "$$" "$det_sha" "refs/heads/$det_branch" || det_result=$?
+      if [ "$det_result" -eq 0 ]; then
         date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
+      elif [ "$det_result" -ne 10 ] && [ "$det_result" -ne 3 ]; then
+        write_status "blocked" "transcript publication held; inspect local consent, scanner and history; queue preserved"
+        exit 0
       fi
     fi
   fi
@@ -677,12 +692,22 @@ subcmd_once() {
     p="${p%$'\r'}"   # Windows: compute_paths_to_stage's python print() emits CRLF;
                      # a trailing CR makes the pathspec match nothing (silent no-stage).
     [ -z "$p" ] && continue
-    git -C "$GSTACK_HOME" add -f -- "$p" 2>/dev/null || true
+    if ! git -C "$GSTACK_HOME" add -f -- "$p" 2>/dev/null; then
+      write_status "blocked" "staging failed; queue preserved for local review"
+      exit 0
+    fi
   done < "$paths_file"
+
+  local publication_snapshot publication_head publication_tree publication_branch
+  if ! publication_snapshot=$(bun "$PUBLICATION_BIN" index "$GSTACK_HOME" "$$"); then
+    write_status "blocked" "transcript publication held; inspect local consent, scanner and history; queue preserved"
+    exit 0
+  fi
+  read -r publication_head publication_tree publication_branch <<< "$publication_snapshot"
 
   # Secret-scan staged diff.
   local scan_out
-  scan_out=$(git -C "$GSTACK_HOME" diff --cached 2>/dev/null | secret_scan_stdin || true)
+  scan_out=$(git -C "$GSTACK_HOME" diff --cached -- . ':(glob,exclude)transcripts/run-*/transcripts/**' 2>/dev/null | secret_scan_stdin || true)
   if [ -n "$scan_out" ]; then
     # Hit — unstage, preserve queue, write loud status.
     git -C "$GSTACK_HOME" reset HEAD -- . >/dev/null 2>&1 || true
@@ -713,18 +738,31 @@ subcmd_once() {
   n=$(wc -l < "$paths_file" | tr -d ' ')
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local msg="sync: $n file(s) | $ts"
+  if git -C "$GSTACK_HOME" diff --cached --quiet; then
+    finalize_queue "$snapshot_file" "$class_file" "$paths_file"
+    write_status "idle" "queue drained but no new changes to commit"
+    exit 0
+  fi
   git -C "$GSTACK_HOME" -c user.email="gstack@localhost" -c user.name="gstack-brain-sync" \
     commit -q -m "$msg" 2>/dev/null || {
-      # Nothing to commit (e.g. all files already committed). The drained
-      # records leave the spool; retained + post-snapshot records survive.
-      finalize_queue "$snapshot_file" "$class_file" "$paths_file"
-      write_status "idle" "queue drained but no new changes to commit"
+      write_status "blocked" "commit failed; queue preserved for local review"
       exit 0
     }
+  local publication_sha
+  if ! publication_sha=$(bun "$PUBLICATION_BIN" committed "$GSTACK_HOME" "$$" "$publication_head" "$publication_tree" "$publication_branch"); then
+    write_status "blocked" "commit or index changed after scanning; queue and history preserved"
+    exit 0
+  fi
 
   # Push. On reject, fetch + merge (merge driver handles JSONL) + retry once.
   local push_err
-  push_err=$(git -C "$GSTACK_HOME" push origin HEAD 2>&1 >/dev/null) || {
+  push_err=$(bun "$PUBLICATION_BIN" push "$GSTACK_HOME" "$$" "$publication_sha" "$publication_branch" 2>&1 >/dev/null) || {
+    local push_result=$?
+    if [ "$push_result" -ne 10 ]; then
+      write_status "blocked" "transcript publication held; inspect local consent, scanner and history; queue preserved"
+      echo "BRAIN_SYNC: transcript publication held; queue and history preserved" >&2
+      exit 0
+    fi
     # Check if this is an auth error first — no point retrying.
     if echo "$push_err" | grep -qiE "auth|permission|403|401|forbidden"; then
       local hint
@@ -744,13 +782,24 @@ subcmd_once() {
     if GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$push_host" curated-memory-git-fetch "artifacts_sync_mode!=off" \
         bash -c 'git -C "$1" fetch origin 2>/dev/null' _ "$GSTACK_HOME"; then
       local branch
-      branch=$(git -C "$GSTACK_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)
+      branch=$(git -C "$GSTACK_HOME" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+      if [ "refs/heads/$branch" != "$publication_branch" ] || [ "$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null || echo "")" != "$publication_sha" ]; then
+        write_status "blocked" "branch changed before merge retry; queue and history preserved"
+        exit 0
+      fi
       if git -C "$GSTACK_HOME" merge --no-edit "origin/$branch" >/dev/null 2>&1; then
-        if GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$push_host" curated-memory-git-push "artifacts_sync_mode!=off" \
-            bash -c 'git -C "$1" push origin HEAD 2>/dev/null' _ "$GSTACK_HOME"; then
+        local retry_sha retry_result
+        retry_sha=$(git -C "$GSTACK_HOME" rev-parse HEAD 2>/dev/null || echo "")
+        retry_result=0
+        GSTACK_HOME="$GSTACK_HOME" _receipted_git closed brain-sync "$push_host" curated-memory-git-push "artifacts_sync_mode!=off" \
+            bun "$PUBLICATION_BIN" push "$GSTACK_HOME" "$$" "$retry_sha" "$publication_branch" || retry_result=$?
+        if [ "$retry_result" -eq 0 ]; then
           finalize_queue "$snapshot_file" "$class_file" "$paths_file"
           date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_PUSH_FILE"
           write_status "ok" "pushed $n file(s) after rebase"
+          exit 0
+        elif [ "$retry_result" -ne 10 ] && [ "$retry_result" -ne 3 ]; then
+          write_status "blocked" "transcript publication held on retry; queue and history preserved"
           exit 0
         fi
       fi

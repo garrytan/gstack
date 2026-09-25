@@ -295,6 +295,7 @@ export async function preview(opts: PreviewOptions): Promise<string> {
     noChapterBreaks: opts.noChapterBreaks,
     confidential: opts.confidential,
     pageNumbers: opts.pageNumbers,
+    allowNetwork: opts.allowNetwork === true,
   });
   progress.end("Rendering HTML", `${rendered.meta.wordCount} words`);
 

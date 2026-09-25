@@ -56,37 +56,45 @@ policy is keyed by git remote, which artifacts don't have.
 
 ## What gets scanned for secrets
 
-The cross-machine secret boundary is `gstack-brain-sync` (the git push
-to your private artifacts repo), which runs its own scanner before any
-content leaves this Mac. Local PGLite ingest doesn't change the exposure
-surface for content that already lives on disk in plaintext.
+Every page is scanned using the shared in-process redaction engine, on the
+exact serialized bytes in its private import snapshot, including frontmatter.
+HIGH findings block; MEDIUM findings need review and therefore hold an
+unattended import. LOW/WARN retain their existing nonblocking meaning. Empty,
+malformed or over-1-MiB inputs are held. Scanner failures stop the batch.
+There is no bypass or automatic redaction. `--scan-secrets` remains accepted
+as a redundant compatibility flag; the old environment value cannot disable
+the gate. No per-page gitleaks process is needed.
 
-Per-file **gitleaks** scanning during memory ingest is **opt-in** as of
-v1.33.0.0 — off by default. To re-enable it (adds ~4-8 min to cold runs
-on a large transcript corpus), use either:
+Held pages are counted without displaying matched content and are not marked
+ingested. A later clean retry can import them. Resume scans the actual old
+snapshot, even if today's source walk is empty. Unknown files, ownership or
+source mappings hold the checkpoint without deleting it or starting over.
+Supported resume requires gbrain's path-based `completedPaths` checkpoint;
+legacy positional checkpoints are held for manual review, not renumbered.
 
-```bash
-bun run bin/gstack-memory-ingest.ts --bulk --scan-secrets
-# or
-GSTACK_MEMORY_INGEST_SCAN_SECRETS=1 bun run bin/gstack-memory-ingest.ts --bulk
-```
+Git publication checks current transcript consent and scans actual outgoing
+transcript blobs, including intermediate unsent commits and recovery pushes.
+Unsafe queued work stays local; history is not automatically rewritten.
 
-When enabled, gitleaks covers:
+## Transcript enrollment
 
-- AWS / GCP / Azure access keys
-- ANTHROPIC_API_KEY, OPENAI_API_KEY, GitHub tokens
-- Stripe keys, Slack tokens, JWT secrets
-- Generic high-entropy strings (configurable threshold)
+The default is **off**, including missing or malformed consent. `/setup-gbrain`
+asks before enabling even a small or empty corpus; an empty corpus may instead
+be reported with settings unchanged. Run `bun run bin/gstack-memory-ingest.ts --probe` (which
+is read-only) to distinguish candidates from policy-eligible transcripts;
+it is not a secret-scan result.
 
-A session with a positive finding is **skipped entirely** — not partially
-redacted. The match line + rule ID are logged to stderr; you can see what
-was skipped via `bun run bin/gstack-memory-ingest.ts --probe` (which
-shows new vs. updated counts) or by reviewing the helper's output during
-`/sync-gbrain --full`.
+After choosing explicitly, `gstack-memory-ingest.ts --enroll A|B|C|D|E` stores
+the scope without importing. A means current repo/last 90 days; B means current
+repo/all history; C means all repos/last 90 days; D means current repo/new
+sessions from enrollment time; E sets off. The repository and cutoff remain
+enforced on later full and incremental passes, including `--all-history`.
+Changing an old session's mtime does not make it new under D. A/B/C may then
+run `--bulk --sources transcript`; D/E must not run a historical import.
 
-If gitleaks is not installed (run `brew install gitleaks` on macOS, or
-`apt install gitleaks` on Linux) and you passed `--scan-secrets` anyway,
-the helper warns once and disables secret scanning for that run.
+Each batch checks current consent immediately before dispatch. Off prevents
+the next batch; it cannot recall bytes already handed to gbrain or remove data
+already imported or published. Curated artifact policy remains independent.
 
 ## Where it goes
 
@@ -98,9 +106,10 @@ Storage tier depends on your gbrain engine (set during `/setup-gbrain`):
 - **Local PGLite only:** everything stays on this Mac. Curated memory
   syncs via git if you've enabled brain-sync.
 
-The "never double-store" rule per the plan: code and transcripts NEVER
-go in the gbrain-linked git repo. They're too big and they're
-replaceable from disk on each Mac.
+With remote-HTTP MCP, accepted transcript pages are atomically placed in the
+artifact queue under `~/.gstack/transcripts/`; local gbrain import is skipped.
+The artifact publisher rechecks them before sending, and the brain admin's
+pull job indexes them. The local queued write is not a remote delivery receipt.
 
 ## What you can do with it
 
@@ -173,8 +182,10 @@ verdict block. If a row is RED, the row tells you what to do.
 
 Common cases:
 
-- **Salience block is empty** — your transcripts may not be ingested
-  yet. Run `bun run bin/gstack-gbrain-sync.ts --full` to do a full pass.
+- **Salience block is empty** — transcripts may be disabled or outside your
+  enrolled scope. Run `/setup-gbrain` to review enrollment. If you chose A, B,
+  or C, run `bun run bin/gstack-gbrain-sync.ts --full` for that scope; D does not
+  import historical sessions, and E keeps transcripts off.
 
 - **"gbrain CLI missing" in the preamble output** — gbrain isn't on
   your PATH. Run `/setup-gbrain` to install/wire it.
@@ -190,7 +201,7 @@ Common cases:
 
 ## Privacy + audit
 
-- Every `secretScanFile` finding is logged to stderr at ingest time.
+- Ingest reports content-free hold reasons and counts, never finding excerpts.
 - Every gbrain put/delete is logged to `~/.gstack/.gbrain-errors.jsonl`
   with `{ts, op, duration_ms, outcome}` for forensic tracing.
 - `~/.gstack/.gbrain-engine-cache.json` shows which storage tier is
@@ -198,14 +209,16 @@ Common cases:
 - Brain-sync git history shows every curated artifact push with the
   user's git identity.
 
-If you find a transcript page that contains a secret (either because
-per-file scanning was off, or gitleaks missed it), the recovery path is:
+If an older import or an undetected pattern left a secret in a transcript,
+disable ingestion and hold publication first. Review this separate manual
+cleanup with the owner before any deletion or history rewrite:
 1. `gbrain delete_page <slug>` — removes from index immediately
 2. Rotate the secret (rotate it anyway as a defensive measure)
 3. If brain-sync is on: `git filter-repo --invert-paths --path <relative-path>`
    on the brain remote for hard-delete from history
-4. If the miss looks like a gitleaks rule gap, file a gitleaks issue
-   with the pattern (or extend the gitleaks config at `~/.gitleaks.toml`).
+4. Report the shared redactor's pattern gap using a synthetic example, not
+   the real credential. A privacy rollback must keep ingestion off until a
+   verified repair and explicit re-enrollment; it must not restore silent sends.
 
 ## Path 4: Remote MCP setup (v1.27.0.0+)
 

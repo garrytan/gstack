@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.90.1.0] - 2026-09-24
+
+Correctness fixes for configuration, transcript consent, browser output, iOS recovery, and release gates.
+
+### Fixed
+
+- Configuration readers, preference hooks, and background helpers use the canonical state roots and agree on configuration values. Local PGLite sessions no longer inherit a remote database URL.
+- Transcript ingestion requires explicit enrollment, including for small corpora, and honors off and future-only choices. Publication checks the exact outgoing bytes, refuses missing or failed credential scans, and rechecks consent before dispatch; held or failed pages are not marked published.
+- Transcript publication recognizes actual Git authentication errors without treating status-like text in repository paths or commit hashes as a reason to skip safe merge retries and consent checks.
+- Saved offline PDF previews block automatic network loads while preserving deliberate links and local assets. Browser output validates exact destinations, including dangling links and scrape-generated files, and failed clicks keep diagnostics within a bounded deadline.
+- iOS proxy requests have a complete deadline covering response bodies as well as connection setup. Silent, stalled, and dribbling responses release their transport resources without replaying ambiguous mutations.
+- Shipping and landing preserve the project's declared validation commands, working directories, and evidence labels. Landing uses supported GitHub check fields and requires current requested human reviews or an explicit, scoped waiver, followed by separate merge permission bound to the reviewed head.
+- Evidence recording and Codex session imports launch their Bash helpers explicitly, preserving content fingerprints, project-local ledgers, and imported question events on native Windows.
+- Engineering review distinguishes scope inspection, complexity decisions, and findings, and processes outside-review results before leaving that step. Disabled reviews, unavailable coverage, and required user approvals retain their existing boundaries.
+- Taste confidence accounts for rejected samples, large context-bill output drains before exit, and Render setup reports credential presence without displaying a key prefix.
+
+### For contributors
+
+- Added native boundary, privacy, transport, output, and workflow regressions, plus bounded enrollment, credential-presence, and ship/landing evaluations. Command-outcome checks distinguish read-only CLI discovery from required validation failures.
+- Combined evaluation watchdogs cover the registered case census and existing retries without increasing individual model budgets or lowering pass thresholds.
+- Workflow fixtures launch owned scripts through explicit interpreters on Windows. Workflow, preference, and publication fixtures configure their own disposable Git identities, including when an isolated HOME hides the runner's configuration.
+- Native review-floor checks recognize current target-setting decisions without requiring fixed sentences and withhold automatic finding credit from historical, withdrawn, or unrelated examples.
+
 ## [1.89.1.0] - 2026-09-24
 
 ### Removed

@@ -24,6 +24,7 @@ import { join, dirname } from 'path';
 import { homedir, hostname } from 'os';
 import { spawnSync } from 'child_process';
 import { execGbrainJson, spawnGbrain } from '../lib/gbrain-exec';
+import { resolveGstackHome } from '../browse/src/config';
 import {
   BRAIN_CACHE_ENTITIES,
   CACHE_REFRESH_LOCK_TIMEOUT_MS,
@@ -37,7 +38,7 @@ import {
 // Paths + meta
 // ──────────────────────────────────────────────────────────────────────────
 
-const GSTACK_HOME = process.env.GSTACK_HOME || join(homedir(), '.gstack');
+const GSTACK_HOME = resolveGstackHome();
 
 interface CacheMeta {
   /** Version of the schema pack the cache was built against. Mismatch → full rebuild. */

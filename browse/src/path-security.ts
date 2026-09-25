@@ -33,46 +33,32 @@ const TEMP_ONLY = [TEMP_DIR].map(d => {
 
 /** Validate a file path for writing (screenshot, pdf, download, scrape, archive). */
 export function validateOutputPath(filePath: string): void {
-  const resolved = path.resolve(filePath);
-
-  // If the target already exists and is a symlink, resolve through it.
-  // Without this, a symlink at /tmp/evil.png → /etc/crontab passes the
-  // parent-directory check (parent is /tmp, which is safe) but the actual
-  // write follows the symlink to /etc/crontab.
-  try {
-    const stat = fs.lstatSync(resolved);
-    if (stat.isSymbolicLink()) {
-      const realTarget = fs.realpathSync(resolved);
-      const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realTarget, dir));
-      if (!isSafe) {
+  for (const spelling of new Set([filePath, path.resolve(filePath)])) {
+    const root = path.parse(spelling).root;
+    let resolved = path.resolve(root || '.');
+    const components = spelling.slice(root.length).split(process.platform === 'win32' ? /[\\/]+/ : /\/+/);
+    for (const component of components) {
+      if (!component || component === '.') continue;
+      if (component === '..') {
+        resolved = path.dirname(resolved);
+        continue;
+      }
+      resolved = path.join(resolved, component);
+      try {
+        fs.lstatSync(resolved);
+      } catch (err: any) {
+        if (err.code === 'ENOENT' && SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir))) continue;
         throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
       }
-      return; // symlink target verified, no need to check parent
+      try {
+        resolved = fs.realpathSync.native(resolved);
+      } catch {
+        throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+      }
     }
-  } catch (e: any) {
-    // ENOENT = file doesn't exist yet, fall through to parent-dir check
-    if (e.code !== 'ENOENT') throw e;
-  }
-
-  // For new files (no existing symlink), verify the parent directory.
-  // The file itself may not exist yet (e.g., screenshot output).
-  // This also handles macOS /tmp → /private/tmp transparently.
-  let dir = path.dirname(resolved);
-  let realDir: string;
-  try {
-    realDir = fs.realpathSync(dir);
-  } catch {
-    try {
-      realDir = fs.realpathSync(path.dirname(dir));
-    } catch {
+    if (!SAFE_DIRECTORIES.some(dir => isPathWithin(resolved, dir))) {
       throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
     }
-  }
-
-  const realResolved = path.join(realDir, path.basename(resolved));
-  const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realResolved, dir));
-  if (!isSafe) {
-    throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
   }
 }
 

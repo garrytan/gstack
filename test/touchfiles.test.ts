@@ -246,6 +246,35 @@ describe('selectTests', () => {
   test('the shared recording lifecycle selects every bounded attempt', () => {
     const result = selectTests(['test/helpers/office-hours-attempt.ts'], E2E_TOUCHFILES);
     const expected = {
+      'ship-land-commands-python': 'gate',
+      'ship-land-commands-node': 'gate',
+      'ship-land-commands-no-eval': 'gate',
+      'ship-land-commands-zero-eval': 'gate',
+      'ship-land-commands-selector-error': 'gate',
+      'ship-land-commands-conflict': 'gate',
+      'ship-land-commands-missing': 'gate',
+      'ship-land-commands-unavailable': 'gate',
+      'ship-land-review-pending': 'gate',
+      'ship-land-review-commented': 'gate',
+      'ship-land-review-changes-requested': 'gate',
+      'ship-land-review-dismissed': 'gate',
+      'ship-land-review-stale': 'gate',
+      'ship-land-review-approved': 'gate',
+      'ship-land-review-approved-comment': 'gate',
+      'ship-land-review-rerequested': 'gate',
+      'ship-land-review-team': 'gate',
+      'ship-land-review-unknown': 'gate',
+      'ship-land-review-bot': 'gate',
+      'ship-land-review-solo': 'gate',
+      'ship-land-review-waiver': 'gate',
+      'ship-land-review-generic-waiver': 'gate',
+      'ship-land-review-head-change': 'gate',
+      'ship-land-review-protected': 'gate',
+      'ship-land-ci-pending': 'gate',
+      'ship-land-ci-failed': 'gate',
+      'ship-land-ci-cancelled': 'gate',
+      'ship-land-ci-skipped': 'gate',
+      'ship-land-ci-empty': 'gate',
       'office-hours-forcing-energy': 'periodic',
       'office-hours-builder-wildness': 'periodic',
       'office-hours-brain-writeback': 'periodic',
@@ -261,6 +290,7 @@ describe('selectTests', () => {
       'setup-gbrain-bad-token': 'periodic',
       'setup-gbrain-path4-local-pglite': 'periodic',
       'setup-gbrain-remote': 'periodic',
+      'setup-gbrain-transcript-enrollment': 'gate',
       'review-army-red-team': 'periodic',
       'review-coverage-audit': 'gate',
       'plan-eng-coverage-audit': 'gate',
@@ -594,7 +624,7 @@ describe('TOUCHFILES completeness', () => {
     );
 
     const unique = registeredJudgeTestNames(llmContent);
-    expect(unique).toHaveLength(25);
+    expect(unique).toHaveLength(26);
 
     const missing = unique.filter(name => !(name in LLM_JUDGE_TOUCHFILES));
     if (missing.length > 0) {
@@ -613,7 +643,7 @@ describe('TOUCHFILES completeness', () => {
       testIfSelected('unmapped judge case', async () => {}, 120_000);
     `;
     const names = registeredJudgeTestNames(withUnmappedCase);
-    expect(names).toHaveLength(26);
+    expect(names).toHaveLength(27);
     expect(names.filter(name => !(name in LLM_JUDGE_TOUCHFILES))).toEqual(['unmapped judge case']);
   });
 

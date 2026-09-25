@@ -22,7 +22,11 @@ set -E
 trap 'rc=$?; echo "CHECK_FAILED gstack-update-check crashed (line $LINENO, rc=$rc) — update status UNKNOWN, not up-to-date"; exit 0' ERR
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
-STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+STATE_DIR="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-${GSTACK_STATE_DIR:-}}}"
+if [ -z "$STATE_DIR" ]; then
+  eval "$("$GSTACK_DIR/bin/gstack-paths")"
+  STATE_DIR="$GSTACK_STATE_ROOT"
+fi
 
 # Egress receipt helpers (_receipted_curl / _receipted_git). Update checks
 # are fail-OPEN: a receipt hiccup warns but never blocks the version check.
@@ -61,7 +65,7 @@ fi
 
 # ─── Step 0: Check if updates are disabled ────────────────────
 _UC=$("$GSTACK_DIR/bin/gstack-config" get update_check 2>/dev/null || true)
-if [ "$_UC" = "false" ]; then
+if [ "$_UC" != "true" ]; then
   exit 0
 fi
 
@@ -201,7 +205,7 @@ _SUPA_URL="${GSTACK_SUPABASE_URL:-}"
 _SUPA_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
 # Respect telemetry opt-out — don't ping Supabase if user set telemetry: off
 _TEL_TIER="$("$GSTACK_DIR/bin/gstack-config" get telemetry 2>/dev/null || true)"
-if [ -n "$_SUPA_URL" ] && [ -n "$_SUPA_KEY" ] && [ "${_TEL_TIER:-off}" != "off" ]; then
+if [ -n "$_SUPA_URL" ] && [ -n "$_SUPA_KEY" ] && { [ "$_TEL_TIER" = "anonymous" ] || [ "$_TEL_TIER" = "community" ]; }; then
   _OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
   # Receipted (fail-open) and fully backgrounded: the receipt write happens
   # inside the background subshell, so it can never block this script's exit.

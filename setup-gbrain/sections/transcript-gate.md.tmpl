@@ -1,64 +1,74 @@
-After memory sync is wired (Step 7) but before persisting the CLAUDE.md
-config (Step 8), offer to bring this Mac's coding-agent transcripts +
-curated `~/.gstack/` artifacts into gbrain so the retrieval surface
-(per-skill manifests, salience block) has data to surface.
+After memory sync is wired (Step 7), offer transcript enrollment separately
+from curated artifact sync. Transcript ingestion defaults to **off**. Missing
+or unknown settings never grant permission. Do not enable it silently, even
+for a small corpus. An empty corpus may be reported without changing settings.
 
-Run the probe to size the operation:
+Run the read-only candidate probe:
 ```bash
-bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --probe
+bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --probe --sources transcript
 ```
 
-Read the output. If `Total files in window: 0`, skip — there's nothing
-to ingest. Set `gstack-config set transcript_ingest_mode incremental`
-silently and continue to Step 8.
+Report the candidate count, bytes and policy-eligible count as distinct values.
+The probe neither imports nor changes state. Candidate counts are not a promise
+that every page can be imported: remote trust, enrollment scope and scanning
+still apply. If there are no candidates, offer enrollment for future sessions
+or continue to Step 8 with transcript settings unchanged.
 
-If `New (never ingested)` is < 200 AND total bytes are < 100MB: silent
-bulk via `bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --bulk --quiet`. Set
-`transcript_ingest_mode=incremental` and continue.
+AskUserQuestion before any enrollment or transcript import, regardless of size:
 
-Otherwise (the "many transcripts on disk" path): AskUserQuestion with
-the exact counts AND the value promise. Default scope is **current repo
-only, last 90 days**:
-
-> "Found <N_repo> transcripts in THIS repo (<repo-slug>) over the last
-> 90 days, plus <N_other> across other repos on this machine (<bytes>
-> total if all ingested). Ingest THIS repo's transcripts into gbrain?
+> "Found <N> transcript candidates (<bytes>) on this machine. Would you like
+> gbrain to remember coding sessions? Searchable session pages can help later
+> skills find your earlier work. Choose the scope below; the default is off
+> until you choose. Curated artifact sync remains a separate setting.
 >
-> What you get after this: every gstack skill auto-loads recent salience
-> from your past sessions in this repo, so the agent finds your prior
-> work without you describing it. You can query 'what was I doing on
-> day X' and get a real answer. Per-session pages are searchable,
-> taggable, and deletable. Secret scanning runs before any push.
+> Enabled transcripts go to your configured gbrain database, which may be
+> remote. With remote-HTTP gbrain they enter the artifact Git publication queue.
+> Exact rendered pages are scanned before import and again at publication.
+> HIGH findings block; MEDIUM findings wait for review. Scan errors and pages
+> over 1 MiB are held, not sent or silently redacted. Remote deny/read-only
+> policies still apply.
 >
-> What stays the same: nothing leaves your machine unless gbrain sync
-> is enabled (Step 7). Per-repo trust policies still apply.
->
-> Multi-Mac note: if you HAVE enabled brain sync (Step 7), these
-> transcript pages will sync across your Macs. Caveat: deleting a
-> transcript page later removes it from gbrain but git history retains
-> it in prior commits. Use `gstack-transcript-prune` to delete in bulk;
-> use `git filter-repo` on the brain remote for hard-delete from
-> history."
+> Turning this off stops the next batch, but cannot recall bytes already handed
+> to an importer or erase earlier database pages or Git history. Manual cleanup
+> of existing data is separate and needs your approval."
 
-Options:
-- A) Yes — this repo, last 90 days (recommended; ~est min)
-- B) Yes — this repo, ALL history
-- C) Yes — this repo + other repos on this machine
-- D) Skip historical, track new from now (`transcript_ingest_mode=incremental`)
-- E) Never ingest transcripts (`transcript_ingest_mode=off`)
+- A) This repository, sessions started in the last 90 days and future sessions.
+- B) This repository, all history and future sessions.
+- C) All repositories on this machine, last 90 days and future sessions.
+- D) This repository, only sessions started from now; do not import history.
+- E) Never ingest transcripts; keep or set off.
 
-After answer:
+Use the native question tool's option limit: first offer A, B, C and
+"No historical import (choose D/E)"; if the last option is selected, ask D or E.
+Choosing that group is not consent. An empty-corpus question may offer D/E
+directly. Remember the final letter, not a generic approval of setup.
+
+After an explicit A–E answer, run the matching enrollment command. It stores
+the actual repository filter and fixed cutoff in owned ingestion state, sets
+the consent switch, and does **not** import anything. A/B/D require a resolvable
+current repository remote; if enrollment fails, stop this stage and explain it.
 ```bash
-~/.claude/skills/gstack/bin/gstack-config set transcript_ingest_mode <choice>
-bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --full --no-brain-sync
+bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --enroll <A-E>
 ```
-(`--no-brain-sync` because Step 7 already wired that path; this just
-runs the code import + memory ingest stages. Brain-sync will run on the
-next preamble hook.)
 
-If A/D/E, ingest is incremental from this point on; preamble-boundary
-hook runs `bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --incremental --quiet` on every skill
-start (cheap mtime fast-path).
+Only after A, B or C succeeds, import the selected transcript scope:
+```bash
+bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --bulk --sources transcript
+```
 
-Reference doc for users: `setup-gbrain/memory.md` (linked from CLAUDE.md
-Step 8).
+For D, do not run a historical import. Future incremental passes enforce the
+enrollment timestamp even if an older session file is modified later. For E,
+do not import transcripts and never reset its mode to incremental. Continue
+to Step 8; curated artifacts retain their independent policy in every branch.
+
+Future skill-start hooks may run `bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --incremental --quiet`;
+each transcript batch still checks current consent and the saved scope.
+
+Report disabled, empty, held, partially written or successful accurately from
+the command result. Held/failed pages remain retryable; unsupported or unsafe
+checkpoints are retained for review, never silently replaced or renumbered.
+Do not bypass the scanner or automatically acknowledge findings. If a privacy
+regression requires rollback, keep transcript ingestion off and publication
+held until a verified repair and explicit re-enrollment; do not delete history.
+
+Reference: `setup-gbrain/memory.md` (linked from CLAUDE.md Step 8).

@@ -861,9 +861,9 @@ ${outsideVoiceInvocation(ctx, { timeoutMs: 540000, diffCommand: 'DIFF_BASE=$(git
 
 Set the outer tool timeout to 600000ms so the provider timeout can report its failure.
 
-Present the full output verbatim. This is informational — it never blocks shipping.
+Present the full output verbatim. ${isShip ? 'Collect actionable findings for the Step 11 completion procedure; a structured P1 finding uses the decision gate below.' : 'This is informational — it never blocks shipping.'}
 
-**Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
+**Error handling:** ${isShip ? 'Execution failures do not block shipping; findings still follow the approval and convergence gates. Record failed passes as missing coverage and continue to the remaining passes, persistence and Step 11 completion.' : 'All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.'}
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "${outsideVoiceFor(ctx).label} authentication failed. Run \\\`${outsideVoiceFor(ctx).id === 'codex' ? 'codex login' : 'claude auth login'}\\\` to authenticate."
 - **Timeout:** "${outsideVoiceFor(ctx).label} exceeded 9 minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if ${outsideVoiceFor(ctx).label} had reviewed.
 - **Empty response:** "${outsideVoiceFor(ctx).label} returned no response. Stderr: <paste relevant error>."
@@ -876,7 +876,7 @@ If \`CODEX_MODE\` is \`not_installed\` / \`not_authed\` / \`disabled\`: the pref
 
 ### ${outsideVoiceFor(ctx).label} structured review (large diffs only, 200+ lines)
 
-If \`DIFF_TOTAL >= 200\` AND \`CODEX_MODE\` is \`ready\`:
+If \`CODEX_MODE\` is \`ready\` AND either \`DIFF_TOTAL >= 200\` or the user explicitly requested the structured review:
 
 Prepare a structured review prompt requesting severity-tagged findings ([P1], [P2], [P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
@@ -901,22 +901,22 @@ Read stderr for errors (same error handling as ${outsideVoiceFor(ctx).label} adv
 
 
 
-If \`DIFF_TOTAL < 200\`: skip this section silently. The ${outsideVoiceFor(ctx).nativeLabel} + ${outsideVoiceFor(ctx).label} adversarial passes provide sufficient coverage for smaller diffs.
+If \`DIFF_TOTAL < 200\` and no explicit structured-review request exists, skip this section. Record the actual adversarial coverage; availability alone never establishes completion.
 
 ---
 
 ### Persist the review result
 
-After all passes complete, persist:
+After all passes finish, including failures, write one record per source/phase/attempt:
 \`\`\`bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"${ctx.host}","outside_provider":"${outsideVoiceFor(ctx).id}","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED}' --finish PASS_START
 \`\`\`
-PASS_START is this source/phase's original start token. COMPLETED is true only for a completed response (false for timeout, failure, refusal, or missing coverage). CONVERGED is true only if the completed pass made no edits. Each token is consumed once; a fixing pass cannot certify the fixed tree without a fresh full pass. Missing/disabled passes have no token: omit \`--finish\` and log completed/converged false. Log each source/phase separately so a clean native response cannot hide missing outside coverage.
-Substitute: PHASE = "adversarial" or "structured" for the corresponding pass. STATUS = "clean" only for a completed pass with no findings, "issues_found" if any pass found issues. SOURCE = the completed outside provider for its record; use a separate in-host record for the native subagent. GATE = the ${outsideVoiceFor(ctx).label} structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if ${outsideVoiceFor(ctx).label} was unavailable. If all passes failed, persist status "unavailable" with outside_status "unavailable"; never persist "clean". Record the adversarial and structured phases separately if their coverage differs.
-
----
-
-${outsideVoiceProvenance(ctx, 'adversarial')}
+Substitute fields from this record's own outcome, never another pass:
+1. PHASE is \`adversarial\` or \`structured\`. SOURCE is \`in-host\` for the native subagent, \`${outsideVoiceFor(ctx).id}\` only for completed outside CLI output, or \`unavailable\` when no reviewer completed. Historical \`source:"claude"\` means native Claude. Preserve reported modelUsage; unknown model identity stays unknown.
+2. OUTSIDE_STATUS is \`completed\`, \`unavailable\`, \`disabled\` or \`skipped\` for the outside attempt; use \`skipped\` for a native-only record. Availability/native fallback is not outside completion.
+3. STATUS is \`clean\` only for this completed pass with no findings, \`issues_found\` for its findings, or \`unavailable\` without a completed response. COMPLETED is false for timeout, failure, refusal or missing coverage. CONVERGED is true only when completed and no edits were made.
+4. GATE is \`pass\`/\`fail\` for a completed structured review, \`skipped\` when that phase was not requested, and \`informational\` for adversarial or unavailable passes. Missing coverage never earns \`pass\`.
+5. PASS_START is this attempt's original token. Each token is consumed once with \`--finish\`, including after a started pass fails. An unstarted, disabled or skipped pass has no token: omit \`--finish\`, with completed/converged false. A fixing pass cannot certify the fixed tree without a fresh full pass.
 
 ### Cross-model synthesis
 
@@ -966,6 +966,7 @@ fi
 
 export function generateCodexPlanReview(ctx: TemplateContext): string {
   const ceo = ctx.skillName === 'plan-ceo-review';
+  const eng = ctx.skillName === 'plan-eng-review';
   const needsApprovalReadiness = ['plan-ceo-review', 'plan-eng-review'].includes(ctx.skillName);
   const result = `## Outside Voice — Independent Plan Challenge (default-on)
 
@@ -977,14 +978,37 @@ review. The user turns this off only by asking explicitly
 
 **Preflight — decide whether and how the outside voice runs:**
 
-${outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all' })}
+${outsideVoicePreflight(ctx, { disabledBehavior: 'skip-all', ...(eng ? { routing: 'caller' as const } : {}) })}
 
-${needsApprovalReadiness ? `**Outcome routing:** ${ceo ? `Follow the row for the current result. After an invocation, route its result
+${eng ? `**Outcome routing:** Follow the row for the current result. After an invocation,
+route its result again. Leave Outside Voice only after recording disabled or
+unavailable coverage, or resolving completed findings and recording the result.
+Missing reviewer coverage is non-blocking; approval and artifact-write rules still apply.
+The historical \`CODEX_MODE\` names ${outsideVoiceFor(ctx).label} availability on this host.
+Never substitute another external provider.
+
+| Outcome | Next step |
+|---|---|
+| Disabled | Use the guarded disabled record below, then continue to Final planning decisions. No prompt, outside process or native replacement. |
+| Ready | Construct the prompt and run the foreground outside invocation; route its result here again. |
+| Other preflight mode, including harness mismatch | Report the diagnosis below, construct the same prompt and use Native fallback. |
+| Outside execution or output validation fails | Retain its output and diagnosis, finish termination, then use Native fallback. Auth: name the login repair; timeout: report the five-minute limit; empty response: say no response. |
+| Reviewer completes | Present its full output once, resolve findings in Cross-model tension, then Persist the result and continue to Final planning decisions. |
+| Native fallback unavailable or fails | Use the Unavailable path to record missing coverage, then continue to Final planning decisions. No clean-review credit. |
+
+**Preflight diagnoses:** \`not_installed\` or \`broken_install\`: install/repair ${outsideVoiceFor(ctx).label}${outsideVoiceFor(ctx).id === 'codex' ? ' with `npm install -g @openai/codex`' : ''};
+\`not_authed\`: run \`${outsideVoiceFor(ctx).id === 'codex' ? 'codex login' : 'claude auth login'}\`;
+\`model_unusable\`: relay HINT lines and explain how the user can select a supported
+model${outsideVoiceFor(ctx).id === 'codex' ? ' (`GSTACK_CODEX_MODEL` or explicit `-c model=...`)' : ''}. Do not change the configured model or retry this invocation;
+use Native fallback as the routing table directs.
+Harness mismatch: report no outside process started and missing coverage; repair
+with \`setup --host <actual-harness>\`. Conflicting inherited markers do not select
+a replacement provider. Relay probe HINT lines for broken installs too.
+${outsideVoiceFor(ctx).id === 'claude-code' ? 'Authentication and configured model validity are checked by the invocation, without overriding either.\n' : ''}
+` : ceo ? `**Outcome routing:** Follow the row for the current result. After an invocation, route its result
 again. Leave only after recording disabled/unavailable coverage, or after
 integrating completed findings, comparing eligible reviews and recording the result.
-Missing reviewer coverage is non-blocking; approvals and artifact rules still apply.` : `Pick exactly one row from this table, finish that row's
-steps, then leave Outside Voice. Missing reviewer coverage is non-blocking;
-approval and artifact-write requirements still apply.`}
+Missing reviewer coverage is non-blocking; approvals and artifact rules still apply.
 
 | Outcome | Next step |
 |---|---|
@@ -992,10 +1016,14 @@ approval and artifact-write requirements still apply.`}
 | Ready | Construct the prompt and run the foreground outside invocation. |
 | Other preflight mode, including harness mismatch | Report the probe's diagnosis, construct the same prompt and use Native fallback. |
 | Outside execution or output validation fails | Retain its output and diagnosis, finish termination, then use Native fallback. Auth: name the login repair; timeout: report the five-minute limit; empty response: say no response. |
-| Reviewer completes | Present its full output and ${ceo ? 'go to Integrate reviewer findings' : 'resolve findings through Decision procedure'}. |
+| Reviewer completes | Present its full output and go to Integrate reviewer findings. |
 | Native fallback unavailable or fails | Record unavailable coverage and continue to planning decisions. No clean-review credit. |
 
-` : ''}${ceo ? `**Record the disabled outcome:** If preflight selected \`disabled\`, use the
+` : ''}${eng ? `**Disabled is a terminal branch for this section.** Print "Codex review skipped
+(codex_reviews disabled). Re-enable: \`gstack-config set codex_reviews enabled\`."
+Then persist \`outside_status: disabled\` with the guarded command below. This
+intentional opt-out never needs a replacement reviewer.
+` : ceo ? `**Record the disabled outcome:** If preflight selected \`disabled\`, use the
 guarded record below, then continue to the remaining planning decisions and
 Approval readiness. This ends Outside Voice without a challenge, CLI invocation,
 Agent/Task fallback or questions about outside findings. It is an intentional
@@ -1075,7 +1103,7 @@ ${outsideVoiceFor(ctx).label.toUpperCase()} SAYS (plan review — outside voice)
 \`\`\`
 
 This fence is the only external-provider output surface. Native fallback prints
-only its \`OUTSIDE VOICE (...)\` subagent report; never print both for one review.${ceo ? '\n\nAfter a completed external review, go directly to **Integrate reviewer findings** below. Run Native fallback only for a provider failure.' : ''}
+only its \`OUTSIDE VOICE (...)\` subagent report; never print both for one review.${eng ? '\n\nReturn to **Outcome routing** with the invocation result; do not run fallback after a completed review.' : ceo ? '\n\nAfter a completed external review, go directly to **Integrate reviewer findings** below. Run Native fallback only for a provider failure.' : ''}
 
 ${ceo ? `**Native fallback — provider unavailable or execution failed, with reviews enabled:**
 
@@ -1094,7 +1122,7 @@ dispatching. Otherwise continue with the same prepared prompt.
 Use this fallback only after the routing row says to use it. Immediately before
 dispatch, check the preflight result again: disabled means no replacement;
 record disabled coverage and do not dispatch. If still enabled, run the bounded
-native attempt below. A native result never supplies outside coverage.` : `**Error handling:** All errors are non-blocking — the outside voice is informational.
+native attempt below.` : `**Error handling:** All errors are non-blocking — the outside voice is informational.
 - Auth failure (stderr contains "auth", "login", "unauthorized"): "${outsideVoiceFor(ctx).label} auth failed. Run \\\`${outsideVoiceFor(ctx).id === 'codex' ? 'codex login' : 'claude auth login'}\\\` to authenticate." Fall back to the ${outsideVoiceFor(ctx).nativeLabel} subagent below.
 - Timeout: "${outsideVoiceFor(ctx).label} timed out after 5 minutes." Fall back to the ${outsideVoiceFor(ctx).nativeLabel} subagent below.
 - Empty response: "${outsideVoiceFor(ctx).label} returned no response." Fall back to the ${outsideVoiceFor(ctx).nativeLabel} subagent below.
@@ -1153,7 +1181,7 @@ with STATUS = "unavailable", SOURCE = "none", OUTSIDE_STATUS = "unavailable";
 then continue directly to ${needsApprovalReadiness ? 'the remaining planning decisions and Approval readiness' : 'outputs'}. The storage policy still applies.
 Do not record a clean review when no reviewer completed within the accepted wait.
 
-${ceo ? '' : '(On `CODEX_MODE: disabled` you already skipped this section per the preflight — do not reach here.)'}
+${ceo || eng ? '' : '(On `CODEX_MODE: disabled` you already skipped this section per the preflight — do not reach here.)'}
 
 ${ctx.skillName === 'plan-eng-review' ? `**Cross-model tension:**
 
@@ -1807,20 +1835,24 @@ If all conditions are true: suppress the finding. It was intentionally skipped a
    current raw branch, matching the capture. Compute the digest in code, never
    as model-generated text. Sanitized log filenames are not branch identity:
    \`topic/a\` and \`topic-a\` can collide.
-4. Verify EVERY evidence path against the snapshot. Enumerate tracked/non-ignored
-   untracked paths, then raw-read/lstat each file and path component; \`ls-files\`
-   alone is insufficient. Revalidate symlink targets/ancestors, submodules,
-   ignored/outside files and missing/unreadable paths: the parent fingerprint
-   does not cover them. Inspect effective Git attributes/config without conversion:
-   filter, working-tree-encoding, ident, text/eol and core.autocrlf can hide raw
-   changes. Active/unknown transformations require fresh raw-source review even
-   with an unchanged filtered tree. Disable fsmonitor and optional locks.
-   Exclude assume-unchanged, skip-worktree and sparse index entries. Compare each
-   raw file byte-for-byte with its blob in that exact working-tree snapshot,
-   using Git object reads without external diff/textconv or normalization.
-   Missing blobs, mismatches or unknown coverage require revalidation.
-   Only verified regular, untransformed,
-   in-repository paths enter \`covered_paths\`.
+4. Verify EVERY evidence path against the snapshot, in this order. Stop at the
+   first failed or unknown check and revalidate the advice instead of suppressing it:
+   - **Path:** Enumerate tracked/non-ignored untracked paths, then raw-read/lstat
+     each file and path component; \`ls-files\` alone is insufficient. Revalidate
+     symlink targets/ancestors, submodules, ignored/outside files and
+     missing/unreadable paths: the parent fingerprint does not cover them.
+   - **Git transformations:** Inspect effective Git attributes/config without
+     conversion: filter, working-tree-encoding, ident, text/eol and core.autocrlf
+     can hide raw changes. Active/unknown transformations require fresh raw-source
+     review even with an unchanged filtered tree. Disable fsmonitor and optional locks.
+     Exclude assume-unchanged, skip-worktree and sparse index entries.
+   - **Bytes:** Set WTREE to the verified \`---WTREE---\` tree ID and EVIDENCE_PATH
+     to the checked repository-relative path. Compare the raw file byte-for-byte with its blob
+     using \`git --no-optional-locks -c core.fsmonitor=false cat-file blob "$WTREE:$EVIDENCE_PATH"\`
+     and a binary comparison, with no external diff/textconv or normalization.
+     Check the Git command's exit status separately; missing blobs or mismatches
+     require revalidation. Do not compare against HEAD or create a replacement snapshot.
+   Only verified regular, untransformed, in-repository paths enter \`covered_paths\`.
    The prior finding's \`snapshot_covered_paths\` must also cover every evidence
    path; current eligibility cannot prove what prior filters/index flags hid.
    Missing prior coverage is legacy metadata; revalidate it.

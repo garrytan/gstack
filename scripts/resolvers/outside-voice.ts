@@ -66,7 +66,7 @@ if { ${own}; }; then
 fi`;
 }
 
-export function outsideVoicePreflight(ctx: TemplateContext, opts: { disabledBehavior: 'skip-all' | 'codex-only' | 'opt-in' }): string {
+export function outsideVoicePreflight(ctx: TemplateContext, opts: { disabledBehavior: 'skip-all' | 'codex-only' | 'opt-in'; routing?: 'caller' }): string {
   const v = outsideVoiceFor(ctx);
   if (v.id === 'codex' && opts.disabledBehavior !== 'opt-in') {
     let preflight = outsideVoiceLabels(ctx, codexPreflight(opts))
@@ -83,7 +83,7 @@ export function outsideVoicePreflight(ctx: TemplateContext, opts: { disabledBeha
   const probe = v.id === 'codex'
     ? 'command -v codex >/dev/null 2>&1'
     : `bun -e 'const {resolveClaudeCommand} = await import(process.argv[1]); process.exit(resolveClaudeCommand() ? 0 : 1)' "${bin}/../lib/claude-bin.ts"`;
-  return `\`\`\`bash
+  const preflight = `\`\`\`bash
 ${outsideVoiceRuntime(ctx)}
 ${opts.disabledBehavior === 'opt-in' ? '_OUTSIDE_CFG=enabled # This caller has its own opt-in/skip control.' : `_OUTSIDE_CFG=$("${bin}/gstack-config" get codex_reviews 2>/dev/null || echo enabled)`}
 if [ "$_OUTSIDE_CFG" = disabled ]; then
@@ -92,9 +92,11 @@ elif ( ${outsideVoiceGuard(ctx)}
 ); then
   if ${probe}; then echo 'CODEX_MODE: ready'; else echo 'CODEX_MODE: not_installed'; fi
 else
-  echo 'CODEX_MODE: under_current_harness'
+  echo 'CODEX_MODE: ${v.id === 'codex' ? 'under_codex' : 'under_current_harness'}'
 fi
-\`\`\`
+\`\`\``;
+  if (opts.routing === 'caller') return preflight;
+  return `${preflight}
 
 The historical \`CODEX_MODE\` variable describes **${v.label}** availability here. Authentication and configured model validity are checked by the actual invocation, without overriding either. Missing/broken CLI: install or repair ${v.label}; authentication failure: run \`${v.id === 'codex' ? 'codex login' : 'claude auth login'}\`. ${opts.disabledBehavior === 'skip-all' ? 'Disabled ends this entire extra review step, including the native fallback; record outside_status: disabled and continue after the section. Disabled is not an unavailable provider and never triggers a replacement reviewer.' : opts.disabledBehavior === 'codex-only' ? 'Disabled skips only the outside CLI; retain the native pass.' : 'Honor this caller’s existing opt-in/skip choice.'} ${opts.disabledBehavior === 'skip-all' ? 'Provider failure is missing outside coverage; follow the caller’s existing fallback only when reviews are enabled.' : 'Any non-ready outcome is missing outside coverage; follow the caller’s existing fallback.'} Never substitute another external provider.`;
 }

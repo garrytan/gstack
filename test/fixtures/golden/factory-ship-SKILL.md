@@ -446,7 +446,7 @@ Run `/ship` through to the PR URL. This request authorizes routine work without 
 - Multi-file changesets (auto-split into bisectable commits)
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
-- Test coverage gaps within target threshold (generate, verify, then commit with Step 15; flag any remaining gaps in the PR body)
+- Coverage at or above Step 7's target (verify generated tests, then commit with Step 15; below-target or undetermined coverage follows Step 7's decision gate)
 
 **Re-run behavior (idempotency):**
 Every invocation repeats verification: tests, coverage, plan completion, both
@@ -832,30 +832,37 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 
 ## Step 5: Run tests (on merged code)
 
-Use the project's test commands discovered in Step 4 or documented in CLAUDE.md/AGENTS.md. Run every applicable suite; do not assume Rails or Vitest. The commands below are examples only for repositories that actually provide them. Use the same lane labels and exact commands again in Step 16.
+Resolve every required test, lint, typecheck and eval lane once from applicable
+AGENTS.md/CLAUDE.md and referenced CI jobs, manifests and wrappers. Keep CI cwd,
+environment prefixes, wrappers and flags; never infer commands from language
+markers. Ask on genuine conflicts or missing/unavailable commands before
+proceeding; do not invent fallbacks.
 
-**For Rails projects using `bin/test-lane`, do NOT run `RAILS_ENV=test bin/rails db:migrate`** — `bin/test-lane` already calls
-`db:test:prepare` internally, which loads the schema into the correct lane database.
-Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
+Record `(working directory, exact command bytes, evidence label)` and declaration
+source in existing test/PR evidence. Keep existing labels; label added lanes
+uniquely. Reuse tuples in Steps 6 and 16 and `/land-and-deploy`; never rediscover or
+normalize them. Resolve changed declarations and rerun those lanes. Run tests,
+lint and typechecks now; resolve eval tuples now but select and run only in Step 6.
+Do not assume Rails or Vitest.
 
-Run independent test suites in parallel, each wrapped in the evidence ledger. The
-wrapper is transparent (streams output live, exit code passes through) and
-records `{command, exit, working-tree fingerprint, log path}` to
-`~/.gstack/projects/<slug>/<branch>-evidence.jsonl` — Step 16 cites this
-record instead of re-running when the content hasn't changed:
+**Rails with `bin/test-lane`: do NOT run `RAILS_ENV=test bin/rails db:migrate`.**
+The wrapper's `db:test:prepare` loads the correct lane schema; bare migrations
+without INSTANCE hit an orphan DB and corrupt structure.sql.
+
+Wrap independent lanes in parallel with the evidence ledger. It streams output,
+preserves exit status and records each tuple, tested tree and log for reuse in
+Step 16 when content is unchanged. Substitute tuples below; placeholders are not commands:
 
 ```bash
-$GSTACK_ROOT/bin/gstack-evidence run --label tests -- 'bin/test-lane 2>&1' &
-$GSTACK_ROOT/bin/gstack-evidence run --label vitest -- 'npm run test 2>&1' &
-wait
+(cd '<lane working directory>' && $GSTACK_ROOT/bin/gstack-evidence run --label '<lane label>' -- '<exact lane command>')
 ```
 
-After all suites complete, check the `gstack-evidence: recorded label=... exit=...
-log=...` summary lines — each carries the lane's exit code and a per-run log
-file (no shared /tmp collisions between concurrent ships). Read the log files
-for failure detail.
+Shell-quote the exact command as one argument; do not add `2>&1` or `tee` (both
+streams are captured). Retain each parallel result. Read each
+`gstack-evidence: recorded label=... exit=... log=...` summary and its unique log
+for failures.
 
-**If any test fails:** Do NOT immediately stop. Apply the Test Failure Ownership Triage:
+**If any test fails:** Apply Test Failure Ownership Triage before deciding to stop:
 
 ## Test Failure Ownership Triage
 
@@ -961,72 +968,59 @@ Use AskUserQuestion:
 - Continue with the workflow.
 - Note in output: "Pre-existing test failure skipped: <test-name>"
 
-**After triage:** If any in-branch failures remain unfixed, **STOP**. Do not proceed. If all failures were pre-existing and handled (fixed, TODOed, assigned, or skipped), continue to Step 6.
-
-**If all pass:** Continue silently — just note the counts briefly.
+**After triage:** Unfixed in-branch failures **STOP**. Continue to Step 6 only if
+all failures were pre-existing and handled (fixed, TODOed, assigned, or skipped).
+If all tests pass, note counts briefly and continue silently.
 
 ---
 
 ## Step 6: Eval Suites (conditional)
 
-Evals are mandatory when prompt-related files change. Select from the full diff,
-including uncommitted changes, before deciding whether to skip.
+Prompt-related changes require evals. Use the project's declared prompt dependencies,
+selector and pre-merge tier, covering templates, judges, harnesses and fixtures—not
+a language-specific filename list.
 
-**1. Select affected suites using the project's contract.**
-
-**Project-native path:** Read CLAUDE.md/AGENTS.md, package scripts and the eval
-dependency map. Include changed prompts, skill templates, judges and harness
-code. Use the documented selector and pre-merge command. If it reports no
-affected suites, record that result and continue to Step 7. If prompt-related
-files changed but selection or the command is unknown, report the validation
-gap and ask before shipping. A missing Rails-pattern match is not a skip signal
-for another stack.
-
-**Rails example only — when this repository provides `bin/test-lane` and
-`test/evals/*_eval_runner.rb`:**
-
-- Match the diff against the project's documented prompt paths, such as
-  `app/services/*_prompt_builder.rb`, generation/writer/designer services,
-  evaluator/scorer/classifier/analyzer services, voice/writing/prompt/token
-  concerns, chat tools, `config/system_prompts/*.txt` and `test/evals/**/*`.
-- Match changed files to each runner's `PROMPT_SOURCE_FILES`; follow shared
-  judge/support/fixture imports to all affected suites. A runner such as
-  `post_generation_eval_runner.rb` maps to `post_generation_eval_test.rb`.
-- Use the project's full pre-merge tier (`EVAL_JUDGE_TIER=full` for this runner).
-  Do not substitute a cheaper development tier. If selection remains uncertain,
-  include every plausibly affected suite.
-
-**2. Run the selected command and preserve its exit status.**
-
-For the Rails example:
+**1. Determine applicability from the complete diff and project declarations:**
 
 ```bash
-set -o pipefail
-EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval_test.rb 2>&1 | tee /tmp/ship_evals.txt
+git diff origin/<base> --name-only
 ```
 
-Use the native command for other stacks. Respect the project's concurrency and
-retry policy. Rails suites sharing a test lane run sequentially; stop on the
-first failure before starting another paid suite.
+No declared eval lane and no prompt-related changes: report "No evaluation lane declared;
+not applicable" and continue to Step 7. If declared selection proves no affected
+prompt dependencies, report the result and source. A failed selector, unknown
+mapping, required selection with zero cases, or changed prompt-related files without a documented
+eval command is **missing validation**, not a pass or no-match skip. Stop and ask
+for the missing command/coverage before shipping.
 
-**Long eval suites (30+ min): launch detached so a turn boundary can't kill them.**
-Use the detached runner and eval lock; set its outer timeout to cover the
-project's declared suite duration and retries. Do not change individual eval
-limits. For a suite whose full bound fits 5400 seconds:
+**2. Run affected eval lanes:**
+
+Use Step 5's tuples and evidence wrapper. Record selection and expected case counts;
+verify selected files exist. Run required cheap checks and selected quality judges
+before long behavioral evals when required. Keep the project's pre-merge tier,
+budgets, cwd, concurrency and retries; never substitute another project's tier or
+runner. Run shared lanes sequentially. Missing credentials/tools mean unavailable
+coverage. Report failures and stop before more paid work.
+
+**Long eval suites (30+ min):** Use the detached runner and eval lock to survive
+turn boundaries. The outer timeout must cover declared duration and retries;
+never change individual limits. If the full bound fits 5400s:
 
 ```bash
 $GSTACK_ROOT/bin/gstack-detach --label ship-evals --lock gstack-evals --timeout 5400 -- <project eval command>
 ```
 
-Poll the printed log for `### gstack-detach EXIT=<code> ###`. Silence is not
-success. Retain every configured attempt; skipped or unstarted cases do not
-satisfy coverage.
+Poll the log for `### gstack-detach EXIT=<code> ###`; silence is not success.
+Retain every configured attempt. Skipped or unstarted cases do not satisfy coverage.
 
-**3. Check results and save evidence for Step 19.**
+**3. Check results and save evidence for Step 19:**
 
-- **If any eval fails:** Show failures and available costs, then **STOP**.
-- **If all selected evals pass:** Record actual counts, any reused evidence and
-  its source, and available costs. Continue to Step 7.
+Show results and available costs. Save tuples, selection, evidence logs,
+pass/fail/skip counts, reused evidence with its source, and the cost dashboard in
+the PR body. Keep expressly authorized validation exceptions visible, never as passes.
+
+- **Any eval failure:** Show failures and **STOP**.
+- **All required selected cases ran and passed:** Continue to Step 7.
 
 ---
 
@@ -1452,8 +1446,9 @@ COMPLETION: 4/10 DONE, 1 PARTIAL, 2 NOT DONE, 1 CHANGED, 2 UNVERIFIABLE
 ```
 
 After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
-{"total_items":N,"done":N,"changed":N,"partial":N,"not_done":N,"unverifiable":N,"summary":"<markdown checklist for PR body>"}
+{"total_items":N,"done":N,"changed":N,"partial":N,"not_done":N,"unverifiable":N,"summary":"<markdown checklist for PR body>","error":null}
 Counts map one-to-one to the classifications above and sum to total_items. No plan or no actionable items means all counts are zero with the skip reason in summary. Do not classify work as deferred; only the parent can record a user-approved deferral.
+Use `error:null` for a completed audit, including a valid no-plan result. If the audit cannot complete, set `error` to the failure reason; do not present partial counts as a completed audit. The parent takes the failure fallback whenever `error` is non-null.
 ````
 
 **Parent processing:**
@@ -1807,7 +1802,7 @@ fi
 ); then
   if command -v codex >/dev/null 2>&1; then echo 'CODEX_MODE: ready'; else echo 'CODEX_MODE: not_installed'; fi
 else
-  echo 'CODEX_MODE: under_current_harness'
+  echo 'CODEX_MODE: under_codex'
 fi
 ```
 
@@ -2003,7 +1998,7 @@ CHECKLIST:
 **Subagent configuration:**
 - Use `subagent_type: "general-purpose"`
 - Pass `run_in_background: false` on every specialist Agent call — subagents run in the BACKGROUND by default since Claude Code v2.1.198, and all specialists must complete before merge. (Merely omitting the flag no longer produces a foreground run; it must be explicitly false.)
-- If any specialist subagent fails or times out, log the failure and continue with results from successful specialists. Specialists are additive — partial results are better than no results.
+- If any dispatched specialist fails or times out, record missing coverage and collect successful results through Step 9.3. Step 9.4 then persists the incomplete pass and STOPs before Step 10. Collecting partial findings does not authorize shipping.
 
 ---
 
@@ -2176,20 +2171,24 @@ If all conditions are true: suppress the finding. It was intentionally skipped a
    current raw branch, matching the capture. Compute the digest in code, never
    as model-generated text. Sanitized log filenames are not branch identity:
    `topic/a` and `topic-a` can collide.
-4. Verify EVERY evidence path against the snapshot. Enumerate tracked/non-ignored
-   untracked paths, then raw-read/lstat each file and path component; `ls-files`
-   alone is insufficient. Revalidate symlink targets/ancestors, submodules,
-   ignored/outside files and missing/unreadable paths: the parent fingerprint
-   does not cover them. Inspect effective Git attributes/config without conversion:
-   filter, working-tree-encoding, ident, text/eol and core.autocrlf can hide raw
-   changes. Active/unknown transformations require fresh raw-source review even
-   with an unchanged filtered tree. Disable fsmonitor and optional locks.
-   Exclude assume-unchanged, skip-worktree and sparse index entries. Compare each
-   raw file byte-for-byte with its blob in that exact working-tree snapshot,
-   using Git object reads without external diff/textconv or normalization.
-   Missing blobs, mismatches or unknown coverage require revalidation.
-   Only verified regular, untransformed,
-   in-repository paths enter `covered_paths`.
+4. Verify EVERY evidence path against the snapshot, in this order. Stop at the
+   first failed or unknown check and revalidate the advice instead of suppressing it:
+   - **Path:** Enumerate tracked/non-ignored untracked paths, then raw-read/lstat
+     each file and path component; `ls-files` alone is insufficient. Revalidate
+     symlink targets/ancestors, submodules, ignored/outside files and
+     missing/unreadable paths: the parent fingerprint does not cover them.
+   - **Git transformations:** Inspect effective Git attributes/config without
+     conversion: filter, working-tree-encoding, ident, text/eol and core.autocrlf
+     can hide raw changes. Active/unknown transformations require fresh raw-source
+     review even with an unchanged filtered tree. Disable fsmonitor and optional locks.
+     Exclude assume-unchanged, skip-worktree and sparse index entries.
+   - **Bytes:** Set WTREE to the verified `---WTREE---` tree ID and EVIDENCE_PATH
+     to the checked repository-relative path. Compare the raw file byte-for-byte with its blob
+     using `git --no-optional-locks -c core.fsmonitor=false cat-file blob "$WTREE:$EVIDENCE_PATH"`
+     and a binary comparison, with no external diff/textconv or normalization.
+     Check the Git command's exit status separately; missing blobs or mismatches
+     require revalidation. Do not compare against HEAD or create a replacement snapshot.
+   Only verified regular, untransformed, in-repository paths enter `covered_paths`.
    The prior finding's `snapshot_covered_paths` must also cover every evidence
    path; current eligibility cannot prove what prior filters/index flags hid.
    Missing prior coverage is legacy metadata; revalidate it.
@@ -2486,9 +2485,9 @@ Show the full response in a `tool-output` fence. Require successful execution an
 
 Set the outer tool timeout to 600000ms so the provider timeout can report its failure.
 
-Present the full output verbatim. This is informational — it never blocks shipping.
+Present the full output verbatim. Collect actionable findings for the Step 11 completion procedure; a structured P1 finding uses the decision gate below.
 
-**Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
+**Error handling:** Execution failures do not block shipping; findings still follow the approval and convergence gates. Record failed passes as missing coverage and continue to the remaining passes, persistence and Step 11 completion.
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
 - **Timeout:** "Codex exceeded 9 minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if Codex had reviewed.
 - **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
@@ -2501,7 +2500,7 @@ If `CODEX_MODE` is `not_installed` / `not_authed` / `disabled`: the preflight al
 
 ### Codex structured review (large diffs only, 200+ lines)
 
-If `DIFF_TOTAL >= 200` AND `CODEX_MODE` is `ready`:
+If `CODEX_MODE` is `ready` AND either `DIFF_TOTAL >= 200` or the user explicitly requested the structured review:
 
 Prepare a structured review prompt requesting severity-tagged findings ([P1], [P2], [P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
@@ -2574,22 +2573,22 @@ Read stderr for errors (same error handling as Codex adversarial above).
 
 
 
-If `DIFF_TOTAL < 200`: skip this section silently. The factory (in-host) + Codex adversarial passes provide sufficient coverage for smaller diffs.
+If `DIFF_TOTAL < 200` and no explicit structured-review request exists, skip this section. Record the actual adversarial coverage; availability alone never establishes completion.
 
 ---
 
 ### Persist the review result
 
-After all passes complete, persist:
+After all passes finish, including failures, write one record per source/phase/attempt:
 ```bash
 $GSTACK_ROOT/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"factory","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED}' --finish PASS_START
 ```
-PASS_START is this source/phase's original start token. COMPLETED is true only for a completed response (false for timeout, failure, refusal, or missing coverage). CONVERGED is true only if the completed pass made no edits. Each token is consumed once; a fixing pass cannot certify the fixed tree without a fresh full pass. Missing/disabled passes have no token: omit `--finish` and log completed/converged false. Log each source/phase separately so a clean native response cannot hide missing outside coverage.
-Substitute: PHASE = "adversarial" or "structured" for the corresponding pass. STATUS = "clean" only for a completed pass with no findings, "issues_found" if any pass found issues. SOURCE = the completed outside provider for its record; use a separate in-host record for the native subagent. GATE = the Codex structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Codex was unavailable. If all passes failed, persist status "unavailable" with outside_status "unavailable"; never persist "clean". Record the adversarial and structured phases separately if their coverage differs.
-
----
-
-Retain the historical review-log skill ID; add `"host":"factory","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"adversarial"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.
+Substitute fields from this record's own outcome, never another pass:
+1. PHASE is `adversarial` or `structured`. SOURCE is `in-host` for the native subagent, `codex` only for completed outside CLI output, or `unavailable` when no reviewer completed. Historical `source:"claude"` means native Claude. Preserve reported modelUsage; unknown model identity stays unknown.
+2. OUTSIDE_STATUS is `completed`, `unavailable`, `disabled` or `skipped` for the outside attempt; use `skipped` for a native-only record. Availability/native fallback is not outside completion.
+3. STATUS is `clean` only for this completed pass with no findings, `issues_found` for its findings, or `unavailable` without a completed response. COMPLETED is false for timeout, failure, refusal or missing coverage. CONVERGED is true only when completed and no edits were made.
+4. GATE is `pass`/`fail` for a completed structured review, `skipped` when that phase was not requested, and `informational` for adversarial or unavailable passes. Missing coverage never earns `pass`.
+5. PASS_START is this attempt's original token. Each token is consumed once with `--finish`, including after a started pass fails. An unstarted, disabled or skipped pass has no token: omit `--finish`, with completed/converged false. A fixing pass cannot certify the fixed tree without a fresh full pass.
 
 ### Cross-model synthesis
 
@@ -2661,7 +2660,8 @@ If any learnings come back, name which one applies to the version bump or CHANGE
 ## Step 12: Version bump (auto-decide)
 
 Use **`gstack-version-bump`** for classify/write/repair and `gstack-next-version`
-for slot selection. Bump level and queue collisions remain agent decisions.
+for slot selection. Auto-pick routine bumps; obtain the approvals named below
+unless the user's explicit version policy already delegates those decisions.
 
 1. **Classify state** — pure reader, never writes:
    ```bash
@@ -2669,7 +2669,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    ```
    Save the JSON `baseVersion` as `BASE_VERSION`, then read `state` and dispatch:
    - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Use the recorded level for this release; if absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
+   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Look up step 5's release decision with `$GSTACK_ROOT/bin/gstack-decision-search --scope repo --query "Ship <currentVersion>" --json`; use the level only from an exact-version `Ship <currentVersion> (<level>)` entry. If absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify. On success, follow **ALREADY_BUMPED**, including its queue check; on failure, STOP. Repair alone never re-bumps.
    - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
@@ -2748,7 +2748,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
 
 Persist approved follow-ups, then conservatively mark completed work.
 
-Read `.factory/skills/gstack/review/TODOS-format.md` for the canonical format reference.
+Read `$GSTACK_ROOT/review/TODOS-format.md` for the canonical format reference.
 
 **1. Open or create:** Read root `TODOS.md`. An earlier explicit "add TODO" choice authorizes its creation with `# TODOS` and `## Completed`. Otherwise, if missing, ask: "Create a component/priority-organized TODOS.md?" Options: A) Create now, B) Skip. If B, continue to Step 15 with the outcome in the summary below.
 
@@ -2803,10 +2803,13 @@ under Step 15 before returning here. Reuse unchanged results and actual approval
 Then check test evidence against the final content:
 
 ```bash
-$GSTACK_ROOT/bin/gstack-evidence check --label tests --expect-cmd '<exact tests-lane command from Step 5>' --label vitest --expect-cmd '<exact vitest-lane command from Step 5>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md
+(cd '<lane working directory>' && $GSTACK_ROOT/bin/gstack-evidence check --label '<lane label>' --expect-cmd '<exact lane command>' --max-age 24 --allow-paths CHANGELOG.md,VERSION,package.json,agents-digest/gstack-AGENTS.md)
 ```
 
-Use only Step 5's actual lane labels and exact commands; `vitest` is an example.
+Check EVERY required tuple resolved in Steps 5–6, including eval, lint and typecheck
+lanes; missing evidence is not permission to omit a lane. Run the check from the
+same working directory and pass `--expect-cmd` the exact command string that lane
+ran. A different runner under the same label cannot satisfy the check.
 If Step 4 explicitly declined testing and no lanes exist, report that gap instead
 of inventing FRESH evidence. Build verification still applies.
 
@@ -2830,6 +2833,10 @@ Step 7 tests, review fixes, and Step 14 TODO edits intentionally make evidence S
 
 A failed CHECK identifies evidence to repair; it is not a test failure. The
 required live RUN must pass, except for the explicit triage waiver below.
+
+Carry the resolved tuples and their evidence log references into the PR test plan
+for `/land-and-deploy`. A changed working directory, command or tested tree requires
+new evidence; a new session must not substitute another runner for the same label.
 
 Paste build and rerun results. Later code, test, or build-input changes return
 through this gate before pushing. Step 18 owns validation of its post-push
@@ -3187,7 +3194,7 @@ $GSTACK_ROOT/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y
 ```
 
 Substitute from earlier steps:
-- **COVERAGE_PCT**: coverage percentage from Step 7 diagram (integer, or -1 if undetermined)
+- **COVERAGE_PCT**: Step 7's integer percentage; map `null` to -1 for this metrics record only (undetermined, never zero coverage)
 - **PLAN_TOTAL**: total plan items extracted in Step 8 (0 if no plan file)
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 8 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 8.1
@@ -3235,7 +3242,7 @@ through `gstack-version-bump`; never hand-roll the VERSION/package.json write.
 
 ## Important Rules
 
-- **Never skip tests.** If tests fail, stop.
+- **Never skip required tests.** Apply Step 5's failure triage and Step 16's final-evidence gate; only an explicit waiver for the same verified pre-existing failures can proceed with failing counts disclosed.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
 - **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), and Codex structured review [P1] findings (large diffs only).

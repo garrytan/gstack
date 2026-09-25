@@ -128,7 +128,7 @@ test('live periodic census fits the declared CI wall including setup', () => {
     return paidShardWallUpperBoundMs(files, workers);
   });
   expect(Math.max(...walls) + 20 * 60_000).toBeLessThanOrEqual(periodicJob['timeout-minutes'] * 60_000);
-  expect(m.entries.filter(e => e.status === 'planned')).toHaveLength(99);
+  expect(m.entries.filter(e => e.status === 'planned')).toHaveLength(100);
   const overlays = m.entries.filter(e => e.status === 'planned' && e.slice === periodicSliceCount - 1);
   expect(overlays).toHaveLength(6);
   expect(overlays.every(e => isOverlayTestFile(e.file))).toBe(true);
@@ -137,7 +137,7 @@ test('live periodic census fits the declared CI wall including setup', () => {
 
 test('registered allocation is deterministic and preserves every discovered file', () => {
   const files = collectPaidTestFiles();
-  expect(files).toHaveLength(114);
+  expect(files).toHaveLength(117);
   const m = livePlan(files);
   expect(livePlan([...files].reverse())).toEqual(m);
   expect(m.entries.map(e => e.file).sort()).toEqual([...files].sort());
@@ -176,9 +176,9 @@ test('current detach supervision covers the live-census floor', () => {
   const floor = Math.ceil((Math.ceil(files.length / DEFAULT_JOBS) * DEFAULT_SHARD_TIMEOUT_MS + excess) / 1000 * 1.05);
   const pkg = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '../package.json'), 'utf8'));
   const configured = Number(pkg.scripts['eval:bg:periodic'].match(/--timeout\s+(\d+)/)[1]);
-  expect(floor).toBe(64995);
+  expect(floor).toBe(65268);
   expect(configured).toBeGreaterThanOrEqual(floor);
-  expect(pkg.scripts['eval:bg:gate']).toContain('--timeout 33600');
+  expect(pkg.scripts['eval:bg:gate']).toContain('--timeout 45000');
 });
 
 for (const jobs of [1, 2, 3]) test(`FIFO bound covers partial durations with ${jobs} workers`, () => {

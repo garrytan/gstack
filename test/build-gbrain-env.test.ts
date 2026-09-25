@@ -71,7 +71,7 @@ describe("buildGbrainEnv", () => {
   });
 
   it("returns caller env unchanged when config has no database_url field", () => {
-    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ engine: "pglite" }));
+    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ engine: "postgres" }));
     const baseEnv = { HOME: home, DATABASE_URL: "postgresql://app/db" };
     const result = buildGbrainEnv({ baseEnv });
     expect(result.DATABASE_URL).toBe("postgresql://app/db");

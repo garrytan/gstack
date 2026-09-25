@@ -5,6 +5,35 @@ import { isPaidTestFile } from '../test/helpers/paid-test-set';
 
 /** Existing short behavioral probes; intersect with changed-input selection. */
 export const PR_PROFILE_CASE_IDS = [
+  'ship-land-commands-python',
+  'ship-land-commands-node',
+  'ship-land-commands-no-eval',
+  'ship-land-commands-zero-eval',
+  'ship-land-commands-selector-error',
+  'ship-land-commands-conflict',
+  'ship-land-commands-missing',
+  'ship-land-commands-unavailable',
+  'ship-land-review-pending',
+  'ship-land-review-commented',
+  'ship-land-review-changes-requested',
+  'ship-land-review-dismissed',
+  'ship-land-review-stale',
+  'ship-land-review-approved',
+  'ship-land-review-approved-comment',
+  'ship-land-review-rerequested',
+  'ship-land-review-team',
+  'ship-land-review-unknown',
+  'ship-land-review-bot',
+  'ship-land-review-solo',
+  'ship-land-review-waiver',
+  'ship-land-review-generic-waiver',
+  'ship-land-review-head-change',
+  'ship-land-review-protected',
+  'ship-land-ci-pending',
+  'ship-land-ci-failed',
+  'ship-land-ci-cancelled',
+  'ship-land-ci-skipped',
+  'ship-land-ci-empty',
   'hermetic-canary', 'hermetic-sentinel',
   'browse-basic', 'browse-snapshot', 'skillmd-setup-discovery',
   'qa-bootstrap', 'review-sql-injection', 'review-coverage-audit',
@@ -13,12 +42,15 @@ export const PR_PROFILE_CASE_IDS = [
   'tpa-present', 'tpa-absent-linux',
   'ship-local-workflow', 'ship-coverage-audit', 'docsync-spawned',
   'setup-deploy-workflow', 'context-restore-loads-latest', 'plan-tune-inspect',
+  'setup-deploy-render-unset', 'setup-deploy-render-empty', 'setup-deploy-render-present',
   'skillify-provenance-refusal', 'diagram-triplet', 'learnings-show',
   'gstack-upgrade-happy-path',
+  'setup-gbrain-transcript-enrollment',
 ] as const;
 
 /** Audited ownership: unknown/direct-describe files remain broad coverage. */
 export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
+  'test/skill-e2e-ship-land-contracts.test.ts': ['ship-land-commands-python', 'ship-land-commands-node', 'ship-land-commands-no-eval', 'ship-land-commands-zero-eval', 'ship-land-commands-selector-error', 'ship-land-commands-conflict', 'ship-land-commands-missing', 'ship-land-commands-unavailable', 'ship-land-review-pending', 'ship-land-review-commented', 'ship-land-review-changes-requested', 'ship-land-review-dismissed', 'ship-land-review-stale', 'ship-land-review-approved', 'ship-land-review-approved-comment', 'ship-land-review-rerequested', 'ship-land-review-team', 'ship-land-review-unknown', 'ship-land-review-bot', 'ship-land-review-solo', 'ship-land-review-waiver', 'ship-land-review-generic-waiver', 'ship-land-review-head-change', 'ship-land-review-protected', 'ship-land-ci-pending', 'ship-land-ci-failed', 'ship-land-ci-cancelled', 'ship-land-ci-skipped', 'ship-land-ci-empty'],
   'test/skill-e2e-hermetic-canary.test.ts': ['hermetic-canary', 'hermetic-sentinel'],
   'test/skill-e2e-bws.test.ts': ['browse-basic', 'browse-snapshot', 'skillmd-setup-discovery'],
   'test/skill-e2e-qa-workflow.test.ts': ['qa-bootstrap'],
@@ -31,11 +63,13 @@ export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
   'test/skill-e2e-workflow.test.ts': ['ship-local-workflow', 'ship-coverage-audit', 'gstack-upgrade-happy-path'],
   'test/skill-e2e-docsync-spawned.test.ts': ['docsync-spawned'],
   'test/skill-e2e-deploy.test.ts': ['setup-deploy-workflow'],
+  'test/skill-e2e-setup-deploy-render.test.ts': ['setup-deploy-render-unset', 'setup-deploy-render-empty', 'setup-deploy-render-present'],
   'test/skill-e2e-session-intelligence.test.ts': ['context-restore-loads-latest'],
   'test/skill-e2e-plan-tune.test.ts': ['plan-tune-inspect'],
   'test/skill-e2e-skillify.test.ts': ['skillify-provenance-refusal'],
   'test/skill-e2e-diagram.test.ts': ['diagram-triplet'],
   'test/skill-e2e-learnings.test.ts': ['learnings-show'],
+  'test/skill-e2e-transcript-enrollment.test.ts': ['setup-gbrain-transcript-enrollment'],
 };
 
 export interface PrProfileMaps {

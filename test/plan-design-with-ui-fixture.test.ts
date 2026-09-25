@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { E2E_TOUCHFILES } from './helpers/touchfiles';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -23,6 +24,7 @@ const focus = template.match(/### 0D\\. Focus Areas\\nAskUserQuestion: "([^\\n]+
   .replace('{N}', '4').replace('{X, Y, Z}', 'hierarchy, spacing, contrast');
 const { DESIGN_BOARD_ACTOR_PROTOCOL, createDesignReviewPicker: actualCreateDesignReviewPicker } = await import(${JSON.stringify(path.join(ROOT, 'test/helpers/plan-review-board-feedback.ts'))});
 const outsideVoices = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(ROOT, 'test/fixtures/design-outside-voices-question.json'))}, 'utf8'));
+const focusAreas = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(ROOT, 'test/fixtures/design-focus-areas-question.json'))}, 'utf8'));
 let pickerScope;
 let pickerQuestion;
 mock.module(${JSON.stringify(path.join(ROOT, 'test/helpers/plan-review-board-feedback.ts'))}, () => ({
@@ -54,6 +56,8 @@ target.nativeCall.questions[0].options = [
   { label: 'A) The current branch diff', description: 'The working tree is clean, so there may be no UI scope to review.' },
 ];
 const paraphrase = fp('focus', 'D1 — Review all 7 design dimensions, or focus on specific areas?\\nELI10: I rated this plan 4/10.');
+const capturedFocus = fp('captured-focus', focusAreas.question);
+capturedFocus.nativeCall.questions[0] = focusAreas;
 // Public titles/options projected from the retained Sep 11 native PostToolUse
 // events: focus toolu_01XJZk6qbs3Fj3VRbm6sCNv2, setup toolu_01WkR4juMdcMxCTJe8FfRMVY,
 // finding toolu_012EsyqshgBk2Ap7CfuzwhwQ. No transcript paths or private content.
@@ -125,7 +129,9 @@ mock.module(${JSON.stringify(path.join(ROOT, 'test/helpers/claude-pty-runner.ts'
     if (mode.startsWith('native-')) expect(opts.isLastStep0AUQ(nativeFocus)).toBe(true);
     for (const unrelated of ['Review all 4 design passes, or focus?',
       'Review all 7 engineering passes, or focus?', 'Review all 7 passes, or focus?',
-      'Which plan should receive all 7 design passes?']) {
+      'Which plan should receive all 7 design passes?',
+      'Review all 7 design dimensions, or focus on the biggest gaps? Which plan should I inspect?',
+      'Should I skip the UI review and focus on the biggest gaps?']) {
       expect(opts.isLastStep0AUQ(fp('unrelated', unrelated))).toBe(false);
     }
     expect(opts.isReviewAUQ(target)).toBe(false);
@@ -134,7 +140,7 @@ mock.module(${JSON.stringify(path.join(ROOT, 'test/helpers/claude-pty-runner.ts'
     expect(opts.isReviewAUQ(nativeFinding)).toBe(true);
     expect(opts.isReviewAUQ(unnumberedFinding)).toBe(true);
     expect(opts.isReviewAUQ(finding)).toBe(true);
-    const chosenFocus = mode.startsWith('native-') ? nativeFocus : mode === 'paraphrase' ? paraphrase : fp('focus', focus);
+    const chosenFocus = mode.startsWith('captured-') ? capturedFocus : mode.startsWith('native-') ? nativeFocus : mode === 'paraphrase' ? paraphrase : fp('focus', focus);
     const pendingCall = {...chosenFocus.nativeCall, answered: false, unansweredQuestionIndices: [0]};
     const pending = nativePlanCallFingerprint(pendingCall, 1000, true);
     pending.nativeQuestionIndex = 0;
@@ -181,6 +187,9 @@ mock.module(${JSON.stringify(path.join(ROOT, 'test/helpers/claude-pty-runner.ts'
     if (mode === 'unanswered-finding') observed.at(-1).nativeCall.answered = false;
     if (mode === 'failed-finding') observed.at(-1).nativeCall.failed = true;
     if (mode === 'no-native-finding') delete observed.at(-1).nativeCall;
+    if (mode === 'captured-unanswered-focus') observed[0].nativeCall.answered = false;
+    if (mode === 'captured-failed-focus') observed[0].nativeCall.failed = true;
+    if (mode === 'captured-no-native-focus') delete observed[0].nativeCall;
     return {
       outcome: mode === 'early-exit' ? 'plan_ready' : mode === 'timeout' ? 'timeout' : mode === 'exited' ? 'exited' : 'ceiling_reached',
       fingerprints: observed, step0Count: 1, reviewCount: 1, elapsedMs: 1000,
@@ -231,3 +240,19 @@ test.each(['throw', 'missing-fixture'])('UI gate preserves %s failure and remove
   expect(result.code, result.output).toBe(1);
   expect(result.output).toContain(mode === 'throw' ? 'controlled UI observation failure' : 'UI fixture is missing');
 }, 20_000);
+
+test('UI gate accepts the retained native focus-area choice through the registered callback', () => {
+  const result = exercise('captured-focus');
+  expect(result.code, result.output).toBe(0);
+}, 20_000);
+
+test.each(['captured-unanswered-focus', 'captured-failed-focus', 'captured-no-native-focus'])('UI gate rejects %s despite a subsequent finding', mode => {
+  const result = exercise(mode);
+  expect(result.code, result.output).toBe(1);
+  expect(result.output).toContain('plan-design-review with UI scope FAILED');
+}, 20_000);
+
+test('the captured focus-area question selects its real design UI gate', () => {
+  expect(Object.entries(E2E_TOUCHFILES).filter(([, files]) => files.includes('test/fixtures/design-focus-areas-question.json')).map(([owner]) => owner))
+    .toEqual(['plan-design-with-ui-scope']);
+});

@@ -42,10 +42,11 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { runBin, repoRoot } from './spawn-bin';
 import { isConductor } from '../../../lib/is-conductor';
 import { classifyQuestion } from '../../../scripts/one-way-doors';
+import { slugFromEnvironment } from '../../../lib/bin-context';
+import { resolveGstackHome } from '../../../browse/src/config';
 import { SPAWNED_ESCAPE_SENTENCE, CONDUCTOR_SPAWNED_DENY_REASON, spawnedByEnv } from './spawned-directive';
 
 interface HookStdin {
@@ -67,11 +68,7 @@ const MARKER_RE = /<gstack-qid:([a-z0-9-]{1,64})>/i;
 const RECOMMENDED_LABEL_RE = /\(recommended\)\s*$/i;
 
 function stateRoot(): string {
-  return (
-    process.env.GSTACK_STATE_ROOT ||
-    process.env.GSTACK_HOME ||
-    path.join(os.homedir(), '.gstack')
-  );
+  return resolveGstackHome();
 }
 
 function logHookError(msg: string): void {
@@ -298,12 +295,8 @@ function extractRecommended(
 }
 
 function slugFromCwd(cwd: string | undefined): string {
-  // Mirror gstack-slug's basename fallback. The full slug resolver shells out
-  // to git, which is too expensive on a hot hook path; the basename is close
-  // enough for preference lookup (preferences are keyed by question_id, slug
-  // is just the directory bucket).
-  if (!cwd) return 'unknown';
-  return path.basename(cwd);
+  if (!cwd || !fs.existsSync(cwd)) return 'unknown';
+  return slugFromEnvironment(stateRoot(), cwd);
 }
 
 function markAutoDecided(sessionId: string | undefined, toolUseId: string | undefined): void {
@@ -349,6 +342,7 @@ function logAutoDecided(
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 3000,
+      env: { ...process.env, GSTACK_STATE_ROOT: stateRoot(), GSTACK_HOME: stateRoot() },
       // cwd of the originating tool call so gstack-slug resolves to the
       // project the user is actually in, not the hook script's location.
       cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,
@@ -429,7 +423,7 @@ async function main(): Promise<void> {
     if (!marker) { fullyAutoDecidable = false; break; }
     const questionId = marker[1];
     const pref = lookupPreference(slug, questionId);
-    if (!pref.preference || pref.preference === 'always-ask') { fullyAutoDecidable = false; break; }
+    if (pref.preference !== 'never-ask' && pref.preference !== 'ask-only-for-one-way') { fullyAutoDecidable = false; break; }
 
     const entry = registry[questionId];
     let doorType: string = entry?.door_type || 'two-way';

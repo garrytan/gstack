@@ -290,9 +290,12 @@ After the jitter answer, carry that value into both options of the later cap que
 
 Save the record, complete grid and exact `currentDecision` in the report file,
 before `## GSTACK REVIEW REPORT`. Include every native field, the recommendation
-and all options. A–D record selectors are ledger notation only: if a saved label
-already starts `A)`/`B)`/`C)`/`D)`, keep that one prefix; otherwise add it. Compare
-the label separately from that notation by removing the selector before matching.
+and all options. In the ledger's Options list, mark options A–D for answer lookup.
+Add `A)` to the first label only if it has no letter prefix; do the same for B–D.
+For example, native label `Keep current` is saved as `A) Keep current`; native
+label `A) Keep current` is saved unchanged. During Read-back, ignore only a prefix
+added for the ledger. Compare the remaining text literally with the native label.
+Send the original `currentDecision` label, never the added ledger prefix.
 
 When revising, replace the whole current payload for this record: comparison
 grid, question, header, options, state, actual answer and accepted scope. Keep
@@ -423,11 +426,12 @@ changes or write findings into the plan yet.
 ### B. Resolve complexity selectors
 
 Below both thresholds, skip B's questions and go directly to **C. Resolve findings**.
-At 8+ files or 2+ new classes/services, STOP before Section 1. Use the
-preamble's decision-brief format for this complexity gate, in this order:
+At 8+ files or 2+ new classes/services, STOP before Section 1.
 
-Initial scope selectors need no grid or **pre-answer** ledger write. Ask and
-wait before changes.
+Use the preamble's decision-brief format for this complexity gate. These
+questions select features and file/class arrangement, not engineering remedies.
+Initial scope selectors need no grid or **pre-answer** ledger write.
+Wait for actual answers before changing scope.
 
 1. Explain the complexity. Ask each proposed feature cut/deferral separately;
    wait before changing scope. With no proposed cuts, keep the feature list and
@@ -735,8 +739,19 @@ This file is consumed by `/qa` and `/qa-only` as primary test input. Include onl
 After the Test Plan Artifact is saved or presented, report the Test review findings and their dispositions and continue to Performance review.
 
 ### 4. Performance review
-Evaluate:
-* N+1/database access, memory, caching, and slow or complex paths.
+Trace the target's database access, memory use, caching and slow or complex paths:
+* **Database access:** Look for queries repeated per item (N+1) and unnecessary
+  reads or writes along the same request or job.
+* **Memory:** Check what is retained, copied or loaded at once as input grows.
+* **Caching:** Check what is cached, when it expires or changes, and the cost of
+  a miss; distinguish a proposed cache from one already in use.
+* **Slow paths:** Identify expensive loops, blocking work and their effect on
+  response time or throughput.
+
+Ground findings in the target evidence and existing measurements when available;
+mark unmeasured costs as unknown. Use Decision procedure for remedies, preserving
+approved performance contracts and their required proof. This review proposes
+work; it does not authorize building benchmarks or optimizations.
 
 ## Outside Voice — Independent Plan Challenge (default-on)
 
@@ -782,34 +797,36 @@ fi
 echo "CODEX_MODE: $_CODEX_MODE"
 ```
 
-Branch on the echoed `CODEX_MODE`:
-- **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip the reviewer invocation; record disabled coverage as directed below; do NOT fall back to a Claude subagent — disabled means no extra review step. Print: "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."
-- **`not_installed`** — Codex CLI absent. Print: "Codex not installed — falling back to a Claude subagent (fresh context, but the same harness; model identity is unknown). Install Codex for an actual outside-model read: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
-- **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and construct the prompt below, then follow **Native fallback**. Conflicting inherited harness markers are not grounds to guess another provider.
-- **`not_authed`** — installed but no credentials. Print: "Codex installed but not authenticated — falling back to a Claude subagent (same harness; model identity is unknown). Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
-- **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines and fall back to the Claude subagent path. This state exists because a missing binary used to land in the model probe's fail-open bucket and report `ready`, so every Codex pass was skipped silently (#2742).
-- **`model_unusable`** — authed but the account cannot use gstack's selected Codex model (#2477: HTTP 400 on every call). Relay the probe's HINT lines, tell the user the one-line fix (set `GSTACK_CODEX_MODEL=<supported-model>` or pass an explicit `-c model=...` override), and fall back to the Claude subagent path. The ~10s round trip is cached for 1h; timeouts fail open to `ready`.
-- **`ready`** — run the Codex pass below.
-
-**Outcome routing:** Pick exactly one row from this table, finish that row's
-steps, then leave Outside Voice. Missing reviewer coverage is non-blocking;
-approval and artifact-write requirements still apply.
+**Outcome routing:** Follow the row for the current result. After an invocation,
+route its result again. Leave Outside Voice only after recording disabled or
+unavailable coverage, or resolving completed findings and recording the result.
+Missing reviewer coverage is non-blocking; approval and artifact-write rules still apply.
+The historical `CODEX_MODE` names Codex availability on this host.
+Never substitute another external provider.
 
 | Outcome | Next step |
 |---|---|
-| Disabled | Record disabled coverage below, then continue to planning decisions. No prompt, outside process or native replacement. |
-| Ready | Construct the prompt and run the foreground outside invocation. |
-| Other preflight mode, including harness mismatch | Report the probe's diagnosis, construct the same prompt and use Native fallback. |
+| Disabled | Use the guarded disabled record below, then continue to Final planning decisions. No prompt, outside process or native replacement. |
+| Ready | Construct the prompt and run the foreground outside invocation; route its result here again. |
+| Other preflight mode, including harness mismatch | Report the diagnosis below, construct the same prompt and use Native fallback. |
 | Outside execution or output validation fails | Retain its output and diagnosis, finish termination, then use Native fallback. Auth: name the login repair; timeout: report the five-minute limit; empty response: say no response. |
-| Reviewer completes | Present its full output and resolve findings through Decision procedure. |
-| Native fallback unavailable or fails | Record unavailable coverage and continue to planning decisions. No clean-review credit. |
+| Reviewer completes | Present its full output once, resolve findings in Cross-model tension, then Persist the result and continue to Final planning decisions. |
+| Native fallback unavailable or fails | Use the Unavailable path to record missing coverage, then continue to Final planning decisions. No clean-review credit. |
 
-**Disabled is a terminal branch for this section.** If the preflight prints
-`CODEX_MODE: disabled`, persist `outside_status: disabled` with the guarded
-command below, then continue directly to the remaining planning decisions and Approval readiness after this section. Do not construct a challenge,
-invoke an outside CLI, dispatch an Agent/Task fallback, or ask about outside findings.
-The native plan review is already complete. A disabled review is an intentional
-opt-out, not a provider failure that needs a replacement reviewer.
+**Preflight diagnoses:** `not_installed` or `broken_install`: install/repair Codex with `npm install -g @openai/codex`;
+`not_authed`: run `codex login`;
+`model_unusable`: relay HINT lines and explain how the user can select a supported
+model (`GSTACK_CODEX_MODEL` or explicit `-c model=...`). Do not change the configured model or retry this invocation;
+use Native fallback as the routing table directs.
+Harness mismatch: report no outside process started and missing coverage; repair
+with `setup --host <actual-harness>`. Conflicting inherited markers do not select
+a replacement provider. Relay probe HINT lines for broken installs too.
+
+**Disabled is a terminal branch for this section.** Print "Codex review skipped
+(codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."
+Then persist `outside_status: disabled` with the guarded command below. This
+intentional opt-out never needs a replacement reviewer.
+
 
 Run this guarded command before leaving the disabled branch. It starts a fresh
 shell and re-reads the control; enabled workflows never append a disabled record.
@@ -917,12 +934,14 @@ CODEX SAYS (plan review — outside voice):
 This fence is the only external-provider output surface. Native fallback prints
 only its `OUTSIDE VOICE (...)` subagent report; never print both for one review.
 
+Return to **Outcome routing** with the invocation result; do not run fallback after a completed review.
+
 **Native fallback — provider unavailable or execution failed, with reviews enabled:**
 
 Use this fallback only after the routing row says to use it. Immediately before
 dispatch, check the preflight result again: disabled means no replacement;
 record disabled coverage and do not dispatch. If still enabled, run the bounded
-native attempt below. A native result never supplies outside coverage.
+native attempt below.
 
 **Bounded outside-voice wait — one five-minute wait plus dispatch/cancellation overhead:**
 
@@ -966,7 +985,7 @@ with STATUS = "unavailable", SOURCE = "none", OUTSIDE_STATUS = "unavailable";
 then continue directly to the remaining planning decisions and Approval readiness. The storage policy still applies.
 Do not record a clean review when no reviewer completed within the accepted wait.
 
-(On `CODEX_MODE: disabled` you already skipped this section per the preflight — do not reach here.)
+
 
 **Cross-model tension:**
 

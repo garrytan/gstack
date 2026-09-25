@@ -23,6 +23,52 @@ import { gbrainConfigDir, isExecTimeout } from "./gbrain-exec";
 import { dirname, join } from "path";
 import { execFileSync } from "child_process";
 import { homedir } from "os";
+import { scan } from "./redact-engine";
+import { readGstackConfigYamlKey } from "../browse/src/config";
+
+export function transcriptIngestEnabled(): boolean {
+  return readGstackConfigYamlKey("transcript_ingest_mode") === "incremental";
+}
+
+export function scanSerializedPage(bytes: Uint8Array | string): { ok: boolean; reason?: string; systemic?: boolean } {
+  try {
+    const text = typeof bytes === "string" ? bytes : new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    if (!text.trim() || text.includes("\0")) return { ok: false, reason: "malformed or empty page" };
+    const result = scan(text);
+    if (!result || !Array.isArray(result.findings) || !result.counts || typeof result.oversize !== "boolean" ||
+        !result.findings.every((finding) => finding && ["HIGH", "MEDIUM", "LOW", "WARN"].includes(finding.severity)) ||
+        !(["HIGH", "MEDIUM", "LOW", "WARN"] as const).every((tier) => Number.isInteger(result.counts[tier]) &&
+          result.counts[tier] === result.findings.filter((finding) => finding.severity === tier).length)) {
+      return { ok: false, reason: "scanner unavailable or malformed result", systemic: true };
+    }
+    if (result.oversize) return { ok: false, reason: "page exceeds the 1 MiB scan limit" };
+    if (result.counts.HIGH > 0) return { ok: false, reason: "HIGH finding; review the source locally" };
+    if (result.counts.MEDIUM > 0) return { ok: false, reason: "MEDIUM finding; unattended publication held for review" };
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "scanner error or invalid UTF-8; publication held", systemic: true };
+  }
+}
+
+export function serializedPagePolicy(text: string): { type: string; source_path?: string; git_remote?: string; start_time?: string } {
+  try {
+    const front = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)?.[1];
+    if (!front) throw new Error();
+    const metadata = Bun.YAML.parse(front) as Record<string, unknown> | null;
+    const field = (key: string) => {
+      const values = [...front.matchAll(new RegExp(`^${key}:[ \\t]*([^\\r\\n]*)$`, "gm"))];
+      if (values.length !== 1 || !metadata || Array.isArray(metadata)) throw new Error();
+      const value = values[0][1].trim();
+      if (metadata[key] !== value && !(value === "" && metadata[key] === null)) throw new Error();
+      return value;
+    };
+    const type = field("type");
+    if (type !== "transcript") return { type };
+    return { type, source_path: field("source_path"), git_remote: field("git_remote"), start_time: field("start_time") };
+  } catch {
+    throw new Error("page metadata is malformed or ambiguous; review locally");
+  }
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

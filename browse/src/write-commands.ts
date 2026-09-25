@@ -355,11 +355,11 @@ export async function handleWriteCommand(
         }
       } catch (err: any) {
         // Enhanced error guidance: clicking <option> elements always fails (not visible / timeout)
-        const isOption = 'locator' in resolved
-          ? await resolved.locator.evaluate(el => el.tagName === 'OPTION').catch(() => false)
-          : await target.locator(resolved.selector).evaluate(
-              el => el.tagName === 'OPTION'
-            ).catch(() => false);
+        const locator = 'locator' in resolved ? resolved.locator : target.locator(resolved.selector);
+        const count = await locator.count().catch(() => 0);
+        const isOption = count === 1 && await locator.evaluate(
+          el => el.tagName === 'OPTION', undefined, { timeout: 500 }
+        ).catch(() => false);
         if (isOption) {
           throw new Error(
             `Cannot click <option> elements. Use 'browse select <parent-select> <value>' instead of 'click' for dropdown options.`
@@ -1318,12 +1318,15 @@ export async function handleWriteCommand(
       const selectorIdx = args.indexOf('--selector');
       const selector = selectorIdx >= 0 ? args[selectorIdx + 1] : undefined;
       const dirIdx = args.indexOf('--dir');
-      const dir = dirIdx >= 0 ? args[dirIdx + 1] : path.join(TEMP_DIR, `browse-scrape-${Date.now()}`);
+      const requestedDir = dirIdx >= 0 ? args[dirIdx + 1] : path.join(TEMP_DIR, `browse-scrape-${Date.now()}`);
       const limitIdx = args.indexOf('--limit');
       const limit = Math.min(limitIdx >= 0 ? parseInt(args[limitIdx + 1], 10) || 50 : 50, 200);
 
-      validateOutputPath(dir);
+      validateOutputPath(requestedDir);
+      const dir = path.resolve(requestedDir);
       fs.mkdirSync(dir, { recursive: true });
+      const manifestPath = path.join(dir, 'manifest.json');
+      validateOutputPath(manifestPath);
 
       const { extractMedia } = await import('./media-extract');
       const target = bm.getActiveFrameOrPage();
@@ -1382,6 +1385,7 @@ export async function handleWriteCommand(
           const ext = mimeToExt(ct.split(';')[0].trim());
           const filename = `${type}-${String(i + 1).padStart(3, '0')}${ext}`;
           const filePath = path.join(dir, filename);
+          validateOutputPath(filePath);
           const body = Buffer.from(await response.body());
           try {
             fs.writeFileSync(filePath, body);
@@ -1402,7 +1406,7 @@ export async function handleWriteCommand(
       }
 
       // Write manifest
-      fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
       return `Scraped ${toDownload.length} items to ${dir}/\n${lines.join('\n')}\n\nSummary: ${manifest.succeeded} succeeded, ${manifest.failed} failed, ${Math.round(manifest.total_size / 1024)}KB total`;
     }

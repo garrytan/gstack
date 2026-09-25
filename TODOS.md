@@ -4231,11 +4231,11 @@ globs (D). What remains, re-filed individually:
   darwin-skipped handoff tests in browse/test/handoff.test.ts — verify
   whether the v1.67 XProtect + rebrand work un-blocks them, then un-skip or
   fix. Effort S.
-- Transcript trust/scope/source isolation (PR 2232, issue 2140) — split:
-  the `transcript_ingest_mode` reader (off skips, B → --all-history, unset
-  unchanged) ships in fork-port Wave E1; repo-scoping and `--source-id`
-  isolation still need the never-double-store review plus a gbrain flag
-  probe. Close the PR after E1 with a pointer here. Effort M.
+- Transcript trust/scope/source isolation (PR 2232, issue 2140) — default-off
+  transcript consent and repository/history enrollment are implemented; B
+  selects all history for the enrolled repository rather than a config-mode
+  value. The remaining `--source-id` isolation still needs the never-double-store
+  review and a gbrain flag probe. Keep that residual open. Effort M.
 - Versionless-repo onboarding (#1474, issues 2343/2334) — the #2501 JSON
   version-path half landed; the no-version-file-at-all flow did not.
 - Playwright bootstrap abort/timeout absorbs (PRs 2233/2359, issues

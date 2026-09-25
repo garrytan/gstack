@@ -20,15 +20,10 @@
 
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import * as os from 'os';
-import { readGstackConfigYamlKey } from './config';
-
-function gstackHome(): string {
-  return process.env.GSTACK_HOME || path.join(os.homedir(), '.gstack');
-}
+import { readGstackConfigYamlKey, resolveGstackHome } from './config';
 
 function analyticsDir(): string {
-  return path.join(gstackHome(), 'analytics');
+  return path.join(resolveGstackHome(), 'analytics');
 }
 
 function telemetryFile(): string {

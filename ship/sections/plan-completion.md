@@ -136,8 +136,9 @@ COMPLETION: 4/10 DONE, 1 PARTIAL, 2 NOT DONE, 1 CHANGED, 2 UNVERIFIABLE
 ```
 
 After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
-{"total_items":N,"done":N,"changed":N,"partial":N,"not_done":N,"unverifiable":N,"summary":"<markdown checklist for PR body>"}
+{"total_items":N,"done":N,"changed":N,"partial":N,"not_done":N,"unverifiable":N,"summary":"<markdown checklist for PR body>","error":null}
 Counts map one-to-one to the classifications above and sum to total_items. No plan or no actionable items means all counts are zero with the skip reason in summary. Do not classify work as deferred; only the parent can record a user-approved deferral.
+Use `error:null` for a completed audit, including a valid no-plan result. If the audit cannot complete, set `error` to the failure reason; do not present partial counts as a completed audit. The parent takes the failure fallback whenever `error` is non-null.
 ````
 
 **Parent processing:**

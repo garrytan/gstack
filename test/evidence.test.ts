@@ -55,6 +55,65 @@ afterEach(() => {
 });
 
 describe('gstack-evidence run', () => {
+  test('native entrypoint runs non-executable shell siblings and preserves fingerprint freshness', () => {
+    const install = path.join(gstackHome, 'owned install');
+    const bin = path.join(install, 'bin');
+    const lib = path.join(install, 'lib');
+    fs.mkdirSync(bin, { recursive: true });
+    fs.mkdirSync(lib);
+    for (const name of ['gstack-evidence', 'gstack-wtree', 'gstack-slug']) {
+      const target = path.join(bin, name);
+      fs.copyFileSync(path.join(ROOT, 'bin', name), target);
+      expect(fs.realpathSync(target).startsWith(fs.realpathSync(install) + path.sep)).toBe(true);
+      fs.chmodSync(target, 0o600);
+    }
+    for (const name of ['fs-utils.ts', 'jsonl-store.ts', 'redact-engine.ts', 'redact-patterns.ts']) {
+      fs.copyFileSync(path.join(ROOT, 'lib', name), path.join(lib, name));
+    }
+    const invoke = (args: string[]) => spawnSync(process.execPath, [path.join(bin, 'gstack-evidence'), ...args], {
+      cwd: repoDir, env: { ...process.env, GSTACK_HOME: gstackHome, GSTACK_PROJECT_SLUG: 'owned-evidence' },
+      encoding: 'utf8', timeout: 30_000,
+    });
+    const result = invoke(['run', '--label', 'tests', '--', 'echo native-siblings']);
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+    expect(ledgerFile()).toBe(path.join(gstackHome, 'projects', 'owned-evidence', 'main-evidence.jsonl'));
+    expect(records().at(-1).wtree).toMatch(/^[0-9a-f]{40}$/);
+    const fresh = invoke(['check', '--label', 'tests', '--expect-cmd', 'echo native-siblings']);
+    expect(fresh.status, fresh.stdout + fresh.stderr).toBe(0);
+    expect(fresh.stdout).toContain('FRESH');
+    fs.writeFileSync(path.join(repoDir, 'src.txt'), 'changed\n');
+    const stale = invoke(['check', '--label', 'tests', '--expect-cmd', 'echo native-siblings']);
+    expect(stale.status, stale.stdout + stale.stderr).toBe(1);
+    expect(stale.stdout).toContain('STALE');
+    const failed = invoke(['run', '--label', 'failed', '--', 'exit 7']);
+    expect(failed.status, failed.stdout + failed.stderr).toBe(7);
+    expect(records().at(-1).exit).toBe(7);
+  });
+
+  test('binds the same exact command and label to its working directory', () => {
+    fs.mkdirSync(path.join(repoDir, 'nested'));
+    fs.writeFileSync(path.join(repoDir, 'nested', 'input.txt'), 'nested\n');
+    git('add nested/input.txt');
+    git('commit -q -m nested');
+    const command = 'printf "native suite\\n"';
+    expect(run(['run', '--label', 'tests', '--', command]).status).toBe(0);
+    const otherDirectory = run(['check', '--label', 'tests', '--expect-cmd', command], { cwd: path.join(repoDir, 'nested') });
+    expect(otherDirectory.status).toBe(1);
+    expect(otherDirectory.stdout).toContain('working directory changed');
+    expect(run(['check', '--label', 'tests', '--expect-cmd', command]).status).toBe(0);
+    expect(records().pop().cwd).toBe(fs.realpathSync(repoDir));
+  });
+
+  test('legacy records without a working directory require a live rerun', () => {
+    expect(run(['run', '--label', 'tests', '--', 'echo ok']).status).toBe(0);
+    const rec = records().pop();
+    delete rec.cwd;
+    fs.writeFileSync(ledgerFile(), JSON.stringify(rec) + '\n');
+    const check = run(['check', '--label', 'tests', '--expect-cmd', 'echo ok']);
+    expect(check.status).toBe(1);
+    expect(check.stdout).toContain('record has no working directory');
+  });
+
   test('records a complete evidence record and propagates exit 0', () => {
     const r = run(['run', '--label', 'tests', '--', 'echo ok']);
     expect(r.status).toBe(0);

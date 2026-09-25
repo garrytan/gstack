@@ -1,8 +1,16 @@
 import {expect,test,spyOn} from 'bun:test';
-import {buildPlanFloorReviewPrompt,validatePlanFloorAssessment,resolvePlanFloorCitations,judgePlanFloorReview,pickPlanFloorMode,pickPlanFloorProductType,type PlanFloorReview} from './helpers/plan-floor-review';
+import {PLAN_FLOOR_SYSTEM_PROMPT,buildPlanFloorReviewPrompt,validatePlanFloorAssessment,resolvePlanFloorCitations,judgePlanFloorReview,pickPlanFloorMode,pickPlanFloorProductType,type PlanFloorReview} from './helpers/plan-floor-review';
 import {FORCING_FLOOR_CEO, FORCING_FLOOR_DEVEX} from './fixtures/forcing-finding-seeds';
 import capturedQuotes from './fixtures/plan-floor-quote-70b.json';
 import productTypes from './fixtures/plan-floor-product-type-70b.json';
+import capturedDxTargets from './fixtures/plan-floor-dx-target-ci-3788b5fcb.json';
+import {createHash} from 'node:crypto';
+import {selectTests,E2E_TOUCHFILES,LLM_JUDGE_TOUCHFILES,GLOBAL_TOUCHFILES} from './helpers/touchfiles';
+const currentPromptHashesByCapture = new Map([
+ ['2eee276904660f64831feb14efae271ebbcf554d1170d4131b8838270c090ec2','3edfaf2d8b3c2fcff84333b67b8059a5b8ed6228522cc8936eb4ac40938fcd7d'],
+ ['5bd741a54385f9f6818a19b6fb7345cf8bd3507475ec2ff04b96c214f8a7f61d','f92ea20e8b3f2fb2ab013b316a0b382c7ebca3c6af1c1025766f1a44f9e3b1f7'],
+ ['d44f4c73de6521332365947ecced112770cd55c015418129eec1b1abee345e8f','fe52c3b9ae54d9439f9cb1b3725913ff319ec6cc7c35583feac0394bf11772ab'],
+]);
 const review = ():PlanFloorReview=>({seed:FORCING_FLOOR_CEO,candidate:{transport:'native',identity:'owned:call:question:0',question:{
   header:'Evidence',question:'Pricing is assumed to block adoption without developer interviews. Should we test that premise before launch?',multiSelect:false,
   options:[{label:'Interview developers',description:'Validate pricing as a barrier before changing the tier.'},{label:'Ship the tier',description:'Launch using the current untested premise.'}],
@@ -59,13 +67,69 @@ test('replacement judge retains the original CLI model, one turn, 30s cap and ab
  for(const remaining of [5000,60_000]){
   const deadlineAt=Date.now()+remaining;let calls=0;
   const actual=judgePlanFloorReview(review(),{binary:'/fake/claude',model:'unchanged-warmup',deadlineAt,invoke:((file,args,opts)=>{
-   calls++;expect(file).toBe('/fake/claude');expect(args).toEqual(['-p','--model','unchanged-warmup','--max-turns','1']);
+   calls++;expect(file).toBe('/fake/claude');expect(args).toEqual(['-p','--model','unchanged-warmup','--max-turns','1',
+    '--bare','--disable-slash-commands','--strict-mcp-config','--setting-sources','',
+    '--tools','','--system-prompt',
+    PLAN_FLOOR_SYSTEM_PROMPT]);
    expect(opts.stdio).toEqual(['pipe','pipe','pipe']);expect(opts.encoding).toBe('utf8');
    expect(opts.input).toBe(buildPlanFloorReviewPrompt(review()));
    expect(opts.timeout).toBeGreaterThan(0);expect(opts.timeout).toBeLessThanOrEqual(Math.min(30_000,remaining));
    return {status:0,stdout:JSON.stringify(citationFinding()),stderr:''};
   }) as any});expect(calls).toBe(1);expect(actual.kind).toBe('finding');
  }
+});
+test('floor assessor isolates its system, tools, settings and inherited session',()=>{
+ const contamination={EVALS_HERMETIC:'1',CLAUDE_CONFIG_DIR:'/operator-session',
+  CLAUDE_CODE_EFFORT_LEVEL:'max',CLAUDECODE:'outer-session',GSTACK_HOME:'/operator-state',
+  MCP_ENDPOINT:'https://unrelated.invalid',MAX_THINKING_TOKENS:'31999',CLAUDE_CODE_MAX_OUTPUT_TOKENS:'32000'};
+ const previous=Object.fromEntries(Object.keys(contamination).map(key=>[key,process.env[key]]));
+ Object.assign(process.env,contamination);
+ try {
+  let calls=0;
+  const actual=judgePlanFloorReview(review(),{binary:'/fake/claude',model:'unchanged-warmup',
+   deadlineAt:Date.now()+60_000,invoke:((_binary,args,opts)=>{
+    calls++;
+    expect(args).toEqual(['-p','--model','unchanged-warmup','--max-turns','1',
+     '--bare','--disable-slash-commands','--strict-mcp-config','--setting-sources','',
+     '--tools','','--system-prompt',
+     PLAN_FLOOR_SYSTEM_PROMPT]);
+    expect(opts.input).toBe(buildPlanFloorReviewPrompt(review()));
+    expect(opts.timeout).toBeLessThanOrEqual(30_000);
+    expect(opts.env.CLAUDE_CONFIG_DIR).toBeString();
+    expect(opts.env.CLAUDE_CONFIG_DIR).not.toBe(contamination.CLAUDE_CONFIG_DIR);
+    expect(opts.env.GSTACK_HOME).not.toBe(contamination.GSTACK_HOME);
+    expect(opts.env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+    expect(opts.env.CLAUDECODE).toBeUndefined();
+    expect(opts.env.MCP_ENDPOINT).toBeUndefined();
+    expect(opts.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1');
+    expect(opts.env.MAX_THINKING_TOKENS).toBe('1024');
+    expect(opts.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe('2048');
+    return {status:0,stdout:JSON.stringify({kind:'uncertain',seedId:null,questionId:null,
+     optionId:null,reason:'A transport control cannot award a semantic finding.'}),stderr:''};
+   }) as any});
+  expect(calls).toBe(1);
+  expect(actual).toEqual({kind:'uncertain',seedQuote:'',questionQuote:'',optionIndex:null,
+   optionQuote:'',reason:'A transport control cannot award a semantic finding.'});
+ } finally {
+  for(const [key,value] of Object.entries(previous)) {
+   if(value===undefined)delete process.env[key];
+   else process.env[key]=value;
+  }
+ }
+});
+test('canonical rubric separates new requirements from setup after grounding the source',()=>{
+ const prompt=buildPlanFloorReviewPrompt(review());
+ expect(prompt.indexOf('1. Ground')).toBeLessThan(prompt.indexOf('2. Identify'));
+ expect(prompt.indexOf('2. Identify')).toBeLessThan(prompt.indexOf('3. Determine'));
+ expect(prompt).toContain('only confirm/correct the reviewer');
+ expect(prompt).toContain('candidate cannot invent the seed');
+ expect(prompt).toContain('A stated exclusion can still be a missing requirement when it contradicts');
+ expect(prompt).toContain('Choosing a NEW concrete acceptance requirement for a seeded problem also qualifies');
+ expect(prompt).toContain('independent implementation remedies remain undecided');
+ expect(prompt).toContain('confirm an already-approved target');
+ expect(prompt).toContain('Do not override a source conflict by calling the question setup');
+ expect(prompt).toContain('All other classifications use null citation IDs');
+ expect(PLAN_FLOOR_SYSTEM_PROMPT).toBe('Classify the supplied evidence using the supplied rubric. Return only its strict JSON result.');
 });
 test.each([
  ['nonzero',{status:1,stdout:'',stderr:'real stderr detail'}],
@@ -121,6 +185,118 @@ test('DX TTHW target question is a seeded finding without launching the assessor
  expect(actual.optionIndex).toBe(1);
  expect(actual.optionQuote).toMatch(/< 10 min|Champion|Competitive|Current trajectory/);
  expect(calls).toBe(0);
+ }
+});
+for (const capture of capturedDxTargets.captures) {
+ test(`captured CI DX target ${capture.attempt} retains exact prompt identity and needs no assessor`,()=>{
+  const input=capture.input as PlanFloorReview;
+  expect(capturedDxTargets.sourceRevision).toBe('3788b5fcb');
+  expect(input.candidate.identity).toBe(capture.identity);
+  expect(createHash('sha256').update(buildPlanFloorReviewPrompt(input)).digest('hex')).toBe(currentPromptHashesByCapture.get(capture.inputSha256));
+  for (const reversed of [false,true]) {
+   const current=structuredClone(input);
+   if(current.candidate.transport!=='native')throw Error('Expected captured native question');
+   if(reversed)current.candidate.question.options.reverse();
+   let calls=0;
+   const actual=judgePlanFloorReview(current,{binary:'fake',model:'unchanged-warmup',deadlineAt:Date.now()+60_000,
+    invoke:(()=>{calls++;throw Error('must not launch');}) as any});
+   expect(calls).toBe(0);
+   expect(actual.kind).toBe('finding');
+   expect(actual.questionQuote).toBe(current.candidate.question.question.split('\n')[0]!.slice(5));
+   expect(actual.optionQuote).toBe(current.candidate.question.options[actual.optionIndex!-1]!.label);
+   expect(actual.reason).toContain('choose a TTHW target');
+   expect(actual.reason).toContain('remedies remain undecided');
+  }
+ });
+ test(`captured CI DX target ${capture.attempt} recognizes current target roles rather than whole sentences`,()=>{
+  for (const decision of ['D7 — Which TTHW target should this review adopt?',
+   'D12 — Which time to hello world target would fit this quickstart journey?',
+   'D3 — Which yardstick should the gap report use?']) {
+   const input=structuredClone(capture.input);
+   input.candidate.question.question=input.candidate.question.question.replace(/^[^\n]+/,decision);
+   delete (input.candidate.question as {multiSelect?:boolean}).multiSelect;
+   let calls=0;
+   const actual=judgePlanFloorReview(input as PlanFloorReview,{binary:'fake',model:'unchanged-warmup',deadlineAt:Date.now()+60_000,
+    invoke:(()=>{calls++;throw Error('must not launch');}) as any});
+   expect(calls).toBe(0);expect(actual.kind).toBe('finding');
+  }
+ });
+ test(`captured CI DX target ${capture.attempt} rejects inactive, foreign, non-target and incomplete semantics`,()=>{
+  const changes: Array<[string,(input:any)=>void]>=[
+   ['historical preface',i=>i.candidate.question.question='Historical example only; this finding is withdrawn.\n'+i.candidate.question.question],
+   ['withdrawn after the question',i=>i.candidate.question.question+='\nThis finding is withdrawn.'],
+   ['closed target',i=>i.candidate.question.question+='\nThis target is no longer current.'],
+   ['quoted question',i=>i.candidate.question.question=i.candidate.question.question.split('\n').map((line:string)=>'> '+line).join('\n')],
+   ['fenced question',i=>i.candidate.question.question='```text\n'+i.candidate.question.question+'\n```'],
+   ['foreign source',i=>i.candidate.question.question=i.candidate.question.question.replace('PLAN.md','OTHER.md')],
+   ['foreign source with owned mention',i=>i.candidate.question.question=i.candidate.question.question.replace('PLAN.md','OTHER.md, unlike PLAN.md')],
+   ['foreign seed',i=>i.seed='A calendar layout plan with no SDK onboarding.'],
+   ['quoted seed',i=>i.seed=i.seed.split('\n').map((line:string)=>'> '+line).join('\n')],
+   ['fenced seed',i=>i.seed='```text\n'+i.seed+'\n```'],
+   ['historical seed preface',i=>i.seed='Historical plan retained for reference only.\n'+i.seed],
+   ['withdrawn seed preface',i=>i.seed='This plan is withdrawn.\n'+i.seed],
+   ['withdrawn seed suffix',i=>i.seed+='\nThis source is no longer current.'],
+   ['source excerpt after current question',i=>i.candidate.question.question=i.candidate.question.question.replace('ELI10:','Source:\nELI10:')],
+   ['wrong header',i=>i.candidate.question.header='Example'],
+   ['multi-select target',i=>i.candidate.question.multiSelect=true],
+   ['unrelated current decision',i=>i.candidate.question.question=i.candidate.question.question.replace(/^[^\n]+/,'D2 — Should we change the color of the settings page?')],
+   ['target decision bundled with launch',i=>i.candidate.question.question=i.candidate.question.question.replace(/^[^\n]+/,'D2 — Which TTHW target should this review ignore to ship a new application?')],
+   ['target merely in a later example',i=>i.candidate.question.question='D2 — Which UI theme should this review use?\n'+i.candidate.question.question],
+   ['hypothetical target',i=>i.candidate.question.question=i.candidate.question.question.replace('D2 — Which','D2 — For a hypothetical example, which')],
+   ['missing current context',i=>i.candidate.question.question=i.candidate.question.question.split('\n')[0]],
+   ['unrelated option',i=>i.candidate.question.options[1]={label:'Ship a new product',description:'Launch immediately; competitive target mentioned for background only.'}],
+   ['target label without target meaning',i=>i.candidate.question.options[0].description='Approve a production release and delete the old application to reach the competitive target.'],
+   ['target label bundled with approval',i=>i.candidate.question.options[0].label='Competitive (2-5 min) and approve the release'],
+   ['target label bundled inside parentheses',i=>i.candidate.question.options[0].label='Competitive (approve the release)'],
+   ['target label with unrelated qualification',i=>i.candidate.question.options[0].label='Competitive (blue interface)'],
+   ['historical option',i=>i.candidate.question.options[0].description='Historical target: competitive bar, withdrawn.'],
+   ['custom-only alternatives',i=>i.candidate.question.options=[{label:"Tell me what's realistic",description:'Name the target.'},{label:'Tell me what is realistic',description:'Name the target.'}]],
+  ];
+  for (const [name,change] of changes) for (const knownSpelling of [false,true]) {
+   const input=structuredClone(capture.input);
+   if(knownSpelling)input.candidate.question.question=input.candidate.question.question.replace(/^[^\n]+/,'D2 — Which time-to-first-call target should this quickstart be held to?');
+   change(input);let calls=0;
+   const actual=judgePlanFloorReview(input as PlanFloorReview,{binary:'fake',model:'unchanged-warmup',deadlineAt:Date.now()+60_000,
+    invoke:((_file,_args,opts)=>{calls++;expect(opts.input,name).toBe(buildPlanFloorReviewPrompt(input as PlanFloorReview));
+     return {status:0,stdout:JSON.stringify({kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Controlled nonfinding assessment.'}),stderr:''};}) as any});
+   expect(calls,name).toBe(1);
+   expect(actual.kind,name).toBe('uncertain');
+  }
+ });
+ test(`captured CI DX target ${capture.attempt} cannot credit partial native input`,()=>{
+  for (const change of [(q:any)=>q.options.pop()&&q.options.pop()&&q.options.pop(),
+   (q:any)=>q.options[0].description='',(q:any)=>delete q.options[0].description,
+   (q:any)=>q.question='',(q:any)=>q.options[1]=structuredClone(q.options[0])]) {
+   const input=structuredClone(capture.input);change(input.candidate.question);let calls=0;
+   expect(()=>judgePlanFloorReview(input as PlanFloorReview,{binary:'fake',model:'unchanged-warmup',deadlineAt:Date.now()+60_000,
+    invoke:(()=>{calls++;throw Error('must not launch');}) as any})).toThrow('complete native question');
+   expect(calls).toBe(0);
+  }
+ });
+}
+test('captured DX target fixture changes select all four floor owners and no judges',()=>{
+ const files=['test/fixtures/plan-floor-dx-target-ci-3788b5fcb.json'];
+ expect(selectTests(files,E2E_TOUCHFILES,GLOBAL_TOUCHFILES).selected.sort()).toEqual([
+  'plan-ceo-finding-floor','plan-design-finding-floor','plan-devex-finding-floor','plan-eng-finding-floor',
+ ]);
+ expect(selectTests(files,LLM_JUDGE_TOUCHFILES,GLOBAL_TOUCHFILES).selected).toEqual([]);
+});
+test('prior passing native target retains its baseline and explicitly separate split clocks',()=>{
+ const capture=capturedDxTargets.priorPassingCapture;
+ expect(createHash('sha256').update(buildPlanFloorReviewPrompt(capture.input as PlanFloorReview)).digest('hex')).toBe(currentPromptHashesByCapture.get(capture.inputSha256));
+ for(const reversed of [false,true]) {
+  const input=structuredClone(capture.input);if(reversed)input.candidate.question.options.reverse();let calls=0;
+  const actual=judgePlanFloorReview(input as PlanFloorReview,{binary:'fake',model:'unchanged-warmup',deadlineAt:Date.now()+60_000,
+   invoke:(()=>{calls++;throw Error('must not launch');}) as any});
+  expect(actual.kind).toBe('finding');expect(calls).toBe(0);
+ }
+ for(const description of ['Choose an active-time target of 5-10 min; no separate waiting clock is defined.',
+  'The key wait is measured separately; active-time goal is unspecified.',
+  'Approve launch using an active-time target of 5-10 min; key wait measured separately.']) {
+  const input=structuredClone(capture.input);input.candidate.question.options[3]!.description=description;let calls=0;
+  const actual=judgePlanFloorReview(input as PlanFloorReview,{binary:'fake',model:'unchanged-warmup',deadlineAt:Date.now()+60_000,
+   invoke:(()=>{calls++;return {status:0,stdout:JSON.stringify({kind:'uncertain',seedId:null,questionId:null,optionId:null,reason:'Controlled nonfinding assessment.'}),stderr:''};}) as any});
+  expect(actual.kind).toBe('uncertain');expect(calls).toBe(1);
  }
 });
 test('an exhausted deadline starts no assessment process',()=>{

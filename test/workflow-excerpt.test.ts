@@ -20,7 +20,13 @@ function expectOutsideReviewControlFlow(text: string, promptHeading: string): vo
     expect(disabled).toContain('if [ "$_DISABLED_REVIEW_MODE" = disabled ]');
   } else {
     expect(disabled).toContain('persist `outside_status: disabled`');
-    expect(disabled.replace(/\s+/g, ' ')).toMatch(/Do not construct a (?:review prompt|challenge), invoke an outside CLI, dispatch an Agent\/Task fallback/);
+    if (text.includes('**Outcome routing:**')) {
+      const routing = text.slice(text.indexOf('**Outcome routing:**'), indices[0]);
+      expect(routing).toMatch(/\| Disabled \|[^\n]*guarded disabled record[^\n]*No prompt, outside process or native replacement\./);
+      expect(disabled).toContain('if [ "$_DISABLED_REVIEW_MODE" = disabled ]');
+    } else {
+      expect(disabled.replace(/\s+/g, ' ')).toMatch(/Do not construct a (?:review prompt|challenge), invoke an outside CLI, dispatch an Agent\/Task fallback/);
+    }
   }
   expect(text.slice(indices[1], indices[2])).toContain('(skip only on `disabled`)');
 
@@ -71,9 +77,12 @@ describe('workflow judge excerpts', () => {
 
   test('ship uses project-native commands and never jumps over mandatory gates', () => {
     const text = readWorkflowExcerpt('ship/SKILL.md', '# Ship:', '## Important Rules');
-    expect(text).toContain("Use the project's test commands discovered in Step 4");
-    expect(text).toContain('**Project-native path:**');
-    expect(text).toContain('Use the documented selector and pre-merge command.');
+    expect(text).toContain('Resolve every required test, lint, typecheck and eval lane once');
+    expect(text).toContain('(working directory, exact command bytes, evidence label)');
+    expect(text).toContain("Use Step 5's tuples and evidence wrapper.");
+    expect(text).toContain("Keep the project's pre-merge tier,");
+    expect(text).toContain('required selection with zero cases');
+    expect(text).toContain('eval command is **missing validation**, not a pass or no-match skip.');
     expect(text).not.toMatch(/skipping evals[^\n]*Step 9/);
     const reviewAndTriage = text.slice(text.indexOf('## Step 9:'), text.indexOf('## Step 11:'));
     expect(reviewAndTriage.match(/continue to Step 12/i)).toBeNull();
@@ -177,6 +186,10 @@ describe('workflow judge excerpts', () => {
     expect(procedure).toContain("### 4. Save the pending record");
     expect(procedure).toContain('### 5. Ask and wait');
     expect(procedure).toContain("### 6. Apply and refresh");
+    const scope = eng.slice(eng.indexOf('## Scope Challenge'), eng.indexOf('## Review Sections'));
+    const scopeHeadings = marked.lexer(scope).filter(token => token.type === 'heading' && token.depth === 3);
+    expect(scopeHeadings.map(token => token.text)).toEqual(['A. Assess the target',
+      'B. Resolve complexity selectors', 'C. Resolve findings']);
     const outputs = ['### TODOS.md updates', '## Approval readiness', '## Required outputs', '## Implementation Tasks',
       '### Unresolved decisions', '### Completion summary', '## Plan File Review Report',
       '### Write to the report file', '## Review Log'].map(heading => eng.indexOf(heading));

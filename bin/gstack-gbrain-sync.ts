@@ -36,7 +36,7 @@ import { homedir, hostname } from "os";
 import { createHash } from "crypto";
 
 import "../lib/conductor-env-shim";
-import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
+import { detectEngineTier, withErrorContext, canonicalizeRemote, transcriptIngestEnabled } from "../lib/gstack-memory-helpers";
 import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
 import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
 import { writeReceipt } from "../lib/egress-receipt";
@@ -162,20 +162,13 @@ export function resolveStageTimeoutMs(
   return n;
 }
 
-/**
- * gbrain writes ~/.gbrain/import-checkpoint.json on every import run. If a
- * previous /sync-gbrain hit the timeout (SIGTERM = exit 143), the checkpoint
- * + its staging dir survive on disk. Detect both and let gbrain resume from
- * processedIndex+1 on the next run. If the staging dir is missing/empty/
- * unreadable, fall through to a fresh restage with a one-line warning so the
- * user sees we noticed. See #1611 + plan D1/C1.
- */
 interface GbrainCheckpoint {
   dir?: string;
   totalFiles?: number;
   processedIndex?: number;
   completedFiles?: number;
   timestamp?: string;
+  completedPaths?: string[];
 }
 
 export function readGbrainCheckpoint(): GbrainCheckpoint | null {
@@ -191,7 +184,6 @@ export function readGbrainCheckpoint(): GbrainCheckpoint | null {
     if (!parsed || typeof parsed !== "object") return null;
     return parsed as GbrainCheckpoint;
   } catch {
-    // Corrupt JSON — treat as no checkpoint and fall through to fresh restage.
     return null;
   }
 }
@@ -201,22 +193,11 @@ export type ResumeVerdict =
   | { kind: "resume"; stagingDir: string; processedIndex: number; totalFiles: number }
   | { kind: "stale-staging-missing"; stagingDir: string; reason?: string };
 
-/**
- * Decide whether the next memory-ingest run should resume from gbrain's
- * checkpoint or restage from scratch.
- *   - no checkpoint              → run a fresh ingest pass
- *   - checkpoint + staging ok    → resume (gbrain picks up at processedIndex+1)
- *   - checkpoint + staging gone  → warn, fall through to fresh restage
- */
 export function decideResume(gstackHome: string = GSTACK_HOME): ResumeVerdict {
   const cp = readGbrainCheckpoint();
   if (!cp || !cp.dir) return { kind: "no-checkpoint" };
   const stagingDir = cp.dir;
   // #1802: only resume into a path we can PROVE is a gstack-minted staging dir.
-  // A poisoned checkpoint (dir = repo root, written when an autopilot import was
-  // SIGTERM'd while CWD was the repo) would otherwise be adopted as the staging
-  // dir and later recursively deleted by cleanupStagingDir(). Fail-closed: any
-  // unprovable path restages from scratch (cost: one re-stage; never data loss).
   // Pure decision: return the verdict (with reason) and let the caller log,
   // so we don't double-log the same event from here and the call site.
   const verdict = checkOwnedStagingDir(stagingDir, gstackHome);
@@ -226,7 +207,7 @@ export function decideResume(gstackHome: string = GSTACK_HOME): ResumeVerdict {
   return {
     kind: "resume",
     stagingDir,
-    processedIndex: cp.processedIndex ?? 0,
+    processedIndex: cp.completedPaths?.length ?? cp.processedIndex ?? 0,
     totalFiles: cp.totalFiles ?? 0,
   };
 }
@@ -1226,12 +1207,6 @@ function runMemoryIngest(args: CliArgs): StageResult {
     return skipStageForLocalStatus("memory", localStatus, t0);
   }
 
-  // Resume detection (#1611 / plan D1 + C1). If a previous run hit the
-  // timeout and gbrain left ~/.gbrain/import-checkpoint.json plus its staging
-  // dir on disk, signal the grandchild via env so it skips the prepare phase
-  // and lets `gbrain import` resume from processedIndex+1 against the same
-  // staging dir. If the staging dir is gone (disk pressure cleanup, OS
-  // reboot, user manual cleanup), warn and fall through to a fresh restage.
   const resume = decideResume();
   const childEnv = buildGbrainEnv({ announce: false });
   if (resume.kind === "resume") {
@@ -1243,17 +1218,16 @@ function runMemoryIngest(args: CliArgs): StageResult {
     // The reason distinguishes "actually gone" (disk cleanup / reboot) from
     // "refused as unowned" (#1802 poison: the path may still exist on disk).
     // Logging "gone" for a refused poison path misdirects incident diagnosis.
-    const why = resume.reason
-      ? `staging dir not usable: ${resume.reason}`
-      : `staging dir ${resume.stagingDir} gone`;
-    console.error(
-      `[sync:memory] previous checkpoint stale (${why}), restaging from scratch. ` +
-        `Remove ~/.gbrain/import-checkpoint.json to silence.`,
-    );
+    return { name: "memory", ran: false, ok: false, duration_ms: Date.now() - t0,
+      summary: "checkpoint held: snapshot missing or ownership unproven; review retained checkpoint before starting a fresh import" };
+  } else if (existsSync(join(HOME, ".gbrain/import-checkpoint.json"))) {
+    return { name: "memory", ran: false, ok: false, duration_ms: Date.now() - t0,
+      summary: "checkpoint held: malformed checkpoint; no fresh import dispatched" };
   }
 
   const ingestPath = join(import.meta.dir, "gstack-memory-ingest.ts");
   const ingestArgs = ["run", ingestPath];
+  if (!transcriptIngestEnabled()) ingestArgs.push("--sources", "eureka,learning,timeline,ceo-plan,design-doc,retro,builder-profile-entry");
   if (args.mode === "full") ingestArgs.push("--bulk");
   else ingestArgs.push("--incremental");
   if (args.quiet) ingestArgs.push("--quiet");

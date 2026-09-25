@@ -27,6 +27,7 @@ const RUNNERS = [
   'test/helpers/codex-session-runner.ts',
   'test/helpers/gemini-session-runner.ts',
   'test/helpers/agent-sdk-runner.ts',
+  'test/helpers/plan-floor-review.ts',
 ];
 
 function read(rel: string): string {

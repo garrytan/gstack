@@ -136,9 +136,9 @@ Show the full response in a `tool-output` fence. Require successful execution an
 
 Set the outer tool timeout to 600000ms so the provider timeout can report its failure.
 
-Present the full output verbatim. This is informational — it never blocks shipping.
+Present the full output verbatim. Collect actionable findings for the Step 11 completion procedure; a structured P1 finding uses the decision gate below.
 
-**Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
+**Error handling:** Execution failures do not block shipping; findings still follow the approval and convergence gates. Record failed passes as missing coverage and continue to the remaining passes, persistence and Step 11 completion.
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate."
 - **Timeout:** "Codex exceeded 9 minutes and was terminated; this pass produced NO findings." A timed-out pass is MISSING COVERAGE, not a clean bill — say so explicitly rather than continuing as if Codex had reviewed.
 - **Empty response:** "Codex returned no response. Stderr: <paste relevant error>."
@@ -151,7 +151,7 @@ If `CODEX_MODE` is `not_installed` / `not_authed` / `disabled`: the preflight al
 
 ### Codex structured review (large diffs only, 200+ lines)
 
-If `DIFF_TOTAL >= 200` AND `CODEX_MODE` is `ready`:
+If `CODEX_MODE` is `ready` AND either `DIFF_TOTAL >= 200` or the user explicitly requested the structured review:
 
 Prepare a structured review prompt requesting severity-tagged findings ([P1], [P2], [P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
@@ -212,22 +212,22 @@ Read stderr for errors (same error handling as Codex adversarial above).
 
 
 
-If `DIFF_TOTAL < 200`: skip this section silently. The Claude + Codex adversarial passes provide sufficient coverage for smaller diffs.
+If `DIFF_TOTAL < 200` and no explicit structured-review request exists, skip this section. Record the actual adversarial coverage; availability alone never establishes completion.
 
 ---
 
 ### Persist the review result
 
-After all passes complete, persist:
+After all passes finish, including failures, write one record per source/phase/attempt:
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"PHASE","tier":"always","gate":"GATE","commit":"'"$(git rev-parse --short HEAD)"'","completed":COMPLETED,"converged":CONVERGED}' --finish PASS_START
 ```
-PASS_START is this source/phase's original start token. COMPLETED is true only for a completed response (false for timeout, failure, refusal, or missing coverage). CONVERGED is true only if the completed pass made no edits. Each token is consumed once; a fixing pass cannot certify the fixed tree without a fresh full pass. Missing/disabled passes have no token: omit `--finish` and log completed/converged false. Log each source/phase separately so a clean native response cannot hide missing outside coverage.
-Substitute: PHASE = "adversarial" or "structured" for the corresponding pass. STATUS = "clean" only for a completed pass with no findings, "issues_found" if any pass found issues. SOURCE = the completed outside provider for its record; use a separate in-host record for the native subagent. GATE = the Codex structured review gate result ("pass"/"fail"), "skipped" if diff < 200, or "informational" if Codex was unavailable. If all passes failed, persist status "unavailable" with outside_status "unavailable"; never persist "clean". Record the adversarial and structured phases separately if their coverage differs.
-
----
-
-Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"adversarial"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.
+Substitute fields from this record's own outcome, never another pass:
+1. PHASE is `adversarial` or `structured`. SOURCE is `in-host` for the native subagent, `codex` only for completed outside CLI output, or `unavailable` when no reviewer completed. Historical `source:"claude"` means native Claude. Preserve reported modelUsage; unknown model identity stays unknown.
+2. OUTSIDE_STATUS is `completed`, `unavailable`, `disabled` or `skipped` for the outside attempt; use `skipped` for a native-only record. Availability/native fallback is not outside completion.
+3. STATUS is `clean` only for this completed pass with no findings, `issues_found` for its findings, or `unavailable` without a completed response. COMPLETED is false for timeout, failure, refusal or missing coverage. CONVERGED is true only when completed and no edits were made.
+4. GATE is `pass`/`fail` for a completed structured review, `skipped` when that phase was not requested, and `informational` for adversarial or unavailable passes. Missing coverage never earns `pass`.
+5. PASS_START is this attempt's original token. Each token is consumed once with `--finish`, including after a started pass fails. An unstarted, disabled or skipped pass has no token: omit `--finish`, with completed/converged false. A fixing pass cannot certify the fixed tree without a fresh full pass.
 
 ### Cross-model synthesis
 

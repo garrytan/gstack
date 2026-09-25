@@ -34,7 +34,7 @@
  * in the ledger; it cannot prove that an expected lane ever ran.
  */
 
-import { openSync, writeSync, closeSync, readdirSync, statSync, unlinkSync, chmodSync, readFileSync } from "fs";
+import { openSync, writeSync, closeSync, readdirSync, statSync, unlinkSync, chmodSync, readFileSync, realpathSync } from "fs";
 import { mkdirpSync } from "../lib/fs-utils";
 import { join, dirname } from "path";
 import { spawnSync } from "child_process";
@@ -50,6 +50,7 @@ interface EvidenceRecord {
   label: string;
   command: string;
   cmd_sha256: string;
+  cwd?: string;
   exit: number;
   duration_s: number;
   commit?: string;
@@ -83,7 +84,7 @@ function git(args: string[]): string | undefined {
 
 function currentWtree(): string | undefined {
   try {
-    const r = spawnSync(join(BIN_DIR, "gstack-wtree"), { encoding: "utf-8", timeout: 30000 });
+    const r = spawnSync("bash", [join(BIN_DIR, "gstack-wtree")], { encoding: "utf-8", timeout: 30000 });
     if (r.status !== 0) return undefined;
     const out = (r.stdout || "").trim();
     return /^[0-9a-f]{40}$/.test(out) ? out : undefined;
@@ -99,7 +100,7 @@ function ledgerPath(): { dir: string; file: string; logsDir: string } {
   if (!home) throw new Error("no GSTACK_HOME/HOME — bookkeeping skipped");
   // ONE gstack-slug spawn: its output carries both SLUG= and BRANCH= lines
   // (same branch→filename sanitization as reviews.jsonl).
-  const slugOut = spawnSync(join(BIN_DIR, "gstack-slug"), { encoding: "utf-8" });
+  const slugOut = spawnSync("bash", [join(BIN_DIR, "gstack-slug")], { encoding: "utf-8" });
   const sm = (slugOut.stdout || "").match(/^SLUG=(.+)$/m);
   const bm = (slugOut.stdout || "").match(/^BRANCH=(.+)$/m);
   const slug = sm ? sm[1].trim() : "unknown";
@@ -381,6 +382,7 @@ function record(
       label,
       command,
       cmd_sha256: cmdSha,
+      cwd: realpathSync(process.cwd()),
       exit: exitCode,
       duration_s: Math.round((Date.now() - startedMs) / 100) / 10,
     };
@@ -487,6 +489,10 @@ function cmdCheck(argv: string[]): number {
     if (verdict === "FRESH" && expectCmd !== undefined && sha256(expectCmd) !== latest.cmd_sha256) {
       verdict = "STALE";
       reason = "command changed (cmd_sha256 mismatch)";
+    }
+    if (verdict === "FRESH" && latest.cwd !== realpathSync(process.cwd())) {
+      verdict = "STALE";
+      reason = latest.cwd ? "working directory changed" : "record has no working directory";
     }
     if (verdict === "FRESH") {
       // Content binding: identical working-tree fingerprint, or a diff confined

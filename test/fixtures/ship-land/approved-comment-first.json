@@ -1,0 +1,75 @@
+{
+  "sourceEvidenceSha256": "3f9e4ee58db56d51a2193780e6eb17e424bfd0d8d7e5c2fee3669fc3c6b6946c",
+  "events": [
+    {
+      "type": "user",
+      "session_id": "22c1105e-901a-41ae-b373-2869ccebbeea",
+      "parent_tool_use_id": null,
+      "message": {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01SfNHp49rSMTkpShoajiqkY",
+            "is_error": false,
+            "content": "== pr view ==\n{\"number\":42,\"url\":\"https://github.com/fixture-owner/fixture-repo/pull/42\",\"headRefOid\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"reviewDecision\":\"APPROVED\",\"state\":\"OPEN\",\"mergeable\":\"MERGEABLE\",\"mergeCommit\":null,\"autoMergeRequest\":null,\"baseRefName\":\"main\",\"headRefName\":\"fixture\",\"reviewRequests\":[]}\nexit=0\n\n== timeline ==\n[{\"event\":\"review_requested\",\"created_at\":\"2026-09-20T00:00:00Z\",\"actor\":{\"login\":\"owner\",\"type\":\"User\"},\"requested_reviewer\":{\"login\":\"alice\",\"type\":\"User\"}},{\"event\":\"review_request_removed\",\"created_at\":\"2026-09-21T00:00:00Z\",\"requested_reviewer\":{\"login\":\"alice\",\"type\":\"User\"},\"actor\":{\"login\":\"alice\",\"type\":\"User\"}}]\nexit=0\n\n== reviews ==\n[{\"id\":1,\"user\":{\"login\":\"alice\",\"type\":\"User\"},\"state\":\"APPROVED\",\"commit_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"submitted_at\":\"2026-09-21T00:00:00Z\"},{\"id\":2,\"user\":{\"login\":\"alice\",\"type\":\"User\"},\"state\":\"COMMENTED\",\"commit_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"submitted_at\":\"2026-09-22T00:00:00Z\"}]\nexit=0\n\n== head ==\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nexit=0"
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "session_id": "22c1105e-901a-41ae-b373-2869ccebbeea",
+      "parent_tool_use_id": null,
+      "message": {
+        "id": "msg_011CfMirkFMpLCAu8qoDZX9W",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Review-gate analysis for PR #42 at `REVIEW_HEAD = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` (final head readback matches — snapshot valid):\n\n- **Requested humans/teams:** one — `alice` (User), requested by `owner` on 2026-09-20. No teams, no bots, no current pending requests.\n- **alice's history:** `review_request_removed` at 2026-09-21T00:00:00Z with actor `alice` — the same instant as her `APPROVED` review (id 1, `commit_id` == `REVIEW_HEAD`). That's GitHub's standard auto-removal of the request upon review submission, not a withdrawal without approval. Her later `COMMENTED` review (id 2, 2026-09-22, same commit) does not erase the effective approval. No re-request after the approval, no dismissal, no `CHANGES_REQUESTED`.\n- **`reviewDecision`:** `APPROVED`. `AGENTS.md` declares no additional branch review rule or team quorum.\n\n**Human review: MET. No waiver needed.**\n\nHere's the full readiness report. This is everything I checked before merging.\n\n**PRE-MERGE READINESS REPORT**\n\nPR #42 — `fixture` → `main`; head `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`.\n\n| Check | Evidence / result |\n|-------|-------------------|\n| CI | `Validation` — `pass` / `SUCCESS` (the only declared required check per `.github/workflows/ci.yml` + `AGENTS.md`); mergeable: `MERGEABLE` |\n| Human review | `alice` (User): APPROVED at head, request auto-cleared on submission, later COMMENTED (non-erasing); `reviewDecision: APPROVED`; no pending requests |\n| Waiver | none needed |\n| Eng Review | CURRENT — stated as verified on this head by the invoker (not re-run here) |\n| CEO / Design / Codex reviews | Stated as verified on this head by the invoker (not re-run here) |\n| Required validation | tests / lint / typecheck / evals — PASS via the `Validation` CI run; local required tests stated as verified by the invoker |\n| E2E tests | No separate E2E suite declared; covered only by the `Validation` lanes above |\n| LLM evals | `evals` lane PASS in `Validation` CI (local deterministic runner, no external calls) |\n| CHANGELOG / VERSION | Version drift stated as verified by the invoker |\n| Doc release | Documentation stated as verified by the invoker |\n| PR body | Stated as current by the invoker |\n\n**WARNINGS: 1; BLOCKERS: 0.**\n\n- ⚠️ **Uncommitted local change to `AGENTS.md`** in this checkout (`git status` shows ` M AGENTS.md`): it replaces the four validation-lane declarations with the CI/branch-rule text. This is *not* part of PR #42's head and will not be included in the merge. If it was meant to ship with this PR, it would need to be committed and pushed — which would change the head and invalidate this snapshot. If it's just local scratch, it's harmless to the merge."
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "session_id": "22c1105e-901a-41ae-b373-2869ccebbeea",
+      "parent_tool_use_id": null,
+      "message": {
+        "id": "msg_011CfMirkFMpLCAu8qoDZX9W",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01TnJGBhjA6szzhni7GekuH7",
+            "name": "AskUserQuestion",
+            "input": {
+              "questions": [
+                {
+                  "question": "Ready to merge PR #42 (fixture → main, head aaaaaaaa…aaaa). CI `Validation` passed, PR is mergeable, alice's approval is effective at this head and reviewDecision is APPROVED. One minor warning: an uncommitted local edit to AGENTS.md is not part of the PR and won't be merged. How do you want to proceed?",
+                  "header": "Merge PR #42",
+                  "multiSelect": false,
+                  "options": [
+                    {
+                      "label": "A) Merge it (Recommended)",
+                      "description": "Everything required is green; the AGENTS.md warning is local-only and doesn't affect the PR head. Completeness: 10/10"
+                    },
+                    {
+                      "label": "B) Hold off",
+                      "description": "Stop here — e.g. to commit/push the AGENTS.md change into the PR first (that would create a new head requiring fresh readiness). Completeness: 10/10"
+                    },
+                    {
+                      "label": "C) Merge anyway",
+                      "description": "Proceed while acknowledging the warning. Same action as A here since there are no blockers. Completeness: 3/10"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

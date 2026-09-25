@@ -232,6 +232,7 @@ describe('workflow judge file bundle', () => {
     expect(input.text.indexOf('echo "READY: aside')).toBeLessThan(input.text.indexOf('- **Search check:**'));
     expect(entrypoint.content).not.toContain('- **Search check:**');
     expect(occurrences(input.text, '- **Search check:**')).toBe(1);
+    expect(input.text).toContain('through Aside (entrypoint readiness)');
     expect(occurrences(input.text, '## Scope gate')).toBe(1);
     expect(occurrences(input.text, '### 1. Architecture review')).toBe(1);
     const sections = input.files.filter(file => file.kind === 'section');
