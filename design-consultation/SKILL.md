@@ -663,9 +663,11 @@ Record the one-sentence answer: a feeling, visual, claim, or posture. Every subs
 
 ### Taste profile (if this user has prior sessions)
 
-Read the persistent taste profile if it exists:
+Read this project's taste profile:
 
 ```bash
+eval "$("~/.claude/skills/gstack/bin/gstack-slug" 2>/dev/null)"
+[ -n "${SLUG:-}" ] || { echo "NO_TASTE_PROFILE"; exit 0; }
 _TASTE_PROFILE=~/.gstack/projects/$SLUG/taste-profile.json
 if [ -f "$_TASTE_PROFILE" ]; then
   # Schema v1: { dimensions: { fonts, colors, layouts, aesthetics }, sessions: [] }
@@ -746,9 +748,9 @@ console.log("GSTACK_STEP_OK");
 
 Then `cp "<ASIDE_DIR>/design-research-<site>.jpg" /tmp/` and Read it.
 
-If Aside is not `READY` but `$B` resolved, run `$B goto <url>`, `$B screenshot <path>`, `$B snapshot -i` (table above); confirm URLs with AskUserQuestion first.
+If Aside is not `READY` but `$B` resolved, run `$B goto <url>`, `$B snapshot -i`, `$B screenshot <path>`; confirm URLs with AskUserQuestion first.
 
-Use each site's screenshot and snapshot to assess fonts, palette, layout, density and aesthetic direction.
+Assess fonts, palette, layout, density and aesthetic from site screenshots and snapshots.
 
 If a site shows a sign-in wall or a bot check, skip it and note why — never ask the user to sign in to a competitor's site for research.
 
