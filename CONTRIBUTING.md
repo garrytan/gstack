@@ -294,7 +294,11 @@ operator `~/.claude` config, MCP servers (gbrain, Conductor), skills, `~/.gstack
 decision logs, and `CONDUCTOR_*` env never leak into the child. The `GITHUB_`
 and `EVALS_` prefix rules preserve CI metadata but reject credential-shaped
 names such as `GITHUB_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN`, and
-`GITHUB_APP_PRIVATE_KEY`. Named provider auth, runner `extraAllow` entries, and
+`GITHUB_APP_PRIVATE_KEY`. The screen reads every underscore-separated segment,
+so a trailing qualifier does not carry a name past it
+(`GITHUB_APP_PRIVATE_KEY_BASE64`, `GITHUB_TOKEN_1`), while a segment that
+merely contains a credential word stays metadata (`GITHUB_PATH`,
+`GITHUB_TOKENIZER`). Named provider auth, runner `extraAllow` entries, and
 per-test overrides are deliberate exceptions; a name-based rule cannot identify
 a secret assigned to an arbitrary metadata name. This keeps local eval signal
 aligned with CI instead of disagreeing for reasons unrelated to the code under

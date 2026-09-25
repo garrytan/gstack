@@ -70,11 +70,27 @@ const ALLOW_EXACT = new Set([
  * opts.extraAllow. Prefix matches reject credential-shaped suffixes; exact
  * and explicit runner admissions still win. */
 const ALLOW_PREFIXES = ['EVALS_', 'GITHUB_'];
-const CREDENTIAL_SUFFIXES = new Set([
+const CREDENTIAL_SEGMENTS = new Set([
   'KEY', 'KEYS', 'TOKEN', 'TOKENS', 'SECRET', 'SECRETS', 'PASSWORD', 'PASSWD',
   'PASS', 'CREDENTIAL', 'CREDENTIALS', 'AUTH', 'PAT', 'DSN', 'COOKIE',
   'SESSION', 'PRIVATE',
 ]);
+
+/**
+ * True when any underscore-separated segment of `name` is a credential word.
+ *
+ * Every segment, not just the last: a trailing qualifier is the normal way
+ * these names are written once there is more than one of them, and it moves
+ * the credential word off the end. `GITHUB_APP_PRIVATE_KEY_BASE64` is the
+ * PEM itself, `GITHUB_TOKEN_1` is a token, and a tail-only screen admits
+ * both.
+ *
+ * Segments, not substrings: `GITHUB_PATH` is documented runner metadata and
+ * contains "PAT".
+ */
+export function isCredentialShapedName(name: string): boolean {
+  return name.toUpperCase().split('_').some((segment) => CREDENTIAL_SEGMENTS.has(segment));
+}
 
 export interface HermeticEnvOpts {
   /** Per-runner additional allowed names (exact match) or prefixes (entries
@@ -122,7 +138,7 @@ export function buildHermeticEnv(
       ALLOW_EXACT.has(k) ||
       extraExact.has(k) ||
       (ALLOW_PREFIXES.some((p) => k.startsWith(p)) &&
-        !CREDENTIAL_SUFFIXES.has(k.slice(k.lastIndexOf('_') + 1).toUpperCase())) ||
+        !isCredentialShapedName(k)) ||
       extraPrefixes.some((p) => k.startsWith(p));
     if (allowed) out[k] = v;
   }
