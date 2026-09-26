@@ -83,6 +83,18 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Set to true once the privacy gate has asked the user.
 #                           # Flip back to false to be re-prompted.
 #
+# artifacts_sync_removals: off  # off | on
+#                           #   off — a file deleted or moved away locally stays
+#                           #         published (default; the pre-2026 behaviour).
+#                           #         `gstack-brain-sync --list-removals` shows them,
+#                           #         `--publish-removals --yes` removes them on demand.
+#                           #   on  — the sync also publishes those removals, which
+#                           #         then reach every machine that pulls. Large or
+#                           #         whole-project removals are held for review.
+#
+# artifacts_sync_removals_max: 20  # most removals one sync may publish unattended;
+#                           #   more are held. Not a non-negative integer → 0 (hold all).
+#
 # ─── Timeline Stop hook ──────────────────────────────────────────────
 # timeline_stop_hook: yes   # Controls whether ./setup registers the timeline
 #                           #   Stop hook (closes dangling session entries).
@@ -165,6 +177,8 @@ lookup_default() {
     cross_project_learnings) echo "" ;; # intentionally empty → unset triggers first-time prompt
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
+    artifacts_sync_removals) echo "off" ;; # off | on — publish local removals (docs/gbrain-sync.md)
+    artifacts_sync_removals_max) echo "20" ;; # removals one sync may publish unattended
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
     timeline_stop_hook) echo "yes" ;; # yes | no — controls ./setup timeline Stop hook registration (#2677)
 
@@ -393,6 +407,14 @@ case "${1:-}" in
       echo "Warning: artifacts_sync_mode '$VALUE' not recognized. Valid values: off, artifacts-only, full. Using off." >&2
       VALUE="off"
     fi
+    if [ "$KEY" = "artifacts_sync_removals" ] && [ "$VALUE" != "off" ] && [ "$VALUE" != "on" ]; then
+      echo "Warning: artifacts_sync_removals '$VALUE' not recognized. Valid values: off, on. Using off." >&2
+      VALUE="off"
+    fi
+    if [ "$KEY" = "artifacts_sync_removals_max" ] && ! printf '%s' "$VALUE" | grep -qE '^[0-9]+$'; then
+      echo "Warning: artifacts_sync_removals_max '$VALUE' is not a non-negative integer. Using 0 (hold every removal)." >&2
+      VALUE="0"
+    fi
     # redact_repo_visibility: a LOCAL override for repos gh/glab can't read (e.g.
     # self-hosted GitLab). It lives in ~/.gstack/config.yaml (never committed), so
     # it can't be used to weaken the gate repo-wide for other contributors.
@@ -485,7 +507,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               artifacts_sync_mode artifacts_sync_mode_prompted \
+               artifacts_sync_removals artifacts_sync_removals_max plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do
       VALUE=$(read_config_value "$KEY" || true)
       SOURCE="default"
@@ -502,7 +525,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               artifacts_sync_mode artifacts_sync_mode_prompted \
+               artifacts_sync_removals artifacts_sync_removals_max plan_tune_hooks \
                timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
