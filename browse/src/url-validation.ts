@@ -40,6 +40,28 @@ function isBlockedIpv6(addr: string): boolean {
 }
 
 /**
+ * Check if an IPv4 address is in the link-local range 169.254.0.0/16 (RFC 3927).
+ * The range hosts instance metadata (169.254.169.254) and, more dangerously,
+ * container credential endpoints — AWS ECS/Fargate at 169.254.170.2 and EKS Pod
+ * Identity at 169.254.170.23 — that hand out IAM credentials. Blocking the whole
+ * /16 mirrors the range treatment already given to IPv6 link-local/ULA above, and
+ * the cookie-domain guard in session-persist.ts. Matches dotted-quad literals only,
+ * so real hostnames like 169.254.example.com are left to DNS resolution rather than
+ * blocked as strings.
+ */
+function isBlockedIpv4LinkLocal(host: string): boolean {
+  // Dotted-quad literal (169.254.0.0/16). Numeric forms (hex/octal/decimal) are
+  // already normalized to dotted-quad by the URL parser before this runs.
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  // IPv4-mapped IPv6 form: the URL parser normalizes ::ffff:169.254.x.x to
+  // ::ffff:a9fe:xxxx (a9fe == 169.254). The project already carries the metadata
+  // IP's mapped form (::ffff:a9fe:a9fe) in BLOCKED_METADATA_HOSTS; this covers the
+  // rest of the /16.
+  if (/^::ffff:a9fe:[0-9a-f]{1,4}$/.test(host)) return true;
+  return false;
+}
+
+/**
  * Normalize hostname for blocklist comparison:
  * - Strip trailing dot (DNS fully-qualified notation)
  * - Strip IPv6 brackets (URL.hostname includes [] for IPv6)
@@ -88,7 +110,9 @@ async function resolvesToBlockedIp(hostname: string): Promise<boolean> {
 
     // Check IPv4 A records
     const v4Check = resolve4(hostname).then(
-      (addresses) => addresses.some(addr => BLOCKED_METADATA_HOSTS.has(addr)),
+      (addresses) => addresses.some(
+        addr => BLOCKED_METADATA_HOSTS.has(addr) || isBlockedIpv4LinkLocal(addr),
+      ),
       () => false, // ENODATA / ENOTFOUND — no A records, not a risk
     );
 
@@ -96,7 +120,9 @@ async function resolvesToBlockedIp(hostname: string): Promise<boolean> {
     const v6Check = resolve6(hostname).then(
       (addresses) => addresses.some(addr => {
         const normalized = addr.toLowerCase();
-        return BLOCKED_METADATA_HOSTS.has(normalized) || isBlockedIpv6(normalized);
+        return BLOCKED_METADATA_HOSTS.has(normalized)
+          || isBlockedIpv6(normalized)
+          || isBlockedIpv4LinkLocal(normalized);
       }),
       () => false, // ENODATA / ENOTFOUND — no AAAA records, not a risk
     );
@@ -292,9 +318,14 @@ export async function validateNavigationUrl(url: string): Promise<string> {
 
   const hostname = normalizeHostname(parsed.hostname.toLowerCase());
 
-  if (BLOCKED_METADATA_HOSTS.has(hostname) || isMetadataIp(hostname) || isBlockedIpv6(hostname)) {
+  if (
+    BLOCKED_METADATA_HOSTS.has(hostname) ||
+    isMetadataIp(hostname) ||
+    isBlockedIpv4LinkLocal(hostname) ||
+    isBlockedIpv6(hostname)
+  ) {
     throw new Error(
-      `Blocked: ${parsed.hostname} is a cloud metadata endpoint. Access is denied for security.`
+      `Blocked: ${parsed.hostname} is a cloud metadata or link-local address (IPv4 169.254.0.0/16, IPv6 fe80::/10 and fc00::/7 — includes container credential endpoints). Access is denied for security.`
     );
   }
 
