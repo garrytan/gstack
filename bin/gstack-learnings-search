@@ -122,15 +122,19 @@ if (type) results = results.filter(e => e.type === type);
 // Filter by query (token-OR: match if ANY whitespace-split token appears in ANY haystack)
 if (queryTokens.length > 0) results = results.filter(e => {
   const haystacks = [(e.key || '').toLowerCase(), (e.insight || '').toLowerCase(), ...(e.files || []).map(f => f.toLowerCase())];
-  return queryTokens.some(tok => haystacks.some(h => h.includes(tok)));
+  e._tokenHits = queryTokens.filter(tok => haystacks.some(h => h.includes(tok))).length;
+  return e._tokenHits > 0;
 });
 
-// Sort by effective confidence desc, then recency
+// Sort by number of matched tokens desc, then effective confidence desc, then recency
 results.sort((a, b) => {
+  const ah = a._tokenHits || 0, bh = b._tokenHits || 0;
+  if (bh !== ah) return bh - ah;
   if (b._effectiveConfidence !== a._effectiveConfidence) return b._effectiveConfidence - a._effectiveConfidence;
   return new Date(b.ts).getTime() - new Date(a.ts).getTime();
 });
 
+const totalMatched = results.length;
 // Limit
 results = results.slice(0, limit);
 
@@ -146,7 +150,8 @@ for (const e of results) {
 
 // Summary line
 const counts = Object.entries(byType).map(([t, arr]) => arr.length + ' ' + t + (arr.length > 1 ? 's' : ''));
-console.log('LEARNINGS: ' + results.length + ' loaded (' + counts.join(', ') + ')');
+const moreNotice = (queryTokens.length > 0 && totalMatched > results.length) ? ' -- ' + (totalMatched - results.length) + ' more matched, raise --limit to see them' : '';
+console.log('LEARNINGS: ' + results.length + ' loaded (' + counts.join(', ') + ')' + moreNotice);
 console.log('');
 
 for (const [t, arr] of Object.entries(byType)) {

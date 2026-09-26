@@ -30,6 +30,8 @@ beforeAll(() => {
     { ts: '2026-05-01T00:00:00Z', skill: 'test', type: 'pattern', key: 'foo-pattern', insight: 'A foo-related insight', confidence: 8, source: 'observed', trusted: false, files: [] },
     { ts: '2026-05-02T00:00:00Z', skill: 'test', type: 'pitfall', key: 'bar-pitfall', insight: 'A bar-related insight', confidence: 8, source: 'observed', trusted: false, files: [] },
     { ts: '2026-05-03T00:00:00Z', skill: 'test', type: 'pattern', key: 'baz-pattern', insight: 'A baz-related insight', confidence: 8, source: 'observed', trusted: false, files: [] },
+    { ts: '2026-05-01T00:00:00Z', skill: 'test', type: 'pattern', key: 'one-match-high-conf', insight: 'Matches only alpha keyword', confidence: 10, source: 'observed', trusted: false, files: [] },
+    { ts: '2026-05-01T00:00:00Z', skill: 'test', type: 'pattern', key: 'two-match-low-conf', insight: 'Matches both alpha and beta keywords', confidence: 5, source: 'observed', trusted: false, files: [] },
   ];
   const otherEntries = [
     { ts: '2026-05-04T00:00:00Z', skill: 'test', type: 'pattern', key: 'foreign-observed', insight: 'A foreign observed insight', confidence: 8, source: 'observed', trusted: false, files: [] },
@@ -89,5 +91,26 @@ describe('gstack-learnings-search cross-project trust gating', () => {
   test('cross-project mode excludes foreign rows missing the trusted field (#1745)', () => {
     const out = run(['--cross-project', '--query', 'foreign']);
     expect(out).not.toContain('foreign-legacy');
+  });
+});
+
+describe('gstack-learnings-search token-count ranking and truncation notice (#2762)', () => {
+  test('multi-token query ranks entries with more token matches ahead of entries with higher confidence', () => {
+    const out = run(['--query', 'alpha beta']);
+    expect(out).toContain('two-match-low-conf');
+    expect(out).toContain('one-match-high-conf');
+    const idxTwo = out.indexOf('two-match-low-conf');
+    const idxOne = out.indexOf('one-match-high-conf');
+    expect(idxTwo).toBeLessThan(idxOne);
+  });
+
+  test('truncation notice is shown when results are truncated for query search', () => {
+    const out = run(['--limit', '1', '--query', 'foo bar']);
+    expect(out).toContain('more matched, raise --limit to see them');
+  });
+
+  test('truncation notice is NOT shown when no query was given', () => {
+    const out = run(['--limit', '1']);
+    expect(out).not.toContain('more matched, raise --limit to see them');
   });
 });
