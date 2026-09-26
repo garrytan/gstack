@@ -1,4 +1,5 @@
 # gstack-egress-lib.sh — shared egress-receipt helpers for bash sinks.
+# shellcheck shell=bash
 #
 # This file is NOT executable; source it:
 #

@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   BunTestOutputClassifier,
+  classifyBunTestOutputLine,
   installChildSignalForwarding,
   isTerminationRequested,
   strictTestExitCode,
@@ -191,5 +192,35 @@ describe('installChildSignalForwarding — cancellation terminates the RUN', () 
     installChildSignalForwarding({ kill: () => true }, f.source, f.timer, 5_000, f.exit);
     f.emit('SIGTERM');
     expect(f.scheduled.filter((s) => s.delayMs === 6_000).length).toBe(1);
+  });
+});
+
+describe('bun 1.4 failure marker', () => {
+  // Bun <=1.3.x printed `(fail) <name> [12ms]`; 1.4.x prints `✗ <name> [12ms]`.
+  // BUN_FAIL_RESULT matched only the legacy form, so on bun 1.4 failedTests
+  // stayed 0 and strictTestExitCode fell back to trusting the child's exit
+  // code — exactly the regression this file's header warns about. A real run
+  // reported "0 failing test(s)" across six shards holding 321 failures.
+  it('classifies the 1.4.x marker as a failed test', () => {
+    expect(classifyBunTestOutputLine('✗ alpha > beta fails [30008.89ms]')).toBe('failed-test');
+  });
+
+  it('still classifies the legacy <=1.3.x marker', () => {
+    expect(classifyBunTestOutputLine('(fail) alpha > beta fails [1.00ms]')).toBe('failed-test');
+  });
+
+  it('does not count a crashed-worker marker as a failed test', () => {
+    // `✗ <path> (crashed: exited)` carries no [duration] suffix; the free
+    // runner attributes it separately as a crash, not a failure.
+    expect(classifyBunTestOutputLine('✗ test/foo.test.ts (crashed: exited)')).toBeNull();
+  });
+
+  it('refuses a zero exit when 1.4.x failure lines were printed', () => {
+    const c = new BunTestOutputClassifier();
+    c.write('✗ something broke [2.00ms]\n', 'stdout');
+    c.write('Ran 1 tests across 1 files. [5.00ms]\n', 'stdout');
+    const summary = c.end();
+    expect(summary.failedTests).toBe(1);
+    expect(strictTestExitCode(0, summary, 1)).not.toBe(0);
   });
 });
