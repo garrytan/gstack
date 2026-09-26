@@ -1833,6 +1833,20 @@ create_agents_sidecar() {
     fi
   done
 
+  # #1159: generated design and make-pdf skills check the local-first path
+  # $_ROOT/.agents/skills/gstack/{design,make-pdf}/dist before the global
+  # root. dist/ only: make-pdf/ ships a SKILL.md Codex would pick up.
+  for dist in design/dist make-pdf/dist; do
+    local src="$SOURCE_GSTACK_DIR/$dist"
+    local dst="$agents_gstack/$dist"
+    if [ -d "$src" ]; then
+      if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$dst" ] || [ ! -e "$dst" ]; then
+        mkdir -p "$(dirname "$dst")"
+        _link_or_copy "$src" "$dst"
+      fi
+    fi
+  done
+
   # supabase/config.sh — required by gstack-telemetry-sync to resolve GSTACK_SUPABASE_URL
   # (file-level on purpose: migrations/ and functions/ are dev-only)
   if [ -f "$SOURCE_GSTACK_DIR/supabase/config.sh" ]; then
@@ -1858,7 +1872,7 @@ create_codex_runtime_root() {
     rm -rf "$codex_gstack"
   fi
 
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/design" "$codex_gstack/make-pdf" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
     _link_or_copy "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
@@ -1874,6 +1888,16 @@ create_codex_runtime_root() {
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
     _link_or_copy "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+  fi
+  # #1159: generated Codex design and make-pdf skills fall back to
+  # $GSTACK_DESIGN/design and $GSTACK_MAKE_PDF/pdf. Link dist/ only, never the
+  # whole directory: make-pdf/ ships a Claude SKILL.md that Codex would
+  # discover as a duplicate skill.
+  if [ -d "$gstack_dir/design/dist" ]; then
+    _link_or_copy "$gstack_dir/design/dist" "$codex_gstack/design/dist"
+  fi
+  if [ -d "$gstack_dir/make-pdf/dist" ]; then
+    _link_or_copy "$gstack_dir/make-pdf/dist" "$codex_gstack/make-pdf/dist"
   fi
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
     _link_or_copy "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
