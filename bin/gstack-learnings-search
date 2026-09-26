@@ -6,6 +6,11 @@
 # resolves duplicates (latest winner per key+type), and outputs formatted text.
 # Exit 0 silently if no learnings file exists.
 set -euo pipefail
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "gstack-learnings-search: bun runtime not on PATH — install from https://bun.sh" >&2
+  exit 1
+fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
@@ -159,4 +164,4 @@ for (const [t, arr] of Object.entries(byType)) {
   }
   console.log('');
 }
-" 2>/dev/null || exit 0
+"

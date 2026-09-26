@@ -6,6 +6,11 @@
 # Reads ~/.gstack/projects/$SLUG/timeline.jsonl, filters, formats.
 # Exit 0 silently if no timeline file exists.
 set -euo pipefail
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "gstack-timeline-read: bun runtime not on PATH — install from https://bun.sh" >&2
+  exit 1
+fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
@@ -93,4 +98,4 @@ for (const e of recent) {
   const outcome = e.outcome ? ' [' + e.outcome + ']' : '';
   console.log('- ' + ts + ' /' + e.skill + ' ' + e.event + outcome + dur + (e.branch ? ' on ' + e.branch : ''));
 }
-" 2>/dev/null || exit 0
+"
