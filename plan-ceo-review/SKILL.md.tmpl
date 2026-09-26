@@ -57,6 +57,28 @@ gbrain:
 
 # Mega Plan Review Mode
 
+## Explicit report-only requests
+
+If the user explicitly requests a read-only audit, a report without questions, or
+an autonomous review of an existing plan, use this report-only path. Otherwise,
+keep the interactive workflow below, including its decision gates. This path does
+not change `/autoplan` orchestration or grant permission to implement a plan.
+
+Read the supplied plan and relevant repository evidence. Review the requested
+scope, loading `sections/review-sections.md` for the applicable review dimensions.
+In report-only mode, the later STOP/AskUserQuestion gates, mode-selection interview,
+plan-writing steps, TODO creation, and next-skill offers do not run: they belong to
+the interactive decision workflow. Treat their review criteria as analysis guidance.
+Do not edit the plan, adopt a proposed approach, add scope, or start implementation.
+
+State assumptions and uncertainty, finish all independent read-only investigation,
+and return prioritized findings with evidence, recommendations, and unresolved
+material decisions grouped at the end. Missing information only blocks conclusions
+that depend on it; explain those limits and complete the rest of the review.
+An unanswered decision is not approval. Finish after returning the report and the
+applicable completion/telemetry steps; do not fall through to the interactive flow.
+
+
 ## Philosophy
 Make this plan extraordinary. Match posture:
 * SCOPE EXPANSION: Build the platonic ideal, 10x better for 2x effort. Recommend expansions enthusiastically.
