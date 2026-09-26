@@ -379,6 +379,31 @@ describe("PII patterns", () => {
     expect(ids("card 4111-1111-1111-1111")).toContain("pii.cc");
     expect(ids("reach me on +1 415 555 2671")).toContain("pii.phone.e164");
   });
+
+  test("four-part version strings are not IP addresses", () => {
+    // A repo on MAJOR.MINOR.PATCH.BUILD writes its version to several files
+    // per release; each one used to land as a public-IPv4 finding.
+    expect(ids('  "version": "1.128.1.0",')).not.toContain("pii.ip_public");
+    expect(ids("app_version = 1.128.1.0")).not.toContain("pii.ip_public");
+    expect(ids("schema-version: 4.12.9.3")).not.toContain("pii.ip_public");
+    expect(ids("released v1.128.1.0 today")).not.toContain("pii.ip_public");
+    expect(ids("## [1.128.1.0] - 2026-09-02")).not.toContain("pii.ip_public");
+  });
+  test("a bare version line is exempt only when the same string is declared a version nearby", () => {
+    // The VERSION file's whole contents, inside a release diff.
+    const releaseDiff = ['+++ b/VERSION', '+1.128.1.0', '+++ b/package.json', '+  "version": "1.128.1.0",'].join("\n");
+    expect(ids(releaseDiff)).not.toContain("pii.ip_public");
+    // The same bare line with nothing proving it a version stays flagged.
+    expect(ids("1.128.1.0")).toContain("pii.ip_public");
+  });
+  test("the version exemption cannot launder a real address", () => {
+    // A genuine IP does not become exempt by sharing a diff with an
+    // unrelated version string — rule 2 matches the exact value only.
+    const mixed = ['  "version": "1.128.1.0",', "  resolver = 8.8.8.8"].join("\n");
+    expect(ids(mixed)).toContain("pii.ip_public");
+    // And a version-shaped key does not exempt a different value on its line.
+    expect(ids("version: 1.2.3.4 via 8.8.8.8")).toContain("pii.ip_public");
+  });
 });
 
 describe("internal + legal patterns", () => {
