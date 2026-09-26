@@ -11,7 +11,7 @@ import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
 import { resolveServerScript } from '../src/cli';
 import { handleReadCommand as _handleReadCommand, parseOutArgs, hasOutArg, resultToString } from '../src/read-commands';
-import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
+import { handleWriteCommand as _handleWriteCommand, looksLikeSelector } from '../src/write-commands';
 import { handleMetaCommand } from '../src/meta-commands';
 import { WRITE_COMMANDS, READ_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from '../src/commands';
 import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, CircularBuffer } from '../src/buffers';
@@ -83,6 +83,21 @@ const chainMeta = (b: BrowserManager, args: string[]) =>
   handleMetaCommand('chain', args, b, async () => {}, null, { executeCommand: makeChainExecute(b) });
 
 // ─── Pure arg-parser + result-conversion unit tests (no browser) ───
+describe('looksLikeSelector', () => {
+  test('recognises the selector shapes a caller would actually pass', () => {
+    for (const s of ['#loginInput', '.feat-owner', '[data-id="x"]', "input[placeholder='a b']", '@ref3']) {
+      expect(looksLikeSelector(s)).toBe(true);
+    }
+  });
+
+  test('does not claim ordinary prose is a selector', () => {
+    for (const s of ['#1', '#3 on the list', 'hello', '.5 seconds', 'John Doe', '[]']) {
+      expect(looksLikeSelector(s)).toBe(false);
+    }
+  });
+});
+
+
 describe('parseOutArgs / hasOutArg', () => {
   test('--out <path> splits the flag from the positional', () => {
     expect(parseOutArgs(['expr', '--out', '/tmp/x'])).toEqual({ outPath: '/tmp/x', raw: false, rest: ['expr'] });
@@ -557,6 +572,59 @@ describe('Interaction', () => {
 
     const val = await handleReadCommand('js', ['document.querySelector("#name").value'], bm);
     expect(val).toBe('John Doe');
+  });
+
+  test('type --into focuses the element first, then sends real keystrokes', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+    await handleWriteCommand('click', ['#email'], bm);  // focus something else first
+
+    const result = await handleWriteCommand('type', ['--into', '#name', 'Jane', 'Roe'], bm);
+    expect(result).toContain('into #name');
+
+    expect(await handleReadCommand('js', ['document.querySelector("#name").value'], bm)).toBe('Jane Roe');
+    // The previously focused field must be untouched, which is the whole point.
+    expect(await handleReadCommand('js', ['document.querySelector("#email").value'], bm)).toBe('');
+  });
+
+  test('type refuses a bare selector instead of typing it as text', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+    await handleWriteCommand('click', ['#name'], bm);
+
+    let threw = false;
+    try {
+      await handleWriteCommand('type', ['#name', 'John Doe'], bm);
+    } catch (err: any) {
+      threw = true;
+      expect(err.message).toContain('--into');
+      expect(err.message).toContain('fill');
+    }
+    expect(threw).toBe(true);
+    // Nothing may be typed on the refusal path.
+    expect(await handleReadCommand('js', ['document.querySelector("#name").value'], bm)).toBe('');
+  });
+
+  test('type refuses an attribute selector containing spaces', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+    await handleWriteCommand('click', ['#name'], bm);
+
+    let threw = false;
+    try {
+      await handleWriteCommand('type', ["input[placeholder='Your name']", 'hello'], bm);
+    } catch (err: any) {
+      threw = true;
+      expect(err.message).toContain('--into');
+    }
+    expect(threw).toBe(true);
+  });
+
+  test('type still accepts text that merely looks like a selector', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+    await handleWriteCommand('click', ['#name'], bm);
+
+    // '.NET' has selector shape but matches no element, so it is text.
+    const result = await handleWriteCommand('type', ['.NET', 'rocks'], bm);
+    expect(result).toContain('Typed');
+    expect(await handleReadCommand('js', ['document.querySelector("#name").value'], bm)).toBe('.NET rocks');
   });
 });
 

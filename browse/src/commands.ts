@@ -122,7 +122,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'fill':    { category: 'Interaction', description: 'Fill input', usage: 'fill <sel> <val>' },
   'select':  { category: 'Interaction', description: 'Select dropdown option by value, label, or visible text', usage: 'select <sel> <val>' },
   'hover':   { category: 'Interaction', description: 'Hover element', usage: 'hover <sel>' },
-  'type':    { category: 'Interaction', description: 'Type into focused element', usage: 'type <text>' },
+  'type':    { category: 'Interaction', description: 'Send real keystrokes. With no --into, they go to whatever element currently has focus; --into <sel> focuses that element first. Refuses when the first argument is a selector that matches an element on the page, since it would otherwise be typed as literal text.', usage: 'type [--into <sel>] <text>' },
   'press':   { category: 'Interaction', description: 'Press a Playwright keyboard key against the focused element. Names are case-sensitive: Enter, Tab, Escape, ArrowUp/Down/Left/Right, Backspace, Delete, Home, End, PageUp, PageDown. Modifiers combine with +: Shift+Enter, Control+A, Meta+K. Single printable chars (a, A, 1) work too. Full key list: https://playwright.dev/docs/api/class-keyboard#keyboard-press', usage: 'press <key>' },
   'scroll':  { category: 'Interaction', description: 'With a selector, smooth-scrolls the element into view. Without a selector, jumps to page bottom. No --by/--to amount option; for pixel-precise scrolling use `js window.scrollTo(0, N)`.', usage: 'scroll [sel|@ref]' },
   'wait':    { category: 'Interaction', description: 'Wait for element, network idle, or page load (timeout: 15s)', usage: 'wait <sel|--networkidle|--load>' },

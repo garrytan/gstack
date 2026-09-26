@@ -23,6 +23,39 @@ import { modifyStyle, undoModification, resetModifications, getModificationHisto
 import { withCdpSession } from './cdp-bridge';
 
 /**
+ * Does this argument look like a CSS selector or a snapshot ref, rather than prose?
+ *
+ * Deliberately narrow. `#1` and `.5 seconds` are text, not selectors, so the
+ * class/id forms require an identifier start after the sigil. Callers must ALSO
+ * confirm the string matches a live element before treating a match as intent —
+ * shape alone would misread ".NET rocks" as a selector.
+ */
+export function looksLikeSelector(s: string): boolean {
+  return /^[#.][A-Za-z_-]/.test(s)              // #id / .class
+      || /^\[[^\]]+\]$/.test(s)                  // [attr="val"]
+      || /^[A-Za-z][\w-]*\[[^\]]+\]/.test(s)     // tag[attr="val"]
+      || /^@\w/.test(s);                         // @ref from a snapshot
+}
+
+/** True when `selector` resolves to at least one element on the page. Never throws. */
+async function selectorMatchesElement(
+  session: TabSession,
+  target: { locator: (sel: string) => { count: () => Promise<number> } },
+  selector: string
+): Promise<boolean> {
+  try {
+    const resolved = await session.resolveRef(selector);
+    const count = 'locator' in resolved
+      ? await resolved.locator.count()
+      : await target.locator(resolved.selector).count();
+    return count > 0;
+  } catch {
+    // An unresolvable ref or an invalid selector is not a selector the user meant.
+    return false;
+  }
+}
+
+/**
  * Aggressive page cleanup selectors and heuristics.
  * Goal: make the page readable and clean while keeping it recognizable.
  * Inspired by uBlock Origin filter lists, Readability.js, and reader mode heuristics.
@@ -420,10 +453,46 @@ export async function handleWriteCommand(
     }
 
     case 'type': {
-      const text = args.join(' ');
-      if (!text) throw new Error('Usage: browse type <text>');
+      // `type` sends keystrokes to whatever currently has focus. A selector passed
+      // as the first arg is therefore TYPED, not targeted, and the command still
+      // reports success — silent wrong-field input. Refuse that shape, and offer
+      // --into for real keystrokes aimed at a named element (fill() sets .value
+      // and fires one input event, which is not the same as typing).
+      const intoIdx = args.indexOf('--into');
+      let selector: string | undefined;
+      let rest = args;
+      if (intoIdx >= 0) {
+        selector = args[intoIdx + 1];
+        if (!selector) throw new Error('Usage: browse type --into <selector> <text>');
+        rest = args.slice(0, intoIdx).concat(args.slice(intoIdx + 2));
+      }
+      const text = rest.join(' ');
+      if (!text) throw new Error('Usage: browse type [--into <selector>] <text>');
+
+      if (!selector && rest.length > 1 && looksLikeSelector(rest[0]) &&
+          await selectorMatchesElement(session, target, rest[0])) {
+        throw new Error(
+          `browse type sends keystrokes to the FOCUSED element, so "${rest[0]}" would be typed as ` +
+          `literal text rather than used as a selector, and it matches an element on this page, so ` +
+          `you probably meant it as one. Use one of:\n` +
+          `  browse type --into <sel> <text>  focus that element, then send real keystrokes\n` +
+          `  browse fill <sel> <value>        set the value directly, no keystrokes\n` +
+          `  browse type <text>               keystrokes into whatever is focused right now`
+        );
+      }
+
+      if (selector) {
+        const resolved = await session.resolveRef(selector);
+        if ('locator' in resolved) {
+          await resolved.locator.click({ timeout: 5000 });
+        } else {
+          await target.locator(resolved.selector).click({ timeout: 5000 });
+        }
+      }
       await page.keyboard.type(text);
-      return `Typed ${text.length} characters`;
+      return selector
+        ? `Typed ${text.length} characters into ${selector}`
+        : `Typed ${text.length} characters`;
     }
 
     case 'press': {
