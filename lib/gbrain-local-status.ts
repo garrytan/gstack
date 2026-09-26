@@ -32,6 +32,16 @@
  *           engine (code/memory/dream) skip. Remote reachability is verified
  *           at USE time (gbrain calls degrade gracefully), never by a
  *           classifier network probe — that's the #1964 pathology.
+ * Network-isolated → the probe failed with a DNS-resolution error AND this
+ *           process cannot resolve a control name either, so the environment
+ *           has no working DNS (an agent sandbox, a locked-down CI runner, an
+ *           offline laptop). The engine's real state is UNKNOWABLE from here.
+ *           Deliberately distinct from broken-db, whose /setup-gbrain Step 1.5
+ *           remediation offers to move the user's working config.json aside,
+ *           and from timeout, which consumers treat as "slow but healthy —
+ *           proceed" and which would send every sync stage into a full walk
+ *           against an unreachable DB. Local stages SKIP; `--is-ok` still
+ *           passes so brain-aware prose blocks keep rendering.
  * Ok → DB reachable, sources list returned valid JSON.
  */
 
@@ -58,6 +68,7 @@ export type LocalEngineStatus =
   | "broken-db"
   | "engine-locked"
   | "timeout"
+  | "network-isolated"
   | "thin-client";
 
 export interface ClassifyOptions {
@@ -410,6 +421,87 @@ function writeCache(status: LocalEngineStatus, key: CacheEntry["key"]): void {
  * the same strings used in lib/gbrain-sources.ts:66-67. If gbrain reworks its
  * error messages, classifier returns broken-config defensively (codex #8).
  */
+/**
+ * A DNS-resolution failure is not evidence that the configured database is
+ * wrong. Inside a network-isolated environment (an agent sandbox, a restricted
+ * CI runner, an offline laptop) getaddrinfo fails for EVERY external name, so
+ * `gbrain sources list` reports "Cannot connect to database: getaddrinfo
+ * ENOTFOUND" against a perfectly healthy remote engine. Classifying that as
+ * broken-db sends /setup-gbrain into its Step 1.5 remediation, which offers to
+ * move a working config.json aside and re-init the engine — a destructive
+ * answer to a non-problem.
+ *
+ * Discriminate with a control lookup: if this process cannot resolve a
+ * well-known public name either, DNS is dead here and the DB verdict is
+ * unknowable, so report network-isolated. If the control name DOES resolve,
+ * DNS works and the failure is specific to the configured host (a typo, or a
+ * paused project), so the broken-db verdict stands.
+ *
+ * Coverage limit: this catches DNS-SHAPED failures only. An egress proxy that
+ * resolves names but refuses connections surfaces as ECONNREFUSED/ETIMEDOUT
+ * and still classifies broken-db.
+ */
+const DNS_FAILURE_RE = /getaddrinfo|ENOTFOUND|EAI_AGAIN|dns_failed/i;
+
+export function looksLikeDnsFailure(stderr: string): boolean {
+  return DNS_FAILURE_RE.test(stderr);
+}
+
+/**
+ * Control host for the capability probe. IANA-reserved, stable, and only ever
+ * RESOLVED — never connected to — so nothing about the user leaves the machine
+ * beyond a DNS query for a generic name.
+ */
+const DNS_CONTROL_HOST = "example.com";
+const DNS_CONTROL_TIMEOUT_MS = 3_000;
+
+/**
+ * Memoized per-process. Only ever consulted on the failure path, so the healthy
+ * case keeps this module's no-network-probe property (#1964).
+ */
+let _dnsCapable: boolean | null = null;
+
+/**
+ * `GSTACK_ASSUME_NO_DNS=1` forces "no DNS", `=0` forces "DNS works". Set by the
+ * test suite so this path is exercised without a network dependency, and
+ * available to users as a manual escape hatch. Checked before the memo so a
+ * test never inherits another test's probe result.
+ */
+export function canResolveDns(env?: NodeJS.ProcessEnv): boolean {
+  const e = env ?? process.env;
+  const override = e.GSTACK_ASSUME_NO_DNS;
+  if (override === "1") return false;
+  if (override === "0") return true;
+
+  if (_dnsCapable !== null) return _dnsCapable;
+  // Synchronous by necessity: this whole classifier is sync and three call
+  // sites depend on that. execFileSync against our own runtime (bun or node,
+  // both accept -e) keeps it portable without an async refactor.
+  const script =
+    `require("dns").lookup(${JSON.stringify(DNS_CONTROL_HOST)},` +
+    `(err)=>process.exit(err?3:0))`;
+  try {
+    execFileSync(process.execPath, ["-e", script], {
+      timeout: DNS_CONTROL_TIMEOUT_MS,
+      stdio: "ignore",
+      env: e,
+    });
+    _dnsCapable = true;
+  } catch (err) {
+    // A spawn failure (rather than a DNS miss) would silently degrade this
+    // discriminator to "always isolated", so say so once on stderr.
+    const spawnErr = err as NodeJS.ErrnoException;
+    if (spawnErr && spawnErr.code && spawnErr.code !== "ETIMEDOUT") {
+      console.error(
+        `[gstack] DNS capability probe could not run (${spawnErr.code}) via ` +
+          `${process.execPath}; treating this environment as network-isolated.`,
+      );
+    }
+    _dnsCapable = false;
+  }
+  return _dnsCapable;
+}
+
 function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
   // 1. CLI on PATH? A probe that TIMED OUT means the binary exists but the
   // box is slow (#2716: bun-shim installs) — that's "timeout", which the
@@ -482,6 +574,9 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
     // DB-unreachable signal.
     const raw = ((): LocalEngineStatus => {
       if (/thin[- ]client/i.test(stderr)) return "thin-client";
+      // No DNS anywhere in this environment: the engine is unreachable from
+      // here, but that says nothing about whether the engine is healthy.
+      if (looksLikeDnsFailure(stderr) && !canResolveDns(env)) return "network-isolated";
       if (stderr.includes("Cannot connect to database")) return "broken-db";
       if (stderr.includes("config.json")) return "broken-config";
 
@@ -524,7 +619,10 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
     // to do locally" message. "timeout" is deliberately excluded: it already
     // counts as usable and may be a genuinely healthy slow LOCAL engine.
     if (
-      (raw === "broken-db" || raw === "broken-config" || raw === "engine-locked") &&
+      (raw === "broken-db" ||
+        raw === "broken-config" ||
+        raw === "engine-locked" ||
+        raw === "network-isolated") &&
       hasRemoteOnlyGbrainMcp(env)
     ) {
       return "thin-client";

@@ -14,6 +14,10 @@
  *   5. timeout        — probe exceeds GSTACK_GBRAIN_PROBE_TIMEOUT_MS with no recognized error (#1964)
  *   6. engine-locked  — PGLite CLI exits 124 because another process owns the DB (#2194)
  *   7. ok             — gbrain present, config exists, sources list returns valid JSON
+ *   8. network-isolated — DNS-shaped failure AND this environment has no DNS
+ *
+ * The network-isolated cases drive canResolveDns through the
+ * GSTACK_ASSUME_NO_DNS seam, so they never touch the real network.
  *
  * Plus cache behavior: hit, TTL expiry, invariant invalidation (HOME change,
  * probe-timeout change), --no-cache bypass. Timeout tests keep runtime sane by
@@ -63,7 +67,7 @@ interface FakeEnv {
  */
 function makeEnv(opts: {
   withGbrain?: boolean;
-  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "engine-locked-v43" | "throws" | "slow" | "slow-version" | "thin-refusal";
+  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "engine-locked-v43" | "dns-failed" | "throws" | "slow" | "slow-version" | "thin-refusal";
   withConfig?: boolean;
   /** #2051: config carries gbrain's remote_mcp thin-client marker. */
   thinClientConfig?: boolean;
@@ -117,7 +121,7 @@ function makeEnv(opts: {
 }
 
 function makeFakeGbrainScript(
-  behavior: "ok" | "broken-db" | "broken-config" | "engine-locked" | "engine-locked-v43" | "throws" | "slow" | "slow-version" | "thin-refusal",
+  behavior: "ok" | "broken-db" | "broken-config" | "engine-locked" | "engine-locked-v43" | "dns-failed" | "throws" | "slow" | "slow-version" | "thin-refusal",
 ): string {
   // "slow-version": gbrain IS installed but even `--version` blows the
   // (test-lowered) budget — the #2716 bun-shim-on-a-loaded-POSIX-box shape.
@@ -146,7 +150,9 @@ exit 0
 `;
   }
   const stderrLine =
-    behavior === "broken-db"
+    behavior === "dns-failed"
+      ? 'echo "Cannot connect to database: getaddrinfo ENOTFOUND. Fix: Check your connection URL in ~/.gbrain/config.json" >&2'
+      : behavior === "broken-db"
       ? 'echo "Cannot connect to database: . Fix: Check your connection URL in ~/.gbrain/config.json" >&2'
       : behavior === "broken-config"
         ? 'echo "Error: malformed config.json at ~/.gbrain/config.json" >&2'
@@ -258,6 +264,39 @@ describe("lib/gbrain-local-status — status classification", () => {
     env = makeEnv({ withGbrain: true, gbrainBehavior: "broken-db", withConfig: true });
     restoreEnv = applyEnv(env);
     expect(localEngineStatus({ noCache: true })).toBe("broken-db");
+  });
+
+  it("returns 'network-isolated' when the DB error is DNS-shaped and this env has no DNS", () => {
+    env = makeEnv({ withGbrain: true, gbrainBehavior: "dns-failed", withConfig: true });
+    restoreEnv = applyEnv(env);
+    process.env.GSTACK_ASSUME_NO_DNS = "1";
+    try {
+      expect(localEngineStatus({ noCache: true })).toBe("network-isolated");
+    } finally {
+      delete process.env.GSTACK_ASSUME_NO_DNS;
+    }
+  });
+
+  it("still returns 'broken-db' for a DNS-shaped error when DNS resolves (genuinely bad host)", () => {
+    env = makeEnv({ withGbrain: true, gbrainBehavior: "dns-failed", withConfig: true });
+    restoreEnv = applyEnv(env);
+    process.env.GSTACK_ASSUME_NO_DNS = "0";
+    try {
+      expect(localEngineStatus({ noCache: true })).toBe("broken-db");
+    } finally {
+      delete process.env.GSTACK_ASSUME_NO_DNS;
+    }
+  });
+
+  it("does not reclassify a NON-DNS db failure as network-isolated, even with no DNS", () => {
+    env = makeEnv({ withGbrain: true, gbrainBehavior: "broken-db", withConfig: true });
+    restoreEnv = applyEnv(env);
+    process.env.GSTACK_ASSUME_NO_DNS = "1";
+    try {
+      expect(localEngineStatus({ noCache: true })).toBe("broken-db");
+    } finally {
+      delete process.env.GSTACK_ASSUME_NO_DNS;
+    }
   });
 
   it("returns 'broken-config' when sources list emits config.json error", () => {

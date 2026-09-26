@@ -18,7 +18,7 @@
  *     "gstack_brain_sync_mode": "off"|"artifacts-only"|"full",
  *     "gstack_brain_git": true|false,
  *     "gstack_artifacts_remote": "https://..." | "",
- *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db"|"engine-locked"|"timeout"|"thin-client",
+ *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db"|"engine-locked"|"timeout"|"network-isolated"|"thin-client",
  *     "gbrain_pooler_mode": "transaction"|"session"|null
  *   }
  *
@@ -299,7 +299,11 @@ if (process.argv.includes("--is-ok")) {
   const noCache = process.env.GSTACK_DETECT_NO_CACHE === "1";
   const status = localEngineStatus({ noCache });
   process.exit(
-    status === "ok" || status === "timeout" || status === "thin-client" || status === "engine-locked"
+    status === "ok" ||
+      status === "timeout" ||
+      status === "network-isolated" ||
+      status === "thin-client" ||
+      status === "engine-locked"
       ? 0
       : 1,
   );
