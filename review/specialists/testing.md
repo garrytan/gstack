@@ -46,6 +46,11 @@ the missing path.
 - Unicode and special characters in user-facing inputs
 - Concurrent access patterns with no race-condition test
 
+### Negative Assertions That Encode Decisions
+- New assertions that a behavior is ABSENT (`not in`, `assertNotIn`, `not.toContain`, `pytest.raises` on a call that used to succeed) — part of the behavior change, not coverage. Each needs a cited spec line, plan item, or issue authorizing the removal; with nothing to cite, report it as a product decision shipped as a test
+- State the revert cost in the finding: once merged, restoring the old behavior makes these tests fail, so whoever reverts looks like the author of the regression
+- Pre-existing negative assertions emptied by this diff — a rename or removal makes a standing `assert "<old token>" not in output` true forever, so it stops guarding without ever going red. Grep the diff for renamed or deleted identifiers, then grep the suite for negative assertions naming the old token, including ones inside tests that assert something else
+
 ### Test Isolation Violations
 - Tests sharing mutable state (class variables, global singletons, DB records not cleaned up)
 - Order-dependent tests (pass in sequence, fail when randomized)
