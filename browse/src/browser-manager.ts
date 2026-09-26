@@ -520,13 +520,23 @@ export class BrowserManager {
       launchArgs.push(...headlessGpuArgs(process.platform, process.env));
     }
 
+    // Support custom Chromium/Chrome binary via GSTACK_CHROMIUM_PATH env var
+    // in the headless path too (macOS 13 fix): Playwright dropped its bundled
+    // Chromium/chrome-headless-shell builds for older macOS, but a stock system
+    // Chrome (which is Chromium-based) launches fine here via executablePath.
+    // When the env var supplies the bundle, scope out the XProtect self-heal —
+    // that bundle belongs to the wrapper/embedder, exactly as launchHeaded does.
+    const headlessExecutablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;
+
     // XProtect self-heal wrapper (P0 #2554): a macOS definition update can
     // start SIGKILLing the pinned Chromium at spawn. On the classified
     // signature, clear quarantine on the Playwright cache + force-reinstall
-    // once, then retry this launch once. This headless path always uses the
-    // Playwright cache (no executablePath), so the heal is never scoped out.
+    // once, then retry this launch once. With no GSTACK_CHROMIUM_PATH this path
+    // uses the Playwright cache, so the heal applies; a custom executable is
+    // scoped out via usesCustomExecutable below.
     this.browser = await launchWithXProtectHeal(() => chromium.launch({
       headless: useHeadless,
+      ...(headlessExecutablePath ? { executablePath: headlessExecutablePath } : {}),
       // #2220: the daemon owns signal policy, not Playwright. Playwright's
       // default handlers close Chromium the moment THIS process receives
       // SIGINT/SIGTERM/SIGHUP — which fights the deliberate headless
@@ -545,7 +555,7 @@ export class BrowserManager {
       chromiumSandbox: shouldEnableChromiumSandbox(),
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
-    }));
+    }), { usesCustomExecutable: Boolean(headlessExecutablePath) });
 
     // Chromium disconnect → distinguish clean user-quit from crash. Both
     // events look identical to Playwright (one 'disconnected' fires), but
