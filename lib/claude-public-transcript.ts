@@ -142,6 +142,19 @@ function validQuestions(value: unknown): value is NativePlanQuestion[] {
       object(o) && typeof o.label === 'string' && o.label.trim()));
 }
 
+/** Native startup records may precede, and parent, the first user message:
+ * SessionStart hook attachments and local slash-command records. They carry
+ * no message, so they can extend a root, never supply events. Any hook_*
+ * attachment type counts: a failed startup hook still parents the first
+ * message, and admitting it adds nothing a reader could mistake for evidence. */
+function startupPrefixRecord(r: Record<string, any>, cwd: string): boolean {
+  if (r.message != null || r.isSidechain !== false || r.agentId != null || r.cwd !== cwd) return false;
+  if (r.type === 'system') return r.subtype === 'local_command';
+  return r.type === 'attachment' && object(r.attachment) && r.attachment.hookEvent === 'SessionStart' &&
+    typeof r.attachment.hookName === 'string' && r.attachment.hookName.startsWith('SessionStart:') &&
+    typeof r.attachment.type === 'string' && r.attachment.type.length <= 64 && /^hook_[a-z_]+$/.test(r.attachment.type);
+}
+
 /** Native journal writes can flush children before parents. Owned snapshots
  * use causal order; ordinary readers only recover membership, keeping physical order. */
 function ownedCausalLines(lines: string[], cwd: string, filename: string): string[] {
@@ -170,6 +183,7 @@ function ownedCausalLines(lines: string[], cwd: string, filename: string): strin
   // later root. An unflushed/malformed ancestor supplies no ownership.
   let root = first;
   const ancestry = new Set<string>();
+  const chain = [first];
   while (true) {
     if (ancestry.has(root.record.uuid)) throw Error('cyclic owned native ancestry');
     ancestry.add(root.record.uuid);
@@ -178,11 +192,39 @@ function ownedCausalLines(lines: string[], cwd: string, filename: string): strin
     const next = byId.get(id);
     if (!next) return [];
     root = next;
+    chain.push(root);
   }
-  if (root.record.parentUuid !== null || root.record.cwd !== cwd ||
-      !object(root.record.message) || root.record.message.role !== 'user') return [];
-  if (nodes.some(x => x !== root && x.record.parentUuid === null &&
-      object(x.record.message) && x.record.message.role === 'user')) throw Error('competing owned native roots');
+  // The conversation root is the top user message. Above it, only verified
+  // startup records may reach the null-parent record.
+  let top = chain.length - 1;
+  while (top > 0 && startupPrefixRecord(chain[top]!.record, cwd)) top--;
+  const conversationRoot = chain[top]!.record;
+  if (root.record.parentUuid !== null || conversationRoot.cwd !== cwd ||
+      !object(conversationRoot.message) || conversationRoot.message.role !== 'user') return [];
+  // Every user message that reaches a null parent through startup records
+  // alone is a root, whether or not it shares this chain. A second root is
+  // competing, never a silent choice. Each startup record is resolved once,
+  // so many users under one long startup run stay linear.
+  const startupRooted = new Map<string, boolean>();
+  const startupRoot = (node: typeof nodes[number]): boolean => {
+    const trail: string[] = [], seen = new Set<string>();
+    let id: unknown = node.record.parentUuid, rooted = id === null;
+    while (uuid(id) && !startupRooted.has(id) && !seen.has(id)) {
+      const next = byId.get(id);
+      if (!next) break;
+      // A rejected parent is memoized too: many users under one such record
+      // must not repeat its check.
+      if (!startupPrefixRecord(next.record, cwd)) { startupRooted.set(id, false); break; }
+      trail.push(id); seen.add(id);
+      if (next.record.parentUuid === null) { rooted = true; break; }
+      id = next.record.parentUuid;
+    }
+    if (uuid(id) && startupRooted.has(id)) rooted = startupRooted.get(id)!;
+    for (const t of trail) startupRooted.set(t, rooted);
+    return rooted;
+  };
+  if (nodes.some(x => x.record !== conversationRoot && object(x.record.message) && x.record.message.role === 'user' && startupRoot(x)))
+    throw Error('competing owned native roots');
   // Stable topological traversal preserves physical order whenever two ready
   // records have no parent dependency. No timestamp provides ordering credit.
   const children = new Map<string, number[]>();
@@ -208,14 +250,20 @@ function ownedCausalLines(lines: string[], cwd: string, filename: string): strin
     }
     return result;
   };
-  const ordered: string[] = [];
+  const ordered: typeof nodes = [];
   offer(root.index);
   while (ready.length) {
     const node = indexed.get(take())!;
-    ordered.push(node.line);
+    ordered.push(node);
     for (const child of children.get(node.record.uuid) ?? []) offer(child);
   }
-  return ordered;
+  // A startup prefix can parent more than one user branch. Every message
+  // reachable from the null-parent root must descend from the conversation
+  // root; a sibling branch is a competing root, never a silent choice.
+  const descendants = new Set<string>([conversationRoot.uuid]);
+  for (const node of ordered) { const id = parent(node.record); if (id && descendants.has(id)) descendants.add(node.record.uuid); }
+  if (ordered.some(node => object(node.record.message) && !descendants.has(node.record.uuid))) throw Error('competing owned native roots');
+  return ordered.map(node => node.line);
 }
 
 /**
@@ -231,6 +279,7 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
   ownedSnapshot?: OwnedSnapshot,
 ): PlanCountTranscript {
   const calls = new Map<string, NativePlanQuestionCall>();
+  const asked = new Map<string, Set<string>>();
   const assistantMessages: PlanCountTranscript['assistantMessages'] = [];
   const planReadyRequests = new Map<string, NonNullable<PlanCountTranscript['planReadyRequests']>[number]>();
   let matched = false;
@@ -260,6 +309,7 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
         // fixture's first parent user message; legacy records keep exact-cwd scoping.
         let originSeen = false;
         const ancestry = new Set<string>();
+        const startupPrefix = new Set<string>();
         let causalMembership: Set<string> | undefined;
         const nativeUuid = (value: unknown): value is string =>
           typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
@@ -276,12 +326,38 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
           }
           return causalMembership.has(id);
         };
+        const records: Record<string, any>[] = [];
         for (const line of ownedSnapshot ? ownedCausalLines(completeLines, cwd, entry.name) : completeLines) {
           if (!line.trim()) continue;
           const record = JSON.parse(line);
           if (!object(record) || typeof record.sessionId !== 'string' ||
               entry.name !== `${record.sessionId}.jsonl` ||
               (ownedParentTranscript !== undefined && record.agentId != null)) continue;
+          records.push(record);
+        }
+        // Startup records can flush after the first user message. Resolve the
+        // null-parent startup chains from every complete record before replay,
+        // so physical order never decides whether the first message is owned.
+        const startupCandidates = records.filter(r => r.agentId == null && startupPrefixRecord(r, cwd) &&
+          nativeUuid(r.uuid) && validTimestamp(r.timestamp));
+        const startupById = new Map(startupCandidates.map(r => [r.uuid as string, r]));
+        const startupRooted = new Map<string, boolean>();
+        for (const candidate of startupCandidates) {
+          // Walk each chain once; the memo keeps a child-first flush linear.
+          const trail: string[] = [], seen = new Set<string>();
+          let id: unknown = candidate.uuid, rooted = false;
+          while (typeof id === 'string' && !startupRooted.has(id) && !seen.has(id)) {
+            const r = startupById.get(id);
+            if (!r) break;
+            trail.push(id); seen.add(id);
+            if (r.parentUuid === null) { rooted = true; break; }
+            id = r.parentUuid;
+          }
+          if (typeof id === 'string' && startupRooted.has(id)) rooted = startupRooted.get(id)!;
+          for (const t of trail) startupRooted.set(t, rooted);
+        }
+        for (const [id, rooted] of startupRooted) if (rooted) startupPrefix.add(id);
+        for (const record of records) {
           const parentMetadata = record.isSidechain === false && record.agentId == null &&
             typeof record.cwd === 'string' && path.isAbsolute(record.cwd) &&
             nativeUuid(record.uuid) && validTimestamp(record.timestamp);
@@ -292,10 +368,12 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
               // not discover a later root or reorder public uses and results.
               (!ownedSnapshot && record.cwd !== cwd && ancestry.size > 0 &&
                 recoveredMember(record.uuid)));
+          // Null-parent chains of verified startup records may root the first
+          // user message; they add no events and no later root.
           if (!originSeen && object(record.message) && ['user', 'assistant'].includes(record.message.role)) {
             originSeen = true;
             if (parentMetadata && record.cwd === cwd && record.message.role === 'user' &&
-                record.parentUuid === null) ancestry.add(record.uuid);
+                (record.parentUuid === null || startupPrefix.has(record.parentUuid))) ancestry.add(record.uuid);
           }
           if (continuation) ancestry.add(record.uuid);
           // Native compaction resets parentUuid but links its prior owned
@@ -365,17 +443,22 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
               if (prior && JSON.stringify(prior.questions) !== JSON.stringify(block.input.questions)) {
                 throw new Error('conflicting question metadata for one tool call');
               }
-              if (!prior) calls.set(key, { sessionId: record.sessionId, toolUseId: block.id,
-                questions: block.input.questions, answered: false, failed: false });
+              if (!prior) {
+                calls.set(key, { sessionId: record.sessionId, toolUseId: block.id,
+                  questions: block.input.questions, answered: false, failed: false });
+                asked.set(key, new Set(block.input.questions.map(q => q.question)));
+              }
             } else if (record.message.role === 'user' && block.type === 'tool_result' &&
                        typeof block.tool_use_id === 'string') {
               const ready = planReadyRequests.get(`${record.sessionId}:${block.tool_use_id}`);
               if (ready && block.is_error === true) ready.failed = true;
-              const call = calls.get(`${record.sessionId}:${block.tool_use_id}`);
+              const key = `${record.sessionId}:${block.tool_use_id}`, call = calls.get(key), questions = asked.get(key);
               const answers = record.toolUseResult?.answers;
-              const validAnswers = call && object(answers) ? Object.fromEntries(call.questions
-                .filter(q => typeof answers[q.question] === 'string' && answers[q.question].trim())
-                .map(q => [q.question, answers[q.question]])) : {};
+              // Walk the result's own keys, not the call's questions, so R
+              // results for one Q-question call cost O(Q + R), not O(Q × R).
+              const validAnswers = call && questions && object(answers) ? Object.fromEntries(Object.keys(answers)
+                .filter(q => questions.has(q) && typeof answers[q] === 'string' && answers[q].trim())
+                .map(q => [q, answers[q]])) : {};
               if (call && block.is_error !== true && Object.keys(validAnswers).length > 0) {
                 // The CLI allows submitting a multi-question packet with
                 // unanswered tabs. This completes ONE call, not N questions.
@@ -383,7 +466,6 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
                 call.failed = false;
                 delete call.failure;
                 call.answers = validAnswers;
-                call.unansweredQuestionIndices = call.questions.flatMap((q, i) => q.question in validAnswers ? [] : [i]);
                 call.answeredAt = validTimestamp(record.timestamp) ? record.timestamp : undefined;
               } else if (call) {
                 if (call.answered) throw new Error('conflicting successful and failed results for one question call');
@@ -398,6 +480,9 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
         }
       }
     }
+    // The unanswered tabs of the final successful result, computed once per call.
+    for (const call of calls.values()) if (call.answers)
+      call.unansweredQuestionIndices = call.questions.flatMap((q, i) => Object.hasOwn(call.answers!, q.question) ? [] : [i]);
     return { status: matched ? 'ready' : 'missing', calls: [...calls.values()], assistantMessages,
       ...(planReadyRequests.size ? { planReadyRequests: [...planReadyRequests.values()] } : {}) };
   } catch (error) {

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { initializePlan, prepareMethodology, createSnapshot, preparePhaseClose, prepareAmendedInput } from '../bin/gstack-autoplan-snapshot';
 import { evaluateAutoplanPublication, runPublicationHook, autoplanReadRange, type PublicationHookInput } from '../autoplan/bin/phase-publication-hook.ts';
-import { readOwnedClaudePublicTranscript, type ClaudeParentPublicEvent } from '../lib/claude-public-transcript';
+import { readOwnedClaudePublicTranscript, readPlanCountTranscript, type ClaudeParentPublicEvent } from '../lib/claude-public-transcript';
 import { prematureAutoplanPhaseEntry } from './helpers/autoplan-method-read-audit';
 import captured from './fixtures/autoplan-publication-boundary-361c.json';
 import consumption from './fixtures/autoplan-phase-consumption-491.json';
@@ -694,6 +694,142 @@ describe('Autoplan parent publication guard', () => {
     expect(decoded.transcript.status).toBe('ready');
     const report = decoded.events.find(e => e.kind === 'message')!, current = decoded.events.find(e => e.kind === 'use' && e.toolUseId === 'next')!;
     expect(report.order).toBeLessThan(current.order);
+  });
+  // Claude Code 2.1.281 journals SessionStart hook output, and any slash
+  // command run before the first prompt, as message-less records that parent
+  // the first user message. Observed prefixes: hook, hook+hook, hook+hook+local+local.
+  type PrefixKind = 'hook' | 'local';
+  const startupRecord = (f: ReturnType<typeof fixture>, kind: PrefixKind, i: number): any => ({ uuid: randomUUID(), parentUuid: null,
+    cwd: f.cwd, sessionId: f.sessionId, isSidechain: false, timestamp: new Date(clock - 1000 + i).toISOString(),
+    ...(kind === 'hook'
+      ? { type: 'attachment', attachment: { type: 'hook_success', hookName: 'SessionStart:startup', hookEvent: 'SessionStart', content: 'context', exitCode: 0 } }
+      : { type: 'system', subtype: 'local_command', level: 'info', content: '<local-command-stdout>Kept model</local-command-stdout>' }) });
+  const withStartupPrefix = (f: ReturnType<typeof fixture>, kinds: PrefixKind[], change: (prefix: any[], rows: any[]) => void = () => {},
+                             layout: (prefix: any[], rows: any[]) => any[] = (prefix, rows) => [...prefix, ...rows]) => {
+    const { rows } = f.journal();
+    const prefix = kinds.map((kind, i) => startupRecord(f, kind, i));
+    for (let i = 1; i < prefix.length; i++) prefix[i]!.parentUuid = prefix[i - 1]!.uuid;
+    rows[0]!.parentUuid = prefix.at(-1)!.uuid;
+    change(prefix, rows);
+    fs.writeFileSync(f.input.transcript_path, layout(prefix, rows).map(x => JSON.stringify(x)).join('\n') + '\n');
+  };
+  const owned = (f: ReturnType<typeof fixture>) => readOwnedClaudePublicTranscript(f.input.transcript_path, f.cwd, f.sessionId);
+  const legacy = (f: ReturnType<typeof fixture>) => {
+    const t = readPlanCountTranscript(path.join(f.cwd, 'config'), f.cwd, undefined, f.input.transcript_path);
+    return { status: t.status, messages: t.assistantMessages.map(m => m.text) };
+  };
+  const expectOwned = async (f: ReturnType<typeof fixture>) => {
+    const decoded = owned(f);
+    expect(decoded.transcript.status).toBe('ready');
+    expect(decoded.events.some(e => e.kind === 'use' && e.toolUseId === 'next')).toBe(true);
+    expect(decoded.events.filter(e => e.kind === 'message').map(e => e.text)).toEqual(['Phase 1 complete.']);
+    expect(legacy(f)).toEqual({ status: 'ready', messages: ['Phase 1 complete.'] });
+    expect(await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT))).toEqual({});
+  };
+  for (const kinds of [['hook'], ['hook', 'hook'], ['hook', 'hook', 'local', 'local'], ['local']] as PrefixKind[][])
+    test(`a ${kinds.join('+')} startup prefix before the first user message keeps the owned journal readable`, async () => {
+      const f = fixture(); f.message(); f.current(); withStartupPrefix(f, kinds); await expectOwned(f);
+    });
+  for (const [type, hookName] of [['hook_error', 'SessionStart:resume'], ['hook_success', 'SessionStart:compact']])
+    test(`a ${type} ${hookName} attachment is still a startup record`, async () => {
+      const f = fixture(); f.message(); f.current();
+      withStartupPrefix(f, ['hook'], p => { p[0].attachment.type = type; p[0].attachment.hookName = hookName; p[0].attachment.exitCode = type === 'hook_error' ? 1 : 0; });
+      await expectOwned(f);
+    });
+  // Later rows move to another cwd so the legacy reader must own them through
+  // ancestry; without the resolved prefix it would drop every one of them.
+  const crossCwd = (_prefix: any[], rows: any[]) => { for (const row of rows.slice(1)) row.cwd = '/other/project'; };
+  test('a startup prefix flushed after the first user message is owned by both readers', async () => {
+    const f = fixture(); f.message(); f.current();
+    withStartupPrefix(f, ['hook', 'local'], crossCwd, (prefix, rows) => [rows[0], ...prefix.reverse(), ...rows.slice(1)]);
+    await expectOwned(f);
+  });
+  test('a child-first startup chain of 24,000 records resolves in linear time', () => {
+    const f = fixture(); f.message(); f.current();
+    withStartupPrefix(f, Array.from({ length: 24_000 }, () => 'hook' as PrefixKind), crossCwd, (prefix, rows) => [rows[0], ...prefix.reverse(), ...rows.slice(1)]);
+    expect(legacy(f)).toEqual({ status: 'ready', messages: ['Phase 1 complete.'] });
+    expect(owned(f).transcript.status).toBe('ready');
+  }, 5_000);
+  test('a startup prefix does not bypass the publication guard', async () => {
+    const f = fixture(); f.current(); withStartupPrefix(f, ['hook', 'hook']);
+    const output: any = await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
+    expect(output.hookSpecificOutput.permissionDecisionReason).toContain('Publish the filled Phase 1');
+  });
+  const otherUser = (f: ReturnType<typeof fixture>, parentUuid: string): any => ({ uuid: randomUUID(), parentUuid, cwd: f.cwd, sessionId: f.sessionId,
+    isSidechain: false, timestamp: new Date(clock).toISOString(), type: 'user', message: { role: 'user', content: 'other branch' } });
+  for (const [name, plant] of Object.entries({
+    'off the shared startup prefix': (f: ReturnType<typeof fixture>, p: any[], rows: any[]) => rows.unshift(otherUser(f, p[0].uuid)),
+    'under a separate null-parent startup chain': (f: ReturnType<typeof fixture>, _p: any[], rows: any[]) => { const h2 = startupRecord(f, 'hook', 9); rows.push(h2, otherUser(f, h2.uuid)); },
+    'with a null parent of its own': (f: ReturnType<typeof fixture>, _p: any[], rows: any[]) => rows.push({ ...otherUser(f, ''), parentUuid: null }),
+  })) test(`a second user branch ${name} is a competing root, never a silent choice`, async () => {
+    const f = fixture(); f.message(); f.current();
+    withStartupPrefix(f, ['hook', 'hook'], (p, rows) => plant(f, p, rows));
+    const decoded = owned(f);
+    expect(decoded.transcript.status).toBe('error');
+    expect(decoded.events).toEqual([]);
+    const output: any = await withNativeProjectDirectory(f.cwd, () => runPublicationHook(f.input, ROOT));
+    expect(output.hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+  test('10,000 later users under a 10,000-record mid-chain startup run resolve in linear time', () => {
+    const f = fixture(); f.message(); f.current();
+    const { rows } = f.journal();
+    let parent = rows.at(-1)!.uuid as string; const extra: any[] = [];
+    for (let i = 0; i < 10_000; i++) { const hook = startupRecord(f, 'hook', i); hook.parentUuid = parent; extra.push(hook); parent = hook.uuid; }
+    for (let i = 0; i < 10_000; i++) extra.push(otherUser(f, parent));
+    fs.writeFileSync(f.input.transcript_path, [...rows, ...extra].map(x => JSON.stringify(x)).join('\n') + '\n');
+    const decoded = owned(f);
+    expect(decoded.transcript.status).toBe('ready');
+    expect(decoded.events.filter(e => e.kind === 'message').map(e => e.text)).toEqual(['Phase 1 complete.']);
+  }, 5_000);
+  test('64,000 users under one rejected startup-like parent with a 64,000-byte type resolve in linear time', () => {
+    const f = fixture(); f.message(); f.current();
+    const { rows } = f.journal();
+    const rejected = startupRecord(f, 'hook', 0); rejected.parentUuid = rows.at(-1)!.uuid; rejected.attachment.type = 'hook_' + 'a'.repeat(64_000) + '!';
+    const extra: any[] = [rejected];
+    for (let i = 0; i < 64_000; i++) extra.push(otherUser(f, rejected.uuid));
+    fs.writeFileSync(f.input.transcript_path, [...rows, ...extra].map(x => JSON.stringify(x)).join('\n') + '\n');
+    const decoded = owned(f);
+    expect(decoded.transcript.status).toBe('ready');
+    expect(decoded.events.filter(e => e.kind === 'message').map(e => e.text)).toEqual(['Phase 1 complete.']);
+  }, 5_000);
+  test('one 12,000-question call followed by 12,000 small results resolves in linear time', () => {
+    const f = fixture(); f.message(); f.current();
+    const { rows, record } = f.journal();
+    const questions = Array.from({ length: 12_000 }, (_, i) => ({ header: `h${i}`, question: `q${i}`, options: [{ label: 'a' }, { label: 'b' }] }));
+    const extra = [record('assistant', [{ type: 'tool_use', id: 'ask', name: 'AskUserQuestion', input: { questions } }])];
+    for (let i = 0; i < 12_000; i++)
+      extra.push(record('user', [{ type: 'tool_result', tool_use_id: 'ask', content: 'ok' }], { toolUseResult: { answers: { [`q${i}`]: 'a' } } }));
+    fs.writeFileSync(f.input.transcript_path, [...rows, ...extra].map(x => JSON.stringify(x)).join('\n') + '\n');
+    const decoded = owned(f);
+    expect(decoded.transcript.status).toBe('ready');
+    const call = decoded.transcript.calls.find(c => c.toolUseId === 'ask')!;
+    expect(call.answered).toBe(true);
+    expect(call.answers).toEqual({ q11999: 'a' });
+    expect(call.unansweredQuestionIndices).toHaveLength(11_999);
+    expect(call.unansweredQuestionIndices).not.toContain(11_999);
+  }, 5_000);
+  for (const [name, change] of Object.entries({
+    'non-SessionStart hook': (p: any[]) => { p[0].attachment.hookEvent = 'UserPromptSubmit'; },
+    'non-hook attachment': (p: any[]) => { p[1].attachment.type = 'todo'; },
+    'non-startup system record': (p: any[]) => { p[2].subtype = 'informational'; },
+    'foreign cwd': (p: any[]) => { p[0].cwd = '/unrelated/fixture'; },
+    'foreign session': (p: any[]) => { p[1].sessionId = 'foreign-session'; },
+    'sidechain': (p: any[]) => { p[1].isSidechain = true; },
+    'agent': (p: any[]) => { p[2].agentId = 'reviewer-child'; },
+    'dangling': (p: any[]) => { p[0].parentUuid = randomUUID(); },
+    'compaction boundary': (p: any[], rows: any[]) => { const compact = { uuid: randomUUID(), parentUuid: null, logicalParentUuid: p[2].uuid, cwd: p[2].cwd,
+      sessionId: p[2].sessionId, isSidechain: false, timestamp: p[2].timestamp, type: 'system', subtype: 'compact_boundary' }; p.push(compact); rows[0].parentUuid = compact.uuid; },
+  })) test(`a ${name} prefix record cannot root the owned journal`, () => {
+    const f = fixture(); f.message(); f.current(); withStartupPrefix(f, ['hook', 'hook', 'local'], change);
+    const decoded = owned(f);
+    expect(decoded.transcript.status).toBe('missing');
+    expect(decoded.events).toEqual([]);
+  });
+  test('a startup prefix cycle cannot root the owned journal', () => {
+    const f = fixture(); f.message(); f.current(); withStartupPrefix(f, ['hook', 'local'], p => { p[0].parentUuid = p[1].uuid; });
+    const decoded = owned(f);
+    expect(decoded.transcript.status).toBe('error');
+    expect(decoded.events).toEqual([]);
   });
   test('a native in-flight range Read uses the established phase without inventing a journal record', async () => {
     const f = fixture();
