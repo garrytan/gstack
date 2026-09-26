@@ -294,6 +294,182 @@ describe('init + sync + restore round-trip', () => {
     expect(log.stdout).toMatch(/sync: 1 file/);
   });
 
+  test('registered artifacts source with zero pages fails loud instead of reporting git sync as indexing', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    fs.mkdirSync(path.join(tmpHome, 'projects/p'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, 'projects/p/learnings.jsonl'),
+      '{"skill":"x","insight":"zero-page guard","ts":"2026-08-22T10:00:00Z"}\n');
+    run(['gstack-brain-enqueue', 'projects/p/learnings.jsonl']);
+
+    const fakeBin = path.join(tmpHome, 'fake-bin');
+    fs.mkdirSync(fakeBin, { recursive: true });
+    fs.writeFileSync(path.join(fakeBin, 'gbrain'), `#!/bin/sh
+case "$*" in
+  "sources list --json")
+    printf '%s\\n' '{"sources":[{"id":"fixture-artifacts","page_count":0}]}'
+    ;;
+  *) exit 1 ;;
+esac
+`);
+    fs.chmodSync(path.join(fakeBin, 'gbrain'), 0o755);
+
+    const r = run(['gstack-brain-sync', '--once'], {
+      env: {
+        GSTACK_BRAIN_SOURCE_ID: 'fixture-artifacts',
+        PATH: `${fakeBin}:${process.env.PATH || ''}`,
+      },
+    });
+
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('fixture-artifacts reports 0 pages');
+    const log = spawnSync('git', ['--git-dir=' + bareRemote, 'log', '--oneline'], { encoding: 'utf-8' });
+    expect(log.stdout).toMatch(/sync: 1 file/);
+    const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+    expect(status.status).toBe('index_failed');
+    expect(status.message).toContain('git sync does not index gbrain');
+  });
+
+  test('nonzero artifacts page count stays green but does not claim index freshness', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+
+    const fakeBin = path.join(tmpHome, 'fake-bin');
+    fs.mkdirSync(fakeBin, { recursive: true });
+    fs.writeFileSync(path.join(fakeBin, 'gbrain'), `#!/bin/sh
+case "$*" in
+  "sources list --json")
+    printf '%s\\n' '{"sources":[{"id":"fixture-artifacts","page_count":3}]}'
+    ;;
+  *) exit 1 ;;
+esac
+`);
+    fs.chmodSync(path.join(fakeBin, 'gbrain'), 0o755);
+
+    const r = run(['gstack-brain-sync', '--once'], {
+      env: {
+        GSTACK_BRAIN_SOURCE_ID: 'fixture-artifacts',
+        PATH: `${fakeBin}:${process.env.PATH || ''}`,
+      },
+    });
+
+    expect(r.status).toBe(0);
+    const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+    expect(status.status).toBe('idle');
+    expect(status.message).toContain('reports 3 pages (freshness not verified)');
+  });
+
+  test('timed-out page-count probe kills its launcher and stubborn child process', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+
+    const fakeBin = path.join(tmpHome, 'fake-bin');
+    const childPidFile = path.join(tmpHome, 'probe-child.pid');
+    fs.mkdirSync(fakeBin, { recursive: true });
+    fs.writeFileSync(path.join(fakeBin, 'gbrain'), `#!/bin/sh
+sh -c '
+  trap "" TERM
+  printf "%s\\n" "$$" > "$GSTACK_PROBE_CHILD_PID_FILE"
+  while :; do sleep 1; done
+' &
+wait
+`);
+    fs.chmodSync(path.join(fakeBin, 'gbrain'), 0o755);
+
+    const r = run(['gstack-brain-sync', '--once'], {
+      env: {
+        GSTACK_BRAIN_SOURCE_ID: 'fixture-artifacts',
+        GSTACK_PROBE_CHILD_PID_FILE: childPidFile,
+        PATH: `${fakeBin}:${process.env.PATH || ''}`,
+      },
+    });
+
+    expect(r.status).toBe(0);
+    const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+    expect(status.message).toContain('page-count probe timed out');
+    const childPid = Number(fs.readFileSync(childPidFile, 'utf-8').trim());
+    expect(childPid).toBeGreaterThan(0);
+    if (process.platform !== 'win32') {
+      expect(() => process.kill(childPid, 0)).toThrow();
+    }
+  }, 15_000);
+
+  test('MINGW timeout passes literal taskkill tree flags and skips the POSIX fallback', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+
+    const fakeBin = path.join(tmpHome, 'fake-bin');
+    const taskkillArgsFile = path.join(tmpHome, 'taskkill-args.txt');
+    const pgrepCalledFile = path.join(tmpHome, 'pgrep-called');
+    fs.mkdirSync(fakeBin, { recursive: true });
+    fs.writeFileSync(path.join(fakeBin, 'uname'), '#!/bin/sh\nprintf "%s\\n" "MINGW64_NT-10.0"\n');
+    fs.writeFileSync(path.join(fakeBin, 'gbrain'), '#!/bin/sh\nexec sleep 30\n');
+    fs.writeFileSync(path.join(fakeBin, 'pgrep'), `#!/bin/sh
+: > "$GSTACK_PGREP_CALLED_FILE"
+exit 1
+`);
+    fs.writeFileSync(path.join(fakeBin, 'taskkill.exe'), `#!/bin/sh
+printf '%s\\t%s\\n' "\${MSYS_NO_PATHCONV:-}" "$*" > "$GSTACK_TASKKILL_ARGS_FILE"
+pid="$2"
+kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+sleep 0.1
+kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+exit 0
+`);
+    for (const name of ['uname', 'gbrain', 'pgrep', 'taskkill.exe']) {
+      fs.chmodSync(path.join(fakeBin, name), 0o755);
+    }
+
+    const r = run(['gstack-brain-sync', '--once'], {
+      env: {
+        GSTACK_BRAIN_SOURCE_ID: 'fixture-artifacts',
+        GSTACK_TASKKILL_ARGS_FILE: taskkillArgsFile,
+        GSTACK_PGREP_CALLED_FILE: pgrepCalledFile,
+        PATH: `${fakeBin}:${process.env.PATH || ''}`,
+      },
+    });
+
+    expect(r.status).toBe(0);
+    expect(fs.readFileSync(taskkillArgsFile, 'utf-8').trim()).toMatch(/^1\t\/PID \d+ \/T \/F$/);
+    expect(fs.existsSync(pgrepCalledFile)).toBe(false);
+    const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+    expect(status.message).toContain('page-count probe timed out');
+  }, 15_000);
+
+  test('page-count probe distinguishes absent, invalid-JSON, and nonzero-exit results', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+
+    const fakeBin = path.join(tmpHome, 'fake-bin');
+    fs.mkdirSync(fakeBin, { recursive: true });
+    fs.writeFileSync(path.join(fakeBin, 'gbrain'), `#!/bin/sh
+case "$GSTACK_PROBE_FIXTURE" in
+  absent) printf '%s\\n' '{"sources":[{"id":"other","page_count":4}]}' ;;
+  invalid) printf '%s\\n' 'not-json' ;;
+  nonzero) exit 7 ;;
+esac
+`);
+    fs.chmodSync(path.join(fakeBin, 'gbrain'), 0o755);
+
+    const cases = [
+      ['absent', 'is not registered'],
+      ['invalid', 'page-count probe returned invalid JSON'],
+      ['nonzero', 'page-count probe exited 7'],
+    ] as const;
+    for (const [fixture, message] of cases) {
+      const r = run(['gstack-brain-sync', '--once'], {
+        env: {
+          GSTACK_BRAIN_SOURCE_ID: 'fixture-artifacts',
+          GSTACK_PROBE_FIXTURE: fixture,
+          PATH: `${fakeBin}:${process.env.PATH || ''}`,
+        },
+      });
+      expect(r.status).toBe(0);
+      const status = JSON.parse(fs.readFileSync(path.join(tmpHome, '.brain-sync-status.json'), 'utf-8'));
+      expect(status.message).toContain(message);
+    }
+  });
+
   test('restore round-trip: writes on machine A visible on machine B', () => {
     // Machine A.
     run(['gstack-artifacts-init', '--remote', bareRemote]);
