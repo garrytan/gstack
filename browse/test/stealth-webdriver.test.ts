@@ -170,25 +170,30 @@ describe('applyStealth — context level', () => {
     }
   });
 
-  test('chrome.csi() and chrome.loadTimes() execute, runtime.connect() throws native-shaped', async () => {
+  test('chrome.csi() and chrome.loadTimes() execute; runtime.connect / sendMessage are absent', async () => {
     // Presence (typeof === 'function') is not enough — a real detector calls
-    // them. loadTimes() dereferences performance.timing; connect() must throw
-    // the native "No matching signature" TypeError.
+    // them. loadTimes() dereferences performance.timing. runtime.connect and
+    // runtime.sendMessage must NOT exist: real Chrome only exposes them to a
+    // page when an installed extension declares that origin in
+    // externally_connectable, and sites use `chrome.runtime.sendMessage` to
+    // detect their own companion extension.
     const page = await context.newPage();
     try {
       const r = await page.evaluate(() => {
         const c = (window as any).chrome;
-        let connectErr = '';
-        try { c.runtime.connect(); } catch (e) { connectErr = String(e); }
         return {
           csiOk: typeof c.csi().onloadT === 'number',
           loadTimesOk: typeof c.loadTimes().wasFetchedViaSpdy === 'boolean',
-          connectErr,
+          runtimePresent: typeof c.runtime === 'object',
+          connectType: typeof c.runtime.connect,
+          sendMessageType: typeof c.runtime.sendMessage,
         };
       });
       expect(r.csiOk).toBe(true);
       expect(r.loadTimesOk).toBe(true);
-      expect(r.connectErr).toContain('No matching signature');
+      expect(r.runtimePresent).toBe(true);
+      expect(r.connectType).toBe('undefined');
+      expect(r.sendMessageType).toBe('undefined');
     } finally {
       await page.close();
     }

@@ -62,9 +62,19 @@ describe('buildStealthScript — T3 Layer C', () => {
     expect(s).toContain('PlatformArch');
     expect(s).toContain('PlatformOs');
     expect(s).toContain('RequestUpdateCheckStatus');
-    // sendMessage / connect must throw native-shaped errors
-    expect(s).toContain('runtime.connect');
-    expect(s).toContain('runtime.sendMessage');
+  });
+
+  test('window.chrome.runtime does NOT fake connect / sendMessage', () => {
+    // Real Chrome exposes callable runtime.connect / runtime.sendMessage to a
+    // web page only when an installed extension lists that origin in
+    // externally_connectable. On an ordinary page they are undefined, and
+    // sites probe `chrome.runtime.sendMessage` to detect their own companion
+    // extension — a fake makes them think it is installed.
+    const s = buildStealthScript(hw);
+    expect(s).not.toMatch(/\bconnect:\s*markNative/);
+    expect(s).not.toMatch(/\bsendMessage:\s*markNative/);
+    expect(s).not.toContain('runtime.sendMessage: No matching signature');
+    expect(s).not.toContain('runtime.connect: No matching signature');
   });
 
   test('chrome.csi and chrome.loadTimes provide method bodies', () => {
@@ -106,9 +116,9 @@ describe('buildStealthScript — T3 Layer C', () => {
     // Every getter (hardwareConcurrency, deviceMemory, webdriver, Notification.permission)
     // should be wrapped through markNative so the toString Proxy covers it.
     const markNativeMatches = s.match(/markNative\(/g) || [];
-    // At least 8 markNative wrappings (webdriver, csi, loadTimes, connect, sendMessage,
+    // At least 6 markNative wrappings (webdriver, csi, loadTimes,
     // notification permission, hwConcurrency, deviceMemory)
-    expect(markNativeMatches.length).toBeGreaterThanOrEqual(7);
+    expect(markNativeMatches.length).toBeGreaterThanOrEqual(6);
   });
 
   test('script does not include "GStackBrowser" branding string', () => {

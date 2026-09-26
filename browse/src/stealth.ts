@@ -137,12 +137,14 @@ export function buildStealthScript(hw: HostProfile): string {
                      MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
         RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled',
                                    UPDATE_AVAILABLE: 'update_available' },
-        connect: markNative(function connect() {
-          throw new TypeError('Error in invocation of runtime.connect: No matching signature.');
-        }, 'connect'),
-        sendMessage: markNative(function sendMessage() {
-          throw new TypeError('Error in invocation of runtime.sendMessage: No matching signature.');
-        }, 'sendMessage'),
+        // No connect/sendMessage here. Real Chrome only exposes callable
+        // chrome.runtime methods to a web page when an installed extension
+        // lists that origin in externally_connectable; on an ordinary page
+        // they are undefined. Faking them is itself an inconsistency, and
+        // sites that probe chrome.runtime.sendMessage to detect their own
+        // companion extension misfire (they assume the extension is
+        // installed and route auth through it). The enum shape alone
+        // satisfies the presence checks detectors actually run.
         id: undefined,
       };
     }
