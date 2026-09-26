@@ -46,12 +46,13 @@ import { isIP } from 'node:net';
 
 export interface BrowserInfo {
   name: string;
-  dataDir: string; // primary storage dir (retained for compatibility with existing callers/tests)
+  dataDir: string | null; // macOS directory; null when that platform has no supported location
   keychainService: string;
   aliases: string[];
   linuxDataDir?: string;
   linuxApplication?: string;
   windowsDataDir?: string;
+  windowsDataRoot?: 'local' | 'roaming';
 }
 
 export interface ProfileEntry {
@@ -113,6 +114,9 @@ const BROWSER_REGISTRY: BrowserInfo[] = [
   { name: 'Dia',      dataDir: 'Dia/User Data/',             keychainService: 'Dia Safe Storage',            aliases: ['dia'] },
   { name: 'Brave',    dataDir: 'BraveSoftware/Brave-Browser/', keychainService: 'Brave Safe Storage',        aliases: ['brave'], linuxDataDir: 'BraveSoftware/Brave-Browser/', linuxApplication: 'brave', windowsDataDir: 'BraveSoftware/Brave-Browser/User Data/' },
   { name: 'Edge',     dataDir: 'Microsoft Edge/',            keychainService: 'Microsoft Edge Safe Storage', aliases: ['edge'], linuxDataDir: 'microsoft-edge/', linuxApplication: 'microsoft-edge', windowsDataDir: 'Microsoft/Edge/User Data/' },
+  // Windows-only. Local State sits directly under the browser root in %APPDATA% — no User Data segment.
+  { name: 'Opera',    dataDir: null,                         keychainService: 'Opera Safe Storage',          aliases: ['opera'], windowsDataDir: 'Opera Software/Opera Stable/', windowsDataRoot: 'roaming' },
+  { name: 'Opera GX', dataDir: null,                         keychainService: 'Opera GX Safe Storage',       aliases: ['opera-gx'], windowsDataDir: 'Opera Software/Opera GX Stable/', windowsDataRoot: 'roaming' },
 ];
 
 // ─── Key Cache ──────────────────────────────────────────────────
@@ -134,7 +138,7 @@ export function findInstalledBrowsers(): BrowserInfo[] {
     for (const platform of getSearchPlatforms()) {
       const dataDir = getDataDirForPlatform(browser, platform);
       if (!dataDir) continue;
-      const browserDir = path.join(getBaseDir(platform), dataDir);
+      const browserDir = path.join(getBaseDir(platform, browser), dataDir);
       try {
         const entries = fs.readdirSync(browserDir, { withFileTypes: true });
         if (entries.some(e => {
@@ -167,7 +171,7 @@ export function listProfiles(browserName: string): ProfileEntry[] {
   for (const platform of getSearchPlatforms()) {
     const dataDir = getDataDirForPlatform(browser, platform);
     if (!dataDir) continue;
-    const browserDir = path.join(getBaseDir(platform), dataDir);
+    const browserDir = path.join(getBaseDir(platform, browser), dataDir);
     if (!fs.existsSync(browserDir)) continue;
 
     let profileNames: Record<string, { name?: unknown }> = {};
@@ -393,14 +397,21 @@ function getSearchPlatforms(): BrowserPlatform[] {
 }
 
 function getDataDirForPlatform(browser: BrowserInfo, platform: BrowserPlatform): string | null {
-  if (platform === 'darwin') return browser.dataDir;
+  if (platform === 'darwin') return browser.dataDir || null;
   if (platform === 'linux') return browser.linuxDataDir || null;
   return browser.windowsDataDir || null;
 }
 
-function getBaseDir(platform: BrowserPlatform): string {
+function windowsBaseDir(browser: BrowserInfo): string {
+  if (browser.windowsDataRoot !== 'roaming') return path.join(os.homedir(), 'AppData', 'Local');
+  const appData = process.env.APPDATA;
+  if (typeof appData === 'string' && appData.trim() !== '') return appData;
+  return path.join(os.homedir(), 'AppData', 'Roaming');
+}
+
+function getBaseDir(platform: BrowserPlatform, browser: BrowserInfo): string {
   if (platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support');
-  if (platform === 'win32') return path.join(os.homedir(), 'AppData', 'Local');
+  if (platform === 'win32') return windowsBaseDir(browser);
   return path.join(os.homedir(), '.config');
 }
 
@@ -409,7 +420,7 @@ function findBrowserMatch(browser: BrowserInfo, profile: string): BrowserMatch |
   for (const platform of getSearchPlatforms()) {
     const dataDir = getDataDirForPlatform(browser, platform);
     if (!dataDir) continue;
-    const baseProfile = path.join(getBaseDir(platform), dataDir, profile);
+    const baseProfile = path.join(getBaseDir(platform, browser), dataDir, profile);
     // Chrome 80+ on Windows stores cookies under Network/Cookies; fall back to Cookies
     const candidates = platform === 'win32'
       ? [path.join(baseProfile, 'Network', 'Cookies'), path.join(baseProfile, 'Cookies')]
@@ -432,7 +443,7 @@ function getBrowserMatch(browser: BrowserInfo, profile: string): BrowserMatch {
   const attempted = getSearchPlatforms()
     .map(platform => {
       const dataDir = getDataDirForPlatform(browser, platform);
-      return dataDir ? path.join(getBaseDir(platform), dataDir, profile, 'Cookies') : null;
+      return dataDir ? path.join(getBaseDir(platform, browser), dataDir, profile, 'Cookies') : null;
     })
     .filter((entry): entry is string => entry !== null);
 
@@ -563,7 +574,7 @@ async function getWindowsAesKey(browser: BrowserInfo): Promise<Buffer> {
   const dataDir = getDataDirForPlatform(browser, platform);
   if (!dataDir) throw new CookieImportError(`No Windows data dir for ${browser.name}`, 'not_installed');
 
-  const localStatePath = path.join(getBaseDir(platform), dataDir, 'Local State');
+  const localStatePath = path.join(getBaseDir(platform, browser), dataDir, 'Local State');
   let localState: any;
   try {
     localState = JSON.parse(fs.readFileSync(localStatePath, 'utf-8'));
@@ -851,7 +862,7 @@ export async function importCookiesViaCdp(
   const { importNativeCookies } = await import('./cookie-import-native');
   const cookies = await importNativeCookies({
     browserName: browser.name,
-    userDataDir: path.join(getBaseDir('win32'), dataDir),
+    userDataDir: path.join(getBaseDir('win32', browser), dataDir),
     profile,
     domains: [...new Set(domains.flatMap(domain => {
       const normalized = normalizeCookieDomain(domain);
