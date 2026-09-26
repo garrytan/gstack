@@ -1,0 +1,141 @@
+name: Native ARM Setup Smoke
+
+on:
+  pull_request:
+    paths:
+      - 'setup'
+      - 'package.json'
+      - 'bun.lock'
+      - 'patches/playwright-core*'
+      - 'scripts/build*.sh'
+      - 'browse/src/**'
+      - 'test/setup-playwright*.test.ts'
+      - 'test/arm-setup-smoke-workflow.test.ts'
+      - '.github/workflows/arm-setup-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arm-setup-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  native-arm-setup:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Seal the checked-out source and native toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          test "$(bun --version)" = 1.4.0
+          test "$(bun -p 'process.arch')" = arm64
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/arm-input" "$RUNNER_TEMP/arm-evidence"
+          git archive --format=tar HEAD > "$RUNNER_TEMP/arm-input/source.tar"
+          cp "$(command -v bun)" "$RUNNER_TEMP/arm-input/bun"
+          git rev-parse HEAD | tee "$RUNNER_TEMP/arm-evidence/source-sha.txt"
+          sha256sum setup bun.lock package.json | tee "$RUNNER_TEMP/arm-input/source.sha256"
+          cp "$RUNNER_TEMP/arm-input/source.sha256" "$RUNNER_TEMP/arm-evidence/"
+          (cd "$RUNNER_TEMP/arm-input" && sha256sum source.tar bun) > "$RUNNER_TEMP/arm-evidence/input.sha256"
+      - name: Install and launch Chromium on native Ubuntu 26.04 ARM64
+        shell: bash
+        timeout-minutes: 28
+        run: |
+          set -euo pipefail
+          export DOCKER_HOST=unix:///var/run/docker.sock
+          image=ubuntu:26.04@sha256:e03767b4dc7cb87fc57b1f119d40d9a997ecc5570dc6e22d57d6b7e333bbe78c
+          container="gstack-arm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          test "$(docker info --format '{{.Architecture}}')" = aarch64
+          docker pull --platform linux/arm64 "$image"
+          docker image inspect "$image" > "$RUNNER_TEMP/arm-evidence/image.json"
+          test "$(docker image inspect "$image" --format '{{.Architecture}}')" = arm64
+          timeout --signal=TERM --kill-after=30s 1500s \
+            docker run --rm -i --name "$container" --platform linux/arm64 \
+            --cpus=2 --memory=6g --pids-limit=1024 --shm-size=1g \
+            --security-opt no-new-privileges \
+            --mount "type=bind,src=$RUNNER_TEMP/arm-input,dst=/input,readonly" \
+            "$image" bash -se <<'CONTAINER' 2>&1 | tee "$RUNNER_TEMP/arm-evidence/smoke.log"
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 26.04
+          printf 'NATIVE_OS=%s %s ARCH=%s\n' "$ID" "$VERSION_ID" "$(uname -m)"
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git nodejs npm fonts-noto-color-emoji
+          install -m 0755 /input/bun /usr/local/bin/bun
+          ln -s bun /usr/local/bin/bunx
+          test "$(bun --version)" = 1.4.0
+          test "$(bunx --version)" = 1.4.0
+          test "$(bun -p 'process.arch')" = arm64
+          test "$(node -p 'process.arch')" = arm64
+          node --version
+          useradd --create-home --uid 10001 smoke
+          mkdir /work
+          tar --extract --file=/input/source.tar --directory=/work --no-same-owner
+          cd /work
+          sha256sum --check /input/source.sha256
+          chown -R smoke:smoke /work
+          as_smoke() {
+            runuser -u smoke -- env -i HOME=/home/smoke PATH=/usr/local/bin:/usr/bin:/bin \
+              LANG=C.UTF-8 GSTACK_HOME=/home/smoke/state \
+              PLAYWRIGHT_BROWSERS_PATH=/home/smoke/browsers \
+              GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT=600 "$@"
+          }
+          as_smoke bun install --frozen-lockfile
+          bun node_modules/playwright/cli.js install-deps chromium
+          as_smoke bash -se <<'SMOKE'
+          set -euo pipefail
+          test ! -e "$PLAYWRIGHT_BROWSERS_PATH"
+          bin/gstack-config set telemetry off
+          bash setup --host claude --no-team --no-plan-tune-hooks --no-timeline-stop-hook </dev/null 2>&1 | tee /home/smoke/setup.log
+          if grep -Eq 'Browser unavailable:|Chromium install skipped by request' /home/smoke/setup.log; then
+            exit 1
+          fi
+          sha256sum --check /input/source.sha256
+          test -x browse/dist/browse
+          node <<'BROWSER'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const { chromium } = require('/work/node_modules/playwright');
+          (async () => {
+            const executable = chromium.executablePath();
+            assert.ok(executable.startsWith('/home/smoke/browsers/'));
+            const elf = fs.readFileSync(executable);
+            assert.equal(elf.subarray(0, 4).toString('hex'), '7f454c46');
+            assert.equal(elf.readUInt16LE(18), 183);
+            const browser = await chromium.launch({ executablePath: executable, timeout: 30000 });
+            try {
+              const page = await browser.newPage();
+              await page.setContent('<title>Native ARM smoke</title><h1>Ubuntu 26.04 ARM64</h1>');
+              assert.equal(await page.title(), 'Native ARM smoke');
+              assert.equal(await page.locator('h1').innerText(), 'Ubuntu 26.04 ARM64');
+              assert.ok((await page.screenshot()).length > 0);
+              console.log(JSON.stringify({ status: 'PASS', arch: process.arch, elfMachine: 183,
+                browserVersion: browser.version(), executable }));
+            } finally {
+              await browser.close();
+            }
+          })().catch(error => { console.error(error); process.exit(1); });
+          BROWSER
+          SMOKE
+          CONTAINER
+      - name: Retain source seals and native smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-arm-setup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/arm-evidence/
+          retention-days: 14
+          if-no-files-found: error

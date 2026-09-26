@@ -92,6 +92,19 @@ describe('Claude wrapper installed-name migration', () => {
     } finally { fs.rmSync(f.dir, { recursive: true, force: true }); }
   });
 
+  test('deferred pruning still migrates selected registrations but retains their shared old render', () => {
+    const f = fixture();
+    try {
+      fs.symlinkSync(f.oldRender, path.join(f.codex, 'gstack-claude'));
+      const before = fs.readFileSync(path.join(f.oldRender, 'SKILL.md'));
+      const result = f.run({ env: { CODEX_HOME: path.dirname(f.codex), GSTACK_DEFER_CLAUDE_RENAME_PRUNE: '1' } });
+      expect(result).toEqual({ migrated: 1, pending: [] });
+      expect(fs.existsSync(path.join(f.codex, 'gstack-claude/SKILL.md'))).toBe(false);
+      expect(fs.readFileSync(path.join(f.codex, 'gstack-claude-code/SKILL.md'), 'utf8')).toContain('name: claude-code');
+      expect(fs.readFileSync(path.join(f.oldRender, 'SKILL.md'))).toEqual(before);
+    } finally { fs.rmSync(f.dir, { recursive: true, force: true }); }
+  });
+
   test('failed generation preserves the old installed skill and shared render for retry', () => {
     const f = fixture();
     try {

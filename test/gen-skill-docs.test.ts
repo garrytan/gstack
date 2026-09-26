@@ -1611,7 +1611,7 @@ describe('SPEC_REVIEW_LOOP resolver', () => {
     expect(report.replace(/\s+/g, ' ')).toContain('When writing is forbidden, show the actual fields as not persisted and continue without writing');
     expect(report).toContain('failed mkdir or append stops the review');
     expect(report.replace(/\s+/g, ' ')).toContain('Recording the **0H spec-review metrics** is required when writing is permitted, even if the reviewer failed');
-    expect(report).toContain('Reviewer failure therefore continues here; required storage failure stops here');
+    expect(report.replace(/\s+/g, ' ')).toContain('If the reviewer fails, report that limit and continue after recording the outcome; if a required save fails, stop before claiming completion');
     expect(report).toContain('mkdir -p ~/.gstack/analytics || exit 1');
     expect(report).toContain('>> ~/.gstack/analytics/spec-review.jsonl || exit 1');
     expect(report).not.toContain('Your doc survived');
@@ -2174,7 +2174,8 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
       expect(content).toContain('use only the native voice');
       expect(content).toContain('give the native Agent its absolute path');
       expect(content).toContain('Read the complete product brief at [the absolute DESIGN_BRIEF path printed above]');
-      expect(content).toContain('Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files/licenses; omit unverified faces');
+      expect(content).toContain("Check each proposed family's official Google Fonts/Fontshare listing via WebSearch/Aside for its exact name, required weights, license and loading URL");
+      expect(content).toContain('Omit faces you cannot verify');
       expect(content).toContain('a face may serve multiple roles');
       expect(content).not.toContain('a single question that covers everything');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }

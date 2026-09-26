@@ -118,7 +118,6 @@ describe('periodic fixture dependencies select their behavioral cases', () => {
     ['test/setup-gbrain-remote-caller.test.ts', ['setup-gbrain-remote']],
     ['test/skill-fixture.test.ts', ['journey-ideation', 'journey-plan-eng', 'journey-debug', 'journey-qa', 'journey-code-review', 'journey-ship', 'journey-docs', 'journey-retro', 'journey-design-system', 'journey-visual-qa']],
     ['test/office-hours-writeback-env.test.ts', ['office-hours-brain-writeback']],
-    ['test/review-army-budget.test.ts', ['review-army-red-team', 'review-army-consensus']],
     ['test/helpers/setup-gbrain-sandbox.ts', ['setup-gbrain-bad-token', 'setup-gbrain-path4-local-pglite', 'setup-gbrain-remote']],
     ['test/helpers/setup-gbrain-fixture-command.ts', ['setup-gbrain-bad-token', 'setup-gbrain-path4-local-pglite']],
     ['test/fixtures/autoplan-caller.fixture.test.ts', ['autoplan-chain-pty']],
@@ -200,6 +199,15 @@ describe('periodic fixture dependencies select their behavioral cases', () => {
     for (const id of periodic) expect(E2E_TIERS[id]).toBe('periodic');
   });
 
+  test('test/review-army-budget.test.ts', () => {
+    const periodic = ['review-army-red-team', 'review-army-consensus'];
+    const result = selectTests(['test/review-army-budget.test.ts'], E2E_TOUCHFILES);
+    expect(result.reason).toBe('diff');
+    expect(result.selected.sort()).toEqual(['review-army-perf-n-plus-one', ...periodic].sort());
+    expect(E2E_TIERS['review-army-perf-n-plus-one']).toBe('gate');
+    for (const id of periodic) expect(E2E_TIERS[id]).toBe('periodic');
+  });
+
   for (const [file, expected] of cases) {
     test(file, () => {
       const result = selectTests([file], E2E_TOUCHFILES);
@@ -228,8 +236,11 @@ test('offering source lookup dependencies select all four gate audits', () => {
     'test/workflow-judge-input.test.ts', 'test/helpers/workflow-excerpt.ts']) {
     const result = selectTests([file], E2E_TOUCHFILES);
     expect(result.reason).toBe('diff');
-    expect(result.selected.sort()).toEqual(expected);
-    for (const id of expected) expect(E2E_TIERS[id]).toBe('gate');
+    const consumers = file === 'test/helpers/workflow-excerpt.ts'
+      ? [...expected, 'ship-managed-hook-refresh', 'ship-unmanaged-hook-consent', 'ship-local-hook-preservation'].sort()
+      : expected;
+    expect(result.selected.sort()).toEqual(consumers);
+    for (const id of consumers) expect(E2E_TIERS[id]).toBe('gate');
   }
   for (const file of ['test/helpers/codex-offering-fixture.ts', 'test/codex-offering-fixture.test.ts',
     'test/fixtures/codex-offering-cdd-public.json', 'test/fixtures/codex-offering-timeout-public.json']) {

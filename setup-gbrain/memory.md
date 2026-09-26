@@ -71,7 +71,8 @@ bun run bin/gstack-memory-ingest.ts --bulk --scan-secrets
 GSTACK_MEMORY_INGEST_SCAN_SECRETS=1 bun run bin/gstack-memory-ingest.ts --bulk
 ```
 
-When enabled, gitleaks covers:
+When enabled, gitleaks scans each rendered page, the exact markdown that
+gets imported, rather than the raw `.jsonl`. It covers:
 
 - AWS / GCP / Azure access keys
 - ANTHROPIC_API_KEY, OPENAI_API_KEY, GitHub tokens
@@ -79,14 +80,31 @@ When enabled, gitleaks covers:
 - Generic high-entropy strings (configurable threshold)
 
 A session with a positive finding is **skipped entirely** — not partially
-redacted. The match line + rule ID are logged to stderr; you can see what
+redacted. The source path and finding count are logged, never secret values; you can see what
 was skipped via `bun run bin/gstack-memory-ingest.ts --probe` (which
 shows new vs. updated counts) or by reviewing the helper's output during
 `/sync-gbrain --full`.
 
 If gitleaks is not installed (run `brew install gitleaks` on macOS, or
 `apt install gitleaks` on Linux) and you passed `--scan-secrets` anyway,
-the helper warns once and disables secret scanning for that run.
+the helper warns once and every file it cannot scan is skipped, not
+imported unscanned. The same goes for a scan that fails partway. Skipped
+files stay pending and are retried on the next run. Missing or malformed
+reports, reports over 16 MiB, and scans exceeding 60 seconds also block the
+page. Reports use private temporary files that are removed after scanning.
+
+Resumed staging is scanned again, including files absent from the current
+source walk. Any finding, incomplete scan, or unsupported entry refuses the
+whole resumed import with a nonzero exit and preserves the stage for retry.
+Saved pages determine the expected import count; only pages matching the
+current rendered source can advance its ingest state. Incomplete or mismatched
+staging remains available for recovery.
+
+With scanning requested, fresh, resumed, persistent, and `--no-write` passes
+stamp only the source snapshot used to render the page, and only while its
+hash and modification time are unchanged. Incremental checks verify the hash
+even when the timestamp matches. Scanned pages are fully written in private
+staging before atomic promotion, so partial writes never become outgoing pages.
 
 ## Where it goes
 

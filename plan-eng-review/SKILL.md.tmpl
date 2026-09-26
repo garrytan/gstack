@@ -64,18 +64,18 @@ Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C.
 
 After target selection, every question uses the preamble's full decision brief, transport and continuous D-numbering. Setup, prerequisite and preparation questions do not approve engineering remedies.
 
+**Format precedence:** Copy required command, output and question formats exactly. Apply Voice to newly composed prose.
+
 **Startup sequence** (after target selection):
-1. Run the Preamble, including Context Recovery and its setup questions.
+1. Run the Preamble command and its startup instructions (Context Recovery and setup questions). Defer Operational Self-Improvement, Telemetry and Plan Status Footer to finish; format/transport rules apply throughout.
 2. Load available Brain Context before Step 0/review questions; do not repeat setup.
 3. Check web-research readiness at **Web research runs in Aside**.
 4. Run **Design Doc Check**, then **Prerequisite Skill Offer**.
-5. Continue at **Engineering review → Step 0** below; its section Read loads Review preparation and Scope Challenge together.
+5. Continue at **Engineering review → Step 0** below: full section Read → **Review preparation** → **Scope Challenge**.
 
-Keep the reviewed target fixed when selecting the section's separate report destination.
+Keep the reviewed target fixed when selecting the report destination.
 
 {{PREAMBLE}}
-
-**Format precedence:** Copy required command, output and question formats exactly. Apply Voice to newly composed prose.
 
 {{GBRAIN_CONTEXT_LOAD}}
 
@@ -157,10 +157,10 @@ Scope Challenge is mandatory before Section 1.
 
 ## Recovery routing
 
-Use this routing at every STOP or failed verification; do not restart the review.
+At every STOP or failed check, use this route; do not restart.
 
 **Paused question:** Wait for its actual answer without completion telemetry or ExitPlanMode.
-Resume that question's local procedure with the answer. A missing-result call
+Resume its local procedure with the reply. A missing-result call
 that may have surfaced is still pending; do not duplicate it.
 
 **Repairable write/read failure:** Stop before the dependent question or output.
@@ -173,14 +173,14 @@ reopened choices use Decision procedure. Repeat Approval readiness, then Require
 outputs steps 1–4 for changed outputs before choosing navigation again. Refresh
 affected tests, tasks, dependencies and parallelization. Unchanged saved outputs
 may reuse their successful Review Log. If a final gate discovers stale evidence,
-follow **Blocked outcome** first; resume on this repair path.
+follow **Blocked outcome** first; then resume here.
 
 **Blocked outcome:** Stop the review and report `BLOCKED`, the missing path/work, actual attempts and what is needed to resume. Label complete chat-only output **not persisted**; it supplies no saved-review or completion credit. If startup values and a permitted telemetry command are available, run **Telemetry (run last)** once with `OUTCOME=error` and the actual `ERROR_MESSAGE`/`FAILED_STEP`. Do not call ExitPlanMode. Resume at the failed step using Recovery routing.
 
 ## Section self-check (before you finish)
 
 Confirm you read the section and completed Scope Challenge, Sections 1–4,
-Outside Voice and outputs. If evidence is missing, Read `sections/review-sections.md`
+Outside Voice and outputs. If evidence is missing, Read `~/.claude/skills/gstack/plan-eng-review/sections/review-sections.md`
 and use Recovery routing above. Preserve verified work.
 
 {{EXIT_PLAN_MODE_GATE}}

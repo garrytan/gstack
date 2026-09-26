@@ -474,7 +474,7 @@ Run each detected tool. For each tool:
 (
   umask 077
   health_capture_error() {
-    printf 'ERROR:typecheck CAPTURE:%s\n' "$1" >&2
+    printf 'ERROR:typecheck CAPTURE:%s\n' "${1}" >&2
     exit 125
   }
   health_log=$(mktemp "${TMPDIR:-/tmp}/gstack-health.XXXXXX") || health_capture_error log_creation

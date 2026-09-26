@@ -24,6 +24,26 @@ const ceoManifest = () => buildRunManifest({ tier: 'gate', profile: 'pr', sliceC
   evalsAll: false, env: {}, changedFiles: ['plan-ceo-review/SKILL.md.tmpl'], discovered: CEO_FILES });
 
 describe('PR profile paid-runner integration', () => {
+  test('F5 fixture changes select exactly its three registered native gate cases', () => {
+    const cases = ['ship-local-hook-preservation', 'ship-managed-hook-refresh', 'ship-unmanaged-hook-consent'];
+    const selection = computePaidCaseSelection({ profile: 'full', env: {}, changedFiles: ['test/helpers/ship-hook-actor.ts'] });
+    expect(selection.selection.e2e?.slice().sort()).toEqual(cases);
+    expect(selection.selection.judges).toEqual([]);
+    for (const [file, expected] of [
+      ['test/skill-e2e-ship-hook-refresh.test.ts', ['ship-managed-hook-refresh']],
+      ['test/skill-e2e-ship-hook-consent.test.ts', ['ship-local-hook-preservation', 'ship-unmanaged-hook-consent']],
+    ] as const) {
+      const selected = computePaidCaseSelection({ profile: 'full', env: {}, changedFiles: [file] });
+      expect(selected.selection.e2e?.slice().sort()).toEqual([...expected]);
+      expect(fs.existsSync(path.join(ROOT, file))).toBe(true);
+      const pr = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [file] });
+      expect(pr.selection.e2e?.slice().sort()).toEqual([...expected]);
+      expect(expectedPrCaseCount(file, pr.selection)).toBe(expected.length);
+      const pattern = new RegExp(prProfileTestNamePattern(file, pr.selection));
+      for (const id of cases) expect(pattern.test(id)).toBe(new Set<string>(expected).has(id));
+    }
+  });
+
   test('CLI defaults remain full, explicit PR profile is gated and validated', () => {
     expect(parseCliOptions([], {}).profile).toBe('full');
     expect(parseCliOptions(['--profile', 'pr'], {}).profile).toBe('pr');
@@ -76,6 +96,21 @@ describe('PR profile paid-runner integration', () => {
     expect(result.coverage?.mode).toBe('pr');
     expect(result.coverage?.deferredPromptFiles).toContain('benchmark-models/SKILL.md');
     expect(result.coverage?.needsFullValidation).toBe(false);
+  });
+
+  test('F8 selects one judge and defers its two periodic readiness actors', () => {
+    const selection = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [
+      'sync-gbrain/SKILL.md.tmpl', 'bin/gstack-gbrain-read-capability.ts',
+      'test/helpers/sync-gbrain-readiness-fixture.ts',
+    ] });
+    expect(selection.coverage?.mode).toBe('pr');
+    expect(selection.selection.judges).toEqual(['sync-gbrain/SKILL.md read-only readiness']);
+    expect(selection.selection.e2e).toEqual([]);
+    expect(selection.coverage?.deferred.map(({ id }) => id).filter(id => id.startsWith('sync-gbrain-read-')).sort()).toEqual([
+      'sync-gbrain-read-ready', 'sync-gbrain-read-unknown',
+    ]);
+    expect(selection.coverage?.deferred.filter(({ id }) => !id.startsWith('sync-gbrain-read-')).every(({ id }) => id.startsWith('journey-'))).toBe(true);
+    expect(selection.coverage?.needsFullValidation).toBe(false);
   });
 
   test('version-only release changes are verified against the real merge-base before exemption', () => {

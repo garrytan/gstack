@@ -124,6 +124,17 @@ test('runtime/model/threshold changes miss, and retries never reuse or publish',
   expect(retry.lookup()).toBeNull(); retry.publish(scores); expect(f.entries()).toHaveLength(1);
 });
 
+test('a pinned workflow judge model overrides the global model and changes the cache identity', () => {
+  const f = fixture();
+  f.opts.model = 'claude-sonnet-4-6';
+  f.cache().publish(scores);
+  expect(f.entries()).toHaveLength(1);
+  f.opts.env = { ...f.env, GSTACK_EVAL_MODEL_JUDGE: 'different-global-model' };
+  expect(f.cache().lookup()?.scores).toEqual(scores);
+  f.opts.model = 'claude-opus-4-7';
+  expect(f.cache().lookup()).toBeNull();
+});
+
 test('failed assertions, missing provenance, and missing imported dependencies cannot supply a receipt', () => {
   const f = fixture(); f.cache().publish({ ...scores, clarity: 3 }); expect(f.entries()).toHaveLength(0);
   f.opts.env = { ...f.env, EVALS_RUN_ID: '' }; f.cache().publish(scores); expect(f.entries()).toHaveLength(0);
@@ -142,7 +153,7 @@ test('workflow registration preserves model work and reserves only terminal-reco
   const source = fs.readFileSync(path.join(import.meta.dir, 'skill-llm-eval.test.ts'), 'utf8');
   const body = source.split('async function runWorkflowJudge')[1]!.split('// Block 1:')[0]!;
   const stages = ['workflowJudgeAttempts.set', 'readWorkflowJudgeInput(', 'cache.lookup()',
-    'callJudge<JudgeScore>(prompt, undefined, { signal: controller.signal, max_tokens: maxTokens })',
+    'callJudge<JudgeScore>(prompt, opts.model, { signal: controller.signal, max_tokens: maxTokens })',
     'expect(scores.clarity)', 'expect(scores.completeness)', 'expect(scores.actionability)', 'cache.publish(scores, active)']
     .map(stage => body.indexOf(stage));
   expect(stages.every(position => position >= 0)).toBe(true);
@@ -151,7 +162,7 @@ test('workflow registration preserves model work and reserves only terminal-reco
   expect(body).toContain('const workDeadline = started + JUDGE_MS;');
   expect(source).toContain('const WORKFLOW_JUDGE_RECORD_MS = 5_000;');
   expect(source).toContain('const WORKFLOW_JUDGE_TEST_MS = JUDGE_MS + 10_000;');
-  expect(source.match(/\}, WORKFLOW_JUDGE_TEST_MS\);/g)).toHaveLength(15);
+  expect(source.match(/\}, WORKFLOW_JUDGE_TEST_MS\);/g)).toHaveLength(16);
   expect(source.match(/\}, JUDGE_MS\);/g)).toHaveLength(11);
 });
 

@@ -14,15 +14,17 @@
  *
  * NOTE: secretScanFile() currently shells out to `gitleaks` from PATH; the vendored
  * binary install is part of Lane E (setup-gbrain). When gitleaks is missing, the
- * helper warns once and returns an empty findings list — fail-safe defaults.
+ * helper warns once and returns an empty findings list with scanner="missing".
+ * An empty list means "clean" only when scanner === "gitleaks" — callers that
+ * gate writes on a scan must treat "missing" and "error" as unscanned.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, statSync } from "fs";
 import { appendJsonl } from "./jsonl-store";
 import { gbrainConfigDir, isExecTimeout } from "./gbrain-exec";
 import { dirname, join } from "path";
 import { execFileSync } from "child_process";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -190,8 +192,8 @@ function gitleaksAvailable(): boolean {
       process.stderr.write(
         "[gstack-memory-helpers] gitleaks did not answer in " +
         `${GITLEAKS_SLOW_PROBE_LIMIT} consecutive probes; skipping the probe ` +
-        "for the rest of this run — remaining files go unscanned. Re-run when " +
-        "the machine is less loaded to scan them.\n"
+        "for the rest of this run — remaining files cannot be scanned. Re-run " +
+        "when the machine is less loaded to scan them.\n"
       );
     }
     return false;
@@ -215,7 +217,7 @@ function gitleaksAvailable(): boolean {
       process.stderr.write(
         "[gstack-memory-helpers] gitleaks did not answer in " +
         `${Math.round((_probeMs + _retryMs) / 1000)}s (machine under load); ` +
-        "this file goes unscanned and the probe retries on the next one.\n"
+        "this file could not be scanned and the probe retries on the next one.\n"
       );
     }
     return false;
@@ -226,7 +228,7 @@ function gitleaksAvailable(): boolean {
   if (!_gitleaksAbsentWarned) {
     _gitleaksAbsentWarned = true;
     process.stderr.write(
-      "[gstack-memory-helpers] gitleaks not in PATH; secret scanning disabled. " +
+      "[gstack-memory-helpers] gitleaks not in PATH; files cannot be secret-scanned. " +
       "Run /setup-gbrain to install (or `brew install gitleaks`).\n"
     );
   }
@@ -249,27 +251,33 @@ export function secretScanFile(path: string): SecretScanResult {
   if (!gitleaksAvailable()) {
     return { scanned: false, findings: [], scanner: "missing" };
   }
+  let dir: string | undefined;
   try {
-    // gitleaks detect --no-git --source <path> --report-format json --report-path -
-    // Returns 0 on clean, 1 on findings, 126/127 on bad invocation.
-    const out = execFileSync(
+    dir = mkdtempSync(join(tmpdir(), "gstack-secret-report-"));
+    const report = join(dir, "report.json");
+    writeFileSync(report, "", { mode: 0o600, flag: "wx" });
+    const maxReportBytes = 16 * 1024 * 1024;
+    execFileSync(
       "gitleaks",
-      ["detect", "--no-git", "--source", path, "--report-format", "json", "--report-path", "/dev/stdout", "--exit-code", "0"],
-      { encoding: "utf-8", env: process.env, maxBuffer: 16 * 1024 * 1024 }
+      ["detect", "--no-git", "--source", path, "--report-format", "json", "--report-path", report, "--exit-code", "0"],
+      { env: process.env, stdio: "ignore", timeout: 60_000, killSignal: "SIGKILL" }
     );
-    const trimmed = out.trim();
-    if (!trimmed) return { scanned: true, findings: [], scanner: "gitleaks" };
-    const parsed = JSON.parse(trimmed) as Array<{
-      RuleID: string;
-      Description: string;
-      StartLine: number;
-      Match?: string;
-      Secret?: string;
-    }>;
-    const findings: SecretFinding[] = (parsed || []).map((f) => ({
-      rule_id: f.RuleID || "unknown",
-      description: f.Description || "",
-      line: f.StartLine || 0,
+    if (statSync(report).size > maxReportBytes) {
+      return { scanned: false, findings: [], scanner: "error" };
+    }
+    const parsed = JSON.parse(readFileSync(report, "utf-8"));
+    if (!Array.isArray(parsed) || !parsed.every((f) =>
+      f && typeof f.RuleID === "string" && f.RuleID.length > 0 &&
+      typeof f.Description === "string" && Number.isInteger(f.StartLine) && f.StartLine > 0 &&
+      (f.Secret === undefined || typeof f.Secret === "string") &&
+      (f.Match === undefined || typeof f.Match === "string")
+    )) {
+      return { scanned: false, findings: [], scanner: "error" };
+    }
+    const findings: SecretFinding[] = parsed.map((f) => ({
+      rule_id: f.RuleID,
+      description: f.Description,
+      line: f.StartLine,
       redacted_match: redactMatch(f.Secret || f.Match || ""),
     }));
     return { scanned: true, findings, scanner: "gitleaks" };
@@ -279,6 +287,31 @@ export function secretScanFile(path: string): SecretScanResult {
       findings: [],
       scanner: "error",
     };
+  } finally {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Scan in-memory text — e.g. a rendered page body — by writing it to a
+ * private temp file and running secretScanFile() on it. Scan the exact bytes
+ * you are about to write, not the file they were rendered from: gitleaks'
+ * assignment rules don't match across a JSON-escaped quote, so a .jsonl
+ * transcript line holding `KEY=\"value\"` scans clean while the rendered
+ * page's `KEY="value"` is a finding. A temp file that can't be written
+ * returns scanner="error", never an empty "clean" result.
+ */
+export function secretScanText(text: string): SecretScanResult {
+  let dir: string | undefined;
+  try {
+    dir = mkdtempSync(join(tmpdir(), "gstack-secret-scan-"));
+    const file = join(dir, "page.md");
+    writeFileSync(file, text, { encoding: "utf-8", mode: 0o600 });
+    return secretScanFile(file);
+  } catch {
+    return { scanned: false, findings: [], scanner: "error" };
+  } finally {
+    if (dir) rmSync(dir, { recursive: true, force: true });
   }
 }
 

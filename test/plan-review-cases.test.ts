@@ -121,9 +121,9 @@ describe('plan report persistence precedes completion logging', () => {
       const logPolicy = template.slice(log, dashboard);
       if (skill === 'plan-eng-review') {
         expect(logPolicy).toContain('after successful Read-back');
-        expect(logPolicy).toContain('required review log and best-effort decision log each follow the write policy');
-        expect(compactProse(template)).toContain('If the required log is forbidden, show its fields as not persisted and take **Blocked outcome**');
-        expect(compactProse(template)).toContain('Neither case supplies completion or saved-dashboard credit');
+        expect(logPolicy).toContain('Both logs follow the write policy: required review log, best-effort decision log');
+        expect(compactProse(template)).toContain('If the required log is forbidden, show fields as not persisted and take **Blocked outcome**');
+        expect(compactProse(template)).toContain('Neither supplies completion or saved-dashboard credit');
         expect(logPolicy).toContain('FULL_REVIEW for the Scope Challenge result "scope accepted as-is"; SCOPE_REDUCED for "scope reduced per recommendation"');
       } else if (skill === 'plan-ceo-review') {
         const policy = compactProse(logPolicy);
@@ -337,7 +337,7 @@ test('Eng loads its one remedy procedure before Scope Challenge findings and ret
     expect(scopeFinish).toEqual([...scopeFinish].sort((a, b) => a - b));
     const selfCheck = compactProse(skeleton.slice(skeleton.indexOf('## Section self-check'), skeleton.indexOf(suffix ? '{{EXIT_PLAN_MODE_GATE}}' : '## EXIT PLAN MODE GATE')));
     expect(selfCheck).toContain('Confirm you read the section and completed Scope Challenge, Sections 1–4, Outside Voice and outputs');
-    expect(selfCheck).toContain('If evidence is missing, Read `sections/review-sections.md` and use Recovery routing above');
+    expect(selfCheck).toContain('If evidence is missing, Read `~/.claude/skills/gstack/plan-eng-review/sections/review-sections.md` and use Recovery routing above');
     expect(selfCheck).toContain('Preserve verified work');
     expect(selfCheck).not.toContain('Redo memory-only work');
     const stages = skeleton.indexOf('After target selection, every question uses');
@@ -357,7 +357,7 @@ test('Eng loads its one remedy procedure before Scope Challenge findings and ret
     expect(inventory).toBeLessThan(sections.indexOf('### 1. Architecture review'));
     const boundary = sections.slice(inventory, sections.indexOf('### 1. Architecture review')).replace(/\s+/g, ' ');
     expect(compactProse(boundary)).toContain("Read the request, source and actual answers");
-    expect(compactProse(boundary)).toContain("Run this six-step loop for findings from Scope Challenge, Sections 1–4, Outside Voice, late changes and TODO choices. Finish one choice before the next");
+    expect(compactProse(boundary)).toContain("For Scope Challenge, Sections 1–4, Outside Voice, late changes and TODOs, finish one choice at a time through steps 1–6");
     expect(compactProse(boundary)).toContain('Continue to Section 1 only when no answer is pending');
     expect(compactProse(boundary)).toContain("If the user can accept one while another stays approved or undecided");
     expect(compactProse(boundary)).toContain("they are separate choices even in the same finding, function or patch");
@@ -441,9 +441,11 @@ describe('Eng approved-work decision gate', () => {
     expect(apply.indexOf("Correct any discrepancy before advancing")).toBeGreaterThan(verify);
     expect(apply.indexOf('Return to step 1')).toBeGreaterThan(verify);
     const outputs = template.split('## Required outputs')[1]!.split('### "NOT in scope"')[0]!;
-    expect(compactProse(outputs)).toContain("Derive unresolved choices from each record's current State, actual answer and accepted scope");
-    expect(compactProse(outputs)).toContain("Run this finish sequence after Approval readiness passes");
+    expect(compactProse(outputs)).toContain("Leave choices pending according to each record's current State, actual answer and accepted scope");
+    expect(compactProse(outputs)).toContain('Save permitted auxiliary artifacts under the write policy');
+    expect(compactProse(outputs)).toContain("After Approval readiness passes, follow this finish sequence");
     expect(compactProse(outputs)).toContain("For recovery or changed outputs, use the entrypoint's **Recovery routing**");
+    expect(compactProse(outputs)).toContain('Reuse a successful Review Log only for unchanged saved outputs; changed outputs must pass steps 1–4 again');
     const recovery = compactProse(readFileSync('plan-eng-review/SKILL.md.tmpl', 'utf8'));
     expect(recovery).toContain('Resume at the failed step using Recovery routing');
     expect(recovery).toContain('Required outputs steps 1–4 for changed outputs before choosing navigation again');
@@ -609,8 +611,9 @@ describe('Eng approved-work decision gate', () => {
         expect(body).toContain('**STOP for each pending decision.**');
         const stop = body.indexOf('**STOP for each pending decision.**');
         const artifact = body.indexOf('\n#### Test Plan Artifact\n');
-        const report = body.indexOf('After the Test Plan Artifact is saved or presented, report the Test review findings');
+        const report = body.indexOf('After **Add missing tests to the plan** resolves test/eval decisions and the Test Plan Artifact is saved or presented');
         expect(0 <= stop && stop < artifact && artifact < report).toBe(true);
+        expect(body.slice(report)).toContain('report the Test review findings and their dispositions and continue to Performance review');
         expect(body.slice(stop, artifact)).not.toContain('and continue');
       }
     }
@@ -710,6 +713,7 @@ describe('Eng approved-work decision gate', () => {
     expect(compactProse(policy)).toContain("for code, build a remedy plan from the findings. This is review content, not permission to edit implementation or create another file");
     expect(compactProse(policy)).toContain("When Test review or Outside Voice refers to the plan, use the current working plan and this target evidence");
     expect(compactProse(policy)).toContain("**Report file:** the one destination for the working plan, findings, decision ledger and final structured report");
+    expect(compactProse(policy)).toContain('It may be the selected plan or a separate file');
     expect(compactProse(policy)).toContain("Choose the **report file** before any ledger write:");
     expect(compactProse(policy)).toContain('$GSTACK_STATE_ROOT/projects/$SLUG/$BRANCH-eng-review-{YYYYMMDD-HHMMSS}.md');
     expect(compactProse(policy)).toContain('gstack-paths');
@@ -717,7 +721,7 @@ describe('Eng approved-work decision gate', () => {
     expect(compactProse(policy)).toContain("adding a suffix on collision");
     expect(compactProse(policy)).toContain("Never substitute an unrelated active plan");
     expect(compactProse(policy)).toContain("ledger and final structured report");
-    expect(compactProse(policy)).toContain("intentionally use legacy discovery paths under");
+    expect(compactProse(policy)).toContain('QA Test Plan/task JSONL keep discovery paths `~/.gstack/projects/{slug}/`');
     expect(compactProse(policy)).toContain("including active-plan-only");
     expect(compactProse(policy)).toContain("**Check each artifact and parent directory's permission before writing.**");
     expect(compactProse(policy)).toContain("Permission for one path authorizes no other");
@@ -737,11 +741,11 @@ describe('Eng approved-work decision gate', () => {
     }
     expect(routes['Required Review Log']).toContain("the final gate cannot pass without this log");
     expect(compactProse(policy)).toContain("Forbidden auxiliary writes allow the review to continue; unrecovered attempted writes block it");
-    expect(compactProse(gate)).toContain("Use Review record/write policy only for saved records, reports and logs");
+    expect(compactProse(gate)).toContain('Steps 1–6: substantive choices/answers; Review record/write policy: persistence');
     const log = template.split('## Review Log')[1]!.split('{{REVIEW_DASHBOARD}}')[0]!;
     expect(log).toContain("Use these commands in finish step 3, after successful Read-back");
-    expect(compactProse(template)).toContain('If the required log is forbidden, show its fields as not persisted and take **Blocked outcome**');
-    expect(compactProse(template)).toContain('Neither case supplies completion or saved-dashboard credit');
+    expect(compactProse(template)).toContain('If the required log is forbidden, show fields as not persisted and take **Blocked outcome**');
+    expect(compactProse(template)).toContain('Neither supplies completion or saved-dashboard credit');
     expect(log).not.toContain('PLAN MODE EXCEPTION — ALWAYS RUN');
   });
 
@@ -752,12 +756,14 @@ describe('Eng approved-work decision gate', () => {
     expect(finish).toEqual([['1', 'Prepare the review body.'], ['2', 'Save and Read back.'], ['3', 'Log the saved review.'],
       ['4', 'Publish.'], ['5', 'Choose navigation.'], ['6', 'Finish.']]);
     const publication = closing.slice(closing.indexOf('3. **Log the saved review.**'), closing.indexOf('5. **Choose navigation.**'));
-    expect(compactProse(publication)).toContain("If the required log is forbidden, show its fields as not persisted and take **Blocked outcome**");
-    expect(compactProse(publication)).toContain("Neither case supplies completion or saved-dashboard credit");
-    expect(compactProse(closing)).toContain("entrypoint's Section self-check and read-only EXIT PLAN MODE GATE. Run these checks in every host mode");
-    expect(compactProse(closing)).toContain('its final instructions govern telemetry, cache refresh and exit');
+    expect(compactProse(publication)).toContain("If the required log is forbidden, show fields as not persisted and take **Blocked outcome**");
+    expect(compactProse(publication)).toContain("failures use the write policy's recovery. Neither supplies completion or saved-dashboard credit");
+    expect(compactProse(closing)).toContain("entrypoint's Section self-check and read-only EXIT PLAN MODE GATE in every host mode");
+    expect(compactProse(closing)).toContain("ExitPlanMode only in host plan mode");
     expect(compactProse(closing)).toContain('A substantive change follows **Recovery routing → Late change or missing work** before navigation resumes');
-    expect(compactProse(closing)).toContain("Run Learning hooks, then return to the entrypoint's Section self-check");
+    expect(compactProse(closing)).toContain("Run Learning hooks, including gated Brain Calibration Write-Back; then return to the entrypoint's Section self-check");
+    expect(compactProse(closing)).toContain("Only after both pass, run success telemetry and cache refresh");
+    expect(compactProse(closing)).toContain("Forbidden persistence or an unrecovered save requires **Blocked outcome**, not logging");
     const outputs = ['### TODOS.md updates', '{{PLAN_REVIEW_APPROVAL_CHECK}}', '## Required outputs',
       '{{PLAN_FILE_REVIEW_REPORT}}', '## Review Log', '{{REVIEW_DASHBOARD}}', '## Next Steps — Review Chaining',
       '## Learning hooks', '{{BRAIN_WRITE_BACK}}']
@@ -772,7 +778,9 @@ describe('Eng approved-work decision gate', () => {
     const ending = template.slice(template.indexOf('{{REVIEW_DASHBOARD}}'));
     const navigation = ending.split('## Learning hooks')[0]!;
     expect(compactProse(closing)).toContain('**Recovery routing → Late change or missing work** before navigation resumes');
-    expect(navigation).toContain("A next-step answer approves no implementation change");
+    expect(compactProse(navigation)).toContain("A next-step answer approves no implementation change");
+    expect(compactProse(navigation)).toContain("copy the working plan's prerequisites, dependencies and execution order without adding or strengthening them");
+    expect(navigation).toContain("Do not serialize independent lanes");
     const skeleton = readFileSync('plan-eng-review/SKILL.md.tmpl', 'utf8');
     const final = ['{{SECTION:review-sections}}', '## Recovery routing', '**Paused question:**', '**Blocked outcome:**', '## Section self-check', '{{EXIT_PLAN_MODE_GATE}}',
       'After the gate passes: **Telemetry', '{{BRAIN_CACHE_REFRESH}}', 'After success telemetry and cache dispatch, call ExitPlanMode for the selected next step only when the host is in plan mode.']

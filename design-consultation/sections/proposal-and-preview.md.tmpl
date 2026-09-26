@@ -27,7 +27,7 @@ Read this section in full, then apply its design/font rules → draft independen
 
 **Motion approaches:** minimal-functional (only transitions that aid comprehension) / intentional (subtle entrance animations, meaningful state transitions) / expressive (full choreography, scroll-driven, playful)
 
-**Choosing faces: a procedure, not a menu.** (1) Name the audience's world (publication, notation, identity or object they read) and mode: Persuade (marketing), Operate (tasks), Read (long content), Experience (immersive). Match its tone. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files/licenses; omit unverified faces. (5) Specify loading strategy.
+**Choosing faces: a procedure, not a menu.** (1) Name the audience's world (publication, notation, identity or object they read) and mode: Persuade (marketing), Operate (tasks), Read (long content), Experience (immersive). Match its tone. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Check each proposed family's official Google Fonts/Fontshare listing via WebSearch/Aside for its exact name, required weights, license and loading URL; for a local face, inspect its files and license. Omit faces you cannot verify. (5) Specify the verified loading source and strategy.
 
 **Font-verification fallback:** Skipping competitive research does not waive font verification. Offline, check local files/licenses. Otherwise describe roles/weights/proportions; mark font selection as pending verification in DESIGN.md. Continue palette/layout; defer the preview until fonts can be verified, or honor a user skip. Invent no face or URL.
 
@@ -44,7 +44,7 @@ After any override, gently flag mismatches and offer alternatives: Brutalist/Min
 
 ### Independent proposals, then synthesis
 
-Draft your own direction from the product brief using the rules above. Keep that draft out of both reviewers' prompts; send the product context, not your answer.
+Draft your own direction from the brief: fill Q2's aesthetic, palette, role-specific type, layout, spacing, motion and two deliberate risks before dispatching either voice. Keep that draft out of both reviewers' prompts; send the same brief, not your answer. Outside voices run only after user opt-in; `enabled` records that choice, and the second harness check guards the later spawn.
 
 {{DESIGN_OUTSIDE_VOICES}}
 
@@ -88,7 +88,7 @@ Revisions recheck fonts and coherence. If the product brief changes, label old p
 
 ## Phase 4: Drill-downs (only if user requests adjustments)
 
-Use one focused AskUserQuestion per requested drill-down: **Fonts:** 3-5 candidates, rationale/evocation and preview offer; **Colors:** 2-3 hex palettes and color theory; **Aesthetic:** product-fit directions and why; **Layout/Spacing/Motion:** concrete product-specific tradeoffs. Re-check coherence after each decision.
+Use one focused AskUserQuestion per requested drill-down: **Fonts:** 3-5 verified candidates with roles, rationale/evocation and preview offer; **Colors:** 2-3 hex palettes and color theory; **Aesthetic:** product-fit directions and why; **Layout/Spacing/Motion:** concrete product-specific tradeoffs. Carry the selected adjustment into the full Q2 proposal and re-check its font verification and coherence before asking Q2 again.
 
 ---
 
@@ -194,7 +194,7 @@ If the user says skip the preview, go directly to Phase 6.
 
 Only Path A invokes `$D extract`, isolated as above. For Path B, use the approved HTML preview's CSS values. No preview: approved Phase 3 values; mark only unverified fonts pending. Retain rationale and unchanged existing decisions.
 
-**Confirm before writing.** Prepare the contents below; show decisions and agent-selected defaults. AskUserQuestion Q-final:
+**Confirm before writing.** Prepare the complete DESIGN.md contents below, identify every token source (approved mockup extraction, approved HTML, or Phase 3 fallback), mark any unverified font pending, and show the exact CLAUDE.md guidance you would add or update. Show decisions and agent-selected defaults together with that preview. AskUserQuestion Q-final:
 - A) Approve — write DESIGN.md and CLAUDE.md; in plan mode, save Proposed DESIGN.md in the plan only
 - B) Revise — return to Phase 3, then confirm again
 - C) Start over — return to Phase 1

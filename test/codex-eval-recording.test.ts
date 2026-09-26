@@ -392,7 +392,7 @@ describe('Codex attempt deadlines', () => {
     let signal: AbortSignal | undefined;
     let validated = false;
     const { records, error } = await runFixture({
-      budgetMs: 1,
+      budgetMs: 1, drainGraceMs: 50,
       run: (abortSignal) => { signal = abortSignal; return new Promise((resolve) => { complete = resolve; }); },
       validate: () => { validated = true; },
     });
@@ -409,13 +409,27 @@ describe('Codex attempt deadlines', () => {
   test('a hung validator cannot turn its failed record into a late pass', async () => {
     let complete!: () => void;
     const pending = new Promise<void>((resolve) => { complete = resolve; });
-    const { records, error } = await runFixture({ budgetMs: 1, validate: () => pending });
+    const { records, error } = await runFixture({ budgetMs: 1, drainGraceMs: 50, validate: () => pending });
     expect(error).toBeDefined();
     expect(records[0]).toMatchObject({ passed: false, exit_reason: 'timeout' });
     complete();
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(records).toHaveLength(1);
     expect(records[0].passed).toBe(false);
+  }, 10_000);
+
+  test('a short fixture deadline retains the production drain grace', async () => {
+    const { records, error } = await runFixture({
+      budgetMs: 1, drainGraceMs: 50,
+      run: () => new Promise(() => {}),
+    });
+    expect(error).toBeDefined();
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      passed: false, exit_reason: 'timeout',
+      error: 'Codex eval exceeded 1ms plus 50ms drain grace',
+    });
+    expect(CODEX_DRAIN_GRACE_MS).toBe(5_000);
   }, 10_000);
 
   test('the Bun allowance exceeds the wrapper drain deadline and these fixtures are free', () => {

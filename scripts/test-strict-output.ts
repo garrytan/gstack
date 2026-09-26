@@ -17,7 +17,7 @@ import * as path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/g;
-const BUN_FAIL_RESULT = /^\(fail\) .+ \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
+const BUN_FAIL_RESULT = /^(?:\(fail\)|✗) (.+) \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
 const BUN_BETWEEN_TESTS_ERROR = '# Unhandled error between tests';
 const BUN_TERMINAL_SUMMARY = /^Ran (\d+) tests? across (\d+) files?\. \[(?:\d+(?:\.\d+)?)(?:ns|us|µs|ms|s)\]$/;
 // The counts block bun prints just before the terminal summary (" 1 pass",
@@ -29,6 +29,7 @@ const BUN_TERMINAL_SUMMARY = /^Ran (\d+) tests? across (\d+) files?\. \[(?:\d+(?
 // summary — see the last-summary-anchoring TODO in the audit).
 const BUN_SKIP_COUNT = /^\s*(\d+) skip$/;
 const BUN_PASS_COUNT = /^\s*(\d+) pass$/;
+const BUN_FAIL_COUNT = /^\s*(\d+) fail$/;
 
 export type BunTestOutputFinding = 'failed-test' | 'unhandled-between-tests';
 
@@ -206,9 +207,13 @@ export function stripAnsiLine(rawLine: string): string {
 
 export function classifyBunTestOutputLine(rawLine: string): BunTestOutputFinding | null {
   const line = stripAnsiLine(rawLine);
-  if (BUN_FAIL_RESULT.test(line)) return 'failed-test';
+  if (parseBunFailureResult(line) !== null) return 'failed-test';
   if (line === BUN_BETWEEN_TESTS_ERROR) return 'unhandled-between-tests';
   return null;
+}
+
+export function parseBunFailureResult(rawLine: string): string | null {
+  return BUN_FAIL_RESULT.exec(stripAnsiLine(rawLine))?.[1] ?? null;
 }
 
 export function parseBunTerminalSummaryLine(rawLine: string): number | null {
@@ -233,6 +238,30 @@ export function parseBunTerminalSummary(rawLine: string): { tests: number; files
  */
 export type ClassifierOrigin = 'stdout' | 'stderr';
 
+export class BunFailureSummaryParser {
+  private readonly pending: Partial<Record<ClassifierOrigin, { failures: number | null }>> = {};
+
+  consume(rawLine: string, origin: ClassifierOrigin): number | null {
+    const line = stripAnsiLine(rawLine);
+    if (BUN_PASS_COUNT.test(line)) {
+      this.pending[origin] = { failures: null };
+      return null;
+    }
+    const pending = this.pending[origin];
+    if (!pending) return null;
+    const fail = BUN_FAIL_COUNT.exec(line);
+    if (fail) {
+      pending.failures = Math.max(pending.failures ?? 0, Number.parseInt(fail[1], 10));
+      return null;
+    }
+    if (parseBunTerminalSummary(line) !== null) {
+      delete this.pending[origin];
+      return pending.failures;
+    }
+    return null;
+  }
+}
+
 export class BunTestOutputClassifier {
   private readonly decoders: Record<ClassifierOrigin, StringDecoder> = {
     stdout: new StringDecoder('utf8'),
@@ -240,6 +269,8 @@ export class BunTestOutputClassifier {
   };
   private pending: Record<ClassifierOrigin, string> = { stdout: '', stderr: '' };
   private failedTests = 0;
+  private reportedFailedTests = 0;
+  private readonly failureSummary = new BunFailureSummaryParser();
   private unhandledBetweenTests = 0;
   private terminalFileCounts: number[] = [];
   private terminalTestCounts: number[] = [];
@@ -256,7 +287,7 @@ export class BunTestOutputClassifier {
   end(): BunTestOutputSummary {
     for (const origin of ['stdout', 'stderr'] as const) {
       this.pending[origin] += this.decoders[origin].end();
-      if (this.pending[origin].length > 0) this.classify(this.pending[origin]);
+      if (this.pending[origin].length > 0) this.classify(this.pending[origin], origin);
       this.pending[origin] = '';
     }
     return this.summary();
@@ -264,7 +295,7 @@ export class BunTestOutputClassifier {
 
   summary(): BunTestOutputSummary {
     return {
-      failedTests: this.failedTests,
+      failedTests: Math.max(this.failedTests, this.reportedFailedTests),
       unhandledBetweenTests: this.unhandledBetweenTests,
       terminalFileCounts: [...this.terminalFileCounts],
       terminalTestCounts: [...this.terminalTestCounts],
@@ -276,13 +307,13 @@ export class BunTestOutputClassifier {
   private consumeCompleteLines(origin: ClassifierOrigin): void {
     let newline = this.pending[origin].indexOf('\n');
     while (newline !== -1) {
-      this.classify(this.pending[origin].slice(0, newline));
+      this.classify(this.pending[origin].slice(0, newline), origin);
       this.pending[origin] = this.pending[origin].slice(newline + 1);
       newline = this.pending[origin].indexOf('\n');
     }
   }
 
-  private classify(line: string): void {
+  private classify(line: string, origin: ClassifierOrigin): void {
     const finding = classifyBunTestOutputLine(line);
     if (finding === 'failed-test') this.failedTests += 1;
     if (finding === 'unhandled-between-tests') this.unhandledBetweenTests += 1;
@@ -291,6 +322,8 @@ export class BunTestOutputClassifier {
     if (skip !== null) this.skippedTests += Number.parseInt(skip[1], 10);
     const pass = BUN_PASS_COUNT.exec(stripped);
     if (pass !== null) this.passedTests += Number.parseInt(pass[1], 10);
+    const fail = this.failureSummary.consume(stripped, origin);
+    if (fail !== null) this.reportedFailedTests = Math.max(this.reportedFailedTests, fail);
     const terminal = parseBunTerminalSummary(line);
     if (terminal !== null) {
       this.terminalFileCounts.push(terminal.files);

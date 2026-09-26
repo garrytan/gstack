@@ -71,11 +71,14 @@ if [ ! -f "$FREEZE_FILE" ]; then
   exit 0
 fi
 
-# First line, trimmed of LEADING/TRAILING whitespace only. The previous
-# `tr -d '[:space:]'` deleted INTERNAL spaces too, so a boundary like
-# "~/My Project/src" could never match anything — every edit denied (or the
-# mangled path accidentally allowed the wrong tree).
-FREEZE_DIR=$(head -n 1 "$FREEZE_FILE" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+{
+  IFS= read -r FREEZE_DIR || true
+  IFS= read -r FREEZE_OWNER_LINE || true
+} < "$FREEZE_FILE"
+case "$FREEZE_OWNER_LINE" in
+  gstack-freeze-v1:*) ;;
+  *) FREEZE_DIR=$(printf '%s\n' "$FREEZE_DIR" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//') ;;
+esac
 # A literal leading ~ in the state file never matches absolute tool paths
 # (tilde is not expanded from variables) — expand it here.
 case "$FREEZE_DIR" in
@@ -89,6 +92,15 @@ if [ -z "$FREEZE_DIR" ]; then
   echo '{}'
   exit 0
 fi
+
+case "$FREEZE_DIR" in
+  /*) ;;
+  *)
+    gstack_hook_decision deny '[freeze] Legacy relative boundary is ambiguous. Re-run /freeze with an absolute directory chosen by the user; the saved state was preserved.'
+    _FREEZE_DECIDED=1
+    exit 0
+    ;;
+esac
 
 # Extract file_path from tool_input with the shared real-JSON parser.
 set +e
@@ -121,6 +133,7 @@ esac
 
 # Normalize: remove double slashes and trailing slash
 FILE_PATH=$(printf '%s' "$FILE_PATH" | sed 's|/\+|/|g;s|/$||')
+[ -n "$FILE_PATH" ] || FILE_PATH="/"
 
 # Resolve symlinks and .. sequences (POSIX-portable, works on macOS).
 # The FULL path is resolved, including the FINAL component: the previous
@@ -142,15 +155,16 @@ _resolve_path() {
   done
   _dir="$(dirname "$_p")"
   _base="$(basename "$_p")"
+  if [ "$_base" = / ]; then printf '/'; return; fi
   _dir="$(cd "$_dir" 2>/dev/null && pwd -P || printf '%s' "$_dir")"
-  printf '%s/%s' "$_dir" "$_base"
+  printf '%s/%s' "${_dir%/}" "$_base"
 }
 FILE_PATH=$(_resolve_path "$FILE_PATH")
 FREEZE_DIR=$(_resolve_path "$FREEZE_DIR")
 
 # Check: does the file path start with the freeze directory?
 case "$FILE_PATH" in
-  "${FREEZE_DIR}/"*|"${FREEZE_DIR}")
+  "${FREEZE_DIR%/}/"*|"${FREEZE_DIR}")
     # Inside freeze boundary — allow
     _FREEZE_DECIDED=1
     echo '{}'

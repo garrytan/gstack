@@ -8,6 +8,8 @@ const read = (file: string) => readFileSync(new URL(`../ship/${file}`, import.me
 
 test('missing dispatched coverage is persisted and stopped before any zero-fix completion', () => {
   const review = read('sections/review-army.md');
+  expect(review).toContain('partial findings are useful evidence, not completed coverage');
+  expect(review).toContain('Step 9.4 stops before Step 10 when a dispatched specialist failed');
   const branches = review.slice(review.indexOf('take the first matching branch'), review.indexOf('5. Output summary'));
   expect(branches.indexOf('If a dispatched specialist or Red Team failed')).toBeGreaterThanOrEqual(0);
   expect(branches.indexOf('If fixes were applied')).toBeGreaterThan(branches.indexOf('STOP before Step 10'));
@@ -48,6 +50,8 @@ test.each(ALL_HOST_CONFIGS.map(({ name }) => name))('%s: late adversarial fixes 
 test('existing release levels have an explicit recovery rule, not implicit rebump approval', () => {
   const root = read('SKILL.md');
   const version = root.slice(root.indexOf('## Step 12:'), root.indexOf('## Step 14:'));
+  expect(version).toContain("this branch's earlier ship decision for `BUMP_LEVEL`");
+  expect(version).toContain('Do not follow the usable-candidate instructions above');
   expect(version).toContain('first changed major/minor/patch/micro component supplies `BUMP_LEVEL`');
   expect(version).toContain('a missing fourth component is zero');
   expect(version).toContain('This recovers the level, not permission to bump again');
@@ -57,8 +61,33 @@ test('existing release levels have an explicit recovery rule, not implicit rebum
 test('distribution setup asks for unknown targets and cannot release before review', () => {
   const root = read('SKILL.md');
   const distribution = root.slice(root.indexOf('## Step 2:'), root.indexOf('## Step 3:'));
+  expect(distribution).toContain('git diff origin/<base> --diff-filter=A --name-only');
+  expect(distribution).toContain('a new `package.json` or `Cargo.toml` alone does not establish a publishable');
   expect(distribution).toContain('Ask for the intended distribution target if it is unknown');
   expect(distribution).toContain('do not invent a registry or credentials');
   expect(distribution).toContain('Include the new workflow in the tests and review below');
   expect(distribution).toContain('Do not publish a release during `/ship`');
+});
+
+test('ship plan audit resolves scope drift before learnings and stops on an unverified N', () => {
+  const section = read('sections/plan-completion.md');
+  expect(section.indexOf('## Step 8.1:')).toBeLessThan(section.indexOf('## Step 8.2:'));
+  expect(section.indexOf('## Step 8.2:')).toBeLessThan(section.indexOf('## Prior Learnings'));
+  expect(section).toContain('N) Not done — block ship and report the item as NOT DONE; do not offer a second deferral choice');
+  expect(section).toContain('Any N: STOP');
+  expect(section).not.toContain('re-enter the priority-1 gate');
+});
+
+test('outside challenge and documentation reruns preserve their actual blocking owners', () => {
+  const adversarial = read('sections/adversarial.md');
+  expect(adversarial).toContain('An unavailable outside challenge does not block shipping by itself');
+  expect(adversarial).toContain('structured P1 and non-convergence gates still apply');
+  expect(adversarial).toContain('returning here does not reset Step 11');
+  const standaloneReview = readFileSync(new URL('../review/sections/adversarial.md', import.meta.url), 'utf8');
+  expect(standaloneReview).toContain('supported findings still enter Step 5 Fix-First');
+  expect(standaloneReview).not.toContain('supported findings still enter Step 11');
+  const docs = read('sections/pr-body.md');
+  expect(docs).toContain('the parent creates or updates the PR in Step 19');
+  expect(docs).toContain('On a rerun, Step 19 updates the existing PR');
+  expect(docs).not.toContain('no PR exists yet');
 });

@@ -26,6 +26,9 @@ for (const { name: host } of ALL_HOST_CONFIGS) {
     expect(text).toContain('otherwise \"none\"');
     expect(text).toContain('run the command twice: one record for each voice, including any unavailable voice');
     expect(text).toContain('Both records carry the actual CLI outcome');
+    expect(text).toContain('| User declined both (one record) | skipped | none | skipped |');
+    expect(text).toContain('| Native subagent completed | clean or issues_found | in-host | actual');
+    expect(text).toContain('substitute its shell-quoted absolute path for the literal <prepared-prompt-file>');
     expect(text).toContain('every completed proposal (two, one, or none)');
     expect(text).toContain('Do not choose a direction here');
     expect(text).toContain('Q2 compares these proposals with your earlier draft');
@@ -52,11 +55,14 @@ test('preview paths retain verified fonts and select their own token source', ()
   expect(section).toContain('approved mockup paths/tokens into Phase 6\'s "## Proposed DESIGN.md" plan section');
   expect(section).toContain('Its Q-final approval governs saving that content');
   expect(section).toContain('Only A permits the writes below');
+  expect(section).toContain('Prepare the complete DESIGN.md contents below');
+  expect(section).toContain('show the exact CLAUDE.md guidance');
   expect(generateOverusedFonts(context('claude'))).toContain('font-verification fallback');
   expect(generateOverusedFonts(context('claude', 'design-shotgun'))).not.toContain('font-verification fallback');
   const loop = generateDesignShotgunLoop(context('claude'));
   expect(loop).toContain('Read captured stderr for the startup marker');
   expect(loop).toContain('a PID is not readiness');
+  expect(loop).toContain('the product page depicted by the chosen mockup');
 });
 
 
@@ -78,7 +84,24 @@ test('consultation drafts before independent dispatch and compares completed inp
   expect(question).toContain('omit comparisons if none completed');
   expect(section).toContain('Do not count agreement as a vote or invent a missing proposal');
   expect(section).toContain('Verify any newly suggested fonts before adopting them');
+  expect(section).toContain('official Google Fonts/Fontshare listing');
+  expect(section).toContain('Carry the selected adjustment into the full Q2 proposal');
   expect(section).toContain('label old proposals stale');
+});
+
+test('consultation opt-in probes the CLI without a disabled branch and rechecks its spawn', () => {
+  const text = generateDesignOutsideVoices(context('claude'));
+  const accepted = text.indexOf('**If accepted:**');
+  const availability = text.indexOf('**Check Codex availability:**');
+  const invocation = text.indexOf('1. **Codex design voice**');
+  expect(availability).toBeGreaterThan(accepted);
+  expect(invocation).toBeGreaterThan(availability);
+  const preflight = text.slice(availability, invocation);
+  expect(preflight).not.toContain('_OUTSIDE_CFG=enabled');
+  expect(preflight).not.toContain('CODEX_MODE: disabled');
+  expect(preflight).toContain('CODEX_MODE: under_current_harness');
+  expect(preflight).toContain('exit 78');
+  expect(text.slice(invocation)).toContain('exit 78');
 });
 
 test('optional browser research has one unavailable branch and reuses its readiness probe', () => {
@@ -87,6 +110,10 @@ test('optional browser research has one unavailable branch and reuses its readin
   expect(fallback).toContain('Do not offer or run a build');
   expect(fallback).toContain('skip Phase 2 Step 2; Step 1 still uses WebSearch');
   expect(fallback).not.toContain('OK to proceed?');
+  const root = readFileSync(new URL('../design-consultation/SKILL.md.tmpl', import.meta.url), 'utf8');
+  expect(root).toContain('do not build or offer a build');
+  expect(root).toContain('count its retained `sessions` entries');
+  expect(root).toContain('Phase 2 findings with source URLs or an explicit declined/unavailable status');
   expect(generateBrowseFallback(context('claude', 'qa'))).toContain('OK to proceed?');
   const research = generateAsideResearch(ctx);
   expect(research).toContain('Reuse the Phase 0 BROWSER SETUP result');

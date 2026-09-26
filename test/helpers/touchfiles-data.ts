@@ -21,6 +21,9 @@
  * Each test lists the file patterns that, if changed, require the test to run.
  */
 export const E2E_TOUCHFILES: Record<string, string[]> = {
+  'investigate-owned-completion': ['investigate/**', 'freeze/**', 'guard/**', 'unfreeze/**', 'careful/bin/hook-extract.sh', 'scripts/gen-skill-docs.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/hermetic-env.ts', 'test/helpers/workflow-boundaries-fixture.ts', 'test/workflow-boundaries-fixture.test.ts', 'test/skill-e2e-investigate-owned-completion.test.ts'],
+  'investigate-owned-abort': ['investigate/**', 'freeze/**', 'guard/**', 'unfreeze/**', 'careful/bin/hook-extract.sh', 'scripts/gen-skill-docs.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/hermetic-env.ts', 'test/helpers/workflow-boundaries-fixture.ts', 'test/workflow-boundaries-fixture.test.ts', 'test/skill-e2e-investigate-owned-termination.test.ts'],
+  'investigate-owned-ending-error': ['investigate/**', 'freeze/**', 'guard/**', 'unfreeze/**', 'careful/bin/hook-extract.sh', 'scripts/gen-skill-docs.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/hermetic-env.ts', 'test/helpers/workflow-boundaries-fixture.ts', 'test/workflow-boundaries-fixture.test.ts', 'test/skill-e2e-investigate-owned-termination.test.ts'],
   'shared-libs-review-path-eligibility': ['review/**', 'scripts/resolvers/shared-libs.ts', 'scripts/resolvers/review.ts', 'scripts/resolvers/review-army.ts', 'lib/review-evidence.ts', 'bin/gstack-review-log', 'bin/gstack-review-read', 'bin/gstack-wtree', 'test/helpers/shared-libs-eval-fixture.ts', 'test/skill-e2e-shared-libs-paths.test.ts', 'test/helpers/shared-libs-path-fixture.ts', 'test/shared-libs-fixture.test.ts', 'test/helpers/e2e-gate.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/agent-sdk-runner.ts', 'lib/claude-bin.ts', 'lib/eval-model.ts', 'test/fixtures/shared-libs-index-flags-*.json', 'test/shared-libs-revalidation-prompt.test.ts', 'test/shared-libs-source-reads.test.ts', 'test/fixtures/shared-libs-resolved-reads-public.json'],
   'shared-libs-review-index-flags': ['review/**', 'scripts/resolvers/shared-libs.ts', 'scripts/resolvers/review.ts', 'scripts/resolvers/review-army.ts', 'lib/review-evidence.ts', 'bin/gstack-review-log', 'bin/gstack-review-read', 'bin/gstack-wtree', 'test/helpers/shared-libs-eval-fixture.ts', 'test/skill-e2e-shared-libs-paths.test.ts', 'test/helpers/shared-libs-path-fixture.ts', 'test/shared-libs-fixture.test.ts', 'test/helpers/e2e-gate.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/agent-sdk-runner.ts', 'lib/claude-bin.ts', 'lib/eval-model.ts', 'test/fixtures/shared-libs-index-flags-*.json', 'test/shared-libs-revalidation-prompt.test.ts', 'test/fixtures/shared-libs-paths-max-turns-public.json', 'test/shared-libs-source-reads.test.ts', 'test/fixtures/shared-libs-resolved-reads-public.json'],
   'shared-libs-review-prior-coverage': ['review/**', 'scripts/resolvers/shared-libs.ts', 'scripts/resolvers/review.ts', 'scripts/resolvers/review-army.ts', 'lib/review-evidence.ts', 'bin/gstack-review-log', 'bin/gstack-review-read', 'bin/gstack-wtree', 'test/helpers/shared-libs-eval-fixture.ts', 'test/skill-e2e-shared-libs-paths.test.ts', 'test/helpers/shared-libs-path-fixture.ts', 'test/shared-libs-fixture.test.ts', 'test/helpers/e2e-gate.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/agent-sdk-runner.ts', 'lib/claude-bin.ts', 'lib/eval-model.ts', 'test/fixtures/shared-libs-index-flags-*.json', 'test/shared-libs-revalidation-prompt.test.ts', 'test/shared-libs-source-reads.test.ts', 'test/fixtures/shared-libs-resolved-reads-public.json'],
@@ -80,7 +83,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'qa-b8-checkout': ['test/session-runner-stream-lifecycle.test.ts', 'qa/**', 'scripts/resolvers/aside.ts', 'browse/src/**', 'browse/test/test-server.ts', 'test/helpers/llm-judge.ts', 'browse/test/fixtures/qa-eval-checkout.html', 'test/fixtures/qa-eval-checkout-ground-truth.json', 'test/skill-e2e-qa-bugs.test.ts',
     'scripts/resolvers/testing.ts'
   ],
-  'qa-only-no-fix': ['test/session-runner-stream-lifecycle.test.ts', 'qa-only/**', 'qa/templates/**', 'scripts/resolvers/aside.ts', 'browse/src/**', 'browse/test/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts'],
+  'qa-only-no-fix': ['test/qa-only-capability.test.ts', 'test/session-runner-stream-lifecycle.test.ts', 'qa-only/**', 'qa/templates/**', 'scripts/resolvers/aside.ts', 'browse/src/**', 'browse/test/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts'],
   'qa-fix-loop':    ['test/session-runner-stream-lifecycle.test.ts', 'qa/**', 'scripts/resolvers/aside.ts', 'browse/src/**', 'browse/test/test-server.ts', 'test/skill-e2e-qa-workflow.test.ts',
     'test/qa-fix-loop-fixture.test.ts', 'scripts/resolvers/testing.ts'
   ],
@@ -102,7 +105,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
 
   // Review Army (specialist dispatch)
   'review-army-migration-safety': ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review-army.ts', 'bin/gstack-diff-scope', 'test/skill-e2e-review-army.test.ts'],
-  'review-army-perf-n-plus-one':  ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review-army.ts', 'bin/gstack-diff-scope', 'test/skill-e2e-review-army.test.ts'],
+  'review-army-perf-n-plus-one':  ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review-army.ts', 'bin/gstack-diff-scope', 'test/skill-e2e-review-army.test.ts', 'test/review-army-budget.test.ts', 'test/review-n-plus-one-contract.test.ts', 'test/fixtures/review-n-plus-one-dispatch.json'],
   'review-army-delivery-audit':   ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review.ts', 'scripts/resolvers/review-army.ts', 'test/skill-e2e-review-army.test.ts'],
   'review-army-quality-score':    ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review-army.ts', 'test/skill-e2e-review-army.test.ts'],
   'review-army-json-findings':    ['test/session-runner-stream-lifecycle.test.ts', 'review/**', 'scripts/resolvers/review-army.ts', 'test/skill-e2e-review-army.test.ts'],
@@ -945,6 +948,18 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   ],
 
   // Ship
+  'ship-managed-hook-refresh': ['ship/**', 'bin/gstack-redact', 'bin/gstack-config', 'scripts/gen-skill-docs.ts',
+    'test/helpers/ship-hook-actor.ts', 'test/ship-hook-actor.test.ts', 'test/ship-hook-refresh.test.ts',
+    'test/helpers/workflow-excerpt.ts', 'test/helpers/agent-sdk-runner.ts', 'test/skill-e2e-ship-hook-refresh.test.ts',
+    'test/paid-pr-profile.test.ts'],
+  'ship-unmanaged-hook-consent': ['ship/**', 'bin/gstack-redact', 'bin/gstack-config', 'scripts/gen-skill-docs.ts',
+    'test/helpers/ship-hook-actor.ts', 'test/ship-hook-actor.test.ts', 'test/ship-hook-refresh.test.ts',
+    'test/helpers/workflow-excerpt.ts', 'test/helpers/agent-sdk-runner.ts', 'test/skill-e2e-ship-hook-consent.test.ts',
+    'test/paid-pr-profile.test.ts'],
+  'ship-local-hook-preservation': ['ship/**', 'bin/gstack-redact', 'bin/gstack-config', 'scripts/gen-skill-docs.ts',
+    'test/helpers/ship-hook-actor.ts', 'test/ship-hook-actor.test.ts', 'test/ship-hook-refresh.test.ts',
+    'test/helpers/workflow-excerpt.ts', 'test/helpers/agent-sdk-runner.ts', 'test/skill-e2e-ship-hook-consent.test.ts',
+    'test/paid-pr-profile.test.ts'],
   'ship-base-branch': ['test/session-runner-stream-lifecycle.test.ts', 'ship/**', 'bin/gstack-repo-mode', 'test/skill-e2e-review-attribution.test.ts',
     'scripts/resolvers/testing.ts'
   ],
@@ -1356,6 +1371,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'scripts/resolvers/gbrain.ts',
     'test/skill-e2e-gbrain-roundtrip-local.test.ts',
   ],
+  'sync-gbrain-read-ready': ['sync-gbrain/SKILL.md.tmpl', 'sync-gbrain/SKILL.md', 'bin/gstack-gbrain-read-capability.ts', 'lib/gbrain-exec.ts', 'test/helpers/sync-gbrain-readiness-fixture.ts', 'test/helpers/sync-gbrain-readiness-verdict.ts', 'test/skill-e2e-sync-gbrain-readiness.test.ts'],
+  'sync-gbrain-read-unknown': ['sync-gbrain/SKILL.md.tmpl', 'sync-gbrain/SKILL.md', 'bin/gstack-gbrain-read-capability.ts', 'lib/gbrain-exec.ts', 'test/helpers/sync-gbrain-readiness-fixture.ts', 'test/helpers/sync-gbrain-readiness-verdict.ts', 'test/skill-e2e-sync-gbrain-readiness.test.ts'],
 
   // WS2 arm benchmark — with-skill vs without-skill agentic arms scored on
   // the git diff left behind (research instrument, never a release gate).
@@ -1416,6 +1433,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
  * Must have exactly the same keys as E2E_TOUCHFILES.
  */
 export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
+  'investigate-owned-completion': 'gate',
+  'investigate-owned-abort': 'gate',
+  'investigate-owned-ending-error': 'gate',
   'shared-libs-review-path-eligibility': 'gate',
   'shared-libs-review-index-flags': 'gate',
   'shared-libs-review-prior-coverage': 'gate',
@@ -1491,6 +1511,8 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // GBrain CLI round-trip — periodic per Voyage embedding cost (~$0.001/run)
   // and external-API-dependency (skips cleanly if VOYAGE_API_KEY unset).
   'gbrain-roundtrip-local': 'periodic',
+  'sync-gbrain-read-ready': 'periodic',
+  'sync-gbrain-read-unknown': 'periodic',
   'office-hours-forcing-energy': 'periodic',   // D2a demotion 2026-08: posture score, periodic-grade signal (sibling precedent at office-hours-tone)
   // 'office-hours-builder-wildness' retiered to periodic in v1.32 contributor
   // wave: this is an LLM-judge creativity score (axis_a ≥4 on a "wildness"
@@ -1633,6 +1655,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   // Ship — gate (end-to-end ship path)
   'ship-base-branch': 'gate',
   'ship-local-workflow': 'gate',
+  'ship-managed-hook-refresh': 'gate',
+  'ship-unmanaged-hook-consent': 'gate',
+  'ship-local-hook-preservation': 'gate',
   'ship-coverage-audit': 'gate',
   'ship-triage': 'gate',
   'ship-docsync': 'gate',
@@ -1831,6 +1856,7 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
   'retro/SKILL.md instructions':          ['retro/sections/**', 'retro/SKILL.md', 'retro/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts', 'test/workflow-judge-cache.test.ts', 'scripts/eval-input-cache.ts', 'test/eval-input-cache.test.ts', 'test/workflow-judge-input.test.ts', 'test/helpers/workflow-excerpt.ts'],
   'qa-only/SKILL.md workflow':            ['qa-only/SKILL.md', 'qa-only/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts', 'test/workflow-judge-cache.test.ts', 'scripts/eval-input-cache.ts', 'test/eval-input-cache.test.ts', 'test/workflow-judge-input.test.ts', 'test/helpers/workflow-excerpt.ts'],
   'gstack-upgrade/SKILL.md upgrade flow': ['gstack-upgrade/SKILL.md', 'gstack-upgrade/SKILL.md.tmpl', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts', 'test/workflow-judge-cache.test.ts', 'scripts/eval-input-cache.ts', 'test/eval-input-cache.test.ts', 'test/workflow-judge-input.test.ts', 'test/helpers/workflow-excerpt.ts'],
+  'sync-gbrain/SKILL.md read-only readiness': ['sync-gbrain/SKILL.md', 'sync-gbrain/SKILL.md.tmpl', 'bin/gstack-gbrain-read-capability.ts', 'test/skill-llm-eval.test.ts', 'test/helpers/workflow-judge-input.ts', 'test/helpers/workflow-judge-cache.ts', 'test/workflow-judge-cache.test.ts', 'scripts/eval-input-cache.ts', 'test/eval-input-cache.test.ts', 'test/workflow-judge-input.test.ts'],
 
   // Voice directive
   'voice directive tone':                 ['scripts/resolvers/preamble.ts', 'review/SKILL.md', 'review/SKILL.md.tmpl', 'scripts/gen-skill-docs.ts', 'test/skill-llm-eval.test.ts'],

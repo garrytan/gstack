@@ -38,6 +38,7 @@ import {
 } from './helpers/e2e-helpers';
 
 const evalCollector = createEvalCollector('e2e-third-party-actions');
+const asideDownloadPitch = /(?:^|[.!?;:]\s*|\n)\s*(?:[>*-]\s*)*["“]?download (?:it|Aside(?: \(macOS 15\+\))?) at aside\.com\b/im;
 
 /** Preserve one terminal attempt after fixture setup, runner, assertions and cleanup. */
 async function recordAttempt(name: string, body: (run: typeof runSkillTest) => Promise<void>): Promise<void> {
@@ -196,7 +197,7 @@ describeIfSelected('third-party-actions consent gate', TPA_TESTS, () => {
       expect(text.toLowerCase()).toContain('dashboard.acme.test'); // names the exact site
       // The download pitch is contractually absent-on-Darwin only — a detected
       // Aside must never also pitch the install.
-      expect(text).not.toMatch(/download it at aside\.com/i);
+      expect(text).not.toMatch(asideDownloadPitch);
     } finally { cleanup(); }
   }), 6 * 60_000);
 
@@ -211,7 +212,7 @@ describeIfSelected('third-party-actions consent gate', TPA_TESTS, () => {
       logCost('tpa-absent-linux', result);
       expect(result.exitReason).toBe('success');
       const text = assistantText(result.transcript);
-      expect(text).not.toMatch(/download it at aside\.com/i); // no pitch off-macOS (narration that mentions the domain is fine)
+      expect(text).not.toMatch(asideDownloadPitch); // no pitch off-macOS (narration that mentions the domain is fine)
       expect(asideDriveOptions(text)).toEqual([]); // no phantom Aside drive offer
       // Still a lettered consent question. The contract fixes letters only in
       // the detected case; here agents legitimately either re-letter from A or
@@ -265,7 +266,7 @@ describeIfSelected('third-party-actions consent gate', TPA_TESTS, () => {
       // bare exactly-once substring count flakes on agents that narrate the
       // branch they're applying before rendering it; "once per task" itself is
       // pinned in prose by test/third-party-actions.test.ts.
-      expect(text).toMatch(/download it at aside\.com/i);
+      expect(text).toMatch(asideDownloadPitch);
       expect(text).toContain('macOS 15');
       expect(asideDriveOptions(text)).toEqual([]); // narration is not a drive offer
     } finally { cleanup(); }

@@ -19,6 +19,22 @@ test('every host exposes the DX per-call rule before the pre-review audit and St
       const content = fs.readFileSync(path.join(outputRoot, artifact.relativePath), 'utf8');
       const audit = content.indexOf('## PRE-REVIEW SYSTEM AUDIT');
       expect(audit).toBeGreaterThan(0);
+      const preReview = content.slice(audit, content.indexOf('## Auto-Detect Product Type', audit));
+      expect(preReview).toContain('origin/<detected-base-branch>...HEAD');
+      expect(preReview).not.toContain('git merge-base HEAD main');
+      expect(preReview).toContain('Defer exhaustive branch exploration until after product type and persona are confirmed.');
+      const productGate = content.slice(content.indexOf('## Auto-Detect Product Type', audit),
+        content.indexOf('## Step 0: DX Investigation', audit));
+      expect(productGate).toContain('STOP. Ask for product-type confirmation before deeper branch research.');
+      const brain = content.indexOf('## Brain Context (preflight)', audit);
+      const productType = content.indexOf('## Auto-Detect Product Type', audit);
+      const persona = content.indexOf('### 0A. Developer Persona Interrogation', productType);
+      const personaStop = content.indexOf('**STOP.** Do NOT proceed until user responds.', persona);
+      const prerequisite = content.indexOf('## Prerequisite Skill Offer', persona);
+      expect(brain).toBeGreaterThan(audit);
+      expect(brain).toBeLessThan(productType);
+      expect(prerequisite).toBeGreaterThan(personaStop);
+      expect(prerequisite).toBeLessThan(content.indexOf('### 0B. Empathy Narrative', persona));
       const beforeAudit = content.slice(0, audit);
       expect(beforeAudit).toContain('including Step 0 and outside voice');
       expect(beforeAudit).toContain('One independent choice per AskUserQuestion call, never separate tabs');
@@ -327,13 +343,15 @@ function runDxDocumentationControl(code: string, payload: unknown) {
   try {
     const script = path.join(directory, 'control.py');
     fs.writeFileSync(script, code);
+    const input = path.join(directory, 'input.json');
+    fs.writeFileSync(input, JSON.stringify(payload));
     // Like bin/gstack-config, support both Python command names. Windows
     // installs normally expose python.exe; avoid preferring its python3 Store alias.
     const python = (process.platform === 'win32' ? ['python', 'python3'] : ['python3', 'python'])
       .map(command => Bun.which(command)).find((command): command is string => command !== null);
     if (!python) throw new Error('Python 3 is required for the DX documentation controls');
-    const child = Bun.spawnSync([python, script], { cwd: directory, timeout: 10_000,
-      stdin: Buffer.from(JSON.stringify(payload)), stdout: 'pipe', stderr: 'pipe' });
+    const child = Bun.spawnSync([python, script, input], { cwd: directory, timeout: 10_000,
+      stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
     expect(child.signalCode ?? null, child.stderr.toString()).toBeNull();
     expect(child.exitCode, child.stderr.toString()).toBe(0);
     return child.stdout.toString();
@@ -354,7 +372,8 @@ test('materialized DX success blocks print the documented structured fields with
   for (const { code } of examples) { expect(code).not.toContain('print(result)'); expect(code).toContain('result.cases'); }
   const output = runDxDocumentationControl(String.raw`
 import contextlib, io, json, sys, types
-examples = json.load(sys.stdin)
+with open(sys.argv[1], encoding='utf-8') as source:
+    examples = json.load(source)
 # Deliberate assumed-contract double: not an implementation of eval-sdk.
 def evaluate(target, cases, metric):
     result = []
@@ -385,7 +404,8 @@ test('materialized DX application client bounds actual local process timeouts, r
   expect(guide).toContain('does not prove that a remote provider cancelled');
   const output = runDxDocumentationControl(String.raw`
 import json, pathlib, subprocess, sys, time, types
-payload = json.load(sys.stdin)
+with open(sys.argv[1], encoding='utf-8') as source:
+    payload = json.load(source)
 pathlib.Path('bounded_client.py').write_text(payload['client'])
 pathlib.Path('fixture_transport.py').write_text(payload['transport'])
 from bounded_client import BoundedClient
@@ -470,7 +490,8 @@ test('materialized DX CLI cases and import targets match the exact shown invocat
   expect(JSON.parse(payload.cases)).toEqual([{ inputs: { enabled: true }, expected: { ready: true } }]);
   const output = runDxDocumentationControl(String.raw`
 import argparse, importlib, json, pathlib, shlex, sys
-payload = json.load(sys.stdin)
+with open(sys.argv[1], encoding='utf-8') as source:
+    payload = json.load(source)
 pathlib.Path('app.py').write_text(payload['app']); pathlib.Path('cases.json').write_text(payload['cases'])
 # Parse the documented command as an explicit contract double, not the absent CLI.
 args = shlex.split(payload['command']); assert args[:2] == ['eval-sdk', 'run']

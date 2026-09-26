@@ -595,6 +595,7 @@ async function runWorkflowJudge(opts: {
   endMarker: string | null;
   judgeContext: string;
   judgeGoal: string;
+  model?: string;
   thresholds?: { clarity: number; completeness: number; actionability: number };
   readInput?: () => WorkflowJudgeInput;
 }) {
@@ -668,7 +669,7 @@ async function runWorkflowJudge(opts: {
       startMarker: opts.startMarker, endMarker: opts.endMarker });
     checkActive();
     const prompt = buildWorkflowJudgePrompt(opts, input);
-    if (opts.readInput) customInputMetadata = { prompt, model: resolveEvalModel('judge') };
+    if (opts.readInput) customInputMetadata = { prompt, model: resolveEvalModel('judge', opts.model) };
     const cache = prepareWorkflowJudgeCache({ ...opts, root: ROOT, thresholds, prompt, attempt });
     checkActive();
     reused = cache.lookup();
@@ -677,7 +678,7 @@ async function runWorkflowJudge(opts: {
     const maxTokens = DEFAULT_JUDGE_MAX_TOKENS;
     let result: JudgeScore;
     try {
-      result = reused?.scores ?? await callJudge<JudgeScore>(prompt, undefined, { signal: controller.signal, max_tokens: maxTokens });
+      result = reused?.scores ?? await callJudge<JudgeScore>(prompt, opts.model, { signal: controller.signal, max_tokens: maxTokens });
     } catch (error) {
       checkActive();
       if (error instanceof JudgeRefusalError && customInputMetadata) {
@@ -870,7 +871,20 @@ describeIfSelected('Deploy skill evals', [
 // Block 5: Other skills
 describeIfSelected('Other skill evals', [
   'retro/SKILL.md instructions', 'qa-only/SKILL.md workflow', 'gstack-upgrade/SKILL.md upgrade flow',
+  'sync-gbrain/SKILL.md read-only readiness',
 ], () => {
+  testIfSelected('sync-gbrain/SKILL.md read-only readiness', async () => {
+    await runWorkflowJudge({
+      testName: 'sync-gbrain/SKILL.md read-only readiness',
+      suite: 'Other skill evals',
+      skillPath: 'sync-gbrain/SKILL.md',
+      startMarker: '## Step 4: Refresh',
+      endMarker: '## Concurrency note',
+      judgeContext: 'a source-scoped gbrain readiness and guidance workflow',
+      judgeGoal: 'how to verify the pinned worktree source using only bounded reads, preserve guidance when the read is unknown, and report the verdict without creating or deleting pages',
+    });
+  }, WORKFLOW_JUDGE_TEST_MS);
+
   testIfSelected('retro/SKILL.md instructions', async () => {
     await runWorkflowJudge({
       testName: 'retro/SKILL.md instructions',

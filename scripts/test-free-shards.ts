@@ -91,6 +91,8 @@ import {
   installChildSignalForwarding,
   isTerminationRequested,
   killProcessGroup,
+  BunFailureSummaryParser,
+  parseBunFailureResult,
   normalizeRelativePath,
   strictTestExitCode,
   stripAnsiLine,
@@ -934,8 +936,6 @@ export function shardRunLooksTruncated(status: number | null, output: string): b
 const TEST_PATH_SOURCE = String.raw`\.test\.(?:[cm]?[jt]s|tsx|jsx)`;
 /** A file chunk header: the path bun printed, terminated by a bare colon. */
 const FILE_HEADER_RE = new RegExp(`^(\\S.*${TEST_PATH_SOURCE}):$`);
-/** Same shape strict-output classifies as failed-test, with the name captured. */
-const FAIL_RESULT_CAPTURE_RE = /^\(fail\) (.+) \[\d+(?:\.\d+)?(?:ns|us|µs|ms|s)\]$/;
 /** bun --parallel retries a crashed worker once: `<icon> crashed running <path>, retrying`. */
 const CRASH_RETRY_RE = new RegExp(`crashed running (\\S*${TEST_PATH_SOURCE}), retrying`);
 /** The give-up marker after the retry also crashes: `✗ <path> (crashed: exited)`. */
@@ -958,6 +958,8 @@ export interface FreeRunReport {
   sawTerminalSummary: boolean;
   /** Deduped `(fail)` lines in arrival order, attributed to the current file header. */
   failures: FreeRunFailure[];
+  failedTests: number;
+  unreportedFailures: number;
   /** Files that crashed a worker (bun retries once; a second crash is final). Deduped. */
   crashedFiles: string[];
   /**
@@ -1011,6 +1013,9 @@ export class FreeRunReporter {
   private readonly progress = new Map<string, FileProgress>();
   private readonly failureKeys = new Set<string>();
   private readonly failures: FreeRunFailure[] = [];
+  private namedFailureCount = 0;
+  private reportedFailedTests = 0;
+  private readonly failureSummary = new BunFailureSummaryParser();
   private readonly crashed = new Set<string>();
   private currentFile: string | null = null;
   private inRecap = false;
@@ -1059,6 +1064,8 @@ export class FreeRunReporter {
       filesRan: this.filesRan,
       sawTerminalSummary: this.sawSummary,
       failures: [...this.failures],
+      failedTests: Math.max(this.reportedFailedTests, this.failures.length),
+      unreportedFailures: Math.max(0, this.reportedFailedTests - this.namedFailureCount),
       crashedFiles: [...this.crashed].sort(),
       unhandledErrors: [...this.unhandled],
       inFlight,
@@ -1074,6 +1081,11 @@ export class FreeRunReporter {
     // Linux run: 5 real failures reported as 10 across 2 files).
     const line = stripAnsiLine(rawLine).replace(/^::group::/, '');
     let visible = false;
+    const failedCount = this.failureSummary.consume(line, origin);
+    if (failedCount !== null) {
+      this.reportedFailedTests = Math.max(this.reportedFailedTests, failedCount);
+      visible = failedCount > 0;
+    }
 
     // Bun's terminal recap ("N tests failed:") re-prints every (fail) line
     // WITHOUT re-printing file headers. Attributing those to the stale
@@ -1099,7 +1111,7 @@ export class FreeRunReporter {
       this.currentFile = file;
       this.progressFor(file).headerSeen = true;
     } else {
-      const fail = FAIL_RESULT_CAPTURE_RE.exec(line);
+      const fail = parseBunFailureResult(line);
       const retry = fail ? null : CRASH_RETRY_RE.exec(line);
       const final = fail || retry ? null : CRASH_FINAL_RE.exec(line);
       if (fail) {
@@ -1107,11 +1119,12 @@ export class FreeRunReporter {
         // In the recap, a (fail) line only records a failure the main run
         // somehow never attributed (belt and braces); known names dedupe.
         const recapDuplicate = this.inRecap
-          && this.failures.some((f) => f.testName === fail[1]);
-        const key = `${this.currentFile ?? ''}\u0000${fail[1]}`;
+          && this.failures.some((f) => f.testName === fail);
+        if (!recapDuplicate) this.namedFailureCount += 1;
+        const key = `${this.currentFile ?? ''}\u0000${fail}`;
         if (!recapDuplicate && !this.failureKeys.has(key)) {
           this.failureKeys.add(key);
-          this.failures.push({ file: this.currentFile, testName: fail[1] });
+          this.failures.push({ file: this.currentFile, testName: fail });
         }
       } else if (retry) {
         // The file will run again — a crash+retry does not end its chunk.
@@ -1187,11 +1200,14 @@ export function buildRunEpilogue(
   }
   const failingFiles = new Set(report.failures.map((f) => f.file ?? '(unattributed)'));
   const lines = [
-    `[test:free] FAIL — ${report.failures.length} failing test(s) in ${failingFiles.size} file(s), `
+    `[test:free] FAIL — ${report.failedTests} failing test(s) in ${failingFiles.size} ${report.unreportedFailures > 0 ? 'identified ' : ''}file(s), `
     + `${report.crashedFiles.length} crashed worker(s)${report.unhandledErrors.length > 0 ? `, ${report.unhandledErrors.length} unhandled error(s) between tests` : ''}. Full log: ${logPath}`,
   ];
   for (const failure of report.failures) {
     lines.push(`  ✗ ${failure.file ?? '(unattributed)'} — ${failure.testName}`);
+  }
+  if (report.unreportedFailures > 0) {
+    lines.push(`  ⚠ ${report.unreportedFailures} failure(s) reported without named result lines`);
   }
   for (const file of report.crashedFiles) {
     lines.push(`  ⚠ crashed+retried: ${file}`);
@@ -1540,7 +1556,7 @@ export async function runFreeShard(
     );
   } else if (status === 'failed' && captureFailures.size === 0 && (exitCode ?? 1) === 0) {
     const reason = summary.failedTests > 0 || summary.unhandledBetweenTests > 0
-      ? `printed ${summary.failedTests} failing result(s) and ${summary.unhandledBetweenTests} unhandled error(s) between tests`
+      ? `reported ${summary.failedTests} failing test(s) and ${summary.unhandledBetweenTests} unhandled error(s) between tests`
       : summary.terminalFileCounts.length === 0
         ? "never printed bun's terminal summary — the run was truncated (a process.exit fired mid-suite)"
         : `bun's summary reported ${summary.terminalFileCounts.join(', ')} file(s), expected ${files.length}`;
@@ -1556,6 +1572,7 @@ export async function runFreeShard(
   ])];
   const unattributedFailures = status === 'passed' ? 0
     : report.failures.filter((f) => !f.file).length
+      + report.unreportedFailures
       + report.unhandledErrors.length
       + captureFailures.size
       + (report.sawTerminalSummary ? 0 : 1);

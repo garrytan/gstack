@@ -1,6 +1,9 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { chromium, type Browser, type BrowserContext } from 'playwright';
-import { applyStealth, STEALTH_LAUNCH_ARGS } from '../src/stealth';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { applyStealth, buildStealthScript, readHostProfile, STEALTH_LAUNCH_ARGS } from '../src/stealth';
 
 let browser: Browser;
 
@@ -170,29 +173,95 @@ describe('applyStealth — context level', () => {
     }
   });
 
-  test('chrome.csi() and chrome.loadTimes() execute, runtime.connect() throws native-shaped', async () => {
-    // Presence (typeof === 'function') is not enough — a real detector calls
-    // them. loadTimes() dereferences performance.timing; connect() must throw
-    // the native "No matching signature" TypeError.
+  test('chrome.csi() and chrome.loadTimes() execute without inventing runtime messaging', async () => {
     const page = await context.newPage();
     try {
       const r = await page.evaluate(() => {
         const c = (window as any).chrome;
-        let connectErr = '';
-        try { c.runtime.connect(); } catch (e) { connectErr = String(e); }
         return {
           csiOk: typeof c.csi().onloadT === 'number',
           loadTimesOk: typeof c.loadTimes().wasFetchedViaSpdy === 'boolean',
-          connectErr,
+          connect: typeof c.runtime.connect,
+          sendMessage: typeof c.runtime.sendMessage,
         };
       });
       expect(r.csiOk).toBe(true);
       expect(r.loadTimesOk).toBe(true);
-      expect(r.connectErr).toContain('No matching signature');
+      expect(r.connect).toBe('undefined');
+      expect(r.sendMessage).toBe('undefined');
     } finally {
       await page.close();
     }
   });
+});
+
+describe('extension messaging compatibility', () => {
+  test('plain Chromium and default stealth both select the ordinary web flow without an extension', async () => {
+    const plainBrowser = await chromium.launch({ headless: true });
+    try {
+      for (const stealth of [false, true]) {
+        const ctx = await plainBrowser.newContext();
+        try {
+          if (stealth) await applyStealth(ctx);
+          const page = await ctx.newPage();
+          await page.goto('data:text/html,<title>No extension</title>');
+          const result = await page.evaluate(() => {
+            const runtime = (window as any).chrome?.runtime;
+            return {
+              connect: typeof runtime?.connect,
+              sendMessage: typeof runtime?.sendMessage,
+              flow: typeof runtime?.sendMessage === 'function' ? 'companion-extension' : 'ordinary-web',
+            };
+          });
+          expect(result).toEqual({ connect: 'undefined', sendMessage: 'undefined', flow: 'ordinary-web' });
+        } finally {
+          await ctx.close();
+        }
+      }
+    } finally {
+      await plainBrowser.close();
+    }
+  }, 30000);
+
+  test('preserves native runtime methods and messages a genuinely installed extension', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'gstack-stealth-extension-'));
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('<title>Extension control</title>', { headers: { 'Content-Type': 'text/html' } }) });
+    writeFileSync(join(root, 'manifest.json'), JSON.stringify({
+      manifest_version: 3, name: 'Stealth runtime control', version: '1.0',
+      background: { service_worker: 'worker.js' },
+      externally_connectable: { matches: ['http://127.0.0.1/*'] },
+    }));
+    writeFileSync(join(root, 'worker.js'), "chrome.runtime.onMessageExternal.addListener((message, sender, reply) => reply({ received: message.probe }));");
+    let ctx: BrowserContext | undefined;
+    try {
+      ctx = await chromium.launchPersistentContext(join(root, 'profile'), {
+        headless: true, channel: 'chromium',
+        args: [`--disable-extensions-except=${root}`, `--load-extension=${root}`],
+      });
+      await applyStealth(ctx);
+      const worker = ctx.serviceWorkers()[0] || await ctx.waitForEvent('serviceworker');
+      const extensionId = new URL(worker.url()).host;
+      const page = await ctx.newPage();
+      await page.goto(`http://127.0.0.1:${server.port}`);
+      const result = await page.evaluate(async ({ script, extensionId }) => {
+        const runtime = (window as any).chrome.runtime;
+        const connect = runtime.connect;
+        const sendMessage = runtime.sendMessage;
+        (0, eval)(script);
+        return {
+          sameRuntime: runtime === (window as any).chrome.runtime,
+          sameConnect: connect === runtime.connect,
+          sameSendMessage: sendMessage === runtime.sendMessage,
+          reply: await runtime.sendMessage(extensionId, { probe: 'native-runtime' }),
+        };
+      }, { script: buildStealthScript(readHostProfile()), extensionId });
+      expect(result).toEqual({ sameRuntime: true, sameConnect: true, sameSendMessage: true, reply: { received: 'native-runtime' } });
+    } finally {
+      await ctx?.close();
+      server.stop(true);
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30000);
 });
 
 describe('applyStealth — per-install hardware from env', () => {

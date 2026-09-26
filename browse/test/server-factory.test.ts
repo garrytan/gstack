@@ -273,6 +273,46 @@ describe('buildFetchHandler factory contract', () => {
     expect(fs.readFileSync(globalState, 'utf8')).toBe('unrelated daemon state');
   });
 
+  test('headed promotion persists the factory instance state and preserves global state', () => {
+    const globalState = path.join(fixtureDir, 'promotion-global/browse.json');
+    const instanceState = path.join(fixtureDir, 'promotion-instance/browse.json');
+    fs.mkdirSync(path.dirname(globalState), { recursive: true });
+    fs.mkdirSync(path.dirname(instanceState), { recursive: true });
+    const script = `
+      import fs from 'node:fs';
+      import { buildFetchHandler, resolveConfigFromEnv, __testInternals__ } from ${JSON.stringify(path.resolve(__dirname, '../src/server.ts'))};
+      import { resolveConfig } from ${JSON.stringify(path.resolve(__dirname, '../src/config.ts'))};
+      const original = { pid: process.pid, instanceId: __testInternals__.serverInstanceId,
+        mode: 'launched', chromiumPid: 471, chromiumStartTime: 'old-start' };
+      fs.writeFileSync(${JSON.stringify(globalState)}, JSON.stringify(original));
+      fs.writeFileSync(${JSON.stringify(instanceState)}, JSON.stringify(original));
+      const manager = {
+        getConnectionMode: () => 'headed', isWatching: () => false,
+        getXvfbHandle: () => ({ pid: 8123, startTime: 'new-start', display: ':110' }),
+        onDisconnect: null,
+      };
+      buildFetchHandler({
+        ...resolveConfigFromEnv(), browsePort: 34567,
+        config: resolveConfig({ BROWSE_STATE_FILE: ${JSON.stringify(instanceState)} }),
+        browserManager: manager, ownsTerminalAgent: false, startTime: Date.now(),
+      });
+      manager.onHeadedPromotion();
+      process.exit(0);
+    `;
+    const result = Bun.spawnSync([process.execPath, '--eval', script], {
+      env: { ...process.env, BROWSE_STATE_FILE: globalState },
+      stdout: 'pipe', stderr: 'pipe', timeout: 5000,
+    });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(JSON.parse(fs.readFileSync(instanceState, 'utf8'))).toMatchObject({
+      mode: 'headed', xvfbPid: 8123, xvfbStartTime: 'new-start', xvfbDisplay: ':110',
+    });
+    expect(JSON.parse(fs.readFileSync(instanceState, 'utf8')).chromiumPid).toBeUndefined();
+    expect(JSON.parse(fs.readFileSync(globalState, 'utf8'))).toMatchObject({
+      mode: 'launched', chromiumPid: 471, chromiumStartTime: 'old-start',
+    });
+  });
+
   test('2a. cfg.authToken authenticates /health (positive — bearer accepted)', async () => {
     const cfg = makeMinimalConfig();
     const handle = buildFetchHandler(cfg);

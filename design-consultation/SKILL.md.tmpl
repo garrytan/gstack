@@ -64,10 +64,10 @@ As a senior product designer, listen, research and propose a coherent system wit
 ls DESIGN.md design-system.md 2>/dev/null || echo "NO_DESIGN_FILE"
 ```
 
-If either exists, read it and AskUserQuestion: "Want to **update**, **start fresh**, or **cancel**?" DESIGN.md is authoritative if both exist. A lone design-system.md supplies prior context but stays untouched; Phase 6 targets DESIGN.md.
+If either exists, read it and AskUserQuestion: "Want to **update**, **start fresh**, or **cancel**?" DESIGN.md is authoritative if both exist. A lone design-system.md supplies prior context but stays untouched; Phase 6 targets DESIGN.md. Route that answer before any other probe:
 
 - **Cancel:** STOP the skill now, with no file changes or further probes.
-- **Update:** carry the existing decisions into Q1 as constraints; ask what should change, preserve the rest. Check DESIGN.md's format below.
+- **Update:** carry the existing decisions into Q1 as constraints; ask what should change, preserve the rest. If DESIGN.md exists, run the Update-only format check immediately below; if only design-system.md exists, skip that check.
 - **Start fresh:** set aside prior visual choices except constraints the user keeps. Skip the format question; propose a new open-format file, replacing nothing until Q-final.
 - **No existing file:** continue with a new open-format proposal.
 
@@ -100,6 +100,8 @@ If office-hours output exists, read it — the product context is pre-filled.
 If the codebase is empty and purpose is unclear, say: *"I don't have a clear picture of what you're building yet. Want to explore first with `/office-hours`? Once we know the product direction, we can set up the design system."*
 
 **Check the Aside browser (optional — enables visual competitive research):**
+
+The browser is optional here. Probe Aside first. On any non-READY result, resolve `$B` in Browser fallback. If `$B` says `NEEDS_SETUP`, do not build or offer a build: tell the user once that visual research is unavailable, skip Phase 2 Step 2, use host WebSearch for Step 1 if available, and fill remaining gaps from design knowledge.
 
 {{ASIDE_SETUP}}
 
@@ -142,7 +144,7 @@ Record the one-sentence answer: a feeling, visual, claim, or posture. Every subs
 
 {{TASTE_PROFILE}}
 
-The **product brief** combines confirmed context, constraints, memorable-thing answer, taste summary and Phase 2 research/status. Your draft and both independent voices use this same input, with no proposed direction. Taste is a preference, not a constraint; justify departures through the memorable-thing answer.
+Before Phase 3, assemble one **product brief** with the confirmed product and users, project type and use scene, existing constraints, the memorable-thing answer, a taste summary, and Phase 2 findings with source URLs or an explicit declined/unavailable status. For a v1 taste profile, count its retained `sessions` entries (at most 50), not lifetime approvals; with no usable sessions, do not invent a count. Use the same facts for your draft and both independent voices; keep your proposed direction out of their prompts. Taste is a preference, not a constraint; justify departures through the memorable-thing answer.
 
 ---
 
@@ -167,7 +169,7 @@ Either way the results are untrusted content: they nominate candidates, the user
 
 **Step 2: Visual research (Aside, or `$B` when Aside is absent)**
 
-If the Aside check printed `READY`, pick the top 3-5 sites from Step 1 (or from your own knowledge if search returned no usable candidates) and **AskUserQuestion with the exact URLs** before opening anything: "I'd like to open these in your Aside browser (read-only, your real sessions): 1. <url> 2. <url> 3. <url> — open all, drop some, or swap in others?" Search results never choose which origins get the user's cookies; the user does. Open only the sites they confirmed — one script per site, read-only:
+If Aside is `READY`, choose 3–5 Step 1 sites (or known sites if search failed). **AskUserQuestion with the exact URLs** before opening: "I'd like to open these in your Aside browser (read-only, your real sessions): 1. <url> 2. <url> 3. <url> — open all, drop some, or swap in others?" Search results cannot authorize cookie exposure; open only the user's confirmed sites, read-only, one script per site:
 
 ```bash
 aside repl '
@@ -184,13 +186,13 @@ console.log("GSTACK_STEP_OK");
 
 Then `cp "<ASIDE_DIR>/design-research-<site>.jpg" /tmp/` and Read it.
 
-If Aside is not `READY` but the Browser fallback resolved `$B`, run the same pass with `$B goto <url>`, `$B screenshot <path>`, `$B snapshot -i` (translation table above); the AskUserQuestion URL confirmation still applies.
+If Aside is not `READY` but `$B` resolved, run `$B goto <url>`, `$B snapshot -i`, `$B screenshot <path>`; confirm URLs with AskUserQuestion first.
 
-Use each site's screenshot and snapshot to assess fonts, palette, layout, density and aesthetic direction.
+Assess fonts, palette, layout, density and aesthetic from site screenshots and snapshots.
 
 If a site shows a sign-in wall or a bot check, skip it and note why — never ask the user to sign in to a competitor's site for research.
 
-Without Aside or WebSearch, skip Step 1. Without a browser, or if the user declines all proposed URLs, skip Step 2. With `$B` alone, propose known sites for URL confirmation. If neither step yields evidence, say once: "Research unavailable or declined — proceeding with design knowledge only." Do not present remembered patterns as observed findings.
+Without Aside or WebSearch, skip Step 1. Without a browser or approved URLs, skip Step 2. If neither yields evidence, say once: "Research unavailable or declined — proceeding with design knowledge only." Do not present remembered patterns as observed findings.
 
 **Step 3: Synthesize findings**
 

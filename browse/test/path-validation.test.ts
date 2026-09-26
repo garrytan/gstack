@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'bun:test';
+import { beforeAll, describe, it, expect } from 'bun:test';
+import { chromium } from 'playwright';
 import { validateOutputPath } from '../src/meta-commands';
 import { validateReadPath, SENSITIVE_COOKIE_NAME, SENSITIVE_COOKIE_VALUE } from '../src/read-commands';
 import { BLOCKED_METADATA_HOSTS } from '../src/url-validation';
-import { readFileSync, symlinkSync, unlinkSync, writeFileSync, realpathSync } from 'fs';
-import { tmpdir } from 'os';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync, realpathSync } from 'fs';
+import { tmpdir, userInfo } from 'os';
 import { join } from 'path';
 
 describe('validateOutputPath', () => {
@@ -37,23 +38,96 @@ describe('validateOutputPath', () => {
 });
 
 describe('upload command path validation', () => {
-  const src = readFileSync(join(__dirname, '..', 'src', 'write-commands.ts'), 'utf-8');
+  let observations: Record<string, {
+    error: string | null;
+    result: string | null;
+    files: { name: string; text: string }[];
+    inputEvents: number;
+  }>;
 
-  it('validates upload paths with isPathWithin', () => {
-    const uploadBlock = src.slice(src.indexOf("case 'upload'"), src.indexOf("case 'dialog-accept'"));
-    expect(uploadBlock).toContain('isPathWithin');
-  });
+  beforeAll(() => {
+    const root = mkdtempSync(join(userInfo().homedir, 'gstack-upload-paths-'));
+    try {
+      for (const dir of ['home', 'state', 'project', 'private', 'tmp']) {
+        mkdirSync(join(root, dir), { mode: 0o700 });
+      }
+      const probe = Bun.spawnSync([
+        process.execPath, join(import.meta.dir, 'fixtures', 'upload-path-validation.ts'), chromium.executablePath(),
+      ], {
+        cwd: join(root, 'project'),
+        env: {
+          ...process.env,
+          HOME: join(root, 'home'),
+          USERPROFILE: join(root, 'home'),
+          GSTACK_HOME: join(root, 'state'),
+          CLAUDE_PLUGIN_DATA: '',
+          XDG_CONFIG_HOME: join(root, 'home', '.config'),
+          XDG_CACHE_HOME: join(root, 'home', '.cache'),
+          CHROMIUM_PROFILE: join(root, 'profile'),
+          TMPDIR: join(root, 'tmp'),
+          TMP: join(root, 'tmp'),
+          TEMP: join(root, 'tmp'),
+        },
+        timeout: 60_000,
+      });
+      expect(probe.exitCode, probe.stderr.toString()).toBe(0);
+      observations = JSON.parse(probe.stdout.toString());
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 70_000);
 
-  it('blocks path traversal in upload', () => {
-    const uploadBlock = src.slice(src.indexOf("case 'upload'"), src.indexOf("case 'dialog-accept'"));
-    expect(uploadBlock).toContain("'..'");
-  });
+  for (const selector of ['css', 'ref']) {
+    for (const scenario of [
+      'relative-file-link', 'absolute-file-link', 'absolute-outside', 'relative-traversal',
+      'relative-directory-link', 'absolute-directory-link', 'outside-directory-upload',
+      'mixed-valid-first', 'mixed-invalid-first', 'mixed-outside-absolute',
+    ]) {
+      it(`${selector}: rejects ${scenario} before delivering any file`, () => {
+        const actual = observations[`${selector}:${scenario}`];
+        expect(actual, JSON.stringify(actual)).toEqual({
+          error: expect.stringMatching(/Path must be within|Path traversal/),
+          result: null,
+          files: [],
+          inputEvents: 0,
+        });
+      });
+    }
 
-  it('checks absolute paths against safe directories', () => {
-    const uploadBlock = src.slice(src.indexOf("case 'upload'"), src.indexOf("case 'dialog-accept'"));
-    expect(uploadBlock).toContain('path.isAbsolute');
-    expect(uploadBlock).toContain('SAFE_DIRECTORIES');
-  });
+    for (const scenario of ['broken-link', 'missing-file', 'mixed-missing-file']) {
+      it(`${selector}: rejects ${scenario} before delivering any file`, () => {
+        expect(observations[`${selector}:${scenario}`]).toEqual({
+          error: expect.stringContaining('File not found'),
+          result: null,
+          files: [],
+          inputEvents: 0,
+        });
+      });
+    }
+
+    for (const scenario of ['relative-allowed', 'absolute-allowed', 'safe-file-link', 'safe-directory-link', 'safe-directory-upload']) {
+      it(`${selector}: uploads checked target bytes for ${scenario}`, () => {
+        expect(observations[`${selector}:${scenario}`]).toEqual({
+          error: null,
+          result: expect.stringContaining('Uploaded:'),
+          files: [{ name: 'allowed.txt', text: 'synthetic allowed bytes' }],
+          inputEvents: 1,
+        });
+      });
+    }
+
+    it(`${selector}: preserves allowed temp and multi-file uploads`, () => {
+      expect(observations[`${selector}:multiple-allowed`]).toEqual({
+        error: null,
+        result: expect.stringContaining('Uploaded:'),
+        files: [
+          { name: 'allowed.txt', text: 'synthetic allowed bytes' },
+          { name: 'temp.txt', text: 'synthetic temp bytes' },
+        ],
+        inputEvents: 1,
+      });
+    });
+  }
 });
 
 describe('validateReadPath', () => {

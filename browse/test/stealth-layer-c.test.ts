@@ -62,9 +62,8 @@ describe('buildStealthScript — T3 Layer C', () => {
     expect(s).toContain('PlatformArch');
     expect(s).toContain('PlatformOs');
     expect(s).toContain('RequestUpdateCheckStatus');
-    // sendMessage / connect must throw native-shaped errors
-    expect(s).toContain('runtime.connect');
-    expect(s).toContain('runtime.sendMessage');
+    expect(s).not.toContain('function connect()');
+    expect(s).not.toContain('function sendMessage()');
   });
 
   test('chrome.csi and chrome.loadTimes provide method bodies', () => {
@@ -105,10 +104,12 @@ describe('buildStealthScript — T3 Layer C', () => {
     const s = buildStealthScript(hw);
     // Every getter (hardwareConcurrency, deviceMemory, webdriver, Notification.permission)
     // should be wrapped through markNative so the toString Proxy covers it.
-    const markNativeMatches = s.match(/markNative\(/g) || [];
-    // At least 8 markNative wrappings (webdriver, csi, loadTimes, connect, sendMessage,
-    // notification permission, hwConcurrency, deviceMemory)
-    expect(markNativeMatches.length).toBeGreaterThanOrEqual(7);
+    for (const declaration of [
+      'const webdriverGetter', 'chrome.csi', 'chrome.loadTimes',
+      'const notificationPermissionGetter', 'const hwConcurrencyGetter', 'const deviceMemoryGetter',
+    ]) {
+      expect(s).toContain(`${declaration} = markNative(`);
+    }
   });
 
   test('script does not include "GStackBrowser" branding string', () => {

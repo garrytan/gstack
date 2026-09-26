@@ -23,6 +23,7 @@ Options:
   --host <name>     Install for a specific host (claude, codex, kiro, factory,
                     opencode, openclaw, hermes, gbrain, auto). Default: claude.
   --model <id>      Codex model profile override. Otherwise reads Codex config.
+  --global          Register Codex globally even from a project-vendored source.
   --prefix          Install skills with the gstack- prefix (e.g. /gstack-review).
   --no-prefix       Install skills with short names (e.g. /review). Default.
   --team            Switch to team mode (per-repo gstack with auto-update).
@@ -55,6 +56,7 @@ done
 HOST="claude"
 QUIET=0
 LOCAL_INSTALL=0
+GLOBAL_INSTALL=0
 SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
 TEAM_MODE=0
@@ -70,6 +72,7 @@ while [ $# -gt 0 ]; do
     --model) [ -z "$2" ] && echo "Missing value for --model" >&2 && exit 1; MODEL_OVERRIDE="$2"; MODEL_OVERRIDE_SET=1; shift 2 ;;
     --model=*) MODEL_OVERRIDE="${1#--model=}"; MODEL_OVERRIDE_SET=1; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
+    --global) GLOBAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
     --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
     --team)    TEAM_MODE=1; shift ;;
@@ -175,6 +178,84 @@ OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
 CURSOR_SKILLS="$HOME/.cursor/skills"
 CURSOR_GSTACK="$CURSOR_SKILLS/gstack"
 KIRO_SKILLS="$HOME/.kiro/skills"
+
+SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
+SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
+CODEX_REPO_LOCAL=0
+if [ "$(basename "$INSTALL_GSTACK_DIR")" = "gstack" ] && [ "$SKILLS_BASENAME" = "skills" ] \
+  && { [ "$SKILLS_PARENT_BASENAME" = ".agents" ] || [ "$SKILLS_PARENT_BASENAME" = ".claude" ]; } \
+  && [ "$INSTALL_SKILLS_DIR" != "$HOME/.agents/skills" ] \
+  && [ "$INSTALL_SKILLS_DIR" != "$HOME/.claude/skills" ] \
+  && [ "$INSTALL_SKILLS_DIR" != "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills" ]; then
+  if [ "$GLOBAL_INSTALL" -eq 1 ]; then
+    echo "Global Codex registration requested from project source: $INSTALL_GSTACK_DIR (resolved: $SOURCE_GSTACK_DIR)" >&2
+  else
+    CODEX_REPO_LOCAL=1
+    if [ "$SKILLS_PARENT_BASENAME" = ".agents" ]; then
+      CODEX_SKILLS="$INSTALL_SKILLS_DIR"
+      CODEX_GSTACK="$INSTALL_GSTACK_DIR"
+    else
+      CODEX_SKILLS="$(dirname "$(dirname "$INSTALL_SKILLS_DIR")")/.agents/skills"
+      CODEX_GSTACK="$CODEX_SKILLS/gstack"
+    fi
+  fi
+fi
+
+if [ "$CODEX_REPO_LOCAL" -eq 1 ]; then
+  _resolve_codex_namespace() {
+    local namespace="$1" label="$2" parent="$1" suffix="" physical
+    while [ ! -d "$parent" ]; do
+      if [ -L "$parent" ] || [ -e "$parent" ]; then
+        echo "Refusing: project-local Codex $label contains an unresolvable directory: $parent. Use a separate project-local skills directory; setup will not relink it automatically." >&2
+        return 1
+      fi
+      suffix="/$(basename "$parent")$suffix"
+      parent="$(dirname "$parent")"
+    done
+    if ! physical="$(cd "$parent" && pwd -P)"; then
+      echo "Refusing: project-local Codex $label contains an unresolvable directory: $namespace. Use a separate project-local skills directory; setup will not relink it automatically." >&2
+      return 1
+    fi
+    printf '%s%s\n' "$physical" "$suffix"
+  }
+  _codex_project="$(cd "$(dirname "$(dirname "$INSTALL_SKILLS_DIR")")" && pwd -P)"
+  _codex_parent="$(_resolve_codex_namespace "$CODEX_SKILLS" destination)" || exit 1
+  case "$_codex_parent" in
+    "$_codex_project"|"$_codex_project"/*) ;;
+    *) echo "Refusing: project-local Codex destination resolves outside the project: $CODEX_SKILLS -> $_codex_parent. Use a separate project-local skills directory; setup will not relink it automatically." >&2; exit 1 ;;
+  esac
+  _codex_payload="$_codex_parent"
+  while :; do
+    if [ "$_codex_payload" = "$SOURCE_GSTACK_DIR" ] \
+      || { [ -f "$_codex_payload/setup" ] && [ -f "$_codex_payload/VERSION" ] && [ -f "$_codex_payload/bin/gstack-relink" ]; }; then
+      echo "Refusing: project-local Codex destination overlaps the source tree at $_codex_payload: $CODEX_SKILLS -> $_codex_parent. Use a separate project-local skills directory; setup will not relink it automatically." >&2
+      exit 1
+    fi
+    [ "$_codex_payload" = / ] && break
+    _codex_payload="$(dirname "$_codex_payload")"
+  done
+  _codex_generation="$(_resolve_codex_namespace "$SOURCE_GSTACK_DIR/.agents/skills" 'generation namespace')" || exit 1
+  case "$_codex_generation" in
+    "$SOURCE_GSTACK_DIR"/*) ;;
+    *) echo "Refusing: project-local Codex generation namespace resolves outside the source tree: $SOURCE_GSTACK_DIR/.agents/skills -> $_codex_generation. Use a separate project-local skills directory; setup will not relink it automatically." >&2; exit 1 ;;
+  esac
+  if [ -d "$CODEX_GSTACK" ] && [ "$(cd "$CODEX_GSTACK" && pwd -P)" != "$SOURCE_GSTACK_DIR" ] \
+    && { [ -e "$CODEX_GSTACK/.git" ] \
+      || { [ -f "$CODEX_GSTACK/setup" ] && [ -f "$CODEX_GSTACK/VERSION" ] && [ -f "$CODEX_GSTACK/bin/gstack-relink" ]; }; }; then
+    echo "Refusing to replace existing source checkout at $CODEX_GSTACK. Run setup from that checkout or choose a separate project-local install location." >&2
+    exit 1
+  fi
+fi
+
+if { [ "$CODEX_REPO_LOCAL" -eq 1 ] || [ "$HOST" = codex ] || { [ "$HOST" = auto ] && command -v codex >/dev/null 2>&1; }; } \
+  && [ -d "$CODEX_GSTACK" ] && [ ! -L "$CODEX_GSTACK" ]; then
+  _codex_runtime="$(cd "$CODEX_GSTACK" && pwd -P)"
+  case "$SOURCE_GSTACK_DIR" in
+    "$_codex_runtime"/*)
+      echo "Refusing: Codex runtime directory contains the source checkout: $CODEX_GSTACK -> $_codex_runtime (source: $SOURCE_GSTACK_DIR). Use a separate skills directory; setup will not relocate or replace it automatically." >&2
+      exit 1 ;;
+  esac
+fi
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -538,6 +619,17 @@ _browser_hint() {
   fi
 }
 
+_CODEX_PREFLIGHT_SELECTED=0
+if [ "$LOCAL_INSTALL" -eq 0 ]; then
+  if [ "$HOST" = codex ] || { [ "$HOST" = auto ] && command -v codex >/dev/null 2>&1; }; then
+    _CODEX_PREFLIGHT_SELECTED=1
+  fi
+fi
+bun "$SOURCE_GSTACK_DIR/scripts/preflight-codex-overlap.ts" \
+  --source "$SOURCE_GSTACK_DIR" --namespace "$CODEX_SKILLS" \
+  --selected "$_CODEX_PREFLIGHT_SELECTED" --local "$CODEX_REPO_LOCAL" \
+  --windows "$IS_WINDOWS" --relocation "$HOME/.gstack/repos/gstack" || exit 1
+
 # ─── Resolve skill prefix preference ─────────────────────────
 # Priority: CLI flag > saved config > interactive prompt (or flat default for non-TTY)
 GSTACK_CONFIG="$SOURCE_GSTACK_DIR/bin/gstack-config"
@@ -646,8 +738,8 @@ migrate_direct_codex_install() {
   local codex_gstack="$2"
   local migrated_dir="$HOME/.gstack/repos/gstack"
 
-  [ "$gstack_dir" = "$codex_gstack" ] || return 0
-  [ -L "$gstack_dir" ] && return 0
+  [ -L "$codex_gstack" ] && return 0
+  [ -d "$codex_gstack" ] && [ "$(cd "$codex_gstack" && pwd -P)" = "$gstack_dir" ] || return 0
 
   mkdir -p "$(dirname "$migrated_dir")"
   if [ -e "$migrated_dir" ] && [ "$migrated_dir" != "$gstack_dir" ]; then
@@ -669,9 +761,12 @@ migrate_direct_codex_install() {
   fi
 }
 
-if [ "$INSTALL_CODEX" -eq 1 ]; then
+if [ "$INSTALL_CODEX" -eq 1 ] && [ "$CODEX_REPO_LOCAL" -eq 0 ]; then
   migrate_direct_codex_install "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
 fi
+
+SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
+SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
 
 # Kill an entire process tree rooted at $1, leaves first. Killing only the
 # backgrounded subshell orphans the wedged node/bun -> Chromium probe
@@ -731,7 +826,7 @@ ensure_playwright_browser() {
   # setup.
   local probe_cmd
   if command -v node >/dev/null 2>&1; then
-    probe_cmd='node -e "const { chromium } = require((process.cwd()) + \"/node_modules/playwright\"); (async () => { const b = await chromium.launch(); await b.close(); })().then(() => process.exit(0), () => process.exit(1))"'
+    probe_cmd='node -e "const { chromium } = require((process.cwd()) + \"/node_modules/playwright\"); (async () => { const b = await chromium.launch(); await b.close(); })().then(() => process.exit(0), error => { console.error(error.message); process.exit(1); })"'
   elif [ "$IS_WINDOWS" -eq 1 ]; then
     echo "gstack setup failed: Node.js is required on Windows" >&2
     return 1
@@ -741,7 +836,7 @@ ensure_playwright_browser() {
   (
     cd "$SOURCE_GSTACK_DIR"
     eval "$probe_cmd"
-  ) >/dev/null 2>&1 &
+  ) >/dev/null &
   _wait_with_deadline $! 90
 }
 
@@ -977,9 +1072,9 @@ fi
 # --host all later. On success, normal generation may prune orphan old renders.
 export GSTACK_DEFER_CLAUDE_RENAME_PRUNE=1
 export GSTACK_CODEX_GENERATION_MODEL="$CODEX_GENERATION_MODEL"
-if GSTACK_RENAME_COPY="$IS_WINDOWS" bun_cmd "$SOURCE_GSTACK_DIR/bin/gstack-migrate-claude-code" \
+if CODEX_HOME="$(dirname "$CODEX_SKILLS")" GSTACK_RENAME_COPY="$IS_WINDOWS" bun_cmd "$SOURCE_GSTACK_DIR/bin/gstack-migrate-claude-code" \
   --install-dir "$SOURCE_GSTACK_DIR" --skills-dir "$INSTALL_SKILLS_DIR"; then
-  unset GSTACK_DEFER_CLAUDE_RENAME_PRUNE
+  if [ "$CODEX_REPO_LOCAL" -eq 0 ]; then unset GSTACK_DEFER_CLAUDE_RENAME_PRUNE; fi
 fi
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock).
@@ -1186,17 +1281,21 @@ if [ "$INSTALL_CURSOR" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
 fi
 
 # 2. Ensure Playwright's Chromium is available
-# Detect Ubuntu 26.04: Playwright does not yet ship a native chromium build for
-# ubuntu26.04-x64. Override the platform to ubuntu24.04-x64 so the installer
-# picks the correct binary. This is safe because the ubuntu24.04 build runs
-# fine on ubuntu26.04 (same glibc lineage). See #2101.
 _PLAYWRIGHT_PLATFORM_OVERRIDE=""
+_PLAYWRIGHT_UNSUPPORTED_ARCH=""
 if [ -f /etc/os-release ]; then
   _os_id=$(grep '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
   _os_ver=$(grep '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
   if [ "$_os_id" = "ubuntu" ] && [ "$_os_ver" = "26.04" ]; then
-    _PLAYWRIGHT_PLATFORM_OVERRIDE="ubuntu24.04-x64"
-    echo "Ubuntu 26.04 detected — using PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=$_PLAYWRIGHT_PLATFORM_OVERRIDE"
+    _pw_arch="$(uname -m)"
+    case "$_pw_arch" in
+      x86_64) _PLAYWRIGHT_PLATFORM_OVERRIDE="ubuntu24.04-x64" ;;
+      aarch64|arm64) _PLAYWRIGHT_PLATFORM_OVERRIDE="ubuntu24.04-arm64" ;;
+      *) _PLAYWRIGHT_UNSUPPORTED_ARCH="$_pw_arch" ;;
+    esac
+    if [ -n "$_PLAYWRIGHT_PLATFORM_OVERRIDE" ]; then
+      echo "Ubuntu 26.04 detected — using PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=$_PLAYWRIGHT_PLATFORM_OVERRIDE"
+    fi
   fi
 fi
 
@@ -1235,6 +1334,8 @@ _PW_INSTALL_TIMEOUT=$((10#$_PW_INSTALL_TIMEOUT))
 
 if [ "${GSTACK_SKIP_PLAYWRIGHT:-0}" = "1" ]; then
   _pw_fail skipped "GSTACK_SKIP_PLAYWRIGHT=1 — Chromium install skipped by request (#913)"
+elif [ -n "${_PLAYWRIGHT_UNSUPPORTED_ARCH:-}" ]; then
+  _pw_fail unsupported-platform "Ubuntu 26.04 architecture $_PLAYWRIGHT_UNSUPPORTED_ARCH has no supported Playwright Chromium fallback; no browser install attempted"
 elif ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
   # XProtect self-heal (#2554): the probe failure may be the OS killing the
@@ -1351,7 +1452,7 @@ if [ -z "$_PW_FAIL_REASON" ] && ! ensure_playwright_browser; then
   if [ "$IS_WINDOWS" -eq 1 ]; then
     _pw_fail post-install-launch "Playwright Chromium could not be launched via Node.js (oven-sh/bun#4253) — ensure 'node -e \"require('playwright')\"' works, then re-run ./setup"
   else
-    _pw_fail post-install-launch "Playwright Chromium installed but could not be launched — on Ubuntu 24.04+ (AppArmor blocks unprivileged user namespaces) try GSTACK_CHROMIUM_NO_SANDBOX=1 (#2157)"
+    _pw_fail post-install-launch "Playwright Chromium installed but could not be launched — see the launch error above. For AppArmor/user-namespace errors on Ubuntu 24.04+, try GSTACK_CHROMIUM_NO_SANDBOX=1 (#2157)"
   fi
 fi
 
@@ -1767,6 +1868,7 @@ link_codex_skill_dirs() {
       # browse/), not a skill. Linking it would overwrite the root gstack
       # symlink that Step 5 already pointed at the repo root.
       [ "$skill_name" = "gstack" ] && continue
+      if [ "${CODEX_REPO_LOCAL:-0}" -eq 1 ] && [ "$skill_name" = "gstack-claude" ]; then continue; fi
       target="$skills_dir/$skill_name"
       # Create or update symlink
       # #2444: on Windows the installed target is a REAL directory copy, so
@@ -2263,13 +2365,6 @@ link_cursor_skill_dirs() {
 }
 
 # 4. Install for Claude (default)
-SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
-SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
-CODEX_REPO_LOCAL=0
-if [ "$SKILLS_BASENAME" = "skills" ] && [ "$SKILLS_PARENT_BASENAME" = ".agents" ]; then
-  CODEX_REPO_LOCAL=1
-fi
-
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
     # Clean up stale symlinks from the opposite prefix mode
@@ -2386,16 +2481,22 @@ fi
 
 # 5. Install for Codex
 if [ "$INSTALL_CODEX" -eq 1 ]; then
-  if [ "$CODEX_REPO_LOCAL" -eq 1 ]; then
-    CODEX_SKILLS="$INSTALL_SKILLS_DIR"
-    CODEX_GSTACK="$INSTALL_GSTACK_DIR"
-  fi
   mkdir -p "$CODEX_SKILLS"
 
-  # Skip runtime root creation for repo-local installs — the checkout IS the runtime root.
-  # create_codex_runtime_root would create self-referential symlinks (bin → bin, etc.).
-  if [ "$CODEX_REPO_LOCAL" -eq 0 ]; then
-    create_codex_runtime_root "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
+  CODEX_RUNTIME_IN_PLACE=0
+  if [ "$CODEX_REPO_LOCAL" -eq 1 ] && [ -d "$CODEX_GSTACK" ]; then
+    _codex_runtime="$(cd "$CODEX_GSTACK" && pwd -P)"
+    _codex_render="$(cd "$SOURCE_GSTACK_DIR/.agents/skills/gstack" 2>/dev/null && pwd -P || true)"
+    if [ "$_codex_runtime" = "$SOURCE_GSTACK_DIR" ] || [ "$_codex_runtime" = "$_codex_render" ]; then
+      CODEX_RUNTIME_IN_PLACE=1
+    fi
+  fi
+  if [ "$CODEX_RUNTIME_IN_PLACE" -eq 0 ]; then
+    if [ "$CODEX_REPO_LOCAL" -eq 1 ] && _sidecar_root_user_owned "$CODEX_GSTACK"; then
+      echo "  left in place (existing dir not gstack-managed — no generated banner): $CODEX_GSTACK" >&2
+    else
+      create_codex_runtime_root "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
+    fi
   fi
   # Install generated Codex-format skills (not Claude source dirs)
   _prune_stale_generated "$SOURCE_GSTACK_DIR" "$SOURCE_GSTACK_DIR/.agents/skills" "$CODEX_SKILLS"
@@ -2570,7 +2671,7 @@ if [ -d "$MIGRATIONS_DIR" ] && [ "$CURRENT_VERSION" != "unknown" ] && [ "$LAST_S
         # ~/.gstack state) default to ~/.claude/skills/gstack when unset —
         # a repo-local ./setup would silently no-op them against the wrong
         # tree without this.
-        GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" bash "$migration" || echo "  warning: migration $m_ver had errors (non-fatal)"
+        CODEX_HOME="$(dirname "$CODEX_SKILLS")" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" bash "$migration" || echo "  warning: migration $m_ver had errors (non-fatal)"
       fi
     done
   fi

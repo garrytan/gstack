@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { submitPlanSeed } from './helpers/plan-seed-submission';
+import { submitPlanSeed, PlanSeedTimeout } from './helpers/plan-seed-submission';
 import { PtyCurrentScreen } from './helpers/pty-current-screen';
 import { launchClaudePty, runPlanSkillObservation, isProseAUQVisible, isNumberedOptionListVisible, isPermissionDialogVisible } from './helpers/claude-pty-runner';
 
@@ -101,6 +101,49 @@ for (const inheritedTerm of ['dumb', '', 'xterm-256color']) test.skipIf(process.
     const events = fs.readFileSync(path.join(config, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
     expect(events.map(e => e.kind)).toEqual(['paste', 'enter', 'end_turn', 'slash']);
     expect(events.slice(0, 3).every(e => e.value === seed)).toBe(true);
+  } finally {
+    try { await session?.close(); }
+    finally {
+      if (old === undefined) delete process.env.BROWSE_TERMINAL_BINARY; else process.env.BROWSE_TERMINAL_BINARY = old;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}, 6000);
+
+for (const entry of [
+  { name: 'empty placeholder', observeScreen: true, scenario: 'startup-ci-placeholder', submits: true },
+  { name: 'typed draft', observeScreen: true, scenario: 'startup-ci-typed-hint', submits: false },
+  { name: 'unobserved session', observeScreen: false, scenario: 'startup-ci-placeholder', submits: false },
+]) test.skipIf(process.platform === 'win32')(`actual PTY launcher preserves CI seed safety: ${entry.name}`, async () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plan-seed-ci-')));
+  const config = path.join(dir, '.claude'); fs.mkdirSync(config);
+  const script = path.join(dir, 'cli.ts'); fs.writeFileSync(script, `#!${process.execPath}\n${CLI}`, { mode: 0o700 });
+  const old = process.env.BROWSE_TERMINAL_BINARY; process.env.BROWSE_TERMINAL_BINARY = script;
+  const launchedAt = Date.now(); let session: Awaited<ReturnType<typeof launchClaudePty>> | undefined;
+  try {
+    session = await launchClaudePty({ cwd: dir, observeScreen: entry.observeScreen, permissionMode: 'plan', timeoutMs: 4000, model: 'fixture',
+      env: { CLAUDE_CONFIG_DIR: config, SEED_CASE: entry.scenario, CI: 'true', TERM: 'dumb', FORCE_COLOR: '0' } });
+    if (entry.observeScreen) {
+      const seed = '# CI seed\nPreserve this exact draft.';
+      const submission = submitPlanSeed({...session, currentScreen: session.currentScreenFrame}, seed, { cwd: dir, launchedAt, deadlineAt: launchedAt + 2500,
+        isQuestionOrPermission: text => isProseAUQVisible(text) || isNumberedOptionListVisible(text) || isPermissionDialogVisible(text) });
+      if (entry.submits) {
+        await submission;
+        session.send('/plan-eng-review\r'); await Bun.sleep(50);
+        const events = fs.readFileSync(path.join(config, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+        expect(events.map(e => e.kind)).toEqual(['paste', 'enter', 'end_turn', 'slash']);
+        expect(events.slice(0, 3).every(e => e.value === seed)).toBe(true);
+      } else {
+        await expect(submission).rejects.toBeInstanceOf(PlanSeedTimeout);
+        expect(fs.existsSync(path.join(config, 'events.jsonl'))).toBe(false);
+      }
+    } else {
+      for (let i = 0; i < 50 && !fs.existsSync(path.join(config, 'launch.json')); i++) await Bun.sleep(10);
+      expect(fs.existsSync(path.join(config, 'events.jsonl'))).toBe(false);
+    }
+    const launch = JSON.parse(fs.readFileSync(path.join(config, 'launch.json'), 'utf8'));
+    expect(launch.term).toBe(entry.observeScreen ? 'xterm-256color' : 'dumb');
+    expect(launch.forceColor).toBe(entry.observeScreen ? '1' : '0');
   } finally {
     try { await session?.close(); }
     finally {

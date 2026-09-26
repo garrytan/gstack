@@ -511,17 +511,23 @@ _FREEZE_SCRIPT="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
 [ -x "$_FREEZE_SCRIPT" ] && echo "FREEZE_AVAILABLE" || echo "FREEZE_UNAVAILABLE"
 ```
 
-**If FREEZE_AVAILABLE:** Identify the narrowest directory containing the affected files. Write it to the freeze state file:
+**If FREEZE_AVAILABLE:** Identify the narrowest directory containing the affected files. Acquire a run-owned boundary; the helper resolves its physical absolute path and leaves any pre-existing user or other-run boundary untouched:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
-STATE_DIR="$GSTACK_STATE_ROOT"
-mkdir -p "$STATE_DIR"
-echo "<detected-directory>/" > "$STATE_DIR/freeze-dir.txt"
-echo "Debug scope locked to: <detected-directory>/"
+bash "$HOME/.claude/skills/gstack/freeze/bin/freeze-state.sh" acquire "<detected-directory>"
 ```
 
-Substitute `<detected-directory>` with the actual directory path (e.g., `src/auth/`). Tell the user: "Edits restricted to `<dir>/` for this debug session. This prevents changes to unrelated code. Run `/unfreeze` to remove the restriction."
+Substitute `<detected-directory>` with the actual path (e.g., `src/auth/`). Retain the exact returned `FREEZE_OWNER` token in this run's context (including any checkpoint); never reconstruct it from the current state file. Only a returned token means this run owns a new lock. `FREEZE_PRESERVED` means keep the existing boundary and do not clean it up. On acquisition error, pause before edits and report it; never claim a lock was acquired. Relative legacy state is ambiguous: ask the user to re-establish an absolute boundary via `/freeze`, rather than guessing its original cwd.
+
+Tell the user the boundary and its owner disposition. Hooks enforce Edit/Write restrictions only on hosts supporting those callbacks; on Capy they are advisory. Bash remains outside hook enforcement.
+
+**Terminal cleanup:** On completion, explicit abort, or any known error that ends this investigation, run the following with this run's retained token, before the final response. Skip it when this run acquired no token:
+
+```bash
+bash "$HOME/.claude/skills/gstack/freeze/bin/freeze-state.sh" release "<retained-owner-token>"
+```
+
+The helper compares ownership and removes state under the same mutation lock used by `/freeze`, `/guard`, and `/unfreeze`; a replacement boundary is preserved, even at the same path. Report cleanup errors or `FREEZE_PRESERVED`, never retry by deleting state directly. A hard-killed session cannot run this cleanup: recovery is explicit `/unfreeze` (user-requested removal) or `/freeze` (user-selected replacement). If a mutation lock was abandoned, inspect it with the user after confirming no writer is active; never automatically delete an ambiguous lock.
 
 If the bug spans the entire repo or the scope is genuinely unclear, skip the lock and note why.
 
@@ -531,19 +537,25 @@ If the bug spans the entire repo or the scope is genuinely unclear, skip the loc
 
 ## Web research runs in Aside
 
-When a step calls for looking something up on the web (competitors, current best practices, a known bug, prior art), do it through Aside's own agent first: it searches with the user's real browser, signed-in sessions included. If Aside is not ready, fall back to the WebSearch tool when this host provides one. If neither is available, say so once and continue on what you already know.
+For web research, do it through Aside's own agent first, using the user's signed-in browser. If Aside is not ready, fall back to the WebSearch tool when this host provides one.
 
-Check once per run that Aside is ready (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
+Check once (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
 
 ```bash
-_T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-[ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+_gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
 if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
-  echo "READY: aside $(aside --version 2>/dev/null)"
 else
-  echo "ASIDE_NOT_RUNNING"
+  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  case "$_rc" in
+    124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
+    125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+       else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
+    *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
+  esac
+  unset _o
 fi
 ```
 
@@ -554,7 +566,7 @@ fi
   _aside_exec "Search the web for <query>. Read-only: do not sign in, submit, or change anything. Reply with <format, e.g. up to 8 bullets, each with its source URL>, then stop."
   ```
 
-- `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`: run the same queries with the WebSearch tool if this host provides it — same read-only intent, same untrusted-content rule. If it does not, skip the research and say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. The rest of the skill continues.
+- Any non-READY result: report only the safe status, never raw diagnostics. Run the same queries with the WebSearch tool if available, still read-only and untrusted. Otherwise say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. Continue the skill.
 
 Sanitize every query before it leaves the machine: strip hostnames, IPs, file paths, SQL fragments, and anything that looks like a secret. Search for the error class and the library, not the user's data.
 
@@ -642,6 +654,8 @@ Once root cause is confirmed:
 **Fresh verification:** Reproduce the original bug scenario and confirm it's fixed. This is not optional.
 
 Run the test suite and paste the output.
+
+Run the Scope Lock terminal cleanup before reporting completion or an ending error; only use this investigation's retained owner token.
 
 Output a structured debug report:
 ```

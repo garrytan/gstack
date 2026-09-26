@@ -322,7 +322,7 @@ function repoRoot(): string | null {
 
 function originUrl(): string | null {
   try {
-    const out = execSync("git remote get-url origin", { encoding: "utf-8", timeout: 2000 });
+    const out = execSync("git config --get remote.origin.url", { encoding: "utf-8", timeout: 2000 });
     return out.trim();
   } catch {
     return null;

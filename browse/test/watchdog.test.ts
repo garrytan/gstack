@@ -208,12 +208,12 @@ describe('headed parent-death shutdown is suppressed on runtime promotion', () =
 
   test('the server binds that callback to the suppress-flag setter', () => {
     const src = read('src/server.ts');
-    expect(src).toContain('function suppressHeadedParentShutdown()');
+    expect(src).toContain('function suppressHeadedParentShutdown(');
     // Bound on BOTH the module-level manager and any embedder-supplied one; the
     // watchdog reads activeBrowserManager, so binding only the default instance
     // leaves embedders (e.g. gbrowser) promoting silently.
     expect(src).toContain('browserManager.onHeadedPromotion = suppressHeadedParentShutdown');
-    expect(src).toContain('cfgBrowserManager.onHeadedPromotion = suppressHeadedParentShutdown');
+    expect(src).toContain('cfgBrowserManager.onHeadedPromotion = () => suppressHeadedParentShutdown(cfg.config, cfgBrowserManager)');
   });
 
   test('promotion must NOT clear the interval — the tick doubles as the tunnel-orphan reaper', () => {

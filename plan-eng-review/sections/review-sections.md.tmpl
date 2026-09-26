@@ -10,7 +10,6 @@ Then run **Scope Challenge A → B → C**, followed by Sections 1–4 in order.
 
 ## Review record and write policy
 
-Use these terms throughout the review:
 - **Target:** the plan, diff or code path selected at the Scope gate. It stays fixed.
 - **Working plan:** the proposed work and its current approvals. For a plan target,
   start with that plan; for code, build a remedy plan from the findings. This is
@@ -48,10 +47,9 @@ path authorizes no other; implementation edits require explicit authority.
 | Required Review Log | The helper's state location | Present its fields as **not persisted**; the final gate cannot pass without this log. |
 | Best-effort metadata/learning logs | Helper-defined locations | Skip forbidden writes; otherwise keep their best-effort behavior. |
 
-The QA Test Plan and task JSONL intentionally use legacy discovery paths under
-`~/.gstack/projects/{slug}/`: `{user}-{branch}-eng-review-test-plan-{datetime}.md`
-and `tasks-eng-review-{datetime}.jsonl`. QA and /autoplan require these paths even
-with a different report root. Use their formats/commands below; do not relocate them.
+QA Test Plan/task JSONL keep discovery paths `~/.gstack/projects/{slug}/`:
+`{user}-{branch}-eng-review-test-plan-{datetime}.md` and
+`tasks-eng-review-{datetime}.jsonl`. Keep their formats; do not relocate.
 
 A failed permitted save uses **Recovery routing → Repairable write/read failure**,
 not the forbidden-write branches above. Do not ask from an unsaved record.
@@ -84,17 +82,19 @@ building proposed code. Keep suppressed findings for the output appendix.
 
 ## Decision procedure
 
-Run this six-step loop for findings from Scope Challenge, Sections 1–4, Outside
-Voice, late changes and TODO choices. Finish one choice before the next.
+For Scope Challenge, Sections 1–4, Outside Voice, late changes and TODOs, finish
+one choice at a time through steps 1–6.
 
 Setup gates—Context Recovery/prerequisites, Prior Learnings configuration,
 target and Scope Challenge complexity selectors—use local rules without a
-pre-answer ledger. Scope Challenge B saves actual selector answers afterward;
-it does not use this remedy loop. These answers approve no engineering remedy.
+pre-answer ledger. Scope Challenge B saves actual selector answers afterward,
+outside this remedy loop. These answers approve no engineering remedy.
 
-One question for one choice per AskUserQuestion call. Use the preamble for
-question transport/fallback and authorized auto-decisions. Use Review
-record/write policy only for saved records, reports and logs.
+One question for one choice per AskUserQuestion call. Authorities:
+- Preamble: question format, transport/fallback and authorized auto-decisions.
+- Steps 1–6: substantive choices/answers; Review record/write policy: persistence.
+- Entrypoint: **Paused question** for pending answers; **Blocked outcome** for missing work or failed recovery.
+- Finish: Approval readiness → Required outputs → entrypoint verification.
 
 ### 1. Establish current state
 
@@ -404,7 +404,7 @@ Rejected extractions still need coverage for real duplicated-code defects.
 
 {{TEST_COVERAGE_AUDIT_PLAN}}
 
-After the Test Plan Artifact is saved or presented, report the Test review findings and their dispositions and continue to Performance review.
+After **Add missing tests to the plan** resolves test/eval decisions and the Test Plan Artifact is saved or presented, report the Test review findings and their dispositions and continue to Performance review.
 
 ### 4. Performance review
 Evaluate:
@@ -414,12 +414,11 @@ Evaluate:
 
 ### Continue after Outside Voice
 
-Only completed reviews enter Cross-model tension. Record the actual coverage,
-including disabled or unavailable outcomes, then continue below.
+Finish the Outside Voice branch. Only completed reviews enter Cross-model tension. Record the actual coverage, including disabled or unavailable outcomes, in the Completion summary, then continue below.
 
 ## Final planning decisions
 
-Resolve the TODO choices, then check Approval readiness before Required outputs.
+After Sections 1–4 and Outside Voice, resolve the TODO choices, then check Approval readiness before Required outputs.
 
 ### TODOS.md updates
 Review every potential TODO. Reuse an exact prior disposition under Decision procedure; ask about each unanswered proposal in its own AskUserQuestion. Never batch TODOs or silently skip them. Use `~/.claude/skills/gstack/review/TODOS-format.md`.
@@ -436,31 +435,31 @@ Option C records accepted implementation scope; still do not edit product code.
 
 ## Required outputs
 
-Run this finish sequence after Approval readiness passes. Use the references
-below for each step, not as another review cycle.
+After Approval readiness passes, follow this finish sequence using the reference
+sections below; those references are not another review cycle.
 
 For recovery or changed outputs, use the entrypoint's **Recovery routing**.
+Reuse a successful Review Log only for unchanged saved outputs; changed outputs
+must pass steps 1–4 again.
 
-1. **Prepare the review body.** Use the output reference below to complete the
-   working plan, Implementation Tasks and Completion summary. Derive unresolved
-   choices from each record's current State, actual answer and accepted scope;
-   leave them pending. Save permitted auxiliary artifacts under the write policy.
+1. **Prepare the review body.** Complete the working plan, Implementation Tasks
+   and Completion summary below. Leave choices pending according to each record's
+   current State, actual answer and accepted scope. Save permitted auxiliary artifacts under the write policy.
 2. **Save and Read back.** Use Plan File Review Report to save the complete body
-   and append its terminal `## GSTACK REVIEW REPORT`. Pass that writer's Read-back
-   gate. If report persistence is forbidden or the save cannot be recovered,
-   follow **Blocked outcome**; do not continue to logging.
-3. **Log the saved review.** Run Review Log with the saved Completion summary's
-   values. If the required log is forbidden, show its fields as not persisted
-   and take **Blocked outcome**. If it fails, apply the write policy's recovery.
-   Neither case supplies completion or saved-dashboard credit.
+   and terminal `## GSTACK REVIEW REPORT`; pass its Read-back gate. Forbidden
+   persistence or an unrecovered save requires **Blocked outcome**, not logging.
+3. **Log the saved review.** Run Review Log with saved Completion summary values.
+   If the required log is forbidden, show fields as not persisted and take **Blocked outcome**;
+   failures use the write policy's recovery. Neither supplies completion or saved-dashboard credit.
 4. **Publish.** Display the Review Readiness Dashboard, then present the saved
    Completion summary to the user.
-5. **Choose navigation.** Use Next Steps — Review Chaining and wait for its answer.
+5. **Choose navigation.** Use Next Steps — Review Chaining; wait for its answer.
    Navigation grants no implementation authority. A substantive change follows
    **Recovery routing → Late change or missing work** before navigation resumes.
-6. **Finish.** Run Learning hooks, then return to the entrypoint's Section
-   self-check and read-only EXIT PLAN MODE GATE. Run these checks in every host
-   mode; its final instructions govern telemetry, cache refresh and exit.
+6. **Finish.** Run Learning hooks, including gated Brain Calibration Write-Back;
+   then return to the entrypoint's Section self-check and read-only EXIT PLAN MODE GATE in
+   every host mode. Only after both pass, run success telemetry and cache refresh;
+   call ExitPlanMode only in host plan mode.
 
 ### Output reference — review body
 
@@ -531,7 +530,7 @@ From final decisions/outputs; publish after report Read-back and Review Log:
 
 ## Review Log
 
-Use these commands in finish step 3, after successful Read-back. The required review log and best-effort decision log each follow the write policy.
+Use these commands in finish step 3, after successful Read-back. Both logs follow the write policy: required review log, best-effort decision log.
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"issues_found":N,"mode":"MODE","commit":"COMMIT"}' || exit $?
@@ -541,7 +540,6 @@ Use these commands in finish step 3, after successful Read-back. The required re
 Second command: `ARCH_SUMMARY` = findings/dispositions; `KEY_DECISION` = durable
 architecture choice. Omit it when none exists.
 
-Substitute values from the Completion Summary:
 - **TIMESTAMP**: current ISO 8601 datetime
 - **STATUS**: "clean" if `issues_found=0`, `unresolved=0` and `critical_gaps=0`; else "issues_open". Count resolved findings too; "issues_open" can mean mapped work, not failure.
 - **unresolved**: this review's "Unresolved decisions" count; do not include prior reviews
@@ -565,19 +563,20 @@ Flag stale CEO/design reviews from contradictory assumptions or significant comm
 drift. If no further review is needed or `skip_eng_review: true`, state
 "All relevant reviews complete. Run /ship when ready."
 
-AskUserQuestion with only the applicable options. This is **navigation only**:
-copy the working plan's task prerequisites, dependencies and execution order
-without adding or strengthening them in the question or descriptions. A test
-required before editing one function does not make every independent lane wait.
-A next-step answer approves no implementation change.
+AskUserQuestion with only applicable options. This is **navigation only**: copy
+the working plan's prerequisites, dependencies and execution order without adding
+or strengthening them. Do not serialize independent lanes. A next-step answer
+approves no implementation change.
 
 ## Learning hooks
 
-In finish step 6, keep the working plan/approvals fixed. Review operational learnings
-per preamble; use Capture Learnings below for other discoveries. Never log twice.
+Keep the working plan/approvals fixed. Use the preamble for
+operational learnings, Capture Learnings for other discoveries. Never log twice.
 
 {{LEARNINGS_LOG}}
 
 {{GBRAIN_SAVE_RESULTS}}
+
+**Calibration gate status:** No supported preamble/config produces `BRAIN_CALIBRATION_WRITEBACK`. Skip unless that source explicitly enables it. Personal trust/MCP availability cannot enable it; never set it yourself.
 
 {{BRAIN_WRITE_BACK}}

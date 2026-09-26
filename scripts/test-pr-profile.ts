@@ -12,13 +12,17 @@ export const PR_PROFILE_CASE_IDS = [
   'auq-format-gate', 'plan-design-review-no-ui-scope', 'office-hours-spec-review',
   'tpa-present', 'tpa-absent-linux',
   'ship-local-workflow', 'ship-coverage-audit', 'docsync-spawned',
+  'ship-managed-hook-refresh', 'ship-unmanaged-hook-consent', 'ship-local-hook-preservation',
   'setup-deploy-workflow', 'context-restore-loads-latest', 'plan-tune-inspect',
   'skillify-provenance-refusal', 'diagram-triplet', 'learnings-show',
   'gstack-upgrade-happy-path',
+  'investigate-owned-completion', 'investigate-owned-abort', 'investigate-owned-ending-error',
 ] as const;
 
 /** Audited ownership: unknown/direct-describe files remain broad coverage. */
 export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
+  'test/skill-e2e-investigate-owned-completion.test.ts': ['investigate-owned-completion'],
+  'test/skill-e2e-investigate-owned-termination.test.ts': ['investigate-owned-abort', 'investigate-owned-ending-error'],
   'test/skill-e2e-hermetic-canary.test.ts': ['hermetic-canary', 'hermetic-sentinel'],
   'test/skill-e2e-bws.test.ts': ['browse-basic', 'browse-snapshot', 'skillmd-setup-discovery'],
   'test/skill-e2e-qa-workflow.test.ts': ['qa-bootstrap'],
@@ -29,6 +33,8 @@ export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
   'test/skill-e2e-design.test.ts': ['plan-design-review-no-ui-scope'],
   'test/skill-e2e-third-party-actions.test.ts': ['tpa-present', 'tpa-absent-linux'],
   'test/skill-e2e-workflow.test.ts': ['ship-local-workflow', 'ship-coverage-audit', 'gstack-upgrade-happy-path'],
+  'test/skill-e2e-ship-hook-refresh.test.ts': ['ship-managed-hook-refresh'],
+  'test/skill-e2e-ship-hook-consent.test.ts': ['ship-unmanaged-hook-consent', 'ship-local-hook-preservation'],
   'test/skill-e2e-docsync-spawned.test.ts': ['docsync-spawned'],
   'test/skill-e2e-deploy.test.ts': ['setup-deploy-workflow'],
   'test/skill-e2e-session-intelligence.test.ts': ['context-restore-loads-latest'],

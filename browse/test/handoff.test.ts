@@ -8,11 +8,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { startTestServer } from './test-server';
 import { BrowserManager, type BrowserState } from '../src/browser-manager';
 import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
 import { handleMetaCommand } from '../src/meta-commands';
+import { spawnXvfb, pickFreeDisplay, isOurXvfb, type XvfbHandle } from '../src/xvfb';
 
 // Per-FILE Chromium profile: this file launches an in-process persistent
 // context (BrowserManager.launch()), and sharing a profile dir with the
@@ -25,6 +26,8 @@ beforeAll(() => {
   CHROMIUM_PROFILE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-test-profile-'));
   process.env.CHROMIUM_PROFILE = CHROMIUM_PROFILE_DIR;
 });
+
+
 afterAll(() => {
   if (ORIGINAL_CHROMIUM_PROFILE === undefined) delete process.env.CHROMIUM_PROFILE;
   else process.env.CHROMIUM_PROFILE = ORIGINAL_CHROMIUM_PROFILE;
@@ -206,6 +209,59 @@ describe('handoff edge cases', () => {
 const HEADED_BROKEN_ON_DARWIN = process.platform === 'darwin';
 
 describe('handoff integration', () => {
+  test.skipIf(process.platform !== 'linux')('restore failure after candidate assignment leaves the original manager and pages usable', async () => {
+    const displayNum = pickFreeDisplay();
+    expect(displayNum).not.toBeNull();
+    const display = await spawnXvfb(displayNum!);
+    const originalDisplay = process.env.DISPLAY;
+    process.env.DISPLAY = display.display;
+    const hbm = new BrowserManager();
+    let originalBrowser: any;
+    try {
+      await hbm.launch();
+      originalBrowser = (hbm as any).browser;
+      const originalContext = (hbm as any).context;
+      await handleWriteCommand('goto', [baseUrl + '/basic.html'], hbm);
+      await hbm.newTab(baseUrl + '/form.html', 'owner-control');
+      const oldPage = hbm.getPage();
+      const oldSession = hbm.getActiveSession();
+      const oldTabs = (hbm as any).pages;
+      const oldOwnership = new Map((hbm as any).tabOwnership);
+      const oldNextId = (hbm as any).nextTabId;
+      let promoted = 0;
+      hbm.onHeadedPromotion = () => { promoted++; };
+      const restore = hbm.restoreState.bind(hbm);
+      hbm.restoreState = async (state) => {
+        await restore(state);
+        expect((hbm as any).context).not.toBe(originalContext);
+        expect(hbm.getPage()).not.toBe(oldPage);
+        throw new Error('injected after actual restore');
+      };
+      const result = await hbm.handoff('rollback control');
+      expect(result).toContain('injected after actual restore');
+      expect((hbm as any).context).toBe(originalContext);
+      expect(hbm.getPage()).toBe(oldPage);
+      expect(hbm.getActiveSession()).toBe(oldSession);
+      expect((hbm as any).pages).toBe(oldTabs);
+      expect((hbm as any).tabOwnership).toEqual(oldOwnership);
+      expect((hbm as any).nextTabId).toBe(oldNextId);
+      expect(hbm.getConnectionMode()).toBe('launched');
+      expect(hbm.getIsHeaded()).toBe(false);
+      expect(promoted).toBe(0);
+      expect(await hbm.isHealthy()).toBe(true);
+      await handleWriteCommand('goto', [baseUrl + '/basic.html'], hbm);
+      expect(hbm.getPage().url()).toBe(baseUrl + '/basic.html');
+      expect(isOurXvfb(display.pid, display.startTime)).toBe(true);
+    } finally {
+      await hbm.close();
+      await originalBrowser?.close().catch(() => {});
+      expect(isOurXvfb(display.pid, display.startTime)).toBe(true);
+      display.close();
+      if (originalDisplay === undefined) delete process.env.DISPLAY;
+      else process.env.DISPLAY = originalDisplay;
+    }
+  }, 30000);
+
   test.skipIf(HEADED_BROKEN_ON_DARWIN)('full handoff: cookies preserved, headed mode active, commands work', async () => {
     const hbm = new BrowserManager();
     await hbm.launch();
@@ -268,4 +324,183 @@ describe('handoff integration', () => {
       await hbm.close();
     }
   }, 45000);
+});
+
+describe.skipIf(process.platform !== 'linux')('lazy owned display lifecycle', () => {
+  let savedEnv: NodeJS.ProcessEnv;
+  let root: string;
+  let hbm: BrowserManager;
+  const displays = () => {
+    const result = Bun.spawnSync(['ps', '--ppid', String(process.pid), '-o', 'comm='], {
+      stdout: 'pipe', stderr: 'pipe', timeout: 2000,
+    });
+    return result.stdout.toString().split('\n').filter(line => line.trim() === 'Xvfb').length;
+  };
+
+  beforeEach(async () => {
+    savedEnv = { ...process.env };
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-handoff-display-'));
+    delete process.env.DISPLAY;
+    delete process.env.WAYLAND_DISPLAY;
+    delete process.env.BROWSE_HEADED;
+    process.env.CHROMIUM_PROFILE = path.join(root, 'profile');
+    hbm = new BrowserManager();
+    await hbm.launch();
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], hbm);
+  });
+
+  afterEach(async () => {
+    await hbm?.close();
+    for (const key of ['DISPLAY', 'WAYLAND_DISPLAY', 'BROWSE_HEADED', 'CHROMIUM_PROFILE', 'PATH']) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }, 15000);
+
+  test('ordinary headless commands allocate no display', async () => {
+    await hbm.newTab(baseUrl + '/form.html');
+    expect(hbm.getXvfbHandle()).toBeNull();
+    expect(displays()).toBe(0);
+    expect(await hbm.isHealthy()).toBe(true);
+  }, 15000);
+
+  test('shutdown cleans a display that finishes allocation after teardown starts', async () => {
+    const allocation = hbm.ensureHeadedDisplay();
+    const outcome = allocation.then(() => 'resolved', error => String(error));
+    await hbm.close();
+    expect(await outcome).toContain('Browser is shutting down');
+    expect(hbm.getXvfbHandle()).toBeNull();
+    expect(displays()).toBe(0);
+  }, 15000);
+
+  test('concurrent promotion owns one display, preserves commands, and cleans it on shutdown', async () => {
+    expect(displays()).toBe(0);
+    const results = await Promise.all([hbm.handoff('one promotion'), hbm.handoff('same promotion')]);
+    expect(results[0]).toBe(results[1]);
+    expect(results[0]).toContain('Off-screen Xvfb');
+    expect(results[0]).toContain('separate remote desktop');
+    const handle = hbm.getXvfbHandle()!;
+    expect(handle).not.toBeNull();
+    expect(isOurXvfb(handle.pid, handle.startTime)).toBe(true);
+    expect(displays()).toBe(1);
+    expect(process.env.DISPLAY).toBeUndefined();
+    await hbm.newTab(baseUrl + '/form.html');
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], hbm);
+    expect(hbm.getPage().url()).toBe(baseUrl + '/basic.html');
+    expect(await hbm.getPage().evaluate(() => typeof (window as any).chrome?.runtime?.sendMessage)).toBe('undefined');
+    expect(await handleMetaCommand('resume', [], hbm, () => {})).toContain('RESUMED');
+    expect(await hbm.handoff('again')).toContain('Already in headed mode');
+    expect(displays()).toBe(1);
+    await hbm.close();
+    expect(hbm.getXvfbHandle()).toBeNull();
+    expect(isOurXvfb(handle.pid, handle.startTime)).toBe(false);
+  }, 30000);
+
+  for (const phase of ['before launch', 'after restore'] as const) {
+    test(`failure ${phase} rolls back and releases only the allocated display`, async () => {
+      const oldPage = hbm.getPage();
+      const oldContext = (hbm as any).context;
+      const oldSession = hbm.getActiveSession();
+      let handle: XvfbHandle | null = null;
+      const ensure = hbm.ensureHeadedDisplay.bind(hbm);
+      hbm.ensureHeadedDisplay = async () => { await ensure(); handle = hbm.getXvfbHandle(); };
+      if (phase === 'before launch') {
+        process.env.CHROMIUM_PROFILE = path.join(root, 'not-a-directory');
+        fs.writeFileSync(process.env.CHROMIUM_PROFILE, 'fixture');
+      } else {
+        const restore = hbm.restoreState.bind(hbm);
+        hbm.restoreState = async (state) => {
+          await restore(state);
+          expect((hbm as any).context).not.toBe(oldContext);
+          throw new Error('injected after restore');
+        };
+      }
+      let promotions = 0;
+      hbm.onHeadedPromotion = () => { promotions++; };
+      const result = await hbm.handoff('failure control');
+      expect(result).toStartWith('ERROR:');
+      expect(handle).not.toBeNull();
+      expect(isOurXvfb(handle!.pid, handle!.startTime)).toBe(false);
+      expect(hbm.getXvfbHandle()).toBeNull();
+      expect(hbm.getPage()).toBe(oldPage);
+      expect(hbm.getActiveSession()).toBe(oldSession);
+      expect((hbm as any).context).toBe(oldContext);
+      expect(hbm.getConnectionMode()).toBe('launched');
+      expect(hbm.getIsHeaded()).toBe(false);
+      expect(promotions).toBe(0);
+      expect(await hbm.isHealthy()).toBe(true);
+      await handleWriteCommand('goto', [baseUrl + '/form.html'], hbm);
+      expect(hbm.getPage().url()).toBe(baseUrl + '/form.html');
+    }, 30000);
+  }
+
+  for (const phase of ['capture', 'restore'] as const) {
+    test(`shutdown cancels stalled ${phase} without a late promotion`, async () => {
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const originalBrowser = (hbm as any).browser;
+      const oldPage = hbm.getPage();
+      (hbm as any).closeRaceMs = 100;
+      let handle: XvfbHandle | null = null;
+      let promotions = 0;
+      hbm.onHeadedPromotion = () => { promotions++; };
+      if (phase === 'capture') {
+        const save = hbm.saveState.bind(hbm);
+        hbm.saveState = async () => {
+          const state = await save();
+          entered.resolve();
+          await release.promise;
+          return state;
+        };
+      } else {
+        const restore = hbm.restoreState.bind(hbm);
+        hbm.restoreState = async (state) => {
+          await restore(state);
+          handle = hbm.getXvfbHandle();
+          entered.resolve();
+          await release.promise;
+        };
+      }
+      const promotion = hbm.handoff('stalled renderer');
+      await entered.promise;
+      const closing = hbm.close();
+      try {
+        expect(await Promise.race([closing.then(() => true), Bun.sleep(2000).then(() => false)])).toBe(true);
+        expect(oldPage.isClosed()).toBe(true);
+        if (handle) expect(isOurXvfb(handle.pid, handle.startTime)).toBe(false);
+      } finally {
+        release.resolve();
+        await promotion.catch(() => {});
+        await closing;
+        await originalBrowser.close().catch(() => {});
+      }
+      expect(promotions).toBe(0);
+      expect((hbm as any).browser).toBeNull();
+      expect(hbm.getXvfbHandle()).toBeNull();
+    }, 30000);
+  }
+
+  test('rollback retains original tab close and navigation events during candidate restore', async () => {
+    const remainingPage = hbm.getPage();
+    const remainingSession = hbm.getActiveSession();
+    remainingSession.setRefMap(new Map([['e1', { locator: remainingPage.locator('body'), role: 'document', name: '' }]]));
+    await hbm.newTab(baseUrl + '/form.html');
+    const closingPage = hbm.getPage();
+    const restore = hbm.restoreState.bind(hbm);
+    hbm.restoreState = async (state) => {
+      await restore(state);
+      await closingPage.close();
+      await remainingPage.goto(baseUrl + '/form.html');
+      throw new Error('rollback after original tab events');
+    };
+    expect(await hbm.handoff('event rollback')).toContain('rollback after original tab events');
+    expect(hbm.getTabCount()).toBe(1);
+    expect(hbm.getPage()).toBe(remainingPage);
+    expect(hbm.getActiveSession()).toBe(remainingSession);
+    expect(hbm.getRefCount()).toBe(0);
+    expect(await hbm.isHealthy()).toBe(true);
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], hbm);
+  }, 30000);
+
 });

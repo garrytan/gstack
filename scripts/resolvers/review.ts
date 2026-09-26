@@ -591,7 +591,8 @@ Recording the **0H spec-review metrics** is
 required when writing is permitted, even if the reviewer failed. Append the
 actual outcome below; failed mkdir or append stops the review. When writing is
 forbidden, show the actual fields as not persisted and continue without writing.
-Reviewer failure therefore continues here; required storage failure stops here.` : `After the loop completes (PASS, max iterations, or convergence guard):
+If the reviewer fails, report that limit and continue after recording the outcome;
+if a required save fails, stop before claiming completion.` : `After the loop completes (PASS, max iterations, or convergence guard):
 
 1. Tell the user the result — summary by default:
    "Your doc survived N rounds of adversarial review. M issues caught and fixed.
@@ -861,7 +862,7 @@ ${outsideVoiceInvocation(ctx, { timeoutMs: 540000, diffCommand: 'DIFF_BASE=$(git
 
 Set the outer tool timeout to 600000ms so the provider timeout can report its failure.
 
-Present the full output verbatim. This is informational — it never blocks shipping.
+Present the full output verbatim. ${isShip ? 'An unavailable outside challenge does not block shipping by itself; supported findings still enter Step 11, and the structured P1 and non-convergence gates still apply.' : 'This outside challenge is informational; supported findings still enter Step 5 Fix-First, whose approval and convergence gates apply.'}
 
 **Error handling:** All errors are non-blocking — adversarial review is a quality enhancement, not a prerequisite.
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "${outsideVoiceFor(ctx).label} authentication failed. Run \\\`${outsideVoiceFor(ctx).id === 'codex' ? 'codex login' : 'claude auth login'}\\\` to authenticate."
@@ -941,6 +942,7 @@ ${isShip ? `### Step 11 completion and late-fix loop
 2. Triage the collected FIXABLE findings using Step 9.4 items 1–3: AUTO-FIX or ASK, apply automatic and approved fixes, and retain explicit skips. Do not ask again for a Step 11 P1 fix already approved.
 3. If anything changed, commit only the fixed files. Run Step 5 and affected Steps 6–8, then repeat Step 9 from a fresh start token. After Step 9 converges, return directly to Step 11 and repeat its passes on the changed tree. Prior responses do not certify the fixes; do not repeat unchanged Step 10 comment decisions.
 4. Bound this late-fix loop to three fix cycles. If the third cycle still changes code, record non-convergence and STOP with the recurring findings. A zero-fix cycle continues to Step 12 with actual coverage and any explicit acknowledgments; unavailable or waived coverage is never reported as a clean completed pass.
+   This is a separate three-cycle budget from Step 9.4: each return to Step 9 must satisfy its own convergence gate, and returning here does not reset Step 11's count.
 
 ` : ''}---`;
 }
@@ -1556,7 +1558,7 @@ The parent evaluates the completion checklist in priority order, including after
    - For each item, use AskUserQuestion with the item's *specific* manual check (e.g., "Confirm: does \`~/Development/domain-hq/docs/dashboard.md\` exist?", not "Have you checked all items?").
    - Options per item:
      Y) Confirmed done — cite what you verified (free-text, embedded in PR body)
-     N) Not done — block ship; treat as NOT DONE and re-enter the priority-1 gate
+     N) Not done — block ship and report the item as NOT DONE; do not offer a second deferral choice
      D) Intentionally dropped — note in PR body: "Plan item intentionally dropped: {item}"
    - RECOMMENDATION per item: Y if the item is concrete and easily verified; N if it's critical-path (auth, DNS, deliverables to other repos) and the user shows hesitation.
 

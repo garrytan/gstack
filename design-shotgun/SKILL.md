@@ -549,9 +549,11 @@ designs to bias generation toward the user's demonstrated taste.
 
 **Persistent taste profile (v1 schema at `~/.gstack/projects/$SLUG/taste-profile.json`):**
 
-Read the persistent taste profile if it exists:
+Read this project's taste profile:
 
 ```bash
+eval "$("~/.claude/skills/gstack/bin/gstack-slug" 2>/dev/null)"
+[ -n "${SLUG:-}" ] || { echo "NO_TASTE_PROFILE"; exit 0; }
 _TASTE_PROFILE=~/.gstack/projects/$SLUG/taste-profile.json
 if [ -f "$_TASTE_PROFILE" ]; then
   # Schema v1: { dimensions: { fonts, colors, layouts, aesthetics }, sessions: [] }

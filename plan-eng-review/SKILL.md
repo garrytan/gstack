@@ -66,14 +66,16 @@ Recommendation: A when a branch diff exists, otherwise B. Reply with A, B, or C.
 
 After target selection, every question uses the preamble's full decision brief, transport and continuous D-numbering. Setup, prerequisite and preparation questions do not approve engineering remedies.
 
+**Format precedence:** Copy required command, output and question formats exactly. Apply Voice to newly composed prose.
+
 **Startup sequence** (after target selection):
-1. Run the Preamble, including Context Recovery and its setup questions.
+1. Run the Preamble command and its startup instructions (Context Recovery and setup questions). Defer Operational Self-Improvement, Telemetry and Plan Status Footer to finish; format/transport rules apply throughout.
 2. Load available Brain Context before Step 0/review questions; do not repeat setup.
 3. Check web-research readiness at **Web research runs in Aside**.
 4. Run **Design Doc Check**, then **Prerequisite Skill Offer**.
-5. Continue at **Engineering review → Step 0** below; its section Read loads Review preparation and Scope Challenge together.
+5. Continue at **Engineering review → Step 0** below: full section Read → **Review preparation** → **Scope Challenge**.
 
-Keep the reviewed target fixed when selecting the section's separate report destination.
+Keep the reviewed target fixed when selecting the report destination.
 
 ## Preamble (after scope gate)
 
@@ -446,8 +448,6 @@ telemetry — it never blocks the workflow.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Use the selected report file and honor the Review record and write policy for every artifact.
 
-**Format precedence:** Copy required command, output and question formats exactly. Apply Voice to newly composed prose.
-
 
 
 ## Priority hierarchy
@@ -530,19 +530,25 @@ sections. Read a section in full before doing its step; do not work from memory.
 
 ## Web research runs in Aside
 
-When a step calls for looking something up on the web (competitors, current best practices, a known bug, prior art), do it through Aside's own agent first: it searches with the user's real browser, signed-in sessions included. If Aside is not ready, fall back to the WebSearch tool when this host provides one. If neither is available, say so once and continue on what you already know.
+For web research, do it through Aside's own agent first, using the user's signed-in browser. If Aside is not ready, fall back to the WebSearch tool when this host provides one.
 
-Check once per run that Aside is ready (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
+Check once (if this skill already ran this same probe, in BROWSER SETUP or Third-Party Web Actions, reuse its answer):
 
 ```bash
-_T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-[ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+_gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
 if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
   echo "NEEDS_ASIDE"
-elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
-  echo "READY: aside $(aside --version 2>/dev/null)"
 else
-  echo "ASIDE_NOT_RUNNING"
+  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  case "$_rc" in
+    124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
+    125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+       else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
+    *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
+  esac
+  unset _o
 fi
 ```
 
@@ -553,7 +559,7 @@ fi
   _aside_exec "Search the web for <query>. Read-only: do not sign in, submit, or change anything. Reply with <format, e.g. up to 8 bullets, each with its source URL>, then stop."
   ```
 
-- `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`: run the same queries with the WebSearch tool if this host provides it — same read-only intent, same untrusted-content rule. If it does not, skip the research and say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. The rest of the skill continues.
+- Any non-READY result: report only the safe status, never raw diagnostics. Run the same queries with the WebSearch tool if available, still read-only and untrusted. Otherwise say once: "Search unavailable — proceeding with in-distribution knowledge only." Never install Aside yourself; mention aside.com at most once per run. Continue the skill.
 
 Sanitize every query before it leaves the machine: strip hostnames, IPs, file paths, SQL fragments, and anything that looks like a secret. Search for the error class and the library, not the user's data.
 
@@ -653,10 +659,10 @@ Scope Challenge is mandatory before Section 1.
 
 ## Recovery routing
 
-Use this routing at every STOP or failed verification; do not restart the review.
+At every STOP or failed check, use this route; do not restart.
 
 **Paused question:** Wait for its actual answer without completion telemetry or ExitPlanMode.
-Resume that question's local procedure with the answer. A missing-result call
+Resume its local procedure with the reply. A missing-result call
 that may have surfaced is still pending; do not duplicate it.
 
 **Repairable write/read failure:** Stop before the dependent question or output.
@@ -669,14 +675,14 @@ reopened choices use Decision procedure. Repeat Approval readiness, then Require
 outputs steps 1–4 for changed outputs before choosing navigation again. Refresh
 affected tests, tasks, dependencies and parallelization. Unchanged saved outputs
 may reuse their successful Review Log. If a final gate discovers stale evidence,
-follow **Blocked outcome** first; resume on this repair path.
+follow **Blocked outcome** first; then resume here.
 
 **Blocked outcome:** Stop the review and report `BLOCKED`, the missing path/work, actual attempts and what is needed to resume. Label complete chat-only output **not persisted**; it supplies no saved-review or completion credit. If startup values and a permitted telemetry command are available, run **Telemetry (run last)** once with `OUTCOME=error` and the actual `ERROR_MESSAGE`/`FAILED_STEP`. Do not call ExitPlanMode. Resume at the failed step using Recovery routing.
 
 ## Section self-check (before you finish)
 
 Confirm you read the section and completed Scope Challenge, Sections 1–4,
-Outside Voice and outputs. If evidence is missing, Read `sections/review-sections.md`
+Outside Voice and outputs. If evidence is missing, Read `~/.claude/skills/gstack/plan-eng-review/sections/review-sections.md`
 and use Recovery routing above. Preserve verified work.
 
 ## EXIT PLAN MODE GATE (BLOCKING)

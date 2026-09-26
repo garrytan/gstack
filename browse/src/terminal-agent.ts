@@ -83,13 +83,6 @@ const sessionsById = new Map<string, PtySession>();
 // Active PTY session per WS. One terminal per connection. Codex finding #4:
 // uncaught handlers below catch bugs in framing/cleanup so they don't kill
 // the listener loop.
-process.on('uncaughtException', (err) => {
-  console.error('[terminal-agent] uncaughtException:', err);
-});
-process.on('unhandledRejection', (reason) => {
-  console.error('[terminal-agent] unhandledRejection:', reason);
-});
-
 export interface PtySession {
   proc: any | null;        // Bun.Subprocess once spawned
   lifecycle?: PtyLifecycle | null;
@@ -1052,7 +1045,7 @@ async function main() {
 
   // Write port file atomically so the parent server can pick it up.
   // Throws on failure — a boot without a discoverable port file is broken.
-  const releasePublication = acquireAgentStateLock(dir);
+  const releasePublication = acquireAgentStateLock(dir, 5000, process.env.BROWSE_AGENT_GEN);
   let record;
   try {
     const current = readAgentRecord(dir);
@@ -1116,7 +1109,15 @@ async function main() {
 // to a state file the parent reads. This avoids env-passing races. See main().
 const INTERNAL_TOKEN_FILE = path.join(path.dirname(STATE_FILE), 'terminal-internal-token');
 
-main().catch((err) => {
-  console.error(`[terminal-agent] boot failed: ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
-});
+if (import.meta.main) {
+  process.on('uncaughtException', (err) => {
+    console.error('[terminal-agent] uncaughtException:', err);
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('[terminal-agent] unhandledRejection:', reason);
+  });
+  main().catch((err) => {
+    console.error(`[terminal-agent] boot failed: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });
+}

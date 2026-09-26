@@ -29,7 +29,7 @@ Read this section in full, then apply its design/font rules → draft independen
 
 **Motion approaches:** minimal-functional (only transitions that aid comprehension) / intentional (subtle entrance animations, meaningful state transitions) / expressive (full choreography, scroll-driven, playful)
 
-**Choosing faces: a procedure, not a menu.** (1) Name the audience's world (publication, notation, identity or object they read) and mode: Persuade (marketing), Operate (tasks), Read (long content), Experience (immersive). Match its tone. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Verify via WebSearch/Aside on Google Fonts/Fontshare, or local files/licenses; omit unverified faces. (5) Specify loading strategy.
+**Choosing faces: a procedure, not a menu.** (1) Name the audience's world (publication, notation, identity or object they read) and mode: Persuade (marketing), Operate (tasks), Read (long content), Experience (immersive). Match its tone. (2) Shortlist three faces per display/body/label/mono role. (3) Apply role exclusions. (4) Check each proposed family's official Google Fonts/Fontshare listing via WebSearch/Aside for its exact name, required weights, license and loading URL; for a local face, inspect its files and license. Omit faces you cannot verify. (5) Specify the verified loading source and strategy.
 
 **Font-verification fallback:** Skipping competitive research does not waive font verification. Offline, check local files/licenses. Otherwise describe roles/weights/proportions; mark font selection as pending verification in DESIGN.md. Continue palette/layout; defer the preview until fonts can be verified, or honor a user skip. Invent no face or URL.
 
@@ -97,7 +97,7 @@ After any override, gently flag mismatches and offer alternatives: Brutalist/Min
 
 ### Independent proposals, then synthesis
 
-Draft your own direction from the product brief using the rules above. Keep that draft out of both reviewers' prompts; send the product context, not your answer.
+Draft your own direction from the brief: fill Q2's aesthetic, palette, role-specific type, layout, spacing, motion and two deliberate risks before dispatching either voice. Keep that draft out of both reviewers' prompts; send the same brief, not your answer. Outside voices run only after user opt-in; `enabled` records that choice, and the second harness check guards the later spawn.
 
 ## Design Outside Voices (independent)
 
@@ -114,15 +114,12 @@ If user chooses B, record one declined result as described below, skip both voic
 _DESIGN_BRIEF=$(mktemp /tmp/gstack-design-brief-XXXXXXXX) || exit 1
 printf 'DESIGN_BRIEF=%s\n' "$_DESIGN_BRIEF"
 ```
-Write the product brief to that path; remember the absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file; give the native Agent its absolute path. Keep your draft direction out of both prompts. Never paste brief text into shell source.
+Write the product brief to that path; remember its absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file for Codex, along with the design-direction request below; substitute its shell-quoted absolute path for the literal <prepared-prompt-file> in the invocation. Keep your draft direction out of both prompts; give the native Agent its absolute path (the product brief's path, not the Codex prompt file). Never paste brief text into shell source.
 
 **Check Codex availability:**
 ```bash
 
-_OUTSIDE_CFG=enabled # This caller has its own opt-in/skip control.
-if [ "$_OUTSIDE_CFG" = disabled ]; then
-  echo 'CODEX_MODE: disabled'
-elif ( # GSTACK_ACTIVE_HOST names the harness, never the model.
+if ( # GSTACK_ACTIVE_HOST names the harness, never the model.
 if { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
   echo 'Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage.' >&2
   if { [ -n "${CLAUDECODE:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = claude ]; } && { [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_SANDBOX:-}" ] || [ "${GSTACK_ACTIVE_HOST:-}" = codex ]; }; then
@@ -227,12 +224,17 @@ After both voices finish (including failure), delete only the private brief you 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"design-outside-voices","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","host":"claude","outside_provider":"codex","outside_status":"OUTSIDE_STATUS","phase":"design","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
-For each accepted-run record, STATUS=clean for a usable proposal, issues_found for unresolved product constraints, unavailable for no valid completion. Taste differences are alternatives, not issues.
+Fill the log fields from actual completed proposals. Taste differences are alternatives, not issues; STATUS=issues_found only for a usable proposal with unresolved product constraints.
 
-| Record | SOURCE |
-|---|---|
-| External CLI | codex when completed, otherwise "none" |
-| Native subagent | in-host when completed, otherwise "none" |
+| Result | STATUS | SOURCE | OUTSIDE_STATUS |
+|---|---|---|---|
+| User declined both (one record) | skipped | none | skipped |
+| Codex completed with valid markers | clean or issues_found | codex | completed |
+| Codex unavailable or invalid | unavailable | none | unavailable |
+| Native subagent completed | clean or issues_found | in-host | actual Codex outcome: completed or unavailable |
+| Native subagent unavailable | unavailable | none | actual Codex outcome: completed or unavailable |
+
+SOURCE is the completed provider or in-host, otherwise "none". Both accepted-run records are retained even if one voice fails.
 
 Both records carry the actual CLI outcome: OUTSIDE_STATUS=completed only for successful execution with valid markers, otherwise unavailable. `outside_provider`/`outside_status` describe external coverage, not each record's source. A native-only success has STATUS=clean, SOURCE=in-host, outside_status="unavailable".
 
@@ -278,7 +280,7 @@ Revisions recheck fonts and coherence. If the product brief changes, label old p
 
 ## Phase 4: Drill-downs (only if user requests adjustments)
 
-Use one focused AskUserQuestion per requested drill-down: **Fonts:** 3-5 candidates, rationale/evocation and preview offer; **Colors:** 2-3 hex palettes and color theory; **Aesthetic:** product-fit directions and why; **Layout/Spacing/Motion:** concrete product-specific tradeoffs. Re-check coherence after each decision.
+Use one focused AskUserQuestion per requested drill-down: **Fonts:** 3-5 verified candidates with roles, rationale/evocation and preview offer; **Colors:** 2-3 hex palettes and color theory; **Aesthetic:** product-fit directions and why; **Layout/Spacing/Motion:** concrete product-specific tradeoffs. Carry the selected adjustment into the full Q2 proposal and re-check its font verification and coherence before asking Q2 again.
 
 ---
 
@@ -352,7 +354,7 @@ After the response, read current feedback next to the board HTML:
 
 **SERVER FALLBACK:** Nonzero exit or no readiness marker: show each variant inline with Read, then AskUserQuestion: "The comparison board server failed to start. Which variant? Any changes?" Route chat feedback as above.
 
-**After receiving feedback (any path):** summarize PREFERRED, RATINGS, YOUR NOTES, DIRECTION; AskUserQuestion "Is this right?" A confirmed final choice permits Write of `$_DESIGN_DIR/approved.json` with `approved_variant`, `feedback`, `date` (UTC), `screen`, `branch`. Use valid JSON, never shell interpolation. This approves the image only; Q-final gates project writes.
+**After receiving feedback (any path):** summarize PREFERRED, RATINGS, YOUR NOTES, DIRECTION; AskUserQuestion "Is this right?" A confirmed final choice permits Write of `$_DESIGN_DIR/approved.json` with `approved_variant`, `feedback`, `date` (UTC), `screen` (the product page depicted by the chosen mockup), and `branch` (the current `git branch --show-current` result, empty if detached). Use valid JSON, never shell interpolation. This approves the image only; Q-final gates project writes.
 
 After final image confirmation, `$D extract` would write DESIGN.md in a Git repo: run it only in a fresh non-repository scratch directory. Bind `$D` and `APPROVED_IMAGE` to absolute paths:
 
@@ -420,7 +422,7 @@ If the user says skip the preview, go directly to Phase 6.
 
 Only Path A invokes `$D extract`, isolated as above. For Path B, use the approved HTML preview's CSS values. No preview: approved Phase 3 values; mark only unverified fonts pending. Retain rationale and unchanged existing decisions.
 
-**Confirm before writing.** Prepare the contents below; show decisions and agent-selected defaults. AskUserQuestion Q-final:
+**Confirm before writing.** Prepare the complete DESIGN.md contents below, identify every token source (approved mockup extraction, approved HTML, or Phase 3 fallback), mark any unverified font pending, and show the exact CLAUDE.md guidance you would add or update. Show decisions and agent-selected defaults together with that preview. AskUserQuestion Q-final:
 - A) Approve — write DESIGN.md and CLAUDE.md; in plan mode, save Proposed DESIGN.md in the plan only
 - B) Revise — return to Phase 3, then confirm again
 - C) Start over — return to Phase 1

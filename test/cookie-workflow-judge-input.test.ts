@@ -32,7 +32,7 @@ function fixture(entry: string | null = skill, reference: string | null = browse
 function approveFixture(root: string) {
   const input = buildCookieWorkflowJudgeInput(root);
   const approval = { ...JSON.parse(readFileSync(join(ROOT, COOKIE_MANUAL_REVIEW_FILE), 'utf8')),
-    prompt_sha256: input.sha256, prompt_bytes: Buffer.byteLength(input.prompt), model: 'fixture-model',
+    prompt_sha256: input.sha256, prompt_bytes: Buffer.byteLength(input.prompt), model: COOKIE_WORKFLOW_JUDGE.model,
     reason: 'Synthetic approval fixture, not live review evidence' };
   mkdirSync(join(root, '.github'), { recursive: true });
   writeFileSync(join(root, COOKIE_MANUAL_REVIEW_FILE), JSON.stringify(approval));
@@ -40,7 +40,7 @@ function approveFixture(root: string) {
 }
 
 const refusal = () => new JudgeRefusalError({ id: 'msg_synthetic', _request_id: 'req_synthetic',
-  model: 'fixture-model', usage: { input_tokens: 1, output_tokens: 0 }, content: [] });
+  model: COOKIE_WORKFLOW_JUDGE.model, usage: { input_tokens: 1, output_tokens: 0 }, content: [] });
 
 afterEach(() => {
   for (const root of scratch.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -66,15 +66,15 @@ function actualCookieCallback(root: string, overrides: {
   expect(start).toBeGreaterThan(-1);
   expect(end).toBeGreaterThan(start);
   const registration = new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice(managedStart, managedEnd) + source.slice(start, end));
-  const requests: Array<{ prompt: string; model: undefined; signal: AbortSignal }> = [];
+  const requests: Array<{ prompt: string; model: string | undefined; signal: AbortSignal }> = [];
   const records: EvalTestEntry[] = [];
   const attempts = new Map<string, { attempt: number }>();
   let callback: () => Promise<void> = async () => { throw new Error('Judge callback was not registered'); };
   new Function('describeIfSelected', 'testIfSelected', 'ROOT', 'buildCookieWorkflowJudgeInput', 'resolveEvalModel', 'callJudge', 'COOKIE_WORKFLOW_JUDGE', 'JUDGE_MS', 'WORKFLOW_JUDGE_TEST_MS', 'WORKFLOW_JUDGE_RECORD_MS', 'evalCollector', 'expect', 'console', 'readWorkflowJudgeInput', 'buildWorkflowJudgePrompt', 'prepareWorkflowJudgeCache', 'workflowJudgeAttempts', 'performance', 'setTimeout', 'clearTimeout', 'JudgeRefusalError', 'getCookieWorkflowManualReview', 'DEFAULT_JUDGE_MAX_TOKENS', registration)(
     (_suite: string, names: string[], run: () => void) => { expect(names).toEqual([NAME]); run(); },
     (name: string, run: () => Promise<void>, budget: number) => { expect(name).toBe(NAME); expect(budget).toBe(JUDGE_MS + 10_000); callback = run; },
-    root, buildCookieWorkflowJudgeInput, () => 'fixture-model',
-    async (prompt: string, model: undefined, options: { signal: AbortSignal }) => { requests.push({ prompt, model, signal: options.signal }); return overrides.judge ? overrides.judge() : passingScore; },
+    root, buildCookieWorkflowJudgeInput, (_kind: string, explicit?: string) => explicit ?? 'fixture-model',
+    async (prompt: string, model: string | undefined, options: { signal: AbortSignal }) => { requests.push({ prompt, model, signal: options.signal }); return overrides.judge ? overrides.judge() : passingScore; },
     COOKIE_WORKFLOW_JUDGE, overrides.budget ?? JUDGE_MS, JUDGE_MS + 10_000, 5_000,
     { addTest: (record: EvalTestEntry) => records.push(record) }, expect, { log() {} },
     readWorkflowJudgeInput, buildWorkflowJudgePrompt,
@@ -274,9 +274,9 @@ describe('cookie workflow judge input', () => {
     await h.run();
     expect(h.requests).toHaveLength(1);
     expect(h.requests[0].prompt).toBe(input.prompt);
-    expect(h.requests[0].model).toBeUndefined();
+    expect(h.requests[0].model).toBe(COOKIE_WORKFLOW_JUDGE.model);
     expect(h.requests[0].signal).toBeInstanceOf(AbortSignal);
-    expect(h.records[0]).toMatchObject({ name: NAME, prompt: input.prompt, model: 'fixture-model', execution: 'executed', passed: true });
+    expect(h.records[0]).toMatchObject({ name: NAME, prompt: input.prompt, model: COOKIE_WORKFLOW_JUDGE.model, execution: 'executed', passed: true });
     expect(existsSync(join(root, 'cache'))).toBe(false);
     const fresh = actualCookieCallback(root);
     await fresh.run();

@@ -31,6 +31,8 @@ test('the review handoff repairs a missing public declaration without claiming t
       expect(section).toContain('### A. Assess the target');
       expect(section).toContain('Complete these checks before the complexity decision in B');
       expect(section.indexOf('### A. Assess the target')).toBeLessThan(section.indexOf('### B. Resolve complexity selectors'));
+      expect(section.indexOf('### B. Resolve complexity selectors')).toBeLessThan(section.indexOf('### C. Resolve findings'));
+      expect(section).toContain('Run C whether B was completed or skipped');
       expect(text.slice(text.indexOf(check), reviewStart)).toContain('Scope Challenge is mandatory before Section 1');
     }
   }

@@ -82,7 +82,7 @@ printf '%s' "$_input" | bun "${prepushBin}" "$@"
   // If a non-managed hook exists, preserve it as pre-push.local and chain it.
   if (fs.existsSync(hookPath)) {
     const existing = fs.readFileSync(hookPath, "utf8");
-    if (existing.includes(MANAGED_MARKER)) {
+    if (existing.split("\n").includes(MANAGED_MARKER)) {
       // A hook we already own. Returning here unconditionally froze every
       // existing install on whatever wrapper it first received: the `printf x`
       // fail-open fix landed in v1.64.0.0 and still had not reached a single

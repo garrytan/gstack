@@ -222,7 +222,7 @@ cmd_get() {
     return 0
   fi
   if [ -z "$url" ]; then
-    url=$(git remote get-url origin 2>/dev/null || true)
+    url=$(git config --get remote.origin.url 2>/dev/null || true)
     if [ -z "$url" ]; then
       echo "unset"
       return 0

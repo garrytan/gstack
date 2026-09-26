@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { buildWorkflowJudgePrompt, type WorkflowJudgeFile, type WorkflowJudgeInput } from './workflow-judge-input';
 
 export const COOKIE_WORKFLOW_JUDGE = {
+  model: 'claude-sonnet-4-6',
   judgeContext: 'a fallback-browser cookie import workflow',
   judgeGoal: 'how to select an authorized source browser, profile, and domain without guessing an account; configure optional authentication verification before mutation; obtain explicit consent for precisely scoped storage reset; distinguish copied cookies from positive sign-in evidence; and recover within the documented platform and privacy boundaries',
   thresholds: { clarity: 4, completeness: 3, actionability: 4 },

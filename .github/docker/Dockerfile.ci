@@ -34,10 +34,14 @@ RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https:
 # poppler-utils: make-pdf's e2e gates hard-require pdftotext/pdffonts/pdfinfo in CI.
 RUN for i in 1 2 3; do \
       apt-get update && apt-get install -y --no-install-recommends \
-        git curl unzip xz-utils ca-certificates jq bc gpg python3 file poppler-utils gcc libc6-dev && break || \
+        git curl unzip xz-utils ca-certificates jq bc gpg python3 python3-venv file poppler-utils gcc libc6-dev && break || \
       (echo "apt retry $i/3 after failure"; sleep 10); \
     done \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /tmp/gstack-ci-venv \
+    && /tmp/gstack-ci-venv/bin/python -m pip --version \
+    && rm -rf /tmp/gstack-ci-venv
 
 # Direct builds produce the trusted CSO launcher and watchdog. Check the exact
 # static-C capability here so the cached eval image cannot reach a slice without it.

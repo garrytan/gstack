@@ -406,23 +406,29 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 ## Third-Party Web Actions
 
-A step sometimes requires action on an external website the user controls: registering an API key, creating a vendor or developer account, configuring a dashboard, webhook, OAuth app, billing plan, or domain verification. This contract governs that moment. It grants no new browsing authority — the AskUserQuestion format and one-way-door rules remain binding, including approval before anything that spends money.
+Some steps require action on a site the user controls: registering an API key, creating a vendor or developer account, configuring a dashboard, webhook, OAuth app, billing plan, or domain verification. This contract governs that moment. It grants no new browsing authority — the AskUserQuestion format and one-way-door rules remain binding, including approval before anything that spends money.
 
 1. **Never hand the user a manual step list for a third-party site without first offering to drive it.** The recommended driver is the Aside AI browser — the user's real browser, already signed in to the accounts vendor dashboards need. Detect it at runtime, every task, with the /browse skill's readiness probe:
 
    ```bash
-   _T=""; command -v gtimeout >/dev/null 2>&1 && _T="gtimeout 30"; [ -z "$_T" ] && command -v timeout >/dev/null 2>&1 && _T="timeout 30"
-   [ -z "$_T" ] && command -v perl >/dev/null 2>&1 && _T="perl -e alarm(shift);exec(@ARGV) 30"
+   _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
+   elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
    if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
      echo "NEEDS_ASIDE"
-   elif $_T aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1 | grep -q '^ASIDE_READY'; then
-     echo "READY: aside $(aside --version 2>/dev/null)"
    else
-     echo "ASIDE_NOT_RUNNING"
+     _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+     case "$_rc" in
+       124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
+       125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
+       0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+          else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
+       *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
+     esac
+     unset _o
    fi
    ```
 
-   Only `READY` counts as detected; the retry path in rule 3 applies only after a consented drive has started. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, tell the user once — "gstack works best with the Aside browser (macOS 15+). Download it at aside.com, open it, sign in, then re-run." Off macOS, do not pitch it. The user downloads and installs it themselves; NEVER run an installer, brew formula, or download for them, and never treat binary presence as consent to browse. `ASIDE_NOT_RUNNING`: ask the user to open the Aside app (and sign in if it asks), re-run the check once, and if it still fails quote the probe output verbatim and treat Aside as not detected for this task. The fallback driver on any platform is gstack's own stack: `$B` headed mode with `$B handoff` / `$B resume` for the human-only moments (the /browse skill's Browser fallback section), or GStack Browser when installed.
+   Only `READY` counts as detected; rule 3 retries only after a consented drive has started. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, say once: "Download Aside (macOS 15+) at aside.com; open, sign in, re-run." Off macOS, do not pitch it. User installs only: NEVER run an installer, brew formula, or download; never treat binary presence as consent to browse. `ASIDE_NOT_RUNNING`: ask once to open the app and retry. Otherwise report only the safe status, never raw diagnostics; treat Aside as not detected for this task. The fallback driver on any platform is gstack's own stack: `$B` headed mode with `$B handoff` / `$B resume` for the human-only moments (the /browse skill's Browser fallback section), or GStack Browser when installed.
 
 2. **One explicit question before any browsing.** Name the site and action. When Aside is detected, offer: A) I drive it in your Aside browser — your real logged-in sessions (recommended), B) I drive it in gstack's own visible browser — you take over for sign-in, C) manual instructions, D) defer. When Aside is not detected, offer only the gstack drive / manual / defer options. Until a probe actually returns `READY`, omit the Aside drive option entirely; even a conditional offer is premature. The selection is per-task consent; never persist it as standing permission and never infer it from an earlier task.
 
@@ -435,6 +441,14 @@ A step sometimes requires action on an external website the user controls: regis
 # Ship: Fully Automated Ship Workflow
 
 Run `/ship` through to the PR URL. This request authorizes routine work without confirmation; explicit safety and user-decision gates still apply.
+
+**Route through the workflow:** detect and merge the base (Steps 1–3), test and
+audit the integrated diff (Steps 4–8.2), review and resolve findings (Steps
+9–11), prepare the release and commits (Steps 12–15), then verify, push, sync
+docs, and open or update the PR (Steps 16–19). A review fix returns to affected
+tests and reviews before release preparation; a later code or build-input edit
+returns to affected checks and Step 16 before publication. Reuse still-valid
+results, but never treat an earlier review or test as covering changed inputs.
 
 **Follow every STOP and AskUserQuestion gate**, including:
 - On the base branch (abort)
@@ -626,11 +640,14 @@ Continue to Step 2 without a preflight approval question. Apply the review gates
 If the diff introduces a new standalone artifact (CLI binary, library package, tool) — not a web
 service with existing deployment — verify that a distribution pipeline exists.
 
-1. Check if the diff adds a new `cmd/` directory, `main.go`, or `bin/` entry point:
+1. Check for newly added distribution entry points and package manifests:
    ```bash
-   git diff origin/<base> --name-only | grep -E '(cmd/.*/main\.go|bin/|Cargo\.toml|setup\.py|package\.json)' | head -5
+   git diff origin/<base> --diff-filter=A --name-only | grep -E '(^|/)(cmd/[^/]+/main\.go|bin/[^/]+|Cargo\.toml|setup\.py|package\.json)$' | head -5
    ```
-   Also inspect matching untracked files from Step 1's status.
+   Also inspect matching untracked files from Step 1's status. Read each match:
+   a new `package.json` or `Cargo.toml` alone does not establish a publishable
+   artifact. Also inspect existing manifests for newly declared binaries or
+   package exports. Apply the pipeline gate only when a new distributable is present.
 
 2. If new artifact detected, check for a release workflow:
    ```bash
@@ -694,7 +711,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    ```
    Save the JSON `baseVersion` as `BASE_VERSION`, then read `state` and dispatch:
    - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Use the recorded level for this release; if absent, compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
+   - **ALREADY_BUMPED** → keep `NEW_VERSION` at `currentVersion`. Reuse this branch's earlier ship decision for `BUMP_LEVEL` if recorded; otherwise compare `baseVersion` and `currentVersion` left to right: the first changed major/minor/patch/micro component supplies `BUMP_LEVEL` (a missing fourth component is zero). Then run step 3's queue check. This recovers the level, not permission to bump again.
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair`, then reclassify. On success, follow **ALREADY_BUMPED**, including its queue check; on failure, STOP. Repair alone never re-bumps.
    - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
@@ -709,7 +726,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
    CANDIDATE_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
    ```
    - **Usable candidate** (including `offline:true` with `fallback:"git"`): print warnings and any claimed queue. FRESH sets `NEW_VERSION` to `CANDIDATE_VERSION`. ALREADY_BUMPED compares it with `currentVersion`; if different, ask to rebump (refresh CHANGELOG/PR title) or keep current (CI rejects a collision). Only approval changes the existing version. An active sibling is a workspace listed in JSON `active_siblings`; use its `branch` and `version`. If one holds `>= NEW_VERSION`, ask to advance past it or stop this attempt and sync.
-   - **No usable candidate** (utility failure or empty result): print queue-unverified; FRESH sets `NEW_VERSION` using local `BUMP_LEVEL` arithmetic, while ALREADY_BUMPED keeps `currentVersion`. Do not use the candidate branch above.
+   - **No usable candidate** (utility failure or empty result): print queue-unverified; FRESH sets `NEW_VERSION` using local `BUMP_LEVEL` arithmetic, while ALREADY_BUMPED keeps `currentVersion`. Do not follow the usable-candidate instructions above.
 
 4. **Write the bump** (FRESH, or an approved rebump):
    ```bash
@@ -732,7 +749,7 @@ for slot selection. Bump level and queue collisions remain agent decisions.
 
 Persist approved follow-ups, then conservatively mark completed work.
 
-Read `.claude/skills/review/TODOS-format.md` for the canonical format reference.
+Read `~/.claude/skills/gstack/review/TODOS-format.md` for the canonical format reference (or `review/TODOS-format.md` in a gstack checkout).
 
 **1. Open or create:** Read root `TODOS.md`. An earlier explicit "add TODO" choice authorizes its creation with `# TODOS` and `## Completed`. Otherwise, if missing, ask: "Create a component/priority-organized TODOS.md?" Options: A) Create now, B) Skip. If B, continue to Step 15 with the outcome in the summary below.
 
@@ -836,36 +853,39 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 ```bash
 _REDACT_PREPUSH=$(~/.claude/skills/gstack/bin/gstack-config get redact_prepush_hook 2>/dev/null || echo "false")
 _HOOK_PATH=$(git rev-parse --git-path hooks/pre-push 2>/dev/null || echo "")
-_HOOK_INSTALLED="no"
-[ -n "$_HOOK_PATH" ] && [ -f "$_HOOK_PATH" ] && grep -q "gstack-redact" "$_HOOK_PATH" 2>/dev/null && _HOOK_INSTALLED="yes"
-# Never silently install into custom core.hooksPath (e.g. committed .husky/).
+_HOOK_STATE="missing"
+if [ -e "$_HOOK_PATH" ] || [ -L "$_HOOK_PATH" ]; then
+  _HOOK_STATE="unmanaged"
+  if [ -f "$_HOOK_PATH" ] && [ ! -L "$_HOOK_PATH" ] && grep -Fqx '# gstack-redact pre-push (managed)' "$_HOOK_PATH" 2>/dev/null; then
+    _HOOK_STATE="managed"
+  fi
+fi
 _HOOKS_DIR=$(git rev-parse --git-path hooks 2>/dev/null || echo "")
-_GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null || echo "")
-# Worktree hooks live under the common git dir. /nonexistent prevents a
-# failed lookup from producing a match-all /* pattern.
-_GIT_COMMON=$(cd "$(git rev-parse --git-common-dir 2>/dev/null || echo /nonexistent)" 2>/dev/null && pwd || echo /nonexistent)
 _HOOKS_IN_GIT_DIR="no"
-case "$_HOOKS_DIR" in
-  "$_GIT_DIR"/*|"$_GIT_COMMON"/*|hooks|.git/hooks) _HOOKS_IN_GIT_DIR="yes" ;;
-esac
+_HOOKS_CONFIG_STATUS=0
+git config --get core.hooksPath >/dev/null 2>&1 || _HOOKS_CONFIG_STATUS=$?
+if [ -n "$_HOOK_PATH" ] && [ -n "$_HOOKS_DIR" ] && [ "$_HOOKS_CONFIG_STATUS" = "1" ] && [ ! -L "$_HOOKS_DIR" ]; then
+  _HOOKS_IN_GIT_DIR="yes"
+fi
 _PREPUSH_PROMPTED=$([ -f "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted" ] && echo "yes" || echo "no")
+if [ "$_REDACT_PREPUSH" = "true" ] && [ "$_HOOKS_IN_GIT_DIR" = "yes" ] && [ "$_HOOK_STATE" != "unmanaged" ]; then
+  ~/.claude/skills/gstack/bin/gstack-redact install-prepush-hook || exit $?
+fi
 echo "REDACT_PREPUSH: $_REDACT_PREPUSH"
-echo "HOOK_INSTALLED: $_HOOK_INSTALLED"
+echo "HOOK_STATE: $_HOOK_STATE"
 echo "HOOKS_IN_GIT_DIR: $_HOOKS_IN_GIT_DIR"
 echo "PREPUSH_PROMPTED: $_PREPUSH_PROMPTED"
 ```
 
 Branch on the echoed values:
 
-1. **`REDACT_PREPUSH: true` and `HOOK_INSTALLED: no` and `HOOKS_IN_GIT_DIR: yes`** —
-   consent already given; install silently (no question) and continue:
-   ```bash
-   ~/.claude/skills/gstack/bin/gstack-redact install-prepush-hook
-   ```
-   If `HOOKS_IN_GIT_DIR: no` (husky or another committed hooks dir), do NOT
-   install silently — print one line: "redact pre-push guard not installed:
-   this repo uses a custom core.hooksPath; run
-   `gstack-redact install-prepush-hook` manually if you want it chained."
+1. **`REDACT_PREPUSH: true`** — the block installs or refreshes managed
+   hooks, preserving `pre-push.local` and complete stdin. On installer
+   failure, STOP before pushing. `HOOKS_IN_GIT_DIR: no`: do not install;
+   request manual integration. `HOOK_STATE: unmanaged`: ask consent only
+   for a regular, non-symlink hook in the default directory without
+   `pre-push.local`; otherwise request manual integration. Dangling
+   symlinks are unmanaged. Never overwrite either policy.
 2. **`REDACT_PREPUSH` not true AND `PREPUSH_PROMPTED: no`** — one-time
    offer (fires once EVER, machine-wide). AskUserQuestion:
 
@@ -879,14 +899,14 @@ Branch on the echoed values:
    - B) No — never ask again
 
    If A: run `~/.claude/skills/gstack/bin/gstack-config set redact_prepush_hook true`
-   then `~/.claude/skills/gstack/bin/gstack-redact install-prepush-hook`.
+   then re-run the block and apply the same directory and unmanaged-hook rules above.
    If B: run `~/.claude/skills/gstack/bin/gstack-config set redact_prepush_hook false`.
    ALWAYS (after either answer, but NOT if the question itself failed to
    render — a failed AskUserQuestion must re-offer next time):
    ```bash
    touch "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted"
    ```
-3. **Anything else** (declined earlier, or already installed) — continue
+3. **Declined earlier** — continue
    without comment.
 
 **Idempotency check:** Check if the branch is already pushed and up to date.

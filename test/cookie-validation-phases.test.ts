@@ -42,7 +42,7 @@ test('the existing quality and behavior phases retain their complete separate sh
   expect(quality.evalsAll).toBe(true);
   expect(behavior.evalsAll).toBe(true);
   expect(qualityFiles).toHaveLength(2);
-  expect(behaviorFiles).toHaveLength(52);
+  expect(behaviorFiles).toHaveLength(56);
   expect(qualityFiles.every(file => file.startsWith('test/skill-llm-eval'))).toBe(true);
   expect(behaviorFiles.every(file => !qualityFiles.includes(file))).toBe(true);
 });

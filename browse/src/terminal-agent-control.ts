@@ -41,16 +41,79 @@ export function readAgentStartTime(pid: number): string {
 
 const pendingAgentExits = new Set<any>();
 
-export function acquireAgentStateLock(stateDir: string, waitMs = 5000): () => void {
+function reclaimPublicationLock(stateDir: string, lockPath: string): boolean {
+  try {
+    const inode = fs.lstatSync(lockPath, { bigint: true });
+    if (!inode.isFile() || inode.size === 0n || inode.size > 4096n) return false;
+    const contents = fs.readFileSync(lockPath, 'utf8');
+    const lock = JSON.parse(contents);
+    const record = readAgentRecord(stateDir);
+    if (lock?.kind !== 'agent-publication-v1' || !record
+      || !Number.isSafeInteger(record.pid) || record.pid <= 0
+      || typeof record.gen !== 'string' || !record.gen
+      || typeof record.startTime !== 'string' || !record.startTime
+      || record.ownerPid !== process.pid
+      || typeof record.ownerStartTime !== 'string' || !record.ownerStartTime) return false;
+    const fields = ['pid', 'gen', 'startTime', 'ownerPid', 'ownerStartTime'] as const;
+    if (fields.some(field => lock[field] !== record[field])
+      || readAgentStartTime(process.pid) !== record.ownerStartTime) return false;
+    let present = true;
+    try { process.kill(record.pid, 0); }
+    catch (err: any) {
+      if (err?.code !== 'ESRCH') return false;
+      present = false;
+    }
+    if (present) {
+      if (readAgentStartTime(record.pid) !== record.startTime) return false;
+      if (process.platform === 'linux') {
+        const state = fs.readFileSync(`/proc/${record.pid}/stat`, 'utf8').match(/^\d+ \(.*\) ([A-Z])/u)?.[1];
+        if (state !== 'Z') return false;
+      } else if (process.platform === 'darwin') {
+        const result = spawnSync('ps', ['-p', String(record.pid), '-o', 'stat='], { encoding: 'utf8', windowsHide: true, timeout: 2000 });
+        if (result.status !== 0 || result.stdout?.trim()?.[0] !== 'Z') return false;
+      } else return false;
+    }
+    const currentRecord = readAgentRecord(stateDir);
+    if (!currentRecord || fields.some(field => currentRecord[field] !== record[field])) return false;
+    if (present && readAgentStartTime(record.pid) !== record.startTime) return false;
+    if (fs.readFileSync(lockPath, 'utf8') !== contents) return false;
+    const current = fs.lstatSync(lockPath, { bigint: true });
+    if (!current.isFile() || current.dev !== inode.dev || current.ino !== inode.ino) return false;
+    fs.unlinkSync(lockPath);
+    return true;
+  } catch { return false; }
+}
+
+export function acquireAgentStateLock(stateDir: string, waitMs = 5000, publicationGen?: string): () => void {
   mkdirSecure(stateDir);
   const lockPath = path.join(stateDir, 'terminal-agent-pid.lock');
+  let publication: string | undefined;
+  if (publicationGen !== undefined) {
+    const record = readAgentRecord(stateDir);
+    if (!record || record.pid !== process.pid || record.gen !== publicationGen
+      || !record.ownerPid || !isOurAgent(record, record.ownerPid)) {
+      throw new Error('terminal-agent publication lock identity is unavailable');
+    }
+    publication = JSON.stringify({ kind: 'agent-publication-v1', pid: record.pid, gen: record.gen,
+      startTime: record.startTime, ownerPid: record.ownerPid, ownerStartTime: record.ownerStartTime });
+  }
   const deadline = Date.now() + waitMs;
+  let reclaimed = false;
   let fd: number;
   while (true) {
     try {
-      fd = fs.openSync(lockPath, 'wx', 0o600);
+      if (publication !== undefined) {
+        atomicWriteSync(lockPath, publication, { mode: 0o600, noReplace: true });
+        fd = fs.openSync(lockPath, 'r');
+      } else {
+        fd = fs.openSync(lockPath, 'wx', 0o600);
+      }
       break;
     } catch (err: any) {
+      if (err?.code === 'EEXIST' && !reclaimed && reclaimPublicationLock(stateDir, lockPath)) {
+        reclaimed = true;
+        continue;
+      }
       if (err?.code !== 'EEXIST' || Date.now() >= deadline) {
         throw new Error(`terminal-agent state lock unavailable at ${lockPath}: ${err?.code || err}; inspect the owning process before manual recovery`);
       }
