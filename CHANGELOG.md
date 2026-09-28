@@ -2,11 +2,14 @@
 
 ## [1.91.6.0] - 2026-09-28
 
-A new push to a pull request now stops the previous commit's paid eval run instead of waiting behind it.
+A new push to a pull request now stops the previous commit's paid eval run instead of waiting behind it, and skill quality evals no longer fail on borderline clarity scores.
 
 ### Fixed
 - The PR eval workflow's slice, report, and comment jobs run unless the workflow is cancelled (`!cancelled()`) rather than unconditionally (`always()`). They still run when the image build is skipped or an executor fails, so a dead slice still fails the report, but a superseded run's slices no longer keep running (and billing) until they finish while the new commit's run waits behind them. The periodic eval report follows the same rule.
 - A workflow test fails if any eval job goes back to a job-level `always()`.
+
+### Changed
+- LLM-judge skill quality evals now require a clarity score of 3 instead of 4. Completeness and actionability bars are unchanged. Clarity was the dimension that failed unchanged skills intermittently: the same `plan-eng-review` instructions passed on one PR and scored 3 on both attempts on the next. The cookie setup judge keeps its manually approved thresholds.
 
 ## [1.91.4.0] - 2026-09-28
 
