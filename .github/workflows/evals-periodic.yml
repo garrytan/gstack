@@ -275,9 +275,10 @@ jobs:
   report:
     runs-on: ubicloud-standard-2
     needs: [plan-slices, eval-slices, gate-census]
-    # always(): the report must run (and FAIL) when an executor died — a
-    # missing slice artifact reading as green is the class this lane kills.
-    if: always() && needs.plan-slices.result == 'success'
+    # !cancelled(): the report must run (and FAIL) when an executor died — a
+    # missing slice artifact reading as green is the class this lane kills —
+    # but a cancelled run stops here.
+    if: ${{ !cancelled() && needs.plan-slices.result == 'success' }}
     timeout-minutes: 10
     permissions:
       contents: read

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.91.6.0] - 2026-09-28
+
+A new push to a pull request now stops the previous commit's paid eval run instead of waiting behind it.
+
+### Fixed
+- The PR eval workflow's slice, report, and comment jobs run unless the workflow is cancelled (`!cancelled()`) rather than unconditionally (`always()`). They still run when the image build is skipped or an executor fails, so a dead slice still fails the report, but a superseded run's slices no longer keep running (and billing) until they finish while the new commit's run waits behind them. The periodic eval report follows the same rule.
+- A workflow test fails if any eval job goes back to a job-level `always()`.
+
 ## [1.91.4.0] - 2026-09-28
 
 Windows users can copy signed-in cookies from Opera and Opera GX into gstack's browser. On Windows, where Chrome, Edge and Brave increasingly store App-Bound Encryption cookies that gstack cannot decrypt, Opera and Opera GX still use DPAPI-protected cookies, so they may be the browsers where import keeps working.

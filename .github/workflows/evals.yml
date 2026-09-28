@@ -178,7 +178,10 @@ jobs:
   eval-slices:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
-    if: always() && needs.build-image.result == 'success' && needs.plan-slices.result == 'success'
+    # !cancelled(), not always(): still runs when build-image was skipped
+    # (image already published), but a newer push's cancel-in-progress stops
+    # it instead of letting a superseded run finish its paid slices first.
+    if: ${{ !cancelled() && needs.build-image.result == 'success' && needs.plan-slices.result == 'success' }}
     # Aggregate spawn-concurrency budget: 6 slices x EVALS_JOBS=2 x
     # EVALS_CONCURRENCY=2 = 24 concurrent tests lane-wide (the old matrix's
     # 40-way per row queued claude session STARTUP behind 39 siblings and ate
@@ -314,9 +317,10 @@ jobs:
   slices-report:
     runs-on: ubicloud-standard-2
     needs: [plan-slices, eval-slices]
-    # always(): the report must run (and FAIL) when an executor died — a
-    # missing slice artifact reading as green is the class this lane kills.
-    if: always() && needs.plan-slices.result == 'success'
+    # !cancelled(): the report must run (and FAIL) when an executor died — a
+    # missing slice artifact reading as green is the class this lane kills —
+    # but a run superseded by a newer push stops here.
+    if: ${{ !cancelled() && needs.plan-slices.result == 'success' }}
     timeout-minutes: 5
     # contents:read ONLY — this job executes the PR-authored reconcile
     # runner from the PR checkout, so it
@@ -382,7 +386,7 @@ jobs:
   slices-comment:
     runs-on: ubicloud-standard-2
     needs: slices-report
-    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.slices-report.result != 'skipped'
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.slices-report.result != 'skipped' }}
     timeout-minutes: 5
     permissions:
       pull-requests: write

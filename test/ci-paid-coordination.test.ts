@@ -81,12 +81,19 @@ describe('paid CI coordination stays off the eval image', () => {
       expect(planner.steps.find(step => step.run?.includes('--emit-plan'))?.run).toContain('bun --no-install run');
     });
 
+    test(`${name}: cancel-in-progress can stop every job (no job-level always())`, () => {
+      for (const [id, job] of Object.entries(jobs)) {
+        const condition = String((job as { if?: unknown }).if ?? '');
+        expect(`${id}: ${condition}`).not.toMatch(/(^|[^!])always\(\)/);
+      }
+    });
+
     test(`${name}: executors still require both prerequisites and consume the image`, () => {
       const executor = jobs['eval-slices'];
       expect(executor.needs).toEqual(['build-image', 'plan-slices']);
       expect(JSON.stringify(executor.container)).toContain('needs.build-image.outputs.image-tag');
       if (name === 'evals.yml') {
-        expect(executor.if).toBe("always() && needs.build-image.result == 'success' && needs.plan-slices.result == 'success'");
+        expect(executor.if).toBe("${{ !cancelled() && needs.build-image.result == 'success' && needs.plan-slices.result == 'success' }}");
       } else {
         expect(executor.if).toBeUndefined();
       }
@@ -99,7 +106,7 @@ describe('paid CI coordination stays off the eval image', () => {
       expect(report.container).toBeUndefined();
       expect(report.needs).toContain('plan-slices');
       expect(report.needs).toContain('eval-slices');
-      expect(report.if).toBe("always() && needs.plan-slices.result == 'success'");
+      expect(report.if).toBe("${{ !cancelled() && needs.plan-slices.result == 'success' }}");
       expect(JSON.stringify(report.steps)).not.toMatch(/restore-deps|bun install/);
       expect(report.steps.find(step => step.run?.includes('--report'))?.run).toContain('bun --no-install run');
       if (name === 'evals.yml') expect(report.permissions).toEqual({ contents: 'read' });
