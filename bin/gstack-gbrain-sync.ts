@@ -122,12 +122,66 @@ export function dreamMarkerPath(): string {
 }
 
 // Default 35-minute timeout for code-walk + memory-ingest stages. Override via
-// GSTACK_SYNC_CODE_TIMEOUT_MS / GSTACK_SYNC_MEMORY_TIMEOUT_MS. Bounds-checked
+// GSTACK_SYNC_CODE_TIMEOUT_MS / GSTACK_SYNC_MEMORY_TIMEOUT_MS.
+// Narrow the memory walk with GSTACK_MEMORY_INGEST_SOURCES (comma-separated
+// subset of gstack-memory-ingest's types, e.g. "transcript"); see #2922. Bounds-checked
 // in resolveStageTimeoutMs below so wildly-low values don't make resume
 // useless and wildly-high values don't mask config typos. See #1611.
 const DEFAULT_STAGE_TIMEOUT_MS = 35 * 60 * 1000; // 2_100_000ms = 35min
 const MIN_STAGE_TIMEOUT_MS = 60_000;             // 1 minute floor
 const MAX_STAGE_TIMEOUT_MS = 86_400_000;         // 24 hour ceiling
+
+/**
+ * Memory types that bin/gstack-memory-ingest.ts accepts via --sources.
+ * Keep in sync with ALL_TYPES there (#2922).
+ */
+export const MEMORY_INGEST_TYPES = [
+  "transcript",
+  "eureka",
+  "learning",
+  "timeline",
+  "ceo-plan",
+  "design-doc",
+  "retro",
+  "builder-profile-entry",
+] as const;
+
+/**
+ * Parse GSTACK_MEMORY_INGEST_SOURCES into a validated source subset for the
+ * memory stage's --sources flag (#2922). Returns null when the env is unset
+ * or empty (current behavior: walk every memory type). Unknown tokens are
+ * dropped with a stderr warning; when nothing valid remains, returns null
+ * with a warning rather than failing the whole memory stage.
+ */
+export function resolveMemoryIngestSources(
+  envValue: string | undefined,
+  envName: string,
+): string[] | null {
+  if (envValue === undefined || envValue.trim() === "") return null;
+  const valid: string[] = [];
+  const dropped: string[] = [];
+  for (const token of envValue.split(",")) {
+    const t = token.trim();
+    if (t === "") continue;
+    if ((MEMORY_INGEST_TYPES as readonly string[]).includes(t)) {
+      if (!valid.includes(t)) valid.push(t);
+    } else {
+      dropped.push(t);
+    }
+  }
+  if (dropped.length > 0) {
+    console.warn(
+      `[sync] ${envName}: ignoring unknown memory type(s): ${dropped.join(", ")} (valid: ${MEMORY_INGEST_TYPES.join(", ")})`,
+    );
+  }
+  if (valid.length === 0) {
+    console.warn(
+      `[sync] ${envName}="${envValue}" names no valid memory types; running a full memory walk`,
+    );
+    return null;
+  }
+  return valid;
+}
 
 /**
  * Parse a stage-timeout env value with bounds validation. Returns the bounded
@@ -1257,6 +1311,14 @@ function runMemoryIngest(args: CliArgs): StageResult {
   if (args.mode === "full") ingestArgs.push("--bulk");
   else ingestArgs.push("--incremental");
   if (args.quiet) ingestArgs.push("--quiet");
+
+  // #2922: let operators narrow the memory walk (e.g. "transcript" to avoid
+  // duplicating curated types already owned by a registered federated source).
+  const memorySources = resolveMemoryIngestSources(
+    process.env.GSTACK_MEMORY_INGEST_SOURCES,
+    "GSTACK_MEMORY_INGEST_SOURCES",
+  );
+  if (memorySources) ingestArgs.push("--sources", memorySources.join(","));
 
   // Thread the seeded env into the bun grandchild (codex review #7 — the
   // .env.local footgun affects gstack-memory-ingest.ts too, not just the
