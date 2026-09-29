@@ -37,6 +37,18 @@ case "\${STUB_MODE:-ok}" in
     echo 'ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The '"'"'gpt-6-astra'"'"' model is not supported when using Codex with a ChatGPT account."}}' >&2
     exit 1 ;;
   transient) echo "stream error: network unreachable" >&2; exit 7 ;;
+  model404)
+    # A retired model on the /responses path. Carries no 400 and no
+    # "is not supported", which is why this used to fail open.
+    echo 'ERROR: unexpected status 404 Not Found: The model \`gpt-6-astra\` does not exist or you do not have access to it., url: https://chatgpt.com/backend-api/codex/responses' >&2
+    exit 1 ;;
+  staleCli)
+    echo 'ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The '"'"'gpt-6-astra'"'"' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}}' >&2
+    exit 1 ;;
+  notfound404)
+    # An unrelated 404 (bad base URL, proxy). Must KEEP the fail-open contract.
+    echo 'ERROR: unexpected status 404 Not Found, url: https://example.invalid/v1/responses' >&2
+    exit 1 ;;
 esac
 `;
 
@@ -144,6 +156,56 @@ describe('codex model probe (#2477)', () => {
       expect(second.stdout).toContain('GSTACK_CODEX_MODEL');
       expect(second.status).toBe(1);
       expect(invocations(f)).toBe(1);
+    } finally {
+      fs.rmSync(f.home, { recursive: true, force: true });
+    }
+  });
+
+  test('a retired-model 404 is MODEL_UNUSABLE, not fail-open', () => {
+    // Regression: the classifier matched only /is not supported/ and
+    // /"status": *400/. A retired model answers 404 with neither, so the probe
+    // fell through to MODEL_PROBE_INCONCLUSIVE (return 0) and the preflight
+    // printed CODEX_MODE: ready while every codex invocation died. Measured
+    // against codex-cli 0.153.4 with a retired pin.
+    const f = makeFixture();
+    try {
+      const r = runProbe(f, 'model404');
+      expect(r.stdout).toContain('MODEL_UNUSABLE');
+      expect(r.stdout).not.toContain('MODEL_PROBE_INCONCLUSIVE');
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain('GSTACK_CODEX_MODEL');
+    } finally {
+      fs.rmSync(f.home, { recursive: true, force: true });
+    }
+  });
+
+  test('"requires a newer version of Codex" points at the CLI, not the model pin', () => {
+    // Same status class, different fix. Telling the user to change
+    // GSTACK_CODEX_MODEL here sends them to edit config forever while every
+    // model stays refused; the actual repair is upgrading the CLI.
+    const f = makeFixture();
+    try {
+      const r = runProbe(f, 'staleCli');
+      expect(r.stdout).toContain('MODEL_UNUSABLE');
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain('too old');
+      expect(r.stdout).toContain('codex doctor');
+      // The model-selection hint must NOT be the advice offered here.
+      expect(r.stdout).not.toContain('set GSTACK_CODEX_MODEL=<supported-model>');
+    } finally {
+      fs.rmSync(f.home, { recursive: true, force: true });
+    }
+  });
+
+  test('an unrelated 404 keeps the fail-open contract', () => {
+    // The 404 signature is anchored on the model-not-found wording precisely
+    // so a proxy or wrong-base-URL 404 stays a network-luck problem.
+    const f = makeFixture();
+    try {
+      const r = runProbe(f, 'notfound404');
+      expect(r.stdout).toContain('MODEL_PROBE_INCONCLUSIVE');
+      expect(r.stdout).not.toContain('MODEL_UNUSABLE');
+      expect(r.status).toBe(0);
     } finally {
       fs.rmSync(f.home, { recursive: true, force: true });
     }
