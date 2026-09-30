@@ -266,7 +266,14 @@ jobs:
       # if a future edit drops the gate build (or poppler), the lane FAILS
       # instead of the gates silently self-skipping back to false green.
       - name: Run free suite
-        run: xvfb-run -a bun run test:free --ci-run "$RUNNER_TEMP/free-plan.json" --shard ${{ matrix.shard }} --result "$RUNNER_TEMP/free-results/shard-${{ matrix.shard }}.json"
+        run: |
+          .bisect/sample.sh > "$RUNNER_TEMP/samples.txt" 2>&1 &
+          set +e
+          xvfb-run -a bun run test:free --ci-run "$RUNNER_TEMP/free-plan.json" --shard ${{ matrix.shard }} --result "$RUNNER_TEMP/free-results/shard-${{ matrix.shard }}.json"
+          code=$?
+          echo "=== samples (first 120KB)"; head -c 120000 "$RUNNER_TEMP/samples.txt"
+          echo "=== git version: $(git --version)"; echo "=== global config"; git config --global --list --show-origin
+          exit $code
         env:
           GSTACK_EXPECT_BINARIES: "1"
           # WS1 flake telemetry: a single timing flake must not red the only
