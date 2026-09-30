@@ -698,27 +698,41 @@ gh pr checks "$PR_NUMBER" --repo "$REPO" --required --json name,state,bucket,lin
 Parse valid JSON using `bucket` (pass/fail/pending/skipping/cancel). Exit 8 means
 pending; a nonzero exit with valid failing checks is a CI failure. Auth/network/schema
 errors are **STOP**, never "no required checks". An empty successful result or the
-CLI's explicit "no required checks reported" response means none are configured.
-1. Required checks **FAILING/cancelled**: **STOP**, list failures to fix.
-2. Required checks **PENDING**: announce the wait and proceed to Step 3.
-3. All pass (or none required): report that exact result. Skip only Step 3's wait;
-   continue to Step 3.4, then Step 3.5 before merging.
+CLI's explicit "no required checks reported" response means none are configured —
+then re-query **all** checks and gate on those:
+
+```bash
+gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state,bucket,link
+```
+
+Repos without branch protection declare no required checks (private repos on GitHub
+Free cannot declare any at all), yet they still run CI. "None required" never means
+"nothing to wait for".
+1. Gated checks **FAILING/cancelled**: **STOP**, list failures to fix.
+2. Gated checks **PENDING**: announce the wait and proceed to Step 3.
+3. All pass (or no checks exist at all): report that exact result. Skip only Step 3's
+   wait; continue to Step 3.4, then Step 3.5 before merging.
 
 Also check for merge conflicts:
 ```bash
 gh pr view "$PR_NUMBER" --repo "$REPO" --json mergeable -q .mergeable
 ```
 If `CONFLICTING`: **STOP**, resolve conflicts first. Failed/UNKNOWN readback: **STOP**,
-readiness is not established. Cancelled required checks are failures, not passes.
+readiness is not established. Cancelled checks are failures, not passes.
 
 ---
 
 ## Step 3: Wait for CI (if pending)
 
-If required checks are still pending, wait for them to complete. Use a timeout of 15 minutes:
+If checks are still pending, wait for them to complete. Use a timeout of 15 minutes.
+Watch the same set Step 2 gated on — required checks when configured, all checks
+otherwise:
 
 ```bash
+# Required checks configured:
 gh pr checks "$PR_NUMBER" --repo "$REPO" --required --watch --fail-fast --interval 30
+# No required checks configured: watch all checks instead.
+gh pr checks "$PR_NUMBER" --repo "$REPO" --watch --fail-fast --interval 30
 ```
 
 Record the CI wait time for the deploy report.

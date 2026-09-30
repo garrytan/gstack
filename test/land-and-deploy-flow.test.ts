@@ -8,6 +8,19 @@ const root = join(import.meta.dir, '..');
 const source = (name: string) => readFileSync(join(root, 'land-and-deploy', name), 'utf8');
 
 describe('land-and-deploy decision ordering', () => {
+  test('CI gate falls back to all checks when no required checks are configured (#2995)', () => {
+    const main = source('SKILL.md.tmpl');
+    // Regression: v1.90.2.0 narrowed the gate to --required, so repos without
+    // branch protection (all GitHub Free private repos) merged over red CI.
+    expect(main).toContain('gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state,bucket,link');
+    expect(main).toContain('"None required" never means');
+    expect(main).not.toContain('All pass (or none required)');
+    // Step 3's watch must follow the same set Step 2 gated on.
+    expect(main).toContain('gh pr checks "$PR_NUMBER" --repo "$REPO" --watch --fail-fast --interval 30');
+    // The generated skill ships the fallback too.
+    expect(source('SKILL.md')).toContain('gh pr checks "$PR_NUMBER" --repo "$REPO" --json name,state,bucket,link');
+  });
+
   test('binds local evidence and merge approval to the selected PR head', () => {
     const main = source('SKILL.md.tmpl');
     const merge = source('sections/merge-and-deploy.md.tmpl');
