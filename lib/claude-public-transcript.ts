@@ -72,6 +72,33 @@ const object = (value: unknown): value is Record<string, any> =>
 const validTimestamp = (value: unknown): value is string =>
   typeof value === 'string' && Number.isFinite(Date.parse(value));
 
+/** Claude Code parents the first user message on the SessionStart hook
+ * attachments it writes at startup, chained from a null root. That preamble
+ * carries no conversation, so it stands in for a null parent and nothing else:
+ * returns the UUIDs of same-session, same-cwd SessionStart attachments whose
+ * whole chain reaches a null root through other such attachments. */
+function sessionStartPreamble(records: unknown[], cwd: string, filename: string): Set<string> {
+  const uuid = (value: unknown): value is string => typeof value === 'string' &&
+    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
+  const hooks = new Map<string, Record<string, any>>();
+  for (const r of records) {
+    if (!object(r) || filename !== `${r.sessionId}.jsonl` || r.agentId != null || r.isSidechain !== false ||
+        r.type !== 'attachment' || r.message != null || r.cwd !== cwd || !uuid(r.uuid) ||
+        !validTimestamp(r.timestamp) || !object(r.attachment) || r.attachment.hookEvent !== 'SessionStart' ||
+        (r.parentUuid !== null && !uuid(r.parentUuid))) continue;
+    if (hooks.has(r.uuid)) return new Set();
+    hooks.set(r.uuid, r);
+  }
+  const admitted = new Set<string>();
+  for (const id of hooks.keys()) {
+    const seen = new Set<string>();
+    let hook = hooks.get(id);
+    while (hook && hook.parentUuid !== null && !seen.has(hook.uuid)) { seen.add(hook.uuid); hook = hooks.get(hook.parentUuid); }
+    if (hook?.parentUuid === null) admitted.add(id);
+  }
+  return admitted;
+}
+
 /** Read one length-delimited protobuf field, rejecting malformed/ambiguous input. */
 function signatureField(bytes: Uint8Array | undefined, wanted: number): Uint8Array | undefined {
   if (!bytes) return;
@@ -166,6 +193,8 @@ function ownedCausalLines(lines: string[], cwd: string, filename: string): strin
   const parent = (r: Record<string, any>): string | undefined => uuid(r.parentUuid) ? r.parentUuid :
     r.parentUuid === null && r.type === 'system' && r.subtype === 'compact_boundary' &&
     r.message == null && uuid(r.logicalParentUuid) ? r.logicalParentUuid : undefined;
+  const preamble = sessionStartPreamble(scoped.map(x => x.record), cwd, filename);
+  const rooted = (r: Record<string, any>) => r.parentUuid === null || preamble.has(r.parentUuid);
   // Anchor through the first observed conversation node, never an unrelated
   // later root. An unflushed/malformed ancestor supplies no ownership.
   let root = first;
@@ -174,14 +203,14 @@ function ownedCausalLines(lines: string[], cwd: string, filename: string): strin
     if (ancestry.has(root.record.uuid)) throw Error('cyclic owned native ancestry');
     ancestry.add(root.record.uuid);
     const id = parent(root.record);
-    if (!id) break;
+    if (!id || preamble.has(id)) break;
     const next = byId.get(id);
     if (!next) return [];
     root = next;
   }
-  if (root.record.parentUuid !== null || root.record.cwd !== cwd ||
+  if (!rooted(root.record) || root.record.cwd !== cwd ||
       !object(root.record.message) || root.record.message.role !== 'user') return [];
-  if (nodes.some(x => x !== root && x.record.parentUuid === null &&
+  if (nodes.some(x => x !== root && rooted(x.record) &&
       object(x.record.message) && x.record.message.role === 'user')) throw Error('competing owned native roots');
   // Stable topological traversal preserves physical order whenever two ready
   // records have no parent dependency. No timestamp provides ordering credit.
@@ -276,6 +305,9 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
           }
           return causalMembership.has(id);
         };
+        let preamble: Set<string> | undefined;
+        const preambleHas = (id: string) => (preamble ??= sessionStartPreamble(
+          completeLines.flatMap(line => line.trim() ? [JSON.parse(line)] : []), cwd, entry.name)).has(id);
         for (const line of ownedSnapshot ? ownedCausalLines(completeLines, cwd, entry.name) : completeLines) {
           if (!line.trim()) continue;
           const record = JSON.parse(line);
@@ -295,7 +327,8 @@ export function readPlanCountTranscript(configDir: string, cwd: string,
           if (!originSeen && object(record.message) && ['user', 'assistant'].includes(record.message.role)) {
             originSeen = true;
             if (parentMetadata && record.cwd === cwd && record.message.role === 'user' &&
-                record.parentUuid === null) ancestry.add(record.uuid);
+                (record.parentUuid === null || (nativeUuid(record.parentUuid) && preambleHas(record.parentUuid))))
+              ancestry.add(record.uuid);
           }
           if (continuation) ancestry.add(record.uuid);
           // Native compaction resets parentUuid but links its prior owned
