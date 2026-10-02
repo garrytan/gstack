@@ -160,6 +160,61 @@ append commits. Git's default would conflict at the file tail, but the
 You shouldn't see conflict prompts. If you do (a real semantic conflict,
 like two machines editing the same plan), git will stop and prompt.
 
+When a sync's push is rejected and the automatic merge still conflicts:
+
+- **A file removed on one machine and edited on the other** (a
+  modify/delete conflict, which no merge driver sees): the edit wins. The
+  file comes back everywhere and the status says how many were kept. The
+  version kept is the one that machine committed, never a later write to the
+  file, which waits for the next sync and its secret scan.
+- **Anything else**: the merge is aborted, your commits stay local, and the
+  status reads `diverged from the remote (conflict in <paths>)` until the
+  commits land. Resolve it in `~/.gstack` (merge, commit, `git push`). A
+  half-done merge is never left behind to block later syncs.
+
+## Deleted and moved files (removals)
+
+Deleting a synced file, or moving a project directory (a slug migration
+does both), leaves the old path **tracked and published** until its removal
+is committed. By default gstack never publishes a removal on its own. Every
+other machine keeps the old copy, and a brain that indexes the artifacts
+repo keeps serving it next to the new one.
+
+```bash
+gstack-brain-sync --status               # "removals_pending": how many (null when sync is off)
+gstack-brain-sync --list-removals        # which ones, and their state
+gstack-brain-sync --publish-removals     # dry run
+gstack-brain-sync --publish-removals --yes [<path>...]   # remove them now
+```
+
+To publish removals automatically at every sync, turn it on:
+
+```bash
+gstack-config set artifacts_sync_removals on
+```
+
+With it on, **a local delete becomes a delete on every machine that pulls.**
+Removals are committed on their own, and a removal that looks like a loss
+rather than a cleanup is **held** instead:
+
+- more than `artifacts_sync_removals_max` removals in one sync (default 20);
+- a quarter or more of all synced files, once more than 5 are involved;
+- every synced file of a directory that holds several: a project
+  (`projects/<slug>/`) or any other top-level directory. This covers a moved
+  project directory;
+- any removal while a merge or rebase is in progress, or while git cannot
+  list the repo.
+
+A top-level file such as `builder-journey.md`, or the only synced file of a
+directory, is removed like any other file.
+
+Held removals stay queued, show up in `--list-removals` with the reason, and
+are published only by `--publish-removals --yes`. Skip-listed paths, paths
+outside the allowlist and gstack's own `.brain-*` files are never removed. A
+dangling symlink is not a removal. Under `artifacts_sync_mode=artifacts-only`,
+behavioural files are not synced and neither are their removals: they are
+neither listed nor published until the mode is `full` again.
+
 ## Cross-machine pull cadence
 
 The preamble runs `git fetch` + `git merge --ff-only` once per 24 hours
