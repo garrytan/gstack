@@ -84,6 +84,14 @@ describe('directiveFor — per-session-kind instruction', () => {
     expect(d).toMatch(/conservative non-destructive/);
   });
 
+  test('all spawned AUQ fallback paths refuse remote artifact sync consent', () => {
+    for (const kind of ['spawned', 'headless', 'interactive'] as const) {
+      const directive = directiveFor(kind);
+      expect(directive).toContain('Remote artifacts-sync consent is excluded from auto-choice');
+      expect(directive).toContain('artifacts_sync_mode_prompted');
+    }
+  });
+
   test('interactive directive carries the spawned escape sentence (#2733)', () => {
     // The sessionKind() shell-out runs in the HARNESS env, so a subagent
     // marked spawned via a per-command prefix classifies interactive here —
