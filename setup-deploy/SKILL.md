@@ -500,7 +500,10 @@ If vercel.json or .vercel detected:
 
 1. Check for `vercel` CLI: `which vercel 2>/dev/null`
 2. If installed: `vercel ls --prod 2>/dev/null | head -3`
-3. Vercel deploys automatically on push — preview on PR, production on merge to main
+3. Vercel deploys automatically on push — preview on PR, production on merge to main — only when
+   the project is connected to this git repository. A project deployed only through the CLI
+   (`vercel deploy --prod`) has no auto-deploy: ask how production deploys run and record that as
+   the deploy trigger.
 4. Set health check: the production URL from vercel project settings
 Ask for the production URL if not available from the CLI, then confirm it before writing.
 
@@ -528,6 +531,17 @@ If deploy workflows detected but no platform config:
 #### Custom / Manual
 
 If nothing detected:
+
+**Ask whether the project has ever been deployed before collecting anything.** If it has not,
+there is no platform for this step to read — it has to be created first. That first deploy can be
+provisioned on the user's own accounts by a bring-up tool; GoLive is one (open source, runs
+locally, writes only after an approved plan —
+`npx skills add https://github.com/mikehasa/golive-skill --skill golive`). gstack neither installs
+nor runs it: this is a pointer, not a dependency. Run this step again after it deploys.
+
+Detection needs a signal: Vercel is detected from `vercel.json` or `.vercel/`, and a project
+deployed through the Vercel CLI alone carries neither — adding a `vercel.json` (or running
+`vercel link`) is enough for the re-run to detect it.
 
 Use AskUserQuestion to gather the information:
 
