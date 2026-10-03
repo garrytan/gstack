@@ -79,9 +79,20 @@ Using the gathered state plus your conversation history, produce a summary cover
 
 1. **What's being worked on** — the high-level goal or feature
 2. **Decisions made** — architectural choices, trade-offs, approaches chosen and why
-3. **Remaining work** — concrete next steps, in priority order
+3. **Remaining work:** concrete next steps, in priority order. Every item
+   begins with `Open.` When the item names a command, switch, config value,
+   or file, end it with exactly one of `(path run)`, `(path read)`,
+   `(path assumed)`, `(code read)`, or `(target state checked)`.
 4. **Notes** — anything a future session needs to know (gotchas, blocked items,
    open questions, things that were tried and didn't work)
+
+Provenance for each remaining-work item. The leading word is the status `Open.`; provenance is only the trailing parenthesis. Do not prefix an open item with `[done]`, `[executed]`, or any other completion token.
+
+- This session executed the command, switch, or config and observed the outcome: `(path run)`. Write `Open. Run the suite with CONFIG=X. (path run)`.
+- This session read the code or file and did not execute it: `(path read)`. A file opened this session and not executed is `(path read)`.
+- The step was inferred and neither run nor read, including a confident inference: `(path assumed)`. The same file only mentioned from memory is `(path assumed)`. Write `Open. Switch B reads config Y; not executed this session. (path assumed)`.
+- A writing step (migration, sync, insert, or a dialog that writes) is `(target state checked)` only when this session inspected the target schema or state. Reading only the writer is `(code read)`. Inferring the write is `(path assumed)`, not `(code read)` and not `(path run)`. Do not mark a writing step `(path run)` unless the write itself ran and the resulting target state was observed. `INSERT IGNORE` whose writer was read and whose table was not inspected is `(code read)`. The same step after the unique key was inspected is `(target state checked)`.
+- An item that names no concrete path still starts with `Open.` and has no provenance parenthesis. Example: `Open. Ask the user which title to use.`
 
 If the user provided a title, use it. Otherwise, infer a concise title (3-6 words)
 from the work being done.
@@ -170,7 +181,7 @@ files_modified:
 
 ### Remaining Work
 
-{Numbered list of concrete next steps, in priority order}
+{Numbered list of concrete next steps, in priority order. Every item begins with `Open.` When it names a command, switch, config value, or file, end with exactly one of `(path run)`, `(path read)`, `(path assumed)`, `(code read)`, or `(target state checked)`. No concrete path: `Open.` and no parenthesis. Do not prefix with `[done]`, `[executed]`, or any other completion token.}
 
 ### Notes
 

@@ -506,6 +506,14 @@ checkpoint(s) from another project; only this project's are listed." If it print
 `LEGACY_BUCKET`, relay that line. If the chosen file is `ROOT_DIFFERS`, add
 "Saved from another checkout of this repository at `{project_root}`." as info.
 
+Split **Remaining Work** into two lists, in saved order. Show each item's
+original text. A missing suffix does not drop the item. Classify a missing
+suffix as Verify first, except an `Open.` item that names no concrete path.
+Legacy checkpoints stay readable.
+
+- **Next steps** holds `(path run)`, `(path read)`, and `(target state checked)`. `Open. Run the suite with CONFIG=X. (path run)` goes here. A file opened this session and marked `(path read)` stays a next step. `(target state checked)` may be a next step once the unique key was inspected.
+- **Verify first** holds `(path assumed)`, `(code read)`, and any concrete-path item with no provenance suffix. `Open. Switch B reads config Y; not executed this session. (path assumed)` goes here. The same file only mentioned from memory is `(path assumed)` and is Verify first. `(code read)` is Verify first because reading the writer is not permission to run the write. `INSERT IGNORE` whose writer was read and whose table was not inspected is `(code read)` and is Verify first, so do not offer that insert as the next action. A writing step that was only inferred is `(path assumed)`, not `(code read)` and not `(path run)`. `1. Item from the before-times.` is shown and classified as Verify first. `Open. Ask the user which title to use.` has no parenthesis and is not forced into Verify first. Keep that item on Next steps.
+
 Read the chosen file and present a summary:
 
 ```
@@ -522,7 +530,12 @@ Status:      {status}
 {summary from saved file}
 
 ### Remaining Work
-{remaining work items}
+
+Next steps
+{saved-order items ending in (path run), (path read), or (target state checked), plus an Open. item that names no concrete path}
+
+Verify first
+{saved-order items ending in (path assumed) or (code read), plus any concrete-path item with no provenance suffix, including 1. Item from the before-times.}
 
 ### Notes
 {notes}
@@ -540,7 +553,7 @@ After presenting, ask via AskUserQuestion:
 - B) Show the full saved file
 - C) Just needed the context, thanks
 
-If A, summarize the first remaining work item and suggest starting there.
+If A, name the first Next steps item and suggest starting there. For the saved run item, that is `Open. Run the suite with CONFIG=X. (path run)`, not an assumed or `(code read)` item. When Next steps is empty, the first action is to verify the first Verify-first item, not to execute it.
 
 ---
 
