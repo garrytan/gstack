@@ -306,6 +306,50 @@ describe('gstack-retro-metrics edges', () => {
     }
   });
 
+  test('Swift/XCTest naming counts as tests; generated output and prose specs do not', () => {
+    const swiftRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-rm-swift-'));
+    try {
+      git(swiftRepo, ['init', '-b', 'main']);
+      git(swiftRepo, ['config', 'user.email', 'dev@example.com']);
+      git(swiftRepo, ['config', 'user.name', 'Dev']);
+
+      // Production source.
+      fs.mkdirSync(path.join(swiftRepo, 'App'), { recursive: true });
+      write(swiftRepo, 'App/Store.swift', 'struct Store {}\n');
+
+      // XCTest convention: <Module>Tests/<Thing>Tests.swift. Matches neither
+      // the lowercase test/ dir pattern nor the .test./_test. suffixes.
+      fs.mkdirSync(path.join(swiftRepo, 'AppTests'), { recursive: true });
+      write(swiftRepo, 'AppTests/StoreTests.swift', 'import XCTest\nfinal class StoreTests: XCTestCase {}\n');
+
+      // Generated build output, including a Test/ subdirectory.
+      fs.mkdirSync(path.join(swiftRepo, '.build/Logs/Test'), { recursive: true });
+      write(swiftRepo, '.build/Logs/Test/manifest.plist', 'generated\ngenerated\ngenerated\n');
+
+      // A written specification, not an RSpec test.
+      fs.mkdirSync(path.join(swiftRepo, 'docs/specs'), { recursive: true });
+      write(swiftRepo, 'docs/specs/design.md', '# Design\nprose\nprose\n');
+
+      commit(swiftRepo, 'feat: swift app with tests', '2026-03-10T09:00:00');
+
+      const out = runMetrics(['--since', '2026-03-01T00:00:00'], swiftRepo);
+
+      // The XCTest file counts.
+      expect(out).toMatch(/^TEST_FILES_TOTAL: 1$/m);
+      expect(out).toMatch(/^TEST_FILES_CHANGED: 1$/m);
+      expect(out).toMatch(/^TEST_INSERTIONS: 2$/m);
+
+      // Generated output is excluded from insertions entirely, so it can
+      // neither inflate test LOC nor dominate the focus score. 6 = 1 prod
+      // + 2 test + 3 prose; the 3 generated lines are dropped. Prose is
+      // authored content, so it counts here even though it is not a test.
+      expect(out).not.toMatch(/^FOCUS_SCORE: \d+% \(\.build\/\)$/m);
+      expect(out).toMatch(/^INSERTIONS: 6$/m);
+    } finally {
+      fs.rmSync(swiftRepo, { recursive: true, force: true });
+    }
+  });
+
   test('local reads only: no network git ops or curl anywhere in the script', () => {
     const script = fs.readFileSync(SCRIPT, 'utf-8');
     expect(script).not.toMatch(/(^|[;|&`($!]|\s)git(\s+-C\s+\S+)?\s+(push|pull|fetch|clone|ls-remote)\b/m);
