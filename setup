@@ -1371,9 +1371,13 @@ probe_cso_build_prerequisites() {
       _cso_unavailable "windows-git"
       return 0
     fi
-    if ! powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
-      -File "$_ps_script" -RepoRoot "$_repo_root" -GitExePath "$(cygpath -aw "$_git_path")" -CheckOnly >/dev/null 2>&1; then
+    if ! _cso_probe_out="$(powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+      -File "$_ps_script" -RepoRoot "$_repo_root" -GitExePath "$(cygpath -aw "$_git_path")" -CheckOnly 2>&1)"; then
+      # The probe's own diagnostics matter: "install Visual Studio 2022 Build
+      # Tools" is wrong whenever vswhere already resolves the MSVC toolchain and
+      # the failure came from a compile step instead. Keep the message visible.
       _cso_unavailable "windows-msvc-toolchain"
+      [ -n "$_cso_probe_out" ] && printf '%s\n' "$_cso_probe_out" >&2
     fi
     return 0
   fi

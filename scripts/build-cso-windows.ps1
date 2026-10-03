@@ -64,7 +64,13 @@ try {
         $output = Join-Path $temporary 'probe.exe'
         Set-Content -LiteralPath $source -Encoding Ascii -NoNewline -Value 'int main(void) { return 0; }'
         $object = Join-Path $temporary 'probe.obj'
-        & $compiler /nologo /std:c11 /W4 /WX /O2 /MT /GS /guard:cf /D_CRT_SECURE_NO_WARNINGS "/Fo$object" "/Fe$output" $source /link /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA
+        # /wd5105: warning C5105 ("macro expansion producing 'defined' has
+        # undefined behavior") is raised by the Windows SDK's own winbase.h
+        # (observed on SDK 10.0.19041.0 with current MSVC). With /W4 /WX it is
+        # promoted to error C2220 and the build aborts inside a system header,
+        # for a warning the project cannot act on. Disable that one diagnostic
+        # rather than dropping /WX for real warnings.
+        & $compiler /nologo /std:c11 /W4 /WX /wd5105 /O2 /MT /GS /guard:cf /D_CRT_SECURE_NO_WARNINGS "/Fo$object" "/Fe$output" $source /link /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA
         if ($LASTEXITCODE -ne 0) { throw "Native CSO Windows compiler probe failed ($LASTEXITCODE)." }
         if (-not (Test-Path -LiteralPath $output -PathType Leaf)) { throw 'Native CSO Windows compiler probe was not produced.' }
     } else {
@@ -78,7 +84,9 @@ try {
         foreach ($build in $builds) {
             $object = Join-Path $temporary $build.Object
             $forcedInclude = if ($build.Binding) { "/FI$binding" } else { @() }
-            & $compiler /nologo /std:c11 /W4 /WX /O2 /MT /GS /guard:cf /D_CRT_SECURE_NO_WARNINGS $forcedInclude "/Fo$object" "/Fe$($build.Output)" $build.Source /link /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA
+            # /wd5105: see the probe comment above — C5105 comes from the Windows
+            # SDK's winbase.h and must not abort a /WX build inside a system header.
+            & $compiler /nologo /std:c11 /W4 /WX /wd5105 /O2 /MT /GS /guard:cf /D_CRT_SECURE_NO_WARNINGS $forcedInclude "/Fo$object" "/Fe$($build.Output)" $build.Source /link /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA
             if ($LASTEXITCODE -ne 0) { throw "Native CSO Windows helper compilation failed ($LASTEXITCODE)." }
             if (-not (Test-Path -LiteralPath $build.Output -PathType Leaf)) { throw 'Native CSO Windows output was not produced.' }
         }
