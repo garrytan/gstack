@@ -99,7 +99,7 @@ jobs:
               --output "public-image-evidence/$runtime_id.json" --remove-after
           done
       - name: Attest the exact review candidate
-        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: runtime-catalog.candidate.json
       - name: Verify and record the exact candidate attestation
