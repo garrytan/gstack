@@ -34,6 +34,12 @@ import {
   newDimensionTotals,
   normalizeToDimensionValue,
   ALL_DIMENSIONS,
+  recommendationSignal,
+  recommendationEligibleCount,
+  isRecommendationEligible,
+  RECOMMENDATION_MIN_SAMPLE,
+  RECOMMENDATION_SIGNAL_WEIGHT,
+  type RecommendationEvent,
 } from '../scripts/psychographic-signals';
 import {
   ARCHETYPES,
@@ -286,6 +292,178 @@ describe('psychographic signal map', () => {
     const { extra } = validateRegistrySignalKeys();
     // Allow up to 3 "reserved" extras before flagging. Tighten later.
     expect(extra.length).toBeLessThanOrEqual(3);
+  });
+});
+
+// -----------------------------------------------------------------------
+// Registry-independent autonomy signal (followed_recommendation)
+//
+// Math only. The derive/trace wiring is covered end-to-end in
+// test/gstack-developer-profile.test.ts; a failure here should point at the
+// formula, not at a subprocess round-trip.
+// -----------------------------------------------------------------------
+
+describe('recommendationSignal', () => {
+  const rows = (
+    n: number,
+    followed: number,
+    extra: Partial<RecommendationEvent> = {},
+  ): RecommendationEvent[] =>
+    Array.from({ length: n }, (_, i) => ({
+      followed_recommendation: i < followed,
+      source: 'hook',
+      question_id: 'adhoc-unregistered',
+      ...extra,
+    }));
+
+  const derived = (evs: RecommendationEvent[]): number =>
+    normalizeToDimensionValue(recommendationSignal(evs).delta);
+
+  test('always attributes to autonomy', () => {
+    expect(recommendationSignal(rows(20, 20)).dim).toBe('autonomy');
+    expect(recommendationSignal([]).dim).toBe('autonomy');
+  });
+
+  test('following the recommendation pushes autonomy up', () => {
+    expect(recommendationSignal(rows(20, 20)).delta).toBeGreaterThan(0);
+    expect(derived(rows(20, 20))).toBeGreaterThan(0.5);
+  });
+
+  test('ignoring the recommendation pushes autonomy down', () => {
+    expect(recommendationSignal(rows(20, 0)).delta).toBeLessThan(0);
+    expect(derived(rows(20, 0))).toBeLessThan(0.5);
+  });
+
+  test('REGRESSION: 200 all-followed events must not saturate', () => {
+    // The whole design rests on this. normalizeToDimensionValue is a sigmoid
+    // over an ACCUMULATED total, so a per-event delta at this file's usual
+    // +/-0.03..0.06 reaches 0.9994 by 50 events and 1.0 by 100 — as
+    // uninformative as the 0.5 it replaced. A rate-based O(1) contribution
+    // stays bounded no matter how long the log gets.
+    //
+    // MUTATE THIS by making recommendationSignal accumulate per event
+    // (delta * n); this assertion is what reds.
+    const value = derived(rows(200, 200));
+    expect(value).toBeLessThan(0.95);
+    expect(value).toBeGreaterThan(0.5);
+
+    // And it must stay bounded as the log grows: 200 rows and 2,000 rows at
+    // the same rate land in the same place.
+    expect(Math.abs(derived(rows(2000, 2000)) - value)).toBeLessThan(0.01);
+  });
+
+  test('zero eligible rows is exactly neutral, with no special case', () => {
+    // Laplace smoothing returns 0.5 at n=0, so "no data" needs no null branch.
+    // MUTATE THIS by removing the +1/+2 smoothing: (0/0) is NaN and this reds.
+    expect(recommendationSignal([]).delta).toBe(0);
+    expect(derived([])).toBeCloseTo(0.5, 10);
+  });
+
+  test('confidence ramp is keyed on the ELIGIBLE count, not the row count', () => {
+    // The bug this pins: the documented calibration gate reads
+    // inferred.sample_size, which counts EVERY logged row. A log of 3 eligible
+    // rows beside 1,200 ineligible ones passes that gate, so a ramp keyed on
+    // total rows would render a confident score from three answers.
+    //
+    // The fixture is deliberately lopsided — 3 eligible among 1,203 — so a ramp
+    // keyed on the wrong population reads "full confidence" and reds.
+    const ineligible = rows(1200, 1200, { source: 'auto-decided' });
+    const thin = [...ineligible, ...rows(3, 3)];
+
+    expect(recommendationEligibleCount(thin)).toBe(3);
+    expect(derived(thin)).toBeLessThan(derived(rows(20, 20)));
+    expect(derived(thin)).toBeLessThan(0.60);
+  });
+
+  test('confidence rises monotonically with eligible count, then plateaus', () => {
+    const at = (n: number) => derived(rows(n, n));
+    expect(at(3)).toBeLessThan(at(10));
+    expect(at(10)).toBeLessThan(at(20));
+    // At and beyond MIN_SAMPLE the ramp is capped, so growth is smoothing-only.
+    expect(at(RECOMMENDATION_MIN_SAMPLE * 10) - at(RECOMMENDATION_MIN_SAMPLE))
+      .toBeLessThan(0.05);
+  });
+
+  test('the weight bounds the maximum contribution', () => {
+    // An all-followed infinite log can never exceed the weight itself.
+    expect(recommendationSignal(rows(5000, 5000)).delta)
+      .toBeLessThanOrEqual(RECOMMENDATION_SIGNAL_WEIGHT);
+    expect(recommendationSignal(rows(5000, 0)).delta)
+      .toBeGreaterThanOrEqual(-RECOMMENDATION_SIGNAL_WEIGHT);
+  });
+});
+
+describe('recommendationSignal eligibility', () => {
+  const base = { followed_recommendation: true, source: 'hook', question_id: 'adhoc' };
+
+  test('accepts a well-formed row', () => {
+    expect(isRecommendationEligible({ ...base })).toBe(true);
+  });
+
+  test('requires a STRICT boolean, never truthiness', () => {
+    // question-log.jsonl is hand-editable JSONL. The string "false" is truthy;
+    // a truthiness check would count it as a follow and bias autonomy upward
+    // with no error at all.
+    expect(isRecommendationEligible({ ...base, followed_recommendation: 'false' })).toBe(false);
+    expect(isRecommendationEligible({ ...base, followed_recommendation: 'true' })).toBe(false);
+    expect(isRecommendationEligible({ ...base, followed_recommendation: 1 })).toBe(false);
+    expect(isRecommendationEligible({ ...base, followed_recommendation: undefined })).toBe(false);
+    // Both real booleans are eligible; only the VALUE differs.
+    expect(isRecommendationEligible({ ...base, followed_recommendation: false })).toBe(true);
+  });
+
+  test('excludes auto-decided rows to avoid a feedback loop', () => {
+    // The preference hook auto-picks the recommendation. Counting that as
+    // evidence of delegation would feed the dimension that licenses
+    // auto-deciding straight back into itself.
+    expect(isRecommendationEligible({ ...base, source: 'auto-decided' })).toBe(false);
+  });
+
+  test('excludes rows with a MISSING source rather than assuming they are safe', () => {
+    // gstack-question-log defaults source to 'agent' on write, so a row with no
+    // source was never written by that binary — treat it as untrusted.
+    expect(isRecommendationEligible({ ...base, source: undefined })).toBe(false);
+    expect(isRecommendationEligible({ ...base, source: 42 })).toBe(false);
+  });
+
+  test('PRECEDENCE: excludes rows already counted by the registry autonomy path', () => {
+    // totals.autonomy is written by BOTH the per-event SIGNAL_MAP path and this
+    // aggregate, so one decision could feed it twice. Derive the id from the
+    // registry rather than hard-coding it, so this keeps working if the entry
+    // is renamed.
+    const autonomyId = Object.values(QUESTIONS).find(
+      (q) => q.signal_key && Object.values(SIGNAL_MAP[q.signal_key] ?? {})
+        .some((ds) => ds.some((d) => d.dim === 'autonomy')),
+    )?.id;
+    expect(autonomyId).toBeDefined();
+    expect(isRecommendationEligible({ ...base, question_id: autonomyId })).toBe(false);
+  });
+
+  test('does NOT exclude registry rows that feed other dimensions', () => {
+    // The precedence rule is autonomy-specific. An architecture-care question
+    // still carries usable recommendation-following evidence.
+    const nonAutonomyId = Object.values(QUESTIONS).find(
+      (q) => q.signal_key && !Object.values(SIGNAL_MAP[q.signal_key] ?? {})
+        .some((ds) => ds.some((d) => d.dim === 'autonomy')),
+    )?.id;
+    expect(nonAutonomyId).toBeDefined();
+    expect(isRecommendationEligible({ ...base, question_id: nonAutonomyId })).toBe(true);
+  });
+
+  test('unregistered and malformed question_ids stay eligible', () => {
+    expect(isRecommendationEligible({ ...base, question_id: 'hook-abc123' })).toBe(true);
+    expect(isRecommendationEligible({ ...base, question_id: undefined })).toBe(true);
+    expect(isRecommendationEligible({ ...base, question_id: 42 })).toBe(true);
+  });
+
+  test('eligible count matches the rows the signal actually used', () => {
+    const mixed: RecommendationEvent[] = [
+      { ...base },
+      { ...base, source: 'auto-decided' },
+      { ...base, followed_recommendation: 'false' },
+      { ...base, followed_recommendation: false },
+    ];
+    expect(recommendationEligibleCount(mixed)).toBe(2);
   });
 });
 
