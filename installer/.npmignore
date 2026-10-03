@@ -1,0 +1,5 @@
+src/
+tsconfig.json
+node_modules/
+*.tgz
+.DS_Store

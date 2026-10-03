@@ -1,0 +1,55 @@
+{
+  "name": "@garrytan/gstack",
+  "version": "0.1.0",
+  "description": "Interactive installer for gstack — Garry Tan's Claude Code skills, hosts, and workflow tooling.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "gstack": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "PUBLISHING.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "dev": "tsc --watch",
+    "start": "node dist/cli.js",
+    "clean": "rm -rf dist",
+    "test": "bun test test/",
+    "test:unit": "bun test test/unit/",
+    "test:integration": "bun run build && bun test test/integration/",
+    "pretest": "bun run build"
+  },
+  "keywords": [
+    "gstack",
+    "claude-code",
+    "skills",
+    "installer",
+    "cli",
+    "ai-agents"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/garrytan/gstack.git",
+    "directory": "installer"
+  },
+  "homepage": "https://github.com/garrytan/gstack#readme",
+  "bugs": {
+    "url": "https://github.com/garrytan/gstack/issues"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "picocolors": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.13",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  }
+}
