@@ -410,6 +410,18 @@ function urlPasswordIsPlaceholder(span: string): boolean {
   return PLACEHOLDER_STRUCTURAL.some((re) => re.test(pw));
 }
 
+// `postgres:postgres@<host>` is Postgres's own well-known default dev/CI
+// credential pair (the official `postgres` Docker image's own default,
+// docker-compose boilerplate, CI DATABASE_URL/DIRECT_URL fixtures) — never a
+// real secret. Matched by the EXACT username:password compound immediately
+// after `://`, never by shape or substring: a different password
+// (postgres:hunter2@host) or a different username (admin:postgres@host) at
+// the same position is a real credential and must still block.
+const POSTGRES_DEFAULT_CREDENTIAL_RE = /:\/\/postgres:postgres@/;
+function isPostgresDefaultCredential(span: string): boolean {
+  return POSTGRES_DEFAULT_CREDENTIAL_RE.test(span);
+}
+
 export const PATTERNS: RedactPattern[] = [
   // ===== HIGH — genuinely-secret credentials (block) =====
   {
@@ -620,8 +632,9 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "Database URL with embedded password",
     regex: /\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^:\s/@]+:[^@\s/]+@[^\s/]+)/,
-    // Skip when the password segment is itself a placeholder/interpolation.
-    validate: (span) => !urlPasswordIsPlaceholder(span),
+    // Skip when the password segment is itself a placeholder/interpolation,
+    // or the whole compound is Postgres's own default dev/CI credential pair.
+    validate: (span) => !urlPasswordIsPlaceholder(span) && !isPostgresDefaultCredential(span),
   },
   {
     id: "creds.basic_auth_url",

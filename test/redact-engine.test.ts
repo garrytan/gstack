@@ -164,6 +164,29 @@ describe("HIGH credential patterns", () => {
     expect(ids("postgres://user:" + "MY" + "SECRETPASS@host/db")).toContain("db.url_with_password");
   });
 
+  // The Postgres default dev/CI credential (postgres:postgres@<host>) is a
+  // known non-secret — it's the official postgres Docker image's own
+  // default, committed openly in ci.yml DATABASE_URL/DIRECT_URL across
+  // countless repos. Exempted by EXACT compound match only: any other
+  // password OR username at the same position must still block.
+  test("db.url_with_password exempts the exact postgres:postgres@<host> default, still blocks any other credential there (#gstack-redact-postgres-default)", () => {
+    expect(ids("postgresql://postgres:postgres@localhost:5432/slynq_test")).not.toContain(
+      "db.url_with_password",
+    );
+    // Any host — the exemption is on the credential compound, not the host.
+    expect(ids("postgres://postgres:postgres@db.internal/app")).not.toContain(
+      "db.url_with_password",
+    );
+    // Different password, same host shape — must still block.
+    expect(ids("postgresql://postgres:" + "hun" + "ter2@localhost:5432/slynq_test")).toContain(
+      "db.url_with_password",
+    );
+    // Different username, same password/host shape — must still block.
+    expect(ids("postgresql://admin:postgres@localhost:5432/slynq_test")).toContain(
+      "db.url_with_password",
+    );
+  });
+
   test("all HIGH patterns block (exit 3)", () => {
     const r = scan("AKIA1234567890ABCDEF", { repoVisibility: "private" });
     expect(exitCodeFor(r)).toBe(3);
