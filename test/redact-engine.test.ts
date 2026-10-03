@@ -234,6 +234,44 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
     expect(ids(`authToken: ${v}`)).toContain("env.kv"); // (iv) credential camel
     expect(ids(`clientSecret: ${v}`)).toContain("env.kv"); // (iv) credential camel
   });
+  // Value-shape calibration: the value capture `[^\s'"]{8,}` also matches CODE.
+  // In a Python or TS file, `session = requests.Session()` is a credential-
+  // shaped name (bare `session`) followed by an expression whose mixed case
+  // clears the entropy gate — a MEDIUM confirm on every test that builds an
+  // HTTP session, a token or a password at runtime. One code shape is
+  // excluded — a call, i.e. an identifier or dotted path followed by `(` —
+  // and nothing else, so punctuation-heavy passwords and dotted passphrases
+  // still fire (next test).
+  test("env.kv ignores function calls assigned to credential-shaped names", () => {
+    expect(ids('    session = _FlakySession(requests.ReadTimeout("Read timed out"))')).not.toContain("env.kv");
+    expect(ids("    session = _FlakySession()")).not.toContain("env.kv");
+    expect(ids("    session = requests.Session()")).not.toContain("env.kv");
+    expect(ids("    session = find_session(client, args.session_id, now=now, state=state)")).not.toContain("env.kv");
+    expect(ids('    token = make_token(user, scopes=["read"])')).not.toContain("env.kv");
+    expect(ids("    password = getpass.getpass()")).not.toContain("env.kv");
+    expect(ids("  secret: Secret = Depends(get_secret),")).not.toContain("env.kv");
+  });
+
+  test("env.kv still fires on literal secrets whatever punctuation they carry", () => {
+    expect(ids("SESSION_SECRET=9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c")).toContain("env.kv");
+    expect(ids('password: "c0rr3ct-h0rse-b4ttery-st4ple"')).toContain("env.kv");
+    expect(ids('  api_key: "sk-proj-Zx9Qw8Er7Ty6Ui5Op4As3Df2"')).toContain("env.kv");
+    expect(ids('session_token = "eyJhbGciOiJIUzI1NiJ9.abc123.def456"')).toContain("env.kv"); // dotted, digits: a JWT
+    expect(ids('export DATABASE_PASSWORD="p4ssw0rd-x7Kq2"')).toContain("env.kv");
+    expect(ids("PRIVATE_KEY=MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSj")).toContain("env.kv");
+    expect(ids('secret = "Qm9uam91ciBsZSBtb25kZQ=="')).toContain("env.kv"); // base64 padding
+    expect(ids("DSN=postgres://u:Xk9%2Fq2@db.internal:5432/app")).toContain("env.kv"); // percent-encoded
+    // Passwords carry punctuation a character allow-list would reject, and
+    // passphrases carry dots: the value-shape rule excludes calls, nothing else.
+    expect(ids("password = correct.horse.battery.staple")).toContain("env.kv");
+    expect(ids('PASSWORD="correct.horse.battery.staple"')).toContain("env.kv");
+    expect(ids('password = "Tr0ub4dor&3!xyz"')).toContain("env.kv");
+    expect(ids("PASSWORD=Tr0ub4dor&3!xyz#")).toContain("env.kv");
+    expect(ids('db_password: "p@$$w0rd*2024!"')).toContain("env.kv");
+    expect(ids('SECRET="a1B2#c3D4$e5F6&g7"')).toContain("env.kv");
+    expect(ids("api_key=k3y!with*stars&amps")).toContain("env.kv");
+  });
+
   test("env.kv stays MEDIUM (calibration: generic net, not a blocker)", () => {
     const f = scan("api_key=8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ", { repoVisibility: "private" })
       .findings.find((x) => x.id === "env.kv");
