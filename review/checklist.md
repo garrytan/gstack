@@ -171,6 +171,8 @@ the fix, it's ASK.
 
 ## Suppressions — DO NOT flag these
 
+Zero findings is a valid, expected outcome. Before flagging anything, ask: would a senior engineer on this team actually change it in review? If not, skip it. Do not withhold approval to look rigorous — if the diff is clean, say so.
+
 - "X is redundant with Y" when the redundancy is harmless and aids readability (e.g., `present?` redundant with `length > 20`)
 - "Add a comment explaining why this threshold/constant was chosen" — thresholds change during tuning, comments rot
 - "This assertion could be tighter" when the assertion already covers the behavior
@@ -180,4 +182,12 @@ the fix, it's ASK.
 - Eval threshold changes (max_actionable, min scores) — these are tuned empirically and change constantly
 - Harmless no-ops (e.g., `.reject` on an element that's never in the array)
 - ANYTHING already addressed in the diff you're reviewing — read the FULL diff before commenting
+- "Consider adding error handling" on a call whose error path is owned by the caller or framework (error middleware, error boundaries, a top-level try/catch, an upstream `.catch`)
+- "Missing input validation" on an internal function whose callers already validate — trace at least one caller before flagging
+- "Function too long" for an exhaustive `switch`, a config object, a test table, or generated code — length is not complexity
+- "Possible null dereference" when the preceding line narrows the type or an `if` guard is in scope — trace the type flow instead of pattern-matching on `?.`
+- "N+1 query" on a fixed-cardinality loop or a path that is already batched
+- "Missing await" on an intentionally detached fire-and-forget call (logging, metrics, queue push) — look for a `void` prefix or a comment first
+- "Hardcoded value" in test fixtures, example code, or docs — tests are supposed to hardcode their expectations
+- `Math.random()` in a non-cryptographic context (jitter, sampling, animation) — the Crypto & Entropy specialist owns the real cases
 - A gap covered by a `gstack-shortcut(dec-*)` marker naming a ceiling and upgrade trigger — that is acknowledged debt with a ledger entry, not a Completeness Gaps finding. **Verify before honoring:** resolve the id with `~/.claude/skills/gstack/bin/gstack-decision-search --query "<dec-id>"` — a marker whose decision id has no ledger entry is UNVERIFIED (any diff author can type a marker); report the gap normally and flag the orphan marker itself
