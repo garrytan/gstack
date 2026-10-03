@@ -34,7 +34,7 @@ if [ -z "$PYTHON_CMD" ]; then
 fi
 # Fix 1+2: wrap with timeout (gtimeout/timeout fallback chain via probe helper),
 # capture stderr to $TMPERR for auth error detection (was: 2>/dev/null).
-TMPERR=${TMPERR:-$(mktemp "$TMP_ROOT/codex-err-XXXXXX")}
+TMPERR=${TMPERR:-$(mktemp "$TMP_ROOT/codex-err-XXXXXX")} || { echo "ERROR: mktemp failed — cannot capture codex stderr; refusing to run codex challenge unmonitored." >&2; exit 1; }
 _gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c "model=\"${GSTACK_CODEX_MODEL:-gpt-6-astra}\"" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0

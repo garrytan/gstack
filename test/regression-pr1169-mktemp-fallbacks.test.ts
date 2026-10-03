@@ -127,6 +127,48 @@ echo "SHOULD NOT REACH: $TMP_DIR"`;
   });
 });
 
+// #2881: the three codex mode templates create $TMP_ROOT-scoped temp files
+// (stderr captures, prompt files) with no failure guard. bin/gstack-paths
+// deliberately best-effort-creates $TMP_ROOT ("the caller will discover
+// [failure] on their own write attempt" — bin/gstack-paths:78-79), so an
+// unwritable $TMP_ROOT makes these mktemp calls silently yield an empty
+// variable. The next command then redirects stderr to `2>""`, which fails
+// before codex even runs, and the error is misattributed to codex instead of
+// to the missing temp file. Guards must abort loudly, matching the shape
+// already pinned above for the five other call sites in this file and in
+// test/regression-pr1169-build-app-sed.test.ts.
+describe("#2881: codex mode template mktemp guards", () => {
+  test("review-mode.md.tmpl guards both mktemp assignments (TMPERR, _PROMPT_FILE)", () => {
+    const body = readScript("codex/sections/review-mode.md.tmpl");
+    expect(body).toMatch(/TMPERR=\$\(mktemp "\$TMP_ROOT\/codex-err-XXXXXX"\)\s*\|\|\s*\{[^}]*exit 1/);
+    expect(body).toMatch(/_PROMPT_FILE=\$\(mktemp "\$TMP_ROOT\/codex-prompt-XXXXXX"\)\s*\|\|\s*\{[^}]*exit 1/);
+  });
+
+  test("consult-mode.md.tmpl guards both mktemp assignments (TMPRESP, TMPERR)", () => {
+    const body = readScript("codex/sections/consult-mode.md.tmpl");
+    expect(body).toMatch(/TMPRESP=\$\(mktemp "\$TMP_ROOT\/codex-resp-XXXXXX"\)\s*\|\|\s*\{[^}]*exit 1/);
+    expect(body).toMatch(/TMPERR=\$\(mktemp "\$TMP_ROOT\/codex-err-XXXXXX"\)\s*\|\|\s*\{[^}]*exit 1/);
+  });
+
+  test("challenge-mode.md.tmpl guards its mktemp assignment and preserves the ${TMPERR:-...} wrapper", () => {
+    const body = readScript("codex/sections/challenge-mode.md.tmpl");
+    expect(body).toMatch(
+      /TMPERR=\$\{TMPERR:-\$\(mktemp "\$TMP_ROOT\/codex-err-XXXXXX"\)\}\s*\|\|\s*\{[^}]*exit 1/,
+    );
+  });
+
+  test("runtime: the guarded assignment aborts when mktemp fails, without invoking the guarded command", () => {
+    const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+    const script = `mktemp() { return 1; }
+TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX") || { echo "ERROR: mktemp failed — cannot capture codex stderr; refusing to run codex review unmonitored." >&2; exit 1; }
+echo "SHOULD NOT REACH: $TMPERR"`;
+    const r = spawnSync("bash", ["-c", script], { encoding: "utf-8", timeout: 10_000 });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("mktemp failed");
+    expect(r.stdout).not.toContain("SHOULD NOT REACH");
+  });
+});
+
 describe("PR #1169 bug #5: supabase/verify-rls.sh mktemp fallback", () => {
   const SCRIPT = "supabase/verify-rls.sh";
 
