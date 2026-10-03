@@ -41,6 +41,9 @@ const FORCED_PHRASE = "for every invocation";
 const PROSE_REF = /`(references\/[^`<>]+\.md)`/g;
 // Upstream frontmatter contract: the keys the router/host actually reads.
 const ROUTER_KEYS = new Set(["name", "description", "version", "allowed-tools", "triggers", "preamble-tier"]);
+// Optional metadata consumed by context-bill itself, not by the skill router.
+// These keys are intentional frontmatter, not dead router baggage.
+const BILL_METADATA_KEYS = new Set(["estimated_token_saving", "avg_execution_time"]);
 // Skill-shaped files other hosts drop into scanner scope.
 const FOREIGN_SKILL_FILE = /^(skill\.(ya?ml|json)|agents?\.md|\.cursorrules|\.windsurfrules)$/i;
 
@@ -121,6 +124,12 @@ export interface SkillBill {
   foreignFiles: { path: string; bytes: number; tokens: number }[];
   totalMdBytes: number;
   totalMdTokens: number;
+  /** Optional author estimate, per representative invocation. Never measured telemetry. */
+  estimatedTokenSaving?: number;
+  /** Optional author-provided representative wall-clock duration (display-only). */
+  avgExecutionTime?: string;
+  /** estimatedTokenSaving / eagerTokens. Present only when both are meaningful. */
+  estimatedSavingToCost?: number;
 }
 
 /**
@@ -195,6 +204,30 @@ function parseFrontmatter(text: string): { bytes: number; keys: string[]; block:
   return { bytes: Buffer.byteLength(block, "utf8"), keys, block };
 }
 
+/** Read one simple top-level YAML scalar from the bounded frontmatter block. */
+function frontmatterScalar(block: string, key: string): string | null {
+  for (const line of block.split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon < 0 || line.slice(0, colon).trim() !== key) continue;
+    let value = line.slice(colon + 1).trim();
+    if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("\'") && value.endsWith("\'")))) {
+      value = value.slice(1, -1).trim();
+    }
+    return value || null;
+  }
+  return null;
+}
+
+function parseBenefitMetadata(block: string): { estimatedTokenSaving?: number; avgExecutionTime?: string } {
+  const savingRaw = frontmatterScalar(block, "estimated_token_saving");
+  const avgExecutionTime = frontmatterScalar(block, "avg_execution_time");
+  const saving = savingRaw === null ? null : Number(savingRaw.replaceAll("_", ""));
+  return {
+    ...(saving !== null && Number.isFinite(saving) && saving >= 0 ? { estimatedTokenSaving: saving } : {}),
+    ...(avgExecutionTime ? { avgExecutionTime } : {}),
+  };
+}
+
 /**
  * Every .md file under a tree, for the on-disk total and for exact
  * measurement. Skips node_modules and dot-directories: a skills tree that is
@@ -251,7 +284,8 @@ export function parseSkill(skillDir: string, name: string, tokensOf: TokensOf = 
   const fm = parseFrontmatter(text);
   // The frontmatter block is a slice of SKILL.md, so it carries its own key.
   const frontmatterTokens = tokensOf(frontmatterKey(skillMdPath), fm.bytes);
-  const deadKeys = fm.keys.filter((k) => !ROUTER_KEYS.has(k));
+  const deadKeys = fm.keys.filter((k) => !ROUTER_KEYS.has(k) && !BILL_METADATA_KEYS.has(k));
+  const benefit = parseBenefitMetadata(fm.block);
 
   // EAGER: references a prose CLAUSE forces "for every invocation". Clause
   // granularity matters: a line can carry a forced clause and a conditional
@@ -285,6 +319,10 @@ export function parseSkill(skillDir: string, name: string, tokensOf: TokensOf = 
   const total = totalMd(skillDir, tokensOf);
   const eagerBytes = skillMdBytes + sumBytes(forcedRefs);
   const eagerTokens = skillMdTokens + sumTokens(forcedRefs);
+  const estimatedSavingToCost =
+    benefit.estimatedTokenSaving !== undefined && eagerTokens > 0
+      ? benefit.estimatedTokenSaving / eagerTokens
+      : undefined;
   return {
     name,
     dir: skillDir,
@@ -315,6 +353,8 @@ export function parseSkill(skillDir: string, name: string, tokensOf: TokensOf = 
     foreignFiles,
     totalMdBytes: total.bytes,
     totalMdTokens: total.tokens,
+    ...benefit,
+    ...(estimatedSavingToCost !== undefined ? { estimatedSavingToCost } : {}),
   };
 }
 
@@ -589,6 +629,18 @@ export function renderBill(bill: Bill, { skill }: { skill?: string } = {}): stri
     for (const r of s.forcedRefs.filter((r) => r.missing)) lines.push(`  ! ${s.name}: forced-read reference missing on disk: ${r.path}`);
   }
   lines.push("");
+
+  const benefitSkills = skills.filter((s) => s.estimatedTokenSaving !== undefined);
+  if (benefitSkills.length > 0) {
+    lines.push("BENEFIT (author estimates; per representative invocation):");
+    for (const s of benefitSkills) {
+      const ratioText = s.estimatedSavingToCost === undefined ? "n/a" : `${s.estimatedSavingToCost.toFixed(1)}x saving/cost`;
+      const time = s.avgExecutionTime ? `, avg time ${s.avgExecutionTime}` : "";
+      lines.push(`  ${s.name.padEnd(20)} ~${Math.round(s.estimatedTokenSaving!)} tok saved / ${Math.round(s.eagerTokens)} tok eager = ${ratioText}${time}`);
+    }
+    lines.push("  (estimates are declarations, not measured telemetry; cost accounting and budgets are unchanged)");
+    lines.push("");
+  }
 
   lines.push(
     `TOTAL on disk: ${size(bill.totals.totalMdBytes, bill.totals.totalMdTokens)} across ${bill.totals.skillCount} skill(s).`,
