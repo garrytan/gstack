@@ -99,6 +99,68 @@ describe("always-on ledger", () => {
   });
 });
 
+describe("optional benefit metadata (#2889)", () => {
+  it("keeps undeclared trees byte-compatible: no benefit block or JSON fields", () => {
+    const bill = buildBill(TREE_A);
+    expect(renderBill(bill)).not.toContain("BENEFIT (");
+    for (const skill of bill.skills) {
+      expect(skill).not.toHaveProperty("estimatedTokenSaving");
+      expect(skill).not.toHaveProperty("avgExecutionTime");
+      expect(skill).not.toHaveProperty("estimatedSavingToCost");
+    }
+  });
+
+  it("reads author estimates without misclassifying them as dead router keys", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "context-bill-benefit-"));
+    const dir = path.join(tmp, "benefit-skill");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(
+      path.join(dir, "SKILL.md"),
+      [
+        "---",
+        "name: benefit-skill",
+        "description: fixture",
+        "estimated_token_saving: 2000",
+        'avg_execution_time: "45s"',
+        "---",
+        "",
+        "# Benefit",
+        "",
+      ].join("\n"),
+    );
+
+    const bill = buildBill(tmp);
+    const skill = bill.skills[0];
+    expect(skill.deadKeys).toEqual([]);
+    expect(skill.estimatedTokenSaving).toBe(2000);
+    expect(skill.avgExecutionTime).toBe("45s");
+    expect(skill.estimatedSavingToCost).toBeCloseTo(2000 / skill.eagerTokens, 8);
+
+    const text = renderBill(bill);
+    expect(text).toContain("BENEFIT (author estimates; per representative invocation)");
+    expect(text).toContain("~2000 tok saved");
+    expect(text).toContain("saving/cost");
+    expect(text).toContain("avg time 45s");
+    expect(text).toContain("not measured telemetry");
+
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("ignores an invalid saving declaration instead of fabricating a ratio", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "context-bill-benefit-invalid-"));
+    fs.mkdirSync(path.join(tmp, "bad"));
+    fs.writeFileSync(
+      path.join(tmp, "bad", "SKILL.md"),
+      "---\nname: bad\ndescription: fixture\nestimated_token_saving: nope\n---\n# Bad\n",
+    );
+    const skill = buildBill(tmp).skills[0];
+    expect(skill.estimatedTokenSaving).toBeUndefined();
+    expect(skill.estimatedSavingToCost).toBeUndefined();
+    expect(renderBill(buildBill(tmp))).not.toContain("BENEFIT (");
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+});
+
 describe("eager ledger", () => {
   const bill = buildBill(TREE_A);
   const alpha = bill.skills.find((s) => s.name === "alpha")!;
