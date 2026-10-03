@@ -11,7 +11,7 @@ test('runSkillTest launches a child without operator credentials', () => {
   try {
     const bin = path.join(root, 'claude');
     fs.writeFileSync(bin, `#!/usr/bin/env node
-const names = ['GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_APP_PRIVATE_KEY', 'GH_TOKEN', 'GITHUB_ACTIONS', 'GITHUB_PATH', 'GITHUB_TOKENIZER', 'EVALS_RUN_ID'];
+const names = ['GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN', 'GITHUB_APP_PRIVATE_KEY', 'GITHUB_APP_PRIVATE_KEY_BASE64', 'GITHUB_TOKEN_1', 'GH_TOKEN', 'GITHUB_ACTIONS', 'GITHUB_PATH', 'GITHUB_TOKENIZER', 'GITHUB_KEYRING', 'EVALS_RUN_ID'];
 const present = Object.fromEntries(names.map(name => [name, Object.hasOwn(process.env, name)]));
 console.log(JSON.stringify({type: 'result', subtype: 'success', result: JSON.stringify(present)}));
 `, { mode: 0o700 });
@@ -29,10 +29,13 @@ console.log(JSON.stringify({exitReason: result.exitReason, child: JSON.parse(res
         GITHUB_TOKEN: 'synthetic-token',
         GITHUB_PERSONAL_ACCESS_TOKEN: 'synthetic-pat',
         GITHUB_APP_PRIVATE_KEY: 'synthetic-private-key',
+        GITHUB_APP_PRIVATE_KEY_BASE64: 'synthetic-pem-base64',
+        GITHUB_TOKEN_1: 'synthetic-first-token',
         GH_TOKEN: 'synthetic-gh-token',
         GITHUB_ACTIONS: 'true',
         GITHUB_PATH: '/tmp/actions-path',
         GITHUB_TOKENIZER: 'metadata-tokenizer',
+        GITHUB_KEYRING: 'metadata-keyring',
         EVALS_RUN_ID: 'synthetic-run',
       },
     });
@@ -43,10 +46,15 @@ console.log(JSON.stringify({exitReason: result.exitReason, child: JSON.parse(res
         GITHUB_TOKEN: false,
         GITHUB_PERSONAL_ACCESS_TOKEN: false,
         GITHUB_APP_PRIVATE_KEY: false,
+        // A qualifier moves the credential word off the end of the name; it
+        // is still the PEM, and still a token.
+        GITHUB_APP_PRIVATE_KEY_BASE64: false,
+        GITHUB_TOKEN_1: false,
         GH_TOKEN: false,
         GITHUB_ACTIONS: true,
         GITHUB_PATH: true,
         GITHUB_TOKENIZER: true,
+        GITHUB_KEYRING: true,
         EVALS_RUN_ID: true,
       },
     });
