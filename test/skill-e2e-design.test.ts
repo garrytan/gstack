@@ -490,12 +490,11 @@ IMPORTANT: Do NOT try to browse any URLs or use a browse binary. This is a plan 
 
             // Check that the plan file was edited (the core new behavior)
             const planAfter = fs.readFileSync(path.join(reviewDir, 'plan.md'), 'utf-8');
-            // The review's design content is what it wrote into the plan; the
-            // final message may only summarize it (census 37179171083).
-            // A term counts from the plan only when the review added it.
+            // A rated summary may leave the design terms to the plan it wrote
+            // (census 37179171083); a plan term counts only when the review added it.
             const count = (text: string, term: string) => text.toLowerCase().split(term).length - 1;
             const hasDesignContent = ['information architecture', 'interaction state', 'ai slop', 'hierarchy'].some(term =>
-              output.toLowerCase().includes(term) || count(planAfter, term) > count(planBefore, term));
+              output.toLowerCase().includes(term) || (hasRatings && count(planAfter, term) > count(planBefore, term)));
             const planWasEdited = planAfter !== planBefore && planAfter.length > 300;
             const planHasDesignAdditions = planAfter.toLowerCase().includes('empty') ||
               planAfter.toLowerCase().includes('loading') ||

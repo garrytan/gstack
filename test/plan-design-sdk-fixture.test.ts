@@ -14,7 +14,7 @@ const id = 'plan-design-review-plan-mode';
 // Source-evaluation pattern: run the real suite registration and selected
 // callback, without importing paid initialization. All filesystem mutations
 // stay in this standalone fixture.
-async function exercise(mode: 'success' | 'max-turns' | 'first-timeout' | 'second-timeout' | 'saved-timeout' | 'empty-summary' | 'write-failure' | 'unchanged-seed' | 'no-additions' | 'short-plan' | 'api-error' | 'plan-read-failure' | 'attempt-deadline') {
+async function exercise(mode: 'success' | 'max-turns' | 'first-timeout' | 'second-timeout' | 'saved-timeout' | 'empty-summary' | 'rated-summary' | 'write-failure' | 'unchanged-seed' | 'no-additions' | 'short-plan' | 'api-error' | 'plan-read-failure' | 'attempt-deadline') {
   const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-design-free-')));
   const home = path.join(scratch, 'home'); fs.mkdirSync(home);
   const env = { PATH: process.env.PATH ?? '', HOME: home, GIT_CONFIG_NOSYSTEM: '1',
@@ -115,7 +115,8 @@ async function exercise(mode: 'success' | 'max-turns' | 'first-timeout' | 'secon
           'Interaction state table: loading, empty, error and success. Responsive and accessibility decisions recorded.\n';
         fs.writeFileSync(plan, reviewed); saved = fs.readFileSync(plan, 'utf8');
       }
-      return { output: timedOut ? '' : mode === 'empty-summary' ? 'Done.' : 'Saved the information architecture and interaction state decisions in plan.md.',
+      return { output: timedOut ? '' : mode === 'empty-summary' ? 'Done.' :
+        mode === 'rated-summary' ? 'Design review saved. Overall design score 0/10 → 8/10; state table and tokens added.' : 'Saved the information architecture and interaction state decisions in plan.md.',
         exitReason: timedOut ? 'timeout' : mode === 'max-turns' ? 'error_max_turns' : mode === 'api-error' ? 'error_api' : 'success',
         duration: timedOut ? (mode === 'first-timeout' ? 300039 : 300032) : 1,
         toolCalls: [], browseErrors: [], transcript: [], model: process.env.EVALS_MODEL ?? resolveEvalModel('capture'),
@@ -155,6 +156,12 @@ test.each(['first-timeout', 'second-timeout'] as const)('legacy Design keeps cap
 test('legacy Design still requires substantive output after a saved plan', async () => {
   const result = await exercise('empty-summary');
   expect(result.resultError).toBeDefined(); expect(result.rows.map(row => row.passed)).toEqual([false]);
+});
+
+// Census 37179171083: a rated summary whose design terms live in the plan the review wrote.
+test('legacy Design credits design terms the review added to the plan behind a rated summary', async () => {
+  const result = await exercise('rated-summary');
+  expect(result.resultError).toBeUndefined(); expect(result.rows.map(row => row.passed)).toEqual([true]);
 });
 
 test('legacy Design cleans the fixture when its write fails', async () => {
