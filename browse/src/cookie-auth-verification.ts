@@ -128,7 +128,7 @@ export function validateCookieStorageSupport(page: Page): void {
   throw new CookieImportError('Storage reset requires a Chromium target. Import cookies without storage reset on other browsers.', 'storage_reset_unsupported');
 }
 
-export async function clearCookieTargetStorage(page: Page, expectedOrigin: string): Promise<void> {
+export async function clearCookieTargetStorage(page: Page, expectedOrigin: string, timeoutMs = MAX_TIMEOUT_MS): Promise<void> {
   validateOrigin(expectedOrigin);
   validateCookieStorageSupport(page);
   if (page.isClosed()) throw new CookieImportError('The captured target is closed.', 'target_closed');
@@ -142,7 +142,7 @@ export async function clearCookieTargetStorage(page: Page, expectedOrigin: strin
     throw new CookieImportError('The captured target has changed.', 'target_changed');
   }
 
-  const deadline = performance.now() + MAX_TIMEOUT_MS;
+  const deadline = performance.now() + timeoutMs;
   let expired = false;
   let navigated = false;
   const frame = page.mainFrame();
