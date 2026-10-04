@@ -1,5 +1,6 @@
 # gstack CI eval runner — pre-baked toolchain + deps
-# Rebuild weekly via ci-image.yml, on Dockerfile changes, or on lockfile changes
+# Built and pushed by the eval workflows' build-image job whenever its content-hash
+# tag (Dockerfile.ci, bun.lock, patches/**) is missing from the registry
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive

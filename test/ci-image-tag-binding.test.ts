@@ -1,18 +1,19 @@
 /**
- * The CI image tag is a content hash computed independently in three
- * workflows — evals.yml, evals-periodic.yml, ci-image.yml — and they were
+ * The CI image tag is a content hash computed independently in each eval
+ * workflow — evals.yml, evals-periodic.yml, evals-marathon.yml — each of
+ * which builds and pushes the tag when it is missing. They were
  * synced by comment only (filed in TODOS.md as the "three-way image-tag
  * drift" gap). If one file's hashFiles() input list drifts, that workflow
  * computes a DIFFERENT tag for the same content: the eval lanes stop finding
  * the prebuilt image and silently rebuild it on every run (minutes per run,
- * no red check), or ci-image prebuilds a tag nobody looks up.
+ * no red check), or one lane pushes a tag the others never look up.
  */
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 const ROOT = path.resolve(__dirname, '..');
-const FILES = ['evals.yml', 'evals-periodic.yml', 'ci-image.yml'];
+const FILES = ['evals.yml', 'evals-periodic.yml', 'evals-marathon.yml'];
 
 function hashFilesCalls(name: string): string[] {
   const source = fs.readFileSync(
@@ -22,7 +23,7 @@ function hashFilesCalls(name: string): string[] {
 }
 
 describe('ci image tag binding', () => {
-  test('all three workflows compute the tag from the identical hashFiles() input list', () => {
+  test('every eval workflow computes the tag from the identical hashFiles() input list', () => {
     const perFile = FILES.map((f) => ({ file: f, calls: hashFilesCalls(f) }));
     for (const { file, calls } of perFile) {
       // Each workflow computes the tag exactly once; zero means the scan
