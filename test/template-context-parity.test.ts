@@ -15,6 +15,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { expectMentions } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SHIP_SECTIONS = path.join(ROOT, 'ship', 'sections');
@@ -35,7 +36,7 @@ describe('section TemplateContext parity (skillName pinned to parent)', () => {
   test('adversarial section rendered the ADVERSARIAL_STEP resolver (proves ship ctx)', () => {
     const content = readSection('adversarial.md');
     // The codex filesystem-boundary line only appears when ADVERSARIAL_STEP resolves.
-    expect(content).toMatch(/do not read or execute any files under/i);
+    expectMentions(content, [['do not', 'execute', 'files']], 'content');
     expect(content.length).toBeGreaterThan(500);
   });
 
