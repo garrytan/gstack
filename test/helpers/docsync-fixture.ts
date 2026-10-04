@@ -161,3 +161,22 @@ export function sawSpawnedMarker(result: SkillTestResult): boolean {
   return result.toolCalls.some(call => call.tool === 'Bash' && /gstack-skill-start|"\$_SS"/.test(call.input?.command ?? '') &&
     /^SESSION_KIND: spawned\r?$/m.test(call.output));
 }
+
+/** The dispatched /document-release child's own report of its skill-start echo:
+ *  its hand-back, or its completed reply to a parent SendMessage addressed to that
+ *  same child (ship's "as echoed in the child output"). Other agents' text and the
+ *  parent's own claims never count. */
+export function childReportedSpawnedMarker(result: Pick<SkillTestResult, 'transcript'>, dispatch: { input: unknown; output: string }): boolean {
+  if (dispatch.output.includes('SESSION_KIND: spawned')) return true;
+  const events = result.transcript as any[];
+  const uses = events.flatMap(event => event?.type === 'assistant' && Array.isArray(event.message?.content) ? event.message.content : [])
+    .filter((block: any) => block?.type === 'tool_use');
+  const dispatched = uses.filter((block: any) => ['Agent', 'Task'].includes(block.name) && JSON.stringify(block.input) === JSON.stringify(dispatch.input));
+  if (dispatched.length !== 1) return false;
+  const started = events.filter(event => event?.type === 'system' && event.subtype === 'task_started' && event.tool_use_id === dispatched[0].id);
+  if (started.length !== 1 || typeof started[0].task_id !== 'string') return false;
+  const child = started[0].task_id;
+  const asks = new Set(uses.filter((block: any) => block.name === 'SendMessage' && block.input?.to === child).map((block: any) => block.id));
+  return events.some(event => event?.type === 'system' && event.subtype === 'task_notification' && event.task_id === child &&
+    asks.has(event.tool_use_id) && event.status === 'completed' && String(event.summary ?? '').includes('SESSION_KIND: spawned'));
+}

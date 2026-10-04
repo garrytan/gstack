@@ -6,7 +6,7 @@ import { runSkillTest } from './helpers/session-runner';
 import { runId, describeIfSelected, testConcurrentIfSelected, createEvalCollector, recordE2E, finalizeEvalCollector, logCost } from './helpers/e2e-helpers';
 import { describeE2ETier } from './helpers/e2e-gate';
 import { docsDispatchIndex, parseDocsCompletion, vetDocsCompletion } from './helpers/docsync-contract';
-import { fixtureDocs, repoSnapshot, changedFiles, DOC_PATH, preserveDocsEvidence, sawSpawnedMarker, type DocsScenario } from './helpers/docsync-fixture';
+import { fixtureDocs, repoSnapshot, changedFiles, DOC_PATH, preserveDocsEvidence, sawSpawnedMarker, childReportedSpawnedMarker, type DocsScenario } from './helpers/docsync-fixture';
 import { observeDocsWrites, docsWriteFailures, docsShipPhase, docsToolFailures, docsCompletedRead, docsSessionOptions } from './helpers/docsync-observer';
 import type { SkillTestResult } from './helpers/session-runner';
 import { runShipDocsFault } from './helpers/docsync-fault-eval';
@@ -80,7 +80,7 @@ async function runShipDocs(testName: string, scenario: DocsScenario) {
         const raw = JSON.parse(calls[dispatch].output.trimEnd().split('\n').at(-1)!);
         const contract = parseDocsCompletion(calls[dispatch].output, raw.audit_id);
         expect(JSON.stringify(calls[dispatch].input)).toContain(raw.audit_id);
-        expect(calls[dispatch].output).toContain('SESSION_KIND: spawned');
+        expect(childReportedSpawnedMarker(result, calls[dispatch])).toBe(true);
         expect(sawSpawnedMarker(result)).toBe(true);
         vetDocsCompletion(contract, {
           settled: result.exitReason === 'success', markerSeen: sawSpawnedMarker(result),

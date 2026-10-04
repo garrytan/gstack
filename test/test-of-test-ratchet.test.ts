@@ -67,6 +67,7 @@ const BASELINE = [
   'test/diagram-render-drift.test.ts',
   'test/disabled-dated-record-at.test.ts',
   'test/docsync-atomic-writes.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
+  'test/docsync-child-marker.test.ts', // replays a PR-lane capture against the paid ship-docsync case's child-marker check
   'test/docsync-command-grammar.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/docsync-nested-writes.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/dx-selected-navigation-ap.test.ts',
