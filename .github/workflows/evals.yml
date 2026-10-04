@@ -8,11 +8,6 @@ on:
         description: 'Run ALL gate tests in the sliced lane (bypass diff selection; also arms the hollow-shard guard)'
         type: boolean
         default: true
-      validation_phase:
-        description: 'Validation branch phase; run quality before behavior on unchanged inputs'
-        type: choice
-        options: [all, quality, cookie-quality, behavior, cookie-behavior]
-        default: all
 
 concurrency:
   group: evals-${{ github.event.pull_request.number || github.run_id }}
@@ -269,38 +264,10 @@ jobs:
           bun --no-install run scripts/recover-receipts.ts decide /tmp/gstack-eval-input-cache --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Emit run manifest
-        if: github.event_name != 'workflow_dispatch' || inputs.validation_phase == 'all'
         env:
           EVALS_ALL: ${{ (github.event_name == 'workflow_dispatch' && inputs.evals_all) && '1' || '' }}
           EVALS_CACHE_DIR: ${{ steps.reuse.outputs.reuse == 'on' && '/tmp/gstack-eval-input-cache' || '' }}
         run: EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slice-budget 540 --jobs 2 --max-parallel 16
-
-      - name: Emit validation-phase manifest
-        if: github.event_name == 'workflow_dispatch' && inputs.validation_phase != 'all'
-        env:
-          VALIDATION_PHASE: ${{ inputs.validation_phase }}
-          EVALS_ALL: ${{ inputs.evals_all && '1' || '' }}
-          EVALS_TIER: gate
-        run: |
-          bun --no-install -e '
-          import { mkdirSync, writeFileSync } from "node:fs";
-          import { buildRunManifest, collectPaidTestFiles, restrictManifestSelection } from "./scripts/test-paid-shards.ts";
-          const phase = process.env.VALIDATION_PHASE;
-          if (!["quality", "cookie-quality", "behavior", "cookie-behavior"].includes(phase)) throw new Error("Invalid validation phase");
-          const cookieBehavior = phase === "cookie-behavior";
-          const discovered = phase === "cookie-quality" ? ["test/skill-llm-eval.test.ts"]
-            : cookieBehavior ? ["test/skill-e2e-bws.test.ts", "test/skill-e2e-qa-workflow.test.ts", "test/skill-e2e-design.test.ts", "test/skill-e2e-diagram.test.ts", "test/skill-e2e-deploy.test.ts"]
-            : collectPaidTestFiles().filter(file => file.startsWith("test/skill-llm-eval") === (phase === "quality"));
-          const manifest = buildRunManifest({ tier: "gate", profile: "full", sliceBudgetMs: 540000, jobs: 2, evalsAll: !cookieBehavior && process.env.EVALS_ALL === "1", discovered,
-            ...(cookieBehavior ? { changedFiles: ["browse/src/cookie-picker-routes.ts", "browse/src/cookie-import-browser.ts", "browse/src/bun-polyfill.cjs"], env: { ...process.env, EVALS_ALL: "" } } : {}) });
-          const subset = phase === "cookie-quality" ? { e2e: [], judges: ["setup-browser-cookies/SKILL.md workflow"] }
-            : cookieBehavior ? { e2e: ["browse-basic", "browse-snapshot", "qa-quick", "qa-only-no-fix", "design-review-detector-shim-dom", "diagram-triplet", "canary-workflow", "benchmark-workflow"], judges: [] } : null;
-          const restricted = subset ? restrictManifestSelection(manifest, subset, "outside the " + phase + " validation subset") : manifest;
-          restricted.selectionReason = phase + " validation subset; " + manifest.selectionReason;
-          mkdirSync("/tmp/paid-plan", { recursive: true });
-          writeFileSync("/tmp/paid-plan/manifest.json", JSON.stringify(restricted, null, 2) + "\n");
-          console.log(phase + ": " + restricted.entries.filter(entry => entry.status === "planned").length + " planned shards");
-          '
 
       # CEO-13: the mode, case counts and, on fallback, every file that
       # restored the full gate with the edit that narrows it next time.

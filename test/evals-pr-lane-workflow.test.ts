@@ -101,3 +101,11 @@ describe('evals.yml push-burst debounce (CEO-15, ENG-11, DX-7)', () => {
     expect(workflow.env.EVALS_FRESH).toContain("contains(github.event.pull_request.labels.*.name, 'evals-fresh')");
   });
 });
+
+describe('evals.yml carries no inline planner program (W8f)', () => {
+  test('the finished validation_phase dispatch and its inline subset planner are gone', () => {
+    expect(source).not.toContain('validation_phase');
+    expect(source).not.toMatch(/bun --no-install -e '/);
+    expect(workflow.jobs['plan-slices']!.steps.filter(s => s.run?.includes('--emit-plan'))).toHaveLength(1);
+  });
+});
