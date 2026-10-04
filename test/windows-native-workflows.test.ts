@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { collectFreeTestFiles, createFreeCiPlan, curateWindowsSafe, parseCliOptions, validateFreeCiPlan } from '../scripts/test-free-shards';
 import { windowsCurationLine } from '../scripts/lib/free-ci-health';
+import { KNOWN_WINDOWS_SAFE, WINDOWS_PROBE_SAFE } from '../scripts/lib/windows-curation';
 
 const root = path.resolve(import.meta.dir, '..');
 const load = (file: string) => Bun.YAML.parse(readFileSync(path.join(root, '.github/workflows', file), 'utf8')) as any;
@@ -19,7 +20,7 @@ const native = load('native-qualification.yml');
  * intentionally excluded Windows-safe tests, lower this floor to the printed
  * count in the same PR and say why; when the count grows, raise it.
  */
-const WINDOWS_CURATED_FLOOR = 570;
+const WINDOWS_CURATED_FLOOR = 631;
 
 test('the Windows lane plans, runs one strict shard per job and verifies every result', () => {
   expect(Object.keys(windows.on).sort()).toEqual(['pull_request', 'workflow_dispatch']);
@@ -89,6 +90,13 @@ test(`the curated Windows-safe subset holds its floor of ${WINDOWS_CURATED_FLOOR
       + 'port newly excluded files (os.tmpdir(), explicit bash argv) or add a reasoned KNOWN_WINDOWS_SAFE entry in scripts/test-free-shards.ts; '
       + `if the shrink is intentional, lower WINDOWS_CURATED_FLOOR in test/windows-native-workflows.test.ts to ${curation.safe.length} and say why in the PR.`);
   }
+});
+
+test('every force-included Windows file is a real free test listed once', () => {
+  const census = new Set(collectFreeTestFiles(root));
+  const forced = [...KNOWN_WINDOWS_SAFE.map(entry => entry.file), ...WINDOWS_PROBE_SAFE];
+  expect(forced.filter(file => !census.has(file))).toEqual([]);
+  expect(new Set(forced).size).toBe(forced.length);
 });
 
 test('native qualification is dispatch-only with one exclusive mode per run', () => {

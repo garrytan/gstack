@@ -193,7 +193,7 @@ describe('test-free-shards: exclusive host-state phase', () => {
     let child: ReturnType<typeof Bun.spawn> | undefined;
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     try {
-      for (const file of ['scripts/test-free-shards.ts', 'scripts/test-strict-output.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts', 'scripts/lib/free-ci-health.ts', 'lib/state-root.ts',
+      for (const file of ['scripts/test-free-shards.ts', 'scripts/test-strict-output.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts', 'scripts/lib/free-ci-health.ts', 'scripts/lib/windows-curation.ts', 'lib/state-root.ts',
         'test/helpers/paid-test-set.ts', 'test/helpers/touchfiles.ts', 'test/helpers/touchfiles-data.ts', 'test/helpers/test-selection.ts']) {
         const target = path.join(directory, file);
         fs.mkdirSync(path.dirname(target), { recursive: true });
