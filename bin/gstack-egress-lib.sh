@@ -37,9 +37,12 @@
 # the caller's. All temp handling is immediate, per call.
 
 # Self-locate without dirname (builtins only), so the lib works even under
-# a stripped test PATH.
-case "${BASH_SOURCE[0]}" in
-  */*) _gstack_egress_lib_dir="$(cd "${BASH_SOURCE[0]%/*}" && pwd)" ;;
+# a stripped test PATH. Skill blocks source it from zsh, which has no
+# BASH_SOURCE; the eval keeps bash from parsing zsh's %x expansion.
+_gstack_egress_lib_src="${BASH_SOURCE[0]:-}"
+[ -z "$_gstack_egress_lib_src" ] && [ -n "${ZSH_VERSION:-}" ] && eval '_gstack_egress_lib_src="${(%):-%x}"'
+case "$_gstack_egress_lib_src" in
+  */*) _gstack_egress_lib_dir="$(cd "${_gstack_egress_lib_src%/*}" && pwd)" ;;
   *) _gstack_egress_lib_dir="$(pwd)" ;;
 esac
 

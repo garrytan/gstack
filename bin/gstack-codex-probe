@@ -3,6 +3,7 @@
 # Sourced from template bash blocks; never execute directly.
 #
 # Functions (all prefixed with _gstack_codex_ for namespace hygiene):
+#   _gstack_codex_bin_dir         — this file's directory, under bash or zsh
 #   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
 #   _gstack_codex_select_model    — resolve + print the runtime model (#2914)
 #   _gstack_codex_model_probe     — round-trip probe of the selected model (#2477)
@@ -15,6 +16,18 @@
 #   - All internal vars prefix with _GSTACK_CODEX_.
 #   - All functions prefix with _gstack_codex_.
 #   - No command execution at source time (only function defs).
+
+# --- Own directory ----------------------------------------------------------
+
+_gstack_codex_bin_dir() {
+  # Template blocks source this file from the host's shell, often zsh, where
+  # BASH_SOURCE does not exist. The eval keeps bash from parsing zsh syntax.
+  if [ -n "${BASH_SOURCE[0]:-}" ]; then
+    printf '%s\n' "${BASH_SOURCE[0]%/*}"
+  elif [ -n "${ZSH_VERSION:-}" ]; then
+    eval 'printf "%s\n" "${functions_source[_gstack_codex_bin_dir]%/*}"'
+  fi
+}
 
 # --- Auth probe -------------------------------------------------------------
 
@@ -49,9 +62,9 @@ _gstack_codex_select_model() {
     return 1
   fi
   if [ -n "$_explicit" ]; then
-    _line=$(bun run "${BASH_SOURCE[0]%/*}/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind" --explicit "$_explicit")
+    _line=$(bun run "$(_gstack_codex_bin_dir)/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind" --explicit "$_explicit")
   else
-    _line=$(bun run "${BASH_SOURCE[0]%/*}/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind")
+    _line=$(bun run "$(_gstack_codex_bin_dir)/../scripts/resolve-codex-generation-model.ts" --runtime "$_kind")
   fi
   _rc=$?
   _GSTACK_CODEX_SEL="${_line%%$'\t'*}"
@@ -108,7 +121,7 @@ _gstack_codex_model_probe() {
   # State root from the shared twin (sourced in a subshell, so the caller's
   # shell is untouched). A missing twin only disables the cache.
   local _gstack_home _cache=""
-  _gstack_home="$(. "${BASH_SOURCE[0]%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || _gstack_home=""
+  _gstack_home="$(. "$(_gstack_codex_bin_dir)/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || _gstack_home=""
   [ -n "$_gstack_home" ] && _cache="$_gstack_home/.codex-model-probe"
   # Cache signature (#2787): everything that can change the round trip's
   # outcome without the hour passing — the model, the Codex home and its
@@ -295,7 +308,7 @@ _gstack_codex_log_event() {
   local _duration="${2:-0}"
   [ "${_TEL:-off}" = "off" ] && return 0
   local _root
-  _root="$(. "${BASH_SOURCE[0]%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
+  _root="$(. "$(_gstack_codex_bin_dir)/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
   [ -n "$_root" ] || return 0
   mkdir -p "$_root/analytics" 2>/dev/null || return 0
   local _ts
