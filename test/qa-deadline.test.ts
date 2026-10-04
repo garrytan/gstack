@@ -110,9 +110,11 @@ function alive(pid: number) {
 }
 
 async function ready(file: string) {
-  for (let i = 0; i < 300 && !fs.existsSync(file); i++) await Bun.sleep(10);
+  // Fixtures write their pid with writeFileSync: the file exists before its digits do.
+  const written = () => { try { return Number(fs.readFileSync(file, 'utf8')) || 0; } catch { return 0; } };
+  for (let i = 0; i < 300 && written() <= 0; i++) await Bun.sleep(10);
   expect(fs.existsSync(file)).toBe(true);
-  const pid = Number(fs.readFileSync(file, 'utf8'));
+  const pid = written();
   expect(pid).toBeGreaterThan(0);
   return pid;
 }
