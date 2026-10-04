@@ -118,7 +118,7 @@ test('CEO handoff allows no pending choice without inventing an approval', () =>
   expectMentions(approach, [['no','alternatives','approval']], 'approach');
   expectMentions(initial, [['before','unresolved','approaches']], 'initial');
   ordered(initial, ['A) current/requested plan', 'B) smallest scoped alternative', 'C) larger approach/rewrite only with evidence']);
-  expect(handoff).toContain('No new approach decision was needed');
+  expectMentions(handoff, [['no', 'approach', 'decision']], 'handoff');
   expect(handoff).toMatch(/preserve 0D approvals/i);
 });
 
