@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { resolvePaidShardBudget, retriesForFiles, planPaidShards, parseRunManifest, verifySliceResults, runPaidShard, buildRunManifest, paidShardWallUpperBoundMs, collectPaidTestFiles, selectPaidTestFiles, isOverlayTestFile, DEFAULT_SHARD_TIMEOUT_MS, DEFAULT_JOBS, parseCliOptions, expandCaseShards, expandTrialShards, shardFile, sliceExecutionOrder, sliceSupervisedWallMs } from '../scripts/test-paid-shards';
+import { resolvePaidShardBudget, retriesForFiles, planPaidShards, parseRunManifest, verifySliceResults, runPaidShard, buildRunManifest, paidShardWallUpperBoundMs, collectPaidTestFiles, selectPaidTestFiles, isOverlayTestFile, DEFAULT_SHARD_TIMEOUT_MS, DEFAULT_JOBS, parseCliOptions, expandCaseShards, expandTrialShards, shardFile, sliceExecutionOrder, sliceSupervisedWallMs, resolvePaidShardTimeoutMs } from '../scripts/test-paid-shards';
 import { FINDING_RETRY_BUDGETS, ALL_TIERS, SHARD_RESERVE_MS } from './helpers/eval-budgets';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -122,12 +122,14 @@ test('live periodic census fits the declared CI wall including setup', () => {
   const m = livePlan();
   expect(planStep.run).not.toContain('--autoplan-slice');
   expect(job.strategy.matrix.slice).toBe('${{ fromJSON(needs.plan-slices.outputs.periodic_slices) }}');
-  expect(job['timeout-minutes']).toBe('${{ fromJSON(needs.plan-slices.outputs.periodic_timeout_minutes) }}');
+  expect(job['timeout-minutes']).toBe('${{ fromJSON(needs.plan-slices.outputs.periodic_slice_timeouts)[matrix.slice] }}');
   expect(workers).toBe(2);
   expect(planned.jobs).toBe(workers);
-  const walls = Array.from({ length: m.sliceCount }, (_, index) => sliceSupervisedWallMs(sliceExecutionOrder(
-    m.entries.filter(e => e.status === 'planned' && e.slice === index + 1)).map(e => e.file), workers));
-  expect(Math.max(...walls) + 20 * 60_000).toBeLessThanOrEqual(m.plan!.ciTimeoutMinutes * 60_000);
+  // W2c/ENG-2: every slice's own ceiling covers its longest shard wall plus setup.
+  const sliceFiles = Array.from({ length: m.sliceCount }, (_, index) => sliceExecutionOrder(
+    m.entries.filter(e => e.status === 'planned' && e.slice === index + 1)).map(e => e.file));
+  sliceFiles.forEach((files, index) => expect(Math.max(...files.map(file => resolvePaidShardTimeoutMs([file]))) + 20 * 60_000)
+    .toBeLessThanOrEqual(m.plan!.sliceCiTimeoutMinutes![index]! * 60_000));
   expect(m.plan!.ciTimeoutMinutes).toBeLessThanOrEqual(360);
   expect(m.sliceCount).toBeLessThanOrEqual(job.strategy['max-parallel']);
   const plannedFiles = new Set(m.entries.filter(e => e.status === 'planned').map(e => shardFile(e.file)));

@@ -42,6 +42,7 @@ import {
   formatCapacityPreflight,
   panelReports,
   shardSlug,
+  sliceCiTimeoutMinutes,
   type PaidRunManifest,
   type ShardOutcome,
   type SliceResult,
@@ -205,9 +206,11 @@ describe('budget slice packing', () => {
     expect(plan.slices.find(slice => slice.includes('test/unknown.test.ts'))!.length).toBeLessThanOrEqual(2);
     // Deterministic regardless of discovery order.
     expect(packBySliceBudget([...files].reverse(), s(540), 2, recorded)).toEqual(plan);
-    const worst = Math.max(...plan.slices.map(slice => sliceSupervisedWallMs(slice, 2)));
-    expect(plan.ciTimeoutMinutes).toBe(Math.ceil(worst / 60_000) + CI_SETUP_ALLOWANCE_MINUTES);
-    expect(packBySliceBudget([], s(540), 2, recorded)).toMatchObject({ slices: [[]], ciTimeoutMinutes: CI_SETUP_ALLOWANCE_MINUTES });
+    // W2c/ENG-2: per-slice ceilings, not the sum of every shard's worst case; the largest is the single job cap.
+    expect(plan.sliceCiTimeoutMinutes).toEqual(plan.slices.map(slice => sliceCiTimeoutMinutes(slice, s(540), 2)));
+    expect(plan.ciTimeoutMinutes).toBe(Math.max(...plan.sliceCiTimeoutMinutes));
+    expect(Math.max(...plan.slices.map(slice => sliceSupervisedWallMs(slice, 2)))).toBeGreaterThan(plan.ciTimeoutMinutes * 60_000);
+    expect(packBySliceBudget([], s(540), 2, recorded)).toMatchObject({ slices: [[]], ciTimeoutMinutes: 18 + CI_SETUP_ALLOWANCE_MINUTES });
   });
 
   test('overlays keep one final slice at their one-at-a-time admission', () => {

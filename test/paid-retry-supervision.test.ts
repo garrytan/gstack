@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import {
   buildPaidShardArgs, buildRunManifest, parseRunManifest, planPaidShards,
   DEFAULT_JOBS, parseCliOptions, paidShardWallUpperBoundMs, resolvePaidShardBudget, retriesForFiles, verifySliceResults, collectPaidTestFiles, selectPaidTestFiles,
-  shardFile, sliceExecutionOrder, sliceSupervisedWallMs, CASE_SHARDED_FILES,
+  shardFile, sliceExecutionOrder, sliceSupervisedWallMs, CASE_SHARDED_FILES, sliceCiTimeoutMinutes, resolvePaidShardTimeoutMs,
 } from '../scripts/test-paid-shards';
 import {
   ALL_TIERS, AUQ_CONSISTENCY_RETRY_BUDGET, FILE_RETRY_BUDGETS,
@@ -263,15 +263,21 @@ test('both gate executors plan the complete census and supervise every planned s
     expect(execute[0].env.EVALS_CONCURRENCY).toBe('2');
     expect(executor.strategy['fail-fast']).toBe(false);
     expect(executor.strategy.matrix.slice).toBe(`\${{ fromJSON(needs.plan-slices.outputs.${prefix}slices) }}`);
-    expect(executor['timeout-minutes']).toBe(`\${{ fromJSON(needs.plan-slices.outputs.${prefix}timeout_minutes) }}`);
+    // Per-slice ceilings (W2c/ENG-2), or the largest of them as one job cap.
+    expect([`\${{ fromJSON(needs.plan-slices.outputs.${prefix}slice_timeouts)[matrix.slice] }}`,
+      `\${{ fromJSON(needs.plan-slices.outputs.${prefix}timeout_minutes) }}`]).toContain(executor['timeout-minutes']);
     const manifest = buildRunManifest({ tier: 'gate', sliceBudgetMs: planned.sliceBudgetMs!, jobs: planned.jobs, evalsAll: true, env: { EVALS_ALL: '1' }, skipJudges });
     const files = [...new Set(manifest.entries.filter(row => row.status === 'planned').map(row => shardFile(row.file)))];
     expect(files).toContain('test/skill-e2e-ship-skip.test.ts');
     expect(files.sort()).toEqual(selectPaidTestFiles(collectPaidTestFiles(), 'gate').selected
       .filter(file => !skipJudges || !file.startsWith('test/skill-llm-eval')).sort());
-    const walls = Array.from({ length: manifest.sliceCount }, (_, i) => sliceSupervisedWallMs(sliceExecutionOrder(
-      manifest.entries.filter(row => row.status === 'planned' && row.slice === i + 1)).map(row => row.file), active.jobs));
-    expect(manifest.plan!.ciTimeoutMinutes * 60_000).toBeGreaterThanOrEqual(Math.max(...walls) + 20 * 60_000);
+    // W2c/ENG-2: each slice's job ceiling covers its longest single shard (and the serialized overlay
+    // envelope) plus setup; the in-process slice deadline turns work that cannot start into not_run.
+    const sliceFiles = Array.from({ length: manifest.sliceCount }, (_, i) => sliceExecutionOrder(
+      manifest.entries.filter(row => row.status === 'planned' && row.slice === i + 1)).map(row => row.file));
+    expect(manifest.plan!.sliceCiTimeoutMinutes).toEqual(sliceFiles.map(files => sliceCiTimeoutMinutes(files, planned.sliceBudgetMs!, active.jobs)));
+    sliceFiles.forEach((files, i) => expect(manifest.plan!.sliceCiTimeoutMinutes![i]! * 60_000)
+      .toBeGreaterThanOrEqual(Math.max(...files.map(file => resolvePaidShardTimeoutMs([file]))) + 20 * 60_000));
     expect(manifest.plan!.ciTimeoutMinutes).toBeLessThanOrEqual(360);
     expect(manifest.sliceCount).toBeLessThanOrEqual(executor.strategy['max-parallel']);
     if (jobName === 'gate-census') {
@@ -302,9 +308,13 @@ test('the periodic executor supervises every actual case within its planned CI w
   const census = manifest.entries.filter(row => row.status === 'planned');
   expect(new Set(census.map(row => shardFile(row.file)))).toEqual(new Set(selectPaidTestFiles(collectPaidTestFiles(), 'periodic').selected));
   expect(census.find(row => row.file === 'test/skill-llm-eval.test.ts')?.budget?.timeoutMs).toBe(3_170_000);
-  const walls = Array.from({ length: manifest.sliceCount }, (_, i) => sliceSupervisedWallMs(sliceExecutionOrder(
-    census.filter(row => row.slice === i + 1)).map(row => row.file), active.jobs));
-  expect(manifest.plan!.ciTimeoutMinutes * 60_000).toBeGreaterThanOrEqual(Math.max(...walls) + 20 * 60_000);
+  // W2c/ENG-2: each slice's job ceiling covers its longest single shard (and the serialized overlay
+    // envelope) plus setup; the in-process slice deadline turns work that cannot start into not_run.
+    const sliceFiles = Array.from({ length: manifest.sliceCount }, (_, i) => sliceExecutionOrder(
+      census.filter(row => row.slice === i + 1)).map(row => row.file));
+    expect(manifest.plan!.sliceCiTimeoutMinutes).toEqual(sliceFiles.map(files => sliceCiTimeoutMinutes(files, planned.sliceBudgetMs!, active.jobs)));
+    sliceFiles.forEach((files, i) => expect(manifest.plan!.sliceCiTimeoutMinutes![i]! * 60_000)
+      .toBeGreaterThanOrEqual(Math.max(...files.map(file => resolvePaidShardTimeoutMs([file]))) + 20 * 60_000));
   expect(manifest.plan!.ciTimeoutMinutes).toBeLessThanOrEqual(360);
   expect(manifest.sliceCount).toBeLessThanOrEqual(executor.strategy['max-parallel']);
 });

@@ -105,9 +105,9 @@ jobs:
     outputs:
       periodic_slices: ${{ steps.periodic-matrix.outputs.slices }}
       periodic_codex_slices: ${{ steps.periodic-matrix.outputs.codex_slices }}
-      periodic_timeout_minutes: ${{ steps.periodic-matrix.outputs.timeout_minutes }}
+      periodic_slice_timeouts: ${{ steps.periodic-matrix.outputs.slice_timeouts }}
       gate_slices: ${{ steps.gate-matrix.outputs.slices }}
-      gate_timeout_minutes: ${{ steps.gate-matrix.outputs.timeout_minutes }}
+      gate_slice_timeouts: ${{ steps.gate-matrix.outputs.slice_timeouts }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -130,7 +130,7 @@ jobs:
           {
             echo "slices=$(jq -c '[range(1; .sliceCount + 1)] - .plan.codexSlices' /tmp/paid-plan/manifest.json)"
             echo "codex_slices=$(jq -c '.plan.codexSlices' /tmp/paid-plan/manifest.json)"
-            echo "timeout_minutes=$(jq -e '.plan.ciTimeoutMinutes' /tmp/paid-plan/manifest.json)"
+            echo "slice_timeouts=$(jq -ec '[0] + .plan.sliceCiTimeoutMinutes' /tmp/paid-plan/manifest.json)"
           } >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -148,7 +148,7 @@ jobs:
         id: gate-matrix
         run: |
           echo "slices=$(jq -c '[range(1; .sliceCount + 1)]' /tmp/gate-census-plan/manifest.json)" >> "$GITHUB_OUTPUT"
-          echo "timeout_minutes=$(jq -e '.plan.ciTimeoutMinutes' /tmp/gate-census-plan/manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "slice_timeouts=$(jq -ec '[0] + .plan.sliceCiTimeoutMinutes' /tmp/gate-census-plan/manifest.json)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -161,10 +161,12 @@ jobs:
     needs: [build-image, plan-slices]
     env:
       EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-eval-slices-${{ matrix.slice }}
-    # The planner packs ~9 minutes of recorded work per slice; the job timeout
-    # is its supervised worst case (every shard at its wall) plus 20 minutes
-    # setup/upload, computed from the same manifest the slices execute.
-    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.periodic_timeout_minutes) }}
+    # The planner packs ~7 minutes of recorded work per slice; each slice's job
+    # ceiling is max(2x budget, its longest shard wall, the overlay envelope)
+    # plus 20 minutes setup (W2c/ENG-2), indexed by slice from the manifest the
+    # slices execute ([0] pads the array so index = slice). The executor stops
+    # starting work 5 minutes before the ceiling so its results still upload.
+    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.periodic_slice_timeouts)[matrix.slice] }}
     permissions:
       contents: read
       packages: read
@@ -182,6 +184,9 @@ jobs:
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.periodic_slices) }}
     steps:
+      - name: Record the job start for the slice deadline
+        run: echo "GSTACK_SLICE_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history: files with SELF-derived selection (the LLM-judge
@@ -308,7 +313,7 @@ jobs:
     if: ${{ needs.plan-slices.outputs.periodic_codex_slices != '[]' }}
     env:
       EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-eval-slices-${{ matrix.slice }}
-    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.periodic_timeout_minutes) }}
+    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.periodic_slice_timeouts)[matrix.slice] }}
     permissions:
       contents: read
       packages: read
@@ -318,6 +323,9 @@ jobs:
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.periodic_codex_slices) }}
     steps:
+      - name: Record the job start for the slice deadline
+        run: echo "GSTACK_SLICE_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
@@ -356,7 +364,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/eval-home" "$RUNNER_TEMP/paid-slice-results"
           docker run --rm --user "$(id -u):$(id -g)" \
             --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
-            -e HOME=/home/runner -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GEMINI_API_KEY -e SLICE -e EVALS_JOBS \
+            -e HOME=/home/runner -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GEMINI_API_KEY -e SLICE -e EVALS_JOBS -e GSTACK_SLICE_JOB_STARTED_AT \
             -e EVALS_RUN_ID -e EVALS_PROFILE -e EVALS_FRESH -e EVALS_CACHE_PURPOSE -e CI -e GITHUB_ACTIONS \
             -e GITHUB_RUN_ID -e GITHUB_RUN_ATTEMPT -e GITHUB_SHA -e GITHUB_REF -e GITHUB_REF_NAME -e GITHUB_REPOSITORY \
             -e GITHUB_EVENT_NAME -e GITHUB_BASE_REF -e GITHUB_HEAD_REF \
@@ -434,8 +442,8 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' || inputs.include_gate_census }}
     env:
       EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-gate-census-${{ matrix.slice }}
-    # Supervised worst case of the packed plan plus 20 minutes setup/upload.
-    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.gate_timeout_minutes) }}
+    # Per-slice job ceiling from the packed plan (W2c/ENG-2), as for eval-slices.
+    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.gate_slice_timeouts)[matrix.slice] }}
     permissions:
       contents: read
       packages: read
@@ -452,6 +460,9 @@ jobs:
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.gate_slices) }}
     steps:
+      - name: Record the job start for the slice deadline
+        run: echo "GSTACK_SLICE_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history: files with SELF-derived selection (the LLM-judge

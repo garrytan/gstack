@@ -82,11 +82,11 @@ import { preflightAnthropicApi } from '../test/helpers/anthropic-preflight';
 import { e2eReuseLaneProblem, prepareE2EShardReuse, selectPlanReceipts } from './e2e-shard-reuse';
 import { E2E_TOUCHFILES, E2E_TIERS } from '../test/helpers/touchfiles';
 import { scopeCodexAccess, shardFile, shardCaseId, shardTrial, trialShardKey, type CaseTrialPlan, caseTrialPlan, excludedCasesNamePattern, caseTestNamePattern, expandCaseShards, expandTrialShards, fileCaseRegistration, partitionCaseExclusions } from './lib/paid-cases';
-import { retriesForFiles, trialPanelKey, sliceExecutionOrder, buildRunManifest, parseRunManifest, type SliceResult, sliceExitCode, guardTrialRecords, formatSlicePlan, formatCapacityPreflight } from './lib/paid-plan';
+import { retriesForFiles, trialPanelKey, sliceExecutionOrder, buildRunManifest, parseRunManifest, type SliceResult, sliceExitCode, guardTrialRecords, formatSlicePlan, formatCapacityPreflight, sliceDeadlineMs } from './lib/paid-plan';
 import { caseFile, runCaseDiagnosis, formatPanelLine, runPaidReport } from './lib/paid-report';
 import {
   DEFAULT_JOBS, DEFAULT_MAX_FILES_PER_SHARD, DEFAULT_SHARD_TIMEOUT_MS, DEFAULT_TIER, DEFAULT_WITHIN_SHARD_CONCURRENCY, OVERLAY_MAX_ACTIVE_SHARDS,
-  PAID_LANE_POLICY, PAID_TIERS, ROOT, isOverlayTestFile,
+  PAID_LANE_POLICY, PAID_TIERS, ROOT, SLICE_JOB_STARTED_AT_ENV, SLICE_UPLOAD_RESERVE_MS, isOverlayTestFile,
   type PaidProfile, type PaidShardBudget, type PaidTier, type ShardOutcome, type ShardStatus, type ShardTrialRecord,
 } from './lib/paid-types';
 import {
@@ -193,6 +193,11 @@ export interface RunShardsOptions {
   reuseFor?: (files: string[], env: NodeJS.ProcessEnv, budget: PaidShardBudget) => E2EShardReuse | null;
   /** Isolated trial shards: key -> the case's fixed trial plan. */
   trials?: Record<string, CaseTrialPlan>;
+  /** Epoch ms after which no shard starts and in-flight shards are killed (ENG-2 slice deadline). */
+  sliceDeadlineMs?: number;
+  /** Called after every shard start and finish with checkpoint outcomes: as if the job ended now,
+   * in-flight shards read as hung and unstarted ones as not_run (executor checkpoints). */
+  onProgress?: (checkpoint: ShardOutcome[]) => void;
 }
 
 /** On-failure console excerpt budget: the last N bytes of the shard's log. */
@@ -432,7 +437,8 @@ export async function runPaidShard(
   let timedOut = false;
   let groupPid: number | null = null;
   let incompleteCapture: ShardChildResult['incompleteCapture'];
-  const shardDeadline = Date.now() + timeoutMs;
+  const ownDeadline = Date.now() + timeoutMs;
+  const shardDeadline = Math.min(ownDeadline, options.sliceDeadlineMs ?? Infinity);
   try {
     // Shared spawn/detached/group-kill/wall-timer/reap lifecycle.
     const result = await runShardChild({
@@ -505,8 +511,10 @@ export async function runPaidShard(
     ? summary.terminalTestCounts.reduce((a, b) => a + b, 0)
     : null;
   const skippedTests = summary.terminalTestCounts.length > 0 ? summary.skippedTests : null;
+  const hung = status === 'timed-out' && shardDeadline < ownDeadline;
+  if (hung) log(`${label} HUNG: killed at the slice deadline before its own ${Math.round(timeoutMs / 1000)}s wall`);
   return withTrial({ shard: shardNumber, files, status, exitCode, elapsedMs, groupPid, executedTests, skippedTests, budget,
-    ...(inputKey ? { inputKey } : {}) });
+    ...(inputKey ? { inputKey } : {}), ...(hung ? { sliceDeadline: 'hung' as const } : {}) });
 }
 
 export interface RunSummary {
@@ -591,12 +599,24 @@ export async function runPaidShards(
   // Validate the whole batch before any child can spend or create artifacts.
   for (const files of shards) resolvePaidShardTimeoutMs(files, options.timeoutMs);
   const pending = shards.map((_, index) => index);
+  const running = new Set<number>();
   let activeOverlayShards = 0;
   const waiters = new Set<() => void>();
   const wakeWorkers = () => {
     for (const resolve of waiters) resolve();
     waiters.clear();
   };
+  // A synthesized outcome keeps a trial shard's record (harness reason) so the report reconciles it.
+  const withPlannedTrial = (index: number, outcome: ShardOutcome): ShardOutcome => {
+    const key = shards[index].length === 1 ? normalizeRelativePath(shards[index][0]!) : '';
+    const plan = options.trials?.[key];
+    return plan && shardCaseId(key) !== null && shardTrial(key) !== null
+      ? { ...outcome, trial: classifyTrialShard(outcome, shardCaseId(key)!, shardTrial(key)!, plan, { records: [], contract: null }) }
+      : outcome;
+  };
+  const progress = () => options.onProgress?.(outcomes.map((outcome, index) =>
+    running.has(index) ? withPlannedTrial(index, { ...outcome, status: 'timed-out', sliceDeadline: 'hung' })
+      : outcome.status === 'never-started' && !outcome.sliceDeadline ? withPlannedTrial(index, { ...outcome, sliceDeadline: 'not_run' }) : outcome));
   const worker = async (): Promise<void> => {
     while (true) {
       // Cancellation (SIGINT/SIGTERM) must stop the RUN: the signal
@@ -604,6 +624,16 @@ export async function runPaidShards(
       // from launching replacement shards that would keep burning API spend.
       if (isTerminationRequested()) return;
       if (pending.length === 0) return;
+      // ENG-2: past the slice deadline nothing starts; each remaining shard is an explicit not_run (INFRA).
+      if (options.sliceDeadlineMs !== undefined && Date.now() >= options.sliceDeadlineMs) {
+        for (const index of pending.splice(0)) {
+          outcomes[index] = withPlannedTrial(index, { ...outcomes[index]!, sliceDeadline: 'not_run' });
+          console.error(`[test:paid] shard ${index + 1} NOT RUN: the slice deadline passed before it started (${shards[index].join(' ')})`);
+        }
+        wakeWorkers();
+        progress();
+        return;
+      }
       const position = pending.findIndex(index => !shards[index].some(isOverlayTestFile)
         || activeOverlayShards < OVERLAY_MAX_ACTIVE_SHARDS);
       if (position < 0) {
@@ -613,6 +643,8 @@ export async function runPaidShards(
       const [index] = pending.splice(position, 1);
       const overlay = shards[index].some(isOverlayTestFile);
       if (overlay) activeOverlayShards++;
+      running.add(index);
+      progress();
       try {
         outcomes[index] = await runPaidShard(shards[index], index + 1, shards.length, { ...options, jobs });
       } catch (error) {
@@ -628,15 +660,13 @@ export async function runPaidShards(
           skippedTests: null,
           runnerError,
         };
-        const key = shards[index].length === 1 ? normalizeRelativePath(shards[index][0]!) : '';
-        const plan = options.trials?.[key];
-        outcomes[index] = plan && shardCaseId(key) !== null && shardTrial(key) !== null
-          ? { ...failed, trial: classifyTrialShard(failed, shardCaseId(key)!, shardTrial(key)!, plan, { records: [], contract: null }) }
-          : failed;
+        outcomes[index] = withPlannedTrial(index, failed);
         console.error(`[test:paid] shard ${index + 1} could not run: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         if (overlay) activeOverlayShards--;
+        running.delete(index);
         wakeWorkers();
+        progress();
       }
     }
   };
@@ -889,6 +919,39 @@ async function main(): Promise<number> {
       manifest.prCoverage?.mode === 'pr' ? prProfileTestNamePattern(entry.file, manifest.selection!, entry.excludeCases)
         : excludedCasesNamePattern(entry.excludeCases!)]));
     const startedAt = Date.now();
+    const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
+    const ceilingMinutes = manifest.plan?.sliceCiTimeoutMinutes?.[options.sliceIndex - 1] ?? manifest.plan?.ciTimeoutMinutes;
+    const deadlineMs = ceilingMinutes === undefined ? undefined
+      : sliceDeadlineMs(ceilingMinutes, process.env[SLICE_JOB_STARTED_AT_ENV], startedAt);
+    if (deadlineMs !== undefined) console.log(`[test:paid] slice deadline ${new Date(deadlineMs).toISOString()} (job ceiling ${ceilingMinutes}m minus ${SLICE_UPLOAD_RESERVE_MS / 60_000}m upload reserve)`);
+    fs.mkdirSync(evalDirBase, { recursive: true });
+    const sliceResultPath = path.join(evalDirBase, `slice-${options.sliceIndex}.json`);
+    const writeSliceResult = (outcomes: ShardOutcome[], checkpoint: boolean) => {
+      const sliceResult: SliceResult = {
+        version: 1,
+        tier: manifest.tier,
+        profile,
+        ...(manifest.selection ? { selection: manifest.selection } : {}),
+        sliceIndex: options.sliceIndex!,
+        sliceCount: manifest.sliceCount,
+        ...(options.timeoutExplicit ? { timeoutOverrideMs: options.timeoutMs } : {}),
+        attempt: Number.isSafeInteger(attempt) && attempt > 0 ? attempt : 1,
+        startedAt,
+        finishedAt: Date.now(),
+        ...(checkpoint ? { checkpoint: true as const } : {}),
+        outcomes: outcomes.map(({ files, status, exitCode, elapsedMs, executedTests, skippedTests, budget, reused, runnerError, trial, inputKey, sliceDeadline }) =>
+          ({ files, status, exitCode, elapsedMs, executedTests, skippedTests, ...(budget ? { budget } : {}), ...(reused ? { reused } : {}),
+            ...(runnerError !== undefined ? { runnerError } : {}), ...(trial ? { trial } : {}), ...(inputKey ? { inputKey } : {}),
+            ...(sliceDeadline ? { sliceDeadline } : {}) })),
+      };
+      const temporary = `${sliceResultPath}.tmp-${process.pid}`;
+      fs.writeFileSync(temporary, `${JSON.stringify(sliceResult, null, 2)}\n`);
+      fs.renameSync(temporary, sliceResultPath);
+    };
+    // Checkpoint after every shard start/finish: if the job ceiling or a
+    // cancellation ends the job, the always() upload still carries finished
+    // outcomes; in-flight shards read as hung, unstarted ones as not_run.
+    const checkpoint = (outcomes: ShardOutcome[]) => writeSliceResult(outcomes, true);
     let summary: RunSummary;
     if (shards.length === 0) {
       summary = summarize([]);
@@ -933,29 +996,13 @@ async function main(): Promise<number> {
           ...paidSelectionEnv(profile, manifest.selection ?? { e2e: null, judges: null }, `manifest slice ${options.sliceIndex}: ${manifest.selectionReason}`),
         },
         evalDirBase,
+        sliceDeadlineMs: deadlineMs,
+        onProgress: checkpoint,
       });
     }
     const guarded = guardTrialRecords(applyHollowShardGuard(summary.outcomes, { evalsAll: manifest.evalsAll, requireExecuted: manifest.prCoverage?.mode === 'pr' }));
     summary = summarize(guarded);
-    const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
-    const sliceResult: SliceResult = {
-      version: 1,
-      tier: manifest.tier,
-      profile,
-      ...(manifest.selection ? { selection: manifest.selection } : {}),
-      sliceIndex: options.sliceIndex,
-      sliceCount: manifest.sliceCount,
-      ...(options.timeoutExplicit ? { timeoutOverrideMs: options.timeoutMs } : {}),
-      attempt: Number.isSafeInteger(attempt) && attempt > 0 ? attempt : 1,
-      startedAt,
-      finishedAt: Date.now(),
-      outcomes: guarded.map(({ files, status, exitCode, elapsedMs, executedTests, skippedTests, budget, reused, runnerError, trial, inputKey }) =>
-        ({ files, status, exitCode, elapsedMs, executedTests, skippedTests, ...(budget ? { budget } : {}), ...(reused ? { reused } : {}),
-          ...(runnerError !== undefined ? { runnerError } : {}), ...(trial ? { trial } : {}), ...(inputKey ? { inputKey } : {}) })),
-    };
-    fs.mkdirSync(evalDirBase, { recursive: true });
-    const sliceResultPath = path.join(evalDirBase, `slice-${options.sliceIndex}.json`);
-    fs.writeFileSync(sliceResultPath, `${JSON.stringify(sliceResult, null, 2)}\n`);
+    writeSliceResult(guarded, false);
     console.log(`[test:paid] slice result: ${sliceResultPath}`);
     for (const line of formatSummary(summary)) console.log(line);
     for (const outcome of guarded.filter(outcome => outcome.trial)) {

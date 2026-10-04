@@ -92,6 +92,9 @@ export interface ShardOutcome {
   inputKey?: string;
   /** Isolated trial shards only: the trial record this shard produced. */
   trial?: ShardTrialRecord;
+  /** The slice's in-process deadline (job ceiling minus the upload reserve) decided this outcome:
+   * `not_run` = never started (INFRA), `hung` = killed in flight (TIMEOUT). */
+  sliceDeadline?: 'not_run' | 'hung';
 }
 
 /**
@@ -117,3 +120,8 @@ export interface ShardTrialRecord {
   duration_ms: number;
   model?: string;
 }
+
+/** Upload reserve between a slice's in-process deadline and its CI job ceiling (ENG-2). */
+export const SLICE_UPLOAD_RESERVE_MS = 5 * 60_000;
+/** Env var the executor workflows set at their first step: the job's start in epoch seconds. */
+export const SLICE_JOB_STARTED_AT_ENV = 'GSTACK_SLICE_JOB_STARTED_AT';

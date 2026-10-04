@@ -86,7 +86,7 @@ jobs:
       contents: read
     outputs:
       slices: ${{ steps.matrix.outputs.slices }}
-      timeout_minutes: ${{ steps.matrix.outputs.timeout_minutes }}
+      slice_timeouts: ${{ steps.matrix.outputs.slice_timeouts }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -107,7 +107,7 @@ jobs:
         id: matrix
         run: |
           echo "slices=$(jq -c '[range(1; .sliceCount + 1)]' /tmp/marathon-plan/manifest.json)" >> "$GITHUB_OUTPUT"
-          echo "timeout_minutes=$(jq -e '.plan.ciTimeoutMinutes' /tmp/marathon-plan/manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "slice_timeouts=$(jq -ec '[0] + .plan.sliceCiTimeoutMinutes' /tmp/marathon-plan/manifest.json)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -120,9 +120,10 @@ jobs:
     needs: [build-image, plan-slices]
     env:
       EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-marathon-${{ matrix.slice }}
-    # One marathon file per runner; the job timeout is the plan's supervised
-    # worst case plus 20 minutes setup/upload.
-    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.timeout_minutes) }}
+    # One marathon file per runner; its job ceiling is that file's supervised
+    # wall plus 20 minutes setup (W2c/ENG-2), indexed by slice ([0] pads the
+    # array). The executor stops 5 minutes before it so results still upload.
+    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.slice_timeouts)[matrix.slice] }}
     permissions:
       contents: read
       packages: read
@@ -138,6 +139,9 @@ jobs:
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.slices) }}
     steps:
+      - name: Record the job start for the slice deadline
+        run: echo "GSTACK_SLICE_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history: files with SELF-derived selection (the LLM-judge
