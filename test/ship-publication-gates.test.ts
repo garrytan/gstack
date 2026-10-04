@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { expectMentions } from './helpers/prompt-structure';
 
 const template = readFileSync(new URL('../ship/sections/pr-body.md.tmpl', import.meta.url), 'utf8');
 const scanner = resolve(import.meta.dir, '../bin/gstack-redact');
@@ -87,13 +88,11 @@ test('publication reports unavailable triage separately from an empty successful
 
 test('publication refreshes the open review and title without treating lookup failure as absence', () => {
   const lookup = template.slice(0, template.indexOf('### Resolve Linked Spec'));
-  expect(lookup).toContain("Recheck Step 18's PR/MR lookup and record it");
   expect(lookup.replace(/\s+/g, ' ')).toContain('Errors or ambiguous matches STOP publication');
-  expect(lookup.replace(/\s+/g, ' ')).toContain("If the open PR/MR or title changed, repeat Step 18's identity/title preparation");
-  expect(lookup.replace(/\s+/g, ' ')).toContain('then return here for a new lookup, fresh body and both redaction scans before publishing');
+  expectMentions(lookup.replace(/\s+/g, ' '), [['before', 'publishing', 'redaction']], 'lookup.replace(/\s+/g,  )');
   expect(lookup).not.toContain('Ship control flow');
   expect(lookup).not.toContain('|| echo "NO_PR"');
   expect(lookup).not.toContain('|| echo "NO_MR"');
-  expect(template).toContain('Exit 1 or any other error blocks');
+  expectMentions(template, [['blocks', 'error', 'exit']], 'template');
   expect(template).toContain('public-strict policy');
 });

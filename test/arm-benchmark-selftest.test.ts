@@ -17,6 +17,7 @@ import {
 } from './helpers/llm-judge';
 import * as fs from 'fs';
 import * as path from 'path';
+import { expectMentions } from './helpers/prompt-structure';
 
 describe('arm benchmark selftest (free, no API)', () => {
   test('fixtures exist with their planted content; decoy credentials are obviously fake', () => {
@@ -127,9 +128,8 @@ describe('arm benchmark selftest (free, no API)', () => {
       expect(prompt).toContain(diff);
       expect(prompt).toContain(TASKS[0].ticket);
       expect(prompt).toContain('0-3 scale');
-      expect(prompt).toContain('Coverage is NOT over-engineering');
-      expect(prompt).toContain('MUST name the specific class, function, file, or pattern');
-      expect(prompt).toContain('construct MUST be exactly "none"');
+      expect(prompt).toContain('"none"');
+      expectMentions(prompt, [['coverage', 'not', 'over-engineering'], ['name', 'specific', 'class'], ['construct', 'exactly', '"none"']], 'arm judge prompt');
     }
     // The reference diffs are what the rubric anchors describe: the bad diff
     // carries a hand-rolled widget replacing a native element, the good one

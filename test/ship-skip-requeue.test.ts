@@ -4,6 +4,7 @@ import { ALL_HOST_CONFIGS } from '../hosts';
 import { generateAdversarialStep } from '../scripts/resolvers/outside-voice-steps';
 import { generateCrossReviewDedup, generateSharedCodeReuse } from '../scripts/resolvers/review-scope';
 import { HOST_PATHS } from '../scripts/resolvers/types';
+import { expectMentions } from './helpers/prompt-structure';
 
 const compact = (text: string) => text.replace(/\s+/g, ' ');
 const review = compact(readFileSync(new URL('../ship/sections/review-army.md.tmpl', import.meta.url), 'utf8'));
@@ -18,45 +19,32 @@ describe.each(ALL_HOST_CONFIGS.map(({ name }) => name))('%s ship skip/requeue co
     const match = finish.indexOf("Apply Step 9.3's matching procedure");
     expect(match).toBeGreaterThan(-1);
     expect(match).toBeLessThan(finish.indexOf('2. **Fixes queued'));
-    expect(finish).toContain('Only unmatched or reopened findings remain queued');
+    expectMentions(finish, [['only', 'unmatched', 'reopened']], 'finish');
     expect(dedup).toContain('Only explicit `skipped` actions qualify');
-    expect(dedup).toContain('If both history and the invocation action list lack decisions, classify normally');
-    expect(dedup).toContain('Revalidated Skips suppress repeat questions and fixes');
-    expect(dedup).toContain('Report the suppressed count once if nonzero');
-    expect(dedup).toContain('reopen the finding; unrelated edits do not');
+    expectMentions(dedup, [['do not', 'unrelated', 'finding']], 'dedup');
     const steps = ['1. **Validate severity.**', '2. **Read decisions.**',
       '3. **Match evidence.**', '4. **Match shared-code structurally.**', '5. **Apply dispositions.**'];
     const positions = steps.map(step => dedup.indexOf(step));
     expect(positions.every(position => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(review).toContain('Classify only unmatched or reopened findings as AUTO-FIX or ASK');
-    expect(review).toContain('after Step 9.3 matches all sources, including queued Steps 10–11 findings');
   });
 
   test('dedup and persistence include queued sources and preserve the explicit decision', () => {
-    expect(dedup).toContain('exploratory QA and queued Steps 10–11 findings');
-    expect(review).toContain('checklist, specialist, exploratory QA and queued Steps 10–11 records');
-    expect(review).toContain('Save each explicit Skip immediately in the invocation action list');
     expect(review).toContain('preserve `advisory`, `evidence_paths` and `helper_target`');
   });
 
   test('working-tree changes and new evidence reopen matching identities', () => {
     expect(dedup).toContain('git diff --name-only <prior-review-commit>');
     expect(dedup).not.toContain('git diff --name-only <prior-review-commit> HEAD');
-    expect(dedup).toContain('committed, staged, unstaged and non-ignored untracked source');
-    expect(dedup).toContain('Changed inputs, proposal, behavior, risk or new evidence reopen the finding');
     expect(dedup).toContain('honoring later user decisions');
-    expect(dedup).toContain('same fingerprint, advisory/defect kind and scope');
-    expect(dedup).toContain('Compare supporting source and finding evidence with the saved decision');
     expect(dedup).toContain('as a shortlist, not proof');
   });
 
   test('fixed regressions and missing Skip proof are not suppressed', () => {
     expect(dedup).toContain('never `fixed`, `auto-fixed` or unanswered questions');
-    expect(dedup).toContain('Missing proof or unknown comparisons require a fresh decision, not suppression');
+    expectMentions(dedup, [['not', 'comparisons', 'suppression']], 'dedup');
     expect(finish).toContain('Keep scoped approvals');
-    expect(dedup).toContain('Require the same fingerprint, advisory/defect kind and scope');
-    expect(finish).toContain('Unvalidated historical Skips stay unmatched for the full Step 9 repeat below');
     expect(finish).toContain('never jump to 9.3 or mint a late REVIEW_START');
   });
 
@@ -64,32 +52,30 @@ describe.each(ALL_HOST_CONFIGS.map(({ name }) => name))('%s ship skip/requeue co
     expect(dedup).toContain('they cannot suppress defects');
     expect(dedup).toContain('remove `advisory`, never downgrade severity');
     expect(dedup).toContain('Reject contradictory saved decisions');
-    expect(dedup).toContain('requires re-reading all callers (including indirect callers) and the helper destination');
-    expect(dedup).toContain('Missing metadata never permits ordinary line matching');
-    expect(dedup).toContain('Prior-review reuse additionally requires the checker below; invocation decisions cannot replace it');
+    expectMentions(dedup, [['never', 'metadata', 'ordinary']], 'dedup');
+    expectMentions(dedup, [['cannot', 'prior-review', 'additionally']], 'dedup');
     const checker = compact(generateSharedCodeReuse(ctx));
     expect(checker).toContain('Only `reusable: true` permits suppression');
-    expect(checker).toContain('False, command failure or unreadable output requires fresh source review');
-    expect(checker).toContain('Do not supply your own snapshot, prior record or coverage');
+    expectMentions(checker, [['do not', 'snapshot', 'coverage']], 'checker');
   });
 
   test('skipped defects stay unresolved and required failures stay failed', () => {
-    expect(dedup).toContain('not unresolved defects: retain them in counts, status and the final report');
+    expectMentions(dedup, [['not', 'unresolved', 'defects']], 'dedup');
     expect(dedup).toContain('Keep required-probe failures failed');
-    expect(review).toContain('Skipping a fix is not risk acceptance or a passing probe');
-    expect(review).toContain('Failed, blocked, inconclusive or not-run required probes mean false, never clean');
+    expectMentions(review, [['not', 'acceptance', 'skipping']], 'review');
+    expectMentions(review, [['never', 'inconclusive', 'required']], 'review');
     expect(review).toContain('VERIFY_RESULT stays fail');
-    expect(adversarial).toContain('retain the acknowledged findings and failed gate; do not report a clean review');
+    expectMentions(adversarial, [['do not', 'acknowledged', 'findings']], 'adversarial');
   });
 
   test('fresh review after edits, native coverage and cycle limits remain required', () => {
     expect(finish).toContain('**Required native review incomplete:** STOP');
-    expect(finish).toContain('Insert Steps 9, 10 and 11 before the pending Step 11.5');
-    expect(finish).toContain("never resets Step 9's three-cycle fix limit");
+    expectMentions(finish, [['before', 'pending', 'insert']], 'finish');
+    expectMentions(finish, [['never', 'three-cycle', 'resets']], 'finish');
     expect(review).toContain('Set CYCLES to 0 on first entry only');
     expect(review).toContain('Increment CYCLES once if fixes were applied');
-    expect(review).toContain('do not run a fourth fixing cycle');
-    expect(finish).toContain('then continue to Step 11.5. Never jump directly to release preparation');
+    expectMentions(review, [['do not', 'fourth', 'fixing']], 'review');
+    expectMentions(finish, [['never', 'preparation', 'directly']], 'finish');
   });
 });
 

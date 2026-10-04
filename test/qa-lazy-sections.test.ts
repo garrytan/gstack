@@ -10,6 +10,7 @@ import { generateQAMethodReads, generateQAResource } from '../scripts/resolvers/
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { runBashScript } from './helpers/bash-script';
 import { PARITY_INVARIANTS, runParityChecks } from './helpers/parity-harness';
+import { expectMentions, expectTokens } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const owned = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-qa-sections-'));
@@ -61,13 +62,13 @@ describe('QA-only cross-host lazy rendering', () => {
     expect(text).not.toContain('### Dispatch specialists');
     expect(text).not.toContain('### Step 4.6: Collect and merge findings');
     expect(text).not.toContain('SPECIALIST REVIEW: N findings');
-    expect(record).toContain('If this host omits Review Army, use `specialists: {}` without claiming specialist coverage');
+    expectTokens(record, ['`specialists: {}`'], 'record');
+    expectMentions(record, [['without', 'specialist', 'claiming']], 'record');
     expect(record).toContain('`10.0` when small-diff specialists were skipped or this host omits Review Army');
-    expect(record).toContain('This default is not completion evidence');
-    expect(record).toContain('native Step 4.8 adversarial pass finish, and every required Step 4.7 probe passes');
-    expect(record).toContain('Any failed, blocked, inconclusive or not-run required probe means false, as does a failed native review');
+    expectMentions(record, [['not', 'completion', 'evidence']], 'record');
+    expectMentions(record, [['not', 'inconclusive', 'required']], 'record');
     expect(record).toContain('`/ship` named-risk acceptance cannot complete `/review`');
-    expect(record).toContain('unresolved non-advisory core defects still count in `issues_found`');
+    expectTokens(record, ['`issues_found`'], 'record');
     expect(record).toContain('State INCOMPLETE if `COMPLETED` is false, even when N=0');
   });
 
@@ -84,7 +85,6 @@ describe('QA-only cross-host lazy rendering', () => {
       const preparation = text.slice(start, core);
       const loop = preparation.indexOf('sections/exploratory.md');
       expect(loop).toBeGreaterThan(-1);
-      expect(preparation).toContain('complete the ordered scope/method Reads below');
       expect(preparation).toContain('Step 4 is read-only: defer charters, setup and probes to Step 4.7');
       expect(preparation).not.toContain('sections/system-functional.md');
       const qaDirectory = host.name === 'claude' ? 'qa' : `${host.hostSubdir}/skills/gstack-qa`;
@@ -100,7 +100,7 @@ describe('QA-only cross-host lazy rendering', () => {
       expect(shared).toContain('sections/qa-patterns.md');
       expect(preparation.replace(/\s+/g, ' ')).toContain('Step 4 is read-only: defer charters, setup and probes to Step 4.7');
       expect(shared.indexOf('Write a **charter**')).toBeGreaterThan(methods);
-      expect(shared).toContain('Do not repeat a Read already completed in this invocation');
+      expectMentions(shared, [['do not', 'invocation', 'completed']], 'shared');
       const qa = text.slice(exploration, text.indexOf('## Step 5: Fix-First Review', exploration));
       const charter = qa.indexOf('**1. Set the charter and isolation.**');
       const readiness = qa.indexOf('**2. Check readiness and list required checks.**');
@@ -110,14 +110,13 @@ describe('QA-only cross-host lazy rendering', () => {
       expect(readiness).toBeGreaterThan(charter);
       expect(setup).toBeGreaterThan(readiness);
       expect(probes).toBeGreaterThan(setup);
-      expect(qa.slice(charter, readiness).replace(/\s+/g, ' ')).toContain('complete the shared isolation/permission preflight before setup');
+      expectMentions(qa.slice(charter, readiness).replace(/\s+/g, ' '), [['before', 'isolation/permission', 'preflight']], 'section');
       const flat = qa.replace(/\s+/g, ' ');
-      expect(flat).toContain('Reuse setup only with verified tools/session/target/ownership; otherwise recheck');
-      expect(flat).toContain('Never install, import cookies or bootstrap tests');
+      expectMentions(flat, [['only', 'tools/session/target/ownership', 'otherwise']], 'flat');
+      expectMentions(flat, [['never', 'bootstrap', 'install']], 'flat');
       expect(flat).toContain('Functional-only skips browser setup');
       if (usesLazySections(host.name, 'review')) {
         const index = text.slice(text.indexOf('## Section index'), text.indexOf('## Step 1:'));
-        expect(index).toContain('Inline in [Step 4](#step-4-critical-pass-core-review); setup and probes run in Step 4.7');
         expect(index.indexOf('Select surfaces and read QA methods')).toBeLessThan(index.indexOf('sections/review-army.md'));
       } else {
         expect(text).not.toContain('## Section index');
@@ -246,34 +245,30 @@ describe('QA-only cross-host lazy rendering', () => {
         expect(positions.every(position => position >= 0)).toBe(true);
         expect(positions).toEqual([...positions].sort((a, b) => a - b));
         expect(explorer.split(functionalRead)).toHaveLength(2);
-        expect(explorer).toContain('Do not repeat a Read already completed in this invocation');
+        expectMentions(explorer, [['do not', 'invocation', 'completed']], 'explorer');
         if (skill === 'qa') {
           expect(entry).toMatch(/`--quick`[^\n]*Quick exploration/i);
           expect(entry).toContain('`--exhaustive` changes only the fix tier');
-          expect(entry).toContain('Regression mode preserves the selected fix tier.');
           for (const tier of ['**Quick:** Fix critical + high severity only', '**Standard:** + medium severity (default)', '**Exhaustive:** + low/cosmetic severity']) expect(entry).toContain(tier);
         } else {
-          expect(entry).toContain('Never fix bugs or write product tests');
+          expectMentions(entry, [['never', 'product', 'write']], 'entry');
           const browserSetup = entry.indexOf('## Browser Setup (conditional)');
           const selectedChecks = entry.indexOf('## Run the Selected Checks');
           expect(browserSetup).toBeGreaterThan(0);
           expect(selectedChecks).toBeGreaterThan(browserSetup);
           expect(entry.lastIndexOf(sectionPath(context(host.name, skill), skill, 'exploratory'))).toBeLessThan(browserSetup);
           expect(entry.slice(browserSetup, selectedChecks)).not.toContain(functionalRead);
-          expect(entry).toContain('Use the shared section already loaded above; do not restart its preparation');
+          expectMentions(entry, [['do not', 'preparation', 'section']], 'entry');
           expect(entry).toContain('Defer charters, clocks and probes to');
-          expect(explorer).toContain('Complete these Reads in order before writing charters or probing');
-          expect(entry).toContain('For mixed Regression, the argument is the prior combined report');
-          expect(entry).toContain('use separate browser and functional sections in this same report');
+          expectMentions(explorer, [['before', 'complete', 'charters']], 'explorer');
           expect(explorer).toContain('## 3. Parent handoff');
           expect(explorer).toContain('Return test_stub proposals');
-          expect(explorer).toContain('never create tests or freeze buggy output');
+          expectMentions(explorer, [['never', 'create', 'freeze']], 'explorer');
           expect(explorer).not.toMatch(/before repair|For \/review and \/ship|every new \/ship/);
         }
       }
       const browser = fs.readFileSync(path.join(rendered, qaDirectory, 'sections/qa-patterns.md'), 'utf8');
       expect(browser).toContain('### Regression (`--regression <baseline>`)');
-      expect(browser).toContain('Run Full; append fixed/new issues and score delta. Preserve the supplied prior baseline.');
       expect(browser).not.toContain('## Functional modes');
     });
 
@@ -287,7 +282,6 @@ describe('QA-only cross-host lazy rendering', () => {
             ? fs.readFileSync(path.join(dir, 'sections/review-army.md'), 'utf8') : '');
         expect(body).toContain(`From the installed /${caller} SKILL.md's directory`);
         expect(body).toContain(`Read \`../${prefix}qa/sections/exploratory.md\` in full`);
-        expect(body).toContain('complete the ordered scope/method Reads below');
         const scopeTarget = path.resolve(dir, `../${prefix}qa/sections/scope.md`);
         expect(fs.realpathSync(scopeTarget)).toBe(path.join(base, `${prefix}qa/sections/scope.md`));
         const target = path.resolve(dir, `../${prefix}qa/sections/exploratory.md`);
@@ -299,9 +293,8 @@ describe('QA-only cross-host lazy rendering', () => {
           expect(body).toContain(`If the caller directory is prefixed \`gstack-${caller}\``);
           expect(body).toContain('use `../gstack-qa/sections/exploratory.md` instead');
           if (caller === 'review') {
-            expect(body).toContain('If neither layout applies, report an unresolved QA installation as a setup blocker; do not guess another path');
-            expect(body).toContain("Use this host's installation, never the product tree");
-            expect(body).toContain('its affected probes as blocked; continue other safe probes');
+            expectMentions(body, [['do not', 'installation', 'unresolved']], 'body');
+            expectMentions(body, [['never', 'installation', 'product']], 'body');
             expect(body).toContain('Missing/unreadable assets block required QA');
           }
           const registry = path.join(owned, 'prefixed-callers', caller);
@@ -373,9 +366,9 @@ describe('installed QA pointers', () => {
     expect(source.indexOf('Write identical content')).toBeGreaterThan(source.indexOf('{{SECTION:reporting}}'));
     expect(source).not.toContain('{{SLUG_SETUP}}');
     expect(source).not.toContain('{{SLUG_EVAL}}');
-    expect(source).toContain('The no-repeat rule covers preparation Reads, not this finalization Read');
-    expect(source).toContain('To recover from an accidental early Read');
-    expect(source).toContain('Preserve the initial charters under **Charters** after that metadata, before findings');
+    expectMentions(source, [['not', 'finalization', 'preparation']], 'source');
+    expectTokens(source, ['**Charters**'], 'source');
+    expectMentions(source, [['before', 'preserve', 'charters']], 'source');
   });
 
   test('QA-only defines standalone permissions, mixed modes and outside changes', () => {
@@ -383,14 +376,13 @@ describe('installed QA pointers', () => {
       .map(file => fs.readFileSync(path.join(ROOT, file), 'utf8')).join('\n').replace(/\s+/g, ' ');
     expect(source).toContain('**caller** means this /qa-only workflow');
     expect(source).toContain('**Owned** means created for this run or explicitly assigned to it, not merely writable');
-    expect(source).toContain('the user or invoking workflow explicitly permitted that learning-store path');
-    expect(source).toContain('Invoking /qa-only alone does not grant this permission');
-    expect(source).toContain('Do not create a forbidden second copy');
-    expect(source).toContain('A mode flag applies to all selected surfaces unless the request names one surface; the others default to Full');
-    expect(source).toContain('source/diff reads only map changes to pages and flows');
-    expect(source).toContain('read `TODOS.md` if present to identify known bugs');
+    expectMentions(source, [['does not', 'permission', 'invoking']], 'source');
+    expectMentions(source, [['do not', 'forbidden', 'create']], 'source');
+    expectMentions(source, [['unless', 'selected', 'surfaces']], 'source');
+    expectMentions(source, [['only', 'source/diff', 'changes']], 'source');
+    expectTokens(source, ['`TODOS.md`'], 'source');
     expect(source).toContain('defaulting to functional then browser');
-    expect(source).toMatch(/absolute deadline is shared; switching surfaces does not extend it/i);
+    expectMentions(source, [['does not', 'switching', 'absolute']], 'source');
     expect(source).toContain('CLI executable basename');
     expect(source).toContain('**No explicit permission:** skip learning-store writes and continue to the report');
     expect(source).toContain('**Explicit permission:** Read the named store first');
@@ -399,8 +391,7 @@ describe('installed QA pointers', () => {
     for (const host of ALL_HOST_CONFIGS) {
       const directory = host.name === 'claude' ? 'qa-only' : `${host.hostSubdir}/skills/gstack-qa-only`;
       const explorer = fs.readFileSync(path.join(rendered, directory, 'sections/exploratory.md'), 'utf8').replace(/\s+/g, ' ');
-      expect(explorer).toContain('If the user or another process changes source, commands or fixtures');
-      expect(explorer).toContain('Do not make product changes yourself');
+      expectMentions(explorer, [['do not', 'yourself', 'product']], 'explorer');
       expect(explorer).toContain('Keep the original limits/notes');
     }
   });
@@ -416,17 +407,16 @@ describe('installed QA pointers', () => {
     expect(source).not.toContain('{{SECTION:browser-setup}}');
     expect(source).not.toContain('{{QA_METHOD_READS}}');
     expect(source).toContain('Load the shared preparation gate now');
-    expect(source).toContain('Parsing records the request; it does not start browser setup');
-    expect(source).toContain('If both `--quick` and\n`--regression` are supplied, ask the user to choose one mode before setup or probes');
-    expect(source).toContain("Each surface's method defines Full, Quick and Regression");
-    expect(source).toContain('All local reports, baselines and evidence use this directory');
+    expectMentions(source, [['does not', 'parsing', 'records']], 'source');
+    expectTokens(source, ['`--quick`', '`--regression`'], 'source');
+    expectMentions(source, [['ask', 'supplied', 'choose']], 'source');
     expect(source).toContain('$REPORT_DIR/qa-report-{target}-{YYYY-MM-DD}.md');
     expect(source).not.toContain('qa-report-{domain}');
     expect(source.indexOf('Set `REPORT_FILE`')).toBeLessThan(source.indexOf('## Browser Setup (conditional)'));
-    expect(source).toContain("Set `REPORT_FILE` to the caller\'s final report filename");
-    expect(source.replace(/\s+/g, ' ')).toContain('Charters and final findings use this same file, not a sidecar');
+    expectTokens(source, ['`REPORT_FILE`'], 'source');
+    expectMentions(source.replace(/\s+/g, ' '), [['not', 'charters', 'findings']], 'source.replace(/\s+/g,  )');
     const browser = fs.readFileSync(path.join(ROOT, 'qa/sections/browser-setup.md.tmpl'), 'utf8');
-    expect(browser).toContain('do not run the fallback\'s setup/install or cookie-import workflow');
+    expectMentions(browser, [['do not', 'setup/install', 'cookie-import']], 'browser');
     expect(browser).toContain('scope section\'s ownership rules apply even to LOCAL browser targets');
   });
 
@@ -437,21 +427,18 @@ describe('installed QA pointers', () => {
       const setup = source.slice(0, source.indexOf(browser)).replace(/\s+/g, ' ');
       expect(setup).toContain('prior report');
       expect(setup).toMatch(/baseline paths.*before writing/);
-      expect(setup).toContain('only when it is empty; otherwise choose a fresh owned run subdirectory');
+      expectMentions(setup, [['only', 'subdirectory', 'otherwise']], 'setup');
       if (skill === 'qa-only') {
-        expect(setup).toContain('Never overwrite artifacts from earlier runs');
-        expect(setup).toContain("Preserve this run's baselines, screenshots and exploration notes when finalizing its report");
+        expectMentions(setup, [['never', 'overwrite', 'artifacts']], 'setup');
       } else {
-        expect(setup).toContain('Never overwrite previous reports, baselines, screenshots or exploration notes');
+        expectMentions(setup, [['never', 'screenshots', 'exploration']], 'setup');
       }
-      expect(setup).toContain("caller\'s fixed artifact paths and permissions take precedence");
       expect(setup).toMatch(/impossible.*(?:output blocker|blocker)/);
       expect(setup).toMatch(/(?:rather than expanding|do not expand) write authority/);
     }
     const source = fs.readFileSync(path.join(ROOT, 'qa-only/SKILL.md.tmpl'), 'utf8').replace(/\s+/g, ' ');
-    expect(source).toContain('existing empty directory already established as owned by the caller needs no new shell commands to revalidate it');
-    expect(source).toContain("use the caller\'s supported interface and fixed destinations");
-    expect(source).toContain('If that destination exists, choose a fresh suffixed filename; never replace a prior report');
+    expectMentions(source, [['no', 'established', 'revalidate']], 'source');
+    expectMentions(source, [['never', 'destination', 'suffixed']], 'source');
   });
 
   test('mixed report labels, metadata and baselines have one explicit assembly rule', () => {
@@ -478,14 +465,16 @@ describe('installed QA pointers', () => {
       expect(start).toBeGreaterThan(-1);
       const layout = source.slice(start, source.indexOf('\n---', start));
       expect(layout).toContain('`REPORT_DIR` stays the report root throughout the run');
-      expect(layout.replace(/\s+/g, ' ')).toContain('For browser-only and mixed runs, keep screenshots in `$REPORT_DIR/screenshots/` and the browser baseline in `$REPORT_DIR/baseline.json`');
-      expect(layout).toContain("mixed-surface split applies only to clocks and checkpoints");
+      expectTokens(layout.replace(/\s+/g, ' '), ['`$REPORT_DIR/screenshots/`', '`$REPORT_DIR/baseline.json`'], 'layout.replace(/\s+/g,  )');
+      expectMentions(layout.replace(/\s+/g, ' '), [['only', 'browser-only', 'screenshots']], 'layout.replace(/\s+/g,  )');
+      expectMentions(layout, [['only', 'mixed-surface', 'checkpoints']], 'layout');
       expect(layout).toContain('| One surface (browser or functional) | `$REPORT_DIR` |');
       expect(layout).toContain('| Mixed: browser probes | `$REPORT_DIR/browser` |');
       expect(layout).toContain('| Mixed: functional probes | `$REPORT_DIR/functional` |');
       expect(layout.replace(/\s+/g, ' ')).toContain('only when timed, `deadline.json`');
       expect(layout).toContain('Caller-fixed paths override this layout');
-      expect(layout.replace(/\s+/g, ' ')).toContain('Do not reassign `REPORT_DIR` to a surface directory');
+      expectTokens(layout.replace(/\s+/g, ' '), ['`REPORT_DIR`'], 'layout.replace(/\s+/g,  )');
+      expectMentions(layout.replace(/\s+/g, ' '), [['do not', 'directory', 'reassign']], 'layout.replace(/\s+/g,  )');
     }
   });
 
@@ -497,47 +486,36 @@ describe('installed QA pointers', () => {
       const directive = SECTION(context(host.name, 'qa-only'), ['reporting']);
       expect(entry).toContain(directive);
       expect(entry.indexOf(directive)).toBeGreaterThan(entry.indexOf('### Assemble the report'));
-      expect(entry).toContain('After probing stops, load the finalization procedure below');
-      expect(entry).toContain('this step does not authorize more probes or restart an expired clock');
+      expectMentions(entry, [['does not', 'authorize', 'restart']], 'entry');
       expect(entry).toContain('Do not preload reporting');
-      expect(entry.replace(/\s+/g, ' ')).toContain('If already read, issue another Read now and await its acknowledgement, even if the tool reports unchanged content');
-      expect(directive).toContain('finalizing the report after probing stops');
       expect(directive).toContain('Read `sections/reporting.md`');
       expect(directive).toContain('Missing/unreadable assets block required QA');
       expect(entry).not.toContain('## 1. Establish each finding once');
       const source = (entry + '\n' + reporting).replace(/\s+/g, ' ');
-      expect(source).toContain('With its required Reads complete and report ownership resolved, Write the charters into the owned report and wait for the successful Write result before starting any probe clock or baseline');
+      expectMentions(source, [['wait', 'successful', 'ownership']], 'source');
       expect(source).toContain('A failed baseline contract stays failed');
-      expect(source).toContain('distinguish the observed result, the expected contract and any untested causal hypothesis');
-      expect(source).toContain('Link the supporting command/result or screenshot; unknown impact remains unknown');
-      expect(source).toContain('A console error message does not establish an uncaught exception, failed payload or missing UI');
-      expect(source).toContain('Missing text in a page-text extract does not establish an absent attribute or inaccessible element');
-      expect(source).toContain('leave them unconfirmed when time expires');
-      expect(source).toContain('guard start to child launch as pre-launch elapsed time, and child start to finish as command duration');
-      expect(source).toContain("not a component's latency without its own measurement");
+      expectMentions(source, [['does not', 'establish', 'exception']], 'source');
+      expectMentions(source, [['does not', 'inaccessible', 'page-text']], 'source');
+      expectMentions(source, [['not', 'measurement', 'latency']], 'source');
       expect(source).toContain('**Probe budget** (configured limit)');
       expect(source).toContain('**Guarded command time** (sum of measured child spans)');
       expect(source).toContain('**Total session elapsed**: `unmeasured` for the invocation whose report is being written');
-      expect(source).toContain('A deadline window is not total run time');
-      expect(source).toContain('Gaps between receipts do not measure status/Write overhead or prove how many probes fit');
-      expect(source).toContain('if late, say only that this run dispatched its follow-up after the deadline');
-      expect(source).toContain('Apply these evidence limits to proposed tests and learnings too');
-      expect(source).toContain('final report Write, acknowledgement and cleanup are not finished yet');
-      expect(source).toContain('An optional **Measured interval** must cite its actual start/end receipts and name the work outside those boundaries');
-      expect(source).toContain('A logged exception-shaped string proves a logged message, not that the named operation executed');
-      expect(source).toContain("Build headlines, Top 3, summaries and completion text from each finding's Observed and Confirmation fields, not its Hypothesis");
-      expect(source).toContain('Choose one conservative factual sentence per finding and reuse it verbatim in those locations; do not introduce a new causal paraphrase');
+      expectMentions(source, [['not', 'deadline', 'window']], 'source');
+      expectMentions(source, [['do not', 'status/write', 'receipts']], 'source');
+      expectMentions(source, [['only', 'dispatched', 'follow-up']], 'source');
+      expectMentions(source, [['not', 'acknowledgement', 'finished']], 'source');
+      expectTokens(source, ['**Measured interval**'], 'source');
+      expectMentions(source, [['must', 'boundaries', 'start/end']], 'source');
+      expectMentions(source, [['not', 'exception-shaped', 'operation']], 'source');
+      expectMentions(source, [['not', 'confirmation', 'completion']], 'source');
+      expectMentions(source, [['do not', 'conservative', 'paraphrase']], 'source');
       const exploratory = fs.readFileSync(path.join(rendered, directory, 'sections/exploratory.md'), 'utf8').replace(/\s+/g, ' ');
-      expect(exploratory).toContain("copy the complete span between the guard's started and finished receipt lines");
-      expect(exploratory).toContain('Keep its whitespace and content fences verbatim');
-      expect(exploratory).toContain('that separator is not child text');
-      expect(exploratory).toContain('If capture is incomplete, report that limit instead of reconstructing it');
-      expect(source).toContain('For a logged console error, capture console errors; exception-only hooks do not detect a console-only message');
-      expect(source).toContain('Write the report only after this consistency check');
-      expect(source).toContain("Run the learning step below only if its destination is caller-authorized");
-      expect(source).toContain('keep notes in `REPORT_FILE`; do not write learning stores or automatic memory');
-      expect(source).toContain('one observation proves neither recurrence nor an unexecuted check');
-      expect(source).toContain('After the final Write, respond briefly with its path and verified coverage/limits');
+      expectMentions(exploratory, [['not', 'separator', 'child']], 'exploratory');
+      expectMentions(source, [['do not', 'exception-only', 'console-only']], 'source');
+      expectMentions(source, [['only', 'consistency', 'report']], 'source');
+      expectMentions(source, [['only', 'caller-authorized', 'destination']], 'source');
+      expectTokens(source, ['`REPORT_FILE`'], 'source');
+      expectMentions(source, [['do not', 'automatic', 'learning']], 'source');
       const stages = ['## 1. Establish each finding once', '## 2. Fill timing fields', '## 3. Assemble and check'];
       const positions = stages.map(stage => reporting.indexOf(stage));
       expect(positions.every(position => position >= 0)).toBe(true);
@@ -644,8 +622,8 @@ describe('installed QA pointers', () => {
               fs.renameSync(resolvedReport, `${resolvedReport}.absent`);
               try {
                 expect(() => fs.readFileSync(report, 'utf8')).toThrow('ENOENT');
-                expect(explorer).toMatch(/Missing or unreadable assets, prerequisites or permission\s+block affected probes, not independent safe checks/);
-                expect(explorer).toContain('Pass requires all required current-input contracts to pass with no required remainder');
+                expectMentions(explorer, [['not', 'prerequisites', 'independent']], 'explorer');
+                expectMentions(explorer, [['no', 'current-input', 'contracts']], 'explorer');
               } finally {
                 fs.renameSync(`${resolvedReport}.absent`, resolvedReport);
               }

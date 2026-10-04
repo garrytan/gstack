@@ -20,12 +20,28 @@ OpenClaw's `test-audit` skill (openclaw/openclaw@a214e76,
 - **Value bar**: the authoring gate plus the rule that a test which breaks under a
   behavior-preserving refactor asserts implementation, unless its exact output is the
   declared contract (goldens, prompt bytes, wire formats).
+- **Prompt-byte contract**: the machine-read tokens inside a prompt, nothing wider.
+  A token qualifies when software consumes its exact bytes: a marker or sentinel
+  line a parser, hook or grader matches; a field name or JSON shape a script reads;
+  a command line, flag or environment variable the agent runs; an enum value or
+  status word a caller branches on; a file path or placeholder another step opens;
+  or an exact string a security boundary emits into model input. An English
+  sentence is not a prompt-byte contract because the model reads it: rewording it
+  must not break a test. Pin a sentence only when a recorded eval shows that exact
+  wording changes behavior, and cite that eval next to the pin.
+- **Sentence pin**: a test that asserts an English sentence or clause (40 or more
+  characters of prose, or a prose regex) against SKILL.md, a `.tmpl` template or a
+  section file. Convert it to a structural check (the section or heading is
+  present, steps keep their order, the machine-read token is present in the right
+  section), or delete it when a behavioral eval already covers the behavior and
+  name that eval in the commit. Check safety lines on meaning (a case-insensitive
+  keyword in the right section), never on capitalization or emphasis.
 - **Retention bar**: keep a test that independently enforces a public API, protocol,
-  config, migration, storage, security, platform, default, prompt-byte,
-  generated-output (SKILL.md golden), package, release or architecture contract; call
-  order when order is observable; source inspection when it is the cheapest
-  independent guard. Static or slow is not a reason to delete. Anything reachable
-  from the package entrypoint is never retired.
+  config, migration, storage, security, platform, default, prompt-byte (as defined
+  above), generated-output (SKILL.md golden), package, release or architecture
+  contract; call order when order is observable; source inspection when it is the
+  cheapest independent guard. Static or slow is not a reason to delete. Anything
+  reachable from the package entrypoint is never retired.
 - **Value card**: the gate's four answers as one line,
   `Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none`. Each field is
   at most 160 UTF-8 bytes in that line (clamped to 157 bytes plus `...`); JSON keeps

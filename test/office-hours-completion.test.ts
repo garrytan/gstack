@@ -6,6 +6,7 @@ import * as os from 'node:os';
 import { validateOfficeHoursCompletion, validateOfficeHoursDesignDraft, validateOfficeHoursReviewerHandoffs, validateOfficeHoursReviewArtifacts, validateOfficeHoursReviewPreservation, type OfficeHoursCompletionEvidence } from './helpers/office-hours-completion';
 import { E2E_TOUCHFILES } from './helpers/touchfiles-data';
 import { selectTests } from './helpers/test-selection';
+import { expectMentions } from './helpers/prompt-structure';
 
 const designPath = '/tmp/office-hours-fixture/docs/designs/roster-check.md';
 const finalReview = `## Completeness
@@ -60,13 +61,7 @@ describe('office-hours fixture completion', () => {
     expect(compose).toBeGreaterThan(-1);
     expect(finalize).toBeGreaterThan(compose);
     expect(finish).toBeGreaterThan(finalize);
-    expect(instructions).toContain('summarize each phase\'s outcome and actual decisions with their rationale');
-    expect(instructions).toContain('link the approved design and saved review evidence');
-    expect(instructions).toContain('full actual Assignment, coaching/relationship closing, approval outcome, and Handoff');
-    expect(instructions).toContain('complete every required phase and preserve all findings');
-    expect(instructions).toContain('completed round files and any actual unreviewed failure');
-    expect(instructions).toContain('persist the complete managed Spec Review section');
-    expect(instructions).toContain('Write the complete diagnostic, premise challenge, alternatives, independent opinion and rationale into the design');
+    expectMentions(instructions, [['approval', 'coaching/relationship', 'assignment']], 'instructions');
     expect(instructions).toContain('write the full relationship closing and handoff directly into REPORT.md');
     expect(instructions.indexOf('Delivery throughout this non-interactive run')).toBeLessThan(compose);
     expect(instructions).toContain('A failed command remains a failure');
@@ -467,7 +462,7 @@ describe('office-hours reviewer finding preservation', () => {
       expect(data.persisted_reviewer_concerns).toContain(retained);
       expect(data.completion_report).toBe(actual.output);
       expect(data.prior_reviewer_verdicts).toEqual([]);
-      expect(prompt).toContain('Sharing a component or related vocabulary does not establish coverage');
+      expectMentions(prompt, [['does not', 'vocabulary', 'component']], 'prompt');
       expect(prompt).toContain('leaving the source problem unresolved');
       return { complete: false, missing: ['The header-recognition rules remain implicit despite the retained ambiguity and normalization remedies.'],
         unsupported: [], reasoning: 'Both retained remedies can be implemented without deciding which inconsistent header strings are recognized.' };
@@ -518,8 +513,7 @@ Convergence stopped round 2: the empty CSV issue persisted after an attempted fi
       expect(data.prior_reviewer_verdicts).toEqual([firstVerdict]);
       expect(data.final_reviewer_verdict).toBe(lastVerdict);
       expect(data.completion_report).toBe(actual.output);
-      expect(prompt).toContain('An attempted edit is not a confirmed fix');
-      expect(prompt).toContain('Explicitly labeled attempts may include unsuccessful changes');
+      expectMentions(prompt, [['not', 'attempted', 'confirmed']], 'prompt');
       expect(prompt).toContain('affirmative later evidence');
       return inflated
         ? { complete: false, missing: [], unsupported: ['Two confirmed fixes overstates the outcome: the original empty CSV finding persists.'],
@@ -543,7 +537,7 @@ Convergence stopped round 2: the empty CSV issue persisted after an attempted fi
       expect(data.completion_report).toContain('One unresolved reviewer concern');
       expect(data.final_reviewer_verdict).toBe(finalReview);
       expect(prompt).toContain('complete final finding inventory');
-      expect(prompt).toContain('not just the number of condensed persisted entries');
+      expectMentions(prompt, [['not', 'condensed', 'persisted']], 'prompt');
       return { complete: false, missing: [], unsupported: ['The remaining count of one omits one of the two distinct source findings.'],
         reasoning: 'The concerns preserve both obligations, but merging their prose does not reduce the reported source finding count.' };
     })).rejects.toThrow('remaining count of one');
@@ -574,7 +568,6 @@ Convergence stopped round 2: the empty CSV issue persisted after an attempted fi
       expect(data.prior_reviewer_verdicts).toEqual([prior]);
       expect(data.final_reviewer_verdict).toBe(current);
       expect(data.completion_report).toContain(claim);
-      expect(prompt).toContain('same specific unmet decision, failure, or necessary remedy');
       expect(prompt).toContain('correct in substance');
       return { complete: false, missing: [], unsupported: ['The claimed convergence stop matches a broad topic, not a persistent unmet decision.'],
         reasoning: 'The earlier correction is explicit; the next reviewer raises a different requirement.' };
@@ -611,7 +604,7 @@ Convergence stopped round 2: the empty CSV issue persisted after an attempted fi
       const data = JSON.parse(prompt.split('\nDATA:\n')[1]);
       expect(data.prior_reviewer_verdicts).toEqual([prior]);
       expect(data.completion_report).toContain('not re-raised');
-      expect(prompt).toContain('Merely not being re-raised in a later verdict is not confirmation');
+      expectMentions(prompt, [['not', 'confirmation', 're-raised']], 'prompt');
       return { complete: false, missing: [], unsupported: ['Two confirmed fixes are unsupported: the subsequent verdict provides no affirmative resolution evidence.'],
         reasoning: 'Not mentioning an earlier issue does not prove its requested behavior was implemented.' };
     })).rejects.toThrow('Two confirmed fixes are unsupported');
@@ -627,8 +620,7 @@ Convergence stopped round 2: the empty CSV issue persisted after an attempted fi
       : 'One round completed with 1 total issue citation; K1 and L2 were combined. One unique unresolved problem remains.');
     const review = validateOfficeHoursCompletion(actual);
     const validation = validateOfficeHoursReviewPreservation(review, async prompt => {
-      expect(prompt).toContain('exact same-problem, same-remedy cross-reference may share one concern');
-      expect(prompt).toContain('A sum of unique counts cannot be labeled a raw citation total');
+      expectMentions(prompt, [['cannot', 'citation', 'labeled']], 'prompt');
       const data = JSON.parse(prompt.split('\nDATA:\n')[1]);
       expect(data.final_reviewer_verdict).toBe(citations);
       expect(data.persisted_reviewer_concerns).toContain('K1 / L2');

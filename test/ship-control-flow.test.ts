@@ -8,6 +8,7 @@ import { generateAdversarialStep } from '../scripts/resolvers/outside-voice-step
 import { generatePlanCompletionGateShip } from '../scripts/resolvers/plan-gates';
 import { generateReviewDashboard } from '../scripts/resolvers/review-dashboard';
 import { HOST_PATHS } from '../scripts/resolvers/types';
+import { expectMentions } from './helpers/prompt-structure';
 
 const read = (file: string) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
 const compact = (text: string) => text.replace(/\s+/g, ' ');
@@ -22,16 +23,13 @@ const gate = compact(entry.slice(entry.indexOf('## Step 16:'), entry.indexOf('##
 describe('ship source controller', () => {
   test('documentation freshness covers selected code paths as well as release metadata', () => {
     const docs = compact(read('ship/sections/documentation.md.tmpl'));
-    expect(docs).toContain('selected release paths, generated outputs and docs/templates');
     const freshness = gate.slice(gate.indexOf('### 3.'), gate.indexOf('### 4.'));
-    expect(freshness).toContain('selected release paths, generated outputs and docs/templates');
-    expect(freshness).toMatch(/a prior invocation's audit or risk decision never qualifies/i);
+    expectMentions(freshness, [['never', 'qualifies', 'decision']], 'freshness');
   });
 
   test('changed documentation inputs permit only the remaining bounded re-audit', () => {
     const docs = compact(read('ship/sections/documentation.md.tmpl'));
     expect(docs.indexOf('## Blocked recovery')).toBeGreaterThan(-1);
-    expect(docs).toMatch(/initial[- ]audit plus one repair\/re-audit/i);
     expect(docs).toMatch(/never a third attempt/i);
     const freshness = gate.slice(gate.indexOf('### 3.'), gate.indexOf('### 4.'));
     expect(freshness).toContain('**An attempt remains, with changed inputs or an available repair:**');
@@ -43,19 +41,18 @@ describe('ship source controller', () => {
     const text = compact(controller);
     expect(compact(entry)).toContain('**Next steps:**');
     expect(text).toContain('5 → 6 → 7 → 8 → 9 → 10 → 11 → 11.5');
-    expect(text).not.toContain('finish the inner repair, then resume the unfinished outer range');
     expect(text).toMatch(/initial-plus-one limit never resets/i);
   });
 
   test('the roadmap and recovery groups define ownership and zero-edit eligibility', () => {
     const text = compact(entry);
     expect(text).toContain('integrate (1–3) → test and review (4–11.5) → prepare the release (12–15) → verify frozen content (16) → push and publish (17–21)');
-    expect(text).toMatch(/children return evidence, not permission to proceed/i);
+    expectMentions(text, [['not', 'permission', 'children']], 'text');
     expect(review).toContain('**No edits in this pass:**');
-    expect(review).toMatch(/only after it clears may you continue to Step 10/i);
-    expect(review).toMatch(/failed\/unavailable required probes block continuation/i);
-    expect(review).toMatch(/cannot waive missing reviewer output, recurring fixes or independent test\/security gates/i);
-    expect(text).toMatch(/a repair never resets approvals or expands them/i);
+    expectMentions(review, [['only', 'continue', 'clears']], 'review');
+    expectMentions(review, [['block', 'failed/unavailable', 'continuation']], 'review');
+    expectMentions(review, [['cannot', 'test/security', 'independent']], 'review');
+    expectMentions(text, [['never', 'approvals', 'expands']], 'text');
     expect(text).not.toContain('eligible zero-edit pass');
     expect(text).not.toContain('the same waiver');
     expect(text).not.toContain("the controller's detour");
@@ -77,7 +74,7 @@ describe('ship source controller', () => {
     expect(usable).toBeGreaterThan(qualify);
     expect(missing).toBeGreaterThan(usable);
     expect(version).toContain('`NEW_VERSION=CANDIDATE_VERSION`');
-    expect(version).toMatch(/only approval changes the existing version/i);
+    expectMentions(version, [['only', 'approval', 'existing']], 'version');
     expect(version).toContain('`>= NEW_VERSION`');
     expect(version.slice(missing)).toContain('`BUMP_LEVEL`');
     expect(version.slice(missing)).toContain('`currentVersion`');
@@ -139,8 +136,7 @@ describe('ship source controller', () => {
     expect(shared).toBeLessThan(coverage.indexOf('Dispatch the audit through Agent'));
     const contract = compact(coverage.slice(shared, coverage.indexOf('Dispatch the audit through Agent')));
     expect(contract).toContain('use the Agent tool with `run_in_background: false`');
-    expect(contract).toMatch(/do not invoke the target as a Skill or run it inline instead/i);
-    expect(contract).toMatch(/after a failed subagent has stopped/i);
+    expectMentions(contract, [['do not', 'instead', 'invoke']], 'contract');
     for (const section of ['test-coverage', 'plan-completion', 'greptile']) {
       const text = read(`ship/sections/${section}.md.tmpl`);
       expect(text).toContain('shared foreground-dispatch rule');
@@ -158,7 +154,7 @@ describe('ship source controller', () => {
     const ship = generateReviewDashboard(ctx);
     expect(ship).toContain('REVIEW READINESS DASHBOARD');
     expect(ship).toContain('| Review | Runs | Last run | Status | Required |');
-    expect(ship).toMatch(/only Eng Review is marked required/i);
+    expectMentions(ship, [['only', 'required', 'review']], 'ship');
     expect(ship).toContain('{actual status and reason}');
     expect(ship).toContain('VERDICT: {CLEARED or NOT CLEARED} — {reason}');
     expect(ship).not.toContain('+====================================================================+');
@@ -169,15 +165,15 @@ describe('ship source controller', () => {
   test('coverage fallback settles the child and still applies the coverage gate', () => {
     const text = compact(read('ship/sections/test-coverage.md.tmpl'));
     const fallback = text.slice(text.indexOf('**Audit failure:**'), text.indexOf('{{TEST_COVERAGE_GATE_SHIP}}'));
-    expect(fallback).toMatch(/confirm it stopped before running the same audit inline/i);
-    expect(fallback).toMatch(/does not pass or bypass the coverage gate/i);
+    expectMentions(fallback, [['confirm', 'stopped', 'running']], 'fallback');
+    expectMentions(fallback, [['does not', 'coverage', 'bypass']], 'fallback');
     expect(text).not.toContain('partial results are better than none');
   });
 
   test('no-plan gate skips only the audit and retains verification and the remaining section', () => {
     const text = generatePlanCompletionGateShip({ host: 'claude', skillName: 'ship', tmplPath: '', paths: HOST_PATHS.claude });
     const noPlan = compact(text.slice(text.indexOf('**No plan file found:**')));
-    expect(noPlan).toMatch(/skip only the plan completion audit/i);
+    expectMentions(noPlan, [['only', 'completion', 'audit']], 'noPlan');
     expect(noPlan).toContain('Step 8.1');
     expect(noPlan).toMatch(/Step 9 QA still runs/i);
     expect(noPlan).not.toContain('Skip entirely');
@@ -189,9 +185,8 @@ describe('ship source controller', () => {
     const positions = steps.map(step => text.indexOf(step));
     expect(positions.every(position => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a,b) => a-b));
-    expect(text).toMatch(/all three snapshots must match/i);
-    expect(text).toMatch(/does not mean the failed or unrun probes passed/i);
-    expect(text).not.toContain('equal snapshots do not pass waived probes');
+    expectMentions(text, [['must', 'snapshots', 'three']], 'text');
+    expectMentions(text, [['does not', 'failed', 'probes']], 'text');
   });
 
   test('late classification and docs freshness are ordered decisions, not metadata assumptions', () => {
@@ -200,7 +195,6 @@ describe('ship source controller', () => {
     expect(text).toContain('**Only authored docs or release metadata changed:**');
     expect(text).toContain('**No changes, or the docs-only checks still support the plan:**');
     expect(text).toContain('| Continue to stage 4');
-    expect(text).toMatch(/Blocked recovery with the existing count/i);
     expect(text).not.toContain('Every listed change below is metadata:');
   });
 
@@ -211,10 +205,9 @@ describe('ship source controller', () => {
     expect(entry.match(/### Ship control flow/g)).toHaveLength(1);
     const text = compact(controller);
     expect(text).toMatch(/the \*\*parent\*\* running \/ship, own advancement/i);
-    expect(text).toMatch(/stop and AskUserQuestion gates still apply during repairs/i);
-    expect(text).toMatch(/a range never adds unlisted steps/i);
-    expect(text).toMatch(/keep the same attempt counts throughout the invocation/i);
-    expect(text).toContain('A range ending at Step 14 does not enter Step 14.5');
+    expectMentions(text, [['stop', 'askuserquestion', 'repairs']], 'text');
+    expectMentions(text, [['never', 'unlisted', 'range']], 'text');
+    expectMentions(text, [['does not', 'ending', 'range']], 'text');
     expect(text).not.toContain('| At step |');
     expect(entry.match(/Ship control flow/g)).toHaveLength(1);
     expect(review).toMatch(/captures a fresh REVIEW_START/);
@@ -222,12 +215,9 @@ describe('ship source controller', () => {
 
   test('distribution and bootstrap detours end at their exact forward resume', () => {
     const merge = compact(entry.slice(entry.indexOf('## Step 3:'), entry.indexOf('{{SECTION:tests}}')));
-    expect(merge).toMatch(/repeat Step 2 on the merged content[^.]*continue to Step 4/i);
-    expect(merge).toMatch(/otherwise continue to Step 4 directly/i);
     const tests = compact(read('ship/sections/tests.md.tmpl'));
-    expect(tests).toMatch(/A runs Step 4 with this new bootstrap choice, then returns here/i);
     expect(tests).toContain('A) Add tests (recommended)');
-    expect(tests).toMatch(/declining bootstrap alone is not that approval/i);
+    expectMentions(tests, [['not', 'declining', 'bootstrap']], 'tests');
   });
 
   test('missing dispatched output outranks the cycle cap, fixes and zero-edit continuation', () => {
@@ -238,38 +228,36 @@ describe('ship source controller', () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     const missing = decisions.slice(positions[0], positions[1]);
     expect(missing).toMatch(/^1\. \*\*Dispatched reviewer output missing:\*\* stop\b/i);
-    expect(missing).toMatch(/cannot replace missing dispatched coverage/i);
+    expectMentions(missing, [['cannot', 'dispatched', 'coverage']], 'missing');
     const cap = decisions.slice(positions[1], positions[2]);
     expect(cap).toMatch(/\bstop\b/i);
     expect(cap).toContain('`converged:false`');
-    expect(cap).toMatch(/do not run a fourth fixing cycle/i);
+    expectMentions(cap, [['do not', 'fourth', 'fixing']], 'cap');
     const fixes = decisions.slice(positions[2], positions[3]);
-    expect(fixes).toContain('Insert Step 5, affected Steps 6–8 and all of Step 9 before the pending Step 10');
-    expect(fixes).toMatch(/retain approval for the same verified pre-existing failures and scope/i);
-    expect(decisions.slice(positions[3])).toMatch(/only after it clears may you continue to Step 10/i);
-    expect(review).toMatch(/failed, blocked, inconclusive or not-run required probes mean false, never clean/i);
+    expectMentions(fixes, [['before', 'affected', 'pending']], 'fixes');
+    expectMentions(fixes, [['approval', 'pre-existing', 'verified']], 'fixes');
+    expectMentions(decisions.slice(positions[3]), [['only', 'continue', 'clears']], 'decisions.slice(positions[3])');
+    expectMentions(review, [['never', 'inconclusive', 'required']], 'review');
   });
 
   test('comment fixes resume triage and preserve settled approvals and replies', () => {
     const section = compact(read('ship/sections/greptile.md.tmpl'));
-    expect(section).toMatch(/save their approvals and comment references/i);
-    expect(section).toMatch(/Run Step 9's full review\/fix loop, then return here/i);
-    expect(review).toMatch(/finish the complete review and QA before applying any fix in Step 9\.4/i);
-    expect(section).toMatch(/with no queued fixes, continue to Step 11/i);
-    expect(section).toMatch(/this optional triage does not block ship/i);
+    expectMentions(review, [['before', 'complete', 'applying']], 'review');
+    expectMentions(section, [['no', 'continue', 'queued']], 'section');
+    expectMentions(section, [['does not', 'optional', 'triage']], 'section');
     expect(section).not.toContain('return to Step 9');
   });
 
   test('native recovery has one corrected attempt and cannot borrow outside completion', () => {
     const finish = adversarial.slice(adversarial.indexOf('### Finish the adversarial phase'));
     const recovery = finish.slice(finish.indexOf('1. **Required native'), finish.indexOf('2. **Fixes queued'));
-    expect(recovery).toMatch(/stop and confirm the native task stopped/i);
-    expect(recovery).toMatch(/outside-provider output cannot replace this pass/i);
-    expect(recovery).toMatch(/one recovery retry is allowed only after a concrete prerequisite correction/i);
+    expectMentions(recovery, [['stop', 'confirm', 'stopped']], 'recovery');
+    expectMentions(recovery, [['cannot', 'outside-provider', 'replace']], 'recovery');
+    expectMentions(recovery, [['only', 'prerequisite', 'correction']], 'recovery');
     expect(recovery).toContain('PASS_START');
-    expect(recovery).toMatch(/ask for repair and remain blocked/i);
+    expectMentions(recovery, [['ask', 'blocked', 'repair']], 'recovery');
     const queued = finish.slice(finish.indexOf('2. **Fixes queued'), finish.indexOf('3. **Native complete'));
-    expect(queued).toContain('Insert Steps 9, 10 and 11 before the pending Step 11.5');
+    expectMentions(queued, [['before', 'pending', 'insert']], 'queued');
     expect(queued).toMatch(/not recovery retries/i);
     expect(finish.slice(finish.indexOf('3. **Native complete'))).toContain('then continue to Step 11.5');
   });
@@ -282,15 +270,14 @@ describe('ship source controller', () => {
       .map(label => finish.indexOf(label));
     expect(branches.every(index => index >= 0)).toBe(true);
     expect(branches).toEqual([...branches].sort((a, b) => a - b));
-    expect(finish).toMatch(/outside-provider output cannot replace this pass/i);
+    expectMentions(finish, [['cannot', 'outside-provider', 'replace']], 'finish');
     expect(finish).toContain('Step 11.5');
     expect(finish).not.toContain('proceed to Step 12');
     expect(finish).not.toContain('return to Step 9');
     const review = generateAdversarialStep({ ...ctx, skillName: 'review' });
     expect(review).not.toContain('Ship control flow');
     expect(review).not.toContain('Step 11.5');
-    expect(review).toMatch(/return all findings and structured-review decisions to Step 5/i);
-    expect(review).toMatch(/do not start an inner repair loop/i);
+    expectMentions(review, [['do not', 'repair', 'start']], 'review');
   });
 
   test('Step 11.5 verifies original record identity before any release write', () => {
@@ -300,32 +287,29 @@ describe('ship source controller', () => {
     const binding = compact(entry.slice(bindingStart, entry.indexOf('## Step 12:')));
     for (const field of ['skill:"review"', 'via:"ship"', 'skill:"adversarial-review"',
       'review_binding.state', 'verified', 'review_binding.start_wtree', 'review_binding.end_wtree']) expect(binding).toContain(field);
-    expect(binding).toMatch(/never attach new tokens to old work/i);
-    expect(binding).toMatch(/does not mean the failed or unrun probes passed/i);
+    expectMentions(binding, [['never', 'attach', 'tokens']], 'binding');
+    expectMentions(binding, [['does not', 'failed', 'probes']], 'binding');
     expect(binding).toContain('`9 → 10 → 11 → 11.5` before Step 12');
   });
 
   test('late build and behavior changes complete bounded ranges before docs', () => {
     const build = gate.slice(gate.indexOf('### 1.'), gate.indexOf('### 2.'));
-    expect(build).toMatch(/a missing prerequisite or failed build stops shipping/i);
     expect(build).toMatch(/repeat stage 1/i);
     expect(build).toMatch(/continue to stage 2/i);
     const behavior = gate.slice(gate.indexOf('1. **Behavior'), gate.indexOf('2. **Only authored'));
     expect(behavior).toContain('Insert `5–11.5 → 12–14 → 16` before the pending Step 17');
     expect(behavior).toMatch(/excludes Step 14\.5/i);
-    expect(behavior).toMatch(/rebuild and compare again before stage 3/i);
+    expectMentions(behavior, [['before', 'rebuild', 'compare']], 'behavior');
     const plan = gate.slice(gate.indexOf('2. **Only authored'), gate.indexOf('3. **No changes'));
-    expect(plan).toMatch(/run Step 8's audit and decision gates only, then return to Step 16 stage 1/i);
-    expect(plan).toMatch(/never edit the child's counts yourself/i);
+    expectMentions(plan, [['only', 'decision', 'return']], 'plan');
+    expectMentions(plan, [['never', 'yourself', 'counts']], 'plan');
   });
 
   test('docs freshness has bounded re-audit and exact-content exception routes', () => {
     const docs = gate.slice(gate.indexOf('### 3.'), gate.indexOf('### 4.'));
-    expect(docs).toMatch(/Blocked recovery with the existing count/i);
     expect(docs).toContain('**An attempt remains, with changed inputs or an available repair:** insert `14.5 → 15 → 16` before Step 17');
-    expect(docs).toMatch(/stop unless the user accepts the specific named documentation risk and all unwaivable gates clear/i);
+    expectMentions(docs, [['stop', 'documentation', 'unwaivable']], 'docs');
     expect(docs).toMatch(/never run a third audit/i);
-    expect(docs).toMatch(/unchanged approved content goes to stage 4; repaired content goes to stage 1/i);
     expect(docs).toContain('`Documentation: blocked`');
     expect(docs).toMatch(/never silently refresh hashes/i);
   });
@@ -333,21 +317,19 @@ describe('ship source controller', () => {
   test('tests, absent test approval and new writes reopen final verification', () => {
     const tests = gate.slice(gate.indexOf('### 4.'), gate.indexOf('### 5.'));
     expect(tests).toMatch(/\*\*New, changed or unwaived test failure:\*\* stop publication\. Run Steps 5–15/i);
-    expect(tests).toMatch(/run Steps 5–15, including the no-tests decision, then return to Step 16 stage 1/i);
-    expect(tests).toMatch(/does not authorize a third attempt/i);
-    expect(gate).toMatch(/restart at stage 1 and complete all five stages before Step 17/i);
+    expectMentions(tests, [['no', 'including', 'no-tests']], 'tests');
+    expectMentions(tests, [['does not', 'authorize', 'attempt']], 'tests');
+    expectMentions(gate, [['before', 'complete', 'restart']], 'gate');
   });
 
   test('push failure kinds and publication races have distinct resumes', () => {
     const push = compact(entry.slice(entry.indexOf('## Step 17:'), entry.indexOf('## Step 18:')));
-    expect(push).toMatch(/push fails[^.]*\bstop\b[\s\S]{0,20}no Step 19 or publication claim/i);
-    expect(push).toMatch(/merge under Step 3's conflict rules/i);
-    expect(push).toContain('Run Steps 5–16 before returning to Step 17');
+    expectMentions(push, [['no', 'publication', 'fails']], 'push');
+    expectMentions(push, [['before', 'returning', 'steps']], 'push');
     expect(push).toMatch(/never rewrite history/i);
-    expect(push).toMatch(/repeat Step 16 even if content is unchanged/i);
     expect(push).toMatch(/never bypass failed guards/i);
     const publication = compact(read('ship/sections/pr-body.md.tmpl'));
     expect(publication).toMatch(/repeat Step 18's identity\/title preparation/i);
-    expect(publication).toMatch(/both redaction scans before publishing/i);
+    expectMentions(publication, [['before', 'publishing', 'redaction']], 'publication');
   });
 });

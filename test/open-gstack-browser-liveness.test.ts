@@ -11,6 +11,7 @@
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { expectMentions } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const TMPL = fs.readFileSync(path.join(ROOT, 'open-gstack-browser', 'SKILL.md.tmpl'), 'utf-8');
@@ -61,7 +62,7 @@ describe('/open-gstack-browser daemon liveness', () => {
 
   test('spawned or headless sessions leave the daemon running and print the resolved-binary stop line', () => {
     const live = section('`DAEMON: live`', '## Step 1');
-    expect(live).toMatch(/spawned[\s\S]{0,40}headless[\s\S]{0,40}do not ask/i);
+    expectMentions(live, [['do not', 'headless', 'spawned']], 'live');
     expect(live).toContain(`printf '${STOP_LINE}\\n' "$B"`);
     expect(live.indexOf(STOP_LINE)).toBeLessThan(live.indexOf('AskUserQuestion'));
   });

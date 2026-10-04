@@ -9,6 +9,7 @@ import { generateTestBootstrap } from '../scripts/resolvers/testing';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { runBashScript } from './helpers/bash-script';
 import { qaProbeNames } from './helpers/qa-probe-names';
+import { expectMentions, expectTokens } from './helpers/prompt-structure';
 
 const ctx = { host: 'claude', skillName: 'qa', tmplPath: '', paths: HOST_PATHS.claude };
 const method = generateQAMethodology(ctx);
@@ -88,7 +89,7 @@ describe('compact QA bootstrap preserves native detection', () => {
       expect(shared).not.toMatch(/revert all bootstrap changes/i);
       expect(shared).toMatch(/undo only/i);
       expect(shared).toMatch(/preserve the user's edits/i);
-      expect(shared).toMatch(/unrelated edits are already staged, stop/i);
+      expectMentions(shared, [['stop', 'unrelated', 'already']], 'shared');
     }
   });
 });
@@ -162,7 +163,7 @@ describe('compact QA browser recipes retain native operations', () => {
       ]) expect(loop).toContain(contract);
       expect(loop).toMatch(new RegExp(`never reset ${n.deadline}\\W+bypass ${n.guard}`, 'i'));
       for (const field of ['observationCommand', 'observed', 'hypothesis', 'nextCommand']) expect(loop).toContain(`${field}:`);
-      expect(loop).toContain('Functional Full, Quick and Regression have no default total timer');
+      expectMentions(loop, [['no', 'functional', 'regression']], 'loop');
       if (skillName !== 'qa-only') expect(loop).toContain('Explicit plan checks and revalidation remain required beyond this smoke budget');
     }
   });
@@ -194,16 +195,13 @@ describe('compact QA browser recipes retain native operations', () => {
     });
     expect(phases[0]).toContain("Reuse the caller's BROWSER SETUP");
     expect(phases[0]).toContain('owned artifact paths');
-    expect(phases[0]).toContain('Complete only missing setup within caller authority');
-    expect(phases[0]).toContain("Clamp the shared loop's deadline guard to the caller's running deadline");
-    expect(phases[2]).toContain('Establish the successful baseline before challenges');
-    expect(phases[2]).toContain('expected result/state, not merely a successful load');
-    expect(phases[3]).toContain('Select the next candidate from the preceding result');
+    expectMentions(phases[0], [['only', 'authority', 'complete']], 'phases[0]');
+    expectMentions(phases[2], [['before', 'successful', 'challenges']], 'phases[2]');
+    expectMentions(phases[2], [['not', 'result/state', 'successful']], 'phases[2]');
     expect(phases[4]).toContain("shared loop's exact-replay rule");
-    expect(phases[4]).toContain('A timeout before replay finishes leaves confirmation incomplete');
-    expect(phases[4]).toContain('Later timeouts leave confirmed defects intact');
+    expectMentions(phases[4], [['before', 'confirmation', 'incomplete']], 'phases[4]');
     expect(phases[4]).toContain('evidence or minimization unfinished');
-    expect(phases[5]).toContain('Format retained evidence without new probes');
+    expectMentions(phases[5], [['without', 'retained', 'evidence']], 'phases[5]');
     expect(phases[5]).toContain("caller's artifact/mixed-report rules");
     for (const skillName of ['qa', 'qa-only']) {
       const loop = generateQAExploratory({ ...ctx, skillName }).replace(/\s+/g, ' ');
@@ -226,27 +224,25 @@ describe('compact QA browser recipes retain native operations', () => {
     expect(setup).toContain('git status --porcelain');
     expect(setup).toContain('If dirty, **STOP** and use AskUserQuestion');
     for (const choice of ['Commit all current changes with a descriptive message', 'Stash changes, run QA, then pop the stash', 'Abort for manual cleanup']) expect(setup).toContain(choice);
-    expect(setup).toContain("Execute only the user's choice before continuing setup");
-    expect(section('### 8d.', '### 8e.')).toContain('Commit each verified fix with its regression, never unrelated fixes');
+    expectMentions(setup, [['only', 'continuing', 'execute']], 'setup');
+    expectMentions(section('### 8d.', '### 8e.'), [['never', 'regression', 'unrelated']], 'section(### 8d., ### 8e.)');
     const classification = section('### 8e.', '### 8e.5.');
     for (const rule of ['passed 8c', 'native regression when available', 'disclose missing test coverage', "undo only this run's repair", 'revert its commit if already committed', 'retain the valid regression/evidence', '"deferred"', 'Never discard user changes']) expect(classification).toContain(rule);
     const regulation = section('### 8f.', '## Phase 9:');
     for (const rule of [/every 5 fixes/i, /after any revert/i, /STOP immediately/i, /ask whether to continue/i, /Hard cap: 50 fixes/]) expect(regulation).toMatch(rule);
     for (const signal of [/STOP immediately/i, /revert/i, /unrelated/i]) expect(regulation).toMatch(signal);
-    expect(source).toContain('When in doubt, stop and ask');
+    expectMentions(source, [['stop', 'doubt']], 'source');
     const rules = source.slice(source.indexOf('## Additional Rules'));
     for (const rule of ['Outside an explicitly approved browser bootstrap', 'Only create tests through authorized codification in Phase 8a.5', 'Never modify CI configuration or weaken existing tests', 'use new native test files']) expect(rules).toContain(rule);
     const loop = generateQAExploratory(ctx).replace(/\s+/g, ' ');
     for (const rule of ['unit for logic', 'integration for state/requests', 'E2E only if smaller tests miss the journey', 'not automatically both', 'Mock only unrelated services', 'Phase 8 regression gates before verified repair', 'Never freeze buggy output, weaken tests or delete valid red tests']) expect(loop).toContain(rule);
-    expect(section('### 8a.5.', '### 8b.')).toContain("shared exploratory section's native unit/integration/E2E rules");
-    expect(section('### 8a.5.', '### 8b.')).toContain('Run its detected command before repair; prove the defect caused its failure, not a bad fixture, import or service');
-    expect(section('### 8c.', '### 8d.')).toContain('Re-run the regression, original failing probe and adjacent happy path');
-    expect(section('### 8e.5.', '### 8f.')).toContain('This step records results; it does not create another test');
+    expectMentions(section('### 8a.5.', '### 8b.'), [['not', 'detected', 'command']], 'section(### 8a.5., ### 8b.)');
+    expectMentions(section('### 8e.5.', '### 8f.'), [['does not', 'records', 'results']], 'section(### 8e.5., ### 8f.)');
   });
 
   test('browser repair verification points at the actual read/flow recipe', () => {
     const verify = fs.readFileSync(path.resolve(import.meta.dir, '../qa/sections/browser-verify.md.tmpl'), 'utf8');
-    expect(verify).toContain('Phase 3 read/flow script in qa-patterns with `flow = true`');
+    expectTokens(verify, ['`flow = true`'], 'verify');
     for (const contract of ['original reproduction', '`flow = false`', 'Keep the error hook',
       '`GSTACK_STEP_OK` check', 'fresh screenshot names', 'add a suffix if it exists',
       'Read the copied screenshot', 'Functional repairs never load this section']) expect(verify).toContain(contract);

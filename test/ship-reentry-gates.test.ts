@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { generatePlanCompletionGateShip } from '../scripts/resolvers/plan-gates';
 import { generateTestBootstrap } from '../scripts/resolvers/testing';
 import { HOST_PATHS } from '../scripts/resolvers/types';
+import { expectMentions } from './helpers/prompt-structure';
 
 const read = (file: string) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
 const compact = (text: string) => text.replace(/\s+/g, ' ');
@@ -10,9 +11,9 @@ const ctx = { host: 'claude' as const, skillName: 'ship', tmplPath: '', paths: H
 
 test('ship stop lines block advancement while retaining the stated repair route', () => {
   const entry = compact(read('ship/SKILL.md.tmpl'));
-  expect(entry).toMatch(/stop blocks advancement until the stated repair\/resume route clears; without one, end this attempt/i);
-  expect(entry).toMatch(/answer each AskUserQuestion before continuing/i);
-  expect(entry).toMatch(/routine authorization never waives those gates or their required user decisions/i);
+  expectMentions(entry, [['stop', 'repair/resume', 'advancement']], 'entry');
+  expectMentions(entry, [['before', 'askuserquestion', 'continuing']], 'entry');
+  expectMentions(entry, [['never', 'authorization', 'decisions']], 'entry');
   const review = compact(read('ship/sections/review-army.md.tmpl'));
   expect(review).toMatch(/\*\*Dispatched reviewer output missing:\*\* stop\b/i);
   expect(review).toMatch(/\*\*Third fixing cycle reached \(`CYCLES >= 3`\):\*\* stop\b/i);
@@ -21,7 +22,7 @@ test('ship stop lines block advancement while retaining the stated repair route'
 test('a new ship bootstrap choice overrides only the saved decline, not framework selection', () => {
   const ship = generateTestBootstrap(ctx);
   const decline = ship.slice(ship.indexOf('**If BOOTSTRAP_DECLINED**'), ship.indexOf('**If NO ecosystem marker matched:**'));
-  expect(compact(decline)).toMatch(/explicit Add tests choice overrides that marker for this invocation only/i);
+  expectMentions(compact(decline), [['only', 'invocation', 'overrides']], 'compact(decline)');
   expect(compact(decline)).toMatch(/including framework approval/i);
   expect(decline).not.toContain('rm ');
   expect(ship.indexOf('**If ANY existing-test evidence appears**')).toBeLessThan(ship.indexOf('**If BOOTSTRAP_DECLINED**'));
@@ -34,7 +35,7 @@ test('an unverified item answered not done enters the existing decision before c
   const gate = generatePlanCompletionGateShip(ctx);
   const exits = compact(gate.slice(gate.indexOf('**Exit conditions:**'), gate.indexOf('**Cap.**')));
   expect(exits).toMatch(/any N: stop and report that item as NOT DONE/i);
-  expect(exits).toMatch(/resume only after its required work is verified/i);
+  expectMentions(exits, [['only', 'required', 'verified']], 'exits');
   expect(exits).toMatch(/no second deferral choice/i);
   expect(exits).not.toContain('re-running /ship');
   expect(gate).toMatch(/per-item confirmation/i);
@@ -43,19 +44,18 @@ test('an unverified item answered not done enters the existing decision before c
 test('docs reentry distinguishes the initial audit from same-invocation accepted evidence', () => {
   const docs = compact(read('ship/sections/documentation.md.tmpl'));
   const entry = docs.slice(0, docs.indexOf('## Prepare the candidate'));
-  expect(entry).toMatch(/first entry always launches the initial audit/i);
-  expect(entry).toMatch(/reentry never resets the count or authorizes a launch/i);
+  expectMentions(entry, [['never', 'authorizes', 'reentry']], 'entry');
   expect(docs).toMatch(/never a third attempt/i);
-  expect(docs).toMatch(/never reuse an audit across invocations/i);
-  expect(docs).toMatch(/unauthorized Git mutation and redaction\/security gates cannot be waived/i);
+  expectMentions(docs, [['never', 'invocations', 'across']], 'docs');
+  expectMentions(docs, [['cannot', 'redaction/security', 'unauthorized']], 'docs');
 });
 
 test('late behavioral repairs rebuild before the docs decision and commit only remaining changes', () => {
   const entry = compact(read('ship/SKILL.md.tmpl'));
-  expect(entry).toContain('A range ending at Step 14 does not enter Step 14.5');
-  expect(entry).toMatch(/rebuild and compare again before stage 3/i);
+  expectMentions(entry, [['does not', 'ending', 'range']], 'entry');
+  expectMentions(entry, [['before', 'rebuild', 'compare']], 'entry');
   const commit = entry.slice(entry.indexOf('### 5. Report, then push'), entry.indexOf('## Step 17:'));
-  expect(commit).toMatch(/never create an empty commit/i);
+  expectMentions(commit, [['never', 'create', 'commit']], 'commit');
   expect(commit).toMatch(/preserve unrelated user files/i);
 });
 

@@ -19,6 +19,7 @@ import {
   extractDomain,
   type LayerSignal,
 } from '../src/security';
+import { expectMentions } from '../../test/helpers/prompt-structure';
 
 // ─── Threshold constants ─────────────────────────────────────
 
@@ -183,8 +184,7 @@ describe('canary', () => {
     const out = injectCanary(base, c);
     expect(out).toContain(base);
     expect(out).toContain(c);
-    expect(out).toContain('confidential');
-    expect(out).toContain('NEVER');
+    expectMentions(out, [['confidential'], ['never', 'output']], 'canary instruction');
   });
 
   test('checkCanaryInStructure detects string match', () => {

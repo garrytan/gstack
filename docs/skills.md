@@ -815,8 +815,9 @@ A mechanical pre-filter shortlists assertion-free probes, source greps, export-l
 copies and near-duplicate files before any model reading. Each candidate gets a
 retirement card (what it detects, non-test callers with the search command, the
 stronger remaining proof, history, what retiring it unlocks, and the validation
-command). Contract tests such as SKILL.md goldens and prompt-byte checks are
-retained. The report and a JSON sidecar land in `~/.gstack/projects/<slug>/`.
+command). Contract tests such as SKILL.md goldens and prompt-byte checks
+(machine-read tokens, not English sentences; see [the value bar](test-value-bar.md))
+are retained. The report and a JSON sidecar land in `~/.gstack/projects/<slug>/`.
 Nothing is edited unless you approve a batch; spawned sessions stay report-only.
 Tests marked `gstack:test-value keep reason="..."` are skipped and listed in the
 report's appendix.

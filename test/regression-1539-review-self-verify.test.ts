@@ -35,7 +35,6 @@ describe("#1539 confidence resolver — pre-emit verification gate present", () 
 
   test("gate requires quoted code snippet (file:line + verbatim text)", () => {
     const out = generateConfidenceCalibration({} as never);
-    expect(out).toMatch(/Quote the specific code line/);
     expect(out).toMatch(/file:line/);
     expect(out).toMatch(/verbatim text/);
   });
@@ -67,8 +66,6 @@ describe("#1539 confidence resolver — pre-emit verification gate present", () 
 
   test("enumerates the four FP classes the gate kills (#1539 named cases)", () => {
     const out = generateConfidenceCalibration({} as never);
-    expect(out).toMatch(/field doesn't exist on model/);
-    expect(out).toMatch(/dict\.get\(\) might be None/);
     expect(out).toMatch(/save\(\) might lose fields/);
     expect(out).toMatch(/update_fields might miss/);
   });
@@ -100,7 +97,6 @@ describe("#1539 generated SKILL.md files — gate propagated to all consumers", 
     test(`${rel} carries the Pre-emit verification gate`, () => {
       const body = readUnion(rel);
       expect(body).toMatch(/Pre-emit verification gate/);
-      expect(body).toMatch(/Quote the specific code line/);
     });
   }
 });

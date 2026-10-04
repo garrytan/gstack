@@ -7,6 +7,7 @@ import {
   renderOfficeHoursReview, renderOfficeHoursReviewerPrompt, extractOfficeHoursReviewBlock, replaceOfficeHoursReviewBlock,
   type OfficeHoursReview,
 } from '../lib/office-hours-review';
+import { expectMentions } from './helpers/prompt-structure';
 
 const cli = path.resolve(import.meta.dir, '../bin/gstack-office-hours-review');
 function review(round = 1, count = 1): OfficeHoursReview {
@@ -98,7 +99,7 @@ describe('office-hours prepared reviewer input', () => {
     expect(prompt).toContain('\nDocument: /tmp/design.md\nVerdict: /tmp/reviews/round-3.json\n');
     for (const dimension of OFFICE_HOURS_DIMENSIONS) expect(prompt.toLowerCase()).toContain(`**${dimension}**`);
     expect(prompt).toContain("'The Assignment'");
-    expect(prompt).toContain('Absence from the new findings list is not confirmation.');
+    expectMentions(prompt, [['not', 'confirmation', 'findings']], 'prompt');
   });
   test('first review has explicit absent prior evidence; terminal outcomes cannot prepare another review', () => {
     const options = { document: '/tmp/design.md', verdictPath: '/tmp/reviews/round-1.json' };

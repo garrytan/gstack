@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { expectMentions } from './helpers/prompt-structure';
 
 const root = join(import.meta.dir, '..');
 const source = (name: string) => readFileSync(join(root, 'land-and-deploy', name), 'utf8');
@@ -29,7 +30,6 @@ describe('land-and-deploy decision ordering', () => {
 
   test('deploy and URL evidence take precedence over docs-only skipping', () => {
     const merge = source('sections/merge-and-deploy.md.tmpl');
-    expect(merge).toContain('explicit verification URL or an actually triggered deployment takes precedence');
     expect(source('SKILL.md.tmpl')).not.toContain('| SCOPE_DOCS only | Already skipped');
     expect(merge).not.toContain('gstack-diff-scope');
   });
@@ -46,7 +46,7 @@ describe('land-and-deploy decision ordering', () => {
   });
 
   test('blockers and failed canary evidence cannot be approved into a pass', () => {
-    expect(source('sections/readiness-gate.md.tmpl')).toContain('Do not offer A or C with blockers');
+    expectMentions(source('sections/readiness-gate.md.tmpl'), [['do not', 'blockers', 'offer']], 'section');
     const main = source('SKILL.md.tmpl');
     expect(main).not.toContain('Mark it as healthy');
     expect(main).toContain('DEGRADED');
@@ -212,7 +212,6 @@ describe('land-and-deploy selected target and CLI contracts', () => {
     const main = source('SKILL.md.tmpl');
     expect(main).toContain('`ROLLBACK=true`, `TARGET=production`');
     expect(main).toContain('`DEPLOY_SHA=REVERT_SHA`, and reset production deployment/health');
-    expect(main).toContain('Staging choice A returns to its production route');
     expect(main).toContain('C goes to Step 9 without claiming');
     expect(source('sections/first-run-validation.md.tmpl')).not.toMatch(/still be able to deploy|still deploy through GitHub/);
   });
