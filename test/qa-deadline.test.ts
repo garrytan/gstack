@@ -64,6 +64,47 @@ function background(args: string[], preload?: string) {
   return { child, result };
 }
 
+// POSIX: the held stream is a FIFO the test reads only after resume(), so the
+// kernel pipe buffer (not Bun's socketpair sizing or reader) keeps the 2 MB
+// write blocked. Windows keeps the paused child pipe.
+function heldOutput(dir: string, args: string[], preload: string, held: 1 | 2) {
+  if (process.platform === 'win32') {
+    const runner = background(args, preload);
+    const stream = held === 1 ? runner.child.stdout! : runner.child.stderr!;
+    stream.pause();
+    return { child: runner.child, resume: () => { stream.resume(); }, result: runner.result };
+  }
+  const fifo = path.join(dir, 'held-output.fifo');
+  expect(spawnSync('mkfifo', [fifo], { timeout: 5000 }).status).toBe(0);
+  const readFd = fs.openSync(fifo, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+  const writeFd = fs.openSync(fifo, 'w');
+  const stdio: Array<'ignore' | 'pipe' | number> = ['ignore', 'pipe', 'pipe'];
+  stdio[held] = writeFd;
+  const child = spawn(process.execPath, ['--preload', preload, CLI, ...args], { stdio });
+  fs.closeSync(writeFd);
+  let heldText = '', pipedText = '';
+  (held === 1 ? child.stderr : child.stdout)!.on('data', chunk => { pipedText += chunk; });
+  let ended!: () => void;
+  const eof = new Promise<void>(resolve => { ended = resolve; });
+  let draining: ReturnType<typeof setInterval> | undefined;
+  const drain = () => {
+    const buffer = Buffer.alloc(65536);
+    for (;;) {
+      let read = 0;
+      try { read = fs.readSync(readFd, buffer, 0, buffer.length, null); } catch (error: any) { if (error.code === 'EAGAIN') return; throw error; }
+      if (read === 0) { clearInterval(draining); fs.closeSync(readFd); ended(); return; }
+      heldText += buffer.subarray(0, read).toString();
+    }
+  };
+  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code, signal) => resolve({ code, signal }));
+  });
+  const result = Promise.all([closed, eof]).then(([{ code, signal }]) => ({ code, signal,
+    stdout: held === 1 ? heldText : pipedText, stderr: held === 2 ? heldText : pipedText }));
+  return { child, resume: () => { draining ??= setInterval(drain, 5); }, result };
+}
+
 function alive(pid: number) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
@@ -303,9 +344,7 @@ spyOn(fs, 'createWriteStream').mockImplementation((...args) => {
   const args = mode === 'start' ? ['start', f.receipt, '30'] : mode === 'expired'
     ? ['run', f.receipt, '--', process.execPath, '-e', 'require("fs").writeFileSync(process.argv[1], "probed")', f.marker]
     : ['run', f.receipt, '--', process.execPath, DRIVER, timedOut ? 'timeout' : 'early', LEAF, f.leaf, f.direct];
-  const runner = background(args, preload);
-  const blocked = mode === 'start' ? runner.child.stdout! : runner.child.stderr!;
-  blocked.pause();
+  const runner = heldOutput(f.dir, args, preload, mode === 'start' ? 1 : 2);
   try {
     for (let i = 0; i < 300 && !fs.existsSync(queued); i++) await Bun.sleep(10);
     expect(fs.existsSync(queued)).toBe(true);
@@ -317,11 +356,11 @@ spyOn(fs, 'createWriteStream').mockImplementation((...args) => {
     if (mode === 'blocked-forever') {
       const code = await new Promise<number | null>(resolve => runner.child.once('exit', resolve));
       expect(code).toBe(2);
-      blocked.resume();
+      runner.resume();
       await runner.result;
       return;
     }
-    blocked.resume();
+    runner.resume();
     const result = await runner.result;
     expect(result.code).toBe(mode === 'start' ? 0 : mode === 'finished' ? 7 : 124);
     const output = mode === 'start' ? result.stdout : result.stderr;
@@ -330,7 +369,7 @@ spyOn(fs, 'createWriteStream').mockImplementation((...args) => {
     if (mode === 'expired') expect(fs.existsSync(f.marker)).toBe(false);
     if (mode === 'timeout') expect(events.at(-1).timedOut).toBe(true);
   } finally {
-    blocked.resume();
+    runner.resume();
     runner.child.kill('SIGKILL');
     cleanup([f.leaf, f.direct]);
     await runner.result;
