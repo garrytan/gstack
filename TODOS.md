@@ -179,8 +179,11 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   4) on the same qa bundle bytes that passed in census 37182865432 (44ef18c);
   nothing under qa/, qa-only/ or scripts/resolvers changed between them. Red in
   2 of the 17 earlier censuses (36920606897, 36776104571). Judge kind, 3
-  samples, unchanged threshold. Find which bundle step the low samples call
-  unactionable before rewording. Effort S. **Priority:** P3.
+  samples, unchanged threshold. The qa-only workflow judge did the same in
+  census 37198445662 (fd6854b): 3.67/4.33/3.67, one 3/4/3 sample citing density,
+  on qa-only bytes unchanged since 44ef18c, where it passed in four censuses.
+  Find which bundle step the low samples call unactionable before rewording.
+  Effort S. **Priority:** P3.
 - **shared-libs-review-revalidation stalls mid-stream** — gate census 4 of
   37186854666: the `filtered` scenario's stream stopped after a thinking block
   at 07:51:21 and emitted nothing until the 657 s abort; the other three
