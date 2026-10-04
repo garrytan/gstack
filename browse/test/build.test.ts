@@ -6,19 +6,23 @@ import * as os from 'os';
 
 const DIST_DIR = path.resolve(__dirname, '..', 'dist');
 const SERVER_NODE = path.join(DIST_DIR, 'server-node.mjs');
+// browse/dist is gitignored: a checkout without a build skips these. The free
+// CI lane builds the bundle and sets GSTACK_EXPECT_BINARIES=1, so a dropped
+// build step fails there instead of passing vacuously.
+const EXPECT_BINARIES = process.env.GSTACK_EXPECT_BINARIES === '1';
+const bundleTest = test.skipIf(!fs.existsSync(SERVER_NODE) && !EXPECT_BINARIES);
+function expectBundle(): void {
+  expect(fs.existsSync(SERVER_NODE), `${SERVER_NODE} is missing; fix: run \`bash browse/scripts/build-node-server.sh\` (free-tests.yml builds it before the suite)`).toBe(true);
+}
 
 describe('build: server-node.mjs', () => {
-  test('passes node --check if present', () => {
-    if (!fs.existsSync(SERVER_NODE)) {
-      // browse/dist is gitignored; no build has run in this checkout.
-      // Skip rather than fail so plain `bun test` without a prior build passes.
-      return;
-    }
+  bundleTest('passes node --check', () => {
+    expectBundle();
     expect(() => execSync(`node --check ${SERVER_NODE}`, { stdio: 'pipe', timeout: 30_000 })).not.toThrow();
   });
 
-  test('does not inline @ngrok/ngrok (must be external)', () => {
-    if (!fs.existsSync(SERVER_NODE)) return;
+  bundleTest('does not inline @ngrok/ngrok (must be external)', () => {
+    expectBundle();
     const bundle = fs.readFileSync(SERVER_NODE, 'utf-8');
     // Dynamic imports of externalized packages show up as string literals in the bundle,
     // not as inlined module code. The heuristic: ngrok's native binding loader would

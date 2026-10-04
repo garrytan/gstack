@@ -3277,7 +3277,7 @@ describe('Parameterized host smoke tests', () => {
       });
 
       test('no .claude/skills path leakage outside repo-root sidecar symlinks', () => {
-        if (!fs.existsSync(hostDir)) return; // skip if not generated
+        expect(fs.existsSync(hostDir)).toBe(true);
         const skills = fs.readdirSync(hostDir);
         for (const skill of skills) {
           // Dev installs may mount the repo root at host/skills/gstack as a runtime
@@ -3294,7 +3294,7 @@ describe('Parameterized host smoke tests', () => {
       });
 
       test('frontmatter has name and description', () => {
-        if (!fs.existsSync(hostDir)) return;
+        expect(fs.existsSync(hostDir)).toBe(true);
         const skills = fs.readdirSync(hostDir);
         for (const skill of skills) {
           const skillMd = path.join(hostDir, skill, 'SKILL.md');

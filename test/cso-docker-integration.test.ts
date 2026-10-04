@@ -38,9 +38,8 @@ suite('CSO Docker containment integration',()=>{
     expect(spawnSync('/usr/bin/docker',['--host',endpoint.uri,'inspect',client],{timeout:30_000}).status).not.toBe(0);
   });
   test('machine-wide admission allows only two groups per endpoint',()=>{const a=admit(endpoint.uri,'a',Date.now()+60_000),b=admit(endpoint.uri,'b',Date.now()+60_000);try{expect(()=>admit(endpoint.uri,'c',Date.now()+60_000)).toThrow('Two reproduction groups');}finally{release(a);release(b);}});
-  test('staged runtime executes its trusted verifier and checks every declared tool version', async () => {
-    const staged = process.env.GSTACK_CSO_TEST_IMAGE;
-    if (!staged) return;
+  test.skipIf(!process.env.GSTACK_CSO_TEST_IMAGE)('staged runtime executes its trusted verifier and checks every declared tool version', async () => {
+    const staged = process.env.GSTACK_CSO_TEST_IMAGE!;
     expect(staged).toMatch(/@sha256:[a-f0-9]{64}$/);
     expect(process.env.GSTACK_CSO_TEST_PLATFORM).toBe(process.arch === 'arm64' ? 'linux/arm64' : 'linux/amd64');
     const versions = JSON.parse(process.env.GSTACK_CSO_EXPECTED_VERSIONS || '{}');

@@ -318,7 +318,6 @@ describe('gstack-update-check', () => {
     // Simulate agent context: real VERSION file, network unavailable
     const projectRoot = join(import.meta.dir, '..', '..');
     const versionFile = join(projectRoot, 'VERSION');
-    if (!existsSync(versionFile)) return; // skip if no VERSION
     const version = readFileSync(versionFile, 'utf-8').trim();
 
     // Copy VERSION into test dir
