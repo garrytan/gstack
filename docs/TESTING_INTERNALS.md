@@ -184,9 +184,10 @@ This does not change the separate CI machine count. Full-suite shards are packed
 DURATIONS (LPT, `packShardsByDuration`) when the committed seed
 `scripts/free-test-durations.json` exists — refresh it with
 `bun run test:ubicloud --record-durations`, which times each file in its own
-child on a VM with the CI lane's environment and copies the seed back (CI never
-records; a seed recorded where browser or display tests skip underestimates
-them). Missing seed → silent hash-shard fallback; corrupt seed → one warning +
+child on a VM with the CI lane's environment and copies the seed back. That is
+the only acceptable seed source: CI never records, and a recording from a laptop
+or a small sandbox is not acceptable, because browser and display tests skip or
+slow down there and the seed underestimates or distorts them. Missing seed → silent hash-shard fallback; corrupt seed → one warning +
 fallback; unknown files get 75th-percentile pessimism, and both full-suite and
 `--ci-plan` runs name them on stderr so a new slow file cannot silently become
 the long pole. Packed
@@ -262,10 +263,11 @@ Trial telemetry rides the store: every recorded test carries its 1-based
 `attempt` plus, on an isolated trial shard, its `case_id`, `kind`, `trial`,
 `panel` and `policy_version`, and each lane's report uploads one
 `trial-outcomes` JSONL line per trial. `bun run eval:pass-rates`
-(`eval:flake-rank` is an alias) turns that history into per-case pass rates
-(see "Pass-rate history" below; the free lane's flake ledger is folded in from
-`flakeLedgerPath()` — override with `GSTACK_FLAKE_LEDGER`, the same env var the
-CI free lane sets before uploading the ledger as the `flake-ledger` artifact). Census integrity is
+turns that history into per-case pass rates
+(see "Pass-rate history" below; it also folds in the local free runner's flake
+ledger from `flakeLedgerPath()` — override with `GSTACK_FLAKE_LEDGER`, the same
+env var the CI free lane sets before uploading its ledger as `flake-ledger-<shard>`
+artifacts, which `eval:pass-rates` does not download). Census integrity is
 enforced from the free suite: every `E2E_TOUCHFILES` / `LLM_JUDGE_TOUCHFILES`
 key must name a living paid test (`test/touchfiles.test.ts`'s reverse
 invariant), and `git show <sha>:path` fixtures are banned — vendor the bytes
@@ -534,9 +536,7 @@ The paid census counts are printed by `--list` for each tier.
 wrapper covers a full-gate fallback at its default two workers. The broad gate
 wrapper reserves 49320 seconds (floor 21,725 s), and release reserves 116700 seconds for both
 tiers; free tests recompute each floor from the live shard census, case shards
-included. Legacy monolithic
-`eval:bg`/`eval:bg:all` retain their shorter 5400/7200-second caps; use the
-sharded periodic path for complete coverage.
+included.
 
 CI plans with `--slice-budget 540 --jobs 2` for the PR gate, the periodic census
 and the weekly gate census (the gate census also `--skip-judges`), and
@@ -652,11 +652,12 @@ disappears either.
 
 Moved verbatim from CLAUDE.md (#2096 size limit).
 
-**Diff-based test selection:** `test:evals` and `test:e2e` auto-select tests based
-on `git diff` against the base branch. Each test declares its file dependencies in
-`test/helpers/touchfiles.ts`. Changes to global touchfiles (session-runner, eval-store,
-touchfiles.ts itself) trigger all tests. Use `EVALS_ALL=1` or the `:all` script
-variants to force all tests. Run `eval:select` to preview which tests would run.
+**Diff-based test selection:** the sharded paid runner (`test:pr`, `eval:bg:pr`,
+`test:gate:sharded`) selects tests based on `git diff` against the base branch.
+Each test declares its file dependencies in `test/helpers/touchfiles.ts`. Changes
+to global touchfiles (session-runner, eval-store, touchfiles.ts itself) trigger
+all tests. Use `EVALS_ALL=1` to force all tests. Run `eval:select` to preview
+which tests would run. Commands by task: [CONTRIBUTING.md](../CONTRIBUTING.md#which-command-do-i-run).
 
 **Two-tier system:** Tests are classified as `gate` or `periodic` in `E2E_TIERS`
 (in `test/helpers/touchfiles.ts` — a facade over `touchfiles-data.ts` +
@@ -686,8 +687,8 @@ Moved verbatim from CLAUDE.md (#2096 size limit).
 
 `bun run test` routes through `scripts/test-free-shards.ts` (N concurrent
 shard processes, serial within each, packed by recorded per-file durations
-when `scripts/free-test-durations.json` exists — refresh occasionally with
-`bun run test:free --record-durations`; strict-output classification per
+when `scripts/free-test-durations.json` exists — refresh it with
+`bun run test:ubicloud --record-durations`; strict-output classification per
 shard: a shard without bun's terminal summary line FAILS — silent truncation
 cannot report green). `TREE_MUTATING` lists the files that still run in their
 own trailing serial shard (today only `test/bootstrap-retention.test.ts`, for
@@ -745,16 +746,17 @@ When **you (an agent/harness)** launch a long eval/benchmark run, run it through
 `bin/gstack-detach` — NEVER as a plain backgrounded Bash task. A plain background
 task lives in the harness's process group, so a SIGTERM ("polite quit") on a turn
 boundary, a stopped Monitor, or an interruption kills the run mid-flight (observed:
-`script "test:gate" was terminated by signal SIGTERM` ~40 min into a run). On macOS
+`script "test:gate" was terminated by signal SIGTERM` ~40 min into a run of the
+since-retired single-process runner). On macOS
 the run can also die to idle-sleep. `gstack-detach` fixes both: a fresh session
 (escapes the group SIGTERM) wrapped in `caffeinate -i` (blocks idle-sleep).
 
-- Use the `eval:bg*` scripts (`eval:bg`, `eval:bg:all`, `eval:bg:gate`,
+- Use the `eval:bg:*` scripts (`eval:bg:pr`, `eval:bg:release`, `eval:bg:gate`,
   `eval:bg:periodic`) — they wrap the eval command in `gstack-detach` with the
   machine-wide `gstack-evals` lock (concurrent worktrees serialize instead of
   saturating the shared model API), a per-tier watchdog, and a **run-scoped** log
   under `~/.gstack-dev/eval-runs/` (no shared-`/tmp` collision). Each prints its
-  log path. `eval:bg:gate` / `eval:bg:periodic` run their tier through the
+  log path. All four run through the
   sharded paid runner (`scripts/test-paid-shards.ts`, also exposed as
   `test:gate:sharded` / `test:periodic:sharded`): one Bun process per test
   file, an external wall-clock timeout that kills the shard's process GROUP
@@ -768,7 +770,7 @@ the run can also die to idle-sleep. `gstack-detach` fixes both: a fresh session
   are sized against worst-case shard wall clock. `EVALS_JOBS` sets the shard
   process count (default 8); `EVALS_CONCURRENCY` is bun's --max-concurrency
   WITHIN a shard (default 2) — they are deliberately separate knobs. `eval:list` / `eval:compare` /
-  `eval:summary` / `eval:flake-rank` read the shard dirs too. Or call
+  `eval:summary` / `eval:pass-rates` read the shard dirs too. Or call
   `gstack-detach [--lock NAME] [--timeout SECS] [--label LBL] --
   <cmd>` directly for any long agent job. Export `ANTHROPIC_API_KEY` first (never
   pass keys in argv).
@@ -782,5 +784,5 @@ the run can also die to idle-sleep. `gstack-detach` fixes both: a fresh session
 - Why the lock: a shared dev box with several Conductor worktrees will rate-limit
   the model API if two eval suites run at once (15-way concurrency each), which
   mass-times-out E2E tests. The lock makes the second run WAIT, not collide.
-- Humans running `bun run test:evals` foreground in their own terminal don't need
+- Humans running `bun run test:pr` foreground in their own terminal don't need
   this — Ctrl-C is intended there. Detachment is for agent-launched runs only.

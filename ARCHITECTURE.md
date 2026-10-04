@@ -490,18 +490,9 @@ The `parseNDJSON()` function is pure — no I/O, no side effects — making it i
   │
   │  ALL files in ~/.gstack-dev/
   │  Run dir: e2e-runs/{runId}/
-  │
-  │         eval-watch.ts
-  │              │
-  │        ┌─────┴─────┐
-  │     read HB     read partial
-  │        └─────┬─────┘
-  │              ▼
-  │        render dashboard
-  │        (stale >10min? warn)
 ```
 
-**Split ownership:** session-runner owns the heartbeat (current test state), eval-store owns partial results (completed test state). The watcher reads both. Neither component knows about the other — they share data only through the filesystem.
+**Split ownership:** session-runner owns the heartbeat (current test state), eval-store owns partial results (completed test state). Neither component knows about the other — they share data only through the filesystem. Sharded runs report live progress through the detach log (`~/.gstack-dev/eval-runs/`) and each shard's own eval directory.
 
 **Non-fatal everything:** All observability I/O is wrapped in try/catch. A write failure never causes a test to fail. The tests themselves are the source of truth; observability is best-effort.
 

@@ -4,20 +4,6 @@
 
 ```bash
 bun install          # install dependencies
-bun run test:quick   # measured fast deterministic subset for edit feedback
-bun run test         # complete free suite via the strict parallel runner
-bun run test:ubicloud  # complete free suite on an ephemeral 16-vCPU Ubicloud VM (needs UBICLOUD_API_KEY)
-bun run test:pr      # changed fast live probes + selected judges (CI PR default)
-bun run test:evals   # run paid evals: LLM judge + E2E (diff-based, ~$4.35/run max)
-bun run test:evals:all  # run ALL paid evals regardless of diff
-bun run test:gate    # broad gate-tier tests (legacy diff-based command)
-bun run test:release # fresh full gate + periodic censuses
-bun run test:periodic  # run periodic-tier tests only (weekly cron / manual)
-bun run test:gate:sharded    # gate tier via the sharded paid runner (one Bun process per test file)
-bun run test:periodic:sharded  # periodic tier via the sharded paid runner (implies EVALS_ALL=1)
-bun run test:e2e     # run E2E tests only (diff-based, ~$4.20/run max)
-bun run test:e2e:all # run ALL E2E tests regardless of diff
-bun run eval:select  # show which tests would run based on current diff
 bun run dev <cmd>    # run CLI in dev mode, e.g. bun run dev goto https://example.com
 bun run typecheck    # strict tsc over product code (zero errors required)
 bun run typecheck:test  # test-code type-debt ratchet
@@ -25,16 +11,18 @@ bun run build        # gen docs + compile binaries
 bun run gen:skill-docs  # regenerate SKILL.md files from templates
 bun run skill:check  # health dashboard for all skills
 bun run dev:skill    # watch mode: auto-regen + validate on change
-bun run eval:list    # list all eval runs from ~/.gstack/projects/<slug>/evals/
-bun run eval:compare # compare two eval runs (auto-picks most recent)
-bun run eval:summary # aggregate stats across all eval runs
-bun run eval:flake-rank  # rank tests by flake signal (retried passes first; --json, --dir, --since-days)
 bun run slop          # full slop-scan report (all files)
 bun run slop:diff     # slop findings in files changed on this branch only
 bun run audit:manifest  # file slices for /claude-api prompt-audit; rerun it at each frontier-model release (CONTRIBUTING.md)
 ```
 
-`test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`,
+Test and eval commands, their cost and what each needs live in one table:
+[Which command do I run?](CONTRIBUTING.md#which-command-do-i-run). The two you
+need most are `bun run test` (free acceptance) and `bun run eval:bg:pr` (paid,
+changed coverage). Retired names such as `test:evals` and `test:e2e` print their
+replacement and exit 1.
+
+Paid evals require `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`,
 `test/codex-e2e-sol-scope.test.ts`) use Codex's own auth — the hermetic runner copies
 only `auth.json` from `${CODEX_HOME:-~/.codex}` and pins `CODEX_HOME` in the child
 env — no `OPENAI_API_KEY` env var needed.
@@ -48,10 +36,10 @@ Debug against real operator state with `EVALS_HERMETIC=0`. Full detail
 (env-shim, seeding tripwires, wiring tests):
 [docs/TESTING_INTERNALS.md](docs/TESTING_INTERNALS.md).
 
-**Test selection and tiers:** `test:evals` and `test:e2e` select tests from
-`git diff` through the dependency lists in `test/helpers/touchfiles.ts`
-(`EVALS_ALL=1` or the `:all` variants force everything; `eval:select`
-previews). Classify every new E2E test in `E2E_TIERS`: safety guardrail or
+**Test selection and tiers:** the sharded paid runner (`test:pr`,
+`eval:bg:pr`, `test:gate:sharded`) selects tests from `git diff` through the
+dependency lists in `test/helpers/touchfiles.ts` (`EVALS_ALL=1` forces
+everything; `eval:select` previews). Classify every new E2E test in `E2E_TIERS`: safety guardrail or
 deterministic functional test -> `gate`; quality benchmark, Opus model test,
 non-deterministic, or external service (Codex, Gemini) -> `periodic`.
 `test/e2e-tier-alignment.test.ts` enforces the tiers. CI lanes and periodic
@@ -452,7 +440,8 @@ regenerated SKILL.md shifts prompt context.
 
 When **you (an agent/harness)** launch a long eval/benchmark run, run it through
 `bin/gstack-detach`, NEVER as a plain backgrounded Bash task: a turn-boundary
-SIGTERM kills that mid-flight. Use the `eval:bg*` scripts (machine-wide
+SIGTERM kills that mid-flight. Use `bun run eval:bg:pr` for changed coverage
+or `bun run eval:bg:release` for the full gate + periodic censuses (machine-wide
 `gstack-evals` lock, per-tier watchdog, run-scoped log under
 `~/.gstack-dev/eval-runs/`), export `ANTHROPIC_API_KEY` first (never pass keys
 in argv), then poll the printed log until the `### gstack-detach EXIT=<code> ###`

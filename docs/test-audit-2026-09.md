@@ -476,3 +476,21 @@ release docs sweep); tests 383 (+9,375/−44,379); test helpers 47 (+786/−12,7
 - **`test/helpers/claude-pty-runner.unit.test.ts` (3,694 LOC, 223 tests, 0.1 s):** a large self-test of the 5,885-LOC PTY harness. The classifiers it covers (`classifyVisible`, `parseNumberedOptions`, `Step0BoundaryPredicate`…) are live in paid runs, so keep it. The per-capture blocks (`captured F`, `captured G`) belong to the per-incident consolidation lane.
 - **Zero-importer helpers** `auq-parallel-worker`, `setup-gbrain-fixture-command`, `emulate-bun-windows-eexist` are loaded by path (preload / generated import). `benchmark-judge` has a production caller (dynamic import in `bin/gstack-model-benchmark`).
 - **`browse/src` `__reset*`/`reset*ForTests` exports (12):** standard singleton-reset seams, keep.
+
+## Corrections (2026-10 audit)
+
+Facts above that no longer hold, checked against main at v1.91.19.0:
+
+- `codex-e2e-recommendation-substance` is not census-only: it is no longer in
+  `PERIODIC_CI_EXCLUDE` and runs in every periodic census.
+- The after-metrics are superseded. Five days after release the free suite had
+  regrown by 132 test files and about 53% of serial time; the
+  [2026-10 audit](test-audit-2026-10.md) carries current numbers.
+- The duration seed again lacked 19 files, including the 115-second
+  `claude-overlay-setup.test.ts`, which the planner packed as a short file.
+- `browse/test/compare-board.test.ts` stayed quarantined through this audit; its
+  16 tests now pass headless and run in the free suite again.
+- `ci-image-tag-binding` now pins `evals.yml`, `evals-periodic.yml` and
+  `evals-marathon.yml`; `ci-image.yml` is deleted because those workflows push
+  the same content-hash tag.
+- The weak literal pins listed under Lane 5 are still present.

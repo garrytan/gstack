@@ -178,6 +178,29 @@ there is no automatic model discovery. Paid-run costs shown below are
 historical estimates from before this default change, not measurements of
 the new defaults.
 
+### Which command do I run?
+
+| I want to… | Command | Cost / time | Needs |
+|---|---|---|---|
+| Check an ordinary edit quickly | `bun run test:quick` | Free, about a minute | Bun 1.4.0 |
+| Run one free test file while repairing | `bun test <file>` | Free, seconds | Never bare `bun test` for the suite |
+| Run full free acceptance before publishing | `bun run test` | Free, a few minutes | Bun 1.4.0 |
+| Run the full free suite from a small machine | `bun run test:ubicloud` | Free suite on a billed 16-vCPU VM, about 5 minutes | `UBICLOUD_API_KEY` |
+| Run the curated Windows-safe subset | `bun run test:windows` | Free | Windows, Git Bash |
+| Preview which paid cases my diff selects | `bun run eval:select` | Free | — |
+| Preview the CI paid slice plan | `bun run scripts/test-paid-shards.ts --tier periodic --list --slice-budget 540 --jobs 2` (diff-selected; `EVALS_ALL=1` lists everything) | Free | — |
+| Run paid coverage for my change (agents: detached) | `bun run eval:bg:pr` (foreground: `bun run test:pr`) | API spend for the selected cases only | `ANTHROPIC_API_KEY`, Claude Code CLI, a plain terminal |
+| Run the full gate + periodic censuses before a release | `bun run eval:bg:release` (foreground: `bun run test:release`) | The largest API spend; hours locally | Same as above |
+| Run one paid tier | `bun run test:gate:sharded` / `bun run test:periodic:sharded` (detached: `eval:bg:gate` / `eval:bg:periodic`) | API spend for that tier | Same as above |
+| Run one paid case as its CI panel | `bun run scripts/test-paid-shards.ts --tier <tier> --case <case-id> --trials 3` | API spend for that case | Same as above |
+| Validate gate cases on a branch in CI | `gh workflow run evals.yml --ref <branch> -f evals_all=true` | CI runners + API spend | Pushed branch, `gh` with workflow rights |
+| Validate periodic cases on a branch in CI | `gh workflow run evals-periodic.yml --ref <branch>` | CI runners + API spend | Pushed branch, `gh` with workflow rights |
+| Run the opt-in ML, gitleaks and Swift checks | `gh workflow run platform-qualification.yml --ref <branch>` | Free CI runners | Pushed branch, `gh` with workflow rights |
+| Look at past local eval runs | `bun run eval:list` / `eval:compare` / `eval:summary` | Free | Local eval history |
+| See a case's pass rate across recent weekly runs | `bun run eval:pass-rates --case <case-id>` | Free | `gh` with repo read access |
+
+Old command names are listed under [Retired commands](#retired-commands).
+
 ### Setup
 
 Development and tests require Bun 1.4.0 or newer; CI pins and tests 1.4.0.
@@ -214,21 +237,13 @@ consumed section/resolver inputs in touchfiles, tiers and the PR profile so they
 Share sanitized reproduction commands and fixture evidence when reporting a problem,
 never credentials, private payloads or an entire unreviewed agent transcript.
 
-| Tier | Command | Cost | What it tests |
-|------|---------|------|---------------|
-| 1 — Static | `bun run test` | Free | Command validation, snapshot flags, Aside contract pins, render-wrapper option mapping, SKILL.md correctness, TODOS-format.md refs, observability unit tests |
-| 2 — E2E | `bun run test:e2e` | ~$4.20 | Full skill execution via `claude -p` subprocess |
-| 3 — LLM eval | `EVALS=1 bun test test/skill-llm-eval.test.ts` | ~$0.15 standalone | LLM-as-judge scoring of generated SKILL.md docs |
-| 2+3 | `bun run test:evals` | ~$4 combined | E2E + LLM-as-judge (runs both) |
+| Tier | Runs through | What it tests |
+|------|--------------|---------------|
+| 1 — Static | `bun run test` (free) | Command validation, snapshot flags, Aside contract pins, render-wrapper option mapping, SKILL.md correctness, TODOS-format.md refs, observability unit tests |
+| 2 — E2E | The sharded paid runner (`bun run eval:bg:pr`, `eval:bg:release`) | Full skill execution via `claude -p`, PTY and Agent SDK sessions |
+| 3 — LLM eval | The same runner; `test/skill-llm-eval*.test.ts` | LLM-as-judge scoring of generated SKILL.md docs |
 
-```bash
-bun run test:quick           # Measured fast free subset for ordinary edits; not full acceptance
-bun run eval:bg:pr           # Changed fast live probes + selected quality judges, detached
-bun run test                 # Final full free acceptance after focused repairs and source freeze
-bun run test:ubicloud        # Same suite on an ephemeral 16-vCPU Ubicloud VM; needs UBICLOUD_API_KEY
-bun run test:e2e             # Tier 2: E2E only (needs EVALS=1, can't run inside Claude Code)
-bun run test:evals           # Tier 2 + 3 combined (~$4.35/run)
-```
+Pick commands from [Which command do I run?](#which-command-do-i-run).
 
 The PR paid gate uses an explicit short behavioral profile. Every selected quality
 judge remains included; the manifest lists deferred behaviors separately from
@@ -361,7 +376,7 @@ child stream; `--wall-timeout <secs>` overrides the per-shard kill deadline.
 and `GSTACK_FREE_RETRY_FLAKY=1` opts into one serial retry pass for
 syscall-supervised sandboxes (off by default locally — dev boxes should see
 flakes; the required CI free lane turns it on and uploads every flaky pass
-in a JSONL ledger artifact that `bun run eval:flake-rank` folds in).
+in a `flake-ledger-*` JSONL artifact on the run).
 Working in a cloud sandbox? Run `scripts/sandbox-doctor.sh` once per boot to
 make the suite run green (details in
 [docs/TESTING_INTERNALS.md](docs/TESTING_INTERNALS.md)), or skip the sandbox's
@@ -381,7 +396,7 @@ eval files, and misses the strict classifier. No API keys needed.
 - **Context-budget ratchet** (`test/context-budget-ratchet.test.ts`) — CI ceilings on the two token ledgers the catalog budget doesn't cover: the always-on full-frontmatter aggregate and each skill's per-invocation eager tokens (SKILL.md + forced-read references), graded against `test/fixtures/context-budget.json` via `lib/context-bill.ts`. New skills fail until they have a ceiling; ceilings for removed skills must be pruned. Legitimate growth or a landed reduction: re-run `bun test/helpers/capture-context-budget.ts` and commit the refreshed fixture in the same commit, so the change is a visible decision in the diff.
 - **Dependency security regressions** (`test/dependency-security.test.ts`) — Run `bun test test/dependency-security.test.ts` to check the resolved `sharp` and `adm-zip` version floors, load Sharp, verify ordinary ZIP extraction, and reject extraction through destination-file and destination-directory symlinks. The symlink cases skip Windows. These checks complement the OSV scan; they do not change its existing exceptions.
 
-### Tier 2: E2E via `claude -p` (~$4.20/run)
+### Tier 2: E2E via `claude -p`
 
 Spawns `claude -p` as a subprocess with `--output-format stream-json --verbose`, streams NDJSON for real-time progress, and scans for browse errors. This is the closest thing to "does this skill actually work end-to-end?"
 
@@ -437,7 +452,7 @@ When E2E tests run, they produce machine-readable artifacts in `~/.gstack-dev/`:
 | NDJSON transcripts | `e2e-runs/{runId}/{test}.ndjson` | Raw `claude -p` output per test |
 | Failure JSON | `e2e-runs/{runId}/{test}-failure.json` | Diagnostic data on failure |
 
-**Live dashboard:** Run `bun run eval:watch` in a second terminal to see a live dashboard showing completed tests, the currently running test, and cost. Use `--tail` to also show the last 10 lines of progress.log.
+**Live progress:** a detached run's log under `~/.gstack-dev/eval-runs/` streams each shard's result as it lands; for a CI run use `gh run watch <run-id>`. Per-test progress is in each shard's `progress.log`.
 
 **Eval history tools:**
 
@@ -445,11 +460,11 @@ When E2E tests run, they produce machine-readable artifacts in `~/.gstack-dev/`:
 bun run eval:list            # list all eval runs (turns, duration, cost per run)
 bun run eval:compare         # compare two runs — shows per-test deltas + Takeaway commentary
 bun run eval:summary         # aggregate stats + per-test efficiency averages across runs
-bun run eval:pass-rates      # per-case trial pass rates + Wilson intervals from recent weekly runs (--case, --runs, --dir, --backfill, --json, --gate); eval:flake-rank is an alias
+bun run eval:pass-rates      # per-case trial pass rates + Wilson intervals from recent weekly runs (--case, --runs, --dir, --backfill, --json, --gate)
 ```
 
 **Detached runs for agents and long suites.** When an agent (or you, for a run
-you don't want to babysit) launches a long eval, use the `eval:bg*` scripts. They
+you don't want to babysit) launches a long eval, use the `eval:bg:*` scripts. They
 wrap the eval command in `bin/gstack-detach`: a fresh session that escapes a
 turn-boundary SIGTERM, a `caffeinate` wrapper that blocks idle-sleep, a machine-wide
 `gstack-evals` lock so concurrent worktrees serialize instead of saturating the
@@ -458,13 +473,13 @@ and a guaranteed `### gstack-detach EXIT=<code> ###` sentinel so a poller never
 mistakes silence for success.
 
 ```bash
-bun run eval:bg              # detached test:evals (diff-based)
-bun run eval:bg:all          # detached test:evals:all
+bun run eval:bg:pr           # detached test:pr (changed coverage)
+bun run eval:bg:release      # detached test:release (fresh full gate + periodic)
 bun run eval:bg:gate         # detached gate-tier suite
 bun run eval:bg:periodic     # detached periodic-tier suite
 ```
 
-Each prints its log path. The gate and periodic variants run their tier through
+Each prints its log path. All four run through
 the sharded paid runner (`scripts/test-paid-shards.ts`, also available directly
 as `bun run test:gate:sharded` / `bun run test:periodic:sharded`): one Bun
 process per test file, an external wall-clock timeout that kills the shard's
@@ -474,17 +489,17 @@ distinguishes failed vs timed-out vs never-started shards. The runner also
 selects by diff: shards untouched by your branch are reported as
 skipped-by-diff, with a selection banner naming the reason (`EVALS_ALL=1`
 forces everything). `EVALS_JOBS` sets how many shard processes run at once
-(default 8); `EVALS_CONCURRENCY` is bun's concurrency WITHIN a shard
+(default 8; `test:pr` sets 2); `EVALS_CONCURRENCY` is bun's concurrency WITHIN a shard
 (default 2) — they are deliberately separate knobs. `eval:list`,
-`eval:compare`, `eval:summary`, and `eval:flake-rank` are shard-aware. Humans running
-`bun run test:evals` foreground in their own terminal don't need this — Ctrl-C
+`eval:compare`, `eval:summary`, and `eval:pass-rates` are shard-aware. Humans running
+`bun run test:pr` foreground in their own terminal don't need this — Ctrl-C
 is intended there.
 
 **Eval comparison commentary:** `eval:compare` generates natural-language Takeaway sections interpreting what changed between runs — flagging regressions, noting improvements, calling out efficiency gains (fewer turns, faster, cheaper), and producing an overall summary. This is driven by `generateCommentary()` in `eval-store.ts`.
 
 Artifacts are never cleaned up — they accumulate in `~/.gstack-dev/` for post-mortem debugging and trend analysis.
 
-### Tier 3: LLM-as-judge (~$0.15/run)
+### Tier 3: LLM-as-judge
 
 Uses `claude-fable-5-1` by default to score generated SKILL.md docs on three dimensions.
 Override the judge model per run with `GSTACK_EVAL_MODEL_JUDGE`:
@@ -497,9 +512,8 @@ Each dimension is scored 1-5 by a panel of 3 samples of the same prompt, drawn
 concurrently; each dimension's panel mean must meet that judge's threshold (≥ 4
 for most dimensions; see each case). An erroring sample fails the panel. There's also a regression test that compares generated docs against the hand-maintained baseline from `origin/main` — generated must score equal or higher.
 
-```bash
-# Needs ANTHROPIC_API_KEY in .env — included in bun run test:evals
-```
+Needs `ANTHROPIC_API_KEY` in `.env`. The judge files run in every paid lane
+(`bun run eval:bg:pr` selects the ones your diff touches).
 
 - Resolves the judge model through `lib/eval-model.ts`, using the override order above
 - Tests live in `test/skill-llm-eval.test.ts`
@@ -560,11 +574,13 @@ A GitHub Action (`.github/workflows/skill-docs.yml`) generates all hosts on push
 
 Supply-chain gates run alongside it:
 
-- **Quality gate** (`.github/workflows/quality-gate.yml`, every PR and push) — scans the diff's added lines for credentials using gstack's own redact engine (`.github/scripts/gate-secret-scan.mjs`). HIGH findings fail the job; MEDIUM findings surface as an advisory count. Fails closed if the scan can't produce a report. Also gates critical dependency advisories and runs ShellCheck on the setup/build boundaries.
-- **Dependency review** (`.github/workflows/dependency-review.yml`) — reviews dependency changes on PRs that touch lockfiles or workflow files.
+- **Quality gate** (`.github/workflows/quality-gate.yml`, every PR and push) — scans the diff's added lines for credentials using gstack's own redact engine (`.github/scripts/gate-secret-scan.mjs`). HIGH findings fail the job; MEDIUM findings surface as an advisory count. Fails closed if the scan can't produce a report. Also runs ShellCheck on the setup/build boundaries.
+- **Dependency review** (`.github/workflows/dependency-review.yml`) — reviews dependency changes on PRs that touch `package.json` or `bun.lock` files and fails on high or critical advisories. It and the weekly OSV scan are the dependency gates.
 - **OSV scanner** (`.github/workflows/osv-scanner.yml`) — weekly vulnerability scan against the OSV database. Config lives in `.osv-scanner.toml` and is loaded via an explicit `--config` flag (OSV does not auto-discover that filename); every ignore entry needs a reason and an `ignoreUntil` expiry, enforced by `test/osv-config-wiring.test.ts`.
 - **Dependabot** (`.github/dependabot.yml`) — grouped dependency update PRs.
 - **OpenSSF Scorecard** (`.github/workflows/scorecard.yml`) — weekly and on main pushes; results in the Security tab and api.scorecard.dev.
+
+- **Platform qualification** (`.github/workflows/platform-qualification.yml`, dispatch and quarterly) — runs the opt-in tests no other lane has prerequisites for: the ML prompt-injection classifier (`SECURITY_BENCH=1`), memory ingest against real gitleaks (`GSTACK_TEST_GITLEAKS`), and the DebugBridge Swift build (`GSTACK_TEST_SWIFT=1`, macOS). `test/platform-qualification-workflow.test.ts` pins each gate to its job.
 
 Every workflow pins its third-party actions to commit SHAs (`test/workflow-action-pins.test.ts`). The PR template (`.github/PULL_REQUEST_TEMPLATE.md`) asks for evidence — tests run, eval output — not promises.
 

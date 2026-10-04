@@ -250,16 +250,16 @@ bun run typecheck:test   # test-code type-debt ratchet (new diagnostics fail; --
 bun run format:cso       # format lib/cso/*.ts (format:cso:check is the CI gate)
 bun run test:quick       # fast measured free subset for edit feedback (not acceptance)
 bun run test             # complete free suite via the strict shard runner (no API spend)
-bun run test:ubicloud    # same suite on an ephemeral 16-vCPU Ubicloud VM (needs UBICLOUD_API_KEY)
 bun run eval:bg:pr       # changed fast live probes + selected judges, with explicit deferrals
 bun run eval:bg:release  # fresh complete gate + periodic live coverage
-bun run eval:pass-rates  # per-case trial pass rates (Wilson), drift and quarantine alarms (--case, --gate)
-bun run scripts/test-paid-shards.ts --tier periodic --list --slice-budget 540 --jobs 2  # CI slice plan preview (free)
-bun run test:windows     # curated Windows-safe subset (runs on windows-latest)
 bun run build            # generate docs + compile binaries
 bun run gen:skill-docs   # regenerate SKILL.md files from templates
 bun run skill:check      # health dashboard for all skills
 ```
+
+Every other test and eval command (Ubicloud, the Windows subset, one paid tier
+or case, branch validation in CI, pass rates, plan previews), with its cost and
+prerequisites, is in [Which command do I run?](CONTRIBUTING.md#which-command-do-i-run).
 
 ## Platform support
 

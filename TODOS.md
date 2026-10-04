@@ -2,6 +2,35 @@
 
 ## NEXT PRIORITY
 
+### P1–P3: test/eval/CI audit wave follow-ups (filed 2026-10-04)
+
+From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
+
+- **Post-merge audit metrics (due merge + 7 days)** — run
+  `bun run test:health --since-days 7` and record the PR full-fallback rate,
+  recorded PR-lane spend per merged PR (target: down at least 50%), cancelled
+  slice-minutes per week, push-to-verdict p50/p95 and the free flaky-pass rate in
+  `docs/test-audit-2026-10.md` as a dated follow-up. **Effort:** S. **Priority:** P1.
+- **Census reliability metric (due after the fourth scheduled census after merge,
+  about merge + 28 days)** — run `bun run test:health --since-days 28` and record
+  expected failed trials per periodic run (target at most 1.0) and per gate census
+  (target at most 0.5), each as raw trial failure rate, false-blocking probability
+  and the old-policy re-aggregation. A miss opens a P1 entry here with the per-kind,
+  per-failure-class breakdown. **Effort:** S. **Priority:** P1.
+- **Remove the one-release command stubs** — delete the retired package scripts
+  (`test:evals`, `test:evals:all`, `test:e2e`, `test:e2e:all`, `test:gate`,
+  `test:periodic`, `test:codex`, `test:codex:all`, `eval:bg`, `eval:bg:all`,
+  `eval:flake-rank`, `eval:watch`, `test:audit`), `scripts/retired-command.ts`,
+  `test/retired-commands.test.ts` and CONTRIBUTING.md's "Retired commands" table.
+  They exist only to redirect old agent memories and docs. **Depends on:** the
+  audit release shipped. **Effort:** S. **Priority:** P2.
+- **Reclaim `test:gate` / `test:periodic` for the sharded runner** — after the
+  stubs are gone, point the short names at `test-paid-shards.ts` and retire the
+  `:sharded` suffix. **Depends on:** stub removal. **Effort:** S. **Priority:** P3.
+- **One diff-aware command for free + paid checks** — plan `test:quick` and the
+  paid PR profile from the same touchfile closure so one command answers "what
+  does my diff need?". **Effort:** M. **Priority:** P3.
+
 ### P2/P3: severe fix wave follow-ups (filed 2026-10-03, v1.91.19.0)
 
 Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10.md), each with its reason.
@@ -3979,7 +4008,11 @@ runner's per-run log.
 **Where:** scripts/test-paid-shards.ts runPaidShard buffered path.
 **Effort:** S (human ~2h, CC ~10min).
 
-### P3: Eval Docker image freshness tripwire
+### Won't do (2026-10 audit): Eval Docker image freshness tripwire
+
+Obsolete: Dockerfile.ci pins the Claude CLI (bumps ride PRs), and ci-image.yml
+is deleted because the eval workflows build and push the content-hash tag
+themselves. The original entry follows for history.
 
 **What:** The cache-key trio means the image rebuilds only when Dockerfile/bun.lock
 change; freshness of the baked unpinned claude CLI now rides entirely on
@@ -4662,7 +4695,11 @@ low present-day value.
 
 **Effort:** M (human ~2 days, CC ~1h). **Depends on:** none.
 
-### P3: eval-watch shard-awareness
+### Won't do (2026-10 audit): eval-watch shard-awareness
+
+`scripts/eval-watch.ts` and `eval:watch` are deleted: no supported paid entry
+point is unsharded, and live progress comes from the detach log or
+`gh run watch`. The original entry follows for history.
 
 **What:** Teach `scripts/eval-watch.ts` (hardcoded `_partial-e2e.json` path at
 ~line 17) about the sharded layout: watch `<evalDir>/shards/*/_partial-e2e.json`
