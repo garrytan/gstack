@@ -29,12 +29,15 @@ describe('PR selection replay (CEO-23)', () => {
 
   test('the summary reports both fallback rates and lists every miss', () => {
     const lines = summarize([
-      { runId: 1, oldMode: 'full-fallback', newMode: 'pr', oldCases: 90, newCases: 3, dropped: [], misses: [], retiredFailures: [], truncated: false },
-      { runId: 2, oldMode: 'full-fallback', newMode: 'full-fallback', oldCases: 90, newCases: 90, dropped: [], misses: ['x'], retiredFailures: ['y'], truncated: true },
+      { runId: 1, oldMode: 'full-fallback', newMode: 'pr', oldCases: 90, newCases: 3, dropped: [], misses: [], retiredFailures: [], truncated: false, changed: 4, vanished: 0 },
+      { runId: 2, oldMode: 'full-fallback', newMode: 'full-fallback', oldCases: 90, newCases: 90, dropped: [], misses: ['x'], retiredFailures: ['y'], truncated: true, changed: 300, vanished: 2 },
     ]).join('\n');
     expect(lines).toContain('full-fallback: 2 (100%) recorded -> 1 (50%) replayed');
     expect(lines).toContain('MISSES (failed, depends on the diff, not selected now): 1 -> 2:x');
     expect(lines).toContain("300-file limit: 1");
     expect(lines).toContain('no longer exist: 1');
+    expect(lines).toContain('wave branches (diff >= 100 files): 1 push(es); full-fallback 1 recorded -> 1 (100%) replayed');
+    expect(lines).toContain('ordinary pushes (diff < 100 files): 1 push(es); full-fallback 1 recorded -> 0 (0%) replayed; dependents 0, pr 1; median selected gate cases 3');
+    expect(lines).toContain("missing from today's tree: 1");
   });
 });

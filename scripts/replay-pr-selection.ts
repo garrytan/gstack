@@ -25,6 +25,8 @@ import { computePaidCaseSelection } from './test-paid-shards';
 import { packageChangeOnlyVersion } from './test-pr-profile';
 import { E2E_TIERS, E2E_TOUCHFILES, GLOBAL_TOUCHFILES } from '../test/helpers/touchfiles-data';
 import { matchGlob } from '../test/helpers/test-selection';
+import { derivedDependencies } from './pr-dependencies';
+import { PR_PROFILE_MAPS } from './test-pr-profile';
 
 export interface ReplayInput {
   runId: number;
@@ -39,6 +41,10 @@ export interface ReplayInput {
 
 export interface ReplayRow {
   runId: number;
+  /** Changed files in the replayed diff (the wave/ordinary split reads it). */
+  changed: number;
+  /** Changed files missing from today's tree (deleted or renamed since); they restore the full gate. */
+  vanished: number;
   oldMode: string;
   newMode: string;
   oldCases: number;
@@ -50,14 +56,22 @@ export interface ReplayRow {
   error?: string;
 }
 
-/** Whether a case depends on any changed file under today's touchfiles (globals included). */
+/**
+ * Whether a case depends on any changed file under today's dependency graph:
+ * its touchfiles, the globals, and the derived reference closure
+ * (scripts/pr-dependencies.ts, its global runner closure included).
+ */
 export function caseTouchesDiff(id: string, changedFiles: readonly string[]): boolean {
   const patterns = [...(E2E_TOUCHFILES[id] ?? []), ...GLOBAL_TOUCHFILES];
-  return changedFiles.some(file => patterns.some(pattern => matchGlob(file, pattern)));
+  const derived = derivedDependencies(PR_PROFILE_MAPS, path.resolve(import.meta.dir, '..'));
+  return changedFiles.some(file => patterns.some(pattern => matchGlob(file, pattern))
+    || derived.global.has(file) || !!derived.e2e.get(file)?.has(id));
 }
 
 export function replayRun(input: ReplayInput, oldSelection: readonly string[]): ReplayRow {
-  const base = { runId: input.runId, oldMode: input.oldMode, oldCases: input.oldCases, truncated: input.truncated };
+  const tracked = derivedDependencies(PR_PROFILE_MAPS, path.resolve(import.meta.dir, '..')).tracked;
+  const base = { runId: input.runId, oldMode: input.oldMode, oldCases: input.oldCases, truncated: input.truncated,
+    changed: input.changedFiles.length, vanished: input.changedFiles.filter(file => !tracked.has(file)).length };
   const retiredFailures = input.failedCases.filter(id => !Object.hasOwn(E2E_TIERS, id));
   try {
     const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: input.changedFiles, packageVersionOnly: input.packageVersionOnly });
@@ -73,6 +87,18 @@ export function replayRun(input: ReplayInput, oldSelection: readonly string[]): 
   }
 }
 
+/** Pushes whose diff has at least this many files are wave branches (often legitimately the full gate). */
+export const WAVE_DIFF_FILES = 100;
+
+function segment(label: string, rows: readonly ReplayRow[]): string {
+  const pct = (n: number) => rows.length ? `${Math.round((100 * n) / rows.length)}%` : 'n/a';
+  const count = (mode: string) => rows.filter(row => row.newMode === mode).length;
+  const cases = rows.map(row => row.newCases).sort((a, b) => a - b);
+  const median = cases.length ? cases[Math.floor((cases.length - 1) / 2)] : 0;
+  return `- ${label}: ${rows.length} push(es); full-fallback ${rows.filter(row => row.oldMode === 'full-fallback').length} recorded -> ${count('full-fallback')} (${pct(count('full-fallback'))}) replayed; `
+    + `dependents ${count('dependents')}, pr ${count('pr')}; median selected gate cases ${median} (recorded median ${rows.map(row => row.oldCases).sort((a, b) => a - b)[Math.floor((rows.length - 1) / 2)] ?? 0})`;
+}
+
 export function summarize(rows: readonly ReplayRow[]): string[] {
   const fallbackOld = rows.filter(row => row.oldMode === 'full-fallback').length;
   const fallbackNew = rows.filter(row => row.newMode === 'full-fallback').length;
@@ -81,6 +107,9 @@ export function summarize(rows: readonly ReplayRow[]): string[] {
   return [
     `PR selection replay over ${rows.length} recorded push(es) (today's dependency graph)`,
     `- full-fallback: ${fallbackOld} (${pct(fallbackOld)}) recorded -> ${fallbackNew} (${pct(fallbackNew)}) replayed`,
+    segment(`wave branches (diff >= ${WAVE_DIFF_FILES} files)`, rows.filter(row => row.changed >= WAVE_DIFF_FILES)),
+    segment(`ordinary pushes (diff < ${WAVE_DIFF_FILES} files)`, rows.filter(row => row.changed < WAVE_DIFF_FILES)),
+    `- pushes whose diff names files missing from today's tree: ${rows.filter(row => row.vanished > 0).length} (those files restore the full gate)`,
     `- needs full validation (plan refuses, as in CI): ${rows.filter(row => row.newMode === 'needs-full-validation').length}`,
     `- diffs truncated at the compare API's 300-file limit: ${rows.filter(row => row.truncated).length}`,
     `- failed cases that no longer exist: ${new Set(rows.flatMap(row => row.retiredFailures)).size}`,
