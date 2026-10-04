@@ -227,13 +227,19 @@ jobs:
           bash browse/scripts/build-node-server.sh
           bun run gen:skill-docs --host all
           bunx playwright install chromium
+      # Records into this checkout's default seed path: GSTACK_FREE_TEST_DURATIONS
+      # would leak into every timed test, and seed-reading tests would then read
+      # the half-written recording instead of their fixtures.
       - name: Time every Windows-safe file alone
         shell: bash
         env:
-          GSTACK_FREE_TEST_DURATIONS: ${{ runner.temp }}/free-test-durations-windows.json
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
         run: bun run test:windows --record-durations
+      - name: Name the recording as the Windows seed
+        if: always()
+        shell: bash
+        run: cp scripts/free-test-durations.json "$RUNNER_TEMP/free-test-durations-windows.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
