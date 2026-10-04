@@ -207,6 +207,14 @@ export const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }>
     reason: 'its classification golden was recorded from the POSIX runners (process-group wall kill); the win32 engine path is pinned by the mocked-platform case in shard-engine.test.ts',
   },
   {
+    file: 'test/claude-overlay-setup-default.test.ts',
+    reason: 'every case runs the real ./setup under describe.skipIf(win32); its bin/ spawns live in test/helpers/claude-overlay-fixture.ts, so the source scan misses them',
+  },
+  {
+    file: 'test/claude-overlay-setup-installs.test.ts',
+    reason: 'every case runs the real ./setup under describe.skipIf(win32); its bin/ spawns live in test/helpers/claude-overlay-fixture.ts, so the source scan misses them',
+  },
+  {
     file: 'test/cso-scanner-cli.test.ts',
     reason: 'drives the prebuilt POSIX CSO launcher with /usr/bin/git and a POSIX-only PATH; native Windows launcher behavior is covered by the dedicated cso-windows-launcher gate',
   },
