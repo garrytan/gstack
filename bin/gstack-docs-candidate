@@ -1,0 +1,141 @@
+#!/usr/bin/env -S bun --no-env-file run
+/**
+ * gstack-docs-candidate — /ship's documentation-audit snapshot and its later check.
+ *
+ * Usage (run inside the repository):
+ *   gstack-docs-candidate snapshot --out <candidate.json> --audit-id <id> --mode edit|read-only
+ *                                  --base <rev> [--select <path>]... [--docs <path>]...
+ *   gstack-docs-candidate compare <candidate.json>
+ *
+ * snapshot saves, NUL-safely and without writing to the repository: base SHA,
+ * HEAD, branch, index entries, committed (base..HEAD), staged, unstaged and
+ * untracked paths, and git blob hashes of the working-tree content of every
+ * selected path, docs path and dirty/untracked path. Without --select, the
+ * selected paths are the committed, staged, unstaged and untracked paths.
+ * --docs takes files or directories (directories expand to their tracked and
+ * untracked files). It prints a short summary; the JSON file is the record.
+ *
+ * compare re-reads the same state and prints one JSON object: whether HEAD or
+ * the index changed, which recorded paths' content changed or disappeared, and
+ * which paths are newly dirty or untracked. It never decides whether a change
+ * was permitted; the caller checks those paths against the child's report.
+ */
+import { spawnSync } from 'child_process';
+import { createHash } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+
+function git(args: string[]): string {
+  const r = spawnSync('git', args, { encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, maxBuffer: 256 * 1024 * 1024 });
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${(r.stderr || '').trim()}`);
+  return r.stdout;
+}
+const nul = (text: string) => text.split('\0').filter(Boolean);
+
+function state(base: string) {
+  const head = git(['rev-parse', 'HEAD']).trim();
+  return {
+    head,
+    branch: git(['branch', '--show-current']).trim(),
+    index: nul(git(['ls-files', '-s', '-z'])),
+    committed: nul(git(['diff', '--name-only', '-z', base, head])),
+    staged: nul(git(['diff', '--cached', '--name-only', '-z'])),
+    unstaged: nul(git(['diff', '--name-only', '-z'])),
+    untracked: nul(git(['ls-files', '-z', '--others', '--exclude-standard'])),
+  };
+}
+
+function expand(paths: string[]): string[] {
+  const listed = nul(git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']));
+  const out = new Set<string>();
+  for (const p of paths) {
+    const rel = p.replace(/^\.\//, '').replace(/\/+$/, '');
+    const under = listed.filter(f => f === rel || f.startsWith(rel + '/'));
+    if (under.length) under.forEach(f => out.add(f)); else out.add(rel);
+  }
+  return [...out].sort();
+}
+
+/** Git blob ids of working-tree content, computed in-process (any path bytes, nothing written); null when absent. */
+function hashes(paths: string[]): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const p of paths) {
+    if (!fs.existsSync(p) || !fs.statSync(p).isFile()) { out[p] = null; continue; }
+    const content = fs.readFileSync(p);
+    out[p] = createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
+  }
+  return out;
+}
+
+function flag(args: string[], name: string): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < args.length; i++) if (args[i] === name) {
+    const value = args[i + 1];
+    if (value === undefined || value.startsWith('--')) throw new Error(`${name} needs a value`);
+    values.push(value); i++;
+  }
+  return values;
+}
+
+function one(args: string[], name: string): string {
+  const values = flag(args, name);
+  if (values.length !== 1) throw new Error(`${name} is required exactly once`);
+  return values[0]!;
+}
+
+function main(argv: string[]): void {
+  const [command, ...args] = argv;
+  if (command === 'snapshot') {
+    const known = new Set(['--out', '--audit-id', '--mode', '--base', '--select', '--docs']);
+    for (let i = 0; i < args.length; i += 2) if (!known.has(args[i]!)) throw new Error(`unknown argument: ${args[i]}`);
+    const out = path.resolve(one(args, '--out'));
+    const top = fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim());
+    if (out === top || out.startsWith(top + path.sep)) throw new Error('--out must be outside the repository');
+    const mode = one(args, '--mode');
+    if (mode !== 'edit' && mode !== 'read-only') throw new Error('--mode must be edit or read-only');
+    const base = git(['rev-parse', '--verify', one(args, '--base') + '^{commit}']).trim();
+    process.chdir(top);
+    const now = state(base);
+    const selected = flag(args, '--select').length ? expand(flag(args, '--select'))
+      : [...new Set([...now.committed, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
+    const docs = expand(flag(args, '--docs'));
+    const tracked = [...new Set([...selected, ...docs, ...now.staged, ...now.unstaged, ...now.untracked])].sort();
+    const record = { schema_version: 1, audit_id: one(args, '--audit-id'), mode, base, ...now, selected, docs, hashes: hashes(tracked) };
+    fs.writeFileSync(out, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 });
+    console.log(`CANDIDATE: ${out}`);
+    console.log(`base=${base} head=${now.head} branch=${now.branch || '(detached)'} mode=${mode}`);
+    console.log(`committed=${now.committed.length} staged=${now.staged.length} unstaged=${now.unstaged.length} untracked=${now.untracked.length} selected=${selected.length} docs=${docs.length} hashed=${tracked.length}`);
+    for (const [label, list] of [['committed', now.committed], ['staged', now.staged], ['unstaged', now.unstaged], ['untracked', now.untracked], ['docs', docs]] as const) {
+      if (list.length) console.log(`${label}: ${list.map(p => JSON.stringify(p)).join(' ')}`);
+    }
+    return;
+  }
+  if (command === 'compare') {
+    if (args.length !== 1) throw new Error('compare takes exactly one candidate path');
+    const record = JSON.parse(fs.readFileSync(args[0]!, 'utf8'));
+    if (record?.schema_version !== 1 || typeof record.base !== 'string' || typeof record.hashes !== 'object') throw new Error('not a gstack-docs-candidate record');
+    process.chdir(fs.realpathSync(git(['rev-parse', '--show-toplevel']).trim()));
+    const now = state(record.base);
+    const current = hashes(Object.keys(record.hashes));
+    const content_changed = Object.keys(record.hashes).filter(p => current[p] !== record.hashes[p]).sort();
+    const dirty = (s: { staged: string[]; unstaged: string[]; untracked: string[] }) => new Set([...s.staged, ...s.unstaged, ...s.untracked]);
+    const before = dirty(record);
+    const newly_dirty = [...dirty(now)].filter(p => !before.has(p) && !(p in record.hashes)).sort();
+    const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+    console.log(JSON.stringify({
+      audit_id: record.audit_id,
+      head_changed: now.head !== record.head,
+      index_changed: !sameList(now.index, record.index),
+      content_changed,
+      newly_dirty,
+    }));
+    return;
+  }
+  throw new Error('usage: gstack-docs-candidate snapshot|compare (see --help in the file header)');
+}
+
+try { main(process.argv.slice(2)); }
+catch (error) {
+  console.error(`gstack-docs-candidate: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}

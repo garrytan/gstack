@@ -199,3 +199,25 @@ test('only the native ship parent interface declares the section insert', () => 
   expect(options.prompt).toContain('.qa-state/ directory is the fixture owner');
   for (const transport of [false, true]) expect(docsNativeInterface(fixture, [], transport)).not.toContain('>> TARGET.md');
 });
+
+test('the installed docs-candidate helper is admitted only with a private .json record', () => {
+  const helper = path.join(fixture.skills, 'bin/gstack-docs-candidate');
+  const record = path.join(fixture.home, 'audit-1-candidate.json');
+  for (const command of [
+    `${helper} snapshot --out ${record} --audit-id audit-1 --mode edit --base main --docs handbook`,
+    `${helper} snapshot --out ${record} --audit-id audit-1 --mode read-only --base main --select app.ts --docs handbook`,
+    `${helper} compare ${record}`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(true);
+  for (const command of [
+    `${helper} snapshot --out ${path.join(fixture.repo, 'candidate.json')} --audit-id a --mode edit --base main`,
+    `${helper} snapshot --out ${path.join(fixture.home, 'candidate.txt')} --audit-id a --mode edit --base main`,
+    `${helper} snapshot --out ${record} --out ${record} --audit-id a --mode edit --base main`,
+    `${helper} snapshot --audit-id a --mode edit --base main`,
+    `${helper} snapshot --out ${record} --audit-id a --mode edit --base main --exec rm`,
+    `${helper} compare ${path.join(fixture.skills, 'bin/x.json')}`,
+    `${helper} compare ${record} extra`,
+    `${helper} install`,
+    `~/.claude/skills/gstack/bin/gstack-docs-candidate compare ${record}`,
+  ]) expect(docsCommandAllowed(command, fixture), command).toBe(false);
+  expect(docsNativeInterface(fixture)).toContain(`${fixture.skills.split(path.sep).join('/')}/bin/gstack-docs-candidate snapshot`);
+});

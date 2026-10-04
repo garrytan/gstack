@@ -111,6 +111,18 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   (274 of 300 s) and the ship-docsync fault cases (250-263 of 285 s) sit at
   88-93% of their budgets; a slow-API census can time them out on either CLI
   version. Make those skills faster rather than raising budgets. Effort M.
+  **Progress (v1.91.19.0, 2026-10-04):** /ship's documentation gate now
+  saves and checks its candidate with `bin/gstack-docs-candidate`
+  (`snapshot`/`compare`) instead of ~20 separate Git/hash calls and a
+  hand-written candidate JSON. Wall time (CI b24b6d8 before → two local trials
+  after, same budgets): store 476 → 346/386 s, current 354 → 339/326 s,
+  completion 412 → 372/371 s, failure 197 → 215/201 s; the eight other fault
+  cases moved within ±20 s (one trial each, all 12 PASS). Parent pre-dispatch
+  time fell from 140-186 s to 118-159 s. Parent tool calls did not fall
+  (store 55 → 51/62): the parent still reads release files the child re-reads,
+  and model thinking gaps (up to 77 s) dominate. Before/after machines differ
+  (CI vs local), so treat these as indicative. Next: stop the parent reading
+  release-file contents at all and let the child return hashes it read.
 - **Recurring reds to repair, not rerun** — `plan-design-review-plan-mode`
   (one ~250 s thinking block before its single write; times out at 300 s on
   2.1.251 in every recent run) and the HOLD SCOPE
