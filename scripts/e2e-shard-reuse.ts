@@ -316,7 +316,7 @@ export function selectPlanReceipts(from: string, to: string, now = Date.now()): 
   const blocked: string[] = [];
   let shipped = 0;
   let names: string[] = [];
-  try { names = fs.readdirSync(from).filter(name => name.endsWith('.json')); } catch { return { shipped, blocked }; }
+  try { names = fs.readdirSync(from).filter(name => RECEIPT_FILE.test(name)); } catch { return { shipped, blocked }; }
   for (const name of names) {
     const file = path.join(from, name);
     const [key, suffix] = [name.slice(0, 64), name.slice(64)];
@@ -334,7 +334,7 @@ export function selectPlanReceipts(from: string, to: string, now = Date.now()): 
  * Merge receipt directories into one store, keeping the newest file per name
  * by (run attempt, completedAt); a tie keeps the file already there. Negative
  * receipts merge before passes, so a reader of a partial merge never sees a
- * PASS without the FAIL that blocks it.
+ * PASS without the FAIL that blocks it. The recovery checkpoint carries over.
  */
 export function mergeReceiptDirs(out: string, dirs: string[]): number {
   fs.mkdirSync(out, { recursive: true });
@@ -350,6 +350,13 @@ export function mergeReceiptDirs(out: string, dirs: string[]): number {
       if (fs.existsSync(target) && compareReceiptSources(receiptSource(source), receiptSource(target)) <= 0) continue;
       fs.copyFileSync(source, target);
       merged++;
+    }
+    // The recovery checkpoint (scripts/recover-receipts.ts) travels with the store; the newest wins.
+    const checkpoint = path.join(dir, 'recovery.json');
+    const current = path.join(out, 'recovery.json');
+    if (fs.existsSync(checkpoint) && fs.lstatSync(checkpoint).isFile()
+      && (Number(readJson(checkpoint)?.updatedAt) || 0) > (fs.existsSync(current) ? Number(readJson(current)?.updatedAt) || 0 : -1)) {
+      fs.copyFileSync(checkpoint, current);
     }
   }
   return merged;

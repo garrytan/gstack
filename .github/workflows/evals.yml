@@ -102,6 +102,68 @@ jobs:
           docker manifest inspect "$EVAL_IMAGE" > /tmp/eval-runtime-manifest.json
           echo "id=$(sha256sum /tmp/eval-runtime-manifest.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
 
+  # ── Receipt recovery (W1c: CEO-14/34, ENG-4/5/7) ─────────────────────────
+  # A run cancelled by the next push never reaches slices-report, so its
+  # finished receipts (passes AND the negatives executors write at the
+  # execution boundary) never reach the saved store. This job restores the
+  # PR's store, merges the receipts of this PR's completed cancelled runs
+  # (oldest first, at most 5, provenance-checked), reconstructs completed
+  # panel negatives, writes the recovery.json checkpoint and hands the store
+  # to plan-slices as an artifact. It runs scripts from the BASE ref only and
+  # alone holds actions: read; plan-slices keeps contents: read. It never
+  # fails the run: any gh problem degrades to "no recovered receipts" and
+  # plan-slices turns reuse off, so cases execute unreduced.
+  recover-receipts:
+    runs-on: ubuntu-24.04
+    if: github.actor != 'dependabot[bot]' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'evals-fresh')
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Restore this PR's verified judge and E2E results
+        id: store
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: /tmp/gstack-eval-input-cache
+          key: eval-input-v1-${{ github.repository_id }}-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}-plan
+          restore-keys: eval-input-v1-${{ github.repository_id }}-pr-${{ github.event.pull_request.number }}-
+
+      - name: Recover receipts of cancelled runs (base-ref code)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STORE_KEY: ${{ steps.store.outputs.cache-matched-key }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          mkdir -p /tmp/gstack-eval-input-cache
+          if [ ! -f scripts/recover-receipts.ts ]; then
+            echo "- Receipt recovery unavailable: the base ref has no scripts/recover-receipts.ts; reuse stays off this run" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          bun --no-install run scripts/recover-receipts.ts collect --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" \
+            --head-repo "$HEAD_REPO" --branch "$HEAD_BRANCH" --run-id "$GITHUB_RUN_ID" \
+            --store /tmp/gstack-eval-input-cache --store-key "$STORE_KEY" --budget-seconds 60 >> "$GITHUB_STEP_SUMMARY" \
+            || echo "- Receipt recovery crashed; reuse stays off this run" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Hand the receipt store to plan-slices
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: receipt-store
+          path: /tmp/gstack-eval-input-cache
+          if-no-files-found: ignore
+          retention-days: 7
+
   # ── Sliced lane (the ONLY paid lane; legacy 17-row matrix deleted) ──────────
   # One PLANNER computes diff selection + the slice plan ONCE (killing
   # per-slice selector divergence); K executors consume the manifest; the
@@ -121,7 +183,9 @@ jobs:
   # branch (see CLAUDE.md's garrytan-agents workflow).
   plan-slices:
     runs-on: ubicloud-standard-8
-    if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    needs: [recover-receipts]
+    # !cancelled(): plans even when recovery was skipped (dispatch, evals-fresh) or failed; reuse is then off.
+    if: ${{ !cancelled() && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -140,23 +204,30 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      # Planner-side reuse: restore this PR's newest receipt store (the report
-      # job saves one merged store per run) and ship ONE filtered set with the
-      # plan, so every trial of a panel sees the same receipts and a newer FAIL
-      # blocks any older PASS for the same inputs.
-      - name: Restore this PR's verified judge and E2E results
+      # Planner-side reuse: take the PR's receipt store from recover-receipts
+      # (the restored store plus cancelled runs' receipts) and ship ONE
+      # filtered set with the plan, so every trial of a panel sees the same
+      # receipts and a newer FAIL blocks any older PASS for the same inputs.
+      - name: Download this PR's receipt store
         if: github.event_name == 'pull_request'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
+          name: receipt-store
           path: /tmp/gstack-eval-input-cache
-          key: eval-input-v1-${{ github.repository_id }}-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}-plan
-          restore-keys: eval-input-v1-${{ github.repository_id }}-pr-${{ github.event.pull_request.number }}-
+
+      - name: Decide receipt reuse
+        id: reuse
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p /tmp/gstack-eval-input-cache
+          bun --no-install run scripts/recover-receipts.ts decide /tmp/gstack-eval-input-cache --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Emit run manifest
         if: github.event_name != 'workflow_dispatch' || inputs.validation_phase == 'all'
         env:
           EVALS_ALL: ${{ (github.event_name == 'workflow_dispatch' && inputs.evals_all) && '1' || '' }}
-          EVALS_CACHE_DIR: ${{ github.event_name == 'pull_request' && '/tmp/gstack-eval-input-cache' || '' }}
+          EVALS_CACHE_DIR: ${{ steps.reuse.outputs.reuse == 'on' && '/tmp/gstack-eval-input-cache' || '' }}
         run: EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slice-budget 540 --jobs 2 --max-parallel 16
 
       - name: Emit validation-phase manifest
@@ -197,12 +268,20 @@ jobs:
           echo "slices=$(jq -c '[range(1; .sliceCount + 1)]' /tmp/paid-plan/manifest.json)" >> "$GITHUB_OUTPUT"
           echo "timeout_minutes=$(jq -e '.plan.ciTimeoutMinutes' /tmp/paid-plan/manifest.json)" >> "$GITHUB_OUTPUT"
 
+      # The whole store (recovered receipts and the checkpoint included)
+      # travels to slices-report, which saves it with this run's receipts, so
+      # a receipt reuse turned off for this run is not lost for the next.
+      - name: Carry the receipt store to the report
+        if: github.event_name == 'pull_request'
+        run: mkdir -p /tmp/paid-plan/store && cp -a /tmp/gstack-eval-input-cache/. /tmp/paid-plan/store/
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: paid-plan
           path: |
             /tmp/paid-plan/manifest.json
             /tmp/paid-plan/receipts
+            /tmp/paid-plan/store
           retention-days: 30
 
   eval-slices:
@@ -425,13 +504,15 @@ jobs:
             bun --no-install run scripts/eval-trial-series.ts /tmp/paid-report/trial-outcomes.jsonl
           fi
 
-      # One merged receipt store per run: the plan's shipped set, every slice's
-      # new pass receipts, and the report's panel and negative receipts. Saved
+      # One merged receipt store per run: the carried store (recovered
+      # receipts and checkpoint included), the plan's shipped set, every
+      # slice's new pass and negative receipts, and the report's panel and
+      # negative receipts. Saved
       # last, so the next planner restores it as the newest prefix match.
       - name: Merge this run's receipts
         if: always() && github.event_name == 'pull_request'
         run: |
-          bun --no-install run scripts/e2e-shard-reuse.ts merge /tmp/gstack-eval-input-cache \
+          bun --no-install run scripts/e2e-shard-reuse.ts merge /tmp/gstack-eval-input-cache /tmp/paid-report/store \
             /tmp/paid-report/receipts /tmp/paid-report/report-receipts /tmp/paid-report/paid-slice-*/receipts
 
       - name: Save this PR's verified judge and E2E results
@@ -450,6 +531,7 @@ jobs:
             /tmp/report.txt
             /tmp/paid-report/collector-outcomes.json
             /tmp/paid-report/report-summary.md
+            /tmp/paid-report/report-receipts
           if-no-files-found: ignore
           retention-days: 30
 

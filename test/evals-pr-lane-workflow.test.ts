@@ -32,3 +32,45 @@ describe('evals.yml PR coverage summary (CEO-13)', () => {
     expect(comment).toContain('**${EXECUTED} executed, ${REUSED} reused**');
   });
 });
+
+describe('evals.yml receipt recovery (CEO-14/34, ENG-7)', () => {
+  const recover = workflow.jobs['recover-receipts']!;
+  const planner = workflow.jobs['plan-slices']!;
+
+  test('recovery runs base-ref code with actions: read; plan-slices keeps contents: read only', () => {
+    expect(recover.permissions).toEqual({ contents: 'read', actions: 'read' });
+    expect(planner.permissions).toEqual({ contents: 'read' });
+    const checkout = recover.steps.find(s => s.uses?.startsWith('actions/checkout@'))!;
+    expect(checkout.with).toMatchObject({ ref: '${{ github.event.pull_request.base.sha }}', 'persist-credentials': false });
+    const collect = step('recover-receipts', 'Recover receipts of cancelled runs (base-ref code)')!;
+    expect(collect.env?.GH_TOKEN).toBe('${{ github.token }}');
+    expect(collect.run).toContain('scripts/recover-receipts.ts collect');
+    expect(collect.run).toContain('--budget-seconds 60');
+    // Never fails the run: a missing base script or a crash only turns reuse off.
+    expect(collect.run).toContain('exit 0');
+    expect(collect.run).toContain('|| echo');
+    expect(recover.if).toContain("!contains(github.event.pull_request.labels.*.name, 'evals-fresh')");
+    expect(JSON.stringify(planner.steps)).not.toContain('actions/cache/restore');
+    expect(JSON.stringify(planner.steps)).not.toContain('GH_TOKEN');
+  });
+
+  test('plan-slices takes the store as an artifact, decides reuse, and carries the store to the report', () => {
+    expect(planner.needs).toContain('recover-receipts');
+    expect(planner.if).toContain('!cancelled()');
+    expect(step('plan-slices', "Download this PR's receipt store")).toMatchObject({ 'continue-on-error': true, with: { name: 'receipt-store' } });
+    expect(step('plan-slices', 'Decide receipt reuse')?.run).toContain('recover-receipts.ts decide /tmp/gstack-eval-input-cache --github-output "$GITHUB_OUTPUT"');
+    expect(step('plan-slices', 'Emit run manifest')?.env?.EVALS_CACHE_DIR).toBe("${{ steps.reuse.outputs.reuse == 'on' && '/tmp/gstack-eval-input-cache' || '' }}");
+    const upload = planner.steps.find(s => s.with?.name === 'paid-plan')!;
+    expect(String(upload.with!.path)).toContain('/tmp/paid-plan/store');
+    expect(step('slices-report', "Merge this run's receipts")?.run).toContain('merge /tmp/gstack-eval-input-cache /tmp/paid-report/store');
+  });
+
+  test('every slice uploads its receipts even when cancelled; the report verdict carries report receipts', () => {
+    const upload = step('eval-slices', 'Upload slice results')!;
+    expect(upload.if).toBe('always()');
+    expect(upload.with).toMatchObject({ name: 'paid-slice-${{ matrix.slice }}-a${{ github.run_attempt }}', path: '/tmp/paid-slice-results' });
+    const verdict = workflow.jobs['slices-report']!.steps.find(s => String(s.with?.name ?? '').startsWith('report-verdict'))!;
+    expect(String(verdict.with!.path)).toContain('/tmp/paid-report/report-receipts');
+  });
+});
+
