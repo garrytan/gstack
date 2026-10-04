@@ -345,7 +345,6 @@ export const WINDOWS_PROBE_SAFE: string[] = [
   'test/ceo-split-collection.test.ts',
   'test/ceo-split-question-policy.test.ts',
   'test/ci-paid-coordination.test.ts',
-  'test/cookie-validation-phases.test.ts',
   'test/design-md.test.ts',
   'test/document-skills-redaction.test.ts',
   'test/evals-workflow-wiring.test.ts',

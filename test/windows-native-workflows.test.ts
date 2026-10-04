@@ -20,7 +20,7 @@ const native = load('native-qualification.yml');
  * intentionally excluded Windows-safe tests, lower this floor to the printed
  * count in the same PR and say why; when the count grows, raise it.
  */
-const WINDOWS_CURATED_FLOOR = 631;
+const WINDOWS_CURATED_FLOOR = 638;
 
 test('the Windows lane plans, runs one strict shard per job and verifies every result', () => {
   expect(Object.keys(windows.on).sort()).toEqual(['pull_request', 'workflow_dispatch']);
@@ -63,7 +63,10 @@ test('a record_durations dispatch times each Windows-safe file alone and uploads
   expect(job['runs-on']).toBe('windows-latest');
   const record = job.steps.find((step: any) => step.name === 'Time every Windows-safe file alone');
   expect(record.run).toBe('bun run test:windows --record-durations');
-  expect(record.env.GSTACK_FREE_TEST_DURATIONS).toBe('${{ runner.temp }}/free-test-durations-windows.json');
+  expect(record.env.GSTACK_FREE_TEST_DURATIONS).toBeUndefined();
+  const rename = job.steps.find((step: any) => step.name === 'Name the recording as the Windows seed');
+  expect(rename.if).toBe('always()');
+  expect(rename.run).toBe('cp scripts/free-test-durations.json "$RUNNER_TEMP/free-test-durations-windows.json"');
   expect(job.steps.at(-1).with.name).toBe('free-test-durations-windows');
 });
 
