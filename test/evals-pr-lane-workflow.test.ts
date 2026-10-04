@@ -120,7 +120,7 @@ describe('evals.yml dispatch contract for eval:bg (CEO-17/29, DX-1, ENG-8/12)', 
   });
 
   test('the nonce is reflected in the run name so the dispatcher resolves its own run', () => {
-    expect(workflow['run-name']).toBe("${{ inputs.nonce != '' && format('E2E Evals dispatch {0} ({1})', inputs.nonce, github.ref_name) || '' }}");
+    expect(workflow['run-name']).toBe("${{ inputs.nonce != '' && format('E2E Evals [eval-bg {0}]', inputs.nonce) || '' }}");
   });
 
   test('evals_all=false dispatches run the PR profile on the requested base; evals_all runs the full census', () => {

@@ -5,42 +5,52 @@ import * as path from 'node:path';
 import { CARVE_GUARDS } from './helpers/carve-guards';
 import { isPaidTestFile } from './helpers/paid-test-set';
 import { CAPTURE_LONG_MS } from './helpers/eval-budgets';
-import { buildRunManifest, DEFAULT_SHARD_TIMEOUT_MS, retriesForFiles, selectPaidTestFiles } from '../scripts/test-paid-shards';
+import { CASE_SHARDED_FILES, DEFAULT_SHARD_TIMEOUT_MS, caseFile, expandCaseShards, retriesForFiles, selectPaidTestFiles } from '../scripts/test-paid-shards';
+import { carveSectionCaseId } from './helpers/carve-section-case';
+import { E2E_TIERS, E2E_TOUCHFILES, selectTests } from './helpers/touchfiles';
+import { E2E_KINDS } from './helpers/touchfiles-data';
 
 describe('carved-skill cases each get a complete paid process budget', () => {
-  const files = fs.readdirSync(import.meta.dir).filter(name => /^carve-section-loading-.*\.test\.ts$/.test(name));
-  test('every generic registry entry has exactly one periodic wrapper and no external entry does', () => {
-    const covered = files.flatMap(file => {
-      const source = fs.readFileSync(path.join(import.meta.dir, file), 'utf8');
-      expect(source).toContain("describeE2ETier('periodic')");
-      const calls = [...source.matchAll(/registerCarveSectionCase\('([^']+)'\)/g)];
-      expect(calls).toHaveLength(1);
-      expect(isPaidTestFile('test/' + file)).toBe(true);
-      return calls.map(match => match[1]);
-    });
-    expect(covered.sort()).toEqual(Object.values(CARVE_GUARDS).filter(guard => guard.behavioral === 'plan' || guard.behavioral === 'prompt').map(guard => guard.skill).sort());
-    expect(new Set(covered).size).toBe(covered.length);
-    expect(selectPaidTestFiles(files.map(file => 'test/' + file), 'periodic').selected).toHaveLength(files.length);
-    expect(selectPaidTestFiles(files.map(file => 'test/' + file), 'gate').selected).toHaveLength(0);
-  });
-  test('every case run plus teardown fits even with within-shard concurrency one', () => {
-    for (const file of files) {
-      const attempts = retriesForFiles(['test/' + file]) + 1;
-      expect(CAPTURE_LONG_MS * attempts + 10_000).toBeLessThan(DEFAULT_SHARD_TIMEOUT_MS);
+  const FILE = 'test/carve-section-loading.test.ts';
+  const ROOT = path.resolve(import.meta.dir, '..');
+  const source = fs.readFileSync(path.join(ROOT, FILE), 'utf8');
+  const cases = [...source.matchAll(/test\('carve-section-loading-([a-z-]+)', \(\) => runCarveSectionCase\('([a-z-]+)'\), CAPTURE_LONG_MS\)/g)]
+    .map(match => ({ id: `carve-section-loading-${match[1]}`, skill: match[2]! }));
+  const generic = Object.values(CARVE_GUARDS).filter(guard => guard.behavioral === 'plan' || guard.behavioral === 'prompt').map(guard => guard.skill).sort();
+
+  test('every generic registry entry has exactly one periodic case, under its own case id, and no external entry does', () => {
+    expect(source).toContain("describeE2ETier('periodic')");
+    expect(isPaidTestFile(FILE)).toBe(true);
+    expect(cases.map(c => c.skill).sort()).toEqual(generic);
+    for (const c of cases) {
+      expect(c.id).toBe(carveSectionCaseId(c.skill));
+      expect(E2E_TIERS[c.id], c.id).toBe('periodic');
+      expect(E2E_KINDS[c.id], c.id).toBe('rule');
     }
+    expect(CASE_SHARDED_FILES).toContain(FILE);
+    expect(selectPaidTestFiles([FILE], 'periodic').selected).toEqual([FILE]);
+    expect(selectPaidTestFiles([FILE], 'gate').selected).toHaveLength(0);
+    expect(expandCaseShards([FILE], 'periodic').sort()).toEqual(cases.map(c => `${FILE}#${c.id}`).sort());
+    expect(fs.readdirSync(import.meta.dir).filter(name => /^carve-section-loading-.*\.test\.ts$/.test(name))).toEqual([]);
   });
-  test('explicit skill scope selects one process and records why the others are excluded', () => {
-    const discovered = files.map(file => 'test/' + file);
-    const env = { GSTACK_CARVE_SKILL: ' review ', EVALS_ALL: '1' };
-    const root = path.resolve(import.meta.dir, '..');
-    const result = selectPaidTestFiles(discovered, 'periodic', root, env);
-    expect(result.selected).toEqual(['test/carve-section-loading-review.test.ts']);
-    expect(result.excluded).toHaveLength(discovered.length - 1);
-    expect(result.excluded.every(entry => entry.reason.includes('GSTACK_CARVE_SKILL=review'))).toBe(true);
-    const manifest = buildRunManifest({ tier: 'periodic', sliceCount: 2, evalsAll: true, discovered, env, rootDir: root });
-    expect(manifest.entries.filter(entry => entry.status === 'planned').map(entry => entry.file)).toEqual(result.selected);
-    expect(manifest.entries.filter(entry => entry.status === 'excluded')).toHaveLength(result.excluded.length);
-    expect(() => selectPaidTestFiles(discovered, 'periodic', root, { GSTACK_CARVE_SKILL: 'typo' })).toThrow('no generic section-loading wrapper');
+
+  test('every case run plus teardown fits its own process wall', () => {
+    expect(retriesForFiles([FILE])).toBe(0);
+    expect(CAPTURE_LONG_MS + 10_000).toBeLessThan(DEFAULT_SHARD_TIMEOUT_MS);
+  });
+
+  test('an edit to one carved skill selects only its case; the shared registry selects every case; --case runs one', () => {
+    for (const { id, skill } of cases) {
+      const selected = selectTests([`${skill}/SKILL.md.tmpl`], E2E_TOUCHFILES).selected.filter(name => name.startsWith('carve-section-loading'));
+      expect(selected, skill).toEqual([id]);
+      expect(caseFile(id)).toBe(FILE);
+    }
+    expect(selectTests(['test/helpers/carve-guards.ts'], E2E_TOUCHFILES).selected.filter(name => name.startsWith('carve-section-loading')).sort())
+      .toEqual(cases.map(c => c.id).sort());
+    // The retired GSTACK_CARVE_SKILL scope can no longer suppress a planned case: nothing reads it.
+    for (const file of ['scripts/test-paid-shards.ts', 'scripts/lib/paid-select.ts', 'test/helpers/carve-section-case.ts', FILE]) {
+      expect(fs.readFileSync(path.join(ROOT, file), 'utf8'), file).not.toContain('GSTACK_CARVE_SKILL');
+    }
   });
 });
 

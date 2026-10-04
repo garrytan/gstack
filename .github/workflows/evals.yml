@@ -1,6 +1,6 @@
 name: E2E Evals
-# A dispatch from scripts/eval-bg.ts carries a nonce so it can find its own run (ENG-12).
-run-name: ${{ inputs.nonce != '' && format('E2E Evals dispatch {0} ({1})', inputs.nonce, github.ref_name) || '' }}
+# eval-bg (scripts/eval-bg.ts) finds its dispatch by the nonce in the run name (ENG-12).
+run-name: ${{ inputs.nonce != '' && format('E2E Evals [eval-bg {0}]', inputs.nonce) || '' }}
 on:
   pull_request:
     branches: [main]

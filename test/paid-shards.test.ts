@@ -151,7 +151,7 @@ describe('tier lane skip (B5)', () => {
     const lanes = { gate: ['test/skill-e2e-plan-decision-classification.test.ts', 'test/skill-e2e-plan-devex-peer-comparison-classification.test.ts',
       'test/skill-e2e-qa-bugs.test.ts', 'test/skill-routing-e2e.test.ts'], periodic: ['test/skill-e2e-coverage-audit.test.ts', 'test/skill-e2e-test-value.test.ts'] };
     for (const [tier, files] of Object.entries(lanes) as Array<['gate' | 'periodic', string[]]>) {
-      const { selected, excluded } = selectPaidTestFiles(collectPaidTestFiles(), tier, ROOT, {});
+      const { selected, excluded } = selectPaidTestFiles(collectPaidTestFiles(), tier, ROOT);
       for (const hollow of files) {
         expect(selected, hollow).not.toContain(hollow);
         expect(excluded.find(entry => entry.file === hollow)?.reason, hollow).toStartWith(`skipped: no E2E_TIERS id has tier ${tier}`);
@@ -174,7 +174,7 @@ describe('tier lane skip (B5)', () => {
     }
     const workflow = fs.readFileSync(path.join(ROOT, '.github/workflows/evals-periodic.yml'), 'utf8');
     expect(workflow.match(/--skip-judges/g)).toHaveLength(1);
-    expect(workflow).toMatch(/--tier gate --emit-plan \/tmp\/gate-census-plan\/manifest\.json --slice-budget 540 --jobs 2 --skip-judges/);
+    expect(workflow).toMatch(/--tier gate --emit-plan \/tmp\/gate-census-plan\/manifest\.json --slice-budget 420 --jobs 2 --skip-judges/);
   });
 });
 
@@ -200,6 +200,15 @@ describe('marathon tier lane', () => {
       expect(marathonSkipReason(file, source, gateOnly, tiers)).toBe('skipped: declares no marathon tier and registers no marathon case');
     const periodic = "const describeE2E = describeE2ETier('periodic');";
     expect(classifyPaidTestFile(periodic, 'marathon')).toEqual({ included: false, reason: "declares tier 'periodic' only" });
+  });
+
+  test('a marathon case that only depends on a file does not plan a hollow marathon shard there (W2f)', () => {
+    // plan-decision-classification: its own case is periodic; the marathon split-overflow case lists it as a touchfile.
+    const dependency = { 'sample-long': [file], 'sample-periodic': [file] };
+    const withPeriodic = { ...tiers, 'sample-periodic': 'periodic' };
+    const source = "const CASE_ID = 'sample-periodic'; testIfSelected(CASE_ID, async () => {});";
+    expect(marathonSkipReason(file, source, dependency, withPeriodic)).toBe('skipped: declares no marathon tier and registers no marathon case');
+    expect(selectPaidTestFiles(collectPaidTestFiles(), 'marathon').selected).not.toContain('test/skill-e2e-plan-decision-classification.test.ts');
   });
 
   test('a registered marathon case keeps its gate sibling scheduled in the gate lane', () => {
@@ -267,7 +276,8 @@ describe('case-sharded files', () => {
     }
     expect(caseFile('plan-design-review-plan-mode')).toBe('test/skill-e2e-design.test.ts');
     expect(caseFile('plan-design-review-plan-mode-smoke')).toBe('test/skill-e2e-plan-design-plan-mode.test.ts');
-    expect(() => caseFile('carve-section-loading')).toThrow(/registered by .*; it needs exactly one/);
+    expect(() => caseFile('carve-section-loading')).toThrow(/no paid file statically registers it/);
+    expect(caseFile('carve-section-loading-review')).toBe('test/carve-section-loading.test.ts');
   });
 
   test('a case key runs exactly its case: exact name pattern, own eval slug, per-case supervision', () => {

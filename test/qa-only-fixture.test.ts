@@ -13,7 +13,7 @@ test('QA-only fixture helpers and owned sections select the no-fix consumer', ()
     expect(selectTests([file], E2E_TOUCHFILES).selected.sort()).toEqual(['qa-bootstrap', 'qa-fix-loop', 'qa-only-no-fix', 'qa-quick']);
   }
   expect(selectTests(['browse/test/fixtures/qa-only.html'], E2E_TOUCHFILES).selected).toEqual([
-    'aside-browse-basic', 'aside-browse-flow', 'qa-only-no-fix', 'carve-section-loading',
+    'aside-browse-basic', 'aside-browse-flow', 'qa-only-no-fix', 'carve-section-loading-browse',
   ]);
   expect(selectTests(['qa/sections/scope.md'], E2E_TOUCHFILES).selected).toContain('qa-only-no-fix');
 });

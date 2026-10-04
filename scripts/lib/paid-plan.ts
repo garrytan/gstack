@@ -2,61 +2,17 @@
  * Paid-lane planner: duration seeds, slice packing, the run manifest and its verification. Moved from scripts/test-paid-shards.ts.
  */
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { createBootstrapRetentionScope } from '../../test/helpers/bootstrap-retention';
-import {
-  BunTestOutputClassifier,
-  createShardSandbox,
-  exactTestFileSelectors,
-  forwardAndClassify,
-  isTerminationRequested,
-  nextShardLogPath,
-  normalizeRelativePath,
-  openShardLog,
-  parseCliFlags,
-  readDurationSeed,
-  removeShardSandbox,
-  runShardChild,
-  strictShardStatus,
-  writeDurationSeed,
-  zeroExecutionVerdict,
-  type LanePolicy,
-  type ShardChildResult,
-  type ShardLog,
-} from './shard-engine';
-import { PAID_TEST_GLOBS, isPaidTestFile } from '../../test/helpers/paid-test-set';
-import { CASE_CI_EXCLUDE, CASE_QUARANTINE, EVAL_POLICY, PERIODIC_CI_EXCLUDE } from '../../test/helpers/periodic-exclude-data';
+import { normalizeRelativePath } from './shard-engine';
+import { CASE_QUARANTINE } from '../../test/helpers/periodic-exclude-data';
 import { FILE_RETRY_BUDGETS, STRICT_RETRY_CASE_BUDGETS } from '../../test/helpers/eval-budgets';
-import {
-  getProjectEvalDir, getClaudeCliVersion, isFinalizedEvalResultFile, evalEntryOutcome, failureClassOf, panelVerdict,
-  sanitizeTrialError, formatTrialOutcomes, CONTRACT_VIOLATIONS_FILE, TRIAL_ENV, TRIAL_OUTCOME_SCHEMA, TRIAL_OUTCOMES_FILE,
-  type EvalCaseKind, type PanelShape, type PanelVerdict, type TrialFailureClass, type TrialOutcome, type TrialOutcomeRecord,
-} from '../../test/helpers/eval-store';
+import { evalEntryOutcome, type EvalCaseKind } from '../../test/helpers/eval-store';
 import { E2E_KINDS } from '../../test/helpers/touchfiles-data';
-import { manualReviewProblem } from '../../test/helpers/cookie-workflow-manual-review';
-import { preflightAnthropicApi } from '../../test/helpers/anthropic-preflight';
-import { OVERLAY_MIN_FILE_WALL_MS } from '../../test/helpers/overlay-case-policy';
-import { packageChangeOnlyVersion, prProfileCaseAllowed, prProfileFileMap, selectPrProfile, type PrProfileSelection } from '../test-pr-profile';
-import { e2eReuseLaneProblem, prepareE2EShardReuse, selectPlanReceipts, writeNegativeReceipt, writePanelReceipt } from '../e2e-shard-reuse';
-
-import {
-  detectBaseBranch,
-  getChangedFiles,
-  selectTests,
-  E2E_TOUCHFILES,
-  E2E_TIERS,
-  LLM_JUDGE_TOUCHFILES,
-  GLOBAL_TOUCHFILES,
-} from '../../test/helpers/touchfiles';
-
-export { PAID_TEST_GLOBS, isPaidTestFile };
-export { PERIODIC_CI_EXCLUDE };
-
-type E2EShardReuse = NonNullable<ReturnType<typeof prepareE2EShardReuse>>;
+import { prProfileCaseAllowed, prProfileFileMap, type PrProfileSelection } from '../test-pr-profile';
+import { E2E_TOUCHFILES, E2E_TIERS, LLM_JUDGE_TOUCHFILES } from '../../test/helpers/touchfiles';
 import { CASE_KEY_SEPARATOR, CASE_SHARDED_FILES, type CaseTrialPlan, caseTrialPlan, codexShardAccess, expandCaseShards, expandTrialShards, isIsolatedCase, partitionCaseExclusions, sameTrialPlan, shardCaseId, shardFile, shardTrial } from './paid-cases';
-import { DEFAULT_JOBS, OVERLAY_MAX_ACTIVE_SHARDS, PAID_TIERS, type PaidCaseSelection, type PaidProfile, type PaidShardBudget, type PaidTier, ROOT, type ShardOutcome, type ShardStatus, type ShardTrialRecord, collectPaidTestFiles, computePaidCaseSelection, expectedPrCaseCount, isAllSkippedPass, isOverlayTestFile, paidShardWallUpperBoundMs, partitionShardsByDiffSelection, planPaidShards, prProfileFileSelected, resolvePaidShardBudget, resolvePaidShardTimeoutMs, sameBudget, selectPaidTestFiles, shardSlug, validatedProfile } from '../test-paid-shards';
+import { DEFAULT_JOBS, OVERLAY_MAX_ACTIVE_SHARDS, PAID_TIERS, SLICE_UPLOAD_RESERVE_MS, type PaidCaseSelection, type PaidProfile, type PaidShardBudget, type PaidTier, ROOT, type ShardOutcome, type ShardStatus, type ShardTrialRecord, isOverlayTestFile } from './paid-types';
+import { collectPaidTestFiles, computePaidCaseSelection, expectedPrCaseCount, isAllSkippedPass, paidShardWallUpperBoundMs, partitionShardsByDiffSelection, planPaidShards, prProfileFileSelected, resolvePaidShardBudget, resolvePaidShardTimeoutMs, sameBudget, selectPaidTestFiles, shardSlug, validatedProfile } from './paid-select';
 
 // ─── Planner / executor / report (the CI re-platform surface) ──────────────
 // One PLANNER computes selection and the slice plan ONCE; K executor jobs
@@ -88,7 +44,10 @@ export interface PaidSlicePlan {
   sliceBudgetMs: number;
   jobs: number;
   estimatedSliceMs: number[];
+  /** The largest per-slice ceiling: one number for executors that use a single job timeout. */
   ciTimeoutMinutes: number;
+  /** Per-slice CI job ceilings (sliceCiTimeoutMinutes); absent in plans written before W2c. */
+  sliceCiTimeoutMinutes?: number[];
   /** Slices that run only Codex shards; CI executes them on the host-run Codex job, where bubblewrap can start. */
   codexSlices?: number[];
 }
@@ -213,6 +172,32 @@ function sharesPanel(planned: readonly string[], key: string): boolean {
 /** Setup, image pull and artifact upload allowance on top of a slice's supervised wall. */
 export const CI_SETUP_ALLOWANCE_MINUTES = 20;
 
+/**
+ * CI job ceiling of one slice (W2c, ENG-2): its envelope is the larger of twice
+ * the slice budget, the longest single shard's supervised wall, and, for the
+ * overlay slice, the serialized overlay group; plus the setup allowance. A hang
+ * fails within this bound instead of holding a runner for the sum of every
+ * shard's worst case; the executor's in-process deadline (sliceDeadlineMs)
+ * stops starting work 5 minutes earlier so results still upload. Same cases run.
+ */
+export function sliceCiTimeoutMinutes(files: string[], budgetMs: number, jobs: number, timeoutMs?: number): number {
+  const longestShardMs = Math.max(0, ...files.map(file => resolvePaidShardTimeoutMs([file], timeoutMs)));
+  const overlayEnvelopeMs = files.some(isOverlayTestFile) ? sliceSupervisedWallMs(files, jobs, timeoutMs) : 0;
+  return Math.ceil(Math.max(2 * budgetMs, longestShardMs, overlayEnvelopeMs) / 60_000) + CI_SETUP_ALLOWANCE_MINUTES;
+}
+
+/**
+ * The executor's in-process deadline: job start (the workflow's first step
+ * records it in GSTACK_SLICE_JOB_STARTED_AT, epoch seconds) plus the slice's
+ * job ceiling, minus the upload reserve. Without a recorded job start (local
+ * runs) the executor's own start stands in.
+ */
+export function sliceDeadlineMs(ceilingMinutes: number, jobStartedAtSeconds: string | undefined, fallbackStartMs: number): number {
+  const recorded = Number(jobStartedAtSeconds);
+  const start = Number.isSafeInteger(recorded) && recorded > 0 ? recorded * 1000 : fallbackStartMs;
+  return start + ceilingMinutes * 60_000 - SLICE_UPLOAD_RESERVE_MS;
+}
+
 /** Estimated wall of one executor running `files` in order on `jobs` FIFO workers. */
 export function estimatedSliceMs(files: string[], weight: (file: string) => number, jobs: number): number {
   const workers = Array<number>(Math.max(1, jobs)).fill(0);
@@ -241,12 +226,11 @@ export function sliceSupervisedWallMs(files: string[], jobs: number, overrideMs?
  * wall weighs the whole budget, so unknown cost gets a runner of its own. A
  * file longer than the budget runs alone. Overlay wrappers keep one shared
  * final slice (one wrapper at a time). Codex shards never share a slice with
- * other shards. The CI timeout covers every slice's supervised worst case plus
- * the setup allowance.
+ * other shards. Each slice gets its own CI job ceiling (sliceCiTimeoutMinutes).
  */
 export function packBySliceBudget(files: string[], budgetMs: number, jobs: number,
   recorded: Record<string, number>, timeoutMs?: number, codexShard: (file: string) => boolean = () => false): {
-  slices: string[][]; estimates: Record<string, number>; estimatedSliceMs: number[]; ciTimeoutMinutes: number;
+  slices: string[][]; estimates: Record<string, number>; estimatedSliceMs: number[]; ciTimeoutMinutes: number; sliceCiTimeoutMinutes: number[];
 } {
   const estimates = Object.fromEntries(files.map(file => [file, recordedShardMs(recorded, file) ?? budgetMs]));
   const weight = (file: string) => estimates[file]!;
@@ -270,9 +254,8 @@ export function packBySliceBudget(files: string[], budgetMs: number, jobs: numbe
   if (!slices.length) slices.push([]);
   const estimatedSliceMsList = slices.map(planned => planned.some(isOverlayTestFile)
     ? estimatedSliceMs(planned, weight, Math.min(jobs, OVERLAY_MAX_ACTIVE_SHARDS)) : estimatedSliceMs(planned, weight, jobs));
-  const worst = Math.max(0, ...slices.map(planned => sliceSupervisedWallMs(planned, jobs, timeoutMs)));
-  return { slices, estimates, estimatedSliceMs: estimatedSliceMsList,
-    ciTimeoutMinutes: Math.ceil(worst / 60_000) + CI_SETUP_ALLOWANCE_MINUTES };
+  const ceilings = slices.map(planned => sliceCiTimeoutMinutes(planned, budgetMs, jobs, timeoutMs));
+  return { slices, estimates, estimatedSliceMs: estimatedSliceMsList, ciTimeoutMinutes: Math.max(...ceilings), sliceCiTimeoutMinutes: ceilings };
 }
 
 /** Worker counts whose worst-case slice wall duration packing may never worsen. */
@@ -324,7 +307,7 @@ export function buildRunManifest(opts: {
   const profile = opts.profile ?? validatedProfile(env.EVALS_PROFILE, 'EVALS_PROFILE');
   if (profile === 'pr' && opts.tier !== 'gate') throw new Error('PR profile requires gate tier; use --profile full for periodic coverage');
   const discovered = opts.discovered ?? collectPaidTestFiles(rootDir);
-  const tierSelection = selectPaidTestFiles(discovered, opts.tier, rootDir, env);
+  const tierSelection = selectPaidTestFiles(discovered, opts.tier, rootDir);
   const judge = (file: string) => /^test\/skill-llm-eval[^/]*\.test\.ts$/.test(normalizeRelativePath(file));
   const selected = opts.skipJudges ? tierSelection.selected.filter(file => !judge(file)) : tierSelection.selected;
   const kinds = opts.kinds ?? E2E_KINDS;
@@ -366,7 +349,7 @@ export function buildRunManifest(opts: {
       selectionReason: cases.reason, profile, selection: cases.selection,
       ...(cases.coverage ? { prCoverage: cases.coverage } : {}),
       plan: { sliceBudgetMs: opts.sliceBudgetMs!, jobs: opts.jobs!, estimatedSliceMs: plan.estimatedSliceMs, ciTimeoutMinutes: plan.ciTimeoutMinutes,
-        codexSlices: codexSlicesOf(opts.tier, entries) },
+        sliceCiTimeoutMinutes: plan.sliceCiTimeoutMinutes, codexSlices: codexSlicesOf(opts.tier, entries) },
       entries,
     } satisfies PaidRunManifest));
   }
@@ -489,21 +472,6 @@ export function buildRunManifest(opts: {
     entries,
   };
   return parseRunManifest(JSON.stringify(manifest));
-}
-
-/**
- * Narrow a built manifest to a curated case subset (validation phases): the
- * selection binds every child, and a case shard outside it can execute
- * nothing, so it becomes skipped instead of an empty planned shard.
- */
-export function restrictManifestSelection(manifest: PaidRunManifest, selection: PaidCaseSelection, reason: string): PaidRunManifest {
-  const entries = manifest.entries.map(entry => {
-    const caseId = shardCaseId(entry.file);
-    if (entry.status !== 'planned' || caseId === null || selection.e2e === null || selection.e2e.includes(caseId)) return entry;
-    const { estimatedMs: _estimate, budget: _budget, ...rest } = entry;
-    return { ...rest, slice: 0, status: 'skipped-by-diff' as const, reason };
-  });
-  return parseRunManifest(JSON.stringify({ ...manifest, selection, entries }));
 }
 
 export function parseRunManifest(raw: string): PaidRunManifest {
@@ -629,7 +597,10 @@ export function parseRunManifest(raw: string): PaidRunManifest {
     if (!plan || typeof plan !== 'object' || !count(plan.sliceBudgetMs) || !count(plan.jobs) || !count(plan.ciTimeoutMinutes)
       || !Array.isArray(plan.estimatedSliceMs) || plan.estimatedSliceMs.length !== parsed.sliceCount
       || !plan.estimatedSliceMs.every(ms => Number.isSafeInteger(ms) && ms >= 0)
-      || parsed.entries.some(entry => entry.status === 'planned' && entry.estimatedMs === undefined)) {
+      || parsed.entries.some(entry => entry.status === 'planned' && entry.estimatedMs === undefined)
+      || (plan.sliceCiTimeoutMinutes !== undefined && (!Array.isArray(plan.sliceCiTimeoutMinutes)
+        || plan.sliceCiTimeoutMinutes.length !== parsed.sliceCount || !plan.sliceCiTimeoutMinutes.every(count)
+        || Math.max(...plan.sliceCiTimeoutMinutes) !== plan.ciTimeoutMinutes))) {
       throw new Error('manifest slice plan malformed');
     }
     const codexSlices = codexSlicesOf(parsed.tier, parsed.entries);
@@ -685,7 +656,9 @@ export interface SliceResult {
   /** Epoch ms bounds of the slice's shard execution (lane wall time). */
   startedAt?: number;
   finishedAt?: number;
-  outcomes: Array<Pick<ShardOutcome, 'files' | 'status' | 'exitCode' | 'elapsedMs' | 'executedTests' | 'skippedTests' | 'budget' | 'reused' | 'runnerError' | 'trial' | 'inputKey'>>;
+  /** A progress checkpoint the executor never replaced: the job ended (ceiling or cancellation) before its final result. */
+  checkpoint?: true;
+  outcomes: Array<Pick<ShardOutcome, 'files' | 'status' | 'exitCode' | 'elapsedMs' | 'executedTests' | 'skippedTests' | 'budget' | 'reused' | 'runnerError' | 'trial' | 'inputKey' | 'sliceDeadline'>>;
 }
 
 /**
@@ -729,13 +702,14 @@ export function verifySliceResults(
       problems.push(`slice ${result.sliceIndex} did not bind the manifest PR case selection`);
     }
     if (byIndex.has(result.sliceIndex)) problems.push(`duplicate result for slice ${result.sliceIndex}`);
+    if (result.checkpoint) problems.push(`slice ${result.sliceIndex}/${result.sliceCount} ended before its final result (job ceiling or cancellation); its outcomes come from the last checkpoint: TIMEOUT`);
     byIndex.set(result.sliceIndex, result);
   }
   for (let index = 1; index <= manifest.sliceCount; index += 1) {
     if (!byIndex.has(index)) problems.push(`slice ${index}/${manifest.sliceCount} reported NO result — cancelled/crashed executor, not a pass`);
   }
 
-  const reported = new Map<string, { slice: number; status: ShardStatus; trial?: ShardTrialRecord }>();
+  const reported = new Map<string, { slice: number; status: ShardStatus; trial?: ShardTrialRecord; sliceDeadline?: ShardOutcome['sliceDeadline'] }>();
   const planned = new Map(manifest.entries.map(entry => [normalizeRelativePath(entry.file), entry]));
   for (const result of results) {
     for (const outcome of result.outcomes) {
@@ -779,7 +753,8 @@ export function verifySliceResults(
       }
       if (outcome.inputKey !== undefined && !/^[a-f0-9]{64}$/.test(outcome.inputKey)) problems.push(`${file}: malformed input identity`);
       if (reported.has(file)) problems.push(`${file} reported by two slices`);
-      reported.set(file, { slice: result.sliceIndex, status: outcome.status, ...(outcome.trial ? { trial: outcome.trial } : {}) });
+      reported.set(file, { slice: result.sliceIndex, status: outcome.status, ...(outcome.trial ? { trial: outcome.trial } : {}),
+        ...(outcome.sliceDeadline ? { sliceDeadline: outcome.sliceDeadline } : {}) });
       const registered = FILE_RETRY_BUDGETS.find(budget => budget.file === shardFile(file));
       const finding = STRICT_RETRY_CASE_BUDGETS.find(budget => budget.file === file);
       if (finding) {
@@ -812,7 +787,12 @@ export function verifySliceResults(
     // Isolated trial shards: harness health only; the panel verdict gates.
     if (entry.trial) {
       if (got.trial?.outcome === null) problems.push(`${entry.file}: no trial record (${got.trial.harness ?? 'unknown'})`);
-    } else if (got.status !== 'passed') problems.push(`${entry.file}: ${got.status}`);
+    } else if (got.status !== 'passed') {
+      // The slice deadline distinguishes work that never started (INFRA) from work killed in flight (TIMEOUT).
+      const why = got.sliceDeadline === 'not_run' ? ' (not_run: the slice deadline passed before it started)'
+        : got.sliceDeadline === 'hung' ? ' (hung: killed at the slice deadline)' : '';
+      problems.push(`${entry.file}${why}: ${got.status}`);
+    }
   }
   return { ok: problems.length === 0, problems };
 }
@@ -823,11 +803,12 @@ export function formatSlicePlan(manifest: PaidRunManifest): string[] {
   if (!plan) return [];
   const minutes = (ms: number) => (ms / 60_000).toFixed(1);
   const lines = [`[test:paid] slice plan: ${manifest.sliceCount} slice(s) x ${plan.jobs} worker(s), budget ${minutes(plan.sliceBudgetMs)}m per slice, `
-    + `longest estimate ${minutes(Math.max(0, ...plan.estimatedSliceMs))}m, CI job timeout ${plan.ciTimeoutMinutes}m`];
+    + `longest estimate ${minutes(Math.max(0, ...plan.estimatedSliceMs))}m, CI job timeout ${plan.ciTimeoutMinutes}m (largest per-slice ceiling)`];
   for (let slice = 1; slice <= manifest.sliceCount; slice++) {
     const mine = sliceExecutionOrder(manifest.entries.filter(entry => entry.status === 'planned' && entry.slice === slice));
     const over = plan.estimatedSliceMs[slice - 1]! > plan.sliceBudgetMs ? '  [over budget: longer than one runner allows]' : '';
-    lines.push(`  slice ${slice}: ~${minutes(plan.estimatedSliceMs[slice - 1]!)}m${over}`);
+    const ceiling = plan.sliceCiTimeoutMinutes?.[slice - 1];
+    lines.push(`  slice ${slice}: ~${minutes(plan.estimatedSliceMs[slice - 1]!)}m${ceiling !== undefined ? `, job ceiling ${ceiling}m` : ''}${over}`);
     for (const entry of mine) lines.push(`    ${entry.file} ~${minutes(entry.estimatedMs ?? 0)}m retries=${retriesForFiles([entry.file])}`);
   }
   return lines;

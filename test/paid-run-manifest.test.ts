@@ -42,6 +42,7 @@ import {
   formatCapacityPreflight,
   panelReports,
   shardSlug,
+  sliceCiTimeoutMinutes,
   type PaidRunManifest,
   type ShardOutcome,
   type SliceResult,
@@ -205,9 +206,11 @@ describe('budget slice packing', () => {
     expect(plan.slices.find(slice => slice.includes('test/unknown.test.ts'))!.length).toBeLessThanOrEqual(2);
     // Deterministic regardless of discovery order.
     expect(packBySliceBudget([...files].reverse(), s(540), 2, recorded)).toEqual(plan);
-    const worst = Math.max(...plan.slices.map(slice => sliceSupervisedWallMs(slice, 2)));
-    expect(plan.ciTimeoutMinutes).toBe(Math.ceil(worst / 60_000) + CI_SETUP_ALLOWANCE_MINUTES);
-    expect(packBySliceBudget([], s(540), 2, recorded)).toMatchObject({ slices: [[]], ciTimeoutMinutes: CI_SETUP_ALLOWANCE_MINUTES });
+    // W2c/ENG-2: per-slice ceilings, not the sum of every shard's worst case; the largest is the single job cap.
+    expect(plan.sliceCiTimeoutMinutes).toEqual(plan.slices.map(slice => sliceCiTimeoutMinutes(slice, s(540), 2)));
+    expect(plan.ciTimeoutMinutes).toBe(Math.max(...plan.sliceCiTimeoutMinutes));
+    expect(Math.max(...plan.slices.map(slice => sliceSupervisedWallMs(slice, 2)))).toBeGreaterThan(plan.ciTimeoutMinutes * 60_000);
+    expect(packBySliceBudget([], s(540), 2, recorded)).toMatchObject({ slices: [[]], ciTimeoutMinutes: 18 + CI_SETUP_ALLOWANCE_MINUTES });
   });
 
   test('overlays keep one final slice at their one-at-a-time admission', () => {
@@ -336,76 +339,9 @@ test('local launch sentinel', () => writeFileSync(${JSON.stringify(receipt)}, 't
     }
   }, 60_000);
 
-  test('a conflicting inherited carve scope cannot suppress a planned case; direct Bun stays scoped', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'paid-manifest-scope-'));
-    const fixtureRoot = path.join(dir, 'fixture');
-    const receipt = path.join(dir, 'captures.jsonl');
-    fs.mkdirSync(path.join(fixtureRoot, 'test'), { recursive: true });
-    const discovered = ['review', 'browse'].map(skill => `test/carve-section-loading-${skill}.test.ts`);
-    try {
-      for (const skill of ['review', 'browse']) {
-        // Exercise the real registration filter and assertions, with only the
-        // model-capture boundary replaced in this isolated child process.
-        fs.writeFileSync(path.join(fixtureRoot, `test/carve-section-loading-${skill}.test.ts`), `
-          import { mock, expect } from 'bun:test';
-          import { appendFileSync } from 'node:fs';
-          import { CARVE_GUARDS } from ${JSON.stringify(path.join(ROOT, 'test/helpers/carve-guards.ts'))};
-          mock.module(${JSON.stringify(path.join(ROOT, 'test/helpers/auq-sdk-capture.ts'))}, () => ({
-            skillFromWorktree: () => ({ skillMd: 'free fixture', sectionsFrom: '' }),
-            setupSkillDir: () => ${JSON.stringify(fixtureRoot)},
-            captureSectionReads: async ({ skillName }) => {
-              expect(skillName).toBe(${JSON.stringify(skill)});
-              appendFileSync(${JSON.stringify(receipt)}, JSON.stringify({ skill: skillName, scope: process.env.GSTACK_CARVE_SKILL }) + '\\n');
-              return { readSections: new Set(CARVE_GUARDS[skillName].requiredReads), reportProduced: true, output: 'Local fake review report. '.repeat(12) };
-            },
-          }));
-          const { registerCarveSectionCase } = await import(${JSON.stringify(path.join(ROOT, 'test/helpers/carve-section-case.ts'))});
-          registerCarveSectionCase(${JSON.stringify(skill)});
-        `);
-      }
-      const manifest = buildRunManifest({
-        tier: 'periodic', sliceCount: 1, evalsAll: true, discovered, rootDir: fixtureRoot,
-        env: { EVALS_ALL: '1', GSTACK_CARVE_SKILL: 'review' },
-      });
-      expect(manifest.entries.filter(e => e.status === 'planned').map(e => e.file)).toEqual([discovered[0]]);
-      expect(manifest.entries.filter(e => e.status === 'excluded').map(e => e.file)).toEqual([discovered[1]]);
-      // Absolute fixture selectors let the real executor use its ordinary root
-      // while every selected test and receipt remains owned by this test.
-      manifest.entries = manifest.entries.map(e => ({ ...e, file: path.join(fixtureRoot, e.file) }));
-      const manifestPath = path.join(dir, 'manifest.json');
-      fs.writeFileSync(manifestPath, JSON.stringify(manifest));
-      const env = {
-        PATH: path.dirname(process.execPath),
-        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-        HOME: dir, TMPDIR: dir, TEMP: dir, TMP: dir,
-        EVALS_PREFLIGHT_OK: '1', GSTACK_CLAUDE_CLI_VERSION: 'free-fixture',
-        GSTACK_EVAL_DIR: path.join(dir, 'evals'), GSTACK_CARVE_SKILL: 'browse',
-      };
-      const run = (args: string[]) => {
-        const result = spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8', timeout: 20_000 });
-        expect(result.error).toBeUndefined();
-        expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
-      };
-      const captures = () => fs.readFileSync(receipt, 'utf8').trim().split('\n').map(line => JSON.parse(line));
-
-      // No API credentials are inherited, preflight/version probes are skipped,
-      // and both files replace the model module before importing the real helper.
-      run(['test', ...discovered.map(file => path.join(fixtureRoot, file))]);
-      expect(captures()).toEqual([{ skill: 'browse', scope: 'browse' }]);
-      fs.writeFileSync(receipt, '');
-
-      run([path.join(ROOT, 'scripts/test-paid-shards.ts'), '--tier', 'periodic', '--plan', manifestPath, '--slice', '1', '--jobs', '1', '--timeout', '10']);
-      expect(captures()).toEqual([{ skill: 'review', scope: '' }]);
-      const slice = JSON.parse(fs.readFileSync(path.join(env.GSTACK_EVAL_DIR, 'slice-1.json'), 'utf8'));
-      expect(slice.outcomes).toHaveLength(1);
-      expect(slice.outcomes[0]).toMatchObject({
-        files: [path.join(fixtureRoot, discovered[0])], status: 'passed', exitCode: 0, executedTests: 1,
-      });
-      expect(env.GSTACK_CARVE_SKILL).toBe('browse');
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  }, 60_000);
+  // Retired (W5a): "an inherited GSTACK_CARVE_SKILL cannot suppress a planned carve case". The variable is gone:
+  // each carved skill is its own case shard, so scope is the manifest's case keys (or --case);
+  // test/carve-section-sharding.test.ts pins that nothing reads it.
 });
 
 describe('slice-result reconciliation (report)', () => {

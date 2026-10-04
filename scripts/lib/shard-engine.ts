@@ -713,17 +713,30 @@ export function strictShardStatus(input: {
     ? 'passed' : 'failed';
 }
 
+/** Usage text for `--help`: the lane's own text, else its declared flags. */
+export function cliUsage(handlers: Record<string, unknown>, usage?: string, script = process.argv[1] ?? 'runner'): string {
+  return usage ?? [`Usage: bun run ${path.relative(process.cwd(), script) || script} [flags]`, '', 'Flags:',
+    ...Object.keys(handlers).sort().map(flag => `  ${flag}`), '', 'See docs/TESTING_INTERNALS.md for what each flag does.'].join('\n');
+}
+
 /**
  * Shared flag loop. Each lane declares its flags; a handler that takes a
  * value calls `next()` (the following argv entry, or undefined) and owns its
  * own validation message. Any undeclared flag is `Unknown argument: <flag>`.
+ * `--help` / `-h` (unless a lane declares them) print the usage and exit 0
+ * before any work starts, so asking for help never runs a suite.
  */
 export function parseCliFlags(
   argv: string[],
   handlers: Record<string, (next: () => string | undefined) => void>,
+  usage?: string,
 ): void {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if ((arg === '--help' || arg === '-h') && !Object.hasOwn(handlers, arg)) {
+      process.stdout.write(`${cliUsage(handlers, usage)}\n`);
+      process.exit(0);
+    }
     const handler = Object.hasOwn(handlers, arg) ? handlers[arg] : undefined;
     if (!handler) throw new Error(`Unknown argument: ${arg}`);
     handler(() => argv[++index]);

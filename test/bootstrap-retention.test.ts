@@ -90,12 +90,14 @@ test('paid scope creation preserves non-Linux behavior without inherited qualifi
   expect(start).toBeGreaterThan(0);
   expect(end).toBeGreaterThan(start);
   const body = new Bun.Transpiler({ loader: 'ts' }).transformSync(source.slice(start, end));
-  for (const platform of ['linux', 'darwin']) {
+  // The file shard and its case shards (W5c case-sharding) both get the owned scope.
+  for (const [platform, key] of [['linux', 'test/skill-e2e-qa-workflow.test.ts'], ['darwin', 'test/skill-e2e-qa-workflow.test.ts'],
+    ['linux', 'test/skill-e2e-qa-workflow.test.ts#qa-bootstrap']] as const) {
     const env: any = { GSTACK_BOOTSTRAP_RETENTION: 'ambient-unowned-scope', GSTACK_EVAL_DIR: '/owned/artifacts' };
     const logs: string[] = [];
     let created = 0;
     new Function('files', 'normalizeRelativePath', 'env', 'process', 'log', 'label', 'createBootstrapRetentionScope', 'childTmp', 'path', 'getProjectEvalDir', body)(
-      ['test/skill-e2e-qa-workflow.test.ts'], (file: string) => file, env, { platform, pid: 1 },
+      [key], (file: string) => file, env, { platform, pid: 1 },
       (line: string) => logs.push(line), 'fixture', () => { created++; return { env: { GSTACK_BOOTSTRAP_RETENTION: 'new-owned-scope' } }; },
       '/owned/tmp', path, () => '/owned/default-artifacts',
     );

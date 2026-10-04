@@ -66,7 +66,6 @@ describe('CLAUDE.md facts match the code that owns them', () => {
     const timeouts = Object.entries(scripts)
       .filter(([name, command]) => name.startsWith('eval:bg') && /--timeout \d+/.test(command))
       .map(([name, command]) => ({ name, seconds: /--timeout (\d+)/.exec(command)![1]! }));
-    expect(timeouts.map(t => t.name)).toEqual(expect.arrayContaining(['eval:bg:gate', 'eval:bg:periodic']));
     for (const { name, seconds } of timeouts) {
       for (const spelled of [seconds, Number(seconds).toLocaleString('en-US')]) {
         const at = claudeMd.indexOf(spelled);

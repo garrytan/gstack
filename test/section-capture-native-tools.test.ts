@@ -76,10 +76,11 @@ mock.module(${JSON.stringify(source)},()=>({...capture,captureSectionReads:async
     return successful;
   } finally { fs.rmSync(opts.planDir,{recursive:true,force:true}); }
 }}));
-await import(${JSON.stringify(path.join(root,'test/carve-section-loading-plan-eng-review.test.ts'))});
+const { registerCarveSectionCase } = await import(${JSON.stringify(path.join(root,'test/helpers/carve-section-case.ts'))});
+registerCarveSectionCase('plan-eng-review');
 `);
-  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, TMPDIR: dir, TMP: dir, TEMP: dir,
-    GSTACK_HOME: operatorState, GSTACK_STATE_ROOT: operatorState, EVALS_HERMETIC: '1', EVALS: '', EVALS_ALL: '', GSTACK_CARVE_SKILL: '' };
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, TMPDIR: dir, TMP: dir, TEMP: dir,
+    GSTACK_HOME: operatorState, GSTACK_STATE_ROOT: operatorState, EVALS_HERMETIC: '1', EVALS: '', EVALS_ALL: '' };
   delete env.CI;
   const child = Bun.spawn([process.execPath, 'test', script], { env, cwd: dir, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
   const timer = setTimeout(() => child.kill(), 20_000);
@@ -156,7 +157,7 @@ for(const scenario of ['delivery','timeout','timeout-partial','synthetic-success
 }
 console.log(JSON.stringify(results));
 `);
-  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, TMPDIR: dir, TMP: dir, TEMP: dir, EVALS_HERMETIC: '1' };
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, TMPDIR: dir, TMP: dir, TEMP: dir, EVALS_HERMETIC: '1' };
   delete env.CI;
   const child = Bun.spawn([process.execPath, script], { env, cwd: dir, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
   const timer = setTimeout(() => child.kill(), 15_000);
@@ -224,7 +225,7 @@ await Bun.write('PLAN.md',CEO_SECTION_CACHE_PLAN);
 const capture=await captureSectionReads({planDir:${JSON.stringify(dir)},skillName:'plan-ceo-review',scenario:'Review PLAN.md. Consider weaker consistency, a new alert project, or full implementation code.',decisionPolicy:CEO_SECTION_DECISION_POLICY,reportFile:'PLAN.md',reportMarker:/^## GSTACK REVIEW REPORT\\s*$/m,nativeReviewOnly:true,testName:'ceo-scope-delivery',timeout:LONG_SECTION_CAPTURE_MS,model:'fake-model'});
 console.log(JSON.stringify({reads:[...capture.readSections],report:capture.reportProduced,written:capture.reportWritten,exit:capture.exitReason}));
 `);
-  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, TMPDIR: dir, TMP: dir, TEMP: dir, EVALS_HERMETIC: '1' };
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, TMPDIR: dir, TMP: dir, TEMP: dir, EVALS_HERMETIC: '1' };
   delete env.CI;
   const child = Bun.spawn([process.execPath, script], { env, cwd: dir, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
   const timer = setTimeout(() => child.kill(), 15_000);
@@ -283,7 +284,7 @@ const started=Date.now();
 const deadline=await runSkillTest({...base,prompt:'deadline',appendSystemPrompt:${JSON.stringify(literal)},timeout:200,startupGraceMs:200});
 console.log(JSON.stringify({plain:plain.exitReason,literal:literal.exitReason,section:{reads:[...section.readSections],report:section.reportProduced},shell:{reads:[...shell.readSections],report:shell.reportProduced},deadline:{reason:deadline.exitReason,wall:Date.now()-started}}));
 `);
-  const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, TMPDIR: dir, TMP: dir, TEMP: dir, EVALS_HERMETIC: '1' };
+  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, TMPDIR: dir, TMP: dir, TEMP: dir, EVALS_HERMETIC: '1' };
   delete env.CI;
   const child = Bun.spawn([process.execPath, script], { env, cwd: dir, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' });
   const timer = setTimeout(() => child.kill(), 15_000);
