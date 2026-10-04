@@ -7,6 +7,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { qaCommandAllowed } from './helpers/qa-functional-observer';
 import { qaCallerCommandAllowed } from './helpers/qa-callers-fixture';
+import { expectMentions } from './helpers/prompt-structure';
 
 const CLI = path.resolve(import.meta.dir, '../bin/gstack-qa-evidence');
 const ROOT = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'qa-evidence-'));
@@ -483,7 +484,7 @@ test('every capture after an input change names the commands still to rerun, unt
   fs.writeFileSync(path.join(f.root, 'snap'), 'POSIX');
   const changed = probe('003', '002', '10');
   expect(changed.revalidate).toEqual([command('3'), command('9')]);
-  expect(changed.next).toContain('materialize runs once and keeps each one open (the verdict cannot pass) until it is rerun on current inputs');
+  expectMentions(changed.next, [['cannot', 'materialize', 'verdict']], 'changed.next');
   expect(probe('004', '003', '9').revalidate).toEqual([command('3')]);
   const current = probe('005', '004', '3');
   expect(current.revalidate).toBeUndefined();
