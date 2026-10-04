@@ -103,23 +103,13 @@ describe('test-free-shards: fullSuiteJobs (GSTACK_FREE_JOBS override)', () => {
     expect(withJobsEnv('02', fullSuiteJobs)).toBe(2);
   });
 
-  test('Windows CI pins its two-worker budget independently of local CPU defaults', () => {
-    const workflow = Bun.YAML.parse(readFileSync(new URL('../.github/workflows/windows-free-tests.yml', import.meta.url), 'utf8')) as {
-      jobs: Record<string, { steps: Array<{ run?: string; env?: Record<string, string> }> }>;
-    };
-    const step = workflow.jobs['windows-free-tests'].steps.find(step => step.run === 'bun run test:windows');
-    expect(step).toBeDefined();
-    expect(step?.env?.GSTACK_FREE_JOBS).toBe('2');
-    expect(withJobsEnv(step?.env?.GSTACK_FREE_JOBS, fullSuiteJobs)).toBe(2);
-  });
-
   test('Windows CI retries attributed flakes serially and uploads every flaky pass', () => {
     const source = readFileSync(new URL('../.github/workflows/windows-free-tests.yml', import.meta.url), 'utf8');
     const workflow = Bun.YAML.parse(source) as {
       jobs: Record<string, { steps: Array<{ name?: string; if?: string; run?: string; env?: Record<string, string>; with?: Record<string, unknown> }> }>;
     };
-    const steps = workflow.jobs['windows-free-tests'].steps;
-    const suite = steps.find(step => step.run === 'bun run test:windows');
+    const steps = workflow.jobs['windows-free-shard'].steps;
+    const suite = steps.find(step => step.name === 'Run Windows-safe shard');
     expect(suite?.env?.GSTACK_FREE_RETRY_FLAKY).toBe('1');
     expect(suite?.env?.GSTACK_FLAKE_LEDGER).toBe('${{ runner.temp }}/flake-ledger.jsonl');
     const upload = steps.find(step => step.name === 'Upload flake ledger');

@@ -1,48 +1,25 @@
 name: Windows Free Tests
 
-# Curated subset of the free test suite that runs on a paid faster Windows runner.
+# The Windows-safe subset of the free suite on GitHub's free `windows-latest`
+# runners. scripts/test-free-shards.ts --windows-only is the single source of
+# truth for which files run: POSIX-bound tests (bin/ shebang spawns, raw /tmp
+# paths, /bin/sh, mode bitmasks, the Bun-driven browse server) are excluded by
+# pattern there, with explicit force-include and known-incompatible lists.
+# Every run prints the curated count and top exclusion reasons in the job
+# summary so a shrinking subset is visible.
 #
-# Codex's v1.18.0.0 review flagged that the existing evals.yml workflow uses
-# a Linux container, so a windows-latest matrix entry there isn't a drop-in.
-# This workflow is non-container, runs the curated Windows-safe subset, plus
-# targeted resolver tests that exercise the Bun.which-based claude binary
-# resolution + the GSTACK_CLAUDE_BIN override path on Windows.
+# Same plan/run/verify model as free-tests.yml: one duration-balanced plan of
+# the curated files, one shard per Windows job, and an aggregate that requires
+# every strict result and exact coverage. The plan and the verify step are
+# static (file contents and the git revision), so they run on Linux.
 #
-# Runner: GitHub-hosted free `windows-latest`. The whole rest of CI runs on
-# Ubicloud (Linux), but Ubicloud doesn't ship Windows runners and we don't
-# want to flip on GitHub's org-level larger-runner billing for just this one
-# job. 4 cores, ~60s spin-up, $0. The wave-coverage tests this runs are
-# small enough that total job time stays under 2 minutes.
-#
-# What this DOES NOT do (still out of scope, tracked as follow-up):
-#   - Run the full free suite on Windows. The 24 tests that hardcode /bin/sh,
-#     spawn('sh',...), or raw /tmp/ paths are excluded by scripts/test-free-shards.ts
-#     --windows-only. They need POSIX-bound surfaces to be ported off shell
-#     primitives before they can run on Windows.
-#   - Run Playwright/browser-backed tests. Browse server bring-up on Windows is
-#     a separate concern (PR #1238 windows-pty-bun-pty-fix is in flight).
+# Native browser qualification campaigns (Windows cookie extraction, launch
+# diagnostics, Dia on macOS) are dispatch-only in native-qualification.yml.
 
 on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      dia_native_only:
-        description: Run disposable ARM64 macOS Dia qualification instead of Windows
-        type: boolean
-        default: false
-      native_diagnostics_only:
-        description: Run Windows launch diagnostics and credential regressions without qualification
-        type: boolean
-        default: false
-      dia_launch_comparison:
-        description: Compare protected Dia launch under Bun and Node in separate fresh Mac jobs
-        type: boolean
-        default: false
-      dia_gui_readiness:
-        description: Inspect disposable Mac GUI-session readiness without launching browsers
-        type: boolean
-        default: false
 
 concurrency:
   group: windows-free-${{ github.event.pull_request.number || github.run_id }}
@@ -53,15 +30,43 @@ permissions:
   contents: read
 
 jobs:
-  windows-free-tests:
-    if: ${{ !inputs.dia_native_only && !inputs.dia_launch_comparison && !inputs.dia_gui_readiness }}
-    # Ubicloud Windows runner (same provider as the Linux evals workflow).
-    # To revert: swap to `windows-latest` (GitHub's free 4-core Windows runner).
+  windows-plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - id: plan
+        name: Curate and balance the Windows-safe free suite
+        # Six shards: ~85 s of Linux-measured work each, ~2.5 min on a
+        # 4-vCPU Windows runner, so the lane lands near 4 min with setup.
+        run: |
+          matrix=$(bun run scripts/test-free-shards.ts --windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 6)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-plan
+          path: ${{ runner.temp }}/windows-plan.json
+          if-no-files-found: error
+
+  windows-free-shard:
+    needs: windows-plan
     runs-on: windows-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.windows-plan.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -71,15 +76,17 @@ jobs:
         with:
           node-version: 24.18.0
 
-      # bun install was 35s of a 55s job, all network. Cache keyed on the
-      # lockfile; bun's install cache lives under ~/.bun/install/cache on
-      # every platform.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: windows-plan
+          path: ${{ runner.temp }}
+
+      # bun's install cache lives under ~/.bun/install/cache on every platform.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.bun/install/cache
           key: windows-bun-${{ hashFiles('bun.lock') }}
-          # A lockfile bump starts from the previous cache instead of cold
-          # (restore alone costs ~26s; without this a bump pays it for nothing).
+          # A lockfile bump starts from the previous cache instead of cold.
           restore-keys: |
             windows-bun-
 
@@ -94,90 +101,49 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build server-node.mjs (required by Windows browse path)
-        # browse/src/cli.ts module-level throws on Windows if server-node.mjs
+        # browse/src/cli.ts throws at module load on Windows if server-node.mjs
         # is missing — Bun can't drive Playwright's Chromium on Windows
-        # (oven-sh/bun#4253). The bundle must exist for any test that
-        # transitively loads cli.ts to even import. We build only the
-        # Node-compatible server bundle here; full `bun run build` would
-        # also compile every binary which is slow and unnecessary for tests.
+        # (oven-sh/bun#4253), so any test that transitively loads cli.ts needs
+        # the Node-compatible server bundle. The full build is unnecessary.
         run: bash browse/scripts/build-node-server.sh
         shell: bash
 
       - name: Generate host SKILL.md outputs (.agents, .factory)
-        if: ${{ !inputs.native_diagnostics_only }}
-        # The golden-file regression tests in test/gen-skill-docs.test.ts read
-        # .agents/skills/gstack-ship/SKILL.md and .factory/skills/gstack-ship/
-        # SKILL.md. Both are gitignored — generated on demand by gen:skill-docs.
-        # On Mac/Linux CI the existing eval workflow regenerates these as part
-        # of its own pipeline; the windows-free-tests lane doesn't share that
-        # so it must regenerate explicitly.
+        # Golden-file tests read gitignored generated host outputs.
         run: bun run gen:skill-docs --host all
         shell: bash
 
       - name: Install Chromium for the Node worker smoke
         run: bunx playwright install chromium
 
-      # The Windows job verifies the new portability work this PR delivers,
-      # not the entire free suite. After v1.20.0.0 ships, full-suite Windows
-      # parity is a P4 follow-up TODO that depends on porting many tests off
-      # POSIX-bound surfaces (raw /tmp paths, /bin/bash hardcodes, bash
-      # shebang spawns, mode-bit assertions, deleted v1.14 sidebar refs, etc).
-      #
-      # The curated subset enumeration in scripts/test-free-shards.ts is
-      # retained for future expansion — `bun run test:windows --list` gives
-      # contributors a starting point to grow Windows coverage incrementally.
-      #
-      # What we verify here is exactly the new code paths v1.20.0.0 ships:
-      #  - bin/gstack-paths state-root resolution (test/gstack-paths.test.ts)
-      #  - browse/src/claude-bin.ts Bun.which wrapper + override + arg-prefix
-      #    resolution including the GSTACK_CLAUDE_BIN=wsl PATHEXT path
-      #    (browse/test/claude-bin.test.ts)
-      #  - scripts/test-free-shards.ts curation logic itself
-      #    (test/test-free-shards.test.ts)
-
-      - name: Run curated Windows-safe suite
-        if: ${{ !inputs.native_diagnostics_only }}
-        # Replaces the previous hand-listed 13-file subset, which drifted from
-        # the curation registry it was supposed to sample. The runner's
-        # --windows-only curation (scripts/test-free-shards.ts) is the single
-        # source of truth: POSIX-bound tests are excluded by pattern there, so
-        # growing/pruning Windows coverage is one list, not two. If a test is
-        # red here because it's genuinely POSIX-bound, add it to the curation
-        # exclusions — don't resurrect a hand list in this file.
+      - name: Run Windows-safe shard
         env:
-          GSTACK_FREE_JOBS: '2'
-          # Same policy as the required Linux lane: process-supervision timing
-          # tests pass alone on this 4-vCPU runner but can stall under the
-          # two-shard load, so attributed failures get one serial retry
-          # (cap 5 files, truncation veto). Every flaky pass is appended to
-          # the ledger uploaded below, so repeats stay visible and ranked.
+          # Same policy as the required Linux lane: an attributed failure gets
+          # one serial retry (cap 5 files, truncation veto) and a clean retry
+          # is a loud flaky pass, appended to the ledger uploaded below and
+          # listed in the aggregate job summary.
           GSTACK_FREE_RETRY_FLAKY: '1'
           GSTACK_FLAKE_LEDGER: ${{ runner.temp }}/flake-ledger.jsonl
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
-        run: bun run test:windows
+        run: bun run test:windows --ci-run "$RUNNER_TEMP/windows-plan.json" --shard ${{ matrix.shard }} --result "$RUNNER_TEMP/windows-results/shard-${{ matrix.shard }}.json"
         shell: bash
 
-      - name: Run focused native launch and credential diagnostics
-        if: inputs.native_diagnostics_only
-        shell: bash
-        run: |
-          set -o pipefail
-          status=0
-          bun test browse/test/cookie-import-native-job.test.ts --test-name-pattern 'native Windows launch diagnostics|a locked real Edge profile|real Edge synthetic profile' 2>&1 | tee "$RUNNER_TEMP/gstack-free-test-native-diagnostics.log" || status=1
-          bun test browse/test/cookie-credential-deadline.test.ts browse/test/cookie-import-node.test.ts browse/test/bun-polyfill.test.ts 2>&1 | tee "$RUNNER_TEMP/gstack-free-test-credential-diagnostics.log" || status=1
-          exit "$status"
+      - name: Upload strict shard result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-result-${{ matrix.shard }}
+          path: ${{ runner.temp }}/windows-results/*.json
+          if-no-files-found: error
 
-      # Same diagnosability contract as free-tests.yml: a red lane must
-      # carry the WHY (the runner's quiet console names files, not causes).
-      # (#2561 was written against the old hand-listed subset; its two new
-      # test files are pure-TS and flow into the --windows-only curation
-      # automatically, so no per-file entry is needed here.)
+      # A red lane must carry the WHY: the runner's quiet console names files,
+      # not causes, so complete shard logs are kept on every run.
       - name: Upload full shard logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: windows-free-test-shard-logs
+          name: windows-free-test-shard-logs-${{ matrix.shard }}
           path: |
             .context/free-test-logs/gstack-free-test-*.log
             ${{ runner.temp }}/gstack-free-test-*.log
@@ -188,97 +154,39 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: flake-ledger-windows
+          name: flake-ledger-windows-${{ matrix.shard }}
           path: ${{ runner.temp }}/flake-ledger.jsonl
           if-no-files-found: ignore
           retention-days: 90
 
-  cookie-native-qualification:
-    if: github.event_name == 'workflow_dispatch' && !inputs.dia_native_only && !inputs.native_diagnostics_only && !inputs.dia_launch_comparison && !inputs.dia_gui_readiness
-    runs-on: windows-latest
-    timeout-minutes: 10
+  windows-free-tests:
+    if: always()
+    needs: [windows-plan, windows-free-shard]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: 1.4.0
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
-        with:
-          node-version: 24.18.0
-      - name: Install pinned dependencies
-        run: bun install --frozen-lockfile
-      - name: Build the qualified Node server inputs
-        run: bash browse/scripts/build-node-server.sh
-        shell: bash
-      - name: Qualify owned native cookie extraction
-        run: ./.github/scripts/run-cookie-native-qualification.ps1 -OutputRoot "$env:RUNNER_TEMP"
-      - name: Preserve qualification evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: cookie-native-qualification
-          path: ${{ runner.temp }}/cookie-native-qualification-*/
-          if-no-files-found: error
-
-  dia-native-qualification:
-    if: github.event_name == 'workflow_dispatch' && (inputs.dia_native_only || inputs.dia_launch_comparison || inputs.dia_gui_readiness)
-    runs-on: macos-15
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        runtime: ${{ fromJSON(inputs.dia_launch_comparison && !inputs.dia_gui_readiness && '["bun","node"]' || '["bun"]') }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: 1.4.0
-      - name: Validate GUI readiness selection
-        if: inputs.dia_gui_readiness
+      - name: Require the plan and every Windows shard
         env:
-          OTHER_DIA_MODES: ${{ inputs.dia_native_only || inputs.dia_launch_comparison || inputs.native_diagnostics_only }}
+          PLAN_RESULT: ${{ needs.windows-plan.result }}
+          SHARD_RESULT: ${{ needs.windows-free-shard.result }}
         run: |
-          bun --no-env-file --no-install --no-macros --config=/dev/null -e '
-          if (process.env.OTHER_DIA_MODES !== "false") {
-            console.error("dia_gui_readiness must be selected alone");
-            process.exit(1);
-          }
-          '
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
-        if: inputs.dia_launch_comparison && !inputs.dia_gui_readiness
+          set -eu
+          test "$PLAN_RESULT" = success
+          test "$SHARD_RESULT" = success
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          node-version: 24.18.0
-          architecture: arm64
-      - name: Install pinned dependencies
-        if: ${{ !inputs.dia_gui_readiness }}
-        run: bun install --frozen-lockfile
-      - name: Install the synthetic destination browser
-        if: ${{ !inputs.dia_gui_readiness }}
-        run: bunx --no-install playwright install chromium
-      - name: Inspect GUI readiness without browser or Keychain access
-        if: inputs.dia_gui_readiness
-        env:
-          GSTACK_DIA_NATIVE_QUALIFY: '1'
-        run: bun --no-env-file --no-install --no-macros --config=/dev/null .github/scripts/run-dia-native-qualification.ts --gui-readiness-only
-      - name: Qualify native Dia discovery, decryption, and import
-        if: ${{ !inputs.dia_launch_comparison && !inputs.dia_gui_readiness }}
-        env:
-          GSTACK_DIA_NATIVE_QUALIFY: '1'
-        run: bun --no-env-file --no-install --no-macros --config=/dev/null .github/scripts/run-dia-native-qualification.ts
-      - name: Compare protected native Dia launch without qualification credit
-        if: inputs.dia_launch_comparison && !inputs.dia_gui_readiness
-        env:
-          GSTACK_DIA_NATIVE_QUALIFY: '1'
-          COMPARISON_RUNTIME: ${{ matrix.runtime }}
-        run: bun --no-env-file --no-install --no-macros --config=/dev/null .github/scripts/run-dia-native-qualification.ts --launch-comparison "$COMPARISON_RUNTIME"
-      - name: Preserve only the sanitized qualification receipt
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          name: ${{ inputs.dia_gui_readiness && 'dia-gui-readiness' || inputs.dia_launch_comparison && format('dia-launch-comparison-{0}', matrix.runtime) || 'dia-native-qualification' }}
-          path: ${{ runner.temp }}/dia-native-qualification.json
-          if-no-files-found: error
+          bun-version: 1.4.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: windows-plan
+          path: ${{ runner.temp }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: windows-result-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/windows-results
+      - name: Require exact coverage and complete strict results
+        run: bun run scripts/test-free-shards.ts --windows-only --ci-verify "$RUNNER_TEMP/windows-plan.json" --results "$RUNNER_TEMP/windows-results"

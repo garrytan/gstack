@@ -8,7 +8,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
-import type { FreeCiPlan, FreeCiResult } from '../test-free-shards';
+import type { CurationResult, FreeCiPlan, FreeCiResult } from '../test-free-shards';
 
 export const UNSEEDED_WARN_LIMIT = 5;
 export const SHARD_OVERRUN_FACTOR = 1.5;
@@ -73,6 +73,15 @@ export function ciHealthSummary(plan: FreeCiPlan, results: FreeCiResult[]): stri
     return predictedMs === undefined ? [] : [{ shard: outcome.shard, predictedMs, elapsedMs: outcome.elapsedMs }];
   }));
   return [flakyPassTable(flaky), overrunWarning(overruns)].filter((text): text is string => text !== null);
+}
+
+/** Printed by every Windows run and its job summary so silent shrinkage of the curated set is visible. */
+export function windowsCurationLine({ safe, excluded }: CurationResult): string {
+  const byReason = new Map<string, number>();
+  for (const { reason } of excluded) byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
+  const top = [...byReason].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 4)
+    .map(([reason, count]) => `${count} ${reason}`).join('; ');
+  return `curated ${safe.length} Windows-safe tests (${excluded.length} excluded${top ? `: ${top}` : ''})`;
 }
 
 /** Append markdown to the GitHub job summary when running in Actions; no-op locally. */

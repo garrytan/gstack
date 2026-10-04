@@ -88,7 +88,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isPaidTestFile } from '../test/helpers/paid-test-set';
 import { resolveStateRoot } from '../lib/state-root';
 import { attributeFreeHomeWriters, guardFreeHome, sharedFreeHome, type FreeHomeGuardFactory } from './lib/free-home-guard';
-import { appendStepSummary, ciHealthSummary, SEED_REFRESH_COMMAND, unseededWarning } from './lib/free-ci-health';
+import { appendStepSummary, ciHealthSummary, SEED_REFRESH_COMMAND, unseededWarning, windowsCurationLine } from './lib/free-ci-health';
 import {
   BunTestOutputClassifier,
   createShardSandbox,
@@ -947,7 +947,7 @@ export function parseCliOptions(argv: string[]): CliOptions {
   });
 
   const ciModes = [paths.ciPlan, paths.ciRun, paths.ciVerify].filter(Boolean).length;
-  if (ciModes > 1 || (ciModes && (quick || listOnly || dryRun || recordDurations || windowsOnly || attributeHome))) throw new Error('CI modes cannot be combined with other selection modes');
+  if (ciModes > 1 || (ciModes && (quick || listOnly || dryRun || recordDurations || attributeHome))) throw new Error('CI modes cannot be combined with other selection modes');
   if (paths.ciRun && (shardIndex === null || !paths.result)) throw new Error('--ci-run requires --shard and --result');
   if (paths.ciVerify && !paths.results) throw new Error('--ci-verify requires --results');
   if (quick && (recordDurations || windowsOnly || shardIndex !== null)) throw new Error('--quick cannot change recording, Windows or shard selection');
@@ -2151,6 +2151,9 @@ async function main(): Promise<number> {
   }
 
   if (options.ciPlan || options.ciRun || options.ciVerify) {
+    // The plan binds its exact file set, so a Windows plan cannot verify as a Linux one or vice versa.
+    const curation = options.windowsOnly ? curateWindowsSafe(allFiles) : null;
+    const ciFiles = curation ? curation.safe : allFiles;
     const git = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', timeout: 5_000 });
     if (git.status !== 0 || !git.stdout.trim()) throw new Error('Cannot bind CI plan to the checkout revision');
     const revision = git.stdout.trim();
@@ -2162,15 +2165,20 @@ async function main(): Promise<number> {
     };
     if (options.ciPlan) {
       const durations = loadFreeTestDurations() ?? {};
-      warnUnseededFreeFiles(allFiles, durations);
-      const plan = createFreeCiPlan(allFiles, options.shardCount, durations, revision);
-      validateFreeCiPlan(plan, allFiles, revision);
+      if (curation) {
+        const line = windowsCurationLine(curation);
+        console.error(`[test:free] ${line}`);
+        appendStepSummary(line);
+      }
+      warnUnseededFreeFiles(ciFiles, durations);
+      const plan = createFreeCiPlan(ciFiles, options.shardCount, durations, revision);
+      validateFreeCiPlan(plan, ciFiles, revision);
       writeJson(options.ciPlan, plan);
       console.log(JSON.stringify({ shard: plan.shards.map(shard => shard.shard) }));
       return 0;
     }
     const plan = JSON.parse(fs.readFileSync((options.ciRun ?? options.ciVerify)!, 'utf8')) as FreeCiPlan;
-    validateFreeCiPlan(plan, allFiles, revision);
+    validateFreeCiPlan(plan, ciFiles, revision);
     if (options.ciVerify) {
       const results = fs.readdirSync(options.results!).filter(file => file.endsWith('.json'))
         .map(file => JSON.parse(fs.readFileSync(path.join(options.results!, file), 'utf8')) as FreeCiResult);
@@ -2179,7 +2187,7 @@ async function main(): Promise<number> {
         appendStepSummary(section);
       }
       verifyFreeCiResults(plan, results);
-      console.log(`[test:free] CI PASS: ${allFiles.length} files across ${results.length} isolated shards; slowest ${Math.round(Math.max(...results.map(result => result.outcome.elapsedMs + (result.retry?.elapsedMs ?? 0))) / 1000)}s including retries`);
+      console.log(`[test:free] CI PASS: ${ciFiles.length} files across ${results.length} isolated shards; slowest ${Math.round(Math.max(...results.map(result => result.outcome.elapsedMs + (result.retry?.elapsedMs ?? 0))) / 1000)}s including retries`);
       return 0;
     }
     const shard = plan.shards[options.shardIndex! - 1];
@@ -2207,7 +2215,7 @@ async function main(): Promise<number> {
   if (options.windowsOnly) {
     curationReport = curateWindowsSafe(allFiles);
     files = curationReport.safe;
-    console.log(`[test:free] curated ${files.length} Windows-safe tests (${curationReport.excluded.length} excluded)`);
+    console.log(`[test:free] ${windowsCurationLine(curationReport)}`);
     if (options.listOnly && curationReport.excluded.length > 0) {
       console.log('\nExcluded (POSIX-fragile):');
       for (const { file, reason } of curationReport.excluded) {
