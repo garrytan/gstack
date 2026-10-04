@@ -1,0 +1,87 @@
+name: Platform qualification
+
+# Opt-in tests with a real product guarantee whose prerequisites no PR or
+# weekly lane has: the ML prompt-injection classifier model (~112 MB), the
+# pinned gitleaks binary, and a macOS Swift toolchain. In the free suite these
+# files self-skip without their opt-in variable; this workflow is the owned
+# lane that sets it. It runs on dispatch and once a quarter as the reminder
+# that these guarantees are still checked. Each job is a few minutes.
+on:
+  workflow_dispatch:
+  schedule:
+    # 08:00 UTC on the first day of January, April, July and October.
+    - cron: '0 8 1 1,4,7,10 *'
+
+concurrency:
+  group: platform-qualification-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  security-ml:
+    # browse/test/security-bench.test.ts and the L4 cases of
+    # browse/test/security-live-playwright.test.ts: the TestSavant classifier
+    # keeps its detection rate on the BrowseSafe-Bench sample and does not
+    # flag benign product copy.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install Chromium
+        run: bunx playwright install --with-deps chromium
+      - name: Download the classifier model
+        run: bun -e "const m = await import('./browse/src/security-classifier.ts'); await m.loadTestsavant(msg => console.log(msg)); const s = m.getClassifierStatus(); console.log(JSON.stringify(s)); if (s.testsavant !== 'ok') process.exit(1);"
+      - name: Run ML security tests
+        env:
+          SECURITY_BENCH: "1"
+        run: bun test browse/test/security-bench.test.ts browse/test/security-live-playwright.test.ts
+
+  gitleaks:
+    # test/gstack-memory-ingest.test.ts and test/gstack-memory-helpers.test.ts:
+    # memory ingest imports clean pages and blocks recognized secrets through
+    # the real gitleaks 8.30.1 scanner, not the fake one the free suite uses.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Install gitleaks
+        run: |
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          curl -fsSL -o "$RUNNER_TEMP/gitleaks/gitleaks.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks/gitleaks.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks/gitleaks.tgz" -C "$RUNNER_TEMP/gitleaks" gitleaks
+          "$RUNNER_TEMP/gitleaks/gitleaks" version
+      - name: Run gitleaks-backed memory tests
+        run: GSTACK_TEST_GITLEAKS="$RUNNER_TEMP/gitleaks/gitleaks" bun test test/gstack-memory-ingest.test.ts test/gstack-memory-helpers.test.ts
+
+  ios-swift-build:
+    # test/ios-qa-swift-build.test.ts: the DebugBridgeCore package builds, its
+    # XCTest suite passes, and a Release build contains no DebugBridge symbols.
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run Swift build invariants
+        env:
+          GSTACK_TEST_SWIFT: "1"
+        run: bun test test/ios-qa-swift-build.test.ts
