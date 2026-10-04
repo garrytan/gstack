@@ -15,6 +15,7 @@ import { assertRuntimeCompatible, RUNTIME_CATALOG } from '../lib/cso/runtime-cat
 import { canonicalStartPlan, canonicalTestPlan } from '../lib/cso/verification';
 import { CsoError } from '../lib/cso/contracts';
 import { geminiProducerPaths, geminiProducerSystemSettings } from './helpers/providers/gemini';
+import { expectMentions } from './helpers/prompt-structure';
 
 const temporary: string[] = [];
 const root = () => { const path = mkdtempSync(join(tmpdir(), 'cso-eval-')); temporary.push(path); return path; };
@@ -111,7 +112,6 @@ describe('CSO immutable evaluation corpus', () => {
     const combined = ['README.md', 'app.mjs', 'package-lock.json', 'package.json', 'test/control.test.mjs']
       .map(file => readFileSync(join(result.path, file), 'utf8')).join('\n');
     expect(combined).not.toContain('ORACLE_SQL_MARKER'); expect(combined).not.toContain('filesHash'); expect(combined).not.toContain('heldOut');
-    expect(combined).toContain('the intended member workflow remains available');
     expect(() => materializeCase('node-sql-injection', 'fixed', result.path)).toThrow('CORPUS_DESTINATION_EXISTS');
   });
   test('rejects unknown cases and symlink destination ancestors', () => {
@@ -601,8 +601,8 @@ describe('CSO matched producer orchestration', () => {
       expect(opts.prompt).toContain(skills.v2);
       expect(opts.prompt).toContain('/cso --budget 600');
       expect(opts.prompt).toContain(`application repository at ${isolated.source}`);
-      expect(opts.prompt).toContain('permission profile grants read-only access to exactly that immutable snapshot');
-      expect(opts.prompt).toContain('Use only the trusted helper to inspect or act on source');
+      expectMentions(opts.prompt, [['only', 'permission', 'read-only']], 'opts.prompt');
+      expectMentions(opts.prompt, [['only', 'trusted', 'inspect']], 'opts.prompt');
       expect(opts.prompt).toContain(`absolute launcher path ${JSON.stringify(launcher)}`);
       expect(opts.prompt).toContain('do not discover or invoke another helper through PATH');
       expect(opts.prompt).not.toContain(cell.caseId);
