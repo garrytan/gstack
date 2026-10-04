@@ -29,7 +29,7 @@ const passReceipt = (dir: string, key: string, completedAt: number) => {
 /** A scripted gh: run list, per-run polls, artifact lists, and downloads that copy fixture trees. */
 function fakeGh(state: { runs: WorkflowRun[]; artifacts?: Record<number, Record<string, (dir: string) => void>>; failList?: string }): GhRunner & { calls: string[][] } {
   const calls: string[][] = [];
-  const gh = ((args: string[]) => {
+  const respond: GhRunner = (args: string[]) => {
     calls.push(args);
     const ok = (body: unknown) => ({ status: 0, stdout: JSON.stringify(body), stderr: '' });
     if (args[0] === 'api' && args.some(a => a.endsWith('/workflows/evals.yml/runs'))) {
@@ -50,9 +50,8 @@ function fakeGh(state: { runs: WorkflowRun[]; artifacts?: Record<number, Record<
       return { status: 0, stdout: '', stderr: '' };
     }
     return { status: 1, stdout: '', stderr: `unexpected gh ${args.join(' ')}` };
-  }) as GhRunner & { calls: string[][] };
-  gh.calls = calls;
-  return gh;
+  };
+  return Object.assign(respond, { calls });
 }
 const clock = (start = 1_000_000) => { let t = start; return { now: () => t, sleep: (ms: number) => { t += ms; } }; };
 const collect = (store: string, gh: GhRunner, over: Partial<Parameters<typeof collectRecovery>[0]> = {}) =>
