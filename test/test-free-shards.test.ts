@@ -22,7 +22,6 @@ import {
   KNOWN_WINDOWS_INCOMPATIBLE,
   TEST_ROOTS,
   TREE_MUTATING,
-  WORKER_HOSTILE,
 } from '../scripts/test-free-shards';
 import {
   loadFreeTestDurations,
@@ -776,12 +775,6 @@ describe('test-free-shards: shard args', () => {
     expect(args).not.toContain('--concurrent');
   });
 
-  test('parallel mode swaps serial max-concurrency for --parallel', () => {
-    const args = buildShardArgs(['test/foo.test.ts'], { rootDir: ROOT, parallel: true });
-    expect(args).toContain('--parallel');
-    expect(args).not.toContain('--max-concurrency=1');
-  });
-
   test('per-test timeout matches the 30s the package.json test script used before the repoint', () => {
     expect(FREE_TEST_TIMEOUT_MS).toBe(30_000);
   });
@@ -1191,10 +1184,10 @@ describe('test-free-shards: GitHub Actions log-group attribution', () => {
 describe('test-free-shards: curated-list census pins', () => {
   // A renamed test file must FAIL here, not silently drop its serialization
   // (a phantom TREE_MUTATING key means the reader races regenerating shards
-  // again) or its serial-child quarantine (WORKER_HOSTILE).
-  test('every TREE_MUTATING and WORKER_HOSTILE key names a real free test file', () => {
+  // again).
+  test('every TREE_MUTATING key names a real free test file', () => {
     const census = new Set(collectFreeTestFiles(ROOT));
-    const stale = [...Object.keys(TREE_MUTATING), ...Object.keys(WORKER_HOSTILE)]
+    const stale = Object.keys(TREE_MUTATING)
       .filter((key) => !census.has(key));
     expect(stale).toEqual([]);
   });

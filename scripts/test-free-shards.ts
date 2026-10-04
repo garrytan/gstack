@@ -537,20 +537,6 @@ export function fullSuiteJobs(platform: NodeJS.Platform = process.platform): num
 }
 
 /**
- * Files that crash or wedge Bun's --parallel WORKERS but run fine in a plain
- * serial process. Full-suite mode now uses shard PROCESSES (no workers), so
- * this list is inert placement-wise — retained as the paper trail of why the
- * one-invocation --parallel strategy was abandoned, and as the exclusion list
- * should anyone re-attempt it on a newer Bun.
- */
-export const WORKER_HOSTILE: Record<string, string> = {
-  'browse/test/security-live-playwright.test.ts':
-    'Bun 1.3.13 segfaults running this file in a --parallel worker ("panic: '
-    + 'Segmentation fault ... a bug in Bun"), and the crashed-worker retry then '
-    + 'wedges the whole invocation past the wall clock. Passes serially.',
-};
-
-/**
  * Exclusive host-state fixtures: run in ONE serial shard AFTER the parallel
  * shards. The public name is retained for callers of the original tree-write
  * classification. Entries need a concrete shared-state hazard that fixture
@@ -871,13 +857,6 @@ export function selectQuickFreeFiles(files: string[], durations: Record<string, 
 }
 
 export interface BuildShardArgsOptions {
-  /**
-   * Pass bun's --parallel (worker-per-file, implies --isolate). No production
-   * caller today — full-suite mode uses N shard PROCESSES after the worker
-   * pathologies documented in main(); retained for a future re-attempt on a
-   * newer Bun (see WORKER_HOSTILE).
-   */
-  parallel?: boolean;
   rootDir?: string;
 }
 
@@ -886,10 +865,7 @@ export function buildShardArgs(files: string[], options: BuildShardArgsOptions =
   // filters, so a relative `test/x.test.ts` would ALSO select
   // `browse/test/x.test.ts` — shard bleed that double-runs files.
   const selectors = exactTestFileSelectors(files, options.rootDir ?? ROOT);
-  const args = ['test', ...selectors, `--timeout=${FREE_TEST_TIMEOUT_MS}`];
-  if (options.parallel) args.push('--parallel');
-  else args.push('--max-concurrency=1');
-  return args;
+  return ['test', ...selectors, `--timeout=${FREE_TEST_TIMEOUT_MS}`, '--max-concurrency=1'];
 }
 
 type CliOptions = {
@@ -1382,8 +1358,6 @@ export interface RunFreeShardOptions {
   wallTimeoutMs?: number;
   rootDir?: string;
   env?: NodeJS.ProcessEnv;
-  /** Pass bun's --parallel. No production caller today (see BuildShardArgsOptions.parallel). */
-  parallel?: boolean;
   /** Override the spawned command. Tests inject fake pass/fail/slow commands. */
   commandFor?: (files: string[]) => ShardCommand;
   /** Suppress ALL child output from the console (tests). The classifier and the log file still see every byte. */
@@ -1903,7 +1877,7 @@ export async function runFreeShard(
 
   const rootDir = options.rootDir ?? ROOT;
   const wallTimeoutMs = options.wallTimeoutMs ?? DEFAULT_WALL_TIMEOUT_MS;
-  log(`${label} (${files.length} files${options.parallel ? ', bun --parallel' : ''})`);
+  log(`${label} (${files.length} files)`);
 
   // Full-stream capture: EVERY child byte lands here, whatever the console
   // shows. Printed once at start so a wedged or noisy run is inspectable
@@ -1914,7 +1888,7 @@ export async function runFreeShard(
 
   const { command, args } = options.commandFor
     ? options.commandFor(files)
-    : { command: process.execPath, args: buildShardArgs(files, { parallel: options.parallel, rootDir }) };
+    : { command: process.execPath, args: buildShardArgs(files, { rootDir }) };
 
   // realpath: the browser tracker refuses a state dir whose path resolves elsewhere.
   const { stateDir, env } = createShardSandbox('gstack-free-shard-', options.env ?? process.env, { realpath: true });
@@ -2280,8 +2254,7 @@ async function main(): Promise<number> {
   // (compare-board), and spawn-heavy files hanging workers under load
   // (session-runner-timeout). Plain child processes have none of these:
   // proven spawn semantics, per-shard group-kill, per-shard logs, and a
-  // wedge only ever costs its own shard. WORKER_HOSTILE files are moot in
-  // process shards (no workers) and fold back into normal assignment.
+  // wedge only ever costs its own shard.
   const jobs = fullSuiteJobs();
   // Phase split: exclusive host-state fixtures run AFTER the parallel shards,
   // so their shared process or filesystem state cannot interfere with readers.
