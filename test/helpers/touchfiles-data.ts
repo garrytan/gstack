@@ -121,7 +121,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   ],
 
   // Review Army (specialist dispatch)
-  'review-army-migration-safety': [ 'review/**', 'scripts/resolvers/review-army.ts', 'bin/gstack-diff-scope', 'test/skill-e2e-review-army.test.ts', 'test/helpers/office-hours-attempt.ts'],
+  'review-army-migration-safety': [ 'review/**', 'test/fixtures/review-army-migration.sql', 'scripts/resolvers/review-army.ts', 'bin/gstack-diff-scope', 'test/skill-e2e-review-army.test.ts', 'test/helpers/office-hours-attempt.ts'],
   'review-army-perf-n-plus-one':  [ 'review/**', 'scripts/resolvers/review-army.ts', 'bin/gstack-diff-scope', 'test/skill-e2e-review-army.test.ts',   'test/fixtures/review-n-plus-one-dispatch.json', 'test/fixtures/review-army-n-plus-one.rb', 'test/helpers/office-hours-attempt.ts'],
   'review-army-delivery-audit':   [ 'review/**', 'scripts/resolvers/review-dashboard.ts', 'scripts/resolvers/plan-gates.ts', 'scripts/resolvers/spec-review.ts', 'scripts/resolvers/outside-voice-steps.ts', 'scripts/resolvers/review-scope.ts', 'scripts/resolvers/outside-voice.ts', 'scripts/resolvers/review-army.ts', 'test/skill-e2e-review-army.test.ts', 'test/helpers/office-hours-attempt.ts'],
   'review-army-quality-score':    [ 'review/**', 'scripts/resolvers/review-army.ts', 'test/skill-e2e-review-army.test.ts',  'test/helpers/office-hours-attempt.ts'],
@@ -688,6 +688,18 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   ],
   'codex-review-findings': [ 'lib/outside-review-result.ts', 'lib/gate-outcomes.ts','review/**', 'scripts/gen-skill-docs.ts', 'codex/**', 'test/helpers/codex-session-runner.ts', 'lib/worktree.ts', 'test/codex-e2e.test.ts',
     'test/helpers/codex-eval.ts', 'bin/gstack-codex-probe', 'scripts/resolve-codex-generation-model.ts', 'scripts/resolvers/constants.ts', 'scripts/resolvers/outside-voice.ts', 'scripts/resolvers/outside-voice-steps.ts'
+  ],
+  // Formerly keyless periodic files (W1b): registered so an edit selects its own case instead of restoring the full PR gate.
+  'auq-consistency': [ 'test/skill-e2e-auq-consistency.test.ts', 'plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts',
+    'test/helpers/auq-sdk-capture.ts', 'test/helpers/auq-native-capture.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/llm-judge.ts', 'test/helpers/e2e-gate.ts', 'lib/claude-bin.ts', 'lib/eval-model.ts',
+    'scripts/resolvers/tasks-section.ts', 'test/helpers/auto-decision-state.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/hermetic-skill-runtime.ts', 'test/helpers/native-auto-decide.ts', 'test/helpers/owned-claude-transcript.ts', 'test/helpers/plan-count-artifacts.ts', 'test/helpers/plan-count-file-permission.ts', 'test/helpers/plan-count-fixture.ts', 'test/helpers/plan-count-pending-exit.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-count-transcript.ts', 'test/helpers/plan-floor-review.ts', 'test/helpers/plan-floor-target.ts', 'test/helpers/plan-scope-selection.ts', 'test/helpers/plan-seed-submission.ts', 'test/helpers/plan-skill-question-events.ts', 'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/plan-skill-questions.ts', 'test/helpers/pty-screen.ts', 'test/helpers/pty-trust-dialog.ts', 'test/helpers/skill-census.ts',
+  ],
+  'auq-verbose-vs-carved-ab': [ 'test/skill-e2e-auq-verbose-vs-carved-ab.test.ts', 'test/fixtures/auq-pre-cut-plan-ceo-review-SKILL.md', 'plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts',
+    'test/helpers/auq-sdk-capture.ts', 'test/helpers/auq-native-capture.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/llm-judge.ts', 'test/helpers/e2e-gate.ts', 'lib/claude-bin.ts', 'lib/eval-model.ts',
+    'scripts/resolvers/tasks-section.ts', 'test/helpers/auto-decision-state.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/hermetic-skill-runtime.ts', 'test/helpers/native-auto-decide.ts', 'test/helpers/owned-claude-transcript.ts', 'test/helpers/plan-count-artifacts.ts', 'test/helpers/plan-count-file-permission.ts', 'test/helpers/plan-count-fixture.ts', 'test/helpers/plan-count-pending-exit.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-count-transcript.ts', 'test/helpers/plan-floor-review.ts', 'test/helpers/plan-floor-target.ts', 'test/helpers/plan-scope-selection.ts', 'test/helpers/plan-seed-submission.ts', 'test/helpers/plan-skill-question-events.ts', 'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/plan-skill-questions.ts', 'test/helpers/pty-screen.ts', 'test/helpers/pty-trust-dialog.ts', 'test/helpers/skill-census.ts',
+  ],
+  'codex-recommendation-substance': [ 'test/codex-e2e-recommendation-substance.test.ts', 'codex/**', 'test/helpers/codex-session-runner.ts', 'test/helpers/llm-judge.ts', 'test/helpers/e2e-gate.ts',
+    'lib/outside-review-result.ts', 'lib/gate-outcomes.ts', 'scripts/gen-skill-docs.ts', 'bin/gstack-codex-probe', 'scripts/resolve-codex-generation-model.ts'
   ],
 
   // Real cross-harness workflow dispatch and independent seeded-defect detection.
@@ -1365,6 +1377,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic' | 'marathon'> = {
   // Multi-AI — periodic (require external CLIs)
   'codex-discover-skill': 'periodic',
   'codex-review-findings': 'periodic',
+  'auq-consistency': 'periodic',
+  'auq-verbose-vs-carved-ab': 'periodic',
+  'codex-recommendation-substance': 'periodic',
   'outside-voice-codex-to-claude-code': 'periodic',
   'outside-voice-claude-code-to-codex': 'periodic',
   'outside-plan-disabled-no-fallback': 'periodic',
@@ -1734,6 +1749,9 @@ export const E2E_KINDS: Record<string, 'rule' | 'behavior' | 'judge'> = {
   'codex-review': 'rule',
   'codex-discover-skill': 'rule',
   'codex-review-findings': 'rule',
+  'auq-consistency': 'rule',
+  'auq-verbose-vs-carved-ab': 'rule',
+  'codex-recommendation-substance': 'rule',
   'outside-voice-codex-to-claude-code': 'rule',
   'outside-voice-claude-code-to-codex': 'rule',
   'outside-plan-disabled-no-fallback': 'rule',

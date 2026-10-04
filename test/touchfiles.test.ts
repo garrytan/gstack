@@ -306,8 +306,11 @@ describe('selectTests', () => {
     // v2 plan Phase B carve: the section-loading E2E depends on plan-ceo-review/**.
     expect(result.selected).toContain('plan-ceo-section-loading');
     expect(result.selected).toContain('outside-plan-disabled-no-fallback');
-    expect(result.selected.length).toBe(19);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 19);
+    // The formerly keyless periodic AUQ probes drive the CEO skill too.
+    expect(result.selected).toContain('auq-consistency');
+    expect(result.selected).toContain('auq-verbose-vs-carved-ab');
+    expect(result.selected.length).toBe(21);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 21);
   });
 
   test('global touchfile triggers ALL tests', () => {
@@ -682,11 +685,7 @@ describe('derived touchfile closure', () => {
   };
   const maps = [['E2E_TOUCHFILES', E2E_TOUCHFILES], ['LLM_JUDGE_TOUCHFILES', LLM_JUDGE_TOUCHFILES]] as const;
   /** Paid files no key selects; they run only by tier or census. */
-  const KEYLESS_PAID: Record<string, string> = {
-    'test/codex-e2e-recommendation-substance.test.ts': 'census-only Codex case; periodic tier only',
-    'test/skill-e2e-auq-consistency.test.ts': 'periodic tier gate only (describeE2ETier), never diff-selected',
-    'test/skill-e2e-auq-verbose-vs-carved-ab.test.ts': 'periodic tier gate only (describeE2ETier), never diff-selected',
-  };
+  const KEYLESS_PAID: Record<string, string> = {};
 
   test('no free test file is a touchfile', () => {
     const listed = maps.flatMap(([name, map]) => Object.entries(map).flatMap(([key, deps]) =>
