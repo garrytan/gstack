@@ -130,6 +130,13 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   in 4 (36633323521, 36641820398, 36903600510 before this wave; 37176837432),
   auto-decide-preserved red in 5 (36633323521, 36776104571, 36787269090,
   36920606897 before this wave; 37176837432). Effort M.
+  **Completed:** v1.91.19.0 (2026-10-04). Step 0E now runs
+  `gstack-ceo-mode-handoff`, which prints the handoff line as a tool result,
+  and the auto-decide detector accepts the documented line with its
+  `Approved decisions:` suffix (trial 1 printed it and was rejected; the replay
+  is `test/fixtures/auto-decide-handoff-line-e354.json`). Local paid trials after
+  the repair: auto-decide-preserved 1/1, plan-ceo-mode-routing 1/1 (both modes);
+  every session ran the helper.
 - **Floor runner cannot grant an owned Edit when the TTY collapses spaces** —
   PR run 37176835584 (7249f01): plan-ceo-finding-floor timed out at 600 s with
   the native "Do you want to make this edit to gstack-test-plan-ceo-floor.md?"
