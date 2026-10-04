@@ -23,7 +23,7 @@ test('adversarial outside failures retain the required native pass without dupli
       expect(preflight).not.toMatch(/fall(?:ing)? back to (?:a|the) .*subagent/i);
       const output = generateAdversarialStep(ctx);
       expect(output).toContain('adversarial subagent (always runs)');
-      expect(output).toContain('For non-ready modes, retain the native pass above; do not dispatch it again.');
+      expect(output).toContain('For other modes, retain the native pass above; do not dispatch it again.');
       expect(output.match(/Retain the required native pass without duplicating it; it cannot complete outside coverage\./g)).toHaveLength(2);
       expect(output).not.toContain("Use the caller's fallback");
       expect(output).toContain('Only this optional outside adversarial pass is non-blocking');

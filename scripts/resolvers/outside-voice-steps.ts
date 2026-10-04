@@ -144,7 +144,7 @@ If the subagent fails or times out, record native coverage as incomplete. Contin
 function adversarialOutsideChallenge(ctx: TemplateContext, isShip: boolean): string {
   return `### ${outsideVoiceFor(ctx).label} adversarial challenge (runs whenever \`CODEX_MODE\` is \`ready\` or \`unverified\`)
 
-If \`CODEX_MODE\` is \`ready\`:
+If \`CODEX_MODE\` is \`ready\` or \`unverified\`:
 
 Outside prompt (supply repository context from the parent):
 
@@ -159,7 +159,7 @@ ${outsideVoiceFailurePolicy(ctx, { timeoutMinutes: 9, onTimeout: 'missing-covera
 
 
 
-For non-ready modes, retain the native pass above; do not dispatch it again.
+For other modes, retain the native pass above; do not dispatch it again.
 
 ---`;
 }
@@ -167,7 +167,7 @@ For non-ready modes, retain the native pass above; do not dispatch it again.
 function adversarialStructuredReview(ctx: TemplateContext, isShip: boolean): string {
   return `### ${outsideVoiceFor(ctx).label} structured review (large diffs only, 200+ lines)
 
-If \`CODEX_MODE\` is \`ready\` and either \`DIFF_TOTAL >= 200\` or the user requested the override above:
+If \`CODEX_MODE\` is \`ready\` or \`unverified\` and either \`DIFF_TOTAL >= 200\` or the user requested the override above:
 
 Prepare a structured review prompt requesting severity-tagged findings ([P0]-[P3]) or an explicit NO_FINDINGS conclusion. Preserve the base-branch scope including committed changes and working-tree changes.
 
