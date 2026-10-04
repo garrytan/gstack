@@ -2,6 +2,7 @@
 import { E2E_TOUCHFILES, E2E_TIERS, GLOBAL_TOUCHFILES, LLM_JUDGE_TOUCHFILES } from '../test/helpers/touchfiles-data';
 import { matchGlob, TOUCHFILES_DATA_PATH } from '../test/helpers/test-selection';
 import { isPaidTestFile } from '../test/helpers/paid-test-set';
+import { FREE_FIXTURES } from '../test/helpers/free-fixtures-data';
 
 /** Existing short behavioral probes; intersect with changed-input selection. */
 export const PR_PROFILE_CASE_IDS = [
@@ -79,6 +80,8 @@ export interface PrProfileSelection {
   judges: string[];
   deferred: Array<{ id: string; tier: 'gate' | 'periodic' | 'marathon'; reason: string }>;
   unknownFiles: string[];
+  /** One label and fix per unknown file (CEO-13/DX-6). */
+  unknownFileLabels: Array<{ file: string; label: string; fix: string }>;
   deferredPromptFiles: string[];
   missingCoverage: string[];
   needsFullValidation: boolean;
@@ -115,15 +118,46 @@ function matches(file: string, patterns: readonly string[]): boolean {
   return patterns.some(pattern => matchGlob(file, pattern));
 }
 
+/** Workflows that define or feed the paid eval lanes; every other workflow is free-lane only. */
+export const PAID_WORKFLOW_FILES = [
+  '.github/workflows/evals.yml',
+  '.github/workflows/evals-periodic.yml',
+  '.github/workflows/evals-marathon.yml',
+] as const;
+
+/**
+ * Files no paid case consumes. Entries may be globs. Scheduler inputs change
+ * packing and derived job timeouts, never which cases run or how they are
+ * judged; the listed workflows never run a paid case (test/free-fixtures.test.ts
+ * fails when a workflow is in neither this list nor PAID_WORKFLOW_FILES).
+ */
 export const FREE_ONLY_PR_FILES = [
   'scripts/test-free-shards.ts',
   'scripts/lib/free-home-guard.ts', // Imported only by the free shard runner.
   'test/helpers/auq-parallel-worker.ts',
-  // Read only by free tests (context-budget ratchet, host-config goldens), never by a paid case.
-  'test/fixtures/context-budget.json',
-  'test/fixtures/golden/claude-ship-SKILL.md',
-  'test/fixtures/golden/codex-ship-SKILL.md',
-  'test/fixtures/golden/factory-ship-SKILL.md',
+  'scripts/free-test-durations.json',
+  'scripts/paid-test-durations.json',
+  'scripts/ubicloud/**',
+  '.github/workflows/actionlint.yml',
+  '.github/workflows/arm-setup-smoke.yml',
+  '.github/workflows/ci-image.yml',
+  '.github/workflows/cso-runtime-images.yml',
+  '.github/workflows/cso-runtime-promote.yml',
+  '.github/workflows/cso-runtime-qualification.yml',
+  '.github/workflows/cso-scanner-images.yml',
+  '.github/workflows/dependency-review.yml',
+  '.github/workflows/free-tests.yml',
+  '.github/workflows/make-pdf-gate.yml',
+  '.github/workflows/native-qualification.yml',
+  '.github/workflows/osv-scanner.yml',
+  '.github/workflows/pr-title-sync.yml',
+  '.github/workflows/quality-gate.yml',
+  '.github/workflows/scorecard.yml',
+  '.github/workflows/skill-docs.yml',
+  '.github/workflows/test-health.yml',
+  '.github/workflows/version-gate.yml',
+  '.github/workflows/windows-free-tests.yml',
+  '.github/workflows/windows-setup-e2e.yml',
 ] as const;
 
 const FULL_GATE_PR_FILES = [
@@ -132,14 +166,31 @@ const FULL_GATE_PR_FILES = [
 ] as const;
 
 function knownNonBehaviorFile(file: string): boolean {
-  // A mapped dependency still wins over these exemptions. New helper/fixture,
-  // runtime, dependency, or workflow files are deliberately not exempted.
+  // A mapped dependency still wins over these exemptions. New helper,
+  // runtime, dependency, or paid-workflow files are deliberately not exempted.
   return /^(?:docs\/|(?:README|CONTRIBUTING|ARCHITECTURE|CHANGELOG|TODOS)\.md$|VERSION$)/.test(file)
     // Hermetic skill views exclude checkout instructions; these are maintained
     // by free doc/generation checks and are not copied into paid fixtures.
     || ['AGENTS.md', 'CLAUDE.md', 'agents-digest/gstack-AGENTS.md'].includes(file)
-    || FREE_ONLY_PR_FILES.some(freeOnly => freeOnly === file)
+    || FREE_ONLY_PR_FILES.some(pattern => matchGlob(file, pattern))
+    || (file.startsWith('test/fixtures/') && Object.keys(FREE_FIXTURES).some(pattern => matchGlob(file, pattern)))
     || (file.startsWith('test/') && /\.test\.tsx?$/.test(file) && !isPaidTestFile(file));
+}
+
+export const FALLBACK_FIX_ANCHOR = 'docs/TESTING_INTERNALS.md#pr-paid-lane-fallback';
+
+/** Why one changed file restored the full gate, and the edit that narrows it next time (DX-6). */
+export function unknownFileLabel(file: string): { label: string; fix: string } {
+  if (isPaidTestFile(file) || file.startsWith('test/helpers/')) {
+    return { label: 'needs touchfile entry', fix: `register ${file} under the cases that consume it in test/helpers/touchfiles-data.ts` };
+  }
+  if (file.startsWith('test/fixtures/')) {
+    return { label: 'needs touchfile entry', fix: `register ${file} in the touchfiles of the paid cases that read it, or add it with its free consumers to FREE_FIXTURES in test/helpers/free-fixtures-data.ts` };
+  }
+  if (/^\.github\/workflows\/[^/]+\.ya?ml$/.test(file) && !(PAID_WORKFLOW_FILES as readonly string[]).includes(file)) {
+    return { label: 'add to FREE_ONLY_PR_FILES', fix: `add ${file} to FREE_ONLY_PR_FILES in scripts/test-pr-profile.ts` };
+  }
+  return { label: 'real unknown dependency', fix: `register ${file} under the cases that consume it in test/helpers/touchfiles-data.ts, or keep the full gate` };
 }
 
 /** Only the release version may be ignored; dependency/script changes still matter. */
@@ -209,7 +260,7 @@ export function selectPrProfile(options: {
     && Object.values(maps.e2eTouchfiles).some(patterns => depends(file, patterns)));
   const missingCoverage = noQuickCoverage.filter(file => !deferredPromptFiles.includes(file));
   const reasons: string[] = [];
-  if (unknownFiles.length) reasons.push(`Unknown dependencies restore every gate case and judge: ${unknownFiles.join(', ')}`);
+  if (unknownFiles.length) reasons.push(`Unknown dependencies restore every gate case and judge: ${unknownFiles.map(file => `${file} (${unknownFileLabel(file).label})`).join(', ')}`);
   if (sharedInputs.length) reasons.push(`Shared runtime/build inputs restore every gate case and judge: ${sharedInputs.join(', ')}`);
   if (!fallback) reasons.push('Changed-input selection intersected with the fast PR profile; selected judges retained');
   if (deferred.length) reasons.push(`${deferred.length} selected behaviors remain scheduled/release coverage, not PR passes`);
@@ -217,6 +268,7 @@ export function selectPrProfile(options: {
   if (missingCoverage.length) reasons.push(`Full validation required for prompts without a relevant PR check: ${missingCoverage.join(', ')}`);
   return {
     mode: fallback ? 'full-fallback' : 'pr', e2e, judges, deferred,
-    unknownFiles, deferredPromptFiles, missingCoverage, needsFullValidation: missingCoverage.length > 0, reasons,
+    unknownFiles, unknownFileLabels: unknownFiles.map(file => ({ file, ...unknownFileLabel(file) })),
+    deferredPromptFiles, missingCoverage, needsFullValidation: missingCoverage.length > 0, reasons,
   };
 }

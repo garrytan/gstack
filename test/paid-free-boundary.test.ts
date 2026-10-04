@@ -114,7 +114,7 @@ describe('paid/free dependency boundary', () => {
       expect(result.selection).toEqual({ e2e: [], judges: [] });
     }
     for (const file of [
-      'scripts/new-helper.ts', 'scripts/free-test-durations.json', 'scripts/eval-flake-rank.ts',
+      'scripts/new-helper.ts', 'scripts/new-data.json', 'scripts/eval-flake-rank.ts',
       'lib/new-runtime.ts', 'test/helpers/new-helper.ts', 'test/fixtures/new-fixture.ts',
       '.github/workflows/new-free-tests.yml',
     ]) {
