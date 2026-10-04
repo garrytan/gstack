@@ -82,7 +82,8 @@ test('review small-diff and failed-reader paths retain QA and the required adver
   const army = generateReviewArmy({ skillName: 'review', tmplPath: 'review/SKILL.md.tmpl',
     host: 'claude', paths: HOST_PATHS.claude });
   expect(army).not.toContain('design-lite');
-  expectMentions(army.replace(/\s+/g, ' '), [['never', 'dispatched', 'incomplete']], 'army.replace(/\s+/g,  )');
+  expectMentions(army.replace(/\s+/g, ' '), [['never', 'dispatched', 'incomplete']], 'review army');
+  expect(army).not.toContain('skip silently');
 });
 
 test('review defines QA confidence, severity, impact selection and numeric version comparison', () => {

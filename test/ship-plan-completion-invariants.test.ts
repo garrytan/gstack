@@ -102,6 +102,7 @@ describe('ship/SKILL.md — Plan Completion gate invariants', () => {
   });
 
   test('Subagent failure: fail-closed, not silent fail-open', () => {
+    expect(skill).not.toMatch(/block \/ship on subagent failure/i);
     // The audit-failure fallback still forbids a silent fail-open (meaning, not the old incident ID).
     const fallback = skill.slice(skill.indexOf('**Audit-failure fallback:**'), skill.indexOf('**Audit-failure fallback:**') + 800);
     expect(fallback).toMatch(/fail[- ]open/i);

@@ -103,6 +103,7 @@ describe('pre-publication documentation lifecycle', () => {
       'Only verified permitted child edits may differ. Other edits or base changes make the audit stale',
       'Later changes require the remaining re-audit or a risk decision',
       'never silently refreshed hashes']) expect(body).toContain(text);
+    expect(body).not.toContain('block /ship on subagent failure');
   });
 
   test('stale detection does not spend the remaining audit, but repair and inline takeover do', () => {
