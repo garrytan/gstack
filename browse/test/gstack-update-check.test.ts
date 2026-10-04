@@ -1051,6 +1051,10 @@ describe('gstack-update-check commit-clock cross-check (#2378)', () => {
     expect(readFileSync(join(stateDir, 'last-update-check'), 'utf-8')).toStartWith('CHECK_FAILED ');
     const stamp = readFileSync(join(stateDir, 'last-update-check-stamp'), 'utf-8').trim();
     expect(stamp.split(' ')[0]).toBe(git(install, 'rev-parse', 'HEAD'));
+    // Replayable, not just stamped: a remote that WOULD flag this behind
+    // install proves the second run never reached the slow path.
+    expectSilent(run({ ...gitEnv, GSTACK_DIR: install }), 'stamped CHECK_FAILED must replay inside its TTL');
+    expect(readFileSync(join(stateDir, 'last-update-check'), 'utf-8')).toStartWith('CHECK_FAILED ');
   });
 
   test('snoozed commit-clock verdict still stamps', () => {
