@@ -1,11 +1,13 @@
 # Quality gate (fork port wave 2, adapted from time-attack/gstack GStack 2).
 #
-# Three generic hygiene checks the repo previously had nowhere in CI:
+# Generic hygiene checks:
 #   1. Credential scan of the PR diff's ADDED lines through our own
 #      bin/gstack-redact (HIGH fails the check; MEDIUM is an advisory count —
 #      there is no human in CI to confirm, so it never fails here).
-#   2. bun audit at critical severity.
-#   3. ShellCheck (errors only) on the setup/build shell boundary.
+#   2. ShellCheck (errors only) on the setup/build shell boundary.
+# Dependency advisories are gated by dependency-review.yml (PRs that change
+# the lockfile) and the weekly osv-scanner.yml sweep, not here: an unrelated
+# PR must not turn red because an advisory was published that morning.
 #
 # Trigger is `pull_request`, NEVER `pull_request_target`: fork PRs must not
 # get secret-bearing contexts. Diff excludes cover the planted-bug fixtures
@@ -23,12 +25,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: quality-gate-${{ github.workflow }}-${{ github.ref }}
+  # PR-number keyed; pushes to main get their own run_id group so
+  # back-to-back merges never cancel each other's credential scan.
+  group: quality-gate-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   quality:
-    runs-on: ubicloud-standard-8
+    # A ~1-minute job: GitHub's free hosted runner (public repo), not a
+    # billed 8-vCPU Ubicloud machine.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       # Shallow checkout: fetch-depth:0 cost 74s of a 92s job for checks that
@@ -75,9 +81,6 @@ jobs:
             ':(exclude)docs/evals/**' \
             ':(exclude)test/helpers/security-bench*' \
             | node .github/scripts/gate-secret-scan.mjs
-
-      - name: Gate critical dependency advisories
-        run: bun audit --audit-level=critical
 
       - name: Install ShellCheck
         run: |
