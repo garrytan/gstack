@@ -157,7 +157,7 @@ export function assertQaBrowserCheckpoints(transcript: unknown[], options: Pick<
 
 export function assertQaBrowserDeadline(calls: Call[], options: Options & { expectedBudgetMs?: number }) {
   const fail = (reason: string): never => { throw new Error('QA deadline: ' + reason); };
-  const { directory, guard, browse, started, ended, expectedBudgetMs = 180_000 } = options;
+  const { directory, guard, browse, started, ended, expectedBudgetMs = 30000 } = options;
   if (!Number.isSafeInteger(expectedBudgetMs) || expectedBudgetMs <= 0 || expectedBudgetMs > 2_147_483_647) fail('invalid expected deadline budget');
   const { file, allowed } = qaDeadlineShellPolicy(directory, guard, browse);
   const reportRoot = path.join(directory, 'qa-reports');
