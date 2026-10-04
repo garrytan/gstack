@@ -62,7 +62,7 @@ Branch on the echoed `CODEX_MODE`:
 - **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out; say so, and let the pass's own verdict decide.
 
 `CODEX_MODE: disabled` means skip the Codex passes ONLY.
-`ready` runs them; every other mode skips them with the printed reason.
+`ready` and `unverified` run them; every other mode skips them with the printed reason.
 The Claude adversarial subagent always runs.
 
 **User override:** If the user explicitly requested "full review", "structured review", or "P1 gate", also run the Codex structured review regardless of diff size (still requires `CODEX_MODE: ready` (or `unverified`)).

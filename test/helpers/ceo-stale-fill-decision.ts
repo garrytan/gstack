@@ -36,7 +36,7 @@ function ledgerRows(lines: string[]): Map<string, string> {
     if (!LEDGER_HEADER.test(lines[i]!)) continue;
     for (let j = i + 2; j < lines.length && lines[j]!.trimStart().startsWith('|'); j++) {
       const cells = lines[j]!.trim().slice(1, -1).split('|').map(cell => cell.trim());
-      const id = /^(R[1-9][\w-]*)(?=\s|$)/.exec(cells[0] ?? '')?.[1];
+      const id = /^([A-Za-z][\w-]*)(?=\s|$)/.exec(cells[0] ?? '')?.[1];
       // A row that does not split into the six ledger cells is not a record.
       if (!id || cells.length !== 6) continue;
       rows.set(id, cells[4]!);
@@ -50,7 +50,7 @@ export function hasApprovedStaleFillDecision(report: string): boolean {
   const lines = proseLines(report);
   const rows = ledgerRows(lines);
   for (let i = 0; i < lines.length; i++) {
-    const rowId = /^#{2,3}\s+currentDecision \((R[1-9][\w-]*)\)\s*$/.exec(lines[i]!)?.[1];
+    const rowId = /^#{2,3}\s+currentDecision \(([A-Za-z][\w-]*)\)\s*$/.exec(lines[i]!)?.[1];
     if (!rowId) continue;
     for (let j = i + 1; j < lines.length && !/^#{1,6}\s/.test(lines[j]!); j++) {
       const subject = /^Question:\s*D[1-9]\d*\s*[—–-]\s*(.+)$/.exec(lines[j]!)?.[1];

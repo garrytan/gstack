@@ -6,7 +6,8 @@ import { CEO_SECTION_CACHE_PLAN, hasStaleFillRaceFinding } from './helpers/ceo-s
 
 const dir = path.join(import.meta.dir, 'fixtures', 'ceo-stale-fill-decision');
 const capture = (name: string) => fs.readFileSync(path.join(dir, name), 'utf8');
-const MISSED = ['census-37182865432-missed.md', 'census-37178734784-missed.md'];
+// census-37193478719: the skill names ledger rows freely (CEO-F1), not only R<n>.
+const MISSED = ['census-37182865432-missed.md', 'census-37178734784-missed.md', 'census-37193478719-missed.md'];
 const PASSED = 'census-37179171083-passed.md';
 
 describe('CEO stale-fill decision from the skill-defined ledger and currentDecision records', () => {
