@@ -992,9 +992,6 @@ async function main(): Promise<number> {
         } : {}),
         env: {
           ...process.env,
-          // Manifest filenames already encode carve selection. Ambient scope
-          // must not suppress a planned wrapper when this slice executes.
-          GSTACK_CARVE_SKILL: '',
           EVALS: '1',
           EVALS_TIER: options.tier,
           EVALS_ALL: manifest.evalsAll ? '1' : '',

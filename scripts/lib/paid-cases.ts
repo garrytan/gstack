@@ -51,6 +51,8 @@ export function fileCaseRegistration(
  * id or its CASE_TEST_NAMES label (test/paid-shards.test.ts scans the sources).
  */
 export const CASE_SHARDED_FILES: readonly string[] = [
+  // W5a: one carved skill per case shard (was 15 one-line wrapper files under one case id).
+  'test/carve-section-loading.test.ts',
   'test/skill-e2e-deploy.test.ts',
   'test/skill-e2e-design.test.ts',
   'test/skill-e2e-plan.test.ts',

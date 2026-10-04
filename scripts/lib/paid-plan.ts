@@ -307,7 +307,7 @@ export function buildRunManifest(opts: {
   const profile = opts.profile ?? validatedProfile(env.EVALS_PROFILE, 'EVALS_PROFILE');
   if (profile === 'pr' && opts.tier !== 'gate') throw new Error('PR profile requires gate tier; use --profile full for periodic coverage');
   const discovered = opts.discovered ?? collectPaidTestFiles(rootDir);
-  const tierSelection = selectPaidTestFiles(discovered, opts.tier, rootDir, env);
+  const tierSelection = selectPaidTestFiles(discovered, opts.tier, rootDir);
   const judge = (file: string) => /^test\/skill-llm-eval[^/]*\.test\.ts$/.test(normalizeRelativePath(file));
   const selected = opts.skipJudges ? tierSelection.selected.filter(file => !judge(file)) : tierSelection.selected;
   const kinds = opts.kinds ?? E2E_KINDS;

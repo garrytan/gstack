@@ -117,27 +117,15 @@ export interface TierSelection {
   excluded: Array<{ file: string; reason: string }>;
 }
 
-export function selectPaidTestFiles(files: string[], tier: PaidTier, rootDir = ROOT, env: NodeJS.ProcessEnv = process.env): TierSelection {
+export function selectPaidTestFiles(files: string[], tier: PaidTier, rootDir = ROOT): TierSelection {
   const selected: string[] = [];
   const excluded: Array<{ file: string; reason: string }> = [];
-  const carveSkill = tier === 'periodic' ? env.GSTACK_CARVE_SKILL?.trim() : undefined;
-  const carveWrapper = (file: string) => /^test\/carve-section-loading-(.+)\.test\.ts$/.exec(normalizeRelativePath(file))?.[1];
-  if (carveSkill && files.some(file => carveWrapper(file)) && !files.some(file => carveWrapper(file) === carveSkill)) {
-    throw new Error(`GSTACK_CARVE_SKILL=${carveSkill} has no generic section-loading wrapper`);
-  }
   // Scheduled-lane exclusions (documented-red / manual-hardware files): a
   // known-red weekly shard is triage waste locally AND in CI, so the list
   // applies to every periodic and marathon run, with the reason surfaced per file.
   const ciExcluded = (file: string): { reason: string; tracking: string } | undefined =>
     tier !== 'gate' ? PERIODIC_CI_EXCLUDE[normalizeRelativePath(file)] : undefined;
   for (const file of files) {
-    // One wrapper per process means a child-side return now creates an empty
-    // shard. Apply the existing explicit cost scope before planning processes.
-    const skill = carveWrapper(file);
-    if (carveSkill && skill && skill !== carveSkill) {
-      excluded.push({ file, reason: `GSTACK_CARVE_SKILL=${carveSkill} selects another section-loading case` });
-      continue;
-    }
     const exclusion = ciExcluded(file);
     if (exclusion) {
       excluded.push({ file, reason: `excluded: ${exclusion.reason} [${exclusion.tracking}]` });
