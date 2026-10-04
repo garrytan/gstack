@@ -1,25 +1,10 @@
 import type { SharedQuestionSelector } from './shared-libs-eval-fixture';
 
-/**
- * A whole clause that only lists excluded work: a bare list of scope nouns and
- * an exclusion predicate, e.g. "Existing copies and helper hardening stay
- * unchanged", "Hardening is outside this decision", "Existing-caller migration
- * and helper hardening stay out of scope", and the verbless "Scheduler semantics,
- * existing callers and helper hardening unchanged". A clause with any other verb, such
- * as "Harden helper parsing so behavior stays unchanged", is not an exclusion.
- */
-const SCOPE_ITEM = String.raw`(?:(?:the|existing|current|its|all|both|helper|parser|lib|shared|callers?|scheduler)[\s-]+)*(?:copies|callers?|hardening|migrations?|semantics|behaviou?r|contract|helper|parser)`;
-const SCOPE_STATE = String.raw`(?:unchanged|untouched|excluded|out of scope|outside|not part)`;
-// The predicate may combine exclusion states: "stay unchanged/out of scope", "remain unchanged and excluded".
-const SCOPE_EXCLUSION = new RegExp(String.raw`^${SCOPE_ITEM}(?:\s*,\s*${SCOPE_ITEM})*(?:,?\s+and\s+${SCOPE_ITEM})?(?:\s+(?:is|are|stays?|remains?))?\s+`
-  + String.raw`${SCOPE_STATE}(?:\s*(?:\/|,|\bor\b|\band\b)\s*${SCOPE_STATE})*(?:\s+(?:of\s+)?(?:this|the)\s+(?:decision|scope|plan|change))?[.!]?$`, 'i');
-
-/** Separate explicit exclusions from proposals; do not erase a following "but" clause. */
+/** Drop explicitly negated clauses; do not erase a following "but" clause. */
 function affirmativeCommitments(text: string): string {
   return text.split(/\n|;|(?<=[.!?])\s+|\s+but\s+|\s+however,?\s+/i).map(raw => {
     let clause = raw.replace(/^[✅❌\s]+/, '').replace(/\s*\((?:no|not|without|never)\b[^()]*\)/gi, '').trim();
     if (/^(?:do not|don't|never|no\b|without\b)/i.test(clause)) return '';
-    if (SCOPE_EXCLUSION.test(clause)) return '';
     clause = clause.replace(/\b(?:without|do not|don't|never)\b.*$/i, '');
     return clause;
   }).filter(Boolean).join('\n');
@@ -101,9 +86,16 @@ export function createSharedPlanReuseSelector(): SharedQuestionSelector {
       }
       // Inspect the question as well as the selected option: a harmless label must
       // not authorize an extra commitment hidden in its brief or description.
-      const proposed = affirmativeCommitments(context + '\n' + commitment);
+      // A Recommendation's "because" clause is rationale about the choice ("the
+      // plan fixes behavior to the existing helper"); the recommended choice and
+      // every other brief and option line carry what the option commits to.
+      const briefCommitments = context.split('\n')
+        .map(line => /^\s*Recommendation\s*:/i.test(line) ? line.replace(/\s+because\b.*$/i, '') : line).join('\n');
+      const proposed = affirmativeCommitments(briefCommitments + '\n' + commitment);
       const expansions = [
-        /\b(?:harden\w*|tighten\w*|strict(?:er)?|saniti[sz]\w*|coerc\w*)\b/i,
+        // Forbidden actions are verb + object, never a bare noun: "helper hardening
+        // unchanged" or "a future hardening change" names work, it does not propose it.
+        /\b(?:harden(?:s|ed|ing)?|tighten(?:s|ed|ing)?|saniti[sz](?:e|es|ed|ing)|coerc(?:e|es|ed|ing))\s+(?:(?:the|its|our|existing|shared|current|retry-after|numeric|header|malformed(?:-header)?|helper's|parser's)\s+)*(?:helper|parser|parsing|retrySeconds|lib\/retry-after\.ts|inputs?|headers?|values?|validation|scheduler|fallback|contract)\b|\bstricter\s+(?:parsing|validation|checks?|helper|parser)\b|\b(?:with|plus|including|adds?|adding)\s+(?:(?:helper|parser|input|header)\s+)?(?:hardening|tightening|sanitization)\b|\b(?:hardening|tightening|sanitization)\s+(?:included|added|applied|too|as well)\b/i,
         /\b(?:add(?:s|ing)?|insert(?:s|ing)?|introduc(?:e|es|ing)|implement(?:s|ing)?|appl(?:y|ies|ying)|enabl(?:e|es|ing)|creat(?:e|es|ing))\s+(?:(?:a|an|the|one|new|shared|extra|explicit|validation|numeric|malformed|input|parser)\s+)*(?:guard|validator|validation|normalization)\b/i,
         /\b(?:chang(?:e|es|ing)|alter(?:s|ing)?|modif(?:y|ies|ying)|patch(?:es|ing)?|fix(?:es|ing)?|updat(?:e|es|ing)|replac(?:e|es|ing))\s+(?:(?:the|existing|shared|current|its|our)\s+)*(?:(?:retry-after|numeric|malformed|header)\s+)*(?:helper|parser|scheduler|behavior|semantics|contract|parsing|fallback|ceiling|cap|retrySeconds|lib\/retry-after\.ts)\b/i,
         /\b(?:raise|lower|increase|decrease|remove|drop|bypass|disable)\b[^.!?\n]{0,60}\b(?:ceiling|cap|fallback|limit|bound)\b/i,
