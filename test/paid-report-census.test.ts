@@ -54,8 +54,8 @@ describe('census attribution from the 2026-10-03 artifacts', () => {
     expect(r.out).toContain('  ⚠ test/skill-e2e-test-value.test.ts (3 skipped — 3 gate-tier case (this lane runs periodic))');
     expect(r.out).not.toContain('UNATTRIBUTED');
     expect(r.history.map(record => `${record.case}:${record.outcome}`).sort()).toEqual([
-      'benchmark-providers-live:passed', 'carve-section-loading-review:passed', 'cso-full-audit:passed', 'cso-infra-scope:passed',
-      'codex-recommendation-substance:passed', 'design-consultation-core:passed', 'qa-fix-loop:passed',
+      'benchmark-providers-live:passed', 'carve-section-loading-review:passed', 'codex-recommendation-substance:passed',
+      'cso-full-audit:passed', 'cso-infra-scope:passed', 'design-consultation-core:passed', 'qa-fix-loop:passed',
     ]);
     expect(r.history.find(record => record.case === 'benchmark-providers-live')).toMatchObject({ file: 'test/skill-e2e-benchmark-providers.test.ts', source: 'junit' });
     expect(r.history.filter(record => record.file === 'test/skill-e2e-design.test.ts'))
