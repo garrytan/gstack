@@ -242,6 +242,19 @@ gate census: `--emit-plan <file> --slice-budget S --jobs 2 --skip-judges`):
 
 The PR lane (`evals.yml`) uses the same 420-second budget and per-slice ceilings.
 
+### Free suite
+
+- The Windows lane runs on six `windows-latest` jobs packed by Windows-measured
+  durations: about 4.6 minutes wall in the free-suite branch's validation runs,
+  down from 8.1 minutes on one runner.
+- Unseeded files pack at the 99th percentile (was the 75th), and the seed growth
+  ratchet (`test/free-seed-ratchet.test.ts`) keeps files over 60 seconds on a
+  shrink-only allowlist.
+- The bash+zsh portability tests (#2669) run in CI now that the free-suite job
+  installs zsh.
+- Native Windows and Dia qualification campaigns moved out of the PR workflow
+  into the dispatch-only `native-qualification.yml`.
+
 ### Prose pins (D2)
 
 D2 is approved: the prompt-byte contract in

@@ -184,9 +184,9 @@ This does not change the separate CI machine count. Full-suite shards are packed
 DURATIONS (LPT, `packShardsByDuration`) when the committed seed
 `scripts/free-test-durations.json` exists — refresh it with
 `bun run test:ubicloud --record-durations`, which times each file in its own
-child on a VM with the CI lane's environment and copies the seed back. That is
-the only acceptable seed source; see [Duration seed](#duration-seed). Missing seed → silent hash-shard fallback; corrupt seed → one warning +
-fallback; unknown files get 75th-percentile pessimism, and both full-suite and
+child on a VM with the CI lane's environment and copies the seed back; see
+[Free suite duration seed](#free-suite-duration-seed). Missing seed → silent hash-shard fallback; corrupt seed → one warning +
+fallback; unknown files get 99th-percentile pessimism, and both full-suite and
 `--ci-plan` runs name them on stderr so a new slow file cannot silently become
 the long pole. Packed
 shards get duration-aware walls (`max(base, predicted × 3, files × 5s)`). The
@@ -652,8 +652,8 @@ checkout to it: tracked files, untracked files that are not ignored, and
 `.git`, so uncommitted edits are tested. It then runs
 `scripts/ubicloud/setup-free-suite.sh`, which mirrors the `free-suite` CI job
 (same Bun pin, Playwright Chromium with its setuid sandbox helper, Xvfb,
-poppler, emoji fonts, generated host outputs, gate binaries, and the CSO
-helper), and runs `xvfb-run -a bun run test:free` with `GSTACK_EXPECT_BINARIES=1`
+poppler, emoji fonts, zsh for the bash+zsh portability arms (#2669), generated
+host outputs, gate binaries, and the CSO helper), and runs `xvfb-run -a bun run test:free` with `GSTACK_EXPECT_BINARIES=1`
 and `GSTACK_FREE_RETRY_FLAKY=1`. Shard logs are copied to
 `.context/ubicloud/<timestamp>/`, and the VM is destroyed on every exit path.
 The exit status is the suite's.
@@ -846,16 +846,90 @@ prints a run's ledgers as a table. A flaky file is fixed at source; the retry
 never masks it. `bun run eval:pass-rates` lists only the local ledger
 (`flakeLedgerPath()`, overridden by `GSTACK_FLAKE_LEDGER`).
 
-### Duration seed
+The aggregate job of `free-tests.yml` downloads every `flake-ledger-*` artifact
+of the run and appends `bun run scripts/test-health-report.ts flake-summary <dir>`
+to its job summary. The Windows lane uploads `flake-ledger-windows-<shard>`.
 
-`scripts/free-test-durations.json` drives shard packing. Acceptable seeds come
-from `bun run test:ubicloud --record-durations` (each file timed in its own
-child on a VM with the CI lane's environment) or a CI recording. A 4-core laptop
-or small-sandbox recording is not acceptable: browser and display tests skip or
-slow down there, so the seed misstates them. The weekly test-health run fails its
-enforced `unseeded-free-files` check ("stale seed: N unseeded file(s) > 5") when
-more than 5 free test files are missing from the seed, so contributors without
-Ubicloud access learn within a week that it needs a refresh.
+Free-suite flake rules:
+
+- Bun gives a child `stdio: 'pipe'` a unix socketpair. A test that must hold a
+  write blocked uses a FIFO the test never reads (`test/qa-evidence.test.ts`,
+  `test/qa-deadline.test.ts`), not a paused child stream: socket capacity follows
+  `net.core.{w,r}mem_default` and the parent's reader.
+- A test that rewrites CI provenance variables (`CI`, `GITHUB_*`, `CI_*`)
+  restores them. Free shards run many files in one process, and a later browse
+  daemon without `CI=true` launches Chromium sandboxed.
+- Handshakes with a runner wait for the runner's own observable effect (its
+  progress line, a coalesced read count), not for a fixture side file or a timer.
+
+### Free suite duration seed
+
+`scripts/free-test-durations.json` drives shard packing; files missing from it
+pack at the seed's 99th percentile. Acceptable seeds come from
+`bun run test:ubicloud --record-durations` (each file timed in its own child on a
+VM with the CI lane's environment) or a CI recording. A 4-core laptop or
+small-sandbox recording is not acceptable: browser and display tests skip or slow
+down there, so the seed misstates them.
+
+- `--ci-plan` warns in the job summary, with the refresh command, when more than 5
+  files are unseeded; it never fails a PR. `--ci-verify` lists shards that ran
+  longer than 1.5× their prediction and at least 30 seconds over.
+- The weekly test-health run fails its enforced `unseeded-free-files` check
+  ("stale seed: N unseeded file(s) > 5") when more than 5 free test files are
+  missing from the seed, so contributors without Ubicloud access learn within a
+  week that it needs a refresh.
+- `test/free-seed-ratchet.test.ts` (run with full history in `free-tests.yml`'s
+  `free-plan` job, `GSTACK_FREE_SEED_BASE=$(git merge-base HEAD origin/main)`)
+  fails when a seeded file over 60 seconds is missing from
+  `scripts/free-test-seed-allowlist.json`, when an allowlist entry is stale (gone,
+  or no longer over 60 seconds), or when an entry is added relative to the
+  merge-base copy without a `todo`. An annotated exception is
+  `{file, reason, todo}` and the test prints it. A merge-base without the
+  allowlist file counts as the first allowlist. Fix a failure by splitting the
+  file, then rerun `bun run test:ubicloud --record-durations`.
+
+### Windows free lane
+
+`windows-free-tests.yml` plans on Linux (`--windows-only --ci-plan --shards 6`),
+runs one strict serial shard per `windows-latest` job
+(`bun run test:windows --ci-run`), and verifies every shard receipt on Linux
+(`--windows-only --ci-verify`). Packing uses Windows-measured durations from
+`scripts/free-test-durations-windows.json`; refresh them with
+`gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`,
+then download the `free-test-durations-windows` artifact and commit it.
+
+Curation lives in `scripts/lib/windows-curation.ts`. Every Windows plan and
+`--list` prints the curated count and the top exclusion reasons (also in the job
+summary). Files a probe proved safe despite a `/tmp` literal are force-included
+(`WINDOWS_PROBE_SAFE`). `test/windows-native-workflows.test.ts` holds
+`WINDOWS_CURATED_FLOOR`; when Windows-safe tests are deleted on purpose, lower it
+in the same PR with a reason.
+
+Native qualification campaigns (Windows cookie extraction, Windows launch
+diagnostics, Dia on macOS) run only on dispatch of `native-qualification.yml`:
+
+```bash
+gh workflow run native-qualification.yml --ref <branch> -f mode=<cookie-native|windows-native-diagnostics|dia-native|dia-launch-comparison|dia-gui-readiness>
+```
+
+### Real-setup install fixture
+
+Tests that run the real `setup` use `test/helpers/install-fixture.ts`. Each test
+file builds one read-only seed checkout and clones it per test with
+copy-on-write file copies (plain copy fallback), never hard links. Writes go
+through `put`, `setVersion` and the `fixture*Sync` helpers; files register
+`afterEach(cleanupFixtures)` and `afterAll(cleanupSeed)`.
+`test/install-fixture.test.ts` is the isolation tripwire: writes in one clone
+leave the seed and sibling clones unchanged.
+
+### Test-only timing knobs
+
+Defaults are the product's; tests shrink them instead of waiting real time:
+`GSTACK_RENDER_SLACK_MS` (`lib/aside-render.ts`, default 10000),
+`GSTACK_MEMORABLE_LOCK_TRIES` (`bin/gstack-memorable`, default 50 tries of 0.1 s),
+the `recordGraceMs` option of `test/helpers/office-hours-attempt.ts` (default
+5000) and the `timeoutMs` argument of `clearCookieTargetStorage(page, origin,
+timeoutMs)` (default 15000).
 
 ## Running evals as an agent: detach
 

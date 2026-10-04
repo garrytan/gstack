@@ -186,7 +186,9 @@ the new defaults.
 | Run one free test file while repairing | `bun test <file>` | Free, seconds | Never bare `bun test` for the suite |
 | Run full free acceptance before publishing | `bun run test` | Free, a few minutes | Bun 1.4.0 |
 | Run the full free suite from a small machine | `bun run test:ubicloud` | Free suite on a billed 16-vCPU VM, about 5 minutes | `UBICLOUD_API_KEY` |
-| Run the curated Windows-safe subset | `bun run test:windows` | Free | Windows, Git Bash |
+| Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs) | Free | Windows, Git Bash |
+| Refresh the Windows duration seed | `gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`, then commit the `free-test-durations-windows` artifact | Free CI runners | Pushed branch, `gh` with workflow rights |
+| Run a native Windows or Dia qualification campaign | `gh workflow run native-qualification.yml --ref <branch> -f mode=<mode>` ([modes](docs/TESTING_INTERNALS.md#windows-free-lane)) | Free CI runners | Pushed branch, `gh` with workflow rights |
 | Preview which paid cases my diff selects | `bun run eval:select` (PR profile; `--profile full` for the plain touchfile selection) | Free | — |
 | Preview the CI paid slice plan | `bun run scripts/test-paid-shards.ts --tier periodic --list --slice-budget 420 --jobs 2` (diff-selected; `EVALS_ALL=1` lists everything) | Free | — |
 | Run paid coverage for my change (agents: detached) | `bun run eval:bg:pr` (foreground: `bun run test:pr`) | API spend for the selected cases only; about 10 minutes when dispatched to CI | Dispatch: a clean, pushed HEAD and `gh`. Local fallback: `ANTHROPIC_API_KEY`, Claude Code CLI, a plain terminal |
@@ -322,7 +324,9 @@ four and a half minutes end to end, including VM boot and setup). The
 historical six-worker result below and the
 [four-CPU portfolio comparison](docs/TEST_PORTFOLIO.md#measurement-contract)
 are machine-specific measurements. CI setup, build and queue time are reported
-separately. Refresh measurements with `bun run test:ubicloud --record-durations`;
+separately. Refresh measurements with `bun run test:ubicloud --record-durations`
+(a laptop recording is not an acceptable seed; see
+[free suite duration seed](docs/TESTING_INTERNALS.md#free-suite-duration-seed));
 before publication, classify new regressions for quick feedback using that seed
 and the existing `QUICK_CORE` list. Do not classify unknown files as fast or use
 quick results as release acceptance. The runner retains full logs in

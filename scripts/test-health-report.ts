@@ -138,7 +138,7 @@ export function flakeCheck(window: FlakeWindow | Error): Check {
 
 export function unseededCheck(root: string): Check {
   const base = { id: 'unseeded-free-files', title: 'Free test files missing from the duration seed (CEO-10)',
-    fix: 'Refresh the seed: `bun run test:ubicloud --record-durations` (or a CI recording; a 4-core laptop recording is not acceptable), then commit scripts/free-test-durations.json (docs/TESTING_INTERNALS.md#duration-seed).' };
+    fix: 'Refresh the seed: `bun run test:ubicloud --record-durations` (or a CI recording; a 4-core laptop recording is not acceptable), then commit scripts/free-test-durations.json (docs/TESTING_INTERNALS.md#free-suite-duration-seed).' };
   const durations = loadFreeTestDurations(root);
   if (!durations) return { ...base, status: 'unavailable', detail: 'unavailable: scripts/free-test-durations.json is missing or unreadable; next: refresh the seed' };
   const unseeded = unseededFreeFiles(collectFreeTestFiles(root), durations);

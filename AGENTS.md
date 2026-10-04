@@ -267,8 +267,9 @@ Agents poll `eval:bg:*` logs for the `### gstack-detach EXIT=<code> ###` sentine
 ## Platform support
 
 - **macOS** + **Linux**: full test suite supported.
-- **Windows**: curated Windows-safe subset runs on `windows-latest` via the
-  `windows-free-tests` CI job. Setup script (`./setup`) requires Git Bash or
+- **Windows**: the curated Windows-safe subset runs in the `windows-free-tests`
+  CI workflow across six `windows-latest` jobs, packed by Windows-measured
+  durations. Setup script (`./setup`) requires Git Bash or
   MSYS today; native PowerShell support is a future expansion. The `bin/gstack-paths`
   helper resolves state roots through `CLAUDE_PLUGIN_DATA` / `GSTACK_HOME` so plugin
   installs work on every platform.

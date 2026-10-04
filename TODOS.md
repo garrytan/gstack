@@ -256,6 +256,14 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   stealth/tab tests, pty-workspace-trust, heredoc-pipe-deadlock among them)
   leaves state the hook's blocking path waits on. Reproduce with that shard's
   plan under xvfb and GSTACK_EXPECT_BINARIES=1. Effort S.
+  **Progress (2026-10 audit):** not reproduced. The failing shard-12 plan of run
+  36714493424, replayed at its head (dfe5e733) and on 2db0b3a in one process
+  under xvfb with the runner's sandbox environment, with and without `CI=true`,
+  does not hang. The CI logs show the hang is not hook-specific: `beforeEach` git
+  calls and `bash -c` children in that file also time out, one run killed up to
+  27 dangling processes, and the escape-valve case that never runs git hung too.
+  Next step: capture a process-tree dump of the dangling children when a test in
+  that file times out.
 - **Let pass-rate history decide the rest** — every census on this branch had
   a different handful of single-trial reds. Once `eval:pass-rates` has 10 weekly
   trials per case, apply the CASE_QUARANTINE entry rule instead of chasing one
