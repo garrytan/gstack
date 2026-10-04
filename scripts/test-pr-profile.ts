@@ -139,6 +139,11 @@ export const FREE_ONLY_PR_FILES = [
   'scripts/free-test-durations.json',
   'scripts/paid-test-durations.json',
   'scripts/ubicloud/**',
+  'scripts/retired-command.ts', // One-release stubs for retired package scripts; no paid case imports it.
+  // Reporting and launch tools: they read CI history or start a lane, never run inside a paid case.
+  'scripts/test-health-report.ts',
+  'scripts/bump-harness-version.ts',
+  'scripts/eval-bg.ts',
   '.github/workflows/actionlint.yml',
   '.github/workflows/arm-setup-smoke.yml',
   '.github/workflows/ci-image.yml',
@@ -151,6 +156,7 @@ export const FREE_ONLY_PR_FILES = [
   '.github/workflows/make-pdf-gate.yml',
   '.github/workflows/native-qualification.yml',
   '.github/workflows/osv-scanner.yml',
+  '.github/workflows/platform-qualification.yml',
   '.github/workflows/pr-title-sync.yml',
   '.github/workflows/quality-gate.yml',
   '.github/workflows/scorecard.yml',
