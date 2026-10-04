@@ -422,7 +422,10 @@ describe('gstack-skill-start behavior', () => {
       expect(pending).toMatch(/^ARTIFACTS_SYNC: off$/m);
       expect(fs.existsSync(pullStamp)).toBe(false);
 
-      expect(gates(start('', { GSTACK_SESSION_KIND: 'spawned' }))).toBe(0);
+      const spawnedPending = start('', { GSTACK_SESSION_KIND: 'spawned' });
+      expect(gates(spawnedPending)).toBe(0);
+      expect(spawnedPending).toMatch(/^ARTIFACTS_SYNC: off \(spawned session; artifacts stay local\)$/m);
+      expect(fs.readFileSync(path.join(gh, 'config.yaml'), 'utf-8')).not.toContain('artifacts_sync_mode_prompted');
       expect(fs.existsSync(pullStamp)).toBe(false);
 
       const consented = start('artifacts_sync_mode: full\nartifacts_sync_mode_prompted: true\n');
@@ -430,6 +433,49 @@ describe('gstack-skill-start behavior', () => {
       expect(fs.existsSync(pullStamp)).toBe(true);
     } finally {
       for (const dir of [gh, bin, remote]) fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('spawned start and end never sync even with a previously enabled full mode', () => {
+    const gh = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-local-only-'));
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-ss-local-bin-'));
+    const calls = path.join(gh, 'sync-calls');
+    const queued = path.join(gh, '.brain-queue.d', 'pending.json');
+    const config = 'update_check: false\nartifacts_sync_mode: full\nartifacts_sync_mode_prompted: true\n';
+    try {
+      execFileSync('git', ['init', '-q', '-b', 'main', gh]);
+      fs.writeFileSync(path.join(gh, 'config.yaml'), config);
+      fs.mkdirSync(path.dirname(queued));
+      fs.writeFileSync(queued, '{"file":"local-report.md"}\n');
+      fs.writeFileSync(path.join(gh, '.brain-last-pull'), String(Math.floor(Date.now() / 1000)));
+      for (const name of fs.readdirSync(path.join(ROOT, 'bin'))) {
+        if (name !== 'gstack-brain-sync') fs.symlinkSync(path.join(ROOT, 'bin', name), path.join(bin, name));
+      }
+      fs.writeFileSync(path.join(bin, 'gstack-brain-sync'), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$SYNC_CALLS"\n', { mode: 0o755 });
+      const run = (script: string, args: string[], extra: Record<string, string> = {}) =>
+        execFileSync(path.join(bin, script), args, {
+          cwd: tmpHome, timeout: 30_000, encoding: 'utf-8',
+          env: { PATH: process.env.PATH!, HOME: tmpHome, GSTACK_HOME: gh, SYNC_CALLS: calls, ...extra },
+        });
+
+      const spawned = run('gstack-skill-start', ['--skill', 'testskill'], { GSTACK_SESSION_KIND: 'spawned' });
+      expect(spawned).toMatch(/^ARTIFACTS_SYNC: off \(spawned session; artifacts stay local\)$/m);
+      run('gstack-skill-end', ['--skill', 'testskill', '--session-kind', 'spawned']);
+      // The OpenClaw marker is session-wide; it also protects callers that omit the CLI flag.
+      run('gstack-skill-start', ['--skill', 'testskill'], { OPENCLAW_SESSION: '1' });
+      run('gstack-skill-end', ['--skill', 'testskill'], { OPENCLAW_SESSION: '1' });
+      expect(fs.existsSync(calls)).toBe(false);
+      expect(fs.existsSync(queued)).toBe(true);
+      expect(fs.readFileSync(path.join(gh, 'config.yaml'), 'utf-8')).toBe(config);
+
+      const interactive = run('gstack-skill-start', ['--skill', 'testskill']);
+      expect(interactive).toMatch(/^ARTIFACTS_SYNC: mode=full/m);
+      run('gstack-skill-end', ['--skill', 'testskill', '--session-kind', 'interactive']);
+      expect(fs.readFileSync(calls, 'utf-8').trim().split('\n')).toEqual([
+        '--once', '--discover-new', '--once',
+      ]);
+    } finally {
+      for (const dir of [gh, bin]) fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

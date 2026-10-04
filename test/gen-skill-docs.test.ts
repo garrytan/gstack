@@ -169,6 +169,13 @@ afterAll(() => {
 });
 
 describe('gen-skill-docs', () => {
+  test('generated skills carry the spawned local-artifacts rule through both skill boundaries', () => {
+    const skill = readSkillUnion('review');
+    expect(skill).toContain('keep artifacts local');
+    expect(skill).toContain('artifacts_sync_mode_prompted');
+    expect(skill).toContain('--session-kind "SESSION_KIND"');
+  });
+
   // Browse carve (token-reduction Phase 4): the command reference + snapshot
   // flags render into browse/sections/command-list.md now — read the
   // skeleton+sections union so these pins hold across the carve.

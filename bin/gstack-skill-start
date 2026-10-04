@@ -290,7 +290,7 @@ if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ] && grep -q '"gbr
   esac
 fi
 
-if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
+if [ "$_SESSION_KIND" != "spawned" ] && [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
   _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
   if [ -n "$_BRAIN_NEW_URL" ]; then
     printf 'ARTIFACTS_SYNC: artifacts repo detected: %s\n' "$_BRAIN_NEW_URL" | _sanitize
@@ -298,7 +298,7 @@ if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE"
   fi
 fi
 
-if [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
+if [ "$_SESSION_KIND" != "spawned" ] && [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   _BRAIN_LAST_PULL_FILE="$_GH/.brain-last-pull"
   _BRAIN_NOW=$(date +%s)
   _BRAIN_DO_PULL=1
@@ -327,7 +327,9 @@ if [ -d "$_GH/.git" ] && [ "$_BRAIN_SYNC_MODE" != "off" ]; then
   "$_BRAIN_SYNC_BIN" --once 2>/dev/null || true
 fi
 
-if [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
+if [ "$_SESSION_KIND" = "spawned" ]; then
+  echo "ARTIFACTS_SYNC: off (spawned session; artifacts stay local)"
+elif [ "$_GBRAIN_MCP_MODE" = "remote-http" ]; then
   # Remote-MCP mode: local artifacts sync is a no-op by design (the brain
   # admin's server pulls from GitHub/GitLab).
   _GBRAIN_HOST=$(printf '%s' "${_GBRAIN_MCP_ENTRY:-}" | jq -r '.url // empty' 2>/dev/null | sed -E 's|^https?://([^/:]+).*|\1|' | head -1 | tr -cd 'A-Za-z0-9._-')
@@ -532,6 +534,7 @@ fi # end interactive-onboarding guard (kind != spawned)
 # actually says "auto-choose".
 if [ "$_SESSION_KIND" = "spawned" ]; then
   _emit_block spawned-session <<EOI
+Remote artifacts-sync consent is NOT eligible for auto-choice, even when publishing is recommended or a prior mode is full: keep artifacts local, do not initialize/restore/sync the artifacts repo, and do not set artifacts_sync_mode or artifacts_sync_mode_prompted.
 You are running inside a session spawned by an AI orchestrator (e.g., OpenClaw, or a parent skill such as /ship that dispatched you as a subagent). In spawned sessions: do NOT use AskUserQuestion for interactive prompts — auto-choose the recommended option (exception: never auto-choose a destructive or irreversible option such as delete, force-push, or overwrite — take the conservative non-destructive choice and record it in the completion report); do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro (skip any such instruction blocks above); focus on completing the task and reporting results via prose output; end with a completion report: what shipped, decisions made, anything uncertain.
 EOI
 fi

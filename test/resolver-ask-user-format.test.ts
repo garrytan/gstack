@@ -271,6 +271,12 @@ describe('generateAskUserFormat — runtime-failure prose fallback', () => {
     expect(out).toMatch(/never auto-choose a destructive or irreversible option[\s\S]{0,80}conservative/);
   });
 
+  test('Spawned: remote publication consent is not a recommended-option auto-choice', () => {
+    expect(out).toContain('Remote artifacts-sync consent is an exception to auto-choice');
+    expect(out).toContain('artifacts_sync_mode_prompted');
+    expect(out).toContain('leave the prompted marker untouched');
+  });
+
   test('Spawned: self-check carries the never-reach-this-checklist clause', () => {
     expect(out).toMatch(/in `SESSION_KIND: spawned`[\s\S]{0,120}you should never reach this checklist/);
     expect(out).toMatch(/the echoed STATUS line only/);

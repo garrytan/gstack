@@ -31,7 +31,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { runBin } from './spawn-bin';
-import { SPAWNED_ESCAPE_SENTENCE } from './spawned-directive';
+import { SPAWNED_ESCAPE_SENTENCE, SPAWNED_REMOTE_SYNC_RULE } from './spawned-directive';
 import { logHookError as sharedLogHookError } from './hook-log';
 
 interface HookStdin {
@@ -138,7 +138,7 @@ export function directiveFor(kind: 'spawned' | 'headless' | 'interactive'): stri
         'SESSION_KIND=spawned — auto-choose the recommended option per the Spawned session block. ' +
         'Do not emit prose, do not BLOCK. Exception: never auto-choose a destructive or ' +
         'irreversible option — take the conservative non-destructive choice (skip/defer), ' +
-        'record it, and continue.'
+        'record it, and continue.' + SPAWNED_REMOTE_SYNC_RULE
       );
     case 'headless':
       // #2733 review (multi-specialist): a spawned-marked subagent under a
