@@ -234,6 +234,26 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
     expect(ids(`authToken: ${v}`)).toContain("env.kv"); // (iv) credential camel
     expect(ids(`clientSecret: ${v}`)).toContain("env.kv"); // (iv) credential camel
   });
+  test("env.kv ignores TypeScript parameter types without hiding credential values", () => {
+    const signature = `export async function issueServerCoachItem(
+  db: Pool,
+  session: SessionState,
+  item: IssuedCoachItem,
+): Promise<void> {}`;
+    const value = "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ";
+    expect(ids(signature)).not.toContain("env.kv");
+    expect(ids(`session: ${value},`)).toContain("env.kv");
+    expect(ids(`session: "${value}",`)).toContain("env.kv");
+  });
+  test("env.kv ignores dynamic JSX attributes without hiding literal values", () => {
+    const value = "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ";
+    expect(ids("key={turn.requestId + turn.role + index}")).not.toContain("env.kv");
+    expect(ids("apiKey={settings.apiKey}")).not.toContain("env.kv");
+    expect(ids(`key={${value}}`)).toContain("env.kv");
+    expect(ids(`API_KEY={${value}}`)).toContain("env.kv");
+    expect(ids(`key={settings.apiKey + "${value}"}`)).toContain("env.kv");
+    expect(ids(`key="${value}"`)).toContain("env.kv");
+  });
   // #2912 — a line that READS a secret from the environment holds no secret;
   // it must not fire (and so must not be masked or withhold a /cso source file).
   test("env.kv skips exact environment reads (#2912)", () => {

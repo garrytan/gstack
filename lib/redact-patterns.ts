@@ -569,6 +569,33 @@ function isCallExpression(span: string, match: RegExpExecArray): boolean {
   return !carriesSecretLiteral(call);
 }
 
+/** A parameter's PascalCase type is source syntax, not an assigned secret. */
+function isFunctionParameterType(span: string, match: RegExpExecArray): boolean {
+  if (!/^[A-Z][A-Za-z0-9_]*,$/.test(span)) return false;
+  const lineRest = match.input.slice(match.index + match[0].length).split("\n", 1)[0];
+  if (!/^\s*(?:\/\/.*)?$/.test(lineRest)) return false;
+  const before = match.input.slice(Math.max(0, match.index - 512), match.index);
+  const opening = /\b(?:async\s+)?function\s+[A-Za-z_$][\w$]*\s*\(/g;
+  let lastOpen = -1;
+  for (const candidate of before.matchAll(opening)) lastOpen = candidate.index + candidate[0].length;
+  if (lastOpen < 0) return false;
+  const between = before.slice(lastOpen);
+  return !/[){};]/.test(between) && between.split("\n").length <= 8;
+}
+
+/** JSX property reads and sums are expressions; brace-wrapped literals still scan. */
+function isDynamicJsxAttribute(span: string, match: RegExpExecArray): boolean {
+  if (!span.startsWith("{")) return false;
+  const { start } = spanBounds(match);
+  const value = match.input.slice(start).split("\n", 1)[0];
+  const close = value.indexOf("}");
+  if (close < 0) return false;
+  const expression = value.slice(1, close);
+  const propertyReadSum =
+    /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+(?:\s*\+\s*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)*$/;
+  return propertyReadSum.test(expression);
+}
+
 export const PATTERNS: RedactPattern[] = [
   // ===== HIGH — genuinely-secret credentials (block) =====
   {
@@ -850,6 +877,8 @@ export const PATTERNS: RedactPattern[] = [
       !/^\$\{?[A-Za-z_]/.test(span) &&
       !isBareEnvRead(span, match) &&
       !isCallExpression(span, match) &&
+      !isFunctionParameterType(span, match) &&
+      !isDynamicJsxAttribute(span, match) &&
       shannonEntropy(span) >= 3.0,
   },
   {
