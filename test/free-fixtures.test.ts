@@ -98,6 +98,8 @@ describe('PR selection over the W1a single-file fallbacks', () => {
       ['scripts/free-test-durations.json'],
       ['.github/workflows/quality-gate.yml', '.github/workflows/windows-free-tests.yml', 'scripts/free-test-durations.json'],
       ['scripts/ubicloud/setup-free-suite.sh', 'scripts/ubicloud/ubi-runner.sh'],
+      // 36485436963's replayed diff: a free design test outside test/.
+      ['design/test/variants-retry-after.test.ts', 'make-pdf/test/render.test.ts', 'browse/test/commands.test.ts'],
     ]) {
       const result = select(changed);
       expect({ changed, mode: result.mode, unknown: result.unknownFiles }).toEqual({ changed, mode: 'pr', unknown: [] });

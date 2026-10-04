@@ -195,6 +195,7 @@ export const FREE_ONLY_PR_FILES = [
   'scripts/test-free-shards.ts',
   'scripts/lib/free-home-guard.ts', // Imported only by the free shard runner.
   'test/helpers/auq-parallel-worker.ts',
+  'test/helpers/stored-zip.ts', // Read only by the free test-health report tests.
   'scripts/free-test-durations.json',
   'scripts/paid-test-durations.json',
   'scripts/ubicloud/**',
@@ -240,7 +241,8 @@ function knownNonBehaviorFile(file: string): boolean {
     || ['AGENTS.md', 'CLAUDE.md', 'agents-digest/gstack-AGENTS.md'].includes(file)
     || FREE_ONLY_PR_FILES.some(pattern => matchGlob(file, pattern))
     || (file.startsWith('test/fixtures/') && Object.keys(FREE_FIXTURES).some(pattern => matchGlob(file, pattern)))
-    || (file.startsWith('test/') && /\.test\.tsx?$/.test(file) && !isPaidTestFile(file));
+    // Free test files anywhere (test/, browse/test/, design/test/, make-pdf/test/): no paid case runs or reads a free test.
+    || (/\.test\.tsx?$/.test(file) && !isPaidTestFile(file));
 }
 
 export const FALLBACK_FIX_ANCHOR = 'docs/TESTING_INTERNALS.md#pr-paid-lane-fallback';
