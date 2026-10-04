@@ -102,6 +102,38 @@ describe('settings hook preserves the resolved settings target', () => {
     expect(fs.existsSync(settings + '.lock')).toBe(false);
   });
 
+  // Ubicloud run 21: a contender's lock released between this writer's failed
+  // mkdir and its existence check, and the writer dropped its mutation (exit 5).
+  test.each([
+    ['a lock released between mkdir and the check is retried', 'once', 0],
+    ['a lock that can never be created still fails fast', 'always', 5],
+  ] as const)('%s', (_name, failures, status) => {
+    const bin = path.join(root, 'bin-vanish');
+    fs.mkdirSync(bin);
+    const realMkdir = spawnSync('which', ['mkdir'], { encoding: 'utf8', timeout: 5_000 }).stdout.trim();
+    expect(realMkdir).not.toBe('');
+    fs.writeFileSync(path.join(bin, 'mkdir'), [
+      '#!/bin/bash',
+      'if [ "$1" = "$LOCK_EXPECTED" ]; then',
+      '  if [ "$LOCK_FAILS" = always ] || [ ! -e "$LOCK_MARK" ]; then : > "$LOCK_MARK"; exit 1; fi',
+      'fi',
+      'exec "$REAL_MKDIR" "$@"',
+    ].join('\n') + '\n', { mode: 0o755 });
+    const result = spawnSync('bash', [hook, ...addArgs()], {
+      env: { ...env(), PATH: `${bin}:${process.env.PATH}`, LOCK_EXPECTED: target + '.lock', LOCK_FAILS: failures,
+        LOCK_MARK: path.join(root, 'lock-failed-once'), REAL_MKDIR: realMkdir, GSTACK_SETTINGS_LOCK_TIMEOUT_MS: '2000' },
+      encoding: 'utf8', timeout: 10_000,
+    });
+    expect(result.status, result.stderr).toBe(status);
+    const stored = fs.readFileSync(target, 'utf8');
+    if (status === 0) expect(JSON.parse(stored).hooks.PostToolUse[0]._gstack_source).toBe('link-test');
+    else {
+      expect(result.stderr).toContain('cannot create lock');
+      expect(stored).not.toContain('link-test');
+    }
+    expect(fs.existsSync(target + '.lock')).toBe(false);
+  });
+
   test('dangling and cyclic links are rejected without replacing them', () => {
     fs.unlinkSync(target);
     const dangling = run(addArgs());

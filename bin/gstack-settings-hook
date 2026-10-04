@@ -337,7 +337,7 @@ _release_lock() {
 _acquire_lock() {
   # GSTACK_SETTINGS_LOCK_TIMEOUT_MS: test-only override for the give-up
   # (a contention test should not stall the suite for 10 real seconds).
-  local waited_ms=0 token stale mtime now
+  local waited_ms=0 token stale mtime now vanished=0
   local give_up_ms="${GSTACK_SETTINGS_LOCK_TIMEOUT_MS:-10000}"
   local stale_after_s=30   # lock older than this belongs to a crashed holder
   local poll_ms=50         # retry cadence; sleep below derives from this
@@ -351,15 +351,17 @@ _acquire_lock() {
       trap 'exit 143' TERM
       return 0
     fi
-    # mkdir failed but no lock dir exists: NOT contention (unwritable parent,
-    # read-only fs, missing directory) -- waiting cannot help, so give up
-    # loudly now instead of spinning out the full timeout. (Tiny race: a
-    # contender could acquire+release between our mkdir and this check; that
-    # transient reads as an environment failure and the next run converges.)
+    # mkdir failed but no lock dir exists: either a holder released between
+    # our mkdir and this check, or NOT contention (unwritable parent, read-only
+    # fs, missing directory). Retry mkdir once; a second failure with still no
+    # lock dir is the environment, and waiting cannot help, so give up loudly
+    # now instead of spinning out the full timeout.
     if [ ! -e "$_LOCK_DIR" ]; then
+      if [ "$vanished" -eq 0 ]; then vanished=1; continue; fi
       echo "gstack-settings-hook: cannot create lock $_LOCK_DIR (unwritable parent?) -- skipping this mutation, exit 5" >&2
       return 1
     fi
+    vanished=0
     # Stale takeover: atomic rename means exactly one contender wins; the
     # loser loops and re-contends against the winner's fresh mkdir.
     # GNU stat (-c %Y) first: on Linux, BSD-style `stat -f %m` prints a
