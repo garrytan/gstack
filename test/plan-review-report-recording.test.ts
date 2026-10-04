@@ -212,7 +212,9 @@ test('canonical reports preserve both successful exits, terminal forms, metadata
       timeout: CAPTURE_LONG_MS, runId: 'public-report-free' });
     expect(call.signal).toBeInstanceOf(AbortSignal);
     expect(call.prompt).toContain('Read plan-eng-review/SKILL.md and plan-eng-review/sections/review-sections.md');
+    expect(call.prompt).toContain('plan.md is the plan file for this review session');
     expect(call.prompt).not.toMatch(/CRITICAL REQUIREMENT|GSTACK REVIEW REPORT|\bMUST\b/);
+    expect(call.prompt).not.toContain('placeholder table with all five review rows (CEO, Codex, Eng, Design, DX)');
     expect(call.main).toBe(fs.readFileSync(path.join(ROOT, 'plan-eng-review/SKILL.md'), 'utf8'));
     expect(call.section).toBe(fs.readFileSync(path.join(ROOT, 'plan-eng-review/sections/review-sections.md'), 'utf8'));
     expect(call.section).toContain('| Review | Trigger | Why | Runs | Status | Findings |');
