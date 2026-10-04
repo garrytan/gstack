@@ -140,7 +140,11 @@ describe('gen-skill-docs idempotency', () => {
     assertDoubleRenderStable([], STABLE_OUTPUTS, 'claude-host');
   }, 180_000); // ~2 min budget for two gen runs
 
-  test('--dry-run against the tracked tree reports zero stale files', () => {
+  // Local-only: every free CI shard runs `gen:skill-docs --host all` before the
+  // suite, which rewrites the tracked files, so in CI this would compare the
+  // regenerated tree against itself. skill-docs.yml (`git diff --exit-code`)
+  // is CI's tracked-output freshness gate.
+  test.skipIf(process.env.GITHUB_ACTIONS === 'true')('--dry-run against the tracked tree reports zero stale files', () => {
     // Tracked-tree freshness assertion (deliberately a READ of the committed
     // files — the out-dir renders above never touch them). If a contributor
     // edits a template without regenerating, or introduces a

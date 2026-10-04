@@ -6,9 +6,6 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs for the same branch (matches evals.yml,
-# windows-free-tests.yml, etc.). head_ref is set on pull_request; ref_name is
-# the fallback for push so a rapid push series doesn't pile up stale runs.
 concurrency:
   # PR-number keyed (run_id fallback for push/dispatch): a bare branch name
   # carries no fork prefix, so same-name branches from two forks would share
