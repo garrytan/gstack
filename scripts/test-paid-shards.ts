@@ -1,54 +1,43 @@
 #!/usr/bin/env bun
 /**
- * test-paid-shards — enumerate, shard, and run the paid (gate/periodic) tier.
+ * test-paid-shards — enumerate, shard, plan and run the paid (gate/periodic/marathon) tiers.
  *
- * The single-process `test:gate` fan-out has never completed a run: one wedged
- * or spinning file takes the whole tier down, and an in-process `--timeout`
- * cannot save it because a spinning main thread never fires a timer. This
- * runner applies the free tier's proven fix — one Bun process per shard — plus
- * the two things the paid tier additionally needs:
+ * Every paid test file (or case, or trial) runs in its own Bun process with an
+ * EXTERNAL wall-clock timeout that kills the shard's process GROUP, so a wedged
+ * file or a surviving `claude`/`codex` PTY grandchild never takes a run down or
+ * outlives it. Each shard gets its own GSTACK_EVAL_DIR, TMPDIR and Chromium
+ * profile. The aggregate distinguishes passed, failed, timed-out, never-started
+ * and skipped-by-diff, so partial execution can never look like a pass.
  *
- *   - an EXTERNAL wall-clock timeout that kills the shard's process GROUP, and
- *   - an aggregate that distinguishes failed from timed-out from never-started,
- *     so 26% execution can never again look like a pass.
+ * Modes:
+ *   --emit-plan   PLANNER: select once (tier, diff/PR profile, exclusions) and
+ *                 pack shards into slices by recorded duration
+ *                 (scripts/paid-test-durations.json); each slice gets its own CI
+ *                 job ceiling (scripts/lib/paid-plan.ts sliceCiTimeoutMinutes).
+ *   --plan/--slice EXECUTOR: run one slice of that manifest, stop starting work at
+ *                 the slice deadline (job ceiling minus a 5-minute upload
+ *                 reserve: not_run), kill in-flight shards there (hung), and
+ *                 checkpoint the slice result after every shard.
+ *   --report      REPORT: reconcile slice results against the manifest,
+ *                 fail-closed (a missing slice is a failure, not an absence).
+ *   (none)        local run of a whole tier; --list previews the plan.
+ *   --case        local diagnosis of one case through the CI panel runner.
  *
- * Why not Bun 1.3.13's native `--shard` / isolated runs? Three gaps, each one
- * fatal for this tier:
- *   1. No detached-process-group SIGKILL. Paid tests spawn `claude` / `codex`
- *      PTY grandchildren; when a shard hangs, in-process isolation kills the
- *      Bun worker but the grandchildren survive and burn cores for hours.
- *   2. No never-started taxonomy. A run that aborts partway reports only what
- *      executed — the shards that never ran are invisible, which is exactly
- *      the 26%-execution-looks-like-a-pass bug.
- *   3. No per-shard env / eval dir. Each shard needs its own GSTACK_EVAL_DIR
- *      so eval baselines are per-test-file instead of last-flush-wins.
+ * Background local runs and CI dispatch go through scripts/eval-bg.ts
+ * (`bun run eval:bg:<lane>`), which caps a local run at
+ * ceil(1.5 x planned serial seconds / EVALS_JOBS) + 20 min, at most 4 h.
  *
- * Worst-case wall clock = ceil(shards / jobs) × shard timeout. Shard counts
- * drift as test files land, so treat any number written here as stale.
- * Do NOT hand-derive the eval:bg:* detach timeouts from a snapshot of
- * these counts — test/eval-detach-timeout-floor.test.ts recomputes the bound
- * from the live shard census every run and fails CI if package.json's numbers
- * dip below it (undersized detach timeouts recreate never-started truncation).
+ * Env contract: EVALS_JOBS = how many shard PROCESSES run at once.
+ * EVALS_CONCURRENCY = bun's --max-concurrency WITHIN a shard. Exporting 15 as
+ * the shard count would start 15 claude-spawning processes (the 429 storm).
  *
- * Env contract: EVALS_JOBS = how many shard PROCESSES run at once (this
- * runner). EVALS_CONCURRENCY = bun's --max-concurrency WITHIN a shard (and the
- * legacy single-process scripts). They were previously conflated: exporting
- * the legacy value 15 gave you 15 concurrent Bun processes each spawning
- * claude — the 429 storm.
+ * Enumeration uses test/helpers/paid-test-set.ts and honors EVALS_TIER against
+ * E2E_TIERS (test/helpers/touchfiles.ts). Spawn, kill, sandbox, logs, seeds and
+ * output classification come from scripts/lib/shard-engine.ts; selection and
+ * planning live in scripts/lib/paid-{types,select,cases,plan,report}.ts; this
+ * file keeps the runner and the CLI.
  *
- * Enumeration matches package.json's `test:gate` globs (via the shared
- * test/helpers/paid-test-set.ts) and honors EVALS_TIER against the E2E_TIERS
- * map in test/helpers/touchfiles.ts. Spawn, kill, sandbox, logs, seeds and
- * output classification come from the shared shard engine
- * (scripts/lib/shard-engine.ts); this file keeps only paid-lane policy.
- *
- * Parallelism now lives ACROSS shards (--jobs), not inside one Bun process, so
- * each shard runs its own file sequentially and can be killed independently.
- *
- * Usage:
- *   bun run scripts/test-paid-shards.ts --list                # shard plan only
- *   bun run scripts/test-paid-shards.ts --tier gate           # run gate tier
- *   bun run scripts/test-paid-shards.ts --timeout 600 --jobs 2
+ * Usage: bun run scripts/test-paid-shards.ts --help
  */
 
 import * as fs from 'node:fs';
@@ -749,6 +738,25 @@ function validatedTier(value: string | undefined, source: string): PaidTier {
 }
 
 
+const PAID_USAGE = `Usage: bun run scripts/test-paid-shards.ts [flags]
+
+Local runs (paid; needs ANTHROPIC_API_KEY):
+  --tier gate|periodic|marathon   tier to run (default: EVALS_TIER or gate)
+  --profile pr|full               pr = diff-selected PR gate; full = the tier census
+  --list                          print the shard plan and exit (free)
+  --slice-budget SECS --jobs N    with --list: preview the CI slice plan (free)
+  --jobs N                        shard processes at once (EVALS_JOBS; default ${DEFAULT_JOBS})
+  --timeout SECS                  explicit per-shard wall (default: registered or 1800)
+  --files-per-shard N             files per shard (full profile only)
+  --case ID [--trials N]          run one case through the CI panel runner (add --list to preview)
+
+CI modes (the eval workflows):
+  --emit-plan PATH (--slices K | --slice-budget SECS --jobs N) [--skip-judges] [--max-parallel N]
+  --plan PATH --slice I           execute one slice of a manifest
+  --report DIR [--write-durations]  reconcile slice results against the manifest
+
+Background runs and CI dispatch: bun run eval:bg:<pr|gate|periodic|release> (scripts/eval-bg.ts --help).`;
+
 export function parseCliOptions(argv: string[], env: NodeJS.ProcessEnv = process.env): CliOptions {
   const options: CliOptions = {
     tier: validatedTier(env.EVALS_TIER, 'EVALS_TIER'),
@@ -811,7 +819,7 @@ export function parseCliOptions(argv: string[], env: NodeJS.ProcessEnv = process
       options.caseId = value;
     },
     '--trials': (next) => { options.trials = parsePositiveInt(next(), '--trials'); },
-  });
+  }, PAID_USAGE);
   if (options.writeDurations && !options.reportDir) throw new Error('--write-durations requires --report');
   if (options.trials !== null && options.caseId === null) throw new Error('--trials requires --case');
   if (options.caseId !== null && (options.emitPlanPath || options.planPath || options.reportDir || options.sliceIndex !== null)) {
