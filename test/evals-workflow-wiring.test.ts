@@ -107,8 +107,6 @@ describe('evals.yml sliced-lane wiring (post-matrix)', () => {
     expect(plannerSites(evalsYml), 'expected exactly one --emit-plan site in evals.yml').toHaveLength(1);
     const { site } = expectPlannedExecutor(evalsYml, 'eval-slices', '');
     expect(site).toEqual({ manifest: '/tmp/paid-plan/manifest.json', budgetSeconds: 540, jobs: 2 });
-    // The validation-phase planner writes the same manifest with the same budget.
-    expect(evalsYml).toContain('sliceBudgetMs: 540000, jobs: 2');
   });
 
   test('reconcile exit is captured via PIPESTATUS, never $? after a pipe', () => {

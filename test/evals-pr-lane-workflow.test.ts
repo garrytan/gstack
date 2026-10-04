@@ -1,0 +1,154 @@
+/**
+ * PR paid-lane workflow pins (W1, CEO-13/14/34, ENG-7/11/12, DX-7, W8f):
+ * coverage summaries, cancellation recovery off PR code, the push-burst
+ * debounce, dispatch inputs, and the absence of the old inline subset program.
+ */
+import { describe, expect, test } from 'bun:test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+const ROOT = path.resolve(import.meta.dir, '..');
+const source = fs.readFileSync(path.join(ROOT, '.github/workflows/evals.yml'), 'utf8');
+
+interface Step { name?: string; id?: string; if?: string; run?: string; uses?: string; with?: Record<string, unknown>; env?: Record<string, string>; 'continue-on-error'?: boolean }
+interface Job { if?: string; needs?: string | string[]; permissions?: Record<string, string>; steps: Step[]; outputs?: Record<string, string>; 'runs-on'?: string; 'timeout-minutes'?: number | string }
+const workflow = Bun.YAML.parse(source) as { on: Record<string, any>; 'run-name'?: string; env: Record<string, string>; jobs: Record<string, Job> };
+const step = (job: string, name: string) => workflow.jobs[job]!.steps.find(s => s.name === name);
+
+describe('evals.yml PR coverage summary (CEO-13)', () => {
+  test('the planner and the report write the coverage summary to the job summary', () => {
+    expect(step('plan-slices', 'Summarize PR coverage')?.run).toContain('scripts/test-pr-profile.ts summary /tmp/paid-plan/manifest.json >> "$GITHUB_STEP_SUMMARY"');
+    const report = step('slices-report', 'Summarize PR coverage and reuse')!;
+    expect(report.if).toBe('always()');
+    expect(report.run).toContain('summary /tmp/paid-report/manifest.json /tmp/paid-report/collector-outcomes.json');
+  });
+
+  test('the PR comment names the mode and every fallback file with its label and fix', () => {
+    const comment = step('slices-comment', 'Post PR comment')!.run!;
+    expect(comment).toContain('mode `\\(.prCoverage.mode // "broad")`');
+    expect(comment).toContain('select(.prCoverage.mode == "full-fallback")');
+    expect(comment).toContain('$c.unknownFileLabels');
+    expect(comment).toContain('Full gate restored by:');
+    expect(comment).toContain('.prCoverage.derivedFiles');
+    expect(comment).toContain('Derived dependents (scripts/pr-dependencies.ts):');
+    expect(comment).toContain('**${EXECUTED} executed, ${REUSED} reused**');
+  });
+});
+
+describe('evals.yml receipt recovery (CEO-14/34, ENG-7)', () => {
+  const recover = workflow.jobs['recover-receipts']!;
+  const planner = workflow.jobs['plan-slices']!;
+
+  test('recovery runs base-ref code with actions: read; plan-slices keeps contents: read only', () => {
+    expect(recover.permissions).toEqual({ contents: 'read', actions: 'read' });
+    expect(planner.permissions).toEqual({ contents: 'read' });
+    const checkout = recover.steps.find(s => s.uses?.startsWith('actions/checkout@'))!;
+    expect(checkout.with).toMatchObject({ ref: '${{ github.event.pull_request.base.sha || inputs.base_sha || github.event.repository.default_branch }}', 'persist-credentials': false });
+    const collect = step('recover-receipts', 'Recover receipts of cancelled runs (base-ref code)')!;
+    expect(collect.env?.GH_TOKEN).toBe('${{ github.token }}');
+    expect(collect.run).toContain('scripts/recover-receipts.ts collect');
+    expect(collect.run).toContain('--budget-seconds 60');
+    // Never fails the run: a missing base script or a crash only turns reuse off.
+    expect(collect.run).toContain('exit 0');
+    expect(collect.run).toContain('|| echo');
+    expect(recover.if).toContain("!contains(github.event.pull_request.labels.*.name, 'evals-fresh')");
+    expect(JSON.stringify(planner.steps)).not.toContain('actions/cache/restore');
+    expect(JSON.stringify(planner.steps)).not.toContain('GH_TOKEN');
+  });
+
+  test('plan-slices takes the store as an artifact, decides reuse, and carries the store to the report', () => {
+    expect(planner.needs).toContain('recover-receipts');
+    expect(planner.if).toContain('!cancelled()');
+    expect(step('plan-slices', "Download this PR's receipt store")).toMatchObject({ 'continue-on-error': true, with: { name: 'receipt-store' } });
+    expect(step('plan-slices', 'Decide receipt reuse')?.run).toContain('recover-receipts.ts decide /tmp/gstack-eval-input-cache --github-output "$GITHUB_OUTPUT"');
+    expect(step('plan-slices', 'Emit run manifest')?.env?.EVALS_CACHE_DIR).toBe("${{ steps.reuse.outputs.reuse == 'on' && '/tmp/gstack-eval-input-cache' || '' }}");
+    const upload = planner.steps.find(s => s.with?.name === 'paid-plan')!;
+    expect(String(upload.with!.path)).toContain('/tmp/paid-plan/store');
+    expect(step('slices-report', "Merge this run's receipts")?.run).toContain('merge /tmp/gstack-eval-input-cache /tmp/paid-report/store');
+  });
+
+  test('every slice uploads its receipts even when cancelled; the report verdict carries report receipts', () => {
+    const upload = step('eval-slices', 'Upload slice results')!;
+    expect(upload.if).toBe('always()');
+    expect(upload.with).toMatchObject({ name: 'paid-slice-${{ matrix.slice }}-a${{ github.run_attempt }}', path: '/tmp/paid-slice-results' });
+    const verdict = workflow.jobs['slices-report']!.steps.find(s => String(s.with?.name ?? '').startsWith('report-verdict'))!;
+    expect(String(verdict.with!.path)).toContain('/tmp/paid-report/report-receipts');
+  });
+});
+
+
+describe('evals.yml push-burst debounce (CEO-15, ENG-11, DX-7)', () => {
+  const debounce = workflow.jobs.debounce!;
+
+  test('a tiny job debounces only synchronize pushes, skippable by label, before recovery and planning', () => {
+    expect(debounce['runs-on']).toBe('ubuntu-24.04');
+    expect(debounce.if).toContain("github.event.action == 'synchronize'");
+    expect(debounce.if).toContain("!contains(github.event.pull_request.labels.*.name, 'evals-no-debounce')");
+    expect(debounce.permissions).toEqual({ actions: 'read', 'pull-requests': 'read' });
+    const wait = step('debounce', 'Wait out a push burst')!.run!;
+    expect(wait).toContain("date -u -d '15 minutes ago'");
+    expect(wait).toContain('sleep 90');
+    expect(wait).toContain('superseded=true');
+    expect(wait).toContain('superseded by ${head}');
+    for (const job of ['recover-receipts', 'plan-slices']) {
+      expect(workflow.jobs[job]!.needs).toContain('debounce');
+      expect(workflow.jobs[job]!.if).toContain("needs.debounce.outputs.superseded != 'true'");
+      expect(workflow.jobs[job]!.if).toContain('!cancelled()');
+    }
+  });
+
+  test('cancel-in-progress stays keyed on the PR, and evals-fresh turns receipt reuse off', () => {
+    expect(source).toContain('group: evals-${{ github.event.pull_request.number || github.run_id }}');
+    expect(source).toContain('cancel-in-progress: true');
+    expect(workflow.env.EVALS_FRESH).toContain("contains(github.event.pull_request.labels.*.name, 'evals-fresh')");
+  });
+});
+
+describe('evals.yml carries no inline planner program (W8f)', () => {
+  test('the finished validation_phase dispatch and its inline subset planner are gone', () => {
+    expect(source).not.toContain('validation_phase');
+    expect(source).not.toMatch(/bun --no-install -e '/);
+    expect(workflow.jobs['plan-slices']!.steps.filter(s => s.run?.includes('--emit-plan'))).toHaveLength(1);
+  });
+});
+
+describe('evals.yml dispatch contract for eval:bg (CEO-17/29, DX-1, ENG-8/12)', () => {
+  const inputs = workflow.on.workflow_dispatch.inputs as Record<string, { type: string; default: unknown }>;
+
+  test('dispatch inputs: evals_all, base_ref, base_sha, expected_sha, nonce, pr_receipts', () => {
+    expect(Object.keys(inputs).sort()).toEqual(['base_ref', 'base_sha', 'evals_all', 'expected_sha', 'nonce', 'pr_receipts']);
+    expect(inputs.evals_all).toMatchObject({ type: 'boolean', default: true });
+    for (const name of ['base_ref', 'base_sha', 'expected_sha', 'nonce', 'pr_receipts']) expect(inputs[name]).toMatchObject({ type: 'string', default: '' });
+  });
+
+  test('the nonce is reflected in the run name so the dispatcher resolves its own run', () => {
+    expect(workflow['run-name']).toBe("${{ inputs.nonce != '' && format('E2E Evals [eval-bg {0}]', inputs.nonce) || '' }}");
+  });
+
+  test('evals_all=false dispatches run the PR profile on the requested base; evals_all runs the full census', () => {
+    expect(workflow.env.EVALS_PROFILE).toBe("${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.evals_all)) && 'pr' || 'full' }}");
+    expect(step('plan-slices', 'Emit run manifest')?.env?.EVALS_BASE).toBe("${{ inputs.base_sha || (inputs.base_ref != '' && format('origin/{0}', inputs.base_ref)) || '' }}");
+  });
+
+  test('a dispatch fails fast with a named fix when the checkout is not the expected revision', () => {
+    const verify = step('plan-slices', 'Verify the dispatched revision')!;
+    expect(verify.if).toBe("github.event_name == 'workflow_dispatch'");
+    expect(verify.env?.EXPECTED_SHA).toBe('${{ inputs.expected_sha }}');
+    expect(verify.run).toContain('Tested revision: ${actual}');
+    expect(verify.run).toContain('but the dispatch expected ${EXPECTED_SHA}');
+    expect(verify.run).toContain('exit 1');
+    const steps = workflow.jobs['plan-slices']!.steps;
+    expect(steps.indexOf(verify)).toBeLessThan(steps.findIndex(s => s.name === 'Emit run manifest'));
+  });
+
+  test('pr_receipts dispatches read PR receipts read-only through artifacts and never save', () => {
+    expect(workflow.env.EVALS_FRESH).toContain("inputs.pr_receipts == ''");
+    expect(workflow.jobs['recover-receipts']!.if).toContain("github.event_name == 'workflow_dispatch' && inputs.pr_receipts != ''");
+    expect(step('recover-receipts', "Restore this PR's verified judge and E2E results")?.if).toBe("github.event_name == 'pull_request'");
+    expect(step('recover-receipts', 'Recover receipts of cancelled runs (base-ref code)')?.env?.RECOVERY_MODE).toBe("${{ github.event_name == 'workflow_dispatch' && 'dispatch' || 'pr' }}");
+    for (const name of ["Merge this run's receipts", "Save this PR's verified judge and E2E results"]) {
+      expect(step('slices-report', name)?.if).toBe("always() && github.event_name == 'pull_request'");
+    }
+    expect(step('eval-slices', 'Run slice ${{ matrix.slice }}')?.env?.EVALS_CACHE_PR).toBe('${{ github.event.pull_request.number || inputs.pr_receipts }}');
+  });
+});

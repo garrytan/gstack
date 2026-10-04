@@ -8,7 +8,7 @@ import { CASE_QUARANTINE } from '../../test/helpers/periodic-exclude-data';
 import { FILE_RETRY_BUDGETS, STRICT_RETRY_CASE_BUDGETS } from '../../test/helpers/eval-budgets';
 import { evalEntryOutcome, type EvalCaseKind } from '../../test/helpers/eval-store';
 import { E2E_KINDS } from '../../test/helpers/touchfiles-data';
-import { PR_PROFILE_CASE_IDS, PR_PROFILE_FILES, type PrProfileSelection } from '../test-pr-profile';
+import { prProfileCaseAllowed, prProfileFileMap, type PrProfileSelection } from '../test-pr-profile';
 import { E2E_TOUCHFILES, E2E_TIERS, LLM_JUDGE_TOUCHFILES } from '../../test/helpers/touchfiles';
 import { CASE_KEY_SEPARATOR, CASE_SHARDED_FILES, type CaseTrialPlan, caseTrialPlan, codexShardAccess, expandCaseShards, expandTrialShards, isIsolatedCase, partitionCaseExclusions, sameTrialPlan, shardCaseId, shardFile, shardTrial } from './paid-cases';
 import { DEFAULT_JOBS, OVERLAY_MAX_ACTIVE_SHARDS, PAID_TIERS, SLICE_UPLOAD_RESERVE_MS, type PaidCaseSelection, type PaidProfile, type PaidShardBudget, type PaidTier, ROOT, type ShardOutcome, type ShardStatus, type ShardTrialRecord, isOverlayTestFile } from './paid-types';
@@ -474,21 +474,6 @@ export function buildRunManifest(opts: {
   return parseRunManifest(JSON.stringify(manifest));
 }
 
-/**
- * Narrow a built manifest to a curated case subset (validation phases): the
- * selection binds every child, and a case shard outside it can execute
- * nothing, so it becomes skipped instead of an empty planned shard.
- */
-export function restrictManifestSelection(manifest: PaidRunManifest, selection: PaidCaseSelection, reason: string): PaidRunManifest {
-  const entries = manifest.entries.map(entry => {
-    const caseId = shardCaseId(entry.file);
-    if (entry.status !== 'planned' || caseId === null || selection.e2e === null || selection.e2e.includes(caseId)) return entry;
-    const { estimatedMs: _estimate, budget: _budget, ...rest } = entry;
-    return { ...rest, slice: 0, status: 'skipped-by-diff' as const, reason };
-  });
-  return parseRunManifest(JSON.stringify({ ...manifest, selection, entries }));
-}
-
 export function parseRunManifest(raw: string): PaidRunManifest {
   const parsed = JSON.parse(raw) as PaidRunManifest;
   if (parsed.version !== 1) throw new Error(`unsupported manifest version: ${(parsed as { version?: unknown }).version}`);
@@ -505,7 +490,7 @@ export function parseRunManifest(raw: string): PaidRunManifest {
   if (parsed.profile === 'pr') {
     const coverage = parsed.prCoverage;
     if (parsed.tier !== 'gate' || !parsed.selection || !coverage ||
-        !['pr', 'full-fallback'].includes(coverage.mode) || !Array.isArray(coverage.deferred) ||
+        !['pr', 'dependents', 'full-fallback'].includes(coverage.mode) || !Array.isArray(coverage.deferred) ||
         !Array.isArray(coverage.unknownFiles) || !Array.isArray(coverage.missingCoverage) ||
         !Array.isArray(coverage.deferredPromptFiles) || coverage.deferredPromptFiles.some(file => typeof file !== 'string') ||
         !Array.isArray(coverage.e2e) || !Array.isArray(coverage.judges) ||
@@ -515,7 +500,7 @@ export function parseRunManifest(raw: string): PaidRunManifest {
         JSON.stringify(parsed.selection.judges) !== JSON.stringify(coverage.judges)) {
       throw new Error('manifest PR coverage/selection invalid or requires full validation');
     }
-    if (coverage.mode === 'pr' && coverage.e2e.some(id => !(PR_PROFILE_CASE_IDS as readonly string[]).includes(id))) {
+    if (coverage.mode === 'pr' && coverage.e2e.some(id => !prProfileCaseAllowed(id, coverage.directCases ?? []))) {
       throw new Error('manifest PR selection contains a broad-only case');
     }
     if (coverage.deferred.some(item => !Object.hasOwn(E2E_TOUCHFILES, item.id) || E2E_TIERS[item.id] !== item.tier || typeof item.reason !== 'string')) {
@@ -588,7 +573,7 @@ export function parseRunManifest(raw: string): PaidRunManifest {
   }
   if (parsed.prCoverage?.mode === 'pr') {
     const planned = parsed.entries.filter(entry => entry.status === 'planned').map(entry => normalizeRelativePath(entry.file));
-    const required: string[][] = Object.entries(PR_PROFILE_FILES).flatMap(([file, ids]) => {
+    const required: string[][] = Object.entries(prProfileFileMap(parsed.selection!.e2e)).flatMap(([file, ids]) => {
       const selected = ids.filter(id => parsed.selection!.e2e!.includes(id));
       if (!selected.length) return [];
       const owners = new Set(selected.flatMap(id => {

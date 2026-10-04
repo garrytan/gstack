@@ -51,12 +51,8 @@ const HELPER_GATE_RE = /\b(?:describeE2ETier|e2eTierEnabled)\(\s*['"](gate|perio
  * delete it. Target: empty set.
  */
 const KNOWN_UNREGISTERED = new Set([
-  // Standalone periodic self-gated probe; template-literal testNames (auq-consistency-${i}), no E2E map key — fail-open-safe, runs on every periodic sweep.
-  'test/skill-e2e-auq-consistency.test.ts',
   // Standalone periodic self-gated matrix; template-literal testNames (auq-matrix-${m.skill}), no E2E map key — fail-open-safe, runs on every periodic sweep.
   'test/skill-e2e-auq-matrix.test.ts',
-  // Standalone periodic self-gated A/B probe; template-literal testNames (auq-ab-${label}), no E2E map key — fail-open-safe, runs on every periodic sweep.
-  'test/skill-e2e-auq-verbose-vs-carved-ab.test.ts',
 ]);
 
 describe('E2E tier alignment (touchfiles declaration vs test self-gate)', () => {

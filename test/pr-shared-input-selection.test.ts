@@ -52,7 +52,7 @@ test.each(sharedInputs)('%s broad policy is independent of native, judge and glo
   }
 });
 
-test.each(['test/helpers/ship-skip-actor.ts', 'test/skill-e2e-ship-skip.test.ts'])
+test.each(['test/helpers/ship-skip-actor.ts'])
   ('%s remains explicitly deferred by the fast profile, not promoted', file => {
     expect(PR_PROFILE_CASE_IDS as readonly string[]).not.toContain(skipId);
     const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [file] });
@@ -64,6 +64,13 @@ test.each(['test/helpers/ship-skip-actor.ts', 'test/skill-e2e-ship-skip.test.ts'
     const full = computePaidCaseSelection({ profile: 'full', env: {}, changedFiles: [file] });
     expect(full.selection).toEqual({ e2e: [skipId], judges: [] });
   });
+
+test('editing the case\'s own test file runs it in the PR lane (DX-11)', () => {
+  const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['test/skill-e2e-ship-skip.test.ts'] });
+  expect(result.coverage?.mode).toBe('pr');
+  expect(result.selection).toEqual({ e2e: [skipId], judges: [] });
+  expect(result.coverage?.directCases).toEqual([skipId]);
+});
 
 test('cumulative shared, native and prompt edits retain every gate case and judge', () => {
   const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [

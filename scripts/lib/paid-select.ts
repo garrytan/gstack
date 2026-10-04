@@ -10,7 +10,7 @@ import { isPaidTestFile } from '../../test/helpers/paid-test-set';
 import { PERIODIC_CI_EXCLUDE } from '../../test/helpers/periodic-exclude-data';
 import { FILE_RETRY_BUDGETS } from '../../test/helpers/eval-budgets';
 import { OVERLAY_MIN_FILE_WALL_MS } from '../../test/helpers/overlay-case-policy';
-import { PR_PROFILE_FILES, packageChangeOnlyVersion, selectPrProfile, type PrProfileSelection } from '../test-pr-profile';
+import { packageChangeOnlyVersion, prProfileFileCases, selectPrProfile, type PrProfileSelection } from '../test-pr-profile';
 import { detectBaseBranch, getChangedFiles, selectTests, E2E_TOUCHFILES, E2E_TIERS, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES } from '../../test/helpers/touchfiles';
 import { caseTestNamePattern, fileCaseRegistration, shardCaseId, shardFile, shardTrial } from './paid-cases';
 import { DEFAULT_MAX_FILES_PER_SHARD, DEFAULT_SHARD_TIMEOUT_MS, DEFAULT_WITHIN_SHARD_CONCURRENCY, PAID_TIERS, ROOT, isOverlayTestFile,
@@ -283,7 +283,7 @@ function packageVersionOnlySinceBase(rootDir: string, baseRef: string): boolean 
 /** `exclude`: isolated case ids a file shard leaves to their trial shards. */
 export function prProfileShardIds(key: string, selection: PaidCaseSelection, exclude: readonly string[] = []): string[] {
   const caseId = shardCaseId(key);
-  return (PR_PROFILE_FILES[shardFile(key)] ?? [])
+  return prProfileFileCases(shardFile(key), selection.e2e)
     .filter(id => (caseId === null || id === caseId) && (selection.e2e === null || selection.e2e.includes(id)) && !exclude.includes(id));
 }
 

@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   e2eReuseEnvironment, e2eReuseLaneProblem, e2eShardIdentity, e2eShardInputFiles, prepareE2EShardReuse,
-  mergeReceiptDirs, readPanelReceipt, selectPlanReceipts, writeNegativeReceipt, writePanelReceipt,
+  compareReceiptSources, mergeReceiptDirs, readPanelReceipt, selectPlanReceipts, writeNegativeReceipt, writePanelReceipt,
   type E2EShardReuseRequest, type PanelReceipt,
 } from '../scripts/e2e-shard-reuse';
 import { buildRunManifest, fileCaseRegistration, runPaidShard, verifySliceResults, type SliceResult } from '../scripts/test-paid-shards';
@@ -125,14 +125,16 @@ describe('E2E shard reuse through the runner', () => {
     expect(recorded.tests).toEqual([expect.objectContaining({ name: 'setup-deploy-workflow', passed: true, execution: 'reused' })]);
   });
 
-  test('a failed shard never publishes a receipt', async () => {
+  test('a failed shard never publishes a pass receipt; it writes its negative at the execution boundary', async () => {
     let published = 0;
+    let negatives = 0;
     const outcome = await runPaidShard([FILE], 1, 1, { rootDir: ROOT, logDir: scratch, env: laneEnv(), log: () => {},
       reuseFor: () => ({ inputKey: 'e'.repeat(64), unchanged: () => true, lookupPanelTrial: () => null,
-        lookup: () => null, publish: () => { published++; } }),
+        lookup: () => null, publish: () => { published++; }, publishFailure: () => { negatives++; } }),
       commandFor: () => ({ command: process.execPath, args: ['-e', 'process.exit(1)'] }) });
     expect(outcome.status).toBe('failed');
     expect(published).toBe(0);
+    expect(negatives).toBe(1);
     // The identity rides on the outcome so the report can store the FAIL as a negative receipt.
     expect(outcome.inputKey).toBe('e'.repeat(64));
   });
@@ -216,5 +218,53 @@ describe('planner-side panel reuse and negative receipts', () => {
     expect(mergeReceiptDirs(out, [a, b, path.join(scratch, 'missing')])).toBe(2);
     expect(JSON.parse(fs.readFileSync(path.join(out, `${key}.fail.json`), 'utf8')).source.runId).toBe('2/1');
     expect(mergeReceiptDirs(out, [a])).toBe(0);
+  });
+
+  test('ENG-6: a later attempt of one run is newer whatever its clock; other runs order by completedAt', () => {
+    expect(compareReceiptSources({ runId: '7/2', completedAt: 1_000 }, { runId: '7/1', completedAt: 9_000 })).toBeGreaterThan(0);
+    expect(compareReceiptSources({ runId: '8/1', completedAt: 1_000 }, { runId: '7/2', completedAt: 9_000 })).toBeLessThan(0);
+    expect(compareReceiptSources({ runId: '8/1', completedAt: 5 }, { runId: '9/1', completedAt: 5 })).toBe(0);
+    const [a, b, out] = ['attempt-a', 'attempt-b', 'attempt-out'].map(name => path.join(scratch, name));
+    const key = '6'.repeat(64);
+    writeNegativeReceipt(a, { schema: 1, key, source: source(9_000, '7/1') });
+    writeNegativeReceipt(b, { schema: 1, key, source: source(1_000, '7/2') });
+    mergeReceiptDirs(out, [a, b]);
+    expect(JSON.parse(fs.readFileSync(path.join(out, `${key}.fail.json`), 'utf8')).source.runId).toBe('7/2');
+  });
+
+  test('ENG-6: a same-second FAIL and PASS for one identity resolve to FAIL', () => {
+    const [from, to] = ['tie-from', 'tie-to'].map(name => path.join(scratch, name));
+    fs.mkdirSync(from, { recursive: true });
+    const key = '7'.repeat(64);
+    fs.writeFileSync(path.join(from, `${key}.json`), JSON.stringify({ schema: 1, proof: { source: source(4_000) } }));
+    writeNegativeReceipt(from, { schema: 1, key, source: source(4_000, '1003/1') });
+    expect(selectPlanReceipts(from, to).blocked).toEqual([`${key}.json`]);
+  });
+});
+
+describe('cancellation keeps negative evidence (CEO-25)', () => {
+  test('older PASS -> newer completed FAIL -> cancellation before report -> next run restores and blocks the PASS', async () => {
+    const dir = (name: string) => path.join(scratch, 'ceo25', name);
+    // Run A: a fresh first-attempt pass publishes into A's slice receipts; A is then cancelled (no report).
+    const runA = prepareE2EShardReuse(request({ env: laneEnv({ EVALS_CACHE_DIR: dir('a-slice'), GITHUB_RUN_ID: '3001' }) }))!;
+    runA.publish();
+    // Run B: same inputs, its plan never saw A's receipt, so it executes; the shard fails and B is cancelled before its report.
+    const bEnv = laneEnv({ EVALS_CACHE_DIR: dir('b-slice'), GITHUB_RUN_ID: '3002' });
+    const outcome = await runPaidShard([FILE], 1, 1, { rootDir: ROOT, logDir: scratch, evalDirBase: dir('b-evals'), env: bEnv, log: () => {},
+      expectedCaseIds: { [FILE]: ['setup-deploy-workflow'] },
+      reuseFor: (_files, childEnv) => prepareE2EShardReuse(request({ env: { ...childEnv } })),
+      commandFor: () => ({ command: process.execPath, args: ['-e', 'process.exit(1)'] }) });
+    expect(outcome.status).toBe('failed');
+    expect(outcome.reused).toBeUndefined();
+    expect(fs.readdirSync(dir('b-slice'))).toEqual([`${runA.inputKey}.fail.json`]);
+    // Run C: recovery merges the cancelled runs' slice receipts oldest first; the planner then filters.
+    mergeReceiptDirs(dir('store'), [dir('a-slice'), dir('b-slice')]);
+    const shipped = selectPlanReceipts(dir('store'), dir('c-plan'));
+    expect(shipped.blocked).toEqual([`${runA.inputKey}.json`]);
+    expect(prepareE2EShardReuse(request({ env: laneEnv({ EVALS_CACHE_DIR: dir('c-plan'), GITHUB_RUN_ID: '3003' }) }))!.lookup()).toBeNull();
+    // Control: without B's negative, C reuses A's pass.
+    mergeReceiptDirs(dir('store-control'), [dir('a-slice')]);
+    selectPlanReceipts(dir('store-control'), dir('c-control'));
+    expect(prepareE2EShardReuse(request({ env: laneEnv({ EVALS_CACHE_DIR: dir('c-control'), GITHUB_RUN_ID: '3003' }) }))!.lookup()?.source.runId).toBe('3001/1');
   });
 });

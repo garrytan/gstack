@@ -487,7 +487,7 @@ export async function runPaidShard(
     }
   }
   const elapsedMs = Date.now() - startedAt;
-  if (status === 'passed' && reuse && !trialPlan) reuse.publish();
+  if (reuse && !trialPlan && !isTerminationRequested()) { if (status === 'passed') reuse.publish(); else reuse.publishFailure(); }
   const inputKey = reuse?.unchanged() ? reuse.inputKey : undefined;
 
   // Failure debuggability without the RAM cost: read back only the log's

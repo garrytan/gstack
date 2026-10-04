@@ -114,7 +114,7 @@ describe('paid/free dependency boundary', () => {
       expect(result.selection).toEqual({ e2e: [], judges: [] });
     }
     for (const file of [
-      'scripts/new-helper.ts', 'scripts/free-test-durations.json', 'scripts/eval-flake-rank.ts',
+      'scripts/new-helper.ts', 'scripts/new-data.json', 'ETHOS.md',
       'lib/new-runtime.ts', 'test/helpers/new-helper.ts', 'test/fixtures/new-fixture.ts',
       '.github/workflows/new-free-tests.yml',
     ]) {
@@ -124,6 +124,10 @@ describe('paid/free dependency boundary', () => {
       expect(result.selection.e2e).toEqual(Object.keys(E2E_TIERS).filter(id => E2E_TIERS[id] === 'gate').sort());
       expect(result.selection.judges).toEqual(Object.keys(LLM_JUDGE_TOUCHFILES).sort());
     }
+    // A tracked file under a derivable directory that no paid case's reference closure reaches is consumed by no paid case.
+    const unconsumed = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['scripts/eval-flake-rank.ts'] });
+    expect(unconsumed.coverage?.mode).toBe('pr');
+    expect(unconsumed.coverage?.noConsumerFiles).toEqual(['scripts/eval-flake-rank.ts']);
     const missingBase = computePaidCaseSelection({ profile: 'pr', env: { EVALS_BASE: 'missing-boundary-ref' },
       changedFiles: ['package.json'] });
     expect(missingBase.coverage?.mode).toBe('full-fallback');
