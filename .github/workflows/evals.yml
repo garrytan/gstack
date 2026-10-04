@@ -685,6 +685,12 @@ jobs:
 
           Full gate restored by:
           ${FALLBACK}"; fi
+          # Dependents mode: unmapped files placed by derived references, with their dependent counts.
+          DERIVED=$(jq -r '(.prCoverage.derivedFiles // [])[:40][] | "- `\(.file)`: \(.e2e) case(s), \(.judges) judge(s)"' /tmp/paid-report/manifest.json 2>/dev/null | sed 's/@/@\xe2\x80\x8b/g') || DERIVED=''
+          if [ -n "$DERIVED" ]; then COVERAGE="${COVERAGE}
+
+          Derived dependents (scripts/pr-dependencies.ts):
+          ${DERIVED}"; fi
 
           STATUS="✅ PASS"
           if [ "${RECONCILE_EXIT:-1}" != "0" ] || [ "$FAILED" -gt 0 ] \

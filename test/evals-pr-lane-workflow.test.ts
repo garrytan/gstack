@@ -29,6 +29,8 @@ describe('evals.yml PR coverage summary (CEO-13)', () => {
     expect(comment).toContain('select(.prCoverage.mode == "full-fallback")');
     expect(comment).toContain('$c.unknownFileLabels');
     expect(comment).toContain('Full gate restored by:');
+    expect(comment).toContain('.prCoverage.derivedFiles');
+    expect(comment).toContain('Derived dependents (scripts/pr-dependencies.ts):');
     expect(comment).toContain('**${EXECUTED} executed, ${REUSED} reused**');
   });
 });

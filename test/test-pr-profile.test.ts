@@ -179,7 +179,7 @@ describe('fast PR coverage policy', () => {
     expect(fallbackLines).toContain('- Selected: 3 E2E case(s), 2 judge(s); 2 deferred');
     expect(fallbackLines).toContain('- Reused: 4 of 9 rule/judge record(s)');
     expect(fallbackLines).toContain('Full gate restored by 2 file(s) (fix: docs/TESTING_INTERNALS.md#pr-paid-lane-fallback)');
-    expect(fallbackLines).toContain('`lib/new-runtime.ts` (real unknown dependency): register lib/new-runtime.ts under the cases that consume it');
+    expect(fallbackLines).toContain('`lib/new-runtime.ts` (real unknown dependency): lib/new-runtime.ts is not in the checked-out tree');
     expect(fallbackLines).toContain('`test/fixtures/new.json` (needs touchfile entry):');
     expect(fallbackLines).toContain('FREE_FIXTURES');
 
@@ -216,5 +216,13 @@ describe('fast PR coverage policy', () => {
     expect(caseNameAddressable('a-b', ' * test (`a-b` in E2E_TIERS)')).toBe(false);
     expect(caseNameAddressable('a-b', "/* testIfSelected('a-b') */")).toBe(false);
     expect(caseNameAddressable('a-b', "  testIfSelected('a-bc', async () => {})")).toBe(false);
+  });
+
+  test('the summary lists derived dependents and files no paid case reaches', () => {
+    const lines = formatPrCoverageSummary({ profile: 'pr', selection: { e2e: ['a'], judges: [] }, prCoverage: { mode: 'dependents', deferred: [], unknownFiles: [],
+      derivedFiles: [{ file: 'design/src/evolve.ts', e2e: 12, judges: 1 }], noConsumerFiles: ['scripts/typecheck-test.ts'] } }).join('\n');
+    expect(lines).toContain('- Mode: `dependents`');
+    expect(lines).toContain('  - `design/src/evolve.ts`: 12 case(s), 1 judge(s)');
+    expect(lines).toContain('- No paid case reaches: `scripts/typecheck-test.ts`');
   });
 });

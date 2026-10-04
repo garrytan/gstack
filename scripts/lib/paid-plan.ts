@@ -490,7 +490,7 @@ export function parseRunManifest(raw: string): PaidRunManifest {
   if (parsed.profile === 'pr') {
     const coverage = parsed.prCoverage;
     if (parsed.tier !== 'gate' || !parsed.selection || !coverage ||
-        !['pr', 'full-fallback'].includes(coverage.mode) || !Array.isArray(coverage.deferred) ||
+        !['pr', 'dependents', 'full-fallback'].includes(coverage.mode) || !Array.isArray(coverage.deferred) ||
         !Array.isArray(coverage.unknownFiles) || !Array.isArray(coverage.missingCoverage) ||
         !Array.isArray(coverage.deferredPromptFiles) || coverage.deferredPromptFiles.some(file => typeof file !== 'string') ||
         !Array.isArray(coverage.e2e) || !Array.isArray(coverage.judges) ||
