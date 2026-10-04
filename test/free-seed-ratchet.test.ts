@@ -146,7 +146,7 @@ describe('free lane CI warnings', () => {
       { planId: 'p', revision: 'r', outcome: outcome(1, plan.shards[0].files, ['test/b.test.ts'], 90_000), retry: outcome(1, ['test/b.test.ts'], [], 5_000) },
     ];
     const [flaky, overrun] = ciHealthSummary(plan, results);
-    expect(flaky).toBe(flakyPassTable([{ file: 'test/b.test.ts', shard: 1 }]));
+    expect(flaky).toBe(flakyPassTable([{ file: 'test/b.test.ts', shard: 1 }])!);
     expect(flaky).toContain('| `test/b.test.ts` | 1 |');
     expect(overrun).toContain('shard 2 took 200s vs 100s predicted');
     expect(ciHealthSummary(plan, [results[0]].map(r => ({ ...r, outcome: { ...r.outcome, elapsedMs: 100_000 } })))).toEqual([]);
