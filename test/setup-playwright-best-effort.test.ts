@@ -564,11 +564,13 @@ describe('setup: Chromium bootstrap summary block executes', () => {
   });
 
   test('GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT=0, 000, or a value past nine digits means the default, not kill-on-first-poll or unbounded', () => {
-    for (const v of ['0', '000', '99999999999999999999', 'abc', '']) {
-      const r = runBlock({ probe: 'fail', bunx: 'exit 3', env: { GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT: v } });
-      expect(r.status).toBe(0);
-      expect(r.stdout).toContain('REASON=chromium-install\n');
-    }
+    // The knob's normalization lines run alone: the deadline each raw value becomes,
+    // without waiting through a block run per value (exit-3 classification is the 'soon' test).
+    const parse = slice('_PW_INSTALL_TIMEOUT="${GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT:-600}"', 'if [ "${GSTACK_SKIP_PLAYWRIGHT:-0}" = "1" ]');
+    const values = ['0', '000', '99999999999999999999', 'abc', '', '0001', '0600'];
+    const parsed = runBashScript(values.map((v) => `GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT='${v}'\n${parse}\necho "$_PW_INSTALL_TIMEOUT"`).join('\n'), { timeout: 10_000 });
+    expect(parsed.status).toBe(0);
+    expect(parsed.stdout.trim().split('\n')).toEqual(['600', '600', '600', '600', '600', '1', '600']);
     // A wedged installer under "000" is still bounded by the DEFAULT, so with a
     // 1s override written as "0001" it is killed and classified as a timeout.
     const bounded = runBlock({ probe: 'fail', bunx: 'sleep 30', env: { GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT: '0001' } });
