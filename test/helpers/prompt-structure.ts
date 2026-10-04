@@ -56,7 +56,7 @@ export function expectOrdered(text: string, markers: (string | RegExp)[], where 
  * within one sentence of the text. Rewording keeps it green; dropping the rule does not.
  */
 export function expectMentions(text: string, groups: string[][], where = 'text'): void {
-  const sentences = text.split(/(?<=[.!?])\s+|\n+/).map(sentence => sentence.toLowerCase());
+  const sentences = text.split(/(?<=[.!?])\s+|\n\s*\n/).map(sentence => sentence.toLowerCase());
   const missing = groups.filter(words => !sentences.some(sentence => words.every(word => sentence.includes(word.toLowerCase()))));
   expect(missing.map(words => words.join('+')), `${where} no longer states a required rule (all words in one sentence): ${missing.map(words => words.join('+')).join(' | ')}. Restore the rule in the template; reword freely but keep these words.`).toEqual([]);
 }
