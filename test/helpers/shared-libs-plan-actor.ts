@@ -4,13 +4,14 @@ import type { SharedQuestionSelector } from './shared-libs-eval-fixture';
  * A whole clause that only lists excluded work: a bare list of scope nouns and
  * an exclusion predicate, e.g. "Existing copies and helper hardening stay
  * unchanged", "Hardening is outside this decision", "Existing-caller migration
- * and helper hardening stay out of scope". A clause with any other verb, such
+ * and helper hardening stay out of scope", and the verbless "Scheduler semantics,
+ * existing callers and helper hardening unchanged". A clause with any other verb, such
  * as "Harden helper parsing so behavior stays unchanged", is not an exclusion.
  */
 const SCOPE_ITEM = String.raw`(?:(?:the|existing|current|its|all|both|helper|parser|lib|shared|callers?|scheduler)[\s-]+)*(?:copies|callers?|hardening|migrations?|semantics|behaviou?r|contract|helper|parser)`;
 const SCOPE_STATE = String.raw`(?:unchanged|untouched|excluded|out of scope|outside|not part)`;
 // The predicate may combine exclusion states: "stay unchanged/out of scope", "remain unchanged and excluded".
-const SCOPE_EXCLUSION = new RegExp(String.raw`^${SCOPE_ITEM}(?:\s*,\s*${SCOPE_ITEM})*(?:,?\s+and\s+${SCOPE_ITEM})?\s+(?:is|are|stays?|remains?)\s+`
+const SCOPE_EXCLUSION = new RegExp(String.raw`^${SCOPE_ITEM}(?:\s*,\s*${SCOPE_ITEM})*(?:,?\s+and\s+${SCOPE_ITEM})?(?:\s+(?:is|are|stays?|remains?))?\s+`
   + String.raw`${SCOPE_STATE}(?:\s*(?:\/|,|\bor\b|\band\b)\s*${SCOPE_STATE})*(?:\s+(?:of\s+)?(?:this|the)\s+(?:decision|scope|plan|change))?[.!]?$`, 'i');
 
 /** Separate explicit exclusions from proposals; do not erase a following "but" clause. */

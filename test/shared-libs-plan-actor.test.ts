@@ -6,6 +6,7 @@ import capturedNoHardening from './fixtures/shared-libs-plan-callers-no-hardenin
 import capturedParity from './fixtures/shared-libs-plan-callers-parity-36776104571.json';
 import capturedOutOfScope from './fixtures/shared-libs-plan-callers-out-of-scope-37151477069.json';
 import capturedSlashScope from './fixtures/shared-libs-plan-callers-slash-scope-37174266054.json';
+import capturedVerbless from './fixtures/shared-libs-plan-callers-verbless-scope-37186854666.json';
 
 // Exact native R1 from the September 22 timeout. R2 was saved in an Edit, but
 // never sent as a native AUQ; its public draft fields are reconstructed below.
@@ -392,8 +393,19 @@ describe('bounded shared-code planning actor', () => {
     expect(run.refusals).toEqual([]);
   });
 
+  // Census 37186854666 refused this exact question: options end "Scheduler semantics,
+  // existing callers and helper hardening unchanged", the same exclusion without a verb.
+  test('actual native verbless exclusion keeps unchanged-helper reuse answerable', async () => {
+    const run = actor();
+    const result = await run.callback('AskUserQuestion', capturedVerbless);
+    expect(result.updatedInput.answers).toEqual({ [capturedVerbless.questions[0].question]: capturedVerbless.questions[0].options[0].label });
+    expect(run.refusals).toEqual([]);
+  });
+
   test.each([
     'Harden helper parsing so behavior stays unchanged.',
+    'Harden helper parsing unchanged.',
+    'Helper hardening unchanged and tighten helper validation.',
     'Existing callers stay unchanged/harden the helper.',
     'Helper hardening stays unchanged or tighten helper validation.',
     'Existing copies stay unchanged and tighten helper validation.',

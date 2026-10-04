@@ -1,0 +1,23 @@
+{
+  "questions": [
+    {
+      "question": "D1 \u2014 Should the two new callers import the existing Retry-After parser or each carry a local copy?\nProject/branch/task: fixture repo on `main`, planning src/import-worker.ts and src/sync-route.ts (PLAN.md).\nELI10: Both new files need to turn a Retry-After header into a wait time exactly the way the scheduler does. The scheduler already gets that behavior from one small shared function in lib/retry-after.ts, which already takes null, an injected clock, a 3600-second cap and a caller fallback. The plan instead writes that logic again inside each new file. Three copies of \"the same\" rule tend to drift apart, and nothing would prove they still match.\nStakes if we pick wrong: with local copies, a later fix to one parser silently leaves the others behind and a caller waits the wrong amount or ignores a header; with reuse but no extra tests, an edge like a past date or empty header is matched by accident rather than by proof.\nRecommendation: A because the shared helper already has the required contract, is proven by the scheduler and its test, and reuse is a net line saving; the extra contract assertions cost minutes and turn \"matches the scheduler\" from assumption into proof.\nCompleteness: A=10/10, B=7/10, C=4/10\nPros / cons:\nA) Reuse lib helper + contract tests (recommended)\n  \u2705 One source of truth: both callers inherit scheduler semantics by construction, not by copying\n  \u2705 Adds the missing contract assertions (empty string, past date, date ceiling, injected now) so edge compatibility is proven\n  \u2705 Net ~26 implementation lines never written; ~18 saved after tests\n  \u274c A bug in lib/retry-after.ts now affects the scheduler and both new callers at once\nB) Reuse lib helper only\n  \u2705 Same single source of truth and same implementation saving as A\n  \u2705 Smallest possible diff: two import lines plus the already-planned integration tests\n  \u274c Edge cases the callers rely on (past date\u21920, date cap, empty header) stay unpinned, so a later helper change could break them unnoticed\nC) Local parser per caller\n  \u2705 No change to anything shared; each file is self-contained\n  \u2705 Matches the current draft, so no plan amendment needed\n  \u274c Three near-identical copies with no parity test; the plan's \"must match scheduler semantics\" requirement is asserted, never proven\n  \u274c ~28 duplicated lines and extra per-caller tests just to re-establish an existing contract\nNet: trading a slightly larger shared blast radius (mitigated by a contract test) for provable compatibility and less code, versus independence bought with duplication and unproven parity.",
+      "header": "Parser reuse",
+      "multiSelect": false,
+      "options": [
+        {
+          "label": "Reuse lib helper + contract tests",
+          "description": "\u2705 Both new callers import retrySeconds from lib/retry-after.ts; no local parser is written. \u2705 Extend test/retry-after.test.ts with the untested edges the callers rely on: empty/whitespace\u2192fallback, \"0\"\u21920, \"3601\"\u21923600, far-future date\u21923600, past date\u21920, unsafe integer\u2192fallback, injected now honored. \u2705 Each caller's integration test asserts its own fallback and injected now are passed through. \u274c Shared failure now reaches scheduler plus both callers. Effort human ~1h / CC ~5 min. Scheduler semantics, existing callers and helper hardening unchanged."
+        },
+        {
+          "label": "Reuse lib helper only",
+          "description": "\u2705 Both new callers import retrySeconds from lib/retry-after.ts; no local parser is written. \u2705 Only the already-planned per-caller integration tests; no new shared-contract assertions. \u274c Edge cases (past date, date ceiling, empty header, injected now) remain unpinned beyond the existing 5 expects. Effort human ~45 min / CC ~3 min. Scheduler semantics, existing callers and helper hardening unchanged."
+        },
+        {
+          "label": "Local parser per caller",
+          "description": "\u2705 Keeps the draft as written: each caller carries its own ~14-line parser. \u2705 No shared code touched. \u274c Compatibility with scheduler semantics is unproven unless each caller also gets parity tests, adding more duplicated lines. \u274c Three copies to keep in sync with no mechanism to detect drift. Effort human ~2h / CC ~10 min. Scheduler semantics, existing callers and helper hardening unchanged."
+        }
+      ]
+    }
+  ]
+}

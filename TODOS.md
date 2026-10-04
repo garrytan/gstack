@@ -162,6 +162,19 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   `rule` but gates on one judge sample. Decide under EVAL_POLICY whether it is
   a `judge` case (3 samples, mean) and supply pass-rate evidence before
   changing the kind. Effort S. **Priority:** P2.
+- **qa/SKILL.md workflow judge dips below its actionability floor** — census
+  37186854666 (b24b6d8) scored actionability 3.67 < 4 (clarity 3, completeness
+  4) on the same qa bundle bytes that passed in census 37182865432 (44ef18c);
+  nothing under qa/, qa-only/ or scripts/resolvers changed between them. Red in
+  2 of the 17 earlier censuses (36920606897, 36776104571). Judge kind, 3
+  samples, unchanged threshold. Find which bundle step the low samples call
+  unactionable before rewording. Effort S. **Priority:** P3.
+- **shared-libs-review-revalidation stalls mid-stream** — gate census 4 of
+  37186854666: the `filtered` scenario's stream stopped after a thinking block
+  at 07:51:21 and emitted nothing until the 657 s abort; the other three
+  scenarios passed. First red in 18 censuses. Classify a silent provider stream
+  as INFRA (no events for N minutes) rather than a test timeout. Effort S.
+  **Priority:** P3.
 - **Floor runner cannot grant an owned Edit when the TTY collapses spaces** —
   PR run 37176835584 (7249f01): plan-ceo-finding-floor timed out at 600 s with
   the native "Do you want to make this edit to gstack-test-plan-ceo-floor.md?"
