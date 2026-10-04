@@ -276,9 +276,11 @@ jobs:
       # fonts-noto-color-emoji is the emoji-gate's render font (playwright
       # --with-deps usually installs it, but the gate must not depend on a
       # transitive package list). Fonts must land BEFORE the first browse
-      # daemon launch — Chromium snapshots fontconfig at startup.
+      # daemon launch — Chromium snapshots fontconfig at startup. zsh is not
+      # in the runner image; without it the bash+zsh portability arms (#2669)
+      # skip instead of running.
       - name: Install Xvfb + X11 utilities + gate tools
-        run: sudo apt-get install -y --no-install-recommends xvfb x11-utils poppler-utils fonts-noto-color-emoji
+        run: sudo apt-get install -y --no-install-recommends xvfb x11-utils poppler-utils fonts-noto-color-emoji zsh
 
       - name: Configure git identity (tests init temp repos)
         run: |
