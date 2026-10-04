@@ -7,6 +7,7 @@ import { ceoModeHandoffs, findNativeAutoDecision } from './helpers/native-auto-d
 import { hasNativePostAnswerCeoPosture } from './helpers/ceo-mode-option';
 import { readPlanCountTranscript, type NativePublicToolEvent } from './helpers/plan-count-transcript';
 import expansionCapture from './fixtures/ceo-expansion-auq-ac.json';
+import stateCapture from './fixtures/auto-decide-state-cab3.json';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-ceo-mode-handoff');
@@ -88,6 +89,58 @@ describe('native handoff evidence', () => {
     withdrawn.tools.push(...handoff(sessionId, after, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
     withdrawn.transcript.assistantMessages.push({ sessionId, timestamp: '2026-09-10T02:19:05.000Z', text: 'Correction: I withdraw this auto-decision.' });
     expect(verdict(withdrawn)).toBeNull();
+  });
+
+  test('with the owned decision record, the handoff is the declaration the census run never sent', () => {
+    const attempt = () => {
+      const f = structuredClone(stateCapture) as any;
+      const use = f.tools.find((e: any) => e.input?.command?.includes('gstack-question-log'));
+      const record = JSON.parse(/gstack-question-log '(\{[^\n]*\})'/.exec(use.input.command)![1]!);
+      record.source = 'agent';
+      record.ts = f.tools.find((e: any) => e.kind === 'result' && e.toolUseId === use.toolUseId).timestamp;
+      f.options.stateEvidence = { questionId: 'plan-ceo-review-mode', preference: 'never-ask', records: [record] };
+      f.transcript.assistantMessages.find((m: any) => m.text.startsWith('**Mode:')).text = 'Continuing with the review.';
+      return { f, loggedAt: Date.parse(record.ts) };
+    };
+    const decide = (f: any) => findNativeAutoDecision(f.transcript, f.tools, f.options);
+    const { f: unsent } = attempt();
+    expect(decide(unsent)).toBeNull();
+    const { f: sent, loggedAt } = attempt();
+    sent.tools.push(...handoff(sent.options.sessionId, loggedAt + 1000, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
+    expect(decide(sent)).toMatchObject({ option: 'HOLD SCOPE', annotation: AUTO_LINE, stateRecord: sent.options.stateEvidence.records[0] });
+    const { f: early } = attempt();
+    early.tools.push(...handoff(early.options.sessionId, loggedAt - 5000, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
+    expect(decide(early)).toBeNull();
+    const { f: changed, loggedAt: changedAt } = attempt();
+    changed.tools.push(...handoff(changed.options.sessionId, changedAt + 1000, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
+    changed.transcript.assistantMessages.push({ sessionId: changed.options.sessionId,
+      timestamp: new Date(changedAt + 3000).toISOString(), text: 'Mode: SCOPE EXPANSION (saved preference).' });
+    expect(decide(changed)).toBeNull();
+  });
+
+  test('captured trial: the documented AUTO_DECIDE line with its decisions suffix is the declaration', () => {
+    const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/auto-decide-handoff-line-e354.json'), 'utf8'));
+    const attempt = () => {
+      const f = structuredClone(captured);
+      const use = f.tools.find((e: any) => e.kind === 'use' && e.input?.command?.includes('gstack-question-log'));
+      const record = JSON.parse(/gstack-question-log '(\{[^\n]*\})'/.exec(use.input.command)![1]!);
+      record.source = 'agent';
+      record.ts = f.tools.find((e: any) => e.kind === 'result' && e.toolUseId === use.toolUseId).timestamp;
+      f.options.stateEvidence = { questionId: 'plan-ceo-review-mode', preference: 'never-ask', records: [record] };
+      return f;
+    };
+    const decide = (f: any) => findNativeAutoDecision(f.transcript, f.tools, f.options);
+    const line = (f: any) => f.transcript.assistantMessages.find((m: any) => m.text.startsWith('Auto-decided review mode'));
+    expect(decide(attempt())).toMatchObject({ option: 'HOLD SCOPE' });
+    for (const [name, mutate] of Object.entries({
+      'no decisions suffix': (f: any) => { line(f).text = line(f).text.replace(/ Approved decisions: /, ' Decisions: '); },
+      'different mode': (f: any) => { line(f).text = line(f).text.replace('→ HOLD SCOPE', '→ SCOPE EXPANSION'); },
+      'quoted line': (f: any) => { line(f).text = '> ' + line(f).text; },
+      'later withdrawal': (f: any) => { line(f).text += '\n\nCorrection: I withdraw this decision.'; },
+      'missing record': (f: any) => { f.options.stateEvidence.records = []; },
+    })) {
+      const f = attempt(); mutate(f); expect(decide(f), name).toBeNull();
+    }
   });
 
   test('an answered mode handoff establishes that mode posture, and only that mode', () => {

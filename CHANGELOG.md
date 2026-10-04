@@ -57,6 +57,7 @@ The first two rows are the ones to care about: a review that read nothing, or fo
 - **Required team mode also blocks Copilot CLI's skill tool.** Re-run `gstack-team-init required` to upgrade the project hook.
 - **`gstack-qa-evidence capture` prints a `revalidate` list after your inputs change**, naming the probes to rerun on current inputs before `materialize`; `materialize` says its verdict is final for that report root, so rerun the listed probes first.
 - **/gstack-upgrade asks you to paste the absolute path Step 2 prints**; every later step checks it is inside gstack's checkout before running git.
+- **Browser setup names the platform when Aside is absent:** the probe prints `NEEDS_ASIDE: <OS>` (was `NEEDS_ASIDE`), and the macOS-only download pitch trusts that line instead of re-checking the OS. `GSTACK_PLATFORM` overrides it for tests and unusual hosts; set it in your shell, never a project `.env`.
 
 ### Security
 

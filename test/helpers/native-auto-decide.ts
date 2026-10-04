@@ -15,7 +15,7 @@ export interface NativeAutoDecision {
 }
 
 const plain = (text: string) => text.replace(/\*\*([^*]+)\*\*/g, '$1').trim();
-const annotationLine = /^Auto-decided ([^\r\n→]{1,240}) → ([^\r\n→]{1,200}) \(your (?:preference|saved preference on `([a-z][a-z0-9-]*)`)\)\. Change with \/plan-tune\.$/;
+const annotationLine = /^Auto-decided ([^\r\n→]{1,240}) → ([^\r\n→]{1,200}) \(your (?:preference|saved preference on `([a-z][a-z0-9-]*)`)\)\. Change with \/plan-tune\.(?: Approved decisions: [^\r\n]+)?$/;
 
 /** Asserted prose only; later quoted examples cannot retract a current decision. */
 function publicProse(text: string): string {
@@ -263,7 +263,9 @@ function currentModeStatement(text: string, questionSummary?: string): { option:
   for (let i = 0; i < lines.length; i++) {
     const statement = lines[i]!.replace(/^\s*[-*+]\s+/, '').trim();
     const field = modeField(statement);
-    const option = field?.completed ? selectedMode(field.value, questionSummary) : null;
+    // Step 0E's documented AUTO_DECIDE handoff line declares the mode it names.
+    const handoff = /^Auto-decided review mode → ([A-Z ]+) \(your preference\)\. Change with \/plan-tune\. Approved decisions: \S/.exec(statement);
+    const option = handoff ? handoff[1]! : field?.completed ? selectedMode(field.value, questionSummary) : null;
     if (!option || !modeNames.includes(option)) continue;
     // Source/example introductions and conditional selections cannot supply
     // a current declaration merely by putting a Mode field on the next line.
