@@ -14,12 +14,14 @@ import { spawnSync } from 'node:child_process';
 import { aggregate, collectEvalFiles } from '../scripts/eval-flake-rank';
 import { manualReviewFixture } from './helpers/manual-judge-review-fixture';
 import {
-  analyzePassRates, attributeLegacyRecord, backfillEvalFiles, caseSeriesIdentities, downloadRunArtifacts, fisherOneSidedLower,
+  analyzePassRates, attributeLegacyRecord, backfillEvalFiles, downloadRunArtifacts, fisherOneSidedLower,
   formatPassRates, holmRejections, listWeeklyRuns, quarantinePolicyProblems, quarantineRunsSince, readTrialOutcomeDir,
   wilsonInterval, type HistoryFetcher, type PassRatePolicy, type QuarantineEntry, type Registry, type TrialRecord,
 } from '../scripts/eval-flake-rank';
 import { EVAL_POLICY } from './helpers/periodic-exclude-data';
 import { TRIAL_OUTCOME_SCHEMA, formatTrialOutcomes } from './helpers/eval-store';
+import { storedZip } from './helpers/stored-zip';
+import { isWeeklyHistoryRun } from '../scripts/lib/ci-history';
 
 const entry = (name: string, passed: boolean, attempt: number) => ({
   name, suite: 's', tier: 'e2e', passed, attempt, duration_ms: 1000, cost_usd: 0.1,
@@ -127,7 +129,7 @@ function trial(id: string, outcome: 'passed' | 'failed' | 'skipped', extra: Part
     schema: TRIAL_OUTCOME_SCHEMA, case: id, file: 'test/x.test.ts', tier: registry.tiers[id] ?? 'judge',
     kind: registry.kinds[id]!, trial: 1, panel: { n: 1, k: 1 }, attempt: 1, outcome,
     ...(outcome === 'failed' ? { failure_class: 'assertion' as const } : {}),
-    duration_ms: 1, cost_usd: 0, model: 'model-x', cli_version: '2.1.284', policy_version: 1, quarantined: false,
+    duration_ms: 1, cost_usd: 0, model: 'model-x', cli_version: '2.1.284', policy_version: EVAL_POLICY.version, quarantined: false,
     execution: 'executed', source: 'shard', run_id: `run-${clock}`, recorded_at: new Date(Date.UTC(2026, 9, 1) + clock * 60_000).toISOString(),
     series_identity: 'id-1', ...extra,
   };
@@ -236,6 +238,40 @@ describe('pass-rates alarms count post-policy trials of the current series only'
   });
 });
 
+describe('pass-rates reader compatibility across EVAL_POLICY versions (rollback floor)', () => {
+  const v1: PassRatePolicy = { ...EVAL_POLICY, version: 1 };
+  const v2: PassRatePolicy = { ...EVAL_POLICY, version: 2 };
+  const mixed = () => [...many('rule-a', 10, 0, { policy_version: 1, series_identity: 'v1-id' }),
+    ...many('rule-a', 0, 12, { policy_version: 2, series_identity: 'v2-id' }),
+    ...many('beh-b', 0, 3, { policy_version: 2, series_identity: 'v2-only' })];
+
+  test('a reader meets newer-policy trials: ignored entirely, counted and printed with the fix', () => {
+    const report = analyze(mixed(), {}, { policy: v1 });
+    expect(report).toMatchObject({ policyVersion: 1, postPolicyTrials: 10, newerPolicyTrials: 15, olderPolicyTrials: 0 });
+    expect(report.cases.map(c => c.case)).toEqual(['rule-a']);
+    expect(report.cases[0]).toMatchObject({ label: 'PASSING', current: { identity: 'v1-id', policyVersion: 1, passes: 10, trials: 10 }, previous: null });
+    expect(report.cases[0]!.series.map(s => s.key)).toEqual(['v1-id|model-x|2.1.284|v1']);
+    expect(report.alarms).toEqual([]);
+    const text = formatPassRates(report);
+    expect(text).toContain('ignored 15 trial(s) recorded under a policy newer than v1');
+    expect(text).toContain('Fix: run pass-rates from a checkout at or after the commit that bumped EVAL_POLICY.version');
+  });
+
+  test('a reader meets older-policy trials: visible, never scored, never a drift baseline', () => {
+    const report = analyze(mixed(), {}, { policy: v2 });
+    expect(report).toMatchObject({ policyVersion: 2, postPolicyTrials: 15, olderPolicyTrials: 10, newerPolicyTrials: 0 });
+    const ruleA = report.cases.find(c => c.case === 'rule-a')!;
+    expect(ruleA.current).toMatchObject({ identity: 'v2-id', policyVersion: 2, passes: 0, trials: 12 });
+    expect(ruleA.previous).toBeNull();
+    expect(ruleA.series.map(s => s.policyVersion)).toEqual([1, 2]);
+    expect(report.alarms.map(a => a.kind)).not.toContain('regression');
+    const onlyOld = analyze(many('rule-a', 0, 12, { policy_version: 1 }), {}, { policy: v2 });
+    expect(onlyOld.cases[0]).toMatchObject({ label: 'INCONCLUSIVE', current: null });
+    expect(onlyOld.alarms).toEqual([]);
+    expect(formatPassRates(onlyOld)).toContain('12 under an older policy (display only)');
+  });
+});
+
 describe('quarantine policy', () => {
   const policy: PassRatePolicy = EVAL_POLICY;
   const now = Date.UTC(2026, 9, 2);
@@ -302,48 +338,9 @@ describe('pass-rates inputs', () => {
     expect(unattributed).toEqual(['/unknown display']);
     fs.rmSync(dir, { recursive: true, force: true });
   });
-
-  test('series identity follows the case\'s own touchfiles, not GLOBAL_TOUCHFILES', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'passrates-series-'));
-    const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 10_000 });
-    for (const [file, body] of [['a/x.ts', '1'], ['b/y.ts', '1'], ['harness/run.ts', '1'], ['test/skill-e2e-a.test.ts', '1']] as const) {
-      fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
-      fs.writeFileSync(path.join(root, file), body);
-    }
-    const snapshot = () => { expect(git('add', '-A').status).toBe(0); return caseSeriesIdentities(['rule-a', 'beh-b'], root, registry); };
-    expect(git('init', '-q').status).toBe(0);
-    const first = snapshot();
-    expect(first['rule-a']).not.toBe(first['beh-b']);
-    fs.writeFileSync(path.join(root, 'harness/run.ts'), '2');
-    expect(snapshot()).toEqual(first);
-    fs.writeFileSync(path.join(root, 'a/x.ts'), '2');
-    const next = snapshot();
-    expect(next['rule-a']).not.toBe(first['rule-a']);
-    expect(next['beh-b']).toBe(first['beh-b']);
-    fs.rmSync(root, { recursive: true, force: true });
-  });
 });
 
 describe('pass-rates history fetch (injected, no network)', () => {
-  function storedZip(files: Record<string, string>): Buffer {
-    const locals: Buffer[] = [], centrals: Buffer[] = [];
-    let offset = 0;
-    for (const [name, text] of Object.entries(files)) {
-      const data = Buffer.from(text), fileName = Buffer.from(name), crc = Bun.hash.crc32(data) >>> 0;
-      const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4);
-      local.writeUInt32LE(crc, 14); local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(fileName.length, 26);
-      const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6);
-      central.writeUInt32LE(crc, 16); central.writeUInt32LE(data.length, 20); central.writeUInt32LE(data.length, 24);
-      central.writeUInt16LE(fileName.length, 28); central.writeUInt32LE(offset, 42);
-      locals.push(local, fileName, data); centrals.push(central, fileName);
-      offset += 30 + fileName.length + data.length;
-    }
-    const size = centrals.reduce((sum, b) => sum + b.length, 0);
-    const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(Object.keys(files).length, 8);
-    end.writeUInt16LE(Object.keys(files).length, 10); end.writeUInt32LE(size, 12); end.writeUInt32LE(offset, 16);
-    return Buffer.concat([...locals, ...centrals, end]);
-  }
-
   test('lists runs per branch, deduplicated and newest first', () => {
     const fetcher: HistoryFetcher = {
       listRuns: (_repo, _workflow, branch) => branch === 'main'
@@ -352,6 +349,16 @@ describe('pass-rates history fetch (injected, no network)', () => {
       listArtifacts: () => [], downloadZip: () => { throw new Error('unused'); },
     };
     expect(listWeeklyRuns({ repo: 'o/r', workflow: 'evals-periodic.yml', branches: ['feature', 'main'], limit: 10, fetcher }).map(r => r.id)).toEqual([3, 2, 1]);
+  });
+
+  test('weekly history is scheduled runs on main plus main dispatches, never a branch dispatch (EVAL_POLICY v2)', () => {
+    const at = (branch: string, event: string) => isWeeklyHistoryRun({ branch, event });
+    expect(at('main', 'schedule')).toBe(true);
+    expect(at('main', 'workflow_dispatch')).toBe(true);
+    expect(at('garrytan/fix-wave', 'workflow_dispatch')).toBe(false);
+    expect(at('main', 'push')).toBe(false);
+    expect(at('main', 'pull_request')).toBe(false);
+    expect(at('main', undefined as unknown as string)).toBe(false);
   });
 
   test('downloads only matching, bounded artifacts once, and caches them', () => {

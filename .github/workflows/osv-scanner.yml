@@ -25,3 +25,31 @@ jobs:
         --include-git-root
         --recursive
         ./
+
+  # A scheduled red used to notify no one (F11: a three-week unactioned
+  # backlog). Main runs upsert one tracking issue on a failed scan and close it
+  # on the next clean scan. Pinned by test/osv-ignore-expiry.test.ts.
+  report:
+    needs: scan
+    if: always() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Upsert or close the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCAN_RESULT: ${{ needs.scan.result }}
+        run: |
+          set -euo pipefail
+          TITLE="OSV scanner: vulnerable dependency needs triage"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "$SCAN_RESULT" = "failure" ]; then
+            BODY="The weekly OSV scan failed: $RUN_URL (findings are in the run's Security tab upload and log). Fix: upgrade the package (package.json overrides), or add a justified [[IgnoredVulns]] entry with an ignoreUntil to .osv-scanner.toml."
+            if [ -n "$EXISTING" ]; then gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY";
+            else gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"; fi
+          elif [ "$SCAN_RESULT" = "success" ] && [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" --comment "Clean OSV scan: $RUN_URL"
+          fi
