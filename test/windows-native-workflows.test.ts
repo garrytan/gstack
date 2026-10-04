@@ -23,10 +23,12 @@ const WINDOWS_CURATED_FLOOR = 570;
 
 test('the Windows lane plans, runs one strict shard per job and verifies every result', () => {
   expect(Object.keys(windows.on).sort()).toEqual(['pull_request', 'workflow_dispatch']);
-  expect(windows.on.workflow_dispatch).toBeNull();
+  expect(Object.keys(windows.on.workflow_dispatch.inputs)).toEqual(['record_durations']);
   const plan = windows.jobs['windows-plan'];
   expect(plan['runs-on']).toBe('ubuntu-24.04');
-  expect(plan.steps.find((step: any) => step.id === 'plan').run).toContain('--windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 6');
+  const planStep = plan.steps.find((step: any) => step.id === 'plan');
+  expect(planStep.run).toContain('--windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 6');
+  expect(planStep.env.GSTACK_FREE_TEST_DURATIONS).toBe('scripts/free-test-durations-windows.json');
   const shard = windows.jobs['windows-free-shard'];
   expect(shard['runs-on']).toBe('windows-latest');
   expect(shard.needs).toBe('windows-plan');
@@ -36,7 +38,8 @@ test('the Windows lane plans, runs one strict shard per job and verifies every r
   expect(run.env.GSTACK_FREE_RETRY_FLAKY).toBe('1');
   expect(shard.steps.find((step: any) => step.name === 'Upload strict shard result').if).toBe('always()');
   const aggregate = windows.jobs['windows-free-tests'];
-  expect(aggregate.if).toBe('always()');
+  expect(aggregate.if).toBe('${{ always() && !inputs.record_durations }}');
+  expect(plan.if).toBe('${{ !inputs.record_durations }}');
   expect(aggregate.needs).toEqual(['windows-plan', 'windows-free-shard']);
   expect(aggregate.steps.at(-1).run).toContain('--windows-only --ci-verify "$RUNNER_TEMP/windows-plan.json" --results ');
 });
@@ -51,6 +54,16 @@ test('a Windows CI plan binds the curated file set, so it never verifies as the 
   expect(() => validateFreeCiPlan(plan, safe, 'rev')).not.toThrow();
   expect(() => validateFreeCiPlan(plan, all, 'rev')).toThrow('CI plan must cover every free file exactly once');
   expect(() => validateFreeCiPlan(createFreeCiPlan(all, 6, {}, 'rev'), safe, 'rev')).toThrow('CI plan must cover every free file exactly once');
+});
+
+test('a record_durations dispatch times each Windows-safe file alone and uploads the Windows seed', () => {
+  const job = windows.jobs['windows-record-durations'];
+  expect(job.if).toBe('${{ inputs.record_durations }}');
+  expect(job['runs-on']).toBe('windows-latest');
+  const record = job.steps.find((step: any) => step.name === 'Time every Windows-safe file alone');
+  expect(record.run).toBe('bun run test:windows --record-durations');
+  expect(record.env.GSTACK_FREE_TEST_DURATIONS).toBe('${{ runner.temp }}/free-test-durations-windows.json');
+  expect(job.steps.at(-1).with.name).toBe('free-test-durations-windows');
 });
 
 test('Windows shards use the pinned Node runtime and retain complete logs on every run', () => {

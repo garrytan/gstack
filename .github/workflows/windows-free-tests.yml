@@ -11,7 +11,11 @@ name: Windows Free Tests
 # Same plan/run/verify model as free-tests.yml: one duration-balanced plan of
 # the curated files, one shard per Windows job, and an aggregate that requires
 # every strict result and exact coverage. The plan and the verify step are
-# static (file contents and the git revision), so they run on Linux.
+# static (file contents and the git revision), so they run on Linux. Packing
+# reads Windows-measured durations (scripts/free-test-durations-windows.json):
+# Windows-only files such as the native cookie job cost minutes there and
+# nothing on Linux. Refresh it with a `record_durations` dispatch and commit
+# the artifact.
 #
 # Native browser qualification campaigns (Windows cookie extraction, launch
 # diagnostics, Dia on macOS) are dispatch-only in native-qualification.yml.
@@ -20,6 +24,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      record_durations:
+        description: Record per-file Windows durations (artifact) instead of running the lane
+        type: boolean
+        default: false
 
 concurrency:
   group: windows-free-${{ github.event.pull_request.number || github.run_id }}
@@ -31,6 +40,7 @@ permissions:
 
 jobs:
   windows-plan:
+    if: ${{ !inputs.record_durations }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -46,6 +56,8 @@ jobs:
         name: Curate and balance the Windows-safe free suite
         # Six shards: ~85 s of Linux-measured work each, ~2.5 min on a
         # 4-vCPU Windows runner, so the lane lands near 4 min with setup.
+        env:
+          GSTACK_FREE_TEST_DURATIONS: scripts/free-test-durations-windows.json
         run: |
           matrix=$(bun run scripts/test-free-shards.ts --windows-only --ci-plan "$RUNNER_TEMP/windows-plan.json" --shards 6)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
@@ -160,7 +172,7 @@ jobs:
           retention-days: 90
 
   windows-free-tests:
-    if: always()
+    if: ${{ always() && !inputs.record_durations }}
     needs: [windows-plan, windows-free-shard]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -190,3 +202,41 @@ jobs:
           path: ${{ runner.temp }}/windows-results
       - name: Require exact coverage and complete strict results
         run: bun run scripts/test-free-shards.ts --windows-only --ci-verify "$RUNNER_TEMP/windows-plan.json" --results "$RUNNER_TEMP/windows-results"
+
+  windows-record-durations:
+    if: ${{ inputs.record_durations }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.18.0
+      - name: Prepare the same inputs as a Windows shard
+        shell: bash
+        run: |
+          git config --global user.email "windows-ci@gstack.test"
+          git config --global user.name "Windows CI"
+          git config --global init.defaultBranch main
+          bun install --frozen-lockfile
+          bash browse/scripts/build-node-server.sh
+          bun run gen:skill-docs --host all
+          bunx playwright install chromium
+      - name: Time every Windows-safe file alone
+        shell: bash
+        env:
+          GSTACK_FREE_TEST_DURATIONS: ${{ runner.temp }}/free-test-durations-windows.json
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+        run: bun run test:windows --record-durations
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: free-test-durations-windows
+          path: ${{ runner.temp }}/free-test-durations-windows.json
+          if-no-files-found: error
