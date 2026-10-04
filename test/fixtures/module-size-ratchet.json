@@ -1,6 +1,8 @@
 {
   "newModules": [
     { "file": "scripts/lib/shard-engine.ts", "movedFrom": "scripts/test-strict-output.ts" },
+    { "file": "scripts/lib/paid-types.ts", "movedFrom": "scripts/test-paid-shards.ts" },
+    { "file": "scripts/lib/paid-select.ts", "movedFrom": "scripts/test-paid-shards.ts" },
     { "file": "test/helpers/module-size.ts", "movedFrom": "(new: ratchet (c) counter)" },
     { "file": "scripts/lib/free-home-guard.ts", "movedFrom": "(new: free-lane home-write tripwire, kept out of scripts/test-free-shards.ts)" },
     { "file": "browse/src/routes/activity.ts", "movedFrom": "browse/src/server.ts" },
