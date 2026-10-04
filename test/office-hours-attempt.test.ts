@@ -176,6 +176,7 @@ describe('Office Hours deadlines', () => {
       const started = Date.now();
       const { records } = await runFixture({
         budgetMs: 5,
+        recordGraceMs: 200,
         run: async abortSignal => {
           signal = abortSignal;
           if (stage === 'runner') await pending;
@@ -183,6 +184,7 @@ describe('Office Hours deadlines', () => {
         },
         validate: async () => { validations++; await pending; },
       });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(200);
       expect(Date.now() - started).toBeLessThan(OFFICE_HOURS_BUN_GRACE_MS);
       expect(signal?.aborted).toBe(true);
       expect(records).toHaveLength(1);

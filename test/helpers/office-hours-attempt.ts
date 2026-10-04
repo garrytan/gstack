@@ -14,6 +14,7 @@ export interface OfficeHoursAttemptOptions {
   suite: string;
   model: string;
   budgetMs?: number;
+  recordGraceMs?: number;
   /** Deferred judge metadata; terminal pass/failure stays owned by this attempt. */
   judgeMetadata?: Pick<EvalTestEntry, 'judge_scores' | 'judge_reasoning'>;
   run: (signal: AbortSignal) => Promise<SkillTestResult>;
@@ -64,7 +65,7 @@ export async function runRecordedOfficeHoursAttempt(opts: OfficeHoursAttemptOpti
       await Promise.race([
         work.catch(() => {}),
         new Promise<void>(resolve => {
-          drainTimer = setTimeout(resolve, Math.max(0, deadlineAt + OFFICE_HOURS_RECORD_GRACE_MS - Date.now()));
+          drainTimer = setTimeout(resolve, Math.max(0, deadlineAt + (opts.recordGraceMs ?? OFFICE_HOURS_RECORD_GRACE_MS) - Date.now()));
         }),
       ]);
     }
