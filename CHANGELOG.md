@@ -1,5 +1,63 @@
 # Changelog
 
+## [1.91.20.0] - 2026-10-04
+
+**PR evals stop throwing away work, and a red weekly census means something again.**
+**The free suite is faster, its flakes are visible, and broken commands are gone.**
+
+This release is a test, eval and CI audit wave. It touches no skill behavior. The paid PR lane keeps a cancelled run's finished results for the next push, waits briefly when pushes come in quick succession, and runs only the gate cases a change can affect once the change avoids a shared input. Every paid lane has a ceiling sized per runner, so a stuck shard ends as an honest `TIMEOUT` or `not_run` instead of holding a runner for four hours. The weekly census can no longer be cancelled by a branch dispatch, and a new weekly test-health report says which free tests are getting flaky or slow.
+
+### The numbers that matter
+
+| Check | v1.91.19.0 | v1.91.20.0 |
+|---|---|---|
+| Paid CI job ceiling (gate census / periodic) | 254 / 173 min for every slice | 34-82 min per slice; 50 min for ordinary periodic slices |
+| Local `eval:bg:pr` / `eval:bg:release` detach cap | 25.8 h / 32.4 h | 2.9 h / 2.25 h (1.5× planned work, never over 4 h) |
+| Passing results a cancelled PR run hands to the next push | 0 | every finished shard, failures included |
+| A branch dispatch that cancels main's weekly census | possible | no (concurrency is per ref and event) |
+| Windows free lane wall | 8.1 min on one runner | about 4.6 min on six runners |
+| Windows-safe files the curated lane runs | 573 | 638 |
+| zsh arms of the bash+zsh portability tests in CI | ~42 skipped (no zsh) | all run |
+| Free-suite flaky passes reported anywhere | none (a write-only artifact) | job summary + weekly `test:health` |
+| Sentence pins on skill prose in free tests | 2,332 | 1,190 |
+
+### What changes for you
+
+- **PR evals keep finished work.** A `recover-receipts` job restores the passes and failures of up to five cancelled runs of the same PR, checks where each came from, and hands them to the planner, so a re-push re-runs only what changed. A 90-second debounce skips a run that a newer push has already superseded; the `evals-no-debounce` label turns it off and `evals-fresh` turns reuse off.
+- **PR selection narrows where it can.** Duration seeds, free-only workflows, free tests and free fixtures (listed in `test/helpers/free-fixtures-data.ts`) no longer force the full gate. Other files map to the paid cases that actually consume them, derived from imports, bin names, template placeholders and build outputs (`scripts/pr-dependencies.ts`); deleted files are placed the same way. Shared inputs (package.json, the CI image, setup, the preamble resolvers, the eval policy) still run the full gate. The job summary names every fallback file and its fix.
+- **`bun run eval:bg:pr` and friends dispatch CI when your HEAD is clean and pushed**, and otherwise run locally with a cap sized to the planned work. Both paths end with `### gstack-detach EXIT=<code> ###`; `bun run scripts/eval-bg.ts status <log-or-run-id>` reads it.
+- **Weekly test health.** `bun run test:health` (and `.github/workflows/test-health.yml`, Mondays) reports PR-lane fallback rate, reuse, cancelled slice-minutes, flaky free tests over 5% of main runs, and unseeded free tests. Its tracking issue opens only from main.
+- **Branch census dispatches run the periodic lane only.** Add `-f include_gate_census=true` for the gate census too, or dispatch `evals.yml` with `-f evals_all=true` for gate cases alone.
+- **The OSV scan opens a tracking issue when it fails on main**, and a free test fails 14 days before any `ignoreUntil` suppression expires.
+
+### Behavior changes you may notice
+
+- **EVAL_POLICY is v2.** A case's pass-rate history resets only when its own files or the declared `HARNESS_VERSION` change, and weekly history counts main runs only. Readers ignore records from a newer policy version and say how many they skipped. Shared-harness edits record a decision with `bun run scripts/bump-harness-version.ts --bump|--non-behavioral "<why>"`.
+- **The 15 `carve-section-loading-<skill>` test files are one case-sharded file** with a case id per skill (`--case carve-section-loading-review`); `GSTACK_CARVE_SKILL` is gone. `skill-e2e-qa-workflow` runs case by case.
+- **Paid slices pack 7 minutes of work (was 9)**, so more runners start at once.
+- **`eval:select` defaults to the PR profile.**
+- **`/cso` docs say contained runtime and scanner runs are not available yet**: no runtime profile is qualified and the scanner catalog is empty.
+
+### For contributors
+
+- These package scripts print their replacement and exit 1 for one release, then go away:
+
+| Retired | Use instead |
+|---|---|
+| `test:evals`, `test:e2e`, `eval:bg` | `bun run eval:bg:pr` |
+| `test:evals:all`, `test:e2e:all`, `eval:bg:all` | `bun run eval:bg:release` |
+| `test:gate` / `test:periodic` | `bun run test:gate:sharded` / `test:periodic:sharded` |
+| `test:codex`, `test:codex:all` | `bun run test:periodic:sharded` (they ran zero cases) |
+| `eval:flake-rank` | `bun run eval:pass-rates` |
+| `eval:watch` | tail the `gstack-detach` log, or `gh run watch <run-id>` |
+| `test:audit` | `bun run test` |
+
+- `docs/test-value-bar.md` narrows a "prompt-byte contract" to machine-read tokens. Check template and SKILL.md structure with `test/helpers/prompt-structure.ts` instead of pinning English sentences.
+- Free-suite tests share one install fixture (copy-on-write clones of a read-only seed) and inject short deadlines instead of waiting real seconds. Subprocess pipe tests use FIFOs; see TESTING_INTERNALS "Flake ledger" for the rules.
+- The free duration seed is shrink-only above 60 seconds per file (`scripts/free-test-seed-allowlist.json`), and only `bun run test:ubicloud --record-durations` produces an acceptable seed. Windows has its own seed, refreshed by a `record_durations` dispatch.
+- Deleted: `ci-image.yml` (the eval workflows build the same image), `scripts/update-readme-throughput.ts`, `scripts/eval-watch.ts`, orphaned fixtures, and ~160 unused imports in the paid runner (now split into `scripts/lib/paid-types.ts` and `paid-select.ts`). Native Windows and Dia qualification moved to the dispatch-only `native-qualification.yml`; ML, gitleaks and Swift opt-in tests run in the quarterly `platform-qualification.yml`. Small CI jobs run on free GitHub-hosted runners.
+- Evidence, the EVAL_POLICY v2 memo and its backtest are in [docs/test-audit-2026-10.md](docs/test-audit-2026-10.md).
+
 ## [1.91.19.0] - 2026-10-03
 
 **A check that did not run now says so, and memory stops losing transcripts.**
