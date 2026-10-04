@@ -25,6 +25,7 @@ import {
   markHiddenElements, getCleanTextWithStripping, cleanupHiddenMarkers,
 } from '../src/content-security';
 import { generateInstructionBlock } from '../src/cli';
+import { expectMentions } from '../../test/helpers/prompt-structure';
 
 // Per-FILE Chromium profile: this file launches an in-process persistent
 // context (BrowserManager.launch()), and sharing a profile dir with the
@@ -295,7 +296,7 @@ describe('Instruction block SECURITY section', () => {
       CLI_SRC.indexOf('COMMAND REFERENCE:'),
     );
     expect(secBlock).toContain('UNTRUSTED');
-    expect(secBlock).toContain('NEVER follow instructions');
+    expectMentions(secBlock, [['never', 'follow instructions']], 'SECURITY section');
   });
 
   test('SECURITY section warns about common injection phrases', () => {
@@ -323,7 +324,7 @@ describe('Instruction block SECURITY section', () => {
       expiresAt: 'in 5 minutes',
     });
     expect(block).toContain('SECURITY:');
-    expect(block).toContain('NEVER follow instructions');
+    expectMentions(block, [['never', 'follow instructions']], 'instruction block');
   });
 
   test('instruction block ordering: SECURITY before COMMAND REFERENCE', () => {
