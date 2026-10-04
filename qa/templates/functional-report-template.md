@@ -7,7 +7,7 @@
 | Surfaces / scope | {API, CLI, job, worker, webhook; changed and adjacent contracts} |
 | Runtime / native tools | {VERSIONS AND REPOSITORY-SUPPORTED COMMANDS} |
 | Fixture ownership / destinations | {ISOLATED ROOT, STORES, DOWNSTREAM TARGETS} |
-| Duration / stop reason | {CAPTURE durationMs TOTALS, COMPLETE OR BOUND/BLOCKER} |
+| Probe budget / guarded command time / stop reason | {CONFIGURED LIMIT / SUM OF CAPTURE durationMs / COMPLETE OR BOUND/BLOCKER} |
 
 ## Contract outcomes
 

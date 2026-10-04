@@ -9,7 +9,7 @@
 | **PR** | {PR_NUMBER} ({PR_URL}) or "—" |
 | **Tier** | Quick / Standard / Exhaustive |
 | **Scope** | {SCOPE or "Full app"} |
-| **Duration** | {DURATION} |
+| **Probe budget / guarded command time** | {CONFIGURED LIMIT / SUM OF MEASURED COMMAND SPANS} |
 | **Pages visited** | {COUNT} |
 | **Screenshots** | {COUNT} |
 | **Framework** | {DETECTED or "Unknown"} |
