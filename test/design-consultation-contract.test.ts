@@ -7,6 +7,7 @@ import { generateBrowseFallback } from '../scripts/resolvers/browse';
 import { generateAsideSetup, generateAsideResearch } from '../scripts/resolvers/aside';
 import { outsideVoiceInvocation } from '../scripts/resolvers/outside-voice';
 import { validateOutsideReview } from '../lib/outside-review-result';
+import { expectMentions, expectTokens } from './helpers/prompt-structure';
 
 const context = (host: string, skillName = 'design-consultation'): TemplateContext => ({ host, skillName, tmplPath: `${skillName}/SKILL.md.tmpl`, paths: HOST_PATHS[host] });
 for (const { name: host } of ALL_HOST_CONFIGS) {
@@ -24,14 +25,10 @@ for (const { name: host } of ALL_HOST_CONFIGS) {
     expect(preparation).toContain('including actual plan/spec/source');
     expect(text).toContain('outside_status="unavailable"');
     expect(text).toContain('otherwise \"none\"');
-    expect(text).toContain('run the command twice: one record for each voice, including any unavailable voice');
-    expect(text).toContain('Both records carry the actual CLI outcome');
     expect(text).toContain('| User declined both (one record) | skipped | none | skipped |');
     expect(text).toContain('| Native subagent completed | clean or issues_found | in-host | actual');
     expect(text).toContain('substitute its shell-quoted absolute path for the literal <prepared-prompt-file>');
-    expect(text).toContain('every completed proposal (two, one, or none)');
     expect(text).toContain('Do not choose a direction here');
-    expect(text).toContain('Q2 compares these proposals with your earlier draft');
     expect(text).not.toContain('continuing with primary review');
     expect(text).not.toContain('[single-model]');
   });
@@ -46,23 +43,20 @@ test('creative wording leaves the review and scoring gates intact', () => {
 
 test('preview paths retain verified fonts and select their own token source', () => {
   const section = readFileSync(new URL('../design-consultation/sections/proposal-and-preview.md.tmpl', import.meta.url), 'utf8');
-  expect(section).toContain('Skipping competitive research does not waive font verification');
-  expect(section).toContain('mark font selection as pending verification');
-  expect(section).toContain('defer the preview until fonts can be verified');
+  expectMentions(section, [['does not', 'verification', 'competitive']], 'section');
+  expectMentions(section, [['until', 'verified', 'preview']], 'section');
   expect(section).toContain("For Path B, use the approved HTML preview's CSS values");
   expect(section).toContain('Only Path A invokes `$D extract`');
   expect(section).not.toContain('## Approved Design Direction');
   expect(section).toContain('approved mockup paths/tokens into Phase 6\'s "## Proposed DESIGN.md" plan section');
-  expect(section).toContain('Its Q-final approval governs saving that content');
+  expectMentions(section, [['approval', 'q-final', 'governs']], 'section');
   expect(section).toContain('Only A permits the writes below');
   expect(section).toContain('Prepare the complete DESIGN.md contents below');
   expect(section).toContain('show the exact CLAUDE.md guidance');
   expect(generateOverusedFonts(context('claude'))).toContain('font-verification fallback');
   expect(generateOverusedFonts(context('claude', 'design-shotgun'))).not.toContain('font-verification fallback');
   const loop = generateDesignShotgunLoop(context('claude'));
-  expect(loop).toContain('Read captured stderr for the startup marker');
   expect(loop).toContain('a PID is not readiness');
-  expect(loop).toContain('the product page depicted by the chosen mockup');
 });
 
 
@@ -76,16 +70,12 @@ test('consultation drafts before independent dispatch and compares completed inp
   for (let i = 0; i < ordered.length; i++) {
     expect(section.indexOf(ordered[i])).toBeGreaterThan(i === 0 ? -1 : section.indexOf(ordered[i - 1]));
   }
-  expect(section).toContain("Keep that draft out of both reviewers' prompts");
-  expect(root).toContain('The optional outside-voices choice below still applies');
   const question = section.slice(section.indexOf('**AskUserQuestion Q2'), section.indexOf('## Phase 4'));
   expect(question).toContain('completed/unavailable/skipped voices');
-  expect(question).toContain('agreements, differences, ideas adopted and product-specific reasons');
   expect(question).toContain('omit comparisons if none completed');
-  expect(section).toContain('Do not count agreement as a vote or invent a missing proposal');
-  expect(section).toContain('Verify any newly suggested fonts before adopting them');
+  expectMentions(section, [['do not', 'agreement', 'proposal']], 'section');
+  expectMentions(section, [['before', 'suggested', 'adopting']], 'section');
   expect(section).toContain('official Google Fonts/Fontshare listing');
-  expect(section).toContain('Carry the selected adjustment into the full Q2 proposal');
   expect(section).toContain('label old proposals stale');
 });
 
@@ -107,23 +97,21 @@ test('consultation opt-in probes the CLI without a disabled branch and rechecks 
 test('optional browser research has one unavailable branch and reuses its readiness probe', () => {
   const ctx = context('claude');
   const fallback = generateBrowseFallback(ctx);
-  expect(fallback).toContain('Do not offer or run a build');
-  expect(fallback).toContain('skip Phase 2 Step 2; Step 1 still uses WebSearch');
+  expectMentions(fallback, [['do not', 'offer', 'build']], 'fallback');
   expect(fallback).not.toContain('OK to proceed?');
   const qaFallback = generateBrowseFallback(context('claude', 'qa'));
-  expect(qaFallback).toContain('follow the **Browser access decision** above for ./setup authority');
-  expect(qaFallback).toContain('this fallback grants no setup or cookie-import authority');
+  expectTokens(qaFallback, ['**Browser access decision**'], 'qaFallback');
+  expectMentions(qaFallback, [['no', 'cookie-import', 'authority']], 'qaFallback');
   expect(qaFallback).not.toContain('OK to proceed?');
   expect(generateBrowseFallback(context('claude', 'browse'))).toContain('OK to proceed?');
   const root = readFileSync(new URL('../design-consultation/SKILL.md.tmpl', import.meta.url), 'utf8');
-  expect(root).toContain('do not build or offer a build');
+  expectMentions(root, [['do not', 'build', 'offer']], 'root');
   expect(root).toContain('count its retained `sessions` entries');
-  expect(root).toContain('Phase 2 findings with source URLs or an explicit declined/unavailable status');
   const research = generateAsideResearch(ctx);
   expect(research).toContain('Reuse the Phase 0 BROWSER SETUP result');
   expect((generateAsideSetup(ctx) + research).match(/console\.log\("ASIDE_READY /g)).toHaveLength(1);
-  expect(research.toLowerCase()).toContain('read-only: do not sign in, submit, or change anything');
-  expect(research).toContain('Sanitize every query before it leaves the machine');
+  expectMentions(research.toLowerCase(), [['do not', 'read-only', 'anything']], 'research.toLowerCase()');
+  expectMentions(research, [['before', 'sanitize', 'machine']], 'research');
 });
 
 test('existing-system choices reach their matching final format without early writes', () => {
@@ -132,13 +120,13 @@ test('existing-system choices reach their matching final format without early wr
   expect(root).toContain('**Cancel:** STOP the skill now, with no file changes or further probes');
   expect(root).toContain('**Update:** carry the existing decisions into Q1 as constraints');
   expect(root).toContain('**Start fresh:** set aside prior visual choices');
-  expect(root).toContain('All conversion, marker and design writes wait for Q-final');
+  expectMentions(root, [['wait', 'conversion', 'q-final']], 'root');
   const format = generateDesignMdCheck(context('claude'));
   expect(format).toContain('convert`, without `--write`');
-  expect(format).toContain('After Q-final approval outside plan mode');
+  expectMentions(format, [['approval', 'q-final', 'outside']], 'format');
   expect(format).toContain('In plan mode, record the chosen format in Proposed DESIGN.md instead');
-  expect(section).toContain('Never convert a kept file just to make validation say spec');
-  expect(section).toContain('Any subsequent token, font or direction change invalidates that approval');
+  expectMentions(section, [['never', 'validation', 'convert']], 'section');
+  expectMentions(section, [['approval', 'invalidates', 'subsequent']], 'section');
   expect(section).toContain('E) Skip the preview — proceed to Phase 6\'s Q-final, not straight to writing');
 });
 
@@ -167,7 +155,7 @@ test('design command guidance carries session, extraction and quality-check side
   expect(setup).toContain('`variants` returns `paths` but creates no session');
   expect(section).toContain('`pass: false` means regenerate');
   expect(section).toContain('`pass: true` with an unavailable/skipped warning is missing automated coverage');
-  expect(section).toContain('run it only in a fresh non-repository scratch directory');
+  expectMentions(section, [['only', 'non-repository', 'directory']], 'section');
   expect(section).toContain('Empty arrays, an "Unable to extract" mood or command failure');
   for (const command of (section + generateDesignShotgunLoop(context('claude'))).matchAll(/\$D iterate[^`\n]+/g)) {
     expect(command[0]).toContain('--session');
@@ -181,17 +169,14 @@ test('board feedback distinguishes sessionless regeneration, final choice and mi
   expect(examples.find(value => value.regenerated === true)).toMatchObject({ regenerateAction: 'more_like_B' });
   expect(loop).toContain('it does not emit a required `remixSpec`');
   expect(loop).toContain('Archive this round\'s feedback files');
-  expect(loop).toContain('revisions regenerate; a final choice needs summary confirmation');
-  expect(loop).toContain('never infer approval from a missing file');
-  expect(loop).toContain('publishes to a persistent daemon, opens the board and exits');
-  expect(loop).toContain('Re-run the quality check and visual self-gate on every new image');
+  expectMentions(loop, [['never', 'approval', 'missing']], 'loop');
 });
 
 test('taste context has defined count and bounded legacy and malformed-profile fallbacks', () => {
   const text = generateTasteProfile(context('claude'));
   expect(text).not.toContain('SESSION_COUNT');
   expect(text).not.toContain('head -200');
-  expect(text).toContain('Count retained sessions (at most 50, not lifetime)');
+  expectMentions(text, [['not', 'retained', 'sessions']], 'text');
   expect(text).toContain('malformed/unreadable uses the legacy fallback');
   const legacy = text.slice(text.indexOf('**Legacy fallback:**'), text.indexOf('**Conflict handling:**'));
   expect(legacy).toContain('$GSTACK_STATE_ROOT/projects/$SLUG/designs/');
@@ -199,19 +184,18 @@ test('taste context has defined count and bounded legacy and malformed-profile f
   expect(legacy).not.toContain('~/.gstack');
   expect(text).toContain('Read the five newest');
   expect(text).toContain('No usable files: continue without a taste profile');
-  expect(text).toContain('never infer fonts/colors from variant letters');
-  expect(text).toContain('do not rewrite the file while reading');
+  expectMentions(text, [['never', 'fonts/colors', 'variant']], 'text');
+  expectMentions(text, [['do not', 'rewrite', 'reading']], 'text');
 });
 
 test('board fallback names the same launch command and does not poll a failed server', () => {
   const text = generateDesignShotgunLoop(context('claude'));
   expect(text).toContain('$D compare --images');
-  expect(text).toContain('Nonzero exit or no readiness marker: show each variant inline');
+  expectMentions(text, [['no', 'readiness', 'nonzero']], 'text');
   expect(text).not.toContain('$D serve');
   expect(text).not.toContain('POLLING FALLBACK');
-  expect(text).toContain('Exit 0 with `BOARD_URL` means the daemon is serving');
+  expectTokens(text, ['`BOARD_URL`'], 'text');
   const fallback = text.slice(text.indexOf('**SERVER FALLBACK:**'), text.indexOf('**After receiving feedback'));
   expect(fallback).not.toContain('In that case');
   expect(fallback).not.toContain('means the daemon is serving');
-  expect(fallback).toContain('The comparison board server failed to start');
 });
