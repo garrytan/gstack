@@ -42,7 +42,6 @@
  */
 
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -54,6 +53,7 @@ import { CASE_QUARANTINE, EVAL_POLICY } from '../test/helpers/periodic-exclude-d
 import { matchGlob } from '../test/helpers/test-selection';
 import { CASE_TEST_NAMES } from './test-paid-shards';
 import { resolveStateRoot } from '../lib/state-root';
+import { downloadRunArtifacts, gitOutput, listWeeklyRuns, parseFlakeLedger, repoSlug, TRIAL_OUTCOMES_MAX_BYTES } from './lib/ci-history';
 
 interface TestSeries {
   name: string;
@@ -126,19 +126,11 @@ export function collectEvalFiles(dir: string, sinceDays = 60): string[] {
   return out;
 }
 
+/** The local free-suite flake ledger (CI ledgers are read by test:health through scripts/lib/ci-history.ts). */
 function readFreeLedger(): FlakeLedgerEntry[] {
-  // Per-LINE parse: one malformed JSONL line (torn write, manual edit) must
-  // drop that line, never vanish the whole series (codex adversarial finding).
-  let raw: string;
   try {
-    raw = fs.readFileSync(flakeLedgerPath(), 'utf-8');
+    return parseFlakeLedger(fs.readFileSync(flakeLedgerPath(), 'utf-8'));
   } catch { return []; }
-  const out: FlakeLedgerEntry[] = [];
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    try { out.push(JSON.parse(line)); } catch { /* torn line — skip */ }
-  }
-  return out;
 }
 
 // --- Trial records ---
@@ -150,8 +142,6 @@ function readFreeLedger(): FlakeLedgerEntry[] {
  */
 export type TrialRecord = TrialOutcomeRecord & { series_identity?: string };
 
-/** Per-file cap for downloaded artifacts: pass-rates parses data only, never executes it. */
-export const TRIAL_OUTCOMES_MAX_BYTES = 8 * 1024 * 1024;
 
 /** Every `trial-outcomes*.jsonl` file under a directory, size-capped, schema-validated by eval-store. */
 export function readTrialOutcomeDir(dir: string): { records: TrialRecord[]; errors: string[] } {
@@ -578,82 +568,10 @@ export function formatPassRates(report: PassRateReport, options: { caseFilter?: 
   return lines.join('\n');
 }
 
-// --- GitHub history ---
+// --- GitHub history (shared reader: scripts/lib/ci-history.ts) ---
 
-export interface WeeklyRun { id: number; attempt: number; sha: string; branch: string; createdAt: string }
-export interface RunArtifact { id: number; name: string; size: number }
-
-/** The GitHub calls pass-rates makes; injectable so the free tests never touch the network. */
-export interface HistoryFetcher {
-  listRuns(repo: string, workflow: string, branch: string, limit: number): WeeklyRun[];
-  listArtifacts(repo: string, runId: number): RunArtifact[];
-  downloadZip(repo: string, artifactId: number, destination: string): void;
-}
-
-function gh(args: string[]): Buffer {
-  const result = spawnSync('gh', args, { timeout: 300_000, maxBuffer: 256 * 1024 * 1024 });
-  if (result.status !== 0) throw new Error(`gh ${args.slice(0, 2).join(' ')} failed: ${String(result.stderr || result.error || '').trim()}`);
-  return result.stdout;
-}
-
-function jsonLines<T>(buffer: Buffer): T[] {
-  return buffer.toString('utf8').split('\n').filter(Boolean).map(line => JSON.parse(line) as T);
-}
-
-export const GH_HISTORY: HistoryFetcher = {
-  listRuns: (repo, workflow, branch, limit): WeeklyRun[] => jsonLines(gh(['api',
-    `repos/${repo}/actions/workflows/${workflow}/runs?branch=${encodeURIComponent(branch)}&status=completed&per_page=${limit}`,
-    '--jq', '.workflow_runs[] | {id, attempt: .run_attempt, sha: .head_sha, branch: .head_branch, createdAt: .created_at}'])),
-  listArtifacts: (repo, runId): RunArtifact[] => jsonLines(gh(['api', `repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`,
-    '--paginate', '--jq', '.artifacts[] | select(.expired | not) | {id, name, size: .size_in_bytes}'])),
-  downloadZip: (repo, artifactId, destination) => fs.writeFileSync(destination, gh(['api', `repos/${repo}/actions/artifacts/${artifactId}/zip`])),
-};
-
-/** The last `limit` completed runs of `workflow` on each branch, newest first, deduplicated. */
-export function listWeeklyRuns(opts: { repo: string; workflow: string; branches: string[]; limit: number; fetcher?: HistoryFetcher }): WeeklyRun[] {
-  const fetcher = opts.fetcher ?? GH_HISTORY;
-  const runs = new Map<number, WeeklyRun>();
-  for (const branch of opts.branches) for (const run of fetcher.listRuns(opts.repo, opts.workflow, branch, opts.limit)) runs.set(run.id, run);
-  return [...runs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-/**
- * Download the artifacts of one run whose names match into a per-run cache
- * directory (reused on later calls) and return the extracted directories.
- * Oversized or oddly named artifacts are skipped: downloads are data only.
- */
-export function downloadRunArtifacts(opts: { repo: string; run: WeeklyRun; match: (name: string) => boolean; cacheDir: string;
-  fetcher?: HistoryFetcher; maxBytes?: number }): string[] {
-  const fetcher = opts.fetcher ?? GH_HISTORY;
-  const dirs: string[] = [];
-  for (const artifact of fetcher.listArtifacts(opts.repo, opts.run.id)) {
-    if (!opts.match(artifact.name) || !/^[A-Za-z0-9._-]+$/.test(artifact.name)) continue;
-    if (artifact.size > (opts.maxBytes ?? TRIAL_OUTCOMES_MAX_BYTES)) continue;
-    const dir = path.join(opts.cacheDir, `${opts.run.id}`, artifact.name);
-    if (!fs.existsSync(path.join(dir, '.complete'))) {
-      fs.rmSync(dir, { recursive: true, force: true });
-      fs.mkdirSync(dir, { recursive: true });
-      const zip = path.join(dir, 'artifact.zip');
-      fetcher.downloadZip(opts.repo, artifact.id, zip);
-      const unzip = spawnSync('unzip', ['-o', '-q', zip, '-d', dir], { timeout: 120_000 });
-      if (unzip.status !== 0) throw new Error(`unzip failed for ${artifact.name}: ${String(unzip.stderr || unzip.error || '')}`);
-      fs.rmSync(zip, { force: true });
-      fs.writeFileSync(path.join(dir, '.complete'), '');
-    }
-    dirs.push(dir);
-  }
-  return dirs;
-}
-
-function gitOutput(args: string[]): string | null {
-  const result = spawnSync('git', args, { encoding: 'utf8', timeout: 5_000 });
-  return result.status === 0 ? result.stdout.trim() : null;
-}
-
-function repoSlug(): string {
-  const url = gitOutput(['remote', 'get-url', 'origin']) ?? '';
-  return url.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/)?.[1] ?? 'garrytan/gstack';
-}
+export { downloadRunArtifacts, GH_HISTORY, listWeeklyRuns, TRIAL_OUTCOMES_MAX_BYTES,
+  type HistoryFetcher, type RunArtifact, type WeeklyRun } from './lib/ci-history';
 
 if (import.meta.main) {
   const argv = process.argv.slice(2);
