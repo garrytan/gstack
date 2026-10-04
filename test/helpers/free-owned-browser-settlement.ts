@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { readPidStartTime } from '../../browse/src/xvfb';
-import { eligibleFreeRetryFiles } from '../../scripts/test-free-shards';
+import type { eligibleFreeRetryFiles as EligibleFreeRetryFiles } from '../../scripts/test-free-shards';
 
 const ROOT = path.resolve(import.meta.dir, '../..');
 
@@ -177,7 +177,8 @@ function ownershipProcessAlive(identity: { pid: number; start: string; ticks: st
   return readPidStartTime(identity.pid) === identity.start;
 }
 
-export function registerOwnedBrowserSettlementCases(modes: readonly string[]): void {
+/** The caller passes the runner's retry-eligibility rule: an unattributed settlement failure must never be retried. */
+export function registerOwnedBrowserSettlementCases(modes: readonly string[], { eligibleFreeRetryFiles }: { eligibleFreeRetryFiles: typeof EligibleFreeRetryFiles }): void {
   for (const mode of modes) {
     test.skipIf(process.platform === 'win32' || ((['replaced-start', 'exit-environment-race', 'unavailable-environment', 'settle-slow-exit', 'cancel-vanishing-record'].includes(mode) || mode.endsWith('cold-probes')) && process.platform !== 'linux'))(mode, async () => {
       const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'free-owned-browser-'));
