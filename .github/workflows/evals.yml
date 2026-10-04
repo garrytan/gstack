@@ -186,6 +186,11 @@ jobs:
           console.log(phase + ": " + restricted.entries.filter(entry => entry.status === "planned").length + " planned shards");
           '
 
+      # CEO-13: the mode, case counts and, on fallback, every file that
+      # restored the full gate with the edit that narrows it next time.
+      - name: Summarize PR coverage
+        run: bun --no-install run scripts/test-pr-profile.ts summary /tmp/paid-plan/manifest.json >> "$GITHUB_STEP_SUMMARY"
+
       - name: Derive the executor matrix from the plan
         id: matrix
         run: |
@@ -409,6 +414,10 @@ jobs:
           # (caught by the ship review army; the wiring test now pins this).
           echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
+      - name: Summarize PR coverage and reuse
+        if: always()
+        run: bun --no-install run scripts/test-pr-profile.ts summary /tmp/paid-report/manifest.json /tmp/paid-report/collector-outcomes.json >> "$GITHUB_STEP_SUMMARY"
+
       - name: Stamp trial history series
         if: always()
         run: |
@@ -531,7 +540,15 @@ jobs:
             FAILURES=$(jq -r '.failures[]' "$VERIFIED")
           fi
 
-          COVERAGE=$(jq -r '"Profile: \(.profile // "full") / \(.prCoverage.mode // "broad"); selected behaviors: \(.selection.e2e | if . == null then "all" else length end), judges: \(.selection.judges | if . == null then "all" else length end). Deferred to scheduled/release coverage: \(.prCoverage.deferred // [] | length) behaviors and \(.prCoverage.deferredPromptFiles // [] | length) changed prompt files. Deferred checks did not run and receive no PR-pass credit."' /tmp/paid-report/manifest.json) || COVERAGE='Coverage manifest unavailable; no coverage claim.'
+          COVERAGE=$(jq -r '"Profile: \(.profile // "full") / mode `\(.prCoverage.mode // "broad")`; selected behaviors: \(.selection.e2e | if . == null then "all" else length end), judges: \(.selection.judges | if . == null then "all" else length end). Deferred to scheduled/release coverage: \(.prCoverage.deferred // [] | length) behaviors and \(.prCoverage.deferredPromptFiles // [] | length) changed prompt files. Deferred checks did not run and receive no PR-pass credit."' /tmp/paid-report/manifest.json) || COVERAGE='Coverage manifest unavailable; no coverage claim.'
+          # CEO-13: on fallback, name every file that restored the full gate and its fix.
+          FALLBACK=$(jq -r 'select(.prCoverage.mode == "full-fallback") | .prCoverage as $c | ($c.unknownFiles // [])[] as $f
+            | (($c.unknownFileLabels // []) | map(select(.file == $f)) | first // {label: "unlabeled", fix: "see docs/TESTING_INTERNALS.md#pr-paid-lane-fallback"}) as $l
+            | "- `\($f)` (\($l.label)): \($l.fix)"' /tmp/paid-report/manifest.json 2>/dev/null | head -40 | sed 's/@/@\xe2\x80\x8b/g') || FALLBACK=''
+          if [ -n "$FALLBACK" ]; then COVERAGE="${COVERAGE}
+
+          Full gate restored by:
+          ${FALLBACK}"; fi
 
           STATUS="✅ PASS"
           if [ "${RECONCILE_EXIT:-1}" != "0" ] || [ "$FAILED" -gt 0 ] \

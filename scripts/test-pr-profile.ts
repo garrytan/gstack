@@ -1,4 +1,5 @@
 /** Fast PR policy. Cadence changes here never remove cases from the broad census. */
+import * as fs from 'node:fs';
 import { E2E_TOUCHFILES, E2E_TIERS, GLOBAL_TOUCHFILES, LLM_JUDGE_TOUCHFILES } from '../test/helpers/touchfiles-data';
 import { matchGlob, TOUCHFILES_DATA_PATH } from '../test/helpers/test-selection';
 import { isPaidTestFile } from '../test/helpers/paid-test-set';
@@ -271,4 +272,52 @@ export function selectPrProfile(options: {
     unknownFiles, unknownFileLabels: unknownFiles.map(file => ({ file, ...unknownFileLabel(file) })),
     deferredPromptFiles, missingCoverage, needsFullValidation: missingCoverage.length > 0, reasons,
   };
+}
+
+/** The manifest fields the coverage summary reads (a PaidRunManifest subset). */
+export interface CoverageSummaryInput {
+  profile?: string;
+  selection?: { e2e: string[] | null; judges: string[] | null };
+  prCoverage?: Pick<PrProfileSelection, 'mode' | 'deferred' | 'unknownFiles'> & Partial<Pick<PrProfileSelection, 'unknownFileLabels'>>;
+}
+
+/**
+ * Job-summary block for one PR plan (CEO-13): the profile mode, selected case
+ * counts, reused records once the report has them, and on fallback every
+ * file that restored the full gate with its fix.
+ */
+export function formatPrCoverageSummary(manifest: CoverageSummaryInput, totals?: { total: number; reused: number }): string[] {
+  const coverage = manifest.prCoverage;
+  const count = (ids: string[] | null | undefined) => ids === null || ids === undefined ? 'all' : String(ids.length);
+  const lines = [
+    '### PR paid lane coverage',
+    `- Mode: \`${coverage?.mode ?? manifest.profile ?? 'full'}\``,
+    `- Selected: ${count(manifest.selection?.e2e)} E2E case(s), ${count(manifest.selection?.judges)} judge(s); ${coverage?.deferred.length ?? 0} deferred to scheduled/release coverage`,
+  ];
+  if (totals) lines.push(`- Reused: ${totals.reused} of ${totals.total} rule/judge record(s) came from verified receipts`);
+  if (coverage?.mode === 'full-fallback' && coverage.unknownFiles.length) {
+    lines.push(`- Full gate restored by ${coverage.unknownFiles.length} file(s) (fix: ${FALLBACK_FIX_ANCHOR}):`);
+    for (const file of coverage.unknownFiles) {
+      const labeled = coverage.unknownFileLabels?.find(entry => entry.file === file) ?? { file, ...unknownFileLabel(file) };
+      lines.push(`  - \`${file}\` (${labeled.label}): ${labeled.fix}`);
+    }
+  }
+  return lines;
+}
+
+if (import.meta.main) {
+  const [command, manifestPath, outcomesPath] = process.argv.slice(2);
+  if (command !== 'summary' || !manifestPath) {
+    console.error('usage: bun run scripts/test-pr-profile.ts summary <manifest.json> [collector-outcomes.json]');
+    process.exit(2);
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as CoverageSummaryInput;
+  let totals: { total: number; reused: number } | undefined;
+  if (outcomesPath) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(outcomesPath, 'utf8'));
+      if (Number.isSafeInteger(parsed?.totals?.total) && Number.isSafeInteger(parsed?.totals?.reused)) totals = parsed.totals;
+    } catch { /* No verified report: the summary omits the reuse line. */ }
+  }
+  console.log(formatPrCoverageSummary(manifest, totals).join('\n'));
 }
