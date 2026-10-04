@@ -210,7 +210,7 @@ test('detached PR fallback and release commands cover their actual default worke
   const prFloor = Math.ceil((Math.ceil(fullGateFiles.length / prWorkers) * 1_800_000 + fullGateFiles.reduce(
     (total, file) => total + Math.max(0, resolvePaidShardBudget([file]).timeoutMs - 1_800_000), 0,
   )) / 1000 * 1.05);
-  expect(prFloor).toBe(77_165);
+  expect(prFloor).toBe(79_055);
   expect(prWall).toBe(92_820_000);
   expect(prWall).toBeGreaterThanOrEqual(paidShardWallUpperBoundMs(files, prWorkers) + 120_000);
 
@@ -258,7 +258,8 @@ test('both gate executors plan the complete census and supervise every planned s
     expect(active.tier).toBe('gate');
     expect(active.jobs).toBe(2);
     expect(planned.jobs).toBe(active.jobs);
-    expect(planned.sliceBudgetMs).toBe(540_000);
+    // W5c: the scheduled census plans 7-minute slices; the PR lane's budget lives in evals.yml.
+    expect(planned.sliceBudgetMs).toBe(jobName === 'gate-census' ? 420_000 : 540_000);
     expect(planned.skipJudges).toBe(skipJudges);
     expect(execute[0].env.EVALS_CONCURRENCY).toBe('2');
     expect(executor.strategy['fail-fast']).toBe(false);
@@ -300,7 +301,7 @@ test('the periodic executor supervises every actual case within its planned CI w
   expect(execute).toHaveLength(1);
   const planned = cliOptions(emit[0]), active = cliOptions(execute[0]);
   expect(planned.tier).toBe('periodic');
-  expect(planned.sliceBudgetMs).toBe(540_000);
+  expect(planned.sliceBudgetMs).toBe(420_000);
   expect(active.jobs).toBe(2);
   expect(planned.jobs).toBe(active.jobs);
   const manifest = buildRunManifest({ tier: 'periodic', sliceBudgetMs: planned.sliceBudgetMs!, jobs: planned.jobs,

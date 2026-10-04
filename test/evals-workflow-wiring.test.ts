@@ -202,14 +202,14 @@ describe('evals-periodic.yml sliced-lane wiring', () => {
     });
   }
 
-  test('planner/executor/report tier=periodic agree and plan with the ~9-minute budget', () => {
+  test('planner/executor/report tier=periodic agree and plan with the ~7-minute budget (W5c)', () => {
     expect(periodicYml).toMatch(/EVALS_TIER=periodic bun --no-install run scripts\/test-paid-shards\.ts --tier periodic --emit-plan/);
     expect(periodicYml).toMatch(/EVALS_TIER=periodic bun run scripts\/test-paid-shards\.ts --tier periodic --plan .* --slice /);
     expect(periodicYml).toMatch(/EVALS_TIER=periodic bun --no-install run scripts\/test-paid-shards\.ts --tier periodic --report /);
     // Periodic work and the full gate census have distinct immutable plans.
     expect(plannerSites(periodicYml)).toEqual([
-      { manifest: '/tmp/paid-plan/manifest.json', budgetSeconds: 540, jobs: 2 },
-      { manifest: '/tmp/gate-census-plan/manifest.json', budgetSeconds: 540, jobs: 2 },
+      { manifest: '/tmp/paid-plan/manifest.json', budgetSeconds: 420, jobs: 2 },
+      { manifest: '/tmp/gate-census-plan/manifest.json', budgetSeconds: 420, jobs: 2 },
     ]);
   });
 });

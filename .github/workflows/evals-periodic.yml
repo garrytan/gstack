@@ -4,7 +4,7 @@ name: Periodic Evals
 # tests can't rot invisibly — the class where the autoplan-dual-voice E2E was
 # silently broken for months until a lucky local diff selected it. Engine:
 # scripts/test-paid-shards.ts (the same runner local eval:bg:periodic uses):
-# one planner manifest packed by recorded durations into as many ~9-minute
+# one planner manifest packed by recorded durations into as many ~7-minute
 # executors as the work needs (one file, or a tightly packed group, per
 # runner; overlays share one final slice), and a FAIL-CLOSED report — a slice
 # whose artifact never landed is a failure, not an absence. The matrix size
@@ -17,7 +17,7 @@ name: Periodic Evals
 # EVALS_ALL fails) makes both lanes census-health checks, not just test runs.
 on:
   schedule:
-    - cron: '0 6 * * 1'  # Monday 6 AM UTC (ci-image prebuilds at 4 AM)
+    - cron: '0 6 * * 1'  # Monday 6 AM UTC; build-image below builds or reuses the CI image
   workflow_dispatch:
     inputs:
       redispatch_of:
@@ -120,7 +120,7 @@ jobs:
       - name: Emit run manifest (ALL periodic tests minus reasoned excludes)
         env:
           EVALS_ALL: "1"
-        run: EVALS_TIER=periodic bun --no-install run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slice-budget 540 --jobs 2 --max-parallel 26
+        run: EVALS_TIER=periodic bun --no-install run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slice-budget 420 --jobs 2 --max-parallel 36
 
       # Codex-only slices run on the host-run eval-codex-slices job; the
       # container executor runs every other slice.
@@ -142,7 +142,7 @@ jobs:
       - name: Emit gate census manifest (ALL gate tests)
         env:
           EVALS_ALL: "1"
-        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/gate-census-plan/manifest.json --slice-budget 540 --jobs 2 --skip-judges --max-parallel 16
+        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/gate-census-plan/manifest.json --slice-budget 420 --jobs 2 --skip-judges --max-parallel 20
 
       - name: Derive the gate census executor matrix from the plan
         id: gate-matrix
@@ -180,7 +180,7 @@ jobs:
       fail-fast: false
       # Every planned slice starts at once; test/evals-workflow-wiring.test.ts
       # fails when the live plan outgrows this cap.
-      max-parallel: 26
+      max-parallel: 36
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.periodic_slices) }}
     steps:
@@ -319,7 +319,7 @@ jobs:
       packages: read
     strategy:
       fail-fast: false
-      max-parallel: 26
+      max-parallel: 36
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.periodic_codex_slices) }}
     steps:
@@ -456,7 +456,7 @@ jobs:
     strategy:
       # Two file workers per slice, each retaining two in-file case workers.
       fail-fast: false
-      max-parallel: 16
+      max-parallel: 20
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.gate_slices) }}
     steps:

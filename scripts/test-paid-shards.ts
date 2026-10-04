@@ -350,8 +350,8 @@ export async function runPaidShard(
   // Verified first-attempt reuse (PR lane only; scripts/e2e-shard-reuse.ts):
   // identical consumed inputs to a fresh pass in this PR replace execution
   // with an explicitly reported reused result.
-  // Bootstrap-retention qualification binds per-run state, so that shard stays fresh.
-  const reuse = files.some(file => normalizeRelativePath(file) === 'test/skill-e2e-qa-workflow.test.ts')
+  // Bootstrap-retention qualification binds per-run state, so that file's shards (and case shards) stay fresh.
+  const reuse = files.some(file => normalizeRelativePath(file).startsWith('test/skill-e2e-qa-workflow.test.ts'))
     ? null : options.reuseFor?.(files, baseEnv, budget) ?? null;
   // A trial reuses only its record from a whole PASS panel receipt the
   // planner shipped; a single trial never has a pass receipt of its own.
@@ -401,7 +401,7 @@ export async function runPaidShard(
   // concurrency on shared state amplifies exactly the opus-47 race class).
   const sandbox = createShardSandbox('gstack-paid-shard-', baseEnv);
   const { stateDir, tmp: childTmp, env } = sandbox;
-  const bootstrapFile = files.some(file => normalizeRelativePath(file) === 'test/skill-e2e-qa-workflow.test.ts');
+  const bootstrapFile = files.some(file => normalizeRelativePath(file).startsWith('test/skill-e2e-qa-workflow.test.ts'));
   delete env.GSTACK_BOOTSTRAP_RETENTION;
   if (bootstrapFile && process.platform !== 'linux') log(`${label} bootstrap dependency retention unavailable on ${process.platform}; native behavior still runs without retained-dependency qualification`);
   const bootstrapRetention = bootstrapFile && process.platform === 'linux'

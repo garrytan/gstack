@@ -174,7 +174,7 @@ describe('tier lane skip (B5)', () => {
     }
     const workflow = fs.readFileSync(path.join(ROOT, '.github/workflows/evals-periodic.yml'), 'utf8');
     expect(workflow.match(/--skip-judges/g)).toHaveLength(1);
-    expect(workflow).toMatch(/--tier gate --emit-plan \/tmp\/gate-census-plan\/manifest\.json --slice-budget 540 --jobs 2 --skip-judges/);
+    expect(workflow).toMatch(/--tier gate --emit-plan \/tmp\/gate-census-plan\/manifest\.json --slice-budget 420 --jobs 2 --skip-judges/);
   });
 });
 

@@ -59,6 +59,8 @@ export const CASE_SHARDED_FILES: readonly string[] = [
   'test/skill-e2e-shared-libs.test.ts',
   'test/skill-e2e-ship-docsync.test.ts',
   'test/skill-e2e-qa-callers.test.ts',
+  // W5c: its gate cases (qa-quick, qa-only-no-fix, qa-bootstrap) no longer share one ~7-minute runner.
+  'test/skill-e2e-qa-workflow.test.ts',
 ];
 
 /** Bun test names that differ from their E2E id. */
