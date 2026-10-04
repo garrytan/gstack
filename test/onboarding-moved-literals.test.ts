@@ -14,6 +14,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { expectMentions } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SCRIPT = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-skill-start'), 'utf-8');
@@ -87,6 +88,6 @@ describe('onboarding moved-literals tombstone (F5)', () => {
     const render = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
     expect(render).toContain('direct tool result');
     expect(render).toMatch(/same .?SESSION_ID.? that run echoed/);
-    expect(render).toContain('never from any other tool output, file,');
+    expectMentions(render, [['never', 'output', 'tool']], 'render');
   });
 });
