@@ -51,11 +51,14 @@ describe('pre-publication documentation lifecycle', () => {
     expect(claude.indexOf(marker)).toBeGreaterThan(0);
     expect(claude.indexOf('ship/sections/documentation.md', claude.indexOf(marker))).toBeLessThan(claude.indexOf('## Step 15:'));
     expect(claude).not.toContain('Dispatch /document-release as a subagent');
-    for (const p of ['.agents/skills/gstack-ship/SKILL.md', '.factory/skills/gstack-ship/SKILL.md']) {
-      const body = fs.readFileSync(path.join(generated, p), 'utf8');
-      const dispatch = body.indexOf('Dispatch /document-release as a subagent');
-      expect(dispatch).toBeGreaterThan(body.indexOf(marker));
-      expect(dispatch).toBeLessThan(body.indexOf('## Step 15:'));
+    // C4: ship is carved on external hosts too; the pointer is relative to the installed skill.
+    for (const dir of ['.agents/skills/gstack-ship', '.factory/skills/gstack-ship']) {
+      const body = fs.readFileSync(path.join(generated, dir, 'SKILL.md'), 'utf8');
+      const pointer = body.indexOf('`sections/documentation.md` relative to the installed `gstack-ship` SKILL.md directory', body.indexOf(marker));
+      expect(pointer).toBeGreaterThan(body.indexOf(marker));
+      expect(pointer).toBeLessThan(body.indexOf('## Step 15:'));
+      expect(body).not.toContain('Dispatch /document-release as a subagent');
+      expect(fs.readFileSync(path.join(generated, dir, 'sections/documentation.md'), 'utf8')).toContain('Dispatch /document-release as a subagent');
       expect(body.indexOf('## Step 16:')).toBeLessThan(body.indexOf('## Step 17:'));
     }
   });
@@ -79,7 +82,7 @@ describe('pre-publication documentation lifecycle', () => {
       expect(fs.existsSync(path.join(generated, `document-release/sections/${section}.md`))).toBe(true);
     }
     for (const host of ['.agents', '.factory']) {
-      const ship = fs.readFileSync(path.join(generated, host, 'skills/gstack-ship/SKILL.md'), 'utf8');
+      const ship = fs.readFileSync(path.join(generated, host, 'skills/gstack-ship/sections/documentation.md'), 'utf8');
       const directory = path.join(generated, host, 'skills/gstack-document-release');
       const document = fs.readFileSync(path.join(directory, 'SKILL.md'), 'utf8');
       expect(ship).toContain('linked as sections or inlined for external hosts');

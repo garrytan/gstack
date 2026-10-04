@@ -159,6 +159,9 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   plan/document reviews skip the entire extra review step.
 #                           #   Office hours/design/spec/manual wrappers keep their own
 #                           #   opt-in/skip controls. Invalid values preserve the old value.
+# browse_extension_id:      # Forks and self-built extensions: the 32-letter (a-p)
+#                           #   Chrome extension ID the browse sidebar terminal accepts.
+#                           #   Empty = the gstack extension. "" clears it.
 # design_detector_install_prompted: false
 #                           #   true once you answered the one-time offer from the
 #                           #   design skills to download the impeccable engine with
@@ -172,6 +175,15 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   value preserved) so a typo cannot silently disable it.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
+#
+# ─── Browser extension ───────────────────────────────────────────────
+# browse_extension_id:      # Chrome extension ID the browse daemon trusts for
+#                           #   /extension-token and the terminal-agent /ws
+#                           #   (32 letters a-p). Empty = the published gstack
+#                           #   extension. Set it only for a fork or a
+#                           #   self-built extension; no environment variable
+#                           #   or project .env can change it. An invalid value
+#                           #   is REJECTED and the stored value kept.
 #
 # ─── Workspace-aware ship ────────────────────────────────────────────
 # workspace_root: $HOME/conductor/workspaces  # Where /ship looks for sibling
@@ -211,6 +223,7 @@ lookup_default() {
     pair_agent) echo "off" ;; # remote tunnel consent — fail-closed until /pair-agent asks
     memorable_recall) echo "off" ;; # on | off — Memorable bridge gate, fail-closed until `gstack-memorable enable`
     founder_resources) echo "true" ;; # office-hours resource pitch — #538 permanent opt-out sets false
+    browse_extension_id) echo "" ;; # empty → browse trusts gstack's own extension ID (D1)
     claude_overlay_model) echo "claude" ;; # set only by ./setup --claude-model; presence via `has`
     # Brain-aware planning (v1.48 / T5+T10+T16). Defaults documented inline:
     #   brain_trust_policy@<endpoint-id>  — unset on fresh install; setup-gbrain
@@ -570,7 +583,7 @@ case "${1:-}" in
     # A config value is one non-empty line (disabled_skills may be empty: it
     # clears the list). Reject rather than truncate, so a bad value never
     # replaces the stored one.
-    if [ -z "$VALUE" ] && [ "$KEY" != "disabled_skills" ]; then
+    if [ -z "$VALUE" ] && [ "$KEY" != "disabled_skills" ] && [ "$KEY" != "browse_extension_id" ]; then
       echo "Error: $KEY value is empty. Existing value left unchanged." >&2
       exit 1
     fi
@@ -686,6 +699,13 @@ case "${1:-}" in
     # never flip consent in either direction, so nothing is coerced or stored.
     if [ "$KEY" = "memorable_recall" ] && [ "$VALUE" != "on" ] && [ "$VALUE" != "off" ]; then
       echo "Error: memorable_recall '$VALUE' not recognized. Valid values: on, off. Existing value left unchanged." >&2
+      exit 1
+    fi
+    # browse_extension_id (D1) decides which Chrome extension may reach the
+    # browse daemon's token route and terminal socket. Reject anything that is
+    # not a Chrome extension ID; "" clears the override.
+    if [ "$KEY" = "browse_extension_id" ] && [ -n "$VALUE" ] && ! printf '%s' "$VALUE" | LC_ALL=C grep -qE '^[a-p]{32}$'; then
+      echo "Error: browse_extension_id '$VALUE' is not a Chrome extension ID (32 letters a-p, shown on chrome://extensions). Existing value left unchanged." >&2
       exit 1
     fi
     # disabled_skills (#1206): comma-separated skill names, one value for the
@@ -810,7 +830,8 @@ case "${1:-}" in
                skill_prefix explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
-               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do
+               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
+               browse_extension_id; do
       gstack_config_select "$KEY"
       VALUE="$_gstack_cfg_value"
       SOURCE="default"
@@ -830,7 +851,8 @@ case "${1:-}" in
                skill_prefix explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
-               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall; do
+               timeline_stop_hook design_detector design_detector_install_prompted memorable_recall \
+               browse_extension_id; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
@@ -867,10 +889,12 @@ case "${1:-}" in
 
     # Summarize for the user. Use python (already required elsewhere) to
     # parse the JSON portably; fall back to grep if python is unavailable.
+    # The file goes in on stdin (E6, #1967): bash opens the path, so a native
+    # Windows Python under Git Bash never has to resolve an MSYS /c/... path.
     PYTHON_CMD=$(command -v python3 || command -v python || true)
     if [ -n "$PYTHON_CMD" ]; then
-      STATUS=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_local_status','unknown'))" 2>/dev/null || echo unknown)
-      VERSION=$("$PYTHON_CMD" -c "import json,sys; d=json.load(open('$DETECTION_FILE')); print(d.get('gbrain_version') or 'unknown')" 2>/dev/null || echo unknown)
+      STATUS=$("$PYTHON_CMD" -c "import json,sys; d=json.load(sys.stdin); print(d.get('gbrain_local_status','unknown'))" < "$DETECTION_FILE" 2>/dev/null || echo unknown)
+      VERSION=$("$PYTHON_CMD" -c "import json,sys; d=json.load(sys.stdin); print(d.get('gbrain_version') or 'unknown')" < "$DETECTION_FILE" 2>/dev/null || echo unknown)
     else
       STATUS=$(grep -o '"gbrain_local_status":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
       VERSION=$(grep -o '"gbrain_version":[[:space:]]*"[^"]*"' "$DETECTION_FILE" | sed 's/.*"\([^"]*\)"$/\1/')
@@ -879,8 +903,10 @@ case "${1:-}" in
     fi
 
     case "$STATUS" in
-      ok|timeout|thin-client|engine-locked)
-        # "timeout" = slow-but-healthy engine (#1964); "thin-client" =
+      ok|timeout|db-unreachable|thin-client|engine-locked)
+        # "timeout" = slow-but-healthy engine (#1964); "db-unreachable" =
+        # network/DNS failure with an intact config, transient like timeout
+        # (A2); "thin-client" =
         # remote-HTTP MCP brain, no local engine by design (#2051);
         # "engine-locked" = same class (#2456): PGLite is single-writer, so a
         # live `gbrain serve` (typically an MCP server) holds the embedded DB.

@@ -74,13 +74,13 @@ emit() {
 INIT_BODY='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"gstack-mcp-verify","version":"1"}}}'
 
 # Capture HTTP code + body in one pass; --max-time 10 caps total wall time.
-TMPBODY=$(mktemp -t gstack-mcp-verify.XXXXXX)
+TMPBODY=$(mktemp "${TMPDIR:-/tmp}/gstack-mcp-verify.XXXXXX")
 trap 'rm -f "$TMPBODY"' EXIT
 
 # Receipted fail-closed: the payload file is hashed and handed to curl as
 # the exact wire bytes. A refused receipt never hits the network — it lands
 # in the NETWORK class below (curl never ran, no HTTP code).
-INIT_PAYLOAD=$(mktemp -t gstack-mcp-init.XXXXXX)
+INIT_PAYLOAD=$(mktemp "${TMPDIR:-/tmp}/gstack-mcp-init.XXXXXX")
 printf '%s' "$INIT_BODY" > "$INIT_PAYLOAD"
 set +e
 HTTP_CODE=$(_receipted_curl closed gbrain-mcp-verify "$MCP_HOST" mcp-initialize-probe "user-invoked mcp verify" "$INIT_PAYLOAD" \
@@ -156,12 +156,12 @@ fi
 # mcp__gbrain__sources_add will flip this true and gstack-artifacts-init
 # will print the one-liner form instead of the clone-then-path form.
 URL_SUPPORTED=false
-TOOLS_BODY_FILE=$(mktemp -t gstack-mcp-tools.XXXXXX)
+TOOLS_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-mcp-tools.XXXXXX")
 TOOLS_REQ='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 
 # Receipted fail-closed like the initialize probe. A refused receipt skips
 # the probe (nonzero TOOLS_EXIT) and the field stays false — best-effort.
-TOOLS_PAYLOAD=$(mktemp -t gstack-mcp-tools-req.XXXXXX)
+TOOLS_PAYLOAD=$(mktemp "${TMPDIR:-/tmp}/gstack-mcp-tools-req.XXXXXX")
 printf '%s' "$TOOLS_REQ" > "$TOOLS_PAYLOAD"
 set +e
 _receipted_curl closed gbrain-mcp-verify "$MCP_HOST" mcp-tools-list-probe "user-invoked mcp verify" "$TOOLS_PAYLOAD" \

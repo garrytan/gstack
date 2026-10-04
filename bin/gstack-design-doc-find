@@ -9,8 +9,9 @@
 # Precedence:
 #   1. newest $GSTACK_STATE_ROOT/projects/<slug>/*-<branch>-design-*.md
 #   2. else newest $GSTACK_STATE_ROOT/projects/<slug>/*-design-*.md
-#   3. a repo doc ($TOP/DESIGN.md, else newest $TOP/docs/designs/*.md) wins when
-#      no state-root doc exists or it is newer than the state-root doc.
+#   3. the newest repo doc under $TOP/docs/designs/ wins when no state-root doc
+#      exists or it is newer than the state-root doc. A root DESIGN.md is the
+#      design system /design-consultation writes, never a design doc (#2839).
 #      office-hours writes both copies; the committed copy is what teammates
 #      see, but a stale repo doc never shadows a newer private session.
 set -u
@@ -34,13 +35,7 @@ LOCALDOC=$(newest "$PROJECT_DIR"/*-"$BRANCH"-design-*.md)
 
 REPODOC=""
 TOP=$(git rev-parse --show-toplevel 2>/dev/null || true)
-if [ -n "$TOP" ]; then
-  if [ -f "$TOP/DESIGN.md" ]; then
-    REPODOC="$TOP/DESIGN.md"
-  else
-    REPODOC=$(newest "$TOP"/docs/designs/*.md)
-  fi
-fi
+[ -n "$TOP" ] && REPODOC=$(newest "$TOP"/docs/designs/*.md)
 
 DESIGN="$LOCALDOC"
 if [ -n "$REPODOC" ] && { [ -z "$LOCALDOC" ] || [ "$REPODOC" -nt "$LOCALDOC" ]; }; then

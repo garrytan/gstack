@@ -234,8 +234,13 @@ collisions:
 ```bash
 SPAWN_BRANCH="spec/${SLUG_TITLE}-$$"
 SPAWN_PATH="${WORKTREE_PARENT:-../worktrees}/${SLUG_TITLE}-$$"
-mkdir -p "$(dirname "$SPAWN_PATH")"
+mkdir -p "$(dirname "$SPAWN_PATH")" && SPAWN_PATH="$(cd -- "$(dirname "$SPAWN_PATH")" && pwd -P)/$(basename "$SPAWN_PATH")" || exit 1
+echo "SPAWN_BRANCH=$SPAWN_BRANCH SPAWN_PATH=$SPAWN_PATH PIN_SHA=${PIN_SHA:-}"
 ```
+
+Shell variables do not survive between tool calls: start each block below by
+assigning `SPAWN_PATH`, `SPAWN_BRANCH`, `PIN_SHA` and `ARCHIVE_PATH` from the
+values printed above.
 
 **Final-confirm gate (required):** AskUserQuestion: "Spawn agent now? Last
 chance to revise the spec." Options: A) Spawn. B) Cancel (issue stays filed,
@@ -244,17 +249,23 @@ archive stays written).
 If A:
 
 ```bash
+: "${SPAWN_PATH:?SPAWN_PATH is not set: substitute the printed path}" "${SPAWN_BRANCH:?SPAWN_BRANCH is not set}" "${PIN_SHA:?PIN_SHA is not set}"
 git worktree add "$SPAWN_PATH" -b "$SPAWN_BRANCH" "$PIN_SHA" 2>&1
 ```
 
 **Error: worktree create fails** (disk full, path exists, etc.): print:
 "Worktree create failed — `$ERROR`. Spawning agent in current dir instead. Your
 in-progress changes will be visible to the agent. Cancel with Ctrl+C if not
-desired." Then fall back to current dir (still spawn).
+desired." Then fall back to current dir (still spawn): set `SPAWN_PATH` to the
+repository root (`git rev-parse --show-toplevel`).
 
 If A and worktree created: spawn `claude -p` with the spec piped via stdin:
 
 ```bash
+[ -r "${ARCHIVE_PATH:?ARCHIVE_PATH is not set: substitute the archived spec path}" ] || { echo "ERROR: cannot read $ARCHIVE_PATH; nothing was spawned." >&2; exit 1; }
+cd -- "${SPAWN_PATH:?SPAWN_PATH is not set: substitute the printed worktree path}" || exit 1
+[ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ] || { echo "ERROR: $SPAWN_PATH is not a git worktree root; nothing was spawned." >&2; exit 1; }
+SPAWN_PATH=$(pwd -P)
 cat "$ARCHIVE_PATH" | (cd "$SPAWN_PATH" && claude -p 2>&1) &
 SPAWN_PID=$!
 echo "Spawned: PID $SPAWN_PID in $SPAWN_PATH (branch $SPAWN_BRANCH)"

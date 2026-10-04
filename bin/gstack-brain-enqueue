@@ -58,7 +58,7 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
 
 # One spool file per record: tmp write + atomic rename. Any failure exits 0
 # silently (fire-and-forget contract), cleaning up the tmp file.
-mkdir -p "$SPOOL" 2>/dev/null || exit 0
+mkdir -p "$SPOOL" 2>/dev/null || exit 0  # best-effort: enqueue is fire-and-forget; the next sync rescans
 TMP="$SPOOL/.tmp-$$-$RANDOM"
 printf '{"file":"%s","ts":"%s"}\n' "$ESC_FILE" "$TS" > "$TMP" 2>/dev/null || { rm -f "$TMP" 2>/dev/null; exit 0; }
 mv -f "$TMP" "$SPOOL/$(date +%s)-$$-$RANDOM.json" 2>/dev/null || rm -f "$TMP" 2>/dev/null

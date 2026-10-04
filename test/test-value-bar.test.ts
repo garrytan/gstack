@@ -62,7 +62,7 @@ const CONTRACT: Record<TestValueBarMode, { render: string; required: string[]; a
   },
   qa: {
     render: bar('qa'),
-    required: [QUESTIONS[2], QUESTIONS[3], CARD_FORMAT, 'Put it in the 8e.5 record (/qa) or under each proposed test (/qa-only).', 'A missing upstream card never blocks'],
+    required: [QUESTIONS[2], QUESTIONS[3], CARD_FORMAT, 'A missing upstream card never blocks'],
     absent: [QUESTIONS[0], QUESTIONS[1]],
   },
   audit: {
@@ -81,6 +81,14 @@ describe('test value bar render contract', () => {
     const rendered = bar(mode);
     expect(rendered.includes('Example: Value: protects=') && rendered.includes('Rejected (covered_elsewhere)'), `${mode} needs one good card and one rejected proposal`).toBe(true);
     expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThanOrEqual(TEST_VALUE_BAR_MAX_BYTES[mode]);
+  });
+
+  test('qa mode names only the invoking skill\'s card location (/qa-only has no 8e.5 record)', () => {
+    const forSkill = (skillName: string) => generateTestValueBar({ ...ctx, skillName }, ['qa']);
+    expect(forSkill('qa')).toContain('Put it in the 8e.5 record.');
+    expect(forSkill('qa')).not.toContain('proposed test');
+    expect(forSkill('qa-only')).toContain('Put it under each proposed test.');
+    expect(forSkill('qa-only')).not.toContain('8e.5');
   });
 
   test('plan and ship coverage audits render the bar at their call site', () => {
@@ -187,7 +195,7 @@ describe('template contracts', () => {
     expect(read('qa/SKILL.md.tmpl')).toContain('{{TEST_VALUE_BAR:qa}}');
     expect(read('qa-only/SKILL.md.tmpl')).toContain('{{TEST_VALUE_BAR:qa}}');
     expect(read('test-audit/SKILL.md.tmpl')).toContain('{{TEST_VALUE_BAR:audit}}');
-    for (const skill of ['qa', 'qa-only']) expect(read(`${skill}/SKILL.md`), `${skill} lacks the rendered bar. ${FIX}`).toContain(bar('qa'));
+    for (const skill of ['qa', 'qa-only']) expect(read(`${skill}/SKILL.md`), `${skill} lacks the rendered bar. ${FIX}`).toContain(generateTestValueBar({ ...ctx, skillName: skill }, ['qa']));
     expect(read('test-audit/SKILL.md')).toContain(bar('audit'));
     const templates = spawnSync('git', ['ls-files', '*.tmpl'], { cwd: ROOT, encoding: 'utf8', timeout: 10_000 }).stdout.split('\n').filter(Boolean);
     expect(templates.filter(file => read(file).includes('prefer too many to too few'))).toEqual([]);

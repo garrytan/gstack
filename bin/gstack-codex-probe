@@ -5,6 +5,9 @@
 # Functions (all prefixed with _gstack_codex_ for namespace hygiene):
 #   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
 #   _gstack_codex_select_model    — resolve + print the runtime model (#2914)
+#   _gstack_codex_sandbox_mode    — read-only, or full access only for GSTACK_CODEX_NO_SANDBOX=1
+#   _gstack_codex_sandbox_preflight — free `codex sandbox` check before paid calls (Linux)
+#   _gstack_codex_first_use_notice — once per machine: provider, account, how to turn off
 #   _gstack_codex_model_probe     — round-trip probe of the selected model (#2477)
 #   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
 #   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> bash-native watchdog
@@ -19,8 +22,9 @@
 # --- Auth probe -------------------------------------------------------------
 
 _gstack_codex_auth_probe() {
-  # Multi-signal: env vars OR auth file. Avoids false negatives for env-auth
-  # users (CI, platform engineers) that a file-only check would reject.
+  # Multi-signal: env vars OR auth file OR a custom provider's env_key. Avoids
+  # false negatives for env-auth users (CI, platform engineers, self-hosted
+  # OpenAI-compatible providers) that a file-only check would reject.
   local _codex_home="${CODEX_HOME:-$HOME/.codex}"
   # Use `-n` which returns true only for non-empty non-whitespace. Bash's [ -n ]
   # alone allows whitespace; pair with a whitespace strip for robustness.
@@ -31,7 +35,26 @@ _gstack_codex_auth_probe() {
     echo "AUTH_OK"
     return 0
   fi
+  # Custom OpenAI-compatible providers (#2192): a [model_providers.<id>]
+  # table names its credential variable in env_key. Only keys inside those
+  # tables count, comments are ignored, and the name must be a plain shell
+  # identifier before it is dereferenced.
+  local _env_key _resolved _missing=""
+  if [ -f "$_codex_home/config.toml" ]; then
+    while IFS= read -r _env_key; do
+      case "$_env_key" in ''|[0-9]*|*[!A-Za-z0-9_]*) continue ;; esac
+      _resolved=$(printf '%s' "${!_env_key:-}" | tr -d '[:space:]')
+      if [ -n "$_resolved" ]; then
+        echo "AUTH_OK"
+        return 0
+      fi
+      _missing="${_missing:+$_missing, }$_env_key"
+    done < <(awk '/^[[:space:]]*#/ { next }
+      /^[[:space:]]*\[/ { in_provider = ($0 ~ /^[[:space:]]*\[model_providers\.[^]]+\][[:space:]]*(#.*)?$/); next }
+      in_provider && /^[[:space:]]*env_key[[:space:]]*=/ { v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); sub(/[[:space:]]*#.*$/, "", v); gsub(/["\047[:space:]]/, "", v); print v }' "$_codex_home/config.toml" 2>/dev/null)
+  fi
   echo "AUTH_FAILED"
+  [ -n "$_missing" ] && echo "HINT: $_codex_home/config.toml names a custom provider key ($_missing), but it is not set in this shell. Export it, or run codex login." >&2
   return 1
 }
 
@@ -65,6 +88,67 @@ _gstack_codex_select_model() {
   fi
   _GSTACK_CODEX_SEL_KIND="$_kind"
   echo "CODEX_MODEL: $_GSTACK_CODEX_SEL ($_kind; source: $_GSTACK_CODEX_SEL_SRC)" >&2
+  _gstack_codex_sandbox_mode
+}
+
+# --- Sandbox (B1) -----------------------------------------------------------
+
+_gstack_codex_sandbox_mode() {
+  # Every gstack Codex command passes -s / sandbox_mode from this variable, so
+  # one place decides it. Codex has no read-only mode without its sandbox, so
+  # the escape hatch is full access: honored only for exactly 1, only from the
+  # shell environment (never a dotenv file or config), and announced each use.
+  if [ "${GSTACK_CODEX_NO_SANDBOX:-}" = "1" ]; then
+    _GSTACK_CODEX_SANDBOX="danger-full-access"
+    echo "WARNING: GSTACK_CODEX_NO_SANDBOX=1: Codex runs this review without a sandbox and can read and write anything your user can. Use it only inside a container you trust." >&2
+  else
+    _GSTACK_CODEX_SANDBOX="read-only"
+  fi
+}
+
+_gstack_codex_sandbox_preflight() {
+  # Free check before the first paid call: `codex sandbox` starts the same
+  # bubblewrap sandbox with no model. Only a recognized sandbox failure blocks
+  # (exit 3, printed as missing coverage); success, a timeout, or an older CLI
+  # without the subcommand defers to the post-run classifier. Linux only, and
+  # skipped when the user turned the sandbox off. Fixtures:
+  # test/fixtures/codex-sandbox/.
+  [ "${GSTACK_CODEX_NO_SANDBOX:-}" = "1" ] && return 0
+  [ "$(uname -s 2>/dev/null)" = "Linux" ] || return 0
+  local _out _code _line
+  _out=$(_gstack_codex_timeout_wrapper 10 codex sandbox -c 'sandbox_mode="read-only"' true </dev/null 2>&1)
+  _code=$?
+  { [ "$_code" -eq 0 ] || [ "$_code" -eq 124 ]; } && return 0
+  _line=$(printf '%s\n' "$_out" | grep -m1 -iE '^[[:space:]]*bwrap: |bubblewrap is unavailable|landlock.{0,60}(fail|error|not supported|unsupported)|seccomp.{0,60}(fail|error)|user namespaces?.{0,80}(not (allowed|permitted|supported)|denied|disabled)' | sed 's/^[[:space:]]*//' | cut -c1-240)
+  [ -n "$_line" ] || return 0
+  echo "CODEX_SANDBOX: unavailable"
+  echo "Codex outside review unavailable: Codex's sandbox could not start here ($_line). No review ran; this is missing coverage, not a pass. Fix: enable unprivileged user namespaces for this container, or set GSTACK_CODEX_NO_SANDBOX=1." >&2
+  _gstack_codex_log_event "codex_sandbox_unavailable" 2>/dev/null || true
+  return 3
+}
+
+# --- First-use notice (#965) ------------------------------------------------
+
+_gstack_codex_first_use_notice() {
+  # Outside reviews are on by default and use whatever Codex login exists, so
+  # the first one on a machine says where the code goes, with which account,
+  # and how to turn reviews off. Shown once per state root; never blocks and
+  # never prints a credential, only where it comes from.
+  local _root _marker _codex_home="${CODEX_HOME:-$HOME/.codex}" _account _provider
+  _root="$(. "${BASH_SOURCE[0]%/*}/gstack-state-root.sh" 2>/dev/null && gstack_state_root)" || return 0
+  [ -n "$_root" ] || return 0
+  _marker="$_root/.codex-review-notice-shown"
+  [ -e "$_marker" ] && return 0
+  if [ -n "$(printf '%s' "${CODEX_API_KEY:-}" | tr -d '[:space:]')" ]; then _account="the API key in CODEX_API_KEY"
+  elif [ -n "$(printf '%s' "${OPENAI_API_KEY:-}" | tr -d '[:space:]')" ]; then _account="the API key in OPENAI_API_KEY"
+  elif grep -q '"auth_mode"[[:space:]]*:[[:space:]]*"chatgpt"' "$_codex_home/auth.json" 2>/dev/null; then _account="the ChatGPT account Codex is logged in with (see: codex login status)"
+  elif [ -f "$_codex_home/auth.json" ]; then _account="the API key saved by codex login in $_codex_home/auth.json"
+  else _account="the credentials your Codex config.toml provider names"
+  fi
+  _provider=$(sed -n 's/^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"\([A-Za-z0-9_.-]*\)".*/\1/p' "$_codex_home/config.toml" 2>/dev/null | head -1)
+  echo "NOTICE: gstack outside reviews send the review prompt and code to Codex (provider: ${_provider:-openai}) using $_account. Reviews stay on; this notice shows once per machine. To turn them off: gstack-config set codex_reviews disabled" >&2
+  mkdir -p "$_root" 2>/dev/null && : > "$_marker" 2>/dev/null
+  return 0
 }
 
 # --- Model round-trip probe (#2477) ------------------------------------------
@@ -79,8 +163,9 @@ _gstack_codex_model_probe() {
   #
   # Contract:
   #   MODEL_OK (exit 0)              — round trip succeeded; cached 1h.
-  #   MODEL_UNUSABLE (exit 1)        — deterministic model 400 or an invalid
-  #     model choice; hints printed. The 400 is cached 15 min: re-probing every
+  #   MODEL_UNUSABLE (exit 1)        — deterministic model rejection (400, or a
+  #     404 from a retired model or a wrong custom-provider base_url) or an
+  #     invalid model choice; hints name the cause. The 400 is cached 15 min: re-probing every
   #     preflight charged the affected user a 30s round trip + real tokens per
   #     review section, forever. Changing the model or config.toml changes the
   #     cache signature and re-probes immediately; the short TTL covers
@@ -89,9 +174,10 @@ _gstack_codex_model_probe() {
   #     ENOENT, non-executable binary, missing vendor payload). Deterministic,
   #     so fail-open is wrong: retrying never helps. Never cached — a reinstall
   #     fixes it and must be picked up on the very next probe (#2742).
-  #   MODEL_PROBE_INCONCLUSIVE (exit 0) — timeout/transient; FAIL-OPEN so a
-  #     slow network never wedges codex mode (the per-invocation Error
-  #     Handling entry still covers a later 400). Never cached.
+  #   MODEL_PROBE_INCONCLUSIVE (exit 0) — timeout/transient; the review still
+  #     runs so a slow network never wedges codex mode, but readiness is
+  #     unverified (_GSTACK_CODEX_PROBE_STATE=inconclusive, CODEX_MODE:
+  #     unverified) and the review's own classification decides. Never cached.
   #
   # Only call this AFTER _gstack_codex_auth_probe passes — probing without
   # auth just measures the auth failure again.
@@ -162,13 +248,27 @@ _gstack_codex_model_probe() {
     echo "MODEL_OK"
     return 0
   fi
-  if printf '%s' "$_out" | grep -qiE 'model.{0,40}is not supported|"status":[[:space:]]*400'; then
+  # A model rejection is deterministic: a 400 ("is not supported", "requires a
+  # newer version of Codex") or a 404. A retired model answers 404 "does not
+  # exist or you do not have access to it", and a custom provider with a wrong
+  # base_url answers a bare 404; neither is network luck, so neither may fall
+  # through to the inconclusive branch below and report ready (#2843).
+  if printf '%s' "$_out" | grep -qiE 'model.{0,40}is not supported|"status":[[:space:]]*40[04]|requires a newer version of codex|does not exist or you do not have access|model.{0,40}does not exist|404 not found|status:?[[:space:]]*404'; then
     [ -n "$_cache" ] && { mkdir -p "$_gstack_home" 2>/dev/null; printf 'MODEL_UNUSABLE %s %s\n' "$_now" "$_sig" > "$_cache" 2>/dev/null; }
     echo "MODEL_UNUSABLE"
-    printf '%s\n' "$_out" | grep -i "model" | head -3
+    printf '%s\n' "$_out" | grep -iE "model|404" | head -3
     echo "HINT: gstack requested model '$_model' (source: $_GSTACK_CODEX_SEL_SRC)."
-    echo "HINT: choose a model your account can use: set GSTACK_CODEX_MODEL=<supported-model>, set model in $_codex_home/config.toml, or name one for this request."
-    _gstack_codex_log_event "codex_model_unusable" 2>/dev/null || true
+    if printf '%s' "$_out" | grep -qiE 'requires a newer version of codex|upgrade to the latest (app|version|cli)'; then
+      echo "HINT: the server refused it because this Codex CLI is too old; no model choice fixes that. Upgrade the CLI (\`codex doctor\` prints the command; usually npm install -g @openai/codex)."
+      _gstack_codex_log_event "codex_cli_outdated" 2>/dev/null || true
+    elif printf '%s' "$_out" | grep -qiE 'does not exist|404'; then
+      echo "HINT: Codex answered 404: either the model is retired or not visible to this account, or a custom provider's base_url in $_codex_home/config.toml is wrong."
+      echo "HINT: choose a current model (GSTACK_CODEX_MODEL=<supported-model> or model in config.toml), or fix that provider's base_url."
+      _gstack_codex_log_event "codex_model_retired" 2>/dev/null || true
+    else
+      echo "HINT: choose a model your account can use: set GSTACK_CODEX_MODEL=<supported-model>, set model in $_codex_home/config.toml, or name one for this request."
+      _gstack_codex_log_event "codex_model_unusable" 2>/dev/null || true
+    fi
     return 1
   fi
   # A CLI that cannot execute is deterministic, not transient: the fail-open
@@ -190,7 +290,10 @@ _gstack_codex_model_probe() {
   fi
   # Timeout (124) or transient failure: fail-open with a warning. The probe
   # exists to catch the deterministic model 400, not to gate on network luck.
-  echo "MODEL_PROBE_INCONCLUSIVE (exit $_code) — proceeding; if invocations fail with a model 400, see the codex skill's Error Handling entry."
+  # Callers report CODEX_MODE: unverified, never ready; the exit stays 0 so
+  # skills rendered before this marker keep running the review.
+  _GSTACK_CODEX_PROBE_STATE="inconclusive"
+  echo "MODEL_PROBE_INCONCLUSIVE (exit $_code) — CODEX_MODE: unverified; proceeding, and the review's own result is still checked. If invocations fail with a model 400, see the codex skill's Error Handling entry."
   return 0
 }
 
@@ -257,10 +360,12 @@ _gstack_codex_timeout_wrapper() {
     # mirror timeout(1)'s exit-124 contract. The watchdog's stdout is
     # detached so an early finish never blocks a caller's $(...) capture on
     # the orphaned sleep.
-    "$@" &
+    # Without job control a background command's stdin is /dev/null; keep the
+    # caller's stdin so prompts fed with `codex exec -` arrive (#1674).
+    "$@" <&0 &
     local _cmd_pid=$!
     (
-      sleep "$_duration" && trap '' TERM && kill -TERM "$_cmd_pid" 2>/dev/null || exit 0
+      sleep "$_duration" && trap '' TERM && kill -TERM "$_cmd_pid" 2>/dev/null || exit 0  # best-effort: the command already exited, nothing to stop
       _GSTACK_CODEX_WAITED=0
       while [ "$_GSTACK_CODEX_WAITED" -lt "$_grace" ] && kill -0 "$_cmd_pid" 2>/dev/null; do
         sleep 1
@@ -288,7 +393,8 @@ _gstack_codex_log_event() {
   # Emit a telemetry event to ~/.gstack/analytics/skill-usage.jsonl.
   # Gated on $_TEL != "off" (caller sets this from gstack-config).
   # Event types: codex_timeout, codex_auth_failed, codex_cli_missing,
-  #              codex_version_warning, codex_model_unusable.
+  #              codex_version_warning, codex_model_unusable, codex_sandbox_unavailable,
+#              codex_model_retired, codex_cli_outdated.
   # Payload schema: {skill, event, duration_s, ts}. NEVER includes prompt
   # content, env var values, or auth tokens.
   local _event="$1"

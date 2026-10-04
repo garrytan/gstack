@@ -270,12 +270,17 @@ export async function runCodexSkill(opts: {
     // itself; command subprocesses codex spawned survived as orphans holding
     // our pipes open (the same blocked-drain hang the claude runner fixed —
     // this copy never inherited that fix until now).
+    // Codex refuses to create its PATH aliases (codex-linux-sandbox among
+    // them) when CODEX_HOME sits under its temp dir, so the child gets a temp
+    // dir beside CODEX_HOME instead of the shard TMPDIR that holds tempHome.
+    const tempTmpDir = path.join(tempHome, 'tmp');
+    fs.mkdirSync(tempTmpDir, { recursive: true });
     const proc = spawn('codex', args, {
       cwd: cwd || skillDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
       env: hermeticChildEnv(
-        { HOME: tempHome, CODEX_HOME: tempCodexDir },
+        { HOME: tempHome, CODEX_HOME: tempCodexDir, TMPDIR: tempTmpDir },
         { extraAllow: ['OPENAI_API_KEY', 'CODEX_*'] },
       ),
     });

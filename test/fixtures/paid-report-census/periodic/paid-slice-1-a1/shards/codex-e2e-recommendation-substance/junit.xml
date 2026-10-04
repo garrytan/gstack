@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="1" assertions="4" failures="0" skipped="0" time="13.086169814">
+  <testsuite name="test/codex-e2e-recommendation-substance.test.ts" file="test/codex-e2e-recommendation-substance.test.ts" tests="1" assertions="4" failures="0" skipped="0" time="13.083896214">
+    <testsuite name="/codex recommendation substance (live, periodic)" file="test/codex-e2e-recommendation-substance.test.ts" line="65" tests="1" assertions="4" failures="0" skipped="0" time="13.071">
+      <testcase name="codex emits a committed, substance&gt;=4 synthesis recommendation" classname="/codex recommendation substance (live, periodic)" time="13.071174" file="test/codex-e2e-recommendation-substance.test.ts" line="67" assertions="4" />
+    </testsuite>
+  </testsuite>
+</testsuites>

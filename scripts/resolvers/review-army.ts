@@ -11,6 +11,7 @@
  */
 import type { TemplateContext } from './types';
 import { CC_BACKGROUND_DEFAULT_SINCE } from './constants';
+import { learningsCapture, LEARNINGS_VERDICT } from './learnings';
 
 function generateSpecialistSelection(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
@@ -100,7 +101,8 @@ Construct the prompt for each specialist. The prompt includes:
 3. Past learnings for this domain (if any exist):
 
 \`\`\`bash
-${ctx.paths.binDir}/gstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5 2>/dev/null || true
+${learningsCapture(`${ctx.paths.binDir}/gstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5`)}
+${LEARNINGS_VERDICT}
 \`\`\`
 
 If learnings are found, include them: "Past learnings for this domain: {learnings}"

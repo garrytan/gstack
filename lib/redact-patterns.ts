@@ -253,6 +253,95 @@ export function looksLikeParcelId(span: string, match: RegExpExecArray): boolean
   return false;
 }
 
+/**
+ * Vector geometry reads as a phone number to pii.phone.e164 (#2885, #2827).
+ * The pattern accepts `.` as a group separator, so a single float
+ * (`viewBox="0 0 581.66796875 695.65625"`) parses as 581 · 6679 · 6875, and a
+ * run of path coordinates (`37.6188 101.694`, `100 64.5326 100`) as four
+ * spaced groups. One rendered /diagram SVG carried 18 of these; a Figma icon
+ * carries dozens per path.
+ *
+ * Phone conventions put a separator between EVERY group, so a token with
+ * digits, one dot and digits is a decimal number, never a dotted phone
+ * (415.555.0123 has two dots in one token and stays flagged). Exempt a span
+ * whose space-separated tokens include at least one decimal and none with two
+ * dots. A leading `+` is the E.164 marker, so a span starting with it is a
+ * phone context and never exempt.
+ */
+export function looksLikeDecimalCoordinates(span: string): boolean {
+  if (span.startsWith("+")) return false;
+  const tokens = span.split(" ");
+  if (tokens.some((t) => t.split(".").length > 2)) return false;
+  return tokens.some((t) => /^\d+\.\d+$/.test(t));
+}
+
+/** Span start/end in `match.input`, derived exactly as redact-engine.ts does. */
+function spanBounds(match: RegExpExecArray): { start: number; end: number } {
+  const spanStartInMatch = match[1] !== undefined ? match[0].indexOf(match[1]) : 0;
+  const start = match.index + Math.max(0, spanStartInMatch);
+  return { start, end: start + (match[1] ?? match[0]).length };
+}
+
+/**
+ * True when a digit span is one side of a decimal number: `<digit>.` sits
+ * immediately before it or `.<digit>` immediately after. pii.cc's `\b` stops
+ * at the dot, so the 14-digit fraction of `492.34399999999994` in an
+ * .excalidraw scene is a Luhn candidate, and a random digit run passes Luhn
+ * about one time in ten (#2827). A card number in prose is never glued to a
+ * decimal point; a sentence-ending period has no digit after it and stays
+ * flagged.
+ */
+export function insideDecimalNumber(match: RegExpExecArray): boolean {
+  const input = match.input ?? "";
+  const { start, end } = spanBounds(match);
+  const digit = (i: number) => i >= 0 && i < input.length && input[i] >= "0" && input[i] <= "9";
+  return (input[start - 1] === "." && digit(start - 2)) || (input[end] === "." && digit(end + 1));
+}
+
+/**
+ * JSON keys whose unquoted integer value is a random seed, nonce or epoch
+ * timestamp. Excalidraw writes three per element (`"seed":1808177121`,
+ * `"versionNonce":1365644783`, `"updated":1791059590857`), and pii.phone.e164
+ * reads each as a bare 10-13 digit number: 92 per /diagram scene (#2827).
+ */
+const NUMERIC_METADATA_KEY =
+  /"[A-Za-z0-9_]*(?:seed|nonce|updated|created|timestamp)(?:at|_at|ms|_ms)?"[ \t]*:[ \t]*$/i;
+
+/**
+ * True when a digit-only span is the unquoted JSON value of a seed, nonce or
+ * timestamp key. The evidence is the key, not the digits: the same number
+ * under `"phone":` still reports.
+ */
+export function isNumericMetadataValue(span: string, match: RegExpExecArray): boolean {
+  if (!/^\d+$/.test(span)) return false;
+  const input = match.input ?? "";
+  const { start } = spanBounds(match);
+  const lineStart = input.lastIndexOf("\n", start - 1) + 1;
+  return NUMERIC_METADATA_KEY.test(input.slice(Math.max(lineStart, start - 80), start));
+}
+
+/**
+ * A four-part version (MAJOR.MINOR.PATCH.BUILD: .NET assembly versions,
+ * gstack's own VERSION) is byte-for-byte a dotted quad, and `1.128.1.0` is a
+ * public address, so `"version": "1.128.1.0"` raised pii.ip_public on every
+ * release (#2784). The value cannot decide it, so only the declaration
+ * immediately before it on the same line can: a `version` key or word
+ * (`"version": "`, `app_version = `, `<Version>`, `AssemblyVersion("`,
+ * `version `), or a Keep a Changelog heading `## [1.2.3.4]`. The same digits
+ * after `host:`, `server = ` or in prose that merely mentions a version still
+ * report, and the pre-push hook's VERSION-file rule (#2856) is unchanged.
+ */
+const VERSION_DECLARATION_BEFORE =
+  /(?:\b[Vv]ersion|\bVERSION|[a-z0-9_]Version|[_-][Vv]ersion|_VERSION)["'\]]?(?:[ \t]*[:=(>][ \t]*|[ \t]+)["']?$/;
+const CHANGELOG_HEADING_BEFORE = /^#{1,6}[ \t]+\[$/;
+export function isDeclaredVersion(match: RegExpExecArray): boolean {
+  const input = match.input ?? "";
+  const { start, end } = spanBounds(match);
+  const lineStart = input.lastIndexOf("\n", start - 1) + 1;
+  if (VERSION_DECLARATION_BEFORE.test(input.slice(Math.max(lineStart, start - 48), start))) return true;
+  return CHANGELOG_HEADING_BEFORE.test(input.slice(lineStart, start)) && input[end] === "]";
+}
+
 // ── Placeholder suppression (per-matched-span, NOT per-line) ─────────────────
 
 /**
@@ -323,6 +412,28 @@ export function isDotenvFilename(match: RegExpExecArray): boolean {
   const spanStartInMatch = match[1] !== undefined ? match[0].indexOf(match[1]) : 0;
   const spanStart = match.index + Math.max(0, spanStartInMatch);
   return spanStart > 0 && input[spanStart - 1] === ".";
+}
+
+/** Extensions that mark a `<name>.local.<ext>` span as a file. Closed on
+ * purpose: `.md` is also Moldova's TLD, but no internal suffix sits in front
+ * of a public one, so after `.local` it can only be an extension. */
+const LOCAL_CONFIG_EXTENSIONS = /^\.(?:md|json|jsonc|ya?ml|toml|ini|conf|txt)\b/i;
+
+/**
+ * True when an `internal.hostname` span is the stem of a per-machine config
+ * FILENAME (`CLAUDE.local.md`, `settings.local.json`, `values.staging.yaml`)
+ * rather than a host (#2962). The pattern's `\b` stops at the dot before the
+ * extension, so `CLAUDE.local.md` reported `CLAUDE.local`. Claude Code's own
+ * per-user files are named this way, so any decision or doc that mentions
+ * them failed closed in the non-interactive stores.
+ *
+ * Exempts ONLY a span immediately followed by `.<known extension>` and a word
+ * boundary. `printer.local.` at the end of a sentence still reports, and so
+ * do `printer.local`, `printer.local/md` and `printer.local.mdx`.
+ */
+export function isLocalConfigFilename(match: RegExpExecArray): boolean {
+  const { end } = spanBounds(match);
+  return LOCAL_CONFIG_EXTENSIONS.test((match.input ?? "").slice(end, end + 8));
 }
 
 /**
@@ -410,15 +521,52 @@ function urlPasswordIsPlaceholder(span: string): boolean {
   return PLACEHOLDER_STRUCTURAL.some((re) => re.test(pw));
 }
 
+/**
+ * #2913: `postgres:postgres` is the official postgres image's default pair,
+ * committed in compose files and CI DATABASE_URLs. It is exempt only on a
+ * loopback host (`localhost` or `127.0.0.1`, optional port), never on a
+ * single-label host such as `db`: a compose service name says nothing about
+ * where the same URL is also deployed, and a weak default on a reachable host
+ * is exactly the leak to report. Exact user and password, case-sensitive;
+ * the host must end at a port, path, query, quote or the span's end.
+ */
+const POSTGRES_LOOPBACK_DEFAULT =
+  /^postgres(?:ql)?:\/\/postgres:postgres@(?:localhost|127\.0\.0\.1)(?::\d{1,5})?(?![\w.:@%-])/;
+
 /** A value span that is only an environment-variable read expression (#2912). */
 const ENV_READ_SPAN =
   /^(?:os\.environ\[|os\.environ\.get\(|os\.getenv\(|getenv\(|ENV\[|process\.env\.[A-Za-z_$][\w$]*[;,)]?)$/;
 function isBareEnvRead(span: string, match: RegExpExecArray): boolean {
   if (!ENV_READ_SPAN.test(span)) return false;
-  const rest = match.input.slice(match.index + match[0].length).split("\n", 1)[0];
-  for (const [, literal] of rest.matchAll(/["']([^\s'"]{8,})["']/g))
-    if (!isPlaceholderSpan(literal) && shannonEntropy(literal) >= 3.0) return false;
-  return true;
+  return !carriesSecretLiteral(match.input.slice(match.index + match[0].length).split("\n", 1)[0]);
+}
+
+/** True when `text` holds a quoted, non-placeholder, high-entropy literal. */
+function carriesSecretLiteral(text: string): boolean {
+  for (const [, literal] of text.matchAll(/["']([^\s'"]{8,})["']/g))
+    if (!isPlaceholderSpan(literal) && shannonEntropy(literal) >= 3.0) return true;
+  return false;
+}
+
+/**
+ * #2899: the value capture is any non-space run, so it swallows code:
+ * `session = _FlakySession(responses=[...])`, `token = make_token(user,`,
+ * `password = getpass.getpass()`. A bare credential name plus mixed-case code
+ * clears the entropy gate. The span alone cannot tell `Abc123(xyz` (a real
+ * password) from a call, so the exemption needs the line's evidence: the
+ * value is unquoted, starts with an identifier or dotted path followed by
+ * `(`, and that call closes on the line or opens a multi-line argument list.
+ * A quoted value is a literal, and a call whose arguments carry a
+ * high-entropy literal (`decrypt("<secret>")`) still reports.
+ */
+const CALL_SHAPED_VALUE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\(/;
+function isCallExpression(span: string, match: RegExpExecArray): boolean {
+  if (!CALL_SHAPED_VALUE.test(span)) return false;
+  const { start } = spanBounds(match);
+  if (match.input[start - 1] === '"' || match.input[start - 1] === "'") return false;
+  const call = match.input.slice(start + span.indexOf("(")).split("\n", 1)[0];
+  if (!call.includes(")") && call.trim() !== "(") return false;
+  return !carriesSecretLiteral(call);
 }
 
 export const PATTERNS: RedactPattern[] = [
@@ -631,8 +779,9 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "Database URL with embedded password",
     regex: /\b((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^:\s/@]+:[^@\s/]+@[^\s/]+)/,
-    // Skip when the password segment is itself a placeholder/interpolation.
-    validate: (span) => !urlPasswordIsPlaceholder(span),
+    // Skip when the password segment is itself a placeholder/interpolation,
+    // or the URL is postgres's default pair on a loopback host.
+    validate: (span) => !urlPasswordIsPlaceholder(span) && !POSTGRES_LOOPBACK_DEFAULT.test(span),
   },
   {
     id: "creds.basic_auth_url",
@@ -693,11 +842,14 @@ export const PATTERNS: RedactPattern[] = [
     // holding one, unless the rest of its line carries a high-entropy quoted
     // literal (`os.getenv("X", "<secret>")`). A literal appended to the read
     // itself (`process.env.X||"…"`) is not an exact read and still fires.
+    // #2899: a function call assigned to the name is code, not a value (see
+    // isCallExpression).
     validate: (span, match) =>
       isCredentialShapedEnvName(match[0]) &&
       !isPlaceholderSpan(span) &&
       !/^\$\{?[A-Za-z_]/.test(span) &&
       !isBareEnvRead(span, match) &&
+      !isCallExpression(span, match) &&
       shannonEntropy(span) >= 3.0,
   },
   {
@@ -738,12 +890,16 @@ export const PATTERNS: RedactPattern[] = [
     autoRedactable: true,
     redactToken: "<REDACTED-PHONE>",
     // A digit-only UUID's hyphen groups read as national phone formatting, and
-    // so does a county tax-map parcel ID (see looksLikeParcelId).
+    // so do a county tax-map parcel ID (see looksLikeParcelId), vector
+    // coordinates (looksLikeDecimalCoordinates) and seed/nonce/timestamp JSON
+    // values (isNumericMetadataValue).
     validate: (span, match) =>
       !insideUuid(match) &&
       span.replace(/\D/g, "").length >= 10 &&
       !looksLikeCompactTimestamp(span) &&
-      !looksLikeParcelId(span, match),
+      !looksLikeParcelId(span, match) &&
+      !looksLikeDecimalCoordinates(span) &&
+      !isNumericMetadataValue(span, match),
   },
   {
     id: "pii.ssn",
@@ -767,9 +923,9 @@ export const PATTERNS: RedactPattern[] = [
     regex: /\b((?:\d[ \-]?){13,19})\b/,
     autoRedactable: true,
     redactToken: "<REDACTED-CC>",
-    // A 13-19 digit slice of a digit-only UUID passes Luhn often enough to
-    // matter; the enclosing-UUID check runs first so it never reaches Luhn.
-    validate: (span, match) => !insideUuid(match) && luhnValid(span),
+    // A 13-19 digit slice of a digit-only UUID or of a decimal number passes
+    // Luhn often enough to matter; both context checks run before Luhn.
+    validate: (span, match) => !insideUuid(match) && !insideDecimalNumber(match) && luhnValid(span),
   },
   {
     id: "pii.ip_public",
@@ -777,7 +933,7 @@ export const PATTERNS: RedactPattern[] = [
     category: "pii",
     description: "Public IPv4 address",
     regex: /\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/,
-    validate: (span) => isPublicIPv4(span),
+    validate: (span, match) => isPublicIPv4(span) && !isDeclaredVersion(match),
   },
   {
     id: "pii.wallet",
@@ -795,8 +951,9 @@ export const PATTERNS: RedactPattern[] = [
     category: "internal",
     description: "Internal hostname (*.internal/.corp/.local/.prod/.staging)",
     regex: /\b([a-z0-9][a-z0-9\-]*\.(?:internal|corp|local|lan|prod|staging))\b/i,
-    // `.env.local` and friends are filenames, not hosts. See isDotenvFilename.
-    validate: (_span, match) => !isDotenvFilename(match),
+    // `.env.local`, `CLAUDE.local.md` and friends are filenames, not hosts.
+    // See isDotenvFilename and isLocalConfigFilename.
+    validate: (_span, match) => !isDotenvFilename(match) && !isLocalConfigFilename(match),
   },
   {
     id: "internal.url_private",

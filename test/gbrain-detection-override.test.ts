@@ -151,6 +151,24 @@ describe('gbrain detection override → gen-skill-docs', () => {
     }
   });
 
+  test('with status "db-unreachable" (transient network failure, A2), brain blocks render like "timeout"', () => {
+    const { tmpHome, cleanup } = makeFixture(
+      JSON.stringify({
+        gbrain_local_status: 'db-unreachable',
+        gbrain_on_path: true,
+        gbrain_version: 'test-0.42.26',
+      }),
+    );
+    try {
+      const content = probeUnion(regenAndSnapshot({ respectDetection: true, tmpHome, files: PROBE_FILES }));
+      // An offline setup must not strip brain-aware blocks from every skill.
+      expect(content).toContain('## Save Results to Brain');
+      expect(content).toContain('gbrain put "office-hours/');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('with status "engine-locked" (PGLite single-writer, #2456), brain blocks render like "ok"', () => {
     const { tmpHome, cleanup } = makeFixture(
       JSON.stringify({

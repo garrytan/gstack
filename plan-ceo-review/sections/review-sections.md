@@ -333,7 +333,7 @@ Continue through the blocks below in file order:
 2. **Resolve remaining TODO choices:** use the selected mode's scope rules.
 3. **Approval readiness:** check the ledger and record PASS before writing outputs. Its complete checklist is immediately after the TODO choices; no report or log is needed yet.
 4. **Required Outputs:** follow the three stages below: prepare the plan body and summary, save and verify the terminal report, then publish the summary in chat.
-5. **Cleanup and history:** perform permitted cleanup, attempt Review Log under the Artifact outcomes policy, then display the dashboard with the actual logging outcome.
+5. **Cleanup and history:** archive old CEO plans only if the user approved it (otherwise skip cleanup), attempt Review Log under the Artifact outcomes policy, then display the dashboard with the actual logging outcome.
 6. **Navigation:** choose Next Steps and any docs/designs promotion; queue the next skill. For a substantive answer, call 0D for only that change, repeat Approval readiness and Required Outputs, then repeat step 5. Resume navigation without asking settled choices again. Navigation alone does not reopen decisions.
 7. **Learnings:** finish learning and brain write-back. Return to this skill's main `SKILL.md`, at **Section self-check**. Its EXIT gate verifies completed work and saved readiness without asking again. After a passing gate, refresh the cache, run telemetry last, then exit or return to the caller.
 
@@ -370,13 +370,18 @@ elif ! command -v codex >/dev/null 2>&1; then
 elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
   _CODEX_MODE="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
 else
-  # Capture the probe's code: 2 means the CLI cannot execute at all, which is a
-  # different problem (and a different fix) from a model the account can't use.
-  _gstack_codex_model_probe; _CODEX_MP=$?
-  if [ "$_CODEX_MP" -eq 2 ]; then
+  # The free sandbox check runs before the paid model probe. Probe code 2 means
+  # the CLI cannot execute at all, a different fix from an unusable model.
+  _CODEX_MP=0; _gstack_codex_sandbox_preflight || _CODEX_MP=3
+  [ "$_CODEX_MP" -ne 0 ] || { _gstack_codex_model_probe; _CODEX_MP=$?; }
+  if [ "$_CODEX_MP" -eq 3 ]; then
+    _CODEX_MODE="sandbox_unavailable"
+  elif [ "$_CODEX_MP" -eq 2 ]; then
     _CODEX_MODE="broken_install"
   elif [ "$_CODEX_MP" -ne 0 ]; then
     _CODEX_MODE="model_unusable"
+  elif [ "${_GSTACK_CODEX_PROBE_STATE:-}" = inconclusive ]; then
+    _CODEX_MODE="unverified"
   else
     _CODEX_MODE="ready"; _gstack_codex_version_check 2>/dev/null || true
   fi
@@ -390,8 +395,9 @@ Branch on the echoed `CODEX_MODE`:
 - **`under_codex`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and construct the prompt below, then follow **Native fallback**. Conflicting inherited harness markers are not grounds to guess another provider.
 - **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
 - **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Fall back to the Claude subagent path.
-- **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Fall back to the Claude subagent path. The ~10s round trip is cached for 1h; timeouts fail open to `ready`.
-- **`ready`** — run the Codex pass below.
+- **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Fall back to the Claude subagent path. The ~10s round trip is cached for 1h.
+- **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Fall back to the Claude subagent path.
+- **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out; say so, and let the pass's own verdict decide.
 
 **Outcome routing:** Follow the row for the current result. After an invocation, route its result
 again. Leave only after recording disabled/unavailable coverage, or after
@@ -463,7 +469,7 @@ End with Recommendation: <action> because <specific reason>. If there are no fin
 THE PLAN:
 <plan content>"
 
-**If `CODEX_MODE: ready` — run Codex:**
+**If `CODEX_MODE: ready` (or `unverified`) — run Codex:**
 
 Run this block only for `ready`, in the one foreground Bash call described below.
 Its opening harness guard rechecks the fresh shell: exit 78 uses the same Native
@@ -491,22 +497,24 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" && _gstack_codex_select_model exec || exit 1
-_OUTSIDE_PROMPT=$(cat "$_OUTSIDE_INPUT") || exit 1
+_gstack_codex_sandbox_preflight >/dev/null || exit 1
+_gstack_codex_first_use_notice
 _OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper 300 codex exec "$_OUTSIDE_PROMPT" -C "$_REPO_ROOT" -s read-only -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
-cat "$_OUTSIDE_TMP/text" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
+_gstack_codex_timeout_wrapper 300 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"
 
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
-if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
-  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
-  exit "$_OUTSIDE_EXIT"
-fi
-bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
-
+_OUTSIDE_RC=0
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" --label 'Codex outside review' --exit "$_OUTSIDE_EXIT" --stderr "$_OUTSIDE_TMP/stderr" --events "$_OUTSIDE_TMP/events" review "$_OUTSIDE_TMP/text" || _OUTSIDE_RC=$?
+case "$_OUTSIDE_RC" in
+  0|3) ;;
+  4) echo 'OUTSIDE_STATUS: unverified provider=codex host=claude'; exit 4 ;;
+  *) [ "$_OUTSIDE_EXIT" -ne 0 ] && exit "$_OUTSIDE_EXIT"; exit 1 ;;
+esac
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation: <action> because <reason> markers, timeout or CLI failure means `outside_status: unavailable`. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation: <action> because <reason> markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 Present the full output verbatim:
 
@@ -620,7 +628,7 @@ This is best-effort review history under Step 0's Artifact outcomes table. Attem
 ```
 
 Substitute: STATUS = "clean" only if a reviewer completed and found no issues; "issues_found" if findings exist, or "unavailable" if neither reviewer completed. Never count missing coverage as a clean review. A completed native fallback uses SOURCE=in-host, OUTSIDE_STATUS=unavailable, and STATUS=clean or issues_found from its findings. These findings are the reviewer's, even if later resolved by the parent.
-Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"plan-review"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.
+Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"plan-review"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown. Under `GSTACK_CODEX_NO_SANDBOX=1` add `"codex_sandbox":"danger-full-access"`.
 
 
 

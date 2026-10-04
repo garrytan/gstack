@@ -30,12 +30,12 @@ hooks:
     - matcher: "Edit"
       hooks:
         - type: command
-          command: 'bash -c ''S="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"; [ -x "$S" ] && exec bash "$S"; exit 0'''
+          command: 'bash -c "test -x \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\" && exec bash \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\"; exit 0"'
           statusMessage: "Checking debug scope boundary..."
     - matcher: "Write"
       hooks:
         - type: command
-          command: 'bash -c ''S="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"; [ -x "$S" ] && exec bash "$S"; exit 0'''
+          command: 'bash -c "test -x \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\" && exec bash \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\"; exit 0"'
           statusMessage: "Checking debug scope boundary..."
 gbrain:
   schema: 1
@@ -106,7 +106,8 @@ Pick ONE keyword from the hypothesis. The keyword should be a noun: the failing 
 Worked examples (investigate-specific): good keywords are `auth-cookie`, `session-expiry`, `redirect-loop`. Bad: `auth.ts:47`, `fix the auth bug`, `<hypothesis-keyword>`.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>/dev/null || true
+{ _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>&1 >&3 3>&-); _LR=$?; } 3>&1
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 If any learnings come back, name which one applies to your investigation in one sentence. If none come back, continue without reference — the absence of a matching prior learning is itself useful information.

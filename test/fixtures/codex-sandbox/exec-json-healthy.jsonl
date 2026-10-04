@@ -1,0 +1,8 @@
+{"type":"thread.started","thread_id":"01a10376-d6d1-7b60-8c14-6decd95f8437"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `gpt-5.4-mini` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"I’ll read `a.txt` and report it in one word."}}
+{"type":"item.started","item":{"id":"item_2","type":"command_execution","command":"/bin/bash -c 'cat a.txt'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"/bin/bash -c 'cat a.txt'","aggregated_output":"hello\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"hello"}}
+{"type":"turn.completed","usage":{"input_tokens":22391,"cached_input_tokens":11136,"cache_write_input_tokens":0,"output_tokens":85,"reasoning_output_tokens":0}}

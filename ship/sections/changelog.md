@@ -42,4 +42,6 @@
 
 **Do NOT ask the user to describe changes.** Infer from the diff and commit history.
 
+**NO_VERSION (Step 12):** skip this step; write no CHANGELOG entry or version header.
+
 ---

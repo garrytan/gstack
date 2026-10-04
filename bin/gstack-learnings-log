@@ -24,7 +24,7 @@ INPUT="$1"
 # Validate and sanitize input. Errors surface (#1950): stderr is captured and
 # printed on failure instead of swallowed — a silent exit 1 here cost Windows
 # users every AI-logged learning.
-TMPERR=$(mktemp)
+TMPERR=$(mktemp "${TMPDIR:-/tmp}/gstack-learnings-log.XXXXXX") || { echo "gstack-learnings-log: could not create a temp file in ${TMPDIR:-/tmp}, so the learning was not recorded. Fix: point TMPDIR at a writable directory." >&2; exit 1; }
 trap 'rm -f "$TMPERR"' EXIT
 set +e
 VALIDATED=$(printf '%s' "$INPUT" | GSTACK_LIB_DIR="$SCRIPT_DIR/../lib" bun -e "

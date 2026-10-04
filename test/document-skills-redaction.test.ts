@@ -35,7 +35,7 @@ describe("/document-release redaction", () => {
     expect(RELEASE).toMatch(/exit 3 \(HIGH\).*do NOT edit/i);
   });
   test("separate shell calls share an explicit run directory and never re-read raw tracker text", () => {
-    expect(RELEASE).toContain('mktemp -d /tmp/gstack-doc-release-XXXXXXXX');
+    expect(RELEASE).toContain('mktemp -d "${TMPDIR:-/tmp}/gstack-doc-release-XXXXXXXX"');
     expect(RELEASE).not.toContain('/tmp/gstack-pr-body-$$');
     expect(RELEASE).not.toContain('<paste the file contents here>');
     expect(RELEASE).toContain('pathlib.Path(sys.argv[1]).read_text()');
@@ -43,7 +43,8 @@ describe("/document-release redaction", () => {
   test("title synchronization keeps every variable in one valid shell block", () => {
     const section = RELEASE.slice(RELEASE.indexOf('**PR/MR title sync'));
     const script = section.match(/```bash\n([\s\S]*?)\n```/)![1];
-    for (const command of ['V=$(cat VERSION', 'CURRENT_TITLE=$(gh pr view', 'NEW_TITLE=$(', 'gh pr edit --title "$NEW_TITLE"', 'glab mr update -t "$NEW_TITLE"']) {
+    // G1 (#2334): the version comes from the shared classifier, not a root VERSION read.
+    for (const command of ['VB=$(bun run ~/.claude/skills/gstack/bin/gstack-version-bump classify', 'CURRENT_TITLE=$(gh pr view', 'NEW_TITLE=$(', 'gh pr edit --title "$NEW_TITLE"', 'glab mr update -t "$NEW_TITLE"']) {
       expect(script).toContain(command);
     }
     const result = spawnSync('bash', ['-n'], { input: script, encoding: 'utf8', timeout: 5000 });

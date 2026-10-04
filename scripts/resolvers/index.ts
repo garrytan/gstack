@@ -143,6 +143,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   // Literal bin dir for skills that skip the shared preamble, where
   // $GSTACK_BIN is never set (#2906): the per-install root when rendering for
   // one, else the host's default global root.
+  INSTALLED_ROOT: (ctx) => ctx.installRoot ? ctx.installRoot.replace(/\/+$/, '') : `~/${getHostConfig(ctx.host).globalRoot}`,
   INSTALLED_BIN_DIR: (ctx) => ctx.installRoot ? `${ctx.installRoot.replace(/\/+$/, '')}/bin` : `~/${getHostConfig(ctx.host).globalRoot}/bin`,
   FOREGROUND_DISPATCH_NOTE: () => FOREGROUND_DISPATCH_NOTE,
   GBRAIN_CONTEXT_LOAD: generateGBrainContextLoad,

@@ -97,6 +97,7 @@ describe('memory-leak reproducer: requestfinished does not materialize bodies', 
       page.emit('request', {
         url: () => `https://example.invalid/asset/${i}`,
         method: () => 'GET',
+        isNavigationRequest: () => false,
       });
     }
 

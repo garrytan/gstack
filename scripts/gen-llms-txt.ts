@@ -19,6 +19,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { mkdirpSync } from '../lib/fs-utils';
 import { discoverTemplates } from './discover-skills';
 import { COMMAND_DESCRIPTIONS as BROWSE_COMMANDS } from '../browse/src/commands';
 
@@ -224,7 +225,7 @@ export async function generateLlmsTxt(opts: GenerateOptions = {}): Promise<Gener
 export async function writeLlmsTxt(opts: GenerateOptions & { outputPath?: string } = {}): Promise<GenerateResult> {
   const result = await generateLlmsTxt(opts);
   const outputPath = opts.outputPath ?? OUTPUT;
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  mkdirpSync(path.dirname(outputPath));
   fs.writeFileSync(outputPath, result.content, { encoding: 'utf-8' });
   return result;
 }

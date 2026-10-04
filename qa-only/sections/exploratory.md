@@ -69,7 +69,7 @@ How one probe works: (1) if bounded, check the clock and choose the next command
    For actual secrets/private payloads, withhold those values and disclose the redaction
    and replay limits in the report. If no safe exact observation can be retained,
    stop the affected probe chain; never invent a substitute path, identity or state.
-   **Publish before probing.** Create `exploration-NNN.json` in the probe directory, beside its deadline if bounded, with exactly four top-level fields:
+   **Publish before probing.** Create (browser) or compose (functional) `exploration-NNN.json` in the probe directory, beside its deadline if bounded, with exactly four top-level fields:
    observationCommand: last completed probe's full outer command, including guard.
    observed: its exact decoded child JSON (no wrapper/extra keys), or its full non-JSON text.
    For guarded text, copy the complete span between the guard's started and finished receipt lines.
@@ -82,7 +82,7 @@ How one probe works: (1) if bounded, check the clock and choose the next command
    Withhold unsafe values, disclose limits and stop that chain.
    Check fields before publication. No drafts/placeholders or invented safe-path redactions; corrections cannot repair published notes.
    Functional: do not write this file; the next capture publishes it: `bun EVIDENCE_TOOL capture PROBE_DIR NNN --deadline DEADLINE_FILE --after PREV --hypothesis 'why' -- CMD` (PREV: the last complete capture's ID). EVIDENCE_TOOL supplies observed; never transcribe it.
-   Browser checkpoints use Write: create the four-field file yourself.
+   Browser checkpoints use Write.
    Wait for successful checkpoint publication before dispatch.
    Never backfill or overwrite notes.
 3. Run that exact probe; DEADLINE_TOOL enforces the deadline when bounded.
@@ -103,7 +103,7 @@ with their failing contract and expected assertion; never create tests or freeze
 ## 4. Final report
 
 Use the surface report template; link each checkpoint. Separate browser scores, functional outcomes and proposed/executed tests.
-Write PROBE_DIR/annotations.json {evidence: [{capture, command, contract, expected, classification}], limits} (browser-only: evidence [], checkpoints in limits); before Markdown `bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json` (fills observed/metadata; prints reportLinks; runs once per report root); you classify. Annotate every safe capture, including failures/replays: an omitted capture is withheld and keeps the verdict inconclusive. Classify a capture taken before an input change `superseded`; it closes when the same command reran on current inputs. Disclose withheld/incomplete evidence.
+Write PROBE_DIR/annotations.json {evidence: [{capture, command, contract, expected, classification}], limits} (browser-only: evidence [], checkpoints in limits); before Markdown `bun EVIDENCE_TOOL materialize PROBE_DIR annotations.json` (fills observed/metadata; prints reportLinks; runs once per PROBE_DIR); you classify. Annotate every safe capture, including failures/replays: an omitted capture is withheld and keeps the verdict inconclusive. Classify a capture taken before an input change `superseded`; it closes when the same command reran on current inputs. Disclose withheld/incomplete evidence.
 Evidence is invocation-local.
 Missing prerequisites/expectations/observations, timeouts and refusal never pass.
 Pass requires all required current-input contracts to pass with no required remainder.

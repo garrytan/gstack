@@ -44,14 +44,18 @@ export function scoreAuqFormat(text: string): { present: number; total: number; 
 
 /**
  * Format problems that fail a first-question matrix run: only the fields
- * software reads (a `Recommendation:` line and exactly one `(recommended)`
- * option). ELI10, Pros / cons, ✅/❌ and Net: are reported, not failed.
+ * software reads. The question text needs a `Recommendation:` line, and
+ * exactly one option label ends in `(recommended)`, the suffix the AUTO_DECIDE
+ * hook parses from labels (hosts/claude/hooks/question-preference-hook.ts).
+ * The format's `Pros / cons:` block in the question text repeats the marker
+ * by design, so it is not counted. ELI10, Pros / cons, ✅/❌ and Net: are
+ * reported, not failed.
  */
-export function auqMachineFormatProblems(text: string): string[] {
+export function auqMachineFormatProblems(question: NativePlanQuestion): string[] {
   const problems: string[] = [];
-  if (!/^[*_]*[ \t]*recommendation[ \t]*[*_]*[ \t]*:[*_ \t]*\S/im.test(text)) problems.push('missing Recommendation: line');
-  const recommended = text.match(/\(recommended\)/gi)?.length ?? 0;
-  if (recommended !== 1) problems.push(`expected exactly one (recommended) option, found ${recommended}`);
+  if (!/^[*_]*[ \t]*recommendation[ \t]*[*_]*[ \t]*:[*_ \t]*\S/im.test(question.question)) problems.push('missing Recommendation: line');
+  const recommended = question.options.filter(option => /\(recommended\)\s*$/i.test(option.label)).length;
+  if (recommended !== 1) problems.push(`expected exactly one (recommended) option label, found ${recommended}`);
   return problems;
 }
 
@@ -224,9 +228,11 @@ export function hasDisabledOutsideReview(output: string): boolean {
 
 /**
  * Sections a capture loaded: a Read of the section file, or a Bash print of it
- * (cat/sed ranges, as in run 36776104571) whose outputs together contain every
- * line of the section as it stood before the run. A command without that
- * printed content, such as head or grep, is not a read.
+ * (cat/sed ranges, as in run 36776104571; byte ranges such as head -c/tail -c,
+ * as in census 37178143007) whose outputs together contain every line of the
+ * section as it stood before the run. Byte ranges split lines at their edges,
+ * so consecutive outputs are also joined on their overlap. A command without
+ * that printed content, such as head or grep, is not a read.
  */
 export function detectSectionReads(toolCalls: SkillTestResult['toolCalls'], sections: Map<string, string>): Set<string> {
   const readSections = new Set<string>();
@@ -238,9 +244,14 @@ export function detectSectionReads(toolCalls: SkillTestResult['toolCalls'], sect
   }
   for (const [name, content] of sections) {
     const lines = content.split('\n').map(line => line.trimEnd()).filter(Boolean);
-    const printed = new Set(toolCalls.filter(c => c.tool === 'Bash' && String(c.input?.command ?? '').includes(`sections/${name}`))
-      .flatMap(c => c.output.split('\n').map(line => line.trimEnd())));
-    if (lines.length && lines.every(line => printed.has(line))) readSections.add(name);
+    const outputs = toolCalls.filter(c => c.tool === 'Bash' && String(c.input?.command ?? '').includes(`sections/${name}`)).map(c => c.output);
+    const printed = new Set(outputs.flatMap(output => output.split('\n').map(line => line.trimEnd())));
+    const joined = outputs.reduce((text, next) => {
+      let overlap = Math.min(text.length, next.length, 256);
+      while (overlap > 0 && !text.endsWith(next.slice(0, overlap))) overlap--;
+      return text + next.slice(overlap);
+    }, '');
+    if (lines.length && lines.every(line => printed.has(line) || joined.includes(line))) readSections.add(name);
   }
   return readSections;
 }

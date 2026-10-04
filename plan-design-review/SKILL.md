@@ -638,11 +638,21 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ] && D="$_ROOT/.claude/skills/gstack/design/dist/design"
 [ -z "$D" ] && D="$HOME/.claude/skills/gstack/design/dist/design"
-if [ -x "$D" ]; then
-  echo "DESIGN_READY: $D"
-else
-  echo "DESIGN_NOT_AVAILABLE"
+_DS=$("$HOME/.claude/skills/gstack/bin/gstack-paths" --get GSTACK_STATE_ROOT 2>/dev/null); _DC=${_DS:+$_DS/design-ready}; _DK=$(ls -diL "$D" 2>/dev/null)
+_dt() { if command -v gtimeout >/dev/null; then gtimeout 10 "$@"; elif command -v timeout >/dev/null; then timeout 10 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 10 "$@"; else return 125; fi; }
+_RC=0; _F="Fix: cd ${D%/design/dist/design} && ./setup"
+if [ ! -x "$D" ]; then _RC=missing
+elif [ ! "$_DC" -nt "$D" ] || [ "$(cat "$_DC")" != "$_DK" ]; then _dt "$D" --version >/dev/null 2>&1 </dev/null || _RC=$?
 fi
+case "$_RC" in
+  0) echo "DESIGN_READY: $D"; [ -n "$_DC" ] && echo "$_DK" > "$_DC" 2>/dev/null ;;
+  missing) echo "DESIGN_NOT_AVAILABLE: $D is not installed. $_F" ;;
+  124|142) echo "DESIGN_NOT_AVAILABLE: $D --version timed out after 10s" ;;
+  125) echo "DESIGN_NOT_AVAILABLE: no timeout/gtimeout/perl to bound $D" ;;
+  137) echo "DESIGN_NOT_AVAILABLE: $D --version exited 137 (killed at launch; on macOS usually an invalid code signature). $_F" ;;
+  *) echo "DESIGN_NOT_AVAILABLE: $D --version exited $_RC" ;;
+esac
 ```
 
 If `DESIGN_NOT_AVAILABLE`: skip visual mockup generation and fall back to the
@@ -809,7 +819,7 @@ Create the comparison board and serve it over HTTP:
 Write this round's board images (printed paths that passed checks, in order) as a JSON array to `$_DESIGN_DIR/board-images.json` with the Write tool; board letters A, B, C follow that order. Then archive any earlier Submit so it cannot approve these images, and build the board:
 
 ```bash
-[ -f "$_DESIGN_DIR/feedback.json" ] && mv "$_DESIGN_DIR/feedback.json" "$_DESIGN_DIR/feedback-$(date -u +%Y%m%dT%H%M%SZ).json"
+[ -f "${_DESIGN_DIR:?set _DESIGN_DIR to the design dir printed above}/feedback.json" ] && mv "${_DESIGN_DIR:?}/feedback.json" "${_DESIGN_DIR:?}/feedback-$(date -u +%Y%m%dT%H%M%SZ).json"
 $D compare --images-file "$_DESIGN_DIR/board-images.json" --output "$_DESIGN_DIR/design-board.html" --serve
 ```
 
@@ -1015,22 +1025,24 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" && _gstack_codex_select_model exec || exit 1
-_OUTSIDE_PROMPT=$(cat "$_OUTSIDE_INPUT") || exit 1
+_gstack_codex_sandbox_preflight >/dev/null || exit 1
+_gstack_codex_first_use_notice
 _OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper 300 codex exec "$_OUTSIDE_PROMPT" -C "$_REPO_ROOT" -s read-only -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
-cat "$_OUTSIDE_TMP/text" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
+_gstack_codex_timeout_wrapper 300 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"
 
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
-if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
-  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
-  exit "$_OUTSIDE_EXIT"
-fi
-bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
-
+_OUTSIDE_RC=0
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" --label 'Codex outside review' --exit "$_OUTSIDE_EXIT" --stderr "$_OUTSIDE_TMP/stderr" --events "$_OUTSIDE_TMP/events" review "$_OUTSIDE_TMP/text" || _OUTSIDE_RC=$?
+case "$_OUTSIDE_RC" in
+  0|3) ;;
+  4) echo 'OUTSIDE_STATUS: unverified provider=codex host=claude'; exit 4 ;;
+  *) [ "$_OUTSIDE_EXIT" -ne 0 ] && exit "$_OUTSIDE_EXIT"; exit 1 ;;
+esac
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 2. **Claude design subagent** (Agent tool, `run_in_background: false`; await its result):
 "Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
@@ -1085,7 +1097,7 @@ Fill in each cell from the Codex and subagent outputs. CONFIRMED = both agree. D
 ```
 STATUS="clean" requires a completed review with no findings; use "issues_found" for findings, "unavailable" if neither completed. SOURCE is the completed provider or in-host.
 
-Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.
+Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown. Under `GSTACK_CODEX_NO_SANDBOX=1` add `"codex_sandbox":"danger-full-access"`.
 
 ## The 0-10 Rating Method
 

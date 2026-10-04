@@ -95,6 +95,34 @@ mark_done() {
   echo "$step" >> "$JOURNAL"
 }
 
+# The GitHub owner of the brain repo, from the recorded remote URL
+# (https://github.com/<owner>/<repo> or git@github.com:<owner>/<repo>), else
+# the authenticated gh user. `gh repo rename --repo` and `gh repo edit` need
+# the "[HOST/]OWNER/REPO" form; a bare name always fails (#1437).
+repo_owner() {
+  local url="" owner=""
+  for f in "$OLD_REMOTE_TXT" "$NEW_REMOTE_TXT"; do
+    [ -f "$f" ] && url=$(head -1 "$f" 2>/dev/null) && break
+  done
+  owner=$(printf '%s\n' "$url" | sed -n 's#^.*github\.com[:/]\([^/]*\)/.*$#\1#p')
+  [ -z "$owner" ] && owner=$(gh api user --jq .login 2>/dev/null || true)
+  printf '%s' "$owner"
+}
+
+# Point ~/.gstack-artifacts-remote.txt at the renamed repo. Only called once
+# the rename is confirmed: rewriting it earlier pointed the artifacts remote
+# at a repository that did not exist (#1437).
+rewrite_remote_to_new() {
+  [ -f "$NEW_REMOTE_TXT" ] || return 0
+  local url new
+  url=$(head -1 "$NEW_REMOTE_TXT" 2>/dev/null)
+  new=$(echo "$url" | sed "s|/${OLD_REPO_NAME}|/${NEW_REPO_NAME}|; s|:${OLD_REPO_NAME}|:${NEW_REPO_NAME}|")
+  [ "$new" = "$url" ] && return 0
+  echo "$new" > "$NEW_REMOTE_TXT"
+  chmod 600 "$NEW_REMOTE_TXT"
+  echo "    remote URL rewritten: $url → $new" >&2
+}
+
 # ---------------------------------------------------------------------------
 # Detect environment + ask once if there's anything to migrate
 # ---------------------------------------------------------------------------
@@ -105,6 +133,9 @@ mark_done() {
 HAS_LEGACY_STATE=0
 [ -f "$OLD_REMOTE_TXT" ] && HAS_LEGACY_STATE=1
 [ -d "$GSTACK_HOME/.git" ] && HAS_LEGACY_STATE=1
+# A journal means an earlier run left a step pending (step 2 already moved the
+# remote file), so the retry must run instead of declaring nothing to do.
+[ -f "$JOURNAL" ] && HAS_LEGACY_STATE=1
 
 # If nothing to migrate, finalize silently.
 if [ "$HAS_LEGACY_STATE" = "0" ]; then
@@ -217,19 +248,27 @@ if ! journal_done "gh_repo_renamed"; then
   case "$HOST" in
     github)
       if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        GH_OWNER=$(repo_owner)
+        OLD_QUALIFIED="${GH_OWNER:+$GH_OWNER/}${OLD_REPO_NAME}"
+        NEW_QUALIFIED="${GH_OWNER:+$GH_OWNER/}${NEW_REPO_NAME}"
         # Idempotent: if new name already exists, treat as success.
-        if gh repo view "$NEW_REPO_NAME" >/dev/null 2>&1; then
+        if gh repo view "$NEW_QUALIFIED" >/dev/null 2>&1; then
           echo "    repo already named $NEW_REPO_NAME on GitHub — no-op" >&2
           mark_done "gh_repo_renamed"
+          mark_done "gh_repo_rename_verified"
+          rewrite_remote_to_new
         else
-          if gh repo rename "$NEW_REPO_NAME" --repo "$OLD_REPO_NAME" --yes 2>/dev/null \
-              || gh repo edit "$OLD_REPO_NAME" --name "$NEW_REPO_NAME" 2>/dev/null; then
-            echo "    renamed on GitHub" >&2
+          RENAME_ERR=""
+          if RENAME_ERR=$(gh repo rename "$NEW_REPO_NAME" --repo "$OLD_QUALIFIED" --yes 2>&1) \
+              || RENAME_ERR=$(gh repo edit "$OLD_QUALIFIED" --name "$NEW_REPO_NAME" 2>&1); then
+            echo "    renamed $OLD_QUALIFIED → $NEW_REPO_NAME on GitHub" >&2
             mark_done "gh_repo_renamed"
+            mark_done "gh_repo_rename_verified"
+            rewrite_remote_to_new
           else
-            echo "    WARNING: gh rename failed (repo may not exist or permission denied)" >&2
+            echo "    WARNING: gh rename failed for $OLD_QUALIFIED: ${RENAME_ERR:-no output}" >&2
             echo "    step 1 stays PENDING and will retry on re-run; later steps still run (#1383)" >&2
-            echo "    manual: gh repo rename $NEW_REPO_NAME --repo $OLD_REPO_NAME --yes" >&2
+            echo "    manual: gh repo rename $NEW_REPO_NAME --repo $OLD_QUALIFIED --yes" >&2
           fi
         fi
       else
@@ -267,14 +306,18 @@ fi
 if ! journal_done "remote_txt_renamed"; then
   echo "  [v1.27.0.0] step 2: rename ~/.gstack-brain-remote.txt → ~/.gstack-artifacts-remote.txt" >&2
   if [ -f "$OLD_REMOTE_TXT" ] && [ ! -f "$NEW_REMOTE_TXT" ]; then
-    # Update the URL inside if the rename happened on the host: replace
-    # gstack-brain-$USER with gstack-artifacts-$USER in the URL.
+    # Move the file; rewrite the URL inside only when step 1 confirmed the
+    # repository was renamed. Otherwise the old URL is the one that exists.
     OLD_URL=$(head -1 "$OLD_REMOTE_TXT" 2>/dev/null)
-    NEW_URL=$(echo "$OLD_URL" | sed "s|/${OLD_REPO_NAME}|/${NEW_REPO_NAME}|; s|:${OLD_REPO_NAME}|:${NEW_REPO_NAME}|")
-    echo "$NEW_URL" > "$NEW_REMOTE_TXT"
+    echo "$OLD_URL" > "$NEW_REMOTE_TXT"
     chmod 600 "$NEW_REMOTE_TXT"
     rm -f "$OLD_REMOTE_TXT"
-    echo "    moved + URL rewritten: $OLD_URL → $NEW_URL" >&2
+    if journal_done "gh_repo_rename_verified"; then
+      echo "    moved remote file" >&2
+      rewrite_remote_to_new
+    else
+      echo "    moved remote file; kept $OLD_URL because the repository was not renamed" >&2
+    fi
   elif [ -f "$NEW_REMOTE_TXT" ]; then
     echo "    new file already exists — no-op" >&2
     rm -f "$OLD_REMOTE_TXT" 2>/dev/null || true

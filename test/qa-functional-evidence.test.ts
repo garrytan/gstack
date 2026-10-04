@@ -365,6 +365,17 @@ describe('functional evidence and native regression controls', () => {
           learning: [{ observationCommand: probes[0]!.command, hypothesis: 'The successful native path suggests checking interruption and boundary assumptions.', nextCommand: probes[1]!.command }], limits: ['External exporter remains unavailable.'] };
         const writes = monitor.stop(); stopped = true;
         expect(qaFunctionalVerdict(fixture, 'qa', captured, writes, report, section, checkpointReport(fixture))).toEqual([]);
+        // Run 37170610789 slice 6 (feaa28d): the pre-repair happy capture, rerun on
+        // the repaired inputs, was classified superseded (exploratory §4).
+        const supersede = (index: number) => ({ ...report, evidence: report.evidence.map((row, i) => i === index ? { ...row, classification: 'superseded' } : row) });
+        expect(qaFunctionalVerdict(fixture, 'qa', captured, writes, supersede(0), section, checkpointReport(fixture))).toEqual([]);
+        expect(qaFunctionalVerdict(fixture, 'qa', captured, writes, supersede(probes.length - 1), section, checkpointReport(fixture)))
+          .toContain(`missing exact sanitized evidence for ${probes[probes.length - 1]!.command}`);
+        if (family === 'webhook') {
+          const reject = probes.findIndex(probe => probe.observed.scenario === 'reject');
+          expect(qaFunctionalVerdict(fixture, 'qa', captured, writes, supersede(reject), section, checkpointReport(fixture)))
+            .toContain(`missing exact sanitized evidence for ${probes[reject]!.command}`);
+        }
         for (const allowed of ['.qa-state/probe.json', 'qa-reports/evidence.md']) {
           const capture = nativeCapture([...calls, { tool: 'Write', input: { file_path: path.join(fixture.root, allowed), content: 'owned evidence' }, output: 'File written.' }]);
           expect(qaFunctionalVerdict(fixture, 'qa', capture, writes, report, section, checkpointReport(fixture))).toEqual([]);

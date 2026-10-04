@@ -7,7 +7,7 @@ const ptyIds = [
   'auto-decide-preserved', 'plan-ceo-mode-routing', 'plan-design-with-ui-scope', 'plan-eng-finding-floor',
   'auq-format-gate', 'carve-section-loading', 'office-hours-section-loading', 'office-hours-design-draft', 'plan-ceo-section-loading', 'ship-section-loading',
   'plan-ceo-finding-floor', 'plan-design-finding-floor', 'plan-devex-finding-floor',
-  'plan-eng-multi-finding-batching', 'plan-ceo-split-overflow',
+  'plan-eng-multi-finding-batching', 'plan-ceo-split-overflow', 'plan-eng-review-artifact', 'plan-eng-review-artifact-full',
 ].sort();
 
 test('PTY supervision controls select every current runner consumer', () => {

@@ -1,0 +1,11 @@
+flowchart TD
+  A[Push requested] --> B{Redaction scan}
+  B -->|HIGH| C[Block push]
+  B -->|MEDIUM| D[Warn]
+  B -->|clean| E[Push proceeds]
+  D --> F{Reviewer}
+  F -->|accept| E
+  F -->|fix| G[Edit diff]
+  G --> B
+  C --> H[Rotate credential]
+  H --> G

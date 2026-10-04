@@ -25,6 +25,7 @@ instructions get their own path (below).
 1. Create temp files for output capture:
 ```bash
 TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
+TMPOUT=$(mktemp "$TMP_ROOT/codex-out-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
 ```
 
 2. Run the review. No prompt argument — scope comes from `--base` (or `--commit <sha>`
@@ -32,10 +33,11 @@ when reviewing a single commit, or `--uncommitted` for the working tree).
 
 Use only one command path below. Remember its printed start token as CODEX_REVIEW_START before the review reads or receives the diff. Capture a new token only before a genuine rerun, never just to log fixes.
 
-**Sandbox is pinned read-only via config override.** Top-level `codex review` has no
+**Sandbox is pinned via config override.** Top-level `codex review` has no
 `-s`/`--sandbox` flag (verified on 0.147.0: `codex review --help` lists none), so the
-read-only sandbox is set with `-c 'sandbox_mode="read-only"'` — the same form the
-consult resume path uses. Without it the call inherits the user's
+sandbox is set with `-c` from `_GSTACK_CODEX_SANDBOX`, which `_gstack_codex_select_model`
+sets so the effective setting is `sandbox_mode="read-only"` (full access only for
+`GSTACK_CODEX_NO_SANDBOX=1`, with a warning). Without it the call inherits the user's
 `~/.codex/config.toml` default, which on a trusted project can be WRITE access —
 contradicting this skill's read-only contract:
 
@@ -48,8 +50,9 @@ _gstack_codex_select_model review || exit 1
 # The 330s wrapper sits BELOW the 360s Bash gate so the wrapper fires FIRST
 # and a stall surfaces as a diagnosable exit 124 with an explicit message,
 # never as a silent harness kill that downstream reads as "no findings".
-_gstack_codex_timeout_wrapper 330 codex review --base <base> -c 'sandbox_mode="read-only"' {{CODEX_REVIEW_MODEL_CONFIG_FLAG}} -c 'model_reasoning_effort="high"' {{CODEX_WEB_SEARCH_FLAG}} < /dev/null 2>"$TMPERR"
+_gstack_codex_timeout_wrapper 330 codex review --base <base> -c "sandbox_mode=\"${_GSTACK_CODEX_SANDBOX:?}\"" {{CODEX_REVIEW_MODEL_CONFIG_FLAG}} -c 'model_reasoning_effort="high"' {{CODEX_WEB_SEARCH_FLAG}} < /dev/null >"$TMPOUT" 2>"$TMPERR"
 _CODEX_EXIT=$?
+cat "$TMPOUT"
 if [ "$_CODEX_EXIT" = "124" ]; then
   _gstack_codex_log_event "codex_timeout" "330"
   _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
@@ -62,6 +65,7 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
   _gstack_codex_log_event "codex_nonzero_exit" "review:$_CODEX_EXIT"
 fi
+bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex review' --exit "$_CODEX_EXIT" --stderr "$TMPERR" structured "$TMPOUT"
 ```
 
 If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
@@ -92,14 +96,16 @@ _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp 
   git diff "<base>...HEAD" 2>/dev/null
   printf '\nDIFF_END\n'
 } > "$_PROMPT_FILE"
-_gstack_codex_timeout_wrapper 330 codex exec -s read-only "$(cat "$_PROMPT_FILE")" {{CODEX_MODEL_CONFIG_FLAG}} -c 'model_reasoning_effort="high"' {{CODEX_WEB_SEARCH_FLAG}} < /dev/null 2>"$TMPERR"
+_gstack_codex_timeout_wrapper 330 codex exec - -s "${_GSTACK_CODEX_SANDBOX:?}" {{CODEX_MODEL_CONFIG_FLAG}} -c 'model_reasoning_effort="high"' {{CODEX_WEB_SEARCH_FLAG}} --json -o "$TMPOUT" < "$_PROMPT_FILE" >"$TMPOUT.events" 2>"$TMPERR"
 _CODEX_EXIT=$?
 rm -f "$_PROMPT_FILE"
+cat "$TMPOUT"
 if [ "$_CODEX_EXIT" = "124" ]; then
   _gstack_codex_log_event "codex_timeout" "330"
   _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
   echo "Codex stalled past 5.5 minutes."
 fi
+bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex review' --exit "$_CODEX_EXIT" --stderr "$TMPERR" --events "$TMPOUT.events" structured "$TMPOUT"
 ```
 
 When you take this path, say so in the output header — `CODEX SAYS (code review — custom
@@ -121,8 +127,9 @@ instead of the harness killing the call silently.
 grep "tokens used" "$TMPERR" 2>/dev/null || echo "tokens: unknown"
 ```
 
-4. Determine the gate verdict: **PASS**, **FAIL**, or **UNVERIFIED**.
-**The gate FAILS CLOSED**: a run that did not complete is a FAIL, and output the
+4. Determine the gate verdict: **PASS**, **FAIL**, or **UNVERIFIED**. The command
+above ends with the shared validator's `VERDICT:` and `FINDINGS:` lines; the checks
+below are what it computes. **The gate FAILS CLOSED**: a run that did not complete is a FAIL, and output the
 gate cannot check is UNVERIFIED, never a PASS. Work through these checks IN ORDER; the first
 match wins:
 
@@ -131,7 +138,11 @@ match wins:
       verified result). Expired auth, a bad flag, a timeout, or a model-entitlement
       400 all land here instead of masquerading as a clean pass.
    2. The captured review output is empty or whitespace-only → **GATE: FAIL**
-      (fail-closed: empty output — nothing was reviewed).
+      (fail-closed: empty output — nothing was reviewed). Any other
+      `VERDICT: unavailable` is also **GATE: FAIL**: Codex's sandbox could not
+      start, every command it ran failed, or it said it could not read the diff.
+      Relay the validator's `unavailable:` line; a "no findings" written after
+      that is not a review.
    3. The output contains `[P0]` or `[P1]` (or codex's native unbracketed `P0:` /
       `P1:` severity labels) → **GATE: FAIL** (N critical findings). Codex's own
       review rubric treats P0 as blocking; this gate does too.
@@ -145,7 +156,9 @@ match wins:
    5. Severity tags are present and none is P0/P1 (only P2/P3 advisory) →
       **GATE: PASS**.
 
-   There is no default branch: PASS is only reachable through check 5. For FAIL
+   Check 3 is `VERDICT: findings`; check 4 is `VERDICT: unverified`, or
+   `VERDICT: clean` with `FINDINGS: none`; check 5 is `VERDICT: clean` with
+   `FINDINGS: P2` or `P3`. There is no default branch: PASS is only reachable through check 5. For FAIL
    via checks 1 or 2, say explicitly that the review did not complete. For
    UNVERIFIED, tell the user to read Codex's verdict above and decide; it is
    not a blocker by itself and not a pass.
@@ -213,12 +226,13 @@ Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAI
 "unverified" if UNVERIFIED), GATE ("pass", "fail" or "unverified" — fail-closed
 verdicts log as "fail"), findings (count of [P0]–[P3] markers; 0 for fail-closed
 and UNVERIFIED runs),
-findings_fixed (count of findings that were addressed/fixed before shipping).
+findings_fixed (count of findings that were addressed/fixed before shipping). If the
+`WARNING: GSTACK_CODEX_NO_SANDBOX=1` line printed, add `"sandbox":"danger-full-access"` to the record.
 CODEX_REVIEW_START is the original token from the command path that ran. COMPLETED is true only when the review completed with coverage of the branch diff and current working-tree changes; timeout, failure, refusal, or missing coverage is false. A limited `--commit`/`--uncommitted` review, or a committed-only custom prompt that omitted dirty/untracked source, does not establish whole-branch coverage: log completed false and explain the limitation. CONVERGED is true only for a completed pass with zero edits. Fixes stay stale until a genuine rerun reads the updated diff with a new start token. These evidence fields do not change the gate verdict above.
 
 8. Clean up temp files:
 ```bash
-rm -f "$TMPERR"
+rm -f "$TMPERR" "$TMPOUT" "$TMPOUT.events"
 ```
 
 ---

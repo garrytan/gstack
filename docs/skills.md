@@ -694,6 +694,22 @@ Every `/ship` run builds a code path map from your diff, searches for correspond
 
 A lot of branches die when the interesting work is done and only the boring release work is left. Humans procrastinate that part. AI should not.
 
+### Versions: where `/ship` looks, and when it ships without one
+
+`/ship` bumps a version only when the project says where the version lives. It checks, in order:
+
+1. `--version-path <path>` passed to `gstack-version-bump` / `gstack-next-version`.
+2. `.gstack/version-path`: a committed one-line file holding the version file's repo-relative path, for example `package.json` or `apps/web/package.json`. A `.json` path is read and written as its `"version"` field; 3-digit semver stays 3-digit.
+3. A root `VERSION` file (gstack's own 4-digit `MAJOR.MINOR.PATCH.MICRO` format).
+
+A root `package.json` on its own does not count, because many apps carry a placeholder there. To have `/ship` version it, run `echo package.json > .gstack/version-path` and commit the file.
+
+When none of these exist, `/ship` ships without a version change: no bump, no CHANGELOG version header, no `v1.2.3` title prefix, no tag. It prints:
+
+> Shipped without a version change: no version source is configured (no VERSION file, no .gstack/version-path). To version releases, create VERSION or write the version file's path (for example package.json) to .gstack/version-path.
+
+It does the same, with the reason, when release-please, Changesets or semantic-release is configured, when the repo is a workspace monorepo, or when `package.json` holds a placeholder such as `0.0.0-development`; those tools own the version. `/land-and-deploy` and `/document-release` read the same signal. A configured version file that is missing, empty, unreadable or malformed stops `/ship` with the file's path and the problem; gstack never substitutes `0.0.0.0`.
+
 ### Third-party web actions (v1.72.0.0+)
 
 Sometimes the release work leaves the terminal: registering an API key, creating a vendor account, wiring a webhook or OAuth app. Instead of handing you a manual step list, `/ship` (and `/spec`, `/office-hours`, `/land-and-deploy`, `/setup-deploy`) offers to drive the browser for you. Aside first — it acts across your real logged-in sessions, which is exactly what vendor dashboards need. No Aside? gstack's own visible browser (headed `$B` with handoff for sign-in) is the fallback on every platform, with one pointer to aside.com (macOS 15+) per task.

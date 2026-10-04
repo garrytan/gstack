@@ -235,7 +235,7 @@ exit 0
           model: resolveEvalModel('capture'),
           run: (signal) => runSkillTest({
             signal,
-            prompt: `Read office-hours/SKILL.md for the workflow.
+            prompt: `Read office-hours/SKILL.md for the workflow with the Read tool (it is long; Bash output truncates it). Skip its preamble bash block, onboarding, telemetry and contributor sections — go straight to the workflow.
 
 Read pitch.md — that's a founder pitch coming to office hours. Select Startup Mode. Skip any AskUserQuestion — this is non-interactive; auto-decide the recommended option for any question.
 

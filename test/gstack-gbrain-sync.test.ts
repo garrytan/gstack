@@ -67,7 +67,7 @@ describe("gstack-gbrain-sync CLI", () => {
 
     expect(source).not.toContain("resolveCodeSourceId(root, process.env)");
     expect(source).toContain("resolveCodeSourceId(root, gbrainEnv)");
-    expect(source).toContain("cycleCompleted(resolveCodeSourceId(root, gbrainEnv), gbrainEnv)");
+    expect(source).toContain("readCycleStatus(resolveCodeSourceId(root, gbrainEnv), gbrainEnv)");
   });
 
   it("--dry-run with --code-only reports the code import preview only", () => {
@@ -543,6 +543,36 @@ esac
     expect(state.last_stages.length).toBe(0);
     rmSync(home, { recursive: true, force: true });
   });
+
+  // A5 (#2670): a successful git push is not gbrain indexing.
+  for (const [pageCount, ok, expected] of [
+    [0, false, "gbrain source fixture-artifacts has 0 indexed pages. Fix: gbrain sync --source fixture-artifacts"],
+    [7, true, "curated artifacts pushed; gbrain source fixture-artifacts has 7 pages"],
+  ] as const) {
+    it(`brain-sync stage reports the artifacts source's ${pageCount} indexed pages (ok=${ok})`, () => {
+      const home = makeTestHome();
+      const gstackHome = join(home, ".gstack");
+      const fakeBin = join(home, "fake-bin");
+      mkdirSync(gstackHome, { recursive: true });
+      mkdirSync(fakeBin, { recursive: true });
+      writeFileSync(join(fakeBin, "gbrain"), `#!/bin/sh
+case "$*" in
+  "sources list --json") printf '%s\\n' '{"sources":[{"id":"fixture-artifacts","local_path":"${gstackHome}","page_count":${pageCount}}]}' ;;
+  *) exit 1 ;;
+esac
+`);
+      chmodSync(join(fakeBin, "gbrain"), 0o755);
+      const r = runScript(["--incremental", "--no-code", "--no-memory", "--quiet"], {
+        HOME: home, GSTACK_HOME: gstackHome, PATH: `${fakeBin}:${process.env.PATH || ""}`,
+      });
+      const state = JSON.parse(readFileSync(join(gstackHome, ".gbrain-sync-state.json"), "utf-8"));
+      const stage = state.last_stages.find((entry: { name: string }) => entry.name === "brain-sync");
+      expect(stage.summary).toContain(expected);
+      expect(stage.ok).toBe(ok);
+      expect(r.exitCode).toBe(ok ? 0 : 1);
+      rmSync(home, { recursive: true, force: true });
+    });
+  }
 
   it("brain-sync stage resolves the sibling binary, not a HOME-rooted path", () => {
     // Regression for Codex M9: pre-fix the orchestrator looked up

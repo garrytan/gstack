@@ -138,7 +138,8 @@ describe('every resolver files a nested-group repo under the same slug', () => {
         encoding: 'utf-8',
         timeout: 30_000,
       });
-      expect(r.stdout).toContain(`PLAN_FILE: ${path.join(planDir, 'plan.md')}`);
+      // F1 (#2768): search results are offered as candidates, never auto-bound.
+      expect(r.stdout).toContain(`PLAN_CANDIDATE: ${path.join(planDir, 'plan.md')}`);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

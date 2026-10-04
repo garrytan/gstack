@@ -45,7 +45,7 @@ BASE="$1"
 OURS="$2"
 THEIRS="$3"
 
-TMP=$(mktemp /tmp/gstack-jsonl-merge.XXXXXX) || exit 1
+TMP=$(mktemp "${TMPDIR:-/tmp}/gstack-jsonl-merge.XXXXXX") || exit 1
 trap 'rm -f "$TMP" 2>/dev/null || true' EXIT
 
 python3 - "$BASE" "$OURS" "$THEIRS" > "$TMP" <<'PYEOF'

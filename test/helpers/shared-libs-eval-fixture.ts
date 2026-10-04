@@ -328,7 +328,7 @@ function sharedCurlRequest(args: string[]) {
       const url = new URL(urls[0]);
       const repoPath = /^\/repos\/fixture\/shared-libs(?:\/(?:contents\/.+|pulls(?:\/\d+(?:\/files)?)?|commits(?:\/(?:[a-f0-9]{40}|main))?|branches(?:\/[^/]+)?))?$/;
       if (url.protocol !== 'https:' || url.hostname !== 'api.github.com' || url.port || url.username || url.password || url.hash ||
-        (!repoPath.test(url.pathname) && url.pathname !== '/search/issues')) throw new Error('unsupported URL');
+        (!repoPath.test(url.pathname) && !['/search/issues', '/rate_limit'].includes(url.pathname))) throw new Error('unsupported URL');
       result.endpoint = url.pathname.slice(1) + url.search;
     } catch { result.violations.push('unsupported curl URL: fixture GitHub GET endpoints only'); }
   }

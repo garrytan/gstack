@@ -71,14 +71,26 @@ const ALLOW_EXACT = new Set([
  * VOYAGE_API_KEY) — CI doesn't have them and eval children have no business
  * using them. A test that legitimately needs one opts in via its own env
  * override; a provider runner (codex/gemini) re-admits its auth vars via
- * opts.extraAllow. Prefix matches reject credential-shaped suffixes; exact
+ * opts.extraAllow. Prefix matches reject credential-shaped segments; exact
  * and explicit runner admissions still win. */
 const ALLOW_PREFIXES = ['EVALS_', 'GITHUB_'];
-const CREDENTIAL_SUFFIXES = new Set([
+const CREDENTIAL_SEGMENTS = new Set([
   'KEY', 'KEYS', 'TOKEN', 'TOKENS', 'SECRET', 'SECRETS', 'PASSWORD', 'PASSWD',
   'PASS', 'CREDENTIAL', 'CREDENTIALS', 'AUTH', 'PAT', 'DSN', 'COOKIE',
   'SESSION', 'PRIVATE',
 ]);
+
+/**
+ * True when any underscore-separated segment of `name` is a credential word.
+ * Every segment, not just the last: a trailing qualifier moves the credential
+ * word off the end (`GITHUB_APP_PRIVATE_KEY_BASE64` is the PEM itself,
+ * `GITHUB_TOKEN_1` is a token). Segments, not substrings: `GITHUB_PATH`
+ * contains "PAT" and `GITHUB_TOKENIZER` contains "TOKEN", and both are
+ * metadata.
+ */
+function isCredentialShapedName(name: string): boolean {
+  return name.toUpperCase().split('_').some((segment) => CREDENTIAL_SEGMENTS.has(segment));
+}
 
 export interface HermeticEnvOpts {
   /** Per-runner additional allowed names (exact match) or prefixes (entries
@@ -126,8 +138,7 @@ export function buildHermeticEnv(
     const allowed =
       ALLOW_EXACT.has(k) ||
       extraExact.has(k) ||
-      (ALLOW_PREFIXES.some((p) => k.startsWith(p)) &&
-        !CREDENTIAL_SUFFIXES.has(k.slice(k.lastIndexOf('_') + 1).toUpperCase())) ||
+      (ALLOW_PREFIXES.some((p) => k.startsWith(p)) && !isCredentialShapedName(k)) ||
       extraPrefixes.some((p) => k.startsWith(p));
     if (allowed) out[k] = v;
   }

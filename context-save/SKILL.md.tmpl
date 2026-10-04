@@ -114,7 +114,10 @@ Try to determine how long this session has been active:
 if [ -n "$_TEL_START" ]; then
   START_EPOCH="$_TEL_START"
 elif [ -n "$PPID" ]; then
-  START_EPOCH=$(ps -o lstart= -p $PPID 2>/dev/null | xargs -I{} date -jf "%c" "{}" "+%s" 2>/dev/null || echo "")
+  _LSTART=$(ps -o lstart= -p "$PPID" 2>/dev/null)
+  # BSD date (macOS) parses with -jf; GNU date (Linux) with -d. Never parse an
+  # empty start: GNU date -d "" means today at midnight.
+  [ -n "$_LSTART" ] && START_EPOCH=$(date -jf "%c" "$_LSTART" "+%s" 2>/dev/null || date -d "$_LSTART" "+%s" 2>/dev/null || echo "")
 fi
 if [ -n "$START_EPOCH" ]; then
   NOW=$(date +%s)

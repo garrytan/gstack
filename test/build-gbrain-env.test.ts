@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { spawnSync } from "child_process";
 
 import { buildGbrainEnv, isTransactionModePooler } from "../lib/gbrain-exec";
 
@@ -70,11 +71,28 @@ describe("buildGbrainEnv", () => {
     expect(result.DATABASE_URL).toBe("postgresql://app/db");
   });
 
-  it("returns caller env unchanged when config has no database_url field", () => {
-    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ engine: "pglite" }));
+  it("returns caller env unchanged when config names neither a database_url nor PGLite", () => {
+    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ embedding_model: "x" }));
     const baseEnv = { HOME: home, DATABASE_URL: "postgresql://app/db" };
     const result = buildGbrainEnv({ baseEnv });
     expect(result.DATABASE_URL).toBe("postgresql://app/db");
+  });
+
+  for (const cfg of [{ engine: "pglite" }, { database_path: "/brain/db.pglite" }]) {
+    it(`blanks inherited database URLs for a PGLite config ${JSON.stringify(cfg)} (#1917)`, () => {
+      writeFileSync(join(gbrainHome, "config.json"), JSON.stringify(cfg));
+      const baseEnv = { HOME: home, DATABASE_URL: "postgresql://app/db", GBRAIN_DATABASE_URL: "postgresql://app/other" };
+      const result = buildGbrainEnv({ baseEnv });
+      expect(result.DATABASE_URL).toBe("");
+      expect(result.GBRAIN_DATABASE_URL).toBe("");
+      expect(baseEnv.DATABASE_URL).toBe("postgresql://app/db");
+    });
+  }
+
+  it("keeps an inherited DATABASE_URL for a PGLite config under GSTACK_RESPECT_ENV_DATABASE_URL=1", () => {
+    writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ engine: "pglite" }));
+    const baseEnv = { HOME: home, DATABASE_URL: "postgresql://app/db", GSTACK_RESPECT_ENV_DATABASE_URL: "1" };
+    expect(buildGbrainEnv({ baseEnv }).DATABASE_URL).toBe("postgresql://app/db");
   });
 
   it("honors GBRAIN_HOME when set, with gbrain's parent-dir semantics (#2521)", () => {
@@ -208,5 +226,56 @@ describe("isTransactionModePooler", () => {
     expect(isTransactionModePooler(
       "postgres://postgres.abc:pw@host:6543/postgres"
     )).toBe(true);
+  });
+});
+
+// #1917: a real gbrain child launched by a Bun parent whose cwd is a project
+// with conflicting dotenv files. Bun autoloads the project's .env into the
+// parent, and a Bun child started in the project would autoload it again.
+describe("gbrain children never see a project's dotenv database URL (#1917)", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "gstack-gbrain-dotenv-"));
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it("blanks the URLs and runs gbrain outside the project for every spawn helper", () => {
+    const home = join(root, "home");
+    const project = join(root, "project");
+    const bin = join(root, "bin");
+    for (const dir of [join(home, ".gbrain"), project, bin]) mkdirSync(dir, { recursive: true });
+    writeFileSync(join(home, ".gbrain", "config.json"), JSON.stringify({ engine: "pglite", database_path: join(home, ".gbrain", "brain.pglite") }));
+    // Built from parts so the CI credential scan of added lines stays at 0 HIGH.
+    const appUrl = (db: string) => ["postgresql://app", "secret@localhost:5432/" + db].join(":");
+    writeFileSync(join(project, ".env"), `DATABASE_URL=${appUrl("app_env")}\n`);
+    writeFileSync(join(project, ".env.local"), `GBRAIN_DATABASE_URL=${appUrl("app_local")}\n`);
+    writeFileSync(join(bin, "gbrain"), `#!${process.execPath}
+console.log(JSON.stringify({ db: process.env.DATABASE_URL ?? null, gdb: process.env.GBRAIN_DATABASE_URL ?? null, cwd: process.cwd() }));
+`, { mode: 0o755 });
+    const lib = join(import.meta.dir, "..", "lib", "gbrain-exec.ts");
+    const parent = `
+import { spawnGbrain, execGbrainText, spawnGbrainAsync } from ${JSON.stringify(lib)};
+const out = { inherited: process.env.DATABASE_URL ?? null };
+out.sync = JSON.parse(spawnGbrain(["probe"]).stdout);
+out.text = JSON.parse(execGbrainText(["probe"]));
+const child = spawnGbrainAsync(["probe"]);
+let buf = "";
+child.stdout.on("data", (c) => (buf += c));
+child.on("close", () => { out.async = JSON.parse(buf); console.log(JSON.stringify(out)); });
+`;
+    const r = spawnSync(process.execPath, ["-e", parent], {
+      cwd: project,
+      encoding: "utf-8",
+      timeout: 20_000,
+      env: { PATH: `${bin}:${process.env.PATH}`, HOME: home },
+    });
+    expect(r.stderr).toBe("");
+    const out = JSON.parse(r.stdout);
+    expect(out.inherited).toContain("app_env");
+    for (const key of ["sync", "text", "async"]) {
+      expect(out[key].db ?? "").toBe("");
+      expect(out[key].gdb ?? "").toBe("");
+      expect(out[key].cwd.startsWith(project)).toBe(false);
+    }
   });
 });

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="3" assertions="0" failures="0" skipped="1" time="293.147597765">
+  <testsuite name="test/skill-e2e-cso.test.ts" file="test/skill-e2e-cso.test.ts" tests="3" assertions="0" failures="0" skipped="1" time="293.145365972">
+    <testsuite name="CSO v3 — diff mode" file="test/skill-e2e-cso.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="1" time="0">
+      <testcase name="/cso --diff records its base and investigates changed security paths" classname="CSO v3 — diff mode" time="0" file="test/skill-e2e-cso.test.ts" line="151" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testsuite name="CSO v3 — infra scope" file="test/skill-e2e-cso.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="0" time="242.558">
+      <testcase name="/cso --infra finds an attacker-to-credential execution path" classname="CSO v3 — infra scope" time="242.558725" file="test/skill-e2e-cso.test.ts" line="192" assertions="0" />
+    </testsuite>
+    <testsuite name="CSO v3 — full audit" file="test/skill-e2e-cso.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="0" time="293.11">
+      <testcase name="/cso persists supported tenant-boundary findings with redacted evidence" classname="CSO v3 — full audit" time="293.110054" file="test/skill-e2e-cso.test.ts" line="105" assertions="0" />
+    </testsuite>
+  </testsuite>
+</testsuites>

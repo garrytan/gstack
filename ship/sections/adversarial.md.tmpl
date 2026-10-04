@@ -14,7 +14,8 @@ be alphanumeric or hyphen only; simplify other characters. For example, use
 `token-or-search`, not `feat: token-or search`.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>/dev/null || true
+{ _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>&1 >&3 3>&-); _LR=$?; } 3>&1
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 Name an applicable learning and its effect on the version bump or CHANGELOG in

@@ -3,8 +3,8 @@
  *
  * One invocation of bin/gstack-design-doc-find, which owns the precedence
  * (newest branch-scoped doc in the state root's project directory, then the
- * newest project-scoped doc, then a repo-local DESIGN.md or docs/designs/*.md
- * when it is at least as fresh) and resolves the state root through
+ * newest project-scoped doc, then the newest repo-local docs/designs/*.md when
+ * it is at least as fresh; a root DESIGN.md is the design system, never the doc) and resolves the state root through
  * bin/gstack-paths. Plan reviews, autoplan and the prerequisite-skill re-check
  * in spec-review.ts all render this one block, so they agree on which doc wins.
  *

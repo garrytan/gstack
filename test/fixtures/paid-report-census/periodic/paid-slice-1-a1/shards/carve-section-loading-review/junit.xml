@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="1" assertions="2" failures="0" skipped="0" time="143.431077794">
+  <testsuite name="test/carve-section-loading-review.test.ts" file="test/carve-section-loading-review.test.ts" tests="1" assertions="2" failures="0" skipped="0" time="143.428642076">
+    <testsuite name="carve section-loading: review" file="test/carve-section-loading-review.test.ts" line="4" tests="1" assertions="2" failures="0" skipped="0" time="143.357">
+      <testcase name="review: a real run Reads plan-completion.md, review-army.md" classname="carve section-loading: review" time="143.357124" file="test/carve-section-loading-review.test.ts" line="60" assertions="2" />
+    </testsuite>
+  </testsuite>
+</testsuites>

@@ -110,7 +110,8 @@ On any error: continue — ${feature} is informational, not a gate.`;
  *   5. sets ONE canonical mode var and echoes `CODEX_MODE: <mode>` so the agent
  *      gates later blocks on the echoed value.
  *
- * Mode values: `disabled` (config off) | `not_installed` | `not_authed` | `ready`.
+ * Mode values: `disabled` (config off) | `not_installed` | `not_authed` |
+ * `broken_install` | `sandbox_unavailable` | `model_unusable` | `unverified` | `ready`.
  * The path is host-rewritten at gen-skill-docs time (pathRewrites), so the
  * literal `~/.claude/skills/gstack` is correct here and becomes `$GSTACK_ROOT`
  * etc. for non-Claude hosts.
@@ -144,14 +145,19 @@ elif ! command -v codex >/dev/null 2>&1; then
 elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
   ${m}="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
 else
-  # Capture the probe's code: 2 means the CLI cannot execute at all, which is a
-  # different problem (and a different fix) from a model the account can't use.
-  _gstack_codex_model_probe; _CODEX_MP=$?${opts.nativeReview ? `
+  # The free sandbox check runs before the paid model probe. Probe code 2 means
+  # the CLI cannot execute at all, a different fix from an unusable model.
+  _CODEX_MP=0; _gstack_codex_sandbox_preflight || _CODEX_MP=3
+  [ "$_CODEX_MP" -ne 0 ] || { _gstack_codex_model_probe; _CODEX_MP=$?; }${opts.nativeReview ? `
   [ "$_CODEX_MP" -ne 0 ] || { _gstack_codex_model_probe review; _CODEX_MP=$?; }` : ''}
-  if [ "$_CODEX_MP" -eq 2 ]; then
+  if [ "$_CODEX_MP" -eq 3 ]; then
+    ${m}="sandbox_unavailable"
+  elif [ "$_CODEX_MP" -eq 2 ]; then
     ${m}="broken_install"
   elif [ "$_CODEX_MP" -ne 0 ]; then
     ${m}="model_unusable"
+  elif [ "\${_GSTACK_CODEX_PROBE_STATE:-}" = inconclusive ]; then
+    ${m}="unverified"
   else
     ${m}="ready"; _gstack_codex_version_check 2>/dev/null || true
   fi
@@ -165,8 +171,9 @@ Branch on the echoed \`CODEX_MODE\`:
 - **\`under_codex\`** — stale artifact selected its own harness. Print: "Codex outside review unavailable: harness mismatch; no outside process started. Missing coverage. Repair: setup --host codex." Skip the outside invocation and follow the workflow's native-review instructions below. Conflicting inherited harness markers are not grounds to guess another provider.
 - **\`not_authed\`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run \`codex login\` or set \`$CODEX_API_KEY\`." ${nativeRoute}
 - **\`broken_install\`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: \`npm install -g @openai/codex\`." Relay the probe's HINT lines. ${nativeRoute}
-- **\`model_unusable\`** — the selected model (see \`CODEX_MODEL:\`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (\`GSTACK_CODEX_MODEL=<supported-model>\` or config.toml \`model\`); never substitute a model. ${nativeRoute} The ~10s round trip is cached for 1h; timeouts fail open to \`ready\`.
-- **\`ready\`** — run the Codex pass below.`;
+- **\`model_unusable\`** — the selected model (see \`CODEX_MODEL:\`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (\`GSTACK_CODEX_MODEL=<supported-model>\` or config.toml \`model\`); never substitute a model. ${nativeRoute} The ~10s round trip is cached for 1h.
+- **\`sandbox_unavailable\`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. ${nativeRoute}
+- **\`ready\`** or **\`unverified\`** — run the Codex pass below. \`unverified\` means the model check timed out; say so, and let the pass's own verdict decide.`;
 }
 
 /**

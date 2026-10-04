@@ -111,7 +111,7 @@ If user chooses B, record one declined result as described below, skip both voic
 
 **If accepted:** Create a private file for the Phase 1 product brief, including Phase 2 research status:
 ```bash
-_DESIGN_BRIEF=$(mktemp /tmp/gstack-design-brief-XXXXXXXX) || exit 1
+_DESIGN_BRIEF=$(mktemp "${TMPDIR:-/tmp}/gstack-design-brief-XXXXXXXX") || exit 1
 printf 'DESIGN_BRIEF=%s\n' "$_DESIGN_BRIEF"
 ```
 Write the product brief to that path; remember its absolute path across fresh Bash calls. Neither voice inherits context: give both the same brief. Include its complete contents in the outside prompt file for Codex, along with the design-direction request below; substitute its shell-quoted absolute path for the literal <prepared-prompt-file> in the invocation. Keep your draft direction out of both prompts; give the native Agent its absolute path (the product brief's path, not the Codex prompt file). Never paste brief text into shell source.
@@ -179,22 +179,24 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" && _gstack_codex_select_model exec || exit 1
-_OUTSIDE_PROMPT=$(cat "$_OUTSIDE_INPUT") || exit 1
+_gstack_codex_sandbox_preflight >/dev/null || exit 1
+_gstack_codex_first_use_notice
 _OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper 300 codex exec "$_OUTSIDE_PROMPT" -C "$_REPO_ROOT" -s read-only -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
-cat "$_OUTSIDE_TMP/text" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
+_gstack_codex_timeout_wrapper 300 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"
 
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
-if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
-  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
-  exit "$_OUTSIDE_EXIT"
-fi
-bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
-
+_OUTSIDE_RC=0
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" --label 'Codex outside review' --exit "$_OUTSIDE_EXIT" --stderr "$_OUTSIDE_TMP/stderr" --events "$_OUTSIDE_TMP/events" review "$_OUTSIDE_TMP/text" || _OUTSIDE_RC=$?
+case "$_OUTSIDE_RC" in
+  0|3) ;;
+  4) echo 'OUTSIDE_STATUS: unverified provider=codex host=claude'; exit 4 ;;
+  *) [ "$_OUTSIDE_EXIT" -ne 0 ] && exit "$_OUTSIDE_EXIT"; exit 1 ;;
+esac
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation markers, timeout or CLI failure means `outside_status: unavailable`. Continue completed proposals; native completion does not count as outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Continue completed proposals; native completion does not count as outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 2. **Claude design subagent** (Agent tool, `run_in_background: false`; await its result):
 "Read the complete product brief at [the absolute DESIGN_BRIEF path printed above].
@@ -329,7 +331,7 @@ Read each accepted PNG inline, then open the board with those paths before invit
 Write this round's board images (printed paths that passed checks, in order) as a JSON array to `$_DESIGN_DIR/board-images.json` with the Write tool; board letters A, B, C follow that order. Then archive any earlier Submit so it cannot approve these images, and build the board:
 
 ```bash
-[ -f "$_DESIGN_DIR/feedback.json" ] && mv "$_DESIGN_DIR/feedback.json" "$_DESIGN_DIR/feedback-$(date -u +%Y%m%dT%H%M%SZ).json"
+[ -f "${_DESIGN_DIR:?set _DESIGN_DIR to the design dir printed above}/feedback.json" ] && mv "${_DESIGN_DIR:?}/feedback.json" "${_DESIGN_DIR:?}/feedback-$(date -u +%Y%m%dT%H%M%SZ).json"
 $D compare --images-file "$_DESIGN_DIR/board-images.json" --output "$_DESIGN_DIR/design-board.html" --serve
 ```
 
@@ -366,7 +368,7 @@ After the response, read current feedback next to the board HTML:
 After final image confirmation, `$D extract` would write DESIGN.md in a Git repo: run it only in a fresh non-repository scratch directory. Bind `$D` and `APPROVED_IMAGE` (the confirmed letter's `board-images.json` entry) to absolute paths:
 
 ```bash
-_EXTRACT_DIR=$(mktemp -d /tmp/gstack-design-extract-XXXXXXXX) || exit 1
+_EXTRACT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gstack-design-extract-XXXXXXXX") || exit 1
 (
   cd "$_EXTRACT_DIR" || exit 1
   if git rev-parse --show-toplevel >/dev/null 2>&1; then

@@ -484,3 +484,14 @@ await import(${JSON.stringify(path.join(ROOT, 'test/skill-e2e-plan-eng-multi-fin
     fs.rmSync(temp, { recursive: true, force: true });
   }
 });
+
+test('a record under a "Section N — <review> review" heading counts (run 37158847998 read 1 of 11 separate asks)', () => {
+  const run = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/eng-batching-section-heading-37158847998.json'), 'utf8'));
+  const [d1, d2] = run.calls as NativePlanQuestionCall[];
+  const counted = (plan: string) => factory(() => plan).isReviewAUQ(nativePlanCallFingerprint(structuredClone(d2!), 0, true), [d1!]);
+  expect(run.planAtD2).toContain('## Section 1 — Architecture review');
+  expect(counted(run.planAtD2)).toBe(true);
+  for (const heading of ['## Section 1 — Appendix', '## Quoted example — Architecture review', '## Section 1 — Architecture review (historical)']) {
+    expect(counted(run.planAtD2.replace('## Section 1 — Architecture review', heading)), heading).toBe(false);
+  }
+});

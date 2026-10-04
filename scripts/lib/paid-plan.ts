@@ -55,7 +55,7 @@ export { PAID_TEST_GLOBS, isPaidTestFile };
 export { PERIODIC_CI_EXCLUDE };
 
 type E2EShardReuse = NonNullable<ReturnType<typeof prepareE2EShardReuse>>;
-import { CASE_KEY_SEPARATOR, CASE_SHARDED_FILES, type CaseTrialPlan, caseTrialPlan, expandCaseShards, expandTrialShards, isIsolatedCase, partitionCaseExclusions, sameTrialPlan, shardCaseId, shardFile, shardTrial } from './paid-cases';
+import { CASE_KEY_SEPARATOR, CASE_SHARDED_FILES, type CaseTrialPlan, caseTrialPlan, codexShardAccess, expandCaseShards, expandTrialShards, isIsolatedCase, partitionCaseExclusions, sameTrialPlan, shardCaseId, shardFile, shardTrial } from './paid-cases';
 import { DEFAULT_JOBS, OVERLAY_MAX_ACTIVE_SHARDS, PAID_TIERS, type PaidCaseSelection, type PaidProfile, type PaidShardBudget, type PaidTier, ROOT, type ShardOutcome, type ShardStatus, type ShardTrialRecord, collectPaidTestFiles, computePaidCaseSelection, expectedPrCaseCount, isAllSkippedPass, isOverlayTestFile, paidShardWallUpperBoundMs, partitionShardsByDiffSelection, planPaidShards, prProfileFileSelected, resolvePaidShardBudget, resolvePaidShardTimeoutMs, sameBudget, selectPaidTestFiles, shardSlug, validatedProfile } from '../test-paid-shards';
 
 // ─── Planner / executor / report (the CI re-platform surface) ──────────────
@@ -89,6 +89,8 @@ export interface PaidSlicePlan {
   jobs: number;
   estimatedSliceMs: number[];
   ciTimeoutMinutes: number;
+  /** Slices that run only Codex shards; CI executes them on the host-run Codex job, where bubblewrap can start. */
+  codexSlices?: number[];
 }
 
 export interface PaidRunManifest {
@@ -157,6 +159,17 @@ export function recordedShardMs(recorded: Record<string, number>, key: string): 
   return recorded[durationKey(rel)] ?? (shardTrial(rel) === null ? undefined : recorded[shardFile(rel)]);
 }
 
+/** Longest recorded wall a PR-lane (gate) shard may have: the lane's ~10-minute case target. */
+export const PR_LANE_SHARD_LIMIT_MS = 600_000;
+
+/** One line per planned shard whose recorded wall exceeds `limitMs` (split or shorten it; never raise the limit). */
+export function shardDurationViolations(keys: readonly string[], recorded: Record<string, number>, limitMs = PR_LANE_SHARD_LIMIT_MS): string[] {
+  return keys.flatMap(key => {
+    const ms = recorded[durationKey(key)];
+    return ms !== undefined && ms > limitMs ? [`${key}: recorded ${Math.round(ms / 1000)}s > ${limitMs / 1000}s`] : [];
+  });
+}
+
 /**
  * Merge a report's executed single-file outcomes into the seed; all-skipped
  * shards carry no cost signal. Trials of one case record their longest wall
@@ -174,6 +187,16 @@ export function mergePaidTestDurations(seed: Record<string, number>, results: Sl
   }
   for (const [key, ms] of fresh) merged[key] = ms;
   return Object.fromEntries(Object.entries(merged).sort(([a], [b]) => (a < b ? -1 : 1)));
+}
+
+/** True when a shard key's file sees the CI Codex install in `tier` (scripts/lib/paid-cases.ts codexShardAccess). */
+export function isCodexShard(key: string, tier: PaidTier): boolean {
+  return codexShardAccess([shardFile(key)], tier) !== 'none';
+}
+
+/** Sorted slices holding at least one planned Codex shard. */
+export function codexSlicesOf(tier: PaidTier, entries: readonly ManifestEntry[]): number[] {
+  return [...new Set(entries.filter(entry => entry.status === 'planned' && isCodexShard(entry.file, tier)).map(entry => entry.slice))].sort((a, b) => a - b);
 }
 
 /** Panel identity of a trial shard key (`<file>#<id>`), else null. */
@@ -217,11 +240,12 @@ export function sliceSupervisedWallMs(files: string[], jobs: number, overrideMs?
  * within the budget (best fit), else into a new slice. A file with no recorded
  * wall weighs the whole budget, so unknown cost gets a runner of its own. A
  * file longer than the budget runs alone. Overlay wrappers keep one shared
- * final slice (one wrapper at a time). The CI timeout covers every slice's
- * supervised worst case plus the setup allowance.
+ * final slice (one wrapper at a time). Codex shards never share a slice with
+ * other shards. The CI timeout covers every slice's supervised worst case plus
+ * the setup allowance.
  */
 export function packBySliceBudget(files: string[], budgetMs: number, jobs: number,
-  recorded: Record<string, number>, timeoutMs?: number): {
+  recorded: Record<string, number>, timeoutMs?: number, codexShard: (file: string) => boolean = () => false): {
   slices: string[][]; estimates: Record<string, number>; estimatedSliceMs: number[]; ciTimeoutMinutes: number;
 } {
   const estimates = Object.fromEntries(files.map(file => [file, recordedShardMs(recorded, file) ?? budgetMs]));
@@ -233,6 +257,8 @@ export function packBySliceBudget(files: string[], budgetMs: number, jobs: numbe
       // Trials of one case never share a runner: independent machines, and
       // the panel's wall stays one trial long.
       if (sharesPanel(planned, file)) return;
+      // Codex shards run on the host-run Codex job; other shards keep the default container sandbox.
+      if (codexShard(planned[0]!) !== codexShard(file)) return;
       const ms = estimatedSliceMs([...planned, file], weight, jobs);
       if (ms <= budgetMs && ms > bestMs) { best = index; bestMs = ms; }
     });
@@ -328,7 +354,7 @@ export function buildRunManifest(opts: {
   const entries: ManifestEntry[] = [];
   if (budgetMode) {
     const plan = packBySliceBudget(runnable.map(files => files[0]!), opts.sliceBudgetMs!, opts.jobs!,
-      opts.durations ?? loadPaidTestDurations(rootDir, opts.tier), opts.timeoutMs);
+      opts.durations ?? loadPaidTestDurations(rootDir, opts.tier), opts.timeoutMs, file => isCodexShard(file, opts.tier));
     plan.slices.forEach((files, index) => files.forEach(file => entries.push({ file, slice: index + 1, status: 'planned',
       estimatedMs: plan.estimates[file]!, ...extras(file),
       ...(FILE_RETRY_BUDGETS.some(budget => budget.file === shardFile(file)) ? { budget: resolvePaidShardBudget([file], opts.timeoutMs) } : {}) })));
@@ -339,7 +365,8 @@ export function buildRunManifest(opts: {
       version: 1, tier: opts.tier, evalsAll: opts.evalsAll, sliceCount: plan.slices.length,
       selectionReason: cases.reason, profile, selection: cases.selection,
       ...(cases.coverage ? { prCoverage: cases.coverage } : {}),
-      plan: { sliceBudgetMs: opts.sliceBudgetMs!, jobs: opts.jobs!, estimatedSliceMs: plan.estimatedSliceMs, ciTimeoutMinutes: plan.ciTimeoutMinutes },
+      plan: { sliceBudgetMs: opts.sliceBudgetMs!, jobs: opts.jobs!, estimatedSliceMs: plan.estimatedSliceMs, ciTimeoutMinutes: plan.ciTimeoutMinutes,
+        codexSlices: codexSlicesOf(opts.tier, entries) },
       entries,
     } satisfies PaidRunManifest));
   }
@@ -605,6 +632,12 @@ export function parseRunManifest(raw: string): PaidRunManifest {
       || parsed.entries.some(entry => entry.status === 'planned' && entry.estimatedMs === undefined)) {
       throw new Error('manifest slice plan malformed');
     }
+    const codexSlices = codexSlicesOf(parsed.tier, parsed.entries);
+    if (JSON.stringify(plan.codexSlices ?? []) !== JSON.stringify(codexSlices)) {
+      throw new Error(`manifest Codex slices must be exactly the slices holding Codex shards: ${JSON.stringify(codexSlices)}`);
+    }
+    const mixed = parsed.entries.find(entry => entry.status === 'planned' && codexSlices.includes(entry.slice) && !isCodexShard(entry.file, parsed.tier));
+    if (mixed) throw new Error(`Codex slice ${mixed.slice} also holds ${mixed.file}; only Codex shards run on the host-run Codex job`);
   }
   const keys = parsed.entries.map(entry => normalizeRelativePath(entry.file));
   if (new Set(keys).size !== keys.length) throw new Error('Duplicate manifest entry');

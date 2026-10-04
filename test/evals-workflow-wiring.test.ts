@@ -22,7 +22,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { buildRunManifest, parseCliOptions, sliceExecutionOrder, sliceSupervisedWallMs, CI_SETUP_ALLOWANCE_MINUTES } from '../scripts/test-paid-shards';
+import { buildRunManifest, isCodexShard, parseCliOptions, sliceExecutionOrder, sliceSupervisedWallMs, CI_SETUP_ALLOWANCE_MINUTES } from '../scripts/test-paid-shards';
 
 const ROOT = path.join(import.meta.dir, '..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf-8');
@@ -38,7 +38,7 @@ function plannerSites(source: string): Array<{ manifest: string; budgetSeconds: 
     .map((m) => ({ manifest: m[1]!, budgetSeconds: Number(m[2]), jobs: Number(m[3]) }));
 }
 
-type Step = { id?: string; name?: string; run?: string; env?: Record<string, string>; with?: Record<string, string> };
+type Step = { id?: string; name?: string; run?: string; uses?: string; env?: Record<string, string>; with?: Record<string, string> };
 type Job = { needs?: string[]; env?: Record<string, string>; outputs?: Record<string, string>; 'timeout-minutes': string | number;
   strategy?: { 'max-parallel': number; matrix: { slice: string } }; steps: Step[] };
 
@@ -57,7 +57,7 @@ function expectPlannedExecutor(source: string, executorName: string, prefix: str
   const [stepId] = /^\$\{\{ steps\.([\w-]+)\.outputs\.slices \}\}$/.exec(planner.outputs![`${prefix}slices`]!)!.slice(1);
   expect(planner.outputs![`${prefix}timeout_minutes`]).toBe(`\${{ steps.${stepId}.outputs.timeout_minutes }}`);
   const matrixStep = planner.steps.find(step => step.id === stepId)!;
-  const manifest = /jq -c '\[range\(1; \.sliceCount \+ 1\)\]' (\S+)\)/.exec(matrixStep.run!)![1]!;
+  const manifest = /jq -c '\[range\(1; \.sliceCount \+ 1\)\](?: - \.plan\.codexSlices)?' (\S+)\)/.exec(matrixStep.run!)![1]!;
   expect(matrixStep.run).toContain(`jq -e '.plan.ciTimeoutMinutes' ${manifest})`);
   const emit = planner.steps.filter(step => step.run?.includes(`--emit-plan ${manifest} `));
   expect(emit).toHaveLength(1);
@@ -198,6 +198,73 @@ describe('evals-periodic.yml sliced-lane wiring', () => {
       { manifest: '/tmp/paid-plan/manifest.json', budgetSeconds: 540, jobs: 2 },
       { manifest: '/tmp/gate-census-plan/manifest.json', budgetSeconds: 540, jobs: 2 },
     ]);
+  });
+});
+
+describe('evals-periodic.yml host-run Codex slices', () => {
+  type HostJob = Job & { if?: string; container?: unknown; 'runs-on': string; permissions?: Record<string, string>;
+    steps: Array<Step & { uses?: string; shell?: string }> };
+  const jobs = (Bun.YAML.parse(periodicYml) as { jobs: Record<string, HostJob> }).jobs;
+  const codex = jobs['eval-codex-slices']!;
+  const container = jobs['eval-slices']!;
+  const planner = jobs['plan-slices']!;
+  const uploadNames = (job: HostJob) => job.steps.filter(step => step.uses?.startsWith('actions/upload-artifact@')).map(step => step.with!.name);
+
+  test('the planner gives Codex slices to the host job and every other slice to the container job', () => {
+    const matrixStep = planner.steps.find(step => step.id === 'periodic-matrix')!;
+    expect(matrixStep.run).toContain(`echo "slices=$(jq -c '[range(1; .sliceCount + 1)] - .plan.codexSlices' /tmp/paid-plan/manifest.json)"`);
+    expect(matrixStep.run).toContain(`echo "codex_slices=$(jq -c '.plan.codexSlices' /tmp/paid-plan/manifest.json)"`);
+    expect(matrixStep.run).toContain('} >> "$GITHUB_OUTPUT"');
+    expect(planner.outputs!.periodic_codex_slices).toBe('${{ steps.periodic-matrix.outputs.codex_slices }}');
+    expect(codex.needs).toEqual(['build-image', 'plan-slices']);
+    expect(codex.if).toBe("${{ needs.plan-slices.outputs.periodic_codex_slices != '[]' }}");
+    expect(codex.strategy!.matrix.slice).toBe('${{ fromJSON(needs.plan-slices.outputs.periodic_codex_slices) }}');
+    expect(codex['timeout-minutes']).toBe('${{ fromJSON(needs.plan-slices.outputs.periodic_timeout_minutes) }}');
+    const manifest = buildRunManifest({ tier: 'periodic', profile: 'full', sliceBudgetMs: 540_000, jobs: 2, evalsAll: true, env: { EVALS_ALL: '1' }, rootDir: ROOT });
+    const codexSlices = manifest.plan!.codexSlices!;
+    expect(codexSlices.length).toBeGreaterThan(0);
+    expect(codex.strategy!['max-parallel']).toBeGreaterThanOrEqual(codexSlices.length);
+    for (const entry of manifest.entries.filter(entry => entry.status === 'planned')) {
+      expect(codexSlices.includes(entry.slice), entry.file).toBe(isCodexShard(entry.file, 'periodic'));
+    }
+    // Gate plans (evals.yml and the weekly gate census) never give a shard Codex, so they have no Codex slices.
+    expect(buildRunManifest({ tier: 'gate', profile: 'full', sliceBudgetMs: 540_000, jobs: 2, evalsAll: true, env: { EVALS_ALL: '1' }, rootDir: ROOT })
+      .plan!.codexSlices).toEqual([]);
+  });
+
+  test('runs on the runner VM, lifts the user-namespace restriction, then runs the CI image with seccomp and AppArmor unconfined', () => {
+    expect(codex.container).toBeUndefined();
+    expect(codex['runs-on']).toBe(container['runs-on']);
+    expect(codex.permissions).toEqual({ contents: 'read', packages: 'read' });
+    const sysctl = codex.steps.findIndex(step => step.run?.includes('sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0'));
+    const execute = codex.steps.findIndex(step => step.run?.includes('docker run '));
+    expect(sysctl).toBeGreaterThan(-1);
+    expect(execute).toBeGreaterThan(sysctl);
+    const step = codex.steps[execute]!;
+    expect(step.run).toContain('--security-opt seccomp=unconfined --security-opt apparmor=unconfined');
+    expect(step.run).toContain('--user "$(id -u):$(id -g)"');
+    expect(step.run).not.toMatch(/--privileged|--cap-add|--pid[ =]host|--network[ =]host|docker\.sock/);
+    expect(step.env!.EVAL_IMAGE).toBe('${{ needs.build-image.outputs.image-tag }}');
+    expect(step.run).toContain('"$EVAL_IMAGE" bash -c');
+    expect(step.env!.SLICE).toBe('${{ matrix.slice }}');
+    expect(step.run).toContain('EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --plan /tmp/paid-plan/manifest.json --slice "$SLICE"');
+    expect(step.run).toContain('-v "$RUNNER_TEMP/paid-plan:/tmp/paid-plan:ro"');
+    expect(codex.steps.some(other => other.uses?.startsWith('actions/download-artifact@') && other.with?.name === 'paid-plan'
+      && other.with?.path === '${{ runner.temp }}/paid-plan')).toBe(true);
+    const containerRun = container.steps.find(other => other.run?.includes('--plan '))!;
+    expect(step.env!.EVALS_JOBS).toBe(containerRun.env!.EVALS_JOBS);
+    for (const name of ['EVALS_CONCURRENCY', 'GSTACK_EVAL_DIR', 'PLAYWRIGHT_BROWSERS_PATH']) {
+      expect(step.run, name).toContain(`-e ${name}=${containerRun.env![name]}`);
+    }
+  });
+
+  test('uploads under the container executor\'s artifact names, and the report waits for it and fails on it', () => {
+    expect(uploadNames(codex)).toEqual(uploadNames(container));
+    const report = jobs.report!;
+    expect(report.needs).toContain('eval-codex-slices');
+    const guards = (report.steps as Array<Step & { if?: string }>).filter(step => step.if?.includes('needs.eval-slices.result'));
+    expect(guards.length).toBeGreaterThanOrEqual(3);
+    for (const guard of guards) expect(guard.if, guard.name).toContain('needs.eval-codex-slices.result');
   });
 });
 

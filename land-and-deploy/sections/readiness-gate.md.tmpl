@@ -185,7 +185,7 @@ git log --oneline "$BASE_SHA..$PR_HEAD" | head -20
 Compare the PR body against the actual commits. Check for:
 1. **Missing features** — commits that add significant functionality not mentioned in the PR
 2. **Stale descriptions** — PR body mentions things that were later changed or reverted
-3. **Wrong version** — PR title or body references a version that doesn't match VERSION file
+3. **Wrong version** — PR title or body references a version that doesn't match the version file (under NO_VERSION, any version prefix is wrong)
 
 If the PR body looks stale or incomplete: **WARNING — PR body may not reflect current
 changes.** List what's missing or stale.
@@ -205,7 +205,9 @@ git diff --name-only "$BASE_SHA...$PR_HEAD" -- README.md CHANGELOG.md ARCHITECTU
 
 If CHANGELOG.md and VERSION were NOT modified on this branch and the diff includes
 new features (new files, new commands, new skills): **WARNING — /document-release
-likely not run. CHANGELOG and VERSION not updated despite new features.**
+likely not run. CHANGELOG and VERSION not updated despite new features.** Skip the
+VERSION half when Step 3.4 reported NO_VERSION: an unversioned project ships with no
+version change by design.
 
 If only docs changed (no code): skip this check.
 

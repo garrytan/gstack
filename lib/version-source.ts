@@ -32,6 +32,9 @@
 //
 // Re-derived from PR #2501 by @YiftahR.
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 export type Version = [number, number, number, number];
 export type VersionWidth = 3 | 4;
 export type Bump = "major" | "minor" | "patch" | "micro";
@@ -127,4 +130,148 @@ export function setVersionInJson(raw: string, version: string): string {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   parsed.version = version;
   return JSON.stringify(parsed, null, 2) + "\n";
+}
+
+// ---------------------------------------------------------------------------
+// Where the version lives, as one of four outcomes (#2334, #2343).
+//
+// Most repos /ship runs in have no VERSION file. Folding "no file" into
+// 0.0.0.0 made /ship invent a version (or stop on DRIFT_UNEXPECTED when a
+// package.json disagreed with the invented zero). Every reader now asks this
+// resolver instead and reads the same signal:
+//
+//   valid      a configured source holds a parsable version — use it.
+//   absent     nothing configured — ship without a version change.
+//   ambiguous  nothing configured, and release automation, a workspace
+//              monorepo or a placeholder version says the version is owned
+//              elsewhere — ship without a version change and say why.
+//   broken     a configured source is missing, empty, unreadable or
+//              malformed — stop with the reason. Never substitute 0.0.0.0.
+//
+// "Configured" means --version-path, the .gstack/version-path pin, or a root
+// VERSION file. A root package.json alone is not a configured source: pin it
+// in .gstack/version-path to have /ship version it.
+
+export type VersionSourceOutcome = "valid" | "absent" | "ambiguous" | "broken";
+
+export interface VersionSource {
+  outcome: VersionSourceOutcome;
+  /** Repo-relative path of the version file, or null when none is configured. */
+  path: string | null;
+  pinnedBy: "--version-path" | ".gstack/version-path" | null;
+  /** The parsed version string (outcome "valid" only). */
+  version: string | null;
+  /** Why the outcome is not "valid"; null when it is. */
+  reason: string | null;
+}
+
+export const NO_VERSION_NOTICE =
+  "Shipped without a version change: no version source is configured (no VERSION file, no .gstack/version-path). " +
+  "To version releases, create VERSION or write the version file's path (for example package.json) to .gstack/version-path.";
+
+/** The one line every no-version reader prints. Null when a version exists or the source is broken. */
+export function noVersionNotice(src: VersionSource): string | null {
+  if (src.outcome === "absent") return NO_VERSION_NOTICE;
+  if (src.outcome === "ambiguous") {
+    return (
+      `Shipped without a version change: the version source is ambiguous (${src.reason}). ` +
+      "To have /ship version releases, write the version file's path (for example package.json) to .gstack/version-path."
+    );
+  }
+  return null;
+}
+
+/**
+ * The version file's repo-relative path and who chose it:
+ * --version-path, else the first line of .gstack/version-path, else VERSION.
+ * A blank pin file is no pin. `guard` runs on every configured path before it
+ * is read (gstack-version-bump's repo-containment check).
+ */
+export function resolveVersionRel(
+  repoRoot: string,
+  explicit?: string,
+  guard?: (rel: string, source: string) => void,
+): { rel: string; pinnedBy: VersionSource["pinnedBy"] } {
+  if (explicit && explicit.trim()) {
+    const rel = explicit.trim();
+    guard?.(rel, "--version-path");
+    return { rel, pinnedBy: "--version-path" };
+  }
+  const pin = join(repoRoot, ".gstack", "version-path");
+  if (existsSync(pin)) {
+    const rel = readFileSync(pin, "utf-8").split("\n")[0]?.trim() ?? "";
+    if (rel) {
+      guard?.(rel, ".gstack/version-path");
+      return { rel, pinnedBy: ".gstack/version-path" };
+    }
+  }
+  return { rel: "VERSION", pinnedBy: null };
+}
+
+function readJson(path: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf-8"));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Why an unconfigured repo's version is owned by something other than /ship, or null. */
+function ambiguityReason(repoRoot: string): string | null {
+  const has = (rel: string) => existsSync(join(repoRoot, rel));
+  const pkg = readJson(join(repoRoot, "package.json"));
+  const found = (names: string[]) => names.find(has);
+  const rp = found(["release-please-config.json", ".release-please-manifest.json"]);
+  if (rp) return `release-please manages versions here (${rp})`;
+  if (has(".changeset/config.json")) return "Changesets manages versions here (.changeset/config.json)";
+  const sr = found([
+    ".releaserc", ".releaserc.json", ".releaserc.yaml", ".releaserc.yml", ".releaserc.js", ".releaserc.cjs",
+    "release.config.js", "release.config.cjs", "release.config.mjs",
+  ]);
+  if (sr || (pkg && "release" in pkg)) return `semantic-release manages versions here (${sr ?? "package.json release"})`;
+  const ws = found(["pnpm-workspace.yaml", "lerna.json"]) ?? (pkg && "workspaces" in pkg ? "package.json workspaces" : undefined);
+  if (ws) return `this is a monorepo with no single version file (${ws})`;
+  const v = pkg?.version;
+  if (typeof v === "string" && /^0\.0\.0(?:-|$)/.test(v.trim())) {
+    return `package.json holds the placeholder version ${v.trim()}`;
+  }
+  return null;
+}
+
+/** Resolve the version source to one of the four outcomes. Never throws for file problems. */
+export function resolveVersionSource(
+  repoRoot: string,
+  explicit?: string,
+  guard?: (rel: string, source: string) => void,
+): VersionSource {
+  let resolved: ReturnType<typeof resolveVersionRel>;
+  try {
+    resolved = resolveVersionRel(repoRoot, explicit, guard);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException)?.code ?? "read failed";
+    return { outcome: "broken", path: null, pinnedBy: ".gstack/version-path", version: null, reason: `.gstack/version-path is unreadable (${code})` };
+  }
+  const { rel, pinnedBy } = resolved;
+  const abs = join(repoRoot, rel);
+  const by = pinnedBy ? ` (set by ${pinnedBy})` : "";
+  const broken = (why: string): VersionSource => ({ outcome: "broken", path: rel, pinnedBy, version: null, reason: why + by });
+  if (!existsSync(abs)) {
+    if (pinnedBy) return broken(`${rel} does not exist`);
+    const why = ambiguityReason(repoRoot);
+    return { outcome: why ? "ambiguous" : "absent", path: null, pinnedBy: null, version: null, reason: why ?? "no VERSION file and no .gstack/version-path" };
+  }
+  let raw: string;
+  try {
+    raw = readFileSync(abs, "utf-8");
+  } catch (e) {
+    return broken(`${rel} is unreadable (${(e as NodeJS.ErrnoException)?.code ?? "read failed"})`);
+  }
+  if (!raw.trim()) return broken(`${rel} is empty or contains no parsable version`);
+  const v = extractVersion(raw, rel);
+  if (!v || !parseVersion(v)) {
+    const shown = isJsonVersionPath(rel) ? (v ? `"version": "${v}"` : "no \"version\" string") : `"${raw.trim().slice(0, 40)}"`;
+    return broken(`${rel} contains no parsable version (found ${shown})`);
+  }
+  return { outcome: "valid", path: rel, pinnedBy, version: v, reason: null };
 }

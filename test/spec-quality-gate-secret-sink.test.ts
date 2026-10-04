@@ -29,7 +29,8 @@ function runScan(host: 'claude' | 'codex', body: string, scanner: 'real' | 'brok
   const temps = join(scratch, 'tmp');
   const systemTemps = join(scratch, 'system-tmp');
   const shims = join(scratch, 'shims');
-  for (const dir of [bin, sinks, temps, systemTemps, shims]) mkdirSync(dir, { recursive: true });
+  // C1: the env-var-host prelude honors an exported GSTACK_ROOT only when it has bin/ and lib/.
+  for (const dir of [bin, join(runtime, 'lib'), sinks, temps, systemTemps, shims]) mkdirSync(dir, { recursive: true });
   const realMktemp = Bun.which('mktemp');
   if (!realMktemp) throw new Error('mktemp is required for the spec redaction fixture');
   writeFileSync(join(shims, 'mktemp'), `#!/usr/bin/env bash

@@ -420,10 +420,32 @@ export async function handleWriteCommand(
     }
 
     case 'type': {
-      const text = args.join(' ');
-      if (!text) throw new Error('Usage: browse type <text>');
+      // #2936: bare `type` sends keystrokes to whatever has focus, so a selector
+      // given as the first word was typed as text. --selector targets an
+      // element; `--` ends flags so literal text may start with "--".
+      const usage = 'Usage: browse type [--selector <sel>] [--] <text>';
+      let rest = args;
+      let selector: string | undefined;
+      if (rest[0] === '--selector') {
+        selector = rest[1];
+        if (!selector) throw new Error(usage);
+        rest = rest.slice(2);
+      }
+      if (rest[0] === '--') rest = rest.slice(1);
+      const text = rest.join(' ');
+      if (!text) throw new Error(usage);
+      if (selector) {
+        const resolved = await session.resolveRef(selector);
+        const locator = 'locator' in resolved ? resolved.locator : target.locator(resolved.selector);
+        await locator.pressSequentially(text, { timeout: 5000 });
+        return `Typed ${text.length} characters into ${selector}`;
+      }
       await page.keyboard.type(text);
-      return `Typed ${text.length} characters`;
+      const first = rest[0];
+      const selectorLike = /^([#.][A-Za-z_-]|\[[^\]]+\]$|[A-Za-z][\w-]*[#.[][A-Za-z_-])/.test(first) || rest.includes('>');
+      return selectorLike
+        ? `Typed ${text.length} characters into the focused element\nhint: "${first}" looks like a CSS selector. To type into that element: browse type --selector '${first}' <text>`
+        : `Typed ${text.length} characters`;
     }
 
     case 'press': {
@@ -974,13 +996,18 @@ export async function handleWriteCommand(
         } else if (args[i] === '--cleanup') {
           doCleanup = true;
         } else if (args[i] === '--hide' && i + 1 < args.length) {
-          // Collect all following non-flag args as selectors to hide
+          // Collect all following non-flag args as selectors to hide. A
+          // trailing image path is the output path, not a selector (#1419).
+          const values: string[] = [];
           i++;
           while (i < args.length && !args[i].startsWith('--')) {
-            hideSelectors.push(args[i]);
+            values.push(args[i]);
             i++;
           }
           i--; // Back up since the for loop will increment
+          const last = values[values.length - 1];
+          if (!outputPath && values.length > 1 && /^(\/|\.\.?\/|~)|\.(png|jpe?g|webp)$/i.test(last)) outputPath = values.pop();
+          hideSelectors.push(...values);
         } else if (args[i] === '--width' && i + 1 < args.length) {
           viewportWidth = parseInt(args[++i], 10);
           if (isNaN(viewportWidth)) throw new Error('--width must be a number');
@@ -1282,12 +1309,17 @@ export async function handleWriteCommand(
       const selectorIdx = args.indexOf('--selector');
       const selector = selectorIdx >= 0 ? args[selectorIdx + 1] : undefined;
       const dirIdx = args.indexOf('--dir');
-      const dir = dirIdx >= 0 ? args[dirIdx + 1] : path.join(TEMP_DIR, `browse-scrape-${Date.now()}`);
+      const requestedDir = dirIdx >= 0 ? args[dirIdx + 1] : path.join(TEMP_DIR, `browse-scrape-${Date.now()}`);
       const limitIdx = args.indexOf('--limit');
       const limit = Math.min(limitIdx >= 0 ? parseInt(args[limitIdx + 1], 10) || 50 : 50, 200);
 
-      validateOutputPath(dir);
+      validateOutputPath(requestedDir);
+      const dir = path.resolve(requestedDir);
       fs.mkdirSync(dir, { recursive: true });
+      // Each file is validated too: a symlink planted in an existing --dir
+      // would otherwise redirect the write outside the safe directories.
+      const manifestPath = path.join(dir, 'manifest.json');
+      validateOutputPath(manifestPath);
 
       const { extractMedia } = await import('./media-extract');
       const target = bm.getActiveFrameOrPage();
@@ -1346,6 +1378,7 @@ export async function handleWriteCommand(
           const ext = mimeToExt(ct.split(';')[0].trim());
           const filename = `${type}-${String(i + 1).padStart(3, '0')}${ext}`;
           const filePath = path.join(dir, filename);
+          validateOutputPath(filePath);
           const body = Buffer.from(await response.body());
           try {
             fs.writeFileSync(filePath, body);
@@ -1366,7 +1399,7 @@ export async function handleWriteCommand(
       }
 
       // Write manifest
-      fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
       return `Scraped ${toDownload.length} items to ${dir}/\n${lines.join('\n')}\n\nSummary: ${manifest.succeeded} succeeded, ${manifest.failed} failed, ${Math.round(manifest.total_size / 1024)}KB total`;
     }

@@ -147,6 +147,26 @@ function requiredRemaining(root: string): { requiredRemaining?: string[] } {
   return { requiredRemaining: required.filter(command => !run.has(command)) };
 }
 
+const snapshotOf = (observed: unknown) => object(observed) && typeof observed.snapshot === 'string' ? observed.snapshot : undefined;
+
+/**
+ * Commands whose complete captures declared an older input snapshot than the
+ * latest capture and were not rerun on the current snapshot. Materialize keeps
+ * each one open (the verdict cannot pass), and it publishes only once, so
+ * every capture names them while they can still be rerun.
+ */
+function staleCommands(root: string): string[][] {
+  const observed = completeReceipts(root).flatMap(receipt => {
+    try { return [{ argv: receipt.argv as string[], snapshot: snapshotOf(readQaCapture(root, receipt.id).observed) }]; } catch { return []; }
+  });
+  const current = observed.at(-1)?.snapshot;
+  if (current === undefined) return [];
+  const rerun = new Set(observed.filter(row => row.snapshot === current).map(row => JSON.stringify(row.argv)));
+  const stale = new Map(observed.filter(row => row.snapshot !== undefined && !rerun.has(JSON.stringify(row.argv)))
+    .map(row => [JSON.stringify(row.argv), row.argv]));
+  return [...stale.values()];
+}
+
 async function capture(root: string, captureId: string, publicOutput: boolean, option: string, budget: string, command: string, args: string[], after?: { capture: string; hypothesis: string }) {
   id(captureId);
   if (!command || !['--deadline', '--timeout-ms'].includes(option)) throw new QaEvidenceError('Capture requires a deadline or finite command timeout');
@@ -235,10 +255,13 @@ async function capture(root: string, captureId: string, publicOutput: boolean, o
     completedAt, exitCode, signal: result.signal, status, observation, publicOutput,
     ...streams };
   const sha256 = publish(root, `.qa-evidence/${captureId}/receipt.json`, receipt);
+  const revalidate = status === 'complete' ? staleCommands(root) : [];
   return { action: 'capture', id: captureId, status, sha256, exitCode, signal: result.signal, publicOutput,
     startedAt, completedAt, durationMs: Date.parse(completedAt) - Date.parse(startedAt), ...(remainingMs === undefined ? {} : { remainingMs }),
     ...(checkpointSha256 ? { checkpoint: captureId, checkpointSha256, link: `[checkpoint ${captureId}](exploration-${captureId}.json)` } : {}),
-    ...(status === 'complete' ? { next: `Another probe requires a checkpoint anchored on capture ${captureId}: add --after ${captureId} --hypothesis 'TEXT' before --. To stop exploring, run none.` } : {}),
+    ...(status === 'complete' ? { next: `Another probe requires a checkpoint anchored on capture ${captureId}: add --after ${captureId} --hypothesis 'TEXT' before --. To stop exploring, run none.${revalidate.length
+      ? ` Inputs changed since these commands ran; materialize runs once and keeps each one open (the verdict cannot pass) until it is rerun on current inputs: ${revalidate.map(argv => argv.join(' ')).join('; ')}.` : ''}` } : {}),
+    ...(revalidate.length ? { revalidate: revalidate.map(argv => argv.join(' ')) } : {}),
     ...requiredRemaining(root) };
 }
 
@@ -298,7 +321,6 @@ function materialize(root: string, source: string) {
     argv.push(JSON.stringify(captured.receipt.argv));
     return { command: row.command, contract: row.contract, expected: row.expected, classification: row.classification, observed: captured.observed };
   });
-  const snapshotOf = (observed: unknown) => object(observed) && typeof observed.snapshot === 'string' ? observed.snapshot : undefined;
   const latestCapture = latestCompleteCapture(root);
   const currentSnapshot = latestCapture ? snapshotOf(readQaCapture(root, latestCapture).observed) : undefined;
   const superseded = currentSnapshot === undefined ? [] : annotations.evidence.filter((row: any, index: number) => {
@@ -338,7 +360,7 @@ function materialize(root: string, source: string) {
   const sha256 = publish(root, 'evidence.json', { ...annotations, evidence, learning, verdict });
   return { action: 'materialize', status: 'complete', sha256, annotationsSha256: hash(bytes), exitCode: 0, verdict,
     reportLinks: notes.map(note => `[checkpoint ${note.name.slice(12, 15)}](${note.name})`),
-    next: `Include every reportLinks entry in the Markdown report, and report the overall status as ${verdict.status}${verdict.open.length ? ` (open: ${verdict.open.join('; ')})` : ''}; rerun what is open first if a pass is required.` };
+    next: `Include every reportLinks entry in the Markdown report, and report the overall status as ${verdict.status}${verdict.open.length ? ` (open: ${verdict.open.join('; ')})` : ''}; this verdict is final for this report root.` };
 }
 
 const QA_EVIDENCE_USAGE = 'capture ROOT ID [--public] --deadline FILE|--timeout-ms MS [--after PREVIOUS_CAPTURE --hypothesis TEXT] -- COMMAND ARGS (--after publishes checkpoint ID linking PREVIOUS_CAPTURE to this probe; required after the first complete capture unless a checkpoint was published) | checkpoint ROOT ID CAPTURE OBSERVATION_COMMAND HYPOTHESIS NEXT_COMMAND | checkpoint ROOT ID INTENT_FILE | materialize ROOT ANNOTATIONS (annotations: {evidence: [{capture, command, contract, expected, classification: pass|superseded|product-defect|fail|setup-blocked|blocked|inconclusive}], limits: [..]}; revision, runtime, cwd and learning are filled in)';

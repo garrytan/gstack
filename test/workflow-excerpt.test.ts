@@ -108,7 +108,7 @@ describe('workflow judge excerpts', () => {
   test('ship publishes existing PRs only after shared body composition and scan', () => {
     const text = readWorkflowExcerpt('ship/SKILL.md', '# Ship:', '## Important Rules');
     const publish = text.slice(text.indexOf('## Step 19:'), text.indexOf('## Step 20:'));
-    const compose = publish.indexOf('PR_BODY_FILE=$(mktemp)');
+    const compose = publish.indexOf('PR_BODY_FILE=$(mktemp');
     const scan = publish.indexOf('gstack-redact --from-file "$PR_BODY_FILE"');
     const edit = publish.indexOf('gh pr edit --body-file');
     expect(compose).toBeGreaterThan(0);

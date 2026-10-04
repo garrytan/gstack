@@ -12,7 +12,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { CODEX_CI_CASES, CODEX_CI_ENV, CODEX_CI_FILES, buildRunManifest, codexShardAccess, runPaidShards, scopeCodexAccess, shardFile } from '../scripts/test-paid-shards';
+import { CODEX_CI_CASES, CODEX_CI_ENV, CODEX_CI_FILES, buildRunManifest, codexShardAccess, isCodexShard, packBySliceBudget, parseRunManifest, runPaidShards, scopeCodexAccess, shardFile } from '../scripts/test-paid-shards';
 import { buildHermeticEnv } from './helpers/hermetic-env';
 import { E2E_TIERS, E2E_TOUCHFILES } from './helpers/touchfiles';
 
@@ -135,6 +135,42 @@ describe('codex CI access scope', () => {
   }, 60_000);
 });
 
+describe('Codex slices for the host-run job', () => {
+  const budgetPlan = () => buildRunManifest({ tier: 'periodic', profile: 'full', sliceBudgetMs: 540_000, jobs: 2, evalsAll: true, env: { EVALS_ALL: '1' } });
+
+  test('packing never puts a Codex shard on a slice with other shards', () => {
+    const files = ['test/codex-e2e.test.ts', 'test/skill-e2e-outside-voice.test.ts', 'test/skill-e2e-plan.test.ts', 'test/skill-e2e-review.test.ts'];
+    const recorded = Object.fromEntries(files.map(file => [file, 60_000]));
+    const plan = packBySliceBudget(files, 540_000, 2, recorded, undefined, file => isCodexShard(file, 'periodic'));
+    expect(plan.slices).toEqual([['test/codex-e2e.test.ts', 'test/skill-e2e-outside-voice.test.ts'], ['test/skill-e2e-plan.test.ts', 'test/skill-e2e-review.test.ts']]);
+    expect(packBySliceBudget(files, 540_000, 2, recorded).slices).toHaveLength(1);
+  });
+
+  test('the live periodic plan names exactly the slices holding Codex shards, and they hold nothing else', () => {
+    const manifest = budgetPlan();
+    const planned = manifest.entries.filter(entry => entry.status === 'planned');
+    const codexSlices = manifest.plan!.codexSlices!;
+    expect(codexSlices.length).toBeGreaterThan(0);
+    expect(new Set(planned.filter(entry => isCodexShard(entry.file, 'periodic')).map(entry => shardFile(entry.file))))
+      .toEqual(new Set([...CODEX_CI_FILES, ...Object.keys(CODEX_CI_CASES)]));
+    for (const entry of planned) expect(codexSlices.includes(entry.slice), entry.file).toBe(isCodexShard(entry.file, 'periodic'));
+  });
+
+  test('a manifest that hides a Codex slice or mixes it with another shard fails to parse', () => {
+    const manifest = budgetPlan();
+    const codexSlice = manifest.plan!.codexSlices![0]!;
+    const hidden = structuredClone(manifest);
+    hidden.plan!.codexSlices = [];
+    expect(() => parseRunManifest(JSON.stringify(hidden))).toThrow(/Codex slices must be exactly/);
+    const omitted = structuredClone(manifest);
+    delete omitted.plan!.codexSlices;
+    expect(() => parseRunManifest(JSON.stringify(omitted))).toThrow(/Codex slices must be exactly/);
+    const mixed = structuredClone(manifest);
+    mixed.entries.find(entry => entry.status === 'planned' && !isCodexShard(entry.file, 'periodic'))!.slice = codexSlice;
+    expect(() => parseRunManifest(JSON.stringify(mixed))).toThrow(new RegExp(`Codex slice ${codexSlice} also holds`));
+  });
+});
+
 describe('codex CI access in the image and workflows', () => {
   test('the image installs Codex off PATH at the directory it advertises', () => {
     const dockerfile = fs.readFileSync(path.join(ROOT, '.github/docker/Dockerfile.ci'), 'utf8');
@@ -158,9 +194,17 @@ describe('codex CI access in the image and workflows', () => {
         }
       }
     }
-    expect(steps.length).toBeGreaterThanOrEqual(4);
+    expect(steps.length).toBeGreaterThanOrEqual(5);
     for (const run of steps) {
-      expect(run).toContain('echo "GSTACK_CI_CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"');
+      // The host-run Codex job logs in inside its one `docker run` script, so the home stays a shell export there.
+      if (run.includes('docker run ')) {
+        const exported = run.indexOf('export GSTACK_CI_CODEX_HOME="$CODEX_HOME"');
+        expect(exported).toBeGreaterThan(run.indexOf('login --with-api-key'));
+        expect(run.indexOf('unset CODEX_HOME')).toBeGreaterThan(exported);
+        expect(run.indexOf('unset CODEX_HOME')).toBeLessThan(run.indexOf('scripts/test-paid-shards.ts'));
+      } else {
+        expect(run).toContain('echo "GSTACK_CI_CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"');
+      }
       expect(run).not.toMatch(/echo "CODEX_HOME=/);
       expect(run).not.toContain('$HOME/.codex"');
       expect(run).toContain('"${GSTACK_CI_CODEX_BIN_DIR:?}/codex"');

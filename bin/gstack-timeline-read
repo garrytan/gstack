@@ -4,7 +4,8 @@
 #
 # Session timeline: local-only, never sent anywhere.
 # Reads ~/.gstack/projects/$SLUG/timeline.jsonl, filters, formats.
-# Exit 0 silently if no timeline file exists.
+# Exit 0 silently if no timeline file exists or nothing matches. Missing bun
+# exits 127 and a failed read exits non-zero with its stderr (#2790).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
@@ -31,7 +32,12 @@ if [ ! -f "$TIMELINE_FILE" ]; then
   exit 0
 fi
 
-cat "$TIMELINE_FILE" 2>/dev/null | GSTACK_TIMELINE_SINCE="$SINCE" GSTACK_TIMELINE_BRANCH="$BRANCH" GSTACK_TIMELINE_LIMIT="$LIMIT" bun -e "
+command -v bun >/dev/null 2>&1 || {
+  echo "gstack-timeline-read: bun not found on PATH, so the timeline could not be read. Fix: install Bun (https://bun.sh), then re-run ./setup." >&2
+  exit 127
+}
+
+cat "$TIMELINE_FILE" | GSTACK_TIMELINE_SINCE="$SINCE" GSTACK_TIMELINE_BRANCH="$BRANCH" GSTACK_TIMELINE_LIMIT="$LIMIT" bun -e "
 const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
 const since = process.env.GSTACK_TIMELINE_SINCE || '';
 const branch = process.env.GSTACK_TIMELINE_BRANCH || '';
@@ -95,4 +101,4 @@ for (const e of recent) {
   const outcome = e.outcome ? ' [' + e.outcome + ']' : '';
   console.log('- ' + ts + ' /' + e.skill + ' ' + e.event + outcome + dur + (e.branch ? ' on ' + e.branch : ''));
 }
-" 2>/dev/null || exit 0
+"

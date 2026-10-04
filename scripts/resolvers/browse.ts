@@ -1,4 +1,5 @@
 import { type TemplateContext, toShellPath } from './types';
+import { binaryAssignment } from './runtime-root';
 import { COMMAND_DESCRIPTIONS } from '../../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../../browse/src/snapshot-flags';
 
@@ -118,10 +119,7 @@ export function generateBrowseSetup(ctx: TemplateContext): string {
   return `## SETUP (run this check BEFORE any browse command)
 
 \`\`\`bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="${toShellPath(ctx.paths.browseDir)}/browse"
+${binaryAssignment(ctx, 'browse')}
 if [ -x "$B" ]; then
   echo "READY: $B"
 else
@@ -137,7 +135,7 @@ If \`NEEDS_SETUP\`:
    if ! command -v bun >/dev/null 2>&1; then
      BUN_VERSION="1.3.10"
      BUN_INSTALL_SHA="bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd"
-     tmpfile=$(mktemp)
+     tmpfile=$(mktemp "\${TMPDIR:-/tmp}/bun-install.XXXXXX")
      curl -fsSL "https://bun.sh/install" -o "$tmpfile"
      # shasum is macOS/perl; coreutils-only Linux ships sha256sum instead —
      # resolve whichever exists so the verify never fails on a missing tool.
@@ -178,10 +176,7 @@ export function generateBrowseFallback(ctx: TemplateContext): string {
   const setup = `### Find the \`$B\` binary
 
 \`\`\`bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="${toShellPath(ctx.paths.browseDir)}/browse"
+${binaryAssignment(ctx, 'browse')}
 [ -x "$B" ] && echo "READY: $B" || echo "NEEDS_SETUP"
 \`\`\`
 

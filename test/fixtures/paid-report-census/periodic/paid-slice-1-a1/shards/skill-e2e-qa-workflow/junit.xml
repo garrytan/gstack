@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="8" assertions="0" failures="0" skipped="7" time="353.027065783">
+  <testsuite name="test/skill-e2e-qa-workflow.test.ts" file="test/skill-e2e-qa-workflow.test.ts" tests="8" assertions="0" failures="0" skipped="7" time="353.024749661">
+    <testsuite name="QA skill E2E" file="test/skill-e2e-qa-workflow.test.ts" line="146" tests="3" assertions="0" failures="0" skipped="3" time="0">
+      <testcase name="(unnamed)" classname="QA skill E2E" time="0." file="test/skill-e2e-qa-workflow.test.ts" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="qa-quick" classname="QA skill E2E" time="0" file="test/skill-e2e-qa-workflow.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="(unnamed)" classname="QA skill E2E" time="0." file="test/skill-e2e-qa-workflow.test.ts" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testsuite name="QA-Only skill E2E" file="test/skill-e2e-qa-workflow.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="1" time="0">
+      <testcase name="qa-only-no-fix" classname="QA-Only skill E2E" time="0" file="test/skill-e2e-qa-workflow.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testsuite name="QA Fix Loop E2E" file="test/skill-e2e-qa-workflow.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="0" time="352.991">
+      <testcase name="qa-fix-loop" classname="QA Fix Loop E2E" time="352.991168" file="test/skill-e2e-qa-workflow.test.ts" line="381" assertions="0" />
+    </testsuite>
+    <testsuite name="Test Bootstrap E2E" file="test/skill-e2e-qa-workflow.test.ts" line="146" tests="3" assertions="0" failures="0" skipped="3" time="0">
+      <testcase name="(unnamed)" classname="Test Bootstrap E2E" time="0." file="test/skill-e2e-qa-workflow.test.ts" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="qa-bootstrap" classname="Test Bootstrap E2E" time="0" file="test/skill-e2e-qa-workflow.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="(unnamed)" classname="Test Bootstrap E2E" time="0." file="test/skill-e2e-qa-workflow.test.ts" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+  </testsuite>
+</testsuites>

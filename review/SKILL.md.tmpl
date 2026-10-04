@@ -383,6 +383,8 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 The required in-host adversarial result controls native completion. Optional outside
 attempts keep their own incomplete records when unavailable and cannot substitute
 for the native result, or vice versa. Step 4.8's structured-review gate still applies.
+An outside review reporting `unverified` or `unavailable` is missing coverage, never a
+pass: report it with its reason.
 
 - Use Step 4.6's `specialists` object unchanged, including its empty small-diff map.
   If this host omits Review Army, use `specialists: {}` without claiming specialist coverage.

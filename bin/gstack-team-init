@@ -151,6 +151,8 @@ Install it:
 
 Then restart your AI coding tool.
 MSG
+  # Exit 2 denies on Claude Code (#2413) and on Copilot CLI, which treats a
+  # preToolUse exit 2 as deny (#2229).
   echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"gstack is required but not installed. See stderr for install instructions."}}'
   exit 2
 fi
@@ -173,15 +175,19 @@ HOOK_EOF
       if (!settings.hooks) settings.hooks = {};
       if (!settings.hooks.PreToolUse) settings.hooks.PreToolUse = [];
 
-      // Dedup
-      const exists = settings.hooks.PreToolUse.some(entry =>
-        entry.matcher === 'Skill' &&
+      // Claude Code's skill tool is Skill; Copilot CLI's is skill, which no
+      // Claude tool name maps to, so a bare 'Skill' never fired there (#2229).
+      // An entry an older team-init wrote is upgraded in place, never duplicated.
+      const MATCHER = 'Skill|skill';
+      const ours = settings.hooks.PreToolUse.filter(entry =>
+        (entry.matcher === 'Skill' || entry.matcher === MATCHER) &&
         entry.hooks && entry.hooks.some(h => h.command && h.command.includes('check-gstack'))
       );
+      for (const entry of ours) entry.matcher = MATCHER;
 
-      if (!exists) {
+      if (ours.length === 0) {
         settings.hooks.PreToolUse.push({
-          matcher: 'Skill',
+          matcher: MATCHER,
           hooks: [{
             type: 'command',
             command: '\"\$CLAUDE_PROJECT_DIR/.claude/hooks/check-gstack.sh\"'

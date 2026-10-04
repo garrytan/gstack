@@ -21,6 +21,14 @@ import { getHostConfig } from '../../hosts/index';
 // future contributors writing dangerous values.
 const QUERY_SAFE_RE = /^[A-Za-z0-9 _-]+$/;
 
+/**
+ * B5 (#2790): run a learnings search with its stdout intact and its stderr and
+ * exit status kept, so a missing bun or a failed script prints why instead of
+ * reading as "nothing recorded". Two lines: the capture, then the verdict.
+ */
+export const learningsCapture = (command: string) => `{ _LE=$(${command} 2>&1 >&3 3>&-); _LR=$?; } 3>&1`;
+export const LEARNINGS_VERDICT = `[ "$_LR" = 0 ] || { _LE=\${_LE%%$'\\n'*}; echo "LEARNINGS: unavailable (\${_LE:-exit $_LR})"; }`;
+
 export function generateLearningsSearch(ctx: TemplateContext, args?: string[]): string {
   // Parse query= arg. Empty value falls through to no-query (principle of least surprise:
   // a stray {{LEARNINGS_SEARCH:query=}} placeholder gets today's behavior, not a build error).
@@ -58,7 +66,8 @@ the current behavior. Reading old notes never requires writing new ones.`;
 Search for relevant learnings from previous sessions on this project:
 
 \`\`\`bash
-$GSTACK_BIN/gstack-learnings-search --limit 10${queryFlag} 2>/dev/null || true
+${learningsCapture(`$GSTACK_BIN/gstack-learnings-search --limit 10${queryFlag}`)}
+${LEARNINGS_VERDICT}
 \`\`\`
 
 If learnings are found, incorporate them into your analysis. When a ${findingKind} finding
@@ -73,10 +82,11 @@ Search for relevant learnings from previous sessions:
 _CROSS_PROJ=$(${ctx.paths.binDir}/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
-  ${ctx.paths.binDir}/gstack-learnings-search --limit 10${queryFlag} --cross-project 2>/dev/null || true
+  ${learningsCapture(`${ctx.paths.binDir}/gstack-learnings-search --limit 10${queryFlag} --cross-project`)}
 else
-  ${ctx.paths.binDir}/gstack-learnings-search --limit 10${queryFlag} 2>/dev/null || true
+  ${learningsCapture(`${ctx.paths.binDir}/gstack-learnings-search --limit 10${queryFlag}`)}
 fi
+${LEARNINGS_VERDICT}
 \`\`\`
 
 If \`CROSS_PROJECT\` is \`unset\` (first time): ${ctx.skillName === 'plan-eng-review' ? 'Build a full decision brief from these facts and options using the preamble format, then ask and wait:' : 'Use AskUserQuestion:'}

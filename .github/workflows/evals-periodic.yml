@@ -98,6 +98,7 @@ jobs:
       contents: read
     outputs:
       periodic_slices: ${{ steps.periodic-matrix.outputs.slices }}
+      periodic_codex_slices: ${{ steps.periodic-matrix.outputs.codex_slices }}
       periodic_timeout_minutes: ${{ steps.periodic-matrix.outputs.timeout_minutes }}
       gate_slices: ${{ steps.gate-matrix.outputs.slices }}
       gate_timeout_minutes: ${{ steps.gate-matrix.outputs.timeout_minutes }}
@@ -113,13 +114,18 @@ jobs:
       - name: Emit run manifest (ALL periodic tests minus reasoned excludes)
         env:
           EVALS_ALL: "1"
-        run: EVALS_TIER=periodic bun --no-install run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slice-budget 540 --jobs 2 --max-parallel 25
+        run: EVALS_TIER=periodic bun --no-install run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slice-budget 540 --jobs 2 --max-parallel 26
 
+      # Codex-only slices run on the host-run eval-codex-slices job; the
+      # container executor runs every other slice.
       - name: Derive the periodic executor matrix from the plan
         id: periodic-matrix
         run: |
-          echo "slices=$(jq -c '[range(1; .sliceCount + 1)]' /tmp/paid-plan/manifest.json)" >> "$GITHUB_OUTPUT"
-          echo "timeout_minutes=$(jq -e '.plan.ciTimeoutMinutes' /tmp/paid-plan/manifest.json)" >> "$GITHUB_OUTPUT"
+          {
+            echo "slices=$(jq -c '[range(1; .sliceCount + 1)] - .plan.codexSlices' /tmp/paid-plan/manifest.json)"
+            echo "codex_slices=$(jq -c '.plan.codexSlices' /tmp/paid-plan/manifest.json)"
+            echo "timeout_minutes=$(jq -e '.plan.ciTimeoutMinutes' /tmp/paid-plan/manifest.json)"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -166,7 +172,7 @@ jobs:
       fail-fast: false
       # Every planned slice starts at once; test/evals-workflow-wiring.test.ts
       # fails when the live plan outgrows this cap.
-      max-parallel: 25
+      max-parallel: 26
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.periodic_slices) }}
     steps:
@@ -280,6 +286,135 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  # Codex shards on the host. Codex runs every shell command inside a
+  # bubblewrap sandbox, which needs an unprivileged user namespace. A job
+  # container cannot get one: Docker's default seccomp and AppArmor profiles
+  # block it, and Ubuntu 24.04 hosts set
+  # kernel.apparmor_restrict_unprivileged_userns=1, which no container option
+  # can change. This job runs on the runner VM itself (ephemeral, one job),
+  # lifts that host restriction, and runs the same CI image with both
+  # profiles unconfined. Only the planner's Codex slices run here
+  # (scripts/lib/paid-plan.ts codexSlicesOf); slice artifacts use the same
+  # names as eval-slices, so the report reconciles one manifest.
+  eval-codex-slices:
+    runs-on: ubicloud-standard-8
+    needs: [build-image, plan-slices]
+    if: ${{ needs.plan-slices.outputs.periodic_codex_slices != '[]' }}
+    env:
+      EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-eval-slices-${{ matrix.slice }}
+    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.periodic_timeout_minutes) }}
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      max-parallel: 26
+      matrix:
+        slice: ${{ fromJSON(needs.plan-slices.outputs.periodic_codex_slices) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: paid-plan
+          path: ${{ runner.temp }}/paid-plan
+
+      - name: Let Codex's bubblewrap sandbox create user namespaces
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The same steps as eval-slices (bun temp, deps, build, Codex login,
+      # slice run) inside the CI image. The container's home is a fresh
+      # runner-temp directory, so logs and captures upload from there.
+      - name: Run periodic Codex slice ${{ matrix.slice }}
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EVAL_IMAGE: ${{ needs.build-image.outputs.image-tag }}
+          SLICE: ${{ matrix.slice }}
+          EVALS_JOBS: "2"
+        run: |
+          mkdir -p "$RUNNER_TEMP/eval-home" "$RUNNER_TEMP/paid-slice-results"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+            -e HOME=/home/runner -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GEMINI_API_KEY -e SLICE -e EVALS_JOBS \
+            -e EVALS_RUN_ID -e EVALS_PROFILE -e EVALS_FRESH -e EVALS_CACHE_PURPOSE -e CI -e GITHUB_ACTIONS \
+            -e GITHUB_RUN_ID -e GITHUB_RUN_ATTEMPT -e GITHUB_SHA -e GITHUB_REF -e GITHUB_REF_NAME -e GITHUB_REPOSITORY \
+            -e GITHUB_EVENT_NAME -e GITHUB_BASE_REF -e GITHUB_HEAD_REF \
+            -e PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers -e EVALS_CONCURRENCY=2 -e GSTACK_EVAL_DIR=/tmp/paid-slice-results \
+            -v "$GITHUB_WORKSPACE:/workspace/gstack" -w /workspace/gstack \
+            -v "$RUNNER_TEMP/eval-home:/home/runner" \
+            -v "$RUNNER_TEMP/paid-plan:/tmp/paid-plan:ro" \
+            -v "$RUNNER_TEMP/paid-slice-results:/tmp/paid-slice-results" \
+            "$EVAL_IMAGE" bash -c '
+            set -euo pipefail
+            mkdir -p "$HOME/.cache/bun"
+            export BUN_INSTALL_CACHE_DIR="$HOME/.cache/bun" BUN_TMPDIR="$HOME/.cache/bun" TMPDIR="$HOME/.cache"
+            if diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
+              rm -rf node_modules && cp -r /opt/node_modules_cache node_modules
+            else
+              bun install --frozen-lockfile
+            fi
+            bun run build
+            codex="${GSTACK_CI_CODEX_BIN_DIR:?}/codex"
+            export CODEX_HOME="$HOME/.gstack-ci-codex"
+            mkdir -p "$CODEX_HOME"
+            if [ -n "${OPENAI_API_KEY:-}" ]; then
+              printenv OPENAI_API_KEY | "$codex" login --with-api-key
+              "$codex" login status >/dev/null 2>&1
+            else
+              echo "::warning::OPENAI_API_KEY is unavailable; Codex eval cases cannot authenticate and will fail."
+            fi
+            export GSTACK_CI_CODEX_HOME="$CODEX_HOME"
+            unset CODEX_HOME
+            EVALS_TIER=periodic bun run scripts/test-paid-shards.ts --tier periodic --plan /tmp/paid-plan/manifest.json --slice "$SLICE"
+            '
+
+      - name: Upload slice results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: paid-slice-${{ matrix.slice }}-a${{ github.run_attempt }}
+          path: ${{ runner.temp }}/paid-slice-results
+          retention-days: 90
+
+      - name: Upload native capture evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-captures-${{ env.EVALS_RUN_ID }}
+          include-hidden-files: true
+          path: |
+            ${{ runner.temp }}/eval-home/.gstack/projects/*/e2e-runs
+            ${{ runner.temp }}/eval-home/.gstack/projects/*/evals/qa-callers
+            ${{ runner.temp }}/eval-home/.gstack-dev/e2e-runs
+            ${{ runner.temp }}/eval-home/.gstack-dev/evals/qa-callers
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upload shard logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: paid-logs-slice-${{ matrix.slice }}-a${{ github.run_attempt }}
+          include-hidden-files: true
+          path: ${{ runner.temp }}/eval-home/.cache/gstack-paid-shard-*.log
+          if-no-files-found: ignore
+          retention-days: 30
+
   # Weekly EVALS_ALL gate-tier census: PR lanes are diff-billed, so without
   # this the full gate census might never execute anywhere and the selector's
   # blind spots rot invisibly. Census health, not selector correctness —
@@ -389,7 +524,7 @@ jobs:
 
   report:
     runs-on: ubicloud-standard-2
-    needs: [plan-slices, eval-slices, gate-census]
+    needs: [plan-slices, eval-slices, eval-codex-slices, gate-census]
     # !cancelled(): the report must run (and FAIL) when an executor died — a
     # missing slice artifact reading as green is the class this lane kills —
     # but a cancelled run stops here.
@@ -521,7 +656,7 @@ jobs:
       # issue (never a new issue per week) with the headline and failure block
       # of both lanes, and close it on the next green run.
       - name: Upsert tracking issue on failure
-        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || steps.pass-rates.outputs.exit != '0' || needs.eval-slices.result != 'success' || needs.gate-census.result != 'success')
+        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || steps.pass-rates.outputs.exit != '0' || needs.eval-slices.result != 'success' || !contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) || needs.gate-census.result != 'success')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REDISPATCH: ${{ steps.verdict.outputs.redispatch }}
@@ -536,7 +671,7 @@ jobs:
             if [ -n "$REDISPATCH_OF" ]; then echo; echo "This run is the one INFRA/INCOMPLETE re-dispatch of run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${REDISPATCH_OF}; both runs are reported."; fi
             if [ "$REDISPATCH" = "true" ]; then echo; echo "Every red verdict is machine-classified INFRA/INCOMPLETE: re-dispatching once as a new run (EVAL_POLICY.infraRedispatch). This run stays red and reported."; fi
             echo
-            echo "- periodic reconciliation exit: ${{ steps.reconcile.outputs.exit }} (slices job: ${{ needs.eval-slices.result }})"
+            echo "- periodic reconciliation exit: ${{ steps.reconcile.outputs.exit }} (slices job: ${{ needs.eval-slices.result }}, Codex slices job: ${{ needs.eval-codex-slices.result }})"
             echo "- gate census reconciliation exit: ${{ steps.gate-reconcile.outputs.exit }} (census job: ${{ needs.gate-census.result }})"
             echo "- pass-rate history gate exit: ${{ steps.pass-rates.outputs.exit }}"
             echo
@@ -573,7 +708,7 @@ jobs:
           fi
 
       - name: Close the tracking issue on a green run
-        if: always() && steps.reconcile.outputs.exit == '0' && steps.gate-reconcile.outputs.exit == '0' && steps.pass-rates.outputs.exit == '0' && needs.eval-slices.result == 'success' && needs.gate-census.result == 'success'
+        if: always() && steps.reconcile.outputs.exit == '0' && steps.gate-reconcile.outputs.exit == '0' && steps.pass-rates.outputs.exit == '0' && needs.eval-slices.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) && needs.gate-census.result == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REDISPATCH_OF: ${{ inputs.redispatch_of }}
@@ -588,7 +723,7 @@ jobs:
           fi
 
       - name: Fail the workflow when reconciliation failed
-        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || steps.pass-rates.outputs.exit != '0' || needs.eval-slices.result != 'success' || needs.gate-census.result != 'success')
+        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || steps.pass-rates.outputs.exit != '0' || needs.eval-slices.result != 'success' || !contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) || needs.gate-census.result != 'success')
         run: exit 1
 
   # The one INFRA/INCOMPLETE re-dispatch (UC-E1). Its own job so the report

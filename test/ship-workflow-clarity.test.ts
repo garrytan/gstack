@@ -140,7 +140,7 @@ test.each(ALL_HOST_CONFIGS.map(({ name }) => name))('%s: ship adversarial approv
 test('outside challenge availability never resets fix limits or bypasses blocking owners', () => {
   const adversarial = compact(readTemplate('ship/sections/adversarial.md'));
   expect(adversarial).toMatch(/an unavailable outside challenge does not block shipping by itself/i);
-  expect(adversarial).toMatch(/structured P1 and non-convergence gates still apply/i);
+  expect(adversarial).toMatch(/structured P0\/P1 and non-convergence gates still apply/i);
   expect(adversarial).toMatch(/returning here never resets Step 9's three-cycle fix limit/i);
   const standaloneReview = readTemplate('review/sections/adversarial.md');
   expect(standaloneReview).toContain('Step 5 Fix-First');

@@ -373,10 +373,15 @@ describe("#1802 D1 — remote-http finally gate (static invariant)", () => {
     "utf-8",
   );
 
-  test("finally gates cleanupStagingDir on !remoteHttpMode", () => {
-    // Tolerates additional guards (e.g. C3's !preserveStaging) in the same
-    // condition — the load-bearing invariant is that remote-http never deletes.
-    expect(ingest).toMatch(/if \(!remoteHttpMode[^)]*\) cleanupStagingDir\(stagingDir\)/);
+  test("the remote-http branch returns before any staging cleanup can run", () => {
+    // A1 moved remote-http staging into stageForRemoteBrain, which ingestPass
+    // returns before importBatch (the only owner of the cleanup finally) runs.
+    // The load-bearing invariant is unchanged: remote-http never deletes.
+    const at = ingest.indexOf("function stageForRemoteBrain(");
+    expect(at).toBeGreaterThan(-1);
+    const body = ingest.slice(at, ingest.indexOf("\n}\n", at));
+    expect(body).not.toMatch(/cleanupStagingDir/);
+    expect(ingest).toMatch(/if \(remoteHttpMode\) return stageForRemoteBrain\(/);
   });
 
   test("the only finally-scoped cleanup call is the gated one", () => {
@@ -411,9 +416,7 @@ describe("#1802 C3 — import-timeout preserve (static invariant)", () => {
   });
 
   test("finally honors preserveStaging", () => {
-    expect(ingest).toMatch(
-      /if \(!remoteHttpMode && !preserveStaging\) cleanupStagingDir\(stagingDir\)/,
-    );
+    expect(ingest).toMatch(/if \(!preserveStaging\) cleanupStagingDir\(stagingDir\)/);
   });
 });
 

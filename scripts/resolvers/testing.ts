@@ -480,13 +480,13 @@ A proposal that fails the value bar becomes "extend <existing test>" or is dropp
 
 Run the decision gate for this section's new or reopened choices. **STOP for each pending decision.** Wait for its answer before applying that remedy, moving to the next section or calling ExitPlanMode.
 
-When these test and eval choices are resolved, write the Test Plan Artifact below. Its approved requirements should be specific enough to implement alongside the feature code.`);
+Then write the Test Plan Artifact below, even while some choices are still unanswered (for example in a non-interactive run). Its approved requirements should be specific enough to implement alongside the feature code.`);
 
     // ── Test plan artifact (plan + ship) ──
     sections.push(`
 ${subheading} Test Plan Artifact
 
-After resolving the Test review decisions, record the approved test requirements in an artifact for \`/qa\` and \`/qa-only\`. List any unresolved choices separately as pending, not required implementation. Update this artifact if later approved decisions change the tests. Use the Review record and write policy above.
+After the Test review decision gate, record the approved test requirements in an artifact for \`/qa\` and \`/qa-only\`. Write it even when choices are still pending; list any unresolved choices separately as pending, not required implementation. Update this artifact if later approved decisions change the tests. Use the Review record and write policy above.
 
 \`\`\`bash
 GSTACK_STATE_ROOT=$(~/.claude/skills/gstack/bin/gstack-paths --get GSTACK_STATE_ROOT); : "\${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"

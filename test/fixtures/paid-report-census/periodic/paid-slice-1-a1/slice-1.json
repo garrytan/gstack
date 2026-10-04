@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "tier": "periodic",
+  "profile": "full",
+  "selection": {
+    "e2e": null,
+    "judges": null
+  },
+  "sliceIndex": 1,
+  "sliceCount": 1,
+  "attempt": 1,
+  "outcomes": [
+    {
+      "files": [
+        "test/skill-e2e-qa-workflow.test.ts"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 353035,
+      "executedTests": 8,
+      "skippedTests": 7,
+      "budget": {
+        "timeoutMs": 1800000,
+        "source": "default",
+        "policyId": null
+      }
+    },
+    {
+      "files": [
+        "test/skill-e2e-design.test.ts#design-consultation-core"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 176652,
+      "executedTests": 4,
+      "skippedTests": 3,
+      "budget": {
+        "timeoutMs": 1800000,
+        "source": "default",
+        "policyId": null
+      }
+    },
+    {
+      "files": [
+        "test/skill-e2e-benchmark-providers.test.ts"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 8552,
+      "executedTests": 8,
+      "skippedTests": 0,
+      "budget": {
+        "timeoutMs": 1800000,
+        "source": "default",
+        "policyId": null
+      }
+    },
+    {
+      "files": [
+        "test/carve-section-loading-review.test.ts"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 143440,
+      "executedTests": 1,
+      "skippedTests": 0,
+      "budget": {
+        "timeoutMs": 1800000,
+        "source": "default",
+        "policyId": null
+      }
+    },
+    {
+      "files": [
+        "test/skill-e2e-cso.test.ts"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 293156,
+      "executedTests": 3,
+      "skippedTests": 1,
+      "budget": {
+        "timeoutMs": 1800000,
+        "source": "default",
+        "policyId": null
+      }
+    },
+    {
+      "files": [
+        "test/codex-e2e-recommendation-substance.test.ts"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 13090,
+      "executedTests": 1,
+      "skippedTests": 0,
+      "budget": {
+        "timeoutMs": 1800000,
+        "source": "default",
+        "policyId": null
+      }
+    },
+    {
+      "files": [
+        "test/skill-e2e-test-value.test.ts"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 50,
+      "executedTests": 3,
+      "skippedTests": 3,
+      "budget": {
+        "timeoutMs": 1800000,
+        "source": "default",
+        "policyId": null
+      }
+    }
+  ]
+}

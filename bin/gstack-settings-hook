@@ -14,7 +14,8 @@
 #        gstack-settings-hook add-event --event <name — see the validator in add-event> \
 #          --command <cmd> --source <tag> [--matcher <regex>] [--timeout <s>]
 #        gstack-settings-hook ensure-event --event ... --command ... --source ... [--matcher ...] [--timeout <s>]
-#        gstack-settings-hook remove-source --source <tag>   # removes items the table identifies as <tag>'s, tagged or not
+#        gstack-settings-hook remove-source --source <tag> [--event <name>]
+#                                          # removes items the table identifies as <tag>'s, tagged or not
 #        gstack-settings-hook diff-event   --event ... --command ... --source ... [--matcher ...]
 #        gstack-settings-hook rollback     # restore latest backup (single-step undo)
 #        gstack-settings-hook list-sources # show all gstack-tagged hook entries
@@ -79,7 +80,7 @@ Usage:
   gstack-settings-hook remove <hook-command>          # legacy SessionStart remove
   gstack-settings-hook add-event --event <name> --command <cmd> --source <tag> [--matcher <re>] [--timeout <s>]
   gstack-settings-hook ensure-event --event <name> --command <cmd> --source <tag> [--matcher <re>] [--timeout <s>]
-  gstack-settings-hook remove-source --source <tag>   # tagged OR table-identified items of <tag>
+  gstack-settings-hook remove-source --source <tag> [--event <name>]   # tagged OR table-identified items of <tag>
   gstack-settings-hook diff-event --event <name> --command <cmd> --source <tag> [--matcher <re>] [--timeout <s>]
   gstack-settings-hook prune-stale [--repoint <root>] [--all]
   gstack-settings-hook rollback
@@ -641,10 +642,12 @@ case "$ACTION" in
 
   remove-source)
     SOURCE=""
+    RS_EVENT=""
     shift
     while [ $# -gt 0 ]; do
       case "$1" in
         --source) SOURCE="$2"; shift 2 ;;
+        --event)  RS_EVENT="$2"; shift 2 ;;
         *) echo "unknown flag: $1" >&2; exit 1 ;;
       esac
     done
@@ -655,9 +658,10 @@ case "$ACTION" in
     [ -f "$SETTINGS_FILE" ] || exit 0
     _acquire_lock || exit 5
     _mutation_env
-    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_SOURCE="$SOURCE" bun -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_SOURCE="$SOURCE" GSTACK_RS_EVENT="$RS_EVENT" bun -e "$_HOOK_JS_PRELUDE"'gsMain(function () {
       const settingsPath = process.env.GSTACK_SETTINGS_PATH;
       const source = process.env.GSTACK_SOURCE;
+      const onlyEvent = process.env.GSTACK_RS_EVENT || "";
       const loaded = gsLoadSettings(settingsPath);
       const settings = loaded.settings;
       if (!settings.hooks) { console.log("OK: removed 0 hook entry/entries tagged source=" + source); process.exit(0); }
@@ -677,6 +681,7 @@ case "$ACTION" in
       // the tag with its last owned item. Callers that need every gstack
       // item gone still pair this with prune-stale --all.
       for (const event of Object.keys(settings.hooks)) {
+        if (onlyEvent && event !== onlyEvent) continue;   // --event scopes the removal (Q3)
         const entries = settings.hooks[event];
         if (!Array.isArray(entries)) continue;   // foreign shape: not ours to judge
         const kept = [];

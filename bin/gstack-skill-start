@@ -190,12 +190,19 @@ for _PF in $(find "$_GH/analytics" -maxdepth 1 -name '.pending-*' 2>/dev/null); 
   break
 done
 eval "$("$_BIN/gstack-slug" 2>/dev/null)" 2>/dev/null || true
+for _former in $("$_BIN/gstack-slug" --get FORMER_SLUGS 2>/dev/null || true); do
+  echo "gstack: earlier data for this project is in projects/$_former (a worktree's old bucket). Merge it: gstack-slug --adopt-legacy --from $_former   (or stop this reminder: gstack-slug --adopt-legacy --dismiss $_former)"
+done
 _LEARN_FILE="$_GH/projects/${SLUG:-unknown}/learnings.jsonl"
 if [ -f "$_LEARN_FILE" ]; then
   _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
   echo "LEARNINGS: $_LEARN_COUNT entries loaded"
   if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
-    "$_BIN/gstack-learnings-search" --limit 3 2>/dev/null | _sanitize || true
+    _LEARN_ERR=$(mktemp "${TMPDIR:-/tmp}/gstack-learn-err.XXXXXX" 2>/dev/null) || _LEARN_ERR=/dev/null
+    if ! "$_BIN/gstack-learnings-search" --limit 3 2>"$_LEARN_ERR" | _sanitize; then
+      echo "LEARNINGS: unavailable ($(head -n 1 "$_LEARN_ERR" 2>/dev/null))"
+    fi
+    [ "$_LEARN_ERR" = /dev/null ] || rm -f "$_LEARN_ERR"
   fi
 else
   echo "LEARNINGS: 0"

@@ -58,7 +58,7 @@ REDACT_VIS=$(~/.claude/skills/gstack/bin/gstack-config get redact_repo_visibilit
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(glab repo view -F json 2>/dev/null | grep -o '"visibility":"[^"]*"' | head -1 | sed 's/.*:"//;s/"//' | tr 'A-Z' 'a-z')
 REDACT_VIS="${REDACT_VIS:-unknown}"
-REDACT_FILE=$(mktemp) || { echo "ERROR: mktemp failed — refusing to send the spec body unscanned." >&2; exit 1; }
+REDACT_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-redact.XXXXXX") || { echo "ERROR: mktemp failed — refusing to send the spec body unscanned." >&2; exit 1; }
 cat > "$REDACT_FILE" <<'REDACT_BODY_EOF'
 <the exact the spec body goes here>
 REDACT_BODY_EOF
@@ -165,26 +165,28 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" && _gstack_codex_select_model exec || exit 1
-_OUTSIDE_PROMPT=$(cat "$_OUTSIDE_INPUT") || exit 1
+_gstack_codex_sandbox_preflight >/dev/null || exit 1
+_gstack_codex_first_use_notice
 _OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper 120 codex exec "$_OUTSIDE_PROMPT" -C "$_REPO_ROOT" -s read-only -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
-cat "$_OUTSIDE_TMP/text" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
+_gstack_codex_timeout_wrapper 120 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"
 
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
-if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
-  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
-  exit "$_OUTSIDE_EXIT"
-fi
-bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" spec "$_OUTSIDE_TMP/text" || exit 1
-
+_OUTSIDE_RC=0
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" --label 'Codex outside review' --exit "$_OUTSIDE_EXIT" --stderr "$_OUTSIDE_TMP/stderr" --events "$_OUTSIDE_TMP/events" spec "$_OUTSIDE_TMP/text" || _OUTSIDE_RC=$?
+case "$_OUTSIDE_RC" in
+  0|3) ;;
+  4) echo 'OUTSIDE_STATUS: unverified provider=codex host=claude'; exit 4 ;;
+  *) [ "$_OUTSIDE_EXIT" -ne 0 ] && exit "$_OUTSIDE_EXIT"; exit 1 ;;
+esac
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Use Bash `timeout: 180000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 180000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 Missing/broken CLI, authentication failure, timeout, refusal, nonzero exit, invalid JSON, empty response, output overflow, or missing/invalid SCORE and AMBIGUITIES means missing coverage: name Codex, give the emitted diagnosis/setup command, mark unavailable, and continue to Phase 5 under the existing fallback. Never label these outcomes PASS. The CLI's transport success alone cannot pass the quality gate.
 
-Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"spec-quality-gate"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.
+Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"spec-quality-gate"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown. Under `GSTACK_CODEX_NO_SANDBOX=1` add `"codex_sandbox":"danger-full-access"`.
 
 **Scoring outcomes:**
 
@@ -364,8 +366,13 @@ collisions:
 ```bash
 SPAWN_BRANCH="spec/${SLUG_TITLE}-$$"
 SPAWN_PATH="${WORKTREE_PARENT:-../worktrees}/${SLUG_TITLE}-$$"
-mkdir -p "$(dirname "$SPAWN_PATH")"
+mkdir -p "$(dirname "$SPAWN_PATH")" && SPAWN_PATH="$(cd -- "$(dirname "$SPAWN_PATH")" && pwd -P)/$(basename "$SPAWN_PATH")" || exit 1
+echo "SPAWN_BRANCH=$SPAWN_BRANCH SPAWN_PATH=$SPAWN_PATH PIN_SHA=${PIN_SHA:-}"
 ```
+
+Shell variables do not survive between tool calls: start each block below by
+assigning `SPAWN_PATH`, `SPAWN_BRANCH`, `PIN_SHA` and `ARCHIVE_PATH` from the
+values printed above.
 
 **Final-confirm gate (required):** AskUserQuestion: "Spawn agent now? Last
 chance to revise the spec." Options: A) Spawn. B) Cancel (issue stays filed,
@@ -374,17 +381,23 @@ archive stays written).
 If A:
 
 ```bash
+: "${SPAWN_PATH:?SPAWN_PATH is not set: substitute the printed path}" "${SPAWN_BRANCH:?SPAWN_BRANCH is not set}" "${PIN_SHA:?PIN_SHA is not set}"
 git worktree add "$SPAWN_PATH" -b "$SPAWN_BRANCH" "$PIN_SHA" 2>&1
 ```
 
 **Error: worktree create fails** (disk full, path exists, etc.): print:
 "Worktree create failed — `$ERROR`. Spawning agent in current dir instead. Your
 in-progress changes will be visible to the agent. Cancel with Ctrl+C if not
-desired." Then fall back to current dir (still spawn).
+desired." Then fall back to current dir (still spawn): set `SPAWN_PATH` to the
+repository root (`git rev-parse --show-toplevel`).
 
 If A and worktree created: spawn `claude -p` with the spec piped via stdin:
 
 ```bash
+[ -r "${ARCHIVE_PATH:?ARCHIVE_PATH is not set: substitute the archived spec path}" ] || { echo "ERROR: cannot read $ARCHIVE_PATH; nothing was spawned." >&2; exit 1; }
+cd -- "${SPAWN_PATH:?SPAWN_PATH is not set: substitute the printed worktree path}" || exit 1
+[ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ] || { echo "ERROR: $SPAWN_PATH is not a git worktree root; nothing was spawned." >&2; exit 1; }
+SPAWN_PATH=$(pwd -P)
 cat "$ARCHIVE_PATH" | (cd "$SPAWN_PATH" && claude -p 2>&1) &
 SPAWN_PID=$!
 echo "Spawned: PID $SPAWN_PID in $SPAWN_PATH (branch $SPAWN_BRANCH)"

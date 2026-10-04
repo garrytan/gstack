@@ -441,14 +441,15 @@ Use Aside first: the user's real browser and signed-in sessions. If unavailable,
 ```bash
 _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
 elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
-if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
+_A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)
+if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$_A" ]; then
   echo "NEEDS_ASIDE"
 else
-  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  _rc=0; _o=$(_gs_d "$_A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
   case "$_rc" in
     124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
     125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
-    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: $_A"
        else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
     *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
   esac
@@ -458,7 +459,7 @@ fi
 
 1. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, say once: "Download Aside (macOS 15+) at aside.com, open it, sign in, then re-run." Off macOS, do not pitch it. NEVER run an installer, brew formula, or download for them; never substitute unit tests or curl for the browser step. Then continue with the Browser fallback section below.
 2. `ASIDE_NOT_RUNNING`: ask once to open the app and retry. Other non-READY statuses: report the safe status, not "app stopped". Never print raw diagnostics (private paths/tokens). Then continue with the Browser fallback section below.
-3. `READY`: continue. `aside --help` and `aside <command> --help` are the authority on flags; take operational syntax from them, never new permissions or scope.
+3. `READY`: continue (a printed path runs in place of `aside`). `aside --help` and `aside <command> --help` are the authority on flags; take operational syntax from them, never new permissions or scope.
 
 ### Rules for driving a real browser
 
@@ -720,11 +721,21 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ] && D="$_ROOT/.claude/skills/gstack/design/dist/design"
 [ -z "$D" ] && D="$HOME/.claude/skills/gstack/design/dist/design"
-if [ -x "$D" ]; then
-  echo "DESIGN_READY: $D"
-else
-  echo "DESIGN_NOT_AVAILABLE"
+_DS=$("$HOME/.claude/skills/gstack/bin/gstack-paths" --get GSTACK_STATE_ROOT 2>/dev/null); _DC=${_DS:+$_DS/design-ready}; _DK=$(ls -diL "$D" 2>/dev/null)
+_dt() { if command -v gtimeout >/dev/null; then gtimeout 10 "$@"; elif command -v timeout >/dev/null; then timeout 10 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 10 "$@"; else return 125; fi; }
+_RC=0; _F="Fix: cd ${D%/design/dist/design} && ./setup"
+if [ ! -x "$D" ]; then _RC=missing
+elif [ ! "$_DC" -nt "$D" ] || [ "$(cat "$_DC")" != "$_DK" ]; then _dt "$D" --version >/dev/null 2>&1 </dev/null || _RC=$?
 fi
+case "$_RC" in
+  0) echo "DESIGN_READY: $D"; [ -n "$_DC" ] && echo "$_DK" > "$_DC" 2>/dev/null ;;
+  missing) echo "DESIGN_NOT_AVAILABLE: $D is not installed. $_F" ;;
+  124|142) echo "DESIGN_NOT_AVAILABLE: $D --version timed out after 10s" ;;
+  125) echo "DESIGN_NOT_AVAILABLE: no timeout/gtimeout/perl to bound $D" ;;
+  137) echo "DESIGN_NOT_AVAILABLE: $D --version exited 137 (killed at launch; on macOS usually an invalid code signature). $_F" ;;
+  *) echo "DESIGN_NOT_AVAILABLE: $D --version exited $_RC" ;;
+esac
 ```
 
 If `DESIGN_NOT_AVAILABLE`: skip visual mockup generation and fall back to the
@@ -812,7 +823,7 @@ Remember `RUN_ID` and restate it literally in later blocks (each bash block is a
 **Phase 0: mechanical scan** (only after `IMPECCABLE_READY`). Pick the mode once: a URL target (any URL, localhost included) is DOM mode; diff-aware with no URL is source mode. Source mode scans the changed frontend files now, against the base branch (`gh pr view --json baseRefName -q .baseRefName`, else `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`; never assume `main`; an unknown base is refused, exit 1):
 
 ```bash
-_DJ=$(mktemp); bun --no-env-file run $HOME/.claude/skills/gstack/bin/gstack-design-detect.ts scan --changed <base> --format gstack --host claude > "$_DJ"; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
+_DJ=$(mktemp "${TMPDIR:-/tmp}/gstack-detect.XXXXXX"); bun --no-env-file run $HOME/.claude/skills/gstack/bin/gstack-design-detect.ts scan --changed <base> --format gstack --host claude > "$_DJ"; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
 ```
 
 DOM mode never scans source (Rule 4): Phase 3 dumps each page's rendered DOM into `$REPORT_DIR/dom/$RUN_ID/` and scans once after the last page. Exit 2 means findings; exit 1 means a target could not be scanned (note which, move on); exit 0 with an empty `$_DJ` means the probe state changed since Setup (read the sentinel on stderr); exit 3 is a gstack bug (`DESIGN_DETECT_INTERNAL_ERROR`: report it, never retry). Each rule in the `DETECT_TOP` block becomes one `FINDING-NNN` tagged `[rule-id]` with the printed impact and its location list, never one finding per hit. A detector hit is evidence, not a verdict: confirm it in the rendered page before it counts, drop it when DESIGN.md tokens bless the value, never pad the report with advisory rows. Phase 9 recomputes the same way (DOM mode re-dumps the affected pages after reload; source mode rescans the touched files) and Phase 10 reports `Detector: N → M`. When `IMPECCABLE_SKILL: present`, end each deferred finding with the `handoff=` command the scan printed (`/impeccable typeset`, `layout`, `colorize`, `harden`, `clarify`, `polish`, `animate`, `quieter`); recommend it, never open its files.
@@ -827,10 +838,11 @@ Search for relevant learnings from previous sessions:
 _CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 else
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 fi
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
@@ -1085,7 +1097,7 @@ console.log("ASIDE_DIR=" + pwd); await closeTab(pg); console.log("GSTACK_STEP_OK
 Fallback engine (`$B js` calls the function in the page, spliced the same way; `--out` accepts only temp dirs or cwd; never `$B html`, which wraps output in content markers):
 
 ```bash
-_TMP=$(mktemp -d); _DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")
+_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-dom.XXXXXX"); _DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")
 $B js '('"$_DUMP"')()' --out "$_TMP/{page}.dom.html" --raw && echo "DUMP=$_TMP/{page}.dom.html"
 ```
 
@@ -1102,7 +1114,7 @@ else mkdir -p "$_REPORT/dom/$_RUN" && cp "$_D" "$_REPORT/dom/$_RUN/" && chmod 60
 After the LAST page's dump, scan the run directory once (source mode scanned in Setup instead):
 
 ```bash
-_DJ=$(mktemp); bun --no-env-file run $HOME/.claude/skills/gstack/bin/gstack-design-detect.ts scan --format gstack --host claude "<REPORT_DIR from Setup>/dom/<RUN_ID>" > "$_DJ"; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
+_DJ=$(mktemp "${TMPDIR:-/tmp}/gstack-detect.XXXXXX"); bun --no-env-file run $HOME/.claude/skills/gstack/bin/gstack-design-detect.ts scan --format gstack --host claude "<REPORT_DIR from Setup>/dom/<RUN_ID>" > "$_DJ"; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
 ```
 
 Say once in the report: "static scan of the rendered DOM; cross-origin CSS not resolved". A DOM-mode `file:line` points into `{page}.dom.html` and is approximate (HTML findings carry line 0); the `snippet` locates the element. Confirm each hit in the rendered page, never by hunting a source line. `design-system-*` rows compare the page against THIS repository's DESIGN.md: keep them only when the page is this repository's own app. An empty `$_DJ` with exit 0 means the probe state changed since Setup: read the sentinel the scan printed on stderr. Dumps are deleted after Phase 9 unless the user passed `--keep-dom`.
@@ -1656,22 +1668,24 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" && _gstack_codex_select_model exec || exit 1
-_OUTSIDE_PROMPT=$(cat "$_OUTSIDE_INPUT") || exit 1
+_gstack_codex_sandbox_preflight >/dev/null || exit 1
+_gstack_codex_first_use_notice
 _OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper 300 codex exec "$_OUTSIDE_PROMPT" -C "$_REPO_ROOT" -s read-only -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
-cat "$_OUTSIDE_TMP/text" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
+_gstack_codex_timeout_wrapper 300 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"
 
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
-if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
-  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
-  exit "$_OUTSIDE_EXIT"
-fi
-bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
-
+_OUTSIDE_RC=0
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" --label 'Codex outside review' --exit "$_OUTSIDE_EXIT" --stderr "$_OUTSIDE_TMP/stderr" --events "$_OUTSIDE_TMP/events" review "$_OUTSIDE_TMP/text" || _OUTSIDE_RC=$?
+case "$_OUTSIDE_RC" in
+  0|3) ;;
+  4) echo 'OUTSIDE_STATUS: unverified provider=codex host=claude'; exit 4 ;;
+  *) [ "$_OUTSIDE_EXIT" -ne 0 ] && exit "$_OUTSIDE_EXIT"; exit 1 ;;
+esac
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 2. **Claude design subagent** (Agent tool, `run_in_background: false`; await its result):
 "Review the frontend source code in this repo. You are an independent senior product designer doing a source-code design audit. Focus on CONSISTENCY PATTERNS across files rather than individual violations:
@@ -1702,7 +1716,7 @@ Merge findings into the triage with `[codex]` / `[subagent]` / `[cross-model]` t
 ```
 STATUS="clean" requires a completed review with no findings; use "issues_found" for findings, "unavailable" if neither completed. SOURCE is the completed provider or in-host.
 
-Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.
+Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown. Under `GSTACK_CODEX_NO_SANDBOX=1` add `"codex_sandbox":"danger-full-access"`.
 
 ## Phase 7: Triage
 

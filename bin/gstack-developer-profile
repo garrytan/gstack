@@ -353,6 +353,7 @@ do_derive() {
       const qids = new Set();
       const days = new Set();
       let count = 0;
+      let signalEvents = 0;
       for (const line of lines) {
         let e;
         try { e = JSON.parse(line); } catch { continue; }
@@ -362,8 +363,8 @@ do_derive() {
         qids.add(e.question_id);
         if (e.ts) days.add(String(e.ts).slice(0,10));
         const def = QUESTIONS[e.question_id];
-        if (def && def.signal_key) {
-          applySignal(totals, def.signal_key, e.user_choice);
+        if (def && def.signal_key && applySignal(totals, def.signal_key, e.user_choice).length > 0) {
+          signalEvents++;
         }
       }
 
@@ -375,6 +376,9 @@ do_derive() {
       profile.inferred = {
         values,
         sample_size: count,
+        // Events that actually moved a dimension (B10): sample_size counts every
+        // logged answer, most of which match no signal and leave the 0.5 seed.
+        signal_events: signalEvents,
         diversity: {
           skills_covered: skills.size,
           question_ids_covered: qids.size,

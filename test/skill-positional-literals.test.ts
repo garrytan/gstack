@@ -93,10 +93,11 @@ for (const host of ['claude', 'codex'] as const) for (const args of [[], tenArgu
   test(`${label}: upgrade snooze advances the same-version level`, () => {
     mkdirSync(join(root, '.gstack'), { recursive: true });
     writeFileSync(join(root, '.gstack/update-snoozed'), '{new} 1 0\n');
-    const block = skill(host, 'gstack-upgrade').match(/```bash\n((?:GSTACK_STATE_ROOT=\$\([^\n]*gstack-paths --get GSTACK_STATE_ROOT[^\n]*\n)?_SNOOZE_FILE=[\s\S]*?)```/)![1];
+    const block = skill(host, 'gstack-upgrade').match(/```bash\n((?:\[ -d "\$\{GSTACK_ROOT[^\n]*\n(?:GSTACK_BIN=[^\n]*\n)?)?(?:GSTACK_STATE_ROOT=\$\([^\n]*gstack-paths --get GSTACK_STATE_ROOT[^\n]*\n)?_SNOOZE_FILE=[\s\S]*?)```/)![1];
     // The block resolves the state root through the installed helper first.
     const bin = join(root, '.claude/skills/gstack/bin');
     mkdirSync(bin, { recursive: true });
+    mkdirSync(join(dirname(bin), 'lib'), { recursive: true }); // C1: an exported GSTACK_ROOT needs bin/ and lib/
     for (const name of ['gstack-paths', 'gstack-state-root.sh']) writeFileSync(join(bin, name), readFileSync(join(import.meta.dir, '../bin', name)), { mode: 0o755 });
     expect(run(apply(block), { GSTACK_STATE_ROOT: join(root, '.gstack'), GSTACK_BIN: bin, GSTACK_ROOT: dirname(bin) }).status).toBe(0);
     expect(readFileSync(join(root, '.gstack/update-snoozed'), 'utf8')).toMatch(/^\{new\} 2 \d+\n$/);

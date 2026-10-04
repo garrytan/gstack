@@ -2,7 +2,7 @@ import { beforeAll, describe, it, expect } from 'bun:test';
 import { chromium } from 'playwright';
 import { validateOutputPath } from '../src/path-security';
 import { validateReadPath, SENSITIVE_COOKIE_NAME, SENSITIVE_COOKIE_VALUE } from '../src/read-commands';
-import { BLOCKED_METADATA_HOSTS } from '../src/url-validation';
+import { classifyAddress } from '../src/url-validation';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync, realpathSync } from 'fs';
 import { tmpdir, userInfo } from 'os';
 import { join } from 'path';
@@ -258,11 +258,11 @@ describe('DNS rebinding — production blocklist', () => {
   });
 
   it('blocks AWS/GCP IPv4 metadata address', () => {
-    expect(BLOCKED_METADATA_HOSTS.has('169.254.169.254')).toBe(true);
+    expect(classifyAddress('169.254.169.254')).toBe('blocked');
   });
 
   it('does not block normal addresses', () => {
-    expect(BLOCKED_METADATA_HOSTS.has('8.8.8.8')).toBe(false);
-    expect(BLOCKED_METADATA_HOSTS.has('2001:4860:4860::8888')).toBe(false);
+    expect(classifyAddress('8.8.8.8')).toBe('other');
+    expect(classifyAddress('2001:4860:4860::8888')).toBe('other');
   });
 });

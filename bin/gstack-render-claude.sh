@@ -103,7 +103,7 @@ gstack_claude_render_plain() {
   RENDER_TMP="$RENDER_DIR.tmp.$$"
   rm -rf "$RENDER_TMP"
   _gstack_render_say "Rendering Claude skills with the $_GSTACK_OVERLAY overlay into $RENDER_DIR (source checkout stays clean)..."
-  out="$(cd "$src" && _gstack_render_bun run gen:skill-docs --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" 2>&1)" || rc=$?
+  out="$(cd "$src" && _gstack_render_bun run gen:skill-docs --host claude --out-dir "$RENDER_TMP" --link-root "$RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} 2>&1)" || rc=$?
   if [ "$rc" -ne 0 ]; then
     rm -rf "$RENDER_TMP"
     printf '%s\n' "$out" | tail -3

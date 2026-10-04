@@ -8,7 +8,7 @@
  * 0-9a-f to a-p (the "mpdecimal" alphabet). Pinning the public key in the
  * manifest pins the ID, which lets the browse server verify the Origin
  * header on POST /extension-token against a single known extension
- * identity (GSTACK_EXTENSION_ID in browse/src/server.ts).
+ * identity (GSTACK_EXTENSION_ID in browse/src/extension-id.ts).
  *
  * The private half of the keypair is intentionally NOT in the repo — the
  * extension is loaded unpacked (or baked into Browser.app), so only the

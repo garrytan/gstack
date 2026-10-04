@@ -36,7 +36,7 @@
 # at src/core/config.ts:53), so a process that flips config.json mid-sync
 # can't redirect us at a different brain mid-stream.
 #
-# Depends on: jq (transitive via gstack-gbrain-detect).
+# Depends on: bun (already a gstack dependency), gbrain, git.
 
 set -euo pipefail
 
@@ -93,7 +93,7 @@ elif [ -f "$GBRAIN_CONFIG" ]; then
   # Python heredoc reads config.json. On JSON parse failure or any IO error,
   # we WARN (not silently swallow) so the user knows the URL lock fell back
   # to gbrain's own loadConfig (which would still read this same file).
-  _py_err=$(mktemp -t wireup-pyerr 2>/dev/null || mktemp /tmp/wireup-pyerr.XXXXXX)
+  _py_err=$(mktemp "${TMPDIR:-/tmp}/wireup-pyerr.XXXXXX")
   _locked_url=$(GBRAIN_CONFIG_PATH="$GBRAIN_CONFIG" python3 -c '
 import json, os, sys
 try:
@@ -204,21 +204,34 @@ ensure_worktree() {
 }
 
 # ---- gbrain sources operations ----
+# Read .sources[] | select(.id==$id) | .local_path out of `gbrain sources list`
+# with bun (a gstack dependency). This used to need jq, which nothing installs
+# and which git-bash on Windows lacks, so the wireup was skipped every run
+# (#2369). Prints the path, or nothing when the id is absent or the payload
+# is not JSON.
+source_local_path() {
+  gbrain sources list --json 2>/dev/null \
+    | GB_SOURCE_ID="$1" bun -e '
+        const raw = await Bun.stdin.text();
+        try {
+          const s = (JSON.parse(raw).sources || []).find((x) => x.id === process.env.GB_SOURCE_ID);
+          process.stdout.write(s?.local_path ?? "");
+        } catch {}
+      ' 2>/dev/null \
+    | tr -d '[:space:]'
+}
+
 # Returns 0 if source with id exists at expected path. 1 if exists but path differs. 2 if absent.
-# Hard-fails (exits non-zero via die) if jq is missing — without jq we cannot
-# distinguish "absent" from "missing-tool" and would falsely re-add an existing
-# source. jq is documented as a dependency of gstack-gbrain-detect (transitive)
-# but adversarial review flagged the silent-fall-through path; this probe makes
-# the failure mode loud.
+# Hard-fails (exits non-zero via die) if the JSON reader is unavailable: we
+# could not then tell "absent" from "missing tool" and would falsely re-add an
+# existing source.
 check_source_state() {
   local id="$1"
-  if ! command -v jq >/dev/null 2>&1; then
-    die "jq required for source state detection. Install jq (brew install jq) and re-run." 1
+  if ! command -v bun >/dev/null 2>&1; then
+    die "bun required for source state detection. Install bun (https://bun.sh) and re-run." 1
   fi
   local existing_path
-  existing_path=$(gbrain sources list --json 2>/dev/null \
-    | jq -r --arg id "$id" '.sources[] | select(.id==$id) | .local_path' 2>/dev/null \
-    | tr -d '[:space:]') || existing_path=""
+  existing_path=$(source_local_path "$id") || existing_path=""
   if [ -z "$existing_path" ]; then
     return 2
   fi
@@ -299,9 +312,7 @@ do_wireup() {
       # registration. Just sync from our local worktree — gbrain stores pages
       # by content, not by local_path. The metadata is informational only.
       local existing_path
-      existing_path=$(gbrain sources list --json 2>/dev/null \
-        | jq -r --arg id "$id" '.sources[] | select(.id==$id) | .local_path' 2>/dev/null \
-        | tr -d '[:space:]') || existing_path=""
+      existing_path=$(source_local_path "$id") || existing_path=""
       if [ "$(basename "$existing_path")" = "$(basename "$WORKTREE")" ] \
          && [ "$existing_path" != "$WORKTREE" ]; then
         warn "source $id is registered at $existing_path (likely another machine's local copy of the same brain repo). Skipping re-registration; will sync from local worktree."

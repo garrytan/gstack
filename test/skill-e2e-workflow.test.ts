@@ -15,6 +15,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { extractSkillBody } from './helpers/skill-fixture';
 import { createCoverageAuditFixture } from './fixtures/coverage-audit-fixture';
+import { claudeOutsideExecutions, codexReviewVerdicts } from './helpers/outside-voice-evidence';
 import { validateCoverageAudit, type CoverageFile } from './helpers/coverage-audit';
 import { runRecordedOfficeHoursAttempt, OFFICE_HOURS_BUN_GRACE_MS } from './helpers/office-hours-attempt';
 
@@ -472,17 +473,17 @@ Write the full output (including the GATE verdict) to ${codexDir}/codex-output.m
     });
 
     logCost('/codex review', result);
-    recordE2E(evalCollector, '/codex review', 'Codex skill E2E', result);
-    expect(result.exitReason).toBe('success');
-
-    // Check that output file was created with review content
+    // A review counts only when Codex ran: the shared validator printed an executed
+    // verdict for the codex command, and the written gate is not fail-closed.
+    const verdicts = codexReviewVerdicts(claudeOutsideExecutions(result.transcript));
     const outputPath = path.join(codexDir, 'codex-output.md');
-    if (fs.existsSync(outputPath)) {
-      const output = fs.readFileSync(outputPath, 'utf-8');
-      // Should contain the CODEX SAYS header or GATE verdict
-      const hasCodexOutput = output.includes('CODEX') || output.includes('GATE') || output.includes('codex');
-      expect(hasCodexOutput).toBe(true);
-    }
+    const output = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf-8') : '';
+    const executed = verdicts.some(verdict => ['findings', 'clean', 'unverified'].includes(verdict));
+    const gated = /GATE: (?:PASS|FAIL \(\d+ critical|UNVERIFIED)/.test(output) && !/fail-closed/i.test(output);
+    recordE2E(evalCollector, '/codex review', 'Codex skill E2E', result, { passed: result.exitReason === 'success' && executed && gated });
+    expect(result.exitReason).toBe('success');
+    expect(executed, `no executed Codex review verdict in the codex command output (verdicts: ${verdicts.join(', ') || 'none'})`).toBe(true);
+    expect(gated, `codex-output.md has no executed GATE verdict:\n${output.slice(0, 1000)}`).toBe(true);
   }, CAPTURE_LONG_MS);
 });
 

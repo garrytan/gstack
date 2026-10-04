@@ -265,10 +265,10 @@ variant-specific brief>"}` objects, in concept order (A, B, C, ...), at most 7. 
 evolving, add `"screenshot": "<_DESIGN_DIR>/current.png"` to every entry. Then run this
 Bash call with `timeout: 600000` and wait for it to return. It stages in a fresh per-run
 directory: in sandboxed sessions `$D` output under `~/.gstack/` can abort ("The operation
-was aborted"), while `/tmp/` works.
+was aborted"), while the temp dir works.
 
 ```bash
-_VARIANT_TMP=$(mktemp -d /tmp/gstack-variants-XXXXXXXX)
+_VARIANT_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-variants-XXXXXXXX")
 _VARIANTS_JSON=$("$D" variants --briefs-file "$_DESIGN_DIR/briefs.json" --output-dir "$_VARIANT_TMP"); _RC=$?
 echo "$_VARIANTS_JSON"; echo "EXIT: $_RC"
 ```

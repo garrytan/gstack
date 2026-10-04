@@ -404,8 +404,11 @@ Capture the JSON output. It contains: `gbrain_on_path`, `gbrain_version`,
 `gstack_brain_sync_mode`, `gstack_brain_git`, `gstack_artifacts_remote`, and
 the `gbrain_local_status` field (one of: `ok`, `no-cli`,
 `missing-config`, `broken-config`, `broken-db`, `engine-locked`, `timeout`,
-`thin-client`). Treat `timeout` like `ok` (slow-but-healthy engine) — it
-never triggers Step 1.5 remediation. Treat `thin-client` like `ok` too:
+`db-unreachable`, `thin-client`). Treat `timeout` like `ok` (slow-but-healthy
+engine) — it never triggers Step 1.5 remediation. Treat `db-unreachable` the
+same way: a network error (offline sandbox, VPN down) reached the configured
+database, the config is unchanged and must not be moved aside; print
+`gbrain_local_status_detail` and continue. Treat `thin-client` like `ok` too:
 the machine is a thin client of a remote-HTTP MCP brain, no local engine by
 design — brain-aware blocks render, and the detect JSON carries
 `gbrain_thin_client: {probed: false}` (config verified; remote reachability

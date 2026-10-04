@@ -23,12 +23,12 @@ hooks:
     - matcher: "Edit"
       hooks:
         - type: command
-          command: 'bash -c ''S="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"; [ -x "$S" ] && exec bash "$S"; exit 0'''
+          command: 'bash -c "test -x \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\" && exec bash \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\"; exit 0"'
           statusMessage: "Checking debug scope boundary..."
     - matcher: "Write"
       hooks:
         - type: command
-          command: 'bash -c ''S="$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"; [ -x "$S" ] && exec bash "$S"; exit 0'''
+          command: 'bash -c "test -x \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\" && exec bash \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\"; exit 0"'
           statusMessage: "Checking debug scope boundary..."
 gbrain:
   schema: 1
@@ -426,10 +426,11 @@ Search for relevant learnings from previous sessions:
 _CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --query "debug investigation root cause hypothesis bug fix" --cross-project 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --query "debug investigation root cause hypothesis bug fix" --cross-project 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 else
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --query "debug investigation root cause hypothesis bug fix" 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --query "debug investigation root cause hypothesis bug fix" 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 fi
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
@@ -467,7 +468,8 @@ Pick ONE keyword from the hypothesis. The keyword should be a noun: the failing 
 Worked examples (investigate-specific): good keywords are `auth-cookie`, `session-expiry`, `redirect-loop`. Bad: `auth.ts:47`, `fix the auth bug`, `<hypothesis-keyword>`.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>/dev/null || true
+{ _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>&1 >&3 3>&-); _LR=$?; } 3>&1
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 If any learnings come back, name which one applies to your investigation in one sentence. If none come back, continue without reference — the absence of a matching prior learning is itself useful information.
@@ -518,14 +520,15 @@ Check once per run that Aside is ready (if this skill already ran this same prob
 ```bash
 _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
 elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
-if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
+_A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)
+if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$_A" ]; then
   echo "NEEDS_ASIDE"
 else
-  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  _rc=0; _o=$(_gs_d "$_A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
   case "$_rc" in
     124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
     125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
-    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: $_A"
        else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
     *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
   esac

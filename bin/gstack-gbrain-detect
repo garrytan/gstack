@@ -18,7 +18,7 @@
  *     "gstack_brain_sync_mode": "off"|"artifacts-only"|"full",
  *     "gstack_brain_git": true|false,
  *     "gstack_artifacts_remote": "https://..." | "",
- *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db"|"engine-locked"|"timeout"|"thin-client",
+ *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db"|"engine-locked"|"timeout"|"db-unreachable"|"thin-client",
  *     "gbrain_pooler_mode": "transaction"|"session"|null
  *   }
  *
@@ -40,6 +40,7 @@ import { join } from "path";
 
 import {
   localEngineStatus,
+  localEngineStatusDetail,
   resolveGbrainBin,
   readGbrainVersion,
 } from "../lib/gbrain-local-status";
@@ -281,13 +282,16 @@ function main(): void {
   const withThinClient =
     out.gbrain_local_status === "thin-client"
       ? { ...out, gbrain_thin_client: { probed: false } }
-      : out;
+      : out.gbrain_local_status === "db-unreachable"
+        ? { ...out, gbrain_local_status_detail: localEngineStatusDetail() }
+        : out;
 
   process.stdout.write(JSON.stringify(withThinClient, null, 2) + "\n");
 }
 
 // --is-ok: live engine-status gate. Exits 0 iff gbrain is usable ("ok";
-// "timeout" — a slow-but-healthy engine, #1964; "thin-client" — remote-HTTP
+// "timeout" — a slow-but-healthy engine, #1964; "db-unreachable" — a network
+// error reaching a configured DB, transient like timeout; "thin-client" — remote-HTTP
 // MCP brain with no local engine by design, #2051; or "engine-locked" —
 // PGLite is single-writer, so a live `gbrain serve` (typically an MCP
 // server) holds the embedded DB, #2456 — gbrain is installed and healthy in
@@ -300,7 +304,8 @@ if (process.argv.includes("--is-ok")) {
   const noCache = process.env.GSTACK_DETECT_NO_CACHE === "1";
   const status = localEngineStatus({ noCache });
   process.exit(
-    status === "ok" || status === "timeout" || status === "thin-client" || status === "engine-locked"
+    status === "ok" || status === "timeout" || status === "db-unreachable" ||
+      status === "thin-client" || status === "engine-locked"
       ? 0
       : 1,
   );

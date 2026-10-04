@@ -3,7 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EvalCollector } from './helpers/eval-store';
-import { claudeOutsideExecutions, codexOutsideExecutions, foundInvoiceAuthorizationDefect, outsideExecutionTranscript } from './helpers/outside-voice-evidence';
+import { claudeOutsideExecutions, codexOutsideExecutions, codexReviewVerdicts, foundInvoiceAuthorizationDefect, outsideExecutionTranscript } from './helpers/outside-voice-evidence';
+import captured_codex_review_unavailable from './fixtures/codex-review-sandbox-unavailable-37158847998.json';
 import captured_outside_background_ai from './fixtures/outside-background-ai.json';
 import { parseNDJSON } from './helpers/session-runner';
 import captured_outside_voice_async from './fixtures/outside-async-task-m-events.json';
@@ -33,6 +34,27 @@ describe('cross-harness live eval evidence', () => {
       { ...event, item: { ...event.item, aggregated_output: 'OUTSIDE_STATUS: unavailable\n' + finding } },
       { type: 'item.completed', item: { type: 'agent_message', text: finding } },
     ]) expect(foundInvoiceAuthorizationDefect(codexOutsideExecutions([JSON.stringify(invalid)]), 'claude-code')).toBe(false);
+  });
+});
+
+describe('/codex review execution evidence', () => {
+  const run = (command: string, output: string, isError = false) => [
+    { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'review', name: 'Bash', input: { command } }] } },
+    { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'review', content: output, is_error: isError }] } },
+  ];
+  const command = '_gstack_codex_timeout_wrapper 330 codex review --base main >"$TMPOUT" 2>"$TMPERR"\n'
+    + 'bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label \'Codex review\' --exit "$_CODEX_EXIT" --stderr "$TMPERR" structured "$TMPOUT"';
+
+  test('the captured sandbox-unavailable review (recorded passed in CI) has no executed verdict', () => {
+    expect(codexReviewVerdicts(claudeOutsideExecutions(captured_codex_review_unavailable.transcript))).toEqual([]);
+  });
+
+  test('only the validator verdict printed by the codex command counts', () => {
+    expect(codexReviewVerdicts(claudeOutsideExecutions(run(command, `[P1] SQL injection\nVERDICT: findings\nFINDINGS: P1`, true)))).toEqual(['findings']);
+    expect(codexReviewVerdicts(claudeOutsideExecutions(run(command, 'Codex outside review unavailable: sandbox\nVERDICT: unavailable', true)))).toEqual(['unavailable']);
+    expect(codexReviewVerdicts(claudeOutsideExecutions(run('cat > codex-output.md <<EOF\nno `codex review` ran\nEOF', 'VERDICT: findings')))).toEqual([]);
+    expect(codexReviewVerdicts(claudeOutsideExecutions(run('codex review --base main', 'VERDICT: clean')))).toEqual([]);
+    expect(codexReviewVerdicts(claudeOutsideExecutions([{ type: 'assistant', message: { content: [{ type: 'text', text: 'VERDICT: findings' }] } }]))).toEqual([]);
   });
 });
 

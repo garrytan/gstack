@@ -32,9 +32,9 @@ import { resolveEvalModel } from '../lib/eval-model';
 import { CAPTURE_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
+import { captureNativeFirstAuq, type NativeAuqCapture } from './helpers/auq-native-capture';
 import {
   setupSkillDir,
-  captureFirstAuq,
   scoreAuqFormat,
   auqMachineFormatProblems,
   skillFromWorktree,
@@ -123,9 +123,9 @@ describeE2E('AUQ behavioral matrix (periodic)', () => {
           fixtures: m.fixtures,
           tmpPrefix: `auq-matrix-${m.skill}-`,
         });
-        let text = '';
+        let capture: NativeAuqCapture;
         try {
-          text = await captureFirstAuq({
+          capture = await captureNativeFirstAuq({
             planDir: dir,
             skillName: m.skill,
             scenario: m.scenario,
@@ -137,6 +137,7 @@ describeE2E('AUQ behavioral matrix (periodic)', () => {
           fs.rmSync(dir, { recursive: true, force: true });
         }
 
+        const text = capture.text;
         const fmt = scoreAuqFormat(text);
         let substance = 0;
         let recPresent = false;
@@ -159,7 +160,7 @@ describeE2E('AUQ behavioral matrix (periodic)', () => {
         }
         const problems: string[] = [];
         // Presentation elements (ELI10, Pros / cons, ✅/❌, Net:) are logged above, not failed.
-        problems.push(...auqMachineFormatProblems(text));
+        problems.push(...auqMachineFormatProblems(capture.question));
         if (substance < 4) problems.push(`recommendation substance ${substance} < 4 (boilerplate/weak)`);
         if (problems.length > 0) {
           throw new Error(

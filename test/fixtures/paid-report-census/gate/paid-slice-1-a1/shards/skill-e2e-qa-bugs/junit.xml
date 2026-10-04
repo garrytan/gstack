@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="5" assertions="0" failures="0" skipped="5" time="0.027496926">
+  <testsuite name="test/skill-e2e-qa-bugs.test.ts" file="test/skill-e2e-qa-bugs.test.ts" tests="5" assertions="0" failures="0" skipped="5" time="0.02508358">
+    <testsuite name="Planted-bug outcome evals" file="test/skill-e2e-qa-bugs.test.ts" line="38" tests="5" assertions="0" failures="0" skipped="5" time="0">
+      <testcase name="(unnamed)" classname="Planted-bug outcome evals" time="0." file="test/skill-e2e-qa-bugs.test.ts" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="qa-b6-static" classname="Planted-bug outcome evals" time="0" file="test/skill-e2e-qa-bugs.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="qa-b7-spa" classname="Planted-bug outcome evals" time="0" file="test/skill-e2e-qa-bugs.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="qa-b8-checkout" classname="Planted-bug outcome evals" time="0" file="test/skill-e2e-qa-bugs.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="(unnamed)" classname="Planted-bug outcome evals" time="0." file="test/skill-e2e-qa-bugs.test.ts" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+  </testsuite>
+</testsuites>

@@ -390,14 +390,15 @@ Some steps require action on a site the user controls: registering an API key, c
    ```bash
    _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
    elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
-   if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
+   _A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)
+   if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$_A" ]; then
      echo "NEEDS_ASIDE"
    else
-     _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+     _rc=0; _o=$(_gs_d "$_A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
      case "$_rc" in
        124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
        125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
-       0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+       0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: $_A"
           else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
        *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
      esac
@@ -650,6 +651,8 @@ Use one row for each entry in step 1. Only Eng Review is marked required.
 
 VERDICT: {CLEARED or NOT CLEARED} — {reason}
 
+An outside review with status `unverified` or `unavailable` is missing coverage, never a pass.
+
 For diffs >200 lines (`git diff origin/<base> --stat | tail -1`), recommend
 `/plan-eng-review` or `/autoplan` for architecture review.
 
@@ -768,6 +771,11 @@ chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
      Repair alone never re-bumps.
    - **DRIFT_UNEXPECTED** → STOP: package.json disagrees with VERSION while VERSION
      matches base. Reconcile the manual edit, then reclassify.
+   - **NO_VERSION** → print `notice` verbatim and ship without a version change: skip
+     the rest of Step 12 and Step 13's CHANGELOG entry, never create VERSION, use an
+     unprefixed title in Step 18 and log `"version":null` in Step 20.
+   - **Exit 2** → STOP and show stderr: a configured version file is missing, empty,
+     unreadable or malformed. Fix it or its pin, then reclassify. Never substitute `0.0.0.0`.
 
 2. **Decide the bump level** from the diff (agent judgment):
    - **MICRO**: <50 lines, trivial tweaks/config. **PATCH**: 50+ lines, no feature signals.
@@ -1121,6 +1129,8 @@ Prepare the title from that result; Step 19 scans and publishes it:
 2. For a new PR/MR, compose `v<NEW_VERSION> <type>: <summary>`.
 3. Save the result as `NEW_TITLE` for Step 19. Every created or updated title MUST
    start with `v$NEW_VERSION `; never publish an unprefixed title.
+4. **NO_VERSION:** replaces items 1-3: keep an existing title, or compose
+   `<type>: <summary>`; no version prefix.
 
 > **STOP.** Before creating or updating the PR/MR with the verified documentation outcome (Step 19), Read `~/.claude/skills/gstack/ship/sections/pr-body.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
@@ -1142,7 +1152,7 @@ Substitute from earlier steps:
 - **PLAN_TOTAL**: total plan items extracted in Step 8 (0 if no plan file)
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 8 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped", set after Step 9 executes Step 8.1's verification list
-- **VERSION**: from the VERSION file
+- **VERSION**: `NEW_VERSION` from Step 12; `null` (unquoted) under NO_VERSION
 
 The shell supplies the branch. Run this automatically, without confirmation.
 
@@ -1183,5 +1193,6 @@ hand-roll VERSION/package.json writes.
 Follow the numbered gates and their explicit exceptions.
 
 - **Never force push.** Use regular `git push` only.
-- **Always use the 4-digit version format** from the VERSION file.
+- **Use the configured version file's format** (4-digit for VERSION); under NO_VERSION,
+  never invent one.
 - **Step 7 generates coverage tests.** They must pass before committing. Never commit failing tests.

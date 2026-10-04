@@ -209,14 +209,15 @@ export function classifyPaidTestFile(source: string, tier: PaidTier): TierClassi
  * The E2E ids a paid file registers: the touchfile registrations that list the
  * file. `known` is true only when those ids are complete: no computed
  * registration (testName, *IfSelected, describeIfSelected with a non-literal
- * argument) and every literal registration argument is among them. Quoted
- * strings elsewhere (comments, skill paths) never count.
+ * argument) and every literal registration argument is among them
+ * (`unregistered` lists the literal ids that are not). Quoted strings
+ * elsewhere (comments, skill paths) never count.
  */
 export function fileCaseRegistration(
   file: string, source: string,
   touchfiles: Record<string, string[]> = E2E_TOUCHFILES,
   tiers: Record<string, string> = E2E_TIERS,
-): { registered: string[]; known: boolean } {
+): { registered: string[]; known: boolean; computed: boolean; unregistered: string[] } {
   const rel = normalizeRelativePath(file);
   const registered = Object.keys(touchfiles).filter(key => touchfiles[key]!.includes(rel));
   const computed = /testName\s*:\s*(?!string\b)(?:`[^`]*\$\{|[A-Za-z_$])/.test(source)
@@ -230,23 +231,30 @@ export function fileCaseRegistration(
     ...[...source.matchAll(/\bdescribeIfSelected\s*\([^,]*,\s*\[([^\]]*)\]/g)]
       .flatMap(m => [...m[1]!.matchAll(/(['"`])([^'"`]+)\1/g)].map(n => n[2]!)),
   ].filter(id => id in tiers);
-  return { registered, known: registered.length > 0 && !computed && literal.every(id => registered.includes(id)) };
+  const unregistered = [...new Set(literal.filter(id => !registered.includes(id)))];
+  return { registered, known: registered.length > 0 && !computed && unregistered.length === 0, computed, unregistered };
 }
 
 /**
- * A file is skipped for a tier lane only when its registered E2E ids are fully
- * known (fileCaseRegistration) and none of them has that tier. Any computed
- * registration, an id missing from the file's touchfile registration, or no id at
- * all keeps today's scheduling (the child's runtime filter decides).
+ * A file is skipped for a tier lane only when it registers E2E ids, none of
+ * them has that tier, and no literal registration names an id outside its
+ * touchfile registration. A computed registration (a name built at runtime)
+ * can only run in this lane by producing an id of this tier (the child's
+ * EVALS_TIER filter drops every other), so it is skipped too when every id of
+ * the tier is registered to a test file (its touchfile list names one), which
+ * is not this file. An id of the tier that no test file registers, or no id
+ * at all, keeps today's scheduling (the child's runtime filter decides).
  */
 export function tierSkipReason(
   file: string, source: string, tier: PaidTier,
   touchfiles: Record<string, string[]> = E2E_TOUCHFILES,
   tiers: Record<string, string> = E2E_TIERS,
 ): string | null {
-  const { registered, known } = fileCaseRegistration(file, source, touchfiles, tiers);
-  if (!known || registered.some(id => tiers[id] === tier)) return null;
-  return `skipped: no E2E_TIERS id has tier ${tier}`;
+  const { registered, computed, unregistered } = fileCaseRegistration(file, source, touchfiles, tiers);
+  if (registered.length === 0 || unregistered.length > 0 || registered.some(id => tiers[id] === tier)) return null;
+  if (!computed) return `skipped: no E2E_TIERS id has tier ${tier}`;
+  const unowned = Object.keys(tiers).some(id => tiers[id] === tier && !(touchfiles[id] ?? []).some(dep => /^test\/[^/]+\.test\.ts$/.test(dep)));
+  return unowned ? null : `skipped: no E2E_TIERS id has tier ${tier} (its computed names can only produce ${tier} ids other test files register)`;
 }
 
 /**

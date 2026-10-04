@@ -1,0 +1,2 @@
+[P2] lib/sandbox.ts:41 — the bwrap fallback swallows "bwrap: No permissions to create new namespace" when user namespaces are disabled, and the landlock error path is untested.
+Recommendation: surface the sandbox error because a silent seccomp or landlock failure hides missing coverage.

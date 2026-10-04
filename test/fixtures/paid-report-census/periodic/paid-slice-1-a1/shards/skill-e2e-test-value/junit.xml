@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="3" assertions="0" failures="0" skipped="3" time="0.040853868">
+  <testsuite name="test/skill-e2e-test-value.test.ts" file="test/skill-e2e-test-value.test.ts" tests="3" assertions="0" failures="0" skipped="3" time="0.034556733">
+    <testsuite name="Ship Test Value E2E" file="test/skill-e2e-test-value.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="1" time="0">
+      <testcase name="ship-coverage-value" classname="Ship Test Value E2E" time="0" file="test/skill-e2e-test-value.test.ts" line="375" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testsuite name="Review Test Value E2E" file="test/skill-e2e-test-value.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="1" time="0">
+      <testcase name="review-test-value" classname="Review Test Value E2E" time="0" file="test/skill-e2e-test-value.test.ts" line="375" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testsuite name="Test Audit Report-Only E2E" file="test/skill-e2e-test-value.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="1" time="0">
+      <testcase name="test-audit-report-only" classname="Test Audit Report-Only E2E" time="0" file="test/skill-e2e-test-value.test.ts" line="375" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+  </testsuite>
+</testsuites>

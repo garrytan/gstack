@@ -117,7 +117,7 @@ describe('Source-level guard: terminal-agent', () => {
     // missing-origin attempt would surface the 401 cookie message and
     // signal to attackers that they need to forge a cookie.
     const wsHandler = AGENT_SRC.slice(AGENT_SRC.indexOf("if (url.pathname === '/ws')"));
-    expect(wsHandler).toContain('chrome-extension://');
+    expect(wsHandler).toContain('allowedExtensionOrigin()');
     expect(wsHandler).toContain('forbidden origin');
   });
 

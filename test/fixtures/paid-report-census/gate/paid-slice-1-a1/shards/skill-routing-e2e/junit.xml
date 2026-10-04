@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="11" assertions="0" failures="0" skipped="11" time="0.0230842">
+  <testsuite name="test/skill-routing-e2e.test.ts" file="test/skill-routing-e2e.test.ts" tests="11" assertions="0" failures="0" skipped="11" time="0.018659332">
+    <testsuite name="Skill Routing E2E — Developer Journey" file="test/skill-routing-e2e.test.ts" line="180" tests="11" assertions="0" failures="0" skipped="11" time="0">
+      <testcase name="journey-ideation" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="journey-plan-eng" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="journey-debug" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="journey-qa" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="journey-code-review" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="journey-ship" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="journey-docs" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="journey-retro" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="journey-design-system" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="journey-negatives" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="journey-visual-qa" classname="Skill Routing E2E — Developer Journey" time="0" file="test/skill-routing-e2e.test.ts" line="172" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+  </testsuite>
+</testsuites>

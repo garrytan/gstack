@@ -1,14 +1,127 @@
 {
-  "_comment": "First-AUQ texts in serializeNativeAuq shape. known_good passes the matrix's format gate (substance is graded separately). known_bad must keep failing it.",
+  "_comment": "First-AUQ native questions (header, question text, option labels and descriptions). known_good passes the matrix's machine-read format gate (substance is graded separately); known_bad must keep failing it. pros-cons-block-in-question is the spec capture from periodic run 37151477069: the format's Pros / cons block repeats (recommended) in the question text while exactly one label carries it.",
   "known_good": {
-    "full-format": "Scope\n\nD1 — Which test harness should the plan adopt?\nELI10: The plan needs one test runner.\nStakes if we pick wrong: flaky CI for weeks.\nRecommendation: A because the repo already uses bun test.\nPros / cons:\nNet: reuse vs. migration.\n\nA) bun test (recommended)\n✅ already installed\n❌ fewer plugins\n\nB) vitest\n✅ plugins\n❌ new dependency",
-    "no-emoji-or-net": "Scope\n\nD1 — Which test harness should the plan adopt?\nELI10: The plan needs one test runner.\nRecommendation: A because the repo already uses bun test and adding vitest means a second config.\n\nA) bun test (recommended)\nAlready installed; fewer plugins.\n\nB) vitest\nMore plugins; new dependency.",
-    "bold-recommendation": "Scope\n\n**Recommendation:** B, because the migration is already half done.\n\nA) Stay\nNo churn.\n\nB) Finish migration (recommended)\nOne config."
+    "full-format": {
+      "header": "Scope",
+      "question": "D1 — Which test harness should the plan adopt?\nELI10: The plan needs one test runner.\nStakes if we pick wrong: flaky CI for weeks.\nRecommendation: A because the repo already uses bun test.\nPros / cons:\nNet: reuse vs. migration.",
+      "options": [
+        {
+          "label": "A) bun test (recommended)",
+          "description": "✅ already installed\n❌ fewer plugins"
+        },
+        {
+          "label": "B) vitest",
+          "description": "✅ plugins\n❌ new dependency"
+        }
+      ]
+    },
+    "no-emoji-or-net": {
+      "header": "Scope",
+      "question": "D1 — Which test harness should the plan adopt?\nELI10: The plan needs one test runner.\nRecommendation: A because the repo already uses bun test and adding vitest means a second config.",
+      "options": [
+        {
+          "label": "A) bun test (recommended)",
+          "description": "Already installed; fewer plugins."
+        },
+        {
+          "label": "B) vitest",
+          "description": "More plugins; new dependency."
+        }
+      ]
+    },
+    "bold-recommendation": {
+      "header": "Scope",
+      "question": "**Recommendation:** B, because the migration is already half done.",
+      "options": [
+        {
+          "label": "A) Stay",
+          "description": "No churn."
+        },
+        {
+          "label": "B) Finish migration (recommended)",
+          "description": "One config."
+        }
+      ]
+    },
+    "pros-cons-block-in-question": {
+      "header": "Recipients",
+      "question": "D1 — Who receives the email when a task is assigned? <gstack-qid:spec-notify-recipients>\nProject/branch/task: main branch, speccing \"email notifications when a task is assigned to someone\".\nELI10: Right now nobody gets told when a task lands on their plate. The obvious fix is to email the new assignee, but assignment also matters to the person who lost the task and to whoever created it. Each extra audience adds templates, preference toggles, and tests, and emailing people who do not care trains them to ignore your mail.\nStakes if we pick wrong: Too narrow and reassigned work silently vanishes from someone's queue. Too broad and your notifications become spam that users filter out.\nRecommendation: A because the assignee is the one person who must act, and the other audiences can be added as a follow-up issue once the pipeline exists.\nCompleteness: A=7/10, B=9/10, C=10/10\nPros / cons:\nA) New assignee only (recommended)\n  ✅ One template, one recipient, one preference flag; smallest surface to test and ship (human: ~1 day / CC: ~10 min)\n  ✅ Matches what every major tracker does by default, so users will not be surprised\n  ❌ On reassignment the previous assignee is never told the task left their queue\nB) New assignee plus previous assignee on reassignment\n  ✅ Closes the \"task silently disappeared\" gap that causes duplicated work\n  ✅ Still a small audience; two templates instead of one (human: ~1.5 days / CC: ~15 min)\n  ❌ Requires reading the old assignee before the write, which constrains where the hook lives\nC) Assignee, previous assignee, and task creator or watchers\n  ✅ Full visibility for everyone with a stake in the task\n  ✅ Lays groundwork for a general watcher model later (human: ~3 days / CC: ~30 min)\n  ❌ Highest spam risk and needs per-audience opt-out from day one\nNet: You are trading a small gap on reassignment against the cost of more templates, more preferences, and more inbox noise.",
+      "options": [
+        {
+          "label": "New assignee only (recommended)",
+          "description": "✅ One template, one recipient, smallest surface to test and ship\n✅ Matches what every major tracker does by default\n❌ Previous assignee is never told the task left their queue"
+        },
+        {
+          "label": "Assignee + previous assignee",
+          "description": "✅ Closes the \"task silently disappeared\" gap on reassignment\n✅ Still a small audience, two templates instead of one\n❌ Must read the old assignee before the write, constraining hook placement"
+        },
+        {
+          "label": "Assignee, previous, creator/watchers",
+          "description": "✅ Full visibility for everyone with a stake in the task\n✅ Groundwork for a general watcher model later\n❌ Highest spam risk, needs per-audience opt-out from day one"
+        }
+      ]
+    }
   },
   "known_bad": {
-    "no-recommendation-line": "Scope\n\nD1 — Which test harness?\nELI10: pick one.\n✅ ❌ Net: tradeoff. Pros / cons\n\nA) bun test (recommended)\n\nB) vitest",
-    "two-recommended": "Scope\n\nRecommendation: A because it is installed.\n\nA) bun test (recommended)\n\nB) vitest (recommended)",
-    "no-recommended-option": "Scope\n\nRecommendation: A because it is installed.\n\nA) bun test\n\nB) vitest",
-    "empty-recommendation": "Scope\n\nRecommendation:\n\nA) bun test (recommended)\n\nB) vitest"
+    "no-recommendation-line": {
+      "header": "Scope",
+      "question": "D1 — Which test harness?\nELI10: pick one.\n✅ ❌ Net: tradeoff. Pros / cons",
+      "options": [
+        {
+          "label": "A) bun test (recommended)"
+        },
+        {
+          "label": "B) vitest"
+        }
+      ]
+    },
+    "two-recommended": {
+      "header": "Scope",
+      "question": "Recommendation: A because it is installed.",
+      "options": [
+        {
+          "label": "A) bun test (recommended)"
+        },
+        {
+          "label": "B) vitest (recommended)"
+        }
+      ]
+    },
+    "no-recommended-option": {
+      "header": "Scope",
+      "question": "Recommendation: A because it is installed.",
+      "options": [
+        {
+          "label": "A) bun test"
+        },
+        {
+          "label": "B) vitest"
+        }
+      ]
+    },
+    "recommended-only-in-question-text": {
+      "header": "Scope",
+      "question": "Recommendation: A because it is installed.\nPros / cons:\nA) bun test (recommended)\n  ✅ already installed\nB) vitest\n  ✅ plugins",
+      "options": [
+        {
+          "label": "A) bun test"
+        },
+        {
+          "label": "B) vitest"
+        }
+      ]
+    },
+    "empty-recommendation": {
+      "header": "Scope",
+      "question": "Recommendation:",
+      "options": [
+        {
+          "label": "A) bun test (recommended)"
+        },
+        {
+          "label": "B) vitest"
+        }
+      ]
+    }
   }
 }

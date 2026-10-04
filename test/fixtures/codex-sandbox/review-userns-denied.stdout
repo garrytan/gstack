@@ -1,0 +1,1 @@
+I was unable to inspect the diff because every shell invocation failed immediately with the environment's bubblewrap/user-namespace restriction, so no concrete regressions could be identified from the provided patch. With no verifiable issues in the changed code, there are no findings to report.

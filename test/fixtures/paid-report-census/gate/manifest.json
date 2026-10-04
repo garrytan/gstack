@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "tier": "gate",
+  "evalsAll": true,
+  "sliceCount": 1,
+  "selectionReason": "run-all",
+  "profile": "full",
+  "selection": {
+    "e2e": null,
+    "judges": null
+  },
+  "entries": [
+    {
+      "file": "test/skill-e2e-plan-mode-no-op.test.ts",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 217184,
+      "budget": {
+        "timeoutMs": 3720000,
+        "source": "registered",
+        "policyId": "skill-e2e-plan-mode-no-op-existing-retry-v1"
+      }
+    },
+    {
+      "file": "test/skill-e2e-cso.test.ts",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 227394
+    },
+    {
+      "file": "test/skill-routing-e2e.test.ts",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 1000
+    },
+    {
+      "file": "test/skill-e2e-qa-bugs.test.ts",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 1000
+    }
+  ]
+}

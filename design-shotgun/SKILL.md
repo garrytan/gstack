@@ -393,11 +393,21 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ] && D="$_ROOT/.claude/skills/gstack/design/dist/design"
 [ -z "$D" ] && D="$HOME/.claude/skills/gstack/design/dist/design"
-if [ -x "$D" ]; then
-  echo "DESIGN_READY: $D"
-else
-  echo "DESIGN_NOT_AVAILABLE"
+_DS=$("$HOME/.claude/skills/gstack/bin/gstack-paths" --get GSTACK_STATE_ROOT 2>/dev/null); _DC=${_DS:+$_DS/design-ready}; _DK=$(ls -diL "$D" 2>/dev/null)
+_dt() { if command -v gtimeout >/dev/null; then gtimeout 10 "$@"; elif command -v timeout >/dev/null; then timeout 10 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 10 "$@"; else return 125; fi; }
+_RC=0; _F="Fix: cd ${D%/design/dist/design} && ./setup"
+if [ ! -x "$D" ]; then _RC=missing
+elif [ ! "$_DC" -nt "$D" ] || [ "$(cat "$_DC")" != "$_DK" ]; then _dt "$D" --version >/dev/null 2>&1 </dev/null || _RC=$?
 fi
+case "$_RC" in
+  0) echo "DESIGN_READY: $D"; [ -n "$_DC" ] && echo "$_DK" > "$_DC" 2>/dev/null ;;
+  missing) echo "DESIGN_NOT_AVAILABLE: $D is not installed. $_F" ;;
+  124|142) echo "DESIGN_NOT_AVAILABLE: $D --version timed out after 10s" ;;
+  125) echo "DESIGN_NOT_AVAILABLE: no timeout/gtimeout/perl to bound $D" ;;
+  137) echo "DESIGN_NOT_AVAILABLE: $D --version exited 137 (killed at launch; on macOS usually an invalid code signature). $_F" ;;
+  *) echo "DESIGN_NOT_AVAILABLE: $D --version exited $_RC" ;;
+esac
 ```
 
 If `DESIGN_NOT_AVAILABLE`: skip visual mockup generation and fall back to the
@@ -530,9 +540,9 @@ designs to bias generation toward the user's demonstrated taste.
 Read this project's taste profile:
 
 ```bash
-SLUG=$("~/.claude/skills/gstack/bin/gstack-slug" --get SLUG 2>/dev/null)
-[ -n "${SLUG:-}" ] || { echo "NO_TASTE_PROFILE"; exit 0; }
-GSTACK_STATE_ROOT=$("~/.claude/skills/gstack/bin/gstack-paths" --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+SLUG=$("$HOME/.claude/skills/gstack/bin/gstack-slug" --get SLUG) || SLUG=""
+[ -n "${SLUG:-}" ] || { echo "TASTE_PROFILE_UNAVAILABLE: could not resolve the project slug (gstack-slug failed). Fix: run ./setup."; exit 0; }
+GSTACK_STATE_ROOT=$("$HOME/.claude/skills/gstack/bin/gstack-paths" --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 _TASTE_PROFILE="$GSTACK_STATE_ROOT/projects/$SLUG/taste-profile.json"
 if [ -f "$_TASTE_PROFILE" ]; then
   # Schema v1: { dimensions: { fonts, colors, layouts, aesthetics }, sessions: [] }
@@ -545,6 +555,8 @@ else
   echo "NO_TASTE_PROFILE"
 fi
 ```
+
+**If TASTE_PROFILE_UNAVAILABLE:** say so once; continue without a taste profile.
 
 **If TASTE_PROFILE_FOUND:** Parse the full JSON; malformed/unreadable uses the legacy fallback. After decay, rank each dimension by confidence * approved_count (or rejected_count); take three per kind. Count retained sessions (at most 50, not lifetime). Include in the brief:
 
@@ -670,10 +682,10 @@ variant-specific brief>"}` objects, in concept order (A, B, C, ...), at most 7. 
 evolving, add `"screenshot": "<_DESIGN_DIR>/current.png"` to every entry. Then run this
 Bash call with `timeout: 600000` and wait for it to return. It stages in a fresh per-run
 directory: in sandboxed sessions `$D` output under `~/.gstack/` can abort ("The operation
-was aborted"), while `/tmp/` works.
+was aborted"), while the temp dir works.
 
 ```bash
-_VARIANT_TMP=$(mktemp -d /tmp/gstack-variants-XXXXXXXX)
+_VARIANT_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-variants-XXXXXXXX")
 _VARIANTS_JSON=$("$D" variants --briefs-file "$_DESIGN_DIR/briefs.json" --output-dir "$_VARIANT_TMP"); _RC=$?
 echo "$_VARIANTS_JSON"; echo "EXIT: $_RC"
 ```
@@ -729,7 +741,7 @@ Create the comparison board and serve it over HTTP:
 Write this round's board images (printed paths that passed checks, in order) as a JSON array to `$_DESIGN_DIR/board-images.json` with the Write tool; board letters A, B, C follow that order. Then archive any earlier Submit so it cannot approve these images, and build the board:
 
 ```bash
-[ -f "$_DESIGN_DIR/feedback.json" ] && mv "$_DESIGN_DIR/feedback.json" "$_DESIGN_DIR/feedback-$(date -u +%Y%m%dT%H%M%SZ).json"
+[ -f "${_DESIGN_DIR:?set _DESIGN_DIR to the design dir printed above}/feedback.json" ] && mv "${_DESIGN_DIR:?}/feedback.json" "${_DESIGN_DIR:?}/feedback-$(date -u +%Y%m%dT%H%M%SZ).json"
 $D compare --images-file "$_DESIGN_DIR/board-images.json" --output "$_DESIGN_DIR/design-board.html" --serve
 ```
 

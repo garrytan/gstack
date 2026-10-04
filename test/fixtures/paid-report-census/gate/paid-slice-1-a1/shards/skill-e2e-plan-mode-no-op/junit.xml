@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="5" assertions="0" failures="0" skipped="0" time="176.454554226">
+  <testsuite name="test/skill-e2e-plan-mode-no-op.test.ts" file="test/skill-e2e-plan-mode-no-op.test.ts" tests="5" assertions="0" failures="0" skipped="0" time="176.451794935">
+    <testsuite name="plan-mode-info no-op outside plan mode (gate regression)" file="test/skill-e2e-plan-mode-no-op.test.ts" line="60" tests="5" assertions="0" failures="0" skipped="0" time="346.121">
+      <testcase name="plan-eng-review reaches a terminal outcome outside plan mode" classname="plan-mode-info no-op outside plan mode (gate regression)" time="16.86295" file="test/skill-e2e-plan-mode-no-op.test.ts" line="62" assertions="0" />
+      <testcase name="plan-design-review reaches a terminal outcome outside plan mode" classname="plan-mode-info no-op outside plan mode (gate regression)" time="14.916063" file="test/skill-e2e-plan-mode-no-op.test.ts" line="62" assertions="0" />
+      <testcase name="plan-ceo-review reaches a terminal outcome outside plan mode" classname="plan-mode-info no-op outside plan mode (gate regression)" time="95.753356" file="test/skill-e2e-plan-mode-no-op.test.ts" line="62" assertions="0" />
+      <testcase name="plan-design-review skips the scope gate for an explicitly-pasted target" classname="plan-mode-info no-op outside plan mode (gate regression)" time="73.9906" file="test/skill-e2e-plan-mode-no-op.test.ts" line="133" assertions="0" />
+      <testcase name="plan-eng-review skips the scope gate for an explicitly-pasted target" classname="plan-mode-info no-op outside plan mode (gate regression)" time="144.600459" file="test/skill-e2e-plan-mode-no-op.test.ts" line="133" assertions="0" />
+    </testsuite>
+  </testsuite>
+</testsuites>

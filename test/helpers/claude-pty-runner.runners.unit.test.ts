@@ -10,7 +10,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { runPlanSkillObservation, runPlanSkillCounting, runPlanSkillFloorCheck } from './claude-pty-runner';
+import { readEngTestPlans, runPlanSkillObservation, runPlanSkillCounting, runPlanSkillFloorCheck } from './claude-pty-runner';
 import { createFakePtyDriver, type FakeFrame, type FakeSessionContext } from './pty/fake-session';
 import { FORCING_FLOOR_DEVEX } from '../fixtures/forcing-finding-seeds';
 
@@ -226,5 +226,23 @@ describe('runPlanSkillFloorCheck through the fake driver', () => {
     ]);
     expect(obs.outcome).toBe('plan_ready');
     expect(obs.summary).toBe('agent reached plan_ready without a qualifying finding question');
+  });
+});
+
+describe('readEngTestPlans', () => {
+  test('returns only /plan-eng-review QA test plans under projects/<slug>/ of the owned state root', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eng-test-plans-'));
+    try {
+      expect(readEngTestPlans(root)).toEqual([]);
+      expect(readEngTestPlans(undefined)).toEqual([]);
+      fs.mkdirSync(path.join(root, 'projects', 'fixture-slug'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'projects', 'fixture-slug', 'runner-main-eng-review-test-plan-20261004-010203.md'), '# Test Plan\nDashboard');
+      fs.writeFileSync(path.join(root, 'projects', 'fixture-slug', 'runner-main-ship-test-plan-20261004-010203.md'), '# Ship plan');
+      fs.writeFileSync(path.join(root, 'projects', 'fixture-slug', 'tasks-eng-review-20261004-010203.jsonl'), '{}');
+      fs.writeFileSync(path.join(root, 'eng-review-test-plan-outside-projects.md'), 'stray');
+      expect(readEngTestPlans(root)).toEqual([{ file: path.join('projects', 'fixture-slug', 'runner-main-eng-review-test-plan-20261004-010203.md'), content: '# Test Plan\nDashboard' }]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

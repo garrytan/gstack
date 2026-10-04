@@ -19,9 +19,12 @@ describe.skipIf(process.platform === 'win32')('upgrade setup recovery (real shel
         const source = join(root, 'source');
         const bin = join(root, 'bin');
         try {
-          for (const dir of [target, source, bin]) mkdirSync(dir);
+          for (const dir of [target, source, bin, join(target, 'bin'), join(source, 'bin')]) mkdirSync(dir);
           writeFileSync(join(target, 'VERSION'), 'old');
           writeFileSync(join(source, 'VERSION'), 'new');
+          // C9: fences only touch a directory that looks like a gstack install.
+          for (const dir of [target, source]) writeFileSync(join(dir, 'bin', 'gstack-config'), '#!/bin/sh\n', { mode: 0o755 });
+          writeFileSync(join(target, 'setup'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
           writeFileSync(join(source, 'setup'), '#!/bin/sh\nexit "$SETUP_EXIT"\n', { mode: 0o755 });
           writeFileSync(join(bin, 'git'), '#!/bin/sh\nfor last; do :; done\ncp -R "$UPGRADE_FIXTURE" "$last"\n', { mode: 0o755 });
           const script = blockAfter(mode === 'vendored'
@@ -47,8 +50,11 @@ describe.skipIf(process.platform === 'win32')('upgrade setup recovery (real shel
     try {
       const bin = join(root, 'bin');
       mkdirSync(bin);
-      writeFileSync(join(bin, 'git'), '#!/bin/sh\nif [ "$1" = rev-parse ]; then echo old-commit; fi\nexit 0\n', { mode: 0o755 });
+      writeFileSync(join(bin, 'git'), '#!/bin/sh\nif [ "$1 $2" = "rev-parse --show-toplevel" ]; then pwd -P; elif [ "$1" = rev-parse ]; then echo old-commit; fi\nexit 0\n', { mode: 0o755 });
       writeFileSync(join(root, 'setup'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      // C9: the git fence verifies it is inside gstack's own checkout first.
+      writeFileSync(join(root, 'VERSION'), '1.0.0.0\n');
+      writeFileSync(join(root, 'bin', 'gstack-config'), '#!/bin/sh\n', { mode: 0o755 });
       const result = spawnSync('bash', ['-c', blockAfter('**For git installs**')], {
         cwd: root, encoding: 'utf8', timeout: 10_000,
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, INSTALL_DIR: root },

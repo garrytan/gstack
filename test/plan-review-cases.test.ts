@@ -48,7 +48,7 @@ describe('CI workflow clarity regressions', () => {
     const requirements = [
       /name the fixed target in the report header/i,
       /read an existing destination and preserve its content/i,
-      /do not add findings or fixes before Scope Challenge C/i,
+      /findings and fixes first enter through Scope Challenge C's ledger saves, never earlier/i,
       /before an existing `## GSTACK REVIEW REPORT`, or at EOF/i,
       /create that terminal report only at Plan File Review Report/i,
     ];
@@ -269,9 +269,15 @@ describe('plan report persistence precedes completion logging', () => {
     try {
       const generated = await runGeneration({ host: 'all', outputRoot, contentLinkRoot: null, log: () => {} });
       expect(generated.exitCode, JSON.stringify(generated.diagnostics)).toBe(0);
-      const carriers = generated.artifacts.filter(artifact => artifact.host === 'claude'
-        ? artifact.kind === 'section' && plans.some(skill => artifact.relativePath === `${skill}/sections/review-sections.md`)
-        : artifact.kind === 'skill' && plans.some(skill => artifact.relativePath.endsWith(`/gstack-${skill}/SKILL.md`)));
+      // A carved skill carries the report in sections/review-sections.md (every
+      // host since C4 for plan-ceo-review); an inlined one in its SKILL.md.
+      const isSection = (artifact: typeof generated.artifacts[number]) => artifact.kind === 'section'
+        && plans.some(skill => artifact.relativePath === `${skill}/sections/review-sections.md`
+          || artifact.relativePath.endsWith(`/gstack-${skill}/sections/review-sections.md`));
+      const carved = new Set(generated.artifacts.filter(isSection).map(a => `${a.host}:${a.relativePath.replace(/\/sections\/review-sections\.md$/, '')}`));
+      const carriers = generated.artifacts.filter(artifact => isSection(artifact)
+        || (artifact.kind === 'skill' && plans.some(skill => artifact.relativePath.endsWith(`/gstack-${skill}/SKILL.md`))
+          && !carved.has(`${artifact.host}:${artifact.relativePath.replace(/\/SKILL\.md$/, '')}`)));
       expect(carriers).toHaveLength(plans.length * ALL_HOST_CONFIGS.length);
       for (const carrier of carriers) {
         const content = readFileSync(join(outputRoot, carrier.relativePath), 'utf8');
@@ -660,7 +666,9 @@ describe('outside-voice commitment queue', () => {
       const eng = generateCodexPlanReview({ host: host.name, paths: HOST_PATHS[host.name]!, skillName: 'plan-eng-review' } as TemplateContext);
       const provider = host.name === 'codex' ? 'Claude Code' : 'Codex';
       const mismatch = host.name === 'codex' ? 'under_current_harness' : 'under_codex';
-      expect(eng).toContain(`**If \`CODEX_MODE: ready\` — run ${provider}:**`);
+      // B1: the heading also admits `unverified`.
+      expect(eng).toContain('**If `CODEX_MODE: ready`');
+      expect(eng).toContain(`— run ${provider}:**`);
       const fallback = compactProse(eng.slice(eng.indexOf('**Native fallback —'), eng.indexOf('**Bounded outside-voice wait')));
       const routing = eng.slice(eng.indexOf('**Outcome routing:**'), eng.indexOf('**Disabled is a terminal branch'));
       const preflight = eng.match(/```bash\n([\s\S]*?)\n```/)![1];

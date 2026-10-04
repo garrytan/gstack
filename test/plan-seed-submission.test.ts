@@ -57,11 +57,15 @@ for (const scenario of ['success', 'completed-tool', 'status-updating', 'history
       try { await submitPlanSeed(session, seed, { cwd: dir, launchedAt, deadlineAt,
         isQuestionOrPermission: text => isProseAUQVisible(text) || isNumberedOptionListVisible(text) || isPermissionDialogVisible(text) }); }
       catch (error) { failure = error; }
+      const settledAt = Date.now();
       if (['success', 'completed-tool', 'status-updating', 'history-empty-box', 'native-paste', 'native-paste-block', 'startup-placeholder', 'startup-placeholder-cursor', 'startup-placeholder-unicode'].includes(scenario)) {
         expect(failure).toBeUndefined();
         session.send('/plan-eng-review\r');
-        await Bun.sleep(50);
-        const events = fs.readFileSync(path.join(config, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+        // The fixture CLI logs the slash after it reads the bytes; under load that takes longer than a fixed 50 ms.
+        const eventsFile = path.join(config, 'events.jsonl');
+        const readEvents = () => fs.readFileSync(eventsFile, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+        for (const until = Date.now() + 5000; readEvents().length < 4 && Date.now() < until;) await Bun.sleep(10);
+        const events = readEvents();
         expect(events.map(e => e.kind)).toEqual(['paste', 'enter', 'end_turn', 'slash']);
         expect(events.slice(0, 3).every(e => e.value === seed)).toBe(true);
         expect(sent).toEqual([`\x1b[200~${seed}\x1b[201~`, '\r', '/plan-eng-review\r']);
@@ -77,7 +81,7 @@ for (const scenario of ['success', 'completed-tool', 'status-updating', 'history
         expect(sent.filter(s => s === '\r').length).toBeLessThanOrEqual(1);
         if (scenario.startsWith('startup-')) expect(sent).toEqual([]);
       }
-      expect(Date.now() - deadlineAt).toBeLessThan(500);
+      expect(settledAt - deadlineAt).toBeLessThan(500);
     } finally {
       if (!exited) proc.kill();
       await proc.exited;

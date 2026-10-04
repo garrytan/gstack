@@ -1024,8 +1024,11 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     expect(planSkill).toContain('eng-review-test-plan');
     expect(planSkill).toContain('Test Plan Artifact');
     const artifact = planSkill.split('\n#### Test Plan Artifact\n')[1]!;
-    expect(artifact).toContain('After resolving the Test review decisions');
-    expect(artifact).toContain('List any unresolved choices separately as pending, not required implementation');
+    // The artifact is written even when Test review choices are still unanswered (periodic run 37151477069).
+    const step5 = planSkill.split('**Step 5. Add missing tests to the plan:**')[1]!.split('\n#### Test Plan Artifact\n')[0]!;
+    expect(step5).toMatch(/write the Test Plan Artifact below, even while some choices are still unanswered/);
+    expect(artifact).toMatch(/Write it even when choices are still pending/);
+    expect(artifact).toContain('list any unresolved choices separately as pending, not required implementation');
     expect(artifact).toContain('Update this artifact if later approved decisions change the tests');
     expect(artifact).toContain('Use the Review record and write policy above.');
     expect(artifact).toContain('TEST_PLAN_USER=$(whoami)');
@@ -2197,16 +2200,19 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
       const marker = path.join(dir, 'must-not-execute');
       const product = `A product with $(touch ${marker}), \`touch ${marker}\`, and "quotes".\nUsers: builders.\n`;
       fs.writeFileSync(brief, product);
-      fs.writeFileSync(path.join(dir, 'codex'), `#!${process.execPath}\nrequire('fs').writeFileSync(process.env.CAPTURE, JSON.stringify(process.argv.slice(2)));\nconsole.log('Recommendation: choose a clear hierarchy because builders need to find their work.');\n`, { mode: 0o700 });
+      // Fake codex: the free sandbox preflight succeeds; exec writes its final message to -o.
+      fs.writeFileSync(path.join(dir, 'codex'), `#!${process.execPath}\nconst fs = require('fs'); const a = process.argv.slice(2); if (a[0] === 'sandbox') process.exit(0);\nfs.writeFileSync(process.env.CAPTURE, JSON.stringify({ args: a, stdin: a[1] === '-' ? fs.readFileSync(0, 'utf8') : '' }));\nconst msg = 'Recommendation: choose a clear hierarchy because builders need to find their work.';\nif (a.includes('-o')) fs.writeFileSync(a[a.indexOf('-o') + 1], msg);\nconsole.log(msg);\n`, { mode: 0o700 });
       const prepare = (file: string) => command.replace("'<prepared-prompt-file>'", quote(file))
         .replaceAll('$HOME/.claude/skills/gstack', ROOT);
       const env = { ...process.env, PATH: dir + path.delimiter + process.env.PATH, CAPTURE: capture,
-        CODEX_THREAD_ID: '', CODEX_SANDBOX: '', CLAUDECODE: '1', GSTACK_ACTIVE_HOST: 'claude' };
+        CODEX_THREAD_ID: '', CODEX_SANDBOX: '', CLAUDECODE: '1', GSTACK_ACTIVE_HOST: 'claude',
+        GSTACK_HOME: path.join(dir, 'state'), GSTACK_STATE_ROOT: '' };
       const result = spawnSync('bash', ['-c', prepare(brief)], { cwd: ROOT, env, encoding: 'utf8', timeout: 5_000 });
       expect(result.status, result.stderr).toBe(0);
-      const args = JSON.parse(fs.readFileSync(capture, 'utf8'));
+      const { args, stdin } = JSON.parse(fs.readFileSync(capture, 'utf8'));
       expect(args[0]).toBe('exec');
-      expect(args[1]).toBe(product.trimEnd());
+      expect(args[1]).toBe('-');
+      expect(stdin).toBe(product);
       expect(args).toContain('read-only');
       expect(fs.readFileSync(brief, 'utf8')).toBe(product);
       expect(fs.existsSync(marker)).toBe(false);
@@ -2538,7 +2544,7 @@ describe('DESIGN_DETECTOR resolver', () => {
     expect(c).not.toContain('document.documentElement.cloneNode');
     expect(c).toContain('_DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")');
     expect(c).toContain(`const html = await pg.evaluate('"$_DUMP"');`);
-    expect(c).toContain('_TMP=$(mktemp -d); _DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")');
+    expect(c).toContain('_TMP=$(mktemp -d "${TMPDIR:-/tmp}/gstack-dom.XXXXXX"); _DUMP=$(cat "$HOME/.claude/skills/gstack/lib/dom-dump.js")');
   });
 
   test('every rendered Aside script is single-quoted: a page-controlled <url> is never inside a double-quoted bash string', () => {
@@ -2921,7 +2927,9 @@ describe('Codex generation (--host codex)', () => {
     // Check a skill that has a preamble (review is a good candidate)
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('GSTACK_ROOT');
-    expect(content).toContain('$_ROOT/.agents/skills/gstack');
+    // C1: one shared root resolution — repo-local first, then CODEX_HOME's global root.
+    expect(content).toContain('_r=$(git rev-parse --show-toplevel 2>/dev/null)/.agents/skills/gstack');
+    expect(content).toContain('_r=${CODEX_HOME:-~/.codex}/skills/gstack');
     // Phase 1/2: config reads moved into gstack-skill-start — the fence itself
     // is the bin asset the preamble must resolve through $GSTACK_BIN, and the
     // question-preference runtime call still resolves the same way.
@@ -3237,7 +3245,7 @@ describe('Factory generation (--host factory)', () => {
   test('Factory preamble uses .factory paths', () => {
     const content = fs.readFileSync(path.join(FACTORY_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('GSTACK_ROOT');
-    expect(content).toContain('$_ROOT/.factory/skills/gstack');
+    expect(content).toContain('_r=$(git rev-parse --show-toplevel 2>/dev/null)/.factory/skills/gstack');
     expect(content).toContain('$GSTACK_BIN/gstack-config');
   });
 });

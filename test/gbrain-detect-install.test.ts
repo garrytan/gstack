@@ -324,3 +324,39 @@ describe('gstack-gbrain-install argument handling', () => {
     expect(r.stderr).toContain('unknown flag');
   });
 });
+
+// B8 (#1675): the installer reads package.json with bun; it used to need jq,
+// never checked for it, and reported a successful install as failed.
+describe('gstack-gbrain-install without jq (B8)', () => {
+  function pathWithoutJq(extra: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'no-jq-bin-'));
+    for (const base of ['/usr/bin', '/bin', '/usr/sbin', '/sbin']) {
+      if (!fs.existsSync(base)) continue;
+      for (const name of fs.readdirSync(base)) {
+        if (name === 'jq' || name === 'gbrain' || fs.existsSync(path.join(dir, name))) continue;
+        try { fs.symlinkSync(path.join(base, name), path.join(dir, name)); } catch {}
+      }
+    }
+    return `${extra}:${dir}:${BUN_ONLY_DIR}`;
+  }
+
+  test('validates a matching install and reuses a detected clone with no jq on PATH', async () => {
+    const installDir = path.join(tmpHomeReal, 'gbrain-install');
+    fs.mkdirSync(installDir, { recursive: true });
+    fs.writeFileSync(path.join(installDir, 'package.json'), JSON.stringify({ name: 'gbrain', version: '0.60.37', bin: { gbrain: 'src/cli.ts' } }));
+    const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-gbrain-'));
+    fs.writeFileSync(path.join(fakeBin, 'gbrain'), '#!/bin/sh\necho "gbrain 0.60.37"\n', { mode: 0o755 });
+    const PATH = pathWithoutJq(fakeBin);
+    const ok = await run(INSTALL, ['--validate-only', '--install-dir', installDir], { env: { PATH } });
+    expect(ok.stderr).not.toContain('cannot read version');
+    expect(ok.status).toBe(0);
+
+    const clone = path.join(tmpHomeReal, 'git', 'gbrain');
+    fs.mkdirSync(clone, { recursive: true });
+    fs.writeFileSync(path.join(clone, 'package.json'), JSON.stringify({ name: 'gbrain', version: '0.60.37', bin: { gbrain: 'src/cli.ts' } }));
+    const dry = await run(INSTALL, ['--dry-run'], { env: { PATH } });
+    expect(dry.stdout).toContain(`detected existing gbrain clone at ${clone}`);
+    fs.rmSync(fakeBin, { recursive: true, force: true });
+  });
+});
+

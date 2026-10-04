@@ -247,9 +247,10 @@ export function autoplanDualVoiceEvidence(transcript: unknown[], options: Autopl
           if (execution.succeeded && /^OUTSIDE_STATUS: completed provider=codex host=claude$/m.test(execution.output)) {
             result.codexAttempted = result.codexVoiceFired = true; result.outsideToolUseId = outside.id;
           } else if (!execution.background && !execution.succeeded && outside.result.error &&
-              /^(?:Codex outside review unavailable: execution failed; missing coverage\. Check the provider diagnosis above\.|Outside review unavailable: (?:empty response|review refused|missing review completion recommendation); missing coverage\.)$/m.test(execution.output)) {
+              /^(?:Codex outside review unavailable: execution failed; missing coverage\. Check the provider diagnosis above\.|Outside review unavailable: (?:empty response|review refused|missing review completion recommendation); missing coverage\.|Codex outside review unavailable: [^\n]+\. No review ran; this is missing coverage, not a pass\. Fix: [^\n]+)$/m.test(execution.output)) {
             // These finite diagnostics occur only after the exact generated
-            // command reaches Codex or its review validator. They prove an
+            // command reaches Codex or its review validator (lib/gate-outcomes.ts
+            // lines from the verdict form; the first two are pre-verdict renders). They prove an
             // attempted voice, never a completed review or comparison.
             result.codexAttempted = result.codexUnavailable = true;
             result.failedOutsideToolUseId = outside.id;
@@ -258,7 +259,7 @@ export function autoplanDualVoiceEvidence(transcript: unknown[], options: Autopl
       }
     }
   }
-  result.codexUnavailable ||= result.claudeVoiceFired && ['not_installed', 'not_authed', 'broken_install', 'model_unusable'].includes(result.probeMode ?? '');
+  result.codexUnavailable ||= result.claudeVoiceFired && ['not_installed', 'not_authed', 'broken_install', 'sandbox_unavailable', 'model_unusable'].includes(result.probeMode ?? '');
   if (!result.claudeVoiceFired) result.reasons.push('No acknowledged current CEO phase dispatch');
   if (!result.codexVoiceFired && !result.codexUnavailable) {
     result.reasons.push('No acknowledged outside execution or actual unavailable probe result');

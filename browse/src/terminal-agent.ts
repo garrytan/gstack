@@ -29,6 +29,7 @@ import { safeUnlink } from './error-handling';
 import { writeAgentRecord, readAgentRecord, clearAgentRecord, readAgentStartTime, acquireAgentStateLock } from './terminal-agent-control';
 import { findAvailablePort } from './port-allocator';
 import { extractPtyCookie } from './pty-session-cookie';
+import { allowedExtensionOrigin } from './extension-id';
 import {
   createPtyLifecycle, disposePtyProcess, ptyCompletionReason,
   type PtyCompletion, type PtyLifecycle,
@@ -43,7 +44,6 @@ const OWNER_WATCHDOG_MS = parseInt(
   process.env.GSTACK_TERMINAL_OWNER_WATCHDOG_MS || '15000',
   10,
 );
-const EXTENSION_ID = process.env.BROWSE_EXTENSION_ID || ''; // optional: tighten Origin check
 const INTERNAL_TOKEN = crypto.randomBytes(32).toString('base64url'); // shared with parent server via env at spawn
 /**
  * Per-boot generation identifier. Loopback /internal/* callers include
@@ -620,8 +620,8 @@ function buildServer(port: number) {
       }
 
       // /ws — WebSocket upgrade. CRITICAL gates:
-      //   (1) Origin must be chrome-extension://<id>. Cross-site WS hijacking
-      //       defense — required, not optional.
+      //   (1) Origin must be exactly the pinned (or gstack-config configured)
+      //       extension. Any other origin, other extensions included, is 403.
       //   (2) Token must be in validTokens. We accept the token via two
       //       transports for compatibility:
       //         - Sec-WebSocket-Protocol (preferred for browsers — the only
@@ -634,12 +634,7 @@ function buildServer(port: number) {
       //       validTokens Set, populated by the parent server's
       //       authenticated /pty-session → /internal/grant chain.
       if (url.pathname === '/ws') {
-        const origin = req.headers.get('origin') || '';
-        const isExtensionOrigin = origin.startsWith('chrome-extension://');
-        if (!isExtensionOrigin) {
-          return new Response('forbidden origin', { status: 403 });
-        }
-        if (EXTENSION_ID && origin !== `chrome-extension://${EXTENSION_ID}`) {
+        if (req.headers.get('origin') !== allowedExtensionOrigin()) {
           return new Response('forbidden origin', { status: 403 });
         }
 

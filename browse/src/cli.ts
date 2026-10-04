@@ -18,7 +18,8 @@ import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash, isPairAgentEnabled, resolveChromiumProfile } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
-import { spawnTerminalAgent } from './terminal-agent-control';
+import { spawnTerminalAgent, BUN_CHILD_FLAGS } from './terminal-agent-control';
+import { profileOwner, ensureProjectProfile, runProfilesCommand } from './chromium-profiles';
 // Zero side effects on import (documented invariant in token-registry.ts) —
 // safe to pull the shared pairing default into the CLI.
 import { DEFAULT_PAIR_SCOPES } from './token-registry';
@@ -84,8 +85,6 @@ export function resolveServerScript(
   );
 }
 
-const SERVER_SCRIPT = resolveServerScript();
-
 /**
  * On Windows, resolve the Node.js-compatible server bundle.
  * Falls back to null if not found (server will use Bun instead).
@@ -109,13 +108,23 @@ export function resolveNodeServerScript(
   return null;
 }
 
-const NODE_SERVER_SCRIPT = IS_WINDOWS ? resolveNodeServerScript() : null;
-
-// On Windows, hard-fail if server-node.mjs is missing — the Bun path is known broken.
-if (IS_WINDOWS && !NODE_SERVER_SCRIPT) {
-  throw new Error(
-    'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
-  );
+/**
+ * Which server to start, resolved only when a server is actually started
+ * (#2439). Windows runs the Node bundle and never needs server.ts, which a
+ * minimal runtime root does not ship; resolving server.ts at module load made
+ * every command, even --help, fail there.
+ */
+export function resolveServerLaunch(
+  platform: NodeJS.Platform = process.platform,
+  env: Record<string, string | undefined> = process.env,
+  metaDir: string = import.meta.dir,
+  execPath: string = process.execPath,
+): { runtime: 'node' | 'bun'; script: string } {
+  if (platform !== 'win32') return { runtime: 'bun', script: resolveServerScript(env, metaDir, execPath) };
+  // On Windows, hard-fail if server-node.mjs is missing — the Bun path is known broken.
+  const script = resolveNodeServerScript(metaDir, execPath);
+  if (!script) throw new Error('server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.');
+  return { runtime: 'node', script };
 }
 
 interface ServerState {
@@ -277,23 +286,21 @@ function cleanChromiumProfileLocks(profileDir: string = chromiumProfileDir()): v
   }
 }
 
-/** Kill an orphaned Chromium that still holds the profile's SingletonLock. The
- * lock symlink target is "hostname-PID"; killing that PID tears down its
- * renderer tree so the next launch starts clean. No-op when absent/stale. */
+/** Kill an orphaned Chromium that still holds the profile's SingletonLock so
+ * the next launch starts clean (#1781). Only a Chromium on this host that uses
+ * this profile and whose daemon is gone is killed; a profile held by a live
+ * process is never killed — browse stops and names the holder (D5, #2492). */
 async function killOrphanChromium(profileDir: string = chromiumProfileDir()): Promise<void> {
-  try {
-    const lockTarget = fs.readlinkSync(path.join(profileDir, 'SingletonLock')); // "hostname-12345"
-    const orphanPid = parseInt(lockTarget.split('-').pop() || '', 10);
-    if (orphanPid && isProcessAlive(orphanPid)) {
-      safeKill(orphanPid, 'SIGTERM');
-      await new Promise(r => setTimeout(r, 1000));
-      if (isProcessAlive(orphanPid)) {
-        safeKill(orphanPid, 'SIGKILL');
-        await new Promise(r => setTimeout(r, 500));
-      }
-    }
-  } catch (err: any) {
-    if (err?.code !== 'ENOENT' && err?.code !== 'EINVAL') throw err;
+  const owner = profileOwner(profileDir);
+  if (owner.state === 'free') return;
+  if (owner.state === 'live') {
+    throw new Error(`Headed Chromium profile ${profileDir} is ${owner.detail}. Close that browser first, or set CHROMIUM_PROFILE to a different directory.`);
+  }
+  safeKill(owner.pid, 'SIGTERM');
+  await new Promise(r => setTimeout(r, 1000));
+  if (isProcessAlive(owner.pid)) {
+    safeKill(owner.pid, 'SIGKILL');
+    await new Promise(r => setTimeout(r, 500));
   }
 }
 
@@ -591,6 +598,7 @@ function openDaemonLogSink(): number | 'ignore' {
 }
 
 async function startServer(extraEnv?: Record<string, string>): Promise<ServerState> {
+  const server = resolveServerLaunch();
   ensureStateDir(config);
 
   // Bound the append-mode daemon log before the new daemon starts writing.
@@ -612,6 +620,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   // blocked by the previous Chromium's SingletonLock — the self-inflicted
   // crash-loop. Previously only the manual connect preamble did this.
   if ((extraEnv?.BROWSE_HEADED ?? process.env.BROWSE_HEADED) === '1') {
+    ensureProjectProfile(chromiumProfileDir());
     await killOrphanChromium();
     cleanChromiumProfileLocks();
   }
@@ -625,7 +634,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   const parentPid = parseInt(process.env.BROWSE_PARENT_PID || '', 10) === 0 ? '0' : String(process.pid);
   let spawnedServer: { pid: number; startTime: string } | null = null;
 
-  if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
+  if (server.runtime === 'node') {
     // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
     // when the CLI exits, the server dies with it. Use Node's child_process.spawn
     // with { detached: true } instead, which is the gold standard for Windows
@@ -641,7 +650,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
       `const{spawn}=require('child_process');` +
       `const fs=require('fs');` +
       `let logFd;try{logFd=fs.openSync(${daemonLogPathStr},'a');}catch(e){logFd='ignore';}` +
-      `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
+      `spawn(process.execPath,[${JSON.stringify(server.script)}],` +
       `{detached:true,windowsHide:true,stdio:['ignore',logFd,logFd],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'], windowsHide: true });
@@ -658,7 +667,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     // (PPID=1, STAT=Ss) and survives the spawning shell's exit. Mirrors
     // the Windows path's rationale — same root cause, different OS API.
     const daemonLogFd = openDaemonLogSink();
-    const child = nodeSpawn('bun', ['run', SERVER_SCRIPT], {
+    const child = nodeSpawn('bun', ['run', ...BUN_CHILD_FLAGS, server.script], {
       detached: true,
       windowsHide: true,
       stdio: ['ignore', daemonLogFd, daemonLogFd],
@@ -693,7 +702,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
 
   if (spawnedServer?.startTime) {
     const { pid, startTime } = spawnedServer;
-    const stillOurs = () => readPidStartTime(pid) === startTime && readPidCmdline(pid).split(/\s+/).includes(SERVER_SCRIPT);
+    const stillOurs = () => readPidStartTime(pid) === startTime && readPidCmdline(pid).split(/\s+/).includes(server.script);
     if (stillOurs()) {
       safeKill(pid, 'SIGTERM');
       const deadline = Date.now() + 500;
@@ -1605,7 +1614,21 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
 }
 
 // ─── Main ──────────────────────────────────────────────────────
+/**
+ * #494: the CLI talks to its daemon over loopback, but Bun's fetch sends those
+ * calls through HTTP(S)_PROXY, so the daemon never looks healthy behind a
+ * corporate proxy. Append the loopback names to the user's NO_PROXY (never
+ * replace it). Bun reads NO_PROXY when the first fetch runs, so this must run
+ * before any fetch. The daemon inherits the same value.
+ */
+export function withLoopbackNoProxy(env: Record<string, string | undefined>): string {
+  const entries = (env.NO_PROXY ?? env.no_proxy ?? '').split(',').map(e => e.trim()).filter(Boolean);
+  for (const host of ['127.0.0.1', 'localhost', '::1']) if (!entries.includes(host)) entries.push(host);
+  return entries.join(',');
+}
+
 async function main() {
+  process.env.NO_PROXY = process.env.no_proxy = withLoopbackNoProxy(process.env);
   const rawArgs = process.argv.slice(2);
 
   // ─── Global flags (--proxy, --headed) ───────────────────────
@@ -1633,7 +1656,7 @@ Usage: browse <command> [args...]
 Navigation:     goto <url> | back | forward | reload | url
 Content:        text | html [sel] | links | forms | accessibility
 Interaction:    click <sel> | fill <sel> <val> | select <sel> <val>
-                hover <sel> | type <text> | press <key>
+                hover <sel> | type [--selector <sel>] <text> | press <key>
                 scroll [sel] | wait <sel|--networkidle|--load> | viewport <WxH>
                 upload <sel> <file1> [file2...]
                 cookie-import <json-file>
@@ -1653,6 +1676,7 @@ Multi-step:     chain (reads JSON from stdin)
 Tabs:           tabs | tab <id> | newtab [url] | closetab [id]
 Server:         status | cookie <n>=<v> | header <n>:<v>
                 useragent <str> | stop | restart
+                profiles [list] | profiles prune [--days N]  (per-project headed profiles)
                 tunnel revoke <name> | tunnel agents  (paired-agent tokens)
                 --force-restart: replace a live-but-busy daemon (any command;
                 LOSES tabs/cookies/logins — never done automatically)
@@ -1669,6 +1693,8 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
 
   const command = args[0];
   const commandArgs = args.slice(1);
+
+  if (command === 'profiles') process.exit(runProfilesCommand(commandArgs));
 
   // ─── Headed Connect (pre-server command) ────────────────────
   // connect must be handled BEFORE ensureServer() because it needs

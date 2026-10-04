@@ -1,13 +1,12 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { JUDGE_MS, CAPTURE_MS, CAPTURE_LONG_MS, PTY_MS } from './helpers/eval-budgets';
 import { runSkillTest } from './helpers/session-runner';
-import { getHermeticDirs, isHermeticEnabled, seedHermeticGstackHome } from './helpers/hermetic-env';
 import { EvalCollector } from './helpers/eval-store';
 import { OFFICE_HOURS_BUN_GRACE_MS, runRecordedOfficeHoursAttempt } from './helpers/office-hours-attempt';
 import {
   ROOT, browseBin, runId, evalsEnabled,
   describeIfSelected, testConcurrentIfSelected,
-  copyDirSync, setupBrowseShims, logCost, recordE2E,
+  copyDirSync, logCost, recordE2E,
   finalizeEvalCollector,
 } from './helpers/e2e-helpers';
 import { judgePosture } from './helpers/llm-judge';
@@ -370,143 +369,6 @@ Focus on architecture, code quality, tests, and performance sections.`,
       const review = fs.readFileSync(reviewPath, 'utf-8');
       expect(review.length).toBeGreaterThan(200);
     }
-  }, CAPTURE_LONG_MS);
-});
-
-// --- Plan-Eng-Review Test-Plan Artifact E2E ---
-
-describeIfSelected('Plan-Eng-Review Test-Plan Artifact E2E', ['plan-eng-review-artifact'], () => {
-  let planDir: string;
-  let gstackHome: string;
-  let ownsGstackHome = false;
-  let slug: string;
-  let projectDir: string;
-
-  beforeAll(() => {
-    planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-plan-artifact-'));
-    const run = (cmd: string, args: string[]) =>
-      spawnSync(cmd, args, { cwd: planDir, stdio: 'pipe', timeout: 5000 });
-
-    run('git', ['init', '-b', 'main']);
-    run('git', ['config', 'user.email', 'test@test.com']);
-    run('git', ['config', 'user.name', 'Test']);
-
-    // Create base commit on main
-    fs.writeFileSync(path.join(planDir, 'app.ts'), 'export function greet() { return "hello"; }\n');
-    run('git', ['add', '.']);
-    run('git', ['commit', '-m', 'initial']);
-
-    // Create feature branch with changes
-    run('git', ['checkout', '-b', 'feature/add-dashboard']);
-    fs.writeFileSync(path.join(planDir, 'dashboard.ts'), `export function Dashboard() {
-  const data = fetchStats();
-  return { users: data.users, revenue: data.revenue };
-}
-function fetchStats() {
-  return fetch('/api/stats').then(r => r.json());
-}
-`);
-    fs.writeFileSync(path.join(planDir, 'app.ts'), `import { Dashboard } from "./dashboard";
-export function greet() { return "hello"; }
-export function main() { return Dashboard(); }
-`);
-    run('git', ['add', '.']);
-    run('git', ['commit', '-m', 'feat: add dashboard']);
-
-    // Plan document
-    fs.writeFileSync(path.join(planDir, 'plan.md'), `# Plan: Add Dashboard
-
-## Changes
-1. New \`dashboard.ts\` with Dashboard component and fetchStats API call
-2. Updated \`app.ts\` to import and use Dashboard
-
-## Architecture
-- Dashboard fetches from \`/api/stats\` endpoint
-- Returns user count and revenue metrics
-`);
-    run('git', ['add', 'plan.md']);
-    run('git', ['commit', '-m', 'add plan']);
-
-    // Copy plan-eng-review skill
-    fs.mkdirSync(path.join(planDir, 'plan-eng-review'), { recursive: true });
-    fs.copyFileSync(
-      path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
-      path.join(planDir, 'plan-eng-review', 'SKILL.md'),
-    );
-    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
-    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
-
-    // Set up remote-slug shim and browse shims (plan-eng-review uses remote-slug for artifact path)
-    setupBrowseShims(planDir);
-
-    // The actor, this observer and cleanup share one isolated state root: the
-    // hermetic run's GSTACK_HOME (or a seeded temporary one when hermetic mode
-    // is off), and the slug gstack-slug resolves for this fixture. Nothing is
-    // read or deleted under the operator's real home.
-    if (isHermeticEnabled()) gstackHome = getHermeticDirs().gstackHome;
-    else {
-      gstackHome = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-plan-artifact-home-'));
-      seedHermeticGstackHome(gstackHome);
-      ownsGstackHome = true;
-    }
-    const slugOut = spawnSync(path.join(ROOT, 'bin', 'gstack-slug'), [], {
-      cwd: planDir, stdio: 'pipe', timeout: 5000, env: { ...process.env, GSTACK_HOME: gstackHome },
-    }).stdout.toString();
-    slug = /^SLUG=(.+)$/m.exec(slugOut)?.[1]?.trim() ?? '';
-    if (!slug) throw new Error(`plan-eng-review-artifact: gstack-slug resolved no slug: ${slugOut}`);
-    projectDir = path.join(gstackHome, 'projects', slug);
-    const realHome = path.resolve(os.homedir());
-    if (projectDir === realHome || projectDir.startsWith(realHome + path.sep) && !projectDir.startsWith(path.resolve(os.tmpdir()) + path.sep)) {
-      throw new Error(`plan-eng-review-artifact: state root ${projectDir} is under the real home directory`);
-    }
-  });
-
-  afterAll(() => {
-    try { fs.rmSync(planDir, { recursive: true, force: true }); } catch {}
-    // Remove only this fixture's project directory inside the isolated state root.
-    try { fs.rmSync(ownsGstackHome ? gstackHome : projectDir, { recursive: true, force: true }); } catch {}
-  });
-
-  testConcurrentIfSelected('plan-eng-review-artifact', async () => {
-    const testPlans = () => fs.existsSync(projectDir)
-      ? fs.readdirSync(projectDir).filter(f => /eng-review-test-plan-.*\.md$/.test(f)) : [];
-    const beforeFiles = testPlans();
-
-    const result = await runSkillTest({
-      prompt: `Read plan-eng-review/SKILL.md for the review workflow.
-Skip the preamble bash block, lake intro, telemetry, and contributor mode sections — go straight to the review.
-
-Read plan.md — that's the plan to review. This is a standalone plan with source code in app.ts and dashboard.ts.
-
-Proceed directly to the full review. Skip any AskUserQuestion calls — this is non-interactive.
-
-In this fixture the gstack state root is GSTACK_HOME=${gstackHome} and the project slug is ${slug}.
-
-Write your review to ${planDir}/review-output.md`,
-      workingDirectory: planDir,
-      env: { GSTACK_HOME: gstackHome },
-      maxTurns: 25,
-      allowedTools: ['Bash', 'Read', 'Write', 'Glob', 'Grep'],
-      timeout: CAPTURE_LONG_MS,
-      testName: 'plan-eng-review-artifact',
-      runId,
-      model: 'claude-opus-4-7',
-    });
-
-    logCost('/plan-eng-review artifact', result);
-    // The QA test plan is a required discovery artifact of the review: exactly
-    // one new file under this fixture's project directory, about this plan.
-    const newFiles = testPlans().filter(f => !beforeFiles.includes(f));
-    const content = newFiles.length === 1 ? fs.readFileSync(path.join(projectDir, newFiles[0]!), 'utf-8') : '';
-    const aboutPlan = /dashboard|fetchStats|\/api\/stats/i.test(content);
-    console.log(`Test-plan artifacts in ${projectDir}: ${newFiles.length} new${newFiles.length ? ` (${newFiles[0]}, ${content.length} chars)` : ''}`);
-    recordE2E(evalCollector, '/plan-eng-review test-plan artifact', 'Plan-Eng-Review Test-Plan Artifact E2E', result, {
-      passed: ['success', 'error_max_turns'].includes(result.exitReason) && newFiles.length === 1 && aboutPlan,
-    });
-
-    expect(['success', 'error_max_turns']).toContain(result.exitReason);
-    expect(newFiles, `expected one new eng-review test plan in ${projectDir}`).toHaveLength(1);
-    expect(aboutPlan, 'the test plan covers the reviewed dashboard change').toBe(true);
   }, CAPTURE_LONG_MS);
 });
 

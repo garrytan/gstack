@@ -432,3 +432,29 @@ describe('migration v1.1.3.0: HOME guard', () => {
     expect(result.stdout.toString().trim()).toBe('');
   });
 });
+
+// G6 rider #2704: the duration block parsed `ps -o lstart=` with BSD-only
+// `date -jf`, so on Linux session_duration_s was always "unknown". Runs the
+// block extracted from the template, so it cannot drift from the skill.
+describe('context-save session duration (#2704)', () => {
+  const tmpl = fs.readFileSync(path.join(ROOT, 'context-save', 'SKILL.md.tmpl'), 'utf-8');
+  const step = tmpl.slice(tmpl.indexOf('### Step 3: Compute session duration'));
+  const block = step.match(/```bash\n([\s\S]*?)\n```/)![1];
+  const psWorks = spawnSync('bash', ['-c', 'ps -o lstart= -p $$'], { encoding: 'utf-8', timeout: 5000 }).stdout.trim() !== '';
+
+  test.skipIf(!psWorks)('computes a numeric duration from the parent process start time', () => {
+    const r = spawnSync('bash', ['-c', block], { env: { PATH: process.env.PATH! }, encoding: 'utf-8', timeout: 10_000 });
+    expect(r.stdout).toMatch(/^SESSION_DURATION_S=\d+$/m);
+  });
+
+  test('an unreadable parent start says unknown instead of inventing midnight', () => {
+    const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'ctxsave-ps-'));
+    try {
+      fs.writeFileSync(path.join(shim, 'ps'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+      const r = spawnSync('bash', ['-c', block], { env: { PATH: `${shim}:${process.env.PATH}` }, encoding: 'utf-8', timeout: 10_000 });
+      expect(r.stdout.trim()).toBe('SESSION_DURATION_S=unknown');
+    } finally {
+      fs.rmSync(shim, { recursive: true, force: true });
+    }
+  });
+});

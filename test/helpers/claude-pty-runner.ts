@@ -24,7 +24,7 @@ export type { ReviewReportAtBottomResult, NativePlanTerminalReview, NativePlanTe
 export { ceoStep0Boundary, engSetupAUQ, engFirstReviewAUQ, engStep0Boundary, pickDesignFocusAll } from './pty/boundaries';
 export { runPlanSkillObservation } from './pty/runners/observation';
 export type { PlanSkillObservation, PlanSkillObservationOptions } from './pty/runners/observation';
-export { runPlanSkillCounting, countingCapture, isNativeCompletionSummary } from './pty/runners/counting';
-export type { PlanSkillCountObservation, PlanSkillCountingOptions, CountingRun } from './pty/runners/counting';
+export { runPlanSkillCounting, countingCapture, isNativeCompletionSummary, readEngTestPlans } from './pty/runners/counting';
+export type { EngTestPlan, PlanSkillCountObservation, PlanSkillCountingOptions, CountingRun } from './pty/runners/counting';
 export { planFloorDXPane, planFloorDXReplyInput, runPlanSkillFloorCheck } from './pty/runners/floor';
 export type { PlanSkillFloorObservation, PlanFloorDXReply } from './pty/runners/floor';

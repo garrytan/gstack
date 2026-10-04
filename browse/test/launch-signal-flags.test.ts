@@ -51,10 +51,11 @@ describe('Playwright launch sites disable signal handlers (#2220)', () => {
     const src = SRC('browser-manager.ts');
     const launchCount = expectSignalFlagsNearEvery(src, 'chromium.launch({');
     const persistentCount = expectSignalFlagsNearEvery(src, 'chromium.launchPersistentContext(');
-    // Three launch sites today: headless launch(), headed launchHeaded(),
-    // and the handoff relaunch. A NEW launch site must carry the flags too —
-    // bump this only after adding them.
-    expect(launchCount + persistentCount).toBe(3);
+    // Four launch sites today: headless launch(), its BROWSE_EXTENSIONS_DIR
+    // persistent context (#2281), headed launchHeaded(), and the handoff
+    // relaunch. A NEW launch site must carry the flags too — bump this only
+    // after adding them.
+    expect(launchCount + persistentCount).toBe(4);
   });
 
   test('server.ts owns SIGHUP cleanup now that Playwright does not (ENG-OV4)', () => {

@@ -431,17 +431,21 @@ describe('resolveChromiumProfile', () => {
     }
   });
 
-  test('falls back to resolveGstackHome()/chromium-profile when nothing set', () => {
+  test('falls back to the project state dir, not the machine-wide gstack home (D5, #2492)', () => {
     const origEnv = process.env.CHROMIUM_PROFILE;
     const origHome = process.env.GSTACK_HOME;
+    const origState = process.env.BROWSE_STATE_FILE;
     delete process.env.CHROMIUM_PROFILE;
     process.env.GSTACK_HOME = '/tmp/fallback-gstack';
+    process.env.BROWSE_STATE_FILE = '/tmp/project-a/.gstack/browse.json';
     try {
-      expect(resolveChromiumProfile()).toBe('/tmp/fallback-gstack/chromium-profile');
+      expect(resolveChromiumProfile()).toBe(path.join('/tmp/project-a/.gstack', 'chromium-profile'));
     } finally {
       if (origEnv !== undefined) process.env.CHROMIUM_PROFILE = origEnv;
       if (origHome === undefined) delete process.env.GSTACK_HOME;
       else process.env.GSTACK_HOME = origHome;
+      if (origState === undefined) delete process.env.BROWSE_STATE_FILE;
+      else process.env.BROWSE_STATE_FILE = origState;
     }
   });
 

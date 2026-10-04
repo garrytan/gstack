@@ -250,19 +250,21 @@ export function isPairAgentEnabled(): boolean {
 }
 
 /**
- * Resolve the Chromium profile directory.
+ * Resolve the headed Chromium profile directory.
  *
  * Resolution order:
  *   1. `explicit` arg (no production caller passes one today; kept for
  *      direct programmatic use)
  *   2. CHROMIUM_PROFILE env (used by gbrowser's gbd per-workspace)
- *   3. <resolveGstackHome()>/chromium-profile (default)
+ *   3. <project state dir>/chromium-profile (default; per project since D5,
+ *      #2492 — a machine-wide profile let one project's headed launch kill
+ *      another project's live browser)
  */
 export function resolveChromiumProfile(explicit?: string): string {
   if (explicit && explicit.length > 0) return explicit;
   const env = process.env.CHROMIUM_PROFILE;
   if (env && env.length > 0) return env;
-  return path.join(resolveGstackHome(), 'chromium-profile');
+  return path.join(resolveConfig().stateDir, 'chromium-profile');
 }
 
 /**

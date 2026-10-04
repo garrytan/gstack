@@ -248,8 +248,23 @@ describe('gstack-team-init', () => {
     expect(fs.existsSync(settingsPath)).toBe(true);
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     expect(settings.hooks.PreToolUse).toHaveLength(1);
-    expect(settings.hooks.PreToolUse[0].matcher).toBe('Skill');
+    // C7 (#2229): Copilot CLI's skill tool is lowercase `skill`; Claude-format
+    // matchers fire when an alternation token equals the runtime tool name.
+    expect(settings.hooks.PreToolUse[0].matcher.split('|').sort()).toEqual(['Skill', 'skill']);
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain('check-gstack');
+  });
+
+  test('required: a Skill-only entry from an older team-init is upgraded, not duplicated (C7)', () => {
+    const settingsPath = path.join(tmpDir, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify({ hooks: { PreToolUse: [
+      { matcher: 'Bash', hooks: [{ type: 'command', command: 'my-own-hook' }] },
+      { matcher: 'Skill', hooks: [{ type: 'command', command: '"$CLAUDE_PROJECT_DIR/.claude/hooks/check-gstack.sh"' }] },
+    ] } }));
+    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    const pre = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')).hooks.PreToolUse;
+    expect(pre.map((e: { matcher: string }) => e.matcher)).toEqual(['Bash', 'Skill|skill']);
   });
 
   test('idempotent: running twice does not duplicate CLAUDE.md section', () => {

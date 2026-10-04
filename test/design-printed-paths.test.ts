@@ -157,7 +157,8 @@ describe('design generating flows', () => {
   test('design-shotgun stages per run and publishes with gstack-design-claim', () => {
     const shotgun = read('design-shotgun/SKILL.md');
     const prompt = shotgun.slice(shotgun.indexOf('### Step 3c'), shotgun.indexOf('### Step 3d'));
-    expect(prompt).toContain('mktemp -d /tmp/');
+    // INV-3: the per-run staging dir honors TMPDIR.
+    expect(prompt).toContain('mktemp -d "${TMPDIR:-/tmp}/');
     expect(prompt).toMatch(/gstack-design-claim "<saved path>"/);
     expect(prompt).not.toMatch(/\/tmp\/variant-/);
     expect(prompt).toMatch(/every published path/);

@@ -3,7 +3,7 @@
  */
 import { toShellPath, type TemplateContext } from './types';
 import { CODEX_MODEL_CONFIG_FLAG, CODEX_REVIEW_MODEL_CONFIG_FLAG, CODEX_WEB_SEARCH_FLAG, codexPreflight } from './constants';
-import { getHostConfig } from '../../hosts';
+import { runtimeRootPrelude } from './runtime-root';
 
 export function outsideVoiceFor(ctx: Pick<TemplateContext, 'host'>) {
   return ctx.host === 'codex'
@@ -12,28 +12,6 @@ export function outsideVoiceFor(ctx: Pick<TemplateContext, 'host'>) {
 }
 
 const sh = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
-
-/** Each fence starts a fresh shell, so resolve the same runtime roots as the preamble. */
-export function outsideVoiceRuntime(ctx: TemplateContext): string {
-  const host = getHostConfig(ctx.host);
-  if (!host.usesEnvVars) return '';
-  const global = ctx.host === 'codex'
-    ? '\${CODEX_HOME:-$HOME/.codex}/skills/gstack'
-    : `$HOME/${host.globalRoot}`;
-  return `# Prefer an explicit usable runtime, else the repo-local install.
-if [ -n "\${GSTACK_ROOT:-}" ] && [ -d "$GSTACK_ROOT/bin" ] && [ -f "$GSTACK_ROOT/lib/claude-bin.ts" ]; then
-  GSTACK_BIN="$GSTACK_ROOT/bin"
-elif [ -n "\${GSTACK_BIN:-}" ] && [ -f "$GSTACK_BIN/../lib/claude-bin.ts" ]; then
-  GSTACK_ROOT=$(cd "$GSTACK_BIN/.." && pwd)
-else
-  _OUTSIDE_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
-  GSTACK_ROOT="${global}"
-  if [ -n "$_OUTSIDE_REPO_ROOT" ] && [ -d "$_OUTSIDE_REPO_ROOT/${host.localSkillRoot}/bin" ] && [ -f "$_OUTSIDE_REPO_ROOT/${host.localSkillRoot}/lib/claude-bin.ts" ]; then
-    GSTACK_ROOT="$_OUTSIDE_REPO_ROOT/${host.localSkillRoot}"
-  fi
-  GSTACK_BIN="$GSTACK_ROOT/bin"
-fi`;
-}
 
 /** Adapt legacy presentation labels, never historical log identifiers or paths. */
 export function outsideVoiceLabels(ctx: TemplateContext, text: string): string {
@@ -70,7 +48,7 @@ export function outsideVoicePreflight(ctx: TemplateContext, opts: { disabledBeha
   const v = outsideVoiceFor(ctx);
   if (v.id === 'codex' && opts.disabledBehavior !== 'opt-in') {
     let preflight = outsideVoiceLabels(ctx, codexPreflight({ disabledBehavior: opts.disabledBehavior, nativeReview: opts.nativeReview }))
-      .replace('```bash\n', `\`\`\`bash\n${outsideVoiceRuntime(ctx)}\n`);
+      .replace('```bash\n', `\`\`\`bash\n${runtimeRootPrelude(ctx)}\n`);
     if (['plan-eng-review', 'plan-ceo-review'].includes(ctx.skillName)) {
       preflight = preflight.replace("follow the workflow's native-review instructions below",
         'construct the prompt below, then follow **Native fallback**');
@@ -93,7 +71,7 @@ else
   echo 'CODEX_MODE: under_current_harness'
 fi`;
   return `\`\`\`bash
-${outsideVoiceRuntime(ctx)}
+${runtimeRootPrelude(ctx)}
 ${opts.acceptedOnly ? '' : `${config}
 if [ "$_OUTSIDE_CFG" = disabled ]; then
   echo 'CODEX_MODE: disabled'
@@ -128,13 +106,15 @@ export function outsideVoiceCommand(ctx: TemplateContext, opts: OutsideCommandOp
   const root = toShellPath(ctx.paths.skillRoot);
   const prompt = sh(opts.promptFile ?? '<prepared-prompt-file>');
   const codex = opts.structuredBase
-    ? `codex review --base ${sh(opts.structuredBase)} ${CODEX_REVIEW_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="${opts.reasoningEffort ?? 'high'}"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null`
-    : `codex exec "$_OUTSIDE_PROMPT" -C "$_REPO_ROOT" -s read-only ${CODEX_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="${opts.reasoningEffort ?? 'high'}"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null`;
+    ? `codex review --base ${sh(opts.structuredBase)} -c "sandbox_mode=\\"\${_GSTACK_CODEX_SANDBOX:?}\\"" ${CODEX_REVIEW_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="${opts.reasoningEffort ?? 'high'}"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null`
+    : `codex exec - -C "$_REPO_ROOT" -s "\${_GSTACK_CODEX_SANDBOX:?}" ${CODEX_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="${opts.reasoningEffort ?? 'high'}"' ${CODEX_WEB_SEARCH_FLAG} --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT"`;
   const invocation = v.id === 'codex'
     ? `source "${bin}/gstack-codex-probe" && _gstack_codex_select_model ${opts.structuredBase ? 'review' : 'exec'} || exit 1
-${opts.structuredBase ? '' : '_OUTSIDE_PROMPT=$(cat "$_OUTSIDE_INPUT") || exit 1\n'}_OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper ${Math.ceil(opts.timeoutMs / 1000)} ${codex} >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
-cat "$_OUTSIDE_TMP/text" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }`
+_gstack_codex_sandbox_preflight >/dev/null || exit 1
+_gstack_codex_first_use_notice
+_OUTSIDE_EXIT=0
+_gstack_codex_timeout_wrapper ${Math.ceil(opts.timeoutMs / 1000)} ${codex} >"$_OUTSIDE_TMP/${opts.structuredBase ? 'text' : 'events'}" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+${opts.structuredBase ? 'cat "$_OUTSIDE_TMP/text"' : 'cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"'}`
     : `_OUTSIDE_EXIT=0
 "${bin}/gstack-claude-code" --cwd "$_REPO_ROOT" --access ${opts.access ?? 'none'} --timeout-ms ${opts.timeoutMs} <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/result.json" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
 # Preserve session/usage/modelUsage from this JSON; multiple models have no invented primary.
@@ -143,7 +123,7 @@ if [ "$_OUTSIDE_EXIT" -eq 0 ]; then
   bun -e 'const r=await Bun.file(process.argv[1]).json(); if(r.status!=="completed" || typeof r.result!=="string" || !r.result.trim()) process.exit(1); await Bun.write(process.argv[2],r.result)' "$_OUTSIDE_TMP/result.json" "$_OUTSIDE_TMP/text" || _OUTSIDE_EXIT=1
 fi`;
   return `${outsideVoiceGuard(ctx)}
-${outsideVoiceRuntime(ctx)}
+${runtimeRootPrelude(ctx)}
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo 'ERROR: not in a git repo' >&2; exit 1; }
 _OUTSIDE_TMP=$(mktemp -d "\${TMPDIR:-/tmp}/gstack-outside.XXXXXXXX") || exit 1
 trap 'rm -rf "$_OUTSIDE_TMP"' EXIT
@@ -158,12 +138,13 @@ ${v.id === 'codex' && ctx.skillName === 'autoplan' ? `if [ "$_OUTSIDE_EXIT" -eq 
   _gstack_codex_log_hang "autoplan" "0" || true
 fi` : ''}
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
-if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
-  echo '${v.label} outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
-  exit "$_OUTSIDE_EXIT"
-fi
-bun "${root}/lib/outside-review-result.ts" ${opts.gate ?? 'review'} "$_OUTSIDE_TMP/text" || exit 1
-${v.id === 'claude-code' ? 'cat "$_OUTSIDE_TMP/text" || exit 1' : ''}
+_OUTSIDE_RC=0
+bun "${root}/lib/outside-review-result.ts" --label '${v.label} outside review' --exit "$_OUTSIDE_EXIT" --stderr "$_OUTSIDE_TMP/stderr" ${v.id === 'codex' && !opts.structuredBase ? '--events "$_OUTSIDE_TMP/events" ' : ''}${opts.gate ?? 'review'} "$_OUTSIDE_TMP/text" || _OUTSIDE_RC=$?
+${v.id === 'claude-code' ? '[ "$_OUTSIDE_RC" -eq 1 ] || cat "$_OUTSIDE_TMP/text" || exit 1\n' : ''}case "$_OUTSIDE_RC" in
+  0|3) ;;
+  4) echo 'OUTSIDE_STATUS: unverified provider=${v.id} host=${ctx.host}'; exit 4 ;;
+  *) [ "$_OUTSIDE_EXIT" -ne 0 ] && exit "$_OUTSIDE_EXIT"; exit 1 ;;
+esac
 echo 'OUTSIDE_STATUS: completed provider=${v.id} host=${ctx.host}'`;
 }
 
@@ -197,7 +178,7 @@ export function outsideVoiceInvocation(ctx: TemplateContext, requested: OutsideC
 ${outsideVoiceCommand(ctx, opts)}
 \`\`\`
 
-Use Bash \`timeout: ${gateMs}\`; show the full response in a \`tool-output\` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing ${planRecommendation ? 'Recommendation: <action> because <reason>' : opts.purpose === 'design-direction' ? 'Recommendation' : 'score/severity/completion'} markers, timeout or CLI failure means \`outside_status: unavailable\`. ${opts.purpose === 'design-direction' ? 'Continue completed proposals; native completion does not count as outside coverage.' : opts.nativeAlreadyRequired ? 'Retain the required native pass without duplicating it; it cannot complete outside coverage.' : "Use the caller's fallback; missing coverage is never clean/PASS."} ${nativeStructured ? 'Scratch cleanup is automatic.' : 'After either outcome, delete only your private prompt; scratch cleanup is automatic.'}`;
+Use Bash \`timeout: ${gateMs}\`; show the full response in a \`tool-output\` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing ${planRecommendation ? 'Recommendation: <action> because <reason>' : opts.purpose === 'design-direction' ? 'Recommendation' : 'score/severity/completion'} markers, timeout or CLI failure means \`outside_status: unavailable\`. P0/P1 findings block like native ones; \`OUTSIDE_STATUS: unverified\` is missing coverage. ${opts.purpose === 'design-direction' ? 'Continue completed proposals; native completion does not count as outside coverage.' : opts.nativeAlreadyRequired ? 'Retain the required native pass without duplicating it; it cannot complete outside coverage.' : "Use the caller's fallback; missing coverage is never clean/PASS."} ${nativeStructured ? 'Scratch cleanup is automatic.' : 'After either outcome, delete only your private prompt; scratch cleanup is automatic.'}`;
 }
 
 /**
@@ -240,7 +221,7 @@ export function outsideVoiceFailurePolicy(ctx: TemplateContext, opts: OutsideVoi
 
 export function outsideVoiceProvenance(ctx: TemplateContext, phase: string): string {
   const v = outsideVoiceFor(ctx);
-  return `Retain the historical review-log skill ID; add \`"host":"${ctx.host}","outside_provider":"${v.id}","outside_status":"completed|unavailable|disabled|skipped","phase":"${phase}"\`. Record differing attempt outcomes separately. \`source:"${v.id}"\` requires completed CLI output; native uses \`source:"in-host"\` (historical \`source:"claude"\`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.`;
+  return `Retain the historical review-log skill ID; add \`"host":"${ctx.host}","outside_provider":"${v.id}","outside_status":"completed|unavailable|disabled|skipped","phase":"${phase}"\`. Record differing attempt outcomes separately. \`source:"${v.id}"\` requires completed CLI output; native uses \`source:"in-host"\` (historical \`source:"claude"\`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.${v.id === 'codex' ? ' Under `GSTACK_CODEX_NO_SANDBOX=1` add `"codex_sandbox":"danger-full-access"`.' : ''}`;
 }
 
 export function generateOutsideVoiceRouting(ctx: TemplateContext): string {

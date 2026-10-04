@@ -32,7 +32,8 @@ describe('generated Codex plan-review shell invocation', () => {
   const rendered = generateCodexPlanReview({ ...reviewContext('claude'),
     paths: { ...HOST_PATHS.claude, binDir: path.join(ROOT, 'bin'), skillRoot: ROOT },
   });
-  const ready = rendered.slice(rendered.indexOf('**If `CODEX_MODE: ready` — run Codex:**'),
+  // B1: the heading also admits `unverified`; locate it structurally.
+  const ready = rendered.slice(rendered.search(/\*\*If `CODEX_MODE: ready`[^\n]*— run Codex:\*\*/),
     rendered.indexOf('Present the full output verbatim:'));
   const blocks = [...ready.matchAll(/```bash\n([\s\S]*?)\n```/g)].map(match => match[1]!);
   const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
@@ -44,6 +45,10 @@ describe('generated Codex plan-review shell invocation', () => {
     const prompt = path.join(dir, 'review-prompt.txt');
     fs.writeFileSync(prompt, 'Review the current plan without edits.');
     const created = path.join(dir, 'created');
+    // Q2's one-time notice has its own tests; mark it shown in a private state root.
+    const state = path.join(dir, 'state');
+    fs.mkdirSync(state);
+    fs.writeFileSync(path.join(state, '.codex-review-notice-shown'), '');
     const calls = path.join(dir, 'calls');
     const stale = path.join(dir, 'codex-out-foreign');
     const staleError = path.join(dir, 'codex-planreview-foreign');
@@ -57,10 +62,15 @@ p=$(${quote(Bun.which('mktemp')!)} "$@") || exit 1
 printf '%s\\n' "$p" >> "$FAKE_CREATED"
 printf '%s\\n' "$p"
 `);
+    // B1/E5: the free sandbox preflight runs first; exec reads the prompt on stdin
+    // and writes its final message to -o (stdout carries --json events).
     writeBin('codex', `
+[ "$1" = sandbox ] && exit 0
 printf '%s\\n' "$FAKE_REVIEW_ID" >> "$FAKE_CALLS"
-printf '%s\\n' "$FAKE_REVIEW_ID: current findings"
-printf '%s\\n' "Recommendation: fix $FAKE_REVIEW_ID because this is the current finding."
+out=; prev=; for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; done
+cat > /dev/null
+printf '%s\\n' "$FAKE_REVIEW_ID: current findings" "Recommendation: fix $FAKE_REVIEW_ID because this is the current finding." > "$out"
+printf '%s\\n' '{"type":"turn.completed"}'
 printf '%s\\n' "$FAKE_REVIEW_ID: current stderr" >&2
 exit "$FAKE_CODEX_STATUS"
 `);
@@ -76,6 +86,7 @@ exec ${quote(Bun.which('cat')!)} "$@"
         FAKE_CREATED: created, FAKE_CALLS: calls, FAKE_REVIEW_ID: id,
         FAKE_CODEX_STATUS: String(code), FAKE_MKTEMP_FAIL: mktempFailure ? '1' : '0',
         FAKE_CAT_FAIL: catFailure ? '1' : '0', TMPDIR: dir, CODEX_HOME: dir, GSTACK_CODEX_MODEL: '',
+        GSTACK_HOME: state, GSTACK_STATE_ROOT: '',
         CODEX_THREAD_ID: '', CODEX_SANDBOX: '', CLAUDECODE: '1', GSTACK_ACTIVE_HOST: 'claude' };
       // Each displayed block gets a fresh shell, as separate Bash tool calls do.
       return blocks.map(block => spawnSync('bash', ['-c', (errexit ? 'set -e\n' : '') + block.replace("'<prepared-prompt-file>'", quote(prompt))], {
@@ -90,7 +101,9 @@ exec ${quote(Bun.which('cat')!)} "$@"
   }
 
   const findings = (id: string) => `${id}: current findings\nRecommendation: fix ${id} because this is the current finding.\n`;
-  const completed = (id: string) => `${findings(id)}OUTSIDE_STATUS: completed provider=codex host=claude\n`;
+  // INV-1: the verdict-form validator prints its verdict before the completed status.
+  const unavailable = (id: string) => `${findings(id)}VERDICT: unavailable\nFINDINGS: none\nREASON: execution_failed\n`;
+  const completed = (id: string) => `${findings(id)}VERDICT: clean\nFINDINGS: none\nOUTSIDE_STATUS: completed provider=codex host=claude\n`;
 
   test('fresh shells retain the current stderr and clean its exact temporary file', () => {
     const f = fixture();
@@ -108,7 +121,7 @@ exec ${quote(Bun.which('cat')!)} "$@"
     try {
       const results = f.run('failed', 23, errexit);
       expect(results.map(result => result.status)).toEqual([23]);
-      expect(results[0]!.stdout).toBe(findings('failed'));
+      expect(results[0]!.stdout).toBe(unavailable('failed'));
       expect(results[0]!.stderr).toContain('failed: current stderr\n');
       expect(f.created()).toHaveLength(1);
       expect(f.created().every(file => !fs.existsSync(file))).toBe(true);
@@ -120,7 +133,7 @@ exec ${quote(Bun.which('cat')!)} "$@"
       try {
         const results = f.run('display-failed', code, errexit, false, true);
         expect(results.map(result => result.status)).toEqual([code || 1]);
-        expect(results[0]!.stdout).toBe(findings('display-failed'));
+        expect(results[0]!.stdout).toBe(unavailable('display-failed'));
         expect(results[0]!.stderr).toContain('cat: simulated current-file read failure\n');
         expect(f.created()).toHaveLength(1);
         expect(f.created().every(file => !fs.existsSync(file))).toBe(true);
@@ -249,7 +262,8 @@ describe('outside-voice dispatch contract', () => {
     const apply = rendered.indexOf('**4. Apply the answered row.**');
     expect(answer).toBeGreaterThan(0);
     expect(apply).toBeGreaterThan(answer);
-    expect(rendered).toContain(`-s read-only ${CODEX_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="high"'`);
+    // B1: the sandbox comes from _gstack_codex_select_model (read-only unless GSTACK_CODEX_NO_SANDBOX=1).
+    expect(rendered).toContain(`-s "\${_GSTACK_CODEX_SANDBOX:?}" ${CODEX_MODEL_CONFIG_FLAG} -c 'model_reasoning_effort="high"'`);
   });
 
   test('the generated-carrier exception rejects missing wait, cancellation or result guards', () => {

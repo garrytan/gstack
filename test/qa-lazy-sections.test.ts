@@ -162,18 +162,25 @@ describe('QA-only cross-host lazy rendering', () => {
         expect(fs.readFileSync(path.join(rendered, dir, 'SKILL.md'), 'utf8')).not.toContain(body.split('\n').slice(2).join('\n').trim());
       }
       const outside = generated.artifacts.filter(artifact => artifact.host === host.name && artifact.kind === 'section'
-        && !/^(?:qa|qa-only)\//.test(artifact.relativePath)
-        && !/\/gstack-qa(?:-only)?\//.test(artifact.relativePath));
+        && !/^(?:qa|qa-only|ship|plan-ceo-review)\//.test(artifact.relativePath)
+        && !/\/gstack-(?:qa(?:-only)?|ship|plan-ceo-review)\//.test(artifact.relativePath));
       expect(outside.length > 0).toBe(host.name === 'claude');
+      // C4: ship is carved on every host; external pointers are relative to the installed skill.
       const ctx = context(host.name, 'ship');
       const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'ship/sections/manifest.json'), 'utf8'));
       const entry = manifest.sections[0];
-      expect(usesLazySections(host.name, 'ship')).toBe(host.name === 'claude');
-      if (host.name === 'claude') {
-        expect(SECTION(ctx, [entry.id])).toBe(`> **STOP.** Before ${entry.trigger}, Read \`~/.claude/skills/gstack/ship/sections/${entry.file}\` and execute it\n> in full. Do not work from memory — that section is the source of truth for this step.`);
-      } else {
-        expect(SECTION(ctx, [entry.id])).toBe(fs.readFileSync(path.join(ROOT, 'ship/sections', `${entry.file}.tmpl`), 'utf8').trimEnd());
-        expect(SECTION_INDEX(ctx)).toBe('');
+      expect(usesLazySections(host.name, 'ship')).toBe(true);
+      const pointer = host.name === 'claude'
+        ? `\`~/.claude/skills/gstack/ship/sections/${entry.file}\``
+        : `\`sections/${entry.file}\` relative to the installed \`gstack-ship\` SKILL.md directory`;
+      expect(SECTION(ctx, [entry.id])).toBe(`> **STOP.** Before ${entry.trigger}, Read ${pointer} and execute it\n> in full. Do not work from memory — that section is the source of truth for this step.`);
+      // Skills carved only on Claude still inline their sections elsewhere.
+      const reviewCtx = context(host.name, 'review');
+      const reviewEntry = JSON.parse(fs.readFileSync(path.join(ROOT, 'review/sections/manifest.json'), 'utf8')).sections[0];
+      expect(usesLazySections(host.name, 'review')).toBe(host.name === 'claude');
+      if (host.name !== 'claude') {
+        expect(SECTION(reviewCtx, [reviewEntry.id])).toBe(fs.readFileSync(path.join(ROOT, 'review/sections', `${reviewEntry.file}.tmpl`), 'utf8').trimEnd());
+        expect(SECTION_INDEX(reviewCtx)).toBe('');
       }
     });
 
@@ -276,7 +283,7 @@ describe('QA-only cross-host lazy rendering', () => {
       for (const caller of ['review', 'ship']) {
         const dir = path.join(base, `${prefix}${caller}`);
         const body = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8')
-          + (host.name === 'claude' && caller === 'ship'
+          + (caller === 'ship' // C4: ship is carved on every host
             ? fs.readFileSync(path.join(dir, 'sections/review-army.md'), 'utf8') : '');
         expect(body).toContain(`From the installed /${caller} SKILL.md's directory`);
         expect(body).toContain(`Read \`../${prefix}qa/sections/exploratory.md\` in full`);
@@ -544,6 +551,7 @@ describe('installed QA pointers', () => {
     '_gstack_generated_header', '_claude_entry_owned_strongly', '_claude_entry_is_ours', '_write_owned_marker',
     '_backup_skill_md', '_cleanup_weak_dir', '_gstack_dir_only_links', '_cleanup_linked_dir',
     '_owned_for_windows_refresh', '_sidecar_root_user_owned', '_prune_stale_generated', '_skill_source_exists',
+    '_link_runtime_dists', '_copy_skill_md', '_skill_copy_hash', '_skill_copy_unmodified', '_preserve_skill_copy_edits', '_record_skill_copies',
   ].map(setupFunction).join('\n')
     // Install-registry rows (setup's _setup_arm_* / _setup_row) are not under test here.
     + '\n_setup_arm_begin() { :; }\n_setup_arm_publish() { :; }\n_setup_row() { :; }';
@@ -583,7 +591,8 @@ describe('installed QA pointers', () => {
             const script = [
               'set -e', `IS_WINDOWS=${copy ? 1 : 0}`, `SKILL_PREFIX=${prefix}`, 'QUIET=1',
               '_FOREIGN_SKIPPED_ENTRIES=()', '_BACKED_UP_SKILL_MDS=()', '_SKILL_BACKUP_ROOT="$HOME/backups"',
-              'GSTACK_USER_RENDER_DIR="$HOME/absent-render"', helpers,
+              'GSTACK_USER_RENDER_DIR="$HOME/absent-render"',
+              'GSTACK_STATE_ROOT="$HOME/.gstack"', '_SKILL_COPIES_FILE="$GSTACK_STATE_ROOT/skill-copies.tsv"', helpers,
               'log() { :; }', '_browser_hint() { :; }', 'bun_cmd() { :; }', install,
             ].join('\n');
             const runInstall = () => runBashScript(script, {

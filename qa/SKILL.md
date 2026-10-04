@@ -520,10 +520,11 @@ Search for relevant learnings from previous sessions:
 _CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --query "qa testing bug regression flake fixture" --cross-project 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --query "qa testing bug regression flake fixture" --cross-project 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 else
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --query "qa testing bug regression flake fixture" 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --query "qa testing bug regression flake fixture" 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 fi
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
@@ -603,7 +604,8 @@ only letters, digits or hyphens (e.g., `checkout-button`, `payment`), never a pa
 quotes, whitespace or other punctuation; simplify to an alphanumeric stem if needed.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>/dev/null || true
+{ _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>&1 >&3 3>&-); _LR=$?; } 3>&1
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 Name an applicable learning in one sentence, or continue if none applies.
@@ -627,7 +629,7 @@ and unclear contracts never authorize repair.
 1. Why does existing coverage not already catch that? Prefer adding a row to an existing table-driven test or shared fixture over a near-duplicate.
 2. Does it need a production seam (export, flag, wrapper, injection hook) that no production caller needs? If yes, test at the real boundary instead.
 
-Value card: `Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none` (seam: `none` or its name); each field at most 160 UTF-8 bytes here (clamp to 157 plus `...`; JSON keeps full values). Put it in the 8e.5 record (/qa) or under each proposed test (/qa-only). A missing upstream card never blocks: derive it; ignore unknown fields.
+Value card: `Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none` (seam: `none` or its name); each field at most 160 UTF-8 bytes here (clamp to 157 plus `...`; JSON keeps full values). Put it in the 8e.5 record. A missing upstream card never blocks: derive it; ignore unknown fields.
 
 Example: Value: protects=refundPayment rejects an empty reason; fails_when=the reason guard is removed or inverted; why_new=billing.test.ts covers processPayment only; seam=none
 Rejected (covered_elsewhere): "checkout renders"; checkout.e2e.ts:15 covers it, so extend that test.

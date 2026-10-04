@@ -78,8 +78,8 @@ describe('setup Codex model activation', () => {
     const kiroStart = setup.indexOf('# 6. Install for Kiro CLI');
     const kiroEnd = setup.indexOf('# 6b.', kiroStart);
     const block = setup.slice(kiroStart, kiroEnd);
-    expect(block).toContain('_link_or_copy "$KIRO_DIR/gstack-upgrade/SKILL.md"');
-    expect(block).toContain('_link_or_copy "$KIRO_DIR/gstack/SKILL.md"');
+    expect(block).toContain('_copy_skill_md "$KIRO_DIR/gstack-upgrade/SKILL.md"');
+    expect(block).toContain('_copy_skill_md "$KIRO_DIR/gstack/SKILL.md"');
     expect(block).toContain('_link_or_copy "$SOURCE_GSTACK_DIR/bin" "$KIRO_GSTACK/bin"');
     expect(block).toContain('_link_or_copy "$SOURCE_GSTACK_DIR/lib" "$KIRO_GSTACK/lib"');
     expect(block).not.toContain('$AGENTS_DIR');

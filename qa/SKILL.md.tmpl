@@ -158,7 +158,8 @@ only letters, digits or hyphens (e.g., `checkout-button`, `payment`), never a pa
 quotes, whitespace or other punctuation; simplify to an alphanumeric stem if needed.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>/dev/null || true
+{ _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>&1 >&3 3>&-); _LR=$?; } 3>&1
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 Name an applicable learning in one sentence, or continue if none applies.

@@ -96,6 +96,19 @@ if ! $VALIDATE_ONLY; then
   fi
 fi
 
+# Read a string field (dotted path, e.g. bin.gbrain) from a package.json with
+# bun, which this installer already requires. It used to need jq, which it
+# never checked for, so a successful install reported failure (#1675).
+pkg_field() {
+  GSTACK_PKG_JSON="$1" GSTACK_PKG_FIELD="$2" bun -e '
+    try {
+      const pkg = JSON.parse(require("fs").readFileSync(process.env.GSTACK_PKG_JSON, "utf8"));
+      const v = process.env.GSTACK_PKG_FIELD.split(".").reduce((o, k) => (o == null ? o : o[k]), pkg);
+      if (typeof v === "string") process.stdout.write(v);
+    } catch {}
+  ' 2>/dev/null || true
+}
+
 # --- D5 detect-first: probe common locations before cloning fresh ---
 # Accept any directory that looks like a gbrain clone: has package.json
 # with name "gbrain" and a `bin.gbrain` entry. Don't accept version mismatches
@@ -105,10 +118,10 @@ is_valid_clone() {
   [ -d "$dir" ] || return 1
   [ -f "$dir/package.json" ] || return 1
   local name
-  name=$(jq -r '.name // empty' "$dir/package.json" 2>/dev/null || true)
+  name=$(pkg_field "$dir/package.json" name)
   [ "$name" = "gbrain" ] || return 1
   local bin
-  bin=$(jq -r '.bin.gbrain // empty' "$dir/package.json" 2>/dev/null || true)
+  bin=$(pkg_field "$dir/package.json" bin.gbrain)
   [ -n "$bin" ] || return 1
   return 0
 }
@@ -199,7 +212,7 @@ _bun_exe_hint() {
 # Read the version from the install-dir's package.json; compare to
 # `gbrain --version`. If they disagree, PATH is returning a DIFFERENT
 # gbrain than the one we just linked. Fail hard with remediation.
-expected_version=$(jq -r '.version // empty' "$INSTALL_DIR/package.json" 2>/dev/null || true)
+expected_version=$(pkg_field "$INSTALL_DIR/package.json" version)
 if [ -z "$expected_version" ]; then
   fail "cannot read version from $INSTALL_DIR/package.json (install may be broken)"
 fi

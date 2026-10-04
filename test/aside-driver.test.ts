@@ -122,7 +122,9 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
 
   test('probe honors the GSTACK_SKIP_ASIDE=1 opt-out and bounds the readiness call even on stock macOS', () => {
     // Opt-out short-circuits to NEEDS_ASIDE before `command -v aside` is even consulted.
-    expect(setupProbe).toMatch(/if \[ "\$\{GSTACK_SKIP_ASIDE:-\}" = "1" \] \|\| ! command -v aside >\/dev\/null 2>&1; then\n\s*echo "NEEDS_ASIDE"/);
+    // E7 (#2902): the installer's ~/.local/bin is not on the default macOS PATH, so the probe falls back to it.
+    expect(setupProbe).toContain('_A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)');
+    expect(setupProbe).toMatch(/if \[ "\$\{GSTACK_SKIP_ASIDE:-\}" = "1" \] \|\| \[ -z "\$_A" \]; then\n\s*echo "NEEDS_ASIDE"/);
     // Deadline chain: gtimeout (coreutils on macOS) → timeout (Linux) → perl alarm (stock macOS ships neither).
     expect(setupProbe).toContain('gtimeout 30 "$@"');
     expect(setupProbe).toContain('timeout 30 "$@"');
@@ -136,11 +138,11 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     // It must NOT come back as a variable, and must NOT be routed through `eval` either:
     // eval re-parses the string, so the parens and `;` of the perl arm become syntax.
     expect(setupProbe).toContain('_gs_d() {');
-    expect(setupProbe).toContain("_o=$(_gs_d aside repl 'console.log(\"ASIDE_READY \" + pwd)' 2>&1) || _rc=$?");
+    expect(setupProbe).toContain("_o=$(_gs_d \"$_A\" repl 'console.log(\"ASIDE_READY \" + pwd)' 2>&1) || _rc=$?");
     expect(setupProbe).not.toContain('$_T aside repl');
     expect(setupProbe).not.toContain('_T="gtimeout 30"');
     expect(setupProbe).not.toMatch(/eval .*aside repl/);
-    expect(setupProbe).toContain('echo "READY: aside"');
+    expect(setupProbe).toContain('echo "READY: $_A"'); // E7: prints "aside" on PATH, else the off-PATH path
     expect(setupProbe).not.toContain('aside --version');
   });
 
@@ -217,6 +219,14 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
       expect(optOut.stdout.trim()).toBe('NEEDS_ASIDE');
       const noAside = spawnSync(sh, ['-c', setupProbe], { env: { PATH: shellPath(path.join(dir, 'gt')) }, encoding: 'utf8', timeout: 30_000 });
       expect(noAside.stdout.trim()).toBe('NEEDS_ASIDE');
+      // E7 (#2902): installed only at ~/.local/bin (not on the macOS login PATH) is still found, and named.
+      const home = path.join(dir, 'home');
+      write(path.join(home, '.local', 'bin', 'aside'), '#!/bin/sh\necho "ASIDE_READY /tmp/x"\n');
+      wrap(lookup('grep')!, path.join(dir, 'grep-only', 'grep'));
+      for (const shell of shells) {
+        const offPath = spawnSync(shell, ['-c', setupProbe], { env: { HOME: home, PATH: `${shellPath(path.join(dir, 'gt'))}:${shellPath(path.join(dir, 'grep-only'))}` }, encoding: 'utf8', timeout: 30_000 });
+        expect(offPath.stdout.trim()).toBe(`READY: ${path.join(home, '.local', 'bin', 'aside')}`);
+      }
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

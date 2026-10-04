@@ -135,7 +135,7 @@ Read each accepted PNG inline, then open the board with those paths before invit
 After final image confirmation, `$D extract` would write DESIGN.md in a Git repo: run it only in a fresh non-repository scratch directory. Bind `$D` and `APPROVED_IMAGE` (the confirmed letter's `board-images.json` entry) to absolute paths:
 
 ```bash
-_EXTRACT_DIR=$(mktemp -d /tmp/gstack-design-extract-XXXXXXXX) || exit 1
+_EXTRACT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gstack-design-extract-XXXXXXXX") || exit 1
 (
   cd "$_EXTRACT_DIR" || exit 1
   if git rev-parse --show-toplevel >/dev/null 2>&1; then

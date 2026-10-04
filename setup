@@ -71,6 +71,65 @@ for _arg in "$@"; do
   esac
 done
 # --status is read-only: no bun, no build, no writes (docs/ADDING_A_HOST.md).
+# _status_install_checks — per registered install (C3): is the router a real
+# file (Codex skips a symlinked SKILL.md), and does every section pointer in an
+# installed SKILL.md resolve? A pointer is "Read `<path>/sections/<f>.md`",
+# optionally "relative to the installed `<skill>` SKILL.md directory". A bare
+# `sections/...` pointer counts in a carved skill (sections/ installed, or a
+# **STOP.** line); prefixed ones ($GSTACK_ROOT, ~, absolute, ../) everywhere.
+_status_install_checks() {
+  local reg="$GSTACK_STATE_ROOT/installs.tsv" host scope project dest root src rest router md dir stop tok names n path checked broken first fix
+  [ -f "$reg" ] || return 0
+  echo "Install checks:"
+  while IFS='	' read -r host scope project dest root src rest; do
+    case "$host" in ''|'#'*) continue ;; esac
+    fix="Fix: cd $src && ./setup --host $host"
+    router="$root/SKILL.md"
+    if [ -L "$router" ]; then router="router is a symlink, which Codex skips. $fix"
+    elif [ -f "$router" ]; then router="router is a real file"
+    else router="router missing at $router. $fix"; fi
+    checked=0 broken=0 first=""
+    for md in "$dest"/*/SKILL.md; do
+      [ -f "$md" ] || continue
+      dir="${md%/SKILL.md}"
+      while IFS='|' read -r stop tok names; do
+        [ -n "$tok" ] || continue
+        path=""
+        case "$tok" in
+          sections/*)
+            if [ -n "$names" ]; then
+              for n in $names; do path="$dest/$n/$tok"; [ -r "$path" ] && break; done
+            elif [ -d "$dir/sections" ] || [ "$stop" = 1 ]; then path="$dir/$tok"
+            else continue; fi ;;
+          '$GSTACK_ROOT/'*) path="$root/${tok#\$GSTACK_ROOT/}" ;;
+          '~/'*) path="$HOME/${tok#\~/}" ;;
+          /*) path="$tok" ;;
+          ../*) path="$dir/$tok" ;;
+          *) continue ;;
+        esac
+        checked=$((checked + 1))
+        [ -r "$path" ] && continue
+        broken=$((broken + 1))
+        [ -n "$first" ] || first="${md#"$dest"/} names $tok"
+      done <<EOF
+$(awk '{
+  line = $0; stop = index(line, "**STOP.**") ? 1 : 0
+  while (match(line, /Read `[^` ]*sections\/[A-Za-z0-9._-]+\.md`( relative to the installed (`[^`]+`\/?)+)?/)) {
+    m = substr(line, RSTART + 6, RLENGTH - 6); line = substr(line, RSTART + RLENGTH)
+    tok = m; sub(/`.*/, "", tok); names = ""
+    if (index(m, " relative to the installed ")) { names = substr(m, index(m, " relative to the installed ") + 27); gsub(/[`\/]+/, " ", names) }
+    print stop "|" tok "|" names
+  }
+}' "$md")
+EOF
+    done
+    if [ "$broken" -eq 0 ]; then
+      printf '  %s %s: %s; section links: %s checked, all resolve\n' "$host" "$scope" "$router" "$checked"
+    else
+      printf '  %s %s: %s; section links: %s of %s broken (first: %s). %s\n' "$host" "$scope" "$router" "$broken" "$checked" "$first" "$fix"
+    fi
+  done < "$reg"
+}
 for _arg in "$@"; do
   case "$_arg" in
     --status)
@@ -79,6 +138,7 @@ for _arg in "$@"; do
         && . "$_STATUS_DIR/bin/gstack-render-claude.sh" || exit 1
       gstack_state_root_select; GSTACK_STATE_ROOT="$_gstack_sr_root"
       gstack_install_status
+      _status_install_checks
       gstack_claude_overlay_status
       exit 0 ;;
   esac
@@ -548,6 +608,80 @@ _link_or_copy() {
   fi
 }
 
+# _link_runtime_dists SOURCE ROOT — the compiled design and make-pdf binaries
+# behind $GSTACK_DESIGN and $GSTACK_MAKE_PDF on every env-var host (#2891).
+# dist/ only, never the whole directory: make-pdf/ ships a Claude SKILL.md a
+# host scanning its skills root would discover as a duplicate skill.
+_link_runtime_dists() {
+  local d
+  for d in design/dist make-pdf/dist; do
+    [ -d "$1/$d" ] || continue
+    if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$2/$d" ] || [ ! -e "$2/$d" ]; then
+      mkdir -p "$2/${d%/dist}"
+      _link_or_copy "$1/$d" "$2/$d"
+    fi
+  done
+}
+
+# ─── Real-file SKILL.md copies in host runtime roots (C3, #333) ──────────────
+# Codex skips a symlinked SKILL.md file, so the router and the nested SKILL.md
+# files in every host runtime root are real copies, rewritten on every run.
+# setup records the hash of each copy it writes in $GSTACK_STATE_ROOT/
+# skill-copies.tsv (hash<TAB>path); a copy whose bytes no longer match was
+# edited by hand and is saved to a uniquely named backup under the state root
+# before the tree is replaced, so the backup outlives the old tree.
+_SKILL_COPIES_FILE="$GSTACK_STATE_ROOT/skill-copies.tsv"
+_copy_skill_md() {
+  rm -f "$2" && cp "$1" "$2"
+}
+_skill_copy_hash() {
+  git hash-object "$1" 2>/dev/null
+}
+# _skill_copy_unmodified FILE — FILE is a copy setup wrote and nobody edited.
+_skill_copy_unmodified() {
+  local h
+  [ -f "$1" ] && [ ! -L "$1" ] && [ -f "$_SKILL_COPIES_FILE" ] || return 1
+  h="$(_skill_copy_hash "$1")" || return 1
+  grep -qxF "$h	$1" "$_SKILL_COPIES_FILE"
+}
+# _preserve_skill_copy_edits ROOT — back up every recorded copy under ROOT
+# whose bytes changed. Non-zero when a backup failed: the caller must then
+# keep the old tree (a failed backup is never a license to overwrite).
+_preserve_skill_copy_edits() {
+  local root="$1" hash path dir=""
+  [ -f "$_SKILL_COPIES_FILE" ] || return 0
+  while IFS='	' read -r hash path; do
+    case "$path" in "$root"/*) ;; *) continue ;; esac
+    { [ -f "$path" ] && [ ! -L "$path" ]; } || continue
+    [ "$(_skill_copy_hash "$path")" = "$hash" ] && continue
+    if [ -z "$dir" ]; then
+      mkdir -p "$GSTACK_STATE_ROOT/backups/skill-copies" || return 1
+      dir="$(mktemp -d "$GSTACK_STATE_ROOT/backups/skill-copies/$(date +%Y%m%dT%H%M%S)-XXXXXX")" || return 1
+    fi
+    mkdir -p "$dir/$(dirname "${path#/}")" && cp -p "$path" "$dir/${path#/}" || return 1
+    echo "  saved your edited $path to $dir/${path#/} (setup rewrites gstack's SKILL.md copies on every run)"
+  done < "$_SKILL_COPIES_FILE"
+}
+# _record_skill_copies ROOT — replace ROOT's rows with the real SKILL.md files
+# now under it (find does not descend into linked directories). Sets
+# _COPIES_REFRESHED and _COPIES_REMOVED (paths relative to ROOT).
+_record_skill_copies() {
+  local root="$1" f tmp old="" new
+  _COPIES_REFRESHED="" _COPIES_REMOVED=""
+  if [ -f "$_SKILL_COPIES_FILE" ]; then
+    old="$(awk -F'\t' -v r="$root/" 'index($2, r) == 1 { print substr($2, length(r) + 1) }' "$_SKILL_COPIES_FILE" | sort)"
+  fi
+  new="$(cd "$root" 2>/dev/null && find . -name SKILL.md -type f | sed 's|^\./||' | sort)"
+  mkdir -p "$GSTACK_STATE_ROOT" || return 1
+  tmp="$_SKILL_COPIES_FILE.tmp.$$"
+  {
+    [ -f "$_SKILL_COPIES_FILE" ] && awk -F'\t' -v r="$root/" 'index($2, r) != 1' "$_SKILL_COPIES_FILE"
+    for f in $new; do printf '%s\t%s\n' "$(_skill_copy_hash "$root/$f")" "$root/$f"; done
+  } > "$tmp" && mv -f "$tmp" "$_SKILL_COPIES_FILE" || { rm -f "$tmp"; return 1; }
+  _COPIES_REFRESHED="$(printf '%s\n' "$new" | tr '\n' ' ' | sed 's/ *$//')"
+  _COPIES_REMOVED="$(printf '%s\n' "$old" | grep -vxF -f <(printf '%s\n' "$new") | tr '\n' ' ' | sed 's/ *$//')"
+}
+
 # ─── Ownership gate for skill entries (#2119) ─────────────────────────────────
 # setup and gstack-relink must never delete or link over a skill they do not
 # own. This is the single rule both use (relink carries the same logic — keep
@@ -873,14 +1007,14 @@ _render_install() {
   rm -rf "$tmp"
   rc=0
   if [ "$host" = claude ]; then
-    out="$(cd "$SOURCE_GSTACK_DIR" && bun_cmd run gen:skill-docs:user --host claude --out-dir "$tmp" --link-root "$render" --install-root "$named" --model "$_GSTACK_OVERLAY" 2>&1)" || rc=$?
+    out="$(cd "$SOURCE_GSTACK_DIR" && bun_cmd run gen:skill-docs:user --host claude --out-dir "$tmp" --link-root "$render" --install-root "$named" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} 2>&1)" || rc=$?
     want="$(find "$SOURCE_GSTACK_DIR" -mindepth 2 -maxdepth 2 -name SKILL.md | wc -l)"
     got="$(find "$tmp" -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l)"
     [ "$rc" -ne 0 ] || { [ "$want" -eq "$got" ] && grep -qF "$named/bin/gstack-skill-start --skill" "$tmp/SKILL.md" 2>/dev/null; } \
       || { rc=1; out="render incomplete: $got of $want skills, or a start line that does not name $named"; }
     [ "$rc" -ne 0 ] || "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$tmp" "$SKILL_PREFIX" >/dev/null || rc=$?
   else
-    out="$(cd "$SOURCE_GSTACK_DIR" && bun_cmd run gen:skill-docs --host codex --model "$CODEX_GENERATION_MODEL" --install-root "$named" --out-dir "$tmp" --link-root "$render" 2>&1)" || rc=$?
+    out="$(cd "$SOURCE_GSTACK_DIR" && bun_cmd run gen:skill-docs --host codex --model "$CODEX_GENERATION_MODEL" --install-root "$named" --out-dir "$tmp" --link-root "$render" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} 2>&1)" || rc=$?
     want="$(find "$SOURCE_GSTACK_DIR/.agents/skills" -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l)"
     got="$(find "$tmp/.agents/skills" -mindepth 2 -maxdepth 2 -name SKILL.md 2>/dev/null | wc -l)"
     [ "$rc" -ne 0 ] || { [ "$got" -gt 0 ] && { [ "$want" -eq 0 ] || [ "$want" -eq "$got" ]; } && grep -qF "GSTACK_ROOT=\"$named\"" "$tmp/.agents/skills/gstack-review/SKILL.md" 2>/dev/null; } \
@@ -1066,6 +1200,10 @@ fi
 # membership inline with "${_DISABLED_SKILLS:- }", so a linker extracted on its
 # own (tests) behaves as "nothing disabled".
 _DISABLED_SKILLS="$(gstack_disabled_normalize "$("$GSTACK_CONFIG" get disabled_skills 2>/dev/null || true)")"
+# Every render of the router (committed-path renders of env-var hosts and the
+# per-install renders) omits disabled skills (C8); the default Claude router is
+# rendered in place by gstack-relink.
+_DISABLED_CSV="$(printf '%s' "$_DISABLED_SKILLS" | xargs | tr ' ' ',')"
 # _remove_disabled_host_entry ENTRY — drop a non-Claude host's gstack-owned
 # entry for a disabled skill (a link, or a generated copy); anything else stays.
 _remove_disabled_host_entry() {
@@ -1402,9 +1540,10 @@ _cso_unavailable() {
 # A successful probe is only a prerequisite check; any later source build failure
 # still aborts setup and therefore cannot be mistaken for a missing local tool.
 probe_cso_build_prerequisites() {
-  local _help _flag _platform _compiler _tmp _ps_script _repo_root _git_path
+  local _help _flag _platform _compiler _tmp _ps_script _repo_root _git_path _probe_out
   CSO_BUILD_AVAILABLE=1
   CSO_FAIL_REASON=""
+  CSO_PROBE_DETAIL=""
   if [ "${GSTACK_SETUP_SKIP_CSO_BUILD:-0}" = "1" ]; then
     _cso_unavailable "skipped-by-request"
     return 0
@@ -1431,9 +1570,16 @@ probe_cso_build_prerequisites() {
       _cso_unavailable "windows-git"
       return 0
     fi
-    if ! powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
-      -File "$_ps_script" -RepoRoot "$_repo_root" -GitExePath "$(cygpath -aw "$_git_path")" -CheckOnly >/dev/null 2>&1; then
-      _cso_unavailable "windows-msvc-toolchain"
+    # E2 (#3015): a probe that found MSVC but could not compile is not a
+    # missing toolchain; keep the probe's own first diagnostic for the summary.
+    if ! _probe_out="$(powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+      -File "$_ps_script" -RepoRoot "$_repo_root" -GitExePath "$(cygpath -aw "$_git_path")" -CheckOnly 2>&1)"; then
+      case "$_probe_out" in
+        *"compiler probe failed"*|*"compiler probe was not produced"*)
+          _cso_unavailable "windows-msvc-compile"
+          CSO_PROBE_DETAIL="$(printf '%s\n' "$_probe_out" | grep -m1 -E 'error [A-Z]*[0-9]+|probe (failed|was not produced)' | tr -d '\r' | head -c 200)" ;;
+        *) _cso_unavailable "windows-msvc-toolchain" ;;
+      esac
     fi
     return 0
   fi
@@ -1590,9 +1736,17 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
     # CSO artifacts are signed and verified inside build-cso's staged generation;
     # mutating them here would break its launcher-last publication guarantee.
+    # B4 (#1254): every binary is backed up first and restored as built when
+    # re-signing fails, so a failed codesign never leaves a half-signed file.
     for _bin in browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover; do
       _bin_path="$SOURCE_GSTACK_DIR/$_bin"
       [ -f "$_bin_path" ] && [ -x "$_bin_path" ] || continue
+      _bin_bak="$_bin_path.gstack-presign.$$"
+      if ! cp -p "$_bin_path" "$_bin_bak" 2>/dev/null; then
+        rm -f "$_bin_bak"
+        log "note: could not back up $_bin before re-signing; left it as built"
+        continue
+      fi
       # Strip any trailing bytes past LC_CODE_SIGNATURE so codesign can re-sign.
       # otool prints the signature's dataoff+datasize; if the file is larger,
       # the extra bytes are Bun padding that breaks strict validation.
@@ -1606,17 +1760,25 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
         [ -n "$_trunc_tmp" ] && rm -f "$_trunc_tmp"
       fi
       codesign --remove-signature "$_bin_path" 2>/dev/null || true
-      if ! codesign -s - -f "$_bin_path" 2>/dev/null; then
-        # Re-sign failed. Only warn if the binary genuinely cannot execute
-        # (SIGKILL = exit 137). Otherwise Bun's adhoc code-page signature still
-        # runs fine and the codesign --verify miss is cosmetic. set -e safe.
-        _probe_rc=0
-        "$_bin_path" --help >/dev/null 2>&1 || _probe_rc=$?
-        if [ "$_probe_rc" -eq 137 ]; then
-          log "warning: codesign failed for $_bin and it is SIGKILL'd on exec (exit 137) — it may not run on Apple Silicon"
-        else
-          log "note: codesign could not re-sign $_bin, but it executes fine (Bun adhoc signature); continuing"
-        fi
+      _signed=1
+      if codesign -s - -f "$_bin_path" 2>/dev/null; then
+        rm -f "$_bin_bak"
+      else
+        _signed=0
+        mv -f "$_bin_bak" "$_bin_path"
+      fi
+      # Exec probe: after a failed re-sign (the restored binary as built), and
+      # always for design, whose skills trust a binary that starts. Only
+      # SIGKILL (exit 137) means it cannot run; set -e safe.
+      [ "$_signed" -eq 0 ] || [ "$_bin" = design/dist/design ] || continue
+      _probe_rc=0
+      "$_bin_path" --help >/dev/null 2>&1 || _probe_rc=$?
+      if [ "$_probe_rc" -eq 137 ] && [ "$_bin" = design/dist/design ]; then
+        echo "  design unavailable: $_bin_path is killed at launch (exit 137) after re-signing, usually an invalid code signature. Design skills will report DESIGN_NOT_AVAILABLE. Fix: cd $SOURCE_GSTACK_DIR && ./setup" >&2
+      elif [ "$_probe_rc" -eq 137 ]; then
+        log "warning: codesign failed for $_bin and it is SIGKILL'd on exec (exit 137) — it may not run on Apple Silicon"
+      elif [ "$_signed" -eq 0 ]; then
+        log "note: codesign could not re-sign $_bin; restored it as built, and it executes fine (Bun adhoc signature); continuing"
       fi
     done
   fi
@@ -1678,7 +1840,7 @@ if [ "$NEEDS_AGENTS_GEN" -eq 1 ]; then
   (
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
-    bun_cmd run gen:skill-docs --host codex --model "$CODEX_GENERATION_MODEL"
+    bun_cmd run gen:skill-docs --host codex --model "$CODEX_GENERATION_MODEL" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"}
   )
   _prune_stale_generated "$SOURCE_GSTACK_DIR" "$AGENTS_DIR" "$CODEX_SKILLS"
 fi
@@ -1689,7 +1851,7 @@ if [ "$INSTALL_FACTORY" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   (
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
-    bun_cmd run gen:skill-docs --host factory
+    bun_cmd run gen:skill-docs --host factory ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"}
   )
 fi
 
@@ -1699,7 +1861,7 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   (
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
-    bun_cmd run gen:skill-docs --host opencode
+    bun_cmd run gen:skill-docs --host opencode ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"}
   )
 fi
 
@@ -1709,7 +1871,7 @@ if [ "$INSTALL_CURSOR" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   (
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
-    bun_cmd run gen:skill-docs --host cursor
+    bun_cmd run gen:skill-docs --host cursor ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"}
   )
 fi
 
@@ -1719,7 +1881,7 @@ if [ "$INSTALL_COPILOT" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   (
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
-    bun_cmd run gen:skill-docs --host copilot
+    bun_cmd run gen:skill-docs --host copilot ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"}
   )
 fi
 
@@ -1942,7 +2104,13 @@ _link_skill_runtime_assets() {
   # instead of replaced (#2119). Symlinks are never content and are always
   # refreshed. Default 1 = the directory is ours.
   local replace_real="${3:-1}"
-  local asset asset_name
+  # $4 = this skill's directory in the gbrain render, or empty (F5, #2706).
+  # The rendered SKILL.md is served from there, and its section index names
+  # sections relative to the installed directory, so a rendered counterpart of
+  # an asset is served per file over the checkout's (render dirs carry only
+  # generated *.md; manifest.json and other assets still come from the checkout).
+  local render_dir="${4:-}"
+  local asset asset_name child
   for asset in "$src_dir"/*; do
     [ -e "$asset" ] || continue  # empty-glob guard
     asset_name="$(basename "$asset")"
@@ -1958,7 +2126,21 @@ _link_skill_runtime_assets() {
     if [ -e "$dst_dir/$asset_name" ] || [ -L "$dst_dir/$asset_name" ]; then
       rm -rf "$dst_dir/$asset_name"
     fi
-    _link_or_copy "$asset" "$dst_dir/$asset_name"
+    if [ -n "$render_dir" ] && [ -d "$asset" ] && [ -d "$render_dir/$asset_name" ]; then
+      mkdir -p "$dst_dir/$asset_name"
+      for child in "$asset"/*; do
+        [ -e "$child" ] || continue
+        if [ -f "$render_dir/$asset_name/${child##*/}" ]; then
+          _link_or_copy "$render_dir/$asset_name/${child##*/}" "$dst_dir/$asset_name/${child##*/}"
+        else
+          _link_or_copy "$child" "$dst_dir/$asset_name/${child##*/}"
+        fi
+      done
+    elif [ -n "$render_dir" ] && [ -f "$asset" ] && [ -f "$render_dir/$asset_name" ]; then
+      _link_or_copy "$render_dir/$asset_name" "$dst_dir/$asset_name"
+    else
+      _link_or_copy "$asset" "$dst_dir/$asset_name"
+    fi
     # P5: the exclusion list above filters DIRECT children only, but the
     # Windows cp -R copy sweeps NESTED gitignored build output too (concrete:
     # ios-qa/scripts/gen-accessors-tool/.build is 252MB). Prune post-copy —
@@ -2065,13 +2247,16 @@ link_claude_skill_dirs() {
       # #2569: prefer a rendered :user variant when present. gbrain installs
       # render brain-aware SKILL.md into ${GSTACK_HOME}/render/claude via
       # gen:skill-docs --out-dir instead of dirtying the tracked source
-      # checkout; when a render exists for this skill, serve it. The rendered
-      # file's section-base paths point into the render dir, so section reads
-      # resolve there too.
+      # checkout; when a render exists for this skill, serve it. Its STOP
+      # pointers are absolute render-dir paths, but its section index names
+      # `sections/<f>.md` relative to this directory, so the runtime assets
+      # below prefer the render too (F5, #2706).
       _skill_md_src="$gstack_dir/$dir_name/SKILL.md"
       _render_dir="${GSTACK_USER_RENDER_DIR:-$GSTACK_STATE_ROOT/render/claude}"
+      _skill_render=""
       if [ -f "$_render_dir/$dir_name/SKILL.md" ]; then
         _skill_md_src="$_render_dir/$dir_name/SKILL.md"
+        _skill_render="$_render_dir/$dir_name"
       fi
       # A real-file SKILL.md we can only WEAKLY prove ours and whose content
       # differs from what we are about to serve is moved aside, not overwritten.
@@ -2097,7 +2282,7 @@ link_claude_skill_dirs() {
       # landed and /review 404'd at "Read .claude/skills/review/checklist.md"
       # on every fresh Claude install. Routes through _link_or_copy so Windows
       # gets real copies refreshed on every ./setup.
-      _link_skill_runtime_assets "$gstack_dir/$dir_name" "$target" "$_assets_replace"
+      _link_skill_runtime_assets "$gstack_dir/$dir_name" "$target" "$_assets_replace" "$_skill_render"
       linked+=("$link_name")
     fi
   done
@@ -2303,7 +2488,7 @@ link_codex_skill_dirs() {
 
   if [ ! -d "$agents_dir" ]; then
     echo "  Generating .agents/ skill docs..."
-    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host codex --model "$CODEX_GENERATION_MODEL" )
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host codex --model "$CODEX_GENERATION_MODEL" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} )
   fi
 
   if [ ! -d "$agents_dir" ]; then
@@ -2386,6 +2571,8 @@ create_agents_sidecar() {
     fi
   done
 
+  _link_runtime_dists "$SOURCE_GSTACK_DIR" "$agents_gstack"
+
   # supabase/config.sh — required by gstack-telemetry-sync to resolve GSTACK_SUPABASE_URL
   # (file-level on purpose: migrations/ and functions/ are dev-only)
   if [ -f "$SOURCE_GSTACK_DIR/supabase/config.sh" ]; then
@@ -2417,6 +2604,11 @@ _activate_runtime_root() {
     echo "  error: could not build the new runtime root for $root (exit $rc); the previous one is unchanged" >&2
     return "$rc"
   fi
+  if ! _preserve_skill_copy_edits "$root"; then
+    rm -rf "$new"
+    echo "  error: could not back up an edited SKILL.md copy under $root; the previous runtime root is unchanged" >&2
+    return 1
+  fi
   if [ -e "$root" ] || [ -L "$root" ]; then
     mv "$root" "$old" || { rm -rf "$new"; return 1; }
   fi
@@ -2426,6 +2618,10 @@ _activate_runtime_root() {
     return 1
   fi
   rm -rf "$old"
+  _record_skill_copies "$root" || echo "  warning: could not record SKILL.md copy hashes in $_SKILL_COPIES_FILE; a later hand edit there may not be backed up" >&2
+  [ -n "$_COPIES_REFRESHED" ] && log "  refreshed SKILL.md copies in $root: $_COPIES_REFRESHED"
+  [ -n "$_COPIES_REMOVED" ] && log "  removed SKILL.md copies from $root: $_COPIES_REMOVED"
+  return 0
 }
 
 # ─── Helper: create a minimal ~/.codex/skills/gstack runtime root ───────────
@@ -2448,7 +2644,7 @@ create_codex_runtime_root() {
   mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
-    _link_or_copy "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
+    _copy_skill_md "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
@@ -2462,15 +2658,16 @@ create_codex_runtime_root() {
   if [ -d "$gstack_dir/browse/bin" ]; then
     _link_or_copy "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
   fi
+  _link_runtime_dists "$gstack_dir" "$codex_gstack"
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
-    _link_or_copy "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
+    _copy_skill_md "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
   fi
   # plan-eng-review's inline office-hours step reads
   # $GSTACK_ROOT/office-hours/SKILL.md (#2449) — install the codex-rendered
   # variant there so the documented path exists.
   if [ -f "${agents_dir}/gstack-office-hours/SKILL.md" ]; then
     mkdir -p "${codex_gstack}/office-hours"
-    _link_or_copy "${agents_dir}/gstack-office-hours/SKILL.md" "${codex_gstack}/office-hours/SKILL.md"
+    _copy_skill_md "${agents_dir}/gstack-office-hours/SKILL.md" "${codex_gstack}/office-hours/SKILL.md"
   fi
   # Review runtime assets (individual files, NOT the whole review/ dir which has SKILL.md)
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
@@ -2503,7 +2700,7 @@ create_factory_runtime_root() {
   mkdir -p "$factory_gstack" "$factory_gstack/browse" "$factory_gstack/gstack-upgrade" "$factory_gstack/review"
 
   if [ -f "$factory_dir/gstack/SKILL.md" ]; then
-    _link_or_copy "$factory_dir/gstack/SKILL.md" "$factory_gstack/SKILL.md"
+    _copy_skill_md "$factory_dir/gstack/SKILL.md" "$factory_gstack/SKILL.md"
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$factory_gstack/bin"
@@ -2517,15 +2714,16 @@ create_factory_runtime_root() {
   if [ -d "$gstack_dir/browse/bin" ]; then
     _link_or_copy "$gstack_dir/browse/bin" "$factory_gstack/browse/bin"
   fi
+  _link_runtime_dists "$gstack_dir" "$factory_gstack"
   if [ -f "$factory_dir/gstack-upgrade/SKILL.md" ]; then
-    _link_or_copy "$factory_dir/gstack-upgrade/SKILL.md" "$factory_gstack/gstack-upgrade/SKILL.md"
+    _copy_skill_md "$factory_dir/gstack-upgrade/SKILL.md" "$factory_gstack/gstack-upgrade/SKILL.md"
   fi
   # plan-eng-review's inline office-hours step reads
   # $GSTACK_ROOT/office-hours/SKILL.md (#2449) — install the factory-rendered
   # variant there so the documented path exists.
   if [ -f "${factory_dir}/gstack-office-hours/SKILL.md" ]; then
     mkdir -p "${factory_gstack}/office-hours"
-    _link_or_copy "${factory_dir}/gstack-office-hours/SKILL.md" "${factory_gstack}/office-hours/SKILL.md"
+    _copy_skill_md "${factory_dir}/gstack-office-hours/SKILL.md" "${factory_gstack}/office-hours/SKILL.md"
   fi
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
@@ -2553,10 +2751,10 @@ create_opencode_runtime_root() {
     rm -rf "$opencode_gstack"
   fi
 
-  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
+  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
 
   if [ -f "$opencode_dir/gstack/SKILL.md" ]; then
-    _link_or_copy "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
+    _copy_skill_md "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$opencode_gstack/bin"
@@ -2570,18 +2768,16 @@ create_opencode_runtime_root() {
   if [ -d "$gstack_dir/browse/bin" ]; then
     _link_or_copy "$gstack_dir/browse/bin" "$opencode_gstack/browse/bin"
   fi
-  if [ -d "$gstack_dir/design/dist" ]; then
-    _link_or_copy "$gstack_dir/design/dist" "$opencode_gstack/design/dist"
-  fi
+  _link_runtime_dists "$gstack_dir" "$opencode_gstack"
   if [ -f "$opencode_dir/gstack-upgrade/SKILL.md" ]; then
-    _link_or_copy "$opencode_dir/gstack-upgrade/SKILL.md" "$opencode_gstack/gstack-upgrade/SKILL.md"
+    _copy_skill_md "$opencode_dir/gstack-upgrade/SKILL.md" "$opencode_gstack/gstack-upgrade/SKILL.md"
   fi
   # plan-eng-review's inline office-hours step reads
   # $GSTACK_ROOT/office-hours/SKILL.md (#2449) — install the opencode-rendered
   # variant there so the documented path exists.
   if [ -f "${opencode_dir}/gstack-office-hours/SKILL.md" ]; then
     mkdir -p "${opencode_gstack}/office-hours"
-    _link_or_copy "${opencode_dir}/gstack-office-hours/SKILL.md" "${opencode_gstack}/office-hours/SKILL.md"
+    _copy_skill_md "${opencode_dir}/gstack-office-hours/SKILL.md" "${opencode_gstack}/office-hours/SKILL.md"
   fi
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
@@ -2618,7 +2814,7 @@ link_factory_skill_dirs() {
 
   if [ ! -d "$factory_dir" ]; then
     echo "  Generating .factory/ skill docs..."
-    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host factory )
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host factory ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} )
   fi
 
   if [ ! -d "$factory_dir" ]; then
@@ -2661,7 +2857,7 @@ link_opencode_skill_dirs() {
 
   if [ ! -d "$opencode_dir" ]; then
     echo "  Generating .opencode/ skill docs..."
-    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host opencode )
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host opencode ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} )
   fi
 
   if [ ! -d "$opencode_dir" ]; then
@@ -2720,7 +2916,7 @@ create_cursor_runtime_root() {
   mkdir -p "$cursor_gstack" "$cursor_gstack/browse" "$cursor_gstack/gstack-upgrade" "$cursor_gstack/review"
 
   if [ -f "$cursor_dir/gstack/SKILL.md" ]; then
-    _link_or_copy "$cursor_dir/gstack/SKILL.md" "$cursor_gstack/SKILL.md"
+    _copy_skill_md "$cursor_dir/gstack/SKILL.md" "$cursor_gstack/SKILL.md"
   fi
   # bin scripts import shared modules via ../lib — bin and lib travel together.
   if [ -d "$gstack_dir/bin" ]; then
@@ -2735,8 +2931,9 @@ create_cursor_runtime_root() {
   if [ -d "$gstack_dir/browse/bin" ]; then
     _link_or_copy "$gstack_dir/browse/bin" "$cursor_gstack/browse/bin"
   fi
+  _link_runtime_dists "$gstack_dir" "$cursor_gstack"
   if [ -f "$cursor_dir/gstack-upgrade/SKILL.md" ]; then
-    _link_or_copy "$cursor_dir/gstack-upgrade/SKILL.md" "$cursor_gstack/gstack-upgrade/SKILL.md"
+    _copy_skill_md "$cursor_dir/gstack-upgrade/SKILL.md" "$cursor_gstack/gstack-upgrade/SKILL.md"
   fi
   # Review runtime assets — the cursor host config ships the lean pair.
   for f in checklist.md TODOS-format.md; do
@@ -2792,6 +2989,7 @@ create_cursor_sidecar() {
       _link_or_copy "$repo_root/browse/bin" "$cursor_gstack/browse/bin"
     fi
   fi
+  _link_runtime_dists "$repo_root" "$cursor_gstack"
   if [ -f "$cursor_dir/gstack-upgrade/SKILL.md" ]; then
     if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$cursor_gstack/gstack-upgrade/SKILL.md" ] || [ ! -e "$cursor_gstack/gstack-upgrade/SKILL.md" ]; then
       _link_or_copy "$cursor_dir/gstack-upgrade/SKILL.md" "$cursor_gstack/gstack-upgrade/SKILL.md"
@@ -2819,7 +3017,7 @@ link_cursor_skill_dirs() {
 
   if [ ! -d "$cursor_dir" ]; then
     echo "  Generating .cursor/ skill docs..."
-    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host cursor )
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host cursor ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} )
   fi
 
   if [ ! -d "$cursor_dir" ]; then
@@ -2859,7 +3057,7 @@ link_cursor_skill_dirs() {
 # marker is the user's and is never touched; managed files whose skill is gone
 # or disabled are removed.
 write_opencode_commands() {
-  local skills_dir="$1/.opencode/skills" cmd_dir="$2" d name file desc marker
+  local skills_dir="$1/.opencode/skills" cmd_dir="$2" d name file desc marker skill
   marker='<!-- gstack-managed command (./setup --host opencode): edits are overwritten -->'
   mkdir -p "$cmd_dir"
   for d in "$skills_dir"/gstack-*/; do
@@ -2872,8 +3070,11 @@ write_opencode_commands() {
     fi
     case "${_DISABLED_SKILLS:- }" in *" ${name#gstack-} "*) rm -f "$file"; continue ;; esac
     desc="$(awk '/^description:/ { f = 1; next } f && /^[^ ]/ { exit } f && NF { sub(/^ +/, ""); print; exit }' "$d/SKILL.md" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    # The skill tool knows a skill by its frontmatter name (gstack-review's is
+    # `review`, which OpenCode's builtin /review shadows as a command, #2651).
+    skill="$(awk '/^---$/ { fm++; next } fm == 1 && $1 == "name:" { print $2; exit }' "$d/SKILL.md")"
     printf -- '---\ndescription: "%s"\nagent: build\nsubtask: false\n---\n%s\nLoad the `%s` skill with the skill tool and follow its instructions.\n\n$ARGUMENTS\n' \
-      "${desc:-gstack $name}" "$marker" "$name" > "$file.tmp.$$" && mv -f "$file.tmp.$$" "$file"
+      "${desc:-gstack $name}" "$marker" "${skill:-$name}" > "$file.tmp.$$" && mv -f "$file.tmp.$$" "$file"
   done
   for file in "$cmd_dir"/gstack-*.md; do
     [ -f "$file" ] && grep -qF "$marker" "$file" 2>/dev/null || continue
@@ -2895,19 +3096,20 @@ create_copilot_runtime_root() {
   mkdir -p "$copilot_gstack" "$copilot_gstack/browse" "$copilot_gstack/gstack-upgrade" "$copilot_gstack/review"
   printf '%s\n' "$gstack_dir" > "$copilot_gstack/.source-path"
   if [ -f "$copilot_dir/gstack/SKILL.md" ]; then
-    _link_or_copy "$copilot_dir/gstack/SKILL.md" "$copilot_gstack/SKILL.md"
+    _copy_skill_md "$copilot_dir/gstack/SKILL.md" "$copilot_gstack/SKILL.md"
   fi
   for asset in bin lib browse/dist browse/bin; do
     if [ -d "$gstack_dir/$asset" ]; then
       _link_or_copy "$gstack_dir/$asset" "$copilot_gstack/$asset"
     fi
   done
+  _link_runtime_dists "$gstack_dir" "$copilot_gstack"
   if [ -f "$copilot_dir/gstack-upgrade/SKILL.md" ]; then
-    _link_or_copy "$copilot_dir/gstack-upgrade/SKILL.md" "$copilot_gstack/gstack-upgrade/SKILL.md"
+    _copy_skill_md "$copilot_dir/gstack-upgrade/SKILL.md" "$copilot_gstack/gstack-upgrade/SKILL.md"
   fi
   if [ -f "$copilot_dir/gstack-office-hours/SKILL.md" ]; then
     mkdir -p "$copilot_gstack/office-hours"
-    _link_or_copy "$copilot_dir/gstack-office-hours/SKILL.md" "$copilot_gstack/office-hours/SKILL.md"
+    _copy_skill_md "$copilot_dir/gstack-office-hours/SKILL.md" "$copilot_gstack/office-hours/SKILL.md"
   fi
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
@@ -2933,7 +3135,7 @@ link_copilot_skill_dirs() {
 
   if [ ! -d "$copilot_dir" ]; then
     echo "  Generating .copilot/ skill docs..."
-    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host copilot )
+    ( cd "$gstack_dir" && bun_cmd run gen:skill-docs --host copilot ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} )
   fi
   if [ ! -d "$copilot_dir" ]; then
     echo "  warning: .copilot/skills/ generation failed — run 'bun run gen:skill-docs --host copilot' manually" >&2
@@ -3173,7 +3375,7 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   KIRO_GSTACK="$KIRO_SKILLS/gstack"
   # Host identity controls outside-review routing as well as skill availability.
   # Never borrow .agents or temporarily replace a live Codex model profile.
-  ( cd "$SOURCE_GSTACK_DIR" && bun_cmd run gen:skill-docs --host kiro )
+  ( cd "$SOURCE_GSTACK_DIR" && bun_cmd run gen:skill-docs --host kiro ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} )
   mkdir -p "$KIRO_SKILLS"
   if _sidecar_root_user_owned "$KIRO_GSTACK"; then
     echo "  left in place (existing Kiro runtime root is not gstack-managed): $KIRO_GSTACK" >&2
@@ -3186,6 +3388,7 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
     _link_or_copy "$SOURCE_GSTACK_DIR/lib" "$KIRO_GSTACK/lib"
     _link_or_copy "$SOURCE_GSTACK_DIR/browse/dist" "$KIRO_GSTACK/browse/dist"
     _link_or_copy "$SOURCE_GSTACK_DIR/browse/bin" "$KIRO_GSTACK/browse/bin"
+    _link_runtime_dists "$SOURCE_GSTACK_DIR" "$KIRO_GSTACK"
     if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
       _link_or_copy "$SOURCE_GSTACK_DIR/ETHOS.md" "$KIRO_GSTACK/ETHOS.md"
     fi
@@ -3193,11 +3396,19 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
       mkdir -p "$KIRO_GSTACK/supabase"
       _link_or_copy "$SOURCE_GSTACK_DIR/supabase/config.sh" "$KIRO_GSTACK/supabase/config.sh"
     fi
-    _link_or_copy "$KIRO_DIR/gstack-upgrade/SKILL.md" "$KIRO_GSTACK/gstack-upgrade/SKILL.md"
-    _link_or_copy "$KIRO_DIR/gstack/SKILL.md" "$KIRO_GSTACK/SKILL.md"
+    if ! _preserve_skill_copy_edits "$KIRO_GSTACK"; then
+      echo "  error: could not back up an edited SKILL.md copy under $KIRO_GSTACK; Kiro install stopped before overwriting it" >&2
+      exit 1
+    fi
+    if [ -f "$KIRO_DIR/gstack-upgrade/SKILL.md" ]; then
+      _copy_skill_md "$KIRO_DIR/gstack-upgrade/SKILL.md" "$KIRO_GSTACK/gstack-upgrade/SKILL.md"
+    fi
+    if [ -f "$KIRO_DIR/gstack/SKILL.md" ]; then
+      _copy_skill_md "$KIRO_DIR/gstack/SKILL.md" "$KIRO_GSTACK/SKILL.md"
+    fi
     if [ -f "$KIRO_DIR/gstack-office-hours/SKILL.md" ]; then
       mkdir -p "$KIRO_GSTACK/office-hours"
-      _link_or_copy "$KIRO_DIR/gstack-office-hours/SKILL.md" "$KIRO_GSTACK/office-hours/SKILL.md"
+      _copy_skill_md "$KIRO_DIR/gstack-office-hours/SKILL.md" "$KIRO_GSTACK/office-hours/SKILL.md"
     fi
     for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
       if [ -f "$SOURCE_GSTACK_DIR/review/$f" ]; then
@@ -3219,13 +3430,15 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
       mkdir -p "$target_dir"
       if [ -f "$target_dir/SKILL.md" ] && [ ! -L "$target_dir/SKILL.md" ] \
          && ! _claude_entry_owned_strongly "$target_dir" "$SOURCE_GSTACK_DIR" \
+         && ! _skill_copy_unmodified "$target_dir/SKILL.md" \
          && ! cmp -s "$target_dir/SKILL.md" "$skill_dir/SKILL.md"; then
         if ! _backup_skill_md "$target_dir/SKILL.md" "$skill_name"; then
           echo "  skipped $skill_name: could not back up its customized SKILL.md — left untouched" >&2
           continue
         fi
       fi
-      _link_or_copy "$skill_dir/SKILL.md" "$target_dir/SKILL.md"
+      _copy_skill_md "$skill_dir/SKILL.md" "$target_dir/SKILL.md"
+      _record_skill_copies "$target_dir" || true
       # Native sections already contain Kiro paths/provider markers. Refresh
       # generated files individually so user assets next to them survive.
       if [ -d "$skill_dir/sections" ]; then
@@ -3279,6 +3492,8 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
       fi
     done
     _prune_stale_generated "$SOURCE_GSTACK_DIR" "$KIRO_DIR" "$KIRO_SKILLS"
+    _record_skill_copies "$KIRO_GSTACK" || echo "  warning: could not record SKILL.md copy hashes in $_SKILL_COPIES_FILE" >&2
+    [ -n "$_COPIES_REFRESHED" ] && log "  refreshed SKILL.md copies in $KIRO_GSTACK: $_COPIES_REFRESHED"
     _setup_arm_publish kiro global - "$KIRO_SKILLS" "$KIRO_GSTACK" -
     echo "gstack ready (kiro)."
     echo "  browse: $BROWSE_BIN"
@@ -3633,7 +3848,7 @@ if [ -x "$DETECT_BIN" ]; then
           # No pipe before the || guard: `cmd | tail -3` reports TAIL's exit
           # status, so a generator crash read as success (same masking the
           # main gen:skill-docs site had). Capture, show the tail, propagate.
-          _GEN_USER_OUT=$(bun_cmd run gen:skill-docs:user --host claude --out-dir "$_GSTACK_RENDER_TMP" --link-root "$_GSTACK_RENDER_DIR" --model "$_GSTACK_OVERLAY" 2>&1)
+          _GEN_USER_OUT=$(bun_cmd run gen:skill-docs:user --host claude --out-dir "$_GSTACK_RENDER_TMP" --link-root "$_GSTACK_RENDER_DIR" --model "$_GSTACK_OVERLAY" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} 2>&1)
           _GEN_USER_RC=$?
           printf '%s\n' "$_GEN_USER_OUT" | tail -3
           exit "$_GEN_USER_RC"
@@ -3791,19 +4006,22 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
     *)                       PT_DECISION="prompt" ;;
   esac
 
-  # Conductor host reliability: the PreToolUse preference hook also carries the
-  # Conductor-prose enforcement (deny the flaky mcp__conductor__AskUserQuestion,
-  # redirect to a prose decision brief). A Conductor workspace setup otherwise
-  # falls through to "prompt" → the non-interactive skip below, leaving Conductor
-  # users without that backstop. Treat Conductor as an implicit opt-in — but
-  # only on the silent fall-through, never overriding an explicit --no-plan-tune-hooks.
-  # Only the true silent fall-through auto-opts-in. An explicit
-  # --plan-tune-hooks=prompt (bin/dev-setup passes exactly this so ephemeral
-  # workspace setups never install) stays "prompt" — this was the bug that
-  # baked worktree hook paths into every Conductor user's settings.json.
-  if [ "$PT_DECISION" = "prompt" ] && [ "$PT_EXPLICIT" -eq 0 ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
-    PT_DECISION="yes"
-    _PT_CONDUCTOR_AUTO=1
+  # Conductor (Q3, #2207): the PreToolUse preference hook breaks Conductor's
+  # native AskUserQuestion round-trip even when it only defers, so setup never
+  # installs it in a Conductor workspace unless the user explicitly opted in,
+  # and removes one an earlier setup added. The other plan-tune hooks are
+  # unaffected.
+  _PT_SKIP_PREF=0
+  if { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; } \
+     && ! { [ "$PT_EXPLICIT" -eq 1 ] && [ "$PT_DECISION" = "yes" ]; }; then
+    _PT_SKIP_PREF=1
+    if [ -n "$("$SETTINGS_HOOK" list-items --event PreToolUse --owned-by plan-tune-cathedral 2>/dev/null)" ]; then
+      if "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral --event PreToolUse >/dev/null 2>&1; then
+        log "  removed the AskUserQuestion preference hook: it breaks Conductor's native AskUserQuestion (#2207). Keep it anyway: gstack-config set plan_tune_hooks yes, then ./setup"
+      else
+        log "  warning: could not remove the AskUserQuestion preference hook, which breaks Conductor's native AskUserQuestion. Fix: $SETTINGS_HOOK remove-source --source plan-tune-cathedral --event PreToolUse"
+      fi
+    fi
   fi
 
   _install_plan_tune_hooks() {
@@ -3820,12 +4038,14 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
       --command "$PLAN_TUNE_LOG_HOOK" \
       --source plan-tune-cathedral \
       --timeout 5 || _pt_install_rc=1
-    "$SETTINGS_HOOK" ensure-event \
-      --event PreToolUse \
-      --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
-      --command "$PLAN_TUNE_PREF_HOOK" \
-      --source plan-tune-cathedral \
-      --timeout 5 || _pt_install_rc=1
+    if [ "$_PT_SKIP_PREF" -eq 0 ]; then
+      "$SETTINGS_HOOK" ensure-event \
+        --event PreToolUse \
+        --matcher '(AskUserQuestion|mcp__.*__AskUserQuestion)' \
+        --command "$PLAN_TUNE_PREF_HOOK" \
+        --source plan-tune-cathedral \
+        --timeout 5 || _pt_install_rc=1
+    fi
     # AskUserQuestion-failure prose-fallback reliability hook (OV3:B). Fires only when
     # an AskUserQuestion call returns an error/missing result; inert on success and
     # inert if the platform doesn't invoke PostToolUse on tool errors. MUST use its
@@ -3857,15 +4077,10 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
     log ""
     log "Plan-tune hooks already installed. Run \`$SETTINGS_HOOK list-sources\` to inspect."
   elif [ "$PT_DECISION" = "yes" ]; then
-    # Explicit opt-in (flag / env / config) or Conductor implicit opt-in. Non-interactive.
+    # Explicit opt-in (flag / env / config). Non-interactive.
     if _install_plan_tune_hooks; then
       log ""
-      if [ "${_PT_CONDUCTOR_AUTO:-0}" -eq 1 ]; then
-        log "AskUserQuestion reliability hooks installed (Conductor detected): decisions"
-        log "render as a prose brief instead of the flaky AskUserQuestion tool. Inspect with /plan-tune."
-      else
-        log "Plan-tune hooks installed. Run /plan-tune anytime to inspect."
-      fi
+      log "Plan-tune hooks installed. Run /plan-tune anytime to inspect."
     else
       log ""
       log "  warning: some AskUserQuestion hooks were NOT registered (settings lock contention or a settings error above) — re-run ./setup to complete."
@@ -4101,6 +4316,7 @@ if [ "$CSO_BUILD_AVAILABLE" -eq 0 ]; then
     macos-codesign|macos-native-toolchain) _CSO_PREREQ="install the macOS compiler and codesign command-line tools" ;;
     windows-shell-toolchain) _CSO_PREREQ="run setup from Git Bash with Windows PowerShell available" ;;
     windows-msvc-toolchain) _CSO_PREREQ="install Visual Studio 2022 Build Tools with Desktop development with C++" ;;
+    windows-msvc-compile) _CSO_PREREQ="fix the MSVC compile error its toolchain probe reported (${CSO_PROBE_DETAIL:-see scripts/build-cso-windows.ps1 -CheckOnly}); Visual Studio is already installed" ;;
     windows-git) _CSO_PREREQ="install Git for Windows and run setup from its Git Bash" ;;
     unsupported-platform) _CSO_PREREQ="use a supported macOS, Linux, or Windows host" ;;
     skipped-by-request) _CSO_PREREQ="re-run without GSTACK_SETUP_SKIP_CSO_BUILD=1" ;;

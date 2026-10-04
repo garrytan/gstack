@@ -383,11 +383,21 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ] && D="$_ROOT/.claude/skills/gstack/design/dist/design"
 [ -z "$D" ] && D="$HOME/.claude/skills/gstack/design/dist/design"
-if [ -x "$D" ]; then
-  echo "DESIGN_READY: $D"
-else
-  echo "DESIGN_NOT_AVAILABLE"
+_DS=$("$HOME/.claude/skills/gstack/bin/gstack-paths" --get GSTACK_STATE_ROOT 2>/dev/null); _DC=${_DS:+$_DS/design-ready}; _DK=$(ls -diL "$D" 2>/dev/null)
+_dt() { if command -v gtimeout >/dev/null; then gtimeout 10 "$@"; elif command -v timeout >/dev/null; then timeout 10 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 10 "$@"; else return 125; fi; }
+_RC=0; _F="Fix: cd ${D%/design/dist/design} && ./setup"
+if [ ! -x "$D" ]; then _RC=missing
+elif [ ! "$_DC" -nt "$D" ] || [ "$(cat "$_DC")" != "$_DK" ]; then _dt "$D" --version >/dev/null 2>&1 </dev/null || _RC=$?
 fi
+case "$_RC" in
+  0) echo "DESIGN_READY: $D"; [ -n "$_DC" ] && echo "$_DK" > "$_DC" 2>/dev/null ;;
+  missing) echo "DESIGN_NOT_AVAILABLE: $D is not installed. $_F" ;;
+  124|142) echo "DESIGN_NOT_AVAILABLE: $D --version timed out after 10s" ;;
+  125) echo "DESIGN_NOT_AVAILABLE: no timeout/gtimeout/perl to bound $D" ;;
+  137) echo "DESIGN_NOT_AVAILABLE: $D --version exited 137 (killed at launch; on macOS usually an invalid code signature). $_F" ;;
+  *) echo "DESIGN_NOT_AVAILABLE: $D --version exited $_RC" ;;
+esac
 ```
 
 If `DESIGN_NOT_AVAILABLE`: skip visual mockup generation and fall back to the
@@ -717,7 +727,7 @@ kill <PID> 2>/dev/null || true
 If the Setup probe printed `IMPECCABLE_READY`, scan the finalized page once before the screenshots:
 
 ```bash
-_DJ=$(mktemp); bun --no-env-file run $HOME/.claude/skills/gstack/bin/gstack-design-detect.ts scan --format gstack --host claude <finalized.html> > "$_DJ"; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
+_DJ=$(mktemp "${TMPDIR:-/tmp}/gstack-detect.XXXXXX"); bun --no-env-file run $HOME/.claude/skills/gstack/bin/gstack-design-detect.ts scan --format gstack --host claude <finalized.html> > "$_DJ"; echo "DETECT_EXIT_CODE=$?"; echo "DETECT_JSON=$_DJ"
 ```
 
 Exit 2 → one surgical fix pass over the non-advisory rules in the `DETECT_TOP` block, then scan once more. Whatever remains, present the page with those findings listed as accepted-with-reason: a pattern the approved mockup contains, a value DESIGN.md's tokens bless or a pattern its Decisions Log or Do's and Don'ts records as intentional, or an inline `<!-- impeccable-disable <rule>: <reason> -->` the user agreed to. One pass, not a loop. Any other first line from the probe: skip, no ceremony.

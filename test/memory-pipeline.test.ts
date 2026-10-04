@@ -25,7 +25,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, statSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, statSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
@@ -87,6 +87,23 @@ function setupFixture(home: string): { gstackHome: string; counts: Record<string
   };
 }
 
+// Test seam for writes (A9): --no-write no longer stamps state, so runs that
+// need a populated state file import through a fake gbrain that accepts every
+// staged page.
+function fakeGbrainEnv(home: string, gstackHome: string): Record<string, string> {
+  const bin = join(home, "fake-bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "gbrain"), `#!/usr/bin/env bash
+case "\${1:-}" in
+  --help) echo "  import <dir>" ;;
+  import) n=$(find "$2" -name '*.md' | wc -l | tr -d ' '); echo "{\\"status\\":\\"success\\",\\"imported\\":$n,\\"skipped\\":0,\\"errors\\":0,\\"total_files\\":$n}" ;;
+  *) exit 1 ;;
+esac
+`);
+  chmodSync(join(bin, "gbrain"), 0o755);
+  return { HOME: home, GSTACK_HOME: gstackHome, PATH: `${bin}:${process.env.PATH || ""}` };
+}
+
 function seedTranscriptConsent(gstackHome: string | undefined): void {
   if (!gstackHome) return;
   mkdirSync(gstackHome, { recursive: true });
@@ -111,7 +128,7 @@ describe("V1 memory ingest pipeline E2E", () => {
   it("--probe accounts for all 9 fixture files: 7 attributable + 2 unattributed transcripts skipped (#2394)", () => {
     const home = makeFixtureHome();
     const { gstackHome, counts } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = fakeGbrainEnv(home, gstackHome);
 
     const r = runBun(INGEST, ["--probe"], env);
     expect(r.exitCode).toBe(0);
@@ -135,7 +152,7 @@ describe("V1 memory ingest pipeline E2E", () => {
   it("--probe --include-unattributed counts all 9 fixture files, transcripts included", () => {
     const home = makeFixtureHome();
     const { gstackHome, counts } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = fakeGbrainEnv(home, gstackHome);
 
     const r = runBun(INGEST, ["--probe", "--include-unattributed"], env);
     expect(r.exitCode).toBe(0);
@@ -147,17 +164,17 @@ describe("V1 memory ingest pipeline E2E", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("--incremental writes a state file with schema_version: 1 + last_writer", () => {
+  it("--incremental writes a state file with schema_version: 2 + last_writer", () => {
     const home = makeFixtureHome();
     const { gstackHome } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = fakeGbrainEnv(home, gstackHome);
 
     runBun(INGEST, ["--incremental", "--quiet"], env);
 
     const statePath = join(gstackHome, ".transcript-ingest-state.json");
     expect(existsSync(statePath)).toBe(true);
     const state = JSON.parse(readFileSync(statePath, "utf-8"));
-    expect(state.schema_version).toBe(1);
+    expect(state.schema_version).toBe(2);
     expect(state.last_writer).toBe("gstack-memory-ingest");
     expect(typeof state.last_full_walk).toBe("string");
 
@@ -167,7 +184,7 @@ describe("V1 memory ingest pipeline E2E", () => {
   it("--incremental is idempotent — re-run reports 0 changes", () => {
     const home = makeFixtureHome();
     const { gstackHome } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = fakeGbrainEnv(home, gstackHome);
 
     // First run
     runBun(INGEST, ["--incremental", "--quiet"], env);
@@ -184,7 +201,7 @@ describe("V1 memory ingest pipeline E2E", () => {
   it("--probe shows new vs unchanged distinction after first --incremental", () => {
     const home = makeFixtureHome();
     const { gstackHome } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = fakeGbrainEnv(home, gstackHome);
 
     // First, write some state by running --incremental quietly
     runBun(INGEST, ["--incremental", "--quiet"], env);
@@ -208,7 +225,7 @@ describe("V1 /gbrain-sync orchestrator E2E", () => {
   it("--dry-run with all stages enabled previews 3 stages", () => {
     const home = makeFixtureHome();
     const { gstackHome } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = fakeGbrainEnv(home, gstackHome);
 
     const r = runBun(SYNC, ["--dry-run"], env);
     expect(r.exitCode).toBe(0);
@@ -225,7 +242,7 @@ describe("V1 /gbrain-sync orchestrator E2E", () => {
   it("--no-code --no-brain-sync --incremental runs only memory ingest, writes sync state", () => {
     const home = makeFixtureHome();
     const { gstackHome } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = fakeGbrainEnv(home, gstackHome);
 
     const r = runBun(SYNC, ["--incremental", "--no-code", "--no-brain-sync", "--quiet"], env);
     expect([0, 1]).toContain(r.exitCode); // memory stage may fail if gbrain CLI is missing; both ok
@@ -250,7 +267,7 @@ describe("V1 retrieval surface — real V1 manifest dispatch", () => {
   it("loads office-hours/SKILL.md manifest and dispatches 4 queries", () => {
     const home = makeFixtureHome();
     const { gstackHome } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = { HOME: home, GSTACK_HOME: gstackHome };
 
     const skillFile = join(REPO_ROOT, "office-hours", "SKILL.md");
     expect(existsSync(skillFile)).toBe(true);
@@ -271,7 +288,7 @@ describe("V1 retrieval surface — real V1 manifest dispatch", () => {
   it("renders datamark envelope around every loaded section (Section 1D + D12)", () => {
     const home = makeFixtureHome();
     const { gstackHome } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = { HOME: home, GSTACK_HOME: gstackHome };
 
     const skillFile = join(REPO_ROOT, "office-hours", "SKILL.md");
     const r = runBun(CONTEXT, ["--skill-file", skillFile, "--repo", "test-repo"], env);
@@ -292,7 +309,7 @@ describe("V1 retrieval surface — real V1 manifest dispatch", () => {
   it("Layer 1 fallback when no skill specified — default 3-section manifest", () => {
     const home = makeFixtureHome();
     const { gstackHome } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = { HOME: home, GSTACK_HOME: gstackHome };
 
     const r = runBun(CONTEXT, ["--repo", "test-repo", "--explain", "--quiet"], env);
     expect(r.exitCode).toBe(0);
@@ -305,7 +322,7 @@ describe("V1 retrieval surface — real V1 manifest dispatch", () => {
   it("plan-ceo-review/SKILL.md manifest also dispatches correctly (regression for V1 manifest authoring)", () => {
     const home = makeFixtureHome();
     const { gstackHome } = setupFixture(home);
-    const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
+    const env = { HOME: home, GSTACK_HOME: gstackHome };
 
     const skillFile = join(REPO_ROOT, "plan-ceo-review", "SKILL.md");
     expect(existsSync(skillFile)).toBe(true);

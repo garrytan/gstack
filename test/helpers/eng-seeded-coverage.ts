@@ -202,7 +202,7 @@ function recordedBatchingIssue(call: NativePlanQuestionCall, savedPlan: string):
   const recordSection = (at: number, depth: number) => {
     const owner = tokens.slice(0, at).filter(token => token.type === 'heading' && token.depth < depth).at(-1);
     if (!owner || owner.type !== 'heading') return false;
-    const name = clean(owner.text).replace(/^(?:Section\s+)?[1-9]\d*[.:]?\s*/i, '');
+    const name = clean(owner.text).replace(/^(?:Section\s+)?[1-9]\d*(?:[.:]|\s+[—–-])?\s*/i, '');
     return /^Decision ledger$/i.test(name) || /^(?:Architecture|Code quality|Tests?|Testing|Performance) review(?:\s*[—–:-]\s+[A-Za-z0-9][A-Za-z0-9 ,/()&-]*)?$/i.test(name);
   };
   const words = (s: string) => (clean(s).toLowerCase().replace(/\(recommended\)/g, '').match(/[a-z][a-z0-9_]*/g) ?? [])

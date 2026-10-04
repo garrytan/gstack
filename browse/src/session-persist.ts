@@ -24,6 +24,7 @@ import * as fs from 'fs';
 import type { BrowserManager, BrowserState } from './browser-manager';
 import { writeSecureFile } from './file-permissions';
 import { safeUnlinkQuiet } from './error-handling';
+import { classifyAddress } from './url-validation';
 
 /** Rename a corrupt state file to .corrupt (forensic artifact) — best effort. */
 function quarantineCorrupt(filePath: string): void {
@@ -68,9 +69,10 @@ export function serializeSessionState(state: BrowserState): string {
 /**
  * True when a cookie domain points at an internal-network target a tampered
  * state file could use to reach localhost services, *.internal hosts, or
- * cloud metadata: `localhost`, `*.internal`, IPv4 loopback literals
- * (127.0.0.0/8), IPv6 loopback (`::1`, `[::1]`), and link-local/metadata
- * (169.254.0.0/16, which covers 169.254.169.254). Leading-dot domain
+ * cloud metadata: `localhost`, `*.internal`, and any address literal that
+ * url-validation's classifyAddress calls loopback or blocked (127.0.0.0/8,
+ * ::1, 169.254.0.0/16, 100.100.100.200, fe80::/10, fc00::/7, and their
+ * mapped and numeric spellings). Leading-dot domain
  * variants (`.127.0.0.1`) are normalized before matching. Single source of
  * truth for the persistence restore path here AND `state load`
  * (meta-commands.ts).
@@ -78,10 +80,8 @@ export function serializeSessionState(state: BrowserState): string {
 export function isInternalCookieDomain(domain: string): boolean {
   const d = domain.startsWith('.') ? domain.slice(1) : domain;
   if (d === 'localhost' || d.endsWith('.internal')) return true;
-  if (d === '::1' || d === '[::1]') return true; // IPv6 loopback
-  if (/^127\./.test(d)) return true; // IPv4 loopback block
-  if (/^169\.254\./.test(d)) return true; // link-local incl. cloud metadata
-  return false;
+  const kind = classifyAddress(d);
+  return kind === 'blocked' || kind === 'loopback';
 }
 
 /**

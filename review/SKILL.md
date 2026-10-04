@@ -576,10 +576,11 @@ Search for relevant learnings from previous sessions:
 _CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 else
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 fi
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
@@ -615,14 +616,15 @@ Check once per run that Aside is ready (reuse an actual result from earlier in t
 ```bash
 _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
 elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
-if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
+_A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)
+if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$_A" ]; then
   echo "NEEDS_ASIDE"
 else
-  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  _rc=0; _o=$(_gs_d "$_A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
   case "$_rc" in
     124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
     125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
-    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: $_A"
        else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
     *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
   esac
@@ -1042,6 +1044,8 @@ Before replying to any comment, run the **Escalation Detection** algorithm from 
 The required in-host adversarial result controls native completion. Optional outside
 attempts keep their own incomplete records when unavailable and cannot substitute
 for the native result, or vice versa. Step 4.8's structured-review gate still applies.
+An outside review reporting `unverified` or `unavailable` is missing coverage, never a
+pass: report it with its reason.
 
 - Use Step 4.6's `specialists` object unchanged, including its empty small-diff map.
   If this host omits Review Army, use `specialists: {}` without claiming specialist coverage.

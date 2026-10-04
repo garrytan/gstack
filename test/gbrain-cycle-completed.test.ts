@@ -14,7 +14,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { cycleCompleted } from "../lib/gbrain-sources";
+import { cycleCompleted, readCycleStatus } from "../lib/gbrain-sources";
 
 interface FakeSetup {
   env: NodeJS.ProcessEnv;
@@ -23,11 +23,13 @@ interface FakeSetup {
 
 /**
  * Fake `gbrain`:
- *   doctor --json --fast   → echo $DOCTOR_JSON (or exit $DOCTOR_EXIT if set)
+ *   doctor --json --scope=brain → echo $DOCTOR_JSON (or exit $DOCTOR_EXIT if set)
+ *   doctor --json --fast        → a report WITHOUT cycle_freshness, like real gbrain
+ *                                 (B9: --fast skips the DB checks that carry it)
  *   anything else          → exit 1
  * The doctor payload is baked into the script so each test gets its own shim.
  */
-function makeFakeGbrain(opts: { doctorJson?: string; doctorExit?: number }): FakeSetup {
+function makeFakeGbrain(opts: { doctorJson?: string; doctorExit?: number; reportExit?: number }): FakeSetup {
   const tmp = mkdtempSync(join(tmpdir(), "gbrain-cycle-test-"));
   const bindir = join(tmp, "bin");
   mkdirSync(bindir, { recursive: true });
@@ -37,9 +39,13 @@ function makeFakeGbrain(opts: { doctorJson?: string; doctorExit?: number }): Fak
   const payload = (opts.doctorJson ?? "").replace(/'/g, "'\\''");
   const fake = `#!/bin/sh
 case "$1 $2 $3" in
-  "doctor --json --fast")
+  "doctor --json --scope=brain")
     if [ ${exit} -ne 0 ]; then exit ${exit}; fi
     printf '%s' '${payload}'
+    exit ${opts.reportExit ?? 0}
+    ;;
+  "doctor --json --fast")
+    printf '%s' '{"checks":[{"name":"connection","status":"ok"}]}'
     exit 0
     ;;
 esac
@@ -111,6 +117,26 @@ describe("cycleCompleted", () => {
   it("returns 'unknown' when doctor emits non-JSON", () => {
     const fake = makeFakeGbrain({ doctorJson: "not json at all" });
     expect(cycleCompleted(SRC, fake.env)).toBe("unknown");
+    fake.cleanup();
+  });
+
+  it("B9: reads the full report (doctor exits 1 on any failing check) and a stale source still counts as cycled", () => {
+    const fake = makeFakeGbrain({
+      doctorJson: doctor({
+        name: "cycle_freshness",
+        status: "fail",
+        message: `Source 'other' has never completed a full cycle; Source '${SRC}' last cycled 30h ago. Run gbrain dream.`,
+      }),
+      reportExit: 1,
+    });
+    expect(cycleCompleted(SRC, fake.env)).toBe("completed");
+    expect(cycleCompleted("other", fake.env)).toBe("never");
+    fake.cleanup();
+  });
+
+  it("B9: says the installed gbrain does not expose cycle_freshness when the check is absent", () => {
+    const fake = makeFakeGbrain({ doctorJson: doctor({ name: "engine_health", status: "ok" }) });
+    expect(readCycleStatus(SRC, fake.env)).toEqual({ status: "unknown", why: "installed gbrain does not expose cycle_freshness" });
     fake.cleanup();
   });
 

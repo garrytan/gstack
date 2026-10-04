@@ -141,10 +141,11 @@ describe('E2E shard reuse through the runner', () => {
     const manifest = buildRunManifest({ tier: 'gate', sliceCount: 1, evalsAll: true, env: { EVALS_ALL: '1' } });
     const planned = manifest.entries.filter(entry => entry.status === 'planned');
     const reused = { inputKey: 'c'.repeat(64), runId: '1001/1', revision: 'd'.repeat(40), completedAt: 1 };
+    const key = `${FILE}#setup-deploy-workflow`;
     const results: SliceResult[] = [{ version: 1, tier: 'gate', sliceIndex: 1, sliceCount: 1, outcomes: planned.map(entry => ({
       files: [entry.file], status: 'passed' as const, exitCode: 0, elapsedMs: 0, executedTests: 1, skippedTests: 0,
-      ...(entry.budget ? { budget: entry.budget } : {}), ...(entry.file === FILE ? { reused } : {}) })) }];
-    expect(verifySliceResults(manifest, results).problems).toContain(`${FILE}: only the fast PR profile may reuse results; this lane executes fresh`);
+      ...(entry.budget ? { budget: entry.budget } : {}), ...(entry.file === key ? { reused } : {}) })) }];
+    expect(verifySliceResults(manifest, results).problems).toContain(`${key}: only the fast PR profile may reuse results; this lane executes fresh`);
   });
 });
 

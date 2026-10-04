@@ -198,7 +198,8 @@ describe('outside reviewer runtime discovery in fresh shells', () => {
     f.install(f.local);
     const explicit = f.install(path.join(f.home, 'explicit runtime'));
     expect(f.preflight({ GSTACK_ROOT: explicit }).stdout).toContain(`RESOLVED_ROOT: ${explicit}`);
-    expect(f.preflight({ GSTACK_BIN: path.join(explicit, 'bin') }).stdout).toContain(`RESOLVED_ROOT: ${explicit}`);
+    // C1: only an exported GSTACK_ROOT (with bin/ and lib/) is honored; a lone GSTACK_BIN falls back to the repo-local install.
+    expect(f.preflight({ GSTACK_BIN: path.join(explicit, 'bin') }).stdout).toContain(`RESOLVED_ROOT: ${f.local}`);
     const result = f.preflight({ GSTACK_ROOT: '/missing/gstack', GSTACK_BIN: '/missing/gstack/bin' });
     expect(result.stdout).toContain('CODEX_MODE: ready');
     expect(result.stdout).toContain(`RESOLVED_ROOT: ${f.local}`);

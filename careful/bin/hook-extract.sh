@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hook-extract.sh — SHARED JSON helpers for gstack PreToolUse hooks.
+# hook-extract.sh — SHARED JSON and path helpers for gstack PreToolUse hooks.
 # Sourced (never executed) by careful/bin/check-careful.sh and
 # freeze/bin/check-freeze.sh via a path relative to each hook script.
 #
@@ -30,6 +30,48 @@ sys.stdout.write(c if isinstance(c, str) else "")' "$_ghef_field" 2>/dev/null &&
     printf '%s' "$_ghef_payload" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const c=(j&&j.tool_input&&j.tool_input[process.argv[1]])||"";process.stdout.write(typeof c==="string"?c:"")}catch(e){process.exit(3)}})' "$_ghef_field" 2>/dev/null && return 0
   fi
   return 1
+}
+
+# Windows bash (Git Bash / MSYS / Cygwin), read from bash's own OSTYPE so the
+# check never costs a fork: careful sources this file on every Bash call.
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win32*) GSTACK_HOOK_IS_WINDOWS=1 ;;
+  *) GSTACK_HOOK_IS_WINDOWS=0 ;;
+esac
+_GSTACK_HOOK_AZ_UPPER=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+_GSTACK_HOOK_AZ_LOWER=abcdefghijklmnopqrstuvwxyz
+GSTACK_HOOK_PATH=""
+
+# gstack_hook_normalize_path PATH
+#   The one path canonicalization for freeze's boundary AND the tool's
+#   file_path (#2876). Leaves the result in GSTACK_HOOK_PATH (stdout is the
+#   hook's decision channel, and $(...) would cost a fork):
+#     C:\dev\x  c:/dev/x  -> /c/dev/x      (separators, drive-letter case)
+#     \\srv\share\x       -> //srv/share/x (UNC: the leading // is kept)
+#     /cygdrive/c/x       -> /c/x          (Windows bash only)
+#   Drive-letter and UNC shapes are recognised lexically on every platform.
+#   A path without those shapes is rewritten only on Windows bash: on POSIX
+#   '\' is a legal filename character, and rewriting it would let a name like
+#   'a\..\..\etc\x' change which directory the check sees. Remaining case
+#   differences on Windows are handled by comparing under nocasematch.
+#   Builtins only, bash 3.2 compatible.
+gstack_hook_normalize_path() {
+  GSTACK_HOOK_PATH="$1"
+  case "$GSTACK_HOOK_PATH" in
+    [A-Za-z]:[\\/]*|[A-Za-z]:|\\\\[!\\]*) ;;
+    *) [ "$GSTACK_HOOK_IS_WINDOWS" = 1 ] || return 0 ;;
+  esac
+  GSTACK_HOOK_PATH="${GSTACK_HOOK_PATH//\\//}"
+  case "$GSTACK_HOOK_PATH" in
+    [A-Za-z]:/*|[A-Za-z]:)
+      _ghnp_d="${GSTACK_HOOK_PATH%%:*}"
+      _ghnp_pre="${_GSTACK_HOOK_AZ_UPPER%%"$_ghnp_d"*}"
+      [ "$_ghnp_pre" = "$_GSTACK_HOOK_AZ_UPPER" ] || _ghnp_d="${_GSTACK_HOOK_AZ_LOWER:${#_ghnp_pre}:1}"
+      GSTACK_HOOK_PATH="/$_ghnp_d${GSTACK_HOOK_PATH#?:}"
+      ;;
+    /cygdrive/[A-Za-z]/*|/cygdrive/[A-Za-z]) GSTACK_HOOK_PATH="${GSTACK_HOOK_PATH#/cygdrive}" ;;
+  esac
+  return 0
 }
 
 # gstack_hook_json_string TEXT

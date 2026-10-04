@@ -26,10 +26,14 @@ const FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'ui-heavy-feature.m
 const designFocusBoundary = (fp: AskUserQuestionFingerprint): boolean =>
   fp.nativeCall?.answered === true && !fp.nativeCall.failed && fp.nativeCall.questions.some(({ question }) => {
     const text = question.trim().replace(/^D\d+(?:\.\d+)?\s*[—–:-]\s*/i, '');
-    // Require the source Step 0D question or its retained native paraphrase.
     // A target menu can mention a design system without reviewing this plan.
-    return /^I(?:['’]ve| have) rated this plan (?:10(?:\.0+)?|[0-9](?:\.\d+)?)\/10 on design completeness\.[\s\S]*\bWant me to focus on specific areas instead of all 7\?/i.test(text)
-      || /^Review all 7 design (?:dimensions|passes),? or focus(?: on [^?\n]+)?\?$/i.test(text.split(/\r?\n/, 1)[0]!);
+    // The source Step 0D question, or a native title (first line) that offers all
+    // seven design dimensions/passes versus a focus, in any order or wording. The
+    // count may be a numeral or a word; the title must name design.
+    const title = text.split(/\r?\n/, 1)[0]!;
+    return /^I(?:['’]ve| have) rated this plan (?:10(?:\.0+)?|[0-9](?:\.\d+)?)\/10 on design completeness\.[\s\S]*\bWant me to focus on specific areas instead of all (?:7|seven)\?/i.test(text)
+      || (/\ball (?:7|seven) (?:design )?(?:dimensions|passes)\b/i.test(title) && /\bfocus\b/i.test(title)
+        && /\bdesign\b/i.test(title) && /\?\s*$/.test(title));
   });
 
 // Require a choice about the supplied UI, not a workflow offer after focus.

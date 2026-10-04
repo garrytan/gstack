@@ -11,6 +11,8 @@
 #   --stamp-checkpoint <file>  write remote:/project_root: into a checkpoint's frontmatter
 #   --classify-checkpoints     read checkpoint paths on stdin, print "<status>\t<path>"
 #   --adopt-legacy [--copy <relpath>...]  review/copy files from the pre-#3003 bucket
+#   --adopt-legacy --from <slug>  merge a former bucket (e.g. a worktree's) into this one
+#   --adopt-legacy --dismiss <slug>  stop naming a former bucket at skill start
 #
 # Nested-group remotes (#3003): a hosted remote with 3+ path segments
 # (gitlab.com/a/product/repo) files under "<last-two>-<16 hex>" instead of the
@@ -21,6 +23,17 @@
 # copies it with --adopt-legacy; nothing moves automatically. ssh host aliases
 # (git@work-gitlab:…) are a different canonical host than the https spelling;
 # pin those with GSTACK_PROJECT_SLUG.
+#
+# Cache key (#2767): inside a git repository the entry is keyed on the git
+# common dir, which the main checkout, its subdirectories and every linked
+# worktree share, so a worktree can no longer resolve a different slug than
+# the main checkout. It is read from .git files without spawning git. Entries
+# written before this keyed on pwd; on a miss the main checkout's old entry
+# wins over the current directory's own old entry (deterministic: the main
+# checkout holds the project's original, possibly pre-remote, identity). When
+# a worktree's own old entry named a different, non-empty bucket, that slug is
+# recorded in projects/<slug>/.former-slugs until --adopt-legacy --from merges
+# it or --dismiss drops it. Both keys are written, so pwd-keyed readers agree.
 #
 # Cache format: entries are versioned ("v2:<slug>"). An unversioned entry from
 # an older gstack is recomputed once (one git spawn) and rewritten as v2; it
@@ -91,8 +104,8 @@ case "${1:-}" in
   "") ;;
   --identity) MODE=identity ;;
   --get) MODE=get; MODE_ARG="${2:-}"
-    case "$MODE_ARG" in SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|LEGACY_SLUG) ;;
-      *) echo "usage: gstack-slug --get SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|LEGACY_SLUG" >&2; exit 2 ;;
+    case "$MODE_ARG" in SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|LEGACY_SLUG|FORMER_SLUGS) ;;
+      *) echo "usage: gstack-slug --get SLUG|BRANCH|PROJECT_REMOTE|PROJECT_ROOT|LEGACY_SLUG|FORMER_SLUGS" >&2; exit 2 ;;
     esac ;;
   --stamp-checkpoint) MODE=stamp; MODE_ARG="${2:-}"
     [[ -n "$MODE_ARG" ]] || { echo "usage: gstack-slug --stamp-checkpoint <file>" >&2; exit 2; } ;;
@@ -102,8 +115,12 @@ case "${1:-}" in
       shift
       [[ $# -gt 0 ]] || { echo "usage: gstack-slug --adopt-legacy --copy <relpath>..." >&2; exit 2; }
       COPY_PATHS=("$@")
+    elif [[ "${1:-}" == "--from" || "${1:-}" == "--dismiss" ]]; then
+      MODE=$([[ "$1" == "--from" ]] && echo adopt-from || echo adopt-dismiss)
+      MODE_ARG=$(printf '%s' "${2:-}" | tr -cd 'a-zA-Z0-9._-')
+      case "$MODE_ARG" in ""|.|..) echo "usage: gstack-slug --adopt-legacy $1 <slug>" >&2; exit 2 ;; esac
     elif [[ -n "${1:-}" ]]; then
-      echo "usage: gstack-slug --adopt-legacy [--copy <relpath>...]" >&2; exit 2
+      echo "usage: gstack-slug --adopt-legacy [--copy <relpath>... | --from <slug> | --dismiss <slug>]" >&2; exit 2
     fi ;;
   -h|--help)
     cat <<'USAGE'
@@ -119,6 +136,10 @@ gstack-slug — print SLUG=<project slug> and BRANCH=<branch> for the current di
   gstack-slug --adopt-legacy            list the old bucket's files (checkpoints marked
                                         matching/foreign/unknown); asks per file on a terminal
   gstack-slug --adopt-legacy --copy P…  copy the named files (paths relative to the old bucket)
+  gstack-slug --adopt-legacy --from S   merge bucket S into this project's: JSONL logs merge with
+                                        de-duplication, missing files copy, differing files are
+                                        listed as conflicts and never overwritten; S is kept
+  gstack-slug --adopt-legacy --dismiss S  stop naming former bucket S at skill start
 Env: GSTACK_PROJECT_SLUG pins the slug (ssh host aliases, vendored sub-repos); never cached.
 USAGE
     exit 0 ;;
@@ -129,6 +150,41 @@ PROJECT_DIR="$(pwd)"
 # Encode absolute path as cache key: /Users/j/foo → _Users_j_foo
 CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')
 CACHE_FILE="${CACHE_DIR}/${CACHE_KEY}"
+
+# Physical git common dir of the repository holding $1 (nearest .git entry),
+# or nothing outside git. A worktree's .git file names its gitdir, whose
+# `commondir` file points at the shared dir. No git spawn.
+_git_common_dir() {
+  local dir="$1" parent="" gitdir="" common="" depth=0
+  while [[ -n "$dir" && $depth -lt 64 ]]; do
+    if [[ -d "$dir/.git" ]]; then (cd "$dir/.git" 2>/dev/null && pwd -P); return 0; fi
+    if [[ -f "$dir/.git" ]]; then
+      gitdir=$(sed -n 's/^gitdir: *//p' "$dir/.git" 2>/dev/null | head -1)
+      [[ -n "$gitdir" ]] || return 0
+      [[ "$gitdir" == /* || "$gitdir" =~ ^[A-Za-z]: ]] || gitdir="$dir/$gitdir"
+      common="$gitdir"
+      if [[ -f "$gitdir/commondir" ]]; then
+        common=$(head -1 "$gitdir/commondir" 2>/dev/null)
+        [[ "$common" == /* || "$common" =~ ^[A-Za-z]: ]] || common="$gitdir/$common"
+      fi
+      (cd "$common" 2>/dev/null && pwd -P); return 0
+    fi
+    parent=$(dirname "$dir")
+    [[ "$parent" == "$dir" ]] && break
+    dir="$parent"
+    depth=$((depth + 1))
+  done
+  return 0
+}
+LEGACY_CACHE_FILE="$CACHE_FILE"
+MAIN_CACHE_FILE=""
+GIT_COMMON_DIR=$(_git_common_dir "$PROJECT_DIR")
+if [[ -n "$GIT_COMMON_DIR" ]]; then
+  CACHE_FILE="${CACHE_DIR}/$(printf '%s' "$GIT_COMMON_DIR" | tr '/' '_')"
+  if [[ "$(basename "$GIT_COMMON_DIR")" == .git ]]; then
+    MAIN_CACHE_FILE="${CACHE_DIR}/$(dirname "$GIT_COMMON_DIR" | tr '/' '_')"
+  fi
+fi
 
 SLUG=""
 
@@ -276,8 +332,12 @@ _resolve_remote() {
 #       so the heal never fires.
 _CACHE_V2=0
 LEGACY_NOTICE_SLUG=""
-if [[ -z "$SLUG" && -f "$CACHE_FILE" ]]; then
-  _RAW_CACHE=$(cat "$CACHE_FILE" 2>/dev/null || true)
+_ENTRY_FILE=""
+for _f in "$CACHE_FILE" "$MAIN_CACHE_FILE" "$LEGACY_CACHE_FILE"; do
+  if [[ -n "$_f" && -f "$_f" ]]; then _ENTRY_FILE="$_f"; break; fi
+done
+if [[ -z "$SLUG" && -n "$_ENTRY_FILE" ]]; then
+  _RAW_CACHE=$(cat "$_ENTRY_FILE" 2>/dev/null || true)
   if [[ "$_RAW_CACHE" == v2:* ]]; then
     _CACHE_V2=1
     _RAW_CACHE="${_RAW_CACHE#v2:}"
@@ -356,18 +416,33 @@ SLUG="${SLUG:-$(basename "$PROJECT_DIR" | tr -cd 'a-zA-Z0-9._-')}"
 #     injection, but the invariant should not depend on that reasoning).
 SLUG=$(printf '%s' "$SLUG" | tr -cd 'a-zA-Z0-9._-')
 
+# A worktree whose own pre-#2767 entry named a different bucket that still
+# holds data: remember it so skill start can name the merge command.
+if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 && "$_ENTRY_FILE" != "$LEGACY_CACHE_FILE" && -f "$LEGACY_CACHE_FILE" ]]; then
+  _OWN=$(cat "$LEGACY_CACHE_FILE" 2>/dev/null || true)
+  _OWN=$(printf '%s' "${_OWN#v2:}" | tr -cd 'a-zA-Z0-9._-')
+  _FORMER_FILE="$GSTACK_STATE_ROOT/projects/$SLUG/.former-slugs"
+  if [[ -n "$_OWN" && "$_OWN" != "$SLUG" && "$_OWN" != . && "$_OWN" != .. && -n "$(ls -A "$GSTACK_STATE_ROOT/projects/$_OWN" 2>/dev/null)" ]] \
+    && ! grep -qxF -- "$_OWN" "$_FORMER_FILE" 2>/dev/null; then
+    mkdir -p "$(dirname "$_FORMER_FILE")" 2>/dev/null && printf '%s\n' "$_OWN" >> "$_FORMER_FILE" 2>/dev/null || true
+  fi
+fi
+
 if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 ]]; then
-  CURRENT_CACHE=""
-  if [[ -f "$CACHE_FILE" ]]; then
-    CURRENT_CACHE=$(cat "$CACHE_FILE" 2>/dev/null || true)
-  fi
-  if [[ "$CURRENT_CACHE" != "v2:$SLUG" ]]; then
-    mkdir -p "$CACHE_DIR" 2>/dev/null || true
-    CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
-    if [[ -n "$CACHE_TMP" ]]; then
-      printf 'v2:%s' "$SLUG" > "$CACHE_TMP" && mv "$CACHE_TMP" "$CACHE_FILE" 2>/dev/null || rm -f "$CACHE_TMP" 2>/dev/null
+  for _f in "$CACHE_FILE" "$LEGACY_CACHE_FILE"; do
+    CURRENT_CACHE=""
+    if [[ -f "$_f" ]]; then
+      CURRENT_CACHE=$(cat "$_f" 2>/dev/null || true)
     fi
-  fi
+    if [[ "$CURRENT_CACHE" != "v2:$SLUG" ]]; then
+      mkdir -p "$CACHE_DIR" 2>/dev/null || true
+      CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
+      if [[ -n "$CACHE_TMP" ]]; then
+        printf 'v2:%s' "$SLUG" > "$CACHE_TMP" && mv "$CACHE_TMP" "$_f" 2>/dev/null || rm -f "$CACHE_TMP" 2>/dev/null
+      fi
+    fi
+    [[ "$CACHE_FILE" == "$LEGACY_CACHE_FILE" ]] && break
+  done
 fi
 
 # One notice on the resolve that first files this project under its new
@@ -384,6 +459,65 @@ BRANCH="${BRANCH:-unknown}"
 if [[ "$MODE" == "get" && ( "$MODE_ARG" == SLUG || "$MODE_ARG" == BRANCH ) ]]; then
   if [[ "$MODE_ARG" == SLUG ]]; then printf '%s\n' "$SLUG"; else printf '%s\n' "$BRANCH"; fi
   exit 0
+fi
+FORMER_FILE="$GSTACK_STATE_ROOT/projects/$SLUG/.former-slugs"
+if [[ "$MODE" == "get" && "$MODE_ARG" == FORMER_SLUGS ]]; then
+  # Former buckets still holding data and not yet adopted or dismissed.
+  while IFS= read -r _former || [[ -n "$_former" ]]; do
+    _former=$(printf '%s' "$_former" | tr -cd 'a-zA-Z0-9._-')
+    case "$_former" in ""|.|..) continue ;; esac
+    [[ -n "$(ls -A "$GSTACK_STATE_ROOT/projects/$_former" 2>/dev/null)" ]] && printf '%s\n' "$_former"
+  done < <(cat "$FORMER_FILE" 2>/dev/null || true)
+  exit 0
+fi
+_forget_former() {
+  [[ -f "$FORMER_FILE" ]] || return 0
+  local tmp
+  tmp=$(mktemp "$FORMER_FILE.XXXXXX") || return 1
+  grep -vxF -- "$1" "$FORMER_FILE" > "$tmp" || true
+  mv "$tmp" "$FORMER_FILE"
+}
+if [[ "$MODE" == "adopt-dismiss" ]]; then
+  _forget_former "$MODE_ARG" && echo "Dismissed projects/$MODE_ARG; its files are kept and skill start no longer names it."
+  exit $?
+fi
+if [[ "$MODE" == "adopt-from" ]]; then
+  FROM_BUCKET="$GSTACK_STATE_ROOT/projects/$MODE_ARG"
+  TO_BUCKET="$GSTACK_STATE_ROOT/projects/$SLUG"
+  [[ "$MODE_ARG" != "$SLUG" ]] || { echo "gstack-slug: projects/$MODE_ARG is this project's own bucket." >&2; exit 2; }
+  [[ -d "$FROM_BUCKET" && ! -L "$FROM_BUCKET" ]] || { echo "gstack-slug: no bucket at $FROM_BUCKET." >&2; exit 1; }
+  mkdir -p "$TO_BUCKET" || exit 1
+  MIGRATED=0; PENDING=0; CONFLICTING=0; UNCHANGED=0; CONFLICTS=""; PENDINGS=""
+  while IFS= read -r -d '' rel; do
+    rel="${rel#./}"
+    src="$FROM_BUCKET/$rel"; dst="$TO_BUCKET/$rel"
+    if [[ -L "$src" || ! -f "$src" ]]; then
+      PENDING=$((PENDING + 1)); PENDINGS="$PENDINGS  $rel (not a regular file; review by hand)"$'\n'; continue
+    fi
+    if [[ ! -e "$dst" ]]; then
+      mkdir -p "$(dirname "$dst")" && cp -p "$src" "$dst" && MIGRATED=$((MIGRATED + 1)) && continue
+      PENDING=$((PENDING + 1)); PENDINGS="$PENDINGS  $rel (copy failed)"$'\n'; continue
+    fi
+    if cmp -s "$src" "$dst"; then UNCHANGED=$((UNCHANGED + 1)); continue; fi
+    if [[ "$rel" == *.jsonl && -f "$dst" && ! -L "$dst" ]]; then
+      # Append-only logs: add the lines this bucket lacks, keeping its order.
+      tmp=$(mktemp "$dst.XXXXXX") || { PENDING=$((PENDING + 1)); continue; }
+      if { cat "$dst"; awk 'FNR == NR { seen[$0] = 1; next } !($0 in seen) { seen[$0] = 1; print }' "$dst" "$src"; } > "$tmp"; then
+        if cmp -s "$tmp" "$dst"; then rm -f "$tmp"; UNCHANGED=$((UNCHANGED + 1)); else mv "$tmp" "$dst"; MIGRATED=$((MIGRATED + 1)); fi
+      else
+        rm -f "$tmp"; PENDING=$((PENDING + 1)); PENDINGS="$PENDINGS  $rel (merge failed)"$'\n'
+      fi
+      continue
+    fi
+    CONFLICTING=$((CONFLICTING + 1)); CONFLICTS="$CONFLICTS  $rel"$'\n'
+  done < <(cd "$FROM_BUCKET" && find . \( -type f -o -type l \) ! -name .former-slugs -print0 2>/dev/null)
+  echo "adopt-legacy --from $MODE_ARG into projects/$SLUG: migrated $MIGRATED, pending $PENDING, conflicting $CONFLICTING, unchanged $UNCHANGED"
+  [[ -z "$PENDINGS" ]] || printf 'Pending (left in projects/%s):\n%s' "$MODE_ARG" "$PENDINGS"
+  [[ -z "$CONFLICTS" ]] || printf 'Conflicting (both differ; nothing overwritten, compare by hand):\n%s' "$CONFLICTS"
+  echo "projects/$MODE_ARG is kept; delete it yourself once you are satisfied."
+  _forget_former "$MODE_ARG" || true
+  [[ "$PENDING" -eq 0 ]]
+  exit $?
 fi
 if [[ "$MODE" == "default" ]]; then
   echo "SLUG=$SLUG"

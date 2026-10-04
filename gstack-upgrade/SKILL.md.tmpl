@@ -102,22 +102,27 @@ elif [ -d ".claude/skills/gstack" ]; then
 elif [ -d "$HOME/.claude/skills/gstack" ]; then
   INSTALL_TYPE="vendored-global"
   INSTALL_DIR="$HOME/.claude/skills/gstack"
+elif _SRC=$({{BIN_DIR}}/gstack-paths --get GSTACK_STATE_ROOT 2>/dev/null) && _SRC=$(awk -F '\t' '$(1) == "{{HOST_ID}}" && $(6) != "-" { print $(6); exit }' "$_SRC/installs.tsv" 2>/dev/null) && [ -d "$_SRC/.git" ]; then
+  # The install registry names the checkout setup activated for this host (e.g. a ~/gstack clone).
+  INSTALL_TYPE="global-git"
+  INSTALL_DIR="$_SRC"
 else
   echo "ERROR: gstack not found"
   exit 1
 fi
+INSTALL_DIR=$(cd -- "$INSTALL_DIR" && pwd -P) || { echo "ERROR: cannot enter the gstack install directory" >&2; exit 1; }
 echo "Install type: $INSTALL_TYPE at $INSTALL_DIR"
 ```
 
-The install type and directory path printed above will be used in all subsequent steps.
-Resolve `INSTALL_DIR` to an absolute path. Carry `INSTALL_TYPE`, `INSTALL_DIR`, `OLD_VERSION`, and later `NEW_VERSION` forward explicitly: if tool calls use fresh shells, reassign them from captured output before running a block. Do not rely on a prior call's working directory or shell variables.
+The install type and the absolute directory printed above are used in all subsequent steps.
+Carry `INSTALL_TYPE`, `INSTALL_DIR`, `OLD_VERSION`, and later `NEW_VERSION` forward explicitly: tool calls may run in fresh shells, so start each later block by assigning them from the captured output (for example `INSTALL_DIR=/abs/path/printed/above`). Do not rely on a prior call's working directory or shell variables. Every block that changes files first checks `INSTALL_DIR` and stops before any git command when it is unset, empty, missing, unreadable, or not gstack's own checkout.
 
 ### Step 3: Save old version
 
 Use the install directory from Step 2's output below:
 
 ```bash
-OLD_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
+OLD_VERSION=$(cat "${INSTALL_DIR:?INSTALL_DIR is not set: re-run Step 2 and substitute the printed path}/VERSION" 2>/dev/null || echo "unknown")
 echo "OLD_VERSION=$OLD_VERSION"
 ```
 
@@ -131,7 +136,8 @@ Fast-forward first — the same policy the session-update auto-upgrade
 uses. `--autostash` carries local edits over the pull; render-footprint dirt
 is discarded first because it is regenerable and poisons stashes:
 ```bash
-cd "$INSTALL_DIR"
+cd -- "${INSTALL_DIR:?INSTALL_DIR is not set: re-run Step 2 and substitute the printed path}" || exit 1
+{ [ -f VERSION ] && [ -f setup ] && [ -f bin/gstack-config ] && [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ]; } || { echo "ERROR: $INSTALL_DIR is not a gstack checkout; nothing was changed. Re-run Step 2." >&2; exit 1; }
 # Discard render-footprint dirt: older gbrain-enabled installs rendered
 # generated SKILL.md / sections files IN PLACE. They are regenerable (setup
 # re-renders to ~/.gstack/render), so discarding is lossless.
@@ -173,7 +179,8 @@ those commits. Gate it:
    proceed on a vague reply.
 
 ```bash
-cd "$INSTALL_DIR"
+cd -- "${INSTALL_DIR:?INSTALL_DIR is not set: re-run Step 2 and substitute the printed path}" || exit 1
+{ [ -f VERSION ] && [ -f setup ] && [ -f bin/gstack-config ] && [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ]; } || { echo "ERROR: $INSTALL_DIR is not a gstack checkout; nothing was changed. Re-run Step 2." >&2; exit 1; }
 STASH_OUTPUT=$(git stash 2>&1)
 git reset --hard origin/main
 {{SETUP_COMMAND}} --refresh-registered
@@ -182,13 +189,13 @@ If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: loc
 
 **For vendored installs** (vendored, vendored-global):
 ```bash
-PARENT=$(dirname "$INSTALL_DIR")
+(cd -- "${INSTALL_DIR:?INSTALL_DIR is not set: re-run Step 2 and substitute the printed path}" && [ -f VERSION ] && [ -f setup ] && [ -f bin/gstack-config ]) || { echo "ERROR: INSTALL_DIR=${INSTALL_DIR:-} is not a gstack install; nothing was changed. Re-run Step 2." >&2; exit 1; }
 # A stale .bak from a previously crashed upgrade would make the mv below NEST
 # the live install inside it and the failure-restore arm would "restore" the
 # stale backup. It may also be the only good copy from that crashed run —
 # abort and let the human inspect, never delete it silently.
 [ -e "$INSTALL_DIR.bak" ] && { echo "ERROR: stale backup exists at $INSTALL_DIR.bak (from a previous failed upgrade?) — inspect it, salvage/remove it, then re-run." >&2; exit 1; }
-TMP_DIR=$(mktemp -d) || { echo "ERROR: mktemp failed — aborting upgrade (install untouched)." >&2; exit 1; }
+TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gstack-upgrade.XXXXXX") || { echo "ERROR: mktemp failed — aborting upgrade (install untouched)." >&2; exit 1; }
 git clone --depth 1 https://github.com/garrytan/gstack.git "$TMP_DIR/gstack" || { echo "ERROR: clone failed — aborting upgrade (install untouched)." >&2; rm -rf "$TMP_DIR"; exit 1; }
 mv "$INSTALL_DIR" "$INSTALL_DIR.bak" || { rm -rf "$TMP_DIR"; exit 1; }
 if mv "$TMP_DIR/gstack" "$INSTALL_DIR"; then
@@ -214,11 +221,11 @@ fi
 Use the install directory from Step 2. Check if there's also a local vendored copy, and whether team mode is active:
 
 ```bash
+_RESOLVED_PRIMARY=$(cd -- "${INSTALL_DIR:?INSTALL_DIR is not set: re-run Step 2 and substitute the printed path}" && pwd -P) || exit 1
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 LOCAL_GSTACK=""
 if [ -n "$_ROOT" ] && [ -d "$_ROOT/.claude/skills/gstack" ]; then
   _RESOLVED_LOCAL=$(cd "$_ROOT/.claude/skills/gstack" && pwd -P)
-  _RESOLVED_PRIMARY=$(cd "$INSTALL_DIR" && pwd -P)
   if [ "$_RESOLVED_LOCAL" != "$_RESOLVED_PRIMARY" ]; then
     LOCAL_GSTACK="$_ROOT/.claude/skills/gstack"
   fi
@@ -231,7 +238,9 @@ echo "TEAM_MODE=$_TEAM_MODE"
 **If `LOCAL_GSTACK` is non-empty AND `TEAM_MODE` is `true`:** Remove the vendored copy. Team mode uses the global install as the single source of truth.
 
 ```bash
-cd "$_ROOT"
+(cd -- "${LOCAL_GSTACK:?LOCAL_GSTACK is not set: re-run the detection block above and substitute the printed path}" && [ -f VERSION ] && [ -f setup ] && [ -f bin/gstack-config ]) || { echo "ERROR: LOCAL_GSTACK=${LOCAL_GSTACK:-} is not a gstack copy; nothing was changed." >&2; exit 1; }
+_ROOT=${LOCAL_GSTACK%/.claude/skills/gstack}
+{ [ "$_ROOT" != "$LOCAL_GSTACK" ] && cd -- "${_ROOT:?}" && [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ]; } || { echo "ERROR: $LOCAL_GSTACK is not the vendored copy at the root of a git repository; nothing was changed." >&2; exit 1; }
 git rm -r --cached .claude/skills/gstack/ 2>/dev/null || true
 if ! grep -qF '.claude/skills/gstack/' .gitignore 2>/dev/null; then
   echo '.claude/skills/gstack/' >> .gitignore
@@ -242,6 +251,8 @@ Tell user: "Removed vendored copy at `$LOCAL_GSTACK` (team mode active — globa
 
 **If `LOCAL_GSTACK` is non-empty AND `TEAM_MODE` is NOT `true`:** Update it by copying from the freshly-upgraded primary install (same approach as README vendored install):
 ```bash
+(cd -- "${INSTALL_DIR:?INSTALL_DIR is not set: re-run Step 2 and substitute the printed path}" && [ -f VERSION ] && [ -f setup ] && [ -f bin/gstack-config ]) || { echo "ERROR: INSTALL_DIR=${INSTALL_DIR:-} is not a gstack install; nothing was changed." >&2; exit 1; }
+(cd -- "${LOCAL_GSTACK:?LOCAL_GSTACK is not set: re-run the detection block above and substitute the printed path}" && [ -f VERSION ] && [ -f setup ] && [ -f bin/gstack-config ]) || { echo "ERROR: LOCAL_GSTACK=${LOCAL_GSTACK:-} is not a gstack copy; nothing was changed." >&2; exit 1; }
 [ -e "$LOCAL_GSTACK.bak" ] && { echo "ERROR: stale vendored backup; inspect it before retrying." >&2; exit 1; }
 mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak" || exit 1
 if cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK" && rm -rf "$LOCAL_GSTACK/.git" && (cd "$LOCAL_GSTACK" && {{SETUP_COMMAND}} --refresh-registered); then
@@ -263,7 +274,8 @@ and new version. Migrations handle state fixes that `./setup` alone can't cover
 (stale config, orphaned files, directory structure changes).
 
 ```bash
-MIGRATIONS_DIR="$INSTALL_DIR/gstack-upgrade/migrations"
+MIGRATIONS_DIR="${INSTALL_DIR:?INSTALL_DIR is not set: re-run Step 2 and substitute the printed path}/gstack-upgrade/migrations"
+: "${OLD_VERSION:?OLD_VERSION is not set: substitute the value Step 3 printed}"
 if [ -d "$MIGRATIONS_DIR" ]; then
   for migration in $(find "$MIGRATIONS_DIR" -maxdepth 1 -name 'v*.sh' -type f 2>/dev/null | sort -V); do
     # Extract version from filename: v0.15.2.0.sh → 0.15.2.0
@@ -388,8 +400,8 @@ Run the Step 2 bash block above to detect the primary install type and directory
 
 **If `LOCAL_GSTACK` is non-empty AND `TEAM_MODE` is NOT `true`**, compare versions:
 ```bash
-PRIMARY_VER=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
-LOCAL_VER=$(cat "$LOCAL_GSTACK/VERSION" 2>/dev/null || echo "unknown")
+PRIMARY_VER=$(cat "${INSTALL_DIR:?INSTALL_DIR is not set: re-run Step 2 and substitute the printed path}/VERSION" 2>/dev/null || echo "unknown")
+LOCAL_VER=$(cat "${LOCAL_GSTACK:?LOCAL_GSTACK is not set: re-run the Step 4.5 detection block}/VERSION" 2>/dev/null || echo "unknown")
 echo "PRIMARY=$PRIMARY_VER LOCAL=$LOCAL_VER"
 ```
 

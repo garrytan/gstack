@@ -27,8 +27,11 @@
 // provide (#2501).
 //
 // Exit codes:
-//   0 — emitted JSON successfully (may include "offline":true or "host":"unknown")
-//   2 — invalid arguments
+//   0 — emitted JSON successfully (may include "offline":true or "host":"unknown",
+//       or "no_version":true with "version":null when no version source is
+//       configured — see resolveVersionSource in lib/version-source.ts)
+//   2 — invalid arguments, or a configured version source that is missing,
+//       empty, unreadable or malformed
 //   3 — util bug (unexpected exception)
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -43,6 +46,9 @@ import {
   cmpVersion,
   bumpWasCoerced,
   extractVersion,
+  noVersionNotice,
+  resolveVersionRel,
+  resolveVersionSource,
   type Bump,
   type Version,
   type VersionWidth,
@@ -115,17 +121,11 @@ function runCommand(cmd: string, args: string[], timeoutMs = 15000): { ok: boole
 // at repo root > "VERSION". Pure function; takes the repo root as an argument so
 // tests can drive it with a fixture dir without mocking git.
 function resolveVersionPath(override: string | undefined, repoRoot: string): string {
-  if (override) return override.trim();
-  const configFile = join(repoRoot, ".gstack", "version-path");
-  if (existsSync(configFile)) {
-    try {
-      const firstLine = readFileSync(configFile, "utf8").split("\n")[0]?.trim() ?? "";
-      if (firstLine) return firstLine;
-    } catch {
-      // fall through to default
-    }
+  try {
+    return resolveVersionRel(repoRoot, override).rel;
+  } catch {
+    return "VERSION";
   }
-  return "VERSION";
 }
 
 function repoToplevel(): string {
@@ -683,7 +683,32 @@ async function main() {
   const warnings: string[] = [];
   const host = detectHost();
   const repoRoot = repoToplevel();
-  const versionPath = resolveVersionPath(args.versionPath, repoRoot);
+  // One no-version signal (#2334, #2343): the same four-outcome resolution
+  // gstack-version-bump uses. No configured source → report no_version and
+  // allocate nothing; a broken configured source → stop with the reason.
+  const src = resolveVersionSource(repoRoot, args.versionPath);
+  if (src.outcome === "broken") {
+    console.error(`Error: version source is broken: ${src.reason}. Fix that file or its pin (gstack never substitutes 0.0.0.0).`);
+    process.exit(2);
+  }
+  if (src.outcome !== "valid") {
+    process.stdout.write(
+      JSON.stringify(
+        {
+          version: null,
+          no_version: true,
+          version_source: { outcome: src.outcome, path: src.path, reason: src.reason },
+          notice: noVersionNotice(src),
+          bump: args.bump,
+          warnings,
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    return;
+  }
+  const versionPath = src.path!;
   const baseVersion = args.current || readBaseVersion(args.base, versionPath, repoRoot, warnings);
   const baseParsed = parseVersion(baseVersion);
   if (!baseParsed) {

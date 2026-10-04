@@ -52,7 +52,7 @@ exec ${JSON.stringify(process.execPath)} ${JSON.stringify(scanner)} "$@"
 
 test('publication composes the saved documentation section unchanged and refuses to scan without it', () => {
   const block = template.match(/```bash\n(: "\$\{NEW_TITLE:[\s\S]*?)\n```/)?.[1]!;
-  const compose = block.slice(block.indexOf('PR_BODY_FILE=$(mktemp)'), block.indexOf('~/.claude/skills/gstack/bin/gstack-redact --from-file'));
+  const compose = block.slice(block.indexOf('PR_BODY_FILE=$(mktemp'), block.indexOf('~/.claude/skills/gstack/bin/gstack-redact --from-file'));
   const root = mkdtempSync(join(tmpdir(), 'ship-compose-'));
   try {
     const section = '**Status:** current — no edits.\n\n- Diagram drift: none (no diagrams in any doc).';

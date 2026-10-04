@@ -74,7 +74,7 @@ describe('dev-setup: never silently mutates global settings.json', () => {
   });
 });
 
-describe('setup: PT_EXPLICIT provenance (Conductor auto-opt-in respects explicit decisions)', () => {
+describe('setup: PT_EXPLICIT provenance (explicit decisions are never overridden)', () => {
   // The phantom-hooks root cause (Bug A): the Conductor auto-opt-in upgraded
   // PT_DECISION "prompt" → "yes" even when "prompt" came from dev-setup's
   // EXPLICIT --plan-tune-hooks=prompt flag, so every new Conductor workspace
@@ -88,10 +88,11 @@ describe('setup: PT_EXPLICIT provenance (Conductor auto-opt-in respects explicit
     expect(explicitIdx).toBeGreaterThan(flagIdx);
   });
 
-  test('the Conductor auto-opt-in fires only on the true silent fall-through', () => {
-    expect(setupSrc).toMatch(
-      /\[ "\$PT_DECISION" = "prompt" \] && \[ "\$PT_EXPLICIT" -eq 0 \] && \{ \[ -n "\$\{CONDUCTOR_WORKSPACE_PATH:-\}" \] \|\| \[ -n "\$\{CONDUCTOR_PORT:-\}" \]; \}/,
-    );
+  // Q3 (#2207) retired the Conductor auto-opt-in: Conductor never upgrades a
+  // silent "prompt" to "yes". Behavior is pinned by setup-conductor-auq-hook.
+  test('Conductor never auto-opts into the plan-tune hooks', () => {
+    expect(setupSrc).not.toMatch(/CONDUCTOR[A-Z_]*:-\}" \]; \}; then\n\s*PT_DECISION="yes"/);
+    expect(setupSrc).not.toContain('_PT_CONDUCTOR_AUTO');
   });
 
   test('config provenance uses gstack-config has (env-resolution-safe), never a hardcoded config grep', () => {

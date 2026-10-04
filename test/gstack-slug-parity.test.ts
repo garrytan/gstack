@@ -374,3 +374,89 @@ describe('gstack-slug ↔ remote-slug parity', () => {
     }
   });
 });
+
+// G2 (#2767): the sticky slug cache was keyed on pwd, so a linked worktree
+// resolved its slug fresh from the remote while the main checkout kept its
+// sticky pre-remote identity, splitting learnings and checkpoints into two
+// buckets. The cache is now keyed on the git common dir in both gstack-slug
+// and lib/bin-context.ts, and --adopt-legacy --from merges a former bucket.
+describe('G2: linked worktrees share the main checkout identity', () => {
+  let tmpHome: string;
+  let fixtures: string;
+  beforeEach(() => {
+    tmpHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'slug-wt-home-')));
+    fixtures = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'slug-wt-fix-')));
+  });
+  afterEach(() => {
+    try { fs.rmSync(tmpHome, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(fixtures, { recursive: true, force: true }); } catch {}
+  });
+
+  const state = () => path.join(tmpHome, '.gstack');
+  const runIn = (cwd: string, args: string[]) => spawnSync('bash', [SLUG_SCRIPT, ...args], {
+    cwd, env: baseEnv(tmpHome), encoding: 'utf8', timeout: 10_000,
+  });
+
+  /** Main checkout that used gstack before adopting a remote, plus a linked worktree. */
+  function stickyRepoWithWorktree(): { main: string; wt: string } {
+    const main = makeRepo(path.join(fixtures, 'myproj'));
+    git(['-C', main, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init']);
+    expect(slugOf(runSlug(main, tmpHome))).toBe('myproj');
+    git(['-C', main, 'remote', 'add', 'origin', 'git@github.com:someowner/myproj.git']);
+    const wt = path.join(fixtures, 'myproj-wt');
+    git(['-C', main, 'worktree', 'add', '-q', '-b', 'feature', wt]);
+    return { main, wt };
+  }
+
+  test('a linked worktree resolves the main checkout sticky slug (bash and TS agree)', async () => {
+    const { main, wt } = stickyRepoWithWorktree();
+    expect(slugOf(runSlug(wt, tmpHome))).toBe('myproj');
+    expect(slugOf(runSlug(path.join(main), tmpHome))).toBe('myproj');
+    const { slugFromEnvironment, readVersionedSlugCache } = await import('../lib/bin-context');
+    expect(readVersionedSlugCache(state(), wt)).toBe('myproj');
+    expect(slugFromEnvironment(state(), wt)).toBe('myproj');
+  });
+
+  test('disagreeing pre-upgrade caches: the main checkout wins and the former bucket is named', () => {
+    const { main, wt } = stickyRepoWithWorktree();
+    const cacheDir = path.join(state(), 'slug-cache');
+    fs.writeFileSync(path.join(cacheDir, encodedCacheKey(wt)), 'v2:someowner-myproj');
+    fs.rmSync(path.join(cacheDir, encodedCacheKey(path.join(main, '.git'))), { force: true });
+    fs.mkdirSync(path.join(state(), 'projects', 'someowner-myproj'), { recursive: true });
+    fs.writeFileSync(path.join(state(), 'projects', 'someowner-myproj', 'learnings.jsonl'), '{"key":"a"}\n');
+    expect(slugOf(runSlug(wt, tmpHome))).toBe('myproj');
+    expect(runIn(wt, ['--get', 'FORMER_SLUGS']).stdout).toBe('someowner-myproj\n');
+    expect(runIn(main, ['--get', 'FORMER_SLUGS']).stdout).toBe('someowner-myproj\n');
+    expect(runIn(wt, ['--adopt-legacy', '--dismiss', 'someowner-myproj']).status).toBe(0);
+    expect(runIn(wt, ['--get', 'FORMER_SLUGS']).stdout).toBe('');
+    expect(fs.existsSync(path.join(state(), 'projects', 'someowner-myproj', 'learnings.jsonl'))).toBe(true);
+  });
+
+  test('--adopt-legacy --from merges JSONL with de-duplication, copies missing files, lists conflicts, and reruns idempotently', () => {
+    const { wt } = stickyRepoWithWorktree();
+    const from = path.join(state(), 'projects', 'someowner-myproj');
+    const to = path.join(state(), 'projects', 'myproj');
+    fs.mkdirSync(path.join(from, 'checkpoints'), { recursive: true });
+    fs.mkdirSync(path.join(to, 'checkpoints'), { recursive: true });
+    fs.writeFileSync(path.join(to, 'learnings.jsonl'), '{"key":"a"}\n{"key":"b"}\n');
+    fs.writeFileSync(path.join(from, 'learnings.jsonl'), '{"key":"b"}\n{"key":"c"}\n');
+    fs.writeFileSync(path.join(from, 'timeline.jsonl'), '{"event":"x"}\n');
+    fs.writeFileSync(path.join(to, 'checkpoints', 'cp.md'), 'main version\n');
+    fs.writeFileSync(path.join(from, 'checkpoints', 'cp.md'), 'worktree version\n');
+    fs.writeFileSync(path.join(state(), 'projects', 'myproj', '.former-slugs'), 'someowner-myproj\n');
+
+    const first = runIn(wt, ['--adopt-legacy', '--from', 'someowner-myproj']);
+    expect(first.status).toBe(0);
+    expect(first.stdout).toContain('migrated 2, pending 0, conflicting 1, unchanged 0');
+    expect(first.stdout).toContain('checkpoints/cp.md');
+    expect(fs.readFileSync(path.join(to, 'learnings.jsonl'), 'utf8')).toBe('{"key":"a"}\n{"key":"b"}\n{"key":"c"}\n');
+    expect(fs.readFileSync(path.join(to, 'timeline.jsonl'), 'utf8')).toBe('{"event":"x"}\n');
+    expect(fs.readFileSync(path.join(to, 'checkpoints', 'cp.md'), 'utf8')).toBe('main version\n');
+    expect(fs.readFileSync(path.join(from, 'learnings.jsonl'), 'utf8')).toBe('{"key":"b"}\n{"key":"c"}\n');
+    expect(runIn(wt, ['--get', 'FORMER_SLUGS']).stdout).toBe('');
+
+    const again = runIn(wt, ['--adopt-legacy', '--from', 'someowner-myproj']);
+    expect(again.stdout).toContain('migrated 0, pending 0, conflicting 1, unchanged 2');
+    expect(fs.readFileSync(path.join(to, 'learnings.jsonl'), 'utf8')).toBe('{"key":"a"}\n{"key":"b"}\n{"key":"c"}\n');
+  });
+});

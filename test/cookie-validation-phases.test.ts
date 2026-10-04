@@ -30,7 +30,8 @@ test('the actual CI cookie repair planner executes only eight dependent cases wi
   expect(manifest.evalsAll).toBe(false);
   expect(manifest.selection).toEqual({ e2e: ['browse-basic', 'browse-snapshot', 'qa-quick', 'qa-only-no-fix', 'design-review-detector-shim-dom', 'diagram-triplet', 'canary-workflow', 'benchmark-workflow'], judges: [] });
   expect(manifest.entries.filter(entry => entry.status === 'planned').map(entry => entry.file).sort()).toEqual([
-    'test/skill-e2e-bws.test.ts', 'test/skill-e2e-deploy.test.ts', 'test/skill-e2e-design.test.ts#design-review-detector-shim-dom', 'test/skill-e2e-diagram.test.ts', 'test/skill-e2e-qa-workflow.test.ts',
+    'test/skill-e2e-bws.test.ts', 'test/skill-e2e-deploy.test.ts#benchmark-workflow', 'test/skill-e2e-deploy.test.ts#canary-workflow',
+    'test/skill-e2e-design.test.ts#design-review-detector-shim-dom', 'test/skill-e2e-diagram.test.ts', 'test/skill-e2e-qa-workflow.test.ts',
   ]);
   // The case-sharded design file runs only its one selected cookie case.
   expect(manifest.entries.filter(entry => entry.file.startsWith('test/skill-e2e-design.test.ts#') && entry.status === 'skipped-by-diff').length).toBeGreaterThan(0);
@@ -44,11 +45,12 @@ test('the existing quality and behavior phases retain their complete separate sh
   expect(quality.evalsAll).toBe(true);
   expect(behavior.evalsAll).toBe(true);
   expect(qualityFiles).toHaveLength(1);
-  // 50 files, five of them the gate safety-rule evals (first-task-scaffold
-  // registers no gate case, so the gate lane skips it); the seven case-sharded
-  // files contribute one shard per gate case.
-  expect(new Set(behaviorFiles.map(file => file.split('#')[0])).size).toBe(50);
-  expect(behaviorFiles).toHaveLength(77);
+  // 44 files: first-task-scaffold registers no gate case, and six files whose
+  // computed names hold only periodic cases (four plan, QA and routing files
+  // plus the design-risk and iOS-demo safety-rule evals), so the gate lane skips
+  // them; the eight case-sharded files contribute one shard per gate case.
+  expect(new Set(behaviorFiles.map(file => file.split('#')[0])).size).toBe(44);
+  expect(behaviorFiles).toHaveLength(76);
   expect(behaviorFiles).toEqual(expect.arrayContaining([
     ...['review-exploratory-small-cli', 'ship-exploratory-small-cli', 'ship-exploratory-unavailable',
       'ship-exploratory-plan-checks', 'ship-exploratory-late-input'].map(id => `test/skill-e2e-qa-callers.test.ts#${id}`),

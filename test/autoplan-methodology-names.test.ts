@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createSnapshot, prepareMethodology } from '../bin/gstack-autoplan-snapshot';
@@ -26,7 +26,9 @@ function fixture(phase: string, layout: string) {
   const target = join(dir, skill);
   mkdirSync(target);
   cpSync(join(source, 'SKILL.md'), join(target, 'SKILL.md'));
-  if (layout !== 'inlineCodex') cpSync(join(source, 'sections'), join(target, 'sections'), { recursive: true });
+  // C4: Codex carves plan-ceo-review too, so an install that has sections/ copies it.
+  const carved = existsSync(join(source, 'sections'));
+  if (carved) cpSync(join(source, 'sections'), join(target, 'sections'), { recursive: true });
   if (layout === 'patchedClaude') {
     const result = spawnSync('bash', [join(ROOT, 'bin/gstack-patch-names'), dir, 'true'], { encoding: 'utf8', timeout: 10_000 });
     expect(result.status, result.stderr).toBe(0);
@@ -36,7 +38,7 @@ function fixture(phase: string, layout: string) {
   const restore = join(dir, 'restore.md');
   writeFileSync(active, '## Implementation plan\nBuild the widget.\n## Review record\n');
   writeFileSync(restore, 'Restore point.\n');
-  return { dir, file: join(target, 'SKILL.md'), active, restore, skill };
+  return { dir, file: join(target, 'SKILL.md'), active, restore, skill, carved };
 }
 
 describe('installed methodology identities', () => {
@@ -44,7 +46,8 @@ describe('installed methodology identities', () => {
     test(`${phase}: ${layout} prepares and consumes exact installed bytes`, () => {
       const f = fixture(phase, layout);
       const bundle = prepareMethodology(phase, f.file, f.restore);
-      expect(bundle.sources).toHaveLength(layout === 'inlineCodex' ? 1 : 2);
+      expect(bundle.sources).toHaveLength(f.carved ? 2 : 1);
+      if (layout !== 'inlineCodex') expect(f.carved).toBe(true);
       const bytes = readFileSync(bundle.methodologyPath);
       for (const source of bundle.sources) expect(bytes.subarray(source.startByte, source.endByte)).toEqual(readFileSync(source.path));
       expect(readFileSync(createSnapshot(phase, f.active, f.restore, bundle.methodologyPath).snapshotPath, 'utf8')).toBe('Build the widget.\n');

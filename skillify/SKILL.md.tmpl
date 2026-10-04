@@ -220,7 +220,7 @@ Resolve the gstack install dir. Two reliable signals (in order):
    `$B skill list` (the `bundled` row). The skill dir is
    `<gstack-install>/browser-skills/hackernews-frontpage/`, so the install
    dir is two `dirname` calls above its `_lib/browse-client.ts`.
-2. The active gstack skills install at `~/.claude/skills/gstack/`. Read
+2. The active gstack skills install at `{{INSTALLED_ROOT}}/`. Read
    the symlink target if it's a symlink, otherwise use the path directly.
 
 Example (run as Bun, not bash, to avoid shell-redirect parsing issues):
@@ -232,7 +232,7 @@ import * as path from 'path';
 
 function resolveSdkPath(): string {
   const candidates = [
-    path.join(os.homedir(), '.claude', 'skills', 'gstack', 'browse', 'src', 'browse-client.ts'),
+    '{{INSTALLED_ROOT}}/browse/src/browse-client.ts'.replace(/^~(?=\/)/, os.homedir()),
     // Add other install-dir candidates if your environment differs.
   ];
   for (const c of candidates) {

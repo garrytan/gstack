@@ -530,7 +530,7 @@ from `snapshot`, or `@c` refs from `snapshot -C`. Full table:
 | `fill <sel> <val>` | Fill input |
 | `select <sel> <val>` | Select dropdown option (value, label, or visible text) |
 | `hover <sel>` | Hover element |
-| `type <text>` | Type into focused element |
+| `type [--selector <sel>] [--] <text>` | Type into the focused element, or into `<sel>` with `--selector`; put text that starts with `--` after `--`. Bare `type` hints when its first word looks like a selector |
 | `press <key>` | Playwright keyboard key (case-sensitive: Enter, Tab, ArrowUp, Shift+Enter, Control+A, ...) |
 | `scroll [sel\|@ref]` | Scroll element into view, or jump to page bottom if no selector |
 | `viewport [<WxH>] [--scale <n>]` | Set viewport size + optional `deviceScaleFactor` 1-3 (retina screenshots) |
@@ -647,6 +647,8 @@ Storage stays intact by default. With explicit approval on a Chromium target, `-
 | `status` | Daemon health + mode (headless / headed / cdp) |
 | `stop` | Shut down daemon (succeeds even if the daemon already died — never boots one just to stop it; reaps a surviving recorded headless Chromium after identity checks) |
 | `restart` | Restart daemon |
+| `profiles [list]` | List the per-project headed Chromium profiles: size, last use, and which browser holds each |
+| `profiles prune [--days N]` | Remove headed profiles idle for N days (default 30); never one a live browser holds |
 | `connect` | Launch headed GStack Browser with Side Panel extension |
 | `disconnect` | Close headed Chrome, return to headless |
 | `focus [@ref]` | Bring headed Chrome to foreground (macOS); `@ref` also scrolls into view |
@@ -885,6 +887,14 @@ with your tabs and bookmarks stays untouched.
 - **Debugging** where headless behavior differs from real Chrome
 - **Demos** where you're sharing your screen
 - **Pair-agent** sessions (the remote agent drives your local browser)
+
+Headed browse keeps one Chromium profile per project, at
+`<project>/.gstack/chromium-profile` (`CHROMIUM_PROFILE` still wins). The first
+headed start copies your logins from `~/.gstack/chromium-profile` when no browser
+is using it, and otherwise starts fresh and prints how to import. If a live
+browser already holds the project's profile, browse names it and stops instead
+of killing it. `browse profiles` lists the profiles; `browse profiles prune
+--days 30` removes idle ones.
 
 ### Aside and third-party drives (v1.72.0.0+)
 

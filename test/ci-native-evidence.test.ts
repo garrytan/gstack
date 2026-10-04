@@ -14,6 +14,26 @@ const executors = workflows.flatMap(({ name, value }) => Object.entries(value.jo
     .filter((step: any) => step.run?.includes('scripts/test-paid-shards.ts') && step.run.includes(' --slice '))
     .map((step: any) => ({ name, jobName, job, step }))));
 
+// A host-run executor (evals-periodic eval-codex-slices) starts the CI image with
+// `docker run`; the literal `-e NAME=VALUE` flags are the slice's environment.
+function dockerEnv(run: string): Record<string, string> {
+  return Object.fromEntries([...run.matchAll(/(?:^|\s)-e ([A-Z_][A-Z0-9_]*)=(\S+)/g)].map(match => [match[1]!, match[2]!]));
+}
+const executorEnv = (job: any, step: any): Record<string, string> => ({ ...job.env, ...step.env, ...dockerEnv(step.run) });
+// Upload paths on a host-run executor name the host side of its `-v` mounts;
+// map them back to the container paths (and the mounted HOME back to `~/`).
+function containerPath(step: any, uploadPath: string): string {
+  const mounts = [...step.run.matchAll(/-v "\$RUNNER_TEMP\/([^:"]+):([^:"]+)(?::ro)?"/g)].map(match => [match[1]!, match[2]!]);
+  for (const [host, inside] of mounts) {
+    const prefix = '${{ runner.temp }}/' + host;
+    if (uploadPath === prefix || uploadPath.startsWith(prefix + '/')) {
+      const mapped = inside + uploadPath.slice(prefix.length);
+      return inside === dockerEnv(step.run).HOME ? mapped.replace(inside, '~') : mapped;
+    }
+  }
+  return uploadPath;
+}
+
 function render(template: string, fields: Record<string, string>): string {
   return template.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, key) => {
     if (!(key in fields)) throw new Error(`Unbound CI expression: ${key}`);
@@ -23,17 +43,19 @@ function render(template: string, fields: Record<string, string>): string {
 
 test('every direct CI paid executor binds a safe unique run/attempt/job/slice identity', () => {
   expect(executors.map(({ name, jobName }) => `${name}:${jobName}`)).toEqual([
-    'evals.yml:eval-slices', 'evals-periodic.yml:eval-slices', 'evals-periodic.yml:gate-census', 'evals-marathon.yml:eval-slices',
+    'evals.yml:eval-slices', 'evals-periodic.yml:eval-slices', 'evals-periodic.yml:eval-codex-slices', 'evals-periodic.yml:gate-census', 'evals-marathon.yml:eval-slices',
   ]);
   const ids = new Set<string>();
   for (const [workflowIndex, { job, step }] of executors.entries()) {
-    expect(job.container.options).toBe('--user runner');
-    const env = { ...job.env, ...step.env };
+    // Container jobs run as `runner`; the host-run Codex job passes the runner's own uid to docker.
+    if (job.container) expect(job.container.options).toBe('--user runner');
+    else expect(step.run).toContain('--user "$(id -u):$(id -g)"');
+    const env = executorEnv(job, step);
     expect(env.EVALS_RUN_ID).toBeString();
     for (const run of ['36302678692', '36302678693']) {
       for (const attempt of ['1', '2']) {
         // The planner sizes the matrix; cover more slices than any live plan.
-        expect(job.strategy.matrix.slice).toMatch(/^\$\{\{ fromJSON\(needs\.plan-slices\.outputs\.(?:[a-z]+_)?slices\) \}\}$/);
+        expect(job.strategy.matrix.slice).toMatch(/^\$\{\{ fromJSON\(needs\.plan-slices\.outputs\.(?:[a-z]+_)*slices\) \}\}$/);
         for (let slice = 1; slice <= 64; slice++) {
           const id = render(env.EVALS_RUN_ID, {
             'github.run_id': `${run}${workflowIndex}`,
@@ -55,7 +77,7 @@ for (const { name, jobName, job, step } of executors) {
     const home = path.join(root, 'home');
     const bin = path.join(root, 'bin');
     fs.mkdirSync(home); fs.mkdirSync(bin); fs.mkdirSync(path.join(root, 'test'));
-    const configured = { ...job.env, ...step.env };
+    const configured = executorEnv(job, step);
     const runId = render(configured.EVALS_RUN_ID, {
       'github.run_id': '36302678692', 'github.run_attempt': '2', 'matrix.slice': '4',
     });
@@ -117,7 +139,7 @@ test('native launch plumbing without a model', async () => {
         expect(record.capture.runId).toBe(runId);
         expect(snapshot.artifactDir.startsWith(shardDir + path.sep)).toBe(true);
       }
-      const upload = job.steps.find((candidate: any) => candidate.with?.path === configured.GSTACK_EVAL_DIR);
+      const upload = job.steps.find((candidate: any) => candidate.with?.path && containerPath(step, candidate.with.path) === configured.GSTACK_EVAL_DIR);
       expect(upload.if).toBe('always()');
       const captures = job.steps.find((candidate: any) => candidate.name === 'Upload native capture evidence');
       expect(captures.if).toBe('always()');
@@ -126,7 +148,7 @@ test('native launch plumbing without a model', async () => {
       const artifactName = render(captures.with.name, { 'env.EVALS_RUN_ID': runId });
       expect(artifactName).toBe(`native-captures-${runId}`);
       expect(artifactName).not.toMatch(/^(paid-slice|gate-census)-[0-9]/);
-      const patterns = captures.with.path.trim().split('\n');
+      const patterns = captures.with.path.trim().split('\n').map((pattern: string) => containerPath(step, pattern));
       expect(patterns).toEqual(['~/.gstack/projects/*/e2e-runs', '~/.gstack/projects/*/evals/qa-callers',
         '~/.gstack-dev/e2e-runs', '~/.gstack-dev/evals/qa-callers']);
       const uploaded = patterns.flatMap((pattern: string) => [...new Bun.Glob(`${pattern.replace(/^~\//, '')}/**/*`)

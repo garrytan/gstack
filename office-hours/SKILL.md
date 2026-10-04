@@ -128,7 +128,7 @@ Tell three outcomes apart:
 2. **Completeness scores per choice** — explicit on EACH choice, per the Completeness rule in the Format section below; never silently drop the score.
 3. **The recommendation and why** — the `Recommendation: <choice> because <reason>` line plus the `(recommended)` marker on that choice.
 
-Layout: a `D<N>` title; an explicit reply line listing the offered selectors; the issue ELI10; the Recommendation line; ONE paragraph per choice with its `(recommended)` marker, `Completeness: X/10`, and 2-4 sentences of reasoning (never a bare bullet list); a closing `Net:` line. With `QUESTION_TUNING: true`, append the checked `<gstack-qid:{question_id}>` to the explicit reply line. Split chains / 5+ options: one prose block per per-option call, in sequence. Before an interactive prose question, finish preparatory tool calls that do not depend on its answer. Then send the complete brief as the final message of the turn and STOP and wait for the user's typed answer. Do not publish an earlier copy during tool work or follow it with tools or a summary-only waiting message. In plan mode this satisfies end-of-turn like a tool call.
+Layout: a `D<N>` title; an explicit reply line listing the offered selectors; the issue ELI10; the Recommendation line; ONE paragraph per choice with its `(recommended)` marker, `Completeness: X/10`, and 2-4 sentences of reasoning (never a bare bullet list); a closing `Net:` line. With `QUESTION_TUNING: true`, append the checked `<gstack-qid:{question_id}>` to the explicit reply line. Split chains / 5+ options: one prose block per per-option call, in sequence. Before an interactive prose question, finish preparatory tool calls that do not depend on its answer. Then send the complete brief as the final message of the turn and STOP and wait for the user's typed answer. An open-ended question with no options list uses the `Q<N>` form below instead of a `D<N>` brief; a free-text reply answers the most recent unanswered `Q<N>`. Do not publish an earlier copy during tool work or follow it with tools or a summary-only waiting message. In plan mode this satisfies end-of-turn like a tool call.
 
 **Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (`D<N>`, or `D<N>.k` in a split chain). The user references it (e.g. "3.2: B"). A bare letter maps to the single most-recent UNANSWERED brief; if more than one is open (a split chain), do NOT guess — ask which `D<N>.k` it answers. Never apply a bare letter ambiguously across a chain.
 
@@ -137,6 +137,17 @@ Layout: a `D<N>` title; an explicit reply line listing the offered selectors; th
 ### Format
 
 Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose — unless the documented failure fallback above applies (interactive session + the call is unavailable/erroring), in which case the prose fallback is the correct output.
+
+**Open-question prose form (`Q<N>`)** — for open-ended questions with no fixed option set (the Phase 2A/2B diagnostic questions) when you are in prose:
+
+```text
+Q<N> — <question, verbatim>
+Why I'm asking: <1-2 sentences: stakes, what a weak answer would mean>
+What a strong answer sounds like: <the section's "push until you hear" line>
+Reply in your own words — I'll wait.
+```
+
+Q-numbering starts at `Q1` per invocation, independent of D-numbering. Questions with discrete options always use `D<N>`.
 
 ```
 D<N> — <one-line question title>
@@ -422,14 +433,15 @@ Some steps require action on a site the user controls: registering an API key, c
    ```bash
    _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
    elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
-   if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
+   _A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)
+   if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$_A" ]; then
      echo "NEEDS_ASIDE"
    else
-     _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+     _rc=0; _o=$(_gs_d "$_A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
      case "$_rc" in
        124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
        125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
-       0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+       0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: $_A"
           else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
        *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
      esac
@@ -523,10 +535,11 @@ Search for relevant learnings from previous sessions:
 _CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 else
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 fi
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
@@ -644,14 +657,15 @@ Check once per run that Aside is ready (if this skill already ran this same prob
 ```bash
 _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
 elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
-if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
+_A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)
+if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$_A" ]; then
   echo "NEEDS_ASIDE"
 else
-  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  _rc=0; _o=$(_gs_d "$_A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
   case "$_rc" in
     124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
     125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
-    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: $_A"
        else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
     *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
   esac
@@ -819,22 +833,24 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" && _gstack_codex_select_model exec || exit 1
-_OUTSIDE_PROMPT=$(cat "$_OUTSIDE_INPUT") || exit 1
+_gstack_codex_sandbox_preflight >/dev/null || exit 1
+_gstack_codex_first_use_notice
 _OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper 300 codex exec "$_OUTSIDE_PROMPT" -C "$_REPO_ROOT" -s read-only -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
-cat "$_OUTSIDE_TMP/text" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
+_gstack_codex_timeout_wrapper 300 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"
 
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
-if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
-  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
-  exit "$_OUTSIDE_EXIT"
-fi
-bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
-
+_OUTSIDE_RC=0
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" --label 'Codex outside review' --exit "$_OUTSIDE_EXIT" --stderr "$_OUTSIDE_TMP/stderr" --events "$_OUTSIDE_TMP/events" review "$_OUTSIDE_TMP/text" || _OUTSIDE_RC=$?
+case "$_OUTSIDE_RC" in
+  0|3) ;;
+  4) echo 'OUTSIDE_STATUS: unverified provider=codex host=claude'; exit 4 ;;
+  *) [ "$_OUTSIDE_EXIT" -ne 0 ] && exit "$_OUTSIDE_EXIT"; exit 1 ;;
+esac
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing score/severity/completion markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Use the caller's fallback; missing coverage is never clean/PASS. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
 **Error handling:** All errors are non-blocking — second opinion is a quality enhancement, not a prerequisite.
 - **Auth failure:** If stderr contains "auth", "login", "unauthorized", or "API key": "Codex authentication failed. Run \`codex login\` to authenticate." Fall back to the Claude subagent below.
@@ -853,7 +869,7 @@ Present findings under a `SECOND OPINION (Claude subagent):` header.
 
 If the subagent fails or times out: "Second opinion unavailable. Continuing to Phase 4."
 
-Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"office-hours"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.
+Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"office-hours"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown. Under `GSTACK_CODEX_NO_SANDBOX=1` add `"codex_sandbox":"danger-full-access"`.
 
 4. **Presentation:**
 
@@ -931,7 +947,21 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ] && D="$_ROOT/.claude/skills/gstack/design/dist/design"
 [ -z "$D" ] && D="$HOME/.claude/skills/gstack/design/dist/design"
-[ -x "$D" ] && echo "DESIGN_READY" || echo "DESIGN_NOT_AVAILABLE"
+_DS=$("$HOME/.claude/skills/gstack/bin/gstack-paths" --get GSTACK_STATE_ROOT 2>/dev/null); _DC=${_DS:+$_DS/design-ready}; _DK=$(ls -diL "$D" 2>/dev/null)
+_dt() { if command -v gtimeout >/dev/null; then gtimeout 10 "$@"; elif command -v timeout >/dev/null; then timeout 10 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 10 "$@"; else return 125; fi; }
+_RC=0; _F="Fix: cd ${D%/design/dist/design} && ./setup"
+if [ ! -x "$D" ]; then _RC=missing
+elif [ ! "$_DC" -nt "$D" ] || [ "$(cat "$_DC")" != "$_DK" ]; then _dt "$D" --version >/dev/null 2>&1 </dev/null || _RC=$?
+fi
+case "$_RC" in
+  0) echo "DESIGN_READY: $D"; [ -n "$_DC" ] && echo "$_DK" > "$_DC" 2>/dev/null ;;
+  missing) echo "DESIGN_NOT_AVAILABLE: $D is not installed. $_F" ;;
+  124|142) echo "DESIGN_NOT_AVAILABLE: $D --version timed out after 10s" ;;
+  125) echo "DESIGN_NOT_AVAILABLE: no timeout/gtimeout/perl to bound $D" ;;
+  137) echo "DESIGN_NOT_AVAILABLE: $D --version exited 137 (killed at launch; on macOS usually an invalid code signature). $_F" ;;
+  *) echo "DESIGN_NOT_AVAILABLE: $D --version exited $_RC" ;;
+esac
 ```
 
 **If `DESIGN_NOT_AVAILABLE`:** Fall back to the HTML wireframe approach below
@@ -977,7 +1007,7 @@ create and serve the comparison board:
 Write this round's board images (printed paths that passed checks, in order) as a JSON array to `$_DESIGN_DIR/board-images.json` with the Write tool; board letters A, B, C follow that order. Then archive any earlier Submit so it cannot approve these images, and build the board:
 
 ```bash
-[ -f "$_DESIGN_DIR/feedback.json" ] && mv "$_DESIGN_DIR/feedback.json" "$_DESIGN_DIR/feedback-$(date -u +%Y%m%dT%H%M%SZ).json"
+[ -f "${_DESIGN_DIR:?set _DESIGN_DIR to the design dir printed above}/feedback.json" ] && mv "${_DESIGN_DIR:?}/feedback.json" "${_DESIGN_DIR:?}/feedback-$(date -u +%Y%m%dT%H%M%SZ).json"
 $D compare --images-file "$_DESIGN_DIR/board-images.json" --output "$_DESIGN_DIR/design-board.html" --serve
 ```
 
@@ -1149,24 +1179,26 @@ _OUTSIDE_INPUT="$_OUTSIDE_TMP/prompt"
 cat -- '<prepared-prompt-file>' >"$_OUTSIDE_INPUT" || exit 1
 
 source "$HOME/.claude/skills/gstack/bin/gstack-codex-probe" && _gstack_codex_select_model exec || exit 1
-_OUTSIDE_PROMPT=$(cat "$_OUTSIDE_INPUT") || exit 1
+_gstack_codex_sandbox_preflight >/dev/null || exit 1
+_gstack_codex_first_use_notice
 _OUTSIDE_EXIT=0
-_gstack_codex_timeout_wrapper 300 codex exec "$_OUTSIDE_PROMPT" -C "$_REPO_ROOT" -s read-only -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' < /dev/null >"$_OUTSIDE_TMP/text" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
-cat "$_OUTSIDE_TMP/text" || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
+_gstack_codex_timeout_wrapper 300 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$_OUTSIDE_TMP/text" <"$_OUTSIDE_INPUT" >"$_OUTSIDE_TMP/events" 2>"$_OUTSIDE_TMP/stderr" || _OUTSIDE_EXIT=$?
+cat "$_OUTSIDE_TMP/text" 2>/dev/null || tail -n 20 "$_OUTSIDE_TMP/events"
 
 cat "$_OUTSIDE_TMP/stderr" >&2 || { [ "$_OUTSIDE_EXIT" -ne 0 ] || _OUTSIDE_EXIT=1; }
-if [ "$_OUTSIDE_EXIT" -ne 0 ]; then
-  echo 'Codex outside review unavailable: execution failed; missing coverage. Check the provider diagnosis above.' >&2
-  exit "$_OUTSIDE_EXIT"
-fi
-bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" review "$_OUTSIDE_TMP/text" || exit 1
-
+_OUTSIDE_RC=0
+bun "$HOME/.claude/skills/gstack/lib/outside-review-result.ts" --label 'Codex outside review' --exit "$_OUTSIDE_EXIT" --stderr "$_OUTSIDE_TMP/stderr" --events "$_OUTSIDE_TMP/events" review "$_OUTSIDE_TMP/text" || _OUTSIDE_RC=$?
+case "$_OUTSIDE_RC" in
+  0|3) ;;
+  4) echo 'OUTSIDE_STATUS: unverified provider=codex host=claude'; exit 4 ;;
+  *) [ "$_OUTSIDE_EXIT" -ne 0 ] && exit "$_OUTSIDE_EXIT"; exit 1 ;;
+esac
 echo 'OUTSIDE_STATUS: completed provider=codex host=claude'
 ```
 
-Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation markers, timeout or CLI failure means `outside_status: unavailable`. Continue completed proposals; native completion does not count as outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
+Use Bash `timeout: 360000`; show the full response in a `tool-output` fence. Require successful execution and valid markers. Refusal, empty/malformed output, missing Recommendation markers, timeout or CLI failure means `outside_status: unavailable`. P0/P1 findings block like native ones; `OUTSIDE_STATUS: unverified` is missing coverage. Continue completed proposals; native completion does not count as outside coverage. After either outcome, delete only your private prompt; scratch cleanup is automatic.
 
-Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design-sketch"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown.
+Retain the historical review-log skill ID; add `"host":"claude","outside_provider":"codex","outside_status":"completed|unavailable|disabled|skipped","phase":"design-sketch"`. Record differing attempt outcomes separately. `source:"codex"` requires completed CLI output; native uses `source:"in-host"` (historical `source:"claude"`: native Claude). Availability/native fallback is not outside completion. Preserve all reported modelUsage; unknown model identity stays unknown. Under `GSTACK_CODEX_NO_SANDBOX=1` add `"codex_sandbox":"danger-full-access"`.
 
 2. **Claude subagent** (via Agent tool, `run_in_background: false` — subagents default to background since Claude Code v2.1.198):
 "For this product approach, what design direction would you recommend? What aesthetic, typography, and interaction patterns fit? What would make this approach feel inevitable to the user? Be specific — font names, hex colors, spacing values. Do not fall back on these defaults: a cream ground with a high-contrast serif and terracotta accent; near-black with one neon accent and glowing edges; italic accent words inside headlines; numbered 01 / 02 / 03 section labels; tiny tracked monospace labels; pill-shaped buttons. If your first idea is one of these, name it and choose again."
@@ -1257,7 +1289,7 @@ already knows. A good test: would this insight save time in a future session? If
 ## Important Rules
 
 - **Never start implementation.** This skill produces design docs, not code. Not even scaffolding.
-- **Questions ONE AT A TIME.** Never batch multiple questions into one AskUserQuestion.
+- **Questions ONE AT A TIME.** Never batch multiple questions into one AskUserQuestion. Without AskUserQuestion, use `Q<N>` for open-ended questions and `D<N>` for discrete decisions.
 - **The assignment is mandatory.** Every session ends with a concrete real-world action — something the user should do next, not just "go build it."
 - **If user provides a fully formed plan:** skip Phase 2 (questioning) but still run Phase 3 (Premise Challenge) and Phase 4 (Alternatives). Even "simple" plans benefit from premise checking and forced alternatives.
 - **Completion status:**

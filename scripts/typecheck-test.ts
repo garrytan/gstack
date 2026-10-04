@@ -20,6 +20,42 @@ const ROOT = path.resolve(import.meta.dir, '..');
 
 export type DiagnosticCounts = Record<string, number>;
 
+/**
+ * tsc prints a synthesized object type's members in checker order, which
+ * shifts when the program's file set changes (`{ content?: undefined; isError?: undefined; … }`
+ * vs `{ isError?: undefined; content?: undefined; … }` for one unchanged
+ * diagnostic). Sort the members of every `{ …; }` group so that order is not
+ * part of the identity.
+ */
+export function sortTypeMembers(text: string): string {
+  const group = (start: number): [string, number] => {
+    const members: string[] = [];
+    let current = '';
+    let i = start;
+    for (; i < text.length && text[i] !== '}'; i++) {
+      if (text[i] === '{') {
+        const [inner, end] = group(i + 1);
+        current += inner;
+        i = end;
+      } else if (text[i] === ';') {
+        members.push(current.trim());
+        current = '';
+      } else current += text[i];
+    }
+    if (i >= text.length) return [`{${members.map(m => ` ${m};`).join('')}${current}`, i];
+    if (members.length === 0) return [`{${current}}`, i];
+    return [`{ ${members.sort().map(m => `${m}; `).join('')}${current.trim() ? `${current.trim()} ` : ''}}`, i];
+  };
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '{') { out += text[i]; continue; }
+    const [inner, end] = group(i + 1);
+    out += inner;
+    i = end;
+  }
+  return out;
+}
+
 /** Parse `tsc --pretty false` output into identity → count. Continuation lines belong to the preceding diagnostic. */
 export function parseDiagnostics(output: string, root = ROOT): DiagnosticCounts {
   const counts: DiagnosticCounts = {};
@@ -29,7 +65,10 @@ export function parseDiagnostics(output: string, root = ROOT): DiagnosticCounts 
   const portable = (text: string) => roots.reduce((value, prefix) => value.split(prefix + '/').join('').split(prefix).join('.'), text);
   let current: string | null = null;
   const flush = () => {
-    if (current !== null) counts[current] = (counts[current] ?? 0) + 1;
+    if (current !== null) {
+      const identity = sortTypeMembers(current);
+      counts[identity] = (counts[identity] ?? 0) + 1;
+    }
     current = null;
   };
   for (const line of output.split(/\r?\n/)) {
@@ -75,7 +114,12 @@ export function readBaseline(file: string): DiagnosticCounts {
       !Object.values(diagnostics).every(n => Number.isSafeInteger(n) && (n as number) > 0)) {
     throw new Error(`test typecheck baseline ${file} is malformed. Regenerate it with: bun run typecheck:test --write-baseline`);
   }
-  return diagnostics as DiagnosticCounts;
+  const counts: DiagnosticCounts = {};
+  for (const [identity, n] of Object.entries(diagnostics as DiagnosticCounts)) {
+    const key = sortTypeMembers(identity);
+    counts[key] = (counts[key] ?? 0) + n;
+  }
+  return counts;
 }
 
 function describe(identity: string): string {

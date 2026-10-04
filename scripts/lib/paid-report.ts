@@ -57,7 +57,7 @@ export { PERIODIC_CI_EXCLUDE };
 type E2EShardReuse = NonNullable<ReturnType<typeof prepareE2EShardReuse>>;
 import { CASE_TEST_NAMES, type CaseTrialPlan, caseTrialPlan, shardCaseId, shardFile, trialShardKey } from './paid-cases';
 import { type ManifestEntry, PAID_TEST_DURATIONS_FILE, type PaidRunManifest, type SliceResult, collectorOutcomeCounts, formatProfileCoverage, loadPaidTestDurations, mergePaidTestDurations, parseRunManifest, trialPanelKey, verifySliceResults, writePaidTestDurations } from './paid-plan';
-import { DEFAULT_JOBS, type PaidTier, ROOT, type RunShardsOptions, type ShardTrialRecord, collectPaidTestFiles, fileCaseRegistration, isAllSkippedPass, runPaidShards, shardSlug, paidSelectionEnv } from '../test-paid-shards';
+import { DEFAULT_JOBS, type PaidCaseSelection, type PaidTier, ROOT, type RunShardsOptions, type ShardTrialRecord, collectPaidTestFiles, fileCaseRegistration, isAllSkippedPass, runPaidShards, shardSlug, paidSelectionEnv } from '../test-paid-shards';
 
 // ─── Local diagnosis: one case through the CI panel runner (A9) ────────────
 
@@ -115,8 +115,8 @@ export async function runCaseDiagnosis(id: string, options: {
 
 // ─── Report: verdicts, history records and the human readout ───────────────
 
-/** One Bun JUnit testcase (`--reporter=junit`). */
-export interface JUnitCase { name: string; classname: string; outcome: TrialOutcome; timeMs: number; failureType?: string; message?: string }
+/** One Bun JUnit testcase (`--reporter=junit`); `line` is absent on Bun's hook placeholders. */
+export interface JUnitCase { name: string; classname: string; outcome: TrialOutcome; timeMs: number; line?: number; failureType?: string; message?: string }
 
 const xmlUnescape = (text: string) => text.replace(/&(lt|gt|quot|apos|amp|#(\d+)|#x([0-9a-f]+));/gi, (_, name: string, dec?: string, hex?: string) =>
   dec ? String.fromCodePoint(Number(dec)) : hex ? String.fromCodePoint(parseInt(hex, 16))
@@ -138,6 +138,7 @@ export function parseJUnitCases(xml: string): JUnitCase[] {
       name: attrs.name ?? '', classname: attrs.classname ?? '',
       outcome: failure ? 'failed' : /<skipped\b/.test(body) ? 'skipped' : 'passed',
       timeMs: Math.round(Number(attrs.time ?? 0) * 1000) || 0,
+      ...(attrs.line !== undefined && Number.isSafeInteger(Number(attrs.line)) ? { line: Number(attrs.line) } : {}),
       ...(failure ? { failureType: failureAttrs.type ?? failure[1]!, message: failureAttrs.message } : {}),
     });
   }
@@ -148,6 +149,142 @@ export function parseJUnitCases(xml: string): JUnitCase[] {
 export function caseIdForTestName(name: string): string | null {
   if (Object.hasOwn(E2E_TIERS, name) || Object.hasOwn(LLM_JUDGE_TOUCHFILES, name)) return name;
   return Object.keys(CASE_TEST_NAMES).find(id => CASE_TEST_NAMES[id] === name) ?? null;
+}
+
+/** Where one JUnit testcase lands in the census: a case result, a zero-credit deselection with its reason, or unattributed. */
+export type JUnitAttribution =
+  | { kind: 'case'; id: string }
+  | { kind: 'deselected'; reason: string }
+  | { kind: 'unattributed' };
+
+export interface JUnitShardContext {
+  /** Shard key: `<file>` or `<file>#<case id>`. */
+  key: string;
+  tier: PaidTier;
+  /** The run's case selection; a null list selects every case of the tier. */
+  selection?: PaidCaseSelection;
+  /** Ids this file shard leaves to their isolated trial shards. */
+  excludeCases?: readonly string[];
+}
+
+export const DESELECTION_REASONS = {
+  hook: 'Bun hook placeholder of a skipped describe block (not a test)',
+  sibling: 'sibling case of a case shard (its own shard runs it)',
+  isolated: 'isolated case (its trial shards run it)',
+  selection: "outside the run's case selection",
+} as const;
+export const RUNTIME_SKIP_REASON = 'selected in this lane but skipped at runtime by the test itself (test.skip, describe.skip or an unmet prerequisite)';
+
+/**
+ * Attribute one testcase of a non-trial shard. A case shard's own case is
+ * its id or label; elsewhere a name is its registry id or CASE_TEST_NAMES
+ * label, else the only id the file registers, else the file itself when it
+ * registers none (one keyless case). A skipped testcase of another tier, a
+ * case-shard sibling, an isolated or unselected case, or a Bun hook
+ * placeholder (`(unnamed)` with no line) is deselected: zero credit, never
+ * SKIPPED. Anything else is unattributed and reported by name.
+ */
+export function attributeJUnitCase(tc: JUnitCase, ctx: JUnitShardContext,
+  touchfiles: Record<string, string[]> = E2E_TOUCHFILES, tiers: Record<string, string> = E2E_TIERS): JUnitAttribution {
+  if (tc.outcome === 'skipped' && tc.name === '(unnamed)' && tc.line === undefined) return { kind: 'deselected', reason: DESELECTION_REASONS.hook };
+  const file = shardFile(ctx.key);
+  const shardCase = shardCaseId(ctx.key);
+  const named = caseIdForTestName(tc.name);
+  if (shardCase !== null && named !== shardCase) {
+    return tc.outcome === 'skipped' ? { kind: 'deselected', reason: DESELECTION_REASONS.sibling } : { kind: 'unattributed' };
+  }
+  const registered = Object.keys(touchfiles).filter(id => touchfiles[id]!.includes(file));
+  const id = named ?? (registered.length === 1 ? registered[0]! : registered.length === 0 ? file : null);
+  if (id === null) return { kind: 'unattributed' };
+  if (tc.outcome !== 'skipped') return { kind: 'case', id };
+  const tier = tiers[id];
+  if (tier !== undefined && tier !== ctx.tier) return { kind: 'deselected', reason: `${tier}-tier case (this lane runs ${ctx.tier})` };
+  if (ctx.excludeCases?.includes(id)) return { kind: 'deselected', reason: DESELECTION_REASONS.isolated };
+  const pool = tier !== undefined ? ctx.selection?.e2e : Object.hasOwn(LLM_JUDGE_TOUCHFILES, id) ? ctx.selection?.judges : null;
+  if (pool && !pool.includes(id)) return { kind: 'deselected', reason: DESELECTION_REASONS.selection };
+  return { kind: 'case', id };
+}
+
+interface RuleCase { id: string; kind: EvalCaseKind; outcome: TrialOutcome; line?: string }
+
+/** JUnit evidence of the non-trial shards of one attempt. */
+export interface JUnitCensus {
+  /** One result per attributed case per shard. */
+  ruleCases: RuleCase[];
+  history: TrialOutcomeRecord[];
+  failedShards: Set<string>;
+  /** One line per selected in-lane case that skipped, with its reason. */
+  skipped: string[];
+  /** Zero-credit deselections: reason -> testcase count. */
+  deselected: Map<string, number>;
+  /** Per shard key: skip reason -> skipped testcase count. */
+  shardSkipReasons: Map<string, Map<string, number>>;
+  /** `<shard key> :: <test name> (<outcome>)` for every testcase no rule attributes. */
+  unattributed: string[];
+}
+
+const bump = (counts: Map<string, number>, key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
+
+export function junitCensus(manifest: PaidRunManifest, artifacts: ReportArtifact[], recordsByShard: Map<string, any[]>,
+  base: Record<string, unknown>, cliVersion?: string): JUnitCensus {
+  const census: JUnitCensus = { ruleCases: [], history: [], failedShards: new Set(), skipped: [], deselected: new Map(), shardSkipReasons: new Map(), unattributed: [] };
+  const entries = new Map(manifest.entries.map(entry => [normalizeRelativePath(entry.file), entry]));
+  for (const { root, result } of artifacts) {
+    for (const outcome of result.outcomes) {
+      const key = normalizeRelativePath(outcome.files[0] ?? '');
+      if (outcome.trial || outcome.files.length !== 1) continue;
+      let xml = '';
+      try { xml = fs.readFileSync(path.join(root, 'shards', shardSlug([key]), 'junit.xml'), 'utf8'); } catch { continue; }
+      const ctx: JUnitShardContext = { key, tier: manifest.tier, selection: manifest.selection, excludeCases: entries.get(key)?.excludeCases };
+      const byCase = new Map<string, JUnitCase[]>();
+      const reasons = new Map<string, number>();
+      for (const tc of parseJUnitCases(xml)) {
+        const attributed = attributeJUnitCase(tc, ctx);
+        if (attributed.kind === 'case') byCase.set(attributed.id, [...(byCase.get(attributed.id) ?? []), tc]);
+        else if (attributed.kind === 'deselected') { bump(census.deselected, attributed.reason); bump(reasons, attributed.reason); }
+        else census.unattributed.push(`${key} :: ${tc.name || '(no name)'} (${tc.outcome})`);
+      }
+      const records = recordsByShard.get(key) ?? [];
+      for (const [id, cases] of byCase) {
+        const kind = (E2E_KINDS[id] ?? 'rule') as EvalCaseKind;
+        const failed = cases.find(tc => tc.outcome === 'failed');
+        const caseOutcome: TrialOutcome = failed ? 'failed' : cases.some(tc => tc.outcome === 'passed') ? 'passed' : 'skipped';
+        const mine = records.filter((r: any) => r?.name === id || r?.case_id === id);
+        const failedRecord = mine.find((r: any) => r.passed === false);
+        const failureClass: TrialFailureClass | undefined = !failed ? undefined
+          : failed.failureType === 'TimeoutError' ? 'timeout' : failedRecord ? failureClassOf(failedRecord) : 'assertion';
+        const error = sanitizeTrialError(failedRecord?.error ?? failed?.message);
+        const rerun = Object.hasOwn(E2E_TIERS, id) ? rerunCommand(manifest.tier, id, 1) : `EVALS=1 EVALS_TIER=${manifest.tier} bun test ${shardFile(key)}`;
+        if (failed) census.failedShards.add(key);
+        if (caseOutcome === 'skipped') {
+          bump(reasons, RUNTIME_SKIP_REASON);
+          census.skipped.push(`◌ ${id}  ${key} (${cases.map(tc => tc.name).join('; ')}): ${RUNTIME_SKIP_REASON}`);
+        }
+        census.ruleCases.push({ id, kind, outcome: caseOutcome,
+          ...(failed ? { line: `✗ ${id}  ${kind}  FAIL  ${failureClass}${failedRecord?.exit_reason === 'timeout' && failedRecord?.timeout_at_turn !== undefined ? ` at turn ${failedRecord.timeout_at_turn}` : ''}${error ? ` — ${error}` : ''}  [slice ${result.sliceIndex}, attempt ${result.attempt ?? 1}]  rerun: ${rerun}` } : {}) });
+        census.history.push({ ...base, case: id, file: shardFile(key), kind, trial: 1, panel: { n: 1, k: 1 }, outcome: caseOutcome,
+          ...(failureClass ? { failure_class: failureClass } : {}), ...(failedRecord?.exit_reason ? { exit_reason: String(failedRecord.exit_reason) } : {}),
+          ...(error && failed ? { error } : {}), duration_ms: cases.reduce((sum, tc) => sum + tc.timeMs, 0),
+          cost_usd: Math.round(mine.reduce((sum: number, r: any) => sum + (Number(r.cost_usd) || 0), 0) * 100) / 100,
+          ...(typeof mine[0]?.model === 'string' ? { model: mine[0].model } : {}), ...(cliVersion ? { cli_version: cliVersion } : {}),
+          quarantined: false, execution: outcome.reused ? 'reused' : 'executed', source: 'junit' } as TrialOutcomeRecord);
+      }
+      census.shardSkipReasons.set(key, reasons);
+    }
+  }
+  return census;
+}
+
+/** The census block of the readout: every skipped case with its reason, deselections by reason, every unattributed testcase by name. */
+export function formatJUnitCensus(census: JUnitCensus): string[] {
+  const deselected = [...census.deselected.entries()].sort(([a, x], [b, y]) => y - x || (a < b ? -1 : 1));
+  return [
+    ...(census.skipped.length ? [`SKIPPED cases (${census.skipped.length}):`, ...census.skipped.map(line => `  ${line}`)] : []),
+    ...(deselected.length ? [`deselected testcases, zero credit (${deselected.reduce((sum, [, n]) => sum + n, 0)}):`,
+      ...deselected.map(([reason, n]) => `  ${String(n).padStart(4)}  ${reason}`)] : []),
+    ...(census.unattributed.length ? [`UNATTRIBUTED testcases (${census.unattributed.length}; no registry id, label, single registered id or keyless file):`,
+      ...census.unattributed.map(line => `  ? ${line}`)] : []),
+  ];
 }
 
 interface ReportArtifact { root: string; result: SliceResult }
@@ -206,6 +343,7 @@ export function panelReports(manifest: PaidRunManifest, results: SliceResult[], 
 
 /** Why one failed trial failed, in one line: a case timeout names its turn. */
 function trialCause(trial: PanelVerdict['trials'][number] & { timeout_at_turn?: number }): string {
+  if (trial.outcome === 'skipped') return `t${trial.trial}: skipped`;
   const cls = trial.failure_class ?? 'assertion';
   const head = cls === 'timeout' || trial.exit_reason === 'timeout'
     ? `timeout${trial.timeout_at_turn !== undefined ? ` at turn ${trial.timeout_at_turn}` : ''}`
@@ -224,7 +362,7 @@ export function formatPanelLine(panel: PanelReport, tier: PaidTier): string {
   const causes = panel.trials.filter(t => t.outcome !== 'passed').map(t => trialCause(t as any));
   const where = Object.entries(panel.slices).map(([trial, slice]) => `t${trial}@slice ${slice}`).join(', ');
   return `${mark} ${panel.case}  ${panel.kind}${panel.quarantined ? ' (quarantined)' : ''}  ${label} (${panel.marks})`
-    + `${causes.length ? `  ${causes.join('; ')}` : ''}${panel.status === 'INCOMPLETE' ? `  [${panel.reason}]` : ''}`
+    + `${causes.length ? `  ${causes.join('; ')}` : ''}${panel.status === 'INCOMPLETE' || panel.status === 'SKIPPED' ? `  [${panel.reason}]` : ''}`
     + `${where ? `  [${where}, attempt ${panel.attempt}]` : ''}  rerun: ${rerunCommand(tier, panel.case, panel.panel.n)}`;
 }
 
@@ -384,13 +522,6 @@ export function runPaidReport(reportDir: string, options: { writeDurations?: boo
     console.log(`[test:paid] report: ⚠ ${flaky.length} cases with multiple attempts this run: (paid evals never retry; each record counts)`);
     for (const f of flaky) console.log(`  ⚠ ${f.name} (x${f.attempts}) — ${f.file}`);
   }
-  const allSkipped = results.flatMap((r) => r.outcomes.filter(isAllSkippedPass));
-  if (allSkipped.length > 0) {
-    console.log(`[test:paid] report: ⚠ ${allSkipped.length} shard(s) passed with EVERY test skipped — they verified nothing:`);
-    for (const outcome of allSkipped) {
-      console.log(`  ⚠ ${outcome.files.join(' ')} (${outcome.executedTests} skipped — external service missing or tier mismatch)`);
-    }
-  }
   if (manualProblems.length) verdict.problems.push(...manualProblems);
   if (evidence.failed > 0) verdict.problems.push(`${evidence.failed} unapproved final collector failure(s)`);
   if (files.reduce((sum, file) => sum + file.total, 0) !== evidence.passed + evidence.failed + evidence.manual_accepted
@@ -450,38 +581,22 @@ export function runPaidReport(reportDir: string, options: { writeDurations?: boo
         quarantined: t.quarantined, execution: outcome.reused ? 'reused' : 'executed', source: 'shard' } as TrialOutcomeRecord);
     }
   }
-  const ruleCases: Array<{ id: string; kind: EvalCaseKind; outcome: TrialOutcome; line?: string }> = [];
-  const junitFailedShards = new Set<string>();
-  let unattributed = 0;
-  const cliVersion = env.GSTACK_CLAUDE_CLI_VERSION;
-  for (const { root, result } of artifacts.filter(a => (a.result.attempt ?? 1) === primary)) {
-    for (const outcome of result.outcomes) {
-      const key = normalizeRelativePath(outcome.files[0] ?? '');
-      if (outcome.trial || outcome.files.length !== 1) continue;
-      let xml = '';
-      try { xml = fs.readFileSync(path.join(root, 'shards', shardSlug([key]), 'junit.xml'), 'utf8'); } catch { continue; }
-      const records = recordsByShard.get(key) ?? [];
-      for (const tc of parseJUnitCases(xml)) {
-        const id = caseIdForTestName(tc.name);
-        if (id === null) { unattributed++; continue; }
-        const kind = (E2E_KINDS[id] ?? 'rule') as EvalCaseKind;
-        const mine = records.filter((r: any) => r?.name === id || r?.case_id === id);
-        const failedRecord = mine.find((r: any) => r.passed === false);
-        const failureClass: TrialFailureClass | undefined = tc.outcome !== 'failed' ? undefined
-          : tc.failureType === 'TimeoutError' ? 'timeout' : failedRecord ? failureClassOf(failedRecord) : 'assertion';
-        const error = sanitizeTrialError(failedRecord?.error ?? tc.message);
-        if (tc.outcome === 'failed') junitFailedShards.add(key);
-        ruleCases.push({ id, kind, outcome: tc.outcome,
-          ...(tc.outcome === 'failed' ? { line: `✗ ${id}  ${kind}  FAIL  ${failureClass}${failedRecord?.exit_reason === 'timeout' && failedRecord?.timeout_at_turn !== undefined ? ` at turn ${failedRecord.timeout_at_turn}` : ''}${error ? ` — ${error}` : ''}  [slice ${result.sliceIndex}, attempt ${primary}]  rerun: ${rerunCommand(manifest.tier, id, 1)}` } : {}) });
-        history.push({ ...common(primary), case: id, file: shardFile(key), kind, trial: 1, panel: { n: 1, k: 1 }, outcome: tc.outcome,
-          ...(failureClass ? { failure_class: failureClass } : {}), ...(failedRecord?.exit_reason ? { exit_reason: String(failedRecord.exit_reason) } : {}),
-          ...(error && tc.outcome === 'failed' ? { error } : {}), duration_ms: tc.timeMs,
-          cost_usd: Math.round(mine.reduce((sum: number, r: any) => sum + (Number(r.cost_usd) || 0), 0) * 100) / 100,
-          ...(typeof mine[0]?.model === 'string' ? { model: mine[0].model } : {}), ...(cliVersion ? { cli_version: cliVersion } : {}),
-          quarantined: false, execution: outcome.reused ? 'reused' : 'executed', source: 'junit' } as TrialOutcomeRecord);
-      }
+  const census = junitCensus(manifest, artifacts.filter(a => (a.result.attempt ?? 1) === primary), recordsByShard,
+    common(primary), env.GSTACK_CLAUDE_CLI_VERSION);
+  history.push(...census.history);
+  const { ruleCases } = census;
+  const allSkipped = results.flatMap((r) => r.outcomes.filter(isAllSkippedPass));
+  const hollowWithoutJUnit = allSkipped.filter(outcome => !census.shardSkipReasons.has(normalizeRelativePath(outcome.files[0] ?? '')));
+  if (allSkipped.length > 0) {
+    console.log(`[test:paid] report: ⚠ ${allSkipped.length} shard(s) passed with EVERY test skipped — they verified nothing:`);
+    for (const outcome of allSkipped) {
+      const reasons = census.shardSkipReasons.get(normalizeRelativePath(outcome.files[0] ?? ''));
+      console.log(`  ⚠ ${outcome.files.join(' ')} (${outcome.executedTests} skipped — ${reasons?.size
+        ? [...reasons.entries()].map(([reason, n]) => `${n} ${reason}`).join('; ') : 'no JUnit report, reason unknown'})`);
     }
   }
+  const censusLines = formatJUnitCensus(census);
+  for (const line of censusLines) console.log(`[test:paid] ${line}`);
   // series_identity is stamped afterwards by scripts/eval-trial-series.ts (the report job's next step).
   fs.writeFileSync(trialOutcomesPath, formatTrialOutcomes(history));
 
@@ -489,7 +604,7 @@ export function runPaidReport(reportDir: string, options: { writeDurations?: boo
   const ruleShardFailures = manifest.entries.filter(entry => entry.status === 'planned' && !entry.trial).flatMap(entry => {
     const got = results.flatMap(r => r.outcomes.map(o => ({ o, slice: r.sliceIndex }))).find(({ o }) => normalizeRelativePath(o.files[0] ?? '') === normalizeRelativePath(entry.file));
     if (got && got.o.status === 'passed') return [];
-    if (got && junitFailedShards.has(normalizeRelativePath(entry.file))) return [];
+    if (got && census.failedShards.has(normalizeRelativePath(entry.file))) return [];
     const id = shardCaseId(entry.file);
     return [`✗ ${entry.file}  rule shard ${got ? got.o.status : 'NOT REPORTED'}${got?.o.runnerError ? ` — ${sanitizeTrialError(got.o.runnerError)}` : ''}  [slice ${entry.slice}, attempt ${primary}]${id ? `  rerun: ${rerunCommand(manifest.tier, id, 1)}` : ''}`];
   });
@@ -515,11 +630,11 @@ export function runPaidReport(reportDir: string, options: { writeDurations?: boo
       behavior: { ...count('behavior'), split: behaviorPanels.filter(p => p.split).length },
       judge: count('judge'),
       quarantined: { total: panels.filter(p => p.quarantined).length, failingLane: panels.filter(p => p.quarantined && p.failsLane).length },
-      skipped: allSkipped.length + panels.filter(p => p.status === 'SKIPPED').length + ruleCases.filter(c => c.outcome === 'skipped').length,
+      skipped: hollowWithoutJUnit.length + panels.filter(p => p.status === 'SKIPPED').length + ruleCases.filter(c => c.outcome === 'skipped').length,
       infra: primaryTrials.filter(t => t.failure_class === 'infra').length
         + results.flatMap(r => r.outcomes).filter(o => !o.trial && o.runnerError !== undefined).length,
       incomplete: panels.filter(p => p.status === 'INCOMPLETE').length,
-      unattributed,
+      unattributed: census.unattributed.length,
     },
     actionRequired: verdict.problems.length,
     wallMs: wall.length ? Math.max(...wall.map(r => r.finishedAt!)) - Math.min(...wall.map(r => r.startedAt!)) : null,
@@ -537,12 +652,14 @@ export function runPaidReport(reportDir: string, options: { writeDurations?: boo
   fs.writeFileSync(summaryMdPath, [
     ...fence(headlineLines),
     ...(failureLines.length ? ['', '**Failures and split verdicts**', '', ...fence(failureLines)] : []),
+    ...(censusLines.length ? ['', '**Skipped, deselected and unattributed testcases**', '', ...fence(censusLines)] : []),
     ...(verdict.problems.length ? ['', `**ACTION REQUIRED (${verdict.problems.length})**`, '', ...fence(verdict.problems.map(p => sanitizeTrialError(p) ?? p))] : []),
   ].join('\n') + '\n');
   if (!manualProblems.length) fs.writeFileSync(summaryPath, JSON.stringify({ version: 2, files, totals: {
     ...evidence, total: evidence.passed + evidence.failed + evidence.manual_accepted,
     flaky: files.reduce((sum, file) => sum + file.flaky, 0),
   }, verdict: headline, headline: headlineLines,
+  census: { skipped: census.skipped, deselected: Object.fromEntries(census.deselected), unattributed: census.unattributed },
   panels: panels.map(p => ({ case: p.case, kind: p.kind, status: p.status, passed: p.passed, n: p.panel.n, k: p.panel.k,
     marks: p.marks, split: p.split, quarantined: p.quarantined, failsLane: p.failsLane, redClass: p.redClass, reason: p.reason,
     trials: p.trials.map(t => ({ trial: t.trial, outcome: t.outcome, ...(t.failure_class ? { failure_class: t.failure_class } : {}),

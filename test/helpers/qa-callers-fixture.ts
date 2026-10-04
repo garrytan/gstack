@@ -249,6 +249,18 @@ export function qaCallerCommandAllowed(command: string, workflowCommands: string
     || /^\/?[\w./-]+\/bin\/gstack-(?:review-read|specialist-stats)$/.test(text);
 }
 
+/**
+ * A QA helper call whose script path bun could not load (a mistyped path)
+ * executed nothing. Returns the same command at the installed helper path, so
+ * the caller can hold it to the declared interface; anything else is undefined.
+ */
+export function unloadedHelperCommand(tool: Pick<CallerTool, 'input' | 'output' | 'failed'>, runtime: string): string | undefined {
+  const command = String(tool.input.command).trim();
+  const script = /^bun (\/[\w./-]+\/bin\/(gstack-qa-(?:evidence|deadline))) /.exec(command);
+  if (!tool.failed || !script || tool.output.trim() !== `Exit code 1\nerror: Module not found "${script[1]}"`) return;
+  return `bun ${path.join(runtime, 'bin', script[2]!)}${command.slice(script[0].length - 1)}`;
+}
+
 const REVIEW_RECORD_STATUSES: Record<QaCaller, string[]> = { review: ['clean', 'issues_found'], ship: ['clean', 'issues_found', 'unavailable'] };
 
 export function validateCallerEvidence(input: {
@@ -300,7 +312,9 @@ export function validateCallerEvidence(input: {
         if (input.requireCapturedEvidence && /^reports\/exploration-\d{3}\.json$/.test(relative)) errors.push('actor transcribed or overwrote helper-owned checkpoint');
       } catch { errors.push('write outside the declared report/fixture interface'); }
     }
-    if (tool.name === 'Bash' && !qaCallerCommandAllowed(String(tool.input.command), input.workflowCommands, deadline)) {
+    const corrected = tool.name === 'Bash' && deadline ? unloadedHelperCommand(tool, deadline.runtime) : undefined;
+    if (tool.name === 'Bash' && !qaCallerCommandAllowed(String(tool.input.command), input.workflowCommands, deadline)
+      && !(corrected && qaCallerCommandAllowed(corrected, input.workflowCommands, deadline))) {
       errors.push('command outside declared caller observation interface');
     }
     const record = tool.name === 'Bash' ? String(tool.input.command).match(/gstack-review-log '(.*)'(?: --finish \S+)?$/s)?.[1] : undefined;

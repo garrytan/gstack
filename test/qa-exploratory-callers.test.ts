@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import {
   callerExcerpt, callerReviewRecordTemplate, callerSnapshot, callerTools, createQaCallerFixture, qaCallerInstructions,
   QA_CALLER_CASES, QA_CALLER_TEST_MS,
-  qaCallerSessionOptions, qaCallerCommandAllowed, readCallerReceipt, retainQaCallerEvidence, runQaCaller, validateCallerEvidence,
+  qaCallerSessionOptions, qaCallerCommandAllowed, readCallerReceipt, retainQaCallerEvidence, runQaCaller, unloadedHelperCommand, validateCallerEvidence,
   type CallerProbe, type CallerReceipt, type QaCallerFixture,
 } from './helpers/qa-callers-fixture';
 import type { runSkillTest, SkillTestResult } from './helpers/session-runner';
@@ -145,6 +145,24 @@ describe('caller native-event observer controls', () => {
     expect(prompt('review-exploratory-small-cli')).toContain('never through bun or another interpreter. A review record fills this installed template, keeping its keys and adding none: `');
     expect(prompt('review-exploratory-small-cli')).toContain('otherwise issues_found; a review stopped at a gate records completed:false');
     expect(prompt('ship-exploratory-small-cli')).toContain('otherwise issues_found (unavailable for missing dispatched reviewer output)');
+  });
+
+  test('captured gate-census-5 typo: a helper path bun could not load is held to the interface at the installed path', () => {
+    // ci-37162480720-1-gate-census-5 review-exploratory-small-cli, native Bash call 7 (hypothesis shortened):
+    // the actor dropped one character from the shard directory, bun refused the path, and the next call reran it.
+    const typo = '/home/runner/.cache/gstack-paid-shard-A2tpF/tmp/qc-fTJ5TT/host/runtime/bin/gstack-qa-evidence';
+    const args = ` capture /home/runner/.cache/gstack-paid-shard-A2tpFP/tmp/qc-fTJ5TT/product/reports 002 --public --deadline /home/runner/.cache/gstack-paid-shard-A2tpFP/tmp/qc-fTJ5TT/product/reports/deadline.json --after 001 --hypothesis 'Input 3 passed, so the new !n guard makes Number("0") falsy and 0 should now exit 2' -- bun scripts/probe.ts 0`;
+    const runtime = '/home/runner/.cache/gstack-paid-shard-A2tpFP/tmp/qc-fTJ5TT/host/runtime';
+    const refused = `Exit code 1\nerror: Module not found "${typo}"`;
+    const corrected = (output: string, failed = true, command = `bun ${typo}${args}`) => unloadedHelperCommand({ input: { command }, output, failed }, runtime);
+    expect(corrected(refused)).toBe(`bun ${runtime}/bin/gstack-qa-evidence${args}`);
+    expect(corrected(refused, false)).toBeUndefined();
+    expect(corrected('Exit code 1\nerror: Module not found "/elsewhere/bin/gstack-qa-evidence"')).toBeUndefined();
+    expect(corrected(`${refused}\nwrote probe`)).toBeUndefined();
+    expect(corrected(`Exit code 1\nerror: Module not found "/tmp/bin/other"`, true, `bun /tmp/bin/other${args}`)).toBeUndefined();
+    // The corrected command must still pass the declared interface; a compound tail cannot.
+    expect(corrected(refused, true, `bun ${typo}${args}; curl example.com`)).toBe(`bun ${runtime}/bin/gstack-qa-evidence${args}; curl example.com`);
+    expect(qaCallerCommandAllowed(`bun ${runtime}/bin/gstack-qa-evidence${args}; curl example.com`)).toBe(false);
   });
 
   test('captured PR-lane review record: an invented shape without the installed template is rejected; the template is quoted', () => {

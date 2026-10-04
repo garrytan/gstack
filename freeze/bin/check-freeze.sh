@@ -56,7 +56,7 @@ fi
 # A helper from an older install that lacks the function must fail CLOSED
 # (the existence check above only proves the file sourced), never exit 127
 # with no JSON — Claude Code treats that as non-blocking.
-if ! command -v gstack_hook_state_root >/dev/null 2>&1; then
+if ! command -v gstack_hook_state_root >/dev/null 2>&1 || ! command -v gstack_hook_normalize_path >/dev/null 2>&1; then
   _FREEZE_DECIDED=1
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[freeze] Hook helpers out of date (partial upgrade?) - blocked, fail closed. Re-run ./setup or /unfreeze."}}\n'
   exit 0
@@ -93,6 +93,12 @@ if [ -z "$FREEZE_DIR" ]; then
   exit 0
 fi
 
+# Both sides of the comparison go through one canonicalization: the state
+# file may hold C:\dev\proj\ or the /c/dev/proj/ that `pwd` prints in Git
+# Bash, and Claude Code on Windows reports file_path as C:\... (#2876).
+gstack_hook_normalize_path "$FREEZE_DIR"
+FREEZE_DIR="$GSTACK_HOOK_PATH"
+
 case "$FREEZE_DIR" in
   /*) ;;
   *)
@@ -123,6 +129,11 @@ if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
 
+# Canonicalize before the absolute test: a drive-letter path does not start
+# with '/', so it used to be joined onto cwd and every edit was denied.
+gstack_hook_normalize_path "$FILE_PATH"
+FILE_PATH="$GSTACK_HOOK_PATH"
+
 # Resolve file_path to absolute if it isn't already
 case "$FILE_PATH" in
   /*) ;; # already absolute
@@ -131,8 +142,14 @@ case "$FILE_PATH" in
     ;;
 esac
 
-# Normalize: remove double slashes and trailing slash
+# Normalize: remove double slashes and trailing slash. A leading '//' is a UNC
+# host (//server/share) and is kept, or the check would compare a local path.
+_FP_LEAD=""
+case "$FILE_PATH" in
+  //[!/]*) _FP_LEAD="/" ;;
+esac
 FILE_PATH=$(printf '%s' "$FILE_PATH" | sed 's|/\+|/|g;s|/$||')
+FILE_PATH="$_FP_LEAD$FILE_PATH"
 [ -n "$FILE_PATH" ] || FILE_PATH="/"
 
 # Resolve symlinks and .. sequences (POSIX-portable, works on macOS).
@@ -157,12 +174,16 @@ _resolve_path() {
   _base="$(basename "$_p")"
   if [ "$_base" = / ]; then printf '/'; return; fi
   _dir="$(cd "$_dir" 2>/dev/null && pwd -P || printf '%s' "$_dir")"
-  printf '%s/%s' "${_dir%/}" "$_base"
+  # pwd -P answers in the platform's own dialect (/cygdrive/c/... on Cygwin).
+  gstack_hook_normalize_path "${_dir%/}/$_base"
+  printf '%s' "$GSTACK_HOOK_PATH"
 }
 FILE_PATH=$(_resolve_path "$FILE_PATH")
 FREEZE_DIR=$(_resolve_path "$FREEZE_DIR")
 
-# Check: does the file path start with the freeze directory?
+# Check: does the file path start with the freeze directory? Windows paths
+# are case-insensitive, so compare that way there.
+[ "$GSTACK_HOOK_IS_WINDOWS" = 1 ] && shopt -s nocasematch
 case "$FILE_PATH" in
   "${FREEZE_DIR%/}/"*|"${FREEZE_DIR}")
     # Inside freeze boundary — allow

@@ -1,0 +1,23 @@
+{
+  "questions": [
+    {
+      "question": "D1 — Should the two new callers import the existing shared Retry-After parser or each implement their own?\nProject/branch/task: fixture repo, branch main, plan review of PLAN.md for the future src/import-worker.ts and src/sync-route.ts callers.\nELI10: The plan says each new caller writes its own code to turn a Retry-After header into a wait time. But the scheduler already uses one shared function in lib/retry-after.ts that does exactly this, with the same inputs (header text or null, an injected clock, a caller fallback) and the same 3600-second cap. Because the plan requires the new callers to behave exactly like the scheduler, writing two more copies means two more places that can silently drift from it.\nStakes if we pick wrong: a copy that differs by one edge case (blank header, past date, huge number) makes one worker retry at a different time than the scheduler, and nothing in the test suite would notice.\nRecommendation: A because the shared helper already meets every listed requirement, is the contract itself, and reusing it is the smallest clear change with the best drift protection.\nCompleteness: A=10/10, B=7/10, C=3/10\nPros / cons:\nA) Reuse shared helper (recommended)\n  ✅ Compatibility with the scheduler is structural: both callers execute the exact function the scheduler executes, so drift is impossible.\n  ✅ Saves roughly 24 implementation lines and reuses a passing test; the added contract regressions protect all three callers at once.\n  ❌ Any future change to lib/retry-after.ts now affects three callers instead of one, so that file needs care (same as today for the scheduler).\nB) Copies with contract test\n  ✅ Keeps the plan's per-caller structure while still proving each copy matches the scheduler via one parameterized suite.\n  ✅ A bug introduced in one copy is isolated to that caller rather than reaching the scheduler.\n  ❌ Adds ~15–25 lines of test harness to defend ~26 lines of duplicated logic; equivalence holds only as long as the suite is kept wired to every copy.\nC) Keep local parsers\n  ✅ Zero change to the plan as drafted and no new dependency between the callers and lib/.\n  ✅ Fastest to write if the author already has the parser text in hand.\n  ❌ No proof the copies match the scheduler; the repo already has two verbatim copies showing this pattern spreads, and edge-case drift would be invisible.\nNet: trading one shared dependency (already relied on by the scheduler) against two or more unproven copies of the same 13 lines.",
+      "header": "Parser reuse",
+      "multiSelect": false,
+      "options": [
+        {
+          "label": "Reuse shared helper",
+          "description": "✅ Both new callers import `retrySeconds` from lib/retry-after.ts and pass their header value, injected now and own fallback; no local parser. ✅ Extend test/retry-after.test.ts with regressions for blank/whitespace → fallback, past date → 0, sub-second ceil → 1, unsafe integer → fallback, and injected now; keep one integration test per caller. ❌ lib/retry-after.ts becomes a three-caller dependency. Scheduler semantics, existing callers and helper hardening stay unchanged/out of scope. Completeness 10/10. human ~1 h / CC ~5 min."
+        },
+        {
+          "label": "Copies with contract test",
+          "description": "✅ Each caller keeps its own local parser as drafted. ✅ Add one parameterized contract suite running the same assertions against lib/retry-after.ts and both copies, plus one integration test per caller. ❌ ~15–25 extra test lines to defend ~26 duplicated lines; equivalence depends on the suite staying wired to every copy. Scheduler semantics, existing callers and helper hardening stay unchanged/out of scope. Completeness 7/10. human ~½ day / CC ~15 min."
+        },
+        {
+          "label": "Keep local parsers",
+          "description": "✅ Plan unchanged: local parser per caller with one integration test each. ✅ No new dependency on lib/. ❌ No shared-contract proof for the copies; drift from the scheduler would be undetected. Scheduler semantics, existing callers and helper hardening stay unchanged/out of scope. Completeness 3/10. human ~2 h / CC ~10 min."
+        }
+      ]
+    }
+  ]
+}

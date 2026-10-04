@@ -129,15 +129,24 @@ describe('paid CI coordination stays off the eval image', () => {
       ]);
       const hiddenUploads = Object.values(jobs).flatMap(job => job.steps).filter(step => step.with?.['include-hidden-files']);
       const captures = hiddenUploads.filter(step => step.with?.name === 'native-captures-${{ env.EVALS_RUN_ID }}');
-      expect(captures).toHaveLength(name === 'evals.yml' ? 1 : 2);
+      // evals-periodic's host-run Codex job mounts $RUNNER_TEMP/eval-home as the container's HOME.
+      const hostHome = (pattern: string) => pattern.replace('${{ runner.temp }}/eval-home/', '~/');
+      expect(captures).toHaveLength(name === 'evals.yml' ? 1 : name === 'evals-periodic.yml' ? 3 : 2);
       for (const capture of captures) {
         expect(capture.if).toBe('always()');
-        expect(String(capture.with?.path).trim().split('\n')).toEqual([
+        expect(String(capture.with?.path).trim().split('\n').map(hostHome)).toEqual([
           '~/.gstack/projects/*/e2e-runs', '~/.gstack/projects/*/evals/qa-callers',
           '~/.gstack-dev/e2e-runs', '~/.gstack-dev/evals/qa-callers',
         ]);
       }
-      expect(hiddenUploads.filter(step => !captures.includes(step))).toEqual([logs]);
+      const codexLogs = name === 'evals-periodic.yml'
+        ? jobs['eval-codex-slices'].steps.find(step => step.with?.name === 'paid-logs-slice-${{ matrix.slice }}-a${{ github.run_attempt }}') : undefined;
+      if (codexLogs) {
+        expect(codexLogs.if).toBe('always()');
+        // The container sets TMPDIR under HOME, so shard logs land in the mounted HOME's cache.
+        expect(String(codexLogs.with?.path).trim().split('\n').map(hostHome)).toEqual(['~/.cache/gstack-paid-shard-*.log']);
+      }
+      expect(hiddenUploads.filter(step => !captures.includes(step))).toEqual(codexLogs ? [logs!, codexLogs] : [logs!]);
     });
   }
 

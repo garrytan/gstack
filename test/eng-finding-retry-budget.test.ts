@@ -139,7 +139,7 @@ test('live periodic census fits the declared CI wall including setup', () => {
 
 test('registered allocation is deterministic and preserves every discovered file', () => {
   const files = collectPaidTestFiles();
-  expect(files).toHaveLength(113);
+  expect(files).toHaveLength(115);
   expect(files).toContain('test/skill-e2e-ship-skip.test.ts');
   const m = livePlan(files);
   expect(livePlan([...files].reverse())).toEqual(m);
@@ -192,7 +192,7 @@ test('current detach supervision covers the live-census floor', () => {
   expect(floorFor('gate')).toBe(22_355);
   expect(gateTimeout).toBe(49_320);
   expect(gateTimeout).toBeGreaterThanOrEqual(floorFor('gate'));
-  expect(floorFor('periodic')).toBe(37_632);
+  expect(floorFor('periodic')).toBe(35_742);
   expect(periodicTimeout).toBeGreaterThanOrEqual(floorFor('periodic'));
 });
 

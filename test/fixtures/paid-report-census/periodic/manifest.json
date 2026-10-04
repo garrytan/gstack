@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "tier": "periodic",
+  "evalsAll": true,
+  "sliceCount": 1,
+  "selectionReason": "run-all",
+  "profile": "full",
+  "selection": {
+    "e2e": null,
+    "judges": null
+  },
+  "entries": [
+    {
+      "file": "test/skill-e2e-qa-workflow.test.ts",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 403953
+    },
+    {
+      "file": "test/skill-e2e-design.test.ts#design-consultation-core",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 159257
+    },
+    {
+      "file": "test/skill-e2e-benchmark-providers.test.ts",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 9495
+    },
+    {
+      "file": "test/carve-section-loading-review.test.ts",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 247902
+    },
+    {
+      "file": "test/skill-e2e-cso.test.ts",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 253498
+    },
+    {
+      "file": "test/codex-e2e-recommendation-substance.test.ts",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 1000
+    },
+    {
+      "file": "test/skill-e2e-test-value.test.ts",
+      "slice": 1,
+      "status": "planned",
+      "estimatedMs": 332000
+    }
+  ]
+}

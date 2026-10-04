@@ -24,13 +24,19 @@ const LATER_PREAMBLE_EDITS: Array<[string, string]> = [
   ['~/.claude/skills/gstack/bin/gstack-skill-start --skill "setup-browser-cookies" --model "claude"\n', '_SS="$HOME/.claude/skills/gstack/bin/gstack-skill-start"\n[ -x "$_SS" ] || _SS=".claude/skills/gstack/bin/gstack-skill-start"\n"$_SS" --skill "setup-browser-cookies" --model "claude" --parent-pid "$PPID" \\\n  || echo "SKILL_START: unavailable — stale install; run ./setup or /gstack-upgrade (preamble degraded, continue the user\'s task)"\n'],
 ];
 
+// The v1.91.19.0 generated-bash lint (INV-3) gave the shared Bun-install block a
+// ${TMPDIR:-/tmp} mktemp template; same line, different bytes.
+const LATER_WAVE_EDITS: Array<[string, string]> = [
+  ['tmpfile=$(mktemp "${TMPDIR:-/tmp}/bun-install.XXXXXX")', 'tmpfile=$(mktemp)'],
+];
+
 export function approvedCookieWorkflowSource(source: string): string {
   let removedLines = 0;
   let historical = source
     .replace('sha256sum < "$tmpfile" | awk \'{print $(1)}\'', 'sha256sum "$tmpfile" | awk \'{print $1}\'')
     .replace('shasum -a 256 < "$tmpfile" | awk \'{print $(1)}\'', 'shasum -a 256 "$tmpfile" | awk \'{print $1}\'')
     .replace(LATER_BROWSER_BLOCK, block => { removedLines = block.split('\n').length - 1; return ''; });
-  for (const [later, earlier] of [...LATER_BROWSER_EDITS, ...LATER_PREAMBLE_EDITS]) historical = historical.replace(later, earlier);
+  for (const [later, earlier] of [...LATER_BROWSER_EDITS, ...LATER_PREAMBLE_EDITS, ...LATER_WAVE_EDITS]) historical = historical.replace(later, earlier);
   return historical
     .replace(/(--- BEGIN FILE "BROWSER\.md" \(lines \d+-)(\d+)(; section\) ---)/, (_, head, end, tail) => `${head}${Number(end) - removedLines}${tail}`)
     .replace(/(--- BEGIN FILE "setup-browser-cookies\/SKILL\.md" \(lines )(\d+)-(\d+)(; entrypoint\) ---)/, (_, head, start, end, tail) => `${head}${APPROVED_ENTRYPOINT_START}-${APPROVED_ENTRYPOINT_START + Number(end) - Number(start)}${tail}`);

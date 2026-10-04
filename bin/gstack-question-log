@@ -43,7 +43,7 @@ mkdir -p "$GSTACK_HOME/projects/$SLUG"
 INPUT="$1"
 
 # Validate and enrich from registry.
-TMPERR=$(mktemp)
+TMPERR=$(mktemp "${TMPDIR:-/tmp}/gstack-question-log.XXXXXX") || { echo "gstack-question-log: could not create a temp file in ${TMPDIR:-/tmp}, so the question was not logged. Fix: point TMPDIR at a writable directory." >&2; exit 1; }
 trap 'rm -f "$TMPERR"' EXIT
 set +e
 VALIDATED=$(printf '%s' "$INPUT" | GSTACK_LIB_DIR="$SCRIPT_DIR/../lib" bun -e "

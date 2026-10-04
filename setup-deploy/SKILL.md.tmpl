@@ -61,10 +61,10 @@ Run the platform detection from the deploy bootstrap:
 # Platform config files
 [ -f fly.toml ] && echo "PLATFORM:fly" && cat fly.toml
 [ -f render.yaml ] && echo "PLATFORM:render" && cat render.yaml
-[ -f vercel.json ] || [ -d .vercel ] && echo "PLATFORM:vercel"
+{ [ -f vercel.json ] || [ -d .vercel ]; } && echo "PLATFORM:vercel"
 [ -f netlify.toml ] && echo "PLATFORM:netlify" && cat netlify.toml
 [ -f Procfile ] && echo "PLATFORM:heroku"
-[ -f railway.json ] || [ -f railway.toml ] && echo "PLATFORM:railway"
+{ [ -f railway.json ] || [ -f railway.toml ]; } && echo "PLATFORM:railway"
 
 # GitHub Actions deploy workflows
 for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
@@ -99,7 +99,14 @@ Ask the user to confirm the production URL. Some Fly apps use custom domains.
 If `render.yaml` detected:
 
 1. Extract service name and type from render.yaml
-2. Check for Render API key: `echo $RENDER_API_KEY | head -c 4` (don't expose the full key)
+2. Check only whether the Render API key is set. Never print any key bytes, including a prefix:
+```bash
+if [ -n "${RENDER_API_KEY:-}" ]; then
+  echo "RENDER_API_KEY: set"
+else
+  echo "RENDER_API_KEY: not set"
+fi
+```
 3. Infer URL: `https://{service-name}.onrender.com`
 4. Render deploys automatically on push to the connected branch — no deploy workflow needed
 5. Set health check: the inferred URL
@@ -167,7 +174,7 @@ Use AskUserQuestion to gather the information:
 
 ### Step 4: Write configuration
 
-Before writing, collect fields not already confirmed: merge method (squash/merge/rebase, offering only the methods `gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed` reports as allowed), pre-merge command or none, deploy trigger, and status/health checks. Ask only for missing values, across every platform path. If the project does not deploy, set platform/URL/workflow/status/health/trigger to `none`, retain its CLI/library project type, and skip deploy verification. Show the complete proposed configuration and obtain confirmation.
+Before writing, collect fields not already confirmed (a field is confirmed only when the user confirmed it or a platform section above set it; Fly, Heroku/Railway and GitHub Actions leave the deploy trigger unset): merge method (squash/merge/rebase, offering only the methods `gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed` reports as allowed), pre-merge command or none, deploy trigger, and status/health checks. Ask only for missing values, across every platform path. If the project does not deploy, set platform/URL/workflow/status/health/trigger to `none`, retain its CLI/library project type, and skip deploy verification. Show the complete proposed configuration and obtain confirmation.
 
 Read CLAUDE.md (or create it). Find and replace the `## Deploy Configuration` section
 if it exists, or append it at the end.
@@ -189,7 +196,7 @@ if it exists, or append it at the end.
 - Health check: {URL or command}
 ```
 
-The hooks block repeats the exact commands /land-and-deploy runs: `Deploy status` is the same value as `Deploy status command`, and `Health check` the same as `Post-deploy health check`. Write each value in both places.
+Resolve `<default branch>` with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`. The hooks block repeats the exact commands /land-and-deploy runs: `Deploy status` is the same value as `Deploy status command`, and `Health check` the same as `Post-deploy health check`. Write each value in both places.
 
 ### Step 5: Verify
 

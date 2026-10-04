@@ -491,7 +491,7 @@ fi
 if ! _gstack_codex_auth_probe >/dev/null; then
   _gstack_codex_log_event "codex_auth_failed"
   echo "AUTH_FAILED"
-else
+elif _gstack_codex_sandbox_preflight; then   # free; Linux only
   _gstack_codex_model_probe   # ~10s round trip on first run, cached 1h
 fi
 _gstack_codex_version_check   # warns if known-bad, non-blocking
@@ -505,12 +505,18 @@ If the output contains `AUTH_FAILED`, stop and tell the user:
 If the output contains `MODEL_UNUSABLE`, stop — the selected model (named with its
 source on the `CODEX_MODEL:` line) is invalid or the account cannot use it. Relay the
 probe's HINT lines and
-follow the "Model not supported (HTTP 400)" recovery steps in
+follow the "Model not supported (HTTP 400 or 404)" recovery steps in
 `## Error Handling` below. Running the modes anyway just burns four
 invocations on the same 400.
 
-`MODEL_PROBE_INCONCLUSIVE` is non-blocking (timeout/transient network): pass
-the warning through and continue.
+If the output contains `CODEX_SANDBOX: unavailable`, stop: Codex's sandbox cannot
+start here, so every command it runs would fail and its review would read nothing.
+Relay the `Codex outside review unavailable: ...` line verbatim, including its fix.
+No paid call was made.
+
+`MODEL_PROBE_INCONCLUSIVE` is non-blocking (timeout/transient network): report
+`CODEX_MODE: unverified`, pass the warning through and continue; the mode's own
+validator still decides the result.
 
 If the version check printed a `WARN:` line, pass it through to the user verbatim
 (non-blocking — Codex may still work, but the user should upgrade).
@@ -586,8 +592,8 @@ Every prompt sent to Codex MUST be prefixed with this boundary instruction:
 
 This applies to Challenge mode (prompt) and Consult mode (persona prompt), and to the
 custom-instructions path of Review mode — all three use `codex exec`, which still takes
-a free-form prompt argument. It does **not** apply to the default scoped `codex review`
-call in Step 2A: that command is invoked with **no prompt argument at all** (see "Scope
+a free-form prompt (fed on stdin with `codex exec -`, so size and quoting never break it). It does **not** apply to the default scoped `codex review`
+call in Step 2A: that command is invoked with **no prompt at all** (see "Scope
 flags exclude the prompt argument" in the Review mode section), so there is nowhere to put the preamble. That
 is acceptable — `codex review --base` hands the model a pre-computed diff rather than
 turning it loose on the filesystem, so the rabbit-hole risk the boundary guards against
@@ -820,11 +826,14 @@ If token count is not available, display: `Tokens: unknown`
   missing or wrong. A prompt-only `codex review` defaults to uncommitted changes, so a
   clean working tree reads as an empty review even when `<base>...HEAD` is large. Confirm
   `--base <base>` is actually on the command line.
-- **Model not supported (HTTP 400):** stderr shows
+- **Model not supported (HTTP 400 or 404):** stderr shows
   `The '<model>' model is not supported when using Codex with a ChatGPT account`
-  (a `status: 400` / `invalid_request_error` naming a model). This is a
-  model-entitlement problem, not an auth or network failure, and the auth probe
-  cannot catch it. Recovery, in order:
+  (a `status: 400` / `invalid_request_error` naming a model), or
+  `404 Not Found: The model '<model>' does not exist or you do not have access to it`
+  (a retired model; a bare 404 usually means a custom provider's `base_url` is wrong).
+  `requires a newer version of Codex` means the CLI is too old: upgrade it instead.
+  None of these is an auth or network failure, and the auth probe cannot catch them.
+  Recovery, in order:
   1. Read the `CODEX_MODEL:` line: it names the model and where it came from.
   2. Fix that source: name another model for this request, update
      `GSTACK_CODEX_MODEL`, or change `model` (or `review_model`) in the Codex
@@ -832,6 +841,9 @@ If token count is not available, display: `Tokens: unknown`
      them to a model the account can use.
   3. If Codex printed `[notice.model_migrations]`, use that replacement model.
   Never present this as a model stall or a PASS — it is a fail-closed gate result.
+- **`VERDICT: unavailable`:** the shared validator found the run did not execute (for
+  example `Codex's sandbox could not start here`). Relay its line and fix verbatim; it is
+  missing coverage, never a PASS. Details: `docs/troubleshooting.md` in the gstack checkout.
 - **Empty response:** If `$TMPRESP` is empty or doesn't exist, tell the user:
   "Codex returned no response. Check stderr for errors."
 - **Session resume failure:** If resume fails, delete the session file and start fresh.
@@ -840,7 +852,8 @@ If token count is not available, display: `Tokens: unknown`
 
 ## Important Rules
 
-- **Never modify files.** This skill is read-only. Codex runs in read-only sandbox mode.
+- **Never modify files.** This skill is read-only. Codex runs in read-only sandbox mode
+  (full access only when the user exported `GSTACK_CODEX_NO_SANDBOX=1`; it warns on every use).
 - **Present output verbatim.** Do not truncate, summarize, or editorialize Codex's output
   before showing it. Show it in full inside the CODEX SAYS block.
 - **Add synthesis after, not instead of.** Any Claude commentary comes after the full output.

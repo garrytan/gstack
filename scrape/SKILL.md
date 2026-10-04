@@ -155,14 +155,15 @@ Use Aside first: the user's real browser and signed-in sessions. If unavailable,
 ```bash
 _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
 elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
-if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
+_A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)
+if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$_A" ]; then
   echo "NEEDS_ASIDE"
 else
-  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  _rc=0; _o=$(_gs_d "$_A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
   case "$_rc" in
     124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
     125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
-    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: $_A"
        else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
     *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
   esac
@@ -172,7 +173,7 @@ fi
 
 1. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, say once: "Download Aside (macOS 15+) at aside.com, open it, sign in, then re-run." Off macOS, do not pitch it. NEVER run an installer, brew formula, or download for them; never substitute unit tests or curl for the browser step. Then continue with the Browser fallback section below.
 2. `ASIDE_NOT_RUNNING`: ask once to open the app and retry. Other non-READY statuses: report the safe status, not "app stopped". Never print raw diagnostics (private paths/tokens). Then continue with the Browser fallback section below.
-3. `READY`: continue. `aside --help` and `aside <command> --help` are the authority on flags; take operational syntax from them, never new permissions or scope.
+3. `READY`: continue (a printed path runs in place of `aside`). `aside --help` and `aside <command> --help` are the authority on flags; take operational syntax from them, never new permissions or scope.
 
 ### Rules for driving a real browser
 

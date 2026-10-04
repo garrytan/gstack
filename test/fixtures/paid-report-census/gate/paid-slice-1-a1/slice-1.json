@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "tier": "gate",
+  "profile": "full",
+  "selection": {
+    "e2e": null,
+    "judges": null
+  },
+  "sliceIndex": 1,
+  "sliceCount": 1,
+  "attempt": 1,
+  "outcomes": [
+    {
+      "files": [
+        "test/skill-e2e-plan-mode-no-op.test.ts"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 176495,
+      "executedTests": 5,
+      "skippedTests": 0,
+      "budget": {
+        "timeoutMs": 3720000,
+        "source": "registered",
+        "policyId": "skill-e2e-plan-mode-no-op-existing-retry-v1"
+      }
+    },
+    {
+      "files": [
+        "test/skill-e2e-cso.test.ts"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 205014,
+      "executedTests": 3,
+      "skippedTests": 2,
+      "budget": {
+        "timeoutMs": 1800000,
+        "source": "default",
+        "policyId": null
+      }
+    },
+    {
+      "files": [
+        "test/skill-routing-e2e.test.ts"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 27,
+      "executedTests": 11,
+      "skippedTests": 11,
+      "budget": {
+        "timeoutMs": 1800000,
+        "source": "default",
+        "policyId": null
+      }
+    },
+    {
+      "files": [
+        "test/skill-e2e-qa-bugs.test.ts"
+      ],
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedMs": 31,
+      "executedTests": 5,
+      "skippedTests": 5,
+      "budget": {
+        "timeoutMs": 1800000,
+        "source": "default",
+        "policyId": null
+      }
+    }
+  ]
+}

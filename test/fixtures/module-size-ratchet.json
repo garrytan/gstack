@@ -31,7 +31,8 @@
     { "file": "test/helpers/pty/runners/floor.ts", "movedFrom": "test/helpers/claude-pty-runner.ts" },
     { "file": "test/helpers/pty/runners/observation.ts", "movedFrom": "test/helpers/claude-pty-runner.ts" },
     { "file": "test/helpers/pty/screen.ts", "movedFrom": "test/helpers/pty-screen.ts" },
-    { "file": "test/helpers/pty/session.ts", "movedFrom": "test/helpers/claude-pty-runner.ts" }
+    { "file": "test/helpers/pty/session.ts", "movedFrom": "test/helpers/claude-pty-runner.ts" },
+    { "file": "lib/memory-ingest-landing.ts", "movedFrom": "(new: A1 memory ingest landing check, state transitions and reconcile)" }
   ],
   "residualFiles": [
     { "file": "scripts/test-free-shards.ts", "maxLines": 2361, "reason": "free lane policy after the shard engine took spawn, sandbox, logs, seeds and flags" },

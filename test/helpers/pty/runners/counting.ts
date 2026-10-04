@@ -2,6 +2,7 @@
  * runPlanSkillCounting. Moved from claude-pty-runner.ts.
  * Import through test/helpers/claude-pty-runner.ts from tests; pty/ modules import siblings directly.
  */
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createPlanCountFixture } from '../../plan-count-fixture';
 import { createPlanCountSnapshotWriter } from '../../plan-count-artifacts';
@@ -62,6 +63,21 @@ export interface PlanSkillCountObservation {
   reviewCount: number;
   /** Answered administrative handoffs and artifact rendering, preserved separately. */
   administrativeCount: number;
+  /** QA test plans (`projects/<slug>/*-eng-review-test-plan-*.md`) in the run's owned state root at the outcome. */
+  engTestPlans: EngTestPlan[];
+}
+
+export interface EngTestPlan { file: string; content: string }
+
+/** The /plan-eng-review QA test-plan artifacts under one state root, read before fixture cleanup. */
+export function readEngTestPlans(stateRoot: string | undefined): EngTestPlan[] {
+  const projects = stateRoot ? path.join(stateRoot, 'projects') : '';
+  if (!projects || !fs.existsSync(projects)) return [];
+  return fs.readdirSync(projects, { withFileTypes: true }).filter(slug => slug.isDirectory()).flatMap(slug =>
+    fs.readdirSync(path.join(projects, slug.name)).filter(name => /-eng-review-test-plan-.*\.md$/.test(name)).sort().map(name => {
+      const file = path.join('projects', slug.name, name);
+      return { file, content: fs.readFileSync(path.join(stateRoot!, file), 'utf8') };
+    }));
 }
 
 /** Options for runPlanSkillCounting. */
@@ -94,7 +110,8 @@ export interface PlanSkillCountingOptions {
   isReviewAUQ?: (fp: AskUserQuestionFingerprint, priorCalls?: readonly NativePlanQuestionCall[]) => boolean;
   /** Stop a collection-only fixture once its acknowledged inputs are complete.
    * This is not review completion or a passing verdict; the caller still validates them. */
-  isCollectionComplete?: (transcript: PlanCountTranscript, fingerprints: readonly AskUserQuestionFingerprint[]) => boolean;
+  isCollectionComplete?: (transcript: PlanCountTranscript, fingerprints: readonly AskUserQuestionFingerprint[],
+    engTestPlans: readonly EngTestPlan[]) => boolean;
   /** Narrow caller-specific selection; null retains the normal answer policy.
    * The first argument retains full pending metadata for existing callers.
    * Native-bound selection uses activeCapture, whose metadata is present only
@@ -272,7 +289,7 @@ export interface CountingRun {
   cleanupReserveMs: number;
   /** Monotonic work cutoff: budget start + timeout - cleanup reserve. */
   workDeadline: number;
-  fixture: { cwd: string };
+  fixture: { cwd: string; env: Record<string, string> };
   defaultPick: number;
   pickerContext: Readonly<{ cwd: string; deadlineAt: number }>;
   saveSnapshot: ReturnType<typeof createPlanCountSnapshotWriter>;
@@ -353,6 +370,7 @@ function countingSnapshot(
     step0Count: run.step0Count,
     reviewCount: run.reviewCount,
     administrativeCount: run.administrativeCount,
+    engTestPlans: readEngTestPlans(run.fixture.env.GSTACK_STATE_ROOT),
   };
   const artifacts = countingCapture(run, session, observation);
   Object.assign(observation, artifacts);
@@ -418,7 +436,7 @@ async function countingTick(run: CountingRun, session: ClaudePtySession): Promis
   if (opts.isCollectionComplete && !pending && transcript.status === 'ready' &&
       transcript.calls.length > 0 && transcript.calls.every(call => call.answered && !call.failed) &&
       !unresolvedPlanQuestionCalls(transcript.calls).length && remainingWork(run) > 0 &&
-      opts.isCollectionComplete(transcript, run.fingerprints) && remainingWork(run) > 0) {
+      opts.isCollectionComplete(transcript, run.fingerprints, readEngTestPlans(run.fixture.env.GSTACK_STATE_ROOT)) && remainingWork(run) > 0) {
     return { done: countingSnapshot(run, session, 'collection_complete', 'Caller-defined native collection is complete; final validation remains required', visible) };
   }
   const terminal = await countingTerminal(run, visible, pending);

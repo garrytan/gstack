@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="8" assertions="0" failures="0" skipped="0" time="8.549314724">
+  <testsuite name="test/skill-e2e-benchmark-providers.test.ts" file="test/skill-e2e-benchmark-providers.test.ts" tests="8" assertions="0" failures="0" skipped="0" time="8.547191139">
+    <testsuite name="multi-provider benchmark adapters (live)" file="test/skill-e2e-benchmark-providers.test.ts" line="70" tests="8" assertions="0" failures="0" skipped="0" time="8.533">
+      <testcase name="claude: available() returns structured ok/reason" classname="multi-provider benchmark adapters (live)" time="0.000231" file="test/skill-e2e-benchmark-providers.test.ts" line="81" assertions="0" />
+      <testcase name="gpt: available() returns structured ok/reason" classname="multi-provider benchmark adapters (live)" time="0.001115" file="test/skill-e2e-benchmark-providers.test.ts" line="90" assertions="0" />
+      <testcase name="gemini: available() returns structured ok/reason" classname="multi-provider benchmark adapters (live)" time="0.000625" file="test/skill-e2e-benchmark-providers.test.ts" line="98" assertions="0" />
+      <testcase name="claude: trivial prompt produces parseable output" classname="multi-provider benchmark adapters (live)" time="4.124756" file="test/skill-e2e-benchmark-providers.test.ts" line="106" assertions="0" />
+      <testcase name="gpt: trivial prompt produces parseable output" classname="multi-provider benchmark adapters (live)" time="0.002319" file="test/skill-e2e-benchmark-providers.test.ts" line="126" assertions="0" />
+      <testcase name="gemini: trivial prompt produces parseable output" classname="multi-provider benchmark adapters (live)" time="0.000683" file="test/skill-e2e-benchmark-providers.test.ts" line="146" assertions="0" />
+      <testcase name="timeout error surfaces as error.code=timeout (no exception)" classname="multi-provider benchmark adapters (live)" time="0.465857" file="test/skill-e2e-benchmark-providers.test.ts" line="176" assertions="0" />
+      <testcase name="runBenchmark: Promise.allSettled means one unavailable provider does not block others" classname="multi-provider benchmark adapters (live)" time="3.941301" file="test/skill-e2e-benchmark-providers.test.ts" line="195" assertions="0" />
+    </testsuite>
+  </testsuite>
+</testsuites>

@@ -289,5 +289,7 @@ bun run skill:check      # health dashboard for all skills
 - Browse daemon HTTP routes are entries in `browse/src/routes/table.ts` (its header shows how to add one); never dispatch on `url.pathname` in `server.ts`.
 - Both test lanes run shards through `scripts/lib/shard-engine.ts`; the free and paid runners hold lane policy only. PTY harness code lives in `test/helpers/pty/*` behind the `claude-pty-runner.ts` barrel.
 - Outside-voice failure prose (auth, timeout, empty, fallback) comes only from `outsideVoiceFailurePolicy()` in `scripts/resolvers/outside-voice.ts`.
+- Every env-var-host fence starts with the shared prelude from `scripts/resolvers/runtime-root.ts` (inserted by its post-render pass); never resolve gstack's root by hand in a template.
+- Every Codex run's verdict goes through `lib/outside-review-result.ts`; its reason codes live in `lib/gate-outcomes.ts`, each with a `docs/troubleshooting.md` anchor.
 - `test/module-size-ratchet.test.ts` keeps refactored owner modules at or under 800 lines (150 per function) and residual files from growing.
 - The `claude` CLI binary resolves via `lib/claude-bin.ts` (re-exported from `browse/src/claude-bin.ts` for browse internals; `Bun.which()` + `GSTACK_CLAUDE_BIN` override). Set `GSTACK_CLAUDE_BIN=wsl` plus `GSTACK_CLAUDE_BIN_ARGS='["claude"]'` to run Claude through WSL on Windows.

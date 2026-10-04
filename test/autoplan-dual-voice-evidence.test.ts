@@ -29,17 +29,20 @@ function fixture(plan?:string){
  return {dir,method,snapshot,file,events,options,read:(rows=events)=>autoplanDualVoiceEvidence(rows,options)};
 }
 test('actual6bd source Read, unused probe branch and0Hspec Agent earn zero phase voice credit',()=>{
- const f=fixture(),actual=f.read(clone(captured.events));
+ const f=fixture();
+ // Judge the capture against the probe block it executed (B1 later added the sandbox preflight).
+ f.options.commands={...f.options.commands,probe:captured.sourceBoundB176.commandContract.probe};
+ const actual=f.read(clone(captured.events));
  expect(actual).toMatchObject({claudeVoiceFired:false,codexVoiceFired:false,codexUnavailable:false,reviewDispatched:false,probeMode:'ready'});
 });
 test('actual snapshot producer and complete parent request/ACK pairs establish both voices',()=>{
  const f=fixture();expect(f.read()).toMatchObject({claudeVoiceFired:true,codexVoiceFired:true,codexUnavailable:false,reviewDispatched:true,nativeToolUseId:'native',outsideToolUseId:'outside'});
 });
-test.each(['not_installed','not_authed','broken_install','model_unusable'])('actual final probe result supports unavailable fallback: %s',mode=>{
+test.each(['not_installed','not_authed','broken_install','sandbox_unavailable','model_unusable'])('actual final probe result supports unavailable fallback: %s',mode=>{
  const f=fixture();f.events.splice(4);f.events[1]=ack('probe','CODEX_MODE: '+mode);
  expect(f.read()).toMatchObject({claudeVoiceFired:true,codexVoiceFired:false,codexUnavailable:true});
 });
-test.each(['ready','disabled','under_codex','unknown'])('probe outcome supplies no unavailable credit: %s',mode=>{
+test.each(['ready','unverified','disabled','under_codex','unknown'])('probe outcome supplies no unavailable credit: %s',mode=>{
  const f=fixture();f.events.splice(4);f.events[1]=ack('probe','CODEX_MODE: '+mode);expect(f.read().codexUnavailable).toBe(false);
 });
 test.each(['missing','error','foreign','child','unowned','method','phase','math','no-launch','wrong-input','mutable'])('native dispatch rejects %s evidence',kind=>{
@@ -169,6 +172,8 @@ test.each([
  'Outside review unavailable: empty response; missing coverage.',
  'Outside review unavailable: review refused; missing coverage.',
  'Outside review unavailable: missing review completion recommendation; missing coverage.',
+ 'Codex outside review unavailable: the reviewer process failed (exit 1: error: 401 Unauthorized). No review ran; this is missing coverage, not a pass. Fix: read the provider diagnosis above (auth, model, network), repair it, then re-run the review.',
+ 'Codex outside review unavailable: the response lacks the markers this gate requires (missing review completion recommendation). No review ran; this is missing coverage, not a pass. Fix: re-run the review; a response without its required markers never counts as a pass.',
 ])('actual owned post-execution error proves attempted outside voice, not completion: %s',diagnostic=>{
  const f=fixture();f.events[7]=ack('outside','Exit code 1\n'+diagnostic,true);
  expect(f.read()).toMatchObject({claudeVoiceFired:true,codexAttempted:true,codexVoiceFired:false,codexUnavailable:true,failedOutsideToolUseId:'outside'});
@@ -259,8 +264,8 @@ test.each(['assignment-only','set-config','other-config','foreign-reader','or-co
  if(kind==='before-cd')input.command=guards+'\ncd '+f.dir+'\n'+f.options.commands.outside.replace("'<prepared-prompt-file>'","'"+f.file+"'");
  if(kind==='changed-harness')input.command=input.command.replace('exit 78','exit 0');
  if(kind==='changed-timeout')input.command=input.command.replace('_gstack_codex_timeout_wrapper 540','_gstack_codex_timeout_wrapper 1');
- if(kind==='changed-sandbox')input.command=input.command.replace('-s read-only','-s danger-full-access');
- if(kind==='changed-prompt')input.command=input.command.replace('codex exec "$_OUTSIDE_PROMPT"','codex exec "Different plan"');
+ if(kind==='changed-sandbox')input.command=input.command.replace('-s "${_GSTACK_CODEX_SANDBOX:?}"','-s danger-full-access');
+ if(kind==='changed-prompt')input.command=input.command.replace('codex exec - ','codex exec "Different plan" ');
  if(kind==='skipped-validator')input.command=input.command.replace(/^bun .*outside-review-result.*\n/m,'');
  if(kind==='suffix')input.command+='\ntrue';
  expect(f.read().codexVoiceFired,kind).toBe(false);

@@ -164,8 +164,11 @@ case "$1" in
     fi
     echo '${sources}' ;;
   import)
-    ( cd "$2" && find . -name '*.md' -type f | sort ) > "${stagedList}"
-    n=$(wc -l < "${stagedList}" | tr -d ' ')
+    # One import per gbrain source (A4): pages of one ingest run accumulate;
+    # a new run (different parent pid) starts a fresh list.
+    if [ "$(cat "${stagedList}.ppid" 2>/dev/null)" != "$PPID" ]; then echo "$PPID" > "${stagedList}.ppid"; : > "${stagedList}"; fi
+    ( cd "$2" && find . -name '*.md' -type f | sort ) >> "${stagedList}"
+    n=$( cd "$2" && find . -name '*.md' -type f | wc -l | tr -d ' ')
     echo "{\\"status\\":\\"success\\",\\"imported\\":$n,\\"skipped\\":0,\\"errors\\":0,\\"total_files\\":$n}"
     ;;
   *) echo "unexpected gbrain $*" >&2; exit 1 ;;

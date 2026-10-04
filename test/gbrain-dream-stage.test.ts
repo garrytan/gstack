@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, existsSync, writeFileSync, utimesSync, rmSync } from "fs";
+import { mkdtempSync, existsSync, writeFileSync, utimesSync, rmSync, mkdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { usePrivateStateRoot } from "./helpers/private-state-root";
@@ -278,4 +278,55 @@ describe("formatStage — WARN render", () => {
   it("renders SKIP for a !ran stage", () => {
     expect(formatStage({ ...base, ran: false, ok: true })).toContain("SKIP");
   });
+});
+
+// A7 (#2783): the forced dream runs only the resolve_symbol_edges phase, and
+// only when the installed gbrain can scope it (detected, not assumed).
+describe("dream stage scopes gbrain dream to resolve_symbol_edges (A7)", () => {
+  function sandbox(phaseSupport: "phase" | "no-phase-flag" | "unknown-phase") {
+    const home = mkdtempSync(join(tmpdir(), "gstack-dream-phase-"));
+    const bin = join(home, "bin");
+    const cwd = join(home, "not-a-repo");
+    mkdirSync(join(home, ".gbrain"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+    writeFileSync(join(home, ".gbrain", "config.json"), JSON.stringify({ engine: "pglite", database_path: join(home, ".gbrain", "brain.pglite") }));
+    const help = phaseSupport === "no-phase-flag" ? "Usage: gbrain dream [--source <id>]" : "  --phase <name>      Run only the named phase(s).";
+    writeFileSync(join(bin, "gbrain"), `#!/bin/sh
+echo "$*" >> "${home}/calls.log"
+case "$1" in
+  --version) echo "gbrain 0.60.37.0" ;;
+  sources) echo '{"sources":[]}' ;;
+  dream)
+    if [ "${phaseSupport}" = "unknown-phase" ]; then echo 'Unknown phase "resolve_symbol_edges".' >&2; exit 1; fi
+    case " $* " in *" --help "*) echo "${help}"; exit 0 ;; esac
+    echo "[cycle] resolve_symbol_edges: resolved 4 edges" ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 });
+    const r = spawnSync(process.execPath, [SCRIPT, "--dream", "--no-code", "--no-memory", "--no-brain-sync"], {
+      cwd,
+      encoding: "utf-8",
+      timeout: 60_000,
+      env: { ...process.env, HOME: home, GSTACK_HOME: join(home, ".gstack"), GBRAIN_HOME: "", PATH: `${bin}:/usr/bin:/bin` },
+    });
+    const calls = readFileSync(join(home, "calls.log"), "utf-8").trim().split("\n").filter((l) => l.startsWith("dream"));
+    rmSync(home, { recursive: true, force: true });
+    return { out: (r.stdout || "") + (r.stderr || ""), calls };
+  }
+
+  it("runs `gbrain dream --phase resolve_symbol_edges` when gbrain supports it, never the full cycle", () => {
+    const { calls } = sandbox("phase");
+    const cycles = calls.filter((c) => !c.includes("--help"));
+    expect(cycles).toEqual(["dream --phase resolve_symbol_edges"]);
+  });
+
+  for (const kind of ["no-phase-flag", "unknown-phase"] as const) {
+    it(`skips the forced dream and names the 35-minute full cycle when gbrain cannot scope it (${kind})`, () => {
+      const { out, calls } = sandbox(kind);
+      expect(calls.every((c) => c.includes("--help"))).toBe(true);
+      expect(out).toContain("full dream cycle costs about 35 minutes");
+      expect(out).toContain("gstack-gbrain-install");
+    });
+  }
 });

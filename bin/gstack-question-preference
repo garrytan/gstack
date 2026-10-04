@@ -143,7 +143,7 @@ do_write() {
   fi
   ensure_file
   local TMPERR
-  TMPERR=$(mktemp)
+  TMPERR=$(mktemp "${TMPDIR:-/tmp}/gstack-question-preference.XXXXXX") || { echo "gstack-question-preference: could not create a temp file in ${TMPDIR:-/tmp}, so the preference was not saved. Fix: point TMPDIR at a writable directory." >&2; return 1; }
   # Use function-local cleanup via RETURN trap so variable lookup only happens
   # while the function is on the stack (avoids EXIT-trap unbound-var race).
   trap "rm -f '$TMPERR'" RETURN

@@ -203,12 +203,16 @@ QUEUE_JSON=$(bun run ~/.claude/skills/gstack/bin/gstack-next-version \
   --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
 NEXT_SLOT=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
 OFFLINE=$(echo "$QUEUE_JSON" | jq -r '.offline // false')
+NO_VERSION=$(echo "$QUEUE_JSON" | jq -r '.no_version // false')
 ```
 
 Use the existing conservative patch-level allocation; compare numeric version
-components, not lexical strings. If this project has no VERSION, report this check
-not applicable. A missing/unparseable version on only one side is unavailable, not green.
+components, not lexical strings. A missing/unparseable version on only one side is
+unavailable, not green.
 
+0. `NO_VERSION=true` (no configured version source, the same signal `/ship` reads):
+   print `VERSION check: not applicable (<version_source.reason>)` and continue to
+   Step 3.5. Never expect a version-prefixed title, CHANGELOG version header or tag.
 1. `OFFLINE=true`, helper failure or invalid result: report VERSION check unavailable
    with the reason; continue to Step 3.5. CI's version gate is the backstop.
 2. `BRANCH_VERSION >= NEXT_SLOT`: no drift; continue.

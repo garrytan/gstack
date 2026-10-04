@@ -57,6 +57,8 @@ import {
   runCaseDiagnosis,
   caseFile,
   parseCliOptions,
+  loadPaidTestDurations,
+  shardDurationViolations,
   type CaseTrialPlan,
   type ShardOutcome,
 } from '../scripts/test-paid-shards';
@@ -128,6 +130,35 @@ describe('tier lane skip (B5)', () => {
     expect(tierSkipReason(file, "testIfSelected('sample-gate', async () => {});", 'gate', touchfiles, tiers)).toBeNull();
   });
 
+  test('a computed registration is skipped only when every id of the lane tier is registered to another test file', () => {
+    const other = 'test/skill-e2e-other.test.ts';
+    const owned = { 'sample-periodic': [file], 'gate-elsewhere': [other, 'x/**'] };
+    const ownedTiers = { 'sample-periodic': 'periodic', 'gate-elsewhere': 'gate' };
+    for (const source of [
+      "testConcurrentIfSelected(`sample-${label}`, async () => {});",
+      "runSkillTest({ testName: `sample-${label}` });",
+      "for (const entry of CASES) describeIfSelected(entry.suite, [entry.id], () => { testIfSelected(entry.id, async () => {}); });",
+    ]) {
+      expect(tierSkipReason(file, source, 'gate', owned, ownedTiers)).toBe(
+        'skipped: no E2E_TIERS id has tier gate (its computed names can only produce gate ids other test files register)');
+      expect(tierSkipReason(file, source, 'periodic', owned, ownedTiers)).toBeNull();
+      expect(tierSkipReason(file, source, 'gate', owned, { ...ownedTiers, 'gate-orphan': 'gate' })).toBeNull();
+      expect(tierSkipReason(file, `${source}\ntestIfSelected('gate-elsewhere', async () => {});`, 'gate', owned, ownedTiers)).toBeNull();
+    }
+  });
+
+  test('census files whose computed names hold only other-tier cases never take a runner (2026-10-03 census)', () => {
+    const lanes = { gate: ['test/skill-e2e-plan-decision-classification.test.ts', 'test/skill-e2e-plan-devex-peer-comparison-classification.test.ts',
+      'test/skill-e2e-qa-bugs.test.ts', 'test/skill-routing-e2e.test.ts'], periodic: ['test/skill-e2e-coverage-audit.test.ts', 'test/skill-e2e-test-value.test.ts'] };
+    for (const [tier, files] of Object.entries(lanes) as Array<['gate' | 'periodic', string[]]>) {
+      const { selected, excluded } = selectPaidTestFiles(collectPaidTestFiles(), tier, ROOT, {});
+      for (const hollow of files) {
+        expect(selected, hollow).not.toContain(hollow);
+        expect(excluded.find(entry => entry.file === hollow)?.reason, hollow).toStartWith(`skipped: no E2E_TIERS id has tier ${tier}`);
+      }
+    }
+  });
+
   test('the real constructed-name diagram file stays scheduled in both lanes', () => {
     const source = fs.readFileSync(path.join(ROOT, 'test/skill-e2e-diagram.test.ts'), 'utf8');
     for (const tier of ['gate', 'periodic'] as const) expect(tierSkipReason('test/skill-e2e-diagram.test.ts', source, tier)).toBeNull();
@@ -185,6 +216,29 @@ describe('marathon tier lane', () => {
       expect(marathonSkipReason(file, source), file).toBeNull();
     }
     expect(selected.length + excluded.length).toBe(collectPaidTestFiles().length);
+  });
+});
+
+describe('PR-lane shard wall (I5)', () => {
+  const census = JSON.parse(fs.readFileSync(path.join(ROOT, 'test/fixtures/paid-report-census/gate-census-durations.json'), 'utf8')).durations as Record<string, number>;
+  const gateKeys = () => buildRunManifest({ tier: 'gate', sliceCount: 1, evalsAll: true, env: { EVALS_ALL: '1' } })
+    .entries.filter(entry => entry.status === 'planned').map(entry => entry.file);
+
+  test('no planned gate shard has a recorded wall over 600 s (committed seed and the last gate census)', () => {
+    const keys = gateKeys();
+    expect(keys.length).toBeGreaterThan(50);
+    expect(shardDurationViolations(keys, loadPaidTestDurations(ROOT, 'gate'))).toEqual([]);
+    expect(shardDurationViolations(keys, census)).toEqual([]);
+  });
+
+  test('the guard names an over-limit shard and its recorded wall; deploy runs one shard per case', () => {
+    expect(shardDurationViolations(['test/skill-e2e-deploy.test.ts', 'test/skill-e2e-qa-workflow.test.ts'], census))
+      .toEqual(['test/skill-e2e-deploy.test.ts: recorded 668s > 600s']);
+    expect(shardDurationViolations(['test/a.test.ts#x~t2'], { 'test/a.test.ts#x': 612_000 })).toEqual(['test/a.test.ts#x~t2: recorded 612s > 600s']);
+    expect(CASE_SHARDED_FILES).toContain('test/skill-e2e-deploy.test.ts');
+    expect(gateKeys().filter(key => shardFile(key) === 'test/skill-e2e-deploy.test.ts').sort()).toEqual([
+      'benchmark-workflow', 'canary-workflow', 'land-and-deploy-first-run', 'land-and-deploy-review-gate', 'land-and-deploy-workflow', 'setup-deploy-workflow',
+    ].map(id => `test/skill-e2e-deploy.test.ts#${id}`));
   });
 });
 

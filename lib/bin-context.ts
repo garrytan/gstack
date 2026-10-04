@@ -6,8 +6,8 @@
  */
 
 import { spawnSync } from "child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "fs";
-import { basename, dirname, join } from "path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "fs";
+import { basename, dirname, isAbsolute, join, resolve } from "path";
 import { resolveStateRoot } from "./state-root";
 import { legacyRemoteSlug, remoteSlug } from "./remote-identity";
 
@@ -158,6 +158,58 @@ export function slugCacheFile(stateRoot: string, cwd: string): string {
   return join(stateRoot, "slug-cache", toMsysPath(cwd).replace(/\//g, "_"));
 }
 
+/**
+ * Twin of gstack-slug's `_git_common_dir` (#2767): the physical git common dir
+ * of the repository holding `cwd` (nearest `.git` entry), read from `.git`
+ * files without spawning git; "" outside git. A linked worktree's `.git` file
+ * names its gitdir, whose `commondir` file points at the shared dir.
+ */
+export function gitCommonDir(cwd: string): string {
+  let dir = cwd;
+  for (let depth = 0; dir && depth < 64; depth++) {
+    const dotGit = join(dir, ".git");
+    try {
+      const st = statSync(dotGit);
+      if (st.isDirectory()) return realpathSync(dotGit);
+      if (st.isFile()) {
+        const m = readFileSync(dotGit, "utf-8").match(/^gitdir: *(.+)$/m);
+        if (!m) return "";
+        const gitdir = isAbsolute(m[1].trim()) ? m[1].trim() : resolve(dir, m[1].trim());
+        let common = gitdir;
+        try {
+          const rel = readFileSync(join(gitdir, "commondir"), "utf-8").split("\n")[0].trim();
+          if (rel) common = isAbsolute(rel) ? rel : resolve(gitdir, rel);
+        } catch {
+          // no commondir file: a submodule or plain gitdir is its own common dir
+        }
+        return realpathSync(common);
+      }
+    } catch {
+      // no .git here (or unreadable) — keep walking
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return "";
+}
+
+/**
+ * The cache entries gstack-slug consults, in its deterministic read order:
+ * the repository-scoped entry (keyed on the git common dir), then the main
+ * checkout's pre-#2767 per-path entry, then this directory's own per-path
+ * entry. Outside git all three collapse to the per-path entry.
+ */
+export function slugCacheReadOrder(stateRoot: string, cwd: string): string[] {
+  const legacy = slugCacheFile(stateRoot, cwd);
+  const common = gitCommonDir(cwd);
+  if (!common) return [legacy];
+  const files = [slugCacheFile(stateRoot, common)];
+  if (basename(common) === ".git") files.push(slugCacheFile(stateRoot, dirname(common)));
+  files.push(legacy);
+  return [...new Set(files)];
+}
+
 /** Cache entries written since #3003 carry this version prefix ("v2:<slug>"). */
 export const SLUG_CACHE_VERSION_PREFIX = "v2:";
 
@@ -169,9 +221,11 @@ export const SLUG_CACHE_VERSION_PREFIX = "v2:";
  * preamble runs, having already written the entry.
  */
 export function readVersionedSlugCache(stateRoot: string, cwd: string): string | undefined {
+  const file = slugCacheReadOrder(stateRoot, cwd).find((f) => existsSync(f));
+  if (!file) return undefined;
   let raw: string;
   try {
-    raw = readFileSync(slugCacheFile(stateRoot, cwd), "utf-8");
+    raw = readFileSync(file, "utf-8");
   } catch {
     return undefined;
   }
@@ -183,7 +237,9 @@ export function readVersionedSlugCache(stateRoot: string, cwd: string): string |
 export function slugFromEnvironment(gstackHome?: string, cwd: string = process.cwd()): string {
   const home = gstackHome || resolveStateRoot();
   const cacheDir = join(home, "slug-cache");
-  const cacheFile = slugCacheFile(home, cwd);
+  const readOrder = slugCacheReadOrder(home, cwd);
+  const cacheFile = readOrder.find((f) => existsSync(f));
+  const writeTargets = [readOrder[0], slugCacheFile(home, cwd)];
 
   // 0. explicit env override — per-invocation escape hatch, never persisted
   //    (caching it would rebind THIS cwd's slug for every later env-less run).
@@ -202,7 +258,7 @@ export function slugFromEnvironment(gstackHome?: string, cwd: string = process.c
   let slug = "";
   // 2. cached slug is sticky (#2212), except the two provable bug shapes
   //    (old-bug #1125 and degraded-ancestor 2026-08-17 — see the doc above).
-  if (existsSync(cacheFile)) {
+  if (cacheFile) {
     try {
       const raw = readFileSync(cacheFile, "utf-8");
       const versioned = raw.startsWith(SLUG_CACHE_VERSION_PREFIX);
@@ -271,21 +327,24 @@ export function slugFromEnvironment(gstackHome?: string, cwd: string = process.c
 
   // 5. cache it, as gstack-slug does — atomic, self-healing (only rewrites when
   //    the value changed — single-shot, key-local), and failures stay silent.
-  try {
-    let current = "";
+  //    Both the repository-scoped entry and this path's entry (#2767).
+  for (const target of new Set(writeTargets)) {
     try {
-      current = readFileSync(cacheFile, "utf-8");
+      let current = "";
+      try {
+        current = readFileSync(target, "utf-8");
+      } catch {
+        // no cache yet — write below
+      }
+      if (current !== `${SLUG_CACHE_VERSION_PREFIX}${slug}`) {
+        mkdirSync(cacheDir, { recursive: true });
+        const tmp = `${target}.tmp.${process.pid}`;
+        writeFileSync(tmp, `${SLUG_CACHE_VERSION_PREFIX}${slug}`, "utf-8");
+        renameSync(tmp, target);
+      }
     } catch {
-      // no cache yet — write below
+      // best-effort cache; a miss only costs a re-derive on the next call
     }
-    if (current !== `${SLUG_CACHE_VERSION_PREFIX}${slug}`) {
-      mkdirSync(cacheDir, { recursive: true });
-      const tmp = `${cacheFile}.tmp.${process.pid}`;
-      writeFileSync(tmp, `${SLUG_CACHE_VERSION_PREFIX}${slug}`, "utf-8");
-      renameSync(tmp, cacheFile);
-    }
-  } catch {
-    // best-effort cache; a miss only costs a re-derive on the next call
   }
   return slug;
 }

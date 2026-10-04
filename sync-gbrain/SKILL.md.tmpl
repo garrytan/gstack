@@ -47,8 +47,8 @@ When the user types `/sync-gbrain`, run this skill. Argument modes (parsed by
 the skill itself, not a dispatcher binary):
 
 - `/sync-gbrain` — incremental sync (default; mtime fast-path; ~50ms steady-state)
-- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo). Auto-builds the call graph (`gbrain dream`) **only when it was never built**.
-- `/sync-gbrain --dream` — build this source's call graph (`gbrain code-callers`/`code-callees`) via a source-scoped `gbrain dream --source <id>` cycle; ~minutes; runs lock-free after the sync stages. Always forces, even if already built. Only produces a graph on a code-aware schema pack; otherwise the run reports a WARN explaining why the graph is still empty.
+- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo). Auto-builds the call graph (`gbrain dream --phase resolve_symbol_edges`) **only when it was never built**.
+- `/sync-gbrain --dream` — build this source's call graph (`gbrain code-callers`/`code-callees`) via `gbrain dream --source <id> --phase resolve_symbol_edges`; ~minutes; runs lock-free after the sync stages. Always forces, even if already built. Runs only that phase, never gbrain's full maintenance cycle (about 35 minutes with LLM phases); if the installed gbrain cannot scope the phase, the dream row says so and nothing runs. Only produces a graph on a code-aware schema pack; otherwise the run reports a WARN explaining why the graph is still empty.
 - `/sync-gbrain --no-dream` — skip the dream cycle that `--full` would otherwise auto-run.
 - `/sync-gbrain --code-only` — only run the code stage; skip memory + brain-sync
 - `/sync-gbrain --dry-run` — preview what would sync; no writes anywhere
@@ -166,6 +166,10 @@ BEFORE invoking the orchestrator:
   will run. Do NOT abort.
 - **`missing-config`** AND `gbrain_mcp_mode != "remote-http"`: STOP. "Local
   gbrain CLI is installed but no engine config. Run `/setup-gbrain` first."
+- **`db-unreachable`**: STOP. Print `gbrain_local_status_detail` from the
+  detect JSON verbatim (for example "database host unreachable (ENOTFOUND
+  db.example.com); your gbrain config is unchanged. Fix: check network or
+  VPN, then re-run /sync-gbrain."). Never suggest moving the config aside.
 - **`broken-config`** OR **`broken-db`**: STOP with a clear message:
   ```
   Local gbrain config at ~/.gbrain/config.json points at an unreachable
@@ -329,25 +333,32 @@ detect it before running. `code-def` / `code-refs` need the same symbol
 extraction; they are NOT free "direct lookups" on a non-code-aware pack.
 
 Detect whether this source's call graph is built via doctor's `cycle_freshness`
-check, matching the cwd `SOURCE_ID` literally:
+check, matching the cwd `SOURCE_ID` literally. `doctor --fast` skips the DB
+checks that carry it, so this reads `--scope=brain` (DB checks, no skill walk):
 
 ```bash
 SOURCE_JSON=$(bun run ~/.claude/skills/gstack/bin/gstack-gbrain-read-capability.ts --source-only 2>/dev/null)
 SOURCE_ID=$(printf '%s' "$SOURCE_JSON" | jq -er 'if .status=="source" then .source_id else empty end' 2>/dev/null)
 CYCLE=unknown
+CYCLE_WHY=""
 if [ -n "$SOURCE_ID" ]; then
-  CYCLE=$(gbrain doctor --json --fast 2>/dev/null \
+  # doctor exits 1 when any check fails; its JSON report is still complete.
+  CYCLE=$(gbrain doctor --json --scope=brain 2>/dev/null \
     | jq -er --arg id "$SOURCE_ID" '
-        if type=="object" and has("error") then empty
-        else (.checks[]? | select(.name=="cycle_freshness")) as $c
-          | if $c.status=="ok" then "completed"
-            elif (($c.message // "") | index($id)) then "never"
-            else "unknown" end end' 2>/dev/null || echo unknown)
+        if type!="object" or has("error") then "unknown"
+        else ([.checks[]? | select(.name=="cycle_freshness")][0]) as $c
+          | if $c == null then "unexposed"
+            elif $c.status=="ok" then "completed"
+            else ((($c.message // "") / "; ") | map(select(index("\u0027" + $id + "\u0027"))) | .[0] // "") as $i
+              | if ($i | index("never completed")) then "never"
+                elif ($i | index("last cycled")) then "completed"
+                else "unknown" end end end' 2>/dev/null || echo unknown)
+  if [ "$CYCLE" = unexposed ]; then CYCLE=unknown; CYCLE_WHY="installed gbrain does not expose cycle_freshness"; fi
 fi
-# index($id) = literal substring (NOT test() regex), matching the lib reader in
-# cycleCompleted(). A fail/warn that doesn't name this source → "unknown" (don't
-# mask other-source failures).
-echo "call graph for $SOURCE_ID: $CYCLE"
+# index() = literal substring (NOT test() regex), matching the lib reader in
+# readCycleStatus(). A fail/warn that doesn't name this source → "unknown"
+# (don't mask other-source failures).
+echo "call graph for $SOURCE_ID: $CYCLE${CYCLE_WHY:+: $CYCLE_WHY}"
 ```
 
 If `CYCLE == never` AND the user did NOT pass `--dream`/`--full` AND Step 3
@@ -357,8 +368,9 @@ If `CYCLE == never` AND the user did NOT pass `--dream`/`--full` AND Step 3
 >
 > ELI10: `gbrain code-callers`/`code-callees` (who calls this function / what it
 > calls) return nothing until the `resolve_symbol_edges` phase runs for this
-> source. `gbrain dream --source <this source>` runs it (scoped to this
-> worktree's code, takes a few minutes). It only produces a graph if this
+> source. `gbrain dream --source <this source> --phase resolve_symbol_edges`
+> runs only that phase (scoped to this worktree's code, takes a few minutes,
+> not the full ~35-minute maintenance cycle). It only produces a graph if this
 > source's schema pack extracts code symbols; if it doesn't, the run completes
 > but the graph stays empty and the dream row will say so.
 >

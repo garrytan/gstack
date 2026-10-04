@@ -1,7 +1,7 @@
 import { toShellPath, type TemplateContext } from './types';
-import { outsideVoiceRuntime } from './outside-voice';
 import * as path from 'path';
 import { getHostConfig } from '../../hosts';
+import { runtimeRootPrelude } from './runtime-root';
 
 /** Claude's scoped hook enforces the parent publication boundary during /autoplan. */
 export function generateAutoplanPublicationHook(ctx: TemplateContext, args?: string[]): string {
@@ -111,7 +111,7 @@ export function generateAutoplanReviewFile(ctx: TemplateContext, args?: string[]
 /** Resolve once to a literal path; later phase commands run in fresh shells. */
 export function generateAutoplanSnapshotTool(ctx: TemplateContext): string {
   return `\`\`\`bash
-${outsideVoiceRuntime(ctx)}
+${runtimeRootPrelude(ctx)}
 bun -e 'console.log(require("fs").realpathSync(process.argv[1]))' "${toShellPath(ctx.paths.binDir)}/gstack-autoplan-snapshot.ts"
 \`\`\``;
 }

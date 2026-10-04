@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="11" assertions="0" failures="0" skipped="10" time="176.646894523">
+  <testsuite name="test/skill-e2e-design.test.ts" file="test/skill-e2e-design.test.ts" tests="11" assertions="0" failures="0" skipped="10" time="176.644525078">
+    <testsuite name="Design Consultation E2E" file="test/skill-e2e-design.test.ts" line="146" tests="4" assertions="0" failures="0" skipped="3" time="176.6">
+      <testcase name="design-consultation-research" classname="Design Consultation E2E" time="0" file="test/skill-e2e-design.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="design-consultation-existing" classname="Design Consultation E2E" time="0" file="test/skill-e2e-design.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="design-consultation-preview" classname="Design Consultation E2E" time="0" file="test/skill-e2e-design.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="design-consultation-core" classname="Design Consultation E2E" time="176.600748" file="test/skill-e2e-design.test.ts" line="381" assertions="0" />
+    </testsuite>
+    <testsuite name="Plan Design Review E2E" file="test/skill-e2e-design.test.ts" line="146" tests="2" assertions="0" failures="0" skipped="2" time="0">
+      <testcase name="plan-design-review-plan-mode" classname="Plan Design Review E2E" time="0" file="test/skill-e2e-design.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="plan-design-review-no-ui-scope" classname="Plan Design Review E2E" time="0" file="test/skill-e2e-design.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testsuite name="Design Review E2E" file="test/skill-e2e-design.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="1" time="0">
+      <testcase name="needs Aside" classname="Design Review E2E" time="0" file="test/skill-e2e-design.test.ts" line="603" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testsuite name="Design review plugin discovery E2E" file="test/skill-e2e-design.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="1" time="0">
+      <testcase name="design-review-plugin-handoff" classname="Design review plugin discovery E2E" time="0" file="test/skill-e2e-design.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testsuite name="Design review detector shim E2E" file="test/skill-e2e-design.test.ts" line="146" tests="2" assertions="0" failures="0" skipped="2" time="0">
+      <testcase name="design-review-detector-shim" classname="Design review detector shim E2E" time="0" file="test/skill-e2e-design.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+      <testcase name="design-review-detector-shim-dom" classname="Design review detector shim E2E" time="0" file="test/skill-e2e-design.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+    <testsuite name="Design HTML slop gate E2E" file="test/skill-e2e-design.test.ts" line="146" tests="1" assertions="0" failures="0" skipped="1" time="0">
+      <testcase name="design-html-slop-gate" classname="Design HTML slop gate E2E" time="0" file="test/skill-e2e-design.test.ts" line="381" assertions="0">
+        <skipped />
+      </testcase>
+    </testsuite>
+  </testsuite>
+</testsuites>

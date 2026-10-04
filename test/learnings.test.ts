@@ -321,3 +321,36 @@ describe('gstack-learnings-search edge cases', () => {
     expect(output).toContain('confidence: 0/10');
   });
 });
+
+// G3 (#2952): the temp file honors TMPDIR, and a temp-file failure says the
+// learning was not recorded instead of exiting with only mktemp's own error.
+describe('G3: learnings-log temp file and TMPDIR', () => {
+  test('logs through a private TMPDIR', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-learn-tmpdir-'));
+    try {
+      execSync(`${BIN}/gstack-learnings-log '{"skill":"review","type":"pitfall","key":"tmpdir-ok","insight":"x","confidence":5,"source":"observed"}'`, {
+        cwd: ROOT, env: { ...process.env, GSTACK_HOME: tmpDir, TMPDIR: tmp }, encoding: 'utf-8', timeout: 15000,
+      });
+      expect(fs.readFileSync(findLearningsFile()!, 'utf-8')).toContain('tmpdir-ok');
+      expect(fs.readdirSync(tmp)).toEqual([]);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('an unusable TMPDIR fails loudly and names the dropped learning', () => {
+    let status = 0;
+    let stderr = '';
+    try {
+      execSync(`${BIN}/gstack-learnings-log '{"skill":"review","type":"pitfall","key":"tmpdir-bad","insight":"x","confidence":5,"source":"observed"}'`, {
+        cwd: ROOT, env: { ...process.env, GSTACK_HOME: tmpDir, TMPDIR: path.join(tmpDir, 'does-not-exist') }, encoding: 'utf-8', stdio: 'pipe', timeout: 15000,
+      });
+    } catch (e: any) {
+      status = e.status;
+      stderr = String(e.stderr);
+    }
+    expect(status).not.toBe(0);
+    expect(stderr).toContain('the learning was not recorded');
+    expect(stderr).toContain('TMPDIR');
+  });
+});

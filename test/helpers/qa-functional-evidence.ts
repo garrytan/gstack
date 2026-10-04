@@ -157,9 +157,14 @@ export function qaFunctionalVerdict(fixture: QAFunctionalFixture, mode: QAMode, 
   if (!report || report.revision !== fixture.revision || report.runtime !== `bun ${Bun.version}` || report.cwd !== fixture.root) failures.push('report lacks exact revision/runtime/cwd');
   if (!Array.isArray(report?.limits) || report.limits.length === 0) failures.push('report lacks coverage limits');
   if (!Array.isArray(report?.evidence) || report.evidence.length < probes.length) failures.push('report omitted executed probe evidence');
+  // A capture taken before the repair whose command reran on the repaired
+  // inputs may be classified superseded (exploratory §4).
+  const rerunAfterRepair = (probe: typeof probes[number]) => firstEdit >= 0 && probe.index < firstEdit
+    && probes.some(later => later.index > firstEdit && nativeCommand(later) === nativeCommand(probe));
   for (const probe of probes) {
     if (!report?.evidence?.some(row => row.command === probe.command && row.contract === 'README.md' && typeof row.expected === 'string' && row.expected.trim()
-      && row.classification === qaProbeClassification(probe.observed) && canonical(row.observed) === canonical(probe.observed))) failures.push(`missing exact sanitized evidence for ${probe.command}`);
+      && (row.classification === qaProbeClassification(probe.observed) || (row.classification === 'superseded' && rerunAfterRepair(probe)))
+      && canonical(row.observed) === canonical(probe.observed))) failures.push(`missing exact sanitized evidence for ${probe.command}`);
   }
   for (const row of report?.evidence ?? []) {
     if (!probes.some(probe => row.command === probe.command && canonical(row.observed) === canonical(probe.observed))) failures.push('report invented an executed probe');

@@ -189,11 +189,10 @@ describe('stop-reap wiring pins (#2709)', () => {
     // unguarded push would strip the GPU from headed/GBrowser sessions.
     const calls = src.match(/headlessGpuArgs\(process\.platform, process\.env\)/g) ?? [];
     expect(calls.length).toBe(1);
-    // And that one call site is guarded by the headless flag: the extensions
-    // path above it forces useHeadless = false, so extension-loaded and headed
-    // launches never receive the GPU-disable flags.
-    expect(src).toMatch(
-      /if \(useHeadless\) \{\s*\n\s*launchArgs\.push\(\.\.\.headlessGpuArgs\(process\.platform, process\.env\)\);\s*\n\s*\}/,
-    );
+    // And that one call site is in the headless launch(), never in the headed
+    // launchHeaded(). Since #2281 the extensions path is new headless too
+    // (--headless=new, no window), so it takes the headless GPU flags.
+    const headless = src.slice(src.indexOf('  async launch() {'), src.indexOf('  async launchHeaded('));
+    expect(headless).toContain('launchArgs.push(...headlessGpuArgs(process.platform, process.env));');
   });
 });

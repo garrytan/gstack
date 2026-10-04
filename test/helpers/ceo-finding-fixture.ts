@@ -59,7 +59,11 @@ export function seedPlanReviewProject(projectDir: string, plan: string, skill: '
     throw new Error('Plan review fixture requires a fresh private directory');
   }
   fs.writeFileSync(path.join(projectDir, 'review-input.md'), plan, { flag: 'wx' });
-  if (design !== undefined) fs.writeFileSync(path.join(projectDir, 'DESIGN.md'), design, { flag: 'wx' });
+  // A feature design doc lives in docs/designs/; a root DESIGN.md is a design system (F2, #2839).
+  if (design !== undefined) {
+    fs.mkdirSync(path.join(projectDir, 'docs', 'designs'), { recursive: true });
+    fs.writeFileSync(path.join(projectDir, 'docs', 'designs', 'feature-design.md'), design, { flag: 'wx' });
+  }
   fs.writeFileSync(path.join(projectDir, 'README.md'), `# ${skill} fixture\n`, { flag: 'wx' });
   fs.writeFileSync(path.join(projectDir, 'CLAUDE.md'), [
     `# ${skill}`, '',
@@ -73,7 +77,7 @@ export function seedPlanReviewProject(projectDir: string, plan: string, skill: '
   ].join('\n'), { flag: 'wx' });
   const git = (args: string[]) => execFileSync('git', args, { cwd: projectDir, stdio: 'pipe', timeout: 10_000 });
   git(['init', '-b', 'main']);
-  git(['add', 'README.md', 'CLAUDE.md', 'review-input.md', ...(design === undefined ? [] : ['DESIGN.md'])]);
+  git(['add', 'README.md', 'CLAUDE.md', 'review-input.md', ...(design === undefined ? [] : ['docs/designs/feature-design.md'])]);
   git(['-c', 'user.name=Finding fixture', '-c', 'user.email=fixture@gstack.test', 'commit', '-m', 'Seed review input']);
   git(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
 }

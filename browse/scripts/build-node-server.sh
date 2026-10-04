@@ -21,7 +21,9 @@ echo "Building Node-compatible server bundle..."
 
 # Step 1: Transpile server.ts to a single .mjs bundle (externalize runtime deps)
 #
-# Externalize packages with native addons, dynamic imports, or runtime resolution.
+# Externalize packages with native addons, dynamic imports, or runtime resolution
+# (sharp loads a platform .node addon; socks is resolved at runtime, and Bun on
+# Windows refuses to inline either, #2260).
 # If you add a new dependency that uses `await import()` or has a .node addon,
 # add it here. Otherwise `bun build --outfile` will fail with
 # "cannot write multiple output files without an output directory".
@@ -32,7 +34,9 @@ bun build "$SRC_DIR/server.ts" \
   --external playwright-core \
   --external diff \
   --external "bun:sqlite" \
-  --external "@ngrok/ngrok"
+  --external "@ngrok/ngrok" \
+  --external socks \
+  --external sharp
 
 # Step 2: Post-process
 # Replace import.meta.dir with a resolvable reference

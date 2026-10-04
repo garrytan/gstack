@@ -1,0 +1,126 @@
+{
+  "source": "periodic census 37174266054 (eval-slices 2), plan-eng-review-artifact PTY run on a8ace39: the six native AskUserQuestion calls the real /plan-eng-review sent during Scope Challenge, with the runner's actual answers. Public question fields only.",
+  "calls": [
+    {
+      "toolUseId": "toolu_015bMxAKzS2jn8i47R3fc2Pj",
+      "answeredAt": "2026-10-04T03:35:45.294Z",
+      "question": "D1 — Fix the synchronous read of an async fetch in Dashboard\nProject/branch/task: gstack-plan-count-Q1Nd6h on main, plan \"Add Dashboard\" reading /api/stats.\nELI10: fetchStats() hands back a promise, an IOU for data that arrives later, but Dashboard() treats the IOU as if it were the data. So users and revenue are always undefined. The one thing the plan exists to do, show user count and revenue, never happens.\nStakes if we pick wrong: the dashboard ships with blank metrics and no error; nobody notices until a human stares at the page.\nRecommendation: A because async/await is the explicit, standard fix and keeps error handling (R2) readable when it lands.\nCompleteness: A=10/10, B=9/10\nPros / cons:\nA) Make Dashboard async and await fetchStats (recommended) (human: ~30 min / CC: ~2 min)\n  ✅ Dashboard resolves to real {users, revenue} values, so the plan's contract actually holds\n  ✅ Explicit control flow; main() in app.ts awaits it and returns Promise<Stats>; low maintenance\n  ❌ main() becomes async, so any future caller must await it (no callers exist in the repo today)\nB) Return the promise chain from Dashboard without async/await (human: ~20 min / CC: ~2 min)\n  ✅ Smallest diff: one .then() mapping to {users, revenue}; same resolved value as A\n  ✅ No new keywords; main() can keep its one-line body and return the promise\n  ❌ Then-chains get harder to read once the r.ok check, catch and timeout land in the same function\nNet: a couple of keywords versus a Dashboard that actually returns data; either fixes the P0, A ages better.",
+      "header": "Async fix",
+      "options": [
+        {
+          "label": "Make Dashboard async and await fetchStats (recommended)",
+          "description": "Dashboard becomes `async` and awaits fetchStats(); main() in app.ts becomes async and awaits Dashboard(). Resolves to real {users, revenue}. Required proof: unit test with mocked fetch asserting the resolved values. R2/R3/R4 stay pending. greet() unchanged. (human: ~30 min / CC: ~2 min)"
+        },
+        {
+          "label": "Return the promise chain from Dashboard without async/await",
+          "description": "Dashboard returns fetchStats().then(d => ({ users: d.users, revenue: d.revenue })); main() returns that promise. Same resolved value as A. Required proof: same unit test. R2/R3/R4 stay pending. greet() unchanged. (human: ~20 min / CC: ~2 min)"
+        }
+      ],
+      "answer": "Make Dashboard async and await fetchStats (recommended)",
+      "ledgerId": "R1"
+    },
+    {
+      "toolUseId": "toolu_01L6up5bAgKvNxnb8VniPhB2",
+      "answeredAt": "2026-10-04T03:36:49.867Z",
+      "question": "D2 — What should Dashboard do when /api/stats fails?\nProject/branch/task: gstack-plan-count-Q1Nd6h on main, plan \"Add Dashboard\"; R1 (async fix) approved.\nELI10: Today the code assumes the server always answers with valid JSON. If the network is down, the server returns a 500, or it sends an HTML error page, the code blows up with an unhandled error and the user sees nothing. We need to decide how a failure is reported to whoever renders the dashboard.\nStakes if we pick wrong: a server hiccup becomes a blank screen or a console-only exception, and the next person who calls Dashboard() forgets to catch it and we're back to a silent failure.\nRecommendation: A because a result object makes the failure path a value the caller cannot ignore, and the plan's own job is to report metrics or say why it can't.\nCompleteness: A=10/10, B=9/10, C=0/10\nPros / cons:\nA) Resolve to an ok/error result object (recommended) (human: ~1.5 h / CC: ~5 min)\n  ✅ Callers get { ok, stats | error } and the type system forces them to handle the failure state\n  ✅ Dashboard() never rejects, so main() cannot reintroduce an unhandled promise rejection\n  ❌ Slightly more verbose call sites than a bare value; every caller unwraps the result\nB) Throw a typed StatsError from Dashboard (human: ~1.5 h / CC: ~5 min)\n  ✅ Idiomatic async/await: happy path stays a plain Stats value; errors carry kind and HTTP status\n  ✅ Works with any upstream error boundary that already catches rejections\n  ❌ A caller that forgets try/catch (main() has none today) recreates the same silent failure\nC) Leave failures unhandled (human: 0 / CC: 0)\n  ✅ No code change\n  ❌ 500s and offline users produce unhandled rejections or SyntaxError; the plan's \"returns metrics\" promise is unreliable\nNet: forcing callers to look at the error (A) versus idiomatic throws they can forget (B); either beats C.",
+      "header": "Error handling",
+      "options": [
+        {
+          "label": "Resolve to an ok/error result object (recommended)",
+          "description": "Dashboard() resolves to `{ ok: true, stats }` or `{ ok: false, error: { kind: 'network' | 'http' | 'parse', status?, message } }`; checks `r.ok`, catches network and JSON-parse failures; never rejects. Required proof: unit tests for happy path and each of the three failure classes with mocked fetch. R1 stays approved; R3/R4/R7 stay pending. (human: ~1.5 h / CC: ~5 min)"
+        },
+        {
+          "label": "Throw a typed StatsError from Dashboard",
+          "description": "Dashboard() returns Stats on success and rejects with `StatsError { kind, status?, cause }` for network, non-2xx and parse failures; main() wraps the call in try/catch. Required proof: same four tests. R1 stays approved; R3/R4/R7 stay pending. (human: ~1.5 h / CC: ~5 min)"
+        },
+        {
+          "label": "Leave failures unhandled",
+          "description": "No change: fetch rejections and SyntaxError propagate out of Dashboard() and main(). No tests added for failure paths. R1 stays approved; R3/R4/R7 stay pending."
+        }
+      ],
+      "answer": "Resolve to an ok/error result object (recommended)",
+      "ledgerId": "R2"
+    },
+    {
+      "toolUseId": "toolu_01WRokhgJVFLKtJcfYwA48zB",
+      "answeredAt": "2026-10-04T03:37:56.510Z",
+      "question": "D3 — Pin down the /api/stats contract before building the client\nProject/branch/task: gstack-plan-count-Q1Nd6h on main, plan \"Add Dashboard\"; R1 and R2 approved.\nELI10: The plan says \"fetch from /api/stats\" but nothing in this repo serves that URL, and nobody has written down what it returns, what happens when you're not logged in, or whether revenue is in dollars or cents. Building a client against an unwritten contract means the first real request is the first test.\nStakes if we pick wrong: the client parses a shape the server never sends (blank metrics again), or revenue numbers are off by 100x, or anonymous users can read revenue.\nRecommendation: A because writing the contract into the plan now gives R4 a type to validate against and the backend owner a concrete thing to confirm; it costs minutes.\nCompleteness: A=9/10, B=5/10, C=3/10\nPros / cons:\nA) Write the /api/stats contract into the plan (recommended) (human: ~1 h / CC: ~5 min)\n  ✅ Shape, status codes, auth and revenue unit become explicit text the backend owner can confirm or correct\n  ✅ Gives R4 (runtime validation) and the tests a single source of truth for the Stats type\n  ❌ Still an assumption until the backend owner confirms; a mismatch means one more plan edit\nB) Investigate the backend first (human: ~2 h / CC: ~10 min)\n  ✅ Contract copied from the real handler, so no guessing about shape or auth\n  ✅ Surfaces early if the endpoint does not exist yet and needs its own ticket\n  ❌ Blocks the client work until someone finds the producer; approves no implementation\nC) Build against the assumed shape (human: 0 / CC: 0)\n  ✅ No extra writing; matches the plan as drafted\n  ❌ Shape, auth and units stay undocumented; the first production request is the first integration test\nNet: a written, confirmable contract (A) versus waiting on discovery (B) versus hoping (C).",
+      "header": "API contract",
+      "options": [
+        {
+          "label": "Write the /api/stats contract into the plan (recommended)",
+          "description": "Plan records: `GET /api/stats` requires an authenticated session, client sends `credentials: 'same-origin'`; 200 → `{ users: number, revenue: number }` (revenue unit and currency marked \"confirm with backend owner\"); 401/403/5xx → R2 `http` error with status. This Stats shape is the type R4 validates against. R1/R2 stay approved; R4/R7 stay pending. (human: ~1 h / CC: ~5 min)"
+        },
+        {
+          "label": "Investigate the backend first",
+          "description": "Bounded investigation: locate the service/repo that serves `/api/stats` (or confirm it does not exist) and copy its real response shape, status codes and auth into the plan. Approves no implementation; R3 rows stay pending until the result is in. R1/R2 stay approved; R4/R7 stay pending. (human: ~2 h / CC: ~10 min)"
+        },
+        {
+          "label": "Build against the assumed shape",
+          "description": "Keep the plan as written: client assumes JSON with `users` and `revenue`, no documented status codes, auth or units. R1/R2 stay approved; R4/R7 stay pending."
+        }
+      ],
+      "answer": "Write the /api/stats contract into the plan (recommended)",
+      "ledgerId": "R3"
+    },
+    {
+      "toolUseId": "toolu_01QuAeEMbCnnJHHbe4vuvwHE",
+      "answeredAt": "2026-10-04T03:39:03.639Z",
+      "question": "D4 — Should the stats request give up after a fixed time?\nProject/branch/task: gstack-plan-count-Q1Nd6h on main, plan \"Add Dashboard\"; R1, R2, R3 approved.\nELI10: If the stats server hangs instead of answering, the current fetch waits as long as the browser lets it, often minutes. The user stares at a loading dashboard with no idea whether it will ever finish. A timeout turns \"forever\" into a clear \"couldn't load stats\" after a known number of seconds.\nStakes if we pick wrong: a slow backend incident becomes an indefinitely spinning dashboard, and support hears \"the dashboard is frozen\" instead of \"the dashboard said stats are unavailable\".\nRecommendation: A because AbortSignal.timeout is a one-line built-in and turns the worst failure mode into a handled error with a test.\nCompleteness: A=10/10, B=5/10\nPros / cons:\nA) 10 second timeout via AbortSignal.timeout (recommended) (human: ~45 min / CC: ~3 min)\n  ✅ Hung backend becomes a { ok: false, error: { kind: 'timeout' } } result after 10 s; the UI can say so\n  ✅ Platform built-in, no dependency; one extra error kind in the union approved in D2\n  ❌ 10 s is a guess; a legitimately slow aggregation query would be reported as a failure\nB) No client-side timeout (human: 0 / CC: 0)\n  ✅ No code change; never cuts off a slow but successful response\n  ✅ Nothing extra to test or tune\n  ❌ Hung backend means the dashboard spins until the browser gives up, often minutes, with no message\nNet: a bounded, explainable failure after 10 s versus trusting the backend to always answer.",
+      "header": "Request timeout",
+      "options": [
+        {
+          "label": "10 second timeout via AbortSignal.timeout (recommended)",
+          "description": "fetchStats passes `signal: AbortSignal.timeout(10_000)`; an abort (`err.name === 'TimeoutError'`) maps to `{ ok: false, error: { kind: 'timeout', message } }`, extending the D2 error union. Dashboard() still never rejects. Required proof: unit test with mocked fetch rejecting with a TimeoutError. R1/R2/R3 stay approved; R4 stays pending. (human: ~45 min / CC: ~3 min)"
+        },
+        {
+          "label": "No client-side timeout",
+          "description": "fetch keeps browser defaults; no `timeout` error kind; a hung backend leaves Dashboard() pending. R1/R2/R3 stay approved; R4 stays pending."
+        }
+      ],
+      "answer": "10 second timeout via AbortSignal.timeout (recommended)",
+      "ledgerId": "R7"
+    },
+    {
+      "toolUseId": "toolu_01E4hjs1j86wmxGerQoXGkvf",
+      "answeredAt": "2026-10-04T03:40:33.915Z",
+      "question": "D5 — Should the client verify the stats response shape at runtime?\nProject/branch/task: gstack-plan-count-Q1Nd6h on main, plan \"Add Dashboard\"; R1, R2, R3, R7 approved.\nELI10: TypeScript types only exist while you compile. At runtime the server can send anything, and today the code forwards whatever arrives without looking. If the backend renames a field or sends a string, the dashboard shows blank or wrong numbers with no error. A three-line check turns that into the same clear \"parse\" failure the D2 result object already carries.\nStakes if we pick wrong: a backend rename or a staging/prod contract drift shows up as blank or garbage revenue, not as an error anyone can act on.\nRecommendation: A because the guard is three lines, has no dependency, reuses the approved parse error kind and makes the D3 contract enforceable instead of aspirational.\nCompleteness: A=10/10, B=6/10\nPros / cons:\nA) Stats type plus a hand-written runtime guard (recommended) (human: ~1 h / CC: ~4 min)\n  ✅ Contract drift (renamed field, string instead of number) becomes an explicit parse error, not undefined metrics\n  ✅ No new dependency; the guard is the executable form of the D3 contract and is unit-tested\n  ❌ Two more branches to keep in sync if the contract grows beyond two fields\nB) Stats type only, trust the server (human: ~15 min / CC: ~1 min)\n  ✅ Compile-time safety for callers reading stats.users and stats.revenue\n  ✅ Smallest change; nothing to update when the backend adds optional fields\n  ❌ Runtime drift still flows through silently; the type is a promise the code never checks\nNet: enforce the contract at the boundary (A) or document it and hope (B); the price of A is three lines and two tests.",
+      "header": "Shape validation",
+      "options": [
+        {
+          "label": "Stats type plus a hand-written runtime guard (recommended)",
+          "description": "Add `export type Stats = { users: number; revenue: number }` and `isStats(x: unknown): x is Stats` (both fields finite numbers) in dashboard.ts; a body failing the guard resolves to `{ ok: false, error: { kind: 'parse', message } }`. No dependency. Required proof: unit tests for a valid body, a missing field and a wrong type. R1/R2/R3/R7 stay approved. (human: ~1 h / CC: ~4 min)"
+        },
+        {
+          "label": "Stats type only, trust the server",
+          "description": "Add the `Stats` type and cast `r.json()` to it; no runtime check, so shape drift passes through. R1/R2/R3/R7 stay approved. (human: ~15 min / CC: ~1 min)"
+        }
+      ],
+      "answer": "Stats type plus a hand-written runtime guard (recommended)",
+      "ledgerId": "R4"
+    },
+    {
+      "toolUseId": "toolu_013ZVLcvRXw1iHDDywWdoQZ9",
+      "answeredAt": "2026-10-04T03:42:00.587Z",
+      "question": "D6 — Which test runner carries the approved tests?\nProject/branch/task: gstack-plan-count-Q1Nd6h on main, plan \"Add Dashboard\"; R1/R2/R3/R4/R7 approved, each with required unit tests.\nELI10: Five approved behaviors each come with tests, but the repo has no way to run a test: no package.json, no TypeScript config, no runner. We need to pick the tool that executes them. Node 22 can run TypeScript tests natively, or we add Vitest, the common choice for TypeScript projects that ship to a browser.\nStakes if we pick wrong: either the tests never get written because there is nowhere to put them, or we pin the project to a toolchain that fights the browser build later.\nRecommendation: A because the code targets a browser (relative fetch URL), Vitest handles the existing extensionless import untouched, and it is the boring default for TypeScript projects; node:test is a close second.\nCompleteness: A=10/10, B=10/10, C=0/10\nPros / cons:\nA) Vitest + TypeScript (recommended) (human: ~2 h / CC: ~8 min)\n  ✅ Runs the existing app.ts import as-is; vi.stubGlobal makes fetch mocking one line per test\n  ✅ Same toolchain family a browser build (Vite) will use, so one config lineage instead of two\n  ❌ Adds vitest and its transitive deps to a two-file repo; install size is the price\nB) node:test with native type stripping (human: ~2 h / CC: ~8 min)\n  ✅ Zero test dependencies; node --test and mock.method are in the standard library\n  ✅ Verified viable here: Node v22.20.0 strips types unflagged\n  ❌ app.ts:1 must import \"./dashboard.ts\" and the project pins Node >= 22.18; tsconfig needs the extension-rewrite flags\nC) No tests (human: 0 / CC: 0)\n  ✅ No toolchain to maintain\n  ❌ Every approved behavior ships unproven; the P0 async bug class has no regression guard\nNet: boring browser-aligned toolchain (A) versus zero dependencies with a source tweak and a Node pin (B); C drops all required proof.",
+      "header": "Test runner",
+      "options": [
+        {
+          "label": "Vitest + TypeScript (recommended)",
+          "description": "Add `package.json` (`\"test\": \"vitest run\"`, `\"typecheck\": \"tsc --noEmit\"`), `tsconfig.json` (`strict`, `lib: [\"dom\",\"es2022\"]`), devDependencies `vitest` and `typescript`. Tests live in `dashboard.test.ts` and `app.test.ts`; fetch mocked with `vi.stubGlobal`. No source import changes. R1/R2/R3/R4/R7 stay approved; R6 stays pending. (human: ~2 h / CC: ~8 min)"
+        },
+        {
+          "label": "node:test with native type stripping",
+          "description": "Add `package.json` (`\"test\": \"node --test '**/*.test.ts'\"`, `engines.node >= 22.18`), `tsconfig.json` with `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`, devDependency `typescript` for typecheck only. Change app.ts:1 to import `\"./dashboard.ts\"`. fetch mocked with `mock.method`. R1/R2/R3/R4/R7 stay approved; R6 stays pending. (human: ~2 h / CC: ~8 min)"
+        },
+        {
+          "label": "No tests",
+          "description": "No toolchain or tests added; approved required proof cannot run. R1/R2/R3/R4/R7 stay approved as behaviors; R6 stays pending."
+        }
+      ],
+      "answer": "Vitest + TypeScript (recommended)",
+      "ledgerId": "R6"
+    }
+  ],
+  "ledgerIds": "From the questions' own cross-references: D2 cites R1 approved, D3 R1-R2, D4 R1-R3, D5 R1-R3 and R7 (so D4 was R7), D6 R1-R4 and R7 (so D5 was R4) and names R6 as its own choice."
+}

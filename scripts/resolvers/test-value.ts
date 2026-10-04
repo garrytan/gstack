@@ -122,11 +122,11 @@ function questionList(mode: TestValueBarMode): string {
   return questions.map((question, index) => `${index + 1}. ${question}`).join('\n');
 }
 
-function cardRules(mode: TestValueBarMode): string {
+function cardRules(mode: TestValueBarMode, skillName: string): string {
   const where = {
     plan: 'One card per Critical Path and Edge Case in the Test Plan Artifact.',
     ship: 'Write it as a header comment in each generated test, next to the attribution (wrap, do not truncate); with no known comment syntax, put it in the PR body\'s Test value details.',
-    qa: 'Put it in the 8e.5 record (/qa) or under each proposed test (/qa-only).',
+    qa: skillName === 'qa-only' ? 'Put it under each proposed test.' : 'Put it in the 8e.5 record.',
     audit: 'Read cards from test header comments when present.',
   }[mode];
   return `Value card: \`Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none\` (seam: \`none\` or its name); each field at most ${CARD_FIELD_MAX_BYTES} UTF-8 bytes here (clamp to 157 plus \`...\`; JSON keeps full values). ${where} A missing upstream card never blocks: derive it; ignore unknown fields.
@@ -150,13 +150,13 @@ Retention bar: keep a test that independently enforces a public API, protocol, c
 Retirement card, complete before any edit: ${RETIREMENT_FIELDS.map(field => `\`${field}\``).join(', ')}. Caller check for a symbol matching \`${CALLER_SYMBOL_PATTERN}\` (otherwise "caller check unavailable: unsupported symbol"): \`${CALLER_SEARCH_COMMAND}\`; record the command, exclusions and hit count. The evidence is grep-only (no re-exports, dynamic dispatch or generated code), so production code is retired only when the repo's typecheck/build or dead-code tool passes with it removed in a scratch worktree.`;
 }
 
-export function generateTestValueBar(_ctx: TemplateContext, args?: string[]): string {
+export function generateTestValueBar(ctx: TemplateContext, args?: string[]): string {
   const mode = args?.[0] as TestValueBarMode;
   if (!TEST_VALUE_BAR_MODES.includes(mode)) throw new Error(MESSAGES.unknownMode.message.replace('<x>', String(args?.[0])));
   const parts = [
     `**Test value bar.** ${mode === 'qa' ? 'Before writing or proposing a test, the reproduced bug already answers what it protects and what makes it fail; also answer:' : 'Propose or write a test only with all four answers; otherwise extend an existing test or drop it:'}`,
     questionList(mode),
-    cardRules(mode),
+    cardRules(mode, ctx.skillName),
   ];
   if (mode !== 'qa') parts.splice(2, 0, 'A test that breaks under a behavior-preserving refactor asserts implementation: rewrite it at the owning boundary, unless exact output is the declared contract (goldens, prompt bytes, wire formats).');
   if (mode === 'plan') parts.push(`${STAR_RULE} /ship computes them; here every proposed test needs a card.`, RETENTION_ONE_LINER);

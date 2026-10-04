@@ -299,6 +299,47 @@ _dir_only_links() {
   return 0
 }
 
+# _serve_rendered_assets SKILL TARGET — F5 (#2706): when the gbrain render has
+# a counterpart of a runtime asset setup linked from the checkout (sections/,
+# ...), serve the rendered file instead, per file (render dirs carry only the
+# generated *.md). An asset whose render counterpart is gone goes back to the
+# checkout. Only entries that are our links, or directories of nothing but our
+# links, are touched; anything else is the user's and stays.
+_serve_rendered_assets() {
+  local skill="$1" target="$2" asset name t child
+  for asset in "$INSTALL_DIR/$skill"/*; do
+    [ -e "$asset" ] || continue
+    name="${asset##*/}"
+    case "$name" in SKILL.md|node_modules|dist|test|*.tmpl) continue ;; esac
+    t="$target/$name"
+    if [ -L "$t" ]; then
+      _target_is_ours "$(_link_target_abs "$t")" || continue
+    elif [ -d "$t" ]; then
+      _dir_only_links "$t" || continue
+    else
+      continue
+    fi
+    if [ -d "$asset" ] && [ -d "$RENDER_DIR/$skill/$name" ]; then
+      rm -rf "$t"
+      mkdir -p "$t"
+      for child in "$asset"/*; do
+        [ -e "$child" ] || continue
+        if [ -f "$RENDER_DIR/$skill/$name/${child##*/}" ]; then
+          ln -snf "$RENDER_DIR/$skill/$name/${child##*/}" "$t/${child##*/}"
+        else
+          ln -snf "$child" "$t/${child##*/}"
+        fi
+      done
+    elif [ -f "$asset" ] && [ -f "$RENDER_DIR/$skill/$name" ]; then
+      rm -rf "$t"
+      ln -snf "$RENDER_DIR/$skill/$name" "$t"
+    elif [ -d "$t" ] && [ ! -L "$t" ] || [ "$(_link_target_abs "$t")" != "$asset" ]; then
+      rm -rf "$t"
+      ln -snf "$asset" "$t"
+    fi
+  done
+}
+
 _link_root_skill_alias() {
   local target="$SKILLS_DIR/_gstack-command"
 
@@ -330,7 +371,7 @@ _link_root_skill_alias() {
 
 _link_root_skill_alias
 
-# Discover skills (directories with SKILL.md, excluding meta dirs)
+# Discover skills: every top-level directory with a SKILL.md
 SKILL_COUNT=0
 for skill_dir in "$INSTALL_DIR"/*/; do
   [ -d "$skill_dir" ] || continue
@@ -340,8 +381,8 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   # rewritten-copy alias for those.
   [ -L "${skill_dir%/}" ] && continue
   skill=$(basename "$skill_dir")
-  # Skip non-skill directories
-  case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
+  # A directory is a skill iff it carries a SKILL.md (#2263): a name list
+  # dropped the real browse skill. Support dirs have no SKILL.md.
   [ -f "$skill_dir/SKILL.md" ] || continue
   case "$DISABLED" in
     *" ${skill#gstack-} "*)
@@ -399,6 +440,7 @@ for skill_dir in "$INSTALL_DIR"/*/; do
     fi
   fi
   ln -snf "$skill_md_src" "$target/SKILL.md"
+  _serve_rendered_assets "$skill" "$target"
   # Provenance marker on every platform (path-independent proof; on Windows
   # without Developer Mode `ln -snf` degrades to a copy and this is the only
   # proof), but only for a directory we created or already owned.
@@ -414,6 +456,28 @@ done
 # for every brain-aware skill (#2738). gstack-patch-names takes an arbitrary
 # root, skips already-prefixed names (idempotent), and the render dir is
 # user-owned and untracked, so patching it never dirties a checkout.
+# C8 (#3018): Claude reads the router straight from the install root, so with
+# disabled_skills set it is re-rendered in place without their routing rules
+# (in place, like gstack-patch-names). Clearing the list restores the committed
+# bytes. Only a generated router is rewritten, and only from a checkout that
+# carries the generator; a failed render keeps the current router.
+_ROUTER="$INSTALL_DIR/SKILL.md"
+_GEN_SRC="$(cd "$SCRIPT_DIR/.." && pwd)"
+if { [ "$DISABLED" != " " ] || grep -q '^Disabled on this install' "$_ROUTER" 2>/dev/null; } \
+  && grep -q '<!-- AUTO-GENERATED from' "$_ROUTER" 2>/dev/null && [ -f "$_GEN_SRC/scripts/gen-skill-docs.ts" ]; then
+  _ROUTER_TMP="$(mktemp -d "${TMPDIR:-/tmp}/gstack-router.XXXXXX")" || _ROUTER_TMP=""
+  _DISABLED_CSV="$(printf '%s' "$DISABLED" | xargs | tr ' ' ',')"
+  if [ -n "$_ROUTER_TMP" ] && command -v bun >/dev/null 2>&1 \
+    && (cd "$_GEN_SRC" && bun run scripts/gen-skill-docs.ts --host claude --out-dir "$_ROUTER_TMP" ${_DISABLED_CSV:+"--disabled-skills=$_DISABLED_CSV"} >/dev/null 2>&1) \
+    && [ -s "$_ROUTER_TMP/SKILL.md" ] && cp "$_ROUTER_TMP/SKILL.md" "$_ROUTER.tmp.$$" && mv "$_ROUTER.tmp.$$" "$_ROUTER"; then
+    [ -n "$_DISABLED_CSV" ] && echo "Router: disabled skills left out of $_ROUTER"
+  else
+    rm -f "$_ROUTER.tmp.$$"
+    echo "gstack-relink: could not re-render the router for disabled_skills (bun missing or generation failed); $_ROUTER still lists every skill. Fix: install Bun, then run $0" >&2
+  fi
+  [ -z "$_ROUTER_TMP" ] || rm -rf "$_ROUTER_TMP"
+fi
+
 "$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX"
 [ -d "$RENDER_DIR" ] && "$INSTALL_DIR/bin/gstack-patch-names" "$RENDER_DIR" "$PREFIX"
 

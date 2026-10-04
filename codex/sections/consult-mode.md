@@ -62,7 +62,8 @@ For non-plan consult prompts (user typed `/codex <question>`), still prepend the
 
 <user's question>"
 
-4. Run codex exec with **JSONL output** to capture reasoning traces. Use
+4. Run codex exec with **JSONL output** to capture reasoning traces. Replace `<prompt>`
+with the full prompt, verbatim and unescaped; Codex reads it on stdin. Use
 `timeout: 600000` on the Bash call (the tool's maximum; for both new and resumed
 sessions) — the gate sits ABOVE the 540s wrapper so the wrapper fires first, ends Codex,
 and prints its explicit stall message:
@@ -80,7 +81,12 @@ fi
 source ~/.claude/skills/gstack/bin/gstack-codex-probe || exit 1
 _gstack_codex_select_model exec || exit 1
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 540 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
+# The prompt goes to Codex on stdin (codex exec -), verbatim: no shell quoting, no argv size limit.
+cat > "$_PROMPT_FILE" <<'CODEX_PROMPT_END'
+<prompt>
+CODEX_PROMPT_END
+_gstack_codex_timeout_wrapper 540 codex exec - -C "$_REPO_ROOT" -s "${_GSTACK_CODEX_SANDBOX:?}" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$TMPRESP" < "$_PROMPT_FILE" 2>"$TMPERR" | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0
 turn_failed = False
@@ -135,6 +141,8 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
   _gstack_codex_log_event "codex_nonzero_exit" "consult:$_CODEX_EXIT"
 fi
+bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex consult' --exit "$_CODEX_EXIT" --stderr "$TMPERR" --events "$TMPRESP.events" execution "$TMPRESP"
+rm -f "$_PROMPT_FILE"
 ```
 
 **Session-cost reality (measured):** every `codex exec` call — resumed
@@ -157,7 +165,12 @@ cd "$_REPO_ROOT" || exit 1
 source ~/.claude/skills/gstack/bin/gstack-codex-probe || exit 1
 _gstack_codex_select_model exec || exit 1
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 540 codex exec resume <session-id> "<prompt>" -c 'sandbox_mode="read-only"' -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX") || { echo "ERROR: mktemp failed in TMP_ROOT=$TMP_ROOT; not running codex without its temp file" >&2; exit 1; }
+# The prompt goes to Codex on stdin (codex exec -), verbatim: no shell quoting, no argv size limit.
+cat > "$_PROMPT_FILE" <<'CODEX_PROMPT_END'
+<prompt>
+CODEX_PROMPT_END
+_gstack_codex_timeout_wrapper 540 codex exec resume <session-id> - -c "sandbox_mode=\"${_GSTACK_CODEX_SANDBOX:?}\"" -c "model=\"${_GSTACK_CODEX_SEL:?}\"" -c skills.include_instructions=false -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json -o "$TMPRESP" < "$_PROMPT_FILE" 2>"$TMPERR" | tee "$TMPRESP.events" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 <same python streaming parser as above, with flush=True on all print() calls>
 "
 # Fix 1: same hang detection pattern as new-session block
@@ -173,7 +186,13 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
   head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
   _gstack_codex_log_event "codex_nonzero_exit" "consult-resume:$_CODEX_EXIT"
 fi
+bun ~/.claude/skills/gstack/lib/outside-review-result.ts --label 'Codex consult' --exit "$_CODEX_EXIT" --stderr "$TMPERR" --events "$TMPRESP.events" execution "$TMPRESP"
+rm -f "$_PROMPT_FILE"
 ```
+
+`VERDICT: unavailable` from either block means Codex did not answer from a working
+environment (its line names why, such as a sandbox that could not start): relay that
+line and do not present the output as Codex's answer.
 
 5. Capture session ID from the streamed output. The parser prints `SESSION_ID:<id>`
    from the `thread.started` event. Save it for follow-ups:

@@ -565,3 +565,34 @@ describe('gstack-gbrain-source-wireup — defensive paths', () => {
     expect(fs.existsSync(path.join(worktreeDir, 'unrelated.txt'))).toBe(false); // stray gone
   });
 });
+
+// B8 (#2369): the wireup reads `gbrain sources list --json` with bun, so a
+// machine without jq (git-bash on Windows, minimal Linux) still wires up.
+describe('gstack-gbrain-source-wireup without jq (B8)', () => {
+  function pathWithoutJq(): string {
+    const dir = path.join(tmpHome, 'no-jq-bin');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const base of ['/usr/bin', '/bin', '/usr/sbin', '/sbin']) {
+      if (!fs.existsSync(base)) continue;
+      for (const name of fs.readdirSync(base)) {
+        if (name === 'jq' || fs.existsSync(path.join(dir, name))) continue;
+        try { fs.symlinkSync(path.join(base, name), path.join(dir, name)); } catch {}
+      }
+    }
+    return `${fakeBinDir}:${dir}:${BUN_ONLY_DIR}`;
+  }
+
+  test('detects an already-registered source and re-runs cleanly with no jq on PATH', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    makeFakeGbrain({});
+    const PATH = pathWithoutJq();
+    expect(spawnSync('sh', ['-c', 'command -v jq'], { env: { PATH }, timeout: 10_000 }).status).not.toBe(0);
+    const first = run([], { env: { PATH, GSTACK_BRAIN_NO_SYNC: '1' } });
+    expect(first.stderr).not.toContain('jq required');
+    expect(first.status).toBe(0);
+    const second = run([], { env: { PATH, GSTACK_BRAIN_NO_SYNC: '1' } });
+    expect(second.status).toBe(0);
+    expect(readState().sources).toHaveLength(1);
+  });
+});
+

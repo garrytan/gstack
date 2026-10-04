@@ -1,5 +1,6 @@
 import type { TemplateContext } from '../types';
 import { getHostConfig } from '../../../hosts/index';
+import { runtimeRootPrelude } from '../runtime-root';
 
 /**
  * Preamble bootstrap (token-reduction Phase 1).
@@ -24,15 +25,7 @@ import { getHostConfig } from '../../../hosts/index';
  */
 export function generatePreambleBash(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
-  const runtimeRoot = hostConfig.usesEnvVars
-    ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"
-[ -n "$_ROOT" ] && [ -d "$_ROOT/${ctx.paths.localSkillRoot}" ] && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
-GSTACK_BIN="$GSTACK_ROOT/bin"
-GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
-GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
-`
-    : '';
+  const runtimeRoot = hostConfig.usesEnvVars ? `${runtimeRootPrelude(ctx)}\n` : '';
   const brainHealthFlag = ctx.host === 'gbrain' || ctx.host === 'hermes' ? ' --brain-health' : '';
   const startCommand = hostConfig.usesEnvVars
     ? `"${ctx.paths.binDir}/gstack-skill-start"`

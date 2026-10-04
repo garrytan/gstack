@@ -1,6 +1,8 @@
 import type { TemplateContext } from '../types';
 
 export function generateAskUserFormat(ctx: TemplateContext): string {
+  // Q3 (#2719, PR #2729): office-hours asks open-ended diagnostic questions, which have no option set.
+  const openQuestions = ctx.skillName === 'office-hours';
   const planReview = ['plan-ceo-review', 'plan-eng-review', 'plan-design-review', 'plan-devex-review'].includes(ctx.skillName);
   return `## AskUserQuestion Format
 
@@ -33,7 +35,7 @@ Tell three outcomes apart:
 2. **Completeness scores per choice** — explicit on EACH choice, per the Completeness rule in the Format section below; never silently drop the score.
 3. **The recommendation and why** — the \`Recommendation: <choice> because <reason>\` line plus the \`(recommended)\` marker on that choice.
 
-Layout: a \`D<N>\` title; an explicit reply line listing the offered selectors; the issue ELI10; the Recommendation line; ONE paragraph per choice with its \`(recommended)\` marker, \`Completeness: X/10\`, and 2-4 sentences of reasoning (never a bare bullet list); a closing \`Net:\` line. With \`QUESTION_TUNING: true\`, append the checked \`<gstack-qid:{question_id}>\` to the explicit reply line. Split chains / 5+ options: one prose block per per-option call, in sequence. Before an interactive prose question, finish preparatory tool calls that do not depend on its answer. Then send the complete brief as the final message of the turn and STOP and wait for the user's typed answer. Do not publish an earlier copy during tool work or follow it with tools or a summary-only waiting message. In plan mode this satisfies end-of-turn like a tool call.
+Layout: a \`D<N>\` title; an explicit reply line listing the offered selectors; the issue ELI10; the Recommendation line; ONE paragraph per choice with its \`(recommended)\` marker, \`Completeness: X/10\`, and 2-4 sentences of reasoning (never a bare bullet list); a closing \`Net:\` line. With \`QUESTION_TUNING: true\`, append the checked \`<gstack-qid:{question_id}>\` to the explicit reply line. Split chains / 5+ options: one prose block per per-option call, in sequence. Before an interactive prose question, finish preparatory tool calls that do not depend on its answer. Then send the complete brief as the final message of the turn and STOP and wait for the user's typed answer.${openQuestions ? ' An open-ended question with no options list uses the `Q<N>` form below instead of a `D<N>` brief; a free-text reply answers the most recent unanswered `Q<N>`.' : ''} Do not publish an earlier copy during tool work or follow it with tools or a summary-only waiting message. In plan mode this satisfies end-of-turn like a tool call.
 
 **Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (\`D<N>\`, or \`D<N>.k\` in a split chain). The user references it (e.g. "3.2: B"). A bare letter maps to the single most-recent UNANSWERED brief; if more than one is open (a split chain), do NOT guess — ask which \`D<N>.k\` it answers. Never apply a bare letter ambiguously across a chain.
 
@@ -42,7 +44,18 @@ Layout: a \`D<N>\` title; an explicit reply line listing the offered selectors; 
 ### Format
 
 Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose — unless the documented failure fallback above applies (interactive session + the call is unavailable/erroring), in which case the prose fallback is the correct output.
+${openQuestions ? `
+**Open-question prose form (\`Q<N>\`)** — for open-ended questions with no fixed option set (the Phase 2A/2B diagnostic questions) when you are in prose:
 
+\`\`\`text
+Q<N> — <question, verbatim>
+Why I'm asking: <1-2 sentences: stakes, what a weak answer would mean>
+What a strong answer sounds like: <the section's "push until you hear" line>
+Reply in your own words — I'll wait.
+\`\`\`
+
+Q-numbering starts at \`Q1\` per invocation, independent of D-numbering. Questions with discrete options always use \`D<N>\`.
+` : ''}
 \`\`\`
 D<N> — <one-line question title>
 Project/branch/task: <1 short grounding sentence using _BRANCH>

@@ -625,6 +625,7 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 | [Browser](BROWSER.md) | How gstack drives Aside first (the contract, the cookbook, rendering, research), when the fallback engine kicks in, and the fallback's full `$B` command reference |
 | [Contributing](CONTRIBUTING.md) | Dev setup, testing, contributor mode, and dev mode |
 | [Memorable recall bridge](docs/memorable-workflow-memory.md) | Opt-in third-party workflow memory through gstack: two consents, what gstack hands over and can attest, removal, troubleshooting |
+| [Troubleshooting](docs/troubleshooting.md) | Every `not run` / `unavailable` message, what it means, and the fix |
 | [Changelog](CHANGELOG.md) | What's new in every version |
 
 ## Privacy & Telemetry
@@ -645,6 +646,10 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 ## Troubleshooting
 
+**A message says `not run`, `unavailable` or names a fix?** Look it up in
+[docs/troubleshooting.md](docs/troubleshooting.md): every gate message gstack
+prints, what it means, what was kept, and the command that fixes it.
+
 **Skill not showing up?** Run `./setup --status` from your gstack checkout. It
 prints every install (host, scope, version, skills directory, source checkout)
 and, for a `stale`, `missing` or `unregistered` row, the exact command that fixes
@@ -659,7 +664,13 @@ A project install lives in the project's `.claude/skills/gstack` or
 
 **`/make-pdf` or `/diagram` can't render?** Same two paths: with Aside open they print through Aside (`bun run ~/.claude/skills/gstack/bin/gstack-render.ts some.html --screenshot /tmp/out.png` tests it directly, and its first line, `ENGINE=aside` or `ENGINE=browse`, names the browser that actually rendered); without it they use the bundled browser, so `bun run build` is the fix.
 
-**Stale install?** Run `/gstack-upgrade` — or set `auto_upgrade: true` in `~/.gstack/config.yaml`
+**Stale install?** Run `/gstack-upgrade` — or set `auto_upgrade: true` in `~/.gstack/config.yaml`.
+On Codex and the other non-Claude hosts, upgrade from a terminal: find the
+checkout in the `source` column of `./setup --status`, then
+`cd <source> && git pull && ./setup --host <host>`, and start a new session.
+
+**Typing into a specific field with the fallback browser?** `browse type --selector '<css>' <text>`
+types into that element; bare `browse type <text>` types into whatever has focus.
 
 **State in the wrong place, or a setting that won't stick?** `~/.claude/skills/gstack/bin/gstack-paths --explain` shows which directory gstack uses for its state and why. See [docs/state-root.md](docs/state-root.md).
 

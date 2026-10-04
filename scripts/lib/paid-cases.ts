@@ -67,6 +67,7 @@ import { type PaidTier, ROOT, fileCaseRegistration } from '../test-paid-shards';
  * id or its CASE_TEST_NAMES label (test/paid-shards.test.ts scans the sources).
  */
 export const CASE_SHARDED_FILES: readonly string[] = [
+  'test/skill-e2e-deploy.test.ts',
   'test/skill-e2e-design.test.ts',
   'test/skill-e2e-plan.test.ts',
   'test/skill-e2e-review-army.test.ts',
@@ -81,7 +82,12 @@ export const CASE_TEST_NAMES: Record<string, string> = {
   'plan-review-report': '/plan-eng-review writes GSTACK REVIEW REPORT to plan file',
   'auq-format-gate': "/plan-ceo-review's first AskUserQuestion is a compliant decision brief (7/7 + substance)",
   'autoplan-dual-voice': 'both Claude + Codex voices produce output in Phase 1 (within timeout)',
+  'cso-full-audit': '/cso persists supported tenant-boundary findings with redacted evidence',
+  'cso-diff-mode': '/cso --diff records its base and investigates changed security paths',
+  'cso-infra-scope': '/cso --infra finds an attacker-to-credential execution path',
   'plan-ceo-review-plan-mode': 'first terminal outcome is asked (Step 0 fires before any plan write)',
+  'plan-eng-review-artifact': 'an interactive review writes one QA test plan about the reviewed change',
+  'plan-eng-review-artifact-full': 'a fresh interactive review reaches Test review and writes one QA test plan',
 };
 
 export const CASE_KEY_SEPARATOR = '#';

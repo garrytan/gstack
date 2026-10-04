@@ -885,6 +885,25 @@ describe('shared-code curl source isolation', () => {
     expect(after).toEqual(before);
   });
 
+  test('the provider rate-limit probe gets the same 404 over curl as over gh, not a refusal', () => {
+    // Gate census 37174266054 slice 9: shared-libs-read-only probed API availability
+    // with this exact command; gh already answers rate_limit as an unknown endpoint (404).
+    const f = createSharedLibsFixture('curl-rate-limit');
+    cleanup.push(f.root);
+    installSourceShims(f);
+    const command = 'curl -sS -m 20 -o /dev/null -w "%{http_code}\\n" "https://api.github.com/rate_limit" 2>&1';
+    const response = curl(f, ['-sS', '-m', '20', '-o', '/dev/null', '-w', '%{http_code}\\n', 'https://api.github.com/rate_limit']);
+    expect(response.status).toBe(0);
+    expect(response.stdout).toBe('404\n');
+    expect(gh(f, 'rate_limit').stderr).toContain('HTTP 404');
+    expect(sharedReadOnlyViolations([{ tool: 'Bash', input: { command } }], readRequests(f))).toEqual([]);
+    for (const args of [['-X', 'POST', 'https://api.github.com/rate_limit'], ['-o', path.join(scratch(), 'out'), 'https://api.github.com/rate_limit'],
+      ['https://api.github.com/rate_limit/extra']]) {
+      expect(curl(f, args).status, JSON.stringify(args)).toBe(2);
+      expect(sharedReadOnlyViolations([], readRequests(f).slice(-1)).length, JSON.stringify(args)).toBeGreaterThan(0);
+    }
+  });
+
   test('unknown URLs, methods and file-producing curl options are rejected by the shim', () => {
     const f = createSharedLibsFixture('curl-rejected');
     cleanup.push(f.root);

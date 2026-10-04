@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'bun:test';
-import { validateNavigationUrl, normalizeFileUrl } from '../src/url-validation';
+import { describe, it, expect, spyOn } from 'bun:test';
+import * as dns from 'node:dns';
+import { validateNavigationUrl, normalizeFileUrl, classifyAddress, blockedNavigationReason } from '../src/url-validation';
+import { isInternalCookieDomain } from '../src/session-persist';
 import * as fs from 'fs';
 import * as path from 'path';
 import { TEMP_DIR } from '../src/platform';
@@ -135,6 +137,65 @@ describe('validateNavigationUrl', () => {
 
   it('throws on malformed URLs', async () => {
     await expect(validateNavigationUrl('not-a-url')).rejects.toThrow(/Invalid URL/i);
+  });
+
+  it('blocks the whole 169.254.0.0/16 range, incl. container credential endpoints (#2811)', async () => {
+    for (const url of ['http://169.254.170.2/v2/credentials/', 'http://169.254.170.23/', 'http://169.254.1.2/', 'http://0xA9FEAA02/', 'http://[::ffff:169.254.170.2]/', 'http://100.100.100.200/latest/meta-data/']) {
+      await expect(validateNavigationUrl(url)).rejects.toThrow(/cloud metadata or link-local/);
+    }
+  });
+
+  it('leaves 169.254.-prefixed hostnames to DNS and private dev servers allowed', async () => {
+    await expect(validateNavigationUrl('https://169.254.example.com/')).resolves.toBe('https://169.254.example.com/');
+    await expect(validateNavigationUrl('http://10.0.0.5/health')).resolves.toBe('http://10.0.0.5/health');
+    await expect(validateNavigationUrl('http://100.100.100.201/')).resolves.toBe('http://100.100.100.201/');
+  });
+});
+
+describe('classifyAddress (D2: one classifier for literals, DNS answers and cookie domains)', () => {
+  it.each([
+    ['169.254.169.254', 'blocked'], ['169.254.170.2', 'blocked'], ['2852039166', 'blocked'],
+    ['0251.0376.0251.0376', 'blocked'], ['0xA9FEAA02', 'blocked'], ['100.100.100.200', 'blocked'],
+    ['::ffff:169.254.170.2', 'blocked'], ['[::ffff:a9fe:aa02]', 'blocked'], ['::a9fe:a9fe', 'blocked'],
+    ['64:ff9b::169.254.169.254', 'blocked'], ['fe80::1', 'blocked'], ['febf::1', 'blocked'], ['fd00::', 'blocked'],
+    ['127.0.0.1', 'loopback'], ['2130706433', 'loopback'], ['::1', 'loopback'], ['::ffff:127.0.0.1', 'loopback'],
+    ['8.8.8.8', 'other'], ['192.168.1.1', 'other'], ['::ffff:8.8.8.8', 'other'], ['2001:4860:4860::8888', 'other'], ['fec0::1', 'other'],
+    ['example.com', null], ['169.254.example.com', null], ['fd.example.com', null],
+  ] as const)('%s → %s', (host, kind) => {
+    expect(classifyAddress(host)).toBe(kind);
+  });
+
+  it('session-persist drops cookies for every blocked or loopback spelling', () => {
+    for (const domain of ['.169.254.170.2', '[::ffff:a9fe:a9fe]', '2130706433', '100.100.100.200', 'fe80::1']) {
+      expect(isInternalCookieDomain(domain)).toBe(true);
+    }
+    expect(isInternalCookieDomain('.example.com')).toBe(false);
+  });
+});
+
+describe('blockedNavigationReason: DNS answers', () => {
+  async function withAnswers(v4: string[], v6: string[], fn: () => Promise<void>) {
+    const r4 = spyOn(dns.promises, 'resolve4').mockImplementation((async () => v4) as any);
+    const r6 = spyOn(dns.promises, 'resolve6').mockImplementation((async () => v6) as any);
+    try { await fn(); } finally { r4.mockRestore(); r6.mockRestore(); }
+  }
+
+  it('blocks a hostname with one link-local A answer among public ones', async () => {
+    await withAnswers(['93.184.216.34', '169.254.170.2'], [], async () => {
+      expect(await blockedNavigationReason('https://mixed.example/')).toMatch(/resolves to a cloud metadata or link-local address/);
+    });
+  });
+
+  it('blocks a hostname whose AAAA answer is an IPv4-mapped link-local address', async () => {
+    await withAnswers([], ['::ffff:a9fe:a9fe'], async () => {
+      expect(await blockedNavigationReason('https://mapped.example/')).toMatch(/resolves to/);
+    });
+  });
+
+  it('allows a hostname with only public answers', async () => {
+    await withAnswers(['93.184.216.34'], ['2606:2800:220:1:248:1893:25c8:1946'], async () => {
+      expect(await blockedNavigationReason('https://clean.example/')).toBeNull();
+    });
   });
 });
 

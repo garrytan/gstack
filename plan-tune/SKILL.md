@@ -789,7 +789,11 @@ fi
   console.log('SKILLS_COVERED: ' + (d.skills_covered ?? 0));
   console.log('QUESTIONS_COVERED: ' + (d.question_ids_covered ?? 0));
   console.log('DAYS_SPAN: ' + (d.days_span ?? 0));
-  console.log('CALIBRATED: ' + (p.inferred?.sample_size >= 20 && d.skills_covered >= 3 && d.question_ids_covered >= 8 && d.days_span >= 7));
+  const signals = p.inferred?.signal_events;
+  console.log('SIGNAL_EVENTS: ' + (signals ?? 'unknown'));
+  console.log('CALIBRATED: ' + (signals > 0 && p.inferred?.sample_size >= 20 && d.skills_covered >= 3 && d.question_ids_covered >= 8 && d.days_span >= 7));
+  if (signals === 0) console.log('CALIBRATION: not calibrated: no recorded signals');
+  if (signals === undefined) console.log('CALIBRATION: not calibrated: signal count unknown (run gstack-developer-profile --derive)');
 "
 echo '---DISTILL---'
 ~/.claude/skills/gstack/bin/gstack-distill-free-text --status
@@ -797,6 +801,8 @@ echo '---DISTILL---'
 
 Present as a compact summary with plain-English calibration status ("5 more
 events across 2 more skills and you'll be calibrated" or "you're calibrated").
+When `CALIBRATION:` is printed, report that line verbatim: logged answers that
+moved no dimension are not calibration, whatever the counts say.
 Surface the source breakdown so the user can see which capture paths are
 actually logging.
 

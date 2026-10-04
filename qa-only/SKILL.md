@@ -443,7 +443,7 @@ the current behavior. Reading old notes never requires writing new ones.
 
 Load the shared preparation gate now (the exploratory STOP just below): complete its scope and selected-method Reads,
 await their results, and select the surfaces. Defer charters, clocks and probes to
-Run the Selected Checks, after report ownership and conditional browser setup below.
+Run the Selected Checks; its §1 then reuses the REPORT_DIR resolved under Prepare Report Artifacts.
 
 > **STOP.** Before selecting surfaces, then running report-only probes (one Read covers both), Read `sections/exploratory.md` relative to the installed `qa-only`/`gstack-qa-only` SKILL.md directory in full and follow it.
 > Use this host's installed path, never the product working directory or another host's assets.
@@ -536,7 +536,7 @@ Each proposed test carries a value card; propose it only when it passes this bar
 1. Why does existing coverage not already catch that? Prefer adding a row to an existing table-driven test or shared fixture over a near-duplicate.
 2. Does it need a production seam (export, flag, wrapper, injection hook) that no production caller needs? If yes, test at the real boundary instead.
 
-Value card: `Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none` (seam: `none` or its name); each field at most 160 UTF-8 bytes here (clamp to 157 plus `...`; JSON keeps full values). Put it in the 8e.5 record (/qa) or under each proposed test (/qa-only). A missing upstream card never blocks: derive it; ignore unknown fields.
+Value card: `Value: protects=<...>; fails_when=<...>; why_new=<...>; seam=none` (seam: `none` or its name); each field at most 160 UTF-8 bytes here (clamp to 157 plus `...`; JSON keeps full values). Put it under each proposed test. A missing upstream card never blocks: derive it; ignore unknown fields.
 
 Example: Value: protects=refundPayment rejects an empty reason; fails_when=the reason guard is removed or inverted; why_new=billing.test.ts covers processPayment only; seam=none
 Rejected (covered_elsewhere): "checkout renders"; checkout.e2e.ts:15 covers it, so extend that test.

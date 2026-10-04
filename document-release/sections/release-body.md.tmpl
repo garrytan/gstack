@@ -156,7 +156,15 @@ If TODOS.md does not exist, skip this step.
 
 **Ask before changing VERSION** — the version number is the user's release decision.
 
-1. **If VERSION does not exist:** Skip silently.
+1. **Read the version source** (the same signal `/ship` uses):
+   ```bash
+   bun run ~/.claude/skills/gstack/bin/gstack-version-bump classify --base <base>
+   ```
+   `state: NO_VERSION` means no version source is configured or release automation owns
+   it: print `VERSION: not applicable (<versionSource.reason>)`, skip this step, and never
+   create VERSION. Exit 2 means a configured version file is broken: show stderr and
+   skip this step without guessing a version. Otherwise `versionSource.path` is the
+   version file (VERSION unless pinned); read it wherever this step says VERSION.
 
 2. Check if VERSION was already modified on this branch:
 
@@ -237,7 +245,7 @@ near the write-back.
 1. Create a private run directory, then replace **every** `<run-dir>` below with its printed absolute path. This literal path survives separate shell calls; do not substitute `$$`.
 
 ```bash
-mktemp -d /tmp/gstack-doc-release-XXXXXXXX
+mktemp -d "${TMPDIR:-/tmp}/gstack-doc-release-XXXXXXXX"
 ```
 
 Fetch the existing PR/MR body using the platform from the shared Step 0. If no PR/MR exists, skip body/title updates and continue to the summary.
@@ -356,13 +364,14 @@ rmdir "<run-dir>"
 
 **PR/MR title sync (idempotent, always-on):**
 
-PR titles must always start with `v<VERSION>` — same rule as `/ship`. If Step 8 bumped VERSION after `/ship` had already created the PR, the title is now stale. This sub-step fixes it.
+PR titles must start with `v<VERSION>` whenever the project has a version source — same rule as `/ship`. If Step 8 bumped VERSION after `/ship` had already created the PR, the title is now stale. This sub-step fixes it.
 
-Run this entire block in one shell, substituting `github` or `gitlab` for `<platform>` from Step 0. No variables cross tool calls. Missing VERSION or PR/MR skips title sync; an update failure warns and continues.
+Run this entire block in one shell, substituting `github` or `gitlab` for `<platform>` from Step 0 and the base branch for `<base>`. No variables cross tool calls. No version source (NO_VERSION) or no PR/MR skips title sync; an update failure warns and continues.
 
 ```bash
-V=$(cat VERSION 2>/dev/null | tr -d '[:space:]')
-[ -n "$V" ] || exit 0
+VB=$(bun run ~/.claude/skills/gstack/bin/gstack-version-bump classify --base "<base>") || { echo "Title sync: not run (the version source is broken; see the error above)."; exit 0; }
+V=$(echo "$VB" | jq -r '.currentVersion // empty')
+[ -n "$V" ] || { echo "Title sync: not applicable (no version source is configured)."; exit 0; }
 case "<platform>" in
   github) CURRENT_TITLE=$(gh pr view --json title -q .title 2>/dev/null || true) ;;
   gitlab) CURRENT_TITLE=$(glab mr view -F json 2>/dev/null | jq -r '.title // empty') ;;

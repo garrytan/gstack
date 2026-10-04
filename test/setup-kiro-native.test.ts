@@ -17,10 +17,11 @@ const fn = (name: string) => {
 const blockStart = setup.indexOf('# 6. Install for Kiro CLI');
 const block = setup.slice(blockStart, setup.indexOf('# 6b.', blockStart));
 const helpers = [
-  '_link_or_copy', '_sidecar_root_user_owned', '_claude_entry_is_ours',
+  '_link_or_copy', '_link_runtime_dists', '_sidecar_root_user_owned', '_claude_entry_is_ours',
   '_claude_entry_owned_strongly', '_gstack_link_target_abs', '_gstack_target_is_ours',
   '_gstack_generated_header', '_backup_skill_md', '_prune_stale_generated',
   '_skill_source_exists', '_owned_for_windows_refresh', '_cleanup_weak_dir',
+  '_copy_skill_md', '_skill_copy_hash', '_skill_copy_unmodified', '_preserve_skill_copy_edits', '_record_skill_copies',
 ].map(fn).join('\n');
 
 describe.skipIf(process.platform === 'win32')('native Kiro setup installation', () => {
@@ -51,6 +52,7 @@ describe.skipIf(process.platform === 'win32')('native Kiro setup installation', 
           'bun_cmd() { printf "%s\\n" "$*" >> "$BUN_LOG"; }',
           'INSTALL_KIRO=1', `IS_WINDOWS=${windowsCopy}`, 'BROWSE_BIN=unused',
           '_BACKED_UP_SKILL_MDS=()', '_SKILL_BACKUP_ROOT="$HOME/backups"',
+          'GSTACK_STATE_ROOT="$HOME/.gstack"', '_SKILL_COPIES_FILE="$GSTACK_STATE_ROOT/skill-copies.tsv"',
           'KIRO_SKILLS="$HOME/.kiro/skills"', block,
         ].join('\n'), {
           env: { ...process.env, HOME: home, SOURCE_GSTACK_DIR: root, BUN_LOG: log }, timeout: 30_000,

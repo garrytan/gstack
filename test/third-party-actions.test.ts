@@ -184,7 +184,7 @@ describe("THIRD_PARTY_ACTIONS contract pins", () => {
   test("runtime probe is the BROWSER SETUP probe with a Darwin-gated pitch", () => {
     expect(section).toContain("command -v aside");
     expect(section).not.toContain("aside --version");
-    expect(section).toContain('echo "READY: aside"');
+    expect(section).toContain('echo "READY: $_A"'); // E7: "aside" on PATH, else the ~/.local/bin path
     expect(section).toContain("ASIDE_UNAVAILABLE");
     expect(section).toContain("report only the safe status, never raw diagnostics");
     expect(section).toContain("NEEDS_ASIDE");

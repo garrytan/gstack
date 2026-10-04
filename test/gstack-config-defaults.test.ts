@@ -28,7 +28,7 @@
  *      depend on receiving "" successfully.
  *
  * The reverse direction is pinned too: every key in the DEFAULTS table must
- * be read by code (bin/, lib/, scripts/, setup, or a .tmpl), or be listed in
+ * be read by code (bin/, lib/, scripts/, browse/src/, setup, or a .tmpl), or be listed in
  * PROSE_ONLY_KEYS with a reason. A documented setting no code reads is a
  * switch that does nothing, which is how a consent choice once went unread.
  */
@@ -120,7 +120,7 @@ function keysReadInTree(root = ROOT): string[] {
  */
 const PROSE_ONLY_KEYS: Record<string, string> = {};
 
-const READER_DIRS = ['bin', 'lib', 'scripts'];
+const READER_DIRS = ['bin', 'lib', 'scripts', 'browse/src'];
 const READER_FILES = ['setup'];
 
 /**
@@ -176,7 +176,7 @@ function isReadInCorpus(arm: string, corpus: string): boolean {
   const re = new RegExp([
     `(?:gstack-config|\\$\\{?[A-Z_]*CONF[A-Z_]*\\}?)["']?[ \\t]+(?:get|has)[ \\t]+["']?${k}`,
     `['"](?:get|has)['"]\\s*,\\s*['"]${k}`,
-    `(?:readConfigKey|readConfigKeyWithRoot|configValue|configGet|gstack_read_config_key|gstack_config_select)\\(?[ \\t]*['"\`]?${k}`,
+    `(?:readConfigKey|readConfigKeyWithRoot|readGstackConfigYamlKey|configValue|configGet|gstack_read_config_key|gstack_config_select)\\(?[ \\t]*['"\`]?${k}`,
     `\\^${k}${wildcard ? '' : ':'}`,
   ].join('|'));
   return re.test(corpus);
@@ -249,14 +249,15 @@ describe('gstack-config defaults (gate, free)', () => {
         'gstack-config has key_two',
         "spawnSync(bin, ['get', 'key_three'], { timeout: 2000 })",
         "readConfigKey('key_four')",
+        "readGstackConfigYamlKey('key_eight')",
         'grep -E "^key_five_${hash}:" "$F"',
       ].join('\n'));
       fs.writeFileSync(path.join(root, 'docs', 'prose.md'), 'gstack-config get key_six\n');
       fs.writeFileSync(path.join(root, 'skill.md.tmpl'), 'gstack-config get key_seven\n');
       const corpus = readerCorpus(root);
-      const read = ['key_one', 'key_two', 'key_three', 'key_four', 'key_five_*', 'key_six', 'key_seven', 'key_one_more']
+      const read = ['key_one', 'key_two', 'key_three', 'key_four', 'key_five_*', 'key_six', 'key_seven', 'key_eight', 'key_one_more']
         .filter((k) => isReadInCorpus(k, corpus));
-      expect(read).toEqual(['key_one', 'key_two', 'key_three', 'key_four', 'key_five_*', 'key_seven']);
+      expect(read).toEqual(['key_one', 'key_two', 'key_three', 'key_four', 'key_five_*', 'key_seven', 'key_eight']);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

@@ -26,6 +26,7 @@ import { generateDesignToCodePrompt } from "./design-to-code";
 import { serve } from "./serve";
 import { gallery } from "./gallery";
 import { normalizeIntFlag } from "./flag-utils";
+import { readVersionString } from "./daemon-state";
 import { resolveImagePaths } from "./image-args";
 import {
   daemonStatus as daemonStatusClient,
@@ -46,6 +47,11 @@ function parseArgs(argv: string[]): {
   const args = argv.slice(2); // skip bun/node and script path
   if (args.length === 0) {
     printUsage();
+    process.exit(0);
+  }
+  // DESIGN SETUP's launch probe (B4): proves the binary starts, without auth or network.
+  if (args[0] === "--version") {
+    console.log(readVersionString());
     process.exit(0);
   }
 

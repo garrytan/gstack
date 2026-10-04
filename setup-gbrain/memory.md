@@ -199,8 +199,11 @@ Saved pages determine the expected import count; only pages matching the
 current rendered source can advance its ingest state. Incomplete or mismatched
 staging remains available for recovery.
 
-With scanning requested, fresh, resumed, persistent, and `--no-write` passes
-stamp only the source snapshot used to render the page, and only while its
+`--no-write` is a dry run: it prepares and counts pages but imports nothing
+and never changes the ingest state, so a later real run still imports every
+eligible page.
+
+With scanning requested, fresh, resumed and persistent passes stamp only the source snapshot used to render the page, and only while its
 hash and modification time are unchanged. Incremental checks verify the hash
 even when the timestamp matches. Scanned pages are fully written in private
 staging before atomic promotion, so partial writes never become outgoing pages.

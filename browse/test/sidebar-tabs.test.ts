@@ -233,7 +233,7 @@ describe('cli.ts: sidebar-agent is no longer spawned', () => {
       'utf-8',
     );
     expect(CONTROL_SRC).toContain('terminal-agent.ts');
-    expect(CONTROL_SRC).toMatch(/\.spawn\(\['bun',\s*'run',\s*script,\s*`--agent-gen=\$\{gen\}`\]/);
+    expect(CONTROL_SRC).toMatch(/\.spawn\(\['bun',\s*'run',\s*\.\.\.BUN_CHILD_FLAGS,\s*script,\s*`--agent-gen=\$\{gen\}`\]/);
     expect(CONTROL_SRC).toContain('BROWSE_OWNER_PID: String(opts.ownerPid)');
   });
 });

@@ -197,6 +197,17 @@ export function outsideExecutionTranscript(executions: OutsideExecution[], provi
     }));
 }
 
+/**
+ * Verdicts the shared validator (lib/outside-review-result.ts) printed for the
+ * /codex review command: the Bash execution that ran `codex review|exec` and
+ * piped it through the validator. A review that never ran prints none, or
+ * `unavailable`.
+ */
+export function codexReviewVerdicts(executions: OutsideExecution[]): string[] {
+  return executions.filter(({ command }) => outsideInvocation('codex').test(command) && command.includes('outside-review-result.ts'))
+    .flatMap(({ output }) => [...output.matchAll(/^VERDICT: ([a-z]+)\s*$/gm)].map(match => match[1]!));
+}
+
 export function foundInvoiceAuthorizationDefect(executions: OutsideExecution[], provider: 'codex' | 'claude-code'): boolean {
   return executions.some(({ command, output, succeeded }) => succeeded
     && outsideInvocation(provider).test(command)

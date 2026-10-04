@@ -126,7 +126,7 @@ export function defineHost<const N extends string>(overrides: HostOverrides<N>):
     toolRewrites,
     suppressedResolvers = [...GBRAIN_RESOLVERS],
     runtimeRoot = {
-      globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
+      globalSymlinks: ['bin', 'lib', 'browse/dist', 'browse/bin', 'design/dist', 'make-pdf/dist', 'gstack-upgrade', 'ETHOS.md'],
       globalFiles: {
         'review': ['checklist.md', 'TODOS-format.md'],
       },

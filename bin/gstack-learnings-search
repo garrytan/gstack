@@ -4,7 +4,9 @@
 #
 # Reads ~/.gstack/projects/$SLUG/learnings.jsonl, applies confidence decay,
 # resolves duplicates (latest winner per key+type), and outputs formatted text.
-# Exit 0 silently if no learnings file exists.
+# Exit 0 silently if no learnings file exists or nothing matches. Missing bun
+# exits 127 and a failed read exits non-zero with its stderr (#2790): "could
+# not read" must never look like "nothing recorded".
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
@@ -44,6 +46,11 @@ fi
 if [ ! -f "$LEARNINGS_FILE" ] && [ ${#CROSS_FILES[@]} -eq 0 ]; then
   exit 0
 fi
+
+command -v bun >/dev/null 2>&1 || {
+  echo "gstack-learnings-search: bun not found on PATH, so learnings could not be read. Fix: install Bun (https://bun.sh), then re-run ./setup." >&2
+  exit 127
+}
 
 emit_tagged_file() {
   local tag="$1"
@@ -121,25 +128,37 @@ let results = Array.from(seen.values());
 // Filter by type
 if (type) results = results.filter(e => e.type === type);
 
-// Filter by query (token-OR: match if ANY whitespace-split token appears in ANY haystack)
+// Filter by query (token-OR: match if ANY whitespace-split token appears in ANY
+// haystack) and count how many distinct tokens each entry matched (#2762). The
+// count lives in a local map, never on the entry: a stored field from disk
+// must not become a sort key.
+const tokenHits = new Map();
 if (queryTokens.length > 0) results = results.filter(e => {
-  const haystacks = [(e.key || '').toLowerCase(), (e.insight || '').toLowerCase(), ...(e.files || []).map(f => f.toLowerCase())];
-  return queryTokens.some(tok => haystacks.some(h => h.includes(tok)));
+  const haystacks = [String(e.key || '').toLowerCase(), String(e.insight || '').toLowerCase(), ...(Array.isArray(e.files) ? e.files : []).map(f => String(f).toLowerCase())];
+  const hits = [...new Set(queryTokens)].filter(tok => haystacks.some(h => h.includes(tok))).length;
+  tokenHits.set(e, hits);
+  return hits > 0;
 });
 
-// Sort by effective confidence desc, then recency
+// Sort by matched tokens desc, then effective confidence desc, then recency.
+// Ranking on confidence alone let high-confidence single-token matches push an
+// entry matching every token past the limit.
 results.sort((a, b) => {
+  const ah = tokenHits.get(a) || 0, bh = tokenHits.get(b) || 0;
+  if (bh !== ah) return bh - ah;
   if (b._effectiveConfidence !== a._effectiveConfidence) return b._effectiveConfidence - a._effectiveConfidence;
   return new Date(b.ts).getTime() - new Date(a.ts).getTime();
 });
 
-// Limit
+// Limit, and say when a query matched more than fit.
+const totalMatched = results.length;
 results = results.slice(0, limit);
 
 if (results.length === 0) process.exit(0);
 
-// Format output
-const byType = {};
+// Format output. A null-prototype map: a row typed 'constructor' or
+// '__proto__' must not find an inherited property and blank the whole run.
+const byType = Object.create(null);
 for (const e of results) {
   const t = e.type || 'unknown';
   if (!byType[t]) byType[t] = [];
@@ -148,7 +167,10 @@ for (const e of results) {
 
 // Summary line
 const counts = Object.entries(byType).map(([t, arr]) => arr.length + ' ' + t + (arr.length > 1 ? 's' : ''));
-console.log('LEARNINGS: ' + results.length + ' loaded (' + counts.join(', ') + ')');
+const moreNotice = queryTokens.length > 0 && totalMatched > results.length
+  ? ' -- ' + (totalMatched - results.length) + ' more matched, raise --limit to see them'
+  : '';
+console.log('LEARNINGS: ' + results.length + ' loaded (' + counts.join(', ') + ')' + moreNotice);
 console.log('');
 
 for (const [t, arr] of Object.entries(byType)) {
@@ -161,4 +183,4 @@ for (const [t, arr] of Object.entries(byType)) {
   }
   console.log('');
 }
-" 2>/dev/null || exit 0
+"

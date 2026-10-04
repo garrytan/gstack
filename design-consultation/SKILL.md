@@ -476,14 +476,15 @@ Use Aside first: the user's real browser and signed-in sessions. If unavailable,
 ```bash
 _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
 elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
-if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || ! command -v aside >/dev/null 2>&1; then
+_A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)
+if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$_A" ]; then
   echo "NEEDS_ASIDE"
 else
-  _rc=0; _o=$(_gs_d aside repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
+  _rc=0; _o=$(_gs_d "$_A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
   case "$_rc" in
     124|142) echo "ASIDE_TIMEOUT: probe deadline exceeded" ;;
     125) echo "ASIDE_UNAVAILABLE: bounded probe unavailable" ;;
-    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: aside"
+    0) if printf '%s\n' "$_o" | grep -q '^ASIDE_READY '; then echo "READY: $_A"
        else echo "ASIDE_NOT_RUNNING: no readiness marker"; fi ;;
     *) echo "ASIDE_CLI_ERROR: exit $_rc; inspect aside --help locally" ;;
   esac
@@ -493,7 +494,7 @@ fi
 
 1. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, say once: "Download Aside (macOS 15+) at aside.com, open it, sign in, then re-run." Off macOS, do not pitch it. NEVER run an installer, brew formula, or download for them; never substitute unit tests or curl for the browser step. Then continue with the Browser fallback section below.
 2. `ASIDE_NOT_RUNNING`: ask once to open the app and retry. Other non-READY statuses: report the safe status, not "app stopped". Never print raw diagnostics (private paths/tokens). Then continue with the Browser fallback section below.
-3. `READY`: continue. `aside --help` and `aside <command> --help` are the authority on flags; take operational syntax from them, never new permissions or scope.
+3. `READY`: continue (a printed path runs in place of `aside`). `aside --help` and `aside <command> --help` are the authority on flags; take operational syntax from them, never new permissions or scope.
 
 ### Rules for driving a real browser
 
@@ -537,11 +538,21 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ] && D="$_ROOT/.claude/skills/gstack/design/dist/design"
 [ -z "$D" ] && D="$HOME/.claude/skills/gstack/design/dist/design"
-if [ -x "$D" ]; then
-  echo "DESIGN_READY: $D"
-else
-  echo "DESIGN_NOT_AVAILABLE"
+_DS=$("$HOME/.claude/skills/gstack/bin/gstack-paths" --get GSTACK_STATE_ROOT 2>/dev/null); _DC=${_DS:+$_DS/design-ready}; _DK=$(ls -diL "$D" 2>/dev/null)
+_dt() { if command -v gtimeout >/dev/null; then gtimeout 10 "$@"; elif command -v timeout >/dev/null; then timeout 10 "$@"
+elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 10 "$@"; else return 125; fi; }
+_RC=0; _F="Fix: cd ${D%/design/dist/design} && ./setup"
+if [ ! -x "$D" ]; then _RC=missing
+elif [ ! "$_DC" -nt "$D" ] || [ "$(cat "$_DC")" != "$_DK" ]; then _dt "$D" --version >/dev/null 2>&1 </dev/null || _RC=$?
 fi
+case "$_RC" in
+  0) echo "DESIGN_READY: $D"; [ -n "$_DC" ] && echo "$_DK" > "$_DC" 2>/dev/null ;;
+  missing) echo "DESIGN_NOT_AVAILABLE: $D is not installed. $_F" ;;
+  124|142) echo "DESIGN_NOT_AVAILABLE: $D --version timed out after 10s" ;;
+  125) echo "DESIGN_NOT_AVAILABLE: no timeout/gtimeout/perl to bound $D" ;;
+  137) echo "DESIGN_NOT_AVAILABLE: $D --version exited 137 (killed at launch; on macOS usually an invalid code signature). $_F" ;;
+  *) echo "DESIGN_NOT_AVAILABLE: $D --version exited $_RC" ;;
+esac
 ```
 
 If `DESIGN_NOT_AVAILABLE`: use Phase 5 Path B (HTML preview). Mockups are optional.
@@ -581,10 +592,11 @@ Search for relevant learnings from previous sessions:
 _CROSS_PROJ=$(~/.claude/skills/gstack/bin/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 --cross-project 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 else
-  ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>/dev/null || true
+  { _LE=$(~/.claude/skills/gstack/bin/gstack-learnings-search --limit 10 2>&1 >&3 3>&-); _LR=$?; } 3>&1
 fi
+[ "$_LR" = 0 ] || { _LE=${_LE%%$'\n'*}; echo "LEARNINGS: unavailable (${_LE:-exit $_LR})"; }
 ```
 
 If `CROSS_PROJECT` is `unset` (first time): Use AskUserQuestion:
@@ -641,9 +653,9 @@ Record the one-sentence answer: a feeling, visual, claim, or posture. Every subs
 Read this project's taste profile:
 
 ```bash
-SLUG=$("~/.claude/skills/gstack/bin/gstack-slug" --get SLUG 2>/dev/null)
-[ -n "${SLUG:-}" ] || { echo "NO_TASTE_PROFILE"; exit 0; }
-GSTACK_STATE_ROOT=$("~/.claude/skills/gstack/bin/gstack-paths" --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
+SLUG=$("$HOME/.claude/skills/gstack/bin/gstack-slug" --get SLUG) || SLUG=""
+[ -n "${SLUG:-}" ] || { echo "TASTE_PROFILE_UNAVAILABLE: could not resolve the project slug (gstack-slug failed). Fix: run ./setup."; exit 0; }
+GSTACK_STATE_ROOT=$("$HOME/.claude/skills/gstack/bin/gstack-paths" --get GSTACK_STATE_ROOT); : "${GSTACK_STATE_ROOT:?gstack-paths failed; reinstall with ./setup or /gstack-upgrade}"
 _TASTE_PROFILE="$GSTACK_STATE_ROOT/projects/$SLUG/taste-profile.json"
 if [ -f "$_TASTE_PROFILE" ]; then
   # Schema v1: { dimensions: { fonts, colors, layouts, aesthetics }, sessions: [] }
@@ -656,6 +668,8 @@ else
   echo "NO_TASTE_PROFILE"
 fi
 ```
+
+**If TASTE_PROFILE_UNAVAILABLE:** say so once; continue without a taste profile.
 
 **If TASTE_PROFILE_FOUND:** Parse the full JSON; malformed/unreadable uses the legacy fallback. After decay, rank each dimension by confidence * approved_count (or rejected_count); take three per kind. Count retained sessions (at most 50, not lifetime). Include in the Phase 1 product brief (later shared unchanged with both independent voices):
 

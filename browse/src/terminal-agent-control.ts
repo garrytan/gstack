@@ -138,6 +138,13 @@ export function acquireAgentStateLock(stateDir: string, waitMs = 5000, publicati
  * exposes it relative to process.execPath. Either path must work or
  * the agent can't be spawned at all.
  */
+/**
+ * Flags for every `bun run` child the daemon spawns. The child runs in the
+ * user's project, and Bun would otherwise load that project's .env (which can
+ * set GSTACK_CHROMIUM_NO_SANDBOX) and bunfig.toml (whose preload runs code).
+ */
+export const BUN_CHILD_FLAGS = ['--no-env-file', `--config=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`];
+
 export function resolveTerminalAgentScript(searchHints: { metaDir?: string; execPath?: string } = {}): string | null {
   const meta = searchHints.metaDir || __dirname;
   const exec = searchHints.execPath || process.execPath;
@@ -197,7 +204,7 @@ export function spawnTerminalAgent(opts: {
     writeAgentRecord(stateDir, reservation);
     let proc: any;
     try {
-      proc = (Bun as any).spawn(['bun', 'run', script, `--agent-gen=${gen}`], {
+      proc = (Bun as any).spawn(['bun', 'run', ...BUN_CHILD_FLAGS, script, `--agent-gen=${gen}`], {
         cwd: opts.cwd || process.cwd(),
         env: {
           ...process.env,

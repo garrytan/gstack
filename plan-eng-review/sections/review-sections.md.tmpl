@@ -49,8 +49,8 @@ QA Test Plan/task JSONL keep discovery paths `$GSTACK_STATE_ROOT/projects/{slug}
 existing destination and preserve its content. For a new file, create permitted
 parent directories, then write that header, an unchanged copy of the original
 plan (for plan targets), and the scope record or ledger being saved. Recheck option 3's collision before
-creation; use a suffix rather than overwrite. Do not add findings or fixes before
-Scope Challenge C. Put records before an existing `## GSTACK REVIEW REPORT`, or
+creation; use a suffix rather than overwrite. Findings and fixes first enter
+through Scope Challenge C's ledger saves, never earlier. Put records before an existing `## GSTACK REVIEW REPORT`, or
 at EOF if absent; create that terminal report only at Plan File Review Report.
 
 **Write routes.** A forbidden write follows its row above.

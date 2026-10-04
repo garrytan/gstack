@@ -563,7 +563,7 @@ import * as path from 'path';
 
 function resolveSdkPath(): string {
   const candidates = [
-    path.join(os.homedir(), '.claude', 'skills', 'gstack', 'browse', 'src', 'browse-client.ts'),
+    '~/.claude/skills/gstack/browse/src/browse-client.ts'.replace(/^~(?=\/)/, os.homedir()),
     // Add other install-dir candidates if your environment differs.
   ];
   for (const c of candidates) {

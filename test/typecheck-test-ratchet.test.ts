@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { compareDiagnostics, parseDiagnostics, readBaseline } from '../scripts/typecheck-test';
+import { compareDiagnostics, parseDiagnostics, readBaseline, sortTypeMembers } from '../scripts/typecheck-test';
 
 const output = [
   "test/a.test.ts(3,5): error TS2339: Property 'questions' does not exist on type 'Plan'.",
@@ -31,6 +31,30 @@ describe('test typecheck ratchet', () => {
   test('ignores line and column so moving code does not churn the baseline', () => {
     const moved = output.replace('(3,5)', '(30,7)').replace('(9,5)', '(90,1)');
     expect(parseDiagnostics(moved)).toEqual(parseDiagnostics(output));
+  });
+
+  test('object-type member print order is not part of the identity', () => {
+    // Observed on one unchanged diagnostic once lib/fs-utils joined the generator's import graph.
+    const a = "test/e.test.ts(4,1): error TS2345: Argument of type '({ content?: undefined; isError?: undefined; kind: string; input: { questions: { header: string; }[]; }; } | { ...; })[]' is not assignable.";
+    const b = a.replace('content?: undefined; isError?: undefined;', 'isError?: undefined; content?: undefined;');
+    expect(Object.keys(parseDiagnostics(b))).toEqual(Object.keys(parseDiagnostics(a)));
+    expect(sortTypeMembers('{ b: string; a: { d: 1; c: 2; }; }')).toBe('{ a: { c: 2; d: 1; }; b: string; }');
+    expect(sortTypeMembers('{ a: string; b: number; }')).toBe('{ a: string; b: number; }');
+    expect(sortTypeMembers("Type '{}' has no 'x'")).toBe("Type '{}' has no 'x'");
+    expect(Object.keys(parseDiagnostics("test/e.test.ts(1,1): error TS2322: Type '{ a: 1; }' is not assignable to type '{ b: 2; }'."))).not.toEqual(
+      Object.keys(parseDiagnostics("test/e.test.ts(1,1): error TS2322: Type '{ b: 2; }' is not assignable to type '{ a: 1; }'.")));
+  });
+
+  test('a baseline written before member sorting still matches', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-tc-order-'));
+    try {
+      const file = path.join(dir, 'baseline.json');
+      fs.writeFileSync(file, JSON.stringify({ version: 1, diagnostics: { "test/e.test.ts\tTS2345\tType '{ z: 1; a: 2; }'.": 2 } }));
+      const current = parseDiagnostics("test/e.test.ts(1,1): error TS2345: Type '{ a: 2; z: 1; }'.\ntest/e.test.ts(2,1): error TS2345: Type '{ z: 1; a: 2; }'.");
+      expect(compareDiagnostics(readBaseline(file), current)).toEqual({ added: [], fixed: [] });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('a duplicate of an existing diagnostic and a new identity both fail', () => {

@@ -1,11 +1,24 @@
 import type { SharedQuestionSelector } from './shared-libs-eval-fixture';
 
+/**
+ * A whole clause that only lists excluded work: a bare list of scope nouns and
+ * an exclusion predicate, e.g. "Existing copies and helper hardening stay
+ * unchanged", "Hardening is outside this decision", "Existing-caller migration
+ * and helper hardening stay out of scope". A clause with any other verb, such
+ * as "Harden helper parsing so behavior stays unchanged", is not an exclusion.
+ */
+const SCOPE_ITEM = String.raw`(?:(?:the|existing|current|its|all|both|helper|parser|lib|shared|callers?|scheduler)[\s-]+)*(?:copies|callers?|hardening|migrations?|semantics|behaviou?r|contract|helper|parser)`;
+const SCOPE_STATE = String.raw`(?:unchanged|untouched|excluded|out of scope|outside|not part)`;
+// The predicate may combine exclusion states: "stay unchanged/out of scope", "remain unchanged and excluded".
+const SCOPE_EXCLUSION = new RegExp(String.raw`^${SCOPE_ITEM}(?:\s*,\s*${SCOPE_ITEM})*(?:,?\s+and\s+${SCOPE_ITEM})?\s+(?:is|are|stays?|remains?)\s+`
+  + String.raw`${SCOPE_STATE}(?:\s*(?:\/|,|\bor\b|\band\b)\s*${SCOPE_STATE})*(?:\s+(?:of\s+)?(?:this|the)\s+(?:decision|scope|plan|change))?[.!]?$`, 'i');
+
 /** Separate explicit exclusions from proposals; do not erase a following "but" clause. */
 function affirmativeCommitments(text: string): string {
   return text.split(/\n|;|(?<=[.!?])\s+|\s+but\s+|\s+however,?\s+/i).map(raw => {
     let clause = raw.replace(/^[✅❌\s]+/, '').replace(/\s*\((?:no|not|without|never)\b[^()]*\)/gi, '').trim();
     if (/^(?:do not|don't|never|no\b|without\b)/i.test(clause)) return '';
-    if (/\b(?:is|are|remains?)\s+(?:outside\b|out of scope\b|excluded\b|not part\b)/i.test(clause)) return '';
+    if (SCOPE_EXCLUSION.test(clause)) return '';
     clause = clause.replace(/\b(?:without|do not|don't|never)\b.*$/i, '');
     return clause;
   }).filter(Boolean).join('\n');
@@ -87,11 +100,7 @@ export function createSharedPlanReuseSelector(): SharedQuestionSelector {
       }
       // Inspect the question as well as the selected option: a harmless label must
       // not authorize an extra commitment hidden in its brief or description.
-      // "Existing copies and helper hardening stay unchanged" names excluded work.
-      // Only a bare list of those nouns qualifies; a verb such as "Harden" does not.
-      const item = String.raw`(?:(?:the|existing|current|its|all|both|helper|parser|lib|shared|caller|scheduler)\s+)*(?:copies|callers|hardening|migrations?|semantics|behaviou?r|contract|helper|parser)`;
-      const unchangedScope = new RegExp(String.raw`^${item}(?:\s*,\s*${item})*(?:,?\s+and\s+${item})?\s+(?:stays?|remains?)\s+(?:unchanged|untouched)[.!]?$`, 'i');
-      const proposed = affirmativeCommitments(context + '\n' + commitment).split('\n').filter(clause => !unchangedScope.test(clause.trim())).join('\n');
+      const proposed = affirmativeCommitments(context + '\n' + commitment);
       const expansions = [
         /\b(?:harden\w*|tighten\w*|strict(?:er)?|saniti[sz]\w*|coerc\w*)\b/i,
         /\b(?:add(?:s|ing)?|insert(?:s|ing)?|introduc(?:e|es|ing)|implement(?:s|ing)?|appl(?:y|ies|ying)|enabl(?:e|es|ing)|creat(?:e|es|ing))\s+(?:(?:a|an|the|one|new|shared|extra|explicit|validation|numeric|malformed|input|parser)\s+)*(?:guard|validator|validation|normalization)\b/i,

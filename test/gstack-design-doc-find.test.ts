@@ -57,15 +57,20 @@ describe('gstack-design-doc-find', () => {
     expect(f.find({}, ['proj', 'other'])).toBe(path.join(f.home, '.gstack/projects/proj/user-main-design-2.md'));
   });
 
-  test('repo DESIGN.md wins only when at least as fresh, and beats docs/designs', () => {
+  test('a repo docs/designs doc wins only when at least as fresh; a root DESIGN.md never does (#2839)', () => {
     const f = fixture();
     const local = f.write(path.join(f.home, '.gstack/projects/proj/user-feat-x-design-1.md'), 100);
     const designs = f.write(path.join(f.repo, 'docs/designs/plan.md'), 10);
     expect(f.find()).toBe(designs);
-    const top = f.write(path.join(f.repo, 'DESIGN.md'), 1000);
+    fs.utimesSync(designs, Date.now() / 1000 - 1000, Date.now() / 1000 - 1000);
     expect(f.find()).toBe(local);
-    fs.utimesSync(top, Date.now() / 1000, Date.now() / 1000);
-    expect(f.find()).toBe(top);
+    const top = f.write(path.join(f.repo, 'DESIGN.md'), 0);
+    expect(f.find()).toBe(local);
+    fs.rmSync(local);
+    expect(f.find()).toBe(designs);
+    fs.rmSync(designs);
+    expect(top).toBe(path.join(f.repo, 'DESIGN.md'));
+    expect(f.find()).toBe('');
   });
 
   test('a repo doc is used when the state root has none', () => {

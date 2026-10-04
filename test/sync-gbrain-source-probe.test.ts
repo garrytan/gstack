@@ -36,8 +36,10 @@ if (args === 'sources list --json') console.log(${JSON.stringify(JSON.stringify(
     ...(opts.sourceError ? { error: { code: 'partial_read' } } : {}),
     sources: [{ id: 'client-fixture', local_path: opts.wrongRegistration ? join(root, 'sibling') : repo, page_count: opts.pageCount ?? 7 }],
   }))});
-else if (args === 'doctor --json --fast') console.log(${JSON.stringify(JSON.stringify({ checks: [{
-    name: 'cycle_freshness', status: opts.cycleStatus ?? 'warn', message: opts.cycleMessage ?? 'never cycled client-fixture',
+// B9: cycle_freshness is a DB check that \`doctor --fast\` skips, so the
+// skill reads \`--scope=brain\`; the message follows gbrain's real format.
+else if (args === 'doctor --json --scope=brain') console.log(${JSON.stringify(JSON.stringify({ checks: [{
+    name: 'cycle_freshness', status: opts.cycleStatus ?? 'warn', message: opts.cycleMessage ?? "Source 'client-fixture' has never completed a full cycle. Run \`gbrain dream --source <id>\` to cycle a source.",
   }] }))});
 else process.exit(2);
 `);
@@ -58,7 +60,7 @@ test('actual generated Step 3/3.5 shell reads a pretty state and probes the pinn
     expect(cycle.status, cycle.stderr).toBe(0);
     expect(pages.stdout).toContain('cwd source: client-fixture, page_count: 7');
     expect(cycle.stdout).toContain('call graph for client-fixture: never');
-    expect(f.calls()).toEqual(['sources list --json', 'sources list --json', 'doctor --json --fast']);
+    expect(f.calls()).toEqual(['sources list --json', 'sources list --json', 'doctor --json --scope=brain']);
   } finally { f.cleanup(); }
 });
 

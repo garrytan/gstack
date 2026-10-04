@@ -46,6 +46,7 @@ import {
 } from './port-allocator';
 import { acquireAgentStateLock, readAgentRecord, clearAgentRecord, isOurAgent, isAgentRecordLive, isAgentRecordGone, stopAgentByRecord, spawnTerminalAgent } from './terminal-agent-control';
 import { isProcessAlive } from './error-handling';
+import { allowedExtensionOrigin } from './extension-id';
 import { sanitizeBody, stripLoneSurrogates } from './sanitize';
 import { startSocksBridge, testUpstream, type BridgeHandle } from './socks-bridge';
 import { parseProxyConfig, toUpstreamConfig, ProxyConfigError } from './proxy-config';
@@ -296,15 +297,11 @@ const TUNNEL_PATHS = new Set<string>([
 ]);
 
 /**
- * The gstack sidebar extension's pinned Chrome extension ID. Derived from
- * the "key" field in extension/manifest.json (first 16 bytes of SHA-256 of
- * the DER public key, hex nibbles mapped 0-9a-f → a-p). Reproduce with:
- *   bun browse/scripts/extension-id.ts
- * POST /extension-token releases AUTH_TOKEN only to an Origin of exactly
- * `chrome-extension://<this id>`. If the manifest keypair is ever rotated,
- * this constant must be updated in the same commit.
+ * POST /extension-token releases AUTH_TOKEN only to an Origin of exactly the
+ * pinned extension, or the one set with `gstack-config set browse_extension_id`
+ * (browse/src/extension-id.ts, shared with the terminal agent's /ws gate).
  */
-export const GSTACK_EXTENSION_ID = 'dgbkdbjebeiblbajiilljmhjdpmiglep';
+export { GSTACK_EXTENSION_ID } from './extension-id';
 
 /**
  * The extension-origin auth check (POST /extension-token): Origin is exactly
@@ -320,7 +317,7 @@ function isPinnedExtensionRequest(req: Request): boolean {
   } catch (err) {
     if (!(err instanceof TypeError)) throw err;  // TypeError = malformed Host
   }
-  const originOk = req.headers.get('origin') === `chrome-extension://${GSTACK_EXTENSION_ID}`;
+  const originOk = req.headers.get('origin') === allowedExtensionOrigin();
   const hostOk = hostname === '127.0.0.1' || hostname === 'localhost';
   return originOk && hostOk;
 }
@@ -1165,7 +1162,7 @@ async function handleCommandInternalImpl(
         result = await handleReadCommand(command, args, session, browserManager);
       }
     } else if (WRITE_COMMANDS.has(command)) {
-      result = await handleWriteCommand(command, args, session, browserManager);
+      result = await browserManager.failIfNavigationBlocked(session.getPage(), handleWriteCommand(command, args, session, browserManager));
     } else if (META_COMMANDS.has(command)) {
       // Pass chain depth + executeCommand callback so chain routes subcommands
       // through the full security pipeline (scope, domain, tab, wrapping).

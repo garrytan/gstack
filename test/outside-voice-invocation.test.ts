@@ -24,8 +24,10 @@ fs.writeFileSync(PROMPT, PROMPT_TEXT);
 const fakeSource = `
 import {writeFileSync} from 'node:fs';
 const args = process.argv.slice(2);
+// The free sandbox preflight (\`codex sandbox ... true\`) succeeds unless a test plants its failure.
+if (args[0] === 'sandbox') { if (process.env.FAKE_SANDBOX_STDERR) { console.error(process.env.FAKE_SANDBOX_STDERR); process.exit(1); } process.exit(0); }
 const claude = process.env.FAKE_PROVIDER === 'claude-code';
-const prompt = claude ? await Bun.stdin.text() : args[0] === 'exec' ? args[1] : '';
+const prompt = claude || (args[0] === 'exec' && args[1] === '-') ? await Bun.stdin.text() : args[0] === 'exec' ? args[1] : '';
 writeFileSync(process.env.CAPTURE!, JSON.stringify({args,prompt,cwd:process.cwd()}));
 if (process.env.FAKE_MODE === 'timeout') {
   if (!claude) console.log('Partial finding before timeout');
@@ -36,7 +38,13 @@ const response = process.env.FAKE_RESPONSE || 'Recommendation: fix the seeded de
 if (claude) {
   if (process.env.FAKE_MODE === 'malformed') {console.log('{broken');process.exit(0);}
   console.log(JSON.stringify({result:response,session_id:'outside-session',modelUsage:{'model-a':{inputTokens:4},'model-b':{inputTokens:8}}}));
+} else if (args.includes('-o')) {
+  // codex exec --json -o <file>: events on stdout, the final message in <file>.
+  writeFileSync(args[args.indexOf('-o') + 1], response);
+  if (process.env.FAKE_EVENTS_FILE) process.stdout.write(await Bun.file(process.env.FAKE_EVENTS_FILE).text());
+  else console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:response}}));
 } else console.log(response);
+if (process.env.FAKE_STDERR_FILE) process.stderr.write(await Bun.file(process.env.FAKE_STDERR_FILE).text());
 process.exit(process.env.FAKE_MODE === 'nonzero' ? 4 : 0);
 `;
 fs.writeFileSync(FAKE_CLAUDE, fakeSource);
@@ -48,6 +56,7 @@ function environment(host: 'codex' | 'claude'): NodeJS.ProcessEnv {
     CAPTURE, FAKE_PROVIDER:host === 'codex' ? 'claude-code' : 'codex',
     CODEX_THREAD_ID:host === 'codex' ? 'codex-fixture' : '', CODEX_SANDBOX:'',
     CLAUDECODE:host === 'claude' ? '1' : '', GSTACK_ACTIVE_HOST:host, CODEX_HOME:TMP, GSTACK_CODEX_MODEL:'',
+    GSTACK_HOME:path.join(TMP,'state'), GSTACK_STATE_ROOT:'', CODEX_API_KEY:'', OPENAI_API_KEY:'',
     PATH:`${BIN}${path.delimiter}${process.env.PATH}`,
     GIT_AUTHOR_NAME:'Test',GIT_AUTHOR_EMAIL:'test@example.invalid',GIT_COMMITTER_NAME:'Test',GIT_COMMITTER_EMAIL:'test@example.invalid'};
 }
@@ -96,10 +105,9 @@ describe('generated outside-review dispatch', () => {
     test(`${host} dispatches the other CLI and keeps hostile prompt/path text literal`, () => {
       const result = invoke(host);
       expect(result.status).toBe(0);
-      // Codex keeps its existing command-substitution argv contract, which
-      // removes trailing LF; shell metacharacters within that value stay data.
-      const expectedPrompt = host === 'codex' ? PROMPT_TEXT : PROMPT_TEXT.replace(/\n+$/,'');
-      expect(capture().prompt).toBe(expectedPrompt);
+      // Both CLIs read the prepared prompt on stdin, byte for byte (E5: no argv
+      // size limit, no quoting); shell metacharacters stay data.
+      expect(capture().prompt).toBe(PROMPT_TEXT);
       expect(capture().cwd).toBe(DIR);
       expect(fs.existsSync(path.join(DIR,'NEVER'))).toBe(false);
       expect(result.stdout).toContain(`OUTSIDE_STATUS: completed provider=${host === 'codex' ? 'claude-code' : 'codex'} host=${host}`);
@@ -108,7 +116,7 @@ describe('generated outside-review dispatch', () => {
         expect(capture().args).not.toContain('--resume');
         expect(result.stdout).toContain('model-a');
         expect(result.stdout).toContain('model-b');
-      } else expect(capture().args.slice(0,2)).toEqual(['exec',expectedPrompt]);
+      } else expect(capture().args.slice(0,2)).toEqual(['exec','-']);
     });
 
     test(`${host} rejects its own reviewer markers before any process starts`, () => {
@@ -196,6 +204,94 @@ describe('generated outside-review dispatch', () => {
     }
   });
 
+  test('INV-1: the generated caller branches on VERDICT: findings complete, untagged is unverified', () => {
+    for (const host of ['claude', 'codex'] as const) {
+      const findings = invoke(host, { structuredBase: 'main', gate: 'structured' }, { FAKE_RESPONSE: '[P0] Seeded corruption' });
+      expect(findings.status).toBe(0);
+      expect(findings.stdout).toContain('VERDICT: findings\nFINDINGS: P0\n');
+      expect(findings.stdout).toContain('OUTSIDE_STATUS: completed');
+      const untagged = invoke(host, { structuredBase: 'main', gate: 'structured' }, { FAKE_RESPONSE: 'The change reads fine to me.' });
+      expect(untagged.status).toBe(4);
+      expect(untagged.stdout).toContain('VERDICT: unverified');
+      expect(untagged.stdout).toContain('OUTSIDE_STATUS: unverified');
+      expect(untagged.stdout).not.toContain('OUTSIDE_STATUS: completed');
+      expect(untagged.stderr).toContain('ran, verdict unverified');
+    }
+  });
+
+  describe('B1: Codex sandbox failures are missing coverage, never a pass', () => {
+    const FIX = path.join(ROOT, 'test', 'fixtures', 'codex-sandbox');
+    const SANDBOX_LINE = "Codex outside review unavailable: Codex's sandbox could not start here (bwrap: No permissions to create new namespace";
+
+    test('the free preflight stops before any paid call', () => {
+      const result = invoke('claude', {}, { FAKE_SANDBOX_STDERR: fs.readFileSync(path.join(FIX, 'sandbox-userns-denied.stderr'), 'utf8') });
+      expect(result.status).toBe(1);
+      expect(fs.existsSync(CAPTURE)).toBe(false);
+      expect(result.stderr).toContain(SANDBOX_LINE);
+      expect(result.stdout).not.toContain('OUTSIDE_STATUS: completed');
+    });
+
+    test('exec: captured events where every command hit the sandbox are unavailable despite exit 0', () => {
+      const result = invoke('claude', {}, { FAKE_EVENTS_FILE: path.join(FIX, 'exec-json-userns-denied.jsonl'),
+        FAKE_RESPONSE: 'I could not run commands here. No issues found.\nRecommendation: ship because no issues were found.' });
+      expect(result.status).toBe(1);
+      expect(capture().args).toContain('--json');
+      expect(result.stdout).toContain('REASON: sandbox_unavailable');
+      expect(result.stderr).toContain(SANDBOX_LINE);
+      expect(result.stdout).not.toContain('OUTSIDE_STATUS: completed');
+    });
+
+    test('structured review: captured container transcript on stderr is unavailable, healthy transcript completes', () => {
+      const failed = invoke('claude', { structuredBase: 'main', gate: 'structured' }, {
+        FAKE_RESPONSE: fs.readFileSync(path.join(FIX, 'review-userns-denied.stdout'), 'utf8'),
+        FAKE_STDERR_FILE: path.join(FIX, 'review-userns-denied.stderr') });
+      expect(failed.status).toBe(1);
+      expect(failed.stderr).toContain(SANDBOX_LINE);
+      expect(failed.stdout).not.toContain('OUTSIDE_STATUS: completed');
+      expect(capture().args).toContain('sandbox_mode="read-only"');
+      const healthy = invoke('claude', { structuredBase: 'main', gate: 'structured' }, {
+        FAKE_RESPONSE: '[P2] naming nit', FAKE_STDERR_FILE: path.join(FIX, 'review-healthy.stderr') });
+      expect(healthy.status).toBe(0);
+      expect(healthy.stdout).toContain('OUTSIDE_STATUS: completed');
+    });
+
+    test('GSTACK_CODEX_NO_SANDBOX=1 switches every site to full access, warns, and skips the preflight', () => {
+      const env = { GSTACK_CODEX_NO_SANDBOX: '1', FAKE_SANDBOX_STDERR: 'bwrap: No permissions to create new namespace' };
+      const exec = invoke('claude', {}, env);
+      expect(exec.status).toBe(0);
+      expect(capture().args.slice(capture().args.indexOf('-s'), capture().args.indexOf('-s') + 2)).toEqual(['-s', 'danger-full-access']);
+      expect(exec.stderr).toContain('WARNING: GSTACK_CODEX_NO_SANDBOX=1: Codex runs this review without a sandbox');
+      expect(invoke('claude', { structuredBase: 'main', gate: 'structured' }, { ...env, FAKE_RESPONSE: '[P2] nit' }).status).toBe(0);
+      expect(capture().args).toContain('sandbox_mode="danger-full-access"');
+      expect(invoke('claude', {}, { GSTACK_CODEX_NO_SANDBOX: 'true' }).status).toBe(0);
+      expect(capture().args.slice(capture().args.indexOf('-s'), capture().args.indexOf('-s') + 2)).toEqual(['-s', 'read-only']);
+    });
+  });
+
+  test('E5: a prompt larger than one argv string reaches Codex intact on stdin', () => {
+    const big = path.join(TMP, 'big-prompt.txt');
+    const text = `${'x'.repeat(200_000)}\n"quotes" 'single' $(touch NEVER) \\ end\n`;
+    fs.writeFileSync(big, text);
+    const ctx: TemplateContext = { skillName: 'review', tmplPath: 'review/SKILL.md.tmpl', host: 'claude', paths: HOST_PATHS.codex };
+    const result = spawnSync('bash', ['-c', outsideVoiceCommand(ctx, { promptFile: big, timeoutMs: 5000 })], { cwd: DIR, env: environment('claude'), encoding: 'utf8', timeout: 15000 });
+    expect(result.status).toBe(0);
+    expect(capture().prompt).toBe(text);
+    expect(fs.existsSync(path.join(DIR, 'NEVER'))).toBe(false);
+  });
+
+  test('Q2: the first automatic Codex review on a machine names the provider and account, once, without blocking', () => {
+    const state = path.join(TMP, 'notice-state');
+    const first = invoke('claude', {}, { GSTACK_HOME: state, OPENAI_API_KEY: 'sk-test-secret-value' });
+    expect(first.status).toBe(0);
+    expect(first.stderr).toContain('NOTICE: gstack outside reviews send the review prompt and code to Codex (provider: openai) using the API key in OPENAI_API_KEY.');
+    expect(first.stderr).toContain('To turn them off: gstack-config set codex_reviews disabled');
+    expect(first.stderr).not.toContain('sk-test-secret-value');
+    expect(first.stdout).toContain('OUTSIDE_STATUS: completed');
+    const second = invoke('claude', {}, { GSTACK_HOME: state, OPENAI_API_KEY: 'sk-test-secret-value' });
+    expect(second.status).toBe(0);
+    expect(second.stderr).not.toContain('NOTICE:');
+  });
+
   test('malformed Claude JSON cannot reach completion evaluation', () => {
     const result = invoke('codex',{}, {FAKE_MODE:'malformed'});
     expect(result.status).toBe(1);
@@ -236,7 +332,9 @@ describe('generated outside-review dispatch', () => {
   test('autoplan retains its Codex timeout event and hang record', () => {
     const events = path.join(TMP, 'autoplan-events');
     const probe = path.join(BIN, 'gstack-codex-probe');
-    fs.writeFileSync(probe, `_gstack_codex_select_model() { _GSTACK_CODEX_SEL=gpt-6-astra; }
+    fs.writeFileSync(probe, `_gstack_codex_select_model() { _GSTACK_CODEX_SEL=gpt-6-astra; _GSTACK_CODEX_SANDBOX=read-only; }
+_gstack_codex_sandbox_preflight() { return 0; }
+_gstack_codex_first_use_notice() { :; }
 _gstack_codex_timeout_wrapper() { echo 'Partial finding'; return 124; }
 _gstack_codex_log_event() { printf '%s %s\\n' "$1" "$2" >> "$FAKE_EVENTS"; }
 _gstack_codex_log_hang() { printf '%s %s\\n' "$1" "$2" >> "$FAKE_EVENTS"; }
@@ -268,6 +366,7 @@ _gstack_codex_log_hang() { printf '%s %s\\n' "$1" "$2" >> "$FAKE_EVENTS"; }
     const pidFile = path.join(TMP, 'stubborn.pid');
     fs.mkdirSync(stubborn, { recursive: true });
     fs.writeFileSync(path.join(stubborn, 'codex'), `#!/bin/bash
+[ "$1" = sandbox ] && exit 0
 trap '' TERM
 echo $$ > "$STUBBORN_PID"
 echo 'Partial finding before the deadline'

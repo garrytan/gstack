@@ -671,3 +671,55 @@ function findAllTemplates(): string[] {
   walk(ROOT);
   return results;
 }
+
+// B10 (#2623, honest-status half): Stats printed CALIBRATED: true from event
+// counts alone, while every logged answer could miss SIGNAL_MAP and leave each
+// dimension at its 0.5 seed. Calibration now needs at least one signal event.
+describe('B10: no CALIBRATED with zero signals', () => {
+  const tmpl = fs.readFileSync(path.join(ROOT, 'plan-tune', 'SKILL.md.tmpl'), 'utf-8');
+  const start = tmpl.indexOf('gstack-developer-profile --profile | bun -e "') + 'gstack-developer-profile --profile | bun -e "'.length;
+  const script = tmpl.slice(start, tmpl.indexOf('\n"\necho \'---DISTILL---\'', start));
+  const calibration = (inferred: object) => {
+    const { spawnSync } = require('child_process');
+    const r = spawnSync('bun', ['-e', script], { input: JSON.stringify({ inferred }), encoding: 'utf-8', timeout: 30_000 });
+    expect(r.status).toBe(0);
+    return r.stdout as string;
+  };
+  const enough = { sample_size: 40, diversity: { skills_covered: 5, question_ids_covered: 12, days_span: 9 } };
+
+  test('every count gate passing but zero signal events is not calibrated', () => {
+    const out = calibration({ ...enough, signal_events: 0 });
+    expect(out).toContain('CALIBRATED: false');
+    expect(out).toContain('CALIBRATION: not calibrated: no recorded signals');
+  });
+
+  test('a profile derived before signal counting is not reported calibrated', () => {
+    expect(calibration(enough)).toContain('CALIBRATED: false');
+  });
+
+  test('signal events plus the count gates still calibrate', () => {
+    const out = calibration({ ...enough, signal_events: 7 });
+    expect(out).toContain('CALIBRATED: true');
+    expect(out).not.toContain('CALIBRATION:');
+  });
+
+  test('--derive counts only answers that moved a dimension', () => {
+    const tmpHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gstack-b10-'));
+    try {
+      const { spawnSync } = require('child_process');
+      const env = { ...process.env, GSTACK_HOME: tmpHome, GSTACK_QUESTION_LOG_NO_DERIVE: '1' };
+      const logBin = path.join(ROOT, 'bin', 'gstack-question-log');
+      const devBin = path.join(ROOT, 'bin', 'gstack-developer-profile');
+      for (const [i, choice] of ['expand', 'A) Expand scope (Recommended)', 'something-unmapped'].entries()) {
+        const r = spawnSync(logBin, [JSON.stringify({ skill: 'plan-ceo-review', question_id: 'plan-ceo-review-mode', question_summary: 'mode?', user_choice: choice, session_id: `s${i}`, ts: `2026-04-0${i + 1}T10:00:00Z` })], { env, cwd: ROOT, encoding: 'utf-8', timeout: 30_000 });
+        expect(r.status).toBe(0);
+      }
+      expect(spawnSync(devBin, ['--derive'], { env, cwd: ROOT, encoding: 'utf-8', timeout: 30_000 }).status).toBe(0);
+      const p = JSON.parse(spawnSync(devBin, ['--profile'], { env, cwd: ROOT, encoding: 'utf-8', timeout: 30_000 }).stdout);
+      expect(p.inferred.sample_size).toBe(3);
+      expect(p.inferred.signal_events).toBe(1);
+    } finally {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+});

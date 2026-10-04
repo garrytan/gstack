@@ -226,11 +226,25 @@ describe('v1.27.0.0 migration — #1383 consent + failure-stays-pending contract
     expect(journal).not.toContain('gh_repo_renamed');
     // Later steps DID run and are journaled (independent of step 1)...
     expect(journal).toContain('remote_txt_renamed');
-    // ...so a retry with working gh only redoes step 1 and completes.
+    // ...but the remote keeps naming the repository that exists (#1437):
+    // rewriting it here pointed the artifacts remote at a repo never renamed.
+    const remote = () => fs.readFileSync(path.join(tmpHome, '.gstack-artifacts-remote.txt'), 'utf-8').trim();
+    expect(remote()).toBe('https://github.com/testuser/gstack-brain-testuser');
+    // A retry with working gh only redoes step 1, completes, and only then
+    // points the remote at the renamed repository.
     makeFakeGh({});
     const r2 = run();
     expect(r2.code).toBe(0);
     expect(fs.existsSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.done'))).toBe(true);
+    expect(remote()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
+  });
+
+  test('A8 (#1437): gh rename and edit get the OWNER/REPO form gh requires', () => {
+    run();
+    const ghLog = fs.readFileSync(path.join(fakeBinDir, 'gh-calls.log'), 'utf-8');
+    expect(ghLog).toContain('gh repo view testuser/gstack-artifacts-testuser');
+    expect(ghLog).toMatch(/gh repo rename gstack-artifacts-testuser --repo testuser\/gstack-brain-testuser --yes/);
+    expect(ghLog).not.toMatch(/--repo gstack-brain-testuser\b/);
   });
 });
 

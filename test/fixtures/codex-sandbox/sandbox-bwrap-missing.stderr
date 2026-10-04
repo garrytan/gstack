@@ -1,0 +1,5 @@
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/.codex"))
+
+thread 'main' (15) panicked at linux-sandbox/src/launcher.rs:57:13:
+bubblewrap is unavailable: no system bwrap was found on PATH and no bundled codex-resources/bwrap binary was found next to the Codex executable
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

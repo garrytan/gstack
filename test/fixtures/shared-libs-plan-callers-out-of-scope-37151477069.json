@@ -1,0 +1,23 @@
+{
+  "questions": [
+    {
+      "question": "D1 — Parser source for the two new Retry-After callers\nProject/branch/task: main — plan review for src/import-worker.ts and src/sync-route.ts (PLAN.md), neither written yet.\nELI10: The plan says each new file should get its own hand-written copy of the code that turns a Retry-After header into a wait time. The repo already has that exact code in lib/retry-after.ts, tested and used by the scheduler. Two more copies means three-plus places that must stay identical forever, and the header parsing has odd corners (past dates, huge numbers, strings like \"1.5\") that are easy to get subtly wrong in a copy.\nStakes if we pick wrong: a copy that drifts from the scheduler produces different wait times for the same header, which the plan explicitly forbids, and the bug only shows up as mis-timed retries in production.\nRecommendation: A because the proven helper already matches the fixed contract, costs one import line per caller, and the shared-contract test is the one place to prove the edge cases both callers need.\nCompleteness: A=10/10, B=7/10, C=5/10\nPros / cons:\nA) Reuse lib helper + full proof (recommended) (human: ~1 h / CC: ~5 min)\n  ✅ Zero parser logic added; both callers import retrySeconds exactly like src/scheduler.ts:1 does today\n  ✅ Shared-contract test gains the edge cases the new callers rely on (past date → 0, date ceiling 3600, blank → fallback, unsafe integer → fallback, caller fallback honored) plus one integration test per caller\n  ❌ Any future change to lib/retry-after.ts now affects the scheduler and both new callers at once (blast radius of three callers)\nB) Reuse lib helper, caller tests only (human: ~30 min / CC: ~3 min)\n  ✅ Same reuse and same one-line wiring as A, no parser logic duplicated anywhere\n  ✅ Smallest test diff: only the two planned caller integration tests, no shared-test edits\n  ❌ Edge cases the callers depend on (past dates, date-path ceiling, blank header) stay unproven anywhere in the suite\nC) Local copy per caller, as drafted (human: ~2 h / CC: ~10 min)\n  ✅ Each caller is fully self-contained; a change to one cannot alter the others\n  ✅ No edits to lib/ or its test file, matching the plan text as written\n  ❌ Adds ~30 implementation lines of duplicated logic plus duplicated contract tests, and every copy must reproduce engine-specific Date.parse quirks to stay scheduler-compatible\nNet: one import line per caller plus a few shared test cases buys guaranteed scheduler parity; copies buy isolation nobody asked for at the price of permanent drift risk.",
+      "header": "Parser source",
+      "multiSelect": false,
+      "options": [
+        {
+          "label": "Reuse lib helper + full proof",
+          "description": "Both new callers import retrySeconds from lib/retry-after.ts (as src/scheduler.ts does) instead of defining a parser. Extend test/retry-after.test.ts with the edge cases the callers rely on: past date → 0, date-path ceiling 3600, whitespace-only → fallback, unsafe integer → fallback, caller fallback honored on null. Keep one integration test per caller. Existing-caller migration and helper hardening stay out of scope. ✅ Zero parser logic added. ✅ Edge cases proven once in the shared test. ❌ Three callers now share one helper's blast radius. Effort human ~1 h / CC ~5 min."
+        },
+        {
+          "label": "Reuse lib helper, caller tests only",
+          "description": "Both new callers import retrySeconds from lib/retry-after.ts; no local parser. Only the two planned caller integration tests are added; test/retry-after.test.ts is left unchanged. Existing-caller migration and helper hardening stay out of scope. ✅ Same one-line wiring as A with no duplicated logic. ✅ Smallest test diff. ❌ Past-date, date-ceiling and blank-header behaviors remain unproven in the suite. Effort human ~30 min / CC ~3 min."
+        },
+        {
+          "label": "Local copy per caller, as drafted",
+          "description": "Keep the plan as written: each new caller implements its own parser reproducing the scheduler semantics, with per-caller contract and integration tests. lib/retry-after.ts and its test are untouched. ✅ Each caller is self-contained. ✅ Matches the plan text as written. ❌ ~30 duplicated implementation lines plus duplicated tests, and each copy must reproduce engine-specific Date.parse quirks exactly. Effort human ~2 h / CC ~10 min."
+        }
+      ]
+    }
+  ]
+}

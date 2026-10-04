@@ -331,10 +331,12 @@ describe.skipIf(process.platform !== 'linux')('lazy owned display lifecycle', ()
   let root: string;
   let hbm: BrowserManager;
   const displays = () => {
-    const result = Bun.spawnSync(['ps', '--ppid', String(process.pid), '-o', 'comm='], {
+    // A terminated Xvfb can linger as a zombie until this process reaps it; it is no display.
+    const result = Bun.spawnSync(['ps', '--ppid', String(process.pid), '-o', 'stat=,comm='], {
       stdout: 'pipe', stderr: 'pipe', timeout: 2000,
     });
-    return result.stdout.toString().split('\n').filter(line => line.trim() === 'Xvfb').length;
+    return result.stdout.toString().split('\n').map(line => line.trim().split(/\s+/))
+      .filter(([stat, comm]) => comm === 'Xvfb' && !stat?.startsWith('Z')).length;
   };
 
   beforeEach(async () => {
