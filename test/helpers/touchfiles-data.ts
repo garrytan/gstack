@@ -317,7 +317,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // written a never-ask preference, AUQ should still auto-decide rather than
   // surfacing the question. Touches the question-tuning + preference
   // infrastructure plus the resolvers that own the AUTO_DECIDE preamble.
-  'auto-decide-preserved':        ['bin/gstack-ceo-mode-handoff', 'test/fixtures/auto-decide-handoff-line-e354.json', 'bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts',
+  'auto-decide-preserved':        ['bin/gstack-ceo-mode-handoff', 'test/fixtures/auto-decide-handoff-line-e354.json', 'test/fixtures/auto-decide-handoff-before-log-37182865432.json', 'bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts',
     
     'test/fixtures/auto-decide-recommendation-361c.json',
     

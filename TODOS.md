@@ -137,6 +137,24 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   is `test/fixtures/auto-decide-handoff-line-e354.json`). Local paid trials after
   the repair: auto-decide-preserved 1/1, plan-ceo-mode-routing 1/1 (both modes);
   every session ran the helper.
+- **plan-ceo-section-loading misses correctly worded stale-fill findings** —
+  censuses 37178734784 (65d94f2) and 37182865432 (44ef18c) failed
+  `hasStaleFillRaceFinding` although the review found the race. In 44ef18c it
+  named schedule S2 ("a read can fetch an old copy, pause, and only then put
+  it in the cache… every later reader gets stale data") and approved a
+  fill-admission guard. The detector is a regex family over phrasings; adding a
+  spelling per failure is the wrong fix. Bind the case to a structured finding
+  record (or an LLM judge with a fixed rubric) instead. 2 of the last 3
+  censuses, 0 of the 16 before. Effort M. **Priority:** P2.
+- **auq-matrix recommendation-substance judge rotates red** — census
+  37182865432 scored plan-design-review's "A because the plan is thin
+  everywhere, so skipping dimensions mostly skips gaps" 3 < 4. The same case
+  was red in 5 of the 16 earlier censuses (37151477069 on main,
+  36898545245, 36787269090, 36641820398, 36633323521) across skills and checks
+  (a two-`(recommended)` option count; office-hours substance). It is kind
+  `rule` but gates on one judge sample. Decide under EVAL_POLICY whether it is
+  a `judge` case (3 samples, mean) and supply pass-rate evidence before
+  changing the kind. Effort S. **Priority:** P2.
 - **Floor runner cannot grant an owned Edit when the TTY collapses spaces** —
   PR run 37176835584 (7249f01): plan-ceo-finding-floor timed out at 600 s with
   the native "Do you want to make this edit to gstack-test-plan-ceo-floor.md?"

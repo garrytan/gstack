@@ -47,10 +47,11 @@ function modeField(line: string): { value: string; completed: boolean } | null {
   const match = /^(?:(?:Correction|Actually|Update):\s*)?(?<label>(?:Review )?Mode(?: decision)?|Decision)(?: (?<status>[^:\r\n]+))?:\s*(?<value>.*)$/i.exec(line.replace(/^\s*[-*+]\s+/, '').trim());
   if (!match) return null;
   // "Mode" and "Mode decision" are both field labels. If an explicit status
-  // follows, only the completion class is supported. Pending, cancelled,
+  // follows, only the completion class (including decided/selected/chosen) is
+  // supported. Pending, cancelled,
   // unfinished and unknown statuses also invalidate an earlier declaration.
   const { label, status, value: rawValue } = match.groups!;
-  const completeStatus = !status || /^(?:done|complete|completed)$/i.test(status.trim());
+  const completeStatus = !status || /^(?:done|complete|completed|decided|selected|chosen)$/i.test(status.trim());
   const explicitMode = /^(?:the )?(?:review )?mode\b(?:\s+is\b|:|\s*=(?!=))?\s*/i;
   // An unqualified Decision field owns a review mode only when its value
   // names that vocabulary. Keep unrelated decisions out of withdrawal checks;
@@ -317,7 +318,8 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
   if (starts.length !== 1) return null;
   const start = starts[0]!, questionId = `${opts.skillName}-mode`;
   // The handoff helper's printed AUTO_DECIDE line is the current declaration
-  // when it follows the decision record and nothing later withdraws or changes it.
+  // when it follows the preference check and nothing later withdraws or changes
+  // it. Step 0E records provenance after the handoff, so the log may follow it.
   const autoHandoff = (after: number, option: string, summary: string) => {
     const handoff = ceoModeHandoffs(owned, opts.sessionId).find(h => h.auto && h.option === option &&
       timely(h.timestamp) && time(h.timestamp) >= after);
@@ -339,7 +341,7 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
           row.auto_decided === true && modeValue(row.user_choice) && modeValue(row.user_choice) === modeValue(row.recommended) &&
           typeof row.question_summary === 'string' && row.question_summary.trim() &&
           loggedAt >= time(start.result.timestamp) && loggedAt <= opts.now) {
-        const handoff = autoHandoff(loggedAt, modeValue(row.user_choice)!, row.question_summary);
+        const handoff = autoHandoff(time(start.result.timestamp), modeValue(row.user_choice)!, row.question_summary);
         if (handoff) return { ...handoff, summary: row.question_summary, preambleToolUseId: start.use.toolUseId, stateRecord: row };
         for (const message of current) {
           const declared = currentModeStatement(message.text, row.question_summary);
@@ -389,7 +391,7 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
   });
   if (logs.length !== 1 || !logs[0]!.result) return null;
   const logged = logs[0]!;
-  const handoff = autoHandoff(time(logged.result!.timestamp), modeValue(logged.log.user_choice)!, logged.log.question_summary);
+  const handoff = autoHandoff(time(check.result!.timestamp), modeValue(logged.log.user_choice)!, logged.log.question_summary);
   if (handoff) return { ...handoff, summary: logged.log.question_summary, preambleToolUseId: start.use.toolUseId,
     preferenceToolUseId: check.use.toolUseId, questionLogToolUseId: logged.use.toolUseId };
   for (const message of current) {

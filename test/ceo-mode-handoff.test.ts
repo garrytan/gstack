@@ -109,7 +109,8 @@ describe('native handoff evidence', () => {
     sent.tools.push(...handoff(sent.options.sessionId, loggedAt + 1000, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
     expect(decide(sent)).toMatchObject({ option: 'HOLD SCOPE', annotation: AUTO_LINE, stateRecord: sent.options.stateEvidence.records[0] });
     const { f: early } = attempt();
-    early.tools.push(...handoff(early.options.sessionId, loggedAt - 5000, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
+    const started = Date.parse(early.tools.find((e: any) => e.kind === 'result' && String(e.content).includes('SKILL_START_PROTO')).timestamp);
+    early.tools.push(...handoff(early.options.sessionId, started - 5000, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
     expect(decide(early)).toBeNull();
     const { f: changed, loggedAt: changedAt } = attempt();
     changed.tools.push(...handoff(changed.options.sessionId, changedAt + 1000, `${CMD} "HOLD SCOPE" --auto`, AUTO_LINE));
@@ -141,6 +142,39 @@ describe('native handoff evidence', () => {
     })) {
       const f = attempt(); mutate(f); expect(decide(f), name).toBeNull();
     }
+  });
+
+  test('census 37182865432: the printed handoff before the provenance log is the declaration', () => {
+    const captured = JSON.parse(fs.readFileSync(path.join(import.meta.dir, 'fixtures/auto-decide-handoff-before-log-37182865432.json'), 'utf8'));
+    const attempt = () => {
+      const f = structuredClone(captured);
+      const use = f.tools.find((e: any) => e.kind === 'use' && e.input?.command?.includes('gstack-question-log'));
+      const record = JSON.parse(/gstack-question-log '(\{[^\n]*\})'/.exec(use.input.command)![1]!);
+      record.source = 'agent';
+      record.ts = f.tools.find((e: any) => e.kind === 'result' && e.toolUseId === use.toolUseId).timestamp;
+      f.options.stateEvidence = { questionId: 'plan-ceo-review-mode', preference: 'never-ask', records: [record] };
+      return f;
+    };
+    const decide = (f: any) => findNativeAutoDecision(f.transcript, f.tools, f.options);
+    // As captured, the closing "**Mode decided: HOLD SCOPE.**" chat also declares the mode.
+    expect(decide(attempt())).toMatchObject({ option: 'HOLD SCOPE' });
+    const handoffOnly = () => {
+      const f = attempt();
+      f.transcript.assistantMessages.find((m: any) => m.text.startsWith('**Mode decided:')).text = 'Wrapping up this invocation.';
+      return f;
+    };
+    expect(decide(handoffOnly())).toMatchObject({ option: 'HOLD SCOPE', annotation: AUTO_LINE });
+    for (const [name, mutate] of Object.entries({
+      'handoff output altered': (f: any) => { f.tools.find((e: any) => e.kind === 'result' && e.content === AUTO_LINE).content = AUTO_LINE.replace('HOLD SCOPE', 'SCOPE EXPANSION'); },
+      'record names another mode': (f: any) => { f.options.stateEvidence.records[0].user_choice = 'SCOPE EXPANSION'; f.options.stateEvidence.records[0].recommended = 'SCOPE EXPANSION'; },
+      'later withdrawal': (f: any) => { f.transcript.assistantMessages.push({ sessionId: f.options.sessionId, timestamp: new Date(f.options.now - 1000).toISOString(), text: 'Correction: I withdraw this decision.' }); },
+      'missing record': (f: any) => { f.options.stateEvidence.records = []; },
+    })) {
+      const f = handoffOnly(); mutate(f); expect(decide(f), name).toBeNull();
+    }
+    const pending = attempt();
+    pending.transcript.assistantMessages.find((m: any) => m.text.startsWith('**Mode decided:')).text = '**Mode pending: HOLD SCOPE.**';
+    expect(decide(pending)).toBeNull();
   });
 
   test('an answered mode handoff establishes that mode posture, and only that mode', () => {
