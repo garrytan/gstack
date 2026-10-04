@@ -88,6 +88,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isPaidTestFile } from '../test/helpers/paid-test-set';
 import { resolveStateRoot } from '../lib/state-root';
 import { attributeFreeHomeWriters, guardFreeHome, sharedFreeHome, type FreeHomeGuardFactory } from './lib/free-home-guard';
+import { appendStepSummary, ciHealthSummary, SEED_REFRESH_COMMAND, unseededWarning } from './lib/free-ci-health';
 import {
   BunTestOutputClassifier,
   createShardSandbox,
@@ -678,8 +679,8 @@ export function assignFilesToShards(files: string[], shardCount: number): string
 // to bun's stream buffering, where silent passers print no header to
 // timestamp). GSTACK_FREE_TEST_DURATIONS overrides the path for experiments.
 // The seed is a HINT, not a contract: missing file → hash-shard fallback;
-// unknown file → 75th-percentile pessimism (placed early by LPT, bounding
-// tail risk). CI shares one plan rather than independently recomputing it.
+// unknown file → 99th-percentile pessimism (placed early by LPT, so one slow
+// new file cannot hide inside a full shard). CI shares one plan rather than independently recomputing it.
 
 export const FREE_TEST_DURATIONS_FILE = 'scripts/free-test-durations.json';
 
@@ -720,9 +721,9 @@ export function packShardsByDuration(
     .map((f) => durations[normalizeRelativePath(f)])
     .filter((v): v is number => typeof v === 'number')
     .sort((a, b) => a - b);
-  // Unknown files get the 75th percentile of known durations: pessimistic, so
-  // LPT places them early and a surprise long-runner can't recreate the tail.
-  const fallback = known.length > 0 ? known[Math.min(known.length - 1, Math.floor(known.length * 0.75))] : 1;
+  // Unknown files get the 99th percentile of known durations: an unseeded
+  // 115 s file packed at p75 (~1 s) once doubled the whole suite's wall.
+  const fallback = known.length > 0 ? known[Math.min(known.length - 1, Math.floor(known.length * 0.99))] : 1;
   const predicted = (f: string): number => durations[normalizeRelativePath(f)] ?? fallback;
 
   const ordered = [...files].sort((a, b) => predicted(b) - predicted(a) || (a < b ? -1 : 1));
@@ -740,9 +741,9 @@ export function packShardsByDuration(
 }
 
 /**
- * Files missing from the duration seed are packed at the 75th percentile, so
- * one slow new file can become the whole run's long pole without anyone
- * noticing. Name them (on stderr: --ci-plan's stdout is the CI matrix).
+ * Files missing from the duration seed are packed at the 99th percentile;
+ * name them (on stderr: --ci-plan's stdout is the CI matrix), and past the
+ * unseeded limit also warn in the job summary with the refresh command.
  */
 export function unseededFreeFiles(files: string[], durations: Record<string, number>): string[] {
   return files.filter((f) => durations[normalizeRelativePath(f)] === undefined);
@@ -752,8 +753,13 @@ function warnUnseededFreeFiles(files: string[], durations: Record<string, number
   const unseeded = unseededFreeFiles(files, durations);
   if (unseeded.length === 0) return;
   const shown = unseeded.slice(0, 5).join(', ') + (unseeded.length > 5 ? `, +${unseeded.length - 5} more` : '');
-  console.error(`[test:free] ${unseeded.length} file(s) have no recorded duration and are packed at the 75th-percentile estimate: ${shown}.`
-    + ' Refresh scripts/free-test-durations.json with `bun run test:ubicloud --record-durations`.');
+  console.error(`[test:free] ${unseeded.length} file(s) have no recorded duration and are packed at the 99th-percentile estimate: ${shown}.`
+    + ` Refresh scripts/free-test-durations.json with \`${SEED_REFRESH_COMMAND}\`.`);
+  const warning = unseededWarning(unseeded);
+  if (warning) {
+    console.error(`[test:free] ${warning}`);
+    appendStepSummary(warning);
+  }
 }
 
 export interface FreeCiPlan {
@@ -2168,6 +2174,10 @@ async function main(): Promise<number> {
     if (options.ciVerify) {
       const results = fs.readdirSync(options.results!).filter(file => file.endsWith('.json'))
         .map(file => JSON.parse(fs.readFileSync(path.join(options.results!, file), 'utf8')) as FreeCiResult);
+      for (const section of ciHealthSummary(plan, results)) {
+        console.log(`[test:free] ${section}`);
+        appendStepSummary(section);
+      }
       verifyFreeCiResults(plan, results);
       console.log(`[test:free] CI PASS: ${allFiles.length} files across ${results.length} isolated shards; slowest ${Math.round(Math.max(...results.map(result => result.outcome.elapsedMs + (result.retry?.elapsedMs ?? 0))) / 1000)}s including retries`);
       return 0;

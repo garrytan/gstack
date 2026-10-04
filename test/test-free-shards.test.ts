@@ -484,7 +484,7 @@ describe('test-free-shards: exclusive host-state phase', () => {
     let child: ReturnType<typeof Bun.spawn> | undefined;
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     try {
-      for (const file of ['scripts/test-free-shards.ts', 'scripts/test-strict-output.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts', 'lib/state-root.ts',
+      for (const file of ['scripts/test-free-shards.ts', 'scripts/test-strict-output.ts', 'scripts/lib/shard-engine.ts', 'scripts/lib/free-home-guard.ts', 'scripts/lib/free-ci-health.ts', 'lib/state-root.ts',
         'test/helpers/paid-test-set.ts', 'test/helpers/touchfiles.ts', 'test/helpers/touchfiles-data.ts', 'test/helpers/test-selection.ts']) {
         const target = path.join(directory, file);
         fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -1246,12 +1246,12 @@ describe('test-free-shards: duration-aware packing (full-suite LPT)', () => {
     expect(one.shards).toEqual(two.shards);
   });
 
-  test('unknown files get 75th-percentile pessimism (placed early, never the tail)', () => {
+  test('unknown files get 99th-percentile pessimism (placed early, never the tail)', () => {
     const durations = {
       'test/a.test.ts': 1_000,
       'test/b.test.ts': 2_000,
       'test/c.test.ts': 100_000,
-      // test/d.test.ts unrecorded → p75 of known = 100_000 (pessimistic)
+      // test/d.test.ts unrecorded → p99 of known = 100_000 (pessimistic)
     };
     const { shards } = packShardsByDuration(files, 2, durations);
     // The unknown must NOT be packed as if free: it lands opposite the

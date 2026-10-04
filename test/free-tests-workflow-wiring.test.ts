@@ -65,6 +65,14 @@ describe('free-tests workflow wiring', () => {
     expect(source).not.toContain('--quick');
   });
 
+  test('the plan job runs the seed ratchet against the merge-base with full history', () => {
+    const planner = (Bun.YAML.parse(source) as any).jobs['free-plan'];
+    expect(planner.steps[0].with['fetch-depth']).toBe(0);
+    const ratchet = planner.steps.find((step: any) => step.name?.startsWith('Seed growth ratchet'));
+    expect(ratchet.run).toContain('GSTACK_FREE_SEED_BASE="$(git merge-base HEAD origin/main)"');
+    expect(ratchet.run).toContain('test/free-seed-ratchet.test.ts');
+  });
+
   test('flake telemetry stays wired: retry flag, single-writer ledger, unconditional artifact', () => {
     // WS1: a timing flake must not red the required lane, but every
     // flaky-pass must be recorded and uploaded — a green run is exactly when

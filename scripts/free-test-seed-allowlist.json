@@ -1,0 +1,9 @@
+{
+  "entries": [
+    {"file": "test/claude-overlay-setup.test.ts", "reason": "real ./setup 1-4x per test; split by describe block in this wave (W6b)"},
+    {"file": "test/host-conformance.test.ts", "reason": "real ./setup per host and layout; shrinks with the shared prebuilt-source fixture (W6c)"},
+    {"file": "test/setup-install-registry.test.ts", "reason": "21 real setup spawns; shrinks with the shared prebuilt-source fixture (W6c)"},
+    {"file": "test/shared-libs-stage-actor.test.ts", "reason": "re-runs the paid shared-libs runner body against git fixture repos per test; owned by the paid-harness value-bar review"},
+    {"file": "test/test-free-shards.test.ts", "reason": "runner unit suite plus real-Chromium settlement cases; split pending in this wave (W6b)"}
+  ]
+}
