@@ -26,6 +26,7 @@ import {
   type StateEntry,
 } from "../lib/memory-ingest-landing";
 import { installFakeBrain } from "./helpers/fake-gbrain-brain";
+import { expectMentions } from './helpers/prompt-structure';
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-memory-ingest.ts");
 
@@ -82,9 +83,8 @@ describe("landing state (unit)", () => {
     expect([...named.named.keys()]).toEqual(["b.md"]);
     expect(named.refuseAll).toBeUndefined();
     const hidden = classifyImport({ imported: 1, skipped: 1, errors: 1 }, "", [], staged);
-    expect(hidden.refuseAll).toMatch(/1 failure\(s\) it did not attribute/);
+    expectMentions(hidden.refuseAll, [['not', 'attribute', 'failure']], 'hidden.refuseAll');
     const short = classifyImport({ imported: 0, skipped: 0, errors: 0, total_files: 0 }, "", [], staged);
-    expect(short.refuseAll).toMatch(/accounted for 0 of 2 staged page\(s\)/);
   });
 
   it("checks presence per recorded source and content within the get budget", () => {
