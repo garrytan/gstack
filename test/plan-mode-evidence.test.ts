@@ -69,8 +69,12 @@ await import(${JSON.stringify(path.join(ROOT, PAID_FILE))});
           expect(opts.trackTokens.length).toBeGreaterThan(0);
           for (const token of opts.trackTokens) expect(opts.initialPlanContent).toContain(token);
           if (skill === 'eng') {
-            keys.push('extraArgs');
+            keys.push('extraArgs', 'cwd', 'env');
             expect(opts.extraArgs).toEqual(['--disallowedTools', 'AskUserQuestion']);
+            // The seeded runner plan reviews its own fixture project, never this checkout.
+            expect(path.isAbsolute(opts.cwd)).toBe(true);
+            expect(path.relative(ROOT, opts.cwd).startsWith('..')).toBe(true);
+            expect(opts.env).toEqual({ DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
           }
         }
         expect(Object.keys(opts).sort()).toEqual(keys.sort());
