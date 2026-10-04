@@ -26,6 +26,12 @@ The dedicated Windows CI job checks startup, argument forwarding, and runtime
 injection separately from static audit and private-state support. POSIX
 watchdog execution remains unavailable there.
 
+No qualified runtime or scanner image exists yet, so contained runtime and
+scanner execution is unavailable and setup preloads nothing: the scanner
+catalog is empty while its build inputs await review, and the runtime catalog's
+profiles stay unqualified until a private evaluator, still being built, can
+qualify them.
+
 Every successful fresh install or upgrade asks the trusted launcher to preload
 the current host platform's qualified runtime and scanner images. This is the
 only automatic image acquisition path. It first validates the committed
