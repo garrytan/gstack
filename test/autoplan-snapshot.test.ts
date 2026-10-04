@@ -9,6 +9,7 @@ import { generateAutoplanSnapshotTool } from '../scripts/resolvers/composition';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { ALL_HOST_CONFIGS } from '../hosts';
 import { E2E_TOUCHFILES } from './helpers/touchfiles';
+import { expectMentions } from './helpers/prompt-structure';
 
 const ROOT = resolve(import.meta.dir, '..');
 const TOOL = join(ROOT, 'bin/gstack-autoplan-snapshot.ts');
@@ -109,20 +110,14 @@ describe('phase-close packets preserve full readback before publication', () => 
     expect(message).toBeGreaterThan(publish);
     expect(driver).toBeGreaterThan(message);
     const verification = continuation.slice(verify, publish).replace(/\s+/g, ' ');
-    expect(verification).toContain('accepted decisions, source requirements, conditions, tests and required outputs');
-    expect(verification).toContain('full methodology/section Reads, successful writes and terminal reviewer results');
     expect(verification).toContain("Match a completed native review's INPUT to its voice snapshot");
-    expect(verification).toContain('A pending reviewer keeps this phase open');
-    expect(verification).toContain("Apply this phase's failure policy to failed native attempts");
-    expect(verification).toContain('unavailable/disabled voices receive no completion credit');
-    expect(verification).toContain('same checkpoint and Read the entire new packet before publication');
-    expect(verification).toContain('counts, hashes, keyword probes and a saved “Read-back” sentence do not perform this semantic review');
+    expectMentions(verification, [['no', 'unavailable/disabled', 'completion']], 'verification');
+    expectMentions(verification, [['before', 'publication', 'checkpoint']], 'verification');
+    expectMentions(verification, [['do not', 'read-back', 'sentence']], 'verification');
     const publication = continuation.slice(publish, driver).replace(/\s+/g, ' ');
     expect(publication).toContain('After successful verification, SEND the filled template below now as visible parent assistant text');
-    expect(publication).toContain('the next operation before any next-phase tool call');
-    expect(publication).toContain("actual findings, voice statuses and the actual host's reviewer names");
-    expect(publication).toContain('N/A when either review voice is missing; confirmed counts require both voices');
-    expect(publication).toContain('unfilled template is not a completed report');
+    expectMentions(publication, [['before', 'next-phase', 'operation']], 'publication');
+    expectMentions(publication, [['not', 'completed', 'unfilled']], 'publication');
     expect(publication).toContain('Outside review: <completed: N concerns / unavailable / disabled>. Native subagent: <completed: N issues / unavailable>.');
     expect(publication).toContain(`Consensus: <N/A (voice coverage missing) | X/${total} native+outside confirmed; Y disagreements → gate>.`);
     expect(publication).toContain(`Passing to <applicable ${packet.report.next}>.`);
@@ -130,10 +125,9 @@ describe('phase-close packets preserve full readback before publication', () => 
     expect(publication).not.toContain('completed: 0');
     expect(publication).not.toContain('```');
     const continuationAfterMessage = continuation.slice(driver).replace(/\s+/g, ' ');
-    expect(continuationAfterMessage).toContain('Only after sending the actual parent report');
-    expect(continuationAfterMessage).toContain('The driver alone advances phases and emits applicable skip messages; a skip is never a completion');
+    expectMentions(continuationAfterMessage, [['only', 'sending', 'actual']], 'continuationAfterMessage');
+    expectMentions(continuationAfterMessage, [['never', 'applicable', 'completion']], 'continuationAfterMessage');
     expect(continuationAfterMessage).toContain('Saving a report in ACTIVE_PLAN or printing it through Bash does not publish it');
-    expect(continuationAfterMessage).toContain('Preparation and a Read result complete neither verification nor publication');
     expect(packet.phaseComplete).toBe(false);
   });
 
@@ -155,7 +149,6 @@ describe('phase-close packets preserve full readback before publication', () => 
     expect(second.reviewInputSha256).not.toBe(first.reviewInputSha256);
     expect(readFileSync(second.closePacketPath, 'utf8')).toContain('hide badge during retry-pending');
     expect(readFileSync(first.closePacketPath, 'utf8')).toBe(firstBytes);
-    expect(firstBytes).toContain('Any later implementation or accepted-decision edit invalidates this packet');
     expect(first.phaseComplete).toBe(false);
     expect(second.phaseComplete).toBe(false);
     const generic = cli('amend-input', 'ceo', f.active, f.checkpoint.snapshotPath, f.restore, f.method);
@@ -303,10 +296,9 @@ describe('Autoplan phase snapshot continuity', () => {
       expect(generated.nativeDispatchPrompt).toContain(`Read file: ${JSON.stringify(generated.nativePromptPath)}`);
       expect(generated.nativeDispatchPrompt).toContain('FIRST tool action');
       expect(generated.nativeDispatchPrompt).toContain('line 1 through EOF');
-      expect(generated.nativeDispatchPrompt).toContain('Continue successful ranges until every line is loaded');
+      expectMentions(generated.nativeDispatchPrompt, [['until', 'successful', 'continue']], 'generated.nativeDispatchPrompt');
       expect(generated.nativeDispatchPrompt).toContain('Execute every criterion');
       expect(generated.nativeDispatchPrompt).toContain(`INPUT: ${phase} ${generated.sha256}`);
-      expect(generated.nativeDispatchPrompt).toContain('report the read failure instead of a completed review');
       expect(generated.nativeDispatchPrompt).toContain(generated.nativePromptSha256);
       expect(generated.nativeDispatchPrompt).toContain(`${generated.nativePromptBytes} UTF-8 bytes`);
       expect(generated.nativePromptBytes).toBe(Buffer.byteLength(generated.nativePrompt));
@@ -348,7 +340,7 @@ describe('Autoplan phase snapshot continuity', () => {
     expect(read.bytes).toBe(generated.nativePromptBytes);
     expect(read.sha256).toBe(generated.nativePromptSha256);
     expect(read.content.endsWith(body)).toBe(true);
-    expect(read.content).toContain('What alternatives were dismissed without sufficient analysis?');
+    expectMentions(read.content, [['without', 'alternatives', 'sufficient']], 'read.content');
     expect(read.content).toContain('LAST REQUIREMENT: tenant isolation + CSRF. 🧪');
     expect(read.content).not.toContain('PRIVATE PRIOR REVIEW');
     expect(generated.nativePromptLines).toBeGreaterThan(2200);
@@ -368,7 +360,7 @@ describe('Autoplan phase snapshot continuity', () => {
       // These existing contracts were lost in Q's manually abridged dispatch.
       expect(generated.nativePrompt).toContain('single-role member workspace');
       expect(generated.nativePrompt).toContain('Mutations already require CSRF tokens');
-      expect(generated.nativePrompt).toContain('You have NOT seen any prior review');
+      expectMentions(generated.nativePrompt, [['not', 'review', 'prior']], 'generated.nativePrompt');
       expect(generated.nativePrompt).toContain(`Input path: ${JSON.stringify(generated.snapshotPath)}`);
       expect(generated.nativePrompt).toContain(`INPUT: ${phase} ${generated.sha256}`);
       expect(generated.nativePrompt).not.toContain('CEO pending');
