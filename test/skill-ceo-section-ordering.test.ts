@@ -614,6 +614,7 @@ test('CEO closing route checks approvals before outputs and verifies artifacts b
   ordered(success, [/finish the cache refresh below/i, '{{BRAIN_CACHE_REFRESH}}',
     '**Telemetry (run last)** once', /the review is now finished/i, 'Call ExitPlanMode',
     /next-skill handoff starts a separate workflow/i]);
+  expect(terminal).not.toMatch(/return to (?:the )?section|Closing hooks/);
   for (const host of ALL_HOST_CONFIGS) {
     const refresh = compactProse(generateBrainCacheRefresh({ skillName: 'plan-ceo-review', host: host.name, paths: HOST_PATHS[host.name]! } as TemplateContext));
     expectMentions(refresh, [['before','nonblocking','telemetry']], 'refresh');
