@@ -52,10 +52,10 @@ function receipt(output: string) {
   return value;
 }
 
-function background(args: string[], preload?: string, options: { unreadStdout?: boolean } = {}) {
+function background(args: string[], preload?: string) {
   const child = spawn(process.execPath, [...(preload ? ['--preload', preload] : []), CLI, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = '', stderr = '';
-  if (!options.unreadStdout) child.stdout!.on('data', chunk => { stdout += chunk; });
+  child.stdout!.on('data', chunk => { stdout += chunk; });
   child.stderr!.on('data', chunk => { stderr += chunk; });
   const result = new Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }>((resolve, reject) => {
     child.once('error', reject);
@@ -340,25 +340,40 @@ spyOn(fs, 'createWriteStream').mockImplementation((...args) => {
 test('native receipt writes cannot block the output-settlement deadline on a full pipe', async () => {
   const f = fixture();
   const preload = path.join(f.dir, 'full-pipe.ts');
+  const writing = path.join(f.dir, 'stdout-writing');
+  // POSIX: stdout is a FIFO this test never reads, so the kernel holds the 2 MB
+  // write. A paused Bun child stream can still be drained under load (CI run
+  // 36761671811 exited 0 after 128 ms). Windows keeps the paused child pipe.
+  const fifo = process.platform === 'win32' ? null : path.join(f.dir, 'stdout.fifo');
+  if (fifo) expect(spawnSync('mkfifo', [fifo], { timeout: 5000 }).status).toBe(0);
+  const readFd = fifo ? fs.openSync(fifo, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK) : -1;
+  const writeFd = fifo ? fs.openSync(fifo, 'w') : -1;
   fs.writeFileSync(preload, `
-import { write } from 'node:fs';
+import { write, writeFileSync } from 'node:fs';
 write(1, Buffer.alloc(2 * 1024 * 1024, 32), () => {});
+writeFileSync(${JSON.stringify(writing)}, '');
 await Bun.sleep(100);
 `);
-  const runner = background(['start', f.receipt, '30'], preload, { unreadStdout: true });
+  const child = spawn(process.execPath, ['--preload', preload, CLI, 'start', f.receipt, '30'], { stdio: ['ignore', fifo ? writeFd : 'pipe', 'pipe'] });
+  if (fifo) fs.closeSync(writeFd);
+  let stderr = '';
+  child.stderr!.on('data', chunk => { stderr += chunk; });
+  child.stdout?.pause();
+  const exited = new Promise<number | null>(resolve => child.once('exit', resolve));
+  const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const code = await Promise.race([
-      new Promise<number | null>(resolve => runner.child.once('exit', resolve)),
-      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 7000); }),
-    ]);
+    for (let index = 0; index < 500 && !fs.existsSync(writing) && child.exitCode === null; index++) await Bun.sleep(10);
+    expect(fs.existsSync(writing), stderr).toBe(true);
+    const code = await Promise.race([exited, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 7000); })]);
     expect(fs.existsSync(f.receipt)).toBe(true);
-    expect(code).toBe(2);
+    expect(code, stderr).toBe(2);
   } finally {
     clearTimeout(timer);
-    runner.child.stdout!.resume();
-    runner.child.kill('SIGKILL');
-    await runner.result;
+    child.stdout?.resume();
+    child.kill('SIGKILL');
+    await closed;
+    if (fifo) fs.closeSync(readFd);
   }
 }, 15_000);
 
