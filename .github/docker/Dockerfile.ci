@@ -40,6 +40,24 @@ RUN for i in 1 2 3; do \
     done \
     && rm -rf /var/lib/apt/lists/*
 
+# Git >= 2.44 for --no-lazy-fetch. bin/gstack-safe-git puts it on every
+# /deslop-shared-libs Git read, and noble's git 2.43 exits 129 on it, so every
+# paid shared-libs case ran the unsupported-Git fallback (local history
+# unavailable) instead of the path it was written for. The Ubuntu Git
+# Maintainers PPA ships current Git for noble; the build fails if the flag is
+# missing so the image can never silently fall back again.
+RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL \
+      "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xE1DD270288B4E6030699E45FA1715D88E1DF1F24" \
+    | gpg --dearmor -o /usr/share/keyrings/git-core-ppa.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/git-core-ppa.gpg] https://ppa.launchpadcontent.net/git-core/ppa/ubuntu noble main" \
+    > /etc/apt/sources.list.d/git-core-ppa.list \
+    && for i in 1 2 3; do \
+      apt-get update && apt-get install -y --no-install-recommends git && break || \
+      (echo "apt retry $i/3 after failure"; sleep 10); \
+    done \
+    && rm -rf /var/lib/apt/lists/* \
+    && git --no-lazy-fetch --version
+
 RUN python3 -m venv /tmp/gstack-ci-venv \
     && /tmp/gstack-ci-venv/bin/python -m pip --version \
     && rm -rf /tmp/gstack-ci-venv
