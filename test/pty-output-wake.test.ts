@@ -160,29 +160,29 @@ process.stdout.write('BOOTING, NOT READY');
 test('close releases observers even when the child never reports exit', async () => {
   const originalBinary = process.env.BROWSE_TERMINAL_BINARY;
   const signals: string[] = [];
-  const spawnSpy = spyOn(Bun, 'spawn').mockImplementation((() => ({
+  const spawn = Bun.spawn;
+  // Only the PTY launch gets the never-exiting child; any other in-process
+  // spawn (a shard neighbor's leftover work) stays real and cannot add
+  // signals to this record (CI run 36074636848 saw a stray SIGTERM).
+  const spawnSpy = spyOn(Bun, 'spawn').mockImplementation(((...args: any[]) => args[1]?.terminal ? {
     exited: new Promise(() => {}),
     kill: (signal: string) => { signals.push(signal); },
     terminal: { write() {} },
-  })) as typeof Bun.spawn);
+  } : (spawn as any)(...args)) as typeof Bun.spawn);
   let session: ClaudePtySession | undefined;
   let closed: Promise<void> | undefined;
-  let deadline: ReturnType<typeof setTimeout> | undefined;
   try {
     process.env.BROWSE_TERMINAL_BINARY = process.execPath;
     session = await launchClaudePty({ timeoutMs: 10_000 });
     const output = session.waitForOutput(session.mark(), 10_000);
     closed = session.close();
-    await Promise.race([output, new Promise<void>((_, reject) => {
-      deadline = setTimeout(() => reject(new Error('close did not release the output waiter')), 500);
-    })]);
-    clearTimeout(deadline);
+    expect(await Promise.race([output.then(() => 'released'), closed.then(() => 'closed')])).toBe('released');
+    expect(signals).toEqual(['SIGINT']);
     await closed;
     expect(signals).toEqual(['SIGINT', 'SIGKILL']);
     expect(session.exited()).toBe(false);
     await session.waitForOutput(session.mark(), 10_000);
   } finally {
-    clearTimeout(deadline);
     try { await (closed ?? session?.close()); }
     finally {
       spawnSpy.mockRestore();
@@ -197,11 +197,19 @@ test.skipIf(process.platform === 'win32')('continuous PTY redraws coalesce expen
   const fake = path.join(dir, 'fake-claude');
   const worker = path.join(dir, 'worker.ts');
   const ready = `PTY_READY:${dir}`;
+  // The spinner stops once the observer has coalesced enough reads, so the
+  // run reaches its work deadline with the viewport parsed instead of racing
+  // an in-flight redraw against the deadline under load.
+  const quiet = path.join(dir, 'quiet');
   fs.writeFileSync(fake, `#!${process.execPath}
+import { existsSync } from 'node:fs';
 let spinner;
 process.stdin.setRawMode(true);
 process.stdin.on('data', () => {
-  spinner ??= setInterval(() => process.stdout.write('\\rWorking ' + performance.now()), 5);
+  spinner ??= setInterval(() => {
+    if (existsSync(${JSON.stringify(quiet)})) return clearInterval(spinner);
+    process.stdout.write('\\rWorking ' + performance.now());
+  }, 5);
 });
 process.on('SIGINT', () => process.exit(0));
 process.stdin.resume();
@@ -210,11 +218,15 @@ process.stdout.write(${JSON.stringify(ready)} + '\\x1b[2J\\x1b[H');
   const screenUrl = pathToFileURL(path.join(import.meta.dir, 'helpers/pty/screen.ts')).href;
   const runnerUrl = pathToFileURL(path.join(import.meta.dir, 'helpers/claude-pty-runner.ts')).href;
   fs.writeFileSync(worker, `import {mock} from 'bun:test';
+import {writeFileSync} from 'node:fs';
 const {createPtyScreen} = await import(${JSON.stringify(screenUrl)});
 const observations = [];
 mock.module(${JSON.stringify(screenUrl)}, () => ({createPtyScreen: async (...args) => {
   const screen = await createPtyScreen(...args);
-  return {...screen, read: async () => { observations.push(performance.now()); return screen.read(); }};
+  return {...screen, read: async () => {
+    if (observations.push(performance.now()) === 5) writeFileSync(${JSON.stringify(quiet)}, '');
+    return screen.read();
+  }};
 }}));
 const {runPlanSkillCounting} = await import(${JSON.stringify(runnerUrl)});
 const start = performance.now();
