@@ -91,9 +91,13 @@ export function tierSkipReason(
 
 /**
  * The marathon lane selects positively: a file runs there only when it
- * declares the marathon tier or registers a marathon-tier case. Files without
- * marathon work never cost a marathon runner, and gate/periodic files never
- * gain a third execution.
+ * declares the marathon tier or registers a marathon-tier case. When its source
+ * names some registered ids, only those count: another case's touchfile entry
+ * is a dependency, not a registration (W2f:
+ * plan-decision-classification is a dependency of the marathon
+ * plan-ceo-split-overflow case and planned a hollow marathon shard). Files
+ * without marathon work never cost a marathon runner, and gate/periodic files
+ * never gain a third execution.
  */
 export function marathonSkipReason(
   file: string, source: string,
@@ -102,7 +106,10 @@ export function marathonSkipReason(
 ): string | null {
   if (classifyPaidTestFile(source, 'marathon').reason === "declares tier 'marathon'") return null;
   const { registered } = fileCaseRegistration(file, source, touchfiles, tiers);
-  return registered.some(id => tiers[id] === 'marathon') ? null : 'skipped: declares no marathon tier and registers no marathon case';
+  // When the source names some of its registered ids, those are its own cases; the rest are cases that merely depend on it.
+  const named = registered.filter(id => knownTestNamesInSource(source, [id]).length > 0);
+  return (named.length ? named : registered).some(id => tiers[id] === 'marathon')
+    ? null : 'skipped: declares no marathon tier and registers no marathon case';
 }
 
 export interface TierSelection {

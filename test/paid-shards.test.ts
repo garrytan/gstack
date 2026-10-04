@@ -202,6 +202,15 @@ describe('marathon tier lane', () => {
     expect(classifyPaidTestFile(periodic, 'marathon')).toEqual({ included: false, reason: "declares tier 'periodic' only" });
   });
 
+  test('a marathon case that only depends on a file does not plan a hollow marathon shard there (W2f)', () => {
+    // plan-decision-classification: its own case is periodic; the marathon split-overflow case lists it as a touchfile.
+    const dependency = { 'sample-long': [file], 'sample-periodic': [file] };
+    const withPeriodic = { ...tiers, 'sample-periodic': 'periodic' };
+    const source = "const CASE_ID = 'sample-periodic'; testIfSelected(CASE_ID, async () => {});";
+    expect(marathonSkipReason(file, source, dependency, withPeriodic)).toBe('skipped: declares no marathon tier and registers no marathon case');
+    expect(selectPaidTestFiles(collectPaidTestFiles(), 'marathon').selected).not.toContain('test/skill-e2e-plan-decision-classification.test.ts');
+  });
+
   test('a registered marathon case keeps its gate sibling scheduled in the gate lane', () => {
     const source = "testIfSelected('sample-gate', async () => {}); testIfSelected('sample-long', async () => {});";
     expect(tierSkipReason(file, source, 'gate', reg, tiers)).toBeNull();
