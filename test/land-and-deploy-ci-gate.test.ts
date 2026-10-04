@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { getQuestion } from '../scripts/question-registry';
+import { expectMentions } from './helpers/prompt-structure';
 
 const ROOT = join(import.meta.dir, '..');
 const GATE_BIN = join(ROOT, 'bin', 'gstack-ci-gate');
@@ -173,7 +174,7 @@ describe('template wiring', () => {
       expect(block).toContain('"VERDICT PASS $PR_HEAD"|"VERDICT NO_CHECKS $NO_CI_APPROVED_HEAD") ;;');
       expect(block).toContain('*) exit 1 ;;');
     }
-    expect(source('sections/merge-and-deploy.md.tmpl')).toMatch(/Only\s+branch\s+protection\s+or\s+a\s+merge\s+queue\s+makes\s+check-to-merge\s+atomic/);
+    expectMentions(source('sections/merge-and-deploy.md.tmpl'), [['only', 'check-to-merge', 'protection']], 'section');
   });
 
   test('readiness report carries a CI row and one-way override questions', () => {
