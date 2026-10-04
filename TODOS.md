@@ -146,6 +146,13 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   spelling per failure is the wrong fix. Bind the case to a structured finding
   record (or an LLM judge with a fixed rubric) instead. 2 of the last 3
   censuses, 0 of the 16 before. Effort M. **Priority:** P2.
+  **Completed:** v1.91.19.0 (2026-10-04). The case now reads the skill's own
+  decision-ledger row and `currentDecision` question
+  (`test/helpers/ceo-stale-fill-decision.ts`), with the phrase detector kept as
+  the alternate witness. Across eight census captures the structured check
+  finds 7 (it misses 37174266054, whose ledger row was left `unresolved`) and
+  the phrase detector finds 6; together they find all 8. The two missed reports
+  and one passing report are replayed from `test/fixtures/ceo-stale-fill-decision/`.
 - **auq-matrix recommendation-substance judge rotates red** — census
   37182865432 scored plan-design-review's "A because the plan is thin
   everywhere, so skipping dimensions mostly skips gaps" 3 < 4. The same case

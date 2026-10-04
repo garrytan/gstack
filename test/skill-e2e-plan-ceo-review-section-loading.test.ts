@@ -37,6 +37,7 @@ import {
   LONG_SECTION_CAPTURE_MS,
 } from './helpers/auq-sdk-capture';
 import { CEO_SECTION_CACHE_PLAN, CEO_SECTION_DECISION_POLICY, hasStaleFillRaceFinding } from './helpers/ceo-section-loading-fixture';
+import { hasApprovedStaleFillDecision } from './helpers/ceo-stale-fill-decision';
 import { createEvalCollector, finalizeEvalCollector, recordE2E } from './helpers/e2e-helpers';
 
 const describeE2E = describeE2ETier('periodic');
@@ -111,6 +112,8 @@ function assertSectionLoadingReport(capture: Awaited<ReturnType<typeof captureSe
   // A native capture must not invent an outside dispatch or claim coverage.
   expect(hasDisabledOutsideReview(output)).toBe(true);
   // Loading a section and producing a table alone must not hide an empty
-  // review: the complete fixture still contains a real ordering defect.
-  expect(hasStaleFillRaceFinding(output)).toBe(true);
+  // review: the complete fixture still contains a real ordering defect. The
+  // skill's own ledger and currentDecision records are the primary witness;
+  // a report that left its ledger row stale may still assert the finding.
+  expect(hasApprovedStaleFillDecision(output) || hasStaleFillRaceFinding(output)).toBe(true);
 }

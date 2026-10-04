@@ -48,6 +48,7 @@ const BASELINE = [
   'test/ceo-mode-prerequisite.test.ts',
   'test/ceo-posture-packet.test.ts',
   'test/ceo-section-loading-fixture.test.ts',
+  'test/ceo-stale-fill-decision.test.ts', // replays census reports against the paid CEO section-loading case's structured checker
   'test/ceo-split-collection.test.ts',
   'test/ceo-split-question-policy.test.ts',
   'test/changed-files-union.test.ts',

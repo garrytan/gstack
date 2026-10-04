@@ -197,7 +197,7 @@ test('CEO section caller supplies the author scope instead of blanket recommenda
   const caller = fs.readFileSync(path.join(import.meta.dir, 'skill-e2e-plan-ceo-review-section-loading.test.ts'), 'utf8');
   expect(caller).toContain('decisionPolicy: CEO_SECTION_DECISION_POLICY');
   expect(caller).toContain('validateCeoReviewCompletion(capture)');
-  expect(caller).toContain('expect(hasStaleFillRaceFinding(output)).toBe(true)');
+  expect(caller).toContain('expect(hasApprovedStaleFillDecision(output) || hasStaleFillRaceFinding(output)).toBe(true)');
   expect(caller).toContain('timeout: LONG_SECTION_CAPTURE_MS');
   expect(caller).toContain('CAPTURE_LONG_MS');
 });
