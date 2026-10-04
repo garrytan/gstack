@@ -236,6 +236,40 @@ describe('pass-rates alarms count post-policy trials of the current series only'
   });
 });
 
+describe('pass-rates reader compatibility across EVAL_POLICY versions (rollback floor)', () => {
+  const v1: PassRatePolicy = { ...EVAL_POLICY, version: 1 };
+  const v2: PassRatePolicy = { ...EVAL_POLICY, version: 2 };
+  const mixed = () => [...many('rule-a', 10, 0, { policy_version: 1, series_identity: 'v1-id' }),
+    ...many('rule-a', 0, 12, { policy_version: 2, series_identity: 'v2-id' }),
+    ...many('beh-b', 0, 3, { policy_version: 2, series_identity: 'v2-only' })];
+
+  test('a reader meets newer-policy trials: ignored entirely, counted and printed with the fix', () => {
+    const report = analyze(mixed(), {}, { policy: v1 });
+    expect(report).toMatchObject({ policyVersion: 1, postPolicyTrials: 10, newerPolicyTrials: 15, olderPolicyTrials: 0 });
+    expect(report.cases.map(c => c.case)).toEqual(['rule-a']);
+    expect(report.cases[0]).toMatchObject({ label: 'PASSING', current: { identity: 'v1-id', policyVersion: 1, passes: 10, trials: 10 }, previous: null });
+    expect(report.cases[0]!.series.map(s => s.key)).toEqual(['v1-id|model-x|2.1.284|v1']);
+    expect(report.alarms).toEqual([]);
+    const text = formatPassRates(report);
+    expect(text).toContain('ignored 15 trial(s) recorded under a policy newer than v1');
+    expect(text).toContain('Fix: run pass-rates from a checkout at or after the commit that bumped EVAL_POLICY.version');
+  });
+
+  test('a reader meets older-policy trials: visible, never scored, never a drift baseline', () => {
+    const report = analyze(mixed(), {}, { policy: v2 });
+    expect(report).toMatchObject({ policyVersion: 2, postPolicyTrials: 15, olderPolicyTrials: 10, newerPolicyTrials: 0 });
+    const ruleA = report.cases.find(c => c.case === 'rule-a')!;
+    expect(ruleA.current).toMatchObject({ identity: 'v2-id', policyVersion: 2, passes: 0, trials: 12 });
+    expect(ruleA.previous).toBeNull();
+    expect(ruleA.series.map(s => s.policyVersion)).toEqual([1, 2]);
+    expect(report.alarms.map(a => a.kind)).not.toContain('regression');
+    const onlyOld = analyze(many('rule-a', 0, 12, { policy_version: 1 }), {}, { policy: v2 });
+    expect(onlyOld.cases[0]).toMatchObject({ label: 'INCONCLUSIVE', current: null });
+    expect(onlyOld.alarms).toEqual([]);
+    expect(formatPassRates(onlyOld)).toContain('12 under an older policy (display only)');
+  });
+});
+
 describe('quarantine policy', () => {
   const policy: PassRatePolicy = EVAL_POLICY;
   const now = Date.UTC(2026, 9, 2);

@@ -12,8 +12,11 @@
  * A series is one case under one input identity: the case's own touchfiles
  * minus GLOBAL_TOUCHFILES (`caseSeriesIdentities`), grouped by model and CLI
  * version, per policy_version. A new identity starts a new series; earlier
- * series stay visible. Only post-policy trials of the current series feed the
- * labels and alarms. Legacy eval-store records (`--backfill`, `--dir`) are
+ * series stay visible. Only trials of the current series under the reader's
+ * own EVAL_POLICY.version feed the labels and alarms: an older policy's
+ * trials are display-only, and a newer policy's trials (written by a later
+ * checkout) are ignored with a printed count, so a reader rolled back past a
+ * policy bump never pools records it cannot interpret. Legacy eval-store records (`--backfill`, `--dir`) are
  * imported as pre-policy trials (first attempt only; a missing attempt means
  * 1) and are display-only.
  *
@@ -368,8 +371,14 @@ export interface PassRateReport {
   policyVersion: number;
   cases: CasePassRate[];
   alarms: Alarm[];
+  /** Trials under this reader's EVAL_POLICY.version: the only ones scored. */
   postPolicyTrials: number;
+  /** Backfilled pre-policy trials (policy_version 0): display only. */
   prePolicyTrials: number;
+  /** Trials under an earlier policy version: display only, never scored. */
+  olderPolicyTrials: number;
+  /** Trials under a later policy version than this reader: ignored entirely. */
+  newerPolicyTrials: number;
   unattributed: string[];
   errors: string[];
 }
@@ -453,8 +462,10 @@ export function analyzePassRates(records: TrialRecord[], options: AnalyzeOptions
   const quarantine = options.quarantine ?? CASE_QUARANTINE;
   const policy = options.policy ?? EVAL_POLICY;
   const now = options.now ?? Date.now();
+  const newerPolicyTrials = records.filter(record => record.policy_version > policy.version).length;
   const byCase = new Map<string, TrialRecord[]>();
   for (const record of records) {
+    if (record.policy_version > policy.version) continue;
     const list = byCase.get(record.case) ?? [];
     list.push(record);
     byCase.set(record.case, list);
@@ -473,7 +484,7 @@ export function analyzePassRates(records: TrialRecord[], options: AnalyzeOptions
     }
     const series = [...groups].map(([key, group]) => seriesStats(key, group))
       .sort((a, b) => a.lastSeen.localeCompare(b.lastSeen));
-    const post = series.filter(entry => entry.policyVersion !== 0);
+    const post = series.filter(entry => entry.policyVersion === policy.version);
     const current = post[post.length - 1] ?? null;
     const previous = post[post.length - 2] ?? null;
     const scored = current ? groups.get(current.key)!.filter(record => record.outcome !== 'skipped') : [];
@@ -528,9 +539,10 @@ export function analyzePassRates(records: TrialRecord[], options: AnalyzeOptions
   }
   alarms.push(...quarantinePolicyProblems(quarantine, registry, policy, now));
 
-  const post = records.filter(record => record.policy_version !== 0).length;
-  return { policyVersion: policy.version, cases, alarms, postPolicyTrials: post, prePolicyTrials: records.length - post,
-    unattributed: options.unattributed ?? [], errors: options.errors ?? [] };
+  const count = (match: (version: number) => boolean) => records.filter(record => match(record.policy_version)).length;
+  return { policyVersion: policy.version, cases, alarms, postPolicyTrials: count(version => version === policy.version),
+    prePolicyTrials: count(version => version === 0), olderPolicyTrials: count(version => version > 0 && version < policy.version),
+    newerPolicyTrials, unattributed: options.unattributed ?? [], errors: options.errors ?? [] };
 }
 
 function pct(value: number): string { return `${Math.round(value * 1000) / 10}%`; }
@@ -542,7 +554,12 @@ function formatStats(stats: SeriesStats | null): string {
 
 export function formatPassRates(report: PassRateReport, options: { caseFilter?: string } = {}): string {
   const lines: string[] = [];
-  lines.push(`pass-rates: policy v${report.policyVersion}, ${report.postPolicyTrials} post-policy trial(s), ${report.prePolicyTrials} pre-policy (display only)`);
+  lines.push(`pass-rates: policy v${report.policyVersion}, ${report.postPolicyTrials} post-policy trial(s), ${report.prePolicyTrials} pre-policy (display only)`
+    + (report.olderPolicyTrials ? `, ${report.olderPolicyTrials} under an older policy (display only)` : ''));
+  if (report.newerPolicyTrials) {
+    lines.push(`  ignored ${report.newerPolicyTrials} trial(s) recorded under a policy newer than v${report.policyVersion}: this checkout predates them. `
+      + 'Fix: run pass-rates from a checkout at or after the commit that bumped EVAL_POLICY.version (docs/TESTING_INTERNALS.md#pass-rate-policy-versions).');
+  }
   if (report.postPolicyTrials === 0) lines.push('  no post-policy trials yet: every series starts INCONCLUSIVE');
   const cases = report.cases.filter(entry => !options.caseFilter || entry.case === options.caseFilter);
   lines.push('  label         kind      tier      current series                 pre-policy          manual  case');
