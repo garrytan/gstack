@@ -1,13 +1,35 @@
 name: E2E Evals
+# A dispatch from scripts/eval-bg.ts carries a nonce so it can find its own run (ENG-12).
+run-name: ${{ inputs.nonce != '' && format('E2E Evals dispatch {0} ({1})', inputs.nonce, github.ref_name) || '' }}
 on:
   pull_request:
     branches: [main]
   workflow_dispatch:
     inputs:
       evals_all:
-        description: 'Run ALL gate tests in the sliced lane (bypass diff selection; also arms the hollow-shard guard)'
+        description: 'Run ALL gate tests in the sliced lane (bypass diff selection; also arms the hollow-shard guard). false = the PR profile on the diff against base_sha/base_ref'
         type: boolean
         default: true
+      base_ref:
+        description: 'Base branch for diff selection when evals_all is false (default: detected base branch)'
+        type: string
+        default: ''
+      base_sha:
+        description: 'Exact merge-base commit for diff selection; overrides base_ref'
+        type: string
+        default: ''
+      expected_sha:
+        description: 'Fail fast unless the checked-out commit is this SHA (scripts/eval-bg.ts sets it)'
+        type: string
+        default: ''
+      nonce:
+        description: 'Opaque id shown in the run name so the dispatcher can find this run'
+        type: string
+        default: ''
+      pr_receipts:
+        description: 'Same-repo PR number whose receipt store this run reads read-only (never saves); empty = fresh'
+        type: string
+        default: ''
 
 concurrency:
   group: evals-${{ github.event.pull_request.number || github.run_id }}
@@ -15,10 +37,10 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}/ci
-  # PRs run changed fast probes; manual runs retain the complete gate census.
-  EVALS_PROFILE: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
-  # Dispatches validate fresh; the evals-fresh PR label opts a PR out of receipt reuse (DX-7).
-  EVALS_FRESH: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'evals-fresh')) && '1' || '' }}
+  # PRs and evals_all=false dispatches (eval:bg:pr) run the fast PR profile on the diff; evals_all dispatches run the complete gate census.
+  EVALS_PROFILE: ${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.evals_all)) && 'pr' || 'full' }}
+  # Dispatches validate fresh unless they name pr_receipts (read-only reuse, CEO-29/ENG-8); the evals-fresh PR label opts a PR out of reuse (DX-7).
+  EVALS_FRESH: ${{ ((github.event_name == 'workflow_dispatch' && inputs.pr_receipts == '') || contains(github.event.pull_request.labels.*.name, 'evals-fresh')) && '1' || '' }}
 
 jobs:
   # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
@@ -155,7 +177,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [debounce]
     # Runs after the debounce settles, so a superseded run's cancellation has usually completed.
-    if: ${{ !cancelled() && needs.debounce.outputs.superseded != 'true' && github.actor != 'dependabot[bot]' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'evals-fresh') }}
+    # A dispatch naming pr_receipts reads that PR's receipts from its runs' artifacts (cache entries are ref-scoped).
+    if: ${{ !cancelled() && needs.debounce.outputs.superseded != 'true' && github.actor != 'dependabot[bot]' && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'evals-fresh')) || (github.event_name == 'workflow_dispatch' && inputs.pr_receipts != '')) }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -163,7 +186,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.sha || inputs.base_sha || github.event.repository.default_branch }}
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -172,6 +195,7 @@ jobs:
 
       - name: Restore this PR's verified judge and E2E results
         id: store
+        if: github.event_name == 'pull_request'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: /tmp/gstack-eval-input-cache
@@ -182,9 +206,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           STORE_KEY: ${{ steps.store.outputs.cache-matched-key }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_receipts }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          RECOVERY_MODE: ${{ github.event_name == 'workflow_dispatch' && 'dispatch' || 'pr' }}
         run: |
           mkdir -p /tmp/gstack-eval-input-cache
           if [ ! -f scripts/recover-receipts.ts ]; then
@@ -193,7 +218,7 @@ jobs:
           fi
           bun --no-install run scripts/recover-receipts.ts collect --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" \
             --head-repo "$HEAD_REPO" --branch "$HEAD_BRANCH" --run-id "$GITHUB_RUN_ID" \
-            --store /tmp/gstack-eval-input-cache --store-key "$STORE_KEY" --budget-seconds 60 >> "$GITHUB_STEP_SUMMARY" \
+            --store /tmp/gstack-eval-input-cache --store-key "$STORE_KEY" --mode "$RECOVERY_MODE" --budget-seconds 60 >> "$GITHUB_STEP_SUMMARY" \
             || echo "- Receipt recovery crashed; reuse stays off this run" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Hand the receipt store to plan-slices
@@ -244,12 +269,27 @@ jobs:
         with:
           bun-version: 1.4.0
 
+      # DX-1: a dispatch from scripts/eval-bg.ts names the revision it means
+      # to test; a different checkout fails here before any paid work.
+      - name: Verify the dispatched revision
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          NONCE: ${{ inputs.nonce }}
+        run: |
+          actual=$(git rev-parse HEAD)
+          echo "- Tested revision: ${actual} (ref ${GITHUB_REF_NAME}${NONCE:+, nonce ${NONCE}})" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$EXPECTED_SHA" ] && [ "$actual" != "$EXPECTED_SHA" ]; then
+            echo "::error::evals.yml checked out ${actual} but the dispatch expected ${EXPECTED_SHA}. Push the branch so its head is ${EXPECTED_SHA} and dispatch again (bun run scripts/eval-bg.ts pr), or run locally with --local."
+            exit 1
+          fi
+
       # Planner-side reuse: take the PR's receipt store from recover-receipts
       # (the restored store plus cancelled runs' receipts) and ship ONE
       # filtered set with the plan, so every trial of a panel sees the same
       # receipts and a newer FAIL blocks any older PASS for the same inputs.
       - name: Download this PR's receipt store
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || inputs.pr_receipts != ''
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -258,7 +298,7 @@ jobs:
 
       - name: Decide receipt reuse
         id: reuse
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || inputs.pr_receipts != ''
         run: |
           mkdir -p /tmp/gstack-eval-input-cache
           bun --no-install run scripts/recover-receipts.ts decide /tmp/gstack-eval-input-cache --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
@@ -267,6 +307,8 @@ jobs:
         env:
           EVALS_ALL: ${{ (github.event_name == 'workflow_dispatch' && inputs.evals_all) && '1' || '' }}
           EVALS_CACHE_DIR: ${{ steps.reuse.outputs.reuse == 'on' && '/tmp/gstack-eval-input-cache' || '' }}
+          # Dispatch diff base (CEO-17): the exact merge-base, else the named base branch, else detection.
+          EVALS_BASE: ${{ inputs.base_sha || (inputs.base_ref != '' && format('origin/{0}', inputs.base_ref)) || '' }}
         run: EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slice-budget 540 --jobs 2 --max-parallel 16
 
       # CEO-13: the mode, case counts and, on fallback, every file that
@@ -405,7 +447,7 @@ jobs:
           GSTACK_EVAL_DIR: /tmp/paid-slice-results
           EVALS_CACHE_DIR: /tmp/paid-slice-results/receipts
           EVALS_CACHE_REPOSITORY: ${{ github.repository }}
-          EVALS_CACHE_PR: ${{ github.event.pull_request.number }}
+          EVALS_CACHE_PR: ${{ github.event.pull_request.number || inputs.pr_receipts }}
           EVALS_CACHE_RUNTIME_ID: ${{ needs.build-image.outputs.runtime-id }}
         run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --plan /tmp/paid-plan/manifest.json --slice ${{ matrix.slice }}
 

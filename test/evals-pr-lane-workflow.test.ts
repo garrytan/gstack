@@ -41,7 +41,7 @@ describe('evals.yml receipt recovery (CEO-14/34, ENG-7)', () => {
     expect(recover.permissions).toEqual({ contents: 'read', actions: 'read' });
     expect(planner.permissions).toEqual({ contents: 'read' });
     const checkout = recover.steps.find(s => s.uses?.startsWith('actions/checkout@'))!;
-    expect(checkout.with).toMatchObject({ ref: '${{ github.event.pull_request.base.sha }}', 'persist-credentials': false });
+    expect(checkout.with).toMatchObject({ ref: '${{ github.event.pull_request.base.sha || inputs.base_sha || github.event.repository.default_branch }}', 'persist-credentials': false });
     const collect = step('recover-receipts', 'Recover receipts of cancelled runs (base-ref code)')!;
     expect(collect.env?.GH_TOKEN).toBe('${{ github.token }}');
     expect(collect.run).toContain('scripts/recover-receipts.ts collect');
@@ -107,5 +107,46 @@ describe('evals.yml carries no inline planner program (W8f)', () => {
     expect(source).not.toContain('validation_phase');
     expect(source).not.toMatch(/bun --no-install -e '/);
     expect(workflow.jobs['plan-slices']!.steps.filter(s => s.run?.includes('--emit-plan'))).toHaveLength(1);
+  });
+});
+
+describe('evals.yml dispatch contract for eval:bg (CEO-17/29, DX-1, ENG-8/12)', () => {
+  const inputs = workflow.on.workflow_dispatch.inputs as Record<string, { type: string; default: unknown }>;
+
+  test('dispatch inputs: evals_all, base_ref, base_sha, expected_sha, nonce, pr_receipts', () => {
+    expect(Object.keys(inputs).sort()).toEqual(['base_ref', 'base_sha', 'evals_all', 'expected_sha', 'nonce', 'pr_receipts']);
+    expect(inputs.evals_all).toMatchObject({ type: 'boolean', default: true });
+    for (const name of ['base_ref', 'base_sha', 'expected_sha', 'nonce', 'pr_receipts']) expect(inputs[name]).toMatchObject({ type: 'string', default: '' });
+  });
+
+  test('the nonce is reflected in the run name so the dispatcher resolves its own run', () => {
+    expect(workflow['run-name']).toBe("${{ inputs.nonce != '' && format('E2E Evals dispatch {0} ({1})', inputs.nonce, github.ref_name) || '' }}");
+  });
+
+  test('evals_all=false dispatches run the PR profile on the requested base; evals_all runs the full census', () => {
+    expect(workflow.env.EVALS_PROFILE).toBe("${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.evals_all)) && 'pr' || 'full' }}");
+    expect(step('plan-slices', 'Emit run manifest')?.env?.EVALS_BASE).toBe("${{ inputs.base_sha || (inputs.base_ref != '' && format('origin/{0}', inputs.base_ref)) || '' }}");
+  });
+
+  test('a dispatch fails fast with a named fix when the checkout is not the expected revision', () => {
+    const verify = step('plan-slices', 'Verify the dispatched revision')!;
+    expect(verify.if).toBe("github.event_name == 'workflow_dispatch'");
+    expect(verify.env?.EXPECTED_SHA).toBe('${{ inputs.expected_sha }}');
+    expect(verify.run).toContain('Tested revision: ${actual}');
+    expect(verify.run).toContain('but the dispatch expected ${EXPECTED_SHA}');
+    expect(verify.run).toContain('exit 1');
+    const steps = workflow.jobs['plan-slices']!.steps;
+    expect(steps.indexOf(verify)).toBeLessThan(steps.findIndex(s => s.name === 'Emit run manifest'));
+  });
+
+  test('pr_receipts dispatches read PR receipts read-only through artifacts and never save', () => {
+    expect(workflow.env.EVALS_FRESH).toContain("inputs.pr_receipts == ''");
+    expect(workflow.jobs['recover-receipts']!.if).toContain("github.event_name == 'workflow_dispatch' && inputs.pr_receipts != ''");
+    expect(step('recover-receipts', "Restore this PR's verified judge and E2E results")?.if).toBe("github.event_name == 'pull_request'");
+    expect(step('recover-receipts', 'Recover receipts of cancelled runs (base-ref code)')?.env?.RECOVERY_MODE).toBe("${{ github.event_name == 'workflow_dispatch' && 'dispatch' || 'pr' }}");
+    for (const name of ["Merge this run's receipts", "Save this PR's verified judge and E2E results"]) {
+      expect(step('slices-report', name)?.if).toBe("always() && github.event_name == 'pull_request'");
+    }
+    expect(step('eval-slices', 'Run slice ${{ matrix.slice }}')?.env?.EVALS_CACHE_PR).toBe('${{ github.event.pull_request.number || inputs.pr_receipts }}');
   });
 });
