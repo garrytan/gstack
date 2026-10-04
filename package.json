@@ -47,8 +47,9 @@
     "start": "bun run browse/src/server.ts",
     "eval:bg": "bun run scripts/retired-command.ts eval:bg",
     "eval:bg:all": "bun run scripts/retired-command.ts eval:bg:all",
-    "eval:bg:gate": "bin/gstack-detach --label evals-gate --lock gstack-evals --timeout 49320 -- bun run test:gate:sharded",
-    "eval:bg:periodic": "bin/gstack-detach --label evals-periodic --lock gstack-evals --timeout 67380 -- bun run test:periodic:sharded",
+    "eval:bg:gate": "bun run scripts/eval-bg.ts gate",
+    "eval:bg:periodic": "bun run scripts/eval-bg.ts periodic",
+    "test:health": "bun run scripts/test-health-report.ts",
     "eval:list": "bun run scripts/eval-list.ts",
     "eval:compare": "bun run scripts/eval-compare.ts",
     "eval:summary": "bun run scripts/eval-summary.ts",
@@ -63,8 +64,8 @@
     "test:quick": "bun run scripts/test-free-shards.ts --quick",
     "test:pr": "EVALS_JOBS=${EVALS_JOBS:-2} bun run scripts/test-paid-shards.ts --tier gate --profile pr",
     "test:release": "EVALS_ALL=1 EVALS_FRESH=1 EVALS_CACHE_PURPOSE=release bun run scripts/test-paid-shards.ts --tier gate --profile full && EVALS_ALL=1 EVALS_FRESH=1 EVALS_CACHE_PURPOSE=release bun run scripts/test-paid-shards.ts --tier periodic --profile full",
-    "eval:bg:pr": "bin/gstack-detach --label evals-pr --lock gstack-evals --timeout 92820 -- bun run test:pr",
-    "eval:bg:release": "bin/gstack-detach --label evals-release --lock gstack-evals --timeout 116700 -- bun run test:release"
+    "eval:bg:pr": "bun run scripts/eval-bg.ts pr",
+    "eval:bg:release": "bun run scripts/eval-bg.ts release"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

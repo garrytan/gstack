@@ -1,60 +1,48 @@
 #!/usr/bin/env bun
 /**
- * test-paid-shards — enumerate, shard, and run the paid (gate/periodic) tier.
+ * test-paid-shards — enumerate, shard, plan and run the paid (gate/periodic/marathon) tiers.
  *
- * The single-process `test:gate` fan-out has never completed a run: one wedged
- * or spinning file takes the whole tier down, and an in-process `--timeout`
- * cannot save it because a spinning main thread never fires a timer. This
- * runner applies the free tier's proven fix — one Bun process per shard — plus
- * the two things the paid tier additionally needs:
+ * Every paid test file (or case, or trial) runs in its own Bun process with an
+ * EXTERNAL wall-clock timeout that kills the shard's process GROUP, so a wedged
+ * file or a surviving `claude`/`codex` PTY grandchild never takes a run down or
+ * outlives it. Each shard gets its own GSTACK_EVAL_DIR, TMPDIR and Chromium
+ * profile. The aggregate distinguishes passed, failed, timed-out, never-started
+ * and skipped-by-diff, so partial execution can never look like a pass.
  *
- *   - an EXTERNAL wall-clock timeout that kills the shard's process GROUP, and
- *   - an aggregate that distinguishes failed from timed-out from never-started,
- *     so 26% execution can never again look like a pass.
+ * Modes:
+ *   --emit-plan   PLANNER: select once (tier, diff/PR profile, exclusions) and
+ *                 pack shards into slices by recorded duration
+ *                 (scripts/paid-test-durations.json); each slice gets its own CI
+ *                 job ceiling (scripts/lib/paid-plan.ts sliceCiTimeoutMinutes).
+ *   --plan/--slice EXECUTOR: run one slice of that manifest, stop starting work at
+ *                 the slice deadline (job ceiling minus a 5-minute upload
+ *                 reserve: not_run), kill in-flight shards there (hung), and
+ *                 checkpoint the slice result after every shard.
+ *   --report      REPORT: reconcile slice results against the manifest,
+ *                 fail-closed (a missing slice is a failure, not an absence).
+ *   (none)        local run of a whole tier; --list previews the plan.
+ *   --case        local diagnosis of one case through the CI panel runner.
  *
- * Why not Bun 1.3.13's native `--shard` / isolated runs? Three gaps, each one
- * fatal for this tier:
- *   1. No detached-process-group SIGKILL. Paid tests spawn `claude` / `codex`
- *      PTY grandchildren; when a shard hangs, in-process isolation kills the
- *      Bun worker but the grandchildren survive and burn cores for hours.
- *   2. No never-started taxonomy. A run that aborts partway reports only what
- *      executed — the shards that never ran are invisible, which is exactly
- *      the 26%-execution-looks-like-a-pass bug.
- *   3. No per-shard env / eval dir. Each shard needs its own GSTACK_EVAL_DIR
- *      so eval baselines are per-test-file instead of last-flush-wins.
+ * Background local runs and CI dispatch go through scripts/eval-bg.ts
+ * (`bun run eval:bg:<lane>`), which caps a local run at
+ * ceil(1.5 x planned serial seconds / EVALS_JOBS) + 20 min, at most 4 h.
  *
- * Worst-case wall clock = ceil(shards / jobs) × shard timeout. Shard counts
- * drift as test files land, so treat any number written here as stale.
- * Do NOT hand-derive the eval:bg:* detach timeouts from a snapshot of
- * these counts — test/eval-detach-timeout-floor.test.ts recomputes the bound
- * from the live shard census every run and fails CI if package.json's numbers
- * dip below it (undersized detach timeouts recreate never-started truncation).
+ * Env contract: EVALS_JOBS = how many shard PROCESSES run at once.
+ * EVALS_CONCURRENCY = bun's --max-concurrency WITHIN a shard. Exporting 15 as
+ * the shard count would start 15 claude-spawning processes (the 429 storm).
  *
- * Env contract: EVALS_JOBS = how many shard PROCESSES run at once (this
- * runner). EVALS_CONCURRENCY = bun's --max-concurrency WITHIN a shard (and the
- * legacy single-process scripts). They were previously conflated: exporting
- * the legacy value 15 gave you 15 concurrent Bun processes each spawning
- * claude — the 429 storm.
+ * Enumeration uses test/helpers/paid-test-set.ts and honors EVALS_TIER against
+ * E2E_TIERS (test/helpers/touchfiles.ts). Spawn, kill, sandbox, logs, seeds and
+ * output classification come from scripts/lib/shard-engine.ts; selection and
+ * planning live in scripts/lib/paid-{types,select,cases,plan,report}.ts; this
+ * file keeps the runner and the CLI.
  *
- * Enumeration matches package.json's `test:gate` globs (via the shared
- * test/helpers/paid-test-set.ts) and honors EVALS_TIER against the E2E_TIERS
- * map in test/helpers/touchfiles.ts. Spawn, kill, sandbox, logs, seeds and
- * output classification come from the shared shard engine
- * (scripts/lib/shard-engine.ts); this file keeps only paid-lane policy.
- *
- * Parallelism now lives ACROSS shards (--jobs), not inside one Bun process, so
- * each shard runs its own file sequentially and can be killed independently.
- *
- * Usage:
- *   bun run scripts/test-paid-shards.ts --list                # shard plan only
- *   bun run scripts/test-paid-shards.ts --tier gate           # run gate tier
- *   bun run scripts/test-paid-shards.ts --timeout 600 --jobs 2
+ * Usage: bun run scripts/test-paid-shards.ts --help
  */
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { createBootstrapRetentionScope } from '../test/helpers/bootstrap-retention';
 import {
   BunTestOutputClassifier,
@@ -66,661 +54,45 @@ import {
   normalizeRelativePath,
   openShardLog,
   parseCliFlags,
-  readDurationSeed,
   removeShardSandbox,
   runShardChild,
   strictShardStatus,
-  writeDurationSeed,
   zeroExecutionVerdict,
-  type LanePolicy,
   type ShardChildResult,
   type ShardLog,
 } from './lib/shard-engine';
 import { PAID_TEST_GLOBS, isPaidTestFile } from '../test/helpers/paid-test-set';
-import { CASE_CI_EXCLUDE, CASE_QUARANTINE, EVAL_POLICY, PERIODIC_CI_EXCLUDE } from '../test/helpers/periodic-exclude-data';
-import { FILE_RETRY_BUDGETS, STRICT_RETRY_CASE_BUDGETS } from '../test/helpers/eval-budgets';
+import { EVAL_POLICY, PERIODIC_CI_EXCLUDE } from '../test/helpers/periodic-exclude-data';
 import {
-  getProjectEvalDir, getClaudeCliVersion, isFinalizedEvalResultFile, evalEntryOutcome, failureClassOf, panelVerdict,
-  sanitizeTrialError, formatTrialOutcomes, CONTRACT_VIOLATIONS_FILE, TRIAL_ENV, TRIAL_OUTCOME_SCHEMA, TRIAL_OUTCOMES_FILE,
-  type EvalCaseKind, type PanelShape, type PanelVerdict, type TrialFailureClass, type TrialOutcome, type TrialOutcomeRecord,
+  getProjectEvalDir, getClaudeCliVersion, isFinalizedEvalResultFile, failureClassOf, panelVerdict,
+  sanitizeTrialError, CONTRACT_VIOLATIONS_FILE, TRIAL_ENV, type TrialFailureClass,
 } from '../test/helpers/eval-store';
-import { E2E_KINDS } from '../test/helpers/touchfiles-data';
-import { manualReviewProblem } from '../test/helpers/cookie-workflow-manual-review';
 import { preflightAnthropicApi } from '../test/helpers/anthropic-preflight';
-import { OVERLAY_MIN_FILE_WALL_MS } from '../test/helpers/overlay-case-policy';
-import { PR_PROFILE_CASE_IDS, PR_PROFILE_FILES, packageChangeOnlyVersion, selectPrProfile, type PrProfileSelection } from './test-pr-profile';
-import { e2eReuseLaneProblem, prepareE2EShardReuse, selectPlanReceipts, writeNegativeReceipt, writePanelReceipt } from './e2e-shard-reuse';
+import { e2eReuseLaneProblem, prepareE2EShardReuse, selectPlanReceipts } from './e2e-shard-reuse';
+import { E2E_TOUCHFILES, E2E_TIERS } from '../test/helpers/touchfiles';
+import { scopeCodexAccess, shardFile, shardCaseId, shardTrial, trialShardKey, type CaseTrialPlan, caseTrialPlan, excludedCasesNamePattern, caseTestNamePattern, expandCaseShards, expandTrialShards, fileCaseRegistration, partitionCaseExclusions } from './lib/paid-cases';
+import { retriesForFiles, trialPanelKey, sliceExecutionOrder, buildRunManifest, parseRunManifest, type SliceResult, sliceExitCode, guardTrialRecords, formatSlicePlan, formatCapacityPreflight, sliceDeadlineMs } from './lib/paid-plan';
+import { caseFile, runCaseDiagnosis, formatPanelLine, runPaidReport } from './lib/paid-report';
+import {
+  DEFAULT_JOBS, DEFAULT_MAX_FILES_PER_SHARD, DEFAULT_SHARD_TIMEOUT_MS, DEFAULT_TIER, DEFAULT_WITHIN_SHARD_CONCURRENCY, OVERLAY_MAX_ACTIVE_SHARDS,
+  PAID_LANE_POLICY, PAID_TIERS, ROOT, SLICE_JOB_STARTED_AT_ENV, SLICE_UPLOAD_RESERVE_MS, isOverlayTestFile,
+  type PaidProfile, type PaidShardBudget, type PaidTier, type ShardOutcome, type ShardStatus, type ShardTrialRecord,
+} from './lib/paid-types';
+import {
+  collectPaidTestFiles, computePaidCaseSelection, expectedPrCaseCount, isAllSkippedPass, paidSelectionEnv, partitionShardsByDiffSelection,
+  planPaidShards, prProfileFileSelected, prProfileShardIds, prProfileTestNamePattern, resolvePaidShardBudget, resolvePaidShardTimeoutMs,
+  selectPaidTestFiles, shardSlug, buildPaidShardArgs, validatedProfile,
+} from './lib/paid-select';
 
 type E2EShardReuse = NonNullable<ReturnType<typeof prepareE2EShardReuse>>;
-import {
-  detectBaseBranch,
-  getChangedFiles,
-  selectTests,
-  E2E_TOUCHFILES,
-  E2E_TIERS,
-  LLM_JUDGE_TOUCHFILES,
-  GLOBAL_TOUCHFILES,
-} from '../test/helpers/touchfiles';
 
 export { PAID_TEST_GLOBS, isPaidTestFile };
 export { PERIODIC_CI_EXCLUDE };
-
-import { scopeCodexAccess, shardFile, shardCaseId, shardTrial, trialShardKey, type CaseTrialPlan, caseTrialPlan, excludedCasesNamePattern, caseTestNamePattern, expandCaseShards, expandTrialShards, partitionCaseExclusions } from './lib/paid-cases';
-import { retriesForFiles, trialPanelKey, sliceExecutionOrder, buildRunManifest, parseRunManifest, type SliceResult, sliceExitCode, guardTrialRecords, formatSlicePlan, formatCapacityPreflight } from './lib/paid-plan';
-import { caseFile, runCaseDiagnosis, formatPanelLine, runPaidReport } from './lib/paid-report';
+export * from './lib/paid-types';
+export * from './lib/paid-select';
 export * from './lib/paid-cases';
 export * from './lib/paid-plan';
 export * from './lib/paid-report';
-
-export const ROOT = path.resolve(import.meta.dir, '..');
-
-export type PaidTier = 'gate' | 'periodic' | 'marathon';
-export const PAID_TIERS: readonly PaidTier[] = ['gate', 'periodic', 'marathon'];
-export type PaidProfile = 'pr' | 'full';
-
-export interface PaidCaseSelection {
-  e2e: string[] | null;
-  judges: string[] | null;
-}
-
-export const DEFAULT_TIER: PaidTier = 'gate';
-export const DEFAULT_SHARD_TIMEOUT_MS = 30 * 60_000;
-export const DEFAULT_MAX_FILES_PER_SHARD = 1;
-// 8 jobs × 2 within-shard ≈ 10-13 real in-flight sessions (39 of 75
-// skill-e2e files hold exactly ONE test, so within-shard concurrency is
-// dead weight for most shards) — under the documented-safe ~15 the legacy
-// 40-way runner established. The old 4×4 yielded only ~4-6 in-flight and a
-// 13-wave local gate worst case (~6.5h); 8×2 halves it. Watch the WS1
-// flake telemetry for sustained 429 storms across 2 PR cycles — that is
-// the rollback trigger. Prerequisite (landed): per-shard TMPDIR/
-// CHROMIUM_PROFILE isolation in runPaidShard.
-export const DEFAULT_JOBS = 8;
-export const DEFAULT_WITHIN_SHARD_CONCURRENCY = 2;
-
-/**
- * Paid-lane classification policy. Seeds keep only positive walls (a zero
- * is not a real paid-shard measurement). A shard that passed with zero
- * executed tests is legitimate under selection (in-file diff/tier
- * self-skips) and only warns; under EVALS_ALL it is hollow: 'passed-empty'.
- */
-export const PAID_LANE_POLICY: LanePolicy = {
-  acceptsSeedDuration: (ms) => ms > 0,
-  zeroExecution: ({ promisedAll }) => (promisedAll ? 'passed-empty' : 'passed-with-warning'),
-};
-
-/** One overlay process preserves the original process-wide SDK semaphore. */
-export const OVERLAY_MAX_ACTIVE_SHARDS = 1;
-
-export function isOverlayTestFile(file: string): boolean {
-  return /^skill-e2e-overlay-harness-.+\.test\.ts$/.test(path.basename(normalizeRelativePath(file)));
-}
-
-/** Compatibility helper for callers that only need the effective wall. */
-export function resolvePaidShardTimeoutMs(files: string[], explicitTimeoutMs?: number): number {
-  return resolvePaidShardBudget(files, explicitTimeoutMs).timeoutMs;
-}
-
-export function collectPaidTestFiles(rootDir = ROOT): string[] {
-  const testDir = path.join(rootDir, 'test');
-  if (!fs.existsSync(testDir)) return [];
-  return fs.readdirSync(testDir)
-    .map((name) => `test/${name}`)
-    .filter(isPaidTestFile)
-    .sort();
-}
-
-export interface TierClassification {
-  included: boolean;
-  reason: string;
-}
-
-/**
- * Decide whether a paid test file has anything to run in `tier`.
- *
- * Per-TEST tier filtering already happens at runtime: test/helpers/e2e-helpers.ts
- * intersects the selected tests with E2E_TIERS whenever EVALS_TIER is set, and
- * this runner passes EVALS_TIER down to every shard. So this file-level pass is
- * only an optimization — skipping a file merely saves one near-instant shard.
- *
- * Exclusion is the dangerous direction (a wrongly-skipped gate test is exactly
- * the invisible-non-execution bug this runner exists to kill), so the only
- * exclusion evidence accepted is an explicit whole-file tier guard: either the
- * raw `EVALS_TIER === '<other>'` predicate or the consolidated helper form
- * `describeE2ETier('<other>')` / `e2eTierEnabled('<other>')` from
- * test/helpers/e2e-gate.ts (same semantics, read from env at module load).
- * Inferring a file's tier from which E2E_TIERS names appear in its source
- * is guesswork that silently drops real work: short keys like 'retro' match
- * unrelated strings, and LLM-judge tests are keyed off LLM_JUDGE_TOUCHFILES and
- * carry no E2E_TIERS name at all. Everything without an explicit other-tier
- * guard runs and self-skips.
- */
-export function classifyPaidTestFile(source: string, tier: PaidTier): TierClassification {
-  const declares = (candidate: PaidTier) =>
-    new RegExp(`EVALS_TIER\\s*===\\s*['"\`]${candidate}['"\`]`).test(source) ||
-    new RegExp(`\\b(?:describeE2ETier|e2eTierEnabled)\\(\\s*['"\`]${candidate}['"\`]`).test(source);
-
-  if (declares(tier)) return { included: true, reason: `declares tier '${tier}'` };
-  const others = PAID_TIERS.filter(candidate => candidate !== tier && declares(candidate));
-  if (others.length) return { included: false, reason: `declares tier ${others.map(other => `'${other}'`).join(' and ')} only` };
-  return { included: true, reason: 'no whole-file tier guard — runtime E2E_TIERS filter decides' };
-}
-
-/**
- * The E2E ids a paid file registers: the touchfile registrations that list the
- * file. `known` is true only when those ids are complete: no computed
- * registration (testName, *IfSelected, describeIfSelected with a non-literal
- * argument) and every literal registration argument is among them
- * (`unregistered` lists the literal ids that are not). Quoted strings
- * elsewhere (comments, skill paths) never count.
- */
-export function fileCaseRegistration(
-  file: string, source: string,
-  touchfiles: Record<string, string[]> = E2E_TOUCHFILES,
-  tiers: Record<string, string> = E2E_TIERS,
-): { registered: string[]; known: boolean; computed: boolean; unregistered: string[] } {
-  const rel = normalizeRelativePath(file);
-  const registered = Object.keys(touchfiles).filter(key => touchfiles[key]!.includes(rel));
-  const computed = /testName\s*:\s*(?!string\b)(?:`[^`]*\$\{|[A-Za-z_$])/.test(source)
-    || /\btest(?:Concurrent)?IfSelected\s*\(\s*(?:`[^`]*\$\{|[A-Za-z_$])/.test(source)
-    || /\bdescribeIfSelected\s*\([^,]*,(?!\s*\[)/.test(source)
-    || [...source.matchAll(/\bdescribeIfSelected\s*\([^,]*,\s*\[([^\]]*)\]/g)].some(m => m[1]!.split(',')
-      .map(item => item.trim()).some(item => item && !/^(['"`])[^'"`$]*\1$/.test(item)));
-  const literal = [
-    ...[...source.matchAll(/testName\s*:\s*(['"`])([^'"`]+)\1/g)].map(m => m[2]!),
-    ...[...source.matchAll(/\btest(?:Concurrent)?IfSelected\s*\(\s*(['"`])([^'"`]+)\1/g)].map(m => m[2]!),
-    ...[...source.matchAll(/\bdescribeIfSelected\s*\([^,]*,\s*\[([^\]]*)\]/g)]
-      .flatMap(m => [...m[1]!.matchAll(/(['"`])([^'"`]+)\1/g)].map(n => n[2]!)),
-  ].filter(id => id in tiers);
-  const unregistered = [...new Set(literal.filter(id => !registered.includes(id)))];
-  return { registered, known: registered.length > 0 && !computed && unregistered.length === 0, computed, unregistered };
-}
-
-/**
- * A file is skipped for a tier lane only when it registers E2E ids, none of
- * them has that tier, and no literal registration names an id outside its
- * touchfile registration. A computed registration (a name built at runtime)
- * can only run in this lane by producing an id of this tier (the child's
- * EVALS_TIER filter drops every other), so it is skipped too when every id of
- * the tier is registered to a test file (its touchfile list names one), which
- * is not this file. An id of the tier that no test file registers, or no id
- * at all, keeps today's scheduling (the child's runtime filter decides).
- */
-export function tierSkipReason(
-  file: string, source: string, tier: PaidTier,
-  touchfiles: Record<string, string[]> = E2E_TOUCHFILES,
-  tiers: Record<string, string> = E2E_TIERS,
-): string | null {
-  const { registered, computed, unregistered } = fileCaseRegistration(file, source, touchfiles, tiers);
-  if (registered.length === 0 || unregistered.length > 0 || registered.some(id => tiers[id] === tier)) return null;
-  if (!computed) return `skipped: no E2E_TIERS id has tier ${tier}`;
-  const unowned = Object.keys(tiers).some(id => tiers[id] === tier && !(touchfiles[id] ?? []).some(dep => /^test\/[^/]+\.test\.ts$/.test(dep)));
-  return unowned ? null : `skipped: no E2E_TIERS id has tier ${tier} (its computed names can only produce ${tier} ids other test files register)`;
-}
-
-/**
- * The marathon lane selects positively: a file runs there only when it
- * declares the marathon tier or registers a marathon-tier case. Files without
- * marathon work never cost a marathon runner, and gate/periodic files never
- * gain a third execution.
- */
-export function marathonSkipReason(
-  file: string, source: string,
-  touchfiles: Record<string, string[]> = E2E_TOUCHFILES,
-  tiers: Record<string, string> = E2E_TIERS,
-): string | null {
-  if (classifyPaidTestFile(source, 'marathon').reason === "declares tier 'marathon'") return null;
-  const { registered } = fileCaseRegistration(file, source, touchfiles, tiers);
-  return registered.some(id => tiers[id] === 'marathon') ? null : 'skipped: declares no marathon tier and registers no marathon case';
-}
-
-export interface TierSelection {
-  selected: string[];
-  excluded: Array<{ file: string; reason: string }>;
-}
-
-export function selectPaidTestFiles(files: string[], tier: PaidTier, rootDir = ROOT, env: NodeJS.ProcessEnv = process.env): TierSelection {
-  const selected: string[] = [];
-  const excluded: Array<{ file: string; reason: string }> = [];
-  const carveSkill = tier === 'periodic' ? env.GSTACK_CARVE_SKILL?.trim() : undefined;
-  const carveWrapper = (file: string) => /^test\/carve-section-loading-(.+)\.test\.ts$/.exec(normalizeRelativePath(file))?.[1];
-  if (carveSkill && files.some(file => carveWrapper(file)) && !files.some(file => carveWrapper(file) === carveSkill)) {
-    throw new Error(`GSTACK_CARVE_SKILL=${carveSkill} has no generic section-loading wrapper`);
-  }
-  // Scheduled-lane exclusions (documented-red / manual-hardware files): a
-  // known-red weekly shard is triage waste locally AND in CI, so the list
-  // applies to every periodic and marathon run, with the reason surfaced per file.
-  const ciExcluded = (file: string): { reason: string; tracking: string } | undefined =>
-    tier !== 'gate' ? PERIODIC_CI_EXCLUDE[normalizeRelativePath(file)] : undefined;
-  for (const file of files) {
-    // One wrapper per process means a child-side return now creates an empty
-    // shard. Apply the existing explicit cost scope before planning processes.
-    const skill = carveWrapper(file);
-    if (carveSkill && skill && skill !== carveSkill) {
-      excluded.push({ file, reason: `GSTACK_CARVE_SKILL=${carveSkill} selects another section-loading case` });
-      continue;
-    }
-    const exclusion = ciExcluded(file);
-    if (exclusion) {
-      excluded.push({ file, reason: `excluded: ${exclusion.reason} [${exclusion.tracking}]` });
-      continue;
-    }
-    const source = fs.readFileSync(path.join(rootDir, file), 'utf8');
-    const classification = classifyPaidTestFile(source, tier);
-    const skip = !classification.included ? null
-      : tier === 'marathon' ? marathonSkipReason(file, source) : tierSkipReason(file, source, tier);
-    if (classification.included && !skip) selected.push(file);
-    else excluded.push({ file, reason: skip ?? classification.reason });
-  }
-  return { selected, excluded };
-}
-
-// --- Parent-side diff selection (shard skipping) ---
-
-/**
- * The test names the parent mapper recognizes: every E2E map key. LLM-judge
- * keys are deliberately excluded — skill-llm-eval.test.ts is not a
- * skill-e2e-* file, so it is always kept (child self-skip authoritative).
- */
-export const PARENT_MAPPER_TEST_NAMES: string[] = [
-  ...new Set([...Object.keys(E2E_TOUCHFILES), ...Object.keys(E2E_TIERS)]),
-];
-
-/**
- * Which of `names` appear in `source` as a quoted string ('x', "x", or `x`).
- * Same class of detection test/e2e-tier-alignment.test.ts uses: exact
- * quote-delimited match, raw source (comments count — a false hit can only
- * KEEP a shard, and the registration union below covers constructed names).
- */
-export function knownTestNamesInSource(source: string, names: Iterable<string>): string[] {
-  const hits: string[] = [];
-  for (const name of names) {
-    if (
-      source.includes(`'${name}'`)
-      || source.includes(`"${name}"`)
-      || source.includes(`\`${name}\``)
-    ) hits.push(name);
-  }
-  return hits;
-}
-
-export interface PaidDiffSelection {
-  /** null = run everything (EVALS_ALL, or no changes vs base). */
-  selectedNames: Set<string> | null;
-  reason: string;
-  totalTests: number;
-}
-
-/**
- * Compute diff selection in the PARENT, mirroring the module-scope selection
- * block in test/helpers/e2e-helpers.ts exactly: EVALS_ALL → run all;
- * base = EVALS_BASE || detectBaseBranch || 'main'; empty changed-file union →
- * run all. (e2e-helpers additionally gates on EVALS=1, which this runner sets
- * for every child unconditionally, so the parent mirror omits it.)
- *
- * getChangedFiles THROWS on git errors (fail-closed) — the children would hit
- * the same throw at module load, so the parent surfaces it before any shard
- * spawns.
- */
-export function computePaidDiffSelection(
-  env: NodeJS.ProcessEnv = process.env,
-  rootDir = ROOT,
-): PaidDiffSelection {
-  const totalTests = Object.keys(E2E_TOUCHFILES).length;
-  if (env.EVALS_ALL) {
-    return { selectedNames: null, reason: 'run-all (EVALS_ALL=1)', totalTests };
-  }
-  const baseBranch = env.EVALS_BASE || detectBaseBranch(rootDir) || 'main';
-  const changedFiles = getChangedFiles(baseBranch, rootDir);
-  if (changedFiles.length === 0) {
-    return { selectedNames: null, reason: `run-all (no changes vs ${baseBranch})`, totalTests };
-  }
-  const selection = selectTests(changedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES, {
-    baseRef: baseBranch, cwd: rootDir,
-  });
-  return { selectedNames: new Set(selection.selected), reason: selection.reason, totalTests };
-}
-
-/**
- * Serialize the parent's diff selection for shard children (EVALS_SELECTION_JSON).
- *
- * Children's e2e-helpers module-load path adopts this instead of re-deriving
- * the selection per shard — which, when touchfiles-data.ts is in the diff,
- * spawned one bun subprocess PER CHILD to evaluate the old data file (the
- * map-diff path in test/helpers/test-selection.ts, 20s timeout each; 46-68
- * redundant children per full run). `selected: null` means run-all, mirroring
- * PaidDiffSelection.selectedNames. The child-side parser lives in
- * test/helpers/e2e-helpers.ts (parseEvalsSelectionJson); round-trip parity is
- * pinned by test/paid-selection-propagation.test.ts.
- */
-export function serializePaidDiffSelection(selection: PaidDiffSelection): string {
-  return JSON.stringify({
-    version: 1,
-    selected: selection.selectedNames === null ? null : [...selection.selectedNames].sort(),
-    reason: selection.reason,
-  });
-}
-
-/** Both selectors are computed once; execution consumes the exact persisted IDs. */
-export function computePaidCaseSelection(options: {
-  profile: PaidProfile;
-  env?: NodeJS.ProcessEnv;
-  rootDir?: string;
-  changedFiles?: string[];
-  /** Whether package.json differs from the base only in `version`; computed from git when omitted. */
-  packageVersionOnly?: boolean;
-}): { selection: PaidCaseSelection; reason: string; coverage?: PrProfileSelection } {
-  const env = options.env ?? process.env;
-  const rootDir = options.rootDir ?? ROOT;
-  const baseRef = env.EVALS_BASE || detectBaseBranch(rootDir) || 'main';
-  const files = options.changedFiles ?? (env.EVALS_ALL ? [] : getChangedFiles(baseRef, rootDir));
-  const all = !!env.EVALS_ALL || files.length === 0;
-  const effectiveFiles = files.filter(file => options.profile !== 'pr' || file !== 'package.json' ||
-    !(options.packageVersionOnly ?? packageVersionOnlySinceBase(rootDir, baseRef)));
-  const sourceAliases = options.profile === 'pr' ? existingPromptSourceAliases(effectiveFiles, rootDir) : {};
-  const selectionFiles = [...new Set([...effectiveFiles, ...Object.values(sourceAliases)])];
-  const select = (table: Record<string, string[]>) => all ? null
-    : selectTests(selectionFiles, table, GLOBAL_TOUCHFILES, { baseRef, cwd: rootDir }).selected;
-  const selection = { e2e: select(E2E_TOUCHFILES), judges: select(LLM_JUDGE_TOUCHFILES) };
-  if (options.profile === 'full') return { selection, reason: all ? 'run-all' : 'diff' };
-  const coverage = selectPrProfile({ selectedE2E: selection.e2e, selectedJudges: selection.judges, changedFiles: effectiveFiles, sourceAliases });
-  if (coverage.needsFullValidation) {
-    throw new Error(`PR profile requires full validation: ${coverage.missingCoverage.join(', ')}. Use --profile full and the relevant periodic cases.`);
-  }
-  return { selection: { e2e: coverage.e2e, judges: coverage.judges }, reason: coverage.reasons.join('; '), coverage };
-}
-
-export function existingPromptSourceAliases(files: readonly string[], rootDir = ROOT): Record<string, string> {
-  const aliases: Record<string, string> = {};
-  for (const file of files) {
-    if (!file.endsWith('.md')) continue;
-    const template = `${file}.tmpl`;
-    try { if (fs.statSync(path.join(rootDir, template)).isFile()) aliases[file] = template; }
-    catch { /* Unknown/generated-only content must keep its own dependency identity. */ }
-  }
-  return aliases;
-}
-
-function packageVersionOnlySinceBase(rootDir: string, baseRef: string): boolean {
-  try {
-    const options = { cwd: rootDir, encoding: 'utf8' as const, timeout: 10_000, maxBuffer: 1024 * 1024 };
-    const base = spawnSync('git', ['merge-base', baseRef, 'HEAD'], options);
-    const sha = base.stdout?.trim() ?? '';
-    if (base.status !== 0 || !/^[a-f0-9]{40,64}$/.test(sha)) return false;
-    const old = spawnSync('git', ['show', `${sha}:package.json`], options);
-    return old.status === 0 && packageChangeOnlyVersion(old.stdout, fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
-  } catch { return false; }
-}
-
-/** Only audited per-case files, plus the separately selected judge, enter the fast profile. */
-/** The selected PR-profile case ids a shard key owns (a case key owns at most its own case). */
-/** `exclude`: isolated case ids a file shard leaves to their trial shards. */
-function prProfileShardIds(key: string, selection: PaidCaseSelection, exclude: readonly string[] = []): string[] {
-  const caseId = shardCaseId(key);
-  return (PR_PROFILE_FILES[shardFile(key)] ?? [])
-    .filter(id => (caseId === null || id === caseId) && (selection.e2e === null || selection.e2e.includes(id)) && !exclude.includes(id));
-}
-
-export function prProfileFileSelected(file: string, selection: PaidCaseSelection, exclude: readonly string[] = []): boolean {
-  if (file === 'test/skill-llm-eval.test.ts') return selection.judges === null || selection.judges.length > 0;
-  return prProfileShardIds(file, selection, exclude).length > 0;
-}
-
-export function expectedPrCaseCount(file: string, selection: PaidCaseSelection, exclude: readonly string[] = []): number {
-  if (file === 'test/skill-llm-eval.test.ts') return selection.judges?.length ?? Object.keys(LLM_JUDGE_TOUCHFILES).length;
-  return prProfileShardIds(file, selection, exclude).length;
-}
-
-export function prProfileTestNamePattern(file: string, selection: PaidCaseSelection, exclude: readonly string[] = []): string {
-  const ids = file === 'test/skill-llm-eval.test.ts'
-    ? selection.judges ?? Object.keys(LLM_JUDGE_TOUCHFILES)
-    : prProfileShardIds(file, selection, exclude);
-  if (ids.length === 0) throw new Error(`No selected PR cases for ${file}`);
-  return caseTestNamePattern(ids);
-}
-
-export function paidSelectionEnv(profile: PaidProfile, selection: PaidCaseSelection, reason: string): NodeJS.ProcessEnv {
-  const encode = (selected: string[] | null) => JSON.stringify({ version: 1, selected, reason });
-  return { EVALS_PROFILE: profile, EVALS_SELECTION_JSON: encode(selection.e2e), EVALS_JUDGE_SELECTION_JSON: encode(selection.judges) };
-}
-
-export interface ShardSkipDecision {
-  file: string;
-  kept: boolean;
-  reason: string;
-}
-
-export interface DiffSkipOptions {
-  rootDir?: string;
-  /** Injectable for tests. Throwing reads fail OPEN (shard kept). */
-  readSource?: (file: string) => string;
-  /** Injectable name census (default: PARENT_MAPPER_TEST_NAMES). */
-  allNames?: string[];
-  /** Injectable registration map (default: E2E_TOUCHFILES). */
-  e2eTouchfiles?: Record<string, string[]>;
-  /** File shard -> isolated case ids its trial shards run instead. */
-  excludeCases?: Record<string, string[]>;
-}
-
-/**
- * Decide whether a paid test file can be skipped under the current diff
- * selection. A file's MAPPED names are the union of:
- *   - E2E map keys quoted in its source, and
- *   - E2E map keys whose dep list registers the file (the tier-alignment
- *     mapping) — this covers files whose testNames are constructed rather
- *     than literal.
- *
- * FAIL-OPEN by construction: run-all selection, non-skill-e2e paid files
- * (llm-judge / codex-e2e / routing, keyed off other maps),
- * unreadable sources, and files with zero mapped names all KEEP their shard —
- * the child's self-skip stays authoritative. A parent bug may only run
- * extra work, never drop it.
- */
-export function diffSkipDecisionForFile(
-  file: string,
-  selectedNames: Set<string> | null,
-  options: DiffSkipOptions = {},
-): ShardSkipDecision {
-  if (selectedNames === null) return { file, kept: true, reason: 'run-all selection' };
-  const caseId = shardCaseId(file);
-  if (caseId !== null) {
-    return selectedNames.has(caseId) ? { file, kept: true, reason: `selected: ${caseId}` } : { file, kept: false, reason: `case ${caseId} not selected` };
-  }
-  const rel = normalizeRelativePath(file);
-  if (!/^test\/skill-e2e-.*\.test\.ts$/.test(rel)) {
-    return { file, kept: true, reason: 'non-skill-e2e paid file — child self-skip authoritative' };
-  }
-  let source: string;
-  try {
-    const read = options.readSource
-      ?? ((f: string) => fs.readFileSync(path.join(options.rootDir ?? ROOT, f), 'utf8'));
-    source = read(file);
-  } catch {
-    return { file, kept: true, reason: 'source unreadable — fail-open' };
-  }
-  const allNames = options.allNames ?? PARENT_MAPPER_TEST_NAMES;
-  const touchfiles = options.e2eTouchfiles ?? E2E_TOUCHFILES;
-  const quoted = knownTestNamesInSource(source, allNames);
-  const registered = Object.keys(touchfiles).filter((k) => touchfiles[k].includes(rel));
-  const isolated = options.excludeCases?.[rel] ?? [];
-  const mapped = [...new Set([...quoted, ...registered])].filter(name => !isolated.includes(name));
-  if (mapped.length === 0) {
-    return { file, kept: true, reason: 'no mappable test names — fail-open, child self-skip authoritative' };
-  }
-  const selectedHere = mapped.filter((n) => selectedNames.has(n));
-  if (selectedHere.length > 0) {
-    const shown = selectedHere.slice(0, 3).join(', ') + (selectedHere.length > 3 ? ', …' : '');
-    return { file, kept: true, reason: `selected: ${shown}` };
-  }
-  return { file, kept: false, reason: `none of its ${mapped.length} mapped test(s) selected` };
-}
-
-/**
- * Partition planned shards into runnable vs skipped-by-diff. A shard is
- * skipped only when EVERY file in it is skippable.
- */
-export function partitionShardsByDiffSelection(
-  shards: string[][],
-  selectedNames: Set<string> | null,
-  options: DiffSkipOptions = {},
-): { runnable: string[][]; skipped: Array<{ files: string[]; reason: string }> } {
-  if (selectedNames === null) return { runnable: shards, skipped: [] };
-  const runnable: string[][] = [];
-  const skipped: Array<{ files: string[]; reason: string }> = [];
-  for (const shard of shards) {
-    const decisions = shard.map((file) => diffSkipDecisionForFile(file, selectedNames, options));
-    if (decisions.every((d) => !d.kept)) {
-      skipped.push({ files: shard, reason: [...new Set(decisions.map((d) => d.reason))].join('; ') });
-    } else {
-      runnable.push(shard);
-    }
-  }
-  return { runnable, skipped };
-}
-
-export function planPaidShards(
-  files: string[],
-  options: { maxFilesPerShard?: number; ownShard?: ReadonlySet<string> } = {},
-): string[][] {
-  const size = Math.max(1, options.maxFilesPerShard ?? DEFAULT_MAX_FILES_PER_SHARD);
-  const unique = [...new Set(files.map(normalizeRelativePath))].sort();
-  const shards: string[][] = [];
-  let pending: string[] = [];
-  for (const file of unique) {
-    if (isOverlayTestFile(file) || shardCaseId(file) !== null || FILE_RETRY_BUDGETS.some(budget => budget.file === shardFile(file))
-      || options.ownShard?.has(file)) {
-      if (pending.length) shards.push(pending);
-      pending = [];
-      shards.push([file]);
-    } else {
-      pending.push(file);
-      if (pending.length === size) { shards.push(pending); pending = []; }
-    }
-  }
-  if (pending.length) shards.push(pending);
-  return shards;
-}
-
-export interface PaidShardBudget {
-  timeoutMs: number;
-  source: 'explicit' | 'registered' | 'default';
-  policyId: string | null;
-}
-
-/** Explicit caller limits win; registered supervision preserves existing attempts. */
-export function resolvePaidShardBudget(files: string[], overrideMs?: number): PaidShardBudget {
-  const finding = FILE_RETRY_BUDGETS.find(budget => files.map(shardFile).includes(budget.file));
-  if (finding && files.length !== 1) throw new Error('Registered retry budget requires its own shard');
-  if (overrideMs !== undefined && (!Number.isSafeInteger(overrideMs) || overrideMs <= 0 || overrideMs > 2_147_483_647)) {
-    throw new Error('Shard timeout must be a finite positive timer-safe integer');
-  }
-  const overlay = files.some(isOverlayTestFile);
-  if (overlay && files.length !== 1) throw new Error('Overlay budget requires its own shard');
-  if (overlay && overrideMs !== undefined && overrideMs < OVERLAY_MIN_FILE_WALL_MS) {
-    throw new Error(`Overlay shard requires at least ${OVERLAY_MIN_FILE_WALL_MS}ms; explicit wall ${overrideMs}ms cannot preserve its work and finalization budget`);
-  }
-  // A registered file's case shard supervises its one case.
-  const registeredMs = finding && shardCaseId(files[0]!) !== null
-    ? finding.caseMs + finding.shardReserveMs : finding?.shardMs;
-  return {
-    timeoutMs: overrideMs ?? (registeredMs ?? (overlay ? OVERLAY_MIN_FILE_WALL_MS : DEFAULT_SHARD_TIMEOUT_MS)),
-    source: overrideMs !== undefined ? 'explicit' : finding ? 'registered' : 'default',
-    policyId: finding?.id ?? null,
-  };
-}
-
-export function sameBudget(actual: PaidShardBudget | undefined, expected: PaidShardBudget): boolean {
-  return actual?.timeoutMs === expected.timeoutMs && actual.source === expected.source && actual.policyId === expected.policyId;
-}
-
-export function buildPaidShardArgs(
-  files: string[],
-  timeoutMs: number,
-  maxConcurrency: number = DEFAULT_WITHIN_SHARD_CONCURRENCY,
-  retries?: number,
-): string[] {
-  // Explicit --concurrent/--max-concurrency: the legacy path always set one;
-  // omitting it here made within-shard parallelism differ silently between
-  // the two runners (observed: 1.6x sumdur/wall sharded vs 8x legacy).
-  // Paid evals never retry (retriesForFiles); `--retry 0` is explicit so a
-  // bunfig default can never reintroduce one.
-  return ['test', ...files, '--retry', String(retries ?? 0), '--concurrent', `--max-concurrency=${maxConcurrency}`, `--timeout=${timeoutMs}`];
-}
-
-/**
- * Stable per-shard eval-dir slug: test filename sans extension, sanitized.
- * Stable across runs so each shard baselines against its own prior run.
- */
-export function shardSlug(files: string[]): string {
-  return files
-    .map((file) => path.basename(shardFile(file)).replace(/\.test\.(?:[cm]?[jt]s|tsx|jsx)$/, '')
-      + (shardCaseId(file) === null ? '' : `--${shardCaseId(file)}`)
-      + (shardTrial(file) === null ? '' : `.t${shardTrial(file)}`))
-    .join('+')
-    .replace(/[^a-zA-Z0-9._+-]/g, '-');
-}
-
-export type ShardStatus =
-  | 'passed'
-  | 'failed'
-  | 'timed-out'
-  | 'never-started'
-  | 'skipped-by-diff'
-  // exit 0 with ZERO executed tests on a run that promised everything
-  // (EVALS_ALL): the hollow-file green the census backstop exists to catch.
-  // Under selective runs, 0-executed passed shards stay 'passed' (in-file
-  // diff/tier self-skips are legitimate there) and get a WARNING line only.
-  | 'passed-empty';
-
-export interface ShardOutcome {
-  shard: number;
-  files: string[];
-  status: ShardStatus;
-  exitCode: number | null;
-  elapsedMs: number;
-  groupPid: number | null;
-  /** Tests bun reported executing ("Ran N tests ..."), null when unknown. */
-  executedTests: number | null;
-  /** Tests bun reported skipping (" N skip" count line), null when unknown.
-   *  "Ran N tests" COUNTS skips, so executedTests alone cannot distinguish a
-   *  shard that verified work from one whose every test self-skipped —
-   *  codex/gemini files green-by-skip on every CI runner (no binary) and the
-   *  weekly census read them as covered. */
-  skippedTests: number | null;
-  /** Effective supervised wall; absent only for unstarted or legacy outcomes. */
-  budget?: PaidShardBudget;
-  /** Present when a verified receipt replaced execution (PR lane only). */
-  reused?: { inputKey: string; runId: string; revision: string; completedAt: number };
-  /** The parent could not run the shard at all (a runner error, never a trial verdict). */
-  runnerError?: string;
-  /** PR lane: the reuse input identity of a freshly executed shard whose inputs stayed unchanged. */
-  inputKey?: string;
-  /** Isolated trial shards only: the trial record this shard produced. */
-  trial?: ShardTrialRecord;
-}
-
-/**
- * One isolated trial's record, derived from its shard status and the records
- * in its own eval dir. `outcome` null means the harness produced no trial
- * (never started, hollow, isolation broken, runner error): the panel is then
- * INCOMPLETE and the slice exits non-zero. A failed, timed-out or crashed
- * trial is a trial verdict; the slice still exits zero and the report decides.
- */
-export interface ShardTrialRecord {
-  case: string;
-  trial: number;
-  kind: EvalCaseKind;
-  panel: PanelShape;
-  quarantined: boolean;
-  outcome: TrialOutcome | null;
-  harness?: string;
-  failure_class?: TrialFailureClass;
-  exit_reason?: string;
-  error?: string;
-  timeout_at_turn?: number;
-  cost_usd: number;
-  duration_ms: number;
-  model?: string;
-}
 
 /** Records and contract evidence an isolated shard left in its eval dir. */
 export function readTrialEvidence(evalDir: string | undefined): { records: any[]; contract: string | null } {
@@ -779,41 +151,12 @@ export function classifyTrialShard(
   return failed(failedRecord ? failureClassOf(failedRecord) : 'assertion');
 }
 
-/**
- * True when a shard "passed" without verifying anything: every test bun ran
- * was a skip. Legitimate for external-service files on hosts without the
- * binary, but it must surface as a census warning, never read as coverage.
- */
-export function isAllSkippedPass(outcome: Pick<ShardOutcome, 'status' | 'executedTests' | 'skippedTests'>): boolean {
-  return outcome.status === 'passed'
-    && outcome.executedTests !== null
-    && outcome.executedTests > 0
-    && outcome.skippedTests === outcome.executedTests;
-}
 
 export interface ShardCommand {
   command: string;
   args: string[];
 }
 
-/** Upper bound for one ordered FIFO group with the same admission limit.
- * At each launch the least-loaded worker has at most total prior work / jobs,
- * and at most floor(prior files / jobs) files of the largest prior wall.
- * Both bounds hold when earlier files finish below their ceilings. Overlay
- * groups must use their separate admission limit, as the runner does.
- */
-export function paidShardWallUpperBoundMs(files: string[], jobs: number, overrideMs?: number): number {
-  if (!Number.isSafeInteger(jobs) || jobs < 1) throw new Error('Worker count must be a positive integer');
-  let priorWork = 0, priorLargest = 0, bound = 0;
-  files.forEach((file, index) => {
-    const wall = resolvePaidShardTimeoutMs([file], overrideMs);
-    const start = Math.min(priorWork / jobs, Math.floor(index / jobs) * priorLargest);
-    bound = Math.max(bound, start + wall);
-    priorWork += wall;
-    priorLargest = Math.max(priorLargest, wall);
-  });
-  return Math.ceil(bound);
-}
 
 export interface RunShardsOptions {
   timeoutMs?: number;
@@ -839,6 +182,11 @@ export interface RunShardsOptions {
   reuseFor?: (files: string[], env: NodeJS.ProcessEnv, budget: PaidShardBudget) => E2EShardReuse | null;
   /** Isolated trial shards: key -> the case's fixed trial plan. */
   trials?: Record<string, CaseTrialPlan>;
+  /** Epoch ms after which no shard starts and in-flight shards are killed (ENG-2 slice deadline). */
+  sliceDeadlineMs?: number;
+  /** Called after every shard start and finish with checkpoint outcomes: as if the job ended now,
+   * in-flight shards read as hung and unstarted ones as not_run (executor checkpoints). */
+  onProgress?: (checkpoint: ShardOutcome[]) => void;
 }
 
 /** On-failure console excerpt budget: the last N bytes of the shard's log. */
@@ -991,8 +339,8 @@ export async function runPaidShard(
   // Verified first-attempt reuse (PR lane only; scripts/e2e-shard-reuse.ts):
   // identical consumed inputs to a fresh pass in this PR replace execution
   // with an explicitly reported reused result.
-  // Bootstrap-retention qualification binds per-run state, so that shard stays fresh.
-  const reuse = files.some(file => normalizeRelativePath(file) === 'test/skill-e2e-qa-workflow.test.ts')
+  // Bootstrap-retention qualification binds per-run state, so that file's shards (and case shards) stay fresh.
+  const reuse = files.some(file => normalizeRelativePath(file).startsWith('test/skill-e2e-qa-workflow.test.ts'))
     ? null : options.reuseFor?.(files, baseEnv, budget) ?? null;
   // A trial reuses only its record from a whole PASS panel receipt the
   // planner shipped; a single trial never has a pass receipt of its own.
@@ -1042,7 +390,7 @@ export async function runPaidShard(
   // concurrency on shared state amplifies exactly the opus-47 race class).
   const sandbox = createShardSandbox('gstack-paid-shard-', baseEnv);
   const { stateDir, tmp: childTmp, env } = sandbox;
-  const bootstrapFile = files.some(file => normalizeRelativePath(file) === 'test/skill-e2e-qa-workflow.test.ts');
+  const bootstrapFile = files.some(file => normalizeRelativePath(file).startsWith('test/skill-e2e-qa-workflow.test.ts'));
   delete env.GSTACK_BOOTSTRAP_RETENTION;
   if (bootstrapFile && process.platform !== 'linux') log(`${label} bootstrap dependency retention unavailable on ${process.platform}; native behavior still runs without retained-dependency qualification`);
   const bootstrapRetention = bootstrapFile && process.platform === 'linux'
@@ -1078,7 +426,8 @@ export async function runPaidShard(
   let timedOut = false;
   let groupPid: number | null = null;
   let incompleteCapture: ShardChildResult['incompleteCapture'];
-  const shardDeadline = Date.now() + timeoutMs;
+  const ownDeadline = Date.now() + timeoutMs;
+  const shardDeadline = Math.min(ownDeadline, options.sliceDeadlineMs ?? Infinity);
   try {
     // Shared spawn/detached/group-kill/wall-timer/reap lifecycle.
     const result = await runShardChild({
@@ -1151,8 +500,10 @@ export async function runPaidShard(
     ? summary.terminalTestCounts.reduce((a, b) => a + b, 0)
     : null;
   const skippedTests = summary.terminalTestCounts.length > 0 ? summary.skippedTests : null;
+  const hung = status === 'timed-out' && shardDeadline < ownDeadline;
+  if (hung) log(`${label} HUNG: killed at the slice deadline before its own ${Math.round(timeoutMs / 1000)}s wall`);
   return withTrial({ shard: shardNumber, files, status, exitCode, elapsedMs, groupPid, executedTests, skippedTests, budget,
-    ...(inputKey ? { inputKey } : {}) });
+    ...(inputKey ? { inputKey } : {}), ...(hung ? { sliceDeadline: 'hung' as const } : {}) });
 }
 
 export interface RunSummary {
@@ -1237,12 +588,24 @@ export async function runPaidShards(
   // Validate the whole batch before any child can spend or create artifacts.
   for (const files of shards) resolvePaidShardTimeoutMs(files, options.timeoutMs);
   const pending = shards.map((_, index) => index);
+  const running = new Set<number>();
   let activeOverlayShards = 0;
   const waiters = new Set<() => void>();
   const wakeWorkers = () => {
     for (const resolve of waiters) resolve();
     waiters.clear();
   };
+  // A synthesized outcome keeps a trial shard's record (harness reason) so the report reconciles it.
+  const withPlannedTrial = (index: number, outcome: ShardOutcome): ShardOutcome => {
+    const key = shards[index].length === 1 ? normalizeRelativePath(shards[index][0]!) : '';
+    const plan = options.trials?.[key];
+    return plan && shardCaseId(key) !== null && shardTrial(key) !== null
+      ? { ...outcome, trial: classifyTrialShard(outcome, shardCaseId(key)!, shardTrial(key)!, plan, { records: [], contract: null }) }
+      : outcome;
+  };
+  const progress = () => options.onProgress?.(outcomes.map((outcome, index) =>
+    running.has(index) ? withPlannedTrial(index, { ...outcome, status: 'timed-out', sliceDeadline: 'hung' })
+      : outcome.status === 'never-started' && !outcome.sliceDeadline ? withPlannedTrial(index, { ...outcome, sliceDeadline: 'not_run' }) : outcome));
   const worker = async (): Promise<void> => {
     while (true) {
       // Cancellation (SIGINT/SIGTERM) must stop the RUN: the signal
@@ -1250,6 +613,16 @@ export async function runPaidShards(
       // from launching replacement shards that would keep burning API spend.
       if (isTerminationRequested()) return;
       if (pending.length === 0) return;
+      // ENG-2: past the slice deadline nothing starts; each remaining shard is an explicit not_run (INFRA).
+      if (options.sliceDeadlineMs !== undefined && Date.now() >= options.sliceDeadlineMs) {
+        for (const index of pending.splice(0)) {
+          outcomes[index] = withPlannedTrial(index, { ...outcomes[index]!, sliceDeadline: 'not_run' });
+          console.error(`[test:paid] shard ${index + 1} NOT RUN: the slice deadline passed before it started (${shards[index].join(' ')})`);
+        }
+        wakeWorkers();
+        progress();
+        return;
+      }
       const position = pending.findIndex(index => !shards[index].some(isOverlayTestFile)
         || activeOverlayShards < OVERLAY_MAX_ACTIVE_SHARDS);
       if (position < 0) {
@@ -1259,6 +632,8 @@ export async function runPaidShards(
       const [index] = pending.splice(position, 1);
       const overlay = shards[index].some(isOverlayTestFile);
       if (overlay) activeOverlayShards++;
+      running.add(index);
+      progress();
       try {
         outcomes[index] = await runPaidShard(shards[index], index + 1, shards.length, { ...options, jobs });
       } catch (error) {
@@ -1274,15 +649,13 @@ export async function runPaidShards(
           skippedTests: null,
           runnerError,
         };
-        const key = shards[index].length === 1 ? normalizeRelativePath(shards[index][0]!) : '';
-        const plan = options.trials?.[key];
-        outcomes[index] = plan && shardCaseId(key) !== null && shardTrial(key) !== null
-          ? { ...failed, trial: classifyTrialShard(failed, shardCaseId(key)!, shardTrial(key)!, plan, { records: [], contract: null }) }
-          : failed;
+        outcomes[index] = withPlannedTrial(index, failed);
         console.error(`[test:paid] shard ${index + 1} could not run: ${error instanceof Error ? error.message : String(error)}`);
       } finally {
         if (overlay) activeOverlayShards--;
+        running.delete(index);
         wakeWorkers();
+        progress();
       }
     }
   };
@@ -1364,11 +737,25 @@ function validatedTier(value: string | undefined, source: string): PaidTier {
   return value as PaidTier;
 }
 
-export function validatedProfile(value: string | undefined, source: string): PaidProfile {
-  if (value === undefined || value === '') return 'full';
-  if (value !== 'pr' && value !== 'full') throw new Error(`${source} must be pr or full. Received: ${value}`);
-  return value;
-}
+
+const PAID_USAGE = `Usage: bun run scripts/test-paid-shards.ts [flags]
+
+Local runs (paid; needs ANTHROPIC_API_KEY):
+  --tier gate|periodic|marathon   tier to run (default: EVALS_TIER or gate)
+  --profile pr|full               pr = diff-selected PR gate; full = the tier census
+  --list                          print the shard plan and exit (free)
+  --slice-budget SECS --jobs N    with --list: preview the CI slice plan (free)
+  --jobs N                        shard processes at once (EVALS_JOBS; default ${DEFAULT_JOBS})
+  --timeout SECS                  explicit per-shard wall (default: registered or 1800)
+  --files-per-shard N             files per shard (full profile only)
+  --case ID [--trials N]          run one case through the CI panel runner (add --list to preview)
+
+CI modes (the eval workflows):
+  --emit-plan PATH (--slices K | --slice-budget SECS --jobs N) [--skip-judges] [--max-parallel N]
+  --plan PATH --slice I           execute one slice of a manifest
+  --report DIR [--write-durations]  reconcile slice results against the manifest
+
+Background runs and CI dispatch: bun run eval:bg:<pr|gate|periodic|release> (scripts/eval-bg.ts --help).`;
 
 export function parseCliOptions(argv: string[], env: NodeJS.ProcessEnv = process.env): CliOptions {
   const options: CliOptions = {
@@ -1432,7 +819,7 @@ export function parseCliOptions(argv: string[], env: NodeJS.ProcessEnv = process
       options.caseId = value;
     },
     '--trials': (next) => { options.trials = parsePositiveInt(next(), '--trials'); },
-  });
+  }, PAID_USAGE);
   if (options.writeDurations && !options.reportDir) throw new Error('--write-durations requires --report');
   if (options.trials !== null && options.caseId === null) throw new Error('--trials requires --case');
   if (options.caseId !== null && (options.emitPlanPath || options.planPath || options.reportDir || options.sliceIndex !== null)) {
@@ -1540,6 +927,39 @@ async function main(): Promise<number> {
       manifest.prCoverage?.mode === 'pr' ? prProfileTestNamePattern(entry.file, manifest.selection!, entry.excludeCases)
         : excludedCasesNamePattern(entry.excludeCases!)]));
     const startedAt = Date.now();
+    const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
+    const ceilingMinutes = manifest.plan?.sliceCiTimeoutMinutes?.[options.sliceIndex - 1] ?? manifest.plan?.ciTimeoutMinutes;
+    const deadlineMs = ceilingMinutes === undefined ? undefined
+      : sliceDeadlineMs(ceilingMinutes, process.env[SLICE_JOB_STARTED_AT_ENV], startedAt);
+    if (deadlineMs !== undefined) console.log(`[test:paid] slice deadline ${new Date(deadlineMs).toISOString()} (job ceiling ${ceilingMinutes}m minus ${SLICE_UPLOAD_RESERVE_MS / 60_000}m upload reserve)`);
+    fs.mkdirSync(evalDirBase, { recursive: true });
+    const sliceResultPath = path.join(evalDirBase, `slice-${options.sliceIndex}.json`);
+    const writeSliceResult = (outcomes: ShardOutcome[], checkpoint: boolean) => {
+      const sliceResult: SliceResult = {
+        version: 1,
+        tier: manifest.tier,
+        profile,
+        ...(manifest.selection ? { selection: manifest.selection } : {}),
+        sliceIndex: options.sliceIndex!,
+        sliceCount: manifest.sliceCount,
+        ...(options.timeoutExplicit ? { timeoutOverrideMs: options.timeoutMs } : {}),
+        attempt: Number.isSafeInteger(attempt) && attempt > 0 ? attempt : 1,
+        startedAt,
+        finishedAt: Date.now(),
+        ...(checkpoint ? { checkpoint: true as const } : {}),
+        outcomes: outcomes.map(({ files, status, exitCode, elapsedMs, executedTests, skippedTests, budget, reused, runnerError, trial, inputKey, sliceDeadline }) =>
+          ({ files, status, exitCode, elapsedMs, executedTests, skippedTests, ...(budget ? { budget } : {}), ...(reused ? { reused } : {}),
+            ...(runnerError !== undefined ? { runnerError } : {}), ...(trial ? { trial } : {}), ...(inputKey ? { inputKey } : {}),
+            ...(sliceDeadline ? { sliceDeadline } : {}) })),
+      };
+      const temporary = `${sliceResultPath}.tmp-${process.pid}`;
+      fs.writeFileSync(temporary, `${JSON.stringify(sliceResult, null, 2)}\n`);
+      fs.renameSync(temporary, sliceResultPath);
+    };
+    // Checkpoint after every shard start/finish: if the job ceiling or a
+    // cancellation ends the job, the always() upload still carries finished
+    // outcomes; in-flight shards read as hung, unstarted ones as not_run.
+    const checkpoint = (outcomes: ShardOutcome[]) => writeSliceResult(outcomes, true);
     let summary: RunSummary;
     if (shards.length === 0) {
       summary = summarize([]);
@@ -1572,9 +992,6 @@ async function main(): Promise<number> {
         } : {}),
         env: {
           ...process.env,
-          // Manifest filenames already encode carve selection. Ambient scope
-          // must not suppress a planned wrapper when this slice executes.
-          GSTACK_CARVE_SKILL: '',
           EVALS: '1',
           EVALS_TIER: options.tier,
           EVALS_ALL: manifest.evalsAll ? '1' : '',
@@ -1584,29 +1001,13 @@ async function main(): Promise<number> {
           ...paidSelectionEnv(profile, manifest.selection ?? { e2e: null, judges: null }, `manifest slice ${options.sliceIndex}: ${manifest.selectionReason}`),
         },
         evalDirBase,
+        sliceDeadlineMs: deadlineMs,
+        onProgress: checkpoint,
       });
     }
     const guarded = guardTrialRecords(applyHollowShardGuard(summary.outcomes, { evalsAll: manifest.evalsAll, requireExecuted: manifest.prCoverage?.mode === 'pr' }));
     summary = summarize(guarded);
-    const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
-    const sliceResult: SliceResult = {
-      version: 1,
-      tier: manifest.tier,
-      profile,
-      ...(manifest.selection ? { selection: manifest.selection } : {}),
-      sliceIndex: options.sliceIndex,
-      sliceCount: manifest.sliceCount,
-      ...(options.timeoutExplicit ? { timeoutOverrideMs: options.timeoutMs } : {}),
-      attempt: Number.isSafeInteger(attempt) && attempt > 0 ? attempt : 1,
-      startedAt,
-      finishedAt: Date.now(),
-      outcomes: guarded.map(({ files, status, exitCode, elapsedMs, executedTests, skippedTests, budget, reused, runnerError, trial, inputKey }) =>
-        ({ files, status, exitCode, elapsedMs, executedTests, skippedTests, ...(budget ? { budget } : {}), ...(reused ? { reused } : {}),
-          ...(runnerError !== undefined ? { runnerError } : {}), ...(trial ? { trial } : {}), ...(inputKey ? { inputKey } : {}) })),
-    };
-    fs.mkdirSync(evalDirBase, { recursive: true });
-    const sliceResultPath = path.join(evalDirBase, `slice-${options.sliceIndex}.json`);
-    fs.writeFileSync(sliceResultPath, `${JSON.stringify(sliceResult, null, 2)}\n`);
+    writeSliceResult(guarded, false);
     console.log(`[test:paid] slice result: ${sliceResultPath}`);
     for (const line of formatSummary(summary)) console.log(line);
     for (const outcome of guarded.filter(outcome => outcome.trial)) {

@@ -4,7 +4,7 @@ name: Periodic Evals
 # tests can't rot invisibly — the class where the autoplan-dual-voice E2E was
 # silently broken for months until a lucky local diff selected it. Engine:
 # scripts/test-paid-shards.ts (the same runner local eval:bg:periodic uses):
-# one planner manifest packed by recorded durations into as many ~9-minute
+# one planner manifest packed by recorded durations into as many ~7-minute
 # executors as the work needs (one file, or a tightly packed group, per
 # runner; overlays share one final slice), and a FAIL-CLOSED report — a slice
 # whose artifact never landed is a failure, not an absence. The matrix size
@@ -15,20 +15,36 @@ name: Periodic Evals
 # diff-billed, so without it the full gate census might never execute
 # anywhere); the hollow-shard guard (exit 0 + zero executed tests under
 # EVALS_ALL fails) makes both lanes census-health checks, not just test runs.
+# eval-bg (scripts/eval-bg.ts) finds its dispatch by the nonce in the run name.
+run-name: ${{ inputs.nonce && format('Periodic Evals [eval-bg {0}]', inputs.nonce) || 'Periodic Evals' }}
 on:
   schedule:
-    - cron: '0 6 * * 1'  # Monday 6 AM UTC (ci-image prebuilds at 4 AM)
+    - cron: '0 6 * * 1'  # Monday 6 AM UTC; build-image below builds or reuses the CI image
   workflow_dispatch:
     inputs:
       redispatch_of:
         description: 'Run id this run re-dispatches (the one INFRA/INCOMPLETE-only re-dispatch; set by the report job)'
         type: string
         default: ''
+      include_gate_census:
+        description: 'Branch dispatch only: also run the weekly gate census (default: periodic lane only; gate cases validate through an evals.yml dispatch with evals_all)'
+        type: boolean
+        default: false
+      expected_sha:
+        description: 'eval-bg: the revision the dispatcher tested; the run fails fast when the ref has moved'
+        type: string
+        default: ''
+      nonce:
+        description: 'eval-bg: dispatch nonce carried in the run name'
+        type: string
+        default: ''
 
-# A re-dispatch runs in its own group so it never cancels the run that
-# dispatched it; both runs are reported.
+# One group per ref AND event: a branch dispatch never cancels main's census,
+# and a manual main dispatch never cancels the scheduled one. A re-dispatch
+# runs in its own group so it never cancels the run that dispatched it; both
+# runs are reported.
 concurrency:
-  group: evals-periodic${{ inputs.redispatch_of && format('-redispatch-{0}', inputs.redispatch_of) || '' }}
+  group: evals-periodic-${{ github.ref }}-${{ github.event_name }}${{ inputs.redispatch_of && format('-redispatch-{0}', inputs.redispatch_of) || '' }}
   cancel-in-progress: true
 
 env:
@@ -99,13 +115,23 @@ jobs:
     outputs:
       periodic_slices: ${{ steps.periodic-matrix.outputs.slices }}
       periodic_codex_slices: ${{ steps.periodic-matrix.outputs.codex_slices }}
-      periodic_timeout_minutes: ${{ steps.periodic-matrix.outputs.timeout_minutes }}
+      periodic_slice_timeouts: ${{ steps.periodic-matrix.outputs.slice_timeouts }}
       gate_slices: ${{ steps.gate-matrix.outputs.slices }}
-      gate_timeout_minutes: ${{ steps.gate-matrix.outputs.timeout_minutes }}
+      gate_slice_timeouts: ${{ steps.gate-matrix.outputs.slice_timeouts }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      - name: Verify the dispatched revision
+        if: inputs.expected_sha != ''
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::eval-bg tested ${EXPECTED_SHA} but ${GITHUB_REF_NAME} is now at ${GITHUB_SHA}; push again and re-run eval:bg, or dispatch without expected_sha"
+            exit 1
+          fi
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -114,7 +140,7 @@ jobs:
       - name: Emit run manifest (ALL periodic tests minus reasoned excludes)
         env:
           EVALS_ALL: "1"
-        run: EVALS_TIER=periodic bun --no-install run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slice-budget 540 --jobs 2 --max-parallel 26
+        run: EVALS_TIER=periodic bun --no-install run scripts/test-paid-shards.ts --tier periodic --emit-plan /tmp/paid-plan/manifest.json --slice-budget 420 --jobs 2 --max-parallel 36
 
       # Codex-only slices run on the host-run eval-codex-slices job; the
       # container executor runs every other slice.
@@ -124,7 +150,7 @@ jobs:
           {
             echo "slices=$(jq -c '[range(1; .sliceCount + 1)] - .plan.codexSlices' /tmp/paid-plan/manifest.json)"
             echo "codex_slices=$(jq -c '.plan.codexSlices' /tmp/paid-plan/manifest.json)"
-            echo "timeout_minutes=$(jq -e '.plan.ciTimeoutMinutes' /tmp/paid-plan/manifest.json)"
+            echo "slice_timeouts=$(jq -ec '[0] + .plan.sliceCiTimeoutMinutes' /tmp/paid-plan/manifest.json)"
           } >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -136,13 +162,13 @@ jobs:
       - name: Emit gate census manifest (ALL gate tests)
         env:
           EVALS_ALL: "1"
-        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/gate-census-plan/manifest.json --slice-budget 540 --jobs 2 --skip-judges --max-parallel 16
+        run: EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/gate-census-plan/manifest.json --slice-budget 420 --jobs 2 --skip-judges --max-parallel 20
 
       - name: Derive the gate census executor matrix from the plan
         id: gate-matrix
         run: |
           echo "slices=$(jq -c '[range(1; .sliceCount + 1)]' /tmp/gate-census-plan/manifest.json)" >> "$GITHUB_OUTPUT"
-          echo "timeout_minutes=$(jq -e '.plan.ciTimeoutMinutes' /tmp/gate-census-plan/manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "slice_timeouts=$(jq -ec '[0] + .plan.sliceCiTimeoutMinutes' /tmp/gate-census-plan/manifest.json)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -155,10 +181,12 @@ jobs:
     needs: [build-image, plan-slices]
     env:
       EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-eval-slices-${{ matrix.slice }}
-    # The planner packs ~9 minutes of recorded work per slice; the job timeout
-    # is its supervised worst case (every shard at its wall) plus 20 minutes
-    # setup/upload, computed from the same manifest the slices execute.
-    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.periodic_timeout_minutes) }}
+    # The planner packs ~7 minutes of recorded work per slice; each slice's job
+    # ceiling is max(2x budget, its longest shard wall, the overlay envelope)
+    # plus 20 minutes setup (W2c/ENG-2), indexed by slice from the manifest the
+    # slices execute ([0] pads the array so index = slice). The executor stops
+    # starting work 5 minutes before the ceiling so its results still upload.
+    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.periodic_slice_timeouts)[matrix.slice] }}
     permissions:
       contents: read
       packages: read
@@ -172,10 +200,13 @@ jobs:
       fail-fast: false
       # Every planned slice starts at once; test/evals-workflow-wiring.test.ts
       # fails when the live plan outgrows this cap.
-      max-parallel: 26
+      max-parallel: 36
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.periodic_slices) }}
     steps:
+      - name: Record the job start for the slice deadline
+        run: echo "GSTACK_SLICE_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history: files with SELF-derived selection (the LLM-judge
@@ -302,16 +333,19 @@ jobs:
     if: ${{ needs.plan-slices.outputs.periodic_codex_slices != '[]' }}
     env:
       EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-eval-slices-${{ matrix.slice }}
-    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.periodic_timeout_minutes) }}
+    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.periodic_slice_timeouts)[matrix.slice] }}
     permissions:
       contents: read
       packages: read
     strategy:
       fail-fast: false
-      max-parallel: 26
+      max-parallel: 36
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.periodic_codex_slices) }}
     steps:
+      - name: Record the job start for the slice deadline
+        run: echo "GSTACK_SLICE_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
@@ -350,7 +384,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/eval-home" "$RUNNER_TEMP/paid-slice-results"
           docker run --rm --user "$(id -u):$(id -g)" \
             --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
-            -e HOME=/home/runner -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GEMINI_API_KEY -e SLICE -e EVALS_JOBS \
+            -e HOME=/home/runner -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e GEMINI_API_KEY -e SLICE -e EVALS_JOBS -e GSTACK_SLICE_JOB_STARTED_AT \
             -e EVALS_RUN_ID -e EVALS_PROFILE -e EVALS_FRESH -e EVALS_CACHE_PURPOSE -e CI -e GITHUB_ACTIONS \
             -e GITHUB_RUN_ID -e GITHUB_RUN_ATTEMPT -e GITHUB_SHA -e GITHUB_REF -e GITHUB_REF_NAME -e GITHUB_REPOSITORY \
             -e GITHUB_EVENT_NAME -e GITHUB_BASE_REF -e GITHUB_HEAD_REF \
@@ -422,10 +456,14 @@ jobs:
   gate-census:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
+    # A branch dispatch validates the periodic lane only; gate cases on a
+    # branch go through an evals.yml dispatch with evals_all. Main (schedule
+    # or dispatch) always runs the census; a branch opts in explicitly.
+    if: ${{ github.ref == 'refs/heads/main' || inputs.include_gate_census }}
     env:
       EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-gate-census-${{ matrix.slice }}
-    # Supervised worst case of the packed plan plus 20 minutes setup/upload.
-    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.gate_timeout_minutes) }}
+    # Per-slice job ceiling from the packed plan (W2c/ENG-2), as for eval-slices.
+    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.gate_slice_timeouts)[matrix.slice] }}
     permissions:
       contents: read
       packages: read
@@ -438,10 +476,13 @@ jobs:
     strategy:
       # Two file workers per slice, each retaining two in-file case workers.
       fail-fast: false
-      max-parallel: 16
+      max-parallel: 20
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.gate_slices) }}
     steps:
+      - name: Record the job start for the slice deadline
+        run: echo "GSTACK_SLICE_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history: files with SELF-derived selection (the LLM-judge
@@ -585,8 +626,15 @@ jobs:
       - name: Reconcile gate census against the manifest (fail-closed)
         id: gate-reconcile
         if: always()
+        env:
+          GATE_CENSUS: ${{ needs.gate-census.result }}
         run: |
           set +e
+          if [ "$GATE_CENSUS" = "skipped" ]; then
+            echo "gate census skipped: branch dispatch without include_gate_census (periodic lane only)" | tee /tmp/gate-report.txt
+            echo "exit=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --report /tmp/gate-census-report | tee /tmp/gate-report.txt
           echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
@@ -723,7 +771,7 @@ jobs:
           fi
 
       - name: Fail the workflow when reconciliation failed
-        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || steps.pass-rates.outputs.exit != '0' || needs.eval-slices.result != 'success' || !contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) || needs.gate-census.result != 'success')
+        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || steps.pass-rates.outputs.exit != '0' || needs.eval-slices.result != 'success' || !contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) || !contains(fromJSON('["success","skipped"]'), needs.gate-census.result))
         run: exit 1
 
   # The one INFRA/INCOMPLETE re-dispatch (UC-E1). Its own job so the report

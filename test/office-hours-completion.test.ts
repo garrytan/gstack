@@ -699,7 +699,7 @@ describe('office-hours completion eval selection', () => {
     const { selected } = selectTests(['office-hours/sections/design-and-handoff.md.tmpl'], E2E_TOUCHFILES);
     expect(selected).toContain('office-hours-section-loading');
     expect(selected).toContain('office-hours-design-draft');
-    expect(selected).not.toContain('carve-section-loading');
+    expect(selected.filter(id => id.startsWith('carve-section-loading'))).toEqual([]);
   });
 });
 

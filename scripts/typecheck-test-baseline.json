@@ -440,8 +440,6 @@
     "test/salience-allowlist.test.ts\tTS2307\tCannot find module '../bin/gstack-brain-cache' or its corresponding type declarations.": 3,
     "test/schema-version-migration.test.ts\tTS2307\tCannot find module '../bin/gstack-brain-cache' or its corresponding type declarations.": 3,
     "test/schema-version-migration.test.ts\tTS2353\tObject literal may only specify known properties, and 'timeout' does not exist in type '(done: (err?: unknown) => void) => void | Promise<unknown>'.": 3,
-    "test/section-capture-native-tools.test.ts\tTS2339\tProperty 'CI' does not exist on type '{ NODE_ENV?: string | undefined; TZ?: string | undefined; PATH: string; TMPDIR: string; TMP: string; TEMP: string; EVALS_HERMETIC: string; }'.": 3,
-    "test/section-capture-native-tools.test.ts\tTS2339\tProperty 'CI' does not exist on type '{ NODE_ENV?: string | undefined; TZ?: string | undefined; PATH: string; TMPDIR: string; TMP: string; TEMP: string; GSTACK_HOME: string; GSTACK_STATE_ROOT: string; EVALS_HERMETIC: string; EVALS: string; EVALS_ALL: string; GSTACK_CARVE_SKILL: string; }'.": 1,
     "test/section-capture-native-tools.test.ts\tTS2339\tProperty 'CI' does not exist on type '{ NODE_ENV?: string | undefined; TZ?: string | undefined; PATH: string; }'.": 1,
     "test/session-runner-browse-errors.test.ts\tTS2769\tNo overload matches this call. The last overload gave the following error. Argument of type 'never[]' is not assignable to parameter of type 'undefined'.": 1,
     "test/session-runner-browse-errors.test.ts\tTS7006\tParameter 'row' implicitly has an 'any' type.": 6,

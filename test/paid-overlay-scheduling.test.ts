@@ -170,7 +170,7 @@ describe('overlay manifest affinity and CI capacity', () => {
       expect(jobs).toBe(2);
       expect(parseCliOptions([], step.env).withinShardConcurrency).toBe(2);
       expect(job.strategy.matrix.slice).toBe('${{ fromJSON(needs.plan-slices.outputs.periodic_slices) }}');
-      expect(job['timeout-minutes']).toBe('${{ fromJSON(needs.plan-slices.outputs.periodic_timeout_minutes) }}');
+      expect(job['timeout-minutes']).toBe('${{ fromJSON(needs.plan-slices.outputs.periodic_slice_timeouts)[matrix.slice] }}');
       const normalMinutes = Math.ceil(18 / jobs) * resolvePaidShardTimeoutMs([normalFiles[0]]) / 60_000;
       const overlayMinutes = Math.ceil(overlayFiles.length / OVERLAY_MAX_ACTIVE_SHARDS)
         * Math.max(...overlayFiles.map(file => resolvePaidShardTimeoutMs([file]))) / 60_000;
@@ -183,6 +183,9 @@ describe('overlay manifest affinity and CI capacity', () => {
       expect(lastSlice).toEqual([...overlayFiles].sort());
       expect(budget.plan!.ciTimeoutMinutes).toBeGreaterThanOrEqual(overlayMinutes + 20);
       expect(budget.plan!.ciTimeoutMinutes).toBe(Math.ceil(overlayMinutes) + 20);
+      // ENG-2: the serialized overlay group is its own slice's envelope; ordinary slices keep their own ceilings.
+      expect(budget.plan!.sliceCiTimeoutMinutes![budget.sliceCount - 1]).toBe(Math.ceil(overlayMinutes) + 20);
+      expect(Math.max(...budget.plan!.sliceCiTimeoutMinutes!.slice(0, -1))).toBeLessThan(Math.ceil(overlayMinutes) + 20);
 
       // Gate selection keeps its original periodic exclusion and all six
       // ordinary slices; reservation does not spend an empty slot in gate.

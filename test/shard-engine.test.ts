@@ -11,6 +11,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  cliUsage,
   BunTestOutputClassifier,
   createShardSandbox,
   killProcessGroup,
@@ -270,4 +271,22 @@ describe('shard engine: capture and isolation', () => {
     expect(() => parseCliFlags(['--nope'], {})).toThrow('Unknown argument: --nope');
     expect(() => parseCliFlags(['constructor'], {})).toThrow('Unknown argument: constructor');
   });
+
+  test('--help prints usage and exits 0 on both runners before any work starts (W8e)', () => {
+    expect(cliUsage({ '--b': 0, '--a': 0 }, undefined, path.join(process.cwd(), 'scripts/x.ts')))
+      .toBe('Usage: bun run scripts/x.ts [flags]\n\nFlags:\n  --a\n  --b\n\nSee docs/TESTING_INTERNALS.md for what each flag does.');
+    expect(cliUsage({}, 'custom')).toBe('custom');
+    const root = path.resolve(import.meta.dir, '..');
+    for (const [runner, marker] of [['scripts/test-paid-shards.ts', '--emit-plan PATH'], ['scripts/test-free-shards.ts', '  --list']] as const) {
+      for (const flag of ['--help', '-h']) {
+        const result = Bun.spawnSync([process.execPath, 'run', runner, flag], { cwd: root, timeout: 30_000,
+          env: { ...process.env, EVALS: '', EVALS_ALL: '' } });
+        const out = result.stdout.toString();
+        expect(result.exitCode, `${runner} ${flag}: ${result.stderr.toString()}`).toBe(0);
+        expect(out.startsWith(`Usage: bun run ${runner} [flags]`)).toBe(true);
+        expect(out).toContain(marker);
+        expect(out).not.toContain('[test:');
+      }
+    }
+  }, 60_000);
 });

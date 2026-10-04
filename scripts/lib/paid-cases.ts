@@ -2,60 +2,44 @@
  * Case and trial shard keys for the paid lane: which files shard per case, how a case shard and its trials are named, and expansion of files into case/trial shards. Moved from scripts/test-paid-shards.ts.
  */
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { createBootstrapRetentionScope } from '../../test/helpers/bootstrap-retention';
-import {
-  BunTestOutputClassifier,
-  createShardSandbox,
-  exactTestFileSelectors,
-  forwardAndClassify,
-  isTerminationRequested,
-  nextShardLogPath,
-  normalizeRelativePath,
-  openShardLog,
-  parseCliFlags,
-  readDurationSeed,
-  removeShardSandbox,
-  runShardChild,
-  strictShardStatus,
-  writeDurationSeed,
-  zeroExecutionVerdict,
-  type LanePolicy,
-  type ShardChildResult,
-  type ShardLog,
-} from './shard-engine';
-import { PAID_TEST_GLOBS, isPaidTestFile } from '../../test/helpers/paid-test-set';
-import { CASE_CI_EXCLUDE, CASE_QUARANTINE, EVAL_POLICY, PERIODIC_CI_EXCLUDE } from '../../test/helpers/periodic-exclude-data';
-import { FILE_RETRY_BUDGETS, STRICT_RETRY_CASE_BUDGETS } from '../../test/helpers/eval-budgets';
-import {
-  getProjectEvalDir, getClaudeCliVersion, isFinalizedEvalResultFile, evalEntryOutcome, failureClassOf, panelVerdict,
-  sanitizeTrialError, formatTrialOutcomes, CONTRACT_VIOLATIONS_FILE, TRIAL_ENV, TRIAL_OUTCOME_SCHEMA, TRIAL_OUTCOMES_FILE,
-  type EvalCaseKind, type PanelShape, type PanelVerdict, type TrialFailureClass, type TrialOutcome, type TrialOutcomeRecord,
-} from '../../test/helpers/eval-store';
+import { normalizeRelativePath } from './shard-engine';
+import { CASE_CI_EXCLUDE, CASE_QUARANTINE, EVAL_POLICY } from '../../test/helpers/periodic-exclude-data';
+import type { EvalCaseKind, PanelShape } from '../../test/helpers/eval-store';
 import { E2E_KINDS } from '../../test/helpers/touchfiles-data';
-import { manualReviewProblem } from '../../test/helpers/cookie-workflow-manual-review';
-import { preflightAnthropicApi } from '../../test/helpers/anthropic-preflight';
-import { OVERLAY_MIN_FILE_WALL_MS } from '../../test/helpers/overlay-case-policy';
-import { PR_PROFILE_CASE_IDS, PR_PROFILE_FILES, packageChangeOnlyVersion, selectPrProfile, type PrProfileSelection } from '../test-pr-profile';
-import { e2eReuseLaneProblem, prepareE2EShardReuse, selectPlanReceipts, writeNegativeReceipt, writePanelReceipt } from '../e2e-shard-reuse';
+import { E2E_TOUCHFILES, E2E_TIERS } from '../../test/helpers/touchfiles';
+import { type PaidTier, ROOT } from './paid-types';
 
-import {
-  detectBaseBranch,
-  getChangedFiles,
-  selectTests,
-  E2E_TOUCHFILES,
-  E2E_TIERS,
-  LLM_JUDGE_TOUCHFILES,
-  GLOBAL_TOUCHFILES,
-} from '../../test/helpers/touchfiles';
+/**
+ * The E2E ids a paid file registers: the touchfile registrations that list the
+ * file. `known` is true only when those ids are complete: no computed
+ * registration (testName, *IfSelected, describeIfSelected with a non-literal
+ * argument) and every literal registration argument is among them
+ * (`unregistered` lists the literal ids that are not). Quoted strings
+ * elsewhere (comments, skill paths) never count.
+ */
+export function fileCaseRegistration(
+  file: string, source: string,
+  touchfiles: Record<string, string[]> = E2E_TOUCHFILES,
+  tiers: Record<string, string> = E2E_TIERS,
+): { registered: string[]; known: boolean; computed: boolean; unregistered: string[] } {
+  const rel = normalizeRelativePath(file);
+  const registered = Object.keys(touchfiles).filter(key => touchfiles[key]!.includes(rel));
+  const computed = /testName\s*:\s*(?!string\b)(?:`[^`]*\$\{|[A-Za-z_$])/.test(source)
+    || /\btest(?:Concurrent)?IfSelected\s*\(\s*(?:`[^`]*\$\{|[A-Za-z_$])/.test(source)
+    || /\bdescribeIfSelected\s*\([^,]*,(?!\s*\[)/.test(source)
+    || [...source.matchAll(/\bdescribeIfSelected\s*\([^,]*,\s*\[([^\]]*)\]/g)].some(m => m[1]!.split(',')
+      .map(item => item.trim()).some(item => item && !/^(['"`])[^'"`$]*\1$/.test(item)));
+  const literal = [
+    ...[...source.matchAll(/testName\s*:\s*(['"`])([^'"`]+)\1/g)].map(m => m[2]!),
+    ...[...source.matchAll(/\btest(?:Concurrent)?IfSelected\s*\(\s*(['"`])([^'"`]+)\1/g)].map(m => m[2]!),
+    ...[...source.matchAll(/\bdescribeIfSelected\s*\([^,]*,\s*\[([^\]]*)\]/g)]
+      .flatMap(m => [...m[1]!.matchAll(/(['"`])([^'"`]+)\1/g)].map(n => n[2]!)),
+  ].filter(id => id in tiers);
+  const unregistered = [...new Set(literal.filter(id => !registered.includes(id)))];
+  return { registered, known: registered.length > 0 && !computed && unregistered.length === 0, computed, unregistered };
+}
 
-export { PAID_TEST_GLOBS, isPaidTestFile };
-export { PERIODIC_CI_EXCLUDE };
-
-type E2EShardReuse = NonNullable<ReturnType<typeof prepareE2EShardReuse>>;
-import { type PaidTier, ROOT, fileCaseRegistration } from '../test-paid-shards';
 
 /**
  * Files whose cases run in separate processes, one shard per registered E2E
@@ -67,6 +51,8 @@ import { type PaidTier, ROOT, fileCaseRegistration } from '../test-paid-shards';
  * id or its CASE_TEST_NAMES label (test/paid-shards.test.ts scans the sources).
  */
 export const CASE_SHARDED_FILES: readonly string[] = [
+  // W5a: one carved skill per case shard (was 15 one-line wrapper files under one case id).
+  'test/carve-section-loading.test.ts',
   'test/skill-e2e-deploy.test.ts',
   'test/skill-e2e-design.test.ts',
   'test/skill-e2e-plan.test.ts',
@@ -75,6 +61,8 @@ export const CASE_SHARDED_FILES: readonly string[] = [
   'test/skill-e2e-shared-libs.test.ts',
   'test/skill-e2e-ship-docsync.test.ts',
   'test/skill-e2e-qa-callers.test.ts',
+  // W5c: its gate cases (qa-quick, qa-only-no-fix, qa-bootstrap) no longer share one ~7-minute runner.
+  'test/skill-e2e-qa-workflow.test.ts',
 ];
 
 /** Bun test names that differ from their E2E id. */

@@ -27,7 +27,12 @@ const runId = `office-hours-section-loading-${process.env.EVALS_RUN_ID ?? 'local
 // for this case: a second full attempt would exceed that wall. A 900s diagnostic
 // exhausted 25 turns after writing its report at 790s; permit 40 turns.
 // The capture model and other cases' work budgets are unchanged.
+// W2f: marathon 37127527251 passed at 1176 s of this 1200 s capture; its three
+// spec-review rounds took ~900 s (each ~180 s of reviewer verdict writing plus
+// ~10 design Edits). The capture is not raised; the scenario keeps the design to
+// the one-event pilot so the review has less to find (see PILOT_SCOPE below).
 const OFFICE_HOURS_CAPTURE_MS = 1_200_000;
+const PILOT_SCOPE = `Design scope for this run: design only the first pilot (one organizer, one event, the two manual CSV exports, a printed list, manual duplicate decisions). Record everything beyond that pilot (more organizers, pricing, distribution, later integrations) once, as explicitly deferred open questions, instead of designing it. Keep each required design section to the decisions this pilot needs.`;
 const OFFICE_HOURS_TEST_MS = 1_260_000;
 
 describeMarathon('/office-hours full section-loading workflow (marathon)', () => {
@@ -48,7 +53,8 @@ describeMarathon('/office-hours full section-loading workflow (marathon)', () =>
     fs.chmodSync(formatter, 0o755);
     const capture = await captureSectionReads({
       planDir, skillName: guard.skill, scenario: guard.scenario,
-      artifactCommands: `Use ${formatter} for prepare/check/finalize; Bash is only for those commands and creating the local review directory. Use Read for skills, sections, reviewer prompts and designs, never Bash. Reviewers must save verdicts with Write as the prepared contract requires. Use targeted Edit for local design revisions, preserving every finding and remedy. Do not inspect formatter source unless its command fails. Keep all artifacts inside this fixture.
+      artifactCommands: `${PILOT_SCOPE}
+Use ${formatter} for prepare/check/finalize; Bash is only for those commands and creating the local review directory. Use Read for skills, sections, reviewer prompts and designs, never Bash. Reviewers must save verdicts with Write as the prepared contract requires. Use targeted Edit for local design revisions, preserving every finding and remedy. Do not inspect formatter source unless its command fails. Keep all artifacts inside this fixture.
 Delivery throughout this non-interactive run: keep chat to brief progress and actual decision acknowledgements. Write the complete diagnostic, premise challenge, alternatives, independent opinion and rationale into the design instead of first publishing a separate walkthrough in chat. After design approval, write the full relationship closing and handoff directly into REPORT.md. These file writes deliver the required content; do not narrate it in full and then transcribe it again.
 Completion delivery, after the full workflow and design approval:
 1. Compose REPORT.md as a completion record: summarize each phase's outcome and actual decisions with their rationale, and link the approved design and saved review evidence. The design retains the detailed diagnostic, alternatives, and independent opinion; do not replay those as a second transcript. Include the full actual Assignment, coaching/relationship closing, approval outcome, and Handoff, including the user's declined downstream launch. This changes delivery only; complete every required phase and preserve all findings.

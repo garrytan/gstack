@@ -10,7 +10,7 @@
         "browse-basic",
         "browse-snapshot",
         "canary-workflow",
-        "carve-section-loading",
+        "carve-section-loading-browse",
         "design-review-detector-shim-dom",
         "design-review-fix",
         "diagram-authoring-quality",
