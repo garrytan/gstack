@@ -206,9 +206,10 @@ test('eval:bg runs the PR and release commands with their declared workers (cap:
   for (const [index, tier] of (['gate', 'periodic'] as const).entries()) {
     expect(releaseCommands[index]).toBe(`EVALS_ALL=1 EVALS_FRESH=1 EVALS_CACHE_PURPOSE=release bun run scripts/test-paid-shards.ts --tier ${tier} --profile full`);
   }
-  // A PR diff that needs full validation still plans the complete gate census.
+  // A PR diff that needs full validation still plans the complete gate census. The input is a tracked
+  // full-gate file: a path absent from the tree is a deletion, placed by its live references instead.
   const fallback = buildRunManifest({ tier: 'gate', profile: 'pr', sliceCount: 1,
-    evalsAll: false, env: {}, changedFiles: ['runtime-not-yet-mapped/worker.ts'] });
+    evalsAll: false, env: {}, changedFiles: ['setup'] });
   expect(fallback.prCoverage?.mode).toBe('full-fallback');
   expect(fallback.entries.filter(row => row.status === 'planned').length).toBeGreaterThan(0);
 });

@@ -8,9 +8,11 @@ const workflow = (name: string) => Bun.YAML.parse(readFileSync(resolve(import.me
 const paid = workflow('evals.yml');
 const periodic = workflow('evals-periodic.yml');
 
-test('only PR runs select the fast profile; manual and scheduled coverage stays fresh and full', () => {
-  expect(paid.env.EVALS_PROFILE).toBe("${{ github.event_name == 'pull_request' && 'pr' || 'full' }}");
-  expect(paid.env.EVALS_FRESH).toBe("${{ github.event_name == 'workflow_dispatch' && '1' || '' }}");
+test('PR runs and diff dispatches select the fast profile; evals_all and scheduled coverage stay full; dispatches stay fresh', () => {
+  // eval:bg:pr dispatches evals_all=false (the PR profile on its diff); every other dispatch runs the full gate census.
+  expect(paid.env.EVALS_PROFILE).toBe("${{ (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && !inputs.evals_all)) && 'pr' || 'full' }}");
+  // Dispatches execute fresh unless they name a PR whose receipts they read read-only; the evals-fresh label opts a PR out.
+  expect(paid.env.EVALS_FRESH).toBe("${{ ((github.event_name == 'workflow_dispatch' && inputs.pr_receipts == '') || contains(github.event.pull_request.labels.*.name, 'evals-fresh')) && '1' || '' }}");
   expect(periodic.env).toMatchObject({ EVALS_PROFILE: 'full', EVALS_FRESH: '1', EVALS_CACHE_PURPOSE: 'periodic' });
   expect(periodic.on.schedule.length).toBeGreaterThan(0);
   expect(periodic.on).toHaveProperty('workflow_dispatch');
@@ -21,31 +23,42 @@ test('only PR runs select the fast profile; manual and scheduled coverage stays 
   }
 });
 
-test('receipt transport: the planner restores only this repository and PR, the report saves one merged store', () => {
-  const planner = paid.jobs['plan-slices'].steps;
-  const restore = planner.filter((s: any) => s.uses?.startsWith('actions/cache/restore@'));
+test('receipt transport: only recover-receipts restores this repository and PR\'s store; the report saves one merged store', () => {
+  // The PR store is restored once, by recover-receipts (base-ref code), scoped to this repository and PR, PR events only.
+  const recover = paid.jobs['recover-receipts'].steps;
+  const restore = recover.filter((s: any) => s.uses?.startsWith('actions/cache/restore@'));
   expect(restore).toHaveLength(1);
   expect(restore[0].if).toBe("github.event_name == 'pull_request'");
   expect(restore[0].with.path).toBe('/tmp/gstack-eval-input-cache');
   expect(restore[0].with['restore-keys']).toBe('eval-input-v1-${{ github.repository_id }}-pr-${{ github.event.pull_request.number }}-');
+  expect(recover.find((s: any) => s.with?.name === 'receipt-store').with.path).toBe('/tmp/gstack-eval-input-cache');
+  // The planner never touches the cache: it takes that store as an artifact and ships one filtered receipt set only when reuse is on.
+  const planner = paid.jobs['plan-slices'].steps;
+  expect(planner.filter((s: any) => s.uses?.startsWith('actions/cache/'))).toHaveLength(0);
+  expect(planner.find((s: any) => s.with?.name === 'receipt-store').if).toBe("github.event_name == 'pull_request' || inputs.pr_receipts != ''");
   const emit = planner.find((s: any) => s.run?.includes('--emit-plan /tmp/paid-plan/manifest.json'));
-  expect(emit.env.EVALS_CACHE_DIR).toBe("${{ github.event_name == 'pull_request' && '/tmp/gstack-eval-input-cache' || '' }}");
+  expect(emit.env.EVALS_CACHE_DIR).toBe("${{ steps.reuse.outputs.reuse == 'on' && '/tmp/gstack-eval-input-cache' || '' }}");
   const upload = planner.find((s: any) => s.with?.name === 'paid-plan');
-  expect(upload.with.path.trim().split('\n')).toEqual(['/tmp/paid-plan/manifest.json', '/tmp/paid-plan/receipts']);
+  expect(upload.with.path.trim().split('\n')).toEqual(['/tmp/paid-plan/manifest.json', '/tmp/paid-plan/receipts', '/tmp/paid-plan/store']);
   // Executors never restore or save a cache of their own: every slice sees the plan's one receipt set.
   const executor = paid.jobs['eval-slices'].steps;
   expect(executor.filter((s: any) => s.uses?.startsWith('actions/cache/'))).toHaveLength(0);
   expect(executor.find((s: any) => s.name === "Seed this slice's receipts from the plan").run).toContain('cp -a /tmp/paid-plan/receipts/. /tmp/paid-slice-results/receipts/');
   const report = paid.jobs['slices-report'].steps;
   const merge = report.find((s: any) => s.name === "Merge this run's receipts");
-  expect(merge.run).toContain('scripts/e2e-shard-reuse.ts merge /tmp/gstack-eval-input-cache');
+  expect(merge.run).toContain('scripts/e2e-shard-reuse.ts merge /tmp/gstack-eval-input-cache /tmp/paid-report/store');
+  expect(merge.if).toBe("always() && github.event_name == 'pull_request'");
   const save = report.filter((s: any) => s.uses?.startsWith('actions/cache/save@'));
   expect(save).toHaveLength(1);
   expect(save[0].with.path).toBe('/tmp/gstack-eval-input-cache');
   expect(save[0].with.key).toBe('eval-input-v1-${{ github.repository_id }}-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}-merged');
+  // Only PR runs save; a pr_receipts dispatch reads the PR store read-only.
+  expect(save[0].if).toBe("always() && github.event_name == 'pull_request'");
   expect(report.indexOf(save[0])).toBeGreaterThan(report.indexOf(merge));
   expect(paid.jobs['eval-slices'].permissions).toEqual({ contents: 'read', packages: 'read' });
   expect(paid.jobs['slices-report'].permissions).toEqual({ contents: 'read' });
+  expect(paid.jobs['plan-slices'].permissions).toEqual({ contents: 'read' });
+  expect(paid.jobs['recover-receipts'].permissions).toEqual({ contents: 'read', actions: 'read' });
   expect(JSON.stringify(periodic)).not.toContain('actions/cache/');
 });
 
@@ -57,7 +70,8 @@ test('the judge binds cache receipts to the PR and installed runtime, not the co
   expect(run.env).toMatchObject({
     EVALS_CACHE_DIR: '/tmp/paid-slice-results/receipts',
     EVALS_CACHE_REPOSITORY: '${{ github.repository }}',
-    EVALS_CACHE_PR: '${{ github.event.pull_request.number }}',
+    // A dispatch names its PR explicitly (pr_receipts); receipts stay bound to repository + PR either way.
+    EVALS_CACHE_PR: '${{ github.event.pull_request.number || inputs.pr_receipts }}',
     EVALS_CACHE_RUNTIME_ID: '${{ needs.build-image.outputs.runtime-id }}',
   });
 });
@@ -85,7 +99,7 @@ test.skipIf(!Bun.which('jq') || !Bun.which('bash'))('comment consumes verified f
   expect(job.permissions).toMatchObject({ 'pull-requests': 'write' });
   expect(JSON.stringify(job.steps)).not.toMatch(/actions\/checkout|setup-bun|bun run|npm |node /);
   const upload = paid.jobs['slices-report'].steps.find((step: any) => step.with?.name === 'report-verdict-a${{ github.run_attempt }}');
-  expect(upload.with.path.trim().split('\n')).toEqual(['/tmp/report.txt', '/tmp/paid-report/collector-outcomes.json', '/tmp/paid-report/report-summary.md']);
+  expect(upload.with.path.trim().split('\n')).toEqual(['/tmp/report.txt', '/tmp/paid-report/collector-outcomes.json', '/tmp/paid-report/report-summary.md', '/tmp/paid-report/report-receipts']);
   expect(job.steps.find((step: any) => step.with?.name === 'report-verdict-a${{ github.run_attempt }}').with.path).toBe('/tmp/verdict');
   const root = mkdtempSync(join(tmpdir(), 'ci-comment-'));
   const paidDir = join(root, 'paid-report');
