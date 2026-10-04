@@ -6,6 +6,10 @@
  */
 
 import { test, expect } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { CAPTURE_MS, CAPTURE_LONG_MS } from './helpers/eval-budgets';
 import { describeE2ETier } from './helpers/e2e-gate';
 import { assertNoPlanFileDecisions, assertPlanModeWithEvidence, seededPlanTargeted } from './helpers/plan-mode-evidence';
@@ -47,6 +51,44 @@ Ignore Bun's native --shard flag because we want full control.
 None planned — will add later.
 `;
 
+/**
+ * The seeded plan proposes a custom test runner, so its Step 0 "what already
+ * exists" pass reads the working tree's test setup. Run it in a small project
+ * of its own, never the gstack checkout: there the agent explored gstack's own
+ * sharded runner, and the review's length tracked unrelated runner edits
+ * (a 300 s timeout in census 37228573062 after a runner refactor).
+ */
+function createRunnerPlanFixture(): { cwd: string; cleanup(): void } {
+  const cwd = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-plan-eng-smoke-')));
+  const cleanup = () => fs.rmSync(cwd, { recursive: true, force: true });
+  const files: Record<string, string> = {
+    'package.json': JSON.stringify({ name: 'tiny-math', private: true, type: 'module', scripts: { test: 'bun test' } }, null, 2) + '\n',
+    'README.md': '# tiny-math\n\nA small Bun library. `bun test` runs the unit tests in test/.\n',
+    'src/sum.ts': 'export function sum(values: number[]): number {\n  return values.reduce((total, value) => total + value, 0);\n}\n',
+    'test/sum.test.ts': "import { expect, test } from 'bun:test';\nimport { sum } from '../src/sum';\n\ntest('sums values', () => {\n  expect(sum([1, 2, 3])).toBe(6);\n});\n",
+  };
+  try {
+    for (const [name, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(cwd, name)), { recursive: true });
+      fs.writeFileSync(path.join(cwd, name), content);
+    }
+    for (const args of [
+      ['init', '-b', 'main'],
+      ['add', '--', ...Object.keys(files)],
+      ['-c', 'user.name=Plan Eng Fixture', '-c', 'user.email=plan-eng@example.test', '-c', 'commit.gpgsign=false',
+        'commit', '--no-verify', '-m', 'Seed tiny-math'],
+      ['update-ref', 'refs/remotes/origin/main', 'HEAD'],
+    ]) {
+      const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 10_000 });
+      if (result.error || result.status !== 0) throw new Error(`Could not initialize the plan-eng fixture: ${result.error?.message ?? result.stderr}`);
+    }
+    return { cwd, cleanup };
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+}
+
 // Seed-only names; seeing one after the slash command shows the review read the seeded plan.
 const SEED_PLAN_TOKENS = ['ShardManager', 'ResultMerger', 'test-shard-impl'];
 
@@ -80,17 +122,28 @@ describeE2E('plan-eng-review plan-mode smoke (periodic)', () => {
   // plan before any question renders. A plan-file ## Decisions section is not
   // a substitute for asking.
   test('STOP gate fires when seeded plan forces Step 0 findings', async () => {
-    const obs = await runPlanSkillObservation({
-      skillName: 'plan-eng-review',
-      inPlanMode: true,
-      initialPlanContent: SEED_PLAN_FORCING_FINDINGS,
-      // Force the Conductor-style path: native AUQ disallowed → the model
-      // must use mcp__*__AskUserQuestion or render the prose fallback
-      // (both observed as outcome='asked').
-      extraArgs: ['--disallowedTools', 'AskUserQuestion'],
-      trackTokens: SEED_PLAN_TOKENS,
-      timeoutMs: CAPTURE_MS,
-    });
+    const fixture = createRunnerPlanFixture();
+    let obs: Awaited<ReturnType<typeof runPlanSkillObservation>>;
+    try {
+      obs = await runPlanSkillObservation({
+        skillName: 'plan-eng-review',
+        inPlanMode: true,
+        cwd: fixture.cwd,
+        // As in auto-decide-preserved's standalone fixture: a first launch in a
+        // fresh folder can paint a product notice under the composer, which
+        // the plan-seed composer check (one footer row) never accepts.
+        env: { DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' },
+        initialPlanContent: SEED_PLAN_FORCING_FINDINGS,
+        // Force the Conductor-style path: native AUQ disallowed → the model
+        // must use mcp__*__AskUserQuestion or render the prose fallback
+        // (both observed as outcome='asked').
+        extraArgs: ['--disallowedTools', 'AskUserQuestion'],
+        trackTokens: SEED_PLAN_TOKENS,
+        timeoutMs: CAPTURE_MS,
+      });
+    } finally {
+      fixture.cleanup();
+    }
 
     assertPlanModeWithEvidence('plan-eng-review', 'STOP gate fires when seeded plan forces Step 0 findings', obs, () => {
       if (
