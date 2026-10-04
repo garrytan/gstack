@@ -21,6 +21,7 @@ import {
 import { EVAL_POLICY } from './helpers/periodic-exclude-data';
 import { TRIAL_OUTCOME_SCHEMA, formatTrialOutcomes } from './helpers/eval-store';
 import { storedZip } from './helpers/stored-zip';
+import { isWeeklyHistoryRun } from '../scripts/lib/ci-history';
 
 const entry = (name: string, passed: boolean, attempt: number) => ({
   name, suite: 's', tier: 'e2e', passed, attempt, duration_ms: 1000, cost_usd: 0.1,
@@ -368,6 +369,16 @@ describe('pass-rates history fetch (injected, no network)', () => {
       listArtifacts: () => [], downloadZip: () => { throw new Error('unused'); },
     };
     expect(listWeeklyRuns({ repo: 'o/r', workflow: 'evals-periodic.yml', branches: ['feature', 'main'], limit: 10, fetcher }).map(r => r.id)).toEqual([3, 2, 1]);
+  });
+
+  test('weekly history is scheduled runs on main plus main dispatches, never a branch dispatch (EVAL_POLICY v2)', () => {
+    const at = (branch: string, event: string) => isWeeklyHistoryRun({ branch, event });
+    expect(at('main', 'schedule')).toBe(true);
+    expect(at('main', 'workflow_dispatch')).toBe(true);
+    expect(at('garrytan/fix-wave', 'workflow_dispatch')).toBe(false);
+    expect(at('main', 'push')).toBe(false);
+    expect(at('main', 'pull_request')).toBe(false);
+    expect(at('main', undefined as unknown as string)).toBe(false);
   });
 
   test('downloads only matching, bounded artifacts once, and caches them', () => {

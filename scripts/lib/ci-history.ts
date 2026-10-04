@@ -162,6 +162,15 @@ export function historyFetcher(client: GhClient): HistoryFetcher {
   };
 }
 
+/**
+ * EVAL_POLICY v2 weekly history (W4b): scheduled runs on main plus main
+ * dispatches, never a branch dispatch, so back-to-back validation runs on a
+ * branch neither feed pass rates nor count as weeks for quarantine expiry.
+ */
+export function isWeeklyHistoryRun(run: Pick<WeeklyRun, 'branch' | 'event'>): boolean {
+  return run.branch === 'main' && (run.event === 'schedule' || run.event === 'workflow_dispatch');
+}
+
 /** The last `limit` completed runs of `workflow` on each branch, newest first, deduplicated. */
 export function listWeeklyRuns(opts: { repo: string; workflow: string; branches: string[]; limit: number; fetcher?: HistoryFetcher }): WeeklyRun[] {
   const fetcher = opts.fetcher ?? GH_HISTORY;

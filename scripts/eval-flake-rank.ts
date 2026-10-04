@@ -4,9 +4,11 @@
  *
  * Reads trial records (one JSONL line per trial: case, kind, trial, outcome,
  * exit_reason, duration, cost, model, CLI version, series identity, run id,
- * sha, policy_version) from the last N completed `evals-periodic.yml` runs on
- * the current branch and `main` (downloading only each run's small
- * `trial-outcomes` artifact through `gh`), plus any local eval dirs, and
+ * sha, policy_version) from the last N completed `evals-periodic.yml` runs of
+ * the weekly history: scheduled runs on `main` plus `main` dispatches, never a
+ * branch dispatch (`--branch <name>` reads one branch's runs for inspection),
+ * downloading only each run's small `trial-outcomes` artifact through `gh`,
+ * plus any local eval dirs, and
  * prints per-case per-trial pass rates with 95% Wilson intervals.
  *
  * A series is one case under one input identity: the case's own touchfiles
@@ -34,7 +36,7 @@
  * fetched fails the gate closed.
  *
  * Usage:
- *   bun run eval:pass-rates                       # last 10 weekly runs, this branch + main
+ *   bun run eval:pass-rates                       # last 10 weekly runs (main: scheduled + dispatched)
  *   bun run eval:pass-rates --case <id> --runs 20
  *   bun run eval:pass-rates --dir <path>          # local eval dirs / downloaded artifacts (repeatable)
  *   bun run eval:pass-rates --backfill            # also import legacy slice artifacts, labeled pre-policy
@@ -53,7 +55,7 @@ import { CASE_QUARANTINE, EVAL_POLICY } from '../test/helpers/periodic-exclude-d
 import { matchGlob } from '../test/helpers/test-selection';
 import { CASE_TEST_NAMES } from './test-paid-shards';
 import { resolveStateRoot } from '../lib/state-root';
-import { downloadRunArtifacts, gitOutput, listWeeklyRuns, parseFlakeLedger, repoSlug, TRIAL_OUTCOMES_MAX_BYTES } from './lib/ci-history';
+import { downloadRunArtifacts, isWeeklyHistoryRun, listWeeklyRuns, parseFlakeLedger, repoSlug, TRIAL_OUTCOMES_MAX_BYTES } from './lib/ci-history';
 
 interface TestSeries {
   name: string;
@@ -585,7 +587,7 @@ if (import.meta.main) {
   const sinceDays = Number(flag('--since-days')) || 60;
   const repo = flag('--repo') ?? repoSlug();
   const workflow = flag('--workflow') ?? 'evals-periodic.yml';
-  const branch = flag('--branch') ?? gitOutput(['rev-parse', '--abbrev-ref', 'HEAD']) ?? 'main';
+  const branch = flag('--branch') ?? 'main';
 
   const records: TrialRecord[] = [];
   const unattributed = new Set<string>();
@@ -608,7 +610,7 @@ if (import.meta.main) {
     for (const dir of dirs) importDir(dir, undefined, sinceDays);
   } else {
     try {
-      const runs = listWeeklyRuns({ repo, workflow, branches: [...new Set([branch, 'main'])], limit: runsLimit });
+      const runs = listWeeklyRuns({ repo, workflow, branches: [branch], limit: runsLimit }).filter(run => branch !== 'main' || isWeeklyHistoryRun(run));
       weeklyRuns = runs.map(run => run.createdAt);
       const cacheDir = path.join(path.resolve(resolveStateRoot()), 'eval-pass-rates-cache', repo.replace('/', '-'));
       const match = backfill
