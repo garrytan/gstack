@@ -2,10 +2,15 @@
 /**
  * Show which E2E and LLM-judge tests would run based on the current git diff.
  *
+ * The default profile is `pr` (the PR lane's selection, matching `test:pr`
+ * and `eval:bg:pr`); `--profile full` (or EVALS_PROFILE=full) shows the plain
+ * touchfile selection over every E2E and LLM-judge entry.
+ *
  * Usage:
- *   bun run eval:select              # human-readable output
- *   bun run eval:select --json       # machine-readable JSON
- *   bun run eval:select --base main  # override base branch
+ *   bun run eval:select                 # PR-lane selection, human-readable
+ *   bun run eval:select --json          # machine-readable JSON
+ *   bun run eval:select --base main     # override base branch
+ *   bun run eval:select --profile full  # full touchfile selection
  */
 
 import * as path from 'path';
@@ -25,7 +30,7 @@ const jsonMode = args.includes('--json');
 const baseIdx = args.indexOf('--base');
 const baseOverride = baseIdx >= 0 ? args[baseIdx + 1] : undefined;
 const profileIdx = args.indexOf('--profile');
-const profile = profileIdx >= 0 ? args[profileIdx + 1] : process.env.EVALS_PROFILE ?? 'full';
+const profile = profileIdx >= 0 ? args[profileIdx + 1] : process.env.EVALS_PROFILE ?? 'pr';
 if (profile !== 'pr' && profile !== 'full') throw new Error('--profile must be pr or full');
 
 // Detect base branch
