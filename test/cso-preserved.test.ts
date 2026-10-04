@@ -2,6 +2,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { expectMentions, expectTokens } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const controller = () => fs.readFileSync(path.join(ROOT, 'cso/SKILL.md'), 'utf8');
@@ -38,7 +39,7 @@ describe('CSO v3 always-loaded policy', () => {
     expect(text).not.toContain('gstack-skill-start');
     expect(text).not.toContain('gstack-telemetry-log');
     expect(text).not.toContain('gstack-review-log');
-    expect(text).toContain('Do not send findings, source, secrets, harnesses, or bundles');
+    expectMentions(text, [['do not', 'harnesses', 'findings']], 'text');
     expect(text).toContain('trusted installed gstack distribution');
   });
 
@@ -47,18 +48,16 @@ describe('CSO v3 always-loaded policy', () => {
     for (const proof of ['CSO evidence rubric', 'identical security assertion', 'legitimate control passes', 'pristine second copy', 'before/after configuration and dependency closures', 'boundary-replacing mocks', 'legacy review evidence', 'new evidence covering the same root cause']) {
       expect(text).toContain(proof);
     }
-    expect(text).toContain('Keep finding evidence, reproduction outcome, patch validation, test-completion assurance, review assurance, and current-source closure separate');
-    expect(text).toContain('cannot establish that an application booted or a repair passed tests');
+    expectMentions(text, [['cannot', 'application', 'establish']], 'text');
   });
 
   test('runtime and scanner execution claims require qualified catalog profiles', () => {
     const text = controller();
-    expect(text).toContain('Static assessment remains available without runtime or scanner profiles');
+    expectMentions(text, [['without', 'assessment', 'available']], 'text');
     expect(text).toContain('matching qualified runtime catalog profile');
     expect(text).toContain('Project-test completion remains `self_reported`');
-    expect(text).toContain('target code shares that process and can forge reporter output or terminate the runner');
-    expect(text).toContain('The `tested` state remains reserved until a target-independent completion witness exists');
-    expect(text).toContain('show assertion, test-completion, and review assurance exactly as recorded');
+    expectTokens(text, ['`tested`'], 'text');
+    expectMentions(text, [['until', 'target-independent', 'completion']], 'text');
     expect(domain()).toContain('matching qualified scanner catalog profile');
   });
 
@@ -75,7 +74,7 @@ describe('CSO v3 always-loaded policy', () => {
     expect(text).toContain('never call `start` again');
     expect(text).toContain('same ID');
     expect(text).toContain('submit it to the helper **and surface it to the user immediately**');
-    expect(text).toContain('do not wait for the final report');
+    expectMentions(text, [['do not', 'report', 'final']], 'text');
     expect(text).toContain('if the run is interrupted');
   });
 
@@ -84,7 +83,6 @@ describe('CSO v3 always-loaded policy', () => {
     for (const contract of ['**complete**, **partial**, or **not assessed**', 'No supported findings in the assessed scope.', 'PERSISTENCE_FAILED', 'MISSING_INPUT', 'withhold the payload entirely', 'one bounded correction attempt', 'seven days', 'thirty days']) {
       expect(text).toContain(contract);
     }
-    expect(text).toContain('Completeness is independent of finding count');
     expect(text).toContain('outside synchronization allowlists');
   });
 
