@@ -90,7 +90,7 @@ export function createSharedPlanReuseSelector(): SharedQuestionSelector {
       // plan fixes behavior to the existing helper"); the recommended choice and
       // every other brief and option line carry what the option commits to.
       const briefCommitments = context.split('\n')
-        .map(line => /^\s*Recommendation\s*:/i.test(line) ? line.replace(/\s+because\b.*$/i, '') : line).join('\n');
+        .map((line: string) => /^\s*Recommendation\s*:/i.test(line) ? line.replace(/\s+because\b.*$/i, '') : line).join('\n');
       const proposed = affirmativeCommitments(briefCommitments + '\n' + commitment);
       const expansions = [
         // Forbidden actions are verb + object, never a bare noun: "helper hardening
