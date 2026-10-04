@@ -6,7 +6,6 @@ import * as os from 'node:os';
 import { repositoryPlanFixtures } from './helpers/carve-plan-fixture';
 import { setupSkillDir } from './helpers/auq-sdk-capture';
 import { CounterRepository } from './fixtures/carve-existing-repository/src/repository';
-import { expectMentions, expectTokens } from './helpers/prompt-structure';
 
 test.each(['plan-eng-review', 'plan-devex-review'] as const)('%s fixture supplies its existing implementation, companion reference, and runnable quickstart', skill => {
   const plan = '# Proposed cache\nStore 1000 keys and invalidate on write.\n';
@@ -17,6 +16,7 @@ test.each(['plan-eng-review', 'plan-devex-review'] as const)('%s fixture supplie
     const example = Bun.spawnSync([process.execPath, 'run', 'example.ts'], { cwd: dir, timeout: 5000 });
     expect(example.exitCode, example.stderr.toString()).toBe(0);
     expect(example.stdout.toString()).toBe('2 2 undefined\n');
+    expect(fixtures['README.md']).toContain('Both known-key reads currently query SQLite');
     expect(fixtures['src/repository.ts']).not.toMatch(/new Map|LRU|cache\./);
     expect(fixtures['src/repository.ts']).not.toContain('getMany(');
     const companion = skill === 'plan-devex-review' ? 'plan-devex-review/dx-hall-of-fame.md' : 'review/TODOS-format.md';
@@ -62,14 +62,15 @@ test('engineering scenario proposes ordered batch reads without changing the DX 
   expect(proposal).toContain('retaining duplicate keys');
   expect(proposal).toContain('`undefined` results for absent counters');
   expect(proposal).toContain('empty input returns an empty array');
-  expectMentions(proposal, [['must', 'database', 'closes']], 'proposal');
-  expectMentions(proposal, [['not', 'implemented', 'already']], 'proposal');
+  expect(proposal).toContain('Propagate the first validation or database error unchanged');
+  expect(proposal).toContain('after the database closes must still fail');
+  expect(proposal).toContain('not tests\nalready implemented or passing');
   expect(proposal).toContain('do not claim a measured speedup');
   expect(proposal).toContain('a dense `readonly string[]`');
   expect(proposal).toContain('`for...of` loop that pushes `this.get(key)`');
   expect(proposal).toContain("getMany(['orders', 'orders', 'missing'])");
-  expectMentions(proposal, [['not', 'implementation', 'authority']], 'proposal');
-  expectMentions(proposal, [['does not', 'benchmark', 'project']], 'proposal');
+  expect(proposal).toContain('not implementation that\nalready exists or authority to overlook a defect');
+  expect(proposal).toContain('it does not add a benchmark project');
   expect(proposal).not.toMatch(/module-wide write token|1000 entries|LRU/);
   expect(eng).toEqual({
     'PLAN.md': fs.readFileSync(path.join(dir, 'engineering-batch-read-plan.md'), 'utf8'),
@@ -111,14 +112,17 @@ test('existing repository objects and separate SQLite handles observe each other
 test('engineering fixture fixes the author acceptance recipe without approving the implementation or hiding review defects', () => {
   const plan = repositoryPlanFixtures('# Ignored Eng seed', 'plan-eng-review')['PLAN.md'];
   expect(plan).toContain('accepted requirements to review against');
+  expect(plan).toContain('implementation itself remains proposed and unapproved');
+  expect(plan).toContain('conflicts with it or a required proof is missing');
   expect(plan).toContain('normal decision procedure');
+  expect(plan).toContain('required static proof during review, separate from runtime test execution');
   expect(plan).toContain("const keys = ['orders', 'missing'] as const; repo.getMany(keys)");
-  expectTokens(plan, ['`readonly string[]`'], 'plan');
-  expectTokens(plan, ['`string[]`', '`any`'], 'plan');
-  expectMentions(plan, [['reject', 'parameter', 'readonly']], 'plan');
+  expect(plan).toContain('Explain why that readonly tuple is assignable to `readonly string[]`');
+  expect(plan).toContain('Reject a\nmutable `string[]` parameter, a cast that removes readonly, or `any`');
   expect(plan).toContain('assert `[2, undefined]` at runtime');
-  expectMentions(plan, [['do not', 'signature', 'compiler']], 'plan');
-  expectMentions(plan, [['no', 'future-checker', 'dependency']], 'plan');
+  expect(plan).toContain('do not claim it proves the static signature or that a\ncompiler ran');
+  expect(plan).toContain('No checker dependency, config or future-checker promise replaces\nthis required static proof');
+  expect(plan).toContain('A genuine type incompatibility still requires the\nnormal decision procedure');
   for (const boundary of ['fixed implementation package', 'existing CLI call-site integration', 'synchronization of existing contract documentation', 'Interchangeable', 'delegated\nimplementation details', 'Record their\nconcrete findings and disposition', 'does\nnot approve the proposed implementation', 'Optional polish, duplicate contract', 'new instrumentation and independent proof projects remain excluded', 'material contract change, missing required proof', 'conflict with the author', 'report the unresolved\nconflict', 'Preserve every required review section, artifact and verification']) expect(plan).toContain(boundary);
   for (const requirement of [
     "built-in `bun test` runner", '`src/repository.test.ts`',
@@ -131,8 +135,9 @@ test('engineering fixture fixes the author acceptance recipe without approving t
     'first, middle and last positions', '128-character key succeeds', '129-character key fails',
     'missing table throws rather than returning `undefined`', '[1]', '[5, 5]',
   ]) expect(plan).toContain(requirement);
-  expectMentions(plan, [['no', 'configuration', 'dependency']], 'plan');
-  expectMentions(plan, [['not', 'implemented', 'already']], 'plan');
+  expect(plan).toContain('No dependency, package.json or runner configuration is added');
+  expect(plan).toContain('Keep the review\'s complete architecture, code-quality, test and performance');
+  expect(plan).toContain('not tests\nalready implemented or passing');
 });
 
 test('existing scalar round trips and database errors remain distinct from missing values', () => {

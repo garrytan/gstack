@@ -9,7 +9,6 @@ import type { EvalTestEntry } from './helpers/eval-store';
 import { createShipSkipFixture, runShipSkipActor, shipSkipWorkflow } from './helpers/ship-skip-actor';
 import { CAPTURE_MS } from './helpers/eval-budgets';
 import { DEFAULT_SHARD_TIMEOUT_MS, retriesForFiles } from '../scripts/test-paid-shards';
-import { expectMentions } from './helpers/prompt-structure';
 
 type Fault = 'repeat-skip' | 'silent-clear' | 'fake-probe' | 'requeue' | 'missing-skip-ack' | 'decision-forgery' | 'product-write' | 'late-source-read' | 'rate-limit'
   | 'empty-workflow' | 'truncated-workflow' | 'empty-source' | 'truncated-source' | 'offset-read' | 'limited-read'
@@ -164,7 +163,7 @@ test('fixture declares the exact post-rediscovery Read and canonical evidence co
   try {
     expect(fixture.prompt).toContain(`After the rediscover command's result is acknowledged, issue a new full Read with exactly ${JSON.stringify({ file_path: fixture.product })}`);
     expect(fixture.prompt).toContain('Receive its actual tool result before issuing either routing command (advance or repeat), even when the result is file_unchanged');
-    expectMentions(fixture.prompt, [['does not', 'rediscovery', 'unchanged']], 'fixture.prompt');
+    expect(fixture.prompt).toContain('A Read before rediscovery or a prose claim of unchanged source does not satisfy this step.');
     expect(fixture.prompt).toContain(`Copy the canonical decision_evidence object from ${fixture.inputPath} unchanged, with exactly its path and sha256 fields and values; put any annotations outside decision_evidence.`);
   } finally { fs.rmSync(fixture.root, { recursive: true, force: true }); }
 });
@@ -217,7 +216,7 @@ test('registered native callback, real logger and routing adapter retain a bound
     expect(retained.evidence.persisted.completed).toBe(false);
     expect(retained.evidence.product).toBe(retained.evidence.originalProduct);
     expect(retained.evidence.receipts.map((row: any) => row.action)).toEqual(['read', 'persist', 'rediscover', 'advance']);
-    expectMentions(retained.workflow, [['only', 'unmatched', 'reopened']], 'retained.workflow');
+    expect(retained.workflow).toContain('Only unmatched or reopened findings remain queued');
     expect(retained.attempts[0].events.filter((event: any) => event.type === 'user').length).toBeGreaterThan(0);
   } finally { fs.rmSync(artifacts, { recursive: true, force: true }); }
 });
@@ -498,7 +497,9 @@ test('fixture ships actual generated decision sections and isolates all model wr
     for (const marker of ['### Step 9.3:', '## Step 9.4:', '### Finish the adversarial phase', 'gstack-review-log', '--finish REVIEW_START']) expect(workflow).toContain(marker);
     expect(workflow).not.toContain('### Decide whether to repeat Step 9');
     expect(workflow).not.toContain('### Refresh learnings');
-    expectMentions(fixture.prompt, [['no', 'receipt/config', 'product']], 'fixture.prompt');
+    expect(fixture.prompt).toContain('earlier reviewers and the rediscovery are explicitly synthetic fixture inputs');
+    expect(fixture.prompt).toContain('persist completed:false and converged:false');
+    expect(fixture.prompt).toContain('No product writes, direct receipt/config access');
     expect(fs.realpathSync(fixture.product).startsWith(fs.realpathSync(fixture.root) + path.sep)).toBe(true);
     expect(fs.statSync(fixture.product).mode & 0o777).toBe(0o644);
   } finally { fs.rmSync(fixture.root, { recursive: true, force: true }); }
