@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# gstack-ceo-mode-handoff — print /plan-ceo-review's Step 0E mode handoff line.
+#
+# Usage: gstack-ceo-mode-handoff <MODE> [--auto] [--decisions "<rows>"]
+#   MODE: HOLD SCOPE | SCOPE EXPANSION | SELECTIVE EXPANSION | SCOPE REDUCTION
+#         (underscores accepted for spaces)
+#   --auto       the mode came from a saved AUTO_DECIDE preference
+#   --decisions  governing approved rows; defaults to "none"
+#
+# The handoff used to be chat-only, and the model often composed it in its
+# reasoning without ever sending it. Running this prints the line as a tool
+# result, so the selected mode is observable before the review continues.
+set -euo pipefail
+
+mode="${1:-}"
+[ "$#" -gt 0 ] && shift
+auto=0
+decisions="none"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --auto) auto=1; shift ;;
+    --decisions)
+      [ "$#" -ge 2 ] || { echo "gstack-ceo-mode-handoff: --decisions needs a value" >&2; exit 2; }
+      decisions="$2"; shift 2 ;;
+    *) echo "gstack-ceo-mode-handoff: unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+mode="${mode//_/ }"
+case "$mode" in
+  "HOLD SCOPE"|"SCOPE EXPANSION"|"SELECTIVE EXPANSION"|"SCOPE REDUCTION") ;;
+  *) echo "gstack-ceo-mode-handoff: unknown mode: ${mode:-<empty>}" >&2; exit 2 ;;
+esac
+decisions="${decisions//$'\n'/ }"
+decisions="${decisions%.}"
+[ -n "${decisions// /}" ] || decisions="none"
+
+if [ "$auto" = 1 ]; then
+  echo "Auto-decided review mode → $mode (your preference). Change with /plan-tune. Approved decisions: $decisions."
+else
+  echo "Mode: $mode; approved decisions: $decisions."
+fi

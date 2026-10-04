@@ -317,7 +317,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // written a never-ask preference, AUQ should still auto-decide rather than
   // surfacing the question. Touches the question-tuning + preference
   // infrastructure plus the resolvers that own the AUTO_DECIDE preamble.
-  'auto-decide-preserved':        ['bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts',
+  'auto-decide-preserved':        ['bin/gstack-ceo-mode-handoff', 'bin/gstack-state-root.sh', 'lib/state-root.ts', 'lib/claude-public-transcript.ts',
     
     'test/fixtures/auto-decide-recommendation-361c.json',
     
@@ -343,7 +343,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/eval-store.ts', 'lib/claude-bin.ts', 'lib/eval-model.ts',
      
     'scripts/resolvers/tasks-section.ts', 'test/helpers/auto-decision-state.ts', 'test/helpers/autoplan-artifact-digest.ts', 'test/helpers/autoplan-artifact-permission.ts', 'test/helpers/autoplan-artifact-recorder.ts', 'test/helpers/claude-pty-runner.ts', 'test/helpers/pty/**', 'test/helpers/dx-selected-navigation.ts', 'test/helpers/e2e-gate.ts', 'test/helpers/eng-cache-writer-decision.ts', 'test/helpers/hermetic-skill-runtime.ts', 'test/helpers/native-auto-decide.ts', 'test/helpers/owned-claude-transcript.ts', 'test/helpers/plan-count-artifacts.ts', 'test/helpers/plan-count-file-permission.ts', 'test/helpers/plan-count-fixture.ts', 'test/helpers/plan-count-pending-exit.ts', 'test/helpers/plan-count-pending-question.ts', 'test/helpers/plan-count-transcript.ts', 'test/helpers/plan-floor-review.ts', 'test/helpers/plan-floor-target.ts', 'test/helpers/plan-scope-selection.ts', 'test/helpers/plan-seed-submission.ts', 'test/helpers/plan-skill-question-events.ts', 'test/helpers/plan-skill-question-hook-scope.ts', 'test/helpers/plan-skill-questions.ts', 'test/helpers/pty-screen.ts', 'test/helpers/pty-trust-dialog.ts', 'test/helpers/skill-census.ts'],
-  'plan-ceo-mode-routing':       [
+  'plan-ceo-mode-routing':       ['bin/gstack-ceo-mode-handoff', 
     'lib/claude-public-transcript.ts',
     
     

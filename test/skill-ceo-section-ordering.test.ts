@@ -140,7 +140,7 @@ test('CEO mode handoff applies the selected mode before the next question', () =
   expect(routeStart).toBeGreaterThan(handoffStart);
   const handoff = selection.slice(handoffStart, routeStart);
   const instruction = handoff.split('\n')[0]!;
-  expect(instruction).toMatch(/before tools or further questions/i);
+  expect(instruction).toMatch(/before other tools or further questions, run `[^`]*gstack-ceo-mode-handoff/i);
   expect(instruction).toMatch(/chat.*mode.s application and rationale/i);
   const selectionSteps = compactProse(selection.slice(0, handoffStart));
   expect(selectionSteps).toMatch(/explicit choice skips steps 2–3/i);

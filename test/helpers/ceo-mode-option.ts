@@ -13,6 +13,7 @@ import {
   type AskUserQuestionFingerprint,
 } from './claude-pty-runner';
 import type { NativePlanQuestionCall, NativePublicToolEvent, PlanCountTranscript } from './plan-count-transcript';
+import { ceoModeHandoffs } from './native-auto-decide';
 
 type CeoMode = 'HOLD SCOPE' | 'SCOPE EXPANSION' | 'SELECTIVE EXPANSION' | 'SCOPE REDUCTION';
 
@@ -655,6 +656,10 @@ export function hasNativePostAnswerCeoPosture(
   const selected = nativeCeoModeAnswer(transcript, targetMode, selectionStartedAt);
   if (!selected) return false;
   const answeredAt = Date.parse(selected.answeredAt!);
+  // The handoff helper prints the answered mode as a tool result; it applies
+  // the selected posture exactly as the same line sent as chat would.
+  if (ceoModeHandoffs(publicTools, selected.sessionId).some(h => !h.auto && h.option === targetMode &&
+      Date.parse(h.timestamp) > answeredAt && Date.parse(h.timestamp) <= Date.now() && posture.test(h.line))) return true;
   return transcript.assistantMessages.some(message => {
     if (message.sessionId !== selected.sessionId || Date.parse(message.timestamp) <= answeredAt) return false;
     return hasNativePostureProse(message.text, posture) ||

@@ -975,7 +975,7 @@ Follow the preamble's session rules; `CONDUCTOR_SESSION: true` changes transport
    wins. When `QUESTION_TUNING: true`, include `<gstack-qid:plan-ceo-review-mode>`.
    These modes differ in kind, not coverage; do NOT score completeness.
 
-4. **Mode handoff:** After selection, send brief chat before tools or further questions: the mode's application and rationale; every governing approved row's ID, answer reference and accepted scope. Keep rows separate. Begin with the exact matching line below:
+4. **Mode handoff:** After selection, before other tools or further questions, run `~/.claude/skills/gstack/bin/gstack-ceo-mode-handoff "<selected mode>" --decisions "<rows or none>"` (add `--auto` for `plan-ceo-review-mode: AUTO_DECIDE`). It prints the matching line below. Then send brief chat beginning with that line: the mode's application and rationale; every governing approved row's ID, answer reference and accepted scope. Keep rows separate.
 - `plan-ceo-review-mode: AUTO_DECIDE`: `Auto-decided review mode → <selected mode> (your preference). Change with /plan-tune. Approved decisions: <rows or none>. <Application and rationale>.`
 - Other selections: `Mode: <selected mode>; approved decisions: <rows or none>. <Application and rationale>.`
 

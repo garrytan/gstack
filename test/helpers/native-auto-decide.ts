@@ -229,6 +229,34 @@ const modeNames = ['HOLD SCOPE', 'SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'SCOP
 const modeValue = (value: unknown) => typeof value === 'string' && modeNames.includes(value.replaceAll('_', ' '))
   ? value.replaceAll('_', ' ') : null;
 
+export interface CeoModeHandoff { sessionId: string; toolUseId: string; timestamp: string; option: string; auto: boolean; line: string }
+
+/** Successful `gstack-ceo-mode-handoff` runs whose single output line is exactly what that invocation prints. */
+export function ceoModeHandoffs(tools: ReadonlyArray<NativePublicToolEvent>, sessionId: string): CeoModeHandoff[] {
+  return tools.flatMap(use => {
+    if (use.kind !== 'use' || use.name !== 'Bash' || use.sessionId !== sessionId || !use.toolUseId ||
+        typeof use.input?.command !== 'string') return [];
+    const args = cliArgs((use.input.command as string).trim(), 'gstack-ceo-mode-handoff');
+    const option = modeValue(args?.[0]);
+    if (!args || !option) return [];
+    let auto = false, decisions = 'none';
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === '--auto' && !auto) auto = true;
+      else if (args[i] === '--decisions' && i + 1 < args.length) decisions = args[++i]!.replace(/\n/g, ' ').replace(/\.$/, '') || 'none';
+      else return [];
+    }
+    if (!decisions.trim()) decisions = 'none';
+    const line = auto
+      ? `Auto-decided review mode → ${option} (your preference). Change with /plan-tune. Approved decisions: ${decisions}.`
+      : `Mode: ${option}; approved decisions: ${decisions}.`;
+    const results = tools.filter(e => e.kind === 'result' && e.sessionId === sessionId && e.toolUseId === use.toolUseId);
+    const result = results.length === 1 ? results[0]! : null;
+    if (!result || result.isError !== false || typeof result.content !== 'string' || result.content.trim() !== line ||
+        !(Date.parse(result.timestamp) >= Date.parse(use.timestamp))) return [];
+    return [{ sessionId, toolUseId: use.toolUseId, timestamp: result.timestamp, option, auto, line }];
+  });
+}
+
 function currentModeStatement(text: string, questionSummary?: string): { option: string; statement: string } | null {
   const prose = publicProse(text);
   const lines = prose.split('\n');
@@ -286,6 +314,17 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
   });
   if (starts.length !== 1) return null;
   const start = starts[0]!, questionId = `${opts.skillName}-mode`;
+  // The handoff helper's printed AUTO_DECIDE line is the current declaration
+  // when it follows the decision record and nothing later withdraws or changes it.
+  const autoHandoff = (after: number, option: string, summary: string) => {
+    const handoff = ceoModeHandoffs(owned, opts.sessionId).find(h => h.auto && h.option === option &&
+      timely(h.timestamp) && time(h.timestamp) >= after);
+    if (!handoff) return null;
+    const later = current.filter(m => time(m.timestamp) >= time(handoff.timestamp));
+    if (withdrawn(later.map(m => m.text).join('\n\n'), option, summary) ||
+        later.some(m => { const other = currentModeStatement(m.text, summary)?.option; return other !== undefined && other !== option; })) return null;
+    return { sessionId: opts.sessionId, timestamp: handoff.timestamp, option, annotation: handoff.line };
+  };
   // Opt-in fixture evidence bypasses no failed shell ACK: the owned file is
   // the completed write. The preamble, record and current public declaration
   // must all agree in this native session, after invocation and before now.
@@ -298,6 +337,8 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
           row.auto_decided === true && modeValue(row.user_choice) && modeValue(row.user_choice) === modeValue(row.recommended) &&
           typeof row.question_summary === 'string' && row.question_summary.trim() &&
           loggedAt >= time(start.result.timestamp) && loggedAt <= opts.now) {
+        const handoff = autoHandoff(loggedAt, modeValue(row.user_choice)!, row.question_summary);
+        if (handoff) return { ...handoff, summary: row.question_summary, preambleToolUseId: start.use.toolUseId, stateRecord: row };
         for (const message of current) {
           const declared = currentModeStatement(message.text, row.question_summary);
           if (time(message.timestamp) < loggedAt || !declared || declared.option !== modeValue(row.user_choice)) continue;
@@ -346,6 +387,9 @@ function structuredModeDecision(transcript: PlanCountTranscript, tools: NativePu
   });
   if (logs.length !== 1 || !logs[0]!.result) return null;
   const logged = logs[0]!;
+  const handoff = autoHandoff(time(logged.result!.timestamp), modeValue(logged.log.user_choice)!, logged.log.question_summary);
+  if (handoff) return { ...handoff, summary: logged.log.question_summary, preambleToolUseId: start.use.toolUseId,
+    preferenceToolUseId: check.use.toolUseId, questionLogToolUseId: logged.use.toolUseId };
   for (const message of current) {
     if (time(message.timestamp) < time(logged.result!.timestamp)) continue;
     const declared = currentModeStatement(message.text, logged.log.question_summary);
@@ -383,6 +427,13 @@ export function findNativeAutoDecision(
   const messages = transcript.assistantMessages.filter(m => m.sessionId === opts.sessionId);
   if (messages.some(m => !Number.isFinite(at(m.timestamp)) || at(m.timestamp) > opts.now)) return null;
   const loadedAt = at(results[0]!.timestamp);
+  for (const handoff of ceoModeHandoffs(tools, opts.sessionId)) {
+    if (!handoff.auto || !timely(handoff.timestamp) || at(handoff.timestamp) < loadedAt) continue;
+    const later = messages.filter(m => at(m.timestamp) >= at(handoff.timestamp)).map(m => m.text).join('\n\n');
+    if (withdrawn(later, handoff.option)) continue;
+    return { sessionId: opts.sessionId, skillToolUseId: use.toolUseId, timestamp: handoff.timestamp,
+      summary: 'review mode', option: handoff.option, annotation: handoff.line };
+  }
   for (const message of messages) {
     if (at(message.timestamp) < loadedAt) continue;
     const match = assertedAnnotation(message.text, opts.skillName);

@@ -178,7 +178,7 @@ const COMMON = {
   allowedTools: ['Read', 'Bash'],
   timeout: 240_000,
   runId,
-} as const;
+};
 
 describeIfSelected('third-party-actions consent gate', [
   'tpa-present', 'tpa-absent-linux', 'tpa-broken', 'tpa-absent-darwin', 'tpa-apple-ban',

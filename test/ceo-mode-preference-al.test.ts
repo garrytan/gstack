@@ -73,7 +73,8 @@ test('source and both isolated host renders bind the shared check, marker and lo
   expect(s.indexOf('3. Resolve that recommendation')).toBeGreaterThanOrEqual(0);
   expect(s.indexOf('4. **Mode handoff:**')).toBeGreaterThan(s.indexOf('3. Resolve that recommendation'));
   expect(handoff).toContain('After selection');
-  expect(handoff).toContain('send brief chat before tools or further questions');
+  expect(handoff).toMatch(/before other tools or further questions, run `[^`]*\/bin\/gstack-ceo-mode-handoff /);
+  expect(handoff).toContain('Then send brief chat beginning with that line');
   expect(s.slice(0,s.indexOf('4. **Mode handoff:**'))).not.toMatch(/\blog (?:with|that ID)\b/);
   expect(handoff.indexOf('Record mode provenance after the handoff')).toBeGreaterThan(handoff.indexOf('- Other selections:'));
   expect(handoff.indexOf("Follow the selected mode's route:")).toBeGreaterThan(handoff.indexOf('Record mode provenance after the handoff'));
