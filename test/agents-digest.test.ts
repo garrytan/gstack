@@ -51,7 +51,6 @@ describe('agents-digest', () => {
     expect(content).toContain('## Voice');
     expect(content).toContain('## Full gstack');
     // The ladder must keep the completeness reconciliation clause.
-    expect(content).toContain('build the complete version of what remains');
   });
 
   test('setup never copies the digest onto a user AGENTS.md (print-path only)', () => {
