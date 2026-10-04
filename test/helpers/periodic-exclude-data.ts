@@ -41,10 +41,17 @@ export const CASE_CI_EXCLUDE: Record<string, { reason: string; tracking: string 
 };
 
 /**
- * Paid-eval verdict policy, pre-registered (approved 2026-09-29). Frozen before
- * the census: any change after seeing census results needs Garry's
- * re-approval and a fresh census, and bumps `version` (every trial record
- * carries it as policy_version, so pass-rate history segments at the change).
+ * Paid-eval verdict policy, pre-registered (v1 approved 2026-09-29; v2
+ * approved 2026-10-04, D1 of docs/test-audit-2026-10.md). Frozen before the
+ * census: any change after seeing census results needs Garry's re-approval
+ * and a fresh census, and bumps `version` (every trial record carries it as
+ * policy_version; readers score only their own version, so pass-rate history
+ * segments at the change).
+ *   v2          - series identity = the bytes a case owns (paid test file,
+ *                 fixtures, its skills' prompt files) + HARNESS_VERSION
+ *                 (scripts/harness-version.json), keyed with model and CLI
+ *                 version; weekly history = scheduled main runs plus main
+ *                 dispatches; only v2 trials count toward quarantine entry.
  *   panel       - behavior cases and quarantined cases run n independent
  *                 trials; a behavior panel PASSES at >= k passing trials with
  *                 no contract violation. Rule and judge cases run one trial.
@@ -63,7 +70,7 @@ export const CASE_CI_EXCLUDE: Record<string, { reason: string; tracking: string 
  *                 a new run; both runs are reported.
  */
 export const EVAL_POLICY = {
-  version: 1,
+  version: 2,
   panel: { n: 3, k: 2 },
   quarantine: {
     entry: { rate: 0.95, minTrials: 10 },

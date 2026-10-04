@@ -10,8 +10,12 @@ import { describe, expect, test } from 'bun:test';
 import * as path from 'node:path';
 import { decide, formatDrift, harnessDrift, hasDrift, readManifest, serializeManifest, workingHarnessFiles,
   type HarnessManifest } from '../scripts/bump-harness-version';
-import { caseSeriesIdentitiesV2, globRegex, HARNESS_PATTERNS, HARNESS_VERSION, isCaseOwnedFile, skillDirs,
+import { caseSeriesIdentitiesV2, globRegex, HARNESS_PATTERNS, HARNESS_VERSION, isCaseOwnedFile, skillDirs, stampTrialSeries, treeEntries,
   type TreeEntry } from '../scripts/eval-trial-series';
+import { EVAL_POLICY } from './helpers/periodic-exclude-data';
+import { formatTrialOutcomes, parseTrialOutcomes, TRIAL_OUTCOME_SCHEMA } from './helpers/eval-store';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import { LIVE_REGISTRY, type Registry } from '../scripts/eval-flake-rank';
 import { matchGlob } from './helpers/test-selection';
 
@@ -111,5 +115,23 @@ describe('v2 series identity', () => {
     const patterns = [...new Set(Object.values(LIVE_REGISTRY.touchfiles).flat())].slice(0, 400);
     const files = ['qa/SKILL.md', 'qa/sections/a/b.md', 'test/fixtures/qa-eval.json', 'test/helpers/pty/screen.ts', 'browse/src/x.ts', 'ship/sections/review-army.md.tmpl'];
     for (const pattern of patterns) for (const file of files) expect(globRegex(pattern).test(file), `${pattern} ~ ${file}`).toBe(matchGlob(file, pattern));
+  });
+});
+
+describe('v2 writer', () => {
+  test('the report stamp carries the v2 identity, the full fingerprint and HARNESS_VERSION, and stays schema-valid', () => {
+    const id = Object.keys(LIVE_REGISTRY.tiers).find(key => LIVE_REGISTRY.tiers[key] === 'gate')!;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-stamp-'));
+    const file = path.join(dir, 'trial-outcomes.jsonl');
+    fs.writeFileSync(file, formatTrialOutcomes([{ schema: TRIAL_OUTCOME_SCHEMA, case: id, file: 'test/x.test.ts', tier: 'gate', kind: 'rule',
+      trial: 1, panel: { n: 1, k: 1 }, attempt: 1, outcome: 'passed', duration_ms: 1, cost_usd: 0, policy_version: EVAL_POLICY.version,
+      quarantined: false, execution: 'executed', source: 'junit' }]));
+    expect(stampTrialSeries(file, ROOT)).toBe(1);
+    const { records, errors } = parseTrialOutcomes(fs.readFileSync(file, 'utf8'));
+    expect(errors).toEqual([]);
+    const expected = caseSeriesIdentitiesV2([id], treeEntries(ROOT))[id]!;
+    expect(records[0]).toMatchObject({ series_identity: expected.identity, series_fingerprint: expected.fingerprint, harness_version: HARNESS_VERSION,
+      policy_version: 2 });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });

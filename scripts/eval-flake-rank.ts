@@ -11,9 +11,10 @@
  * plus any local eval dirs, and
  * prints per-case per-trial pass rates with 95% Wilson intervals.
  *
- * A series is one case under one input identity: the case's own touchfiles
- * minus GLOBAL_TOUCHFILES (`caseSeriesIdentities`), grouped by model and CLI
- * version, per policy_version. A new identity starts a new series; earlier
+ * A series is one case under one input identity (EVAL_POLICY v2: the bytes
+ * the case owns plus HARNESS_VERSION, stamped by scripts/eval-trial-series.ts
+ * caseSeriesIdentitiesV2), grouped by model and CLI version, per
+ * policy_version. A new identity starts a new series; earlier
  * series stay visible. Only trials of the current series under the reader's
  * own EVAL_POLICY.version feed the labels and alarms: an older policy's
  * trials are display-only, and a newer policy's trials (written by a later
@@ -45,14 +46,11 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { isPartialEval, isFinalizedEvalResultFile, evalEntryOutcome, failureClassOf, parseTrialOutcomes, sanitizeTrialError,
   TRIAL_OUTCOME_SCHEMA, type EvalCaseKind, type EvalResult, type TrialOutcomeRecord } from '../test/helpers/eval-store';
 import { flakeLedgerPath, type FlakeLedgerEntry } from './test-free-shards';
 import { E2E_KINDS, E2E_TIERS, E2E_TOUCHFILES, GLOBAL_TOUCHFILES, LLM_JUDGE_TOUCHFILES } from '../test/helpers/touchfiles-data';
 import { CASE_QUARANTINE, EVAL_POLICY } from '../test/helpers/periodic-exclude-data';
-import { matchGlob } from '../test/helpers/test-selection';
 import { CASE_TEST_NAMES } from './test-paid-shards';
 import { resolveStateRoot } from '../lib/state-root';
 import { downloadRunArtifacts, isWeeklyHistoryRun, listWeeklyRuns, parseFlakeLedger, repoSlug, TRIAL_OUTCOMES_MAX_BYTES } from './lib/ci-history';
@@ -139,10 +137,11 @@ function readFreeLedger(): FlakeLedgerEntry[] {
 
 /**
  * A trial record as pass-rates reads it: eval-store's trial-outcomes schema
- * plus the series identity the report job stamps (caseSeriesIdentities).
- * policy_version 0 marks a pre-policy (backfilled) record.
+ * plus what the report job stamps (scripts/eval-trial-series.ts): the series
+ * identity, the full consumed-input fingerprint and HARNESS_VERSION, both
+ * provenance only. policy_version 0 marks a pre-policy (backfilled) record.
  */
-export type TrialRecord = TrialOutcomeRecord & { series_identity?: string };
+export type TrialRecord = TrialOutcomeRecord & { series_identity?: string; series_fingerprint?: string; harness_version?: number };
 
 
 /** Every `trial-outcomes*.jsonl` file under a directory, size-capped, schema-validated by eval-store. */
@@ -204,26 +203,6 @@ export function attributeLegacyRecord(name: string, shard: string | undefined, r
     if (owners.length === 1 && known(owners[0]!)) return owners[0]!;
   }
   return null;
-}
-
-/**
- * Series identity per case: a hash of the git blob ids of the files matching
- * the case's own touchfiles, excluding GLOBAL_TOUCHFILES (harness edits are
- * markers, not new series). The report job stamps this on every trial record.
- */
-export function caseSeriesIdentities(ids: string[], root: string, registry: Registry = LIVE_REGISTRY): Record<string, string> {
-  const listed = spawnSync('git', ['ls-files', '-s'], { cwd: root, encoding: 'utf8', timeout: 20_000, maxBuffer: 64 * 1024 * 1024 });
-  if (listed.status !== 0) throw new Error(`git ls-files failed: ${listed.stderr}`);
-  const blobs = listed.stdout.split('\n').filter(Boolean).map(line => {
-    const [meta, file] = line.split('\t');
-    return { file: file!, blob: meta!.split(' ')[1]! };
-  }).filter(entry => !registry.globals.some(pattern => matchGlob(entry.file, pattern)));
-  return Object.fromEntries(ids.map(id => {
-    const patterns = registry.touchfiles[id] ?? registry.judgeTouchfiles[id] ?? [];
-    const lines = blobs.filter(entry => patterns.some(pattern => matchGlob(entry.file, pattern)))
-      .map(entry => `${entry.file} ${entry.blob}`).sort();
-    return [id, createHash('sha256').update(`${id}\n${lines.join('\n')}`).digest('hex').slice(0, 16)];
-  }));
 }
 
 /**

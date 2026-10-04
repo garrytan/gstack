@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { aggregate, collectEvalFiles } from '../scripts/eval-flake-rank';
 import { manualReviewFixture } from './helpers/manual-judge-review-fixture';
 import {
-  analyzePassRates, attributeLegacyRecord, backfillEvalFiles, caseSeriesIdentities, downloadRunArtifacts, fisherOneSidedLower,
+  analyzePassRates, attributeLegacyRecord, backfillEvalFiles, downloadRunArtifacts, fisherOneSidedLower,
   formatPassRates, holmRejections, listWeeklyRuns, quarantinePolicyProblems, quarantineRunsSince, readTrialOutcomeDir,
   wilsonInterval, type HistoryFetcher, type PassRatePolicy, type QuarantineEntry, type Registry, type TrialRecord,
 } from '../scripts/eval-flake-rank';
@@ -129,7 +129,7 @@ function trial(id: string, outcome: 'passed' | 'failed' | 'skipped', extra: Part
     schema: TRIAL_OUTCOME_SCHEMA, case: id, file: 'test/x.test.ts', tier: registry.tiers[id] ?? 'judge',
     kind: registry.kinds[id]!, trial: 1, panel: { n: 1, k: 1 }, attempt: 1, outcome,
     ...(outcome === 'failed' ? { failure_class: 'assertion' as const } : {}),
-    duration_ms: 1, cost_usd: 0, model: 'model-x', cli_version: '2.1.284', policy_version: 1, quarantined: false,
+    duration_ms: 1, cost_usd: 0, model: 'model-x', cli_version: '2.1.284', policy_version: EVAL_POLICY.version, quarantined: false,
     execution: 'executed', source: 'shard', run_id: `run-${clock}`, recorded_at: new Date(Date.UTC(2026, 9, 1) + clock * 60_000).toISOString(),
     series_identity: 'id-1', ...extra,
   };
@@ -337,26 +337,6 @@ describe('pass-rates inputs', () => {
     expect(formatTrialOutcomes(records)).toContain(TRIAL_OUTCOME_SCHEMA);
     expect(unattributed).toEqual(['/unknown display']);
     fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  test('series identity follows the case\'s own touchfiles, not GLOBAL_TOUCHFILES', () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'passrates-series-'));
-    const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 10_000 });
-    for (const [file, body] of [['a/x.ts', '1'], ['b/y.ts', '1'], ['harness/run.ts', '1'], ['test/skill-e2e-a.test.ts', '1']] as const) {
-      fs.mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
-      fs.writeFileSync(path.join(root, file), body);
-    }
-    const snapshot = () => { expect(git('add', '-A').status).toBe(0); return caseSeriesIdentities(['rule-a', 'beh-b'], root, registry); };
-    expect(git('init', '-q').status).toBe(0);
-    const first = snapshot();
-    expect(first['rule-a']).not.toBe(first['beh-b']);
-    fs.writeFileSync(path.join(root, 'harness/run.ts'), '2');
-    expect(snapshot()).toEqual(first);
-    fs.writeFileSync(path.join(root, 'a/x.ts'), '2');
-    const next = snapshot();
-    expect(next['rule-a']).not.toBe(first['rule-a']);
-    expect(next['beh-b']).toBe(first['beh-b']);
-    fs.rmSync(root, { recursive: true, force: true });
   });
 });
 

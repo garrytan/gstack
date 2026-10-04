@@ -76,8 +76,9 @@ describe('periodic exclude policy', () => {
 
 describe('eval verdict policy (pre-registered)', () => {
   test('EVAL_POLICY carries exactly the approved constants; a change needs re-approval and a version bump', () => {
+    // v2: approved 2026-10-04 (D1, docs/test-audit-2026-10.md); only identity and history changed.
     expect(EVAL_POLICY).toEqual({
-      version: 1,
+      version: 2,
       panel: { n: 3, k: 2 },
       quarantine: { entry: { rate: 0.95, minTrials: 10 }, exit: { rate: 0.97, minTrials: 10 }, capFraction: 0.10, expiryWeeklyRuns: 8 },
       judge: { samples: 3 },

@@ -1,8 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Stamp `series_identity` on a report's trial-outcomes JSONL (the pass-rates
- * history key: a hash of each case's own touchfiles, GLOBAL_TOUCHFILES
- * excluded; scripts/eval-flake-rank.ts caseSeriesIdentities). A separate step
+ * Stamp `series_identity`, `series_fingerprint` and `harness_version` on a
+ * report's trial-outcomes JSONL (the pass-rates history key). A separate step
  * after `test-paid-shards.ts --report`, so the paid runner's closure never
  * imports the history tool.
  *
@@ -23,7 +22,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { caseSeriesIdentities, LIVE_REGISTRY, readTrialOutcomeDir, type Registry } from './eval-flake-rank';
+import { LIVE_REGISTRY, readTrialOutcomeDir, type Registry } from './eval-flake-rank';
 import { formatTrialOutcomes, parseTrialOutcomes } from '../test/helpers/eval-store';
 import harnessManifest from './harness-version.json';
 
@@ -103,8 +102,9 @@ export function caseSeriesIdentitiesV2(ids: string[], entries: TreeEntry[], regi
 export function stampTrialSeries(file: string, root = ROOT): number {
   const { records, errors } = parseTrialOutcomes(fs.readFileSync(file, 'utf8'));
   if (errors.length) throw new Error(`${file}: ${errors.join('; ')}`);
-  const identities = caseSeriesIdentities([...new Set(records.map(record => record.case))], root);
-  const stamped = records.map(record => ({ ...record, series_identity: identities[record.case] }));
+  const identities = caseSeriesIdentitiesV2([...new Set(records.map(record => record.case))], treeEntries(root));
+  const stamped = records.map(record => ({ ...record, series_identity: identities[record.case]!.identity,
+    series_fingerprint: identities[record.case]!.fingerprint, harness_version: HARNESS_VERSION }));
   fs.writeFileSync(file, formatTrialOutcomes(stamped));
   return stamped.length;
 }
