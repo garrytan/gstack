@@ -95,7 +95,8 @@ _err() { printf 'gstack-memorable: %s\n' "$*" >&2; }
 # ─── lock: one lifecycle transition at a time ────────────────────────────
 LOCK_DIR="$STATE_DIR/locks/memorable-bridge.lock"
 LOCK_STALE_S=30     # a holder older than this is a crashed writer
-LOCK_TRIES=50       # x LOCK_SLEEP = the 5 s give-up
+LOCK_TRIES="${GSTACK_MEMORABLE_LOCK_TRIES:-50}"  # x LOCK_SLEEP = the 5 s give-up; tests shrink it
+case "$LOCK_TRIES" in ''|*[!0-9]*) LOCK_TRIES=50 ;; esac
 LOCK_SLEEP=0.1
 LOCK_HELD=0
 _lock_release() {

@@ -3,13 +3,14 @@
  * exercised through the real ./setup, gstack-relink, gstack-config and
  * gstack-uninstall against throwaway checkouts and HOMEs.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { cleanupFixtures, makeFixture, makeSource, put, registryRows, ROOT, runSetup, setVersion, tree } from './helpers/install-fixture';
+import { cleanupFixtures, cleanupSeed, makeFixture, makeSource, put, registryRows, ROOT, runSetup, setVersion, tree } from './helpers/install-fixture';
 
 afterEach(cleanupFixtures);
+afterAll(cleanupSeed);
 
 const bash = (script: string, env: Record<string, string> = {}) =>
   spawnSync('bash', ['-c', script], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, ...env } });

@@ -230,6 +230,14 @@ describe.skipIf(process.platform === 'win32')('session-runner explicit tool avai
           });
           globalThis.clearTimeout = ((id) => { timers.delete(id); realClearTimeout(id); });
           const pause = () => new Promise(resolve => realSetTimeout(resolve, 5));
+          // work-ready only proves the fake CLI printed its Read event; the
+          // runner's progress line proves the read loop has collected it.
+          let readCollected = false;
+          const writeStderr = process.stderr.write.bind(process.stderr);
+          process.stderr.write = (chunk, ...rest) => {
+            readCollected ||= String(chunk).includes('tool #1: Read(');
+            return writeStderr(chunk, ...rest);
+          };
           let pending;
           let finished = false;
           try {
@@ -238,7 +246,7 @@ describe.skipIf(process.platform === 'win32')('session-runner explicit tool avai
               testName: 'section-budget', ${long ? 'timeout: LONG_SECTION_CAPTURE_MS,' : ''}
             });
             const waitStarted = realNow();
-            while (!fs.existsSync('work-ready') || ![...timers.values()].some(timer => timer.delay > 200_000)) {
+            while (!fs.existsSync('work-ready') || !readCollected || ![...timers.values()].some(timer => timer.delay > 200_000)) {
               if (realNow() - waitStarted > 5_000) throw new Error('Fake CLI did not enter the work phase');
               await pause();
             }
@@ -272,6 +280,7 @@ describe.skipIf(process.platform === 'win32')('session-runner explicit tool avai
             }
             for (const id of timers.keys()) realClearTimeout(id);
             Date.now = realNow;
+            process.stderr.write = writeStderr;
             globalThis.setTimeout = realSetTimeout;
             globalThis.clearTimeout = realClearTimeout;
           }

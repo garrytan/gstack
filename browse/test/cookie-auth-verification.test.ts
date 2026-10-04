@@ -742,7 +742,7 @@ describe('cookie authentication and storage with isolated Chromium profiles', ()
       return session;
     });
     try {
-      const reset = clearCookieTargetStorage(page, origin);
+      const reset = clearCookieTargetStorage(page, origin, 2_000);
       await dispatched.promise;
       expect(await reset.then(() => null, error => error)).toMatchObject({ code: 'storage_reset_timeout' });
       expect(await page.evaluate(() => [localStorage.getItem('local'), sessionStorage.getItem('session')])).toEqual(['original', 'original']);

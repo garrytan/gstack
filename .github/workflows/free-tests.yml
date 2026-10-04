@@ -47,14 +47,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          # Full history: the seed ratchet compares the allowlist with its
+          # merge-base copy, which a depth-1 checkout cannot read.
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.0
       - id: plan
         name: Inventory and balance the complete free suite
+        # Warns in the job summary when more than 5 files are unseeded.
         run: |
           matrix=$(bun run scripts/test-free-shards.ts --ci-plan "$RUNNER_TEMP/free-plan.json" --shards 20)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+      - name: Seed growth ratchet (60 s ceiling, shrink-only allowlist)
+        run: |
+          GSTACK_FREE_SEED_BASE="$(git merge-base HEAD origin/main)" bun test test/free-seed-ratchet.test.ts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: free-plan
@@ -176,8 +183,12 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Compile trusted CSO helper and watchdog
         run: bun run build:cso
+      # Only the file that can run here: the node-lifecycle and stack-cold
+      # files need GSTACK_CSO_TEST_STACK images and run in the CSO runtime
+      # workflows (test:cso:docker), so in this job they always skipped.
       - name: Run CSO Docker integration gate
-        run: bun run test:cso:docker
+        run: |
+          bun test --max-concurrency 1 test/cso-docker-integration.test.ts
         env:
           GSTACK_CSO_DOCKER_TESTS: "1"
           DOCKER_HOST: unix:///var/run/docker.sock
@@ -269,9 +280,11 @@ jobs:
       # fonts-noto-color-emoji is the emoji-gate's render font (playwright
       # --with-deps usually installs it, but the gate must not depend on a
       # transitive package list). Fonts must land BEFORE the first browse
-      # daemon launch — Chromium snapshots fontconfig at startup.
+      # daemon launch — Chromium snapshots fontconfig at startup. zsh is not
+      # in the runner image; without it the bash+zsh portability arms (#2669)
+      # skip instead of running.
       - name: Install Xvfb + X11 utilities + gate tools
-        run: sudo apt-get install -y --no-install-recommends xvfb x11-utils poppler-utils fonts-noto-color-emoji
+        run: sudo apt-get install -y --no-install-recommends xvfb x11-utils poppler-utils fonts-noto-color-emoji zsh
 
       - name: Configure git identity (tests init temp repos)
         run: |
@@ -403,5 +416,14 @@ jobs:
           pattern: free-result-*
           merge-multiple: true
           path: ${{ runner.temp }}/free-results
+      # Per-shard ledgers land in their own subdirectories (all are named
+      # flake-ledger.jsonl). A green run is where a retried flake hides, so the
+      # summary runs before strict verification.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: flake-ledger-*
+          path: ${{ runner.temp }}/flake-ledgers
+      - name: Summarize flaky passes absorbed by the serial retry
+        run: bun run scripts/test-health-report.ts flake-summary "$RUNNER_TEMP/flake-ledgers" >> "$GITHUB_STEP_SUMMARY"
       - name: Require exact coverage and complete strict results
         run: bun run scripts/test-free-shards.ts --ci-verify "$RUNNER_TEMP/free-plan.json" --results "$RUNNER_TEMP/free-results"

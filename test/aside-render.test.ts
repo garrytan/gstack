@@ -367,7 +367,7 @@ process.exit(0);
 
 function runDriver<T>(driver: string, job: Record<string, unknown>, opts: { binDir?: string; env?: Record<string, string> } = {}): T {
   const env: Record<string, string> = { ...(process.env as Record<string, string>), PATH: opts.binDir ? `${opts.binDir}:${SYSTEM_PATH}` : SYSTEM_PATH };
-  for (const k of ['GSTACK_SKIP_ASIDE', 'GSTACK_BROWSE_BIN', 'BROWSE_BIN']) delete env[k]; // the operator's shell must not steer the fakes
+  for (const k of ['GSTACK_SKIP_ASIDE', 'GSTACK_BROWSE_BIN', 'BROWSE_BIN', 'GSTACK_RENDER_SLACK_MS']) delete env[k]; // the operator's shell must not steer the fakes
   Object.assign(env, opts.env ?? {});
   // process.execPath: an absolute bun, since the child PATH deliberately omits the operator's bin dirs. cwd is the temp dir so no repo .env is auto-loaded.
   const r = spawnSync(process.execPath, [driver, JSON.stringify(job)], { encoding: 'utf8', timeout: 60_000, cwd: path.dirname(driver), env });
@@ -860,10 +860,16 @@ describe.skipIf(!HERMETIC)('aside-render: renderWithBrowse — daemon CLI contra
   // runProc is not exported: its timeout + kill path is observed through a hanging fake.
   test('a CLI call that hangs past spec.timeoutMs is killed and reported as timed out — even when a grandchild keeps the pipes open', async () => {
     // `sleep` is a CHILD of the sh fake, so SIGTERM kills sh while sleep still holds stdout/stderr:
-    // the read must give up on its own (timeout + 10s) rather than wait for EOF. 14s (not 30s) so no orphan outlives this file.
-    const b = fake({ newtab: 'sleep 14' });
+    // the read must give up on its own (timeout + slack, 1s here) rather than wait for EOF. 6s so no orphan outlives this file.
+    const b = fake({ newtab: 'sleep 6' });
     const t0 = Date.now();
-    const r = await renderCheckingCleanup({ file: doc, steps: [{ kind: 'eval', expression: '1' }], timeoutMs: 1_500 }, b);
+    process.env.GSTACK_RENDER_SLACK_MS = '1000';
+    let r: RenderResult;
+    try {
+      r = await renderCheckingCleanup({ file: doc, steps: [{ kind: 'eval', expression: '1' }], timeoutMs: 1_500 }, b);
+    } finally {
+      delete process.env.GSTACK_RENDER_SLACK_MS;
+    }
     const elapsed = Date.now() - t0;
     expect(r.ok).toBe(false);
     expect(r.error!.startsWith('browse newtab failed:')).toBe(true);
@@ -942,11 +948,11 @@ describe.skipIf(!HERMETIC)('aside-render: render() — mid-run fallback from Asi
   type Out = { results: RenderResult[]; chosenAfter: EngineChoice };
   const spec: RenderSpec = { file: doc, steps: [{ kind: 'pdf', out: pdfOut }], timeoutMs: 20_000 };
   /** Prime the engine cache to Aside inside the driver, then render with the given fake `aside` (null = none on PATH) and the fake browse reachable via GSTACK_BROWSE_BIN. */
-  const run = (asideRepl: string | null, s: RenderSpec = spec, repeat = 1): Out => {
+  const run = (asideRepl: string | null, s: RenderSpec = spec, repeat = 1, env: Record<string, string> = {}): Out => {
     fs.rmSync(browseLog, { force: true }); fs.rmSync(`${browseLog}.payloads`, { force: true });
     fs.rmSync(path.join(tmp, 'out'), { recursive: true, force: true });
     if (asideRepl === null) fs.rmSync(path.join(asideBin, 'aside'), { force: true }); else writeFakeAside(asideBin, { repl: asideRepl });
-    return runDriver<Out>(driver, { fn: 'render', primeAside: true, repeat, spec: s }, { binDir: asideBin, env: { GSTACK_BROWSE_BIN: fakeBrowse } });
+    return runDriver<Out>(driver, { fn: 'render', primeAside: true, repeat, spec: s }, { binDir: asideBin, env: { GSTACK_BROWSE_BIN: fakeBrowse, ...env } });
   };
 
   test('Aside chosen but its CLI cannot start → retried once on gstack\'s own browser, and browse stays chosen afterwards', () => {
@@ -989,8 +995,8 @@ describe.skipIf(!HERMETIC)('aside-render: render() — mid-run fallback from Asi
   });
 
   test('an Aside script that times out was already navigating → NOT retried (the page\'s failure), Aside stays chosen', () => {
-    // timeoutMs 100 + the process slack (10s) is the whole wait; exec so the kill closes the pipes at once.
-    const { results: [r], chosenAfter } = run('exec sleep 14', { ...spec, timeoutMs: 100 });
+    // timeoutMs 100 + the process slack (1s here) is the whole wait; exec so the kill closes the pipes at once.
+    const { results: [r], chosenAfter } = run('exec sleep 14', { ...spec, timeoutMs: 100 }, 1, { GSTACK_RENDER_SLACK_MS: '1000' });
     expect(r.ok).toBe(false);
     expect(r.engine).toBe('aside');
     expect(r.error!.startsWith('aside repl did not run: timed out after')).toBe(true);

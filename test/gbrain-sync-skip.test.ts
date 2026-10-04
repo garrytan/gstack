@@ -66,10 +66,11 @@ function makeEnv(opts: {
   if (opts.withGbrain) {
     const behavior = opts.gbrainBehavior || "ok";
     // "slow": healthy engine, cold pooler connection (#1964) — sleeps past the
-    // (test-lowered) probe timeout on `sources list`, then answers fine.
+    // (test-lowered, 300ms) probe timeout on `sources list`, then answers fine.
+    // Every call sleeps (the dream stage lists sources before its probe), so keep it short.
     const sourcesBlock =
       behavior === "slow"
-        ? `  sleep 2
+        ? `  sleep 1
   echo '{"sources":[]}'
   exit 0`
         : behavior === "ok"
@@ -154,7 +155,7 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
     } finally {
       env.cleanup();
     }
-  }, 30_000); // proceeding runs the real code-import path against the slow fake (~11s)
+  }, 30_000); // proceeding runs the real code-import path against the slow fake (~6s)
 
   it("memory stage also PROCEEDS (with warning) on probe timeout (#1964)", () => {
     const env = makeEnv({ withGbrain: true, gbrainBehavior: "slow", withConfig: true });

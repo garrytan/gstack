@@ -11,7 +11,7 @@ export DEBIAN_FRONTEND=noninteractive
 sudo -E apt-get update -qq
 sudo -E apt-get install -y -qq --no-install-recommends \
   git curl unzip xz-utils ca-certificates build-essential clang python3-venv jq \
-  xvfb x11-utils poppler-utils fonts-noto-color-emoji >/dev/null
+  xvfb x11-utils poppler-utils fonts-noto-color-emoji zsh >/dev/null
 
 # Ubuntu 24.04 blocks unprivileged user namespaces, which Chromium's sandbox
 # needs; GitHub-hosted runners ship with this relaxed.

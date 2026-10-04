@@ -65,6 +65,34 @@ describe('free-tests workflow wiring', () => {
     expect(source).not.toContain('--quick');
   });
 
+  test('zsh is installed so the bash+zsh portability arms run instead of skipping (#2669)', () => {
+    const suite = (Bun.YAML.parse(source) as any).jobs['free-suite'];
+    const apt = suite.steps.find((step: any) => step.name === 'Install Xvfb + X11 utilities + gate tools').run;
+    expect(apt.split(/\s+/)).toContain('zsh');
+    const ubicloud = fs.readFileSync(path.resolve(import.meta.dir, '..', 'scripts', 'ubicloud', 'setup-free-suite.sh'), 'utf-8');
+    const ubicloudApt = ubicloud.match(/apt-get install(?:[^\n]*\\\n)*[^\n]*/)![0];
+    expect(ubicloudApt.split(/\s+/)).toContain('zsh');
+  });
+
+  test('the aggregate summarizes every shard flake ledger before strict verification (W7a)', () => {
+    const steps = (Bun.YAML.parse(source) as any).jobs['free-tests'].steps;
+    const download = steps.findIndex((step: any) => step.with?.pattern === 'flake-ledger-*');
+    const summary = steps.findIndex((step: any) => step.run?.includes('scripts/test-health-report.ts flake-summary "$RUNNER_TEMP/flake-ledgers" >> "$GITHUB_STEP_SUMMARY"'));
+    const verify = steps.findIndex((step: any) => step.run?.includes('--ci-verify'));
+    expect(steps[download].with.path).toBe('${{ runner.temp }}/flake-ledgers');
+    expect(steps[download].with['merge-multiple']).toBeUndefined();
+    expect(download).toBeLessThan(summary);
+    expect(summary).toBeLessThan(verify);
+  });
+
+  test('the plan job runs the seed ratchet against the merge-base with full history', () => {
+    const planner = (Bun.YAML.parse(source) as any).jobs['free-plan'];
+    expect(planner.steps[0].with['fetch-depth']).toBe(0);
+    const ratchet = planner.steps.find((step: any) => step.name?.startsWith('Seed growth ratchet'));
+    expect(ratchet.run).toContain('GSTACK_FREE_SEED_BASE="$(git merge-base HEAD origin/main)"');
+    expect(ratchet.run).toContain('test/free-seed-ratchet.test.ts');
+  });
+
   test('flake telemetry stays wired: retry flag, single-writer ledger, unconditional artifact', () => {
     // WS1: a timing flake must not red the required lane, but every
     // flaky-pass must be recorded and uploaded — a green run is exactly when

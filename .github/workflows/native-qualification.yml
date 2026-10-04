@@ -1,0 +1,154 @@
+name: Native Qualification
+
+# Dispatch-only diagnostic campaigns for native browser integrations: owned
+# Windows cookie extraction, Windows launch/credential diagnostics, and Dia on
+# disposable Apple-silicon Macs. They exercise real browsers and OS services,
+# so they are qualification evidence, not PR gates; they used to live in
+# windows-free-tests.yml, where their red dispatch runs read as a red PR lane.
+#
+# One `mode` per dispatch; every job runs only for its own mode:
+#   gh workflow run native-qualification.yml --ref <branch> -f mode=cookie-native
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Which native campaign to run
+        type: choice
+        required: true
+        options:
+          - cookie-native
+          - windows-native-diagnostics
+          - dia-native
+          - dia-launch-comparison
+          - dia-gui-readiness
+
+concurrency:
+  group: native-qualification-${{ github.ref }}-${{ inputs.mode }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cookie-native-qualification:
+    if: inputs.mode == 'cookie-native'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.18.0
+      - name: Install pinned dependencies
+        run: bun install --frozen-lockfile
+      - name: Build the qualified Node server inputs
+        run: bash browse/scripts/build-node-server.sh
+        shell: bash
+      - name: Qualify owned native cookie extraction
+        run: ./.github/scripts/run-cookie-native-qualification.ps1 -OutputRoot "$env:RUNNER_TEMP"
+      - name: Preserve qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cookie-native-qualification
+          path: ${{ runner.temp }}/cookie-native-qualification-*/
+          if-no-files-found: error
+
+  windows-native-diagnostics:
+    if: inputs.mode == 'windows-native-diagnostics'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24.18.0
+      - name: Configure git identity (required by tests that init temp repos)
+        run: |
+          git config --global user.email "windows-ci@gstack.test"
+          git config --global user.name "Windows CI"
+          git config --global init.defaultBranch main
+        shell: bash
+      - name: Install pinned dependencies
+        run: bun install --frozen-lockfile
+      - name: Build server-node.mjs (required by Windows browse path)
+        run: bash browse/scripts/build-node-server.sh
+        shell: bash
+      - name: Install Chromium for the Node worker smoke
+        run: bunx playwright install chromium
+      - name: Run focused native launch and credential diagnostics
+        shell: bash
+        run: |
+          set -o pipefail
+          status=0
+          bun test browse/test/cookie-import-native-job.test.ts --test-name-pattern 'native Windows launch diagnostics|a locked real Edge profile|real Edge synthetic profile' 2>&1 | tee "$RUNNER_TEMP/gstack-free-test-native-diagnostics.log" || status=1
+          bun test browse/test/cookie-credential-deadline.test.ts browse/test/cookie-import-node.test.ts browse/test/bun-polyfill.test.ts 2>&1 | tee "$RUNNER_TEMP/gstack-free-test-credential-diagnostics.log" || status=1
+          exit "$status"
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: windows-native-diagnostics
+          path: ${{ runner.temp }}/gstack-free-test-*.log
+          if-no-files-found: ignore
+
+  dia-native-qualification:
+    if: startsWith(inputs.mode, 'dia-')
+    runs-on: macos-15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: ${{ fromJSON(inputs.mode == 'dia-launch-comparison' && '["bun","node"]' || '["bun"]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        if: inputs.mode == 'dia-launch-comparison'
+        with:
+          node-version: 24.18.0
+          architecture: arm64
+      - name: Install pinned dependencies
+        if: inputs.mode != 'dia-gui-readiness'
+        run: bun install --frozen-lockfile
+      - name: Install the synthetic destination browser
+        if: inputs.mode != 'dia-gui-readiness'
+        run: bunx --no-install playwright install chromium
+      - name: Inspect GUI readiness without browser or Keychain access
+        if: inputs.mode == 'dia-gui-readiness'
+        env:
+          GSTACK_DIA_NATIVE_QUALIFY: '1'
+        run: bun --no-env-file --no-install --no-macros --config=/dev/null .github/scripts/run-dia-native-qualification.ts --gui-readiness-only
+      - name: Qualify native Dia discovery, decryption, and import
+        if: inputs.mode == 'dia-native'
+        env:
+          GSTACK_DIA_NATIVE_QUALIFY: '1'
+        run: bun --no-env-file --no-install --no-macros --config=/dev/null .github/scripts/run-dia-native-qualification.ts
+      - name: Compare protected native Dia launch without qualification credit
+        if: inputs.mode == 'dia-launch-comparison'
+        env:
+          GSTACK_DIA_NATIVE_QUALIFY: '1'
+          COMPARISON_RUNTIME: ${{ matrix.runtime }}
+        run: bun --no-env-file --no-install --no-macros --config=/dev/null .github/scripts/run-dia-native-qualification.ts --launch-comparison "$COMPARISON_RUNTIME"
+      - name: Preserve only the sanitized qualification receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ inputs.mode == 'dia-gui-readiness' && 'dia-gui-readiness' || inputs.mode == 'dia-launch-comparison' && format('dia-launch-comparison-{0}', matrix.runtime) || 'dia-native-qualification' }}
+          path: ${{ runner.temp }}/dia-native-qualification.json
+          if-no-files-found: error

@@ -52,10 +52,10 @@ function receipt(output: string) {
   return value;
 }
 
-function background(args: string[], preload?: string, options: { unreadStdout?: boolean } = {}) {
+function background(args: string[], preload?: string) {
   const child = spawn(process.execPath, [...(preload ? ['--preload', preload] : []), CLI, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = '', stderr = '';
-  if (!options.unreadStdout) child.stdout!.on('data', chunk => { stdout += chunk; });
+  child.stdout!.on('data', chunk => { stdout += chunk; });
   child.stderr!.on('data', chunk => { stderr += chunk; });
   const result = new Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }>((resolve, reject) => {
     child.once('error', reject);
@@ -64,14 +64,57 @@ function background(args: string[], preload?: string, options: { unreadStdout?: 
   return { child, result };
 }
 
+// POSIX: the held stream is a FIFO the test reads only after resume(), so the
+// kernel pipe buffer (not Bun's socketpair sizing or reader) keeps the 2 MB
+// write blocked. Windows keeps the paused child pipe.
+function heldOutput(dir: string, args: string[], preload: string, held: 1 | 2) {
+  if (process.platform === 'win32') {
+    const runner = background(args, preload);
+    const stream = held === 1 ? runner.child.stdout! : runner.child.stderr!;
+    stream.pause();
+    return { child: runner.child, resume: () => { stream.resume(); }, result: runner.result };
+  }
+  const fifo = path.join(dir, 'held-output.fifo');
+  expect(spawnSync('mkfifo', [fifo], { timeout: 5000 }).status).toBe(0);
+  const readFd = fs.openSync(fifo, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+  const writeFd = fs.openSync(fifo, 'w');
+  const stdio: Array<'ignore' | 'pipe' | number> = ['ignore', 'pipe', 'pipe'];
+  stdio[held] = writeFd;
+  const child = spawn(process.execPath, ['--preload', preload, CLI, ...args], { stdio });
+  fs.closeSync(writeFd);
+  let heldText = '', pipedText = '';
+  (held === 1 ? child.stderr : child.stdout)!.on('data', chunk => { pipedText += chunk; });
+  let ended!: () => void;
+  const eof = new Promise<void>(resolve => { ended = resolve; });
+  let draining: ReturnType<typeof setInterval> | undefined;
+  const drain = () => {
+    const buffer = Buffer.alloc(65536);
+    for (;;) {
+      let read = 0;
+      try { read = fs.readSync(readFd, buffer, 0, buffer.length, null); } catch (error: any) { if (error.code === 'EAGAIN') return; throw error; }
+      if (read === 0) { clearInterval(draining); fs.closeSync(readFd); ended(); return; }
+      heldText += buffer.subarray(0, read).toString();
+    }
+  };
+  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code, signal) => resolve({ code, signal }));
+  });
+  const result = Promise.all([closed, eof]).then(([{ code, signal }]) => ({ code, signal,
+    stdout: held === 1 ? heldText : pipedText, stderr: held === 2 ? heldText : pipedText }));
+  return { child, resume: () => { draining ??= setInterval(drain, 5); }, result };
+}
+
 function alive(pid: number) {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
 async function ready(file: string) {
-  for (let i = 0; i < 300 && !fs.existsSync(file); i++) await Bun.sleep(10);
+  // Fixtures write their pid with writeFileSync: the file exists before its digits do.
+  const written = () => { try { return Number(fs.readFileSync(file, 'utf8')) || 0; } catch { return 0; } };
+  for (let i = 0; i < 300 && written() <= 0; i++) await Bun.sleep(10);
   expect(fs.existsSync(file)).toBe(true);
-  const pid = Number(fs.readFileSync(file, 'utf8'));
+  const pid = written();
   expect(pid).toBeGreaterThan(0);
   return pid;
 }
@@ -303,9 +346,7 @@ spyOn(fs, 'createWriteStream').mockImplementation((...args) => {
   const args = mode === 'start' ? ['start', f.receipt, '30'] : mode === 'expired'
     ? ['run', f.receipt, '--', process.execPath, '-e', 'require("fs").writeFileSync(process.argv[1], "probed")', f.marker]
     : ['run', f.receipt, '--', process.execPath, DRIVER, timedOut ? 'timeout' : 'early', LEAF, f.leaf, f.direct];
-  const runner = background(args, preload);
-  const blocked = mode === 'start' ? runner.child.stdout! : runner.child.stderr!;
-  blocked.pause();
+  const runner = heldOutput(f.dir, args, preload, mode === 'start' ? 1 : 2);
   try {
     for (let i = 0; i < 300 && !fs.existsSync(queued); i++) await Bun.sleep(10);
     expect(fs.existsSync(queued)).toBe(true);
@@ -317,11 +358,11 @@ spyOn(fs, 'createWriteStream').mockImplementation((...args) => {
     if (mode === 'blocked-forever') {
       const code = await new Promise<number | null>(resolve => runner.child.once('exit', resolve));
       expect(code).toBe(2);
-      blocked.resume();
+      runner.resume();
       await runner.result;
       return;
     }
-    blocked.resume();
+    runner.resume();
     const result = await runner.result;
     expect(result.code).toBe(mode === 'start' ? 0 : mode === 'finished' ? 7 : 124);
     const output = mode === 'start' ? result.stdout : result.stderr;
@@ -330,7 +371,7 @@ spyOn(fs, 'createWriteStream').mockImplementation((...args) => {
     if (mode === 'expired') expect(fs.existsSync(f.marker)).toBe(false);
     if (mode === 'timeout') expect(events.at(-1).timedOut).toBe(true);
   } finally {
-    blocked.resume();
+    runner.resume();
     runner.child.kill('SIGKILL');
     cleanup([f.leaf, f.direct]);
     await runner.result;
@@ -340,25 +381,40 @@ spyOn(fs, 'createWriteStream').mockImplementation((...args) => {
 test('native receipt writes cannot block the output-settlement deadline on a full pipe', async () => {
   const f = fixture();
   const preload = path.join(f.dir, 'full-pipe.ts');
+  const writing = path.join(f.dir, 'stdout-writing');
+  // POSIX: stdout is a FIFO this test never reads, so the kernel holds the 2 MB
+  // write. A paused Bun child stream can still be drained under load (CI run
+  // 36761671811 exited 0 after 128 ms). Windows keeps the paused child pipe.
+  const fifo = process.platform === 'win32' ? null : path.join(f.dir, 'stdout.fifo');
+  if (fifo) expect(spawnSync('mkfifo', [fifo], { timeout: 5000 }).status).toBe(0);
+  const readFd = fifo ? fs.openSync(fifo, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK) : -1;
+  const writeFd = fifo ? fs.openSync(fifo, 'w') : -1;
   fs.writeFileSync(preload, `
-import { write } from 'node:fs';
+import { write, writeFileSync } from 'node:fs';
 write(1, Buffer.alloc(2 * 1024 * 1024, 32), () => {});
+writeFileSync(${JSON.stringify(writing)}, '');
 await Bun.sleep(100);
 `);
-  const runner = background(['start', f.receipt, '30'], preload, { unreadStdout: true });
+  const child = spawn(process.execPath, ['--preload', preload, CLI, 'start', f.receipt, '30'], { stdio: ['ignore', fifo ? writeFd : 'pipe', 'pipe'] });
+  if (fifo) fs.closeSync(writeFd);
+  let stderr = '';
+  child.stderr!.on('data', chunk => { stderr += chunk; });
+  child.stdout?.pause();
+  const exited = new Promise<number | null>(resolve => child.once('exit', resolve));
+  const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const code = await Promise.race([
-      new Promise<number | null>(resolve => runner.child.once('exit', resolve)),
-      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 7000); }),
-    ]);
+    for (let index = 0; index < 500 && !fs.existsSync(writing) && child.exitCode === null; index++) await Bun.sleep(10);
+    expect(fs.existsSync(writing), stderr).toBe(true);
+    const code = await Promise.race([exited, new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 7000); })]);
     expect(fs.existsSync(f.receipt)).toBe(true);
-    expect(code).toBe(2);
+    expect(code, stderr).toBe(2);
   } finally {
     clearTimeout(timer);
-    runner.child.stdout!.resume();
-    runner.child.kill('SIGKILL');
-    await runner.result;
+    child.stdout?.resume();
+    child.kill('SIGKILL');
+    await closed;
+    if (fifo) fs.closeSync(readFd);
   }
 }, 15_000);
 
