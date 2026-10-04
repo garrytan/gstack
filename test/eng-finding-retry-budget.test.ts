@@ -180,23 +180,9 @@ test('single-slice manifest retains all registered files with one allocation', (
   }
 });
 
-test('current detach supervision covers the live-census floor', () => {
-  const floorFor = (tier: 'gate' | 'periodic') => {
-    // Case-sharded files contribute one shard per case and isolated cases one
-    // shard per trial, exactly as the runner plans.
-    const files = expandTrialShards(expandCaseShards(selectPaidTestFiles(collectPaidTestFiles(), tier).selected, tier), tier).keys;
-    const excess = files.reduce((n, file) => n + Math.max(0, resolvePaidShardBudget([file]).timeoutMs - DEFAULT_SHARD_TIMEOUT_MS), 0);
-    return Math.ceil((Math.ceil(files.length / DEFAULT_JOBS) * DEFAULT_SHARD_TIMEOUT_MS + excess) / 1000 * 1.05);
-  };
-  const pkg = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '../package.json'), 'utf8'));
-  const periodicTimeout = Number(pkg.scripts['eval:bg:periodic'].match(/--timeout\s+(\d+)/)[1]);
-  const gateTimeout = Number(pkg.scripts['eval:bg:gate'].match(/--timeout\s+(\d+)/)[1]);
-  expect(floorFor('gate')).toBe(22_355);
-  expect(gateTimeout).toBe(49_320);
-  expect(gateTimeout).toBeGreaterThanOrEqual(floorFor('gate'));
-  expect(floorFor('periodic')).toBe(35_742);
-  expect(periodicTimeout).toBeGreaterThanOrEqual(floorFor('periodic'));
-});
+// The local detach cap is ceil(1.5 x planned serial / jobs) + 20 min, at most 4 h
+// (scripts/eval-bg.ts); test/eval-detach-timeout-floor.test.ts pins it against the
+// live census. The worst-case-floor contract this file used to pin is withdrawn (W5d).
 
 for (const jobs of [1, 2, 3]) test(`FIFO bound covers partial durations with ${jobs} workers`, () => {
   const long = FINDING_RETRY_BUDGETS[0]!.file;

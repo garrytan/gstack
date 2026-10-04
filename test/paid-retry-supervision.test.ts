@@ -194,45 +194,23 @@ test('quality judge supervision includes the added judge without changing ordina
   }
 });
 
-test('detached PR fallback and release commands cover their actual default worker budgets', () => {
+test('eval:bg runs the PR and release commands with their declared workers (cap: eval-detach-timeout-floor)', () => {
   const scripts = JSON.parse(read('package.json')).scripts;
   const prWorkers = Number(scripts['test:pr'].match(/EVALS_JOBS=\$\{EVALS_JOBS:-(\d+)\}/)?.[1]);
   expect(prWorkers).toBe(2);
   expect(scripts['test:pr']).toContain('--tier gate --profile pr');
-  expect(scripts['eval:bg:pr']).toContain('-- bun run test:pr');
+  expect(scripts['eval:bg:pr']).toBe('bun run scripts/eval-bg.ts pr');
+  expect(scripts['eval:bg:release']).toBe('bun run scripts/eval-bg.ts release');
+  const releaseCommands = scripts['test:release'].split(' && ');
+  expect(releaseCommands).toHaveLength(2);
+  for (const [index, tier] of (['gate', 'periodic'] as const).entries()) {
+    expect(releaseCommands[index]).toBe(`EVALS_ALL=1 EVALS_FRESH=1 EVALS_CACHE_PURPOSE=release bun run scripts/test-paid-shards.ts --tier ${tier} --profile full`);
+  }
+  // A PR diff that needs full validation still plans the complete gate census.
   const fallback = buildRunManifest({ tier: 'gate', profile: 'pr', sliceCount: 1,
     evalsAll: false, env: {}, changedFiles: ['runtime-not-yet-mapped/worker.ts'] });
   expect(fallback.prCoverage?.mode).toBe('full-fallback');
-  const files = fallback.entries.filter(row => row.status === 'planned').map(row => row.file);
-  const prWall = Number(scripts['eval:bg:pr'].match(/--timeout (\d+)/)?.[1]) * 1000;
-  const fullGateFiles = buildRunManifest({ tier: 'gate', sliceCount: 1, evalsAll: true, env: { EVALS_ALL: '1' } })
-    .entries.filter(row => row.status === 'planned').map(row => row.file);
-  const prFloor = Math.ceil((Math.ceil(fullGateFiles.length / prWorkers) * 1_800_000 + fullGateFiles.reduce(
-    (total, file) => total + Math.max(0, resolvePaidShardBudget([file]).timeoutMs - 1_800_000), 0,
-  )) / 1000 * 1.05);
-  expect(prFloor).toBe(79_055);
-  expect(prWall).toBe(92_820_000);
-  expect(prWall).toBeGreaterThanOrEqual(paidShardWallUpperBoundMs(files, prWorkers) + 120_000);
-
-  expect(scripts['eval:bg:release']).toContain('-- bun run test:release');
-  const releaseCommands = scripts['test:release'].split(' && ');
-  expect(releaseCommands).toHaveLength(2);
-  let releaseWall = 0;
-  const releaseFloors: number[] = [];
-  for (const [index, tier] of (['gate', 'periodic'] as const).entries()) {
-    expect(releaseCommands[index]).toBe(`EVALS_ALL=1 EVALS_FRESH=1 EVALS_CACHE_PURPOSE=release bun run scripts/test-paid-shards.ts --tier ${tier} --profile full`);
-    const census = buildRunManifest({ tier, profile: 'full', sliceCount: 1, evalsAll: true, env: { EVALS_ALL: '1' } });
-    const files = census.entries.filter(row => row.status === 'planned').map(row => row.file);
-    releaseWall += paidShardWallUpperBoundMs(files, DEFAULT_JOBS);
-    releaseFloors.push(Math.ceil((Math.ceil(files.length / DEFAULT_JOBS) * 1_800_000 + files.reduce(
-      (total, file) => total + Math.max(0, resolvePaidShardBudget([file]).timeoutMs - 1_800_000), 0,
-    )) / 1000 * 1.05));
-  }
-  const detachedReleaseWall = Number(scripts['eval:bg:release'].match(/--timeout (\d+)/)?.[1]) * 1000;
-  expect(releaseFloors).toEqual([22_355, 35_742]);
-  expect(releaseFloors.reduce((total, floor) => total + floor, 0)).toBe(58_097);
-  expect(detachedReleaseWall).toBe(116_700_000);
-  expect(detachedReleaseWall).toBeGreaterThanOrEqual(releaseWall + 120_000);
+  expect(fallback.entries.filter(row => row.status === 'planned').length).toBeGreaterThan(0);
 });
 
 const cliOptions = (step: { run: string; env?: Record<string, string> }) => {

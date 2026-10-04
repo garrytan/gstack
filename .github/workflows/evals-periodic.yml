@@ -15,6 +15,8 @@ name: Periodic Evals
 # diff-billed, so without it the full gate census might never execute
 # anywhere); the hollow-shard guard (exit 0 + zero executed tests under
 # EVALS_ALL fails) makes both lanes census-health checks, not just test runs.
+# eval-bg (scripts/eval-bg.ts) finds its dispatch by the nonce in the run name.
+run-name: ${{ inputs.nonce && format('Periodic Evals [eval-bg {0}]', inputs.nonce) || 'Periodic Evals' }}
 on:
   schedule:
     - cron: '0 6 * * 1'  # Monday 6 AM UTC; build-image below builds or reuses the CI image
@@ -28,6 +30,14 @@ on:
         description: 'Branch dispatch only: also run the weekly gate census (default: periodic lane only; gate cases validate through an evals.yml dispatch with evals_all)'
         type: boolean
         default: false
+      expected_sha:
+        description: 'eval-bg: the revision the dispatcher tested; the run fails fast when the ref has moved'
+        type: string
+        default: ''
+      nonce:
+        description: 'eval-bg: dispatch nonce carried in the run name'
+        type: string
+        default: ''
 
 # One group per ref AND event: a branch dispatch never cancels main's census,
 # and a manual main dispatch never cancels the scheduled one. A re-dispatch
@@ -112,6 +122,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+
+      - name: Verify the dispatched revision
+        if: inputs.expected_sha != ''
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          if [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
+            echo "::error::eval-bg tested ${EXPECTED_SHA} but ${GITHUB_REF_NAME} is now at ${GITHUB_SHA}; push again and re-run eval:bg, or dispatch without expected_sha"
+            exit 1
+          fi
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
