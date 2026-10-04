@@ -202,7 +202,7 @@ test('CEO chat storage still supplies both spec inputs and the full report witho
     expectMentions(tasks, [['do not','implementation','contracts']], 'tasks');
     expect(tasks).toMatch(/"to be determined" and use an empty JSONL files array/i);
     const outside = generateCodexPlanReview(ctx);
-    if (outside) ;
+    if (outside) expectMentions(compactProse(outside), [['include', 'ceo scope summary']], 'outside voice');
     const gate = compactProse(generateExitPlanModeGate(ctx));
     expectMentions(gate, [['do not','exitplanmode','checks']], 'gate');
     ordered(gate, [/missing plan\/report saves/i, '1. Read the plan file']);
