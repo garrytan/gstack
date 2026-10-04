@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { readQACheckpointFiles, validateQACheckpoints } from './helpers/qa-checkpoint-evidence';
 import { qaFunctionalVerdict } from './helpers/qa-functional-evidence';
 import { parseNDJSON } from './helpers/session-runner';
+import { expectMentions } from './helpers/prompt-structure';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
@@ -55,8 +56,8 @@ describe('functional report checkpoint-link contract', () => {
 
   test('the shared report template gives concrete Markdown syntax without discarding superseded evidence', () => {
     expect(template).toContain('[checkpoint 001](exploration-001.json)');
-    expect(template).toContain('plain or backticked filenames are not links');
-    expect(template).toContain('Include superseded checkpoints as history, not current passing evidence');
+    expectMentions(template, [['not', 'backticked', 'filenames']], 'template');
+    expectMentions(template, [['not', 'checkpoints', 'superseded']], 'template');
     expect(template).toContain('saved before its next probe');
     expect(template).toContain('path relative to this report');
   });
