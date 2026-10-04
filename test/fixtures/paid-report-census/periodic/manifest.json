@@ -11,7 +11,7 @@
   },
   "entries": [
     {
-      "file": "test/skill-e2e-qa-workflow.test.ts",
+      "file": "test/skill-e2e-qa-workflow.test.ts#qa-fix-loop",
       "slice": 1,
       "status": "planned",
       "estimatedMs": 403953
@@ -29,7 +29,7 @@
       "estimatedMs": 9495
     },
     {
-      "file": "test/carve-section-loading-review.test.ts",
+      "file": "test/carve-section-loading.test.ts#carve-section-loading-review",
       "slice": 1,
       "status": "planned",
       "estimatedMs": 247902

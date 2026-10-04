@@ -12,7 +12,7 @@
   "outcomes": [
     {
       "files": [
-        "test/skill-e2e-qa-workflow.test.ts"
+        "test/skill-e2e-qa-workflow.test.ts#qa-fix-loop"
       ],
       "status": "passed",
       "exitCode": 0,
@@ -57,7 +57,7 @@
     },
     {
       "files": [
-        "test/carve-section-loading-review.test.ts"
+        "test/carve-section-loading.test.ts#carve-section-loading-review"
       ],
       "status": "passed",
       "exitCode": 0,

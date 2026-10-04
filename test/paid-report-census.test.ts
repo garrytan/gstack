@@ -6,6 +6,10 @@
  * ac20ef1), whose report counted deselections as SKIPPED 82/282 and left
  * 72/24 testcases unattributed. Budget records follow the current declared
  * policy (plan-mode-no-op: 3,720,000 ms since v1.91.18.0 added its devex member).
+ * The periodic fixture is re-shaped to the current case shards: qa-workflow runs
+ * as its qa-fix-loop case shard (its three gate-tier siblings become sibling
+ * deselections) and the review carve runs as a case of the consolidated
+ * test/carve-section-loading.test.ts.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
@@ -44,14 +48,14 @@ describe('census attribution from the 2026-10-03 artifacts', () => {
     expect(r.out).toContain('  rule 7/7 · behavior 0/0 · judge 0/0 · quarantined 0 (0 failing the lane)');
     expect(r.out).toContain('  SKIPPED 0 · INFRA 0 · INCOMPLETE 0 · unattributed 0 · ACTION REQUIRED 0');
     expect(r.out).toContain(`deselected testcases, zero credit (21):`);
-    expect(r.out).toContain(`    10  ${DESELECTION_REASONS.sibling}`);
-    expect(r.out).toContain('     7  gate-tier case (this lane runs periodic)');
+    expect(r.out).toContain(`    13  ${DESELECTION_REASONS.sibling}`);
+    expect(r.out).toContain('     4  gate-tier case (this lane runs periodic)');
     expect(r.out).toContain(`     4  ${DESELECTION_REASONS.hook}`);
     expect(r.out).toContain('  ⚠ test/skill-e2e-test-value.test.ts (3 skipped — 3 gate-tier case (this lane runs periodic))');
     expect(r.out).not.toContain('UNATTRIBUTED');
     expect(r.history.map(record => `${record.case}:${record.outcome}`).sort()).toEqual([
-      'benchmark-providers-live:passed', 'carve-section-loading:passed', 'cso-full-audit:passed', 'cso-infra-scope:passed',
-      'design-consultation-core:passed', 'qa-fix-loop:passed', 'test/codex-e2e-recommendation-substance.test.ts:passed',
+      'benchmark-providers-live:passed', 'carve-section-loading-review:passed', 'cso-full-audit:passed', 'cso-infra-scope:passed',
+      'codex-recommendation-substance:passed', 'design-consultation-core:passed', 'qa-fix-loop:passed',
     ]);
     expect(r.history.find(record => record.case === 'benchmark-providers-live')).toMatchObject({ file: 'test/skill-e2e-benchmark-providers.test.ts', source: 'junit' });
     expect(r.history.filter(record => record.file === 'test/skill-e2e-design.test.ts'))
@@ -72,7 +76,7 @@ describe('census attribution from the 2026-10-03 artifacts', () => {
 
   test('a selected in-lane case that skipped is SKIPPED with its reason; an unattributable testcase is listed by name', () => {
     const r = report('periodic', dir => {
-      const qa = junit(dir, 'skill-e2e-qa-workflow');
+      const qa = junit(dir, 'skill-e2e-qa-workflow--qa-fix-loop');
       fs.writeFileSync(qa, fs.readFileSync(qa, 'utf8').replace(/(<testcase name="qa-fix-loop"[^>]*?) \/>/, '$1><skipped /></testcase>'));
       const cso = junit(dir, 'skill-e2e-cso');
       fs.writeFileSync(cso, fs.readFileSync(cso, 'utf8').replace(/<\/testsuite>(\r?\n)<\/testsuites>/,
@@ -80,7 +84,7 @@ describe('census attribution from the 2026-10-03 artifacts', () => {
     });
     expect(r.status, r.out).toBe(0);
     expect(r.out).toContain('  SKIPPED 1 · INFRA 0 · INCOMPLETE 0 · unattributed 1 · ACTION REQUIRED 0');
-    expect(r.out).toContain(`[test:paid]   ◌ qa-fix-loop  test/skill-e2e-qa-workflow.test.ts (qa-fix-loop): ${RUNTIME_SKIP_REASON}`);
+    expect(r.out).toContain(`[test:paid]   ◌ qa-fix-loop  test/skill-e2e-qa-workflow.test.ts#qa-fix-loop (qa-fix-loop): ${RUNTIME_SKIP_REASON}`);
     expect(r.out).toContain('[test:paid]   ? test/skill-e2e-cso.test.ts :: an unlabeled helper (passed)');
     const summary = fs.readFileSync(path.join(r.dir, 'report-summary.md'), 'utf8');
     expect(summary).toContain('**Skipped, deselected and unattributed testcases**');
