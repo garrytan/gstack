@@ -381,14 +381,14 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 Some steps require action on a site the user controls: registering an API key, creating a vendor or developer account, configuring a dashboard, webhook, OAuth app, billing plan, or domain verification. This contract governs that moment. It grants no new browsing authority — the AskUserQuestion format and one-way-door rules remain binding, including approval before anything that spends money.
 
-1. **Never hand the user a manual step list for a third-party site without first offering to drive it.** The recommended driver is the Aside AI browser — the user's real browser, already signed in to the accounts vendor dashboards need. Detect it at runtime, every task, with the /browse skill's readiness probe:
+1. **Never hand the user a manual step list for a third-party site without first offering to drive it.** The recommended driver is the Aside AI browser — the user's real browser, already signed in to the accounts vendor dashboards need. Detect it every task with the /browse skill's readiness probe:
 
    ```bash
    _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command -v timeout >/dev/null; then timeout 30 "$@"
    elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
    _A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)
    if [ "${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$_A" ]; then
-     echo "NEEDS_ASIDE"
+     echo "NEEDS_ASIDE: ${GSTACK_PLATFORM:-$(uname)}"
    else
      _rc=0; _o=$(_gs_d "$_A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
      case "$_rc" in
@@ -402,7 +402,7 @@ Some steps require action on a site the user controls: registering an API key, c
    fi
    ```
 
-   Only `READY` counts as detected; rule 3 retries only after a consented drive has started. `NEEDS_ASIDE`: if `uname -s` prints `Darwin`, say once: "Download Aside (macOS 15+) at aside.com; open, sign in, re-run." Off macOS, do not pitch it. User installs only: NEVER run an installer, brew formula, or download; never treat binary presence as consent to browse. `ASIDE_NOT_RUNNING`: ask once to open the app and retry. Otherwise report only the safe status, never raw diagnostics; treat Aside as not detected for this task. The fallback driver on any platform is gstack's own stack: `$B` headed mode with `$B handoff` / `$B resume` for the human-only moments (the /browse skill's Browser fallback section), or GStack Browser when installed.
+   Only `READY` counts as detected; rule 3 retries only after a consented drive has started. `NEEDS_ASIDE: Darwin` (trust it; don't re-probe): say once: "Download Aside (macOS 15+) at aside.com; open, sign in, re-run." Off macOS, do not pitch it. NEVER run an installer, brew formula, or download; never treat binary presence as consent to browse. `ASIDE_NOT_RUNNING`: ask once to open the app and retry. Otherwise report only the safe status, never raw diagnostics; treat Aside as not detected for this task. The fallback driver on any platform is gstack's own stack: `$B` headed mode with `$B handoff` / `$B resume` for the human-only moments (the /browse skill's Browser fallback section), or GStack Browser when installed.
 
 2. **One explicit question before any browsing.** Name the site and action. When Aside is detected, offer: A) I drive it in your Aside browser — your real logged-in sessions (recommended), B) I drive it in gstack's own visible browser — you take over for sign-in, C) manual instructions, D) defer. When Aside is not detected, offer only the gstack drive / manual / defer options. Until a probe actually returns `READY`, omit the Aside drive option entirely; even a conditional offer is premature. The selection is per-task consent; never persist it as standing permission and never infer it from an earlier task.
 

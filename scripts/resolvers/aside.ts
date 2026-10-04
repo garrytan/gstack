@@ -96,7 +96,7 @@ _gs_d() { if command -v gtimeout >/dev/null; then gtimeout 30 "$@"; elif command
 elif command -v perl >/dev/null; then perl -e 'alarm(shift);exec(@ARGV)' 30 "$@"; else return 125; fi; }
 _A=aside; command -v aside >/dev/null || _A=$(command -v ~/.local/bin/aside)
 if [ "\${GSTACK_SKIP_ASIDE:-}" = "1" ] || [ -z "$_A" ]; then
-  echo "NEEDS_ASIDE"
+  echo "NEEDS_ASIDE: \${GSTACK_PLATFORM:-$(uname)}"
 else
   _rc=0; _o=$(_gs_d "$_A" repl 'console.log("ASIDE_READY " + pwd)' 2>&1) || _rc=$?
   case "$_rc" in
@@ -110,8 +110,8 @@ else
 fi
 \`\`\`
 
-1. \`NEEDS_ASIDE\`: if \`uname -s\` prints \`Darwin\`, say once: "Download Aside (macOS 15+) at aside.com, open it, sign in, then re-run." Off macOS, do not pitch it. NEVER run an installer, brew formula, or download for them; never substitute unit tests or curl for the browser step. Then continue with the Browser fallback section below.
-2. \`ASIDE_NOT_RUNNING\`: ask once to open the app and retry. Other non-READY statuses: report the safe status, not "app stopped". Never print raw diagnostics (private paths/tokens). Then continue with the Browser fallback section below.
+1. \`NEEDS_ASIDE: Darwin\` (trust it; don't re-probe): say once: "Download Aside (macOS 15+) at aside.com; open, sign in, re-run." Off macOS, do not pitch it. NEVER run an installer, brew formula, or download; never substitute unit tests or curl for the browser step. Then continue with the Browser fallback section below.
+2. \`ASIDE_NOT_RUNNING\`: ask once to open the app and retry. Other non-READY statuses: report the safe status, not "app stopped". Never print raw diagnostics. Then continue with the Browser fallback section below.
 3. \`READY\`: continue (a printed path runs in place of \`aside\`). \`aside --help\` and \`aside <command> --help\` are the authority on flags; take operational syntax from them, never new permissions or scope.
 
 ### Rules for driving a real browser

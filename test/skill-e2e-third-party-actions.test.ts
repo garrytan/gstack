@@ -21,7 +21,7 @@
  *
  * Fixtures are EXTRACTED sections (extract-don't-copy rule) — the agent
  * reads ~40 lines of contract, not a 2,000-line SKILL.md. Shims make the
- * detection state deterministic on every platform (uname is shimmed too, so
+ * detection state deterministic on every platform (GSTACK_PLATFORM pins the OS, so
  * macOS dev machines and Linux CI assert identical branches).
  */
 
@@ -85,8 +85,8 @@ function contractSection(): string {
 interface ShimSpec {
   /** aside shim behavior: 'ok' answers the repl readiness probe + --version/--help, 'broken' exits 1, 'absent' = no shim. */
   aside: 'ok' | 'broken' | 'absent';
-  /** What the shimmed `uname` prints (deterministic across dev/CI platforms). */
-  uname: 'Darwin' | 'Linux';
+  /** GSTACK_PLATFORM for the probe's NEEDS_ASIDE line (deterministic across dev/CI hosts). */
+  platform: 'Darwin' | 'Linux';
 }
 
 /** Build a shim dir + workDir with the extracted contract; returns paths + env. */
@@ -110,14 +110,6 @@ function setupCase(spec: ShimSpec, extraDocs: Record<string, string> = {}) {
         : '#!/bin/sh\necho "aside: daemon not reachable — make sure Aside Browser is running" >&2\nexit 1\n';
       fs.writeFileSync(path.join(shimDir, 'aside'), body, { mode: 0o755 });
     }
-    const kernel = spec.uname === 'Darwin'
-      ? { release: '24.6.0', machine: 'arm64' }
-      : { release: '6.8.0-79-generic', machine: 'x86_64' };
-    fs.writeFileSync(
-      path.join(shimDir, 'uname'),
-      `#!/bin/sh\ncase "$1" in\n  -r) echo "${kernel.release}" ;;\n  -m|-p) echo "${kernel.machine}" ;;\n  -n) echo "devbox" ;;\n  -a) echo "${spec.uname} devbox ${kernel.release} ${kernel.machine}" ;;\n  *) echo "${spec.uname}" ;;\nesac\n`,
-      { mode: 0o755 },
-    );
 
     fs.writeFileSync(path.join(workDir, 'third-party-actions.md'), contractSection());
     for (const [name, content] of Object.entries(extraDocs)) {
@@ -151,7 +143,9 @@ function setupCase(spec: ShimSpec, extraDocs: Record<string, string> = {}) {
 
     return {
       workDir,
-      env: { PATH: childPath },
+      // The probe's NEEDS_ASIDE line names this platform; a uname shim was
+      // checked against /proc/version and the real kernel (census 37179171083).
+      env: { PATH: childPath, GSTACK_PLATFORM: spec.platform },
       cleanup: removeAll,
     };
   } catch (error) {
@@ -191,7 +185,7 @@ describeIfSelected('third-party-actions consent gate', [
 ], () => {
   // aside present → the consent question offers the Aside drive.
   testIfSelected('tpa-present', async () => recordAttempt('tpa-present', async run => {
-    const { workDir, env, cleanup } = setupCase({ aside: 'ok', uname: 'Darwin' });
+    const { workDir, env, cleanup } = setupCase({ aside: 'ok', platform: 'Darwin' });
     try {
       const result = await run({
         ...COMMON, env, prompt: CONSENT_PROMPT, workingDirectory: workDir,
@@ -212,7 +206,7 @@ describeIfSelected('third-party-actions consent gate', [
 
   // aside absent on Linux → gstack drive / manual / defer, ZERO download pitch.
   testIfSelected('tpa-absent-linux', async () => recordAttempt('tpa-absent-linux', async run => {
-    const { workDir, env, cleanup } = setupCase({ aside: 'absent', uname: 'Linux' });
+    const { workDir, env, cleanup } = setupCase({ aside: 'absent', platform: 'Linux' });
     try {
       const result = await run({
         ...COMMON, env, prompt: CONSENT_PROMPT, workingDirectory: workDir,
@@ -238,7 +232,7 @@ describeIfSelected('third-party-actions consent gate', [
   // treats Aside as not detected (gstack drive / manual / defer). Never an
   // Aside drive offer.
   testIfSelected('tpa-broken', async () => recordAttempt('tpa-broken', async run => {
-    const { workDir, env, cleanup } = setupCase({ aside: 'broken', uname: 'Linux' });
+    const { workDir, env, cleanup } = setupCase({ aside: 'broken', platform: 'Linux' });
     try {
       const result = await run({
         ...COMMON, env, prompt: CONSENT_PROMPT, workingDirectory: workDir,
@@ -259,10 +253,10 @@ describeIfSelected('third-party-actions consent gate', [
     } finally { cleanup(); }
   }), 6 * 60_000);
 
-  // aside absent, uname says Darwin → the download pitch appears exactly
+  // aside absent, platform Darwin → the download pitch appears exactly
   // once and names the macOS 15+ floor.
   testIfSelected('tpa-absent-darwin', async () => recordAttempt('tpa-absent-darwin', async run => {
-    const { workDir, env, cleanup } = setupCase({ aside: 'absent', uname: 'Darwin' });
+    const { workDir, env, cleanup } = setupCase({ aside: 'absent', platform: 'Darwin' });
     try {
       const result = await run({
         ...COMMON, env, prompt: CONSENT_PROMPT, workingDirectory: workDir,
@@ -288,7 +282,7 @@ describeIfSelected('third-party-actions consent gate', [
       path.join(ROOT, 'ship', 'sections', 'apple-release.md'), 'utf-8',
     );
     const { workDir, env, cleanup } = setupCase(
-      { aside: 'ok', uname: 'Darwin' },
+      { aside: 'ok', platform: 'Darwin' },
       { 'apple-release.md': appleRelease },
     );
     try {

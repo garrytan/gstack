@@ -15,7 +15,7 @@ const launchers = {
   perl: Bun.which('perl'),
 };
 
-function run(shell: string, arm: keyof typeof launchers | 'none', mode = 'ready', skip = false) {
+function run(shell: string, arm: keyof typeof launchers | 'none', mode = 'ready', skip = false, platform = 'Darwin') {
   const root = mkdtempSync(join(tmpdir(), 'aside-probe-'));
   const bin = join(root, 'bin');
   mkdirSync(bin);
@@ -23,6 +23,7 @@ function run(shell: string, arm: keyof typeof launchers | 'none', mode = 'ready'
     const executable = Bun.which(shell);
     if (!executable) throw new Error(`Required shell unavailable: ${shell}`);
     symlinkSync(Bun.which('grep')!, join(bin, 'grep'));
+    symlinkSync(Bun.which('uname')!, join(bin, 'uname'));
     if (arm !== 'none') symlinkSync(launchers[arm]!, join(bin, arm));
     if (mode !== 'absent') writeFileSync(join(bin, 'aside'), `#!/bin/sh
 printf '%s\\n' "$@" >> "$CALLS"
@@ -40,7 +41,7 @@ esac
     const script = mode === 'hang' ? probe.replaceAll('30 "$@"', '1 "$@"') : probe;
     const result = spawnSync(executable, ['-c', script], {
       encoding: 'utf8', timeout: 5000,
-      env: { HOME: root, PATH: bin, MODE: mode, CALLS: join(root, 'calls'), GSTACK_SKIP_ASIDE: skip ? '1' : '' },
+      env: { HOME: root, PATH: bin, MODE: mode, CALLS: join(root, 'calls'), GSTACK_SKIP_ASIDE: skip ? '1' : '', ...(platform ? { GSTACK_PLATFORM: platform } : {}) },
     });
     let calls = '';
     try { calls = readFileSync(join(root, 'calls'), 'utf8'); } catch {}
@@ -62,9 +63,14 @@ describe('emitted Aside readiness probe', () => {
         expect(result.calls).toBe('');
       }
       for (const result of [run(shell, 'none', 'absent'), run(shell, 'none', 'ready', true)]) {
-        expect(result.output).toBe('NEEDS_ASIDE\n');
+        expect(result.output).toBe('NEEDS_ASIDE: Darwin\n');
         expect(result.calls).toBe('');
       }
+    });
+    shellTest(`${shell}: NEEDS_ASIDE names GSTACK_PLATFORM, else the kernel uname reports`, () => {
+      expect(run(shell, 'none', 'absent', false, 'Linux').output).toBe('NEEDS_ASIDE: Linux\n');
+      const kernel = spawnSync('uname', [], { encoding: 'utf8' }).stdout.trim();
+      expect(run(shell, 'none', 'absent', false, '').output).toBe(`NEEDS_ASIDE: ${kernel}\n`);
     });
     for (const arm of ['gtimeout', 'timeout', 'perl'] as const) {
       const armTest = Bun.which(shell) && launchers[arm] ? test : test.skip;
@@ -81,7 +87,7 @@ describe('emitted Aside readiness probe', () => {
       });
       armTest(`${shell}/${arm}: absent and skipped never invoke Aside`, () => {
         for (const result of [run(shell, arm, 'absent'), run(shell, arm, 'ready', true)]) {
-          expect(result.output).toBe('NEEDS_ASIDE\n');
+          expect(result.output).toBe('NEEDS_ASIDE: Darwin\n');
           expect(result.calls).toBe('');
         }
       });

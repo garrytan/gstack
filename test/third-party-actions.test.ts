@@ -194,7 +194,7 @@ describe("THIRD_PARTY_ACTIONS contract pins", () => {
     // conditional, never a bare `timeout N aside` invocation.
     expect(section).toContain("command -v gtimeout");
     expect(section).not.toMatch(/\btimeout \d+ aside/);
-    expect(section).toContain("`uname -s` prints `Darwin`");
+    expect(section).toContain("`NEEDS_ASIDE: Darwin` (trust it; don't re-probe)");
     expect(section).toContain("Off macOS, do not pitch it");
   });
 

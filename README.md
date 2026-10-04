@@ -658,7 +658,7 @@ it. The usual fix is to re-run setup from that row's source for that host, e.g.
 A project install lives in the project's `.claude/skills/gstack` or
 `.agents/skills/gstack`; run its `setup` from inside the project.
 
-**`/browse` (or `/qa`, `/design-review`) says `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`?** That's the probe telling you it's about to use the fallback browser. Want Aside? Open the app and sign in — `aside --version` should print a version and `aside repl 'console.log("ok")'` should print `ok` — then re-run. gstack never installs it for you. Want the fallback on purpose while Aside is open? `GSTACK_SKIP_ASIDE=1` makes every skill, the renderer, and `./setup` treat Aside as absent.
+**`/browse` (or `/qa`, `/design-review`) says `NEEDS_ASIDE` or `ASIDE_NOT_RUNNING`?** That's the probe telling you it's about to use the fallback browser. Want Aside? Open the app and sign in — `aside --version` should print a version and `aside repl 'console.log("ok")'` should print `ok` — then re-run. gstack never installs it for you. Want the fallback on purpose while Aside is open? `GSTACK_SKIP_ASIDE=1` makes every skill, the renderer, and `./setup` treat Aside as absent. When Aside is absent the probe prints `NEEDS_ASIDE: <OS>` and skills trust that line for the macOS-only download pitch; `GSTACK_PLATFORM` overrides the OS it names, for tests and unusual hosts (set it in your shell — gstack never reads it from a project `.env`).
 
 **`/browse` fails on the fallback browser?** `cd ~/.claude/skills/gstack && bun install && bun run build`
 
