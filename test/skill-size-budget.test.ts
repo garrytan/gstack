@@ -18,14 +18,14 @@
  * ({{ASIDE_SETUP}}) plus the gstack-browser fallback block now ride in every
  * browsing skill (~9KB), which pushed benchmark and scrape past 1.5× of the
  * v1.69.1.0 anchor. Deliberate, corpus-wide, receipted in the v1.81.0.0
- * CHANGELOG; the v1.69.1.0 fixture stays on disk for history.
+ * CHANGELOG; the v1.69.1.0 fixture is in git history.
  *
  * The previous baseline lived at test/fixtures/parity-baseline-v1.69.1.0.json,
  * re-captured 2026-08-25 during token-reduction Phase 1 (bash consolidation
  * moved ~11-13KB of inline preamble bash per skill into bin/gstack-skill-start
  * and bin/gstack-skill-end — a deliberate corpus-wide shrink; receipt:
- * gstack-context-bill --diff in PR #2691). The prior v1.47.0.0 fixture stays
- * on disk for history. Live pins at capture time: this test (shrink floor)
+ * gstack-context-bill --diff in PR #2691). The prior v1.47.0.0 fixture is in
+ * git history. Live pins at capture time: this test (shrink floor)
  * and test/parity-suite.test.ts vs parity-baseline-v1.64.1.0.json (growth).
  *
  * Override:

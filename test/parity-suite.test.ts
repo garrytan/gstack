@@ -17,8 +17,8 @@
  * GSTACK REVIEW REPORT pushed the three plan-review skills past the 5% ratchet
  * on the v1.53 anchor even after exhaustive compression. Before that,
  * v1.44.1 → v1.53.0.0: brain-aware-planning (v1.49–v1.52) + the v1.53
- * redaction guard. Historical baselines are retained in test/fixtures/ for
- * the audit trail.
+ * redaction guard. Superseded baselines live in git history, not
+ * test/fixtures/.
  *
  * Periodic-tier LLM-judge parity (paid) lands in Phase B (v2.0.0.0)
  * alongside the sections/ extraction. Plumbing is in parity-harness.ts.

@@ -30,20 +30,10 @@ import * as path from 'path';
 import { runBin } from './helpers/run-bin';
 import { selectTests, E2E_TOUCHFILES, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES } from './helpers/touchfiles';
 import { manualReviewFixture } from './helpers/manual-judge-review-fixture';
-import { renderDashboard } from '../scripts/eval-watch';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SCRIPT = (name: string) => path.join(ROOT, 'scripts', name);
 const SLUG = 'eval-cli-fixture';
-
-test('eval:watch distinguishes unscored manual acceptance from malformed claims', () => {
-  const manual = manualReviewFixture();
-  const output = renderDashboard(null, { tests: [manual, { ...manual, passed: true }], total_cost_usd: 0 });
-  expect(output).toContain('MANUAL/unscored');
-  expect(output).toContain(manual.manual_review!.approval.approval_url);
-  expect(output).toContain('Manual accepted: 1');
-  expect(output).toContain('✗');
-});
 
 let tmpHome: string;
 let evalDir: string;

@@ -105,6 +105,7 @@ const BASELINE = [
   'test/helpers/e2e-gate.unit.test.ts',
   'test/helpers/eval-store.test.ts',
   'test/helpers/hermetic-env.test.ts',
+  'test/helpers/observability.test.ts', // predates this ratchet; its only scripts/ import was the deleted eval-watch dashboard
   'test/helpers/run-bin.test.ts',
   'test/helpers/session-runner.test.ts',
   'test/helpers/sync-command-capture.test.ts',
@@ -178,7 +179,6 @@ const BASELINE = [
   'test/qa-functional-observer.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/qa-supervision-selection.test.ts', // landed in v1.91.7.0 before this ratchet: harness owner for its functional-QA/docsync paid evals
   'test/question-log-hook.test.ts',
-  'test/readme-throughput.test.ts',
   'test/review-army-budget.test.ts',
   'test/review-consensus-lifecycle.test.ts',
   'test/review-count-markdown.test.ts',
