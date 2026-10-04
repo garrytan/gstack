@@ -47,6 +47,21 @@ let boardUrl: string;
 let server: ReturnType<typeof Bun.serve>;
 let tmpDir: string;
 
+/**
+ * The board settles its post-submit state after the feedback POST resolves, a
+ * network round trip after the click. Poll for that settled state instead of
+ * reading it once: a single read races the round trip under a loaded runner.
+ */
+async function settledJs(expression: string, expected: string, timeoutMs = 10_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let value = await handleReadCommand('js', [expression], bm);
+  while (value !== expected && Date.now() < deadline) {
+    await Bun.sleep(25);
+    value = await handleReadCommand('js', [expression], bm);
+  }
+  return value;
+}
+
 // Create a minimal 1x1 pixel PNG for test variants
 function createTestPng(filePath: string): void {
   // Minimal valid PNG: 1x1 red pixel
@@ -235,16 +250,12 @@ describe('Submit feedback flow', () => {
   });
 
   test('submit button is disabled after submission', async () => {
-    const disabled = await handleReadCommand('js', [
-      'document.getElementById("submit-btn").disabled'
-    ], bm);
+    const disabled = await settledJs('document.getElementById("submit-btn").disabled', 'true');
     expect(disabled).toBe('true');
   });
 
   test('success message is visible after submission', async () => {
-    const display = await handleReadCommand('js', [
-      'document.getElementById("success-msg").style.display'
-    ], bm);
+    const display = await settledJs('document.getElementById("success-msg").style.display', 'block');
     expect(display).toBe('block');
   });
 });
