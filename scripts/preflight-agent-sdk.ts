@@ -10,10 +10,11 @@
  *      `opus-4-7.md` with no unresolved inheritance directives.
  *   5. A local `claude` binary exists at `which claude` so binary pinning is possible.
  *
- * Run: bun run scripts/preflight-agent-sdk.ts
+ * Run: bun run scripts/preflight-agent-sdk.ts [--live]
  *
- * Exit 0 on success. Exit non-zero with a clear message on any failure. No
- * side effects beyond stdout and a ~15 token API call.
+ * Checks 1-2 and 4-5 are free. Check 3 (the live SDK query, ~15 tokens of API
+ * spend) runs only with --live. Exit 0 on success, 1 on any failed check,
+ * 2 on a bad argument.
  */
 
 import '../lib/conductor-env-shim';
@@ -21,7 +22,35 @@ import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { readOverlay } from './resolvers/model-overlay';
 import { resolveClaudeBinary } from '../lib/claude-bin';
 
+const USAGE = `Usage: bun run scripts/preflight-agent-sdk.ts [--live]
+
+Free checks: overlay resolution and local claude binary pinning.
+--live  also runs one end-to-end SDK query against claude-opus-4-7
+        (~15 tokens of API spend; needs ANTHROPIC_API_KEY).`;
+
+function parsePreflightArgs(argv: string[]): { help: boolean; live: boolean } {
+  const parsed = { help: false, live: false };
+  for (const arg of argv) {
+    if (arg === '--help' || arg === '-h') parsed.help = true;
+    else if (arg === '--live') parsed.live = true;
+    else throw new Error(`unknown argument "${arg}"`);
+  }
+  return parsed;
+}
+
 async function main() {
+  let args: { help: boolean; live: boolean };
+  try {
+    args = parsePreflightArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error(`preflight-agent-sdk: ${(err as Error).message}\n\n${USAGE}`);
+    process.exit(2);
+  }
+  if (args.help) {
+    console.log(USAGE);
+    return;
+  }
+
   const failures: string[] = [];
   const pass = (msg: string) => console.log(`  ok  ${msg}`);
   const fail = (msg: string) => {
@@ -54,7 +83,9 @@ async function main() {
 
   // 3. SDK query end-to-end
   console.log('\n3. SDK query end-to-end');
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!args.live) {
+    console.log('  skip  live query not requested — rerun with --live to spend ~15 tokens on it');
+  } else if (!process.env.ANTHROPIC_API_KEY) {
     console.log('  skip  ANTHROPIC_API_KEY not set — cannot test live query');
   } else {
     try {
@@ -122,7 +153,9 @@ async function main() {
   console.log('PREFLIGHT OK');
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
