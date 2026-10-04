@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,7 +6,10 @@ import { dirname, join } from 'node:path';
 import { generateAutoplanSnapshotTool } from '../scripts/resolvers/composition';
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { runBashScript } from './helpers/bash-script';
-import { ROOT, owned, fixtureWriteFileSync, fixtureCopyFileSync, fixtureMkdirSync, fixtureUtimesSync, tree, fixture, install } from './helpers/setup-codex-scope-fixture';
+import { cleanupFixtures, cleanupSeed, ROOT, owned, fixtureWriteFileSync, fixtureCopyFileSync, fixtureMkdirSync, fixtureUtimesSync, tree, fixture, install } from './helpers/install-fixture';
+
+afterEach(cleanupFixtures);
+afterAll(cleanupSeed);
 
 test.skipIf(process.platform === 'win32')('fixture writes reject physical escapes and allow aliased temporary roots', () => {
   const dir = mkdtempSync(join(tmpdir(), 'gstack-fixture-guard-'));

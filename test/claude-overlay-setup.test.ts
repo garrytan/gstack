@@ -8,13 +8,14 @@
  * their activation records come from bin/gstack-render-claude.sh. The marker
  * below is text only the opus-4-7 and opus-4-8 overlays render.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { cleanupFixtures, type Fixture, makeFixture, makeSource, put, registryRows, runSetup, setVersion } from './helpers/install-fixture';
+import { cleanupFixtures, cleanupSeed, type Fixture, makeFixture, makeSource, put, registryRows, runSetup, setVersion } from './helpers/install-fixture';
 
 afterEach(cleanupFixtures);
+afterAll(cleanupSeed);
 
 const MARKER = 'Effort-match the step';
 

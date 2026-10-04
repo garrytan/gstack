@@ -5,12 +5,13 @@
  * earlier setup added (keeping the other plan-tune hooks), and still honors
  * an explicit opt-in. Real ./setup into a temp HOME (test/helpers/install-fixture).
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
-import { cleanupFixtures, makeFixture, makeSource, type Fixture } from './helpers/install-fixture';
+import { cleanupFixtures, cleanupSeed, makeFixture, makeSource, type Fixture } from './helpers/install-fixture';
 
 afterEach(cleanupFixtures);
+afterAll(cleanupSeed);
 
 function setup(f: Fixture, src: string, args: string[], env: Record<string, string> = {}) {
   const r = spawnSync('bash', [join(src, 'setup'), ...args], { cwd: f.home, env: { ...f.env, ...env }, encoding: 'utf8', timeout: 60_000, input: '' });

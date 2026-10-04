@@ -1,8 +1,11 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { owned, fixtureWriteFileSync, fixtureCopyFileSync, fixtureMkdirSync, fixtureUtimesSync, tree, fixture, install } from './helpers/setup-codex-scope-fixture';
+import { cleanupFixtures, cleanupSeed, owned, fixtureWriteFileSync, fixtureCopyFileSync, fixtureMkdirSync, fixtureUtimesSync, tree, fixture, install } from './helpers/install-fixture';
+
+afterEach(cleanupFixtures);
+afterAll(cleanupSeed);
 
 describe.skipIf(process.platform === 'win32')('setup Codex destination follows recognized source scope', () => {
   for (const localLegacy of [false, true]) for (const marker of ['current', '1.85.0.0']) test(`excluded global legacy render survives local migration=${localLegacy}, marker=${marker} and generation`, () => {

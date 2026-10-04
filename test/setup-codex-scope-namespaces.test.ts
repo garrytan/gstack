@@ -1,8 +1,11 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fixtureWriteFileSync, fixtureCopyFileSync, fixtureMkdirSync, fixtureUtimesSync, tree, fixture, install } from './helpers/setup-codex-scope-fixture';
+import { cleanupFixtures, cleanupSeed, fixtureWriteFileSync, fixtureCopyFileSync, fixtureMkdirSync, fixtureUtimesSync, tree, fixture, install } from './helpers/install-fixture';
+
+afterEach(cleanupFixtures);
+afterAll(cleanupSeed);
 
 describe.skipIf(process.platform === 'win32')('setup Codex destination follows recognized source scope', () => {
   for (const global of [false, true]) for (const windows of [false, true]) test(`a real runtime containing the source is refused before writes, global=${global}, Windows=${windows}`, () => {

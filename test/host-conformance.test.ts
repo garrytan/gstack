@@ -10,13 +10,14 @@
  * ~/.gstack) and from a project-vendored copy that captured the global Codex
  * namespace (#2879). Instruction-only hosts must change nothing.
  */
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { accessSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ALL_HOST_CONFIGS } from '../hosts/index';
-import { cleanupFixtures, makeFixture, makeSource, put, registryRows, runSetup, setVersion, tree } from './helpers/install-fixture';
+import { cleanupFixtures, cleanupSeed, makeFixture, makeSource, put, registryRows, runSetup, setVersion, tree } from './helpers/install-fixture';
 
 afterEach(cleanupFixtures);
+afterAll(cleanupSeed);
 
 /** Skills directory each installable host discovers (global scope). */
 const DISCOVERY: Record<string, string> = {
