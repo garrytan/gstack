@@ -38,7 +38,7 @@ import { E2E_KINDS } from '../../test/helpers/touchfiles-data';
 import { manualReviewProblem } from '../../test/helpers/cookie-workflow-manual-review';
 import { preflightAnthropicApi } from '../../test/helpers/anthropic-preflight';
 import { OVERLAY_MIN_FILE_WALL_MS } from '../../test/helpers/overlay-case-policy';
-import { PR_PROFILE_CASE_IDS, PR_PROFILE_FILES, packageChangeOnlyVersion, selectPrProfile, type PrProfileSelection } from '../test-pr-profile';
+import { packageChangeOnlyVersion, prProfileCaseAllowed, prProfileFileMap, selectPrProfile, type PrProfileSelection } from '../test-pr-profile';
 import { e2eReuseLaneProblem, prepareE2EShardReuse, selectPlanReceipts, writeNegativeReceipt, writePanelReceipt } from '../e2e-shard-reuse';
 
 import {
@@ -532,7 +532,7 @@ export function parseRunManifest(raw: string): PaidRunManifest {
         JSON.stringify(parsed.selection.judges) !== JSON.stringify(coverage.judges)) {
       throw new Error('manifest PR coverage/selection invalid or requires full validation');
     }
-    if (coverage.mode === 'pr' && coverage.e2e.some(id => !(PR_PROFILE_CASE_IDS as readonly string[]).includes(id))) {
+    if (coverage.mode === 'pr' && coverage.e2e.some(id => !prProfileCaseAllowed(id, coverage.directCases ?? []))) {
       throw new Error('manifest PR selection contains a broad-only case');
     }
     if (coverage.deferred.some(item => !Object.hasOwn(E2E_TOUCHFILES, item.id) || E2E_TIERS[item.id] !== item.tier || typeof item.reason !== 'string')) {
@@ -605,7 +605,7 @@ export function parseRunManifest(raw: string): PaidRunManifest {
   }
   if (parsed.prCoverage?.mode === 'pr') {
     const planned = parsed.entries.filter(entry => entry.status === 'planned').map(entry => normalizeRelativePath(entry.file));
-    const required: string[][] = Object.entries(PR_PROFILE_FILES).flatMap(([file, ids]) => {
+    const required: string[][] = Object.entries(prProfileFileMap(parsed.selection!.e2e)).flatMap(([file, ids]) => {
       const selected = ids.filter(id => parsed.selection!.e2e!.includes(id));
       if (!selected.length) return [];
       const owners = new Set(selected.flatMap(id => {

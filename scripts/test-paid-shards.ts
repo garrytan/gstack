@@ -88,7 +88,7 @@ import { E2E_KINDS } from '../test/helpers/touchfiles-data';
 import { manualReviewProblem } from '../test/helpers/cookie-workflow-manual-review';
 import { preflightAnthropicApi } from '../test/helpers/anthropic-preflight';
 import { OVERLAY_MIN_FILE_WALL_MS } from '../test/helpers/overlay-case-policy';
-import { PR_PROFILE_CASE_IDS, PR_PROFILE_FILES, packageChangeOnlyVersion, selectPrProfile, type PrProfileSelection } from './test-pr-profile';
+import { packageChangeOnlyVersion, prProfileFileCases, selectPrProfile, type PrProfileSelection } from './test-pr-profile';
 import { e2eReuseLaneProblem, prepareE2EShardReuse, selectPlanReceipts, writeNegativeReceipt, writePanelReceipt } from './e2e-shard-reuse';
 
 type E2EShardReuse = NonNullable<ReturnType<typeof prepareE2EShardReuse>>;
@@ -456,7 +456,7 @@ function packageVersionOnlySinceBase(rootDir: string, baseRef: string): boolean 
 /** `exclude`: isolated case ids a file shard leaves to their trial shards. */
 function prProfileShardIds(key: string, selection: PaidCaseSelection, exclude: readonly string[] = []): string[] {
   const caseId = shardCaseId(key);
-  return (PR_PROFILE_FILES[shardFile(key)] ?? [])
+  return prProfileFileCases(shardFile(key), selection.e2e)
     .filter(id => (caseId === null || id === caseId) && (selection.e2e === null || selection.e2e.includes(id)) && !exclude.includes(id));
 }
 

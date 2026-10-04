@@ -1,5 +1,6 @@
 /** Fast PR policy. Cadence changes here never remove cases from the broad census. */
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { E2E_TOUCHFILES, E2E_TIERS, GLOBAL_TOUCHFILES, LLM_JUDGE_TOUCHFILES } from '../test/helpers/touchfiles-data';
 import { matchGlob, TOUCHFILES_DATA_PATH } from '../test/helpers/test-selection';
 import { isPaidTestFile } from '../test/helpers/paid-test-set';
@@ -63,6 +64,62 @@ export const PR_PROFILE_FILES: Record<string, readonly string[]> = {
   'test/skill-e2e-learnings.test.ts': ['learnings-show'],
 };
 
+const ROOT = path.resolve(import.meta.dir, '..');
+
+/** The one paid test file whose source registers a case (its touchfiles name exactly one), else null. */
+export function caseOwnerFile(id: string, maps: Pick<PrProfileMaps, 'e2eTouchfiles'> = PR_PROFILE_MAPS): string | null {
+  const owners = (maps.e2eTouchfiles[id] ?? []).filter(dep => /^test\/[^/]+\.test\.ts$/.test(dep) && isPaidTestFile(dep));
+  return owners.length === 1 ? owners[0]! : null;
+}
+
+/**
+ * DX-11: a gate case outside the audited profile can run in the PR lane only
+ * when the runner can select it by name: its owner registers a Bun test whose
+ * name is the case id (testIfSelected / testConcurrentIfSelected / test with
+ * the literal id), which is what the PR lane's case-name pattern matches.
+ */
+export function caseNameAddressable(id: string, source: string): boolean {
+  const quoted = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  return new RegExp(`(?:^|[\\s;{(])(?:test(?:Concurrent)?IfSelected|test(?:\\.concurrent)?)\\(\\s*(['"\`])${quoted}\\1`, 'm').test(code);
+}
+
+const sourceCache = new Map<string, string>();
+const readRepoSource = (file: string): string => {
+  if (!sourceCache.has(file)) {
+    try { sourceCache.set(file, fs.readFileSync(path.join(ROOT, file), 'utf8')); } catch { sourceCache.set(file, ''); }
+  }
+  return sourceCache.get(file)!;
+};
+
+/** Selectable outside the profile: a gate case with one owning paid file that names it as a test. */
+export function prProfileDirectCase(id: string, maps: PrProfileMaps = PR_PROFILE_MAPS, readSource = readRepoSource): string | null {
+  if (maps.tiers[id] !== 'gate') return null;
+  const owner = caseOwnerFile(id, maps);
+  return owner && caseNameAddressable(id, readSource(owner)) ? owner : null;
+}
+
+/** Whether a manifest may carry this case in the PR lane: audited profile, or a recorded name-addressable direct case. */
+export function prProfileCaseAllowed(id: string, directCases: readonly string[] = []): boolean {
+  return (PR_PROFILE_CASE_IDS as readonly string[]).includes(id) || (directCases.includes(id) && prProfileDirectCase(id) !== null);
+}
+
+/** File -> PR-lane case ids: the audited map plus the selected direct cases each file owns (DX-11). */
+export function prProfileFileMap(selected: readonly string[] | null): Record<string, readonly string[]> {
+  const map: Record<string, string[]> = Object.fromEntries(Object.entries(PR_PROFILE_FILES).map(([file, ids]) => [file, [...ids]]));
+  for (const id of selected ?? []) {
+    if ((PR_PROFILE_CASE_IDS as readonly string[]).includes(id)) continue;
+    const owner = prProfileDirectCase(id);
+    if (owner) (map[owner] ??= []).push(id);
+  }
+  return map;
+}
+
+/** The PR-lane case ids one test file owns under `selected`. */
+export function prProfileFileCases(file: string, selected: readonly string[] | null): readonly string[] {
+  return prProfileFileMap(selected)[file] ?? [];
+}
+
 export interface PrProfileMaps {
   e2eTouchfiles: Record<string, string[]>;
   judgeTouchfiles: Record<string, string[]>;
@@ -83,6 +140,8 @@ export interface PrProfileSelection {
   unknownFiles: string[];
   /** One label and fix per unknown file (CEO-13/DX-6). */
   unknownFileLabels: Array<{ file: string; label: string; fix: string }>;
+  /** DX-11: gate cases outside the profile selected because their own paid test file changed. */
+  directCases: string[];
   deferredPromptFiles: string[];
   missingCoverage: string[];
   needsFullValidation: boolean;
@@ -228,6 +287,8 @@ export function selectPrProfile(options: {
   profile?: readonly string[];
   /** Generated artifacts may inherit the identity of their verified source template. */
   sourceAliases?: Readonly<Record<string, string>>;
+  /** Test-file source reader for the DX-11 addressability check (defaults to the checkout). */
+  readSource?: (file: string) => string;
 }): PrProfileSelection {
   const maps = options.maps ?? PR_PROFILE_MAPS;
   const profile = options.profile ?? PR_PROFILE_CASE_IDS;
@@ -246,7 +307,12 @@ export function selectPrProfile(options: {
   const sharedInputs = files.filter(file => depends(file, FULL_GATE_PR_FILES));
   const fallback = unknownFiles.length > 0 || sharedInputs.length > 0;
   const candidates = fallback ? Object.keys(maps.e2eTouchfiles).sort() : selectedE2E;
-  const e2e = candidates.filter(id => maps.tiers[id] === 'gate' && (fallback || profile.includes(id)));
+  // DX-11: an edited paid test file runs its own gate cases even outside the profile, when the runner can select them by name.
+  const editedPaid = new Set(files.filter(file => isPaidTestFile(file)));
+  const owned = candidates.filter(id => maps.tiers[id] === 'gate' && !profile.includes(id) && editedPaid.has(caseOwnerFile(id, maps) ?? ''));
+  const directCases = fallback ? [] : owned.filter(id => prProfileDirectCase(id, maps, options.readSource) !== null);
+  const unaddressed = fallback ? [] : owned.filter(id => !directCases.includes(id));
+  const e2e = candidates.filter(id => maps.tiers[id] === 'gate' && (fallback || profile.includes(id) || directCases.includes(id)));
   const judges = fallback ? Object.keys(maps.judgeTouchfiles).sort() : selectedJudges;
   const kept = new Set(e2e);
   const deferred = candidates.filter(id => !kept.has(id)).map(id => ({
@@ -255,7 +321,9 @@ export function selectPrProfile(options: {
       ? 'Full end-to-end marathon coverage; non-blocking lane, not executed by the PR gate'
       : maps.tiers[id] === 'periodic'
         ? 'Broad periodic/release coverage; not executed by the PR gate'
-        : 'Broad gate census/release coverage; outside the fast PR profile',
+        : unaddressed.includes(id)
+          ? `Its test file changed, but the PR lane cannot select it by name; name its Bun test '${id}' (testIfSelected) to run it on PRs`
+          : 'Broad gate census/release coverage; outside the fast PR profile',
   }));
   const noQuickCoverage = files.filter(file => isPromptFile(file)
     && !(depends(file, maps.globalTouchfiles) && (e2e.length > 0 || judges.length > 0))
@@ -270,12 +338,13 @@ export function selectPrProfile(options: {
   if (unknownFiles.length) reasons.push(`Unknown dependencies restore every gate case and judge: ${unknownFiles.map(file => `${file} (${unknownFileLabel(file).label})`).join(', ')}`);
   if (sharedInputs.length) reasons.push(`Shared runtime/build inputs restore every gate case and judge: ${sharedInputs.join(', ')}`);
   if (!fallback) reasons.push('Changed-input selection intersected with the fast PR profile; selected judges retained');
+  if (directCases.length) reasons.push(`Edited paid test files select their own gate cases: ${directCases.join(', ')}`);
   if (deferred.length) reasons.push(`${deferred.length} selected behaviors remain scheduled/release coverage, not PR passes`);
   if (deferredPromptFiles.length) reasons.push(`No quick live coverage; known broad prompt checks deferred: ${deferredPromptFiles.join(', ')}`);
   if (missingCoverage.length) reasons.push(`Full validation required for prompts without a relevant PR check: ${missingCoverage.join(', ')}`);
   return {
     mode: fallback ? 'full-fallback' : 'pr', e2e, judges, deferred,
-    unknownFiles, unknownFileLabels: unknownFiles.map(file => ({ file, ...unknownFileLabel(file) })),
+    unknownFiles, unknownFileLabels: unknownFiles.map(file => ({ file, ...unknownFileLabel(file) })), directCases,
     deferredPromptFiles, missingCoverage, needsFullValidation: missingCoverage.length > 0, reasons,
   };
 }

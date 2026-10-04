@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  PR_PROFILE_CASE_IDS, PR_PROFILE_MAPS, formatPrCoverageSummary, packageChangeOnlyVersion, selectPrProfile, validatePrProfileInventory,
+  PR_PROFILE_CASE_IDS, PR_PROFILE_MAPS, caseNameAddressable, formatPrCoverageSummary, packageChangeOnlyVersion, selectPrProfile, validatePrProfileInventory,
   type PrProfileMaps,
 } from '../scripts/test-pr-profile';
 
@@ -189,5 +189,32 @@ describe('fast PR coverage policy', () => {
     expect(prLines).toContain('- Selected: 1 E2E case(s), 1 judge(s); 2 deferred');
     expect(prLines).not.toContain('Reused:');
     expect(prLines).not.toContain('Full gate restored');
+  });
+
+  test('DX-11: an edited paid test file selects its own name-addressable gate cases outside the profile', () => {
+    const direct: PrProfileMaps = { ...maps,
+      e2eTouchfiles: { ...maps.e2eTouchfiles, 'own-named': ['test/skill-e2e-own.test.ts'], 'own-prose': ['test/skill-e2e-own.test.ts'] },
+      tiers: { ...maps.tiers, 'own-named': 'gate', 'own-prose': 'gate' } };
+    const readSource = () => "describeE2E('own', () => {\n  testIfSelected('own-named', async () => {});\n  test('a prose name', async () => {});\n});";
+    const result = select({ maps: direct, readSource, changedFiles: ['test/skill-e2e-own.test.ts'],
+      selectedE2E: ['own-named', 'own-prose'], selectedJudges: [] });
+    expect(result.mode).toBe('pr');
+    expect(result.e2e).toEqual(['own-named']);
+    expect(result.directCases).toEqual(['own-named']);
+    expect(result.deferred.find(item => item.id === 'own-prose')?.reason).toContain("name its Bun test 'own-prose'");
+    expect(result.reasons).toContain('Edited paid test files select their own gate cases: own-named');
+    // A dependency edit (not the case's own test file) still keeps the audited profile only.
+    const viaHelper = select({ maps: { ...direct, e2eTouchfiles: { ...direct.e2eTouchfiles, 'own-named': ['test/skill-e2e-own.test.ts', 'own/**'] } },
+      readSource, changedFiles: ['own/x.ts'], selectedE2E: ['own-named'], selectedJudges: [] });
+    expect(viaHelper.e2e).toEqual([]);
+  });
+
+  test('DX-11: name addressing ignores comments and near-miss names', () => {
+    expect(caseNameAddressable('a-b', "  testIfSelected('a-b', async () => {})")).toBe(true);
+    expect(caseNameAddressable('a-b', '  test(`a-b`, async () => {})')).toBe(true);
+    expect(caseNameAddressable('a-b', '  testConcurrentIfSelected("a-b", async () => {})')).toBe(true);
+    expect(caseNameAddressable('a-b', ' * test (`a-b` in E2E_TIERS)')).toBe(false);
+    expect(caseNameAddressable('a-b', "/* testIfSelected('a-b') */")).toBe(false);
+    expect(caseNameAddressable('a-b', "  testIfSelected('a-bc', async () => {})")).toBe(false);
   });
 });
