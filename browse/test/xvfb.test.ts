@@ -191,7 +191,7 @@ describe.skipIf(process.platform !== 'linux')('display allocation failure contro
     const marker = path.join(root, 'spawned');
     fs.writeFileSync(path.join(root, 'Xvfb'), `#!/bin/sh\nprintf started > ${JSON.stringify(marker)}\nexit 0\n`, { mode: 0o755 });
     try {
-      const display = pickFreeDisplay();
+      const display = pickFreeDisplay(23000, 23100); // a range no other allocator in the suite uses
       expect(display).not.toBeNull();
       const child = Bun.spawnSync([process.execPath, '-e', `
         import { spawnXvfb } from ${JSON.stringify(path.resolve(import.meta.dir, '../src/xvfb.ts'))};
@@ -246,7 +246,9 @@ describe.skipIf(process.platform !== 'linux')('display allocation failure contro
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-xvfb-failure-'));
     fs.writeFileSync(path.join(root, 'Xvfb'), '#!/bin/sh\nexit 42\n', { mode: 0o755 });
     try {
-      const display = pickFreeDisplay();
+      // Ubicloud run 23: a concurrent daemon took a default-range display between
+      // this pick and the stub's exit, so startup read as a lost race instead.
+      const display = pickFreeDisplay(22000, 22100);
       expect(display).not.toBeNull();
       const child = Bun.spawnSync([process.execPath, '-e', `
         import { spawnXvfb } from ${JSON.stringify(path.resolve(import.meta.dir, '../src/xvfb.ts'))};
