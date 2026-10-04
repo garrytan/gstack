@@ -14,7 +14,8 @@ import { FREE_FIXTURES } from './helpers/free-fixtures-data';
 import { E2E_TOUCHFILES, GLOBAL_TOUCHFILES, LLM_JUDGE_TOUCHFILES } from './helpers/touchfiles-data';
 import { matchGlob } from './helpers/test-selection';
 import { isPaidTestFile } from './helpers/paid-test-set';
-import { FREE_ONLY_PR_FILES, PAID_WORKFLOW_FILES, selectPrProfile, unknownFileLabel } from '../scripts/test-pr-profile';
+import { FREE_ONLY_PR_FILES, PAID_WORKFLOW_FILES, PR_PROFILE_MAPS, selectPrProfile, unknownFileLabel } from '../scripts/test-pr-profile';
+import { derivedDependencies } from '../scripts/pr-dependencies';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const tracked = spawnSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 * 1024 })
@@ -119,7 +120,10 @@ describe('PR selection over the W1a single-file fallbacks', () => {
     const paidFixture = fixtures.find(file => registered(file) && !mapped(file))!;
     const paidResult = selectPrProfile({ selectedE2E: null, selectedJudges: null, changedFiles: [paidFixture] });
     expect(paidResult.unknownFiles).toEqual([]);
-    const unmapped = select(['test/fixtures/new-unmapped-fixture.json']);
+    // A new (tracked) fixture that neither map lists restores the full gate (ENG-13).
+    const real = derivedDependencies(PR_PROFILE_MAPS, ROOT);
+    const unmapped = selectPrProfile({ selectedE2E: [], selectedJudges: [], changedFiles: ['test/fixtures/new-unmapped-fixture.json'],
+      derived: { ...real, tracked: new Set([...real.tracked, 'test/fixtures/new-unmapped-fixture.json']) } });
     expect(unmapped.mode).toBe('full-fallback');
     expect(unmapped.unknownFileLabels[0]).toMatchObject({ label: 'needs touchfile entry' });
     expect(unmapped.unknownFileLabels[0]!.fix).toContain('FREE_FIXTURES');

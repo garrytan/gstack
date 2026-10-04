@@ -179,7 +179,7 @@ describe('fast PR coverage policy', () => {
     expect(fallbackLines).toContain('- Selected: 3 E2E case(s), 2 judge(s); 2 deferred');
     expect(fallbackLines).toContain('- Reused: 4 of 9 rule/judge record(s)');
     expect(fallbackLines).toContain('Full gate restored by 2 file(s) (fix: docs/TESTING_INTERNALS.md#pr-paid-lane-fallback)');
-    expect(fallbackLines).toContain('`lib/new-runtime.ts` (real unknown dependency): lib/new-runtime.ts is not in the checked-out tree');
+    expect(fallbackLines).toContain('`lib/new-runtime.ts` (real unknown dependency): register lib/new-runtime.ts under the cases that consume it');
     expect(fallbackLines).toContain('`test/fixtures/new.json` (needs touchfile entry):');
     expect(fallbackLines).toContain('FREE_FIXTURES');
 

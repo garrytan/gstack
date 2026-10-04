@@ -49,6 +49,14 @@ export interface DerivedDependencies {
   tracked: Set<string>;
   /** The reference chain from an E2E case's declared inputs to `file` (for fix text and audits), else null. */
   trace(caseId: string, file: string): string[] | null;
+  /**
+   * Tracked files whose reference text still names `missing`, a path absent
+   * from the tree (deleted in the diff): its path or extensionless import
+   * target, a relative import resolving to it, its bin name, an ancestor
+   * directory below the top two levels, or the outfile of a binary built from
+   * its tree. Whole-line comments and selection data never count.
+   */
+  referencers(missing: string): string[];
 }
 
 const CODE = /\.(?:[cm]?[jt]s|tsx|jsx)$/;
@@ -231,6 +239,43 @@ export function deriveDependencies(maps: DependencyMaps, root: string): DerivedD
     if (!CODE.test(file)) continue;
     try { for (const item of transpiler.scanImports(read(file))) { const hit = resolveSpecifier(root, item.path, file); if (hit && !global.has(hit)) pending.push(hit); } } catch { /* unparseable: its own entry stays global */ }
   }
+  const importTargets = new Map<string, string[]>();
+  const targetsOf = (file: string): string[] => {
+    if (!importTargets.has(file)) {
+      const targets: string[] = [];
+      if (CODE.test(file) && !(SELECTION_DATA_MODULES as readonly string[]).includes(file)) {
+        try {
+          for (const item of transpiler.scanImports(read(file))) {
+            if (item.path.startsWith('.')) targets.push(path.posix.normalize(path.posix.join(path.posix.dirname(file), item.path)));
+          }
+        } catch { /* literal mentions below still apply */ }
+      }
+      importTargets.set(file, targets);
+    }
+    return importTargets.get(file)!;
+  };
+  const referencerCache = new Map<string, string[]>();
+  const referencers = (missing: string): string[] => {
+    if (!referencerCache.has(missing)) referencerCache.set(missing, findReferencers(missing));
+    return referencerCache.get(missing)!;
+  };
+  const findReferencers = (missing: string): string[] => {
+    const bare = missing.replace(/\.(?:[cm]?[jt]s|tsx|jsx)$/, '');
+    const parts = missing.split('/');
+    const ancestors = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/')).filter(dir => dir.split('/').length >= 3);
+    const binName = missing.startsWith('bin/') ? path.posix.basename(bare) : null;
+    const outfiles = binaries.filter(({ tree }) => matchGlob(missing, tree)).map(({ outfile }) => outfile);
+    const needles = [missing, ...(bare !== missing ? [bare] : []), ...ancestors.map(dir => `${dir}/`), ...outfiles];
+    return tracked.filter(file => {
+      if (file === missing || (SELECTION_DATA_MODULES as readonly string[]).includes(file)) return false;
+      const raw = read(file);
+      if (!raw) return false;
+      const text = referenceText(file, raw);
+      if (needles.some(needle => text.includes(needle))) return true;
+      if (binName && new RegExp(`\\b${binName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text)) return true;
+      return targetsOf(file).some(target => target === missing || target === bare || `${target}/index.ts` === missing);
+    });
+  };
   const trace = (caseId: string, file: string): string[] | null => {
     const patterns = maps.e2eTouchfiles[caseId] ?? [];
     const parents = new Map<string, string>();
@@ -240,7 +285,7 @@ export function deriveDependencies(maps: DependencyMaps, root: string): DerivedD
     while (parents.has(chain[0]!)) chain.unshift(parents.get(chain[0]!)!);
     return chain;
   };
-  return { e2e, judges: consumers(maps.judgeTouchfiles, DEFAULT_JUDGE_OWNER), everyCase, global, tracked: trackedSet, trace };
+  return { e2e, judges: consumers(maps.judgeTouchfiles, DEFAULT_JUDGE_OWNER), everyCase, global, tracked: trackedSet, trace, referencers };
 }
 
 const cache = new Map<string, DerivedDependencies>();

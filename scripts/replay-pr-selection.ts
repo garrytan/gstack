@@ -43,7 +43,7 @@ export interface ReplayRow {
   runId: number;
   /** Changed files in the replayed diff (the wave/ordinary split reads it). */
   changed: number;
-  /** Changed files missing from today's tree (deleted or renamed since); they restore the full gate. */
+  /** Changed files missing from today's tree (deleted or renamed since); their consumers are the live files that still reference them. */
   vanished: number;
   oldMode: string;
   newMode: string;
@@ -64,8 +64,10 @@ export interface ReplayRow {
 export function caseTouchesDiff(id: string, changedFiles: readonly string[]): boolean {
   const patterns = [...(E2E_TOUCHFILES[id] ?? []), ...GLOBAL_TOUCHFILES];
   const derived = derivedDependencies(PR_PROFILE_MAPS, path.resolve(import.meta.dir, '..'));
+  // A path absent from today's tree reaches a case through the live files that still reference it.
+  const via = (file: string) => derived.tracked.has(file) ? [file] : derived.referencers(file);
   return changedFiles.some(file => patterns.some(pattern => matchGlob(file, pattern))
-    || derived.global.has(file) || !!derived.e2e.get(file)?.has(id));
+    || via(file).some(source => derived.global.has(source) || !!derived.e2e.get(source)?.has(id)));
 }
 
 export function replayRun(input: ReplayInput, oldSelection: readonly string[]): ReplayRow {
@@ -109,7 +111,7 @@ export function summarize(rows: readonly ReplayRow[]): string[] {
     `- full-fallback: ${fallbackOld} (${pct(fallbackOld)}) recorded -> ${fallbackNew} (${pct(fallbackNew)}) replayed`,
     segment(`wave branches (diff >= ${WAVE_DIFF_FILES} files)`, rows.filter(row => row.changed >= WAVE_DIFF_FILES)),
     segment(`ordinary pushes (diff < ${WAVE_DIFF_FILES} files)`, rows.filter(row => row.changed < WAVE_DIFF_FILES)),
-    `- pushes whose diff names files missing from today's tree: ${rows.filter(row => row.vanished > 0).length} (those files restore the full gate)`,
+    `- pushes whose diff names files missing from today's tree: ${rows.filter(row => row.vanished > 0).length} (placed through the live files that still reference them)`,
     `- needs full validation (plan refuses, as in CI): ${rows.filter(row => row.newMode === 'needs-full-validation').length}`,
     `- diffs truncated at the compare API's 300-file limit: ${rows.filter(row => row.truncated).length}`,
     `- failed cases that no longer exist: ${new Set(rows.flatMap(row => row.retiredFailures)).size}`,

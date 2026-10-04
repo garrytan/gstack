@@ -290,9 +290,6 @@ export function unknownFileLabel(file: string): { label: string; fix: string } {
   if (/^\.github\/workflows\/[^/]+\.ya?ml$/.test(file) && !(PAID_WORKFLOW_FILES as readonly string[]).includes(file)) {
     return { label: 'add to FREE_ONLY_PR_FILES', fix: `add ${file} to FREE_ONLY_PR_FILES in scripts/test-pr-profile.ts` };
   }
-  if (DERIVABLE_PREFIXES.some(prefix => file.startsWith(prefix))) {
-    return { label: 'real unknown dependency', fix: `${file} is not in the checked-out tree, so its consumers cannot be derived; when its consumers change in the same diff the full gate is expected, else register ${file} under the cases that consume it in test/helpers/touchfiles-data.ts` };
-  }
   return { label: 'real unknown dependency', fix: `register ${file} under the cases that consume it in test/helpers/touchfiles-data.ts, add it to FREE_ONLY_PR_FILES in scripts/test-pr-profile.ts if no paid case reads it, or add its directory to DERIVABLE_PREFIXES so scripts/pr-dependencies.ts derives its consumers` };
 }
 
@@ -345,16 +342,38 @@ export function selectPrProfile(options: {
     && !depends(file, dependencyPatterns) && !knownNonBehaviorFile(file));
   // Unmapped files are placed by derived references where the derivation covers them; the rest restore the full gate.
   const derived = options.derived !== undefined ? options.derived : maps === PR_PROFILE_MAPS ? derivedDependencies(maps, ROOT) : null;
-  const derivedGlobal = derived ? unmapped.filter(file => derived.global.has(file)) : [];
-  const derivedFiles = derived ? unmapped.filter(file => !derived.global.has(file) && ((derived.e2e.get(file)?.size ?? 0) + (derived.judges.get(file)?.size ?? 0)) > 0) : [];
-  const noConsumerFiles = derived ? unmapped.filter(file => derived.tracked.has(file) && !derived.global.has(file) && !derivedFiles.includes(file)
-    && DERIVABLE_PREFIXES.some(prefix => file.startsWith(prefix))) : [];
-  const unknownFiles = unmapped.filter(file => !derivedGlobal.includes(file) && !derivedFiles.includes(file) && !noConsumerFiles.includes(file));
+  // A path absent from the head tree was deleted by the diff: its consumers are the live files that still reference it.
+  const consumers = new Map<string, { e2e: Set<string>; judges: Set<string> }>();
+  const derivedGlobal: string[] = [];
+  const noConsumerFiles: string[] = [];
+  const deletedLabels = new Map<string, { label: string; fix: string }>();
+  for (const file of derived ? unmapped : []) {
+    if (derived!.tracked.has(file)) {
+      if (derived!.global.has(file)) { derivedGlobal.push(file); continue; }
+      const found = { e2e: derived!.e2e.get(file) ?? new Set<string>(), judges: derived!.judges.get(file) ?? new Set<string>() };
+      if (found.e2e.size + found.judges.size > 0) consumers.set(file, found);
+      else if (DERIVABLE_PREFIXES.some(prefix => file.startsWith(prefix))) noConsumerFiles.push(file);
+      continue;
+    }
+    const referencers = derived!.referencers(file);
+    const fullGate = referencers.find(referencer => matches(referencer, PR_FULL_GATE_FILES));
+    if (fullGate) {
+      deletedLabels.set(file, { label: 'deleted but still referenced', fix: `${file} is deleted but ${fullGate} (a full-gate input) still references it; remove the reference or restore the file` });
+      continue;
+    }
+    if (referencers.some(referencer => derived!.global.has(referencer))) { derivedGlobal.push(file); continue; }
+    const found = { e2e: new Set(referencers.flatMap(referencer => [...derived!.e2e.get(referencer) ?? []])),
+      judges: new Set(referencers.flatMap(referencer => [...derived!.judges.get(referencer) ?? []])) };
+    if (found.e2e.size + found.judges.size > 0) consumers.set(file, found);
+    else noConsumerFiles.push(file);
+  }
+  const derivedFiles = [...consumers.keys()];
+  const unknownFiles = unmapped.filter(file => !derivedGlobal.includes(file) && !consumers.has(file) && !noConsumerFiles.includes(file));
   const sharedInputs = files.filter(file => depends(file, PR_FULL_GATE_FILES));
   const fallback = unknownFiles.length > 0 || sharedInputs.length > 0;
   const dependentsMode = !fallback && derivedFiles.length > 0;
-  const derivedE2E = derivedFiles.flatMap(file => [...derived!.e2e.get(file) ?? []]);
-  const derivedJudges = derivedFiles.flatMap(file => [...derived!.judges.get(file) ?? []]);
+  const derivedE2E = derivedFiles.flatMap(file => [...consumers.get(file)!.e2e]);
+  const derivedJudges = derivedFiles.flatMap(file => [...consumers.get(file)!.judges]);
   // A file in the global touchfiles' import closure is as broad as a global touchfile.
   const everything = derivedGlobal.length > 0;
   const candidates = fallback || everything ? Object.keys(maps.e2eTouchfiles).sort() : [...new Set([...selectedE2E, ...derivedE2E])].sort();
@@ -386,20 +405,20 @@ export function selectPrProfile(options: {
     && Object.values(maps.e2eTouchfiles).some(patterns => depends(file, patterns)));
   const missingCoverage = noQuickCoverage.filter(file => !deferredPromptFiles.includes(file));
   const reasons: string[] = [];
-  if (unknownFiles.length) reasons.push(`Unknown dependencies restore every gate case and judge: ${unknownFiles.map(file => `${file} (${unknownFileLabel(file).label})`).join(', ')}`);
+  if (unknownFiles.length) reasons.push(`Unknown dependencies restore every gate case and judge: ${unknownFiles.map(file => `${file} (${(deletedLabels.get(file) ?? unknownFileLabel(file)).label})`).join(', ')}`);
   if (sharedInputs.length) reasons.push(`Shared runtime/build inputs restore every gate case and judge: ${sharedInputs.join(', ')}`);
-  if (dependentsMode) reasons.push(`Derived references select every dependent gate case: ${derivedFiles.map(file => `${file} (${derived!.e2e.get(file)?.size ?? 0} cases)`).join(', ')}`);
+  if (dependentsMode) reasons.push(`Derived references select every dependent gate case: ${derivedFiles.map(file => `${file} (${consumers.get(file)!.e2e.size} cases)`).join(', ')}`);
   else if (!fallback) reasons.push('Changed-input selection intersected with the fast PR profile; selected judges retained');
   if (derivedGlobal.length) reasons.push(`Paid-runner inputs (global touchfile import closure) select every case: ${derivedGlobal.join(', ')}`);
-  if (noConsumerFiles.length) reasons.push(`No paid case's reference closure reaches: ${noConsumerFiles.join(', ')}`);
+  if (noConsumerFiles.length) reasons.push(`No paid case's reference closure reaches (or, deleted, still references): ${noConsumerFiles.join(', ')}`);
   if (directCases.length) reasons.push(`Edited paid test files select their own gate cases: ${directCases.join(', ')}`);
   if (deferred.length) reasons.push(`${deferred.length} selected behaviors remain scheduled/release coverage, not PR passes`);
   if (deferredPromptFiles.length) reasons.push(`No quick live coverage; known broad prompt checks deferred: ${deferredPromptFiles.join(', ')}`);
   if (missingCoverage.length) reasons.push(`Full validation required for prompts without a relevant PR check: ${missingCoverage.join(', ')}`);
   return {
     mode: fallback ? 'full-fallback' : dependentsMode ? 'dependents' : 'pr', e2e, judges, deferred,
-    unknownFiles, unknownFileLabels: unknownFiles.map(file => ({ file, ...unknownFileLabel(file) })), directCases,
-    derivedFiles: derivedFiles.map(file => ({ file, e2e: derived!.e2e.get(file)?.size ?? 0, judges: derived!.judges.get(file)?.size ?? 0 })), noConsumerFiles,
+    unknownFiles, unknownFileLabels: unknownFiles.map(file => ({ file, ...(deletedLabels.get(file) ?? unknownFileLabel(file)) })), directCases,
+    derivedFiles: derivedFiles.map(file => ({ file, e2e: consumers.get(file)!.e2e.size, judges: consumers.get(file)!.judges.size })), noConsumerFiles,
     deferredPromptFiles, missingCoverage, needsFullValidation: missingCoverage.length > 0, reasons,
   };
 }

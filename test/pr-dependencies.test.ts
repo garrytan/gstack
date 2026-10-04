@@ -165,17 +165,66 @@ describe('the fail-closed full-gate list', () => {
     }
   });
 
-  test('a new file the derivation cannot place restores the full gate with its fix', () => {
-    for (const file of ['lib/brand-new-runtime.ts', 'NEW_ROOT_FILE.md', 'newdir/tool.ts']) {
+  test('a file the derivation cannot place restores the full gate with its fix', () => {
+    for (const file of ['ETHOS.md', 'conductor.json']) {
       const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: [file], packageVersionOnly: true });
       expect(result.coverage?.mode, file).toBe('full-fallback');
       const label = result.coverage!.unknownFileLabels[0]!;
       expect(label.file).toBe(file);
       expect(label.fix).toContain(file);
       expect(label.fix).toContain('touchfiles-data.ts');
+      expect(label.fix).toContain('DERIVABLE_PREFIXES');
     }
-    expect(unknownFileLabel('newdir/tool.ts').fix).toContain('DERIVABLE_PREFIXES');
-    expect(unknownFileLabel('lib/brand-new-runtime.ts').fix).toContain('not in the checked-out tree');
     expect(DERIVABLE_PREFIXES).not.toContain('test/fixtures/');
+  });
+
+});
+
+describe('deleted files (paths absent from the head tree)', () => {
+  const without = (file: string) => ({ ...real, tracked: new Set([...real.tracked].filter(other => other !== file)) });
+  const pick = (file: string, derived = without(file)) => selectPrProfile({ selectedE2E: [], selectedJudges: [], changedFiles: [file], derived });
+
+  test('a deleted file nothing references and no touchfile matches has no dependents', () => {
+    const result = pick('scripts/retired-tool-nobody-calls.ts', real);
+    expect(result.mode).toBe('pr');
+    expect(result.noConsumerFiles).toEqual(['scripts/retired-tool-nobody-calls.ts']);
+    expect(result.e2e).toEqual([]);
+  });
+
+  test('a deleted file a touchfile matches selects that touchfile\'s cases', () => {
+    const result = computePaidCaseSelection({ profile: 'pr', env: {}, changedFiles: ['browse/src/retired-module.ts'], packageVersionOnly: true });
+    expect(result.coverage?.unknownFiles).toEqual([]);
+    expect(result.coverage?.mode).toBe('pr');
+    expect(result.selection.e2e).toContain('browse-basic');
+  });
+
+  test('a deleted file live code still references selects the referencing files\' dependents', () => {
+    const result = pick('bin/gstack-next-version');
+    expect(result.mode).toBe('dependents');
+    expect(result.e2e).toContain('review-sql-injection');
+    expect(result.derivedFiles[0]?.file).toBe('bin/gstack-next-version');
+    expect(real.referencers('bin/gstack-next-version')).toContain('review/SKILL.md.tmpl');
+  });
+
+  test('a deleted file a full-gate input still references, or a deleted full-gate entry, restores the full gate', () => {
+    expect(real.referencers('bin/gstack-install-registry.sh')).toContain('setup');
+    const referenced = pick('bin/gstack-install-registry.sh');
+    expect(referenced.mode).toBe('full-fallback');
+    expect(referenced.unknownFileLabels[0]).toMatchObject({ file: 'bin/gstack-install-registry.sh', label: 'deleted but still referenced' });
+    expect(referenced.unknownFileLabels[0]!.fix).toContain('setup');
+    expect(pick('bunfig.toml').mode).toBe('full-fallback');
+  });
+
+  test('comments and data files never count as references to a deleted path', () => {
+    const root = fixtureRepo({
+      'test/skill-e2e-alpha.test.ts': "// lib/gone.ts used to live here\nimport './helpers/h';\n",
+      'test/helpers/h.ts': "export const data = 'x';\n", 'data/list.json': '["lib/gone.ts"]',
+      'scripts/build.sh': '', 'scripts/resolvers/index.ts': '', 'package.json': '{}',
+    });
+    const derived = deriveDependencies({ e2eTouchfiles: { alpha: ['test/skill-e2e-alpha.test.ts'] }, judgeTouchfiles: {}, globalTouchfiles: [] }, root);
+    expect(derived.referencers('lib/gone.ts')).toEqual([]);
+    const relative = fixtureRepo({ 'test/skill-e2e-alpha.test.ts': "import './helpers/gone';\n", 'scripts/build.sh': '', 'scripts/resolvers/index.ts': '', 'package.json': '{}' });
+    expect(deriveDependencies({ e2eTouchfiles: { alpha: ['test/skill-e2e-alpha.test.ts'] }, judgeTouchfiles: {}, globalTouchfiles: [] }, relative)
+      .referencers('test/helpers/gone.ts')).toEqual(['test/skill-e2e-alpha.test.ts']);
   });
 });
