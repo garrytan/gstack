@@ -260,6 +260,12 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   a different handful of single-trial reds. Once `eval:pass-rates` has 10 weekly
   trials per case, apply the CASE_QUARANTINE entry rule instead of chasing one
   run at a time. Effort S.
+  **Progress (2026-10 audit):** EVAL_POLICY v2 makes series case-owned, but the
+  D1 backtest shows no blocking case reaches 10 qualifying trials under the
+  approved weekly history (main scheduled runs plus main dispatches), so
+  quarantine stays unreachable; census redness is fixed at source and tracked by
+  `test:health`. The options and the pending decision are in
+  docs/test-audit-2026-10.md, "What the backtest shows".
 
 ### P2/P3: mvanhorn fix-wave deferrals (filed 2026-10-03, from the autoplan review of the wave)
 

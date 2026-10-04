@@ -185,9 +185,7 @@ DURATIONS (LPT, `packShardsByDuration`) when the committed seed
 `scripts/free-test-durations.json` exists — refresh it with
 `bun run test:ubicloud --record-durations`, which times each file in its own
 child on a VM with the CI lane's environment and copies the seed back. That is
-the only acceptable seed source: CI never records, and a recording from a laptop
-or a small sandbox is not acceptable, because browser and display tests skip or
-slow down there and the seed underestimates or distorts them. Missing seed → silent hash-shard fallback; corrupt seed → one warning +
+the only acceptable seed source; see [Duration seed](#duration-seed). Missing seed → silent hash-shard fallback; corrupt seed → one warning +
 fallback; unknown files get 75th-percentile pessimism, and both full-suite and
 `--ci-plan` runs name them on stderr so a new slow file cannot silently become
 the long pole. Packed
@@ -258,16 +256,17 @@ never retry; each case's kind fixes its trials before the run (see "Eval verdict
 policy" below). Files in `CASE_SHARDED_FILES` run one registered case per
 process (`<file>#<case id>`, an exact `--test-name-pattern`, exactly one executed
 case), so a long file of short cases spreads across runners and each case gets
-its own SDK semaphore.
+its own SDK semaphore. `test/carve-section-loading.test.ts` is one of them: it registers
+one periodic case per carved skill (`carve-section-loading-<skill>`, each with
+its own touchfiles and history). Run one case with
+`bun run scripts/test-paid-shards.ts --tier periodic --case carve-section-loading-<skill>`.
 Trial telemetry rides the store: every recorded test carries its 1-based
 `attempt` plus, on an isolated trial shard, its `case_id`, `kind`, `trial`,
 `panel` and `policy_version`, and each lane's report uploads one
 `trial-outcomes` JSONL line per trial. `bun run eval:pass-rates`
 turns that history into per-case pass rates
-(see "Pass-rate history" below; it also folds in the local free runner's flake
-ledger from `flakeLedgerPath()` — override with `GSTACK_FLAKE_LEDGER`, the same
-env var the CI free lane sets before uploading its ledger as `flake-ledger-<shard>`
-artifacts, which `eval:pass-rates` does not download). Census integrity is
+(see "Pass-rate history" below; free-suite flakes are a separate record, see
+[Flake ledger](#flake-ledger)). Census integrity is
 enforced from the free suite: every `E2E_TOUCHFILES` / `LLM_JUDGE_TOUCHFILES`
 key must name a living paid test (`test/touchfiles.test.ts`'s reverse
 invariant), and `git show <sha>:path` fixtures are banned — vendor the bytes
@@ -293,7 +292,8 @@ are not collector results and do not establish that an unfinished test passed.
 retains the broad census; no case IDs or tier assignments are removed. The plan
 records both E2E and judge selections and lists deferred coverage. Executors
 receive those selections separately and the report checks actual executed case
-counts. Unknown source dependencies restore the broad gate; unmapped prompts
+counts. Unknown source dependencies restore the broad gate (see
+[PR paid lane fallback](#pr-paid-lane-fallback)); unmapped prompts
 without registered coverage require full validation. Known broad-only prompt
 changes are explicitly deferred, not counted as PR passes. Weekly/manual runs of
 `evals-periodic.yml` execute both complete censuses fresh; manual `evals.yml`
@@ -344,10 +344,22 @@ into the fullest slice whose estimated wall on J FIFO workers stays within S
 seconds, else a new slice; a shard with no recorded wall weighs the whole budget
 (its own runner), a shard longer than the budget runs alone, and overlays keep
 one final one-at-a-time slice. The manifest's `plan` records each slice estimate
-and `ciTimeoutMinutes` (every slice's supervised worst case plus 20 minutes
-setup); CI derives the matrix (`[range(1; .sliceCount + 1)]`) and job timeout
-from it, and executors refuse an `EVALS_JOBS` other than the planned J and run
-their shards longest first. `--slices K` keeps the supervised round-robin
+and its own CI job ceiling in `sliceCiTimeoutMinutes`: max(2 × slice budget, the
+slice's longest shard supervised wall, the serialized overlay envelope) + 20
+minutes setup (`CI_SETUP_ALLOWANCE_MINUTES`); `ciTimeoutMinutes` is the largest of
+them. CI derives the matrix (`[range(1; .sliceCount + 1)]`) from the manifest and
+indexes each slice's ceiling as its job timeout
+(`fromJSON(needs.plan-slices.outputs.slice_timeouts)[matrix.slice]`). Executors
+refuse an `EVALS_JOBS` other than the planned J and run their shards longest first.
+
+Each executor's first step records its job start (`GSTACK_SLICE_JOB_STARTED_AT`).
+The slice deadline is that start + the slice ceiling − a 5-minute upload reserve:
+after it the executor starts no more shards. A shard that never started reports
+`not_run` (INFRA, `never-started`); a shard still running is killed and reports
+`hung` (TIMEOUT, `timed-out`). The executor checkpoints `slice-N.json` after every
+shard start and finish, so a job killed before its final write reports from the
+checkpoint (`slice N/M ended before its final result …: TIMEOUT`), never as a
+missing slice. `--slices K` keeps the supervised round-robin
 baseline re-packed by recorded times for local runs. Durations are recorded per
 tier (a file's gate and periodic cases differ); refresh one tier from a
 downloaded report directory with `--report <dir> --write-durations`. Under `EVALS_ALL` the hollow-shard guard marks exit-0 shards with
@@ -375,8 +387,10 @@ the runner parent and handed to shard children as `GSTACK_CLAUDE_CLI_VERSION`
 (never spawned on a test thread), so a TUI-drift flake hunt is a grep, not
 archaeology.
 
-**Eval verdict policy** (`EVAL_POLICY` version 1 in
-`test/helpers/periodic-exclude-data.ts`, pre-registered 2026-09-29). Paid evals
+**Eval verdict policy** (`EVAL_POLICY` version 2 in
+`test/helpers/periodic-exclude-data.ts`; version 1 pre-registered 2026-09-29,
+version 2 approved 2026-10-04 with the decision memo in
+[test-audit-2026-10.md](test-audit-2026-10.md)). Paid evals
 never retry. Each live case has exactly one kind in `E2E_KINDS`
 (`test/helpers/touchfiles-data.ts`; `test/eval-kinds.test.ts` enforces coverage),
 and the kind fixes its trials before the run:
@@ -431,14 +445,15 @@ least 97% over at least 10 trials) without being removed, when an entry is 8
 weekly runs old, or when a tier is over its cap.
 
 **Pass-rate history** (`bun run eval:pass-rates`, `scripts/eval-flake-rank.ts`).
-It reads the `trial-outcomes` artifact of the last N completed
-`evals-periodic.yml` runs on the current branch and `main` (flags: `--case`,
-`--runs N`, `--branch`, `--dir`, `--backfill`, `--json`, `--gate`) and prints
+It reads the `trial-outcomes` artifact of the last N completed weekly
+`evals-periodic.yml` runs, meaning scheduled runs on `main` plus `main`
+dispatches, never a branch dispatch (flags: `--case`, `--runs N`, `--branch`
+to inspect one branch, `--dir`, `--backfill`, `--json`, `--gate`), and prints
 per-case per-trial pass rates with 95% Wilson intervals. A series is one case
-under one input identity, the hash of its own touchfiles minus
-`GLOBAL_TOUCHFILES` (harness edits do not restart it), per model, Claude CLI
-version and policy version; a change starts a new series and older ones stay
-visible. Labels: INCONCLUSIVE below 10 trials, BROKEN when the latest run is
+under one input identity ([Harness version](#harness-version)), per model,
+Claude CLI version and policy version
+([Pass-rate policy versions](#pass-rate-policy-versions)); a change starts a
+new series and older ones stay visible. Labels: INCONCLUSIVE below 10 trials, BROKEN when the latest run is
 0/n after a prior interval at or above 95%, FLAKY when failures leave the
 interval straddling 95%, FAILING when the whole interval is below it, PASSING
 otherwise. `--backfill` imports legacy slice artifacts as pre-policy trials
@@ -532,17 +547,20 @@ its source and policy identifier. Custom drivers must resolve each job instead
 of passing their ordinary 1800-second default as an explicit cap;
 their outer controller/detach wall must also cover the allocated work and cleanup.
 The paid census counts are printed by `--list` for each tier.
-`eval:bg:pr` and `eval:bg:periodic` have 92820/67380-second outer caps, above their recomputed floors (PR fallback 78,425 s, periodic 33,821 s including the trial shards); the PR
-wrapper covers a full-gate fallback at its default two workers. The broad gate
-wrapper reserves 49320 seconds (floor 21,725 s), and release reserves 116700 seconds for both
-tiers; free tests recompute each floor from the live shard census, case shards
-included.
+`eval:bg:<pr|gate|periodic|release>` runs `scripts/eval-bg.ts`. On the local
+backend its outer cap is ceil(1.5 × planned serial seconds / `EVALS_JOBS`) + 20
+minutes, at most 4 hours, computed from `scripts/paid-test-durations.json` for
+the lane's current plan (`--timeout SECS` overrides). On the dispatch backend the
+CI job ceilings above bound the run, and the local follower stops after 4 hours.
+`test/eval-detach-timeout-floor.test.ts` pins the cap formula, the 4-hour
+ceiling, the backend choice, the sentinel on both backends, the conclusion
+mapping and dispatch dedupe.
 
-CI plans with `--slice-budget 540 --jobs 2` for the PR gate, the periodic census
+CI plans with `--slice-budget 420 --jobs 2` for the PR gate, the periodic census
 and the weekly gate census (the gate census also `--skip-judges`), and
 `--slice-budget 1 --jobs 1` (one file per runner) for marathon. The live plans
-must fit their workflow's `max-parallel` so every slice starts at once, and
-`ciTimeoutMinutes` must stay within 360; `test/evals-workflow-wiring.test.ts`
+must fit their workflow's `max-parallel` so every slice starts at once, and every
+per-slice ceiling must stay within 360 minutes; `test/evals-workflow-wiring.test.ts`
 recomputes both from the complete census. Reconciliation rejects missing,
 duplicated or misplaced registered work, absent budget records, case shards that
 did not execute exactly their case, and reused results outside the PR profile.
@@ -589,6 +607,35 @@ against a temp `GSTACK_INSTALL_DIR` / `GSTACK_SKILLS_DIR`, and
 `test/hook-scripts.test.ts` runs the real `careful/bin/check-careful.sh` and
 `freeze/bin/check-freeze.sh` with JSON payloads on stdin (including the
 `GSTACK_HOME` state-root parity against `bin/gstack-paths`).
+
+### Pass-rate policy versions
+
+Readers score only trials recorded under their own `EVAL_POLICY.version`.
+Trials from an older policy are shown display-only. Trials from a newer policy
+are ignored with a printed count ("ignored N trial(s) recorded under a policy
+newer than vX"). When you see that line, run pass-rates from a checkout at or
+after the commit that bumped the version. The supported rollback of a policy
+change is reverting its writer commit; the reader-compatibility commit before it
+stays.
+
+### Harness version
+
+Under `EVAL_POLICY` v2 a case's series identity is the bytes the case owns (its
+paid test file, its fixtures and its skills' prompt files, including the
+generated SKILL.md) plus `HARNESS_VERSION`, keyed with model, Claude CLI version
+and policy version (`scripts/eval-trial-series.ts`). Each trial also records the
+full consumed-input fingerprint as provenance. `scripts/harness-version.json`
+pins every shared-harness file (`GLOBAL_TOUCHFILES` plus the session runners, the
+PTY harness, the e2e gate and the LLM judge) by blob hash. When
+`test/harness-version.test.ts` fails, run one of:
+
+```bash
+bun run scripts/bump-harness-version.ts --non-behavioral "<why no verdict can change>"  # no series reset
+bun run scripts/bump-harness-version.ts --bump "<what behavior changed>"                # new series for every case
+```
+
+On a merge conflict in the manifest, take the higher version, then rerun the
+script.
 
 ## Ubicloud VMs (`bun run test:ubicloud`)
 
@@ -646,7 +693,7 @@ serially, downgrading a clean retry to a loud FLAKY-PASS (capped at 5 files so
 a broken tree can't masquerade as flaky). The required CI free lane and the
 Windows lane set the retry knob too, appending every flaky pass to the JSONL ledger it uploads
 (`GSTACK_FLAKE_LEDGER`) — a flaky pass never reds the lane, but it never
-disappears either.
+disappears either ([Flake ledger](#flake-ledger)).
 
 ## Test selection and tiers
 
@@ -657,7 +704,8 @@ Moved verbatim from CLAUDE.md (#2096 size limit).
 Each test declares its file dependencies in `test/helpers/touchfiles.ts`. Changes
 to global touchfiles (session-runner, eval-store, touchfiles.ts itself) trigger
 all tests. Use `EVALS_ALL=1` to force all tests. Run `eval:select` to preview
-which tests would run. Commands by task: [CONTRIBUTING.md](../CONTRIBUTING.md#which-command-do-i-run).
+which tests would run; it applies the PR profile by default, and
+`--profile full` shows the plain touchfile selection. Commands by task: [CONTRIBUTING.md](../CONTRIBUTING.md#which-command-do-i-run).
 
 **Two-tier system:** Tests are classified as `gate` or `periodic` in `E2E_TIERS`
 (in `test/helpers/touchfiles.ts` — a facade over `touchfiles-data.ts` +
@@ -680,6 +728,53 @@ in `bun test`): a `skill-e2e-*` file named in a touchfiles dep list whose
 `EVALS_TIER` self-gate disagrees with its declared tier in `E2E_TIERS` fails the
 suite. Files not named in any dep list are reported, not enforced — keep both
 in sync.
+
+### PR paid lane fallback
+
+PR selection (`scripts/test-pr-profile.ts`) classifies every changed file. A file
+mapped by a paid case's touchfiles selects that case. These files are exempt and
+select nothing: docs, any non-paid `*.test.ts(x)`, `FREE_ONLY_PR_FILES` (the
+free and paid duration seeds, `scripts/ubicloud/**`, every workflow that runs no
+paid evals, and free-only tools), and the fixtures in `FREE_FIXTURES`
+(`test/helpers/free-fixtures-data.ts`, each fixture with its free consumers).
+`PAID_WORKFLOW_FILES` (`evals.yml`, `evals-periodic.yml`, `evals-marathon.yml`)
+and any other unknown file restore the full gate (`prCoverage.mode =
+full-fallback`). The job summary and PR comment list each file that caused a
+fallback with one of three labels:
+
+- **needs touchfile entry**: a paid test, helper or fixture no case maps; add it
+  to the owning case in `E2E_TOUCHFILES` (`test/helpers/touchfiles-data.ts`).
+- **add to FREE_ONLY_PR_FILES**: a file only free lanes read; add it to the list
+  in `scripts/test-pr-profile.ts` (or a fixture to `FREE_FIXTURES`).
+- **real unknown dependency**: shared code (bin/, lib/, resolvers, hosts, setup)
+  whose dependents are not mapped; the full gate is the correct result.
+
+`test/free-fixtures.test.ts` holds the inventory: each `test/fixtures/**` path
+belongs to a paid touchfile or `FREE_FIXTURES`, and each workflow to the paid or
+free-only list. Editing a paid test file runs its own gate cases on the PR when
+their Bun test is named by the case id; the file's other cases stay deferred with
+a reason that says to name the test by its case id.
+
+### PR receipts, recovery and debounce
+
+Passes and failures of single-trial shards are written as receipts at the
+execution boundary, so a cancelled run's finished work survives. The
+`recover-receipts` job runs `scripts/recover-receipts.ts` from the base ref with
+`actions: read`: it merges the receipts of at most 5 completed, cancelled
+`evals.yml` runs of the same PR (oldest first, negatives before passes, so a newer
+FAIL blocks an older PASS) and hands the store to `plan-slices`, which keeps
+`contents: read` only. Its `recovery.json` checkpoint never advances past an
+unresolved run. `plan-slices` turns reuse off when recovery degraded, the
+checkpoint is missing or a cancelled run is still unresolved; recovery itself
+never fails the run, and the job summary names the reason (rate limit with its
+reset time, `gh auth status`, the 60-second budget). The whole store is saved by
+`slices-report`.
+
+On a `synchronize` push, when another run for the same PR started in the last 15
+minutes, the debounce job waits 90 seconds before planning; a run that outlives
+the wait reports "superseded by <sha>". PR labels: `evals-no-debounce` skips the
+wait and `evals-fresh` turns receipt reuse off. Labels apply from the next push,
+because adding a label does not start `evals.yml`.
 
 ## Free suite runner, judge reuse and engine skips
 
@@ -737,6 +832,31 @@ Fix a writer with `usePrivateStateRoot()` (`test/helpers/private-state-root.ts`)
 or a child HOME/GSTACK_HOME, and resolve product state paths at write time,
 never at import.
 
+### Flake ledger
+
+`GSTACK_FREE_RETRY_FLAKY=1` reruns a failing free test file once, serially. A
+clean retry turns the shard green as a flaky pass and appends an entry to that
+shard's flake ledger, uploaded as `flake-ledger-<shard>` (90-day retention). The
+Monday "Weekly test health" workflow (`bun run test:health --enforce`) reads
+main's ledgers through `scripts/lib/ci-history.ts` and fails when a file flakes
+in more than 5% of main free-tests runs over a window of at least 20 runs; a
+window thinner than 20 runs in the last 7 days widens to the newest 20 runs, and
+fewer than 20 runs is report-only. `bun run test:health flake-summary <dir>`
+prints a run's ledgers as a table. A flaky file is fixed at source; the retry
+never masks it. `bun run eval:pass-rates` lists only the local ledger
+(`flakeLedgerPath()`, overridden by `GSTACK_FLAKE_LEDGER`).
+
+### Duration seed
+
+`scripts/free-test-durations.json` drives shard packing. Acceptable seeds come
+from `bun run test:ubicloud --record-durations` (each file timed in its own
+child on a VM with the CI lane's environment) or a CI recording. A 4-core laptop
+or small-sandbox recording is not acceptable: browser and display tests skip or
+slow down there, so the seed misstates them. The weekly test-health run fails its
+enforced `unseeded-free-files` check ("stale seed: N unseeded file(s) > 5") when
+more than 5 free test files are missing from the seed, so contributors without
+Ubicloud access learn within a week that it needs a refresh.
+
 ## Running evals as an agent: detach
 
 Moved verbatim from CLAUDE.md (#2096 size limit). The short rule stays in
@@ -751,32 +871,46 @@ since-retired single-process runner). On macOS
 the run can also die to idle-sleep. `gstack-detach` fixes both: a fresh session
 (escapes the group SIGTERM) wrapped in `caffeinate -i` (blocks idle-sleep).
 
-- Use the `eval:bg:*` scripts (`eval:bg:pr`, `eval:bg:release`, `eval:bg:gate`,
-  `eval:bg:periodic`) — they wrap the eval command in `gstack-detach` with the
-  machine-wide `gstack-evals` lock (concurrent worktrees serialize instead of
-  saturating the shared model API), a per-tier watchdog, and a **run-scoped** log
-  under `~/.gstack-dev/eval-runs/` (no shared-`/tmp` collision). Each prints its
-  log path. All four run through the
-  sharded paid runner (`scripts/test-paid-shards.ts`, also exposed as
-  `test:gate:sharded` / `test:periodic:sharded`): one Bun process per test
-  file, an external wall-clock timeout that kills the shard's process GROUP
-  (stray `claude`/`codex` grandchildren included), a per-shard
-  `GSTACK_EVAL_DIR=<evalDir>/shards/<slug>/` honored by the `EvalCollector`
-  constructor, and an aggregate that separates failed vs timed-out vs
-  never-started shards — the detach timeouts (the `--timeout` values on
-  package.json's `eval:bg:gate` / `eval:bg:periodic`;
-  floor enforced against the live shard census by
-  test/eval-detach-timeout-floor.test.ts)
-  are sized against worst-case shard wall clock. `EVALS_JOBS` sets the shard
-  process count (default 8); `EVALS_CONCURRENCY` is bun's --max-concurrency
-  WITHIN a shard (default 2) — they are deliberately separate knobs. `eval:list` / `eval:compare` /
-  `eval:summary` / `eval:pass-rates` read the shard dirs too. Or call
-  `gstack-detach [--lock NAME] [--timeout SECS] [--label LBL] --
-  <cmd>` directly for any long agent job. Export `ANTHROPIC_API_KEY` first (never
-  pass keys in argv).
+- Use `bun run eval:bg:<pr|gate|periodic|release>` (`scripts/eval-bg.ts`). It
+  prints `[eval-bg] backend=<dispatch|local> …` and `gstack-detach LOG <path>` and
+  returns at once. Both backends run under `gstack-detach` with the machine-wide
+  `gstack-evals` lock (concurrent worktrees serialize instead of saturating the
+  shared model API) and a **run-scoped** log under `~/.gstack-dev/eval-runs/`
+  whose first line names the backend, the run and the tested revision.
+  - **Dispatch** (default when HEAD is clean and equal to its pushed branch on
+    `garrytan/gstack`, checked with `gh api`, and `gh` can dispatch): `pr` and
+    `gate` dispatch `evals.yml` (`evals_all=false` with `base_ref`/`base_sha` for
+    `pr`, `evals_all=true` for `gate`), `periodic` dispatches `evals-periodic.yml`,
+    `release` dispatches both. Every dispatch passes `expected_sha` (the workflow
+    fails fast when the checked-out revision differs) and a `nonce` that appears
+    in the run name (`E2E Evals [eval-bg <nonce>]`), which is how the log finds
+    and follows its run. A queued, running or green dispatch with the same
+    revision and inputs is followed instead of dispatched again. Dispatched runs
+    are validation runs: fresh and never writing PR receipts, except that a `pr`
+    dispatch on a branch with an open same-repo PR passes `pr_receipts=<PR>` and
+    reads that PR's receipts read-only.
+  - **Local** (dirty tree, unpushed commits, a fork, no `gh`, or `--local` /
+    `GSTACK_EVAL_BG_MODE=local`): the sharded paid runner
+    (`scripts/test-paid-shards.ts`) on this machine, capped at
+    ceil(1.5 × planned serial seconds / `EVALS_JOBS`) + 20 minutes, at most 4 hours
+    (`--timeout SECS` overrides). One Bun process per test file, an external
+    wall-clock timeout that kills the shard's process GROUP (stray
+    `claude`/`codex` grandchildren included), a per-shard
+    `GSTACK_EVAL_DIR=<evalDir>/shards/<slug>/` honored by the `EvalCollector`
+    constructor, and an aggregate that separates failed vs timed-out vs
+    never-started shards. `EVALS_JOBS` sets the shard process count (default 8,
+    2 for `pr`); `EVALS_CONCURRENCY` is bun's --max-concurrency WITHIN a shard
+    (default 2). Export `ANTHROPIC_API_KEY` first (never pass keys in argv).
+  - `--dispatch` refuses with the fix ("commit and push, or rerun with --local")
+    instead of falling back.
+  `eval:list` / `eval:compare` / `eval:summary` / `eval:pass-rates` read the shard
+  dirs too. For any other long agent job, call
+  `gstack-detach [--lock NAME] [--timeout SECS] [--label LBL] -- <cmd>` directly.
 - Then **poll the printed logfile** with a death-aware watcher: break on the
-  guaranteed `### gstack-detach EXIT=<code> ###` sentinel (success AND failure are
-  both marked, so silence is never mistaken for success). The detached run survives
+  guaranteed `### gstack-detach EXIT=<code> ###` sentinel (0 passed, 1 failed,
+  130 cancelled, 2 other on both backends; silence is never mistaken for success).
+  `bun run scripts/eval-bg.ts status <log-or-run-id>` reconnects and prints
+  running, passed, failed, cancelled or incomplete (died without a sentinel). The detached run survives
   even if your watcher gets reaped, so re-checking the log always works. Keep
   checking until the sentinel appears or the user tells you to stop; a long run is
   expected, and a promise to check later is not a result. At each check, report

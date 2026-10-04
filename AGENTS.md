@@ -250,8 +250,9 @@ bun run typecheck:test   # test-code type-debt ratchet (new diagnostics fail; --
 bun run format:cso       # format lib/cso/*.ts (format:cso:check is the CI gate)
 bun run test:quick       # fast measured free subset for edit feedback (not acceptance)
 bun run test             # complete free suite via the strict shard runner (no API spend)
-bun run eval:bg:pr       # changed fast live probes + selected judges, with explicit deferrals
-bun run eval:bg:release  # fresh complete gate + periodic live coverage
+bun run eval:bg:pr       # changed live probes + selected judges; dispatches CI when HEAD is clean and pushed, else runs locally
+bun run eval:bg:release  # fresh complete gate + periodic live coverage (same backend choice)
+bun run test:health      # audit success metrics and weekly health from CI history (free; needs gh)
 bun run build            # generate docs + compile binaries
 bun run gen:skill-docs   # regenerate SKILL.md files from templates
 bun run skill:check      # health dashboard for all skills
@@ -260,6 +261,8 @@ bun run skill:check      # health dashboard for all skills
 Every other test and eval command (Ubicloud, the Windows subset, one paid tier
 or case, branch validation in CI, pass rates, plan previews), with its cost and
 prerequisites, is in [Which command do I run?](CONTRIBUTING.md#which-command-do-i-run).
+Agents poll `eval:bg:*` logs for the `### gstack-detach EXIT=<code> ###` sentinel
+([CLAUDE.md](CLAUDE.md#running-evals-as-an-agent-always-detach-sigterm-proof)).
 
 ## Platform support
 

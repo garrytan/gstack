@@ -195,3 +195,68 @@ pass-rates: policy v1, 10 post-policy trial(s), 0 pre-policy (display only)
   PASSING       rule      gate      10/10 [72.2%–100%]  ...  plan-ceo-review-plan-mode
 exit=0
 ```
+
+## Wave evidence
+
+### PR paid lane selection replay (CEO-23, ENG-18)
+
+The replay sends each recorded PR push's changed files through today's
+selector and dependency graph:
+
+```bash
+gh run list -R garrytan/gstack --workflow evals.yml --json databaseId,headSha,event,createdAt,conclusion -L 200 > runs.json
+bun run scripts/replay-pr-selection.ts --runs runs.json
+```
+
+Over 168 PR pushes with plan manifests (2026-09-25 to 2026-10-04):
+
+| Measure | Recorded | Replayed |
+|---|---:|---:|
+| Full-fallback pushes | 165 of 168 (98.2%) | 164 of 168 (97.6%) |
+| Misses (a failed case that depends on the diff and is no longer selected) | — | 0 |
+| Failed cases that no longer exist (counted apart) | — | 6 |
+
+113 of the 168 diffs exceed the compare API's 300-file cap and are replayed on
+their first 300 files. The rate barely moves because the replay uses each push's
+cumulative branch diff, and the wave branches of that week touch shared inputs
+that correctly select every case: `scripts/` in 156 pushes, `.github/` in 125
+(mostly the eval workflows), `bin/` in 120, `make-pdf/` in 90, `test/helpers/` in
+86, `design/` in 67, `lib/` in 58, `hosts/` in 56 and `tsconfig*.json` in 37. The
+selector removes the single-class fallbacks (duration seeds, free-only workflows,
+`scripts/ubicloud/**`, free tests and free fixtures; run 36497566037 now selects
+the `pr` profile) and cannot narrow a branch that changes `bin/` or `lib/`;
+narrowing those needs touchfile mappings for `bin/`, `lib/`, `hosts/` and
+`make-pdf/`. The post-merge `test:health` check measures the fallback rate on
+ordinary PRs.
+
+### Paid slices and concurrency (ENG-17)
+
+Live census with `EVALS_ALL=1` (periodic: `--list --slice-budget S --jobs 2`;
+gate census: `--emit-plan <file> --slice-budget S --jobs 2 --skip-judges`):
+
+| Lane | Before (540 s) | After (420 s) |
+|---|---|---|
+| Periodic slices / peak shard processes | 26 / 52 | 33 / 66 (max-parallel 26 → 36) |
+| Weekly gate census slices / peak | 12 / 24 | 16 / 32 (max-parallel 16 → 20) |
+| CI job ceiling | One value for every slice: 173 min periodic, 254 min gate census | Per slice: ordinary 50 min (30-minute shard wall + 20), periodic outliers 52 and 73 min, the overlay slice 173 min (5 serialized overlay wrappers); gate census 34–82 min |
+
+The PR lane (`evals.yml`) uses the same 420-second budget and per-slice ceilings.
+
+### Prose pins (D2)
+
+D2 is approved: the prompt-byte contract in
+[test-value-bar.md](test-value-bar.md) covers machine-read tokens only, and
+sentence pins in 55 free test files became structural checks through
+`test/helpers/prompt-structure.ts`. A sentence pin here is a 40-or-more-character
+English string literal, or a prose regex of five or more words, asserted against
+SKILL.md, template or section text in a free test.
+
+| Measure | main (2db0b3a) | This wave |
+|---|---:|---:|
+| Sentence pins | 2,332 in 217 files | 1,190 in 209 files |
+| Shouting pins (NEVER/MUST/ALWAYS/CRITICAL emphasis) | 8 | 4 |
+
+The 4 remaining shouting pins are enum or marker tokens (`PLAN MODE EXCEPTION —
+ALWAYS RUN`, `[CRITICAL]`, `ALWAYS-ON` CLI output), not emphasis. Most remaining
+sentence pins sit in QA caller, detector-helper and workflow files that other
+work in flight owns.

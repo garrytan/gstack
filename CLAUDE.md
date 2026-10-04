@@ -39,7 +39,8 @@ Debug against real operator state with `EVALS_HERMETIC=0`. Full detail
 **Test selection and tiers:** the sharded paid runner (`test:pr`,
 `eval:bg:pr`, `test:gate:sharded`) selects tests from `git diff` through the
 dependency lists in `test/helpers/touchfiles.ts` (`EVALS_ALL=1` forces
-everything; `eval:select` previews). Classify every new E2E test in `E2E_TIERS`: safety guardrail or
+everything; `eval:select` previews the PR profile, `--profile full` the plain
+touchfile selection). Classify every new E2E test in `E2E_TIERS`: safety guardrail or
 deterministic functional test -> `gate`; quality benchmark, Opus model test,
 non-deterministic, or external service (Codex, Gemini) -> `periodic`.
 `test/e2e-tier-alignment.test.ts` enforces the tiers. CI lanes and periodic
@@ -83,7 +84,12 @@ safety-critical lines; check safety lines case-insensitively, on meaning rather
 than capitals. Leave behavior to E2E cases and judges. Don't pin emphasis,
 capitalization, issue numbers, or a sentence a behavioral check already covers,
 and when a rewrite changes a pinned sentence, replace the pin with a structural
-or meaning-level check instead of pinning the new sentence.
+or meaning-level check instead of pinning the new sentence. The terms are defined
+in [docs/test-value-bar.md](docs/test-value-bar.md) ("Prompt-byte contract",
+"Sentence pin"). Use `test/helpers/prompt-structure.ts` (`between`,
+`expectTokens`, `expectAbsent`, `expectOrdered`, `expectMentions`) for
+template/SKILL.md checks: tokens and order exactly, safety rules as
+case-insensitive keyword co-occurrence in one sentence.
 Projects tune `/ship`'s coverage gate with optional CLAUDE.md `## Test Coverage`
 keys, all absent by default: `Minimum:`, `Target:`, `Generation cap:` (default 5),
 `Base control:` (`auto` or `off`), `Base control budget:` (seconds, default 90) and
@@ -438,18 +444,38 @@ regenerated SKILL.md shifts prompt context.
 
 ## Running evals as an agent: always detach (SIGTERM-proof)
 
-When **you (an agent/harness)** launch a long eval/benchmark run, run it through
-`bin/gstack-detach`, NEVER as a plain backgrounded Bash task: a turn-boundary
-SIGTERM kills that mid-flight. Use `bun run eval:bg:pr` for changed coverage
-or `bun run eval:bg:release` for the full gate + periodic censuses (machine-wide
-`gstack-evals` lock, per-tier watchdog, run-scoped log under
-`~/.gstack-dev/eval-runs/`), export `ANTHROPIC_API_KEY` first (never pass keys
-in argv), then poll the printed log until the `### gstack-detach EXIT=<code> ###`
-sentinel; keep checking until it appears or the user tells you to stop, and
-report progress at each check. Detach timeouts are the `--timeout` values on
-package.json's `eval:bg:gate` / `eval:bg:periodic`. Humans running evals in their own terminal don't
-need this. Sharded runner, timeouts and knobs:
-[docs/TESTING_INTERNALS.md](docs/TESTING_INTERNALS.md#running-evals-as-an-agent-detach).
+Never run a long eval as a plain backgrounded Bash task: a turn-boundary SIGTERM
+kills it mid-flight. Run paid evals in the background with `bun run eval:bg:pr`
+(diff-selected PR gate) or `bun run eval:bg:release` (full gate + periodic);
+`eval:bg:gate` and `eval:bg:periodic` run one tier. All four run
+`scripts/eval-bg.ts`, which prints `[eval-bg] backend=<dispatch|local> …` and
+`gstack-detach LOG <path>`, then returns immediately.
+
+- **Dispatch backend** (default when HEAD is clean and pushed to garrytan/gstack
+  and `gh` can dispatch): CI runs the lane on the pushed revision (`evals.yml`
+  and/or `evals-periodic.yml`, verified by `expected_sha`); the local log follows
+  the run and names its URL. Dispatched runs are validation runs: fresh, never
+  writing PR receipts. Commit and push first; uncommitted files or unpushed
+  commits fall back to local and the log says why.
+- **Local backend** (dirty tree, unpushed commits, a fork, no `gh`, or `--local`):
+  the sharded runner on this machine, capped at ceil(1.5 × planned serial seconds
+  / EVALS_JOBS) + 20 min, at most 4 h (`--timeout SECS` overrides). Export
+  `ANTHROPIC_API_KEY` first (never pass keys in argv).
+- **Forcing**: `--dispatch` refuses with the fix ("commit and push, or rerun with
+  --local") instead of falling back; `--local` or `GSTACK_EVAL_BG_MODE=local`
+  always runs here.
+- **Waiting**: poll the log until `### gstack-detach EXIT=<code> ###` (0 passed,
+  1 failed, 130 cancelled, 2 other); silence is not success. Keep checking until
+  it appears or the user tells you to stop, and report progress at each check.
+  `bun run scripts/eval-bg.ts status <log-or-run-id>` prints running, passed,
+  failed, cancelled or incomplete (died without a sentinel).
+- Both backends hold the machine-wide `gstack-evals` lock, so concurrent
+  worktrees queue instead of saturating the API; logs live under
+  `~/.gstack-dev/eval-runs/`. A second `eval:bg:<lane>` for the same revision and
+  base follows the queued, running or green dispatch instead of dispatching again.
+
+Humans running evals in their own terminal don't need this. Backends, caps and
+knobs: [docs/TESTING_INTERNALS.md](docs/TESTING_INTERNALS.md#running-evals-as-an-agent-detach).
 
 ## E2E test fixtures: extract, don't copy
 

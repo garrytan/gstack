@@ -61,7 +61,7 @@ describe('CLAUDE.md facts match the code that owns them', () => {
     expect(claimed, `CLAUDE.md:${lineOf(claudeMd, at)} says ${claimed}, test/catalog-budget.test.ts says ${value}; fix: update CLAUDE.md to ${value.toLocaleString('en-US')}`).toBe(value);
   });
 
-  test('CLAUDE.md points at package.json for detach timeouts instead of stating numbers', () => {
+  test('CLAUDE.md points at scripts/eval-bg.ts for detach caps instead of stating numbers', () => {
     const scripts = JSON.parse(read('package.json')).scripts as Record<string, string>;
     const timeouts = Object.entries(scripts)
       .filter(([name, command]) => name.startsWith('eval:bg') && /--timeout \d+/.test(command))
@@ -75,10 +75,10 @@ describe('CLAUDE.md facts match the code that owns them', () => {
     const start = claudeMd.indexOf('## Running evals as an agent');
     expect(start).toBeGreaterThanOrEqual(0);
     const section = claudeMd.slice(start, claudeMd.indexOf('\n## ', start + 1));
-    expect(section).toContain("package.json's `eval:bg:gate` / `eval:bg:periodic`");
+    expect(section, 'CLAUDE.md "Running evals as an agent" no longer names scripts/eval-bg.ts, which computes the detach caps; fix: name it in that section').toContain('scripts/eval-bg.ts');
     const stale = /--timeout \d+|\b\d[\d,]{3,}\s*(?:s|sec|seconds)\b/.exec(section);
     expect(stale?.[0] ?? null,
-      `CLAUDE.md:${stale ? lineOf(claudeMd, start + stale.index) : '?'} states a timeout number in the detach section; package.json owns it; fix: remove the number`).toBeNull();
+      `CLAUDE.md:${stale ? lineOf(claudeMd, start + stale.index) : '?'} states a timeout number in the detach section; scripts/eval-bg.ts computes it; fix: remove the number`).toBeNull();
   });
 });
 
