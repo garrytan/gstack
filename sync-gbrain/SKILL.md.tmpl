@@ -323,10 +323,44 @@ that doesn't declare it (e.g. `gbrain-base` / `gbrain-base-v2`), a `dream` cycle
 completes but `resolve_symbol_edges` matches nothing — the graph stays empty no
 matter how many times you run it. So "build the call graph" is only meaningful on
 a code-aware pack. The `--dream` stage detects this and reports it honestly
-(a WARN row) rather than claiming a build that didn't happen. gbrain exposes pack
-capability only at cycle runtime (no pre-flight query as of 0.41.x), so we can't
-detect it before running. `code-def` / `code-refs` need the same symbol
-extraction; they are NOT free "direct lookups" on a non-code-aware pack.
+(a WARN row) rather than claiming a build that didn't happen. `code-def` /
+`code-refs` need the same symbol extraction; they are NOT free "direct lookups"
+on a non-code-aware pack.
+
+**A second prerequisite, and the one that silently fails: the source must hold
+CODE pages.** `PAGES` from Step 3 is a TOTAL page count, so a source carrying
+only markdown reports a healthy non-zero figure, passes Step 3's "proven 0"
+gate, and then passes this step's gate too — while holding no code for a call
+graph to be built from. Offering `--dream` there is not merely futile: the
+re-sync it leads to runs under the strategy default (`markdown`), which makes
+gbrain treat every modified code file as un-syncable and soft-delete its page.
+A source's sync strategy defaults to `markdown` and is set per source, so this
+is the common state, not an exotic one.
+
+**Probe it before offering anything** — contrary to the note that used to sit
+here, gbrain >= 0.60 does expose a pre-flight answer. Ask `code-def` for a
+symbol that cannot exist, scoped to this source, and read `.status`:
+
+```bash
+CODE_SCOPE=$(gbrain code-def ZzzGstackProbeSymbolThatCannotExist \
+               --source "$SOURCE_ID" --limit 1 2>/dev/null \
+             | sed -n '/^[[:space:]]*{/,$p' \
+             | jq -r '.status // "unknown"' 2>/dev/null || echo unknown)
+echo "code scope for $SOURCE_ID: $CODE_SCOPE"
+```
+
+- `out_of_scope` — **this source holds no code.** Do NOT offer `--dream`; it
+  cannot build a graph from nothing. Report the real cause and the real remedy:
+  the source needs a code-admitting sync strategy. gbrain's own hint says it
+  outright: *"a scope/grant problem, not an indexing one — do NOT re-run
+  `gbrain sync`"*. Note that `gbrain sync --strategy auto` fixes the run in hand
+  but does NOT persist — `config.strategy` on the `sources` row is read by the
+  sync path and written by no CLI or MCP surface, so without it the autopilot
+  reverts to `markdown` on its next pass.
+- `ready` — the source holds code; a zero from a call-graph query is then
+  genuinely about edges, and `--dream` is the right offer.
+- anything else (`not_built`, `indexing`, `unknown`) — treat as unknown and say
+  so; do not claim either state.
 
 Detect whether this source's call graph is built via doctor's `cycle_freshness`
 check, matching the cwd `SOURCE_ID` literally:
@@ -351,7 +385,12 @@ echo "call graph for $SOURCE_ID: $CYCLE"
 ```
 
 If `CYCLE == never` AND the user did NOT pass `--dream`/`--full` AND Step 3
-`PAGES > 0`, AskUserQuestion via the format in the preamble:
+`PAGES > 0` AND `CODE_SCOPE == ready`, AskUserQuestion via the format in the
+preamble. **`CODE_SCOPE` is the load-bearing half of that condition**, because
+`PAGES > 0` is satisfied by markdown alone — a markdown-only source would
+otherwise be offered a build it has no code for, and the re-sync that follows
+soft-deletes modified code pages. On `out_of_scope`, report the strategy cause
+from the probe above instead of asking this question at all:
 
 > D2 — This repo's call graph isn't built. Build it now?
 >
@@ -437,10 +476,33 @@ of the same repo each have their own pin and their own indexed pages, so
 semantic results match the code on disk here.
 
 Call-graph queries (`code-callers`/`code-callees`) also need the graph to be
-built first — run `/sync-gbrain --dream` (or `--full`) if they return
-`count: 0`. This only works if this source's gbrain schema pack extracts code
+built first. This only works if this source's gbrain schema pack extracts code
 symbols; on a non-code-aware pack `--dream` completes but the graph stays empty
 and reports a WARN. `code-def`/`code-refs` need the same extraction.
+
+**A `count: 0` is NOT by itself a reason to run `--dream` or `--full`.** Every
+one of these verbs answers `count: 0, status: "ready"` in four different
+situations, and only one of them is fixed by building a graph:
+
+1. **The source indexes no code at all** — the common case, and `--dream`
+   cannot help. A gbrain source's sync strategy defaults to `markdown`, so a
+   source nobody set one on holds zero code pages however often it is synced.
+   Re-syncing under that default is worse than useless: gbrain then treats every
+   modified code file as un-syncable and soft-deletes its page.
+2. **The symbol was asked DOTTED.** These verbs take a BARE token —
+   `code-def Materialize`, never `code-def ProtoContacts.Materialize`, which
+   answers zero on a fully indexed class.
+3. **`--all-sources` was used.** It answers `ready: true` from a corpus that may
+   hold none of this repo. The SCOPED call is the honest one.
+4. The graph genuinely is not built — the case `--dream` fixes.
+
+So diagnose before acting, and note that gbrain >= 0.60 tells you (1) itself
+when asked scoped: `status: "out_of_scope"`, hinted *"a scope/grant problem, not
+an indexing one — do NOT re-run `gbrain sync`"*.
+
+**Run a positive control first.** Ask for a symbol you have just read with
+`Grep`, bare and scoped. If THAT returns zero, the index cannot answer at all
+and no other zero from it is evidence of anything.
 
 Two indexed corpora available via the `gbrain` CLI:
 - This worktree's code (auto-pinned via `.gbrain-source`).
@@ -450,10 +512,12 @@ Two indexed corpora available via the `gbrain` CLI:
 Prefer gbrain when:
 - "Where is X handled?" / semantic intent, no exact string yet:
     `gbrain search "<terms>"` or `gbrain query "<question>"`
-- "Where is symbol Y defined?" / symbol-based code questions:
-    `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
-- "What calls Y?" / "What does Y depend on?":
-    `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
+- "Where is symbol Y defined?" / symbol-based code questions — **bare token,
+  scoped, and only once a positive control has answered** (see the `count: 0`
+  note above; a zero from these is not evidence until one has):
+    `gbrain code-def <BareToken>` or `gbrain code-refs <BareToken>`
+- "What calls Y?" / "What does Y depend on?" — same three conditions:
+    `gbrain code-callers <BareToken>` / `gbrain code-callees <BareToken>`
 - "What did we decide last time?" / past plans, retros, learnings:
     `gbrain search "<terms>" --source gstack-brain-<user>`
 
