@@ -21,13 +21,20 @@ const AUDIT_PATH = path.join(TMP_HOME, 'analytics', 'spend-overrides.jsonl');
 // never set at module load: bun evaluates sibling modules before running
 // their tests, so a module-scope assignment leaks into every other file in
 // the shard process (pinned by test/gstack-home-module-scope.test.ts).
-const ORIGINAL_GSTACK_HOME = process.env.GSTACK_HOME;
+// The provenance cases rewrite CI's own variables; restore them too, or a CI
+// shard loses CI=true for every later file (qa-only-cleanup's browse daemons
+// then launch Chromium sandboxed and never become ready).
+const SCOPED_ENV = ['GSTACK_HOME', 'CI', 'GITHUB_ACTIONS', 'GITHUB_REF_NAME', 'GITHUB_SHA',
+  'CI_RUNNER', 'CI_COMMIT_REF_NAME', 'CI_COMMIT_SHORT_SHA'] as const;
+const ORIGINAL_ENV = Object.fromEntries(SCOPED_ENV.map(key => [key, process.env[key]]));
 beforeAll(() => {
   process.env.GSTACK_HOME = TMP_HOME;
 });
 afterAll(() => {
-  if (ORIGINAL_GSTACK_HOME === undefined) delete process.env.GSTACK_HOME;
-  else process.env.GSTACK_HOME = ORIGINAL_GSTACK_HOME;
+  for (const key of SCOPED_ENV) {
+    if (ORIGINAL_ENV[key] === undefined) delete process.env[key];
+    else process.env[key] = ORIGINAL_ENV[key];
+  }
 });
 
 describe('logBudgetOverride', () => {
