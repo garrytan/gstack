@@ -309,6 +309,10 @@ test('legacy verdict permits early blocking or one evidenced changed-input re-au
       expect(docsActorVerdict(state, 'Documentation: blocked', false), label).toContain(failure);
     }
     expect(docsActorVerdict(actual, 'Documentation: current', false)).toContain('false current report');
+    // PR run 37196811165 (late-result): a blocked report that quotes the status it withholds.
+    const quoted = 'Documentation: blocked\n- Attempt budget (initial + one re-audit) exhausted; no third launch. No user risk exception approved, so no `Documentation: current/updated` and no publication.';
+    expect(docsActorVerdict(actual, quoted, false)).not.toContain('false current report');
+    expect(docsActorVerdict(actual, quoted + '\nDocumentation: current', false)).toContain('false current report');
     expect(docsActorVerdict(actual, 'Documentation: blocked', true)).toContain('wrong parent publication decision');
   } finally { fixture.clean(); }
 });

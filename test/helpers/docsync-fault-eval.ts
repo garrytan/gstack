@@ -26,7 +26,8 @@ export function docsActorVerdict(state: DocsActorState, report: string, publishe
   if (published !== success || actions.includes('publish') !== success) failures.push('wrong parent publication decision');
   if (state.events.some(e => e.action === 'rejected')) failures.push('parent attempted invalid actor interaction');
   if (!success && !/Documentation[\s\S]*blocked/i.test(report)) failures.push('blocked documentation not reported');
-  if (!success && /Documentation(?: is|:) current/i.test(report)) failures.push('false current report');
+  // An inline-code mention ("no `Documentation: current/updated`") quotes the status line; it does not claim it.
+  if (!success && /Documentation(?: is|:) current/i.test(report.replace(/`[^`\n]*`/g, ''))) failures.push('false current report');
   if (success && (!state.acceptedId || !report.includes(state.acceptedId))) failures.push('actual repaired audit not consumed');
   if (legacy) {
     if (state.repaired || actions.includes('repair')) failures.push('legacy launcher has no repair');
