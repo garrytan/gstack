@@ -187,6 +187,25 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
   scenarios passed. First red in 18 censuses. Classify a silent provider stream
   as INFRA (no events for N minutes) rather than a test timeout. Effort S.
   **Priority:** P3.
+- **overlay-harness sonnet fails on a baseline-arm model error** — census
+  37198445662 (fd6854b,
+  https://github.com/garrytan/gstack/actions/runs/37198445662): the
+  overlay-OFF arm's trial 0 grepped exports without `async` and reported
+  `src/api.ts: []` (missing `export async function fetchFoo`); 19 of 20
+  trials were correct and every overlay-ON trial passed. The correctness gate
+  requires all 20, so one control-arm slip reds a research comparison. First
+  red in the last five censuses. Decide whether a control-arm error should
+  invalidate the comparison (rerun policy) rather than fail the overlay.
+  Effort S. **Priority:** P3.
+- **plan-ceo-review-format-approach hit provider refusals** — census
+  37195203538 (4128700,
+  https://github.com/garrytan/gstack/actions/runs/37195203538): t1 and t2
+  ended in `model_refusal_no_fallback` (`reasoning_extraction`) on inputs
+  byte-identical to its 9/9 passes in 37182865432, 37186854666 and
+  37193478719; it passed 3/3 again in 37198445662. Classify a provider refusal
+  as INFRA rather than an assertion, and check whether the capture prompt's
+  "verbatim … exact prose you would have shown" wording trips the classifier.
+  Effort S. **Priority:** P3.
 - **Floor runner cannot grant an owned Edit when the TTY collapses spaces** —
   PR run 37176835584 (7249f01): plan-ceo-finding-floor timed out at 600 s with
   the native "Do you want to make this edit to gstack-test-plan-ceo-floor.md?"
