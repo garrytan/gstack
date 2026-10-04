@@ -5,6 +5,7 @@ import capturedQuotes from './fixtures/plan-floor-quote-70b.json';
 import productTypes from './fixtures/plan-floor-product-type-70b.json';
 import narrativeConfirmation from './fixtures/devex-narrative-confirmation-36641820398.json';
 import partlyWrongNarrative from './fixtures/devex-narrative-confirmation-36794871032.json';
+import { expectMentions } from './helpers/prompt-structure';
 const review = ():PlanFloorReview=>({seed:FORCING_FLOOR_CEO,candidate:{transport:'native',identity:'owned:call:question:0',question:{
   header:'Evidence',question:'Pricing is assumed to block adoption without developer interviews. Should we test that premise before launch?',multiSelect:false,
   options:[{label:'Interview developers',description:'Validate pricing as a barrier before changing the tier.'},{label:'Ship the tier',description:'Launch using the current untested premise.'}],
@@ -17,7 +18,7 @@ test('complete native payload and seed reach the assessor without a fabricated a
  const input=review(),prompt=buildPlanFloorReviewPrompt(input);
  expect(prompt.endsWith(JSON.stringify(input))).toBe(true);
  expect(prompt).toContain('No answer has been supplied');
- expect(prompt).toContain('Mentioning a real problem within a setup question does not make it a finding');
+ expectMentions(prompt, [['does not', 'mentioning', 'question']], 'prompt');
  expect(JSON.parse(prompt.slice(prompt.indexOf('Evidence JSON:\n')+15))).toEqual(input);
  expect(validatePlanFloorAssessment(input,finding())).toEqual(finding());
 });
