@@ -1125,7 +1125,9 @@ Then write ${repoDir}/detector-output.md: one FINDING-NNN row per rule in the DE
 
       const bash = result.toolCalls.filter(c => c.tool === 'Bash').map(c => String(c.input?.command ?? ''));
       expect(bash.some(c => c.includes('npx impeccable'))).toBe(false);
-      expect(bash.some(c => /\$B\b|\bbrowse\s|\baside\s+repl\b|\bplaywright\b|\bpuppeteer\b/.test(c))).toBe(false);
+      // `$B` runs the browse binary only in command position; a shell variable
+      // named B (a base branch, say) is not a browser step.
+      expect(bash.some(c => /(?:^|[;&|(\n]|\b(?:then|do|else)\b)\s*"?\$B"?\s+\S|\bbrowse\s|\baside\s+repl\b|\bplaywright\b|\bpuppeteer\b/.test(c))).toBe(false);
       expect(result.toolCalls.some(c => /browser|browse|playwright|puppeteer/i.test(c.tool))).toBe(false);
       const calls: Array<{ argv: string[]; cwd: string; exit: number; engine: Array<{ argv: string[]; cwd: string }> }> =
         fs.readFileSync(receiptPath, 'utf8').trim().split('\n').map(line => JSON.parse(line));

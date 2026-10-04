@@ -14,7 +14,7 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const source = fs.readFileSync(path.join(ROOT, 'test/skill-e2e-design.test.ts'), 'utf8');
 const id = 'design-review-detector-shim';
 
-type Mode = 'captured' | 'literal' | 'other-variable' | 'wrong-base' | 'no-scan' | 'wrong-files'
+type Mode = 'captured' | 'literal' | 'other-variable' | 'base-variable' | 'browser-variable' | 'wrong-base' | 'no-scan' | 'wrong-files'
   | 'extra-file' | 'no-probe' | 'no-report' | 'no-finding' | 'no-rule' | 'npx' | 'browser'
   | 'timeout' | 'browse-error' | 'runner-throw' | 'report-read-throw'
   | 'quoted-path' | 'relative-path' | 'symlink-path' | 'claimed-probe' | 'wrong-probe-host' | 'wrong-probe-cwd';
@@ -125,6 +125,9 @@ Then write <repo>/detector-output.md: one FINDING-NNN row per rule in the DETECT
       else toolCalls.push({ tool: 'Bash', input: { command }, output: 'DETECT_TOP total=6 rules=4\nDETECT_SUMMARY: total=6\nDETECT_EXIT: 2' });
       if (mode === 'npx') toolCalls.push({ tool: 'Bash', input: { command: 'npx impeccable detect .' }, output: '' });
       if (mode === 'browser') toolCalls.push({ tool: 'Bash', input: { command: '$B goto http://localhost' }, output: '' });
+      // PR run 37184467123: the model named its base-branch variable B.
+      if (mode === 'base-variable') toolCalls.push({ tool: 'Bash', input: { command: 'B=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null); [ -n "$B" ] || B=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null); echo "GH_BASE=[$B]"' }, output: 'GH_BASE=[]' });
+      if (mode === 'browser-variable') toolCalls.push({ tool: 'Bash', input: { command: 'B=~/.claude/skills/gstack/browse/dist/browse; [ -x "$B" ] && "$B" snapshot -i' }, output: '' });
       if (mode !== 'no-report') {
         let report = captured.report;
         if (mode === 'no-finding') report = report.replaceAll('FINDING-001', 'ROW-001');
@@ -175,7 +178,7 @@ Then write <repo>/detector-output.md: one FINDING-NNN row per rule in the DETECT
   }
 }
 
-test.each(['captured', 'literal', 'other-variable'] as const)('source detector callback accepts executed main scope: %s', async mode => {
+test.each(['captured', 'literal', 'other-variable', 'base-variable'] as const)('source detector callback accepts executed main scope: %s', async mode => {
   const result = await exercise([mode]);
   expect(result.outputs.join('\n')).toContain('DETECT_TOP total=6 rules=4');
   expect(result.outputs.join('\n')).toContain('DETECT_EXIT: 2');
@@ -185,7 +188,7 @@ test.each(['captured', 'literal', 'other-variable'] as const)('source detector c
     duration_ms: 42513, turns_used: 5, tokens_used: 93719, model: 'claude-fable-5-1', transcript: [{ type: 'public-replay' }] });
 });
 
-test.each(['wrong-base', 'no-scan', 'wrong-files', 'extra-file', 'no-probe', 'no-report', 'no-finding', 'no-rule', 'npx', 'browser', 'timeout', 'browse-error'] as const)(
+test.each(['wrong-base', 'no-scan', 'wrong-files', 'extra-file', 'no-probe', 'no-report', 'no-finding', 'no-rule', 'npx', 'browser', 'browser-variable', 'timeout', 'browse-error'] as const)(
   'source detector callback rejects and records invalid evidence once: %s', async mode => {
     const result = await exercise([mode]);
     expect(result.errors[0]).toBeDefined();
