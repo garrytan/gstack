@@ -1,300 +1,985 @@
 /**
- * Sidebar UX regression coverage.
+ * Structural tests for the sidebar's surviving UX surfaces:
+ * - Quick-action toolbar (cleanup via PTY injection, screenshot, cookies)
+ * - CSP fallback basic picker (content.js) + inspector allowlist
+ * - Deterministic cleanup heuristics (write-commands.ts)
+ * - Welcome page + sidebar auto-open + arrow hint signal chain
+ * - Connection/auth race prevention + startup health check
+ * - browser-manager tab tracking + no-focus-steal invariants
+ * - Server shutdown teardown of the terminal-agent
  *
- * The old sidebar-chat surface was removed when the live PTY terminal became
- * the primary sidebar experience. This file used to assert the removed
- * one-shot `sidebar-agent.ts` chat queue, including pickSidebarModel(),
- * ANALYSIS_WORDS, and ACTION_PATTERNS. Those assertions made main red after
- * v1.57.10.0. These tests now pin the current UX contract instead:
- * Terminal is the only primary surface, browser quick-actions survive, and
- * removed chat/model-router code stays removed.
+ * History: this file used to also pin the chat-queue architecture
+ * (sidebar-agent.ts, /sidebar-command, /sidebar-chat, /sidebar-tabs,
+ * per-tab chat context, stop button, chat polling, processAgentEvent,
+ * pickSidebarModel). That entire path was deliberately ripped in PR #1216
+ * (v1.14.0.0) when the interactive claude PTY (terminal-agent.ts) proved
+ * strictly more capable — see docs/designs/SIDEBAR_MESSAGE_FLOW.md. The
+ * stale blocks kept "passing" only because a teardown bug made `bun test`
+ * exit 0 before reporting; once that was fixed (PR #2172) they surfaced as
+ * failures and were removed. The rip itself is pinned as absence tests in
+ * browse/test/sidebar-tabs.test.ts.
  */
 
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { stubRouteContext, callRoute, routeEntry } from './route-test-harness';
+import { EventEmitter } from 'node:events';
+import { BrowserManager } from '../src/browser-manager';
 
 const ROOT = path.resolve(__dirname, '..');
-const SERVER_SRC = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-const CLI_SRC = fs.readFileSync(path.join(ROOT, 'src', 'cli.ts'), 'utf-8');
-const BM_SRC = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
-const WRITE_COMMANDS_SRC = fs.readFileSync(path.join(ROOT, 'src', 'write-commands.ts'), 'utf-8');
-const HTML = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
-const JS = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
-const TERM_JS = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel-terminal.js'), 'utf-8');
-const CSS = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
-const BG_SRC = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
-const CONTENT_SRC = fs.readFileSync(path.join(ROOT, '..', 'extension', 'content.js'), 'utf-8');
-const WELCOME_SRC = fs.readFileSync(path.join(ROOT, 'src', 'welcome.html'), 'utf-8');
 
-function sliceBetween(source: string, start: string, end: string): string {
-  const i = source.indexOf(start);
-  expect(i).toBeGreaterThanOrEqual(0);
-  const j = source.indexOf(end, i + start.length);
-  expect(j).toBeGreaterThan(i);
-  return source.slice(i, j);
-}
+describe('browser tab bar (sidepanel.html)', () => {
+  const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
 
-describe('sidebar terminal-first layout', () => {
-  test('terminal pane is the only primary surface', () => {
-    expect(HTML).toMatch(/<main[^>]*id="tab-terminal"[^>]*class="tab-content active"/);
-    expect(HTML).toContain('id="terminal-mount"');
-    expect(HTML).toContain('id="terminal-toolbar"');
-    expect(HTML).toContain('id="terminal-restart-now"');
-    expect(HTML).not.toContain('id="tab-chat"');
-    expect(HTML).not.toContain('id="command-input"');
-    expect(HTML).not.toContain('id="send-btn"');
-    expect(HTML).not.toContain('id="stop-agent-btn"');
+  test('browser-tabs container exists', () => {
+    expect(html).toContain('id="browser-tabs"');
   });
 
-  test('debug panes remain behind the debug toggle', () => {
-    expect(HTML).toContain('id="tab-activity"');
-    expect(HTML).toContain('id="tab-refs"');
-    expect(HTML).toContain('id="tab-inspector"');
-    expect(HTML).toContain('id="debug-toggle"');
-    expect(HTML).toContain('id="debug-tabs"');
-  });
-
-  test('quick browser actions survive in the terminal toolbar', () => {
-    const toolbarBlock = sliceBetween(HTML, 'id="terminal-toolbar"', 'id="terminal-restart-now"');
-    expect(toolbarBlock).toContain('id="chat-cleanup-btn"');
-    expect(toolbarBlock).toContain('id="chat-screenshot-btn"');
-    expect(toolbarBlock).toContain('id="chat-cookies-btn"');
-  });
-
-  test('xterm assets and terminal bootstrap script are loaded', () => {
-    expect(HTML).toContain('lib/xterm.js');
-    expect(HTML).toContain('lib/xterm-addon-fit.js');
-    expect(HTML).toContain('sidepanel-terminal.js');
+  test('browser-tabs hidden by default', () => {
+    const match = html.match(/id="browser-tabs"[^>]*/);
+    expect(match).not.toBeNull();
+    expect(match![0]).toContain('display:none');
   });
 });
 
-describe('removed chat queue and model router stay removed', () => {
-  test('server no longer declares sidebar-agent chat state or helpers', () => {
-    expect(SERVER_SRC).not.toMatch(/^let agentStatus/m);
-    expect(SERVER_SRC).not.toMatch(/^let messageQueue/m);
-    expect(SERVER_SRC).not.toMatch(/^let sidebarSession/m);
-    expect(SERVER_SRC).not.toMatch(/^const tabAgents/m);
-    expect(SERVER_SRC).not.toMatch(/^function processAgentEvent/m);
-    expect(SERVER_SRC).not.toMatch(/^function killAgent/m);
-    expect(SERVER_SRC).not.toMatch(/^function addChatEntry/m);
-  });
+// ─── Bidirectional tab sync ──────────────────────────────────────
 
-  test('pickSidebarModel and its obsolete word lists are gone', () => {
-    expect(SERVER_SRC).not.toMatch(/^function pickSidebarModel/m);
-    expect(SERVER_SRC).not.toContain('ANALYSIS_WORDS');
-    expect(SERVER_SRC).not.toContain('ACTION_PATTERNS');
-    expect(SERVER_SRC).toContain('terminal-agent.ts');
-  });
+describe('sidebar→browser tab switch', () => {
+  const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
 
-  test('server no longer exposes sidebar chat endpoints', () => {
-    expect(SERVER_SRC).not.toMatch(/url\.pathname === ['"]\/sidebar-command['"]/);
-    expect(SERVER_SRC).not.toMatch(/url\.pathname === ['"]\/sidebar-chat['"]/);
-    expect(SERVER_SRC).not.toMatch(/url\.pathname\.startsWith\(['"]\/sidebar-agent\//);
-    expect(SERVER_SRC).not.toMatch(/url\.pathname === ['"]\/sidebar-tabs['"]/);
-    expect(SERVER_SRC).not.toMatch(/url\.pathname === ['"]\/sidebar-session['"]/);
-  });
-
-  test('sidebar-agent file is deleted and terminal-agent is the active process', () => {
-    expect(fs.existsSync(path.join(ROOT, 'src', 'sidebar-agent.ts'))).toBe(false);
-    expect(CLI_SRC).not.toMatch(/^\s*let agentScript = path\.resolve/m);
-    expect(CLI_SRC).toContain("import { spawnTerminalAgent } from './terminal-agent-control'");
-    expect(CLI_SRC).toContain('spawnTerminalAgent({');
-    expect(CLI_SRC).toContain('Terminal agent started');
+  test('switchTab supports bringToFront option', () => {
+    expect(bmSrc).toContain('switchTab(id: number, opts?');
+    expect(bmSrc).toContain('bringToFront');
+    // Default behavior still brings to front (opt-out, not opt-in)
+    expect(bmSrc).toContain('bringToFront !== false');
   });
 });
 
-describe('terminal PTY UX', () => {
-  test('sidepanel exposes server bootstrap globals for terminal startup', () => {
-    const update = JS.slice(JS.indexOf('function updateConnection'), JS.indexOf('function updateConnection') + 1800);
-    expect(update).toContain('window.gstackServerPort');
-    expect(update).toContain('window.gstackAuthToken');
-    expect(update).toContain("{ type: 'sidebarOpened' }");
-    expect(update).not.toContain('pollChat');
-    expect(update).not.toContain('pollTabs');
+describe('browser→sidebar tab sync', () => {
+  const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
+
+  test('syncActiveTabByUrl method exists on BrowserManager', () => {
+    expect(bmSrc).toContain('syncActiveTabByUrl(activeUrl: string)');
   });
 
-  test('terminal auto-connects without waiting for a chat keypress', () => {
-    expect(TERM_JS).toContain('function tryAutoConnect');
-    expect(TERM_JS).toContain('tryAutoConnect();');
-    expect(TERM_JS).not.toContain('function onAnyKey');
-    expect(TERM_JS).not.toContain("addEventListener('keydown'");
-  });
-
-  test('terminal mints a PTY session and opens websocket with attach token protocol', () => {
-    expect(TERM_JS).toContain('/pty-session');
-    expect(TERM_JS).toContain('new WebSocket');
-    expect(TERM_JS).toContain('gstack-pty.${attachToken}');
-    expect(TERM_JS).toContain("{ type: 'resize'");
-    expect(TERM_JS).toContain("{ type: 'keepalive' }");
-  });
-
-  test('terminal supports reattach replay and user-initiated restart', () => {
-    expect(TERM_JS).toContain('/pty-session/reattach');
-    expect(TERM_JS).toContain("msg.type === 'reattach-begin'");
-    expect(TERM_JS).toContain('function forceRestart');
-    expect(TERM_JS).toContain('/pty-restart');
-    expect(TERM_JS).toContain("els.restart?.addEventListener('click', forceRestart)");
-    expect(TERM_JS).toContain("els.restartNow?.addEventListener('click', forceRestart)");
-  });
-
-  test('cross-pane actions inject into the live terminal instead of the removed chat queue', () => {
-    const cleanupFn = sliceBetween(JS, 'async function runCleanup', 'async function runScreenshot');
-    expect(cleanupFn).toContain('window.gstackInjectToTerminal');
-    expect(cleanupFn).toContain('$B cleanup --all');
-    expect(cleanupFn).toContain('$B snapshot -i');
-    expect(cleanupFn).toContain('$B eval');
-    expect(cleanupFn).not.toContain('/sidebar-command');
-
-    const inspectorSend = JS.slice(JS.indexOf('inspectorSendBtn.addEventListener'));
-    expect(inspectorSend).toContain('window.gstackInjectToTerminal');
-    expect(inspectorSend).not.toContain("type: 'sidebar-command'");
-  });
-
-  test('screenshot remains deterministic via /command', () => {
-    const screenshotFn = sliceBetween(JS, 'async function runScreenshot', '// ─── Wire up all cleanup/screenshot buttons');
-    expect(screenshotFn).toContain('/command');
-    expect(screenshotFn).toContain("command: 'screenshot'");
-  });
-});
-
-describe('server routes for terminal and health', () => {
-  test('/health exposes terminal state but not chat queue state', () => {
-    const health = SERVER_SRC.slice(SERVER_SRC.indexOf("url.pathname === '/health'"));
-    const block = health.slice(0, 2200);
-    expect(block).toContain('terminalPort');
-    expect(block).toMatch(/chatEnabled:\s*false/);
-    expect(block).not.toContain('agentStatus');
-    expect(block).not.toContain('messageQueue');
-    expect(block).not.toContain('agentStartTime');
-  });
-
-  test('PTY session routes stay off the tunnel allowlist', () => {
-    const tunnelPaths = sliceBetween(SERVER_SRC, 'const TUNNEL_PATHS = new Set<string>([', ']);');
-    expect(tunnelPaths).toContain('/connect');
-    expect(tunnelPaths).toContain('/command');
-    expect(tunnelPaths).not.toContain('/pty-session');
-    expect(tunnelPaths).not.toContain('/pty-restart');
-    expect(tunnelPaths).not.toContain('/terminal/');
-  });
-
-  test('/pty-session validates auth, mints a lease, grants loopback attach, and sets cookie', () => {
-    const route = sliceBetween(SERVER_SRC, "url.pathname === '/pty-session' &&", "url.pathname === '/pty-session/reattach'");
-    expect(route).toContain('validateAuth(req)');
-    expect(route).toContain('mintLease()');
-    expect(route).toContain('mintPtySessionToken()');
-    expect(route).toContain('grantPtyToken(minted.token');
-    expect(route).toContain('Set-Cookie');
-  });
-
-  test('/welcome endpoint serves headed-browser onboarding HTML', () => {
-    const welcome = sliceBetween(SERVER_SRC, "url.pathname === '/welcome'", "url.pathname === '/health'");
-    expect(welcome).toContain("'Content-Type': 'text/html");
-    expect(welcome).toContain('GStack Browser ready');
-    expect(welcome).toContain('status: 200');
-    expect(WELCOME_SRC).toContain('GStack Browser');
-    expect(WELCOME_SRC).toContain('gstack-extension-ready');
-    expect(WELCOME_SRC).toContain('arrow-right');
-    expect(WELCOME_SRC).not.toContain('text-align: center');
-  });
-});
-
-describe('browser tab and focus behavior', () => {
-  test('BrowserManager tracks and switches tabs without stealing focus when requested', () => {
-    expect(BM_SRC).toContain('switchTab(id: number, opts?');
-    expect(BM_SRC).toContain('bringToFront?: boolean');
-    expect(BM_SRC).toContain('bringToFront !== false');
-    expect(BM_SRC).toContain("context.on('page'");
-    expect(BM_SRC).toContain('syncActiveTabByUrl(activeUrl: string)');
-  });
-
-  test('handleCommand tab pinning uses bringToFront: false', () => {
-    const handleFn = SERVER_SRC.slice(
-      SERVER_SRC.indexOf('async function handleCommandInternalImpl('),
-      SERVER_SRC.indexOf('async function handleCommandInternal(', SERVER_SRC.indexOf('async function handleCommandInternalImpl(')),
+  test('syncActiveTabByUrl updates activeTabId when URL matches a different tab', () => {
+    const fn = bmSrc.slice(
+      bmSrc.indexOf('syncActiveTabByUrl('),
+      bmSrc.indexOf('syncActiveTabByUrl(') + 1200,
     );
-    const switchCalls = handleFn.match(/switchTab\([^\n]+\)/g) || [];
-    expect(switchCalls.length).toBeGreaterThan(0);
+    expect(fn).toContain('this.activeTabId = id');
+    // Exact match
+    expect(fn).toContain('pageUrl === activeUrl');
+    // Fuzzy match (origin+pathname)
+    expect(fn).toContain('activeOriginPath');
+    expect(fn).toContain('fuzzyId');
+  });
+
+  test('context.on("page") tracks user-created tabs', () => {
+    expect(bmSrc).toContain("context.on('page'");
+    expect(bmSrc).toContain('this.pages.set(id, page)');
+    // Should log when new tab detected
+    expect(bmSrc).toContain('New tab detected');
+  });
+
+  test('page close handler removes tab from pages map', () => {
+    const manager = new BrowserManager() as any;
+    const closed = new EventEmitter();
+    const remaining = new EventEmitter();
+    manager.pages = new Map([[1, closed], [2, remaining]]);
+    manager.tabSessions = new Map([[1, { page: closed }], [2, { page: remaining }]]);
+    manager.activeTabId = 1;
+    manager.wirePageEvents(closed);
+
+    closed.emit('close');
+
+    expect(manager.pages.has(1)).toBe(false);
+    expect(manager.tabSessions.has(1)).toBe(false);
+    expect(manager.pages.get(2)).toBe(remaining);
+    expect(manager.tabSessions.get(2).page).toBe(remaining);
+    expect(manager.activeTabId).toBe(2);
+  });
+
+  test('old page close during handoff preserves the replacement browser tabs', () => {
+    const manager = new BrowserManager() as any;
+    const closed = new EventEmitter();
+    const remaining = new EventEmitter();
+    const replacement = new EventEmitter();
+    manager.pages = new Map([[1, closed], [2, remaining]]);
+    manager.tabSessions = new Map([[1, { page: closed }], [2, { page: remaining }]]);
+    manager.activeTabId = 1;
+    manager.wirePageEvents(closed);
+    manager.wirePageEvents(remaining);
+    const previous = { pages: manager.pages, tabSessions: manager.tabSessions, activeTabId: 1 };
+    manager.handoffPrevious = previous;
+    manager.pages = new Map([[1, replacement]]);
+    manager.tabSessions = new Map([[1, { page: replacement }]]);
+
+    closed.emit('close');
+
+    expect(previous.pages.has(1)).toBe(false);
+    expect(previous.tabSessions.has(1)).toBe(false);
+    expect(previous.pages.get(2)).toBe(remaining);
+    expect(previous.activeTabId).toBe(2);
+    expect(manager.pages.get(1)).toBe(replacement);
+    expect(manager.tabSessions.get(1).page).toBe(replacement);
+    expect(manager.activeTabId).toBe(1);
+
+    manager.handoffPrevious = null;
+    remaining.emit('close');
+
+    expect(previous.pages.size).toBe(0);
+    expect(previous.tabSessions.size).toBe(0);
+    expect(manager.pages.get(1)).toBe(replacement);
+    expect(manager.tabSessions.get(1).page).toBe(replacement);
+    expect(manager.activeTabId).toBe(1);
+  });
+
+  test('syncActiveTabByUrl skips when only 1 tab (no ambiguity)', () => {
+    const fn = bmSrc.slice(
+      bmSrc.indexOf('syncActiveTabByUrl('),
+      bmSrc.indexOf('syncActiveTabByUrl(') + 600,
+    );
+    expect(fn).toContain('this.pages.size <= 1');
+  });
+
+  // NOTE: the /sidebar-tabs + /sidebar-command server consumers of
+  // syncActiveTabByUrl and the sidepanel chat-tab handlers were removed
+  // with the chat-queue rip (PR #1216). The BrowserManager primitives above
+  // survive (tab tracking feeds active-tab.json for the PTY claude).
+
+  test('background.js listens for chrome.tabs.onActivated', () => {
+    const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+    expect(bgSrc).toContain('chrome.tabs.onActivated.addListener');
+    expect(bgSrc).toContain('browserTabActivated');
+  });
+});
+
+describe('browser tab bar (sidepanel.css)', () => {
+  const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
+
+  test('browser-tabs styles exist', () => {
+    expect(css).toContain('.browser-tabs');
+    expect(css).toContain('.browser-tab');
+    expect(css).toContain('.browser-tab.active');
+  });
+
+  test('tab bar is horizontally scrollable', () => {
+    const barStyle = css.slice(
+      css.indexOf('.browser-tabs {'),
+      css.indexOf('}', css.indexOf('.browser-tabs {')) + 1,
+    );
+    expect(barStyle).toContain('overflow-x: auto');
+  });
+
+  test('active tab is visually distinct', () => {
+    const activeStyle = css.slice(
+      css.indexOf('.browser-tab.active {'),
+      css.indexOf('}', css.indexOf('.browser-tab.active {')) + 1,
+    );
+    expect(activeStyle).toContain('--bg-surface');
+    expect(activeStyle).toContain('--text-body');
+  });
+});
+
+// ─── Inspector message allowlist fix ────────────────────────────
+
+describe('inspector message allowlist fix', () => {
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+
+  test('ALLOWED_TYPES includes inspector message types', () => {
+    const allowListSection = bgSrc.slice(
+      bgSrc.indexOf('const ALLOWED_TYPES'),
+      bgSrc.indexOf(']);', bgSrc.indexOf('const ALLOWED_TYPES')) + 3,
+    );
+    expect(allowListSection).toContain('startInspector');
+    expect(allowListSection).toContain('stopInspector');
+    expect(allowListSection).toContain('elementPicked');
+    expect(allowListSection).toContain('pickerCancelled');
+    expect(allowListSection).toContain('applyStyle');
+    expect(allowListSection).toContain('inspectResult');
+  });
+});
+
+// ─── CSP fallback basic picker ──────────────────────────────────
+
+describe('CSP fallback basic picker', () => {
+  const contentSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'content.js'), 'utf-8');
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+
+  test('content.js contains startBasicPicker message handler', () => {
+    expect(contentSrc).toContain("msg.type === 'startBasicPicker'");
+    expect(contentSrc).toContain('startBasicPicker()');
+  });
+
+  test('content.js contains captureBasicData function with getComputedStyle', () => {
+    expect(contentSrc).toContain('function captureBasicData(');
+    expect(contentSrc).toContain('getComputedStyle(');
+    expect(contentSrc).toContain('getBoundingClientRect()');
+  });
+
+  test('content.js contains CSSOM iteration guarded against cross-origin sheets', () => {
+    expect(contentSrc).toContain('document.styleSheets');
+    expect(contentSrc).toContain('cssRules');
+    // Cross-origin stylesheets throw DOMException on cssRules access. The
+    // iteration must swallow exactly that (typed catch, not a bare catch {}
+    // — see the slop-scan philosophy in CLAUDE.md).
+    expect(contentSrc).toContain('(same-origin only)');
+    expect(contentSrc).toMatch(/catch \(e\) \{ if \(!\(e instanceof DOMException\)\) throw e; \}/);
+  });
+
+  test('content.js saves and restores outline on elements', () => {
+    expect(contentSrc).toContain('basicPickerSavedOutline');
+    // Outline is restored in cleanup and highlight functions
+    expect(contentSrc).toContain('.style.outline = basicPickerSavedOutline');
+  });
+
+  test('content.js basic picker sends inspectResult with mode basic', () => {
+    expect(contentSrc).toContain("mode: 'basic'");
+    expect(contentSrc).toContain("type: 'inspectResult'");
+  });
+
+  test('content.js basic picker cleans up on Escape', () => {
+    expect(contentSrc).toContain('onBasicKeydown');
+    expect(contentSrc).toContain("e.key === 'Escape'");
+    expect(contentSrc).toContain('basicPickerCleanup');
+  });
+
+  test('background.js injectInspector has separate try blocks for executeScript and insertCSS', () => {
+    const injectFn = bgSrc.slice(
+      bgSrc.indexOf('async function injectInspector('),
+      bgSrc.indexOf('\n}', bgSrc.indexOf('async function injectInspector(') + 1) + 2,
+    );
+    // executeScript and insertCSS should be in separate try blocks
+    expect(injectFn).toContain('executeScript');
+    expect(injectFn).toContain('insertCSS');
+    // Fallback sends startBasicPicker
+    expect(injectFn).toContain("type: 'startBasicPicker'");
+    expect(injectFn).toContain("mode: 'basic'");
+  });
+
+  test('background.js stores inspectorMode for routing', () => {
+    expect(bgSrc).toContain('inspectorMode');
+  });
+});
+
+// ─── Cleanup and screenshot buttons ─────────────────────────────
+
+describe('cleanup and screenshot buttons', () => {
+  const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
+
+  test('sidepanel.html contains cleanup and screenshot buttons in inspector', () => {
+    expect(html).toContain('inspector-cleanup-btn');
+    expect(html).toContain('inspector-screenshot-btn');
+    expect(html).toContain('inspector-action-btn');
+  });
+
+  test('sidepanel.html contains cleanup and screenshot buttons in chat toolbar', () => {
+    expect(html).toContain('chat-cleanup-btn');
+    expect(html).toContain('chat-screenshot-btn');
+    expect(html).toContain('quick-actions');
+  });
+
+  test('cleanup button injects smart prompt into the live PTY (not just deterministic selectors)', () => {
+    // Cleanup pipes a prompt into the running claude PTY via
+    // gstackInjectToTerminal (the chat-queue POST to /sidebar-command was
+    // ripped in PR #1216 — the live REPL is the only execution surface).
+    const cleanupFn = js.slice(
+      js.indexOf('async function runCleanup('),
+      js.indexOf('async function runScreenshot('),
+    );
+    expect(cleanupFn).toContain('gstackInjectToTerminal');
+    expect(cleanupFn).toContain('cleanupPrompt');
+    // Should include both deterministic first pass AND agent snapshot analysis
+    expect(cleanupFn).toContain('cleanup --all');
+    expect(cleanupFn).toContain('snapshot -i');
+    // Should instruct claude to keep site branding
+    expect(cleanupFn).toContain('Keep the site');
+    expect(cleanupFn).toContain('header/masthead');
+  });
+
+  test('sidepanel.js screenshot handler POSTs to /command with screenshot', () => {
+    expect(js).toContain("command: 'screenshot'");
+  });
+
+  test('sidepanel.css contains inspector-action-btn styles', () => {
+    expect(css).toContain('.inspector-action-btn');
+    expect(css).toContain('.inspector-action-btn.loading');
+  });
+
+  test('sidepanel.css contains quick-action-btn styles for chat toolbar', () => {
+    expect(css).toContain('.quick-action-btn');
+    expect(css).toContain('.quick-action-btn.loading');
+    expect(css).toContain('.quick-actions');
+  });
+
+  test('cleanup and screenshot use shared helper functions', () => {
+    expect(js).toContain('async function runCleanup(');
+    expect(js).toContain('async function runScreenshot(');
+    // Both inspector and chat buttons are wired
+    expect(js).toContain('chatCleanupBtn');
+    expect(js).toContain('chatScreenshotBtn');
+  });
+
+  test('sidepanel.css contains chat-notification styles', () => {
+    expect(css).toContain('.chat-notification');
+  });
+});
+
+describe('cleanup heuristics (write-commands.ts)', () => {
+  const wcSrc = fs.readFileSync(path.join(ROOT, 'src', 'write-commands.ts'), 'utf-8');
+
+  test('cleanup defaults to --all when no args provided', () => {
+    // Should not throw on empty args, should default to doAll
+    expect(wcSrc).toContain('if (args.length === 0)');
+    expect(wcSrc).toContain('doAll = true');
+  });
+
+  test('CLEANUP_SELECTORS has overlays category', () => {
+    expect(wcSrc).toContain('overlays: [');
+    expect(wcSrc).toContain('paywall');
+    expect(wcSrc).toContain('newsletter');
+    expect(wcSrc).toContain('interstitial');
+    expect(wcSrc).toContain('push-notification');
+    expect(wcSrc).toContain('app-banner');
+  });
+
+  test('CLEANUP_SELECTORS ads has major ad networks', () => {
+    expect(wcSrc).toContain('doubleclick');
+    expect(wcSrc).toContain('googlesyndication');
+    expect(wcSrc).toContain('amazon-adsystem');
+    expect(wcSrc).toContain('outbrain');
+    expect(wcSrc).toContain('taboola');
+    expect(wcSrc).toContain('criteo');
+  });
+
+  test('CLEANUP_SELECTORS cookies has major consent frameworks', () => {
+    expect(wcSrc).toContain('onetrust');
+    expect(wcSrc).toContain('CybotCookiebot');
+    expect(wcSrc).toContain('truste');
+    expect(wcSrc).toContain('qc-cmp2');
+    expect(wcSrc).toContain('Quantcast');
+  });
+
+  test('cleanup uses !important to override inline styles', () => {
+    // Elements with inline style="display:block" need !important to hide
+    expect(wcSrc).toContain("setProperty('display', 'none', 'important')");
+  });
+
+  test('cleanup unlocks scroll (body overflow:hidden)', () => {
+    expect(wcSrc).toContain("overflow === 'hidden'");
+    expect(wcSrc).toContain("setProperty('overflow', 'auto', 'important')");
+  });
+
+  test('cleanup removes blur effects (paywall blur)', () => {
+    expect(wcSrc).toContain("filter?.includes('blur')");
+    expect(wcSrc).toContain("setProperty('filter', 'none', 'important')");
+  });
+
+  test('cleanup removes article truncation (max-height)', () => {
+    expect(wcSrc).toContain('truncat');
+    expect(wcSrc).toContain("setProperty('max-height', 'none', 'important')");
+  });
+
+  test('cleanup collapses empty ad placeholder whitespace', () => {
+    expect(wcSrc).toContain('empty placeholders');
+    // Should check text content length before collapsing
+    expect(wcSrc).toContain('text.length < 20');
+  });
+
+  test('sticky cleanup skips gstack control indicator', () => {
+    expect(wcSrc).toContain("gstack-ctrl");
+  });
+
+  test('CLEANUP_SELECTORS has clutter category', () => {
+    expect(wcSrc).toContain('clutter: [');
+    expect(wcSrc).toContain('audio-player');
+    expect(wcSrc).toContain('podcast-player');
+    expect(wcSrc).toContain('puzzle');
+    expect(wcSrc).toContain('recirculation');
+    expect(wcSrc).toContain('everlit');
+  });
+
+  test('cleanup removes "ADVERTISEMENT" text labels', () => {
+    expect(wcSrc).toContain('adTextPatterns');
+    expect(wcSrc).toContain('/^advertisement$/i');
+    expect(wcSrc).toContain('/article continues/i');
+    expect(wcSrc).toContain('ad labels');
+  });
+
+  test('sticky cleanup preserves topmost full-width nav bar', () => {
+    // Should preserve the first full-width element near the top
+    expect(wcSrc).toContain('preservedTopNav');
+    expect(wcSrc).toContain('viewportWidth * 0.8');
+    // Should sort sticky elements by vertical position
+    expect(wcSrc).toContain('sort((a, b) => a.top - b.top)');
+  });
+});
+
+describe('chat toolbar buttons disabled state', () => {
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+  const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
+
+  test('setActionButtonsEnabled function exists', () => {
+    expect(js).toContain('function setActionButtonsEnabled(enabled)');
+  });
+
+  test('buttons are disabled when disconnected', () => {
+    // updateConnection should call setActionButtonsEnabled(false) when no URL
+    expect(js).toContain('setActionButtonsEnabled(false)');
+    expect(js).toContain('setActionButtonsEnabled(true)');
+  });
+
+  test('runCleanup silently returns when disconnected (no error spam)', () => {
+    // Should NOT show "Not connected" notification, just return silently
+    const cleanupFn = js.slice(
+      js.indexOf('async function runCleanup('),
+      js.indexOf('\n}', js.indexOf('async function runCleanup(') + 1) + 2,
+    );
+    expect(cleanupFn).not.toContain('Not connected to browse server');
+  });
+
+  test('CSS has disabled style for action buttons', () => {
+    expect(css).toContain('.quick-action-btn.disabled');
+    expect(css).toContain('.inspector-action-btn.disabled');
+    expect(css).toContain('pointer-events: none');
+  });
+});
+
+// ─── Focus stealing prevention ──────────────────────────────────
+
+describe('tab switching does not steal focus', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+  const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
+
+  test('handleCommand tab pinning does NOT steal focus', () => {
+    // All switchTab calls in handleCommand should use bringToFront: false
+    const handleFn = serverSrc.slice(
+      serverSrc.indexOf('async function handleCommand('),
+      serverSrc.indexOf('\n// ', serverSrc.indexOf('async function handleCommand(') + 200),
+    );
+    const switchCalls = handleFn.match(/switchTab\([^)]+\)/g) || [];
     for (const call of switchCalls) {
       expect(call).toContain('bringToFront: false');
     }
   });
 });
 
-describe('inspector and welcome-page message bridge', () => {
-  test('background allowlist includes inspector and sidebar-open messages', () => {
-    const allowList = sliceBetween(BG_SRC, 'const ALLOWED_TYPES = new Set([', ']);');
-    for (const type of ['sidebarOpened', 'startInspector', 'stopInspector', 'elementPicked', 'pickerCancelled', 'applyStyle', 'inspectResult']) {
-      expect(allowList).toContain(type);
-    }
+// ─── LLM-based cleanup architecture ─────────────────────────────
+
+describe('LLM-based cleanup (smart agent cleanup)', () => {
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+  const wcSrc = fs.readFileSync(path.join(ROOT, 'src', 'write-commands.ts'), 'utf-8');
+
+  test('cleanup button does not bypass the agent with a direct /command POST', () => {
+    const cleanupFn = js.slice(
+      js.indexOf('async function runCleanup('),
+      js.indexOf('async function runScreenshot('),
+    );
+    // The smart cleanup goes through the claude PTY, never a raw
+    // deterministic /command fetch. (The PTY-injection wiring itself is
+    // pinned in sidebar-tabs.test.ts.)
+    expect(cleanupFn).not.toMatch(/fetch.*\/command['"]/);
   });
 
-  test('sidebarOpened signal hides the welcome arrow only after sidebar connects', () => {
-    expect(BG_SRC).toContain("msg.type === 'sidebarOpened'");
-    expect(BG_SRC).toContain('chrome.tabs.sendMessage');
-    expect(CONTENT_SRC).toContain("msg.type === 'sidebarOpened'");
-    expect(CONTENT_SRC).toContain("new CustomEvent('gstack-extension-ready')");
-    const beforeListener = CONTENT_SRC.slice(0, CONTENT_SRC.indexOf('chrome.runtime.onMessage'));
+  test('cleanup prompt includes deterministic first pass', () => {
+    const cleanupFn = js.slice(
+      js.indexOf('async function runCleanup('),
+      js.indexOf('async function runScreenshot('),
+    );
+    // First run the deterministic sweep
+    expect(cleanupFn).toContain('cleanup --all');
+  });
+
+  test('cleanup prompt instructs agent to snapshot and analyze', () => {
+    const cleanupFn = js.slice(
+      js.indexOf('async function runCleanup('),
+      js.indexOf('async function runScreenshot('),
+    );
+    // Agent should take a snapshot to see what deterministic pass missed
+    expect(cleanupFn).toContain('snapshot -i');
+    // Agent should analyze what remains
+    expect(cleanupFn).toContain('identify any remaining');
+  });
+
+  test('cleanup prompt lists specific clutter categories for agent', () => {
+    const cleanupFn = js.slice(
+      js.indexOf('async function runCleanup('),
+      js.indexOf('async function runScreenshot('),
+    );
+    // Should guide the agent on what to look for
+    expect(cleanupFn).toContain('cookie/consent banners');
+    expect(cleanupFn).toContain('newsletter popups');
+    expect(cleanupFn).toContain('login walls');
+    expect(cleanupFn).toContain('video autoplay');
+    expect(cleanupFn).toContain('sidebar');
+    expect(cleanupFn).toContain('share');
+    expect(cleanupFn).toContain('floating chat');
+  });
+
+  test('cleanup prompt instructs agent to preserve site identity', () => {
+    const cleanupFn = js.slice(
+      js.indexOf('async function runCleanup('),
+      js.indexOf('async function runScreenshot('),
+    );
+    // Must keep the site looking like itself
+    expect(cleanupFn).toContain('Keep the site');
+    expect(cleanupFn).toContain('header/masthead');
+    expect(cleanupFn).toContain('headline');
+    expect(cleanupFn).toContain('article body');
+    expect(cleanupFn).toContain('byline');
+  });
+
+  test('cleanup prompt instructs agent to unlock scrolling', () => {
+    const cleanupFn = js.slice(
+      js.indexOf('async function runCleanup('),
+      js.indexOf('async function runScreenshot('),
+    );
+    expect(cleanupFn).toContain('unlock scrolling');
+    expect(cleanupFn).toContain('scroll-locked');
+  });
+
+  test('cleanup prompt instructs agent to use $B eval for removal', () => {
+    const cleanupFn = js.slice(
+      js.indexOf('async function runCleanup('),
+      js.indexOf('async function runScreenshot('),
+    );
+    // Agent should use $B eval to hide elements via JavaScript
+    expect(cleanupFn).toContain('$B eval');
+    expect(cleanupFn).toContain('hide each');
+  });
+
+  test('cleanup removes loading state after short delay (agent is async)', () => {
+    const cleanupFn = js.slice(
+      js.indexOf('async function runCleanup('),
+      js.indexOf('async function runScreenshot('),
+    );
+    // Should use setTimeout since agent runs asynchronously
+    expect(cleanupFn).toContain('setTimeout');
+    expect(cleanupFn).toContain("classList.remove('loading')");
+  });
+
+  test('deterministic cleanup still has comprehensive selectors as first pass', () => {
+    // The deterministic $B cleanup --all still needs good selectors for the quick pass
+    expect(wcSrc).toContain('ads: [');
+    expect(wcSrc).toContain('cookies: [');
+    expect(wcSrc).toContain('social: [');
+    expect(wcSrc).toContain('overlays: [');
+    expect(wcSrc).toContain('clutter: [');
+  });
+
+  test('deterministic cleanup clutter covers audio/podcast widgets', () => {
+    expect(wcSrc).toContain('audio-player');
+    expect(wcSrc).toContain('podcast-player');
+    expect(wcSrc).toContain('listen-widget');
+    expect(wcSrc).toContain('everlit');
+    expect(wcSrc).toContain("'audio'"); // bare audio elements
+  });
+
+  test('deterministic cleanup clutter covers sidebar recirculation', () => {
+    expect(wcSrc).toContain('most-popular');
+    expect(wcSrc).toContain('most-read');
+    expect(wcSrc).toContain('recommended');
+    expect(wcSrc).toContain('taboola');
+    expect(wcSrc).toContain('outbrain');
+    expect(wcSrc).toContain('nativo');
+  });
+
+  test('deterministic cleanup clutter covers games/puzzles', () => {
+    expect(wcSrc).toContain('puzzle');
+    expect(wcSrc).toContain('daily-game');
+    expect(wcSrc).toContain('crossword-promo');
+  });
+
+  test('ad label text detection catches common patterns', () => {
+    expect(wcSrc).toContain('/^advertisement$/i');
+    expect(wcSrc).toContain('/^sponsored$/i');
+    expect(wcSrc).toContain('/^promoted$/i');
+    expect(wcSrc).toContain('/article continues/i');
+    expect(wcSrc).toContain('/continues below/i');
+    expect(wcSrc).toContain('/^paid content$/i');
+    expect(wcSrc).toContain('/^partner content$/i');
+  });
+
+  test('ad label detection skips elements with too much text (not a label)', () => {
+    // Should skip elements with >50 chars (probably real content)
+    expect(wcSrc).toContain('text.length > 50');
+  });
+
+  test('ad label detection hides parent wrapper when small enough', () => {
+    // If parent has little content, hide the whole wrapper
+    expect(wcSrc).toContain('parent.textContent');
+    expect(wcSrc).toContain('trim().length < 80');
+  });
+
+  test('sticky removal sorts by vertical position (topmost first)', () => {
+    expect(wcSrc).toContain('sort((a, b) => a.top - b.top)');
+  });
+
+  test('sticky removal preserves first full-width element near top', () => {
+    expect(wcSrc).toContain('preservedTopNav');
+    // Should check element spans most of viewport
+    expect(wcSrc).toContain('viewportWidth * 0.8');
+    // Should only preserve the first one
+    expect(wcSrc).toContain('!preservedTopNav');
+    // Should check it's near the top
+    expect(wcSrc).toContain('top <= 50');
+    // Should check it's not too tall (it's a nav, not a hero)
+    expect(wcSrc).toContain('height < 120');
+  });
+
+  test('sticky removal still skips semantic nav/header elements', () => {
+    expect(wcSrc).toContain("tag === 'nav'");
+    expect(wcSrc).toContain("tag === 'header'");
+    expect(wcSrc).toContain("role') === 'navigation'");
+  });
+});
+
+// ─── Welcome page + sidebar auto-open ────────────────────────────
+
+describe('welcome page', () => {
+  const welcomePath = path.join(ROOT, 'src', 'welcome.html');
+  const welcomeExists = fs.existsSync(welcomePath);
+  const welcomeSrc = welcomeExists ? fs.readFileSync(welcomePath, 'utf-8') : '';
+
+  test('welcome.html exists in browse/src/', () => {
+    expect(welcomeExists).toBe(true);
+  });
+
+  test('welcome page has GStack Browser branding', () => {
+    expect(welcomeSrc).toContain('GStack Browser');
+  });
+
+  test('welcome page has extension-ready listener to hide prompt', () => {
+    expect(welcomeSrc).toContain('gstack-extension-ready');
+    expect(welcomeSrc).toContain('sidebar-prompt');
+  });
+
+  test('welcome page points RIGHT toward sidebar (not UP at toolbar)', () => {
+    // Up arrow can never align with browser chrome. Right arrow always
+    // points toward the sidebar area regardless of window size.
+    expect(welcomeSrc).not.toContain('arrow-up');
+    expect(welcomeSrc).toContain('arrow-right');
+  });
+
+  test('welcome page has left-aligned text (no center-align on headings)', () => {
+    // User preference: always left-align, never center
+    expect(welcomeSrc).not.toMatch(/text-align:\s*center/);
+  });
+
+  test('welcome page uses dark theme', () => {
+    expect(welcomeSrc).toContain('#0C0C0C'); // --base (near-black)
+    expect(welcomeSrc).toContain('#141414'); // --surface (card bg)
+  });
+});
+
+describe('server /welcome endpoint', () => {
+  // Resolve against empty HOME / skill-root dirs so neither the project
+  // welcome page nor the installed one exists.
+  async function welcomeWithoutPages(): Promise<Response> {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-welcome-empty-'));
+    const saved = { HOME: process.env.HOME, GSTACK_SKILL_ROOT: process.env.GSTACK_SKILL_ROOT };
+    try {
+      process.env.HOME = empty;
+      process.env.GSTACK_SKILL_ROOT = empty;
+      return await callRoute('GET', '/welcome', stubRouteContext());
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+      fs.rmSync(empty, { recursive: true, force: true });
+    }
+  }
+
+  test('/welcome endpoint exists in the route table', () => {
+    expect(routeEntry('GET', '/welcome')).toMatchObject({ path: '/welcome', auth: 'none', surfaces: ['local'] });
+  });
+
+  test('/welcome serves HTML content type', async () => {
+    expect((await welcomeWithoutPages()).headers.get('content-type')).toBe('text/html; charset=utf-8');
+  });
+
+  test('/welcome serves fallback HTML if no welcome file found', async () => {
+    // Changed from 302 redirect to about:blank (ERR_UNSAFE_REDIRECT on Windows)
+    // to inline HTML fallback page (PR #822)
+    const resp = await welcomeWithoutPages();
+    expect(resp.status).toBe(200);
+    expect(await resp.text()).toContain('GStack Browser ready');
+  });
+});
+
+describe('headed launch navigates to welcome page', () => {
+  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
+
+  test('server navigates to /welcome after startup in headed mode', () => {
+    // Navigation must happen AFTER Bun.serve() starts (not during launchHeaded)
+    // because the HTTP server needs to be listening before the browser requests /welcome
+    const afterServe = serverSrc.slice(serverSrc.indexOf('Bun.serve('));
+    expect(afterServe).toContain('/welcome');
+    expect(afterServe).toContain("getConnectionMode() === 'headed'");
+  });
+
+  test('welcome navigation does NOT happen in browser-manager (too early)', () => {
+    const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
+    // browser-manager.ts should NOT navigate to /welcome because the server
+    // isn't listening yet when launchHeaded() runs
+    const launchHeadedSection = bmSrc.slice(
+      bmSrc.indexOf('async launchHeaded('),
+      bmSrc.indexOf('// Browser disconnect handler'),
+    );
+    expect(launchHeadedSection).not.toContain('/welcome');
+  });
+});
+
+describe('sidebar auto-open (background.js)', () => {
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+
+  test('autoOpenSidePanel function exists with retry logic', () => {
+    expect(bgSrc).toContain('async function autoOpenSidePanel');
+    expect(bgSrc).toContain('attempt < 5');
+  });
+
+  test('auto-open fires on install AND on every service worker startup', () => {
+    // onInstalled fires on first install / extension update
+    expect(bgSrc).toContain('chrome.runtime.onInstalled.addListener');
+    expect(bgSrc).toContain('autoOpenSidePanel()');
+    // Top-level call fires on every service worker startup
+    const topLevelCalls = bgSrc.match(/^autoOpenSidePanel\(\)/gm);
+    expect(topLevelCalls).not.toBeNull();
+    expect(topLevelCalls!.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('retry uses backoff delays (not fixed interval)', () => {
+    expect(bgSrc).toContain('500');
+    expect(bgSrc).toContain('1000');
+    expect(bgSrc).toContain('2000');
+    expect(bgSrc).toContain('3000');
+    expect(bgSrc).toContain('5000');
+  });
+
+  test('auto-open uses chrome.sidePanel.open with windowId', () => {
+    expect(bgSrc).toContain('chrome.sidePanel.open');
+    expect(bgSrc).toContain('windowId');
+  });
+
+  test('auto-open logs success and failure for debugging', () => {
+    expect(bgSrc).toContain('Side panel opened on attempt');
+    expect(bgSrc).toContain('Side panel auto-open failed');
+  });
+});
+
+describe('sidebar arrow hint hide flow (4-step signal chain)', () => {
+  // The arrow hint on the welcome page should ONLY hide when the sidebar
+  // is actually opened, not when the extension content script loads.
+  //
+  // Signal flow:
+  //   1. sidepanel.js connects → sends { type: 'sidebarOpened' } to background
+  //   2. background.js receives → relays to active tab's content script
+  //   3. content.js receives 'sidebarOpened' → dispatches 'gstack-extension-ready'
+  //   4. welcome.html listens for 'gstack-extension-ready' → hides arrow
+  //
+  const contentSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'content.js'), 'utf-8');
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+  const spSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+  const welcomeSrc = fs.readFileSync(path.join(ROOT, 'src', 'welcome.html'), 'utf-8');
+
+  // Step 1: sidepanel sends sidebarOpened when connected
+  test('step 1: sidepanel sends sidebarOpened message on connect', () => {
+    expect(spSrc).toContain("{ type: 'sidebarOpened' }");
+    // Should be in updateConnection, after setConnState('connected').
+    // Window is generous: updateConnection also exposes the PTY bootstrap
+    // globals (gstackServerPort/gstackAuthToken) before the connected branch.
+    const connectFn = spSrc.slice(
+      spSrc.indexOf('function updateConnection('),
+      spSrc.indexOf('function updateConnection(') + 2500,
+    );
+    const connectedIdx = connectFn.indexOf("setConnState('connected')");
+    const openedIdx = connectFn.indexOf('sidebarOpened');
+    expect(connectedIdx).toBeGreaterThan(0);
+    expect(openedIdx).toBeGreaterThan(connectedIdx);
+  });
+
+  // Step 2: background.js accepts and relays sidebarOpened
+  test('step 2: background.js allows sidebarOpened message type', () => {
+    expect(bgSrc).toContain("'sidebarOpened'");
+    // Must be in ALLOWED_TYPES
+    const allowedBlock = bgSrc.slice(
+      bgSrc.indexOf('ALLOWED_TYPES'),
+      bgSrc.indexOf('ALLOWED_TYPES') + 300,
+    );
+    expect(allowedBlock).toContain('sidebarOpened');
+  });
+
+  test('step 2: background.js relays sidebarOpened to active tab content script', () => {
+    expect(bgSrc).toContain("msg.type === 'sidebarOpened'");
+    // Should send to active tab via chrome.tabs.sendMessage
+    const handler = bgSrc.slice(
+      bgSrc.indexOf("msg.type === 'sidebarOpened'"),
+      bgSrc.indexOf("msg.type === 'sidebarOpened'") + 400,
+    );
+    expect(handler).toContain('chrome.tabs.sendMessage');
+    expect(handler).toContain("{ type: 'sidebarOpened' }");
+  });
+
+  // Step 3: content.js fires gstack-extension-ready ONLY on sidebarOpened
+  test('step 3: content.js dispatches extension-ready on sidebarOpened message', () => {
+    expect(contentSrc).toContain("msg.type === 'sidebarOpened'");
+    expect(contentSrc).toContain("new CustomEvent('gstack-extension-ready')");
+  });
+
+  test('step 3: content.js does NOT auto-fire extension-ready on load', () => {
+    // The old pattern was: fire immediately when content script loads.
+    // Now it should only fire when sidebarOpened message arrives.
+    // Check there's no top-level dispatchEvent outside the message handler.
+    const beforeListener = contentSrc.slice(0, contentSrc.indexOf('chrome.runtime.onMessage'));
     expect(beforeListener).not.toContain("dispatchEvent(new CustomEvent('gstack-extension-ready'))");
   });
 
-  test('content-script basic picker covers CSP fallback inspection', () => {
-    expect(CONTENT_SRC).toContain("msg.type === 'startBasicPicker'");
-    expect(CONTENT_SRC).toContain('function captureBasicData(');
-    expect(CONTENT_SRC).toContain('getComputedStyle(');
-    expect(CONTENT_SRC).toContain('document.styleSheets');
-    expect(CONTENT_SRC).toContain('cssRules');
-    expect(CONTENT_SRC).toContain('same-origin only');
-    expect(CONTENT_SRC).toContain('basicPickerSavedOutline');
-    expect(CONTENT_SRC).toContain("e.key === 'Escape'");
+  // Step 4: welcome page hides arrow on gstack-extension-ready
+  test('step 4: welcome page hides arrow on gstack-extension-ready event', () => {
+    expect(welcomeSrc).toContain("'gstack-extension-ready'");
+    expect(welcomeSrc).toContain("classList.add('hidden')");
+  });
+
+  test('step 4: welcome page does NOT auto-hide via status pill polling', () => {
+    // The old fallback (checkPill/gstack-status-pill) would hide the arrow
+    // as soon as the content script injected the pill, even without sidebar open.
+    expect(welcomeSrc).not.toContain('checkPill');
+    expect(welcomeSrc).not.toContain('gstack-status-pill');
   });
 });
 
-describe('cleanup heuristics and styling', () => {
-  test('deterministic cleanup defaults to broad cleanup and has major clutter categories', () => {
-    expect(WRITE_COMMANDS_SRC).toContain('if (args.length === 0)');
-    expect(WRITE_COMMANDS_SRC).toContain('doAll = true');
-    for (const needle of ['ads: [', 'cookies: [', 'social: [', 'overlays: [', 'clutter: [']) {
-      expect(WRITE_COMMANDS_SRC).toContain(needle);
-    }
+describe('sidebar auth race prevention', () => {
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+  const spSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+
+  test('getPort response includes authToken (not just port + connected)', () => {
+    // The auth race: sidepanel calls getPort, gets {port, connected} but no token.
+    // All subsequent requests fail 401. Token must be in the getPort response.
+    const getPortHandler = bgSrc.slice(
+      bgSrc.indexOf("msg.type === 'getPort'"),
+      bgSrc.indexOf("msg.type === 'setPort'"),
+    );
+    expect(getPortHandler).toContain('token: authToken');
   });
 
-  test('cleanup hides overlays, unlocks scroll, and preserves obvious nav', () => {
-    expect(WRITE_COMMANDS_SRC).toContain("setProperty('display', 'none', 'important')");
-    expect(WRITE_COMMANDS_SRC).toContain("overflow === 'hidden'");
-    expect(WRITE_COMMANDS_SRC).toContain("setProperty('overflow', 'auto', 'important')");
-    expect(WRITE_COMMANDS_SRC).toContain('preservedTopNav');
-    expect(WRITE_COMMANDS_SRC).toContain('viewportWidth * 0.8');
-    expect(WRITE_COMMANDS_SRC).toContain("tag === 'nav'");
-    expect(WRITE_COMMANDS_SRC).toContain("tag === 'header'");
-  });
-
-  test('sidebar CSS keeps terminal toolbar, inspector, and debug UI styled', () => {
-    expect(CSS).toContain('.terminal-toolbar');
-    expect(CSS).toContain('.terminal-toolbar-btn');
-    expect(CSS).toContain('.inspector-action-btn');
-    expect(CSS).toContain('.browser-tabs');
-    expect(CSS).toContain('.debug-toggle');
-  });
-});
-
-describe('startup and auth race prevention', () => {
-  test('background getPort response includes auth token', () => {
-    const getPort = sliceBetween(BG_SRC, "msg.type === 'getPort'", "msg.type === 'getTabState'");
-    expect(getPort).toContain('token: authToken');
-  });
-
-  test('sidepanel uses token from getPort response when connecting', () => {
-    const tryConnectFn = JS.slice(JS.indexOf('async function tryConnect()'), JS.indexOf('// Initial connect', JS.indexOf('async function tryConnect()')));
+  test('tryConnect uses token from getPort response', () => {
+    // Sidepanel must pass resp.token to updateConnection, not null
+    const start = spSrc.indexOf('function tryConnect()');
+    const end = spSrc.indexOf('\ntryConnect();', start); // top-level call after the function
+    const tryConnectFn = spSrc.slice(start, end);
     expect(tryConnectFn).toContain('resp.token');
     expect(tryConnectFn).not.toContain('updateConnection(url, null)');
   });
+});
 
-  test('startup health check uses fast retry before slow polling', () => {
-    expect(BG_SRC).toContain('startupAttempts');
-    expect(BG_SRC).toContain('setInterval(async ()');
-    expect(BG_SRC).toContain('}, 1000);');
-    expect(BG_SRC).toContain('isConnected || startupAttempts >= 15');
-    expect(BG_SRC).toContain('setInterval(checkHealth, 10000)');
+describe('startup health check fast-retry', () => {
+  const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
+
+  test('initial health check retries every 1s (not 10s)', () => {
+    // The server may not be listening when the extension starts because
+    // Chromium launches before Bun.serve(). A 10s gap means the user
+    // stares at "Connecting..." for 10 seconds. 1s retry fixes this.
+    expect(bgSrc).toContain('startupAttempts');
+    expect(bgSrc).toContain('setInterval(async ()');
+    // Fast retry uses 1000ms, not the 10000ms slow poll
+    expect(bgSrc).toContain('}, 1000);');
+  });
+
+  test('startup retry stops after connection or max attempts', () => {
+    expect(bgSrc).toContain('isConnected || startupAttempts >= 15');
+    expect(bgSrc).toContain('clearInterval(startupCheck)');
+  });
+
+  test('slow 10s polling only starts after startup phase completes', () => {
+    expect(bgSrc).toContain('if (!healthInterval)');
+    expect(bgSrc).toContain('setInterval(checkHealth, 10000)');
+  });
+});
+
+describe('sidebar debug visibility when stuck', () => {
+  const spSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+
+  test('connection state machine has a dead state with user-visible message', () => {
+    expect(spSrc).toContain("'dead'");
+    expect(spSrc).toContain('MAX_RECONNECT_ATTEMPTS');
+  });
+
+  test('reconnect attempt counter is visible in the UI', () => {
+    // The banner should show attempt count so user knows something is happening
+    expect(spSrc).toContain('reconnectAttempts');
+  });
+});
+
+describe('BROWSE_NO_AUTOSTART (sidebar headless prevention)', () => {
+  const cliSrc = fs.readFileSync(path.join(ROOT, 'src', 'cli.ts'), 'utf-8');
+  const termAgentSrc = fs.readFileSync(path.join(ROOT, 'src', 'terminal-agent.ts'), 'utf-8');
+
+  test('cli.ts checks BROWSE_NO_AUTOSTART before starting a new server', () => {
+    // ensureServer must check this env var BEFORE spawning a server.
+    // (Anchor on the open paren — both functions grew parameters.)
+    const ensureStart = cliSrc.indexOf('async function ensureServer(');
+    const ensureEnd = cliSrc.indexOf('\nasync function ', ensureStart + 1);
+    const ensureServerFn = cliSrc.slice(
+      ensureStart,
+      ensureEnd > ensureStart ? ensureEnd : undefined,
+    );
+    expect(ensureServerFn).toContain('BROWSE_NO_AUTOSTART');
+    expect(ensureServerFn).toContain('process.exit(1)');
+  });
+
+  test('cli.ts shows actionable error message when BROWSE_NO_AUTOSTART blocks', () => {
+    expect(cliSrc).toContain('/open-gstack-browser');
+    expect(cliSrc).toContain('BROWSE_NO_AUTOSTART is set');
+  });
+
+  test('terminal-agent.ts sets BROWSE_NO_AUTOSTART=1 for the claude PTY', () => {
+    // The PTY claude must reuse THIS headed server, never race to spawn
+    // its own. (sidebar-agent.ts, the original setter, was ripped in
+    // PR #1216 — the PTY agent inherited the same env contract.)
+    expect(termAgentSrc).toContain("BROWSE_NO_AUTOSTART: '1'");
+  });
+
+  test('terminal-agent.ts sets BROWSE_PORT for headed server reuse', () => {
+    expect(termAgentSrc).toContain('BROWSE_PORT');
+  });
+
+  test('BROWSE_NO_AUTOSTART check happens before lock acquisition', () => {
+    // The guard must be BEFORE the lock acquisition. If it's after,
+    // we'd acquire a lock and then exit, leaving a stale lock file.
+    const ensureServerStart = cliSrc.indexOf('async function ensureServer(');
+    const noAutoStart = cliSrc.indexOf('BROWSE_NO_AUTOSTART', ensureServerStart);
+    const lockAcquisition = cliSrc.indexOf('Acquire lock', ensureServerStart);
+    expect(noAutoStart).toBeGreaterThan(0);
+    expect(lockAcquisition).toBeGreaterThan(0);
+    expect(noAutoStart).toBeLessThan(lockAcquisition);
+  });
+});
+
+// ─── Idle timeout disabled in headed mode (server.ts) ───────────
+//
+// The original 'idle check skips in headed mode' string-grep test was deleted
+// in v1.42.3.0 — it would have passed even with the dual-instance bug present
+// because it only grepped for "=== 'headed'" + 'return' in the same window.
+// Behavioral coverage lives in browse/test/server-factory.test.ts under the
+// 'idle timer + onDisconnect dual-instance fix' describe block, which
+// exercises the headed/headless/tunnel branches of idleCheckTick directly.
+// The companion '/sidebar-command resets idle timer' test went with the
+// chat-queue rip (PR #1216) — /command and /batch reset the timer and are
+// covered by that factory suite.
+
+// ─── Cookie button in sidebar footer ────────────────────────────
+
+describe('cookie import button (sidebar)', () => {
+  const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
+  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
+
+  test('cookies button navigates to cookie-picker', () => {
+    expect(js).toContain("'chat-cookies-btn'");
+    expect(js).toContain('cookie-picker');
   });
 });
