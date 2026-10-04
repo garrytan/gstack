@@ -22,7 +22,6 @@ import {
   seedRatchet,
   shardOverruns,
   unseededWarning,
-  flakyPassTable,
 } from '../scripts/lib/free-ci-health';
 import { FREE_TEST_DURATIONS_FILE, type FreeCiPlan, type FreeCiResult, type FreeShardOutcome } from '../scripts/test-free-shards';
 
@@ -134,7 +133,7 @@ describe('free lane CI warnings', () => {
     expect(overrunWarning([])).toBeNull();
   });
 
-  test('the --ci-verify summary lists flaky passes from recovered shards and shards that outran the seed', () => {
+  test('the --ci-verify summary lists shards that outran the seed, counting the first attempt only', () => {
     const outcome = (shard: number, files: string[], failingFiles: string[], elapsedMs: number): FreeShardOutcome =>
       ({ shard, files, failingFiles, elapsedMs, status: failingFiles.length ? 'failed' : 'passed' }) as FreeShardOutcome;
     const plan = { version: 1, revision: 'r', id: 'p', shards: [
@@ -145,10 +144,10 @@ describe('free lane CI warnings', () => {
       { planId: 'p', revision: 'r', outcome: outcome(2, ['test/c.test.ts'], [], 200_000), retry: null },
       { planId: 'p', revision: 'r', outcome: outcome(1, plan.shards[0].files, ['test/b.test.ts'], 90_000), retry: outcome(1, ['test/b.test.ts'], [], 5_000) },
     ];
-    const [flaky, overrun] = ciHealthSummary(plan, results);
-    expect(flaky).toBe(flakyPassTable([{ file: 'test/b.test.ts', shard: 1 }])!);
-    expect(flaky).toContain('| `test/b.test.ts` | 1 |');
-    expect(overrun).toContain('shard 2 took 200s vs 100s predicted');
+    const summary = ciHealthSummary(plan, results);
+    expect(summary).toHaveLength(1);
+    expect(summary[0]).toContain('shard 2 took 200s vs 100s predicted');
+    expect(summary[0]).not.toContain('shard 1');
     expect(ciHealthSummary(plan, [results[0]].map(r => ({ ...r, outcome: { ...r.outcome, elapsedMs: 100_000 } })))).toEqual([]);
   });
 });

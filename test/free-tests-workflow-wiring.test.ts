@@ -74,6 +74,17 @@ describe('free-tests workflow wiring', () => {
     expect(ubicloudApt.split(/\s+/)).toContain('zsh');
   });
 
+  test('the aggregate summarizes every shard flake ledger before strict verification (W7a)', () => {
+    const steps = (Bun.YAML.parse(source) as any).jobs['free-tests'].steps;
+    const download = steps.findIndex((step: any) => step.with?.pattern === 'flake-ledger-*');
+    const summary = steps.findIndex((step: any) => step.run?.includes('scripts/test-health-report.ts flake-summary "$RUNNER_TEMP/flake-ledgers" >> "$GITHUB_STEP_SUMMARY"'));
+    const verify = steps.findIndex((step: any) => step.run?.includes('--ci-verify'));
+    expect(steps[download].with.path).toBe('${{ runner.temp }}/flake-ledgers');
+    expect(steps[download].with['merge-multiple']).toBeUndefined();
+    expect(download).toBeLessThan(summary);
+    expect(summary).toBeLessThan(verify);
+  });
+
   test('the plan job runs the seed ratchet against the merge-base with full history', () => {
     const planner = (Bun.YAML.parse(source) as any).jobs['free-plan'];
     expect(planner.steps[0].with['fetch-depth']).toBe(0);

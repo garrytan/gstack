@@ -416,5 +416,14 @@ jobs:
           pattern: free-result-*
           merge-multiple: true
           path: ${{ runner.temp }}/free-results
+      # Per-shard ledgers land in their own subdirectories (all are named
+      # flake-ledger.jsonl). A green run is where a retried flake hides, so the
+      # summary runs before strict verification.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: flake-ledger-*
+          path: ${{ runner.temp }}/flake-ledgers
+      - name: Summarize flaky passes absorbed by the serial retry
+        run: bun run scripts/test-health-report.ts flake-summary "$RUNNER_TEMP/flake-ledgers" >> "$GITHUB_STEP_SUMMARY"
       - name: Require exact coverage and complete strict results
         run: bun run scripts/test-free-shards.ts --ci-verify "$RUNNER_TEMP/free-plan.json" --results "$RUNNER_TEMP/free-results"

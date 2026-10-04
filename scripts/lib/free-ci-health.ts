@@ -1,7 +1,7 @@
 /**
- * Free-lane health signals that keep the duration seed honest and make
- * absorbed flakes visible: the unseeded-file warning (--ci-plan), the shard
- * overrun warning and flaky-pass table (--ci-verify job summary), and the
+ * Free-lane health signals that keep the duration seed honest: the
+ * unseeded-file warning (--ci-plan), the shard overrun warning (--ci-verify
+ * job summary), and the
  * seed growth ratchet (60 s ceiling with a shrink-only allowlist).
  * Every message names the problem, the offending entry, the fix command and
  * the docs anchor.
@@ -46,34 +46,15 @@ export function overrunWarning(overruns: ShardTiming[]): string | null {
     + `and commit scripts/free-test-durations.json; split any file over ${seconds(SEED_CEILING_MS)}. See ${SEED_DOCS_ANCHOR}.`;
 }
 
-export interface FlakyPass { file: string; shard: number }
-
-export function flakyPassTable(flaky: FlakyPass[]): string | null {
-  if (flaky.length === 0) return null;
-  const rows = [...flaky].sort((a, b) => a.file.localeCompare(b.file) || a.shard - b.shard)
-    .map(({ file, shard }) => `| \`${file}\` | ${shard} |`);
-  return [
-    `### ${flaky.length} flaky pass(es) absorbed by the serial retry`,
-    '',
-    'These files failed, then passed alone. The run is green, but each one is a race to fix at source;',
-    'the shard log artifact keeps the first failure. Weekly rates come from `bun run test:health`.',
-    '',
-    '| File | Shard |',
-    '|---|---:|',
-    ...rows,
-  ].join('\n');
-}
-
-/** Job-summary signals derived from the strict results: absorbed flakes and shards that outran their seed. */
+/** Job-summary signal derived from the strict results: shards that outran their seed. */
 export function ciHealthSummary(plan: FreeCiPlan, results: FreeCiResult[]): string[] {
   const ordered = [...results].sort((a, b) => a.outcome.shard - b.outcome.shard);
-  const flaky = ordered.filter(result => result.retry?.status === 'passed')
-    .flatMap(result => result.outcome.failingFiles.map(file => ({ file, shard: result.outcome.shard })));
   const overruns = shardOverruns(ordered.flatMap(({ outcome }) => {
     const predictedMs = plan.shards[outcome.shard - 1]?.predictedMs;
     return predictedMs === undefined ? [] : [{ shard: outcome.shard, predictedMs, elapsedMs: outcome.elapsedMs }];
   }));
-  return [flakyPassTable(flaky), overrunWarning(overruns)].filter((text): text is string => text !== null);
+  const warning = overrunWarning(overruns);
+  return warning ? [warning] : [];
 }
 
 /** Printed by every Windows run and its job summary so silent shrinkage of the curated set is visible. */
