@@ -22,7 +22,8 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}/ci
   # PRs run changed fast probes; manual runs retain the complete gate census.
   EVALS_PROFILE: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
-  EVALS_FRESH: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+  # Dispatches validate fresh; the evals-fresh PR label opts a PR out of receipt reuse (DX-7).
+  EVALS_FRESH: ${{ (github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'evals-fresh')) && '1' || '' }}
 
 jobs:
   # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
@@ -102,6 +103,48 @@ jobs:
           docker manifest inspect "$EVAL_IMAGE" > /tmp/eval-runtime-manifest.json
           echo "id=$(sha256sum /tmp/eval-runtime-manifest.json | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
 
+  # ── Push-burst debounce (W1d: CEO-15, ENG-11, DX-7) ──────────────────────
+  # Only on `synchronize` when another evals.yml run for this PR started in
+  # the last 15 minutes (a push burst): wait 90 s before planning, so the next
+  # push's cancel-in-progress lands before any paid slice starts. A first push
+  # pays nothing. cancel-in-progress does the superseding; the head-SHA check
+  # only reports "superseded by <sha>" when this run outlives the wait. The PR
+  # label evals-no-debounce skips the wait.
+  debounce:
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' && github.event.action == 'synchronize' && github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'evals-no-debounce')
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: read
+    outputs:
+      superseded: ${{ steps.wait.outputs.superseded }}
+    steps:
+      - name: Wait out a push burst
+        id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          since=$(date -u -d '15 minutes ago' +%s)
+          recent=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/evals.yml/runs" -f event=pull_request \
+            -f branch="$HEAD_BRANCH" -f per_page=20 \
+            --jq "[.workflow_runs[] | select(.id < $GITHUB_RUN_ID and any(.pull_requests[]; .number == $PR_NUMBER) and ((.created_at | fromdateiso8601) >= $since))] | length" \
+            2>/dev/null || echo 0)
+          if [ "${recent:-0}" -eq 0 ]; then
+            echo "- Debounce: no other run for this PR in the last 15 min; no wait" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "- Debounce: ${recent} run(s) for this PR started in the last 15 min; waiting 90 s (label evals-no-debounce skips this)" >> "$GITHUB_STEP_SUMMARY"
+          sleep 90
+          head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha 2>/dev/null || echo "$HEAD_SHA")
+          if [ "$head" != "$HEAD_SHA" ]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            echo "- Debounce: superseded by ${head}; this run plans no slices" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # ── Receipt recovery (W1c: CEO-14/34, ENG-4/5/7) ─────────────────────────
   # A run cancelled by the next push never reaches slices-report, so its
   # finished receipts (passes AND the negatives executors write at the
@@ -115,7 +158,9 @@ jobs:
   # plan-slices turns reuse off, so cases execute unreduced.
   recover-receipts:
     runs-on: ubuntu-24.04
-    if: github.actor != 'dependabot[bot]' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'evals-fresh')
+    needs: [debounce]
+    # Runs after the debounce settles, so a superseded run's cancellation has usually completed.
+    if: ${{ !cancelled() && needs.debounce.outputs.superseded != 'true' && github.actor != 'dependabot[bot]' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'evals-fresh') }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -183,9 +228,9 @@ jobs:
   # branch (see CLAUDE.md's garrytan-agents workflow).
   plan-slices:
     runs-on: ubicloud-standard-8
-    needs: [recover-receipts]
-    # !cancelled(): plans even when recovery was skipped (dispatch, evals-fresh) or failed; reuse is then off.
-    if: ${{ !cancelled() && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [debounce, recover-receipts]
+    # !cancelled(): plans even when the debounce or recovery was skipped (first push, dispatch, evals-fresh) or recovery failed (reuse is then off); a superseded run plans nothing.
+    if: ${{ !cancelled() && needs.debounce.outputs.superseded != 'true' && github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     timeout-minutes: 10
     permissions:
       contents: read

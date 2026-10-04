@@ -74,3 +74,30 @@ describe('evals.yml receipt recovery (CEO-14/34, ENG-7)', () => {
   });
 });
 
+
+describe('evals.yml push-burst debounce (CEO-15, ENG-11, DX-7)', () => {
+  const debounce = workflow.jobs.debounce!;
+
+  test('a tiny job debounces only synchronize pushes, skippable by label, before recovery and planning', () => {
+    expect(debounce['runs-on']).toBe('ubuntu-24.04');
+    expect(debounce.if).toContain("github.event.action == 'synchronize'");
+    expect(debounce.if).toContain("!contains(github.event.pull_request.labels.*.name, 'evals-no-debounce')");
+    expect(debounce.permissions).toEqual({ actions: 'read', 'pull-requests': 'read' });
+    const wait = step('debounce', 'Wait out a push burst')!.run!;
+    expect(wait).toContain("date -u -d '15 minutes ago'");
+    expect(wait).toContain('sleep 90');
+    expect(wait).toContain('superseded=true');
+    expect(wait).toContain('superseded by ${head}');
+    for (const job of ['recover-receipts', 'plan-slices']) {
+      expect(workflow.jobs[job]!.needs).toContain('debounce');
+      expect(workflow.jobs[job]!.if).toContain("needs.debounce.outputs.superseded != 'true'");
+      expect(workflow.jobs[job]!.if).toContain('!cancelled()');
+    }
+  });
+
+  test('cancel-in-progress stays keyed on the PR, and evals-fresh turns receipt reuse off', () => {
+    expect(source).toContain('group: evals-${{ github.event.pull_request.number || github.run_id }}');
+    expect(source).toContain('cancel-in-progress: true');
+    expect(workflow.env.EVALS_FRESH).toContain("contains(github.event.pull_request.labels.*.name, 'evals-fresh')");
+  });
+});
