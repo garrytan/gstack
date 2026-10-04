@@ -14,7 +14,7 @@ const directories: string[] = [];
 const quote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
 afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
 
-function fixture(expectedBudgetMs = 30000) {
+function fixture(expectedBudgetMs = 180_000) {
   const started = Date.now();
   const directory = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'qa-gate-'));
   directories.push(directory);
@@ -218,7 +218,7 @@ test('child-emitted receipt forgery and direct state reset scripts are rejected'
   expect(() => f.check()).toThrow('reserved deadline evidence');
 });
 
-test('short fixture deadlines require an explicit contract; the native default remains exactly 30s', () => {
+test('short fixture deadlines require an explicit contract; the native default is the 180s Browser Quick budget', () => {
   const native = fixture();
   native.run();
   expect(assertQaBrowserDeadline(native.calls, { directory: native.directory, guard, browse,
@@ -227,7 +227,7 @@ test('short fixture deadlines require an explicit contract; the native default r
   f.run();
   expect(f.check()).toEqual({ launchedRuns: 1, completedRuns: 1, refusedRuns: 0, timedOutRuns: 0 });
   expect(() => assertQaBrowserDeadline(f.calls, { directory: f.directory, guard, browse,
-    started: f.started, ended: Date.now() })).toThrow('expected 30000ms deadline');
+    started: f.started, ended: Date.now() })).toThrow('expected 180000ms deadline');
   for (const expectedBudgetMs of [0, -1, 0.5, 2_147_483_648, NaN, Infinity]) {
     expect(() => assertQaBrowserDeadline(f.calls, { directory: f.directory, guard, browse,
       started: f.started, ended: Date.now(), expectedBudgetMs })).toThrow('invalid expected deadline budget');

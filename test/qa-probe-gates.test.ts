@@ -26,7 +26,7 @@ function assertPreparation(text: string) {
 }
 
 function assertBoundsAndLayout(text: string) {
-  for (const contract of ['Browser Quick: SECONDS=30', 'Browser Full/Regression: SECONDS=900']) expect(text).toContain(contract);
+  for (const contract of ['Browser Quick: SECONDS=180', 'Browser Full/Regression: SECONDS=900']) expect(text).toContain(contract);
   for (const rule of [
     /functional full, quick and regression have no default total timer/i,
     /shorter mode\/caller limit/i,
@@ -130,7 +130,7 @@ describe('QA probe entry and checkpoint gates', () => {
         'QA_DEADLINE receipts are not observations',
       ]) expect(text).toContain(contract);
       assertBoundsAndLayout(text);
-      expect(text.indexOf('Browser Quick: SECONDS=30')).toBeLessThan(text.indexOf(startCommand(text)));
+      expect(text.indexOf('Browser Quick: SECONDS=180')).toBeLessThan(text.indexOf(startCommand(text)));
     }
   });
 
@@ -290,5 +290,44 @@ describe('QA probe entry and checkpoint gates', () => {
     const text = generatePlanVerificationExec({ host: 'claude', skillName: 'ship', tmplPath: '', paths: HOST_PATHS.claude });
     expectMentions(text, [['do not', 'invoke', 'entire']], 'text');
     expectMentions(text, [['before', 'complete', 'command']], 'text');
+  });
+});
+
+// Lane S C2: gaps the qa-only/review/ship workflow judges named in their rationales.
+describe('judge-named QA workflow gaps (C2)', () => {
+  const ctx = (skillName: string) => ({ host: 'claude' as const, skillName, tmplPath: '', paths: HOST_PATHS.claude });
+
+  test('Browser Quick leaves time for its six page probes, and the method states the same budget', () => {
+    for (const skillName of ['qa', 'qa-only']) {
+      const seconds = Number(/Browser Quick: SECONDS=(\d+)\./.exec(generateQAExploratory(ctx(skillName)))?.[1]);
+      // homepage + top 5 targets, each a checkpoint write plus one guarded command: 30 s left ~5 s per probe.
+      expect(seconds / 6).toBeGreaterThanOrEqual(20);
+      const patterns = fs.readFileSync(path.join(import.meta.dir, '..', 'qa', 'sections', 'qa-patterns.md'), 'utf8');
+      expect(patterns).toContain(`${seconds / 60} minutes: homepage + top 5 navigation targets`);
+    }
+  });
+
+  test('PROBE_DIR names its source line, and stopping goes to the final report steps', () => {
+    for (const skillName of ['qa', 'qa-only']) {
+      const text = generateQAExploratory(ctx(skillName));
+      const layout = text.indexOf('mixed standalone runs use REPORT_DIR/browser and REPORT_DIR/functional');
+      const probeDir = text.indexOf("PROBE_DIR: this surface's probe directory from the line above.");
+      expect(layout).toBeGreaterThan(-1);
+      expect(probeDir).toBeGreaterThan(layout);
+      expect(text.slice(layout, probeDir).split('\n')).toHaveLength(3);
+      expect(text).toContain('write the report, not a checkpoint: go to §4 (annotations, materialize, then Markdown)');
+      const final = text.indexOf('## 4. Final report');
+      expect(final).toBeGreaterThan(-1);
+      expect(text.indexOf('annotations.json', final)).toBeLessThan(text.indexOf('materialize PROBE_DIR', final));
+    }
+  });
+
+  test('/review and /ship: after smoke expiry only plan checks rerun in revalidation', () => {
+    for (const skillName of ['review', 'ship']) {
+      const text = generateQAReview(ctx(skillName));
+      expect(text).toContain('After smoke expiry, step 4c reruns plan checks only; affected smoke checks are not-run.');
+      expect(text).toContain('c. Re-review changed or uncertain coverage and repeat step 3 for affected checks.');
+      expect(text).not.toContain('Post-expiry smoke rechecks are not-run.');
+    }
   });
 });

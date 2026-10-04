@@ -181,7 +181,7 @@ describe('compact QA browser recipes retain native operations', () => {
       'Resolve conflicting depth flags by asking before probes',
       'Diff-aware selects scope, not another pass',
       'After selecting and isolating a browser surface',
-      'Visit every reachable page (5-15 minutes)', '30 seconds: homepage + top 5 navigation targets',
+      'Visit every reachable page (5-15 minutes)', '3 minutes: homepage + top 5 navigation targets',
       "skip detailed issues/checklist, never the shared loop's gates",
     ]) expect(prose).toContain(contract);
     const titles = ['Initialize', 'Authenticate (if needed)', 'Orient', 'Explore', 'Document', 'Wrap Up'];

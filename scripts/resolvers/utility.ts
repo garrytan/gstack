@@ -169,7 +169,7 @@ Use the supplied URL or first responder/staging/preview; ask if none. Test chang
 Visit every reachable page (5-15 minutes). Score health; document 5-10 evidenced issues, never invent any.
 
 ### Quick (\`--quick\`)
-30 seconds: homepage + top 5 navigation targets. Check loads/console/broken links; score per Health Score Rubric; skip detailed issues/checklist, never the shared loop's gates.
+3 minutes: homepage + top 5 navigation targets. Check loads/console/broken links; score per Health Score Rubric; skip detailed issues/checklist, never the shared loop's gates.
 
 ### Regression (\`--regression <baseline>\`)
 Run Full; append fixed/new issues and score delta. Preserve the supplied prior baseline.
