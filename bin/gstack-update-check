@@ -319,20 +319,30 @@ if [ -f "$CACHE_FILE" ]; then
     # verdict even when they legitimately disagree. A stamp mismatch means
     # "unknown for THIS install", and one slow path is the correct price.
     #
-    # A git install with no stamp (a cache written before this change) also
-    # takes one slow path, which writes the stamp.
+    # A git install with NO stamp file (a cache written before this change, or
+    # by a non-git install sharing STATE_DIR) replays a silent verdict
+    # (UP_TO_DATE / CHECK_FAILED) inside its TTL exactly as before: a fresh
+    # cache stays a no-network hit, and the cost is at most one TTL of
+    # commit-clock latency, the bound UPGRADE_COMMITS already accepts. An
+    # unstamped nag verdict is re-checked instead, because replaying a nag
+    # against unknown state is how it would survive an upgrade.
     #
     # Non-git installs produce no stamp and replay exactly as before: their
     # verdict never depended on git state in the first place.
     _CACHE_REPLAY=1
     _CURRENT_STAMP="$(_uc_state_stamp)"
     if [ -n "$_CURRENT_STAMP" ]; then
-      _CACHED_STAMP=""
       if [ -f "$STAMP_FILE" ]; then
+        _CACHED_STAMP=""
         IFS= read -r _CACHED_STAMP < "$STAMP_FILE" 2>/dev/null || _CACHED_STAMP=""
-      fi
-      if [ "$_CACHED_STAMP" != "$_CURRENT_STAMP" ]; then
-        _CACHE_REPLAY=0
+        if [ "$_CACHED_STAMP" != "$_CURRENT_STAMP" ]; then
+          _CACHE_REPLAY=0
+        fi
+      else
+        case "$CACHED" in
+          UP_TO_DATE*|CHECK_FAILED*) ;;
+          *) _CACHE_REPLAY=0 ;;
+        esac
       fi
     fi
     if [ "$_CACHE_REPLAY" -eq 1 ]; then
@@ -450,7 +460,8 @@ if ! echo "$REMOTE" | grep -qE '^[0-9]+\.[0-9.]+$'; then
     _FAILED_URL="$(_display_url "$_SHA_URL") (then $_FAILED_URL)"
   fi
   # This is the offline / captive-portal / HTML-error-page path, and it must
-  # stamp like any other verdict: an unstamped cache is unreplayable, so every
+  # stamp like any other verdict: a bare cache write leaves the previous
+  # verdict's stamp behind, a stamp for state this verdict never saw, so every
   # later run would pay the full ls-remote + curl slow path while still offline.
   _uc_write_verdict "CHECK_FAILED $LOCAL $_FAILED_URL"
   if [ "$FORCE" = "1" ]; then

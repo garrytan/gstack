@@ -861,10 +861,25 @@ describe('gstack-update-check commit-clock cross-check (#2378)', () => {
     expect(stdout).toContain(expectedCommitsLine(install));
   });
 
-  test('missing state stamp forces a fresh check for git installs', () => {
+  test('missing state stamp: a fresh silent verdict still replays for git installs', () => {
+    // A pre-stamp cache, or one a non-git install wrote, must stay a
+    // no-network cache hit. The remote here WOULD flag this behind install,
+    // so silence proves no slow path ran.
     const install = makeInstall();
     writeFileSync(join(stateDir, 'last-update-check'), 'UP_TO_DATE 1.60.1.0\n');
+    expectSilent(run({ ...gitEnv, GSTACK_DIR: install }), 'unstamped UP_TO_DATE must replay inside its TTL');
+    // Once the TTL lapses, the slow path runs and flags it.
+    ageCache(61);
     expect(run({ ...gitEnv, GSTACK_DIR: install }).stdout).toBe(expectedCommitsLine(install));
+  });
+
+  test('missing state stamp: a nag verdict is re-checked, not replayed', () => {
+    // Without a stamp there is no proof the nag still applies; replaying it
+    // is how a nag survives an upgrade. This install is already on the tip.
+    const install = makeCurrentInstall();
+    writeFileSync(join(stateDir, 'last-update-check'), 'UPGRADE_COMMITS 1.60.1.0 aaaaaaa bbbbbbb\n');
+    expectSilent(run({ ...gitEnv, GSTACK_DIR: install }), 'unstamped UPGRADE_COMMITS must take the slow path');
+    expect(readFileSync(join(stateDir, 'last-update-check'), 'utf-8')).toBe('UP_TO_DATE 1.60.1.0\n');
   });
 
   test('URL and SHA overrides stay independent', () => {
