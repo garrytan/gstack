@@ -14,7 +14,7 @@ concurrency:
 jobs:
   check:
     name: Check VERSION is not stale vs queue
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
