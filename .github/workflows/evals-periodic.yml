@@ -704,7 +704,7 @@ jobs:
       # issue (never a new issue per week) with the headline and failure block
       # of both lanes, and close it on the next green run.
       - name: Upsert tracking issue on failure
-        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || steps.pass-rates.outputs.exit != '0' || needs.eval-slices.result != 'success' || !contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) || needs.gate-census.result != 'success')
+        if: always() && github.ref == 'refs/heads/main' && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || steps.pass-rates.outputs.exit != '0' || needs.eval-slices.result != 'success' || !contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) || needs.gate-census.result != 'success')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REDISPATCH: ${{ steps.verdict.outputs.redispatch }}
@@ -756,7 +756,7 @@ jobs:
           fi
 
       - name: Close the tracking issue on a green run
-        if: always() && steps.reconcile.outputs.exit == '0' && steps.gate-reconcile.outputs.exit == '0' && steps.pass-rates.outputs.exit == '0' && needs.eval-slices.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) && needs.gate-census.result == 'success'
+        if: always() && github.ref == 'refs/heads/main' && steps.reconcile.outputs.exit == '0' && steps.gate-reconcile.outputs.exit == '0' && steps.pass-rates.outputs.exit == '0' && needs.eval-slices.result == 'success' && contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) && needs.gate-census.result == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REDISPATCH_OF: ${{ inputs.redispatch_of }}

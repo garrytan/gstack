@@ -106,7 +106,7 @@ describe('evals.yml sliced-lane wiring (post-matrix)', () => {
   test('executor matrix and timeout come from the one budget planner', () => {
     expect(plannerSites(evalsYml), 'expected exactly one --emit-plan site in evals.yml').toHaveLength(1);
     const { site } = expectPlannedExecutor(evalsYml, 'eval-slices', '');
-    expect(site).toEqual({ manifest: '/tmp/paid-plan/manifest.json', budgetSeconds: 540, jobs: 2 });
+    expect(site).toEqual({ manifest: '/tmp/paid-plan/manifest.json', budgetSeconds: 420, jobs: 2 });
   });
 
   test('reconcile exit is captured via PIPESTATUS, never $? after a pipe', () => {

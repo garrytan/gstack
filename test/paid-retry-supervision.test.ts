@@ -236,8 +236,8 @@ test('both gate executors plan the complete census and supervise every planned s
     expect(active.tier).toBe('gate');
     expect(active.jobs).toBe(2);
     expect(planned.jobs).toBe(active.jobs);
-    // W5c: the scheduled census plans 7-minute slices; the PR lane's budget lives in evals.yml.
-    expect(planned.sliceBudgetMs).toBe(jobName === 'gate-census' ? 420_000 : 540_000);
+    // W5c/CEO-15: both gate lanes plan 7-minute slices.
+    expect(planned.sliceBudgetMs).toBe(420_000);
     expect(planned.skipJudges).toBe(skipJudges);
     expect(execute[0].env.EVALS_CONCURRENCY).toBe('2');
     expect(executor.strategy['fail-fast']).toBe(false);

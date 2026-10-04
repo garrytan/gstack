@@ -256,7 +256,7 @@ jobs:
       contents: read
     outputs:
       slices: ${{ steps.matrix.outputs.slices }}
-      timeout_minutes: ${{ steps.matrix.outputs.timeout_minutes }}
+      slice_timeouts: ${{ steps.matrix.outputs.slice_timeouts }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -309,7 +309,7 @@ jobs:
           EVALS_CACHE_DIR: ${{ steps.reuse.outputs.reuse == 'on' && '/tmp/gstack-eval-input-cache' || '' }}
           # Dispatch diff base (CEO-17): the exact merge-base, else the named base branch, else detection.
           EVALS_BASE: ${{ inputs.base_sha || (inputs.base_ref != '' && format('origin/{0}', inputs.base_ref)) || '' }}
-        run: EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slice-budget 540 --jobs 2 --max-parallel 16
+        run: EVALS_TIER=gate bun --no-install run scripts/test-paid-shards.ts --tier gate --emit-plan /tmp/paid-plan/manifest.json --slice-budget 420 --jobs 2 --max-parallel 20
 
       # CEO-13: the mode, case counts and, on fallback, every file that
       # restored the full gate with the edit that narrows it next time.
@@ -320,7 +320,7 @@ jobs:
         id: matrix
         run: |
           echo "slices=$(jq -c '[range(1; .sliceCount + 1)]' /tmp/paid-plan/manifest.json)" >> "$GITHUB_OUTPUT"
-          echo "timeout_minutes=$(jq -e '.plan.ciTimeoutMinutes' /tmp/paid-plan/manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "slice_timeouts=$(jq -ec '[0] + .plan.sliceCiTimeoutMinutes' /tmp/paid-plan/manifest.json)" >> "$GITHUB_OUTPUT"
 
       # The whole store (recovered receipts and the checkpoint included)
       # travels to slices-report, which saves it with this run's receipts, so
@@ -347,11 +347,13 @@ jobs:
     # (image already published), but a newer push's cancel-in-progress stops
     # it instead of letting a superseded run finish its paid slices first.
     if: ${{ !cancelled() && needs.build-image.result == 'success' && needs.plan-slices.result == 'success' }}
-    # The planner packs ~9 minutes of recorded work per slice (EVALS_JOBS=2 x
+    # The planner packs ~7 minutes of recorded work per slice (EVALS_JOBS=2 x
     # EVALS_CONCURRENCY=2 per runner, never the old 40-way per-row fan-out
-    # that queued claude session STARTUP behind 39 siblings). The job timeout
-    # is the plan's supervised worst case plus 20 minutes setup/upload.
-    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.timeout_minutes) }}
+    # that queued claude session STARTUP behind 39 siblings). Each slice's job
+    # timeout is its own ceiling (W2c): max(2x budget, its longest shard wall,
+    # the overlay envelope) + 20 minutes; the executor stops at the slice
+    # deadline 5 minutes earlier and reports not_run/hung shards.
+    timeout-minutes: ${{ fromJSON(needs.plan-slices.outputs.slice_timeouts)[matrix.slice] }}
     permissions:
       contents: read
       packages: read
@@ -363,10 +365,13 @@ jobs:
       options: --user runner
     strategy:
       fail-fast: false
-      max-parallel: 16
+      max-parallel: 20
       matrix:
         slice: ${{ fromJSON(needs.plan-slices.outputs.slices) }}
     steps:
+      - name: Record the job start for the slice deadline
+        run: echo "GSTACK_SLICE_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history: files with SELF-derived selection (the LLM-judge
