@@ -321,7 +321,8 @@ test('gate census requires all seven distinct slice results and its own reconcil
   expect(failureGuards).toHaveLength(2);
   for (const step of failureGuards) {
     expect(step.if).toContain("steps.gate-reconcile.outputs.exit != '0'");
-    expect(step.if).toContain("needs.gate-census.result != 'success'");
+    // A census that ran must succeed; only the intentional branch-dispatch skip (CEO-04) is not red.
+    expect(step.if).toMatch(/needs\.gate-census\.result != 'success'|!contains\(fromJSON\('\["success","skipped"\]'\), needs\.gate-census\.result\)/);
     expect(step.if).toContain("steps.reconcile.outputs.exit != '0'");
     expect(step.if).toContain("needs.eval-slices.result != 'success'");
   }

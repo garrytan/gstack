@@ -24,11 +24,17 @@ on:
         description: 'Run id this run re-dispatches (the one INFRA/INCOMPLETE-only re-dispatch; set by the report job)'
         type: string
         default: ''
+      include_gate_census:
+        description: 'Branch dispatch only: also run the weekly gate census (default: periodic lane only; gate cases validate through an evals.yml dispatch with evals_all)'
+        type: boolean
+        default: false
 
-# A re-dispatch runs in its own group so it never cancels the run that
-# dispatched it; both runs are reported.
+# One group per ref AND event: a branch dispatch never cancels main's census,
+# and a manual main dispatch never cancels the scheduled one. A re-dispatch
+# runs in its own group so it never cancels the run that dispatched it; both
+# runs are reported.
 concurrency:
-  group: evals-periodic${{ inputs.redispatch_of && format('-redispatch-{0}', inputs.redispatch_of) || '' }}
+  group: evals-periodic-${{ github.ref }}-${{ github.event_name }}${{ inputs.redispatch_of && format('-redispatch-{0}', inputs.redispatch_of) || '' }}
   cancel-in-progress: true
 
 env:
@@ -422,6 +428,10 @@ jobs:
   gate-census:
     runs-on: ubicloud-standard-8
     needs: [build-image, plan-slices]
+    # A branch dispatch validates the periodic lane only; gate cases on a
+    # branch go through an evals.yml dispatch with evals_all. Main (schedule
+    # or dispatch) always runs the census; a branch opts in explicitly.
+    if: ${{ github.ref == 'refs/heads/main' || inputs.include_gate_census }}
     env:
       EVALS_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}-gate-census-${{ matrix.slice }}
     # Supervised worst case of the packed plan plus 20 minutes setup/upload.
@@ -585,8 +595,15 @@ jobs:
       - name: Reconcile gate census against the manifest (fail-closed)
         id: gate-reconcile
         if: always()
+        env:
+          GATE_CENSUS: ${{ needs.gate-census.result }}
         run: |
           set +e
+          if [ "$GATE_CENSUS" = "skipped" ]; then
+            echo "gate census skipped: branch dispatch without include_gate_census (periodic lane only)" | tee /tmp/gate-report.txt
+            echo "exit=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           EVALS_TIER=gate bun run scripts/test-paid-shards.ts --tier gate --report /tmp/gate-census-report | tee /tmp/gate-report.txt
           echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
@@ -723,7 +740,7 @@ jobs:
           fi
 
       - name: Fail the workflow when reconciliation failed
-        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || steps.pass-rates.outputs.exit != '0' || needs.eval-slices.result != 'success' || !contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) || needs.gate-census.result != 'success')
+        if: always() && (steps.reconcile.outputs.exit != '0' || steps.gate-reconcile.outputs.exit != '0' || steps.pass-rates.outputs.exit != '0' || needs.eval-slices.result != 'success' || !contains(fromJSON('["success","skipped"]'), needs.eval-codex-slices.result) || !contains(fromJSON('["success","skipped"]'), needs.gate-census.result))
         run: exit 1
 
   # The one INFRA/INCOMPLETE re-dispatch (UC-E1). Its own job so the report

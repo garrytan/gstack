@@ -392,6 +392,35 @@ describe('panel verdict surfaces (eval reliability policy)', () => {
     const classify = report.steps.find(step => step.id === 'verdict')!;
     expect(classify.run).toContain('.verdict.redispatchEligible == true');
     expect(classify.run).toContain('[ -z "$REDISPATCH_OF" ]');
-    expect(periodicYml).toMatch(/group: evals-periodic\$\{\{ inputs\.redispatch_of/);
+    expect(periodicYml).toMatch(/group: evals-periodic-\$\{\{ github\.ref \}\}-\$\{\{ github\.event_name \}\}\$\{\{ inputs\.redispatch_of/);
+  });
+});
+
+describe('scheduled paid lanes: concurrency and branch dispatch scope', () => {
+  type Wf = { on: { workflow_dispatch?: { inputs?: Record<string, { type?: string; default?: unknown }> } };
+    concurrency: { group: string; 'cancel-in-progress': boolean }; jobs: Record<string, { if?: string; steps: Step[] }> };
+  const parse = (source: string) => Bun.YAML.parse(source) as Wf;
+
+  test('periodic and marathon groups key on ref and event, so a branch or manual dispatch never cancels the scheduled main run', () => {
+    for (const [name, source, prefix] of [['evals-periodic.yml', periodicYml, 'evals-periodic'], ['evals-marathon.yml', marathonYml, 'evals-marathon']] as const) {
+      const { concurrency } = parse(source);
+      expect(concurrency['cancel-in-progress'], name).toBe(true);
+      expect(concurrency.group.startsWith(`${prefix}-\${{ github.ref }}-\${{ github.event_name }}`), `${name}: ${concurrency.group}`).toBe(true);
+    }
+    // The re-dispatch keeps its own group so it never cancels its dispatcher.
+    expect(parse(periodicYml).concurrency.group).toContain("format('-redispatch-{0}', inputs.redispatch_of)");
+  });
+
+  test('a branch dispatch of evals-periodic runs the periodic lane only unless it opts into the gate census', () => {
+    const wf = parse(periodicYml);
+    expect(wf.on.workflow_dispatch!.inputs!.include_gate_census).toMatchObject({ type: 'boolean', default: false });
+    expect(wf.jobs['gate-census']!.if).toBe("${{ github.ref == 'refs/heads/main' || inputs.include_gate_census }}");
+    const report = wf.jobs.report!.steps;
+    const reconcile = report.find(step => step.name === 'Reconcile gate census against the manifest (fail-closed)')!;
+    expect(reconcile.env?.GATE_CENSUS).toBe('${{ needs.gate-census.result }}');
+    expect(reconcile.run).toContain('if [ "$GATE_CENSUS" = "skipped" ]');
+    // A skipped census is not a red lane; a failed or cancelled one still is.
+    const fail = report.find(step => step.name === 'Fail the workflow when reconciliation failed') as Step & { if?: string };
+    expect(fail.if).toContain(`!contains(fromJSON('["success","skipped"]'), needs.gate-census.result)`);
   });
 });

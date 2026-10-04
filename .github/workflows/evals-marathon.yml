@@ -12,8 +12,10 @@ on:
     - cron: '0 12 * * 6'  # Saturday 12:00 UTC, clear of the Monday periodic census
   workflow_dispatch:
 
+# One group per ref and event: a branch dispatch never cancels main's
+# scheduled marathon, and a manual main dispatch never cancels the schedule.
 concurrency:
-  group: evals-marathon
+  group: evals-marathon-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
