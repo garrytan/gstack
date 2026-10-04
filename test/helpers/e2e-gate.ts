@@ -32,8 +32,8 @@ export type E2ETier = 'gate' | 'periodic' | 'marathon';
  * end-to-end flows) therefore never run in the gate/PR or periodic lanes.
  *
  * Deliberate consequence: EVALS=1 with EVALS_TIER unset is false for BOTH
- * tiers. Tierless runs (`test:evals` / `eval:bg` / `eval:bg:all`) skip every
- * tier-gated file and rely on diff-based per-test selection instead — that is
+ * tiers. Tierless runs (a bare `EVALS=1 bun test`; the retired `test:evals`
+ * family was one) skip every tier-gated file and rely on diff-based per-test selection instead — that is
  * the long-standing behavior of the copy-pasted predicates, pinned by
  * test/helpers/e2e-gate.unit.test.ts.
  */

@@ -40,7 +40,7 @@ for (let i = 0; i < args.length; i++) {
 const files = listEvalJsonFiles(EVAL_DIR);
 
 if (files.length === 0) {
-  console.log('No eval runs yet. Run: EVALS=1 bun run test:evals');
+  console.log('No eval runs yet. Run: bun run eval:bg:pr');
   process.exit(0);
 }
 

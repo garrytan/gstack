@@ -3,8 +3,8 @@
  *
  * Two invariants:
  *   1. The env matrix — including the tierless-run trap: EVALS=1 with
- *      EVALS_TIER unset must SKIP both tiers (that is how `test:evals` /
- *      `eval:bg:all` have always treated whole-file tier gates; per-test
+ *      EVALS_TIER unset must SKIP both tiers (that is how a bare
+ *      `EVALS=1 bun test` treats whole-file tier gates; per-test
  *      diff selection covers those runs instead).
  *   2. Module purity — e2e-gate.ts is imported at module scope by every
  *      tier-gated paid test file, one-process-each under the sharded

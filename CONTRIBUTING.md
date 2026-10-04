@@ -533,6 +533,27 @@ path the test builds at runtime is not visible to it, so add such paths to the k
 6. **Try the panel locally.** `bun run scripts/test-paid-shards.ts --tier <tier>
    --case <case-id> --trials 3` runs the same panel CI runs, before you push.
 
+### Retired commands
+
+These package scripts are stubs for one release: each prints its replacement
+and exits 1 (`scripts/retired-command.ts`). The next release deletes them.
+
+| Retired | Use instead | Why it was retired |
+|---|---|---|
+| `test:evals` | `bun run eval:bg:pr` | Tierless: skipped every tier-gated paid file |
+| `test:evals:all` | `bun run eval:bg:release` | Tierless: skipped every tier-gated paid file |
+| `test:e2e` | `bun run eval:bg:pr` | Tierless: skipped every tier-gated paid file |
+| `test:e2e:all` | `bun run eval:bg:release` | Tierless: skipped every tier-gated paid file |
+| `test:gate` | `bun run test:gate:sharded` | The single-process fan-out never completed a run |
+| `test:periodic` | `bun run test:periodic:sharded` | The single-process fan-out never completed a run |
+| `test:codex` | `bun run test:periodic:sharded` | Set no `EVALS_TIER`, so both periodic-tier Codex files ran zero cases |
+| `test:codex:all` | `bun run test:periodic:sharded` | Same as `test:codex` |
+| `eval:bg` | `bun run eval:bg:pr` | Detached the retired `test:evals` |
+| `eval:bg:all` | `bun run eval:bg:release` | Detached the retired `test:evals:all` |
+| `eval:flake-rank` | `bun run eval:pass-rates` | Second name for the same script |
+| `eval:watch` | Tail the `gstack-detach` log, or `gh run watch <run-id>` | Read a file only the unsharded runner wrote, so it showed nothing for sharded runs |
+| `test:audit` | `bun run test` | `test/audit-compliance.test.ts` already runs in the free suite |
+
 ### CI
 
 A GitHub Action (`.github/workflows/skill-docs.yml`) generates all hosts on pushes to main and on PRs, then rejects tracked differences and nonignored untracked output. Generation errors also fail the job. Optional ignored host caches are not compared against Git.

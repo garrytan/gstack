@@ -1,8 +1,9 @@
 /**
  * Pins the paid-tier sharded runner (scripts/test-paid-shards.ts).
  *
- * Two properties matter, and both are why `test:gate` has never finished a run:
- *   1. Enumeration + sharding — every file `test:gate`'s globs expand to gets
+ * Two properties matter, and both are why the retired single-process
+ * `test:gate` never finished a run:
+ *   1. Enumeration + sharding — every file PAID_TEST_GLOBS expands to gets
  *      its own process, and tier exclusion only ever fires on explicit evidence.
  *   2. A spinning shard is killed externally and the run CONTINUES. The fake
  *      command here is a real busy loop, so an in-process timer could not save
@@ -64,7 +65,7 @@ import {
 } from '../scripts/test-paid-shards';
 
 describe('paid test enumeration', () => {
-  test('matches the globs package.json test:gate expands', () => {
+  test('matches PAID_TEST_GLOBS', () => {
     expect(isPaidTestFile('test/skill-e2e-qa-workflow.test.ts')).toBe(true);
     expect(isPaidTestFile('test/skill-llm-eval.test.ts')).toBe(true);
     expect(isPaidTestFile('test/codex-e2e.test.ts')).toBe(true);

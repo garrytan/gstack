@@ -1,15 +1,15 @@
 /**
  * The ONE definition of which test files are paid (API spend, external
- * services, e2e harnesses). package.json's test:gate/test:evals globs, the
- * free-suite exclusion in scripts/test-free-shards.ts, and the sharded paid
- * runner in scripts/test-paid-shards.ts all derive from this list — a file
+ * services, e2e harnesses). The free-suite exclusion in
+ * scripts/test-free-shards.ts and the sharded paid runner in
+ * scripts/test-paid-shards.ts both derive from this list — a file
  * added to one and not the others either burns money in the free suite or
  * silently never runs in the paid tier.
  */
 
 import { matchGlob } from './touchfiles';
 
-/** The exact globs package.json's `test:gate` passes to `bun test`. */
+/** The paid test file globs every paid lane enumerates. */
 export const PAID_TEST_GLOBS = [
   // skill-llm-eval* (not just the base file): a sibling judge file outside
   // the exact glob could never run in any lane.
