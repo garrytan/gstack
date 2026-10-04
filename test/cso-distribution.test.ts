@@ -310,7 +310,7 @@ describe('CSO runtime staging gates', () => {
     const workflow = Bun.YAML.parse(raw) as any;
     const job = workflow.jobs['cso-docker-integration'];
     expect(job).toBeTruthy();
-    const gate = job.steps.find((step: any) => step.run === 'bun run test:cso:docker');
+    const gate = job.steps.find((step: any) => step.run?.trim() === 'bun test --max-concurrency 1 test/cso-docker-integration.test.ts');
     expect(gate.env.GSTACK_CSO_DOCKER_TESTS).toBe('1');
     expect(raw).not.toContain('secrets.');
     expect(job.steps.map((s: any) => s.run ?? '').join('\n')).toContain('docker --host unix:///var/run/docker.sock info');

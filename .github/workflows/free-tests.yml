@@ -183,8 +183,12 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Compile trusted CSO helper and watchdog
         run: bun run build:cso
+      # Only the file that can run here: the node-lifecycle and stack-cold
+      # files need GSTACK_CSO_TEST_STACK images and run in the CSO runtime
+      # workflows (test:cso:docker), so in this job they always skipped.
       - name: Run CSO Docker integration gate
-        run: bun run test:cso:docker
+        run: |
+          bun test --max-concurrency 1 test/cso-docker-integration.test.ts
         env:
           GSTACK_CSO_DOCKER_TESTS: "1"
           DOCKER_HOST: unix:///var/run/docker.sock
