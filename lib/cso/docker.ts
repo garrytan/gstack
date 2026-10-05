@@ -4,7 +4,7 @@ import { canonical, CsoError, MAX_OUTPUT, sha256 } from './contracts';
 import { spawn } from 'node:child_process';
 import { dirname } from 'node:path';
 import { GROUP_LIMITS, Role, ROLE_LIMITS, Lease, admit, markSupervised, release, total } from './admission';
-import { childEnvironment, executable, runProcess } from './process';
+import { childEnvironment, commandTimeoutMs, executable, runProcess } from './process';
 import { secureDirectory } from './state';
 export const CONTAINER_SHM_BYTES = 8 * 1024 * 1024;
 export const ISOLATION_POLICY_HASH = sha256(
@@ -402,6 +402,19 @@ export function validateSingleContainerProcessOutput(output: string): void {
       'ISOLATION_FAILED',
       'Offline lifecycle left a background process; prepared output was withheld',
     );
+}
+/**
+ * Names why the in-image export helper refused a prepared tree. Only the
+ * helper's fixed "prepared ..." messages and filesystem errno/syscall
+ * names pass through, so target-controlled paths never reach the error.
+ */
+export function preparedExportRejection(stderr: string): string {
+  const reason = stderr.match(/^error: (prepared [A-Za-z ,-]+)$/m)?.[1];
+  if (reason) return reason;
+  const errno = stderr.match(/^\s*code: "(E[A-Z]+)",?$/m)?.[1],
+    syscall = stderr.match(/^\s*syscall: "([a-z]+)",?$/m)?.[1];
+  if (errno) return `filesystem error ${errno}${syscall ? ` during ${syscall}` : ''}`;
+  return 'unrecognized helper failure';
 }
 export function heldApplicationReady(output: string): boolean {
   const lines = output
@@ -888,7 +901,12 @@ export class DockerGroup {
   async execCapture(
     id: string,
     command: string[],
-    options: { workdir?: string; env?: Record<string, string>; redaction?: 'withhold' | 'splice' } = {},
+    options: {
+      workdir?: string;
+      env?: Record<string, string>;
+      redaction?: 'withhold' | 'splice';
+      preparationCommand?: true;
+    } = {},
   ): Promise<{ code: number; stdout: string; stderr: string }> {
     if (!command.length || !command[0].startsWith('/'))
       throw new CsoError('INVALID_SCHEMA', 'Exec needs an absolute executable');
@@ -896,7 +914,7 @@ export class DockerGroup {
       throw new CsoError('INVALID_SCHEMA', 'Exec working directory is outside the preparation contract');
     if (this.remainingOutput <= 0)
       throw new CsoError('REDACTION_FAILED', 'Reproduction-group output budget is exhausted');
-    const remaining = Math.max(1, Math.min(300_000, this.deadline - Date.now()));
+    const remaining = commandTimeoutMs(this.deadline, options.preparationCommand ? 'preparation' : 'command');
     const args = ['exec'];
     if (options.workdir) args.push('--workdir', options.workdir);
     for (const [key, value] of Object.entries(options.env ?? {})) {
@@ -911,6 +929,7 @@ export class DockerGroup {
       timeoutMs: remaining,
       maxBytes: this.remainingOutput,
       redaction: options.redaction,
+      preparationCommand: options.preparationCommand,
     });
     this.remainingOutput = Math.max(0, this.remainingOutput - r.capturedBytes);
     if (r.timedOut) throw new CsoError('DEADLINE', 'Target command exceeded the reproduction deadline');

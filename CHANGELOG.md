@@ -2,9 +2,9 @@
 
 ## [1.91.28.0] - 2026-10-05
 
-**Native runtime qualification can pass for Node, Bun and Python. Rails gets past every earlier failure, but building its native gems from source still takes longer than the five-minute command limit.**
+**Native runtime qualification can pass for Node, Bun, Python and Rails.**
 
-Main run 37345275258 of `cso-runtime-images.yml` staged every image, but eight `qualify-native` rows failed. Two causes showed up in the logs, and six more were hiding behind them. All eight are fixed below. Each was reproduced on a local Docker daemon against freshly built images.
+Main run 37345275258 of `cso-runtime-images.yml` staged every image, but eight `qualify-native` rows failed. Two causes showed up in the logs, and more were hiding behind them. Every cause below is fixed, and each was reproduced on a local amd64 Docker daemon against freshly built images.
 
 - **Promotion evidence is recomputed for injected runtimes.** The cold-start test put the staged runtimes into its test catalog without re-binding `promotion.evidenceDigest`, so Bun, Python and Rails failed with `RUNTIME_PROMOTION_EVIDENCE_MISMATCH`. A shared `installStagedRuntime` helper re-binds the digest, and the test now validates the catalog it builds.
 - **npm dependency acquisition works.** npm 11 refuses to load the same file as both its user and global config. The preparation commands passed `/opt/cso/empty-config` for both, so every Node acquisition failed. The global config now points at its own empty file, `/opt/cso/empty-globalconfig`, which the Node image creates.
@@ -15,8 +15,10 @@ Main run 37345275258 of `cso-runtime-images.yml` staged every image, but eight `
 - **Gem acquisition is batched.** Each `gem fetch` process spends about 11 seconds loading the RubyGems index, so acquisition now runs one `gem fetch` per platform for all exact gems.
 - **Rails commands wait for the source copy.** `db:prepare` ran while `run-app` was still copying the prepared tree, and failed with "Could not locate Gemfile". Rails application and test containers now start through `startHeldApplication`, which waits until the copy has finished.
 - **Test fixtures.** The Python cold fixture called a method that `unittest.TestCase` does not have, and the Rails cold fixture had no `bin/rails`, so `rails server` printed the `rails new` help instead of booting.
+- **Dependency installs get a bounded longer ceiling.** The Rails fixture's lockfile lists only the `ruby` platform, so `bundle install --local` compiles nokogiri, sqlite3 and pg. At the app container's 0.85 CPU share that takes about 385 seconds, past the 300-second limit on one command. Dependency fetch and install commands in the preparation phases now get `PREPARATION_COMMAND_TIMEOUT_MS` (900 seconds). Every other command keeps 300 seconds, both stay inside the journey deadline, and a free test pins which calls can ask for the longer ceiling. The CPU share and `ISOLATION_POLICY_HASH` are unchanged.
+- **Export refusals name their reason.** A prepared-tree export the helper refuses now fails with `PREPARED_EXPORT_REJECTED`, the helper's exit status and its fixed reason or filesystem errno. Target paths are never included, and nothing retries. One unexplained refusal was seen locally in 20 exports, so a recurrence on CI will now say why.
 
-The images change (`/opt/cso/preparation` and the Node recipe), so qualification needs a fresh staging run on main. The Rails fixture's lockfile lists only the `ruby` platform, so `bundle install --local` compiles nokogiri, sqlite3 and pg. At the app container's 0.85 CPU share that takes about 385 seconds, which is longer than the 300-second limit on a single command. Rails stays red until that limit or the CPU share changes.
+The images change (`/opt/cso/preparation` and the Node recipe), so qualification needs a fresh staging run on main.
 
 ## [1.91.27.0] - 2026-10-05
 

@@ -2,7 +2,9 @@ import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { CONTAINER_SHM_BYTES, DockerGroup, type ContainerSpec } from '../lib/cso/docker';
+import { CONTAINER_SHM_BYTES, DockerGroup, preparedExportRejection, type ContainerSpec } from '../lib/cso/docker';
+import * as processModule from '../lib/cso/process';
+import { COMMAND_TIMEOUT_MS, PREPARATION_COMMAND_TIMEOUT_MS, commandTimeoutMs } from '../lib/cso/process';
 
 const roots: string[] = [];
 const restores: Array<() => void> = [];
@@ -140,5 +142,61 @@ describe.skipIf(process.platform === 'win32')('CSO Docker nonrecursive bind moun
     const f = fixture(); f.inspectHooks.push(mutate);
     await expect(f.group.createContainer({ role: 'app', image: f.image, command: ['/bin/sleep', '1'], archiveTmpfsBytes: 4096 })).rejects.toThrow('Docker did not preserve');
     expect(fs.existsSync(path.join(f.root, 'resources.journal'))).toBe(false);
+  });
+});
+
+describe('CSO preparation command ceiling', () => {
+  test('only the preparation phase gets the longer ceiling, and neither outlives the deadline', () => {
+    const now = 1_000_000, later = now + 2 * 60 * 60_000;
+    expect(PREPARATION_COMMAND_TIMEOUT_MS).toBe(900_000);
+    expect(COMMAND_TIMEOUT_MS).toBe(300_000);
+    expect(commandTimeoutMs(later, 'command', now)).toBe(COMMAND_TIMEOUT_MS);
+    expect(commandTimeoutMs(later, 'preparation', now)).toBe(PREPARATION_COMMAND_TIMEOUT_MS);
+    expect(commandTimeoutMs(now + 60_000, 'preparation', now)).toBe(60_000);
+    expect(commandTimeoutMs(now + 60_000, 'command', now)).toBe(60_000);
+    expect(commandTimeoutMs(now - 1, 'preparation', now)).toBe(1);
+  });
+
+  test('execCapture passes the preparation ceiling to the child only when asked, bounded by the group deadline', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cso-t-'));
+    roots.push(root);
+    const seen: Array<{ timeoutMs?: number; preparationCommand?: true }> = [];
+    const run = spyOn(processModule, 'runProcess').mockImplementation(async (_file, _args, opts) => {
+      seen.push({ timeoutMs: opts.timeoutMs, preparationCommand: opts.preparationCommand });
+      return { code: 0, stdout: '', stderr: '', timedOut: false, truncated: false, capturedBytes: 0 };
+    });
+    restores.push(() => run.mockRestore());
+    const group = (deadline: number) =>
+      new (DockerGroup as any)({ executable: '/usr/bin/docker' }, 'timeout-ceiling', root, deadline, {}) as DockerGroup;
+    const far = group(Date.now() + 2 * 60 * 60_000), near = group(Date.now() + 60_000);
+    await far.execCapture('x', ['/bin/true']);
+    await far.execCapture('x', ['/bin/true'], { preparationCommand: true });
+    await near.execCapture('x', ['/bin/true'], { preparationCommand: true });
+    expect(seen[0]).toEqual({ timeoutMs: COMMAND_TIMEOUT_MS, preparationCommand: undefined });
+    expect(seen[1]).toEqual({ timeoutMs: PREPARATION_COMMAND_TIMEOUT_MS, preparationCommand: true });
+    expect(seen[2].preparationCommand).toBe(true);
+    expect(seen[2].timeoutMs!).toBeLessThanOrEqual(60_000);
+  });
+
+  test('only the acquisition and offline dependency command loops request the preparation ceiling', () => {
+    const directory = path.join(import.meta.dir, '../lib/cso');
+    const uses = fs.readdirSync(directory).filter(name => name.endsWith('.ts')).flatMap(name => {
+      const lines = fs.readFileSync(path.join(directory, name), 'utf8').split('\n');
+      return lines.flatMap((line, index) => line.includes('preparationCommand: true') ? [{ name, context: lines.slice(Math.max(0, index - 4), index).join('\n') }] : []);
+    });
+    expect(uses.map(use => use.name)).toEqual(['preparation-docker.ts', 'preparation-docker.ts']);
+    for (const use of uses) expect(use.context).toContain('[command.executable, ...command.args]');
+  });
+});
+
+describe('CSO prepared export rejection reason', () => {
+  test('names the helper reason or errno and never echoes paths', () => {
+    expect(preparedExportRejection('4 |   throw new Error("prepared tree contains a hard-linked file");\n            ^\nerror: prepared tree contains a hard-linked file\n      at f (/$bunfs/root/preparation:4:9)\n'))
+      .toBe('prepared tree contains a hard-linked file');
+    expect(preparedExportRejection("ENOENT: no such file or directory, lstat '/work/secret-name'\n    path: \"/work/secret-name\",\n syscall: \"lstat\",\n   errno: -2,\n    code: \"ENOENT\"\n"))
+      .toBe('filesystem error ENOENT during lstat');
+    expect(preparedExportRejection('error: prepared /work/secret-name\n')).toBe('unrecognized helper failure');
+    expect(preparedExportRejection('error: prepared tree contains a FIFO, socket, device, or other special object\n')).toBe('prepared tree contains a FIFO, socket, device, or other special object');
+    expect(preparedExportRejection('')).toBe('unrecognized helper failure');
   });
 });

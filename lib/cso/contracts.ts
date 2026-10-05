@@ -24,7 +24,8 @@ export type ErrorCode =
   | 'CANCELLED'
   | 'PREREQUISITE'
   | 'INCOMPATIBLE_INPUT'
-  | 'ASSERTION_FAILED';
+  | 'ASSERTION_FAILED'
+  | 'PREPARED_EXPORT_REJECTED';
 export class CsoError extends Error {
   constructor(
     public code: ErrorCode,

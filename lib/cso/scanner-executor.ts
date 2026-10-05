@@ -378,6 +378,7 @@ function failure(plan: ScannerPlan, error: unknown, version?: string): ScannerOu
     PREREQUISITE: 'PREREQUISITE',
     INCOMPATIBLE_INPUT: 'PREREQUISITE',
     ASSERTION_FAILED: 'TOOL_FAILED',
+    PREPARED_EXPORT_REJECTED: 'TOOL_FAILED',
   };
   const code = codes[e.code];
   return {

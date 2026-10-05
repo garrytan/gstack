@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { atomicWriteSync } from '../fs-atomic';
 import { canonical, CsoError, sha256 } from './contracts';
-import { DockerGroup, type DockerEndpoint } from './docker';
+import { DockerGroup, preparedExportRejection, type DockerEndpoint } from './docker';
 import { secureDirectory } from './state';
 import {
   admittedPreparationRuntime,
@@ -1235,7 +1235,12 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
     group: DockerGroup,
     id: string,
     command: string[],
-    options: { workdir?: string; env?: Record<string, string> } = {},
+    options: {
+      workdir?: string;
+      env?: Record<string, string>;
+      preparationCommand?: true;
+      redaction?: 'splice';
+    } = {},
   ) {
     const forbidden = new Set([
       'BUN_OPTIONS',
@@ -1262,7 +1267,11 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
         .map(([key, value]) => `${key}=${value}`),
       ...command,
     ];
-    return group.execCapture(id, argv, { workdir: options.workdir });
+    return group.execCapture(id, argv, {
+      workdir: options.workdir,
+      preparationCommand: options.preparationCommand,
+      redaction: options.redaction,
+    });
   }
 
   async acquire(request: PreparationAcquireRequest): Promise<AcquisitionReceipt> {
@@ -1364,6 +1373,7 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
           result = await this.execClean(group, container, [command.executable, ...command.args], {
             workdir: command.cwd,
             env: { ...command.env, ...proxy },
+            preparationCommand: true,
           });
         broker.assertClean();
         commandResults.push(commandReceipt(command, index, result.code));
@@ -1580,6 +1590,7 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
           result = await this.execClean(group, app, [command.executable, ...command.args], {
             workdir: command.cwd,
             env: command.env,
+            preparationCommand: true,
           });
         commands.push(commandReceipt(command, index, result.code));
         if (result.code !== 0)
@@ -1589,15 +1600,23 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
       if (finalized.code !== 0) fail('TOOL_FAILED', 'Offline preparation scratch cleanup failed');
       await group.assertOnlyInitProcess(app);
       const containerExport = `/work/.gstack-cso-export-${randomBytes(12).toString('hex')}`;
-      const exported = await this.execClean(group, app, [
-        '/opt/cso/preparation',
-        'export-prepared',
-        '/work',
-        containerExport,
-        String(request.limits.writableBytes),
-      ]);
+      const exported = await this.execClean(
+        group,
+        app,
+        [
+          '/opt/cso/preparation',
+          'export-prepared',
+          '/work',
+          containerExport,
+          String(request.limits.writableBytes),
+        ],
+        { redaction: 'splice' },
+      );
       if (exported.code !== 0)
-        fail('TOOL_FAILED', 'Qualified prepared-tree export rejected offline application output');
+        fail(
+          'PREPARED_EXPORT_REJECTED',
+          `Qualified prepared-tree export rejected offline application output (exit ${exported.code}: ${preparedExportRejection(exported.stderr)})`,
+        );
       await group.assertOnlyInitProcess(app);
       await group.pause(app);
       const inertExport = secureDirectory(join(executionCopies, 'prepared-export')),
