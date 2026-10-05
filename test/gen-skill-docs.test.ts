@@ -1550,7 +1550,7 @@ describe('SPEC_REVIEW_LOOP resolver', () => {
     expect(prompt).toMatch(/classify every preceding finding/i);
     ordered(prompt, ['1. **Completeness**', '2. **Consistency**', '3. **Clarity**', '4. **Scope**', '5. **Feasibility**']);
     expect(prompt).toMatch(/distinguished from committed behavior/i);
-    expect(prompt).toContain('"version": 1');
+    expect(prompt).toContain('"version": 2');
     expect(prompt).toContain('"prior": []');
   });
 

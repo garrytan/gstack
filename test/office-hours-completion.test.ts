@@ -708,9 +708,9 @@ describe('office-hours mechanical review evidence', () => {
   ] as const;
   function structured() {
     const round = (n: number): OfficeHoursReview => ({
-      version: 1, round: n, document: designPath, quality_score: 7,
+      version: 2, round: n, document: designPath, quality_score: 7,
       dimensions: { completeness: 'ISSUES', consistency: 'ISSUES', clarity: 'ISSUES', scope: 'PASS', feasibility: 'PASS' },
-      findings: problems.map(([dimension, problem, remedy], i) => ({ id: `R${n}-${i + 1}`, dimension, problem, remedy })),
+      findings: problems.map(([dimension, problem, remedy], i) => ({ id: `R${n}-${i + 1}`, dimension, severity: 'blocking' as const, problem, remedy })),
       prior: n === 1 ? [] : problems.map((_, i) => ({ id: `R1-${i + 1}`, status: 'persisting',
         evidence: `The Recommended Approach still omits the original obligation: ${problems[i][1]}`, current_id: `R2-${i + 1}` })),
     });
@@ -842,6 +842,25 @@ describe('office-hours mechanical review evidence', () => {
     expect(() => validateOfficeHoursCompletion(evidence)).toThrow('next-skill recommendation');
   });
 
+  test('a minor-only first round completes as PASS with every minor item recorded', () => {
+    const { evidence, artifacts, rounds } = structured();
+    const minor: OfficeHoursReview = { ...rounds[0], findings: rounds[0].findings.map(finding => ({ ...finding, severity: 'minor' as const })) };
+    const rendered = renderOfficeHoursReview([minor]);
+    expect(rendered.stop).toBe('PASS');
+    evidence.designContent = evidence.designContent!.replace(/<!-- gstack:office-hours:concerns:start -->[\s\S]*<!-- gstack:office-hours:concerns:end -->/, rendered.concerns);
+    evidence.output = evidence.output.replace(/<!-- gstack:office-hours:report:start -->[\s\S]*<!-- gstack:office-hours:report:end -->/, rendered.report);
+    const saved = [{ ...artifacts[0], content: JSON.stringify(minor) }];
+    evidence.toolCalls = evidence.toolCalls.slice(0, 4);
+    evidence.toolCalls[2].output = officeHoursVerdictReceipt(1, saved[0].path, saved[0].content);
+    evidence.toolCalls[3].input!.content = saved[0].content;
+    expect(() => validateOfficeHoursReviewArtifacts(evidence, saved)).not.toThrow();
+    expect(evidence.designContent).toContain('Disposition: COMPLETED');
+    for (const [, problem, remedy] of problems) {
+      expect(evidence.designContent).toContain(problem);
+      expect(evidence.designContent).toContain(remedy);
+    }
+  });
+
   test('accepts a complete, reviewer-owned six-finding report without a judge', () => {
     const { evidence, artifacts } = structured();
     expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).not.toThrow();
@@ -930,8 +949,8 @@ Next: /plan-eng-review after observing the workflow. The user declined launching
 
   test('rejects a five-finding count for the actual six', () => {
     const { evidence, artifacts } = structured();
-    evidence.output = evidence.output.replace('Unresolved findings in the last completed inventory: 6.',
-      'Unresolved findings in the last completed inventory: 5.');
+    evidence.output = evidence.output.replace('Unresolved findings in the last completed inventory: 6 (6 blocking, 0 minor).',
+      'Unresolved findings in the last completed inventory: 5 (5 blocking, 0 minor).');
     expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).toThrow('computed metrics');
   });
 

@@ -10,12 +10,12 @@ import {
 import { expectMentions } from './helpers/prompt-structure';
 
 const cli = path.resolve(import.meta.dir, '../bin/gstack-office-hours-review');
-function review(round = 1, count = 1): OfficeHoursReview {
+function review(round = 1, count = 1, severity: 'blocking' | 'minor' = 'blocking'): OfficeHoursReview {
   return {
-    version: 1, round, document: '/tmp/design.md', quality_score: 7,
+    version: 2, round, document: '/tmp/design.md', quality_score: 7,
     dimensions: { completeness: count ? 'ISSUES' : 'PASS', consistency: 'PASS', clarity: 'PASS', scope: 'PASS', feasibility: 'PASS' },
     findings: Array.from({ length: count }, (_, index) => ({
-      id: `R${round}-${index + 1}`, dimension: 'completeness',
+      id: `R${round}-${index + 1}`, dimension: 'completeness', severity,
       problem: `Problem ${index + 1} remains undefined.`, remedy: `Define behavior ${index + 1}.`,
     })), prior: [],
   };
@@ -41,7 +41,9 @@ describe('office-hours canonical review schema', () => {
   });
 
   test.each([
-    ['version', (item: any) => { item.version = 2; }],
+    ['version 1', (item: any) => { item.version = 1; }],
+    ['missing severity', (item: any) => { delete item.findings[0].severity; }],
+    ['unknown severity', (item: any) => { item.findings[0].severity = 'major'; }],
     ['unexpected fields', (item: any) => { item.summary = 'PASS'; }],
     ['missing dimension', (item: any) => { delete item.dimensions.scope; }],
     ['false dimension pass', (item: any) => { item.dimensions.completeness = 'PASS'; }],
@@ -74,6 +76,8 @@ describe('office-hours canonical review schema', () => {
     ['blank resolution evidence', (item: any) => { item.prior[1].evidence = ''; }],
     ['different document', (item: any) => { item.document = '/tmp/other.md'; }],
     ['merged unresolved prior obligations', (item: any) => { item.prior[1].status = 'unverified'; item.prior[1].current_id = 'R2-1'; }],
+    ['persisting blocking finding downgraded to minor', (item: any) => { item.findings[0].severity = 'minor'; }],
+    ['unverified blocking finding downgraded to minor', (item: any) => { item.prior[0].status = 'unverified'; item.findings[0].severity = 'minor'; }],
   ])('rejects %s', (_name, change) => {
     const [first, second] = recurrence();
     change(second);
@@ -114,14 +118,55 @@ describe('office-hours prepared reviewer input', () => {
   });
 });
 
+describe('office-hours severity-based convergence', () => {
+  test('minor findings alone PASS and are recorded, never fixed by another round', () => {
+    const result = renderOfficeHoursReview([review(1, 2, 'minor')]);
+    expect(result.stop).toBe('PASS');
+    expect(result.metrics).toMatchObject({ iterations: 1, remaining: 2, remaining_blocking: 0, remaining_minor: 2 });
+    for (const output of [result.concerns, result.report]) {
+      expect(output).toContain('Disposition: COMPLETED');
+      expect(output).toContain('### R1-1 — completeness (minor)');
+      expect(output).toContain('Define behavior 2.');
+      expect(output).toContain('2 open minor finding(s) below are recorded for the user, not fixed');
+    }
+    expect(result.report).toContain('| 1 | 0 | 2 | 0 | 7/10 |');
+    expect(() => renderOfficeHoursReviewerPrompt({ document: '/tmp/design.md', verdictPath: '/tmp/round-2.json', previous: review(1, 1, 'minor') })).toThrow('terminal');
+  });
+
+  test('blocking findings CONTINUE until round 3 even beside minor ones', () => {
+    const first = review(1, 1);
+    first.findings.push({ ...first.findings[0], id: 'R1-2', severity: 'minor' });
+    expect(assessOfficeHoursReviews([first]).stop).toBe('CONTINUE');
+    expect(renderOfficeHoursReview([first], 'timeout').report).toContain('| 1 | 1 | 1 | 0 | 7/10 |');
+  });
+
+  test('a persisting blocking prior converges; a persisting minor prior does not', () => {
+    expect(assessOfficeHoursReviews(recurrence()).stop).toBe('CONVERGENCE');
+    const [first, second] = recurrence();
+    first.findings[0].severity = 'minor';
+    second.findings[0].severity = 'minor';
+    expect(assessOfficeHoursReviews([first, second]).stop).toBe('PASS');
+    second.findings[0].severity = 'blocking';
+    expect(assessOfficeHoursReviews([first, second]).stop).toBe('CONVERGENCE');
+  });
+
+  test('the reviewer prompt defines both severities with an example of each', () => {
+    const prompt = renderOfficeHoursReviewerPrompt({ document: '/tmp/design.md', verdictPath: '/tmp/round-1.json' });
+    expect(prompt).toContain('"severity": "blocking"');
+    expect(prompt).toMatch(/- \*\*blocking\*\*: a contradiction;[^\n]+Example:/);
+    expect(prompt).toMatch(/- \*\*minor\*\*: clarity, wording, or polish[^\n]+Example:/);
+    expect(prompt).toMatch(/never relabel it minor/);
+  });
+});
+
 describe('office-hours lifecycle and deterministic preservation', () => {
   test('convergence precedes further editing even when another finding is new', () => {
     const rounds = recurrence();
-    rounds[1].findings.push({ id: 'R2-2', dimension: 'clarity', problem: 'Encoding fallback has no user-visible policy.', remedy: 'Specify whether the latin-1 fallback emits a warning or is intentionally silent.' });
+    rounds[1].findings.push({ id: 'R2-2', dimension: 'clarity', severity: 'minor', problem: 'Encoding fallback has no user-visible policy.', remedy: 'Specify whether the latin-1 fallback emits a warning or is intentionally silent.' });
     rounds[1].dimensions.clarity = 'ISSUES';
     const result = renderOfficeHoursReview(rounds);
     expect(result.stop).toBe('CONVERGENCE');
-    expect(result.metrics).toEqual({ iterations: 2, issues_found: 4, issues_fixed: 1, remaining: 2, quality_score: 7, attempted_fix_rounds: 1 });
+    expect(result.metrics).toEqual({ iterations: 2, issues_found: 4, issues_fixed: 1, remaining: 2, remaining_blocking: 1, remaining_minor: 1, quality_score: 7, attempted_fix_rounds: 1 });
     for (const output of [result.concerns, result.report]) {
       for (const finding of rounds[1].findings) {
         expect(output).toContain(finding.problem);

@@ -217,13 +217,17 @@ receipt and list every completed round in order:
 A missing, malformed, or mismatched receipt fails the check: that attempt is a failed review.
 
 Omit absent arguments rather than passing placeholders.
-**Convergence guard and stopping rules:** Read its stop reason:
-- PASS: no unresolved findings; proceed to Step 3.
-- CONVERGENCE: the reviewer explicitly marked a prior obligation persisting with
-  a concrete prior/current finding pair and document evidence. Stop even if new
-  findings appear. Shared topic labels or new refinements alone are insufficient.
+**Convergence guard and stopping rules:** Each finding is blocking or minor. Only
+blocking findings require another round. Read its stop reason:
+- PASS: no blocking findings remain. Any minor findings are recorded, not fixed,
+  and never justify another round; proceed to Step 3.
+- CONVERGENCE: the reviewer explicitly marked a blocking prior obligation
+  persisting with a concrete prior/current finding pair and document evidence.
+  Stop even if new findings appear. Shared topic labels or new refinements alone
+  are insufficient.
 - MAX_ITERATIONS: round 3 completed; stop.
-- CONTINUE: fix the listed findings in the design, then return to Step 1 to prepare and dispatch the next review.
+- CONTINUE: fix every blocking finding in the design (you may batch minor fixes
+  with them), then return to Step 1 to prepare and dispatch the next review.
 
 On a stop, do not fix again or re-dispatch. Run the finalizer before approval:
 
@@ -265,7 +269,7 @@ mkdir -p "$GSTACK_STATE_ROOT/analytics"
 echo '{"skill":"office-hours","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","iterations":ITERATIONS,"issues_found":FOUND,"issues_fixed":FIXED,"remaining":REMAINING,"quality_score":SCORE}' >> "$GSTACK_STATE_ROOT/analytics/spec-review.jsonl" 2>/dev/null || true
 ```
 Use iterations, issues_found, issues_fixed, remaining, and quality_score from the
-helper. FOUND counts finding observations across rounds; FIXED counts only
+helper; its remaining_blocking and remaining_minor split the remaining count. FOUND counts finding observations across rounds; FIXED counts only
 reviewer-confirmed resolutions. An unavailable score is null, never invented.
 
 ---
