@@ -228,6 +228,52 @@ describe('office-hours delta re-review', () => {
   });
 });
 
+describe('office-hours caller round limit', () => {
+  test('--max-rounds lowers the cap; reaching it stops at MAX_ITERATIONS with the usual dispositions', () => {
+    const [first] = recurrence();
+    const second = review(2, 1);
+    second.prior = first.findings.map(finding => ({ id: finding.id, status: 'resolved' as const, evidence: 'The design now defines it.', current_id: null }));
+    second.findings[0].changed_text = 'Rosters are now saved nightly to disk.';
+    expect(assessOfficeHoursReviews([first, second]).stop).toBe('CONTINUE');
+    expect(assessOfficeHoursReviews([first, second], 2).stop).toBe('MAX_ITERATIONS');
+    expect(renderOfficeHoursReview([first, second], undefined, 2).report).toContain('Disposition: CONCERNS_RECORDED\n\nStop: MAX_ITERATIONS');
+    expect(() => renderOfficeHoursReview([first, second])).toThrow('not terminal');
+    expect(assessOfficeHoursReviews([review(1, 1)], 1).stop).toBe('MAX_ITERATIONS');
+    expect(() => assessOfficeHoursReviews([first, second, review(3)], 2)).toThrow('supply 1 to 2 review rounds');
+    expect(() => renderOfficeHoursReviewerPrompt({ document: '/tmp/design.md', verdictPath: '/tmp/round-3.json', previous: second, changes: '(no changes)', maxRounds: 2 })).toThrow('terminal');
+    for (const invalid of [0, 4, 2.5, '2x']) expect(() => assessOfficeHoursReviews([first], invalid as number)).toThrow('max rounds must be 1, 2, or 3');
+  });
+
+  test('the helper applies the same limit to prepare, seal, check and finalize', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'office-rounds-'));
+    try {
+      const run = (...args: string[]) => Bun.spawnSync([process.execPath, cli, ...args], { cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 5000 });
+      const design = path.join(dir, 'design.md'), outDir = path.join(dir, 'reviews');
+      fs.writeFileSync(design, '# Design\n\n## Approach\nRosters stay in memory.\n');
+      fs.mkdirSync(outDir);
+      const first = JSON.parse(String(run('prepare', '--max-rounds', '2', '--design', design, '--out-dir', outDir).stdout));
+      expect(first.dispatch).toContain("seal --max-rounds 2 --design '");
+      fs.writeFileSync(first.verdictPath, JSON.stringify({ ...review(1, 1), document: fs.realpathSync(design) }));
+      fs.appendFileSync(design, 'Rosters are now saved nightly to disk.\n');
+      const second = JSON.parse(String(run('prepare', '--max-rounds', '2', '--design', design, '--out-dir', outDir, first.verdictPath).stdout));
+      const round2 = { ...review(2, 1), document: fs.realpathSync(design), prior: [{ id: 'R1-1', status: 'resolved', evidence: 'The Approach now defines it.', current_id: null }] };
+      round2.findings[0].changed_text = 'saved nightly to disk';
+      fs.writeFileSync(second.verdictPath, JSON.stringify(round2));
+      expect(run('seal', '--max-rounds', '2', '--design', design, '--verdict', second.verdictPath, first.verdictPath).exitCode).toBe(0);
+      const receipt = officeHoursVerdictReceipt(2, second.verdictPath, fs.readFileSync(second.verdictPath));
+      const files = [first.verdictPath, second.verdictPath];
+      expect(JSON.parse(String(run('check', '--max-rounds', '2', '--receipt', receipt, ...files).stdout)).stop).toBe('MAX_ITERATIONS');
+      expect(JSON.parse(String(run('check', '--receipt', receipt, ...files).stdout)).stop).toBe('CONTINUE');
+      expect(String(run('prepare', '--max-rounds', '2', '--design', design, '--out-dir', outDir, ...files).stderr)).toContain('terminal');
+      expect(String(run('finalize', '--design', design, ...files).stderr)).toContain('not terminal');
+      const finalized = run('finalize', '--max-rounds', '2', '--design', design, ...files);
+      expect(finalized.exitCode, String(finalized.stderr)).toBe(0);
+      expect(JSON.parse(String(finalized.stdout)).stop).toBe('MAX_ITERATIONS');
+      expect(run('check', '--max-rounds', '4', '--receipt', receipt, ...files).exitCode).toBe(1);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
 describe('office-hours lifecycle and deterministic preservation', () => {
   test('convergence precedes further editing even when another finding is new', () => {
     const rounds = recurrence();

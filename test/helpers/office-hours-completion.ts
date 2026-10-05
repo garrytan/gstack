@@ -221,6 +221,7 @@ export function validateOfficeHoursReviewArtifacts(
   evidence: OfficeHoursCompletionEvidence,
   artifacts: OfficeHoursFile[],
   snapshots: readonly OfficeHoursFile[] = [],
+  maxRounds = 3,
 ): OfficeHoursReviewEvidence | null {
   const fail = (message: string): never => { throw new Error(`Office-hours review artifacts: ${message}`); };
   const reviewEvidence = validateOfficeHoursCompletion(evidence);
@@ -234,7 +235,7 @@ export function validateOfficeHoursReviewArtifacts(
   const attempts = evidence.toolCalls.slice(firstWrite + 1).filter(call => ['Agent', 'Task'].includes(call.tool)
     && /\breview\b/i.test(String(call.input?.prompt ?? ''))
     && [designPath, relativeDesign].some(p => normalize(call.input?.prompt).includes(p)));
-  if (!attempts.length || attempts.length > 3) fail('expected one to three reviewer attempts');
+  if (!attempts.length || attempts.length > maxRounds) fail(`expected one to ${maxRounds} reviewer attempts`);
   const rounds: OfficeHoursReview[] = [];
   const verdicts: string[] = [];
   let failedAttempt = false;
@@ -297,7 +298,7 @@ export function validateOfficeHoursReviewArtifacts(
       fail('valid saved verdict has no matching reviewer receipt');
     }
   }
-  const expected = renderOfficeHoursReview(rounds, unavailable);
+  const expected = renderOfficeHoursReview(rounds, unavailable, maxRounds);
   const expectedReport = sectionBody(expected.report, ['spec review'], true);
   const expectedConcerns = sectionBody(expected.concerns, ['reviewer concerns'], true);
   if (extractOfficeHoursReviewBlock(evidence.output, 'report') !== expected.report
@@ -317,6 +318,7 @@ export function validateOfficeHoursReviewerHandoffs(
   evidence: OfficeHoursCompletionEvidence,
   artifacts: OfficeHoursFile[],
   snapshots: readonly OfficeHoursFile[] = [],
+  maxRounds = 3,
 ): void {
   const fail = (message: string): never => { throw new Error(`Office-hours reviewer handoff: ${message}`); };
   const calls = evidence.toolCalls;
@@ -353,7 +355,7 @@ export function validateOfficeHoursReviewerHandoffs(
         || path.basename(verdicts[0]) !== `round-${index + 1}.json`) fail(`round ${index + 1} lacks its assigned verdict path`);
     const verdictPath = verdicts[0];
     const promptPath = verdictPath.replace(/\.json$/, '.prompt.md');
-    const expected = renderOfficeHoursReviewerPrompt({ document: evidence.designPath, verdictPath, previous,
+    const expected = renderOfficeHoursReviewerPrompt({ document: evidence.designPath, verdictPath, previous, maxRounds,
       changes: index > 0 ? snapshotChanges(snapshots, verdictPath, index + 1).diff : undefined });
     let delivered = prompt.includes(expected.trimEnd());
     let unavailableBeforeRead = false;

@@ -1559,6 +1559,7 @@ describe('SPEC_REVIEW_LOOP resolver', () => {
     const step2 = output.slice(output.indexOf('**Step 2:'), output.indexOf('**Step 3:'));
     expectMentions(step2, [['before','dispatching','findings']], 'step2');
     ordered(step2, ['gstack-office-hours-review check --receipt "<reviewer response>"', 'mismatched receipt fails the check', '- PASS:', '- CONVERGENCE:', '- MAX_ITERATIONS: round 3', '- CONTINUE:', 'gstack-office-hours-review finalize --design']);
+    expectMentions(step2, [['fix only the blocking findings'], ['do not edit for minor findings']], 'step2');
     expectMentions(step2, [['do not','re-dispatch','again']], 'step2');
     expectMentions(step2, [['do not','generated','section']], 'step2');
     expect(step2.slice(step2.indexOf('finalize --design'))).toMatch(/existing user approval/i);

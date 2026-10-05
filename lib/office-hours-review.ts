@@ -114,11 +114,17 @@ export function validateOfficeHoursReview(value: unknown, previous?: OfficeHours
 
 const blockingIn = (review: OfficeHoursReview) => review.findings.filter(finding => finding.severity === 'blocking');
 /** Minor findings are recorded, never a reason for another round. */
-function stopFor(review: OfficeHoursReview): OfficeHoursReviewStop {
+/** Callers may lower the 3-round cap; reaching it stops at MAX_ITERATIONS. */
+export function officeHoursMaxRounds(value: unknown = 3): number {
+  const rounds = typeof value === 'string' && /^[0-9]+$/.test(value) ? Number(value) : value;
+  if (!Number.isInteger(rounds) || (rounds as number) < 1 || (rounds as number) > 3) fail('max rounds must be 1, 2, or 3');
+  return rounds as number;
+}
+function stopFor(review: OfficeHoursReview, maxRounds = 3): OfficeHoursReviewStop {
   const blocking = new Set(blockingIn(review).map(finding => finding.id));
   if (blocking.size === 0) return 'PASS';
   if (review.prior.some(status => status.status === 'persisting' && blocking.has(status.current_id!))) return 'CONVERGENCE';
-  return review.round === 3 ? 'MAX_ITERATIONS' : 'CONTINUE';
+  return review.round >= maxRounds ? 'MAX_ITERATIONS' : 'CONTINUE';
 }
 function metricsFor(rounds: readonly OfficeHoursReview[]): OfficeHoursReviewMetrics {
   const last = rounds.at(-1);
@@ -133,17 +139,18 @@ function metricsFor(rounds: readonly OfficeHoursReview[]): OfficeHoursReviewMetr
     attempted_fix_rounds: Math.max(0, rounds.length - 1),
   };
 }
-export function assessOfficeHoursReviews(values: readonly unknown[]): {
+export function assessOfficeHoursReviews(values: readonly unknown[], maxRounds = 3): {
   rounds: OfficeHoursReview[]; stop: OfficeHoursReviewStop; metrics: OfficeHoursReviewMetrics;
 } {
-  if (!Array.isArray(values) || values.length === 0 || values.length > 3) fail('supply 1 to 3 review rounds');
+  officeHoursMaxRounds(maxRounds);
+  if (!Array.isArray(values) || values.length === 0 || values.length > maxRounds) fail(`supply 1 to ${maxRounds} review rounds`);
   const rounds: OfficeHoursReview[] = [];
   for (const value of values) {
     const previous = rounds.at(-1);
-    if (previous && stopFor(previous) !== 'CONTINUE') fail('another round follows a terminal review outcome');
+    if (previous && stopFor(previous, maxRounds) !== 'CONTINUE') fail('another round follows a terminal review outcome');
     rounds.push(validateOfficeHoursReview(value, previous));
   }
-  return { rounds, stop: stopFor(rounds.at(-1)!), metrics: metricsFor(rounds) };
+  return { rounds, stop: stopFor(rounds.at(-1)!, maxRounds), metrics: metricsFor(rounds) };
 }
 const flat = (text: string) => text.replace(/\s+/g, ' ').trim();
 /** The exact line diff between two reviewed design versions, with 2 lines of context per hunk. */
@@ -180,12 +187,12 @@ export function officeHoursSnapshotChanges(verdictPath: string, round: number): 
   };
   return officeHoursDesignChanges(snapshot(round - 1), snapshot(round));
 }
-export function loadOfficeHoursReviews(paths: readonly string[]): OfficeHoursReview[] {
+export function loadOfficeHoursReviews(paths: readonly string[], maxRounds = 3): OfficeHoursReview[] {
   const values = paths.map(file => {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
     catch (cause) { throw new Error(`Office-hours review: cannot read artifact ${file}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause }); }
   });
-  const rounds = values.length ? assessOfficeHoursReviews(values).rounds : [];
+  const rounds = values.length ? assessOfficeHoursReviews(values, maxRounds).rounds : [];
   for (const review of rounds.slice(1)) verifyOfficeHoursCitations(review, officeHoursSnapshotChanges(paths[review.round - 1], review.round).changed);
   return rounds;
 }
@@ -212,8 +219,8 @@ export function verifyOfficeHoursVerdictReceipt(response: string, { round, verdi
 }
 
 /** The caller validates the complete history before supplying its last verdict. */
-export function renderOfficeHoursReviewerPrompt({ document, verdictPath, previous, changes }: {
-  document: string; verdictPath: string; previous?: OfficeHoursReview; changes?: string;
+export function renderOfficeHoursReviewerPrompt({ document, verdictPath, previous, changes, maxRounds = 3 }: {
+  document: string; verdictPath: string; previous?: OfficeHoursReview; changes?: string; maxRounds?: number;
 }): string {
   for (const [label, value] of [['document', document], ['verdictPath', verdictPath]]) {
     nonempty(value, label);
@@ -221,7 +228,7 @@ export function renderOfficeHoursReviewerPrompt({ document, verdictPath, previou
     if (/[\r\n]/.test(value)) fail(`${label} must fit on one line`);
   }
   if (previous && path.resolve(previous.document) !== path.resolve(document)) fail('review prompt targets a different document');
-  if (previous && stopFor(previous) !== 'CONTINUE') fail('cannot prepare another round after a terminal review');
+  if (previous && stopFor(previous, officeHoursMaxRounds(maxRounds)) !== 'CONTINUE') fail('cannot prepare another round after a terminal review');
   if ((previous === undefined) !== (changes === undefined)) fail('later rounds, and only later rounds, need the captured design changes');
   const round = (previous?.round ?? 0) + 1;
   const fence = '`'.repeat(Math.max(3, ...[...(changes ?? '').matchAll(/`+/g)].map(run => run[0].length + 1)));
@@ -310,11 +317,11 @@ function renderFindings(findings: readonly OfficeHoursFinding[]): string {
   if (!findings.length) return 'No unresolved findings.';
   return findings.map(finding => `### ${finding.id} — ${finding.dimension} (${finding.severity})\n\n**Problem**\n\n${quote(finding.problem)}\n\n**Remedy**\n\n${quote(finding.remedy)}`).join('\n\n');
 }
-export function renderOfficeHoursReview(values: readonly unknown[], unavailable?: string): {
+export function renderOfficeHoursReview(values: readonly unknown[], unavailable?: string, maxRounds = 3): {
   concerns: string; report: string; metrics: OfficeHoursReviewMetrics; stop: OfficeHoursReviewStop | 'UNREVIEWED';
 } {
   if (unavailable !== undefined) nonempty(unavailable, 'unavailable reason');
-  const assessment = values.length ? assessOfficeHoursReviews(values) : null;
+  const assessment = values.length ? assessOfficeHoursReviews(values, maxRounds) : null;
   if (!assessment && unavailable === undefined) fail('no review ran; supply an explicit unavailable reason');
   if (unavailable !== undefined && assessment && assessment.stop !== 'CONTINUE') fail('an unavailable attempt cannot follow a terminal review');
   if (unavailable === undefined && assessment?.stop === 'CONTINUE') fail('review is not terminal; fix and re-review before finalizing');

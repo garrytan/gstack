@@ -189,7 +189,9 @@ all preceding valid round files in order (omit them for round 1):
 ~/.claude/skills/gstack/bin/gstack-office-hours-review prepare --design "<design-path>" --out-dir "<review-directory>" "<round-1.json if present>" "<round-2.json if present>"
 ```
 
-Omit absent arguments rather than passing placeholders. The helper chooses the next
+Omit absent arguments rather than passing placeholders. Users get 3 rounds; only
+when a caller sets a lower review round limit, add `--max-rounds <N>` with that
+same value to every prepare, check, and finalize command. The helper chooses the next
 round and writes `round-N.prompt.md`. It includes the full finding schema, all five
 review dimensions (Completeness, Consistency, Clarity, Scope, Feasibility), the
 office-hours coaching contract, and the COMPLETE preceding JSON verdict. It also
@@ -229,11 +231,12 @@ blocking findings require another round. Read its stop reason:
   persisting with a concrete prior/current finding pair and document evidence.
   Stop even if new findings appear. Shared topic labels or new refinements alone
   are insufficient.
-- MAX_ITERATIONS: round 3 completed; stop.
-- CONTINUE: fix every blocking finding in the design (you may batch minor fixes
-  with them), then return to Step 1 to prepare and dispatch the next review. Its
-  reviewer checks every prior finding and raises new blocking findings only for
-  problems your changes introduced or exposed.
+- MAX_ITERATIONS: round 3 completed (or the caller's lower round limit); stop.
+- CONTINUE: fix only the blocking findings in the design, then return to Step 1
+  to prepare and dispatch the next review. Do not edit for minor findings
+  mid-loop: they stay recorded for the user, and new text only gives the next
+  diff more to review. Its reviewer checks every prior finding and raises new
+  blocking findings only for problems your changes introduced or exposed.
 
 On a stop, do not fix again or re-dispatch. Run the finalizer before approval:
 

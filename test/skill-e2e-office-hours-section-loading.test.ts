@@ -51,10 +51,12 @@ describeMarathon('/office-hours full section-loading workflow (marathon)', () =>
     }
     const formatter = path.join(planDir, 'bin/gstack-office-hours-review');
     fs.chmodSync(formatter, 0o755);
+    // Two rounds keep the live run inside its budget: round 1 (full) and round 2 (delta) run here; round 3 and CONVERGENCE are covered by free validator tests.
+    const reviewRounds = 2;
     const capture = await captureSectionReads({
       planDir, skillName: guard.skill, scenario: guard.scenario,
       artifactCommands: `${PILOT_SCOPE}
-Use ${formatter} for prepare/check/finalize; Bash is only for those commands and creating the local review directory. Use Read for skills, sections, reviewer prompts and designs, never Bash. Reviewers must save verdicts with Write as the prepared contract requires. Use targeted Edit for local design revisions, preserving every finding and remedy. Do not inspect formatter source unless its command fails. Keep all artifacts inside this fixture.
+Use ${formatter} for prepare/check/finalize. As the caller, I set a ${reviewRounds}-round spec-review limit for this run: pass --max-rounds ${reviewRounds} to every formatter prepare, check and finalize command. Bash is only for those commands and creating the local review directory. Use Read for skills, sections, reviewer prompts and designs, never Bash. Reviewers must save verdicts with Write as the prepared contract requires. Use targeted Edit for local design revisions, preserving every finding and remedy. Do not inspect formatter source unless its command fails. Keep all artifacts inside this fixture.
 Delivery throughout this non-interactive run: keep chat to brief progress and actual decision acknowledgements. Write the complete diagnostic, premise challenge, alternatives, independent opinion and rationale into the design instead of first publishing a separate walkthrough in chat. After design approval, write the full relationship closing and handoff directly into REPORT.md. These file writes deliver the required content; do not narrate it in full and then transcribe it again.
 Completion delivery, after the full workflow and design approval:
 1. Compose REPORT.md as a completion record: summarize each phase's outcome and actual decisions with their rationale, and link the approved design and saved review evidence. The design retains the detailed diagnostic, alternatives, and independent opinion; do not replay those as a second transcript. Include the full actual Assignment, coaching/relationship closing, approval outcome, and Handoff, including the user's declined downstream launch. This changes delivery only; complete every required phase and preserve all findings.
@@ -81,11 +83,11 @@ Completion delivery, after the full workflow and design approval:
     const reviewEvidence = validateOfficeHoursReviewArtifacts({
       ...capture, designPath,
       designContent: fs.existsSync(designPath) ? fs.readFileSync(designPath, 'utf-8') : null,
-    }, artifacts, snapshots);
+    }, artifacts, snapshots, reviewRounds);
     validateOfficeHoursReviewerHandoffs({
       ...capture, designPath,
       designContent: fs.existsSync(designPath) ? fs.readFileSync(designPath, 'utf-8') : null,
-    }, artifacts, snapshots);
+    }, artifacts, snapshots, reviewRounds);
     const missing = guard.requiredReads.filter(section => !capture.readSections.has(section));
     expect({ reportProduced: capture.reportProduced, read: [...capture.readSections], missing }).toEqual({
       reportProduced: true, read: expect.any(Array), missing: [],
