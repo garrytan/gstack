@@ -107,3 +107,19 @@ export function completeRuntimeCatalogFixture(
     runtimes,
   };
 }
+
+/**
+ * Put a staged runtime into its stack/platform slot under the reviewed profile
+ * id, as promotion does, and re-bind the promotion evidence digest the
+ * validator recomputes from the runtime matrix.
+ */
+export function installStagedRuntime(catalog: RuntimeCatalog, runtime: QualifiedRuntime): QualifiedRuntime {
+  const index = catalog.runtimes.findIndex(item => item.stack === runtime.stack && item.platform === runtime.platform);
+  const profile = catalog.profiles.find(item => item.stack === runtime.stack && item.platform === runtime.platform);
+  if (index < 0 || !profile || !catalog.promotion) throw new Error(`Runtime catalog fixture lacks ${runtime.stack} on ${runtime.platform}`);
+  const installed = { ...runtime, id: profile.id, versions: { ...runtime.versions } };
+  catalog.runtimes[index] = installed;
+  profile.versions = { ...installed.versions };
+  catalog.promotion.evidenceDigest = `sha256:${sha256(canonical(catalog.runtimes))}`;
+  return installed;
+}

@@ -681,8 +681,14 @@ async function forwarder(socketPath: string, listen: string): Promise<void> {
       client.destroy();
       upstream.destroy();
     });
-    client.pipe(upstream);
-    upstream.pipe(client);
+    // Bun's stream.pipe does not end the destination socket; forward each
+    // side's end and close so finished registry tunnels release the broker.
+    client.once('end', () => upstream.end());
+    upstream.once('end', () => client.end());
+    client.once('close', () => upstream.destroy());
+    upstream.once('close', () => client.destroy());
+    client.pipe(upstream, { end: false });
+    upstream.pipe(client, { end: false });
   });
   server.listen(18443, '127.0.0.1');
   await once(server, 'listening');
@@ -1054,7 +1060,7 @@ async function seed(policyPath: string): Promise<void> {
           '--userconfig',
           '/opt/cso/empty-config',
           '--globalconfig',
-          '/opt/cso/empty-config',
+          '/opt/cso/empty-globalconfig',
         ],
         {
           cwd: '/work',
@@ -1078,7 +1084,11 @@ async function seed(policyPath: string): Promise<void> {
     mode: 0o400,
     flag: 'wx',
   });
-  await new Promise<void>(() => {});
+  // A pending promise alone lets the process exit and the container stop before
+  // the offline commands run; a timer holds it until the group removes it.
+  await new Promise<void>(() => {
+    setInterval(() => {}, 2 ** 31 - 1);
+  });
 }
 
 function ready(): void {

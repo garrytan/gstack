@@ -94,6 +94,19 @@ and once with two databases in a fresh staged PostgreSQL sidecar. The Rails
 fixture builds the source-platform `sqlite3` and `pg` native gems only in the
 offline execution phase.
 
+Preparation output leaves its containers through `docker cp`, which cannot read
+a tmpfs mount. The acquisition `/archives` directory and the offline `/work`
+directory are therefore Docker local volumes backed by bounded tmpfs, created
+per container with private mode, the runtime uid/gid, `nosuid`, and `nodev`
+(`/archives` is also `noexec`; `/work` must stay executable for virtualenv and
+binstub launchers). The runner inspects each container and refuses to start it
+if Docker did not preserve those options. npm's user and global configs point
+at two different empty files, because npm refuses to load one file in both
+roles. Rails application and test containers hold on `sleep` after `run-app`
+copies the source; `db:prepare` starts only once that copy has finished.
+Changes to `/opt/cso/preparation` or an image recipe need a new staging run
+before native qualification can pass.
+
 For hashed Python requirements resolved by pip, the broker records the requested
 index URL, allowed contacted hosts, and verified wheel hash. Pip's internal
 `files.pythonhosted.org` response URL is opaque to that TLS boundary, so

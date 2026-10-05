@@ -18,7 +18,7 @@ describe('CSO Rails database verification lifecycle',()=>{
       return {
         anchor:`anchor-${group}`,
         createContainer:async(spec:any)=>{const id=`${group}-${spec.role}-${++next}`;events.push(`create:${id}:${spec.command.join(' ')}`);if(spec.postgresDatabasePolicy){policies.push(fs.readFileSync(spec.postgresDatabasePolicy,'utf8').trim().split('\n'));expect(fs.statSync(spec.postgresDatabasePolicy).mode&0o777).toBe(0o444);}return id;},
-        start:async(id:string)=>{events.push(`start:${id}`);},
+        start:async(id:string)=>{events.push(`start:${id}`);},startHeldApplication:async(id:string)=>{events.push(`held:${id}`);},
         execCapture:async(id:string,command:string[])=>{events.push(`exec:${id}:${command.join(' ')}`);return{code:0,stdout:'',stderr:''};},
         execDetached:async(id:string,command:string[])=>{events.push(`detach:${id}:${command.join(' ')}`);},
         startAttach:async(id:string)=>{events.push(`attach:${id}`);return{code:0,output:JSON.stringify({booted:true,legitimate:true,security:'pass',existingTests:false,output:'ok',inputHash:''})};},
@@ -37,6 +37,8 @@ describe('CSO Rails database verification lifecycle',()=>{
     expect(policies).toEqual([['cso_primary','cso_queue'],['cso_primary','cso_queue']]);
     expect(events.filter(event=>event.includes('/opt/cso/postgresql-ready'))).toHaveLength(2);
     expect(events.filter(event=>event.includes('/usr/local/bin/bundle exec rails db:prepare'))).toHaveLength(6);
+    for(const [index,event] of events.entries())if(event.includes('exec rails db:prepare'))expect(events.slice(0,index)).toContain(`held:${event.split(':')[1]}`);
+    expect(events.some(event=>/^start:\d-(app|tests)-/.test(event))).toBe(false);
     for(const group of [1,2]){
       const removeApp=events.findIndex(event=>event===`remove:${group}-app-2`),createFirstTest=events.findIndex(event=>event.startsWith(`create:${group}-tests-4:`));
       expect(removeApp).toBeGreaterThan(-1);expect(createFirstTest).toBeGreaterThan(removeApp);
@@ -47,11 +49,11 @@ describe('CSO Rails database verification lifecycle',()=>{
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'cso-rails-sqlite-'));roots.push(root);for(const name of ['source','work','control'])fs.mkdirSync(path.join(root,name));
     const commands:string[]=[];let next=0;
     const create=spyOn(DockerGroup,'create').mockResolvedValue({
-      createContainer:async(spec:any)=>{commands.push(`create:${spec.role}`);return`${spec.role}-${++next}`;},start:async()=>{},
+      createContainer:async(spec:any)=>{commands.push(`create:${spec.role}`);return`${spec.role}-${++next}`;},start:async()=>{},startHeldApplication:async(id:string)=>{commands.push(`held:${id}`);},
       execCapture:async(_id:string,command:string[])=>{commands.push(command.join(' '));return{code:0,stdout:'',stderr:''};},execDetached:async()=>{},
       startAttach:async()=>({code:0,output:JSON.stringify({booted:true,legitimate:true,security:'pass',existingTests:false,output:'ok',inputHash:''})}),removeContainer:async()=>{},cleanup:async()=>{},
     } as any);
     try{const runtime:any={stack:'rails',image:`runtime@sha256:${'a'.repeat(64)}`},request:any={findingId:'d'.repeat(32),port:3456,start:{executable:'/usr/local/bin/bundle',args:['exec','rails','server']},legitimate:[],security:{},fixtures:{},existingTests:[{executable:'/usr/local/bin/bundle',args:['exec','rails','test']}]};await new DockerVerificationExecutor({} as any,'/watchdog',Date.now()+60_000).observe(path.join(root,'source'),'before',request,runtime,runtime,path.join(root,'work'),path.join(root,'control'),{environment:{},database:{adapter:'sqlite',connections:['primary']}});}finally{create.mockRestore();}
-    expect(commands.some(command=>command==='create:postgres')).toBe(false);expect(commands.filter(command=>command.includes('exec rails db:prepare'))).toHaveLength(2);
+    expect(commands.some(command=>command==='create:postgres')).toBe(false);expect(commands.filter(command=>command.includes('exec rails db:prepare'))).toHaveLength(2);expect(commands.filter(command=>command.startsWith('held:'))).toHaveLength(2);
   });
 });

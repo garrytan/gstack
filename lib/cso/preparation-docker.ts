@@ -640,6 +640,13 @@ export class RegistryEgressBroker {
       this.sockets.add(upstream);
       upstream.setTimeout(Math.max(1, Math.min(30_000, this.deadline - Date.now())));
       upstream.once('close', () => this.sockets.delete(upstream));
+      // Bun's stream.pipe does not end the destination socket, so a finished
+      // tunnel would otherwise keep its upstream open and fill the broker's
+      // connection limit. Each side's end and close are forwarded explicitly.
+      socket.once('end', () => upstream.end());
+      upstream.once('end', () => socket.end());
+      socket.once('close', () => upstream.destroy());
+      upstream.once('close', () => socket.destroy());
       upstream.once('error', () => {
         if (!this.closing) this.violation ??= 'Registry connection failed after DNS pinning';
         socket.destroy();
@@ -663,8 +670,8 @@ export class RegistryEgressBroker {
         };
         socket.on('data', count);
         upstream.on('data', count);
-        socket.pipe(upstream);
-        upstream.pipe(socket);
+        socket.pipe(upstream, { end: false });
+        upstream.pipe(socket, { end: false });
         this.contactedHosts.add(host);
         socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
         if (remainder.length && addBytes(remainder.length)) upstream.write(remainder);
@@ -1557,6 +1564,7 @@ export class DockerPreparationSandboxRunner implements PreparationSandboxRunner 
         readonlyFiles: [{ host: offlinePolicy, container: '/policy/offline.json' }],
         readonlyMetadata: metadata,
         readonlyArchiveDirectory: archives,
+        exportableWork: true,
         command: ['/opt/cso/run-app', '/opt/cso/preparation', 'seed', '/policy/offline.json'],
       });
       await group.start(app);

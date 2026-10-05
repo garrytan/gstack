@@ -319,6 +319,12 @@ export interface ContainerSpec {
   workTmpfsBytes?: number;
   temporaryTmpfsBytes?: number;
   readonlyArchiveDirectory?: string;
+  /**
+   * The prepared-tree export is read back with docker cp, which cannot see a
+   * tmpfs mount. This keeps /work in memory as a size-capped tmpfs-backed local
+   * volume instead; removal with --volumes discards it like the container.
+   */
+  exportableWork?: true;
   registrySocket?: string;
   /** Non-secret, fixed-user-readable PostgreSQL database-name policy. */
   postgresDatabasePolicy?: string;
@@ -396,6 +402,13 @@ export function validateSingleContainerProcessOutput(output: string): void {
       'ISOLATION_FAILED',
       'Offline lifecycle left a background process; prepared output was withheld',
     );
+}
+export function heldApplicationReady(output: string): boolean {
+  const lines = output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.length === 2 && /^PID\s+COMMAND$/.test(lines[0]) && /^\d+\s+sleep$/.test(lines[1]);
 }
 export class DockerGroup {
   private ids: { role: Role; id: string }[] = [];
@@ -609,6 +622,16 @@ export class DockerGroup {
       );
     const uid = spec.role === 'postgres' ? 10001 : (hostUid as number),
       gid = spec.role === 'postgres' ? 10001 : (hostGid as number);
+    // docker cp reads volumes but not tmpfs mounts, so export sources use
+    // tmpfs-backed local volumes with the same size, owner and flag policy.
+    const expectedVolumes = new Map<string, string>();
+    const memoryVolume = (destination: string, options: string): string[] => {
+      expectedVolumes.set(destination, options);
+      return [
+        '--mount',
+        `type=volume,dst=${destination},volume-driver=local,volume-opt=type=tmpfs,volume-opt=device=tmpfs,"volume-opt=o=${options}"`,
+      ];
+    };
     const args = [
       'create',
       '--pull=never',
@@ -638,14 +661,16 @@ export class DockerGroup {
       `${CONTAINER_SHM_BYTES}b`,
       '--tmpfs',
       `/tmp:rw,noexec,nosuid,nodev,size=${tmpBytes},mode=1777`,
-      '--tmpfs',
-      `/work:rw,nosuid,nodev,size=${workBytes},mode=700,uid=${uid},gid=${gid}`,
+      ...(spec.exportableWork
+        ? memoryVolume('/work', `size=${workBytes},mode=700,uid=${uid},gid=${gid},nosuid,nodev`)
+        : // Docker's tmpfs default is noexec; prepared venvs and native extensions execute from /work.
+          ['--tmpfs', `/work:rw,exec,nosuid,nodev,size=${workBytes},mode=700,uid=${uid},gid=${gid}`]),
       '--network',
       joinAnchor ? `container:${this.anchor}` : 'none',
       '--platform',
       process.arch === 'arm64' ? 'linux/arm64' : 'linux/amd64',
     ];
-    const expectedTmpfs = new Set(['/tmp', '/work']),
+    const expectedTmpfs = new Set(spec.exportableWork ? ['/tmp'] : ['/tmp', '/work']),
       expectedMounts = new Set<string>();
     for (const [k, v] of Object.entries(spec.env ?? {})) {
       if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(k) || v.includes('\0'))
@@ -749,10 +774,11 @@ export class DockerGroup {
           'Preparation archive tmpfs exceeds the 2 GiB group storage policy',
         );
       args.push(
-        '--tmpfs',
-        `/archives:rw,noexec,nosuid,nodev,size=${spec.archiveTmpfsBytes},mode=700,uid=${uid},gid=${gid}`,
+        ...memoryVolume(
+          '/archives',
+          `size=${spec.archiveTmpfsBytes},mode=700,uid=${uid},gid=${gid},noexec,nosuid,nodev`,
+        ),
       );
-      expectedTmpfs.add('/archives');
     }
     if (spec.readonlyArchiveDirectory) directoryMount(spec.readonlyArchiveDirectory, '/archives', true);
     if (spec.registrySocket) {
@@ -784,7 +810,25 @@ export class DockerGroup {
       throw new CsoError('ISOLATION_FAILED', 'Docker did not return valid admitted-container configuration');
     }
     const hostConfig = inspectedContainer?.HostConfig,
-      mounts = inspectedContainer?.Mounts;
+      mounts = inspectedContainer?.Mounts,
+      volumes = (Array.isArray(hostConfig?.Mounts) ? hostConfig.Mounts : []).filter(
+        (mount: any) => mount?.Type === 'volume',
+      );
+    if (
+      volumes.length !== expectedVolumes.size ||
+      volumes.some((mount: any) => {
+        const driver = mount.VolumeOptions?.DriverConfig;
+        return (
+          !expectedVolumes.has(mount.Target) ||
+          mount.Source !== undefined ||
+          mount.ReadOnly === true ||
+          driver?.Name !== 'local' ||
+          canonical(driver?.Options ?? null) !==
+            canonical({ device: 'tmpfs', o: expectedVolumes.get(mount.Target), type: 'tmpfs' })
+        );
+      })
+    )
+      throw new CsoError('ISOLATION_FAILED', 'Docker did not preserve the bounded in-memory export volumes');
     if (
       hostConfig?.ReadonlyRootfs !== true ||
       hostConfig?.ShmSize !== CONTAINER_SHM_BYTES ||
@@ -796,10 +840,12 @@ export class DockerGroup {
           !mount ||
           !(
             (mount.Type === 'bind' && expectedMounts.has(mount.Destination)) ||
-            (mount.Type === 'tmpfs' && expectedTmpfs.has(mount.Destination))
+            (mount.Type === 'tmpfs' && expectedTmpfs.has(mount.Destination)) ||
+            (mount.Type === 'volume' && mount.Driver === 'local' && expectedVolumes.has(mount.Destination))
           ),
       ) ||
-      mounts.filter((mount: any) => mount?.Type === 'bind').length !== expectedMounts.size
+      mounts.filter((mount: any) => mount?.Type === 'bind').length !== expectedMounts.size ||
+      mounts.filter((mount: any) => mount?.Type === 'volume').length !== expectedVolumes.size
     )
       throw new CsoError('ISOLATION_FAILED', 'Docker did not preserve the bounded writable-storage policy');
     // Durable journal publication precedes in-memory admission. If this write
@@ -896,6 +942,18 @@ export class DockerGroup {
     if (r.truncated)
       throw new CsoError('REDACTION_FAILED', 'Aggregate reproduction output exceeded 1 MiB and was withheld');
     return { code: r.code, output: r.stdout + r.stderr };
+  }
+  async startHeldApplication(id: string): Promise<void> {
+    await this.start(id);
+    for (;;) {
+      if (heldApplicationReady(await this.docker(['top', id, '-eo', 'pid,comm'], 64 * 1024))) return;
+      if (Date.now() >= this.deadline)
+        throw new CsoError(
+          'DEADLINE',
+          'Application source copy did not finish within the reproduction deadline',
+        );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
   async assertOnlyInitProcess(id: string): Promise<void> {
     if (!this.ids.some((item) => item.id === id))

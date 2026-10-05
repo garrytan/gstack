@@ -798,7 +798,7 @@ export async function createDockerScannerRunner(context: ScannerRunnerContext): 
               ? ['/opt/cso/run-app', '/bin/sleep', '2147483647']
               : ['/opt/cso/run-app', api.start.executable, ...api.start.args],
           });
-          await group!.start(app);
+          await (rails ? group!.startHeldApplication(app) : group!.start(app));
           if (rails) {
             const clean = [
               '/usr/bin/env',
