@@ -46,6 +46,7 @@ export const FREE_FIXTURES: Readonly<Record<string, readonly string[]>> = {
   'test/fixtures/ceo-paired-option-values.json': ['test/plan-review-decisions.test.ts'],
   'test/fixtures/ceo-section-loading-36597762183-report.md': ['test/ceo-section-loading-fixture.test.ts'],
   'test/fixtures/ceo-split-collection-3638.json': ['test/ceo-split-collection.test.ts'],
+  'test/fixtures/ceo-split-wording-variants.json': ['test/ceo-split-collection.test.ts'],
   'test/fixtures/ceo-stale-fill-decision/**': ['test/ceo-stale-fill-decision.test.ts'],
   'test/fixtures/ci-gate/**': ['test/gstack-ci-gate.test.ts'],
   'test/fixtures/claude-native-journal-roots-2.1.284.json': ['test/autoplan-publication-hook.test.ts', 'test/plan-count-transcript.test.ts'],
