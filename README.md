@@ -703,6 +703,14 @@ $script.Replace("`r`n", "`n") | & $bash --noprofile --norc -s
 exit $LASTEXITCODE
 ```
 
+If an upgrade replaces your installed Copilot instructions, keep the
+[`windows-gstack-patch`](contrib/skills/windows-gstack-patch/SKILL.md) skill
+outside gstack's managed directories. Copy `contrib\skills\windows-gstack-patch`
+to `$HOME\.copilot\skills\windows-gstack-patch` once, then invoke
+`/windows-gstack-patch` after the upgrade. The skill restores only the Windows
+shell instruction block and verifies a real helper invocation. It does not
+rename helpers, change file associations, or replace your runtime and config.
+
 On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file copies instead of symlinks because `ln -snf` produces frozen copies that don't refresh on `git pull`. **Re-run `cd ~/.claude/skills/gstack && ./setup` after every `git pull`** so your skill files match the repo. `setup` prints a one-line note reminding you. Unix and WSL keep symlinks and don't need the re-run.
 
 **Chromium install failed or hung during `./setup`?** The bundled browser is
