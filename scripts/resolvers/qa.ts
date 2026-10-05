@@ -80,7 +80,7 @@ Without a total time limit, do not create DEADLINE_FILE; announce finite command
 Stop when scoped contracts are tested or blocked.
 Clocks/checkpoints use REPORT_DIR; mixed standalone runs use REPORT_DIR/browser and REPORT_DIR/functional, with one final report at REPORT_DIR. Caller paths win.
 Names used below (quote every path):
-- PROBE_DIR: this surface's probe directory from the line above. DEADLINE_FILE: \`PROBE_DIR/deadline.json\`, which exists only for a bounded run.
+- PROBE_DIR: this surface's owned probe directory per the line above. DEADLINE_FILE: \`PROBE_DIR/deadline.json\`, which exists only for a bounded run.
 - SECONDS: the total probe budget set above. NNN: a fresh three-digit ID (001, 002, ...) for each capture or checkpoint; never reuse one.
 - DEADLINE_TOOL = \`${quoteSafePath(ctx.paths.binDir)}/gstack-qa-deadline\`, the deadline guard: \`start\` creates DEADLINE_FILE, \`status\` prints \`remainingMs\` and \`expired\`, and \`run\` executes one command, stopping it at the deadline.
 - EVIDENCE_TOOL = \`${quoteSafePath(ctx.paths.binDir)}/gstack-qa-evidence\`, the functional evidence recorder: \`capture\` runs one command, stores its exit code, stdout and stderr under \`PROBE_DIR/.qa-evidence/NNN/\`, and prints status \`complete\`, \`incomplete\` or \`sensitive\`.
@@ -103,7 +103,7 @@ How one probe works: (1) if bounded, check the clock and choose the next command
 
 1. First demonstrate success: output AND durable effects. Guard if bounded; await completion.
 2. **Decide whether another probe is needed.** If bounded, run \`bun DEADLINE_TOOL status DEADLINE_FILE\`.
-   If expired or no safe next probe remains, STOP exploration; write the report, not a checkpoint: go to §4 (annotations, materialize, then Markdown).
+   If expired or no safe next probe remains, STOP exploration; write the report (§4), not a checkpoint.
 ${reportOnly ? `   **Classify the last result before copying it.** For public or synthetic observations,
    retain the entire result unchanged, including owned fixture paths, IDs, hashes and
    existing credential placeholders. An absolute state path is not itself a secret.
@@ -263,7 +263,7 @@ Never install, import cookies or bootstrap tests. Functional-only skips browser 
 
 **3. Run smoke and plan checks.**
 Follow the shared Probe loop for smoke checks and replays until the smoke limit.
-Then run required plan checks and revalidation, even after smoke expires, using the same procedure but no smoke guard; never reset the clock. Their checkpoints sit beside DEADLINE_FILE; they skip \`DEADLINE_TOOL status DEADLINE_FILE\` and use \`--timeout-ms\`, not \`--deadline DEADLINE_FILE\`. After smoke expiry, step 4c reruns plan checks only; affected smoke checks are not-run.
+Then run required plan checks and revalidation, even after smoke expires, using the same procedure but no smoke guard; never reset the clock. Their checkpoints sit beside DEADLINE_FILE; they skip \`DEADLINE_TOOL status DEADLINE_FILE\` and use \`--timeout-ms\`, not \`--deadline DEADLINE_FILE\`. Post-expiry smoke rechecks are not-run, even in 4c.
 Use finite command timeouts, capped at the caller's remaining time if it has a deadline.${ship ? '' : ' /review sets none; only an invoker-supplied EARLIER_UTC counts.'}
 Await clock/guard results before acting. When the caller's deadline expires, mark unfinished checks not-run.
 

@@ -311,23 +311,23 @@ describe('judge-named QA workflow gaps (C2)', () => {
     for (const skillName of ['qa', 'qa-only']) {
       const text = generateQAExploratory(ctx(skillName));
       const layout = text.indexOf('mixed standalone runs use REPORT_DIR/browser and REPORT_DIR/functional');
-      const probeDir = text.indexOf("PROBE_DIR: this surface's probe directory from the line above.");
+      const probeDir = text.indexOf("PROBE_DIR: this surface's owned probe directory per the line above.");
       expect(layout).toBeGreaterThan(-1);
       expect(probeDir).toBeGreaterThan(layout);
       expect(text.slice(layout, probeDir).split('\n')).toHaveLength(3);
-      expect(text).toContain('write the report, not a checkpoint: go to §4 (annotations, materialize, then Markdown)');
+      expect(text).toContain('write the report (§4), not a checkpoint.');
       const final = text.indexOf('## 4. Final report');
       expect(final).toBeGreaterThan(-1);
       expect(text.indexOf('annotations.json', final)).toBeLessThan(text.indexOf('materialize PROBE_DIR', final));
     }
   });
 
-  test('/review and /ship: after smoke expiry only plan checks rerun in revalidation', () => {
+  test('/review and /ship: step 4c revalidation does not rerun smoke checks after smoke expiry', () => {
     for (const skillName of ['review', 'ship']) {
       const text = generateQAReview(ctx(skillName));
-      expect(text).toContain('After smoke expiry, step 4c reruns plan checks only; affected smoke checks are not-run.');
-      expect(text).toContain('c. Re-review changed or uncertain coverage and repeat step 3 for affected checks.');
-      expect(text).not.toContain('Post-expiry smoke rechecks are not-run.');
+      const rule = text.indexOf('Post-expiry smoke rechecks are not-run, even in 4c.');
+      expect(rule).toBeGreaterThan(-1);
+      expect(rule).toBeLessThan(text.indexOf('c. Re-review changed or uncertain coverage and repeat step 3 for affected checks.'));
     }
   });
 });
