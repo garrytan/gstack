@@ -24,7 +24,7 @@ function incomplete(reason: string, diagnostic?: NativeCookieDiagnostic): never 
   console.log(JSON.stringify({ ...receipt, artifactDirectory: output }));
   process.exit(2);
 }
-if (Bun.version !== '1.4.0') incomplete('bun_1_4_0_required');
+if (Bun.version !== '1.4.2') incomplete('bun_1_4_2_required');
 let emptyJob: NativeCookieJob | undefined;
 try {
   emptyJob = await createNativeCookieJob();

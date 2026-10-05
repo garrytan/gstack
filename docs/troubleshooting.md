@@ -451,13 +451,13 @@ stopped instead of touching your project.
 ## Setup and auto-update
 
 <a id="bun-too-old"></a>
-### `gstack needs Bun 1.3.3 or newer (1.4.0 recommended); found <version> at <path>. Nothing was installed or changed.`
+### `gstack needs Bun 1.3.3 or newer (1.4.2 recommended); found <version> at <path>. Nothing was installed or changed.`
 
 **Meaning.** Bun older than 1.3.3 silently ignores the build flags that stop
 gstack's compiled tools from reading a project's `.env`, so setup refuses it
 before writing anything. The same link appears on two warnings that do not stop
-setup: `warning: gstack is tested on Bun 1.4.0 (CI pin); found <version>` (1.3.3
-up to 1.4.0 works but is untested) and `warning: could not read the Bun version
+setup: `warning: gstack is tested on Bun 1.4.2 (CI pin); found <version>` (1.3.3
+up to 1.4.2 works but is untested) and `warning: could not read the Bun version
 (...)` (setup continued; check `bun --version`).
 
 **Fix.**
@@ -467,7 +467,7 @@ bun upgrade
 ./setup
 ```
 
-**Expected result.** `bun --version` prints 1.4.0 or newer and setup finishes
+**Expected result.** `bun --version` prints 1.4.2 or newer and setup finishes
 with no Bun warning.
 
 <a id="auto-update-bun-too-old"></a>

@@ -125,7 +125,7 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
 
 Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10.md), each with its reason.
 
-- ~~**Enforce the Bun floor at setup (#2815)**~~ — done in v1.91.26.0: setup refuses Bun below 1.3.3 and warns below 1.4.0; auto-update and /gstack-upgrade check the incoming floor before moving the checkout. Original note: — `engines.bun` is now `>=1.4.0`
+- ~~**Enforce the Bun floor at setup (#2815)**~~ — done in v1.91.26.0: setup refuses Bun below 1.3.3 and warns below 1.4.2; auto-update and /gstack-upgrade check the incoming floor before moving the checkout. Original note: — `engines.bun` is now `>=1.4.0`
   (the CI pin), but Bun does not enforce `engines` and setup never checks the
   version. Bun older than 1.3.3 silently ignores `--no-compile-autoload-dotenv`
   and `--no-env-file` (verified with 1.3.2), so D0's protection against a

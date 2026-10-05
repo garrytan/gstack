@@ -52,7 +52,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
       - id: plan
         name: Inventory and balance the complete free suite
         # Warns in the job summary when more than 5 files are unseeded.
@@ -77,7 +77,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
       - name: Install helper dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Build and sign the native macOS startup boundary
@@ -112,7 +112,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Build browser prerequisites
@@ -144,7 +144,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
       - name: Install helper dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Build the native Windows startup boundary from Git Bash
@@ -172,7 +172,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
       - name: Require local Docker containment prerequisites
         # A missing daemon is a failed gate, never a skipped integration test.
         run: |
@@ -202,7 +202,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Typecheck product code (zero errors)
@@ -227,7 +227,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -406,7 +406,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: free-plan

@@ -182,9 +182,9 @@ the new defaults.
 
 | I want to… | Command | Cost / time | Needs |
 |---|---|---|---|
-| Check an ordinary edit quickly | `bun run test:quick` | Free, about a minute | Bun 1.4.0 |
+| Check an ordinary edit quickly | `bun run test:quick` | Free, about a minute | Bun 1.4.2 |
 | Run one free test file while repairing | `bun test <file>` | Free, seconds | Never bare `bun test` for the suite |
-| Run full free acceptance before publishing | `bun run test` | Free, a few minutes | Bun 1.4.0 |
+| Run full free acceptance before publishing | `bun run test` | Free, a few minutes | Bun 1.4.2 |
 | Run the full free suite from a small machine | `bun run test:ubicloud` | Free suite on a billed 16-vCPU VM, about 5 minutes | `UBICLOUD_API_KEY` |
 | Run the curated Windows-safe subset | `bun run test:windows` (CI: six `windows-latest` jobs) | Free | Windows, Git Bash |
 | Refresh the Windows duration seed | `gh workflow run windows-free-tests.yml --ref <branch> -f record_durations=true`, then commit the `free-test-durations-windows` artifact | Free CI runners | Pushed branch, `gh` with workflow rights |
@@ -207,7 +207,7 @@ Old command names are listed under [Retired commands](#retired-commands).
 
 ### Setup
 
-Development and tests require Bun 1.4.0 or newer; CI pins and tests 1.4.0.
+Development and tests require Bun 1.4.2 or newer; CI pins and tests 1.4.2.
 Earlier Linux versions can close unrelated live file descriptors during
 subprocess garbage collection, causing intermittent browser and HTTP fixture
 failures ([upstream diagnosis](https://github.com/oven-sh/bun/issues/34785#issuecomment-5020318035)).

@@ -71,7 +71,7 @@ test.skipIf(process.platform === 'win32')('extra-stdio cleanup preserves unrelat
     new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
   ]);
   const diagnosis = `Bun ${Bun.version} failed the subprocess descriptor-ownership probe. `
-    + 'Install the repository\'s pinned Bun version (1.4.0 or newer); '
+    + 'Install the repository\'s pinned Bun version (1.4.2 or newer); '
     + 'older Bun can double-close extra stdio and destroy unrelated browser/server sockets '
     + '(oven-sh/bun#32520, #33828).\n'
     + `exit=${code}\nstdout:\n${stdout}\nstderr:\n${stderr}`;

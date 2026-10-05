@@ -93,7 +93,7 @@ describe('paid CI coordination stays off the eval image', () => {
       expect(checkout.with?.['persist-credentials']).toBe(false);
       if (name === 'evals.yml') expect(checkout.with?.['fetch-depth']).toBe(0);
       const setup = planner.steps.find(step => step.uses?.startsWith('oven-sh/setup-bun@'))!;
-      expect(setup.with?.['bun-version']).toBe('1.4.0');
+      expect(setup.with?.['bun-version']).toBe('1.4.2');
       expect(JSON.stringify(planner)).not.toMatch(/secrets\.|restore-deps|bun install|bun run build/);
       expect(planner.steps.find(step => step.run?.includes('--emit-plan'))?.run).toContain('bun --no-install run');
     });

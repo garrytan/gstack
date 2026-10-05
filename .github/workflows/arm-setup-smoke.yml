@@ -30,13 +30,13 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
       - name: Seal the checked-out source and native toolchain
         shell: bash
         run: |
           set -euo pipefail
           test "$(uname -m)" = aarch64
-          test "$(bun --version)" = 1.4.0
+          test "$(bun --version)" = 1.4.2
           test "$(bun -p 'process.arch')" = arm64
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           mkdir -p "$RUNNER_TEMP/arm-input" "$RUNNER_TEMP/arm-evidence"
@@ -76,8 +76,8 @@ jobs:
           apt-get install -y --no-install-recommends ca-certificates git nodejs npm fonts-noto-color-emoji
           install -m 0755 /input/bun /usr/local/bin/bun
           ln -s bun /usr/local/bin/bunx
-          test "$(bun --version)" = 1.4.0
-          test "$(bunx --version)" = 1.4.0
+          test "$(bun --version)" = 1.4.2
+          test "$(bunx --version)" = 1.4.2
           test "$(bun -p 'process.arch')" = arm64
           test "$(node -p 'process.arch')" = arm64
           node --version

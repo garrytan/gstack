@@ -16,7 +16,7 @@ Where the report is:
 
 ## Prerequisites
 
-- A checkout of the census branch with `bun install` done. Bun 1.4.0 is the
+- A checkout of the census branch with `bun install` done. Bun 1.4.2 is the
   tested version.
 - `gh` authenticated with read access to the repository's Actions (or
   `GH_TOKEN` set). `eval:pass-rates` downloads artifacts through the REST zip

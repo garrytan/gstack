@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 // E1: setup refuses Bun below the security floor (1.3.3) before writing
-// anything, warns from the floor up to the tested version (1.4.0), warns and
+// anything, warns from the floor up to the tested version (1.4.2), warns and
 // continues on a version it cannot parse, and keeps --help/--status working
 // without Bun. The auto-updater half lives in session-update-stages.test.ts.
 
@@ -76,8 +76,9 @@ describe.skipIf(process.platform === 'win32')('Bun floor (E1)', () => {
       '1.3.3': 'untested',
       '1.3.14': 'untested',
       '1.4.0-canary.20261001+abc123': 'untested',
-      '1.4.0': 'ok',
-      'v1.4.1': 'ok',
+      '1.4.0': 'untested',
+      'v1.4.1': 'untested',
+      '1.4.2': 'ok',
       '1.10.0': 'ok',
       '2.0.0': 'ok',
       '': 'malformed',
@@ -97,7 +98,7 @@ describe.skipIf(process.platform === 'win32')('Bun floor (E1)', () => {
     for (const version of ['1.3.2', '1.3.3-canary.1']) {
       const r = runSetupWithBun(version);
       expect(r.status).toBe(1);
-      expect(r.stderr).toContain(`gstack needs Bun 1.3.3 or newer (1.4.0 recommended); found ${version} at ${r.stub}. Nothing was installed or changed.`);
+      expect(r.stderr).toContain(`gstack needs Bun 1.3.3 or newer (1.4.2 recommended); found ${version} at ${r.stub}. Nothing was installed or changed.`);
       expect(r.stderr).toContain('older Bun ignores --no-compile-autoload-dotenv');
       expect(r.stderr).toContain('Fix: bun upgrade, then re-run ./setup (docs/troubleshooting.md#bun-too-old)');
       expect(r.bunCalls).toBe('');
@@ -107,20 +108,20 @@ describe.skipIf(process.platform === 'win32')('Bun floor (E1)', () => {
 
   test('between the floor and the tested version: one warning, then setup continues', () => {
     const r = runSetupWithBun('1.3.14');
-    expect(r.stderr).toContain('warning: gstack is tested on Bun 1.4.0 (CI pin); found 1.3.14. Upgrade with: bun upgrade');
+    expect(r.stderr).toContain('warning: gstack is tested on Bun 1.4.2 (CI pin); found 1.3.14. Upgrade with: bun upgrade');
     expect(r.stderr).not.toContain('gstack needs Bun');
     expect(r.bunCalls).toContain('run scripts/models.ts claude-overlay claude-opus-4-8');
   });
 
   test('the tested version passes silently', () => {
-    const r = runSetupWithBun('1.4.0');
+    const r = runSetupWithBun('1.4.2');
     expect(r.stderr).not.toMatch(/warning: gstack is tested on Bun|gstack needs Bun|could not read the Bun version/);
     expect(r.bunCalls).toContain('run scripts/models.ts claude-overlay claude-opus-4-8');
   });
 
   test('a malformed version warns and continues', () => {
     const r = runSetupWithBun('bun-dev (local build)');
-    expect(r.stderr).toContain("warning: could not read the Bun version (bun --version printed 'bun-dev (local build)'); continuing. gstack is tested on Bun 1.4.0");
+    expect(r.stderr).toContain("warning: could not read the Bun version (bun --version printed 'bun-dev (local build)'); continuing. gstack is tested on Bun 1.4.2");
     expect(r.stderr).not.toContain('gstack needs Bun');
     expect(r.bunCalls).toContain('run scripts/models.ts claude-overlay claude-opus-4-8');
   });

@@ -179,7 +179,7 @@ export async function runDiaLaunchComparison(account: FreshAccount, purpose: 'co
       'argvSha256', 'environmentSha256', 'rootCount', 'launchAttempts', 'rootsBeforeCleanup', 'stderrBeforeCleanup', 'stderrAfterCleanup', 'rootsAfterCleanup', 'driver'];
     if (!response || !safeDiaComparisonResponse(response) || Object.keys(response).some(key => !keys.includes(key)) || response.protocol !== 1 || response.purpose !== purpose
       || response.samplingEnabled !== false || response.driver?.runtime !== config.runtime
-      || response.driver?.version !== (config.runtime === 'bun' ? '1.4.0' : '24.18.0') || response.driver?.architecture !== 'arm64'
+      || response.driver?.version !== (config.runtime === 'bun' ? '1.4.2' : '24.18.0') || response.driver?.architecture !== 'arm64'
       || response.driver?.os !== 'darwin' || response.driver?.playwright !== '1.62.1'
       || response.driver?.executableSha256 !== config.executableSha256 || response.driver?.driverSha256 !== config.driverSha256
       || response.driver?.helpersSha256 !== config.helpersSha256 || typeof response.ready !== 'boolean'
@@ -931,7 +931,7 @@ export async function qualifyDia(isolation: { root: string; configFile: string }
   validateQualificationHost(process.env);
   const account = readFreshAccountConfiguration(isolation.configFile);
   if (account.guiReadiness || !account.destinationExecutable || !account.destinationSha256) throw new Error('browser_qualification_authority_required');
-  if (Bun.version !== '1.4.0' || require('playwright/package.json').version !== '1.62.1') throw new Error('pinned_runtimes_required');
+  if (Bun.version !== '1.4.2' || require('playwright/package.json').version !== '1.62.1') throw new Error('pinned_runtimes_required');
   const runnerTemp = realpathSync(process.env.RUNNER_TEMP!);
   const output = path.join(runnerTemp, 'dia-native-qualification.json');
   if (existsSync(output)) throw new Error('fresh_receipt_path_required');
@@ -1383,7 +1383,7 @@ if (import.meta.main) {
       if (process.argv[2] !== '--fresh-account' || !process.argv[3]) throw new Error('fresh_account_configuration_required');
       const account = readFreshAccountConfiguration(process.argv[3]);
       if (account.guiReadiness) throw new Error('browser_qualification_authority_required');
-      if (Bun.version !== '1.4.0' || require('playwright/package.json').version !== '1.62.1') throw new Error('pinned_runtimes_required');
+      if (Bun.version !== '1.4.2' || require('playwright/package.json').version !== '1.62.1') throw new Error('pinned_runtimes_required');
       const originalHome = account.home;
       const originalHomeEnvironment = process.env.HOME;
       const runnerTemp = realpathSync(process.env.RUNNER_TEMP!);

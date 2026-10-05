@@ -29,7 +29,7 @@ const LATER_PREAMBLE_EDITS: Array<[string, string]> = [
 // The v1.91.26.0 Bun floor (E1) pinned the install hint to the tested Bun.
 const LATER_WAVE_EDITS: Array<[string, string]> = [
   ['tmpfile=$(mktemp "${TMPDIR:-/tmp}/bun-install.XXXXXX")', 'tmpfile=$(mktemp)'],
-  ['BUN_VERSION="1.4.0"', 'BUN_VERSION="1.3.10"'],
+  ['BUN_VERSION="1.4.2"', 'BUN_VERSION="1.3.10"'],
 ];
 
 export function approvedCookieWorkflowSource(source: string): string {

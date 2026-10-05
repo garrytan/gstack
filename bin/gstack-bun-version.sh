@@ -14,7 +14,7 @@
 # .env): Bun 1.3.2 loads it, 1.3.3 and 1.4.0 do not.
 # GSTACK_BUN_TESTED is the supported minimum: the CI pin and engines.bun.
 GSTACK_BUN_FLOOR="1.3.3"
-GSTACK_BUN_TESTED="1.4.0"
+GSTACK_BUN_TESTED="1.4.2"
 
 # _gstack_bun_parse <version> — sets _gb_core ("MAJOR MINOR PATCH" as decimal
 # integers) and _gb_pre (prerelease, may be empty); returns 1 when malformed.
