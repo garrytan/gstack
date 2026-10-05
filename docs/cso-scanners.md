@@ -53,8 +53,11 @@ Each execution probes the scanner version before scanning and validates the
 retained source both before and after collection. Unknown output, failed
 diagnostics, a timeout, changed source, or incomplete cleanup cannot become an
 empty clean result. The helper retains valid partial candidates when the
-adapter can distinguish them from failed coverage. Output that cannot be
-redacted is withheld.
+adapter can distinguish them from failed coverage. Scanner output is redacted
+in place: each located sensitive span becomes a `<REDACTED-...>` marker, so an
+advisory URL or version string that resembles a phone number or IP address does
+not discard the whole report. Output that cannot be redacted, including a span
+split across stdout and stderr, is withheld.
 
 Scanner and SARIF collection hold the run's mutation lock and reject finished
 or interrupted reports. Every outcome is written exclusively under a unique
@@ -67,18 +70,23 @@ qualification test runs the production adapter, image, watchdog, and isolation
 policy. It emits the version-output hash only after a representative scan
 completes without a coverage gap.
 
-The release inputs in
-[`build-inputs.json`](../lib/cso/scanner-images/build-inputs.json) remain
-`pending` until reviewers provide all six scanners on both native platforms.
-The inputs require immutable base and SBOM-generator image digests, exact source
+The reviewed release inputs in
+[`build-inputs.json`](../lib/cso/scanner-images/build-inputs.json) cover all six
+scanners on both native platforms. The inputs require immutable base and SBOM-generator image digests, exact source
 commits and versions, signer workflow identities and digests, and reviewed
 canonical SLSA/SPDX statement-set digests. The workflow cryptographically
 re-verifies each image with those repository, source, signer, and predicate
 constraints before use. Semgrep additionally requires a reviewed local rules bundle. OSV and
 Trivy require complete offline database bundles with recorded content hashes,
-freshness, and ecosystem coverage. Publishing those asset-bearing base images
-and reviewing their evidence are external prerequisites; the release workflow
-does not invent or silently replace them.
+freshness, and ecosystem coverage. The release workflow does not invent or
+silently replace them. None of the upstream scanner images publish GitHub
+artifact attestations, so the reviewed bases come from
+[`garrytan/gstack-cso-scanner-bases`](https://github.com/garrytan/gstack-cso-scanner-bases).
+That repository re-publishes each pinned upstream digest with the offline assets
+added and signs provenance and an SPDX SBOM with its own workflow. Each tagged
+release attaches a `pending` `build-inputs.json` candidate; a reviewer
+independently re-verifies the identities and hashes before the state here
+changes to `reviewed`.
 
 [`cso-scanner-images.yml`](../.github/workflows/cso-scanner-images.yml) lets a
 dispatched branch run read-only input and contract validation. Image publishing,
@@ -99,5 +107,9 @@ Scanner flags follow the primary documentation linked in
 the exact chosen version: OSV's maintainers documented a cache-location
 regression in 2.5.0, which demonstrates why a version string alone is insufficient.
 [OSV issue #2983](https://github.com/google/osv-scanner/issues/2983).
-Trivy uses an explicit memory scan cache alongside read-only baked databases.
+Trivy uses an explicit memory scan cache alongside read-only baked databases
+and a baked misconfiguration checks bundle. Schemathesis 4.26 and later repeat
+fuzzing until `--max-time` is spent, so the adapter sets that budget to three
+quarters of the scanner deadline and treats a `max_time` stop as complete only
+when every selected operation was exercised.
 [Trivy filesystem reference](https://trivy.dev/docs/v0.68/guide/references/configuration/cli/trivy_filesystem/).

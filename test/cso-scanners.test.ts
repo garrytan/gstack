@@ -168,6 +168,21 @@ describe('CSO scanner candidate normalization', () => {
     expect(result.candidates[0]).not.toHaveProperty('reproduced');
   });
 
+  test('Schemathesis time-budget completion counts only when every selected operation ran', () => {
+    const complete = parse('schemathesis', { schemathesis_version: '4.29.1', complete: true, stop_reason: 'max_time', operations: { selected: 1, tested: 1, errored: 0, skipped: 0 }, errors: [], failures: [] }, 0);
+    expect(complete.status).toBe('complete');
+    expect(complete.gaps).toEqual([]);
+    const untested = parse('schemathesis', { schemathesis_version: '4.29.1', complete: true, stop_reason: 'max_time', operations: { selected: 2, tested: 1, errored: 0, skipped: 0 }, errors: [], failures: [] }, 0);
+    expect(untested.status).toBe('partial');
+    const interrupted = parse('schemathesis', { schemathesis_version: '4.29.1', complete: false, stop_reason: 'max_time', operations: { selected: 1, tested: 1, errored: 0, skipped: 0 }, errors: [], failures: [] }, 0);
+    expect(interrupted.status).toBe('partial');
+  });
+
+  test('Schemathesis time budget leaves room inside the execution deadline', () => {
+    const plan = scannerPlans({ snapshotRoot: '/source', offline: true, selected: ['schemathesis'], deadlineSeconds: 120, schemaPath: '/policy/openapi.json', baseUrl: 'http://127.0.0.1:3000/', operationIds: ['listItems'] })[0];
+    expect(plan.args[plan.args.indexOf('--max-time') + 1]).toBe('90');
+  });
+
   test('startup failure and zero exercised operations remain not covered', () => {
     const result = parse('schemathesis', { schemathesis_version: '4.0.0', complete: false, stop_reason: 'interrupted', operations: null, errors: [{ title: 'Schema load failed' }], failures: [] }, 1);
     expect(result.status).toBe('partial');

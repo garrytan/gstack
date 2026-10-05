@@ -842,7 +842,7 @@ export class DockerGroup {
   async execCapture(
     id: string,
     command: string[],
-    options: { workdir?: string; env?: Record<string, string> } = {},
+    options: { workdir?: string; env?: Record<string, string>; redaction?: 'withhold' | 'splice' } = {},
   ): Promise<{ code: number; stdout: string; stderr: string }> {
     if (!command.length || !command[0].startsWith('/'))
       throw new CsoError('INVALID_SCHEMA', 'Exec needs an absolute executable');
@@ -864,6 +864,7 @@ export class DockerGroup {
       env: dockerEnvironment(this.endpoint, this.config),
       timeoutMs: remaining,
       maxBytes: this.remainingOutput,
+      redaction: options.redaction,
     });
     this.remainingOutput = Math.max(0, this.remainingOutput - r.capturedBytes);
     if (r.timedOut) throw new CsoError('DEADLINE', 'Target command exceeded the reproduction deadline');

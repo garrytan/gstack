@@ -44,8 +44,8 @@ function write(name: string, body: string): void {
 }
 function fixture(): void {
   write('app.js', 'export const scannerQualification = true;\n');
-  write('package.json', '{"name":"cso-scanner-qualification","version":"1.0.0"}\n');
-  write('package-lock.json', '{"name":"cso-scanner-qualification","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"cso-scanner-qualification","version":"1.0.0"}}}\n');
+  write('package.json', '{"name":"cso-scanner-qualification","version":"1.0.0","dependencies":{"lodash":"4.17.20"}}\n');
+  write('package-lock.json', '{"name":"cso-scanner-qualification","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"cso-scanner-qualification","version":"1.0.0","dependencies":{"lodash":"4.17.20"}},"node_modules/lodash":{"version":"4.17.20","resolved":"https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz","integrity":"sha512-PlhdFcillOINfeV7Ni6oF1TAEayyZBoZ8bcshTHqOYJYlrqzRK5hagpagky5o4HfCzzd1TRkXPMFq6cKk9rGmA=="}}}\n');
   write('.github/workflows/qualification.yml', 'name: qualification\non: [push]\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo qualification\n');
   write('server.py', [
     'from http.server import BaseHTTPRequestHandler, HTTPServer',
@@ -80,7 +80,7 @@ beforeAll(async () => {
   if (staged.platform !== platform) throw new Error(`Scanner Docker qualification requires native ${platform}`);
   if (staged.scanner === 'schemathesis' && (typeof staged.applicationExecutable !== 'string' || !staged.applicationExecutable.startsWith('/'))) throw new Error('Schemathesis qualification requires its reviewed fixture runtime executable');
   root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'cso-scanner-docker-'));
-  source = secureDirectory(path.join(root, 'source')); fixture();
+  source = secureDirectory(path.join(root, 'snapshot')); fixture();
   process.env.GSTACK_HOME = path.join(root, 'state');
   watchdog = path.resolve(import.meta.dir, '../bin/gstack-cso-watchdog');
   if (!fs.existsSync(watchdog)) throw new Error('Scanner Docker qualification requires the compiled watchdog');

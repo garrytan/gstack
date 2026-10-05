@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.20.0] - 2026-10-04
+## [1.91.23.0] - 2026-10-05
 
 **PR evals stop throwing away work, and a red weekly census means something again.**
 **The free suite is faster, its flakes are visible, and broken commands are gone.**
@@ -9,7 +9,7 @@ This release is a test, eval and CI audit wave. It touches no skill behavior. Th
 
 ### The numbers that matter
 
-| Check | v1.91.19.0 | v1.91.20.0 |
+| Check | v1.91.22.0 | v1.91.23.0 |
 |---|---|---|
 | Paid CI job ceiling (gate census / periodic) | 254 / 173 min for every slice | 34-82 min per slice; 50 min for ordinary periodic slices |
 | Local `eval:bg:pr` / `eval:bg:release` detach cap | 25.8 h / 32.4 h | 2.9 h / 2.25 h (1.5× planned work, never over 4 h) |
@@ -57,6 +57,31 @@ This release is a test, eval and CI audit wave. It touches no skill behavior. Th
 - The free duration seed is shrink-only above 60 seconds per file (`scripts/free-test-seed-allowlist.json`), and only `bun run test:ubicloud --record-durations` produces an acceptable seed. Windows has its own seed, refreshed by a `record_durations` dispatch.
 - Deleted: `ci-image.yml` (the eval workflows build the same image), `scripts/update-readme-throughput.ts`, `scripts/eval-watch.ts`, orphaned fixtures, and ~160 unused imports in the paid runner (now split into `scripts/lib/paid-types.ts` and `paid-select.ts`). Native Windows and Dia qualification moved to the dispatch-only `native-qualification.yml`; ML, gitleaks and Swift opt-in tests run in the quarterly `platform-qualification.yml`. Small CI jobs run on free GitHub-hosted runners.
 - Evidence, the EVAL_POLICY v2 memo and its backtest are in [docs/test-audit-2026-10.md](docs/test-audit-2026-10.md).
+
+## [1.91.22.0] - 2026-10-05
+
+**`/cso` scanner execution has reviewed, signed scanner images to build from.**
+
+`lib/cso/scanner-images/build-inputs.json` now pins one attested base image per scanner (gitleaks, OSV-Scanner, Semgrep, zizmor, Trivy, Schemathesis) for linux/amd64 and linux/arm64, plus the SBOM generator. None of the upstream images publish GitHub artifact attestations, so the bases come from [`garrytan/gstack-cso-scanner-bases`](https://github.com/garrytan/gstack-cso-scanner-bases) release `bases-2026.10.04.3`: each re-publishes a pinned upstream digest with the offline Semgrep rules or OSV/Trivy databases added, and its workflow signs SLSA provenance and an SPDX SBOM. Every identity, statement-set digest and asset hash was re-verified independently before the state changed to `reviewed`. Dispatching `cso-scanner-images.yml` on main now builds, qualifies and proposes the scanner catalog; until that catalog merges, scans still report `not assessed`.
+
+### The numbers that matter
+
+| Check | Result |
+|---|---|
+| Attested images (6 scanners x 2 platforms + generator) verified with gstack's own `gh attestation verify` flags | 13/13, both predicates |
+| Statement-set digests recomputed with `scripts/cso-attestation-evidence.ts` | 26/26 equal |
+| Offline asset hashes recomputed from both platforms with `hash-asset` | 6/6 equal |
+| Scanners completing a real network-none scan through the production adapter on the published amd64 bases | 6/6, no coverage gaps |
+
+### What changes for you
+
+- **OSV and Trivy reports survive redaction.** Advisory links such as `ntap-20210312-0006` read as phone numbers and four-part versions read as IP addresses, which used to discard the whole report. Scanner output now has each located span replaced in place; output is still withheld when a span cannot be located or crosses stdout and stderr.
+- **Schemathesis scans finish.** Schemathesis 4.26+ fuzzes until `--max-time` is spent; the adapter now budgets 75% of the scanner deadline and accepts a `max_time` stop once every selected operation ran.
+- **The scanner qualification test runs.** Its fixture now lives where the executor mounts sources and declares a real dependency, so OSV and Trivy exercise their offline databases.
+
+### For contributors
+
+- Refresh advisory databases by pushing a new `bases-*` tag in `gstack-cso-scanner-bases`, then review the release's `build-inputs.json` candidate here.
 
 ## [1.91.19.0] - 2026-10-03
 

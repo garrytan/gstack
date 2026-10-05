@@ -451,7 +451,7 @@ export function scannerPlans(opts: ScannerOptions): ScannerPlan[] {
           String(examples),
           '--max-failures=10',
           '--max-time',
-          String(timeout),
+          String(Math.max(1, Math.floor(timeout * 0.75))),
           '--seed',
           String(seed),
           '--request-timeout=5',
@@ -921,7 +921,9 @@ function parseResults(
     case 'schemathesis-json': {
       str(doc.schemathesis_version);
       const operations = doc.operations === null ? null : obj(doc.operations);
-      if (doc.complete !== true || doc.stop_reason !== 'completed')
+      // Schemathesis 4.26+ repeats fuzzing until --max-time is spent, so the
+      // declared time budget is a normal completion once every operation ran.
+      if (doc.complete !== true || (doc.stop_reason !== 'completed' && doc.stop_reason !== 'max_time'))
         gap('SKIPPED_INPUT', 'Schemathesis did not finish its declared operation assessment.');
       if (!operations || typeof operations.tested !== 'number' || operations.tested === 0)
         gap('SKIPPED_INPUT', 'Schemathesis exercised no operations.');

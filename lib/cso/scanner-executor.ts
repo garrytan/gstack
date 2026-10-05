@@ -728,7 +728,11 @@ export async function createDockerScannerRunner(context: ScannerRunnerContext): 
     await group.start(scanner);
     const capture = async (command: string[]): Promise<ScannerExecution> => {
       if (!scanner) throw new CsoError('ISOLATION_FAILED', 'Scanner container is unavailable');
-      const result = await group!.execCapture(scanner, command, { workdir: '/work', env: plan.env });
+      const result = await group!.execCapture(scanner, command, {
+        workdir: '/work',
+        env: plan.env,
+        redaction: 'splice',
+      });
       return { stdout: result.stdout, stderr: result.stderr, exitCode: result.code };
     };
     return {

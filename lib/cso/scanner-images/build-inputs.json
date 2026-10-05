@@ -1,8 +1,235 @@
 {
   "schemaVersion": 1,
   "helperAbi": 3,
-  "state": "pending",
-  "sbomGenerator": null,
-  "profiles": [],
+  "state": "reviewed",
+  "sbomGenerator": {
+    "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:cc9e54f7e2f35ad35c932e2eda93e3e4f3d593d60937bac576ec3e4cbcb725f7",
+    "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+    "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+    "release": "bases-2026.10.04.3",
+    "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+    "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+    "provenanceStatementDigest": "sha256:861e51b3cef80d09e058bec8cdbdc1c352ece4b9b146336d90c3f7a3827ec534",
+    "sbomStatementDigest": "sha256:f22c40474da437e92e8e08eff70686317af74b0365aebbaef5c60d8730686fc0"
+  },
+  "profiles": [
+    {
+      "scanner": "gitleaks",
+      "version": "8.30.1",
+      "baseImages": {
+        "linux/amd64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:19e4968269d3c0539f99d1ed41640a6d35bfb99973e4d614f13df8a3c05aefc2",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:cfd20937dcbb90b65699b1fec63ce688a00c389c1ead339997cb27449b4a072a",
+          "sbomStatementDigest": "sha256:968bdbde3d716d33c3d234bc723d7592b5fd32e94c7319cb71e29056688972c6"
+        },
+        "linux/arm64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:3e2a466e5f5aa549476d2f9c06a8c4a1dcd9e5811ae0428626108386793e2fb7",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:7e7bef7b910a3da111d1cdfa809b67498c26b908e681bc3dfd1bc9f8f0a53823",
+          "sbomStatementDigest": "sha256:02f83d779cc0dddad32efb6cbe09835e8307d7446b8c589cde68807e78901422"
+        }
+      },
+      "executable": "/usr/bin/gitleaks"
+    },
+    {
+      "scanner": "osv",
+      "version": "2.6.0",
+      "baseImages": {
+        "linux/amd64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:41aac7a4f1a757aac39ac8305815ae70ec8811304b19c34cad88b6e876e50580",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:03c45f8ff2ffe1a7d36ed6a7c6bdb5de41b8b6fb781e62536672d46bb420fb54",
+          "sbomStatementDigest": "sha256:0585e75ecd0cef1bc6b6abf34e8a55cbf7afed23b59ad9552f40794297b61c73"
+        },
+        "linux/arm64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:239118d886444b07f693a20ce4e95bc34f1f6bfbb2d814b3cc7d73df961fb084",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:331656efade5f777be4810031a45b92fedf3974a46e49dd340296e090da35041",
+          "sbomStatementDigest": "sha256:b559793bf5d9660baede7576e9596e34363794f4a827d0b4e858a94e6b68a6ea"
+        }
+      },
+      "executable": "/osv-scanner",
+      "assets": {
+        "advisoryDatabase": {
+          "path": "/opt/cso/scanner-data/osv",
+          "contentSha256": "d9721a347e3ccf3c7ee7a4f6c679ba73cb56a7abd48d13e2bd03d0992ccd784c",
+          "updatedAt": "2026-10-04T18:32:04.000Z",
+          "ecosystems": [
+            "Go",
+            "Hex",
+            "Maven",
+            "NuGet",
+            "Packagist",
+            "Pub",
+            "PyPI",
+            "RubyGems",
+            "SwiftURL",
+            "crates.io",
+            "npm"
+          ]
+        }
+      }
+    },
+    {
+      "scanner": "semgrep",
+      "version": "1.179.0",
+      "baseImages": {
+        "linux/amd64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:13f53c51469a3e4e52d24d449b200f38df55a9e75bbfc97e69accd167ed88970",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:dfb008d7eff78a49ee2bfbf4e33aaa0d3ba63b497b91a6903821417ca56e78e7",
+          "sbomStatementDigest": "sha256:668fe85d7b46d456f12a0ce9ffe264382b287f7a0ebbcfa8ee3c484b8fa3d4ce"
+        },
+        "linux/arm64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:feaeb83adc333ed42ce43494d0040e7a801df2e50af4ef940b6fd98737a327a1",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:856ce948d2b79409bbce39b93cb5b12dd9a162ba54532b343c48b30dae90b559",
+          "sbomStatementDigest": "sha256:029a16a441818234e95ca8066e8113ac72e8425092fb98c1b19c75aabdcbc875"
+        }
+      },
+      "executable": "/usr/bin/semgrep",
+      "assets": {
+        "semgrepRules": {
+          "path": "/policy/catalog/semgrep",
+          "sha256": "2b00d88982338e907f66dd8c1d60c791dff64a5a8ea51e9dca8c5958c51b0502"
+        }
+      }
+    },
+    {
+      "scanner": "zizmor",
+      "version": "1.30.1",
+      "baseImages": {
+        "linux/amd64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:e277bc5a9755bf48f28553ed382187018b14e1ce419de0e53537978f9687223e",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:52a332ca5db5d05c7852f0c6ac1bce1fa7c07c8530a4fae909cc30fbf769b204",
+          "sbomStatementDigest": "sha256:bdd205208e8f1c3f3026e893a541ed62e05da25ef4a391ac297abc9c6e451d43"
+        },
+        "linux/arm64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:a4ab6c8c06794011583850d4556f4aca556b1d1841f5386d79fa34975bc8dfe9",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:439604b15e8243d2b5723c5642f30de97fbb7701b232d4f0d9da95f687303df3",
+          "sbomStatementDigest": "sha256:5ae76c860909197e7e5cc98967979272f0fb78ddd9c22e9320881b6e203f65a8"
+        }
+      },
+      "executable": "/usr/bin/zizmor"
+    },
+    {
+      "scanner": "trivy",
+      "version": "0.75.0",
+      "baseImages": {
+        "linux/amd64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:6578b21f64b66219f1efeac84a556faec01f997c44411824789367c5996c8762",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:e09d43cd66ffafd1f411f796f23c92093d6ce5084247da6f1fb6601818890029",
+          "sbomStatementDigest": "sha256:aae3165cf84764c5cef1a33718c70822a8cc83e32a5d8b07cc2b5b6263c3f464"
+        },
+        "linux/arm64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:8e1bedf13c12823d81aa5dc8e617cca62011d62a557d62933e7010bbce84d6b6",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:fc3fea7e89938ccc4430ab15fd967ca59907d5fda5fe9340476c971274212903",
+          "sbomStatementDigest": "sha256:83944514345b397ab4630bbc2839f8ba8b481d350c455ca85efdac0803ef6c24"
+        }
+      },
+      "executable": "/usr/local/bin/trivy",
+      "assets": {
+        "advisoryDatabase": {
+          "path": "/opt/cso/scanner-data/trivy",
+          "contentSha256": "e292173b9cf49eb5414745c87af4e9355f1a76cc93aa3f68f12edbe8e18b8eee",
+          "updatedAt": "2026-10-04T14:28:15.000Z",
+          "ecosystems": [
+            "alpine",
+            "bitnami",
+            "cargo",
+            "cocoapods",
+            "composer",
+            "conan",
+            "debian",
+            "go",
+            "hex",
+            "k8s",
+            "maven",
+            "npm",
+            "nuget",
+            "pip",
+            "pub",
+            "redhat",
+            "rubygems",
+            "swift",
+            "ubuntu"
+          ]
+        }
+      }
+    },
+    {
+      "scanner": "schemathesis",
+      "version": "4.29.1",
+      "baseImages": {
+        "linux/amd64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:e330773e46b1219acb75b18401778e816f3c2a5b95a511a8c35006211804fbc0",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:254e952b20a27495243bd6b1d92ca225fb03eec194443db080feb75e7604606f",
+          "sbomStatementDigest": "sha256:1374e2f065236acf72908497ce4025e48e3b710be3e2e457caacbffd2f20a077"
+        },
+        "linux/arm64": {
+          "image": "ghcr.io/garrytan/gstack-cso-scanner-bases@sha256:a0615aa9322b90fa5cf81c3002f0abd80a8baa3d4b3ea18b34b9598969371cc5",
+          "repository": "https://github.com/garrytan/gstack-cso-scanner-bases",
+          "sourceCommit": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "release": "bases-2026.10.04.3",
+          "signerWorkflow": "github.com/garrytan/gstack-cso-scanner-bases/.github/workflows/publish.yml",
+          "signerDigest": "f708b2021d2bf5e00813a263e5641fc3b2ba5e1f",
+          "provenanceStatementDigest": "sha256:a7c21101bbe4e82c0f62ad330976ef9a79830a5925e357d157567311f6d3b45e",
+          "sbomStatementDigest": "sha256:706a3b72e4771871046130e26954da85a86a9844f49f16eb87cc91a0ed8e6dd7"
+        }
+      },
+      "executable": "/opt/cso-base/bin/schemathesis",
+      "applicationExecutable": "/usr/local/bin/python3"
+    }
+  ],
   "instructions": "Add one reviewed, digest-pinned SBOM generator and exactly one profile for each scanner. Every platform image and the generator must declare its GitHub repository, source commit, release, signer workflow and signer digest, plus canonical SLSA and SPDX statement-set digests that the workflow re-verifies cryptographically before use. Semgrep bases must contain the reviewed rules bundle. OSV and Trivy bases must contain the declared offline databases. Change state to reviewed only after all identities and content hashes have been independently checked."
 }
