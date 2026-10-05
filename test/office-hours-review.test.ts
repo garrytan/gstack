@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import {
   OFFICE_HOURS_DIMENSIONS, assessOfficeHoursReviews, validateOfficeHoursReview,
   renderOfficeHoursReview, renderOfficeHoursReviewerPrompt, extractOfficeHoursReviewBlock, replaceOfficeHoursReviewBlock,
-  type OfficeHoursReview,
+  officeHoursVerdictReceipt, type OfficeHoursReview,
 } from '../lib/office-hours-review';
 import { expectMentions } from './helpers/prompt-structure';
 
@@ -314,6 +314,39 @@ describe('office-hours review CLI', () => {
     expect(fs.readFileSync(prepared.verdictPath, 'utf8')).toBe(saved);
     expect(fs.readFileSync(data.design, 'utf8')).toBe(before);
   }));
+  test('seal validates the saved verdict and prints the receipt that check requires', () => fixture((dir, invoke) => {
+    const data = files(dir), outDir = path.join(dir, 'reviews');
+    fs.mkdirSync(outDir);
+    const stdout = (...args: string[]) => String(invoke(...args).stdout);
+    const stderr = (...args: string[]) => String(invoke(...args).stderr);
+    const prepared = JSON.parse(stdout('prepare', '--design', data.design, '--out-dir', outDir));
+    const quote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+    const seal = `${quote(fs.realpathSync(cli))} seal --design ${quote(data.design)} --verdict ${quote(prepared.verdictPath)}`;
+    expect(prepared.dispatch.split('\n').at(-1)).toBe(`Seal: ${seal}`);
+    expect(fs.readFileSync(prepared.promptPath, 'utf8')).toMatch(/run the `Seal:` command from your dispatch message/);
+    fs.writeFileSync(prepared.verdictPath, '{bad');
+    expect(stderr('seal', '--design', data.design, '--verdict', prepared.verdictPath)).toContain('invalid JSON');
+    fs.writeFileSync(prepared.verdictPath, JSON.stringify(data.rounds[1]));
+    expect(stderr('seal', '--design', data.design, '--verdict', prepared.verdictPath)).toContain('contiguous');
+    fs.writeFileSync(prepared.verdictPath, JSON.stringify(data.rounds[0]));
+    expect(stderr('seal', '--design', data.design, '--verdict', data.artifacts[1])).toContain('round-1.json');
+    expect(invoke('seal', '--design', path.join(dir, 'other.md'), '--verdict', prepared.verdictPath).exitCode).toBe(1);
+    const sealed = process.platform === 'win32'
+      ? invoke('seal', '--design', data.design, '--verdict', prepared.verdictPath)
+      : Bun.spawnSync(['bash', '-c', seal], { cwd: dir, timeout: 5000,
+        env: { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ''}` } });
+    expect(sealed.exitCode, String(sealed.stderr)).toBe(0);
+    const receipt = String(sealed.stdout).trim();
+    expect(receipt).toBe(officeHoursVerdictReceipt(1, prepared.verdictPath, fs.readFileSync(prepared.verdictPath)));
+    expect(invoke('check', '--receipt', receipt, prepared.verdictPath).exitCode).toBe(0);
+    expect(stderr('check', prepared.verdictPath)).toContain('requires --receipt');
+    expect(stderr('check', '--receipt', receipt.replace(/sha256=\w+/, `sha256=${'0'.repeat(64)}`), prepared.verdictPath)).toContain('hash');
+    expect(stderr('check', '--receipt', `\`${receipt}\``, prepared.verdictPath)).toContain('receipt line');
+    expect(stderr('check', '--receipt', receipt, data.artifacts[0])).toContain('different verdict path');
+    expect(stderr('check', '--receipt', receipt, ...data.artifacts)).toContain('not round 2');
+    const next = JSON.parse(stdout('prepare', '--design', data.design, '--out-dir', outDir, prepared.verdictPath));
+    expect(next.dispatch).toContain(`--verdict ${quote(next.verdictPath)} ${quote(fs.realpathSync(prepared.verdictPath))}`);
+  }));
   test('prepare refuses stale output, malformed or terminal history, and incomplete ordered history', () => fixture((dir, invoke) => {
     const data = files(dir), outDir = path.join(dir, 'reviews');
     fs.mkdirSync(outDir);
@@ -347,7 +380,8 @@ describe('office-hours review CLI', () => {
   }));
   test('check is read-only; finalize renders both authoritative files from the same inventory', () => fixture((dir, invoke) => {
     const data = files(dir), before = fs.readFileSync(data.design, 'utf8');
-    const check = invoke('check', ...data.artifacts);
+    const receipt = officeHoursVerdictReceipt(2, data.artifacts[1], fs.readFileSync(data.artifacts[1]));
+    const check = invoke('check', '--receipt', receipt, ...data.artifacts);
     expect(check.exitCode, check.stderr.toString()).toBe(0);
     expect(JSON.parse(check.stdout.toString()).stop).toBe('CONVERGENCE');
     expect(fs.readFileSync(data.design, 'utf8')).toBe(before);
@@ -378,7 +412,8 @@ describe('office-hours review CLI', () => {
     fs.writeFileSync(data.report, '<!-- gstack:office-hours:report:start -->');
     expect(invoke('finalize', '--design', data.design, '--report', data.report, ...data.artifacts).exitCode).toBe(1);
     expect(fs.readFileSync(data.design, 'utf8')).toBe(before);
-    expect(invoke('check', path.join(dir, 'missing.json')).exitCode).toBe(1);
+    const missing = path.join(dir, 'missing.json');
+    expect(invoke('check', '--receipt', officeHoursVerdictReceipt(1, missing, ''), missing).exitCode).toBe(1);
     const missingReport = invoke('finalize', '--design', data.design, '--report', path.join(dir, 'missing-report.md'), ...data.artifacts);
     expect(missingReport.exitCode).toBe(1);
     expect(missingReport.stderr.toString()).toContain('missing-report.md');

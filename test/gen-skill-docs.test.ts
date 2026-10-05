@@ -1544,7 +1544,9 @@ describe('SPEC_REVIEW_LOOP resolver', () => {
     for (const section of ["'The Assignment'", "'What I noticed about how you think'"]) expect(prompt).toContain(section);
     expect(prompt).toMatch(/never invent customer answers/i);
     expect(prompt).toMatch(/including minor findings/i);
-    expect(prompt).toMatch(/identical JSON/i);
+    expect(prompt).toContain('`OFFICE_HOURS_VERDICT round=1 sha256=<hash> path=<verdict path>`');
+    expect(prompt).toMatch(/run the `Seal:` command/);
+    expect(prompt).not.toMatch(/identical JSON/i);
     expect(prompt).toMatch(/classify every preceding finding/i);
     ordered(prompt, ['1. **Completeness**', '2. **Consistency**', '3. **Clarity**', '4. **Scope**', '5. **Feasibility**']);
     expect(prompt).toMatch(/distinguished from committed behavior/i);
@@ -1556,7 +1558,7 @@ describe('SPEC_REVIEW_LOOP resolver', () => {
     const output = render('office-hours');
     const step2 = output.slice(output.indexOf('**Step 2:'), output.indexOf('**Step 3:'));
     expectMentions(step2, [['before','dispatching','findings']], 'step2');
-    ordered(step2, ['gstack-office-hours-review check', '- PASS:', '- CONVERGENCE:', '- MAX_ITERATIONS: round 3', '- CONTINUE:', 'gstack-office-hours-review finalize --design']);
+    ordered(step2, ['gstack-office-hours-review check --receipt "<reviewer response>"', 'mismatched receipt fails the check', '- PASS:', '- CONVERGENCE:', '- MAX_ITERATIONS: round 3', '- CONTINUE:', 'gstack-office-hours-review finalize --design']);
     expectMentions(step2, [['do not','re-dispatch','again']], 'step2');
     expectMentions(step2, [['do not','generated','section']], 'step2');
     expect(step2.slice(step2.indexOf('finalize --design'))).toMatch(/existing user approval/i);

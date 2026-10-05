@@ -265,7 +265,6 @@
     "test/model-overlays.test.ts\tTS2322\tType 'string' is not assignable to type '\"claude\" | \"fable-5\" | \"gemini\" | \"gpt\" | \"gpt-5.4\" | \"gpt-5.6-sol\" | \"gpt-6-astra\" | \"o-series\" | \"opus-4-7\" | \"opus-4-8\" | \"sonnet-5\" | undefined'.": 4,
     "test/native-auto-decide-pty.test.ts\tTS2345\tArgument of type 'string | undefined' is not assignable to parameter of type 'string'. Type 'undefined' is not assignable to type 'string'.": 1,
     "test/native-auto-decide.test.ts\tTS2345\tArgument of type '{ status: string; calls: never[]; assistantMessages: { sessionId: string; text: string; timestamp: string; }[]; }' is not assignable to parameter of type 'PlanCountTranscript'. Types of property 'status' are incompatible. Type 'string' is not assignable to type '\"error\" | \"missing\" | \"ready\"'.": 1,
-    "test/office-hours-completion.test.ts\tTS18046\t'reordered.findings' is of type 'unknown'.": 1,
     "test/office-hours-review.test.ts\tTS18048\t'check.stderr' is possibly 'undefined'.": 1,
     "test/office-hours-review.test.ts\tTS18048\t'check.stdout' is possibly 'undefined'.": 1,
     "test/office-hours-review.test.ts\tTS18048\t'direct.stderr' is possibly 'undefined'.": 1,

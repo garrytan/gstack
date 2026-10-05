@@ -1,4 +1,4 @@
-import { renderOfficeHoursReviewerPrompt, renderOfficeHoursReview, extractOfficeHoursReviewBlock, type OfficeHoursReview } from '../lib/office-hours-review';
+import { renderOfficeHoursReviewerPrompt, renderOfficeHoursReview, extractOfficeHoursReviewBlock, officeHoursVerdictReceipt, type OfficeHoursReview } from '../lib/office-hours-review';
 import { describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -722,7 +722,7 @@ describe('office-hours mechanical review evidence', () => {
     const artifacts = rounds.map((r, i) => ({ path: `/tmp/office-hours-fixture/review/round-${i + 1}.json`, content: JSON.stringify(r) }));
     evidence.toolCalls = evidence.toolCalls.slice(0, 2);
     for (const [i, artifact] of artifacts.entries()) {
-      evidence.toolCalls.push({ tool: 'Agent', input: { prompt: `Review ${designPath}; write ${artifact.path}.` }, output: JSON.stringify(rounds[i]) });
+      evidence.toolCalls.push({ tool: 'Agent', input: { prompt: `Review ${designPath}; write ${artifact.path}.` }, output: officeHoursVerdictReceipt(i + 1, artifact.path, artifact.content) });
       evidence.toolCalls.push({ tool: 'Write', input: { file_path: artifact.path, content: artifact.content } });
     }
     return { evidence, artifacts, rounds };
@@ -804,15 +804,34 @@ describe('office-hours mechanical review evidence', () => {
     expect(() => validateOfficeHoursReviewerHandoffs(evidence, artifacts)).toThrow('round 2 did not receive the complete');
   });
 
-  test('JSON object key order cannot change complete reviewer delivery', () => {
+  test('receipts bind the exact saved bytes in both validators', () => {
     const { evidence, artifacts, attempts } = handoffs(true);
-    const reordered = Object.fromEntries(Object.entries(JSON.parse(attempts[0].output!)).reverse());
-    attempts[0].output = JSON.stringify(reordered);
-    expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).not.toThrow();
-    expect(() => validateOfficeHoursReviewerHandoffs(evidence, artifacts)).not.toThrow();
-    reordered.findings[0].remedy = 'Different obligation';
-    attempts[0].output = JSON.stringify(reordered);
-    expect(() => validateOfficeHoursReviewerHandoffs(evidence, artifacts)).toThrow('saved verdict differs');
+    const changed = JSON.parse(artifacts[0].content!);
+    changed.findings[0].remedy = 'Different obligation';
+    artifacts[0].content = JSON.stringify(changed);
+    expect(() => validateOfficeHoursReviewerHandoffs(evidence, artifacts)).toThrow('round 1 saved verdict differs from the reviewer receipt');
+    expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).toThrow('round 1 saved verdict differs from the reviewer receipt');
+    attempts[0].output = attempts[0].output!.replace(/sha256=[0-9a-f]{64}/, `sha256=${'0'.repeat(64)}`);
+    expect(() => validateOfficeHoursReviewerHandoffs(evidence, artifacts)).toThrow('receipt hash does not match');
+  });
+
+  test('a stale earlier-round receipt cannot satisfy a later round', () => {
+    const { evidence, artifacts, attempts } = handoffs(true);
+    attempts[1].output = attempts[0].output;
+    expect(() => validateOfficeHoursReviewerHandoffs(evidence, artifacts)).toThrow('round 2 saved verdict differs from the reviewer receipt');
+    expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).toThrow('round 2 saved verdict differs from the reviewer receipt');
+    attempts[1].output = officeHoursVerdictReceipt(2, artifacts[0].path, artifacts[0].content!);
+    expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).toThrow('different verdict path');
+    artifacts[1].content = artifacts[0].content;
+    attempts[1].output = officeHoursVerdictReceipt(2, artifacts[1].path, artifacts[1].content!);
+    expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).toThrow('round 2 saved verdict is invalid');
+  });
+
+  test('judge evidence comes from the saved verdict bytes, not the receipt', () => {
+    const { evidence, artifacts } = structured();
+    const judged = validateOfficeHoursReviewArtifacts(evidence, artifacts);
+    expect(judged?.verdict).toBe(artifacts[1].content!);
+    expect(judged?.priorVerdicts).toEqual([artifacts[0].content!]);
   });
 
   test('a separate coaching closing does not hide the actual Handoff recommendation', () => {
@@ -835,6 +854,9 @@ describe('office-hours mechanical review evidence', () => {
       // this is not a replay of a successful native/model completion.
       const { evidence, artifacts, rounds } = JSON.parse(JSON.stringify(handoffs())
         .replaceAll('/tmp/office-hours-fixture', dir.replaceAll('\\', '/')));
+      // Relocated artifacts have new bytes, so their receipts are reissued.
+      evidence.toolCalls.filter((call: { output?: string }) => call.output?.startsWith('OFFICE_HOURS_VERDICT '))
+        .forEach((call: { output?: string }, i: number) => { call.output = officeHoursVerdictReceipt(i + 1, artifacts[i].path, artifacts[i].content); });
       const reportPath = path.join(dir, 'REPORT.md');
       const closing = `# Office-hours completion report
 ## Phase Outcomes
@@ -890,11 +912,14 @@ Next: /plan-eng-review after observing the workflow. The user declined launching
     expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).toThrow('computed metrics');
   });
 
-  test('accepts one JSON fence around the identical authored verdict', () => {
-    const { evidence, artifacts } = structured();
+  test.each(['fence', 'prose', 'echoed JSON', 'missing path'])('a %s response is a failed attempt, never a completed verdict', mode => {
+    const { evidence, artifacts, rounds } = structured();
     const review = evidence.toolCalls.findLast(call => call.tool === 'Agent')!;
-    review.output = `\`\`\`json\n${review.output}\n\`\`\``;
-    expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).not.toThrow();
+    if (mode === 'fence') review.output = `\`\`\`\n${review.output}\n\`\`\``;
+    if (mode === 'prose') review.output = `Saved.\n${review.output}`;
+    if (mode === 'echoed JSON') review.output = JSON.stringify(rounds[1]);
+    if (mode === 'missing path') review.output = review.output!.replace(/ path=.*$/, '');
+    expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).toThrow('contradicts');
   });
 
   test('rejects the observed encoding obligation omission even if a judge would accept it', () => {
@@ -914,7 +939,7 @@ Next: /plan-eng-review after observing the workflow. The user declined launching
     const { evidence, artifacts, rounds } = structured();
     rounds[1].findings[5].remedy = 'Always silently decode with latin-1.';
     artifacts[1].content = JSON.stringify(rounds[1]);
-    expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).toThrow('differs from the reviewer response');
+    expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).toThrow('differs from the reviewer receipt');
   });
 
   test('requires the actual saved file, not just a reviewer response', () => {
@@ -946,8 +971,9 @@ Next: /plan-eng-review after observing the workflow. The user declined launching
     const { evidence, artifacts } = structured();
     expect(() => validateOfficeHoursReviewArtifacts(evidence, [...artifacts, artifacts[1]])).toThrow('exactly one saved verdict');
     const review = evidence.toolCalls.findLast(call => call.tool === 'Agent')!;
-    const json = JSON.parse(review.output!); json.document = '/tmp/different-design.md';
-    review.output = JSON.stringify(json);
+    const json = JSON.parse(artifacts[1].content!); json.document = '/tmp/different-design.md';
+    artifacts[1].content = JSON.stringify(json);
+    review.output = officeHoursVerdictReceipt(2, artifacts[1].path, artifacts[1].content);
     expect(() => validateOfficeHoursReviewArtifacts(evidence, artifacts)).toThrow();
   });
 

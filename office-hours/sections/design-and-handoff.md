@@ -199,18 +199,22 @@ string unchanged as the prompt. The reviewer must Read the entire prepared promp
 file before reviewing the design. Do not recreate the prompt, copy selected fields,
 or summarize prior findings. A parent Read does not deliver the file to the reviewer.
 The reviewer has fresh context and cannot see the brainstorming conversation.
-Its prepared contract requires a complete JSON Write and an identical JSON response.
+Its prepared contract requires a complete JSON Write, sealed by the dispatch's
+`Seal:` command, and a one-line `OFFICE_HOURS_VERDICT` receipt as its entire response.
 It protects the required coaching and Assignment sections, distinguishes unknown
 customer facts from committed behavior, and requires evidence for every prior status.
 
 **Step 2: Check stop conditions, then fix and re-dispatch**
 
 After each verdict, BEFORE fixing any findings or dispatching again, validate the
-saved files with the helper (list every completed round in order):
+saved files with the helper. Pass the reviewer's entire response unchanged as the
+receipt and list every completed round in order:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-office-hours-review check "<round-1.json>" "<round-2.json if present>" "<round-3.json if present>"
+~/.claude/skills/gstack/bin/gstack-office-hours-review check --receipt "<reviewer response>" "<round-1.json>" "<round-2.json if present>" "<round-3.json if present>"
 ```
+
+A missing, malformed, or mismatched receipt fails the check: that attempt is a failed review.
 
 Omit absent arguments rather than passing placeholders.
 **Convergence guard and stopping rules:** Read its stop reason:

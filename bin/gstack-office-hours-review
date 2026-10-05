@@ -2,17 +2,19 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { atomicWriteSync } from '../lib/fs-atomic.ts';
-import { assessOfficeHoursReviews, loadOfficeHoursReviews, renderOfficeHoursReview, renderOfficeHoursReviewerPrompt, replaceOfficeHoursReviewBlock } from '../lib/office-hours-review.ts';
+import { assessOfficeHoursReviews, loadOfficeHoursReviews, officeHoursVerdictReceipt, parseOfficeHoursVerdictReceipt, renderOfficeHoursReview, renderOfficeHoursReviewerPrompt, replaceOfficeHoursReviewBlock, verifyOfficeHoursVerdictReceipt } from '../lib/office-hours-review.ts';
+
+const shellQuote = value => `'${value.replaceAll("'", `'\\''`)}'`;
 
 function main(args) {
   const command = args.shift();
-  if (!['check', 'prepare', 'finalize'].includes(command)) throw new Error('usage: gstack-office-hours-review check <round.json...> | prepare --design <doc> --out-dir <reviewdir> [round.json...] | finalize --design <doc> [--report <report>] [--unreviewed <reason>] <round.json...>');
+  if (!['check', 'prepare', 'seal', 'finalize'].includes(command)) throw new Error('usage: gstack-office-hours-review check --receipt <reviewer response> <round.json...> | prepare --design <doc> --out-dir <reviewdir> [round.json...] | seal --design <doc> --verdict <round-N.json> [preceding round.json...] | finalize --design <doc> [--report <report>] [--unreviewed <reason>] <round.json...>');
   const options = {};
   const files = [];
   while (args.length) {
     const value = args.shift();
     if (value.startsWith('--')) {
-      const allowed = command === 'prepare' ? ['--design', '--out-dir'] : command === 'finalize' ? ['--design', '--report', '--unreviewed'] : [];
+      const allowed = { check: ['--receipt'], prepare: ['--design', '--out-dir'], seal: ['--design', '--verdict'], finalize: ['--design', '--report', '--unreviewed'] }[command];
       if (!allowed.includes(value)
           || options[value] !== undefined || !args.length) throw new Error(`invalid option: ${value}`);
       options[value] = args.shift();
@@ -20,12 +22,32 @@ function main(args) {
   }
   const rounds = loadOfficeHoursReviews(files);
   if (command === 'check') {
+    // The receipt binds the reviewer's response to the last round's exact bytes.
+    if (!options['--receipt'] || !files.length) throw new Error('check requires --receipt with the reviewer response and every completed round');
+    const last = files.at(-1);
+    const named = parseOfficeHoursVerdictReceipt(options['--receipt']).path;
+    const same = fs.existsSync(named) && fs.realpathSync(named) === fs.realpathSync(last);
+    verifyOfficeHoursVerdictReceipt(options['--receipt'], { round: files.length, verdictPath: same ? named : last, bytes: fs.readFileSync(last) });
     console.log(JSON.stringify(assessOfficeHoursReviews(rounds)));
     return;
   }
   if (!options['--design']) throw new Error(`${command} requires --design`);
   const designPath = path.resolve(options['--design']);
   if (rounds.some(review => path.resolve(review.document) !== designPath)) throw new Error('artifact document does not match --design');
+  if (command === 'seal') {
+    if (!options['--verdict']) throw new Error('seal requires --verdict');
+    const verdictPath = path.resolve(options['--verdict']);
+    const round = rounds.length + 1;
+    if (path.basename(verdictPath) !== `round-${round}.json`) throw new Error(`verdict must be round-${round}.json after the supplied history`);
+    const bytes = fs.readFileSync(verdictPath);
+    let value;
+    try { value = JSON.parse(bytes.toString('utf8')); }
+    catch (error) { throw new Error(`saved verdict is invalid JSON: ${error instanceof Error ? error.message : String(error)}`); }
+    const review = assessOfficeHoursReviews([...rounds, value]).rounds.at(-1);
+    if (path.resolve(review.document) !== designPath) throw new Error('verdict document does not match --design');
+    console.log(officeHoursVerdictReceipt(round, verdictPath, bytes));
+    return;
+  }
   if (command === 'prepare') {
     if (!options['--out-dir']) throw new Error('prepare requires --out-dir');
     if (!fs.statSync(designPath).isFile()) throw new Error('design must be an existing file');
@@ -44,7 +66,8 @@ function main(args) {
     if (existing) {
       if (!existing.isFile() || fs.readFileSync(promptPath, 'utf8') !== prompt) throw new Error('existing review prompt differs from the complete saved evidence');
     } else atomicWriteSync(promptPath, prompt, { mode: 0o600 });
-    const dispatch = `Read ${JSON.stringify(promptPath)} and execute the independent spec review as instructed.\nDocument: ${designPath}\nPrompt: ${promptPath}\nVerdict: ${verdictPath}`;
+    const seal = [shellQuote(fs.realpathSync(process.argv[1])), 'seal --design', shellQuote(designPath), '--verdict', shellQuote(verdictPath), ...files.map(file => shellQuote(fs.realpathSync(file)))].join(' ');
+    const dispatch = `Read ${JSON.stringify(promptPath)} and execute the independent spec review as instructed.\nDocument: ${designPath}\nPrompt: ${promptPath}\nVerdict: ${verdictPath}\nSeal: ${seal}`;
     console.log(JSON.stringify({ round, promptPath, verdictPath, dispatch }));
     return;
   }

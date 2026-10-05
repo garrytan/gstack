@@ -65,7 +65,7 @@ Completion delivery, after the full workflow and design approval:
       maxTurns: 40,
     });
     const designPath = path.join(planDir, 'docs/designs/roster-check.md');
-    const reviewEvidence = validateOfficeHoursCompletion({
+    validateOfficeHoursCompletion({
       ...capture, designPath,
       designContent: fs.existsSync(designPath) ? fs.readFileSync(designPath, 'utf-8') : null,
     });
@@ -75,7 +75,7 @@ Completion delivery, after the full workflow and design approval:
     const artifacts = artifactPaths.map(artifactPath => ({ path: artifactPath,
       content: fs.existsSync(artifactPath) ? fs.readFileSync(artifactPath, 'utf-8') : null,
     }));
-    validateOfficeHoursReviewArtifacts({
+    const reviewEvidence = validateOfficeHoursReviewArtifacts({
       ...capture, designPath,
       designContent: fs.existsSync(designPath) ? fs.readFileSync(designPath, 'utf-8') : null,
     }, artifacts);

@@ -1,4 +1,5 @@
 /** Office-hours review artifacts are the verdict; prose is rendered from them. */
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -130,6 +131,27 @@ export function loadOfficeHoursReviews(paths: readonly string[]): OfficeHoursRev
   return values.length ? assessOfficeHoursReviews(values).rounds : [];
 }
 
+export interface OfficeHoursVerdictReceipt { round: number; sha256: string; path: string }
+/** The reviewer's entire response: one line binding its round to the exact saved bytes. */
+export function officeHoursVerdictReceipt(round: number, verdictPath: string, bytes: string | Uint8Array): string {
+  return `OFFICE_HOURS_VERDICT round=${round} sha256=${createHash('sha256').update(bytes).digest('hex')} path=${verdictPath}`;
+}
+export function parseOfficeHoursVerdictReceipt(response: string): OfficeHoursVerdictReceipt {
+  const match = /^OFFICE_HOURS_VERDICT round=([1-3]) sha256=([0-9a-f]{64}) path=(.+)$/.exec(response.trim());
+  if (!match || !path.isAbsolute(match[3])) fail('reviewer response is not exactly one verdict receipt line');
+  return { round: Number(match[1]), sha256: match[2], path: match[3] };
+}
+/** Fail closed unless the receipt names this round, this path, and these bytes. */
+export function verifyOfficeHoursVerdictReceipt(response: string, { round, verdictPath, bytes }: {
+  round: number; verdictPath: string; bytes: string | Uint8Array;
+}): OfficeHoursVerdictReceipt {
+  const receipt = parseOfficeHoursVerdictReceipt(response);
+  if (receipt.round !== round) fail(`receipt names round ${receipt.round}, not round ${round}`);
+  if (path.resolve(receipt.path) !== path.resolve(verdictPath)) fail('receipt names a different verdict path');
+  if (receipt.sha256 !== createHash('sha256').update(bytes).digest('hex')) fail('receipt hash does not match the saved verdict bytes');
+  return receipt;
+}
+
 /** The caller validates the complete history before supplying its last verdict. */
 export function renderOfficeHoursReviewerPrompt({ document, verdictPath, previous }: {
   document: string; verdictPath: string; previous?: OfficeHoursReview;
@@ -154,8 +176,9 @@ export function renderOfficeHoursReviewerPrompt({ document, verdictPath, previou
 Document: ${document}
 Verdict: ${verdictPath}
 
-Use only Read and Write for this review. Read the design at ${JSON.stringify(document)} with Read and review all 5 dimensions independently, including new defects. Do not use Bash or Edit, and do not change the design.
-Use Write only to save your complete verdict as JSON to ${JSON.stringify(verdictPath)}, then return that identical JSON as your entire response (no Markdown fences or prose). The parent runs the formatter to validate your saved JSON.
+Use only Read, Write, and the one Bash seal command for this review. Read the design at ${JSON.stringify(document)} with Read and review all 5 dimensions independently, including new defects. Do not use Edit, and do not change the design.
+Use Write to save your complete verdict as JSON to ${JSON.stringify(verdictPath)}. Then run the \`Seal:\` command from your dispatch message with Bash, exactly as given; it validates the saved file and prints one receipt line. If it reports an error, correct the saved JSON with Write and run the same command again. Use Bash for nothing else.
+Return only that printed \`OFFICE_HOURS_VERDICT round=${round} sha256=<hash> path=<verdict path>\` line, unchanged, as your entire response: no JSON, Markdown fences, or prose. The parent verifies the receipt against the saved bytes.
 The saved JSON is your sole findings inventory: include every unresolved problem and necessary remedy, including minor findings that a short conclusion might omit.
 Use one finding per distinct obligation. An exact duplicate shares a finding; a shared component does not combine separate decisions, behavior, or effort.
 
