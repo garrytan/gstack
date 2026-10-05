@@ -32,7 +32,7 @@ This release is a test, eval and CI audit wave. It touches no skill behavior. Th
 
 ### Behavior changes you may notice
 
-- **EVAL_POLICY is v2.** A case's pass-rate history resets only when its own files or the declared `HARNESS_VERSION` change, and weekly history counts main runs only. Readers ignore records from a newer policy version and say how many they skipped. Shared-harness edits record a decision with `bun run scripts/bump-harness-version.ts --bump|--non-behavioral "<why>"`.
+- **EVAL_POLICY is v2.** A case's pass-rate history resets only when its own files or the declared `HARNESS_VERSION` change, weeks for quarantine expiry count main runs only, and branch census trials count toward a case's history only when its files match a series main has run. Readers ignore records from a newer policy version and say how many they skipped. Shared-harness edits record a decision with `bun run scripts/bump-harness-version.ts --bump|--non-behavioral "<why>"`.
 - **The 15 `carve-section-loading-<skill>` test files are one case-sharded file** with a case id per skill (`--case carve-section-loading-review`); `GSTACK_CARVE_SKILL` is gone. `skill-e2e-qa-workflow` runs case by case.
 - **Paid slices pack 7 minutes of work (was 9)**, so more runners start at once.
 - **`eval:select` defaults to the PR profile.**

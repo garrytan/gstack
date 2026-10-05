@@ -447,8 +447,12 @@ weekly runs old, or when a tier is over its cap.
 **Pass-rate history** (`bun run eval:pass-rates`, `scripts/eval-flake-rank.ts`).
 It reads the `trial-outcomes` artifact of the last N completed weekly
 `evals-periodic.yml` runs, meaning scheduled runs on `main` plus `main`
-dispatches, never a branch dispatch (flags: `--case`, `--runs N`, `--branch`
-to inspect one branch, `--dir`, `--backfill`, `--json`, `--gate`), and prints
+dispatches, plus completed branch census runs in the same window (flags:
+`--case`, `--runs N`, `--branch` to inspect one branch, `--dir`, `--backfill`,
+`--json`, `--gate`). A branch trial counts only toward a series `main` has also
+run (same case-owned bytes, `HARNESS_VERSION`, model and CLI); a branch never
+starts or becomes a case's current series, and weeks for quarantine expiry
+count `main` runs only. It prints
 per-case per-trial pass rates with 95% Wilson intervals. A series is one case
 under one input identity ([Harness version](#harness-version)), per model,
 Claude CLI version and policy version

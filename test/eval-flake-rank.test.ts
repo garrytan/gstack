@@ -21,7 +21,7 @@ import {
 import { EVAL_POLICY } from './helpers/periodic-exclude-data';
 import { TRIAL_OUTCOME_SCHEMA, formatTrialOutcomes } from './helpers/eval-store';
 import { storedZip } from './helpers/stored-zip';
-import { isWeeklyHistoryRun } from '../scripts/lib/ci-history';
+import { isPooledTrialRun, isWeeklyHistoryRun } from '../scripts/lib/ci-history';
 
 const entry = (name: string, passed: boolean, attempt: number) => ({
   name, suite: 's', tier: 'e2e', passed, attempt, duration_ms: 1000, cost_usd: 0.1,
@@ -202,6 +202,39 @@ describe('pass-rates labels', () => {
     expect(c.current).toMatchObject({ identity: 'id-2', cli: '2.1.285', trials: 2 });
     expect(c.previous).toMatchObject({ identity: 'id-2', cli: '2.1.284', trials: 3 });
     expect(c.label).toBe('INCONCLUSIVE');
+  });
+});
+
+describe('pass-rates pool matching branch census trials (EVAL_POLICY v2, D1 option b)', () => {
+  const pooledRunIds = new Set(['branch-1', 'branch-2']);
+
+  test('branch trials on the series main has run fill it to the entry rule', () => {
+    const main = many('beh-b', 4, 0, { run_id: 'main-1' });
+    const branch = [...many('beh-b', 3, 1, { run_id: 'branch-1' }), ...many('beh-b', 3, 1, { run_id: 'branch-2' })];
+    expect(analyze(main, {}, { pooledRunIds }).cases[0]!.label).toBe('INCONCLUSIVE');
+    const pooled = analyze([...main, ...branch], {}, { pooledRunIds }).cases[0]!;
+    expect(pooled.current).toMatchObject({ passes: 10, trials: 12 });
+    expect(pooled.label).toBe('FLAKY');
+    expect(analyze([...main, ...branch], {}, { pooledRunIds }).alarms.map(a => `${a.kind}:${a.case}`)).toContain('drift:beh-b');
+  });
+
+  test('a branch identity main has not run is dropped and never becomes the current series', () => {
+    const main = many('rule-a', 12, 0, { run_id: 'main-1' });
+    const edited = many('rule-a', 0, 12, { run_id: 'branch-1', series_identity: 'branch-edit' });
+    const c = analyze([...main, ...edited], {}, { pooledRunIds }).cases[0]!;
+    expect(c.series).toHaveLength(1);
+    expect(c.current).toMatchObject({ passes: 12, trials: 12 });
+    expect(c.label).toBe('PASSING');
+    expect(analyze([...main, ...edited], {}, { pooledRunIds }).alarms).toEqual([]);
+    // The same records without the pooled marking are main history and do start a series.
+    expect(analyze([...main, ...edited]).cases[0]!.current).toMatchObject({ identity: 'branch-edit', trials: 12 });
+  });
+
+  test('pooled runs are any completed non-main census run; weeks still count main only', () => {
+    expect(isPooledTrialRun({ branch: 'garrytan/fix-wave' })).toBe(true);
+    expect(isPooledTrialRun({ branch: 'main' })).toBe(false);
+    expect(isPooledTrialRun({ branch: '' })).toBe(false);
+    expect(isWeeklyHistoryRun({ branch: 'garrytan/fix-wave', event: 'workflow_dispatch' })).toBe(false);
   });
 });
 

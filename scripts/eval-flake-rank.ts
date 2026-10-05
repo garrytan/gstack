@@ -5,8 +5,10 @@
  * Reads trial records (one JSONL line per trial: case, kind, trial, outcome,
  * exit_reason, duration, cost, model, CLI version, series identity, run id,
  * sha, policy_version) from the last N completed `evals-periodic.yml` runs of
- * the weekly history: scheduled runs on `main` plus `main` dispatches, never a
- * branch dispatch (`--branch <name>` reads one branch's runs for inspection),
+ * the weekly history: scheduled runs on `main` plus `main` dispatches
+ * (`--branch <name>` reads one branch's runs for inspection). Trials from
+ * branch census runs in the same window pool into a series main has also
+ * run, never into a new one; weeks for quarantine expiry count main only,
  * downloading only each run's small `trial-outcomes` artifact through `gh`,
  * plus any local eval dirs, and
  * prints per-case per-trial pass rates with 95% Wilson intervals.
@@ -53,7 +55,7 @@ import { E2E_KINDS, E2E_TIERS, E2E_TOUCHFILES, GLOBAL_TOUCHFILES, LLM_JUDGE_TOUC
 import { CASE_QUARANTINE, EVAL_POLICY } from '../test/helpers/periodic-exclude-data';
 import { CASE_TEST_NAMES } from './test-paid-shards';
 import { resolveStateRoot } from '../lib/state-root';
-import { downloadRunArtifacts, isWeeklyHistoryRun, listWeeklyRuns, parseFlakeLedger, repoSlug, TRIAL_OUTCOMES_MAX_BYTES } from './lib/ci-history';
+import { downloadRunArtifacts, isPooledTrialRun, isWeeklyHistoryRun, listWeeklyRuns, parseFlakeLedger, repoSlug, TRIAL_OUTCOMES_MAX_BYTES } from './lib/ci-history';
 
 interface TestSeries {
   name: string;
@@ -360,6 +362,12 @@ export interface AnalyzeOptions {
   policy?: PassRatePolicy;
   /** Completed weekly-run timestamps in the window, for quarantine expiry. */
   weeklyRuns?: string[];
+  /**
+   * Run ids of branch census runs (isPooledTrialRun). Their trials count only
+   * toward a series that a non-pooled record also has, so a branch can extend
+   * main's history but never start, or become, a case's current series.
+   */
+  pooledRunIds?: ReadonlySet<string>;
   now?: number;
   unattributed?: string[];
   errors?: string[];
@@ -446,9 +454,13 @@ export function analyzePassRates(records: TrialRecord[], options: AnalyzeOptions
   for (const [id, list] of [...byCase].sort(([a], [b]) => a.localeCompare(b))) {
     list.sort((a, b) => at(a).localeCompare(at(b)) || runOf(a).localeCompare(runOf(b)) || a.trial - b.trial);
     const groups = new Map<string, TrialRecord[]>();
+    const keyOf = (record: TrialRecord) => record.policy_version === 0 ? 'pre-policy'
+      : [record.series_identity ?? 'unknown', record.model ?? 'unknown', record.cli_version ?? 'unknown', `v${record.policy_version}`].join('|');
+    const pooled = (record: TrialRecord) => !!options.pooledRunIds?.has(record.run_id ?? '');
+    const mainKeys = new Set(list.filter(record => !pooled(record)).map(keyOf));
     for (const record of list) {
-      const key = record.policy_version === 0 ? 'pre-policy'
-        : [record.series_identity ?? 'unknown', record.model ?? 'unknown', record.cli_version ?? 'unknown', `v${record.policy_version}`].join('|');
+      const key = keyOf(record);
+      if (pooled(record) && !mainKeys.has(key)) continue;
       const group = groups.get(key) ?? [];
       group.push(record);
       groups.set(key, group);
@@ -573,6 +585,7 @@ if (import.meta.main) {
   const errors: string[] = [];
   let historyError: string | null = null;
   let weeklyRuns: string[] | undefined;
+  let pooledRunIds: Set<string> | undefined;
 
   const manualReviews: string[] = [];
   const importDir = (dir: string, run: { run_id: string; sha?: string; timestamp?: string } | undefined, legacyDays: number) => {
@@ -589,8 +602,15 @@ if (import.meta.main) {
     for (const dir of dirs) importDir(dir, undefined, sinceDays);
   } else {
     try {
-      const runs = listWeeklyRuns({ repo, workflow, branches: [branch], limit: runsLimit }).filter(run => branch !== 'main' || isWeeklyHistoryRun(run));
-      weeklyRuns = runs.map(run => run.createdAt);
+      const weekly = listWeeklyRuns({ repo, workflow, branches: [branch], limit: runsLimit }).filter(run => branch !== 'main' || isWeeklyHistoryRun(run));
+      weeklyRuns = weekly.map(run => run.createdAt);
+      // Branch census trials pool into main's matching series over the same window (isPooledTrialRun).
+      const oldest = weekly[weekly.length - 1]?.createdAt;
+      const pooledRuns = branch === 'main' && oldest
+        ? listWeeklyRuns({ repo, workflow, branches: [''], limit: 100 }).filter(run => isPooledTrialRun(run) && run.createdAt >= oldest)
+        : [];
+      pooledRunIds = new Set(pooledRuns.map(run => `${run.id}`));
+      const runs = [...weekly, ...pooledRuns];
       const cacheDir = path.join(path.resolve(resolveStateRoot()), 'eval-pass-rates-cache', repo.replace('/', '-'));
       const match = backfill
         ? (name: string) => name.startsWith('trial-outcomes') || /^(paid-slice-\d+|gate-census-\d+)(-a\d+)?$/.test(name)
@@ -604,7 +624,7 @@ if (import.meta.main) {
     }
   }
 
-  const report = analyzePassRates(records, { weeklyRuns, unattributed: [...unattributed].sort(), errors, manualReviews });
+  const report = analyzePassRates(records, { weeklyRuns, pooledRunIds, unattributed: [...unattributed].sort(), errors, manualReviews });
   const ledger = readFreeLedger();
   if (asJson) {
     console.log(JSON.stringify({ repo, workflow, branch, dirs, historyError, ...report, freeLedger: ledger }, null, 2));

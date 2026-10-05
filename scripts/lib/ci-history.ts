@@ -52,7 +52,7 @@ export const GH_CLIENT: GhClient = {
 
 export const GH_HISTORY: HistoryFetcher = {
   listRuns: (repo, workflow, branch, limit): WeeklyRun[] => jsonLines(gh(['api',
-    `repos/${repo}/actions/workflows/${workflow}/runs?branch=${encodeURIComponent(branch)}&status=completed&per_page=${limit}`,
+    `repos/${repo}/actions/workflows/${workflow}/runs?${branch ? `branch=${encodeURIComponent(branch)}&` : ''}status=completed&per_page=${limit}`,
     '--jq', '.workflow_runs[] | {id, attempt: .run_attempt, sha: .head_sha, branch: .head_branch, createdAt: .created_at, event}'])),
   listArtifacts: (repo, runId): RunArtifact[] => jsonLines(gh(['api', `repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`,
     '--paginate', '--jq', '.artifacts[] | select(.expired | not) | {id, name, size: .size_in_bytes}'])),
@@ -169,6 +169,17 @@ export function historyFetcher(client: GhClient): HistoryFetcher {
  */
 export function isWeeklyHistoryRun(run: Pick<WeeklyRun, 'branch' | 'event'>): boolean {
   return run.branch === 'main' && (run.event === 'schedule' || run.event === 'workflow_dispatch');
+}
+
+/**
+ * Branch census runs whose trials may pool into a case's main series (D1
+ * option b, approved 2026-10-05): any completed non-main run of the census
+ * workflow. A pooled trial counts only toward a series main has also run
+ * (same case-owned bytes, HARNESS_VERSION, model and CLI); weeks for
+ * quarantine expiry still come from isWeeklyHistoryRun alone.
+ */
+export function isPooledTrialRun(run: Pick<WeeklyRun, 'branch'>): boolean {
+  return run.branch !== '' && run.branch !== 'main';
 }
 
 /** The last `limit` completed runs of `workflow` on each branch, newest first, deduplicated. */

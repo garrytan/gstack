@@ -59,10 +59,11 @@ per-failure-class breakdown from `test:health`.
   `--non-behavioral "<reason>"` records the new blobs as compatible with no
   reset. Entries are one line per file so concurrent PRs that touch different
   files merge cleanly; on a conflict, take the higher version, then rerun.
-- **Weekly history (W4b).** Pass-rate history is `evals-periodic.yml` runs on
-  `main`: scheduled runs and main dispatches, never a branch dispatch. Branch
-  validation runs neither feed pass rates nor count as weeks for quarantine
-  expiry and drift.
+- **Weekly history (W4b).** Weeks for quarantine expiry and drift are
+  `evals-periodic.yml` runs on `main`: scheduled runs and main dispatches.
+  Trials from branch census runs in the same window pool into a series `main`
+  has also run (option (b) below, approved 2026-10-05); a branch identity
+  `main` has not run is dropped and never becomes the current series.
 - **Kinds (W4c).** No kind changes; see the evidence below.
 - **Pre-v2 evidence does not qualify.** Readers segment strictly by
   `policy_version`: only v2 trials count toward the quarantine entry rule; v1
@@ -142,9 +143,9 @@ touched a pinned file. About half of PRs therefore record a
    including branch dispatches, while weeks for expiry still count from main
    only — the recorded backtest's 67/210, at the cost of pooling branch code
    whose unbumped harness edits match; or (c) extra census dispatches on an
-   unchanged main revision (about $175 recorded each). This PR implements (a)
-   as approved; (b) is a one-line change in the trial pool and needs Garry's
-   decision before it lands.
+   unchanged main revision (about $175 recorded each). Garry approved (b) on
+   2026-10-05, and this PR implements it: pooled branch trials count only
+   toward a series a `main` run also has.
 
 ### Alternatives considered
 
