@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.28.0] - 2026-10-05
+## [1.91.29.0] - 2026-10-05
 
 **Native runtime qualification can pass for Node, Bun, Python and Rails.**
 
