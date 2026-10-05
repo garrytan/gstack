@@ -33,10 +33,12 @@ The first three rows are the ones users feel. The last three are why the next ce
 - **/ship's documentation gate** records post-audit file hashes with its helper instead of having the model retype them.
 - **/plan-ceo-review** shows its mode line (`Mode: ...` or `Auto-decided review mode → ...`) word for word right after the mode is chosen.
 - **/qa** names where its report filename parts come from and labels timing as probe budget and guarded command time. **/deslop-shared-libs** names a concrete risk for every recommendation.
+- **/office-hours spec review stops when nothing blocking is left.** Each finding is blocking or minor; minor findings are recorded in Reviewer Concerns and never force another round, and the parent fixes only blocking ones between rounds. Rounds 2 and 3 re-review the exact design diff the helper captured since the last round. The reviewer returns a one-line sha256 receipt for its saved verdict instead of echoing it. Callers can lower the 3-round cap with `--max-rounds`.
 - **`GSTACK_DESIGN_IMAGE_MODEL`** switches the design tool's image model (default `gpt-image-2`); a value that is not a gpt-image model name is refused before any request.
 
 ### Behavior changes you may notice
 
+- **Office-hours review verdicts are schema version 2** (`severity` and `changed_text` on every finding). An in-progress review saved by an older version is refused; start a fresh review directory.
 - **Bun below 1.3.3 stops setup** with `gstack needs Bun 1.3.3 or newer`; nothing is installed. Fix: `bun upgrade`, then `./setup`.
 - **Auto-update can say `update held (bun-too-old: ...)`** and `/gstack-upgrade` can stop with `BUN_TOO_OLD`; your current version keeps working. Fix: `bun upgrade`.
 - **/review in a read-only checkout reports `Base coverage: stale at <revision>`** instead of stopping with "Nothing to review".
