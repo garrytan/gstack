@@ -84,7 +84,7 @@ test.each(['foreign_row', 'quoted_row', 'second_platform', 'held'])('row-ID coll
   const state = rowIdCapture(), call = state.transcript.calls.at(-1)!, question = call.questions[0]!;
   const selected = call.answers![question.question]!;
   if (kind === 'foreign_row') question.question = question.question.replace('R-E5:', 'R-E4:');
-  if (kind === 'quoted_row') question.question = 'Example: ' + question.question;
+  if (kind === 'quoted_row') question.question = 'Example from R-E4: ' + question.question;
   if (kind === 'second_platform') question.question = question.question.replace('?', ' or the Slack bot?');
   call.answers = { [question.question]: kind === 'held' ? question.options[3]!.label : selected };
   state.fingerprints = fromCalls(state.transcript.calls).fingerprints;
@@ -127,7 +127,7 @@ test.each(['pending', 'failed', 'missing_answer', 'custom_answer', 'hold', 'quot
     if (kind === 'missing_answer') call.answers = {};
     if (kind === 'custom_answer') call.answers = { [question.question]: 'Custom approval' };
     if (kind === 'hold') call.answers = { [question.question]: question.options[3]!.label };
-    if (kind === 'quoted') question.question = 'Example: ' + question.question;
+    if (kind === 'quoted') question.question = 'Example from E4: ' + question.question;
     if (kind === 'wrong_platform') question.header = 'E5 Slack';
     if (kind === 'bundled') question.question = question.question.replace('?', ' and E4: Telegram?');
     if (kind === 'missing_cut') question.options.splice(2, 1);
@@ -265,25 +265,35 @@ await import(${JSON.stringify(path.join(ROOT, 'test/skill-e2e-plan-ceo-split-ove
   }, 20_000,
 );
 
-test.each(variants.runs.map(run => [run.source, run]))('captured candidate wording completes collection: %s', (_source, run) => {
+test.each(variants.runs.map(run => [run.source, run]))('captured candidate wording completes collection at the fifth call: %s', (_source, run) => {
   const calls = structuredClone(run.calls) as unknown as NativePlanQuestionCall[];
-  expect(run.originalOutcome).not.toBe('collection_complete');
   expect(calls.map(call => ceoSplitCandidate(call.questions[0] as NativeQuestion))).toEqual(['E1', 'E2', 'E3', 'E4', 'E5']);
   const state = fromCalls(calls);
   expect(state.fingerprints.map(isCeoSplitCandidateCall)).toEqual([true, true, true, true, true]);
   expect(isCeoSplitCollectionComplete(state.transcript, state.fingerprints)).toBe(true);
-  expect(isCeoSplitCollectionComplete(fromCalls(calls.slice(0, 4)).transcript, fromCalls(calls.slice(0, 4)).fingerprints)).toBe(false);
+  const four = fromCalls(calls.slice(0, 4));
+  expect(isCeoSplitCollectionComplete(four.transcript, four.fingerprints)).toBe(false);
 });
 
-test('wording variants stay bound to one candidate and its scope buckets', () => {
-  const base = structuredClone(variants.runs.find(run => run.source.startsWith('ci-'))!.calls[0]!.questions[0]!) as unknown as NativeQuestion;
-  const lead = (question: NativeQuestion, text: string) => ({ ...question, question: question.question.replace(/^[^\n]*/, text) });
-  for (const text of ['D1.1 — E1: Ship the Slack DM bot?', 'D1.1 — E1) Ship the Slack DM bot?',
-    'D1.1 — E1 Slack: ship the Slack DM bot?', 'D1.1 — E1-SLACK: Ship the Slack DM bot?']) expect(ceoSplitCandidate(lead(base, text))).toBe('E1');
-  for (const text of ['D1.1 — E1-DISCORD: Ship the Slack DM bot?', 'D1.1 — E1 Slack: ship Slack before Discord?',
-    'D1.1 — E1-SLACK: ship Slack with E2?', 'D1.1 — E2: Ship the Slack DM bot?']) expect(ceoSplitCandidate(lead(base, text))).toBeNull();
+test('the replay covers all 31 measured runs, including every slow-path variant', () => {
+  expect(variants.runs).toHaveLength(31);
+  expect(variants.runs.filter(run => run.originalOutcome !== 'collection_complete')).toHaveLength(18);
+});
+
+test('identity is the one ledger token; another platform or a second token rejects', () => {
+  const base = structuredClone(variants.runs[0]!.calls[0]!.questions[0]!) as unknown as NativeQuestion;
+  const ask = (header: string, lead: string) => ({ ...base, header, question: lead });
+  for (const [header, lead] of [['E1 Slack', 'D1.1 — E1: Ship the Slack DM bot?'], ['E1 Slack', 'D1.1 — E1) Ship the Slack DM bot?'],
+    ['E1 Slack', 'D1.1 — E1 Slack DM bot for incident alerts: include, defer, or cut?'], ['E1 Slack', 'D1.1 — E1-SLACK: Ship it?'],
+    ['D1.1 Slack', 'D1.1 — SCOPE-E1: Include the Slack DM bot this quarter?'], ['D1.1 E1 Slack', 'D1.1 — E1-SLACK: Include it?'],
+    ['E5 Mattermst', 'D1.5 — E5-MATTERMOST: Include the plugin?'], ['E5 Mattermst', 'D1.5 — Include the plugin this quarter?']] as const) {
+    expect(ceoSplitCandidate(ask(header, lead))).toBe(header.includes('Matter') ? 'E5' : 'E1');
+  }
+  for (const [header, lead] of [['D1.1 Slack', 'D1.1 — Ship the Slack DM bot this quarter?'], ['E1 Slack', 'D1.1 — E1: ship Slack before Discord?'],
+    ['E1 Discord', 'D1.1 — E1: Ship the bot?'], ['E1 Slack', 'D1.1 — E1-SLACK: ship Slack with E2?'], ['E1 Slack', 'D1.1 — E2: Ship the bot?'],
+    ['E6 Zulip', 'D1.6 — E6: Ship the Zulip bot?']] as const) expect(ceoSplitCandidate(ask(header, lead))).toBeNull();
   const relabeled = (labels: string[]) => ({ ...base, options: base.options.map((option, i) => ({ ...option, label: labels[i]! })) });
-  expect(ceoSplitCandidate(relabeled(['Include in this quarter (recommended)', 'Defer with flip trigger', 'Cut entirely', 'Hold, stop and discuss']))).toBe('E1');
+  expect(ceoSplitCandidate(relabeled(["Include in this quarter's scope (recommended)", 'Defer with flip trigger', 'Cut entirely', 'Hold — discuss']))).toBe('E1');
   expect(ceoSplitCandidate(relabeled(['Ship now', 'Defer', 'Cut', 'Hold']))).toBeNull();
   expect(ceoSplitCandidate(relabeled(['Include', 'Included elsewhere', 'Cut', 'Hold']))).toBeNull();
 });

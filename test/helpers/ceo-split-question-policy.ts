@@ -24,24 +24,24 @@ export function ceoSplitOptionAction(label: string): 'include' | 'defer' | 'cut'
 
 /** Candidate-shaped menus for live progress only. Final coverage, subject and
  * independence are established by evaluatePlanReviewDecisions over every call.
- * Identity comes from the native header. The question opens with that
- * candidate's ledger reference (E1 or a row ID ending in it, optionally joined to
- * its platform as in "E1 Slack:" or "E1-SLACK:"), names only that candidate, and
- * offers exactly one include, defer and cut disposition. */
+ * The skill fixes no header or question wording, so identity is the one ledger
+ * token E1-E5 across the header and the question's first line (SCOPE-E1,
+ * E1-SLACK and "E1 Slack" all count). Neither may name another candidate's
+ * platform; a misspelled own platform is harmless because the E-id carries the
+ * identity. The menu offers exactly one include, defer and cut disposition. */
 export function ceoSplitCandidate(question: NativeQuestion): string | null {
-  const header = /^E([1-5])\s+(.+)$/.exec(question.header.trim());
-  if (!header || question.multiSelect || question.options.length < 3 || question.options.length > 4) return null;
-  const index = Number(header[1]) - 1;
-  const lead = question.question.split(/\r?\n/, 1)[0]!
-    .replace(/^D[1-9]\d*(?:\.[1-9]\d*)?\s*[—–:-]\s*/, '');
-  const names = (platform: string) => new RegExp(`\\b${platform}\\b`, 'i').test(lead);
-  if (!new RegExp(`^${platforms[index]}$`, 'i').test(header[2]!) ||
-      !new RegExp(`^\\S*\\bE${header[1]}(?:[-\\s]+${platforms[index]})?[):]\\s+.+\\?$`, 'i').test(lead) || !names(platforms[index]!) ||
-      platforms.some((platform, i) => i !== index && names(platform)) ||
-      [...lead.matchAll(/\bE([1-9]\d*)\b/g)].some(match => match[1] !== header[1])) return null;
+  if (question.multiSelect || question.options.length < 3 || question.options.length > 4) return null;
+  const header = question.header.trim();
+  const lead = question.question.split(/\r?\n/, 1)[0]!;
+  const ids = new Set([...`${header}\n${lead}`.matchAll(/\bE([1-9]\d*)\b/g)].map(match => Number(match[1])));
+  if (ids.size !== 1) return null;
+  const [id] = ids as Set<number>;
+  if (id! < 1 || id! > platforms.length) return null;
+  const names = (text: string, platform: string) => new RegExp(`\\b${platform}\\b`, 'i').test(text);
+  if (platforms.some((platform, i) => i !== id! - 1 && (names(header, platform) || names(lead, platform)))) return null;
   const actions = question.options.map(option => ceoSplitOptionAction(option.label));
   return ['include', 'defer', 'cut'].every(action => actions.filter(found => found === action).length === 1)
-    ? `E${header[1]}` : null;
+    ? `E${id}` : null;
 }
 
 export function isCeoSplitCandidateCall(fp: AskUserQuestionFingerprint): boolean {
