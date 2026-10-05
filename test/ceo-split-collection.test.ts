@@ -8,6 +8,7 @@ import type { NativePlanQuestionCall, PlanCountTranscript } from './helpers/plan
 import { ceoSplitCandidate, ceoSplitDecisionFingerprints, isCeoSplitCandidateCall, isCeoSplitCollectionComplete } from './helpers/ceo-split-question-policy';
 import captured from './fixtures/ceo-split-collection-0bcd.json';
 import rowIds from './fixtures/ceo-split-collection-3638.json';
+import variants from './fixtures/ceo-split-wording-variants.json';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 function original() {
@@ -263,3 +264,26 @@ await import(${JSON.stringify(path.join(ROOT, 'test/skill-e2e-plan-ceo-split-ove
     } finally { fs.rmSync(temp, { recursive: true, force: true }); }
   }, 20_000,
 );
+
+test.each(variants.runs.map(run => [run.source, run]))('captured candidate wording completes collection: %s', (_source, run) => {
+  const calls = structuredClone(run.calls) as unknown as NativePlanQuestionCall[];
+  expect(run.originalOutcome).not.toBe('collection_complete');
+  expect(calls.map(call => ceoSplitCandidate(call.questions[0] as NativeQuestion))).toEqual(['E1', 'E2', 'E3', 'E4', 'E5']);
+  const state = fromCalls(calls);
+  expect(state.fingerprints.map(isCeoSplitCandidateCall)).toEqual([true, true, true, true, true]);
+  expect(isCeoSplitCollectionComplete(state.transcript, state.fingerprints)).toBe(true);
+  expect(isCeoSplitCollectionComplete(fromCalls(calls.slice(0, 4)).transcript, fromCalls(calls.slice(0, 4)).fingerprints)).toBe(false);
+});
+
+test('wording variants stay bound to one candidate and its scope buckets', () => {
+  const base = structuredClone(variants.runs.find(run => run.source.startsWith('ci-'))!.calls[0]!.questions[0]!) as unknown as NativeQuestion;
+  const lead = (question: NativeQuestion, text: string) => ({ ...question, question: question.question.replace(/^[^\n]*/, text) });
+  for (const text of ['D1.1 — E1: Ship the Slack DM bot?', 'D1.1 — E1) Ship the Slack DM bot?',
+    'D1.1 — E1 Slack: ship the Slack DM bot?', 'D1.1 — E1-SLACK: Ship the Slack DM bot?']) expect(ceoSplitCandidate(lead(base, text))).toBe('E1');
+  for (const text of ['D1.1 — E1-DISCORD: Ship the Slack DM bot?', 'D1.1 — E1 Slack: ship Slack before Discord?',
+    'D1.1 — E1-SLACK: ship Slack with E2?', 'D1.1 — E2: Ship the Slack DM bot?']) expect(ceoSplitCandidate(lead(base, text))).toBeNull();
+  const relabeled = (labels: string[]) => ({ ...base, options: base.options.map((option, i) => ({ ...option, label: labels[i]! })) });
+  expect(ceoSplitCandidate(relabeled(['Include in this quarter (recommended)', 'Defer with flip trigger', 'Cut entirely', 'Hold, stop and discuss']))).toBe('E1');
+  expect(ceoSplitCandidate(relabeled(['Ship now', 'Defer', 'Cut', 'Hold']))).toBeNull();
+  expect(ceoSplitCandidate(relabeled(['Include', 'Included elsewhere', 'Cut', 'Hold']))).toBeNull();
+});
