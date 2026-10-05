@@ -684,6 +684,25 @@ types into that element; bare `browse type <text>` types into whatever has focus
 
 **Windows users:** gstack works on Windows 11 via Git Bash or WSL. Aside is macOS-only, so on Windows (and Linux) the browser skills, `/make-pdf`, and `/diagram` always use gstack's bundled browser. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH. Native `/cso` additionally requires Windows PowerShell and Visual Studio 2022 Build Tools with the Desktop development with C++ workload; setup leaves that skill explicitly unavailable when they are absent.
 
+For **Copilot CLI in Windows PowerShell**, execute every complete `bash` fence in Git for Windows Bash, including preambles and later skill steps. Do not translate the commands into PowerShell. Never directly invoke extensionless gstack helpers with PowerShell's `&` operator or `Start-Process`; Windows can open a file picker instead. Use a verified explicit path to Git for Windows Bash, not bare `bash` or `bash.exe`, which may select WSL. If Bash is missing, report the error and stop the shell step. Do not change file associations. macOS and Linux keep their normal Bash execution.
+
+Keep helper calls unchanged inside Bash fences so their existing shebangs select the right interpreter. For separate PowerShell calls, explicitly invoke the native interpreter and arguments named by the shebang, such as Bun for Bun scripts or Python for Python scripts. Do not force non-Bash helpers through Bash.
+
+Paste the entire Bash fence body into this single-quoted PowerShell here-string. It preserves literal `$HOME` and `$(...)` for Bash. Keep the closing `'@` at column zero. If Git is installed elsewhere, replace `$bash` with its verified full path. The final line preserves Bash's exit code.
+
+```powershell
+$bash = 'C:\Program Files\Git\bin\bash.exe'
+if (-not (Test-Path -LiteralPath $bash -PathType Leaf)) {
+    throw 'Git for Windows Bash is missing. Install Git for Windows or set $bash to its verified full path.'
+}
+$script = @'
+printf '%s\n' "$HOME"
+'@
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$script.Replace("`r`n", "`n") | & $bash --noprofile --norc -s
+exit $LASTEXITCODE
+```
+
 On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file copies instead of symlinks because `ln -snf` produces frozen copies that don't refresh on `git pull`. **Re-run `cd ~/.claude/skills/gstack && ./setup` after every `git pull`** so your skill files match the repo. `setup` prints a one-line note reminding you. Unix and WSL keep symlinks and don't need the re-run.
 
 **Chromium install failed or hung during `./setup`?** The bundled browser is

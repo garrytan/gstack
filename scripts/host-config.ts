@@ -99,6 +99,8 @@ export interface HostConfig {
   generation: {
     /** Whether to create a metadata file alongside skills (always openai.yaml; gen-skill-docs hardcodes the format). */
     generateMetadata: boolean;
+    /** Host-wide instructions prepended to every skill body, before executable fences. */
+    bodyPrefix?: string;
     /** Skill directories to exclude from generation for this host. */
     skipSkills?: string[];
     /** Skill directories to include (allowlist). Union logic: include minus skip. */

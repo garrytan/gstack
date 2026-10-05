@@ -26,6 +26,7 @@ import {
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { RESOLVERS } from '../scripts/resolvers';
+import { between, expectMentions, expectOrdered, expectTokens } from './helpers/prompt-structure';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
@@ -731,6 +732,73 @@ describe('Copilot host render (#393)', () => {
   });
   afterAll(() => fs.rmSync(OUT, { recursive: true, force: true }));
   const read = (skill: string) => fs.readFileSync(path.join(OUT, '.copilot', 'skills', skill, 'SKILL.md'), 'utf8');
+
+  test.each(['gstack-review', 'gstack-ship'])('%s gets shell instructions before the preamble', (skill) => {
+    const md = read(skill);
+    expectOrdered(md, ['## Shell execution', '```powershell', '## Preamble', '```bash', 'gstack-skill-start'], skill);
+  });
+
+  test.each(['gstack-careful', 'gstack-freeze', 'gstack-upgrade'])('%s gets shell instructions without a preamble', (skill) => {
+    const md = read(skill);
+    expect(md).not.toContain('## Preamble');
+    expectOrdered(md, ['## Shell execution', '```powershell', '```bash'], skill);
+  });
+
+  test('every Copilot skill gets the execution contract before any executable fence', () => {
+    const begin = '<!-- gstack:copilot-shell-execution:begin -->';
+    const end = '<!-- gstack:copilot-shell-execution:end -->';
+    const block = between(read('gstack-review'), begin, end);
+    const skills = fs.readdirSync(path.join(OUT, '.copilot', 'skills'));
+    expect(skills).toContain('gstack');
+    for (const skill of skills) {
+      const md = read(skill);
+      expect(md.split(begin), skill).toHaveLength(2);
+      expect(md.split(end), skill).toHaveLength(2);
+      expect(md.match(/^## Shell execution$/gm), skill).toHaveLength(1);
+      expectOrdered(md, [begin, '## Shell execution', /^```(?:bash|sh|shell|powershell)\b/m, end], skill);
+      expect(between(md, begin, end), skill).toBe(block);
+    }
+    const rules = between(block, '## Shell execution', '```powershell');
+    expectMentions(rules, [
+      ['Windows', 'every', 'Bash', 'fence', 'later'],
+      ['complete', 'Bash', 'not', 'translat', 'PowerShell'],
+      ['Bash', 'unchanged', 'shebang', 'interpreter'],
+      ['separate', 'PowerShell', 'native', 'interpreter', 'arguments', 'shebang', 'Bun', 'Python'],
+      ['not', 'non-Bash', 'helpers', 'Bash'],
+      ['never', 'PowerShell', 'direct', 'Start-Process', 'extensionless'],
+      ['verified', 'Git for Windows', 'path', 'not', 'bare', 'WSL'],
+      ['missing', 'Bash', 'error', 'stop'],
+      ['not', 'file associations'],
+      ['macOS', 'Linux', 'unchanged'],
+      ['single-quoted', 'here-string', 'literal', '$'],
+      ['exit', '$LASTEXITCODE'],
+    ], 'Copilot shell execution');
+    const example = between(block, '```powershell\n', '\n```');
+    expectTokens(example, [
+      "'C:\\Program Files\\Git\\bin\\bash.exe'",
+      'Test-Path -LiteralPath $bash -PathType Leaf',
+      'throw ',
+      "@'\n",
+      "\n'@",
+      '$OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
+      '.Replace("`r`n", "`n")',
+      '| & $bash --noprofile --norc -s',
+      'exit $LASTEXITCODE',
+    ], 'Copilot PowerShell example');
+  });
+
+  test('README preserves interpreter dispatch and the rendered PowerShell execution example', () => {
+    const md = read('gstack-review');
+    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8').replace(/\r\n/g, '\n');
+    const windows = between(readme, 'For **Copilot CLI in Windows PowerShell**');
+    expectMentions(windows, [
+      ['Bash', 'unchanged', 'shebang', 'interpreter'],
+      ['separate', 'PowerShell', 'native', 'interpreter', 'arguments', 'shebang', 'Bun', 'Python'],
+      ['not', 'non-Bash', 'helpers', 'Bash'],
+    ], 'README interpreter dispatch');
+    expect(between(windows, '```powershell\n', '\n```'))
+      .toBe(between(md, '```powershell\n', '\n```'));
+  });
 
   test('paths name the Copilot install, never Claude or Codex', () => {
     for (const skill of ['gstack-review', 'gstack-ship', 'gstack-careful', 'gstack-upgrade']) {
