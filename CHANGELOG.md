@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.28.0] - 2026-10-05
+## [1.91.30.0] - 2026-10-05
 
 **A failed eval now says what happened, with the evidence and the next command.**
 **Bun is checked before anything installs, and make-pdf and /review work in Codex.**
@@ -11,7 +11,7 @@ This release follows up on the severe fix wave. Its eight census runs had 21 red
 
 Each row is a regression test on this release that fails on v1.91.19.0, or a measurement from the 2026-10-03/04 census artifacts named in the row.
 
-| Check | v1.91.19.0 | v1.91.28.0 |
+| Check | v1.91.19.0 | v1.91.30.0 |
 |---|---|---|
 | make-pdf blocks on Codex that use `$P` without finding it | 7 of 8 | 0 |
 | /review with a read-only `.git` (Codex's sandbox) | prints nothing, "Nothing to review" | reviews against the local base, says `stale at <rev>` |
