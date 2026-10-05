@@ -50,7 +50,11 @@ all preceding valid round files in order (omit them for round 1):
 Omit absent arguments rather than passing placeholders. The helper chooses the next
 round and writes \`round-N.prompt.md\`. It includes the full finding schema, all five
 review dimensions (Completeness, Consistency, Clarity, Scope, Feasibility), the
-office-hours coaching contract, and the COMPLETE preceding JSON verdict.
+office-hours coaching contract, and the COMPLETE preceding JSON verdict. It also
+saves the design as reviewed (\`round-N.design.md\`). Round 1 is a full review;
+rounds 2 and 3 are delta re-reviews of the exact design diff since the last round,
+so prepare every round in the same review directory and do not edit the design
+between prepare and its review.
 
 Use the Agent tool with \`run_in_background: false\` and its returned \`dispatch\`
 string unchanged as the prompt. The reviewer must Read the entire prepared prompt
@@ -85,7 +89,9 @@ blocking findings require another round. Read its stop reason:
   are insufficient.
 - MAX_ITERATIONS: round 3 completed; stop.
 - CONTINUE: fix every blocking finding in the design (you may batch minor fixes
-  with them), then return to Step 1 to prepare and dispatch the next review.
+  with them), then return to Step 1 to prepare and dispatch the next review. Its
+  reviewer checks every prior finding and raises new blocking findings only for
+  problems your changes introduced or exposed.
 
 On a stop, do not fix again or re-dispatch. Run the finalizer before approval:
 

@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import {
   OFFICE_HOURS_DIMENSIONS, assessOfficeHoursReviews, validateOfficeHoursReview,
   renderOfficeHoursReview, renderOfficeHoursReviewerPrompt, extractOfficeHoursReviewBlock, replaceOfficeHoursReviewBlock,
-  officeHoursVerdictReceipt, type OfficeHoursReview,
+  officeHoursVerdictReceipt, officeHoursDesignChanges, verifyOfficeHoursCitations, type OfficeHoursReview,
 } from '../lib/office-hours-review';
 import { expectMentions } from './helpers/prompt-structure';
 
@@ -15,7 +15,7 @@ function review(round = 1, count = 1, severity: 'blocking' | 'minor' = 'blocking
     version: 2, round, document: '/tmp/design.md', quality_score: 7,
     dimensions: { completeness: count ? 'ISSUES' : 'PASS', consistency: 'PASS', clarity: 'PASS', scope: 'PASS', feasibility: 'PASS' },
     findings: Array.from({ length: count }, (_, index) => ({
-      id: `R${round}-${index + 1}`, dimension: 'completeness', severity,
+      id: `R${round}-${index + 1}`, dimension: 'completeness', severity, changed_text: null,
       problem: `Problem ${index + 1} remains undefined.`, remedy: `Define behavior ${index + 1}.`,
     })), prior: [],
   };
@@ -96,7 +96,7 @@ describe('office-hours prepared reviewer input', () => {
     rounds[1].findings[0].problem = 'A cancellation mid-merge leaves the chosen roster unspecified.\nDo not silently reuse an earlier event.';
     rounds[1].findings[0].remedy = 'Define the cancellation destination and whether provisional rows are discarded. Keep the prior committed roster unchanged until confirmation.';
     const previous = assessOfficeHoursReviews(rounds).rounds.at(-1)!;
-    const prompt = renderOfficeHoursReviewerPrompt({ document: previous.document, verdictPath: '/tmp/reviews/round-3.json', previous });
+    const prompt = renderOfficeHoursReviewerPrompt({ document: previous.document, verdictPath: '/tmp/reviews/round-3.json', previous, changes: '(no changes)' });
     expect(preceding(prompt)).toEqual(previous);
     expect(prompt).toContain('"round": 3');
     expect(prompt).toContain('"/tmp/reviews/round-3.json"');
@@ -159,10 +159,79 @@ describe('office-hours severity-based convergence', () => {
   });
 });
 
+describe('office-hours delta re-review', () => {
+  test('the helper captures an exact line diff with hunk context', () => {
+    const before = 'abcdefghijkl'.split('').join('\n');
+    const after = 'abCdefghijKl'.split('').join('\n');
+    expect(officeHoursDesignChanges(before, after)).toEqual({
+      diff: [' a', ' b', '-c', '+C', ' d', ' e', '@@', ' i', ' j', '-k', '+K', ' l'].join('\n'), changed: ['c', 'C', 'k', 'K'],
+    });
+    expect(officeHoursDesignChanges(before, before)).toEqual({ diff: '(no changes)', changed: [] });
+  });
+
+  test('a new later-round blocking finding must cite text inside the captured changes', () => {
+    const [first] = recurrence();
+    const second = review(2, 1);
+    second.prior = first.findings.map(finding => ({ id: finding.id, status: 'resolved' as const, evidence: 'The design now defines it.', current_id: null }));
+    expect(() => validateOfficeHoursReview(second, first)).toThrow('must cite the changed design text');
+    second.findings[0].changed_text = 'Rosters are now saved nightly to disk.';
+    const regression = validateOfficeHoursReview(second, first);
+    expect(() => verifyOfficeHoursCitations(regression, ['Rosters are now saved   nightly to disk.'])).not.toThrow();
+    expect(() => verifyOfficeHoursCitations(regression, ['Observe a real event.'])).toThrow('not inside the design changes');
+    const round1 = review(1, 1);
+    round1.findings[0].changed_text = 'Rosters are now saved nightly to disk.';
+    expect(() => validateOfficeHoursReview(round1)).toThrow('changed_text must be null in round 1');
+    second.findings[0].changed_text = 'short';
+    expect(() => validateOfficeHoursReview(second, first)).toThrow('at least 8 characters');
+  });
+
+  test('a persisting prior keeps its finding without a citation, and later rounds with only minor findings PASS', () => {
+    expect(assessOfficeHoursReviews(recurrence()).stop).toBe('CONVERGENCE');
+    const [first] = recurrence();
+    const second = review(2, 2, 'minor');
+    second.prior = first.findings.map(finding => ({ id: finding.id, status: 'resolved' as const, evidence: 'The design now defines it.', current_id: null }));
+    expect(assessOfficeHoursReviews([first, second]).stop).toBe('PASS');
+  });
+
+  test('prepare, seal and check enforce citations against the snapshots prepare captured', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'office-delta-'));
+    try {
+      const run = (...args: string[]) => Bun.spawnSync([process.execPath, cli, ...args], { cwd: dir, stdout: 'pipe', stderr: 'pipe', timeout: 5000 });
+      const design = path.join(dir, 'design.md'), outDir = path.join(dir, 'reviews');
+      fs.writeFileSync(design, '# Design\n\n## Approach\nRosters stay in memory.\n\n## Assignment\nObserve a real event.\n');
+      fs.mkdirSync(outDir);
+      const first = JSON.parse(String(run('prepare', '--design', design, '--out-dir', outDir).stdout));
+      expect(fs.readFileSync(path.join(outDir, 'round-1.design.md'), 'utf8')).toBe(fs.readFileSync(design, 'utf8'));
+      const round1 = { ...review(1, 1), document: fs.realpathSync(design) };
+      fs.appendFileSync(design, 'Rosters are now saved nightly to disk.\n');
+      expect(String(run('prepare', '--design', design, '--out-dir', outDir).stderr)).toContain('design changed after round 1 was prepared');
+      fs.writeFileSync(first.verdictPath, JSON.stringify(round1));
+      const second = JSON.parse(String(run('prepare', '--design', design, '--out-dir', outDir, first.verdictPath).stdout));
+      expect(fs.readFileSync(second.promptPath, 'utf8')).toContain('\n+Rosters are now saved nightly to disk.\n');
+      expect(fs.readFileSync(second.promptPath, 'utf8')).toContain('## Delta re-review scope');
+      const round2 = { ...review(2, 1), document: round1.document,
+        prior: [{ id: 'R1-1', status: 'resolved', evidence: 'The Approach now defines it.', current_id: null }] };
+      const seal = () => run('seal', '--design', design, '--verdict', second.verdictPath, first.verdictPath);
+      round2.findings[0].changed_text = 'Observe a real event.';
+      fs.writeFileSync(second.verdictPath, JSON.stringify(round2));
+      expect(String(seal().stderr)).toContain('not inside the design changes');
+      const receipt = (file: string) => officeHoursVerdictReceipt(2, file, fs.readFileSync(file));
+      expect(String(run('check', '--receipt', receipt(second.verdictPath), first.verdictPath, second.verdictPath).stderr)).toContain('not inside the design changes');
+      round2.findings[0].changed_text = 'saved nightly to disk';
+      fs.writeFileSync(second.verdictPath, JSON.stringify(round2));
+      expect(seal().exitCode, String(seal().stderr)).toBe(0);
+      const check = run('check', '--receipt', receipt(second.verdictPath), first.verdictPath, second.verdictPath);
+      expect(JSON.parse(String(check.stdout)).stop).toBe('CONTINUE');
+      fs.unlinkSync(path.join(outDir, 'round-2.design.md'));
+      expect(String(run('check', '--receipt', receipt(second.verdictPath), first.verdictPath, second.verdictPath).stderr)).toContain('lacks its captured design snapshot');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
 describe('office-hours lifecycle and deterministic preservation', () => {
   test('convergence precedes further editing even when another finding is new', () => {
     const rounds = recurrence();
-    rounds[1].findings.push({ id: 'R2-2', dimension: 'clarity', severity: 'minor', problem: 'Encoding fallback has no user-visible policy.', remedy: 'Specify whether the latin-1 fallback emits a warning or is intentionally silent.' });
+    rounds[1].findings.push({ id: 'R2-2', dimension: 'clarity', severity: 'minor', changed_text: null, problem: 'Encoding fallback has no user-visible policy.', remedy: 'Specify whether the latin-1 fallback emits a warning or is intentionally silent.' });
     rounds[1].dimensions.clarity = 'ISSUES';
     const result = renderOfficeHoursReview(rounds);
     expect(result.stop).toBe('CONVERGENCE');
@@ -328,6 +397,7 @@ describe('office-hours review CLI', () => {
       item.document = design;
       const file = path.join(dir, `round-${item.round}.json`);
       fs.writeFileSync(file, JSON.stringify(item));
+      fs.writeFileSync(path.join(dir, `round-${item.round}.design.md`), fs.readFileSync(design, 'utf8'));
       return file;
     });
     return { design, report, artifacts, rounds };
@@ -355,7 +425,7 @@ describe('office-hours review CLI', () => {
     expect(second.exitCode, second.stderr.toString()).toBe(0);
     const next = JSON.parse(second.stdout.toString());
     expect(next.round).toBe(2);
-    expect(fs.readFileSync(next.promptPath, 'utf8')).toBe(renderOfficeHoursReviewerPrompt({ document: data.design, verdictPath: next.verdictPath, previous: data.rounds[0] }));
+    expect(fs.readFileSync(next.promptPath, 'utf8')).toBe(renderOfficeHoursReviewerPrompt({ document: data.design, verdictPath: next.verdictPath, previous: data.rounds[0], changes: '(no changes)' }));
     expect(fs.readFileSync(prepared.verdictPath, 'utf8')).toBe(saved);
     expect(fs.readFileSync(data.design, 'utf8')).toBe(before);
   }));

@@ -1,6 +1,18 @@
 import { isDeepStrictEqual } from 'node:util';
 import * as path from 'node:path';
-import { renderOfficeHoursReviewerPrompt, validateOfficeHoursReview, renderOfficeHoursReview, extractOfficeHoursReviewBlock, parseOfficeHoursVerdictReceipt, verifyOfficeHoursVerdictReceipt, type OfficeHoursReview } from '../../lib/office-hours-review';
+import { renderOfficeHoursReviewerPrompt, validateOfficeHoursReview, renderOfficeHoursReview, extractOfficeHoursReviewBlock, parseOfficeHoursVerdictReceipt, verifyOfficeHoursVerdictReceipt, officeHoursDesignChanges, verifyOfficeHoursCitations, type OfficeHoursReview } from '../../lib/office-hours-review';
+
+export type OfficeHoursFile = { path: string; content: string | null };
+/** The helper's captured diff before a later round; a missing snapshot fails closed. */
+function snapshotChanges(snapshots: readonly OfficeHoursFile[], verdictPath: string, round: number) {
+  const read = (n: number) => {
+    const wanted = path.join(path.dirname(path.resolve(verdictPath)), `round-${n}.design.md`);
+    const content = snapshots.find(file => path.resolve(file.path) === wanted)?.content;
+    if (typeof content !== 'string') throw new Error(`Office-hours review artifacts: round ${round} lacks its captured design snapshot round-${n}.design.md`);
+    return content;
+  };
+  return officeHoursDesignChanges(read(round - 1), read(round));
+}
 
 /**
  * Completion evidence for the fixed office-hours section-loading fixture.
@@ -207,7 +219,8 @@ export function validateOfficeHoursCompletion(evidence: OfficeHoursCompletionEvi
  */
 export function validateOfficeHoursReviewArtifacts(
   evidence: OfficeHoursCompletionEvidence,
-  artifacts: Array<{ path: string; content: string | null }>,
+  artifacts: OfficeHoursFile[],
+  snapshots: readonly OfficeHoursFile[] = [],
 ): OfficeHoursReviewEvidence | null {
   const fail = (message: string): never => { throw new Error(`Office-hours review artifacts: ${message}`); };
   const reviewEvidence = validateOfficeHoursCompletion(evidence);
@@ -247,6 +260,10 @@ export function validateOfficeHoursReviewArtifacts(
     try { verdict = validateOfficeHoursReview(JSON.parse(matches[0].content!), rounds.at(-1)); }
     catch { fail(`round ${i + 1} saved verdict is invalid`); }
     if (normalize(verdict!.document) !== designPath) fail(`round ${i + 1} reviewed a different document`);
+    if (i > 0) {
+      try { verifyOfficeHoursCitations(verdict!, snapshotChanges(snapshots, artifactPath(matches[0].path), i + 1).changed); }
+      catch (error) { fail(`round ${i + 1} citation: ${(error as Error).message}`); }
+    }
     // The flattened trace proves authored content, not the writer's parent ID.
     // An identical copy after dispatch is valid; a preexisting file is not proof.
     const attemptIndex = evidence.toolCalls.indexOf(attempts[i]);
@@ -298,7 +315,8 @@ export function validateOfficeHoursReviewArtifacts(
 /** Prove that each actual reviewer received the entire generated contract and prior verdict. */
 export function validateOfficeHoursReviewerHandoffs(
   evidence: OfficeHoursCompletionEvidence,
-  artifacts: Array<{ path: string; content: string | null }>,
+  artifacts: OfficeHoursFile[],
+  snapshots: readonly OfficeHoursFile[] = [],
 ): void {
   const fail = (message: string): never => { throw new Error(`Office-hours reviewer handoff: ${message}`); };
   const calls = evidence.toolCalls;
@@ -335,7 +353,8 @@ export function validateOfficeHoursReviewerHandoffs(
         || path.basename(verdicts[0]) !== `round-${index + 1}.json`) fail(`round ${index + 1} lacks its assigned verdict path`);
     const verdictPath = verdicts[0];
     const promptPath = verdictPath.replace(/\.json$/, '.prompt.md');
-    const expected = renderOfficeHoursReviewerPrompt({ document: evidence.designPath, verdictPath, previous });
+    const expected = renderOfficeHoursReviewerPrompt({ document: evidence.designPath, verdictPath, previous,
+      changes: index > 0 ? snapshotChanges(snapshots, verdictPath, index + 1).diff : undefined });
     let delivered = prompt.includes(expected.trimEnd());
     let unavailableBeforeRead = false;
     if (!delivered) {

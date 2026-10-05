@@ -11,6 +11,7 @@ export interface OfficeHoursFinding {
   id: string;
   dimension: OfficeHoursDimension;
   severity: OfficeHoursSeverity;
+  changed_text: string | null;
   problem: string;
   remedy: string;
 }
@@ -66,7 +67,7 @@ export function validateOfficeHoursReview(value: unknown, previous?: OfficeHours
   if (!Array.isArray(review.findings) || !Array.isArray(review.prior)) fail('findings and prior must be arrays');
   const ids = new Set<string>();
   for (const raw of review.findings) {
-    const finding = object(raw, ['id', 'dimension', 'severity', 'problem', 'remedy'], 'finding');
+    const finding = object(raw, ['id', 'dimension', 'severity', 'changed_text', 'problem', 'remedy'], 'finding');
     if (typeof finding.id !== 'string' || !new RegExp(`^R${review.round}-[1-9][0-9]*$`).test(finding.id)
         || ids.has(finding.id)) fail('finding ids must be unique R<round>-<positive integer> identifiers');
     ids.add(finding.id);
@@ -74,6 +75,8 @@ export function validateOfficeHoursReview(value: unknown, previous?: OfficeHours
     if (!OFFICE_HOURS_SEVERITIES.includes(finding.severity)) fail(`${finding.id} severity must be blocking or minor`);
     nonempty(finding.problem, `${finding.id} problem`);
     nonempty(finding.remedy, `${finding.id} remedy`);
+    if (finding.changed_text !== null && (review.round === 1 || typeof finding.changed_text !== 'string'
+        || finding.changed_text.replace(/\s/g, '').length < 8)) fail(`${finding.id} changed_text must be null in round 1, else null or an excerpt of at least 8 characters`);
   }
   for (const dimension of OFFICE_HOURS_DIMENSIONS) {
     const expected = review.findings.some((finding: OfficeHoursFinding) => finding.dimension === dimension) ? 'ISSUES' : 'PASS';
@@ -101,6 +104,11 @@ export function validateOfficeHoursReview(value: unknown, previous?: OfficeHours
     }
   }
   if (covered.size !== previousIds.size) fail('prior must cover each preceding finding exactly once');
+  for (const finding of review.findings as OfficeHoursFinding[]) {
+    if (review.round > 1 && finding.severity === 'blocking' && !currentLinks.has(finding.id) && finding.changed_text === null) {
+      fail(`new blocking ${finding.id} must cite the changed design text that introduced or exposed it`);
+    }
+  }
   return review as OfficeHoursReview;
 }
 
@@ -137,12 +145,49 @@ export function assessOfficeHoursReviews(values: readonly unknown[]): {
   }
   return { rounds, stop: stopFor(rounds.at(-1)!), metrics: metricsFor(rounds) };
 }
+const flat = (text: string) => text.replace(/\s+/g, ' ').trim();
+/** The exact line diff between two reviewed design versions, with 2 lines of context per hunk. */
+export function officeHoursDesignChanges(before: string, after: string): { diff: string; changed: string[] } {
+  const a = before.split('\n'), b = after.split('\n');
+  const lcs = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) {
+    lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  }
+  const lines: Array<{ mark: ' ' | '-' | '+'; text: string }> = [];
+  for (let i = 0, j = 0; i < a.length || j < b.length;) {
+    if (i < a.length && j < b.length && a[i] === b[j]) { lines.push({ mark: ' ', text: a[i++] }); j++; }
+    else if (i < a.length && (j === b.length || lcs[i + 1][j] >= lcs[i][j + 1])) lines.push({ mark: '-', text: a[i++] });
+    else lines.push({ mark: '+', text: b[j++] });
+  }
+  const near = lines.map((_, n) => lines.slice(Math.max(0, n - 2), n + 3).some(line => line.mark !== ' '));
+  const diff = lines.map((line, n) => near[n] ? `${line.mark}${line.text}` : near[n - 1] ? '@@' : null)
+    .filter((line): line is string => line !== null).join('\n').replace(/^@@\n?|\n@@$/g, '');
+  return { diff: diff || '(no changes)', changed: lines.filter(line => line.mark !== ' ' && flat(line.text)).map(line => line.text) };
+}
+/** Fail closed unless each cited excerpt lies within one changed (+/-) line. */
+export function verifyOfficeHoursCitations(review: OfficeHoursReview, changed: readonly string[]): void {
+  for (const finding of review.findings) {
+    if (finding.changed_text !== null && !changed.some(line => flat(line).includes(flat(finding.changed_text!)))) {
+      fail(`${finding.id} changed_text is not inside the design changes before round ${review.round}`);
+    }
+  }
+}
+/** Rounds 2+ need the design snapshots prepare captured beside each verdict. */
+export function officeHoursSnapshotChanges(verdictPath: string, round: number): { diff: string; changed: string[] } {
+  const snapshot = (n: number) => {
+    try { return fs.readFileSync(path.join(path.dirname(verdictPath), `round-${n}.design.md`), 'utf8'); }
+    catch { return fail(`round ${round} lacks its captured design snapshot round-${n}.design.md`); }
+  };
+  return officeHoursDesignChanges(snapshot(round - 1), snapshot(round));
+}
 export function loadOfficeHoursReviews(paths: readonly string[]): OfficeHoursReview[] {
   const values = paths.map(file => {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
     catch (cause) { throw new Error(`Office-hours review: cannot read artifact ${file}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause }); }
   });
-  return values.length ? assessOfficeHoursReviews(values).rounds : [];
+  const rounds = values.length ? assessOfficeHoursReviews(values).rounds : [];
+  for (const review of rounds.slice(1)) verifyOfficeHoursCitations(review, officeHoursSnapshotChanges(paths[review.round - 1], review.round).changed);
+  return rounds;
 }
 
 export interface OfficeHoursVerdictReceipt { round: number; sha256: string; path: string }
@@ -167,8 +212,8 @@ export function verifyOfficeHoursVerdictReceipt(response: string, { round, verdi
 }
 
 /** The caller validates the complete history before supplying its last verdict. */
-export function renderOfficeHoursReviewerPrompt({ document, verdictPath, previous }: {
-  document: string; verdictPath: string; previous?: OfficeHoursReview;
+export function renderOfficeHoursReviewerPrompt({ document, verdictPath, previous, changes }: {
+  document: string; verdictPath: string; previous?: OfficeHoursReview; changes?: string;
 }): string {
   for (const [label, value] of [['document', document], ['verdictPath', verdictPath]]) {
     nonempty(value, label);
@@ -177,11 +222,14 @@ export function renderOfficeHoursReviewerPrompt({ document, verdictPath, previou
   }
   if (previous && path.resolve(previous.document) !== path.resolve(document)) fail('review prompt targets a different document');
   if (previous && stopFor(previous) !== 'CONTINUE') fail('cannot prepare another round after a terminal review');
+  if ((previous === undefined) !== (changes === undefined)) fail('later rounds, and only later rounds, need the captured design changes');
   const round = (previous?.round ?? 0) + 1;
+  const fence = '`'.repeat(Math.max(3, ...[...(changes ?? '').matchAll(/`+/g)].map(run => run[0].length + 1)));
   const example = {
     version: 2, round, document, quality_score: 7,
     dimensions: { completeness: 'PASS', consistency: 'PASS', clarity: 'ISSUES', scope: 'PASS', feasibility: 'PASS' },
-    findings: [{ id: `R${round}-1`, dimension: 'clarity', severity: 'blocking', problem: "The fallback's user-visible behavior is unspecified.",
+    findings: [{ id: `R${round}-1`, dimension: 'clarity', severity: 'blocking',
+      changed_text: previous ? 'Excerpt of a changed (+/-) line that shows the defect' : null, problem: "The fallback's user-visible behavior is unspecified.",
       remedy: 'Choose and document whether the fallback warns the user or is intentionally silent.' }],
     prior: [],
   };
@@ -190,7 +238,9 @@ export function renderOfficeHoursReviewerPrompt({ document, verdictPath, previou
 Document: ${document}
 Verdict: ${verdictPath}
 
-Use only Read, Write, and the one Bash seal command for this review. Read the design at ${JSON.stringify(document)} with Read and review all 5 dimensions independently, including new defects. Do not use Edit, and do not change the design.
+Use only Read, Write, and the one Bash seal command for this review. Read the design at ${JSON.stringify(document)} with Read and ${previous
+    ? `perform a delta re-review against the preceding verdict and the exact design changes captured below.`
+    : 'review all 5 dimensions independently, including new defects.'} Do not use Edit, and do not change the design.
 Use Write to save your complete verdict as JSON to ${JSON.stringify(verdictPath)}. Then run the \`Seal:\` command from your dispatch message with Bash, exactly as given; it validates the saved file and prints one receipt line. If it reports an error, correct the saved JSON with Write and run the same command again. Use Bash for nothing else.
 Return only that printed \`OFFICE_HOURS_VERDICT round=${round} sha256=<hash> path=<verdict path>\` line, unchanged, as your entire response: no JSON, Markdown fences, or prose. The parent verifies the receipt against the saved bytes.
 The saved JSON is your sole findings inventory: include every unresolved problem and necessary remedy, including minor findings that a short conclusion might omit.
@@ -202,9 +252,22 @@ Give every finding a severity. Only blocking findings send the design back for a
 - **blocking**: a contradiction; a safety or correctness risk; an unsupported claim the recommendation depends on; missing behavior the committed approach needs; or a persisting blocking prior obligation. Example: the design promises the roster is never stored, yet its sync step saves it nightly.
 - **minor**: clarity, wording, or polish that does not change a decision or behavior. Example: the Recommended Approach repeats the problem statement's wording and could be shorter.
 When unsure whether a gap changes a decision or behavior, it is blocking.
+${previous ? `
+## Delta re-review scope
 
+This is round ${round}. Round 1 already reviewed the whole design. Raise a NEW blocking finding only when the changes since round ${round - 1} (a) introduced it, as a regression, or (b) exposed it in text that changed. Set its changed_text to a verbatim excerpt of at least 8 characters from one changed (+ or -) line of the diff below. Anything else you notice is minor and never forces another round; give it changed_text null unless it also concerns changed text.
+A persisting or unverified prior obligation keeps its current finding without a citation.
+
+The helper captured this exact line diff between the design reviewed in round ${round - 1} and the current design ("-" removed, "+" added, "@@" separates hunks):
+
+${fence}diff
+${changes}
+${fence}
+` : `
+Every round-1 finding has changed_text null.
+`}
 This is an /office-hours design and coaching document, produced before engineering planning. The startup-mode 'The Assignment' and both modes' 'What I noticed about how you think' sections are intentional: evaluate their evidence and usefulness; do not remove them merely because they are coaching content. Unknown customer facts may remain explicit Open Questions or assignments; do not invent answers.
-Still flag unsupported claims, contradictions, safety/correctness risks, and missing behavior needed by the approach the document actually commits to. Labeling a contradiction or a required behavior an open question does not resolve it.
+Still flag unsupported claims, contradictions, safety/correctness risks, and missing behavior needed by the approach the document actually commits to. Labeling a contradiction or a required behavior an open question does not resolve it.${previous ? ' In this delta round, such problems outside the changed text are minor.' : ''}
 
 On re-review, classify EVERY preceding finding as resolved, persisting, or unverified. Cite the specific document decision/behavior proving the status or the missing evidence. Absence from the new findings list is not confirmation.
 A new refinement of an accepted fix is new unless the same specific original obligation demonstrably remains unmet. For persisting/unverified issues, include that unmet obligation in the current findings and reference its current ID. Distinct prior obligations must retain distinct current findings.

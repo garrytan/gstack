@@ -2,7 +2,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { atomicWriteSync } from '../lib/fs-atomic.ts';
-import { assessOfficeHoursReviews, loadOfficeHoursReviews, officeHoursVerdictReceipt, parseOfficeHoursVerdictReceipt, renderOfficeHoursReview, renderOfficeHoursReviewerPrompt, replaceOfficeHoursReviewBlock, verifyOfficeHoursVerdictReceipt } from '../lib/office-hours-review.ts';
+import { assessOfficeHoursReviews, loadOfficeHoursReviews, officeHoursDesignChanges, officeHoursSnapshotChanges, officeHoursVerdictReceipt, parseOfficeHoursVerdictReceipt, renderOfficeHoursReview, renderOfficeHoursReviewerPrompt, replaceOfficeHoursReviewBlock, verifyOfficeHoursCitations, verifyOfficeHoursVerdictReceipt } from '../lib/office-hours-review.ts';
 
 const shellQuote = value => `'${value.replaceAll("'", `'\\''`)}'`;
 
@@ -45,6 +45,7 @@ function main(args) {
     catch (error) { throw new Error(`saved verdict is invalid JSON: ${error instanceof Error ? error.message : String(error)}`); }
     const review = assessOfficeHoursReviews([...rounds, value]).rounds.at(-1);
     if (path.resolve(review.document) !== designPath) throw new Error('verdict document does not match --design');
+    if (round > 1) verifyOfficeHoursCitations(review, officeHoursSnapshotChanges(verdictPath, round).changed);
     console.log(officeHoursVerdictReceipt(round, verdictPath, bytes));
     return;
   }
@@ -56,16 +57,28 @@ function main(args) {
     const round = rounds.length + 1;
     const promptPath = path.join(outDir, `round-${round}.prompt.md`);
     const verdictPath = path.join(outDir, `round-${round}.json`);
-    const prompt = renderOfficeHoursReviewerPrompt({ document: designPath, verdictPath, previous: rounds.at(-1) });
+    // Each round records the exact design it reviewed; later rounds see the diff since then.
+    const snapshotPath = path.join(outDir, `round-${round}.design.md`);
+    const design = fs.readFileSync(designPath, 'utf8');
+    let changes;
+    if (round > 1 && assessOfficeHoursReviews(rounds).stop !== 'CONTINUE') throw new Error('cannot prepare another round after a terminal review');
+    if (round > 1) {
+      const before = path.join(outDir, `round-${round - 1}.design.md`);
+      if (!fs.existsSync(before)) throw new Error(`out-dir lacks round-${round - 1}.design.md; prepare every round in the same review directory`);
+      changes = officeHoursDesignChanges(fs.readFileSync(before, 'utf8'), design).diff;
+    }
+    const prompt = renderOfficeHoursReviewerPrompt({ document: designPath, verdictPath, previous: rounds.at(-1), changes });
     const inputs = new Set([fs.realpathSync(designPath), ...files.map(file => fs.realpathSync(file))]);
-    for (const destination of [promptPath, verdictPath]) {
+    for (const destination of [promptPath, verdictPath, snapshotPath]) {
       if (fs.existsSync(destination) && inputs.has(fs.realpathSync(destination))) throw new Error('output destination overlaps input evidence');
     }
     if (fs.lstatSync(verdictPath, { throwIfNoEntry: false })) throw new Error('next verdict already exists; check it before preparing another attempt');
+    const captured = fs.lstatSync(snapshotPath, { throwIfNoEntry: false });
+    if (captured && (!captured.isFile() || fs.readFileSync(snapshotPath, 'utf8') !== design)) throw new Error(`the design changed after round ${round} was prepared`);
     const existing = fs.lstatSync(promptPath, { throwIfNoEntry: false });
-    if (existing) {
-      if (!existing.isFile() || fs.readFileSync(promptPath, 'utf8') !== prompt) throw new Error('existing review prompt differs from the complete saved evidence');
-    } else atomicWriteSync(promptPath, prompt, { mode: 0o600 });
+    if (existing && (!existing.isFile() || fs.readFileSync(promptPath, 'utf8') !== prompt)) throw new Error('existing review prompt differs from the complete saved evidence');
+    if (!captured) atomicWriteSync(snapshotPath, design, { mode: 0o600 });
+    if (!existing) atomicWriteSync(promptPath, prompt, { mode: 0o600 });
     const seal = [shellQuote(fs.realpathSync(process.argv[1])), 'seal --design', shellQuote(designPath), '--verdict', shellQuote(verdictPath), ...files.map(file => shellQuote(fs.realpathSync(file)))].join(' ');
     const dispatch = `Read ${JSON.stringify(promptPath)} and execute the independent spec review as instructed.\nDocument: ${designPath}\nPrompt: ${promptPath}\nVerdict: ${verdictPath}\nSeal: ${seal}`;
     console.log(JSON.stringify({ round, promptPath, verdictPath, dispatch }));

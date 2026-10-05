@@ -75,14 +75,17 @@ Completion delivery, after the full workflow and design approval:
     const artifacts = artifactPaths.map(artifactPath => ({ path: artifactPath,
       content: fs.existsSync(artifactPath) ? fs.readFileSync(artifactPath, 'utf-8') : null,
     }));
+    const snapshots = [...new Set(artifactPaths.map(artifactPath => path.dirname(artifactPath)))].filter(dir => fs.existsSync(dir)).flatMap(dir =>
+      fs.readdirSync(dir).filter(name => /^round-[123]\.design\.md$/.test(name))
+        .map(name => ({ path: path.join(dir, name), content: fs.readFileSync(path.join(dir, name), 'utf-8') })));
     const reviewEvidence = validateOfficeHoursReviewArtifacts({
       ...capture, designPath,
       designContent: fs.existsSync(designPath) ? fs.readFileSync(designPath, 'utf-8') : null,
-    }, artifacts);
+    }, artifacts, snapshots);
     validateOfficeHoursReviewerHandoffs({
       ...capture, designPath,
       designContent: fs.existsSync(designPath) ? fs.readFileSync(designPath, 'utf-8') : null,
-    }, artifacts);
+    }, artifacts, snapshots);
     const missing = guard.requiredReads.filter(section => !capture.readSections.has(section));
     expect({ reportProduced: capture.reportProduced, read: [...capture.readSections], missing }).toEqual({
       reportProduced: true, read: expect.any(Array), missing: [],
