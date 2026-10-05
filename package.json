@@ -91,9 +91,9 @@
     "devtools"
   ],
   "devDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.2.117",
-    "@anthropic-ai/sdk": "^0.78.0",
-    "@types/bun": "1.4.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.288",
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@types/bun": "1.4.2",
     "prettier": "3.9.9",
     "typescript": "7.0.2",
     "xterm": "^5.3.0",
