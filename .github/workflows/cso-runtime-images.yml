@@ -209,8 +209,9 @@ jobs:
           CSO_IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
         run: |
           set -eu
-          docker buildx imagetools inspect "$CSO_IMAGE" --format '{{ json .SBOM.SPDX }}' > sbom.spdx.json
-          jq -e '.spdxVersion == "SPDX-2.3" and (.packages | type == "array")' sbom.spdx.json
+          docker buildx imagetools inspect "$CSO_IMAGE" --format '{{ json .SBOM.SPDX }}' > sbom.full.spdx.json
+          jq -c -f scripts/cso-sbom-packages.jq sbom.full.spdx.json > sbom.spdx.json
+          jq -e -f scripts/cso-sbom-packages-check.jq sbom.spdx.json >/dev/null
       - name: Sign build provenance
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:

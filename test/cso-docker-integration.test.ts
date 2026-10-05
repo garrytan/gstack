@@ -65,8 +65,13 @@ suite('CSO Docker containment integration',()=>{
     fs.writeFileSync(negativePath, JSON.stringify({...policy, legitimate: [{...policy.legitimate[0], expected: {status: 201, includes: 'CONTROL_OK'}}]}), {mode: 0o600});
     const group = await DockerGroup.create(endpoint, `staged-${Date.now()}`, dir, Date.now() + 90_000, staged, watchdog);
     try {
+      const verifier = await group.createContainer({
+        role: 'verifier', image: staged, command: ['/bin/sleep', '2147483647'],
+        readonlyFiles: [{host: positivePath, container: '/policy/positive.json'}, {host: negativePath, container: '/policy/broken-control.json'}],
+      });
+      await group.start(verifier);
       for (const [tool, version] of Object.entries(versions)) {
-        const result = await group.execAttach(group.anchor, stack[tool]);
+        const result = await group.execAttach(verifier, stack[tool]);
         expect(result.code).toBe(0);
         const expected = `${prefixes[tool]}${version}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         expect(result.output.trim()).toMatch(new RegExp(`^${expected}(?:$|\\s)`));
@@ -80,11 +85,6 @@ suite('CSO Docker containment integration',()=>{
       }
       const server = await group.createContainer({role: 'app', image, command: ['/http-server']});
       await group.start(server);
-      const verifier = await group.createContainer({
-        role: 'verifier', image: staged, command: ['/bin/sleep', '2147483647'],
-        readonlyFiles: [{host: positivePath, container: '/policy/positive.json'}, {host: negativePath, container: '/policy/broken-control.json'}],
-      });
-      await group.start(verifier);
       const positive = await group.execAttach(verifier, ['/opt/cso/verifier', '/policy/positive.json']);
       expect(positive.code).toBe(0);
       expect(JSON.parse(positive.output)).toMatchObject({booted: true, legitimate: true, security: 'pass'});
