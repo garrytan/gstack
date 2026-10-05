@@ -806,6 +806,8 @@ console.log("Ran 1 tests across 1 files. [1ms]"); process.exit(${fail ? 1 : 0});
     expect(caseSelection('review-coverage-audit')).toMatchObject({ file: 'test/skill-e2e-coverage-audit.test.ts', mode: 'name' });
     expect(caseSelection('plan-eng-multi-finding-batching').file).toBe('test/skill-e2e-plan-eng-multi-finding-batching.test.ts');
     expect(caseSelection('review-sql-injection')).toMatchObject({ file: 'test/skill-e2e-review.test.ts', mode: 'name' });
+    // A single-case file runs whole even when a session option carries the case id (testName: 'office-hours-section-loading').
+    expect(caseSelection('office-hours-section-loading')).toMatchObject({ file: 'test/skill-e2e-office-hours-section-loading.test.ts', mode: 'file' });
     // The report's after-a-repair command selects exactly one case: --case when it resolves, else that shard's file.
     expect(afterRepairCommand('gate', 'plan-mode-no-op', 'test/skill-e2e-plan-mode-no-op.test.ts')).toBe('bun run scripts/test-paid-shards.ts --tier gate --case plan-mode-no-op');
     expect(afterRepairCommand('periodic', 'carve-section-loading', 'test/carve-section-loading-qa.test.ts')).toBe('EVALS=1 EVALS_TIER=periodic bun test test/carve-section-loading-qa.test.ts');

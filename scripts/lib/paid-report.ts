@@ -47,10 +47,10 @@ export function caseSelection(id: string, rootDir = ROOT, discovered = collectPa
   if (owners.length !== 1) throw new Error(`--case ${id}: ${owners.length ? `registered by ${owners.map(f => f.file).join(', ')}` : 'no paid file statically registers it'}; it needs exactly one`);
   const owner = owners[0]!;
   const name = escapeRe(CASE_TEST_NAMES[id] ?? id);
+  if (owner.registered.length === 1) return { file: owner.file, mode: 'file', reason: 'the whole file (it registers no other case)' };
   if (new RegExp(`\\b(?:test|it|test\\.\\w+|test(?:Concurrent)?IfSelected)\\s*\\(\\s*(['"\`])${name}\\1|testName\\s*:\\s*(['"\`])${name}\\2`).test(owner.source)) {
     return { file: owner.file, mode: 'name', reason: `its Bun test is named ${CASE_TEST_NAMES[id] ?? id}` };
   }
-  if (owner.registered.length === 1) return { file: owner.file, mode: 'file', reason: 'the whole file (it registers no other case)' };
   if (owner.computed) return { file: owner.file, mode: 'name', reason: `its loop names the Bun test ${id} at runtime` };
   throw new Error(`--case ${id}: ${owner.file} registers several cases and none of its tests is named ${id}; add its test name to CASE_TEST_NAMES`);
 }
