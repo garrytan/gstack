@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.23.0] - 2026-10-05
+## [1.91.24.0] - 2026-10-05
 
 **PR evals stop throwing away work, and a red weekly census means something again.**
 **The free suite is faster, its flakes are visible, and broken commands are gone.**
@@ -9,7 +9,7 @@ This release is a test, eval and CI audit wave. It touches no skill behavior. Th
 
 ### The numbers that matter
 
-| Check | v1.91.22.0 | v1.91.23.0 |
+| Check | v1.91.22.0 | v1.91.24.0 |
 |---|---|---|
 | Paid CI job ceiling (gate census / periodic) | 254 / 173 min for every slice | 34-82 min per slice; 50 min for ordinary periodic slices |
 | Local `eval:bg:pr` / `eval:bg:release` detach cap | 25.8 h / 32.4 h | 2.9 h / 2.25 h (1.5× planned work, never over 4 h) |
