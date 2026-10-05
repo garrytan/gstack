@@ -804,7 +804,7 @@ Never install, import cookies or bootstrap tests. Functional-only skips browser 
 
 **3. Run smoke and plan checks.**
 Follow the shared Probe loop for smoke checks and replays until the smoke limit.
-Then run required plan checks and revalidation, even after smoke expires, using the same procedure but no smoke guard; never reset the clock. Their checkpoints sit beside DEADLINE_FILE; they skip `DEADLINE_TOOL status DEADLINE_FILE` and use `--timeout-ms`, not `--deadline DEADLINE_FILE`. Post-expiry smoke rechecks are not-run, even in 4c.
+Then run required plan checks and revalidation, even after smoke expires, using the same procedure but no smoke guard; never reset the clock. Their checkpoints sit beside DEADLINE_FILE; they skip `DEADLINE_TOOL status DEADLINE_FILE` and use `--timeout-ms`, not `--deadline DEADLINE_FILE`. Post-expiry smoke rechecks are not-run.
 Use finite command timeouts, capped at the caller's remaining time if it has a deadline. /review sets none; only an invoker-supplied EARLIER_UTC counts.
 Await clock/guard results before acting. When the caller's deadline expires, mark unfinished checks not-run.
 

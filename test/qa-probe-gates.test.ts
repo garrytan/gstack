@@ -322,10 +322,13 @@ describe('judge-named QA workflow gaps (C2)', () => {
     }
   });
 
-  test('/review and /ship: step 4c revalidation does not rerun smoke checks after smoke expiry', () => {
+  // The review workflow judge passed 10/10 with this one-sentence rule and 6/10
+  // with the longer "step 4c reruns plan checks only" variant, which every low
+  // sample read as conflicting with Step 5.8's repeat-pass reruns (2026-10-05).
+  test('/review and /ship: post-expiry smoke rechecks are not-run, stated once before step 4c', () => {
     for (const skillName of ['review', 'ship']) {
       const text = generateQAReview(ctx(skillName));
-      const rule = text.indexOf('Post-expiry smoke rechecks are not-run, even in 4c.');
+      const rule = text.indexOf('Post-expiry smoke rechecks are not-run.');
       expect(rule).toBeGreaterThan(-1);
       expect(rule).toBeLessThan(text.indexOf('c. Re-review changed or uncertain coverage and repeat step 3 for affected checks.'));
     }
