@@ -24,12 +24,12 @@ beforeAll(() => {
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
 describe('compiled scanner evidence persistence', () => {
-  test('scan uses the empty qualified catalog and records helper-owned coverage without host execution', () => {
+  test('scan without a locally present qualified image records helper-owned coverage without host execution', () => {
     const run = start(), r = command(['scan', run.runId, 'gitleaks']); expect(r.status).toBe(0);
-    const out = JSON.parse(r.stdout); expect(out.status).toBe('not_assessed'); expect(out.gaps[0].message).toContain('No qualified gitleaks');
+    const out = JSON.parse(r.stdout); expect(out.status).toBe('not_assessed'); expect(out.gaps[0].message).toMatch(/^No qualified gitleaks|^Pinned runtime image is not already present locally: \S+@sha256:[a-f0-9]{64}$/);
     expect(out.artifactId).toMatch(/^gitleaks-[a-f0-9]{16}-[a-f0-9]{16}$/);
     expect(run.artifacts()).toEqual([`${out.artifactId}.json`]);
-    const stored = JSON.parse(fs.readFileSync(join(run.dir,out.artifact), 'utf8')); expect(stored.provenance.image).toBeNull(); expect(stored.outcome).not.toHaveProperty('repair');
+    const stored = JSON.parse(fs.readFileSync(join(run.dir,out.artifact), 'utf8')); const shipped = JSON.parse(fs.readFileSync(join(import.meta.dir, '../lib/cso/scanner-images/catalog.json'), 'utf8')).scanners.find((p: any) => p.scanner === 'gitleaks' && p.platform === (process.arch === 'arm64' ? 'linux/arm64' : 'linux/amd64')); expect(stored.provenance.image).toBe(shipped?.image ?? null); expect(stored.outcome).not.toHaveProperty('repair');
     expect(run.report().coverage.find((x: any) => x.domain === 'scanner:gitleaks')).toMatchObject({ status: 'not_assessed' });
   });
   test('trivy SARIF whose ROOTPATH is the started checkout imports its findings (#3011)', () => {

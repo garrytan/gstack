@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.91.26.0] - 2026-10-05
+## [1.91.28.0] - 2026-10-05
 
 **A failed eval now says what happened, with the evidence and the next command.**
 **Bun is checked before anything installs, and make-pdf and /review work in Codex.**
@@ -11,7 +11,7 @@ This release follows up on the severe fix wave. Its eight census runs had 21 red
 
 Each row is a regression test on this release that fails on v1.91.19.0, or a measurement from the 2026-10-03/04 census artifacts named in the row.
 
-| Check | v1.91.19.0 | v1.91.26.0 |
+| Check | v1.91.19.0 | v1.91.28.0 |
 |---|---|---|
 | make-pdf blocks on Codex that use `$P` without finding it | 7 of 8 | 0 |
 | /review with a read-only `.git` (Codex's sandbox) | prints nothing, "Nothing to review" | reviews against the local base, says `stale at <rev>` |
@@ -67,6 +67,16 @@ The first three rows are the ones users feel. The last three are why the next ce
 - Judge calibration controls (`docs/evals/judge-controls-2026-10.md`). The workflow judges passed bundles with a required step removed, so `test/workflow-required-steps.test.ts` now checks every step and phase heading of the judged workflow skills.
 - Paid shard durations refreshed from census 37198445662; a JUnit case's recorded wall is capped by its shard's wall.
 - The docsync fixture saves its observation interface to a file its children read instead of having the parent copy it into each child prompt.
+
+## [1.91.27.0] - 2026-10-05
+
+**The first protected-main runtime staging run can finish, and a qualified scanner catalog can ship.**
+
+The first `cso-runtime-images.yml` dispatch on main staged all ten runtime images but four rows stopped before qualification. Both causes are fixed:
+
+- **Rails SBOMs fit the attestation limit.** BuildKit's Rails SBOM lists about 19,600 files (20 MB), past `actions/attest`'s 16 MiB cap. The runtime and scanner release workflows now sign a package-level SPDX 2.3 document (`scripts/cso-sbom-packages.jq`: packages and package relationships kept, file entries and file relationships dropped, about 0.8 MB for Rails) and reject any document whose relationships name unknown elements.
+- **A qualified scanner catalog no longer breaks every scan.** Persisted scanner outcomes record the catalog revision (`cso-scanners-<sha>-<runId>`) and each profile's workflow run URL. The 11-digit Actions run id read as a phone number to the redactor, so every `gstack-cso scan` against a real catalog failed with `REDACTION_FAILED`. Catalog revisions and exact Actions run URLs are now schema-bound helper metadata; the same digits anywhere else are still redacted. Three tests that assumed the shipped catalog is empty now hold for either state, so the scanner promotion job's own validation passes.
+- **The staged-image test probes tools in a real role container.** It ran `npm --version` and the other version probes inside the group's network anchor, which is limited to 8 processes; Node's worker threads exceed that and abort (exit 134). The probes now run in the verifier container that the same test already starts. Production code never executes in the anchor.
 
 ## [1.91.25.0] - 2026-10-05
 

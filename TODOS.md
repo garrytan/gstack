@@ -2,7 +2,7 @@
 
 ## NEXT PRIORITY
 
-### P2/P3: reliability follow-ups deferrals (filed 2026-10-04, v1.91.26.0)
+### P2/P3: reliability follow-ups deferrals (filed 2026-10-04, v1.91.28.0)
 
 Deferred from the approved reliability follow-ups plan (docs/designs/RELIABILITY_FOLLOWUPS_2026_10.md), each with its reason.
 
@@ -125,7 +125,7 @@ From the approved 2026-10 test/eval/CI audit plan; the audit PR files these.
 
 Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10.md), each with its reason.
 
-- ~~**Enforce the Bun floor at setup (#2815)**~~ — done in v1.91.26.0: setup refuses Bun below 1.3.3 and warns below 1.4.2; auto-update and /gstack-upgrade check the incoming floor before moving the checkout. Original note: — `engines.bun` is now `>=1.4.0`
+- ~~**Enforce the Bun floor at setup (#2815)**~~ — done in v1.91.28.0: setup refuses Bun below 1.3.3 and warns below 1.4.2; auto-update and /gstack-upgrade check the incoming floor before moving the checkout. Original note: — `engines.bun` is now `>=1.4.0`
   (the CI pin), but Bun does not enforce `engines` and setup never checks the
   version. Bun older than 1.3.3 silently ignores `--no-compile-autoload-dotenv`
   and `--no-env-file` (verified with 1.3.2), so D0's protection against a
@@ -139,12 +139,12 @@ Deferred from the approved severe fix wave (docs/designs/SEVERE_FIX_WAVE_2026_10
 - **C8 router wording behind a routing panel** — disabled skills now leave the
   router, but the "When in doubt, invoke the skill" wording change (Tier 3) was
   not run through a routing eval panel. **Effort:** S. **Priority:** P3.
-- ~~**Cross-block variables on fresh-shell hosts: make-pdf `$P`**~~ — done in v1.91.26.0: env-var hosts re-derive `$P` in every block (MAKE_PDF_BIN honored). Original note: — make-pdf
+- ~~**Cross-block variables on fresh-shell hosts: make-pdf `$P`**~~ — done in v1.91.28.0: env-var hosts re-derive `$P` in every block (MAKE_PDF_BIN honored). Original note: — make-pdf
   "exports" `$P` for later blocks, which Codex and the other env-var hosts lose
   between blocks (same class as `$B`/`$D`, which the shared prelude now
   re-derives). Add `P` to the runtime prelude or resolve it per block.
   **Effort:** S. **Priority:** P2.
-- ~~**#2709's recorded-Chromium reap never runs on Playwright 1.62**~~ — done in v1.91.26.0: the owned headless launch records the browser PID over CDP `SystemInfo.getProcessInfo`. Original note: — Playwright
+- ~~**#2709's recorded-Chromium reap never runs on Playwright 1.62**~~ — done in v1.91.28.0: the owned headless launch records the browser PID over CDP `SystemInfo.getProcessInfo`. Original note: — Playwright
   1.62's `Browser` has no `process()`, so `chromiumProcInfo` is always null and
   the cleanup is a no-op (verified by probe). Record the PID another way (CDP
   `SystemInfo.getProcessInfo` or the launch server). **Effort:** S. **Priority:** P2.

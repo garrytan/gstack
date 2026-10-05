@@ -12,7 +12,7 @@
   "files": {
     "scripts/lib/paid-cases.ts": {"blob":"9bacd52446192a7ecf3dfaae901ea443cf9c9ae2","since":1,"nonBehavioral":"reliability follow-ups integration before the first v2 census: session ledger, trial cause/cost fields and stream liveness are diagnostics; EVAL_POLICY v2 already starts fresh series"},
     "scripts/lib/paid-plan.ts": {"blob":"45721ce128a112666a0caed6c13c66637b74ca54","since":1,"nonBehavioral":"audit-wave integration before the first v2 census (EVAL_POLICY v2 already starts fresh series)"},
-    "scripts/lib/paid-report.ts": {"blob":"d46d7dd0e6ba878dd52d8598f90f8d3f29265b14","since":1,"nonBehavioral":"--case CLI passes its own runner to runCaseDiagnosis (a self-import during top-level await deadlocked); CI slices never take this path"},
+    "scripts/lib/paid-report.ts": {"blob":"3fda96a8b1f7f3d55797934847353f254cc4d054","since":1,"nonBehavioral":"caseSelection runs single-case files whole (local --case diagnosis only; CI slices never take this path)"},
     "scripts/lib/published-text.ts": {"blob":"3f2e4d616b5dd0204035710c66b64d49055c5714","since":1,"nonBehavioral":"reliability follow-ups integration before the first v2 census: session ledger, trial cause/cost fields and stream liveness are diagnostics; EVAL_POLICY v2 already starts fresh series"},
     "scripts/lib/shard-engine.ts": {"blob":"3cd0b1aaa84018b00bf9ea0ce48093f3c8492f66","since":1,"nonBehavioral":"audit-wave integration before the first v2 census (EVAL_POLICY v2 already starts fresh series)"},
     "scripts/test-paid-shards.ts": {"blob":"8ddee5f11ed7856876135520dd8025ab989e2db9","since":1,"nonBehavioral":"--case CLI passes its own runner to runCaseDiagnosis (a self-import during top-level await deadlocked); CI slices never take this path"},
