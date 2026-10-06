@@ -306,13 +306,26 @@ describe('INV-3: negative controls (planted bad fences fail each check)', () => 
     expect(rules('ls | while IFS= read -r d; do rm -rf "$d"; done')).toEqual([]);
     expect(rules('cat <<EOF\ncd "$NOT_CODE"\nEOF\necho ok')).toEqual([]);
     expect(rules("echo 'cd \"$QUOTED\"'")).toEqual([]);
-    // #3046: reviewer, diff and error text inside a double-quoted body runs its backticks.
-    expect(rules('gh api repos/o/r/issues/1/comments -f body="<reply text>"')).toEqual(['untrusted-in-quotes']);
-    expect(rules('gh issue create --title "Failure: <test-name>" --body-file "$F"')).toEqual(['untrusted-in-quotes']);
-    expect(rules('glab issue create -t "$T" -d "Error: <first 10 lines>"')).toEqual(['untrusted-in-quotes']);
-    expect(rules("B=$(cat <<'GSTACK_REPLY'\n**Fixed** in `<sha>`.\nGSTACK_REPLY\n)\ngh api x -f body=\"$B\"")).toEqual([]);
-    expect(rules("git commit -m \"$(cat <<'EOF'\nfix: <summary>\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"")).toEqual([]);
-    expect(rules('gh pr view <number> --json title')).toEqual([]);
+    // CEO-12: free text may not appear in any command, in any quoting shape.
+    expect(rules('gh api repos/o/r/issues/1/comments -f body="<reply text>"')).toEqual(['free-text-placeholder']);
+    expect(rules('gh issue create --title "Failure: <test-name>" --body-file "$F"')).toEqual(['free-text-placeholder']);
+    expect(rules('glab issue create -t "$T" -d "Error: <first 10 lines>"')).toEqual(['free-text-placeholder']);
+    expect(rules("tool --write '{\"free_text\":\"<user words>\"}'")).toEqual(['free-text-placeholder']);
+    expect(rules('echo <user words> | tee out')).toEqual(['free-text-placeholder']);
+    expect(rules('$D generate --brief "$(printf %s "<brief text>")"')).toEqual(['free-text-placeholder']);
+    expect(rules('cat > "$F" <<EOF\nFixed in <reply text>\nEOF')).toEqual(['free-text-placeholder']);
+    expect(rules("B=$(cat <<'GSTACK_REPLY'\n**Fixed** in `<sha>`.\nGSTACK_REPLY\n)\ngh api x -f body=\"$B\"")).toEqual(['free-text-placeholder']);
+    // A continuation line is part of the same command.
+    expect(rules('gh issue create \\\n  --title "$T" \\\n  --body "<body text>"')).toEqual(['free-text-placeholder']);
+    // Commit trailers with a mail address are literal text, not placeholders.
+    expect(rules("git commit -m \"$(cat <<'EOF'\nfix: tidy\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"")).toEqual([]);
+    // Allowlisted identifiers pass; quoted-only identifiers must sit inside quotes.
+    expect(rules('git diff origin/<base>...HEAD --name-only; kill <PID>')).toEqual([]);
+    expect(rules('aside repl \'openTab("<url>")\'; $B goto "<url>"')).toEqual([]);
+    expect(rules('$B goto <url>')).toEqual(['free-text-placeholder']);
+    expect(lintFence('$B goto <url>')[0].detail).toContain('<url> (unquoted)');
+    // Files the agent wrote are passed, never expanded.
+    expect(rules('F="$(git rev-parse --show-toplevel)/.gstack/tmp/<reply-file-name>"\ngh api x -F "body=@$F"')).toEqual([]);
   });
 
   test('placeholder normalization keeps real syntax errors', () => {

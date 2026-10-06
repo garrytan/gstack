@@ -233,9 +233,7 @@ export function lintFence(body: string): LintFinding[] {
       const template = operands.at(-1)?.raw.replace(/^["']|["']$/g, '');
       if (!template || template.startsWith('/tmp/')) findings.push({ rule: 'mktemp-template', line: cmd.line, detail: cmd.words.map(w => w.raw).join(' ') });
     }
-    for (const w of cmd.words) {
-      for (const p of freeText(w.own)) findings.push({ rule: 'free-text-placeholder', line: cmd.line, detail: `${p} in: ${cmd.words.map(x => x.raw).join(' ').replace(/\s+/g, ' ')}` });
-    }
+    for (const p of freeText(cmd.words.map(w => w.own).join(' '))) findings.push({ rule: 'free-text-placeholder', line: cmd.line, detail: `${p} in: ${cmd.words.map(x => x.raw).join(' ').replace(/\s+/g, ' ')}` });
     const recursiveRm = name === 'rm' && args.some(w => /^-[A-Za-z]*[rR]/.test(w.raw));
     const gitC = name === 'git' && args[0]?.raw === '-C';
     if (name === 'cd' || name === 'mv' || recursiveRm || gitC) {

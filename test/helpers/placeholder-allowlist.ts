@@ -11,11 +11,12 @@
  * or double quotes (or a quoted heredoc), and their grammar excludes every
  * character that can end or expand those quotes: `'`, `"`, backtick, `$`, `\`
  * and newline. Every other entry may appear unquoted, so its grammar also
- * excludes whitespace and `;|&()<>*?[]{}!#`. test/generated-bash-placeholders
+ * excludes `;|&()<>?[]{}!#` and, unless it is a `list`, whitespace and `*`. test/generated-bash-placeholders
  * .test.ts proves each grammar rejects those characters.
  */
 
-export interface IdentifierGrammar { grammar: RegExp; what: string; quoted?: true }
+/** `list`: a space-separated list where word splitting is intended (spaces, and `*` globs, allowed). */
+export interface IdentifierGrammar { grammar: RegExp; what: string; quoted?: true; list?: true }
 
 const NUM = /^[0-9]+$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -132,10 +133,12 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
   '<approved-variant.png>': { grammar: PATH, what: 'approved variant image path' },
   '<failing-test-file>': { grammar: PATH, what: 'test file path' },
   '<source-file-under-test>': { grammar: PATH, what: 'source file path' },
-  '<affected-files>': { grammar: PATHS, what: 'space-separated file paths' },
-  '<only-changed-files>': { grammar: PATHS, what: 'space-separated file paths' },
-  '<only-verified-source-and-regression-files>': { grammar: PATHS, what: 'space-separated file paths' },
-  '<scope>': { grammar: PATHS, what: 'path or glob' },
+  '<affected-files>': { grammar: PATHS, what: 'space-separated file paths', list: true },
+  '<only-changed-files>': { grammar: PATHS, what: 'space-separated file paths', list: true },
+  '<only-verified-source-and-regression-files>': { grammar: PATHS, what: 'space-separated file paths', list: true },
+  '<scope>': { grammar: PATHS, what: 'path or glob', list: true },
+
+  '<project eval command>': { grammar: /^[A-Za-z0-9._/@+:,%=~ -]+$/, what: 'the eval command the project documents (words and flags only)', list: true },
 
   // Quoted-only values: URLs, selectors, search words and commands.
   '<url>': { grammar: URL, what: 'http(s) URL', quoted: true },
