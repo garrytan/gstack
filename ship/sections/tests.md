@@ -302,8 +302,8 @@ Ask with AskUserQuestion in the AskUserQuestion Format. List each failure the sa
 _GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
 mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
 _EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
-TITLE_FILE=$(mktemp "$_GT/issue-title.XXXXXX") && echo "TITLE_FILE: $TITLE_FILE (name: ${TITLE_FILE##*/})"
-BODY_FILE=$(mktemp "$_GT/issue-body.XXXXXX") && echo "BODY_FILE: $BODY_FILE (name: ${BODY_FILE##*/})"
+TITLE_FILE=$(mktemp "$_GT/issue-title.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "TITLE_FILE: $TITLE_FILE (name: ${TITLE_FILE##*/})"
+BODY_FILE=$(mktemp "$_GT/issue-body.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "BODY_FILE: $BODY_FILE (name: ${BODY_FILE##*/})"
 ```
 
 Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand. Title file: `Pre-existing test failure: <test name>`. Body file (Markdown; the error goes in a `~~~` fence so backticks in it stay literal):

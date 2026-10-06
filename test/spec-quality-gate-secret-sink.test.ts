@@ -42,6 +42,14 @@ exec '${realMktemp}' "$@"
   if (scanner === 'broken') writeFileSync(join(bin, 'gstack-redact'), '#!/usr/bin/env bash\nexit 70\n', { mode: 0o755 });
   writeFileSync(join(bin, 'fake-reviewer'), '#!/usr/bin/env bash\ncat > "$SINK_DIR/reviewer-received.txt"\n', { mode: 0o755 });
   const full = content(host);
+  // The agent's part: run the draft-file block, then write the draft with its
+  // file-write tool (CEO-12: the text never passes through the shell).
+  const create = full.match(/```bash\n([^`]*?REDACT_FILE=\$\(mktemp[\s\S]*?)\n```/);
+  if (!create) throw new Error(`Missing draft-file block in ${host} spec`);
+  const made = Bun.spawnSync(['bash', '-c', create[1]], { cwd: scratch, env: { ...process.env, TMPDIR: temps }, stdout: 'pipe', stderr: 'pipe', timeout: 10_000 });
+  const draft = /^REDACT_FILE: (\S+) \(name: (\S+)\)$/m.exec(made.stdout.toString());
+  if (made.exitCode !== 0 || !draft) throw new Error(`draft-file block failed: ${made.stderr.toString()}`);
+  writeFileSync(draft[1], body + '\n');
   const start = full.indexOf('#### Redaction scan — pre-codex');
   if (start < 0) throw new Error(`Missing pre-codex redaction in ${host} spec`);
   const match = full.slice(start).match(/```bash\n([\s\S]*?)\n```/);
@@ -49,8 +57,8 @@ exec '${realMktemp}' "$@"
   const fence = match[1]
     .replaceAll('~/.claude/skills/gstack', runtime)
     .replaceAll('$HOME/.claude/skills/gstack', runtime)
-    .replace('<the exact the spec body goes here>', body);
-  if (fence.includes('<the exact')) throw new Error('Spec fixture bytes did not replace the scan placeholder');
+    .replace('<redact-file-name>', draft[2]);
+  if (fence.includes('<redact-file-name>')) throw new Error('Spec fixture did not substitute the draft file name');
   // Deliberately put sinks directly after the real fence. A missing executable
   // stop (the previous prose-only gate) sends/persists the secret and fails.
   const script = `${errexit ? 'set -e\n' : ''}${fence}\n"$GSTACK_BIN/fake-reviewer" < "$REDACT_FILE"
@@ -68,7 +76,7 @@ rm -f "$REDACT_FILE"
     const printed = /^REDACT_FILE: (.+)$/m.exec(stdout)?.[1];
     return { code: result.exitCode, stdout, stderr: result.stderr.toString(),
       sinks: readdirSync(sinks).map(name => ({ name, body: readFileSync(join(sinks, name), 'utf8') })),
-      pending: [temps, systemTemps].flatMap(dir => readdirSync(dir).map(name => readFileSync(join(dir, name), 'utf8'))),
+      pending: [temps, systemTemps, join(scratch, '.gstack', 'tmp')].flatMap(dir => readdirSync(dir).map(name => readFileSync(join(dir, name), 'utf8'))),
       printed: printed && existsSync(printed) ? readFileSync(printed, 'utf8') : undefined };
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }

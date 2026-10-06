@@ -35,7 +35,7 @@ one file; the draft never goes into a shell command:
 _GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
 mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
 _EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
-REDACT_FILE=$(mktemp "$_GT/spec.XXXXXX") && echo "REDACT_FILE: $REDACT_FILE (name: ${REDACT_FILE##*/})"
+REDACT_FILE=$(mktemp "$_GT/spec.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "REDACT_FILE: $REDACT_FILE (name: ${REDACT_FILE##*/})"
 ```
 
 Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.
@@ -267,8 +267,8 @@ own private files:
 _GT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp"
 mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }
 _EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }
-TITLE_FILE=$(mktemp "$_GT/title.XXXXXX") && echo "TITLE_FILE: $TITLE_FILE (name: ${TITLE_FILE##*/})"
-APPROACH_FILE=$(mktemp "$_GT/approach.XXXXXX") && echo "APPROACH_FILE: $APPROACH_FILE (name: ${APPROACH_FILE##*/})"
+TITLE_FILE=$(mktemp "$_GT/title.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "TITLE_FILE: $TITLE_FILE (name: ${TITLE_FILE##*/})"
+APPROACH_FILE=$(mktemp "$_GT/approach.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "APPROACH_FILE: $APPROACH_FILE (name: ${APPROACH_FILE##*/})"
 ```
 
 Write the text into each printed file with your file-write tool (Claude Code's Write tool needs a Read of the empty file first), exactly as it should appear. The text never goes into a shell command, heredoc or quoted argument. If a write fails or is refused, do not send: print the cause, the file path and the command below for sending by hand.

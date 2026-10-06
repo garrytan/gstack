@@ -38,7 +38,7 @@ export function freeTextFileBash(files: FreeTextFile[]): string {
     `_GT=${FREE_TEXT_DIR}`,
     'mkdir -p "$_GT" && chmod 700 "$_GT" || { echo "Not sent: cannot create $_GT for the text file." >&2; exit 1; }',
     `_EX=$(git rev-parse --git-path info/exclude 2>/dev/null) && mkdir -p "$(dirname "$_EX")" && { grep -qxF '/.gstack/tmp/' "$_EX" 2>/dev/null || echo '/.gstack/tmp/' >> "$_EX"; }`,
-    ...files.map(f => `${f.variable}=$(mktemp "$_GT/${f.stem}.XXXXXX") && echo "${f.variable}: $${f.variable} (name: \${${f.variable}##*/})"`),
+    ...files.map(f => `${f.variable}=$(mktemp "$_GT/${f.stem}.XXXXXX") || { echo "Not sent: cannot create a file in $_GT." >&2; exit 1; }; echo "${f.variable}: $${f.variable} (name: \${${f.variable}##*/})"`),
   ].join('\n');
 }
 
