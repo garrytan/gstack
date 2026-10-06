@@ -378,6 +378,8 @@ else
     _CODEX_MODE="sandbox_unavailable"
   elif [ "$_CODEX_MP" -eq 2 ]; then
     _CODEX_MODE="broken_install"
+  elif [ "$_CODEX_MP" -eq 4 ]; then
+    _CODEX_MODE="quota_exhausted"
   elif [ "$_CODEX_MP" -ne 0 ]; then
     _CODEX_MODE="model_unusable"
   elif [ "${_GSTACK_CODEX_PROBE_STATE:-}" = inconclusive ]; then
@@ -396,6 +398,7 @@ Branch on the echoed `CODEX_MODE`:
 - **`not_authed`** — installed but no credentials. Print: "Codex not authenticated; outside coverage unavailable. Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
 - **`broken_install`** — the CLI is on PATH but cannot execute (spawn ENOENT, non-executable binary, missing vendor payload). Print: "Codex is installed but its binary cannot run — Codex passes skipped. Reinstall: `npm install -g @openai/codex`." Relay the probe's HINT lines. Fall back to the Claude subagent path.
 - **`model_unusable`** — the selected model (see `CODEX_MODEL:`) is invalid or unavailable to the account (HTTP 400 on every call). Relay the probe's HINT lines and the fix (`GSTACK_CODEX_MODEL=<supported-model>` or config.toml `model`); never substitute a model. Fall back to the Claude subagent path. The ~10s round trip is cached for 1h.
+- **`quota_exhausted`** — Codex usage/rate limit: relay its line verbatim (reset time), no more Codex calls. Fall back to the Claude subagent path.
 - **`sandbox_unavailable`** — Codex's sandbox cannot start here (containers without user namespaces); the probe printed the reason and fix. No paid call ran; outside coverage is unavailable. Fall back to the Claude subagent path.
 - **`ready`** or **`unverified`** — run the Codex pass below. `unverified` means the model check timed out; say so, and let the pass's own verdict decide.
 

@@ -196,3 +196,33 @@ describe('B1: a review whose sandbox could not start is unavailable, not clean',
     expect(r.stderr).toStartWith(`Codex outside review unavailable: Codex's sandbox could not start here (${BWRAP}`);
   });
 });
+
+describe('#3051: a mid-run Codex usage limit reads as unavailable (quota), with Codex\'s own line', () => {
+  const LINE = "ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Oct 10th, 2026 2:55 AM.";
+
+  test('failed call with the usage-limit line -> unavailable, reason quota_exhausted, detail is the line', () => {
+    const result = classifyOutsideReview({ text: '', stderr: `Reading prompt from stdin...\n${LINE}\n`, exit: 1, gate: 'review' });
+    expect([result.verdict, result.reason]).toEqual(['unavailable', 'quota_exhausted']);
+    expect(result.detail).toBe(LINE);
+  });
+
+  test('a timeout whose partial stderr mentions a rate limit keeps the timeout reason', () => {
+    const result = classifyOutsideReview({ text: '', stderr: 'retrying after rate limit\n', exit: 124, gate: 'review' });
+    expect(result.reason).toBe('timeout');
+  });
+
+  test('a completed review that discusses rate limits is not unavailable', () => {
+    const text = '[P2] the client ignores the API rate limit header\nRecommendation: fix the retry loop because it ignores Retry-After';
+    const result = classifyOutsideReview({ text, stderr: '', exit: 0, gate: 'review' });
+    expect(result.execution.state).toBe('ran');
+  });
+
+  test('the probe and the classifier recognise the same Codex lines', () => {
+    const probe = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-codex-probe'), 'utf8').match(/_QUOTA_SIG="([^\n]+)"\n/)![1]!;
+    for (const line of [LINE, 'ERROR: {"type":"error","status":429,"error":{"type":"rate_limit_exceeded"}}', 'insufficient_quota: You exceeded your current quota']) {
+      const bash = spawnSync('bash', ['-c', `printf '%s' "$1" | grep -qiE "$2"`, '_', line, probe.replace(/\\"/g, '"')], { timeout: 5000 });
+      expect({ line, bash: bash.status }).toEqual({ line, bash: 0 });
+      expect(classifyOutsideReview({ text: '', stderr: line, exit: 1, gate: 'review' }).reason).toBe('quota_exhausted');
+    }
+  });
+});

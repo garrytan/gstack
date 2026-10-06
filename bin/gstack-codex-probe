@@ -8,7 +8,8 @@
 #   _gstack_codex_sandbox_mode    — read-only, or full access only for GSTACK_CODEX_NO_SANDBOX=1
 #   _gstack_codex_sandbox_preflight — free `codex sandbox` check before paid calls (Linux)
 #   _gstack_codex_first_use_notice — once per machine: provider, account, how to turn off
-#   _gstack_codex_model_probe     — round-trip probe of the selected model (#2477)
+#   _gstack_codex_model_probe     — round-trip probe of the selected model (#2477);
+#                                   exit 4 = the account's Codex usage limit (#3051)
 #   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
 #   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> bash-native watchdog
 #   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
@@ -256,6 +257,12 @@ _gstack_codex_model_probe() {
       echo "MODEL_OK (cached)"
       return 0
     fi
+    if [ "$_c_status" = "MODEL_QUOTA_EXHAUSTED" ] && [ "$_c_sig" = "$_sig" ] && [ $((_now - _c_ts)) -lt 900 ]; then
+      echo "MODEL_QUOTA_EXHAUSTED (cached)"
+      sed -n '2,4p' "$_cache" 2>/dev/null
+      echo "HINT: Codex refused this account's calls for its usage limit within the last 15 minutes; outside coverage is unavailable until the reset time above. No Codex call was made."
+      return 4
+    fi
     if [ "$_c_status" = "MODEL_UNUSABLE" ] && [ "$_c_sig" = "$_sig" ] && [ $((_now - _c_ts)) -lt 900 ]; then
       echo "MODEL_UNUSABLE (cached)"
       echo "HINT: gstack requested model '$_model' (source: $_GSTACK_CODEX_SEL_SRC)."
@@ -270,6 +277,23 @@ _gstack_codex_model_probe() {
     [ -n "$_cache" ] && { mkdir -p "$_gstack_home" 2>/dev/null; printf 'MODEL_OK %s %s\n' "$_now" "$_sig" > "$_cache" 2>/dev/null; }
     echo "MODEL_OK"
     return 0
+  fi
+  # A usage limit or rate limit is the account, not the model or the network
+  # (#3051): Codex says so plainly ("You've hit your usage limit ... try again
+  # at <time>"). Falling through to the inconclusive branch dropped that line,
+  # re-probed for 30 s in every skill, and pointed users at model config.
+  # Only a failed, non-timeout call counts; Codex's own line (it carries the
+  # reset time and the purchase link) is relayed verbatim and cached briefly.
+  _QUOTA_SIG="usage limit|rate limit|rate_limit_exceeded|insufficient_quota|exceeded your current quota|too many requests|\"status\":[[:space:]]*429|status:?[[:space:]]*429"
+  if [ "$_code" -ne 124 ] && printf '%s' "$_out" | grep -qiE "$_QUOTA_SIG"; then
+    local _q_lines
+    _q_lines=$(printf '%s\n' "$_out" | grep -iE "$_QUOTA_SIG" | head -3)
+    [ -n "$_cache" ] && { mkdir -p "$_gstack_home" 2>/dev/null; printf 'MODEL_QUOTA_EXHAUSTED %s %s\n%s\n' "$_now" "$_sig" "$_q_lines" > "$_cache" 2>/dev/null; }
+    echo "MODEL_QUOTA_EXHAUSTED"
+    printf '%s\n' "$_q_lines"
+    echo "HINT: Codex refused the call for this account's usage or rate limit (the line above is Codex's own message, with its reset time). Outside coverage is unavailable until then; the model choice is fine."
+    _gstack_codex_log_event "codex_quota_exhausted" 2>/dev/null || true
+    return 4
   fi
   # A model rejection is deterministic: a 400 ("is not supported", "requires a
   # newer version of Codex") or a 404. A retired model answers 404 "does not

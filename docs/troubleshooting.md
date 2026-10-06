@@ -152,6 +152,26 @@ export GSTACK_CODEX_MODEL=<supported-model>
 
 **Expected result.** `CODEX_MODE: ready`.
 
+<a id="codex-quota-exhausted"></a>
+### `CODEX_MODE: quota_exhausted` / `MODEL_QUOTA_EXHAUSTED`
+
+**Meaning.** Codex refused the call because the account behind it hit its
+usage limit or rate limit. The line under the marker is Codex's own message,
+with its reset time and where to buy more. The model choice is fine. gstack
+skips the remaining Codex calls in that run and reports outside coverage as
+unavailable; it never counts as a pass. The result is cached for 15 minutes,
+so later skills do not spend another 30 seconds learning the same thing.
+
+**Fix.** Wait for the reset time in Codex's message, or add credits or a
+higher plan for that account. To use a different account, sign in again:
+
+```bash
+codex login
+```
+
+**Expected result.** After the reset (or after `codex login`, which changes
+the auth signature and re-probes at once), `CODEX_MODE: ready`.
+
 <a id="codex-mode-unverified"></a>
 ### `CODEX_MODE: unverified` / `MODEL_PROBE_INCONCLUSIVE`
 

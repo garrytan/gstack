@@ -101,6 +101,11 @@ follow the "Model not supported (HTTP 400 or 404)" recovery steps in
 `## Error Handling` below. Running the modes anyway just burns four
 invocations on the same 400.
 
+If the output contains `MODEL_QUOTA_EXHAUSTED`, stop: the account hit its Codex
+usage or rate limit. Relay Codex's own line under the marker verbatim (it names the
+reset time); the model is fine, so do not change it. Running the modes anyway fails
+the same way.
+
 If the output contains `CODEX_SANDBOX: unavailable`, stop: Codex's sandbox cannot
 start here, so every command it runs would fail and its review would read nothing.
 Relay the `Codex outside review unavailable: ...` line verbatim, including its fix.

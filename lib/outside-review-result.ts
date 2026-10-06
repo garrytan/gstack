@@ -43,6 +43,12 @@ const REFUSAL = /\b(?:(?:I (?:cannot|can't|won't|will not|am unable to)|I'm unab
 const SANDBOX_FAILURE = /^\s*bwrap: \S.*$|^.*\bbubblewrap is unavailable\b.*$|^.*\blandlock\b.{0,60}\b(?:fail\w*|error|not supported|unsupported)\b.*$|^.*\bseccomp\b.{0,60}\b(?:fail\w*|error)\b.*$|^.*\buser namespaces?\b.{0,80}\b(?:not (?:allowed|permitted|supported)|denied|disabled)\b.*$/im;
 /** Exact phrases a reviewer uses when it could not execute; the last fallback, used only without positive evidence. */
 const EXECUTION_FAILURE_PHRASE = /\b(?:commands? (?:could not|couldn't|cannot|can't) (?:be )?run|(?:could not|couldn't|was unable to|am unable to|unable to) (?:run (?:any )?(?:shell )?commands|execute (?:any )?commands|inspect the diff|read the diff|access the diff)|the diff could not be (?:read|inspected|accessed)|every (?:shell )?(?:command|invocation) failed)\b/i;
+/**
+ * An account usage or rate limit (#3051). Codex states it plainly ("You've hit
+ * your usage limit ... try again at <time>"); the line carries the reset time,
+ * so it is relayed verbatim. Mirrors _QUOTA_SIG in bin/gstack-codex-probe.
+ */
+export const QUOTA_FAILURE = /^.*(?:usage limit|rate limit|rate_limit_exceeded|insufficient_quota|exceeded your current quota|too many requests|"status":\s*429|status:?\s*429).*$/im;
 /** `codex review` transcript on stderr: a command that ran prints " succeeded in Nms:". */
 const TRANSCRIPT_SUCCESS = /^\s*succeeded in \d+(?:\.\d+)?m?s:?\s*$/m;
 
@@ -72,6 +78,8 @@ function execution(input: OutsideReviewInput): OutsideReviewClassification['exec
   if (exit !== 0) {
     const detail = sandbox(stderr);
     if (detail) return { state: 'unavailable', reason: 'sandbox_unavailable', detail };
+    const quota = exit !== 124 ? stderr.match(QUOTA_FAILURE)?.[0].trim().slice(0, 240) : undefined;
+    if (quota) return { state: 'unavailable', reason: 'quota_exhausted', detail: quota };
     const head = stderrHead(stderr);
     return { state: 'unavailable', reason: exit === 124 ? 'timeout' : 'execution_failed', detail: head ? `exit ${exit}: ${head}` : `exit ${exit}` };
   }

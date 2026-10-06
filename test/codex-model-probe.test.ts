@@ -53,6 +53,11 @@ case "\${STUB_MODE:-ok}" in
     echo 'ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The '"'"'gpt-6-astra'"'"' model is not supported when using Codex with a ChatGPT account."}}' >&2
     exit 1 ;;
   transient) echo "stream error: network unreachable" >&2; exit 7 ;;
+  quota)
+    echo "ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Oct 10th, 2026 2:55 AM." >&2
+    exit 1 ;;
+  ratelimit429) echo 'ERROR: {"type":"error","status":429,"error":{"type":"rate_limit_exceeded","message":"Rate limit reached"}}' >&2; exit 1 ;;
+  quotaok) echo "OK (note: you are close to your usage limit)"; exit 0 ;;
   retired404)
     echo 'ERROR: unexpected status 404 Not Found: The model \`gpt-5.2-codex\` does not exist or you do not have access to it., url: https://chatgpt.com/backend-api/codex/responses' >&2
     exit 1 ;;
@@ -438,6 +443,7 @@ describe('B1: codex sandbox preflight and unverified readiness', () => {
       ['ok', 'transient', 'unverified', 1],
       ['ok', 'ok', 'ready', 1],
       ['ok', 'model400', 'model_unusable', 1],
+      ['ok', 'quota', 'quota_exhausted', 1],
     ] as const) {
       const f = makeFixture();
       try {
@@ -451,6 +457,49 @@ describe('B1: codex sandbox preflight and unverified readiness', () => {
         expect(paid).toBe(probed);
       } finally { fs.rmSync(f.home, { recursive: true, force: true }); }
     }
+  });
+});
+
+describe('#3051: a Codex usage or rate limit is its own state, never "inconclusive; proceeding"', () => {
+  for (const mode of ['quota', 'ratelimit429'] as const) {
+    test(`${mode} -> MODEL_QUOTA_EXHAUSTED, exit 4, Codex's own line relayed, cached 15 min, event logged`, () => {
+      const f = makeFixture();
+      try {
+        const r = runProbe(f, mode, { _TEL: 'community' }, '_gstack_codex_model_probe; echo "rc=$?"');
+        expect(r.stdout).toContain('MODEL_QUOTA_EXHAUSTED');
+        expect(r.stdout).toContain('rc=4');
+        expect(r.stdout).not.toContain('MODEL_PROBE_INCONCLUSIVE');
+        expect(r.stdout).not.toContain('MODEL_UNUSABLE');
+        if (mode === 'quota') expect(r.stdout).toContain('try again at Oct 10th, 2026 2:55 AM');
+        expect(fs.readFileSync(path.join(f.gstackHome, 'analytics', 'skill-usage.jsonl'), 'utf-8')).toContain('"event":"codex_quota_exhausted"');
+        const again = runProbe(f, 'ok', {}, '_gstack_codex_model_probe; echo "rc=$?"');
+        expect(again.stdout).toContain('MODEL_QUOTA_EXHAUSTED (cached)');
+        expect(again.stdout).toContain('rc=4');
+        if (mode === 'quota') expect(again.stdout).toContain('try again at Oct 10th, 2026 2:55 AM');
+        expect(invocations(f)).toBe(1);
+      } finally { fs.rmSync(f.home, { recursive: true, force: true }); }
+    });
+  }
+
+  test('a successful call that mentions a usage limit stays MODEL_OK', () => {
+    const f = makeFixture();
+    try {
+      const r = runProbe(f, 'quotaok', {}, '_gstack_codex_model_probe; echo "rc=$?"');
+      expect(r.stdout).toContain('MODEL_OK');
+      expect(r.stdout).toContain('rc=0');
+    } finally { fs.rmSync(f.home, { recursive: true, force: true }); }
+  });
+
+  test('re-login (auth.json change) re-probes past a cached quota result', () => {
+    const f = makeFixture();
+    try {
+      runProbe(f, 'quota');
+      const future = new Date(Date.now() + 5000);
+      fs.utimesSync(path.join(f.codexHome, 'auth.json'), future, future);
+      const r = runProbe(f, 'ok', {}, '_gstack_codex_model_probe; echo "rc=$?"');
+      expect(r.stdout).toContain('MODEL_OK');
+      expect(invocations(f)).toBe(2);
+    } finally { fs.rmSync(f.home, { recursive: true, force: true }); }
   });
 });
 

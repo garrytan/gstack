@@ -63,6 +63,11 @@ export const GATE_OUTCOMES = {
     summary: 'Codex could not use the selected model',
     fix: 'set GSTACK_CODEX_MODEL=<supported-model> or fix model (and base_url for a custom provider) in your Codex config.toml',
   },
+  quota_exhausted: {
+    state: 'unavailable', anchor: 'codex-quota-exhausted',
+    summary: "Codex refused the call for this account's usage or rate limit",
+    fix: "wait for the reset time in Codex's message above, or add credits or a higher plan for that account; the model choice is fine",
+  },
   probe_inconclusive: {
     state: 'ran', anchor: 'codex-mode-unverified',
     summary: 'the Codex model check timed out or hit a network error, so readiness is unverified',
