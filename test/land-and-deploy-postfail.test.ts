@@ -99,8 +99,11 @@ describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
     // owner/name is composed from headRepositoryOwner.login + headRepository.name.
     expect(body).toMatch(/headRepositoryOwner\.login/);
     expect(body).not.toMatch(/\[\.headRepository\.nameWithOwner/);
-    expect(body).toMatch(/git ls-remote --heads "https:\/\/github\.com\/<head-repository>\.git" "<head-branch>"/);
-    expect(body).toMatch(/git push "https:\/\/github\.com\/<head-repository>\.git" --delete "<head-branch>"/);
+    // The head repository and branch are PR data: read into shell variables
+    // from gh's JSON, never model-substituted into the command.
+    expect(body).toMatch(/IFS=\$'\\t' read -r HEAD_REPO HEAD_BRANCH <<< "\$\(gh pr view/);
+    expect(body).toMatch(/git ls-remote --heads "https:\/\/github\.com\/\$HEAD_REPO\.git" "refs\/heads\/\$HEAD_BRANCH"/);
+    expect(body).toMatch(/git push "https:\/\/github\.com\/\$HEAD_REPO\.git" --delete "refs\/heads\/\$HEAD_BRANCH"/);
     expect(body).not.toMatch(/git ls-remote --heads origin/);
     expect(body).not.toMatch(/git push origin --delete/);
     // Confirm-first: deletion is offered, never unilateral.
