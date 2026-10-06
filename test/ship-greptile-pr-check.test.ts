@@ -20,7 +20,10 @@ afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 function check(gh: string | null): string {
   const bin = fs.mkdtempSync(path.join(tmp, 'bin-'));
   fs.symlinkSync(Bun.which('head')!, path.join(bin, 'head'));
-  if (gh !== null) fs.writeFileSync(path.join(bin, 'gh'), `#!${Bun.which('bash')}\n${gh}\n`, { mode: 0o755 });
+  fs.symlinkSync(Bun.which('bash')!, path.join(bin, 'bash'));
+  // `#!/usr/bin/env bash`, not the absolute bash path: on Windows that path
+  // (C:\Program Files\Git\bin\bash.exe) has a space and cannot be a shebang.
+  if (gh !== null) fs.writeFileSync(path.join(bin, 'gh'), `#!/usr/bin/env bash\n${gh}\n`, { mode: 0o755 });
   const r = spawnSync(Bun.which('bash')!, ['-c', CHECK], { cwd: tmp, encoding: 'utf8', timeout: 10_000, env: { PATH: bin } });
   expect(r.status, r.stderr).toBe(0);
   return r.stdout.trim();
