@@ -10,7 +10,8 @@ const roots: string[] = [];
 const key = ["AKIA", "1234567890ABCDEF"].join("");
 
 function git(cwd: string, ...args: string[]): string {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 30_000 });
+  const gitArgs = path.extname(cwd) === ".git" ? ["--git-dir=" + cwd, ...args] : args;
+  const result = spawnSync("git", gitArgs, { cwd, encoding: "utf8", timeout: 30_000 });
   if (result.status !== 0) throw new Error(`git ${args[0]} failed: ${result.stderr}`);
   return result.stdout.trim();
 }
