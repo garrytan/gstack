@@ -965,12 +965,15 @@ or `headless`, end by naming `/sync-gbrain` as the next step.
 ## `/setup-gbrain --cleanup-orphans`
 
 Re-collect a PAT (show the Path 2a PAT scope disclosure — it lives in the
-brain-init section; read that section if it isn't already loaded), then:
+brain-init section; read that section if it isn't already loaded), then
+collect it with the secret-read helper and list the user's Supabase projects.
+The PAT is read from the user's paste into the environment; never type it into
+a command:
 
 ```bash
-# List user's Supabase projects (user has to pipe this through their own
-# shell to review; we don't rely on a stored PAT).
-export SUPABASE_ACCESS_TOKEN="<collected from read_secret_to_env>"
+# We don't rely on a stored PAT.
+. ~/.claude/skills/gstack/bin/gstack-gbrain-lib.sh
+read_secret_to_env SUPABASE_ACCESS_TOKEN "Paste PAT: " || exit 1
 projects=$(curl -s -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
   https://api.supabase.com/v1/projects)
 ```
