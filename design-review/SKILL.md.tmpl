@@ -176,11 +176,17 @@ For each fixable finding, in impact order:
 
 ### 8a.5. Target Mockup (if DESIGN_READY)
 
-If the gstack designer is available and the finding involves visual layout, hierarchy, or spacing (not just a CSS value fix like wrong color or font-size), generate a target mockup showing what the corrected version should look like:
+If the gstack designer is available and the finding involves visual layout, hierarchy, or spacing (not just a CSS value fix like wrong color or font-size), generate a target mockup showing what the corrected version should look like. Write the description of the page or component with the finding fixed, referencing DESIGN.md constraints, into a private file:
+
+{{FREE_TEXT_FILE:BRIEF_FILE=brief}}
+
+Then substitute the printed name for `<brief-file-name>`:
 
 ```bash
-_OUT=$($D generate --brief "<description of the page/component with the finding fixed, referencing DESIGN.md constraints>" --output "$REPORT_DIR/screenshots/finding-NNN-target.png"); _RC=$?
-printf '%s\n' "$_OUT"; echo "EXIT: $_RC"
+BRIEF_FILE="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.gstack/tmp/<brief-file-name>"
+[ -s "$BRIEF_FILE" ] || { echo "Not run: $BRIEF_FILE is missing or empty. Write the brief, then rerun this block." >&2; exit 1; }
+_OUT=$($D generate --brief "$(cat "$BRIEF_FILE")" --output "$REPORT_DIR/screenshots/finding-NNN-target.png"); _RC=$?
+printf '%s\n' "$_OUT"; echo "EXIT: $_RC"; [ "$_RC" != 0 ] || rm -f "$BRIEF_FILE"
 ```
 
 Record the printed `outputPath` for this finding (images are never overwritten, so it may be bumped); later steps use that path. Exit 2: no mockup was saved; skip it for this finding.

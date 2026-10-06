@@ -561,14 +561,14 @@ For interactive feedback, use `compare --serve` and its printed HTTP URL; openin
 
 If `DESIGN_READY`: the design binary is available for visual mockup generation.
 Commands:
-- `$D generate --brief "..." --output /path.png` — generate a single mockup (prints `outputPath`)
-- `$D variants --brief "..." --count 3 --output-dir /path/` — generate N style variants (prints `paths`)
+- `$D generate --brief "$(cat "$BRIEF_FILE")" --output /path.png` — generate a single mockup (prints `outputPath`)
+- `$D variants --brief "$(cat "$BRIEF_FILE")" --count 3 --output-dir /path/` — generate N style variants (prints `paths`)
 - `$D compare --images-file /path/board-images.json --output /path/board.html --serve` — comparison board + HTTP server
 - `$D serve --html /path/board.html` — serve comparison board and collect feedback via HTTP
-- `$D check --image /path.png --brief "..."` — vision quality gate
+- `$D check --image /path.png --brief "$(cat "$BRIEF_FILE")"` — vision quality gate
 - `$D iterate --session /path/session.json --feedback "..." --output /path.png` — iterate
 
-Image commands never overwrite (a taken name gets `-2`) and always print JSON (`requested`, `saved`, `failures`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without `set -e`: `_OUT=$($D ...); _RC=$?`.
+Image commands never overwrite (a taken name gets `-2`) and always print JSON (`requested`, `saved`, `failures`); exit 0 ready, 2 nothing saved, 3 stopped after saving some. Capture without `set -e`: `_OUT=$($D ...); _RC=$?`. Briefs travel as files, never inline.
 - `$D extract --image /absolute/path.png` — print tokens and automatically update DESIGN.md in the current Git repository; no read-only flag
 
 `generate` returns `sessionFile`; `iterate` requires that existing session. `variants` returns `paths` but creates no session: regenerate with an updated brief instead.

@@ -161,4 +161,6 @@ export const IDENTIFIER_PLACEHOLDERS: Record<string, IdentifierGrammar> = {
 
   // A3 group 1 (Aside prompts, design briefs, design approval feedback): mktemp basenames.
   '<prompt-file-name>': { grammar: ID, what: 'basename of the mktemp Aside prompt file printed by the previous block' },
+  '<brief-file-name>': { grammar: ID, what: 'basename of the mktemp design brief file printed by the free-text block' },
+  '<feedback-file-name>': { grammar: ID, what: 'basename of the mktemp design feedback file printed by the previous block' },
 };

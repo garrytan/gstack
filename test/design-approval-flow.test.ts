@@ -22,7 +22,8 @@ function bashBlockAfter(marker: string): string {
 }
 
 const BOARD = bashBlockAfter('<!-- design:board -->');
-const APPROVAL = SKILL.slice(SKILL.indexOf('**Save the approved choice.**')).match(/```bash\n([\s\S]*?)```/)![1];
+// The save block follows the feedback-file block.
+const APPROVAL = SKILL.slice(SKILL.indexOf('**Save the approved choice.**')).match(/```bash\n(_IMG=[\s\S]*?)```/)![1];
 
 let dir: string;
 let designDir: string;
@@ -50,7 +51,12 @@ afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
 
 const sh = (script: string) => spawnSync('bash', ['-c', script], { cwd: dir, env, encoding: 'utf8', timeout: 60_000 });
 const variants = () => JSON.parse(sh('"$D" variants --brief "home page" --count 2 --output-dir "$_DESIGN_DIR/"').stdout);
-const approve = (letter: string) => sh(APPROVAL.replaceAll('<VARIANT>', letter).replaceAll('<FEEDBACK>', 'calmer').replaceAll('<SCREEN>', 'home'));
+// CEO-12: the feedback travels in an agent-written file under the project's .gstack/tmp, never in the command.
+const approve = (letter: string) => {
+  fs.mkdirSync(path.join(dir, '.gstack', 'tmp'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.gstack', 'tmp', 'feedback.fixture'), 'calmer "quoted" `not run` $(not run)\n');
+  return sh(APPROVAL.replaceAll('<VARIANT>', letter).replaceAll('<feedback-file-name>', 'feedback.fixture').replaceAll('<SCREEN>', 'home'));
+};
 
 // Value: protects=round two's approval comes from round two's board, never round one's stale feedback.json or the newest-file listing;
 //   fails_when=the board block stops archiving feedback.json or approval maps letters through the directory; why_new=eng feedback-binding; seam=none
@@ -73,7 +79,8 @@ test('round two board archives round one Submit and approval maps to the bumped 
   expect(approved.status, approved.stderr).toBe(0);
   expect(approved.stdout).toContain(`APPROVED_IMAGE: ${path.join(designDir, 'variant-A-2.png')}`);
   const record = JSON.parse(fs.readFileSync(path.join(designDir, 'approved.json'), 'utf8'));
-  expect(record).toMatchObject({ approved_variant: 'A', approved_path: 'variant-A-2.png', screen: 'home', feedback: 'calmer' });
+  expect(record).toMatchObject({ approved_variant: 'A', approved_path: 'variant-A-2.png', screen: 'home', feedback: 'calmer "quoted" `not run` $(not run)' });
+  expect(fs.existsSync(path.join(dir, '.gstack', 'tmp', 'feedback.fixture'))).toBe(false);
 
   const missing = approve('C');
   expect(missing.stdout).toContain('NO_BOARD_IMAGE');
