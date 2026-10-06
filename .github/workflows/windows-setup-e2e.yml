@@ -138,7 +138,8 @@ jobs:
         run: |
           set -euo pipefail
           E2E_HOME="$RUNNER_TEMP/gstack-e2e-home"
-          export HOME="$E2E_HOME" USERPROFILE="$(cygpath -w "$E2E_HOME")"
+          USERPROFILE="$(cygpath -w "$E2E_HOME")"
+          export HOME="$E2E_HOME" USERPROFILE
           BROWSE="$E2E_HOME/.codex/skills/gstack/browse/dist/browse.exe"
           [ -f "$BROWSE" ] || BROWSE="$E2E_HOME/.codex/skills/gstack/browse/dist/browse"
           test -f "$BROWSE" || (echo "MISSING: installed browse" && exit 1)
