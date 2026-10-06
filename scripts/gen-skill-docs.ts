@@ -761,8 +761,8 @@ function processExternalHost(
   let symlinkLoop = false;
   const claudePath = ctx.tmplPath.replace(/\.tmpl$/, '');
   try {
-    const resolvedClaude = fs.realpathSync(claudePath);
-    const resolvedExternal = path.join(fs.realpathSync(path.dirname(outputPath)), path.basename(outputPath));
+    const resolvedClaude = fs.realpathSync.native(claudePath);
+    const resolvedExternal = path.join(fs.realpathSync.native(path.dirname(outputPath)), path.basename(outputPath));
     if (resolvedClaude === resolvedExternal) {
       symlinkLoop = true;
     }
