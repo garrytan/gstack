@@ -94,18 +94,28 @@ For each non-suppressed comment:
 
 ## Reply APIs
 
-When replying to Greptile comments, use the correct endpoint based on comment source:
+When replying to Greptile comments, use the correct endpoint based on comment source.
+
+**Pass the reply body through a quoted heredoc, never inside double quotes.** Replies quote commit SHAs, diff lines and reviewer text in backticks. Inside `"..."` the shell runs every backtick span as a command: the reply posts with the text missing ("Fixed in ."), and untrusted text from the diff or the comment runs on this machine. The quoted delimiter (`'GSTACK_REPLY'`) makes the shell expand nothing, and expanding `"$REPLY_BODY"` afterwards never re-runs backticks inside its value.
 
 **Line-level comments** (from `pulls/$PR/comments`):
 ```bash
+REPLY_BODY=$(cat <<'GSTACK_REPLY'
+<reply text>
+GSTACK_REPLY
+)
 gh api repos/$REPO/pulls/$PR_NUMBER/comments/$COMMENT_ID/replies \
-  -f body="<reply text>"
+  -f body="$REPLY_BODY"
 ```
 
 **Top-level comments** (from `issues/$PR/comments`):
 ```bash
+REPLY_BODY=$(cat <<'GSTACK_REPLY'
+<reply text>
+GSTACK_REPLY
+)
 gh api repos/$REPO/issues/$PR_NUMBER/comments \
-  -f body="<reply text>"
+  -f body="$REPLY_BODY"
 ```
 
 **If a reply POST fails** (e.g., PR was closed, no write permission): warn and continue. Do not stop the workflow for a failed reply.

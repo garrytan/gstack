@@ -244,10 +244,14 @@ reuse it; write the exact bytes to `$REDACT_FILE`; `~/.claude/skills/gstack/bin/
 exit-3/2/0 handling. On exit 3, do NOT file the issue; HIGH has no skip. Pass the
 same `$REDACT_FILE` downstream so the bytes scanned are the bytes sent.
 
-If `gh` is available and authenticated, file from the scanned temp file:
+If `gh` is available and authenticated, file from the scanned temp file. Keep the title inside the quoted heredoc (backticks in a double-quoted title would run as shell commands):
 
 ```bash
-ISSUE_URL=$(gh issue create --title "<title>" --body-file "$REDACT_FILE")
+ISSUE_TITLE=$(cat <<'GSTACK_TITLE'
+<title>
+GSTACK_TITLE
+)
+ISSUE_URL=$(gh issue create --title "$ISSUE_TITLE" --body-file "$REDACT_FILE")
 ISSUE_NUMBER=$(echo "$ISSUE_URL" | sed -E 's|.*/issues/([0-9]+)$|\1|')
 echo "Filed: $ISSUE_URL"
 ~/.claude/skills/gstack/bin/gstack-decision-log '{"decision":"Spec filed #ISSUE_NUMBER: TITLE","rationale":"APPROACH","scope":"issue","issue":"ISSUE_NUMBER","source":"skill","confidence":7}' 2>/dev/null || true

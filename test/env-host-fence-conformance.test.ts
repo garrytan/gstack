@@ -20,6 +20,7 @@ import { binaryAssignment, fencePrelude, insertRuntimePreludes, PRELUDE_BYTE_BUD
 import { HOST_PATHS, type TemplateContext } from '../scripts/resolvers/types';
 import { lintFence, normalizePlaceholders } from './helpers/generated-bash-lint';
 
+const ROOT = path.resolve(import.meta.dir, '..');
 const ENV_HOSTS = ALL_HOST_CONFIGS.filter(h => h.usesEnvVars);
 const FORBIDDEN = /^(?:\/bin\/|\/browse|\/design|\/gstack-)/;
 const PRELUDE_LINE = /^\[ -d "\$\{GSTACK_ROOT:-\/-\}\/bin" \]|^(?:GSTACK_(?:BIN|BROWSE|DESIGN|MAKE_PDF)=\$GSTACK_ROOT\/\S+ ?)+$|^[BD]=\$GSTACK_ROOT\//;
@@ -268,6 +269,21 @@ describe('INV-3: every rendered fence parses, runs its prelude and passes the li
   });
 });
 
+describe('#3046: runtime reference docs that skills execute pass the lint', () => {
+  test('every non-generated markdown file in a skill directory (review/greptile-triage.md and friends)', () => {
+    const skillDirs = fs.readdirSync(ROOT, { withFileTypes: true })
+      .filter(e => e.isDirectory() && fs.existsSync(path.join(ROOT, e.name, 'SKILL.md.tmpl')))
+      .map(e => path.join(ROOT, e.name));
+    const docs = skillDirs.flatMap(dir => fs.readdirSync(dir)
+      .filter(f => f.endsWith('.md') && f !== 'SKILL.md')
+      .map(f => path.join(dir, f)));
+    expect(docs.map(d => path.relative(ROOT, d))).toContain('review/greptile-triage.md');
+    const findings = docs.flatMap(file => bashFences(fs.readFileSync(file, 'utf8'), path.relative(ROOT, file))
+      .flatMap(f => lintFence(f.body).map(x => `${f.file}:${f.line + x.line} ${x.rule}: ${x.detail}`)));
+    expect(findings).toEqual([]);
+  });
+});
+
 describe('INV-3: negative controls (planted bad fences fail each check)', () => {
   test('lint rules', () => {
     const rules = (body: string) => lintFence(body).map(f => f.rule);
@@ -286,6 +302,13 @@ describe('INV-3: negative controls (planted bad fences fail each check)', () => 
     expect(rules('ls | while IFS= read -r d; do rm -rf "$d"; done')).toEqual([]);
     expect(rules('cat <<EOF\ncd "$NOT_CODE"\nEOF\necho ok')).toEqual([]);
     expect(rules("echo 'cd \"$QUOTED\"'")).toEqual([]);
+    // #3046: reviewer, diff and error text inside a double-quoted body runs its backticks.
+    expect(rules('gh api repos/o/r/issues/1/comments -f body="<reply text>"')).toEqual(['untrusted-in-quotes']);
+    expect(rules('gh issue create --title "Failure: <test-name>" --body-file "$F"')).toEqual(['untrusted-in-quotes']);
+    expect(rules('glab issue create -t "$T" -d "Error: <first 10 lines>"')).toEqual(['untrusted-in-quotes']);
+    expect(rules("B=$(cat <<'GSTACK_REPLY'\n**Fixed** in `<sha>`.\nGSTACK_REPLY\n)\ngh api x -f body=\"$B\"")).toEqual([]);
+    expect(rules("git commit -m \"$(cat <<'EOF'\nfix: <summary>\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"")).toEqual([]);
+    expect(rules('gh pr view <number> --json title')).toEqual([]);
   });
 
   test('placeholder normalization keeps real syntax errors', () => {

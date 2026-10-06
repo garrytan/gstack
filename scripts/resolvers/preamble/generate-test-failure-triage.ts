@@ -67,21 +67,31 @@ Ask with AskUserQuestion in the AskUserQuestion Format. List each failure the sa
   git log --format="%an (%ae)" -1 -- <source-file-under-test>
   \`\`\`
   If these are different people, prefer the production code author — they likely introduced the regression.
-- Create an issue assigned to that person (use the platform detected in Step 0):
-  - **If GitHub:**
-    \`\`\`bash
-    gh issue create \\
-      --title "Pre-existing test failure: <test-name>" \\
-      --body "Found failing on branch <current-branch>. Failure is pre-existing.\\n\\n**Error:**\\n\`\`\`\\n<first 10 lines>\\n\`\`\`\\n\\n**Last modified by:** <author>\\n**Noticed by:** gstack /ship on <date>" \\
-      --assignee "<github-username>"
-    \`\`\`
-  - **If GitLab:**
-    \`\`\`bash
-    glab issue create \\
-      -t "Pre-existing test failure: <test-name>" \\
-      -d "Found failing on branch <current-branch>. Failure is pre-existing.\\n\\n**Error:**\\n\`\`\`\\n<first 10 lines>\\n\`\`\`\\n\\n**Last modified by:** <author>\\n**Noticed by:** gstack /ship on <date>" \\
-      -a "<gitlab-username>"
-    \`\`\`
+- Create an issue assigned to that person; run only your platform's create line. Test names and errors stay inside the quoted heredocs (column 0): in a double-quoted argument their backticks run as commands.
+
+\`\`\`bash
+ISSUE_TITLE=$(cat <<'GSTACK_ISSUE'
+Pre-existing test failure: <test-name>
+GSTACK_ISSUE
+)
+ISSUE_BODY=$(cat <<'GSTACK_ISSUE'
+Failing on <current-branch>; pre-existing.
+
+**Error:**
+~~~
+<first 10 lines>
+~~~
+
+**Last modified by:** <author>
+**Noticed by:** gstack /ship on <date>
+GSTACK_ISSUE
+)
+# GitHub:
+gh issue create --title "$ISSUE_TITLE" --body "$ISSUE_BODY" --assignee "<github-username>"
+# GitLab:
+glab issue create -t "$ISSUE_TITLE" -d "$ISSUE_BODY" -a "<gitlab-username>"
+\`\`\`
+
 - If neither CLI is available or \`--assignee\`/\`-a\` fails (user not in org, etc.), create the issue without assignee and note who should look at it in the body.
 - Continue with the workflow.
 

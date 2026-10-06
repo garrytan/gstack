@@ -11,12 +11,17 @@
  *    fence never assigned. In a fresh shell it is empty: `cd ""` stays put and
  *    the next command runs in the user's project. Write `${VAR:?message}`, and
  *    for `cd` also handle failure (`cd -- "${VAR:?...}" || exit 1`).
+ *  - untrusted-in-quotes: a `<placeholder>` the model fills with reviewer,
+ *    diff or error text, inside a double-quoted body/title/message argument
+ *    of gh, glab, git or curl. In double quotes the shell runs every backtick
+ *    span in that text (#3046). Pass it through a quoted heredoc into a
+ *    variable and expand the variable instead.
  *
  * The lexer understands single/double quotes, `$(...)`, backticks, comments
  * and heredoc bodies; it is not a full shell parser.
  */
 
-export interface LintFinding { rule: 'tilde-in-quotes' | 'mktemp-template' | 'unguarded-var'; line: number; detail: string }
+export interface LintFinding { rule: 'tilde-in-quotes' | 'mktemp-template' | 'unguarded-var' | 'untrusted-in-quotes'; line: number; detail: string }
 
 interface VarRef { name: string; op: string }
 interface Word { raw: string; vars: VarRef[]; line: number }
@@ -26,6 +31,11 @@ const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const RESERVED = new Set(['if', 'then', 'elif', 'else', 'fi', 'do', 'done', 'while', 'until', '!', '{', '}', 'time', 'case', 'esac', 'in']);
 /** Always set by the environment the shell starts in. */
 const AMBIENT = new Set(['HOME', 'PWD', 'OLDPWD', 'PATH', 'USER', 'SHELL']);
+/** Commands that publish free text, and the flags that carry it. */
+const TEXT_SINKS = new Set(['gh', 'glab', 'git', 'curl']);
+const TEXT_FLAGS = /^(?:-f|-F|--field|--raw-field|--body|-b|--title|-t|-m|--message|-d|--data|--description|--notes)$/;
+const TEXT_FIELD = /^(?:body|title|message|description|notes)=/;
+const QUOTED_PLACEHOLDER = /"[^"]*<[A-Za-z][^<>"\n]*>[^"]*"/;
 
 function lex(src: string, findings: LintFinding[]): Command[] {
   const commands: Command[] = [];
@@ -180,6 +190,13 @@ export function lintFence(body: string): LintFinding[] {
       const operands = args.filter(w => !w.raw.startsWith('-') && !/^\d*[<>]/.test(w.raw));
       const template = operands.at(-1)?.raw.replace(/^["']|["']$/g, '');
       if (!template || template.startsWith('/tmp/')) findings.push({ rule: 'mktemp-template', line: cmd.line, detail: cmd.words.map(w => w.raw).join(' ') });
+    }
+    if (name && TEXT_SINKS.has(name)) {
+      args.forEach((w, n) => {
+        const carriesText = TEXT_FIELD.test(w.raw) || TEXT_FLAGS.test(args[n - 1]?.raw ?? '');
+        const quotedHeredoc = /^"\$\(cat <<-?\s*'[A-Za-z_][A-Za-z0-9_]*'/.test(w.raw);
+        if (carriesText && !quotedHeredoc && QUOTED_PLACEHOLDER.test(w.raw.replace(/<[^<>\s"]+@[^<>\s"]+>/g, ''))) findings.push({ rule: 'untrusted-in-quotes', line: cmd.line, detail: `${name} ... ${args[n - 1]?.raw ?? ''} ${w.raw}`.replace(/\s+/g, ' ') });
+      });
     }
     const recursiveRm = name === 'rm' && args.some(w => /^-[A-Za-z]*[rR]/.test(w.raw));
     const gitC = name === 'git' && args[0]?.raw === '-C';

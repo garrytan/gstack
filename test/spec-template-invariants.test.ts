@@ -184,7 +184,9 @@ describe('/spec redaction at every sink (scan-at-sink, carved: gate-and-file sec
     expect(fileIdx).toBeGreaterThan(scanIdx);
   });
   test('files from the scanned temp file (exact bytes, not a re-render)', () => {
-    expect(SEC_GEN).toMatch(/gh issue create --title "<title>" --body-file "\$REDACT_FILE"/);
+    expect(SEC_GEN).toMatch(/gh issue create --title "\$ISSUE_TITLE" --body-file "\$REDACT_FILE"/);
+    // #3046: the title reaches the shell only through a quoted heredoc.
+    expect(SEC_GEN).toMatch(/ISSUE_TITLE=\$\(cat <<'GSTACK_TITLE'\n<title>\nGSTACK_TITLE\n\)/);
   });
   test('scan precedes the archive write (pre-archive)', () => {
     const scanIdx = SEC_GEN.indexOf('Re-scan before archiving');
