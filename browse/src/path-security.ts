@@ -23,9 +23,16 @@ import * as path from 'path';
 import { TEMP_DIR, TEMP_DIRS, isPathWithin } from './platform';
 
 // Resolve safe directories through realpathSync to handle symlinks (e.g., macOS /tmp → /private/tmp)
-export const SAFE_DIRECTORIES = [...TEMP_DIRS, process.cwd()].map(d => {
-  try { return fs.realpathSync(d); } catch { return d; }
-});
+// Also keep the native spelling: on Windows, realpathSync preserves 8.3 short
+// names (KUMARN~1) while realpathSync.native, used by validateOutputPath,
+// expands them, so a single spelling would reject valid temp paths.
+export const SAFE_DIRECTORIES = [...new Set([...TEMP_DIRS, process.cwd()].flatMap(d => {
+  const spellings: string[] = [];
+  for (const real of [fs.realpathSync, fs.realpathSync.native]) {
+    try { spellings.push(real(d)); } catch { spellings.push(d); }
+  }
+  return spellings;
+}))];
 
 const TEMP_ONLY = [TEMP_DIR].map(d => {
   try { return fs.realpathSync(d); } catch { return d; }
