@@ -38,7 +38,8 @@
 
 # Self-locate without dirname (builtins only), so the lib works even under
 # a stripped test PATH. ${BASH_SOURCE[0]:-$0}: BASH_SOURCE is unset when
-# sourced from zsh, where $0 still carries the sourced file's path.
+# sourced from zsh, where $0 carries the sourced file's path (with
+# FUNCTION_ARGZERO at its default, on).
 _gstack_egress_lib_self="${BASH_SOURCE[0]:-$0}"
 case "${_gstack_egress_lib_self}" in
   */*) _gstack_egress_lib_dir="$(cd "${_gstack_egress_lib_self%/*}" && pwd)" ;;

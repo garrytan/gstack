@@ -301,6 +301,23 @@ describe('gstack-codex-probe: timeout wrapper + namespace hygiene', () => {
     expect(result.status).toBe(0);
   });
 
+  // zsh is macOS's default shell and agent harnesses source this file from
+  // it; BASH_SOURCE is unset there, so the old ${BASH_SOURCE[0]%/*} self-
+  // location expanded empty and every derived path read /../scripts/...
+  // (the model probe then reported MODEL_UNUSABLE while the CLI was fine).
+  const zshOk = spawnSync('zsh', ['-c', 'echo ok'], { timeout: 5000 }).status === 0;
+  test.skipIf(!zshOk)('self-location resolves under zsh ($0 fallback)', () => {
+    const script = [
+      `source "${PROBE}"`,
+      'test -n "$_GSTACK_CODEX_SELF"',
+      'test -f "${_GSTACK_CODEX_SELF%/*}/../scripts/resolve-codex-generation-model.ts"',
+      'echo ZSH_SELF_OK',
+    ].join('\n');
+    const result = spawnSync('zsh', ['-c', script], { timeout: 5000 });
+    expect(result.status).toBe(0);
+    expect(result.stdout.toString()).toContain('ZSH_SELF_OK');
+  });
+
   test('timeout wrapper executes command directly when neither binary present', () => {
     // Clear PATH to simulate no timeout/gtimeout. Use only /bin for `echo`.
     const r = runProbe({

@@ -17,11 +17,14 @@
 #   - Never change -e / -u / traps / IFS / PATH in the caller shell.
 #   - All internal vars prefix with _GSTACK_CODEX_.
 #   - All functions prefix with _gstack_codex_.
-#   - No command execution at source time (only function defs).
+#   - No command execution at source time (function defs plus the one
+#     self-location assignment below).
 
 # Self-location, zsh-safe: BASH_SOURCE is unset when this file is sourced
 # from a zsh agent, while $0 still carries the sourced file's path there
-# (FUNCTION_ARGZERO). Without the fallback, ${_GSTACK_CODEX_SELF%/*} expands
+# (with FUNCTION_ARGZERO at its default, on; emulate-sh contexts keep the
+# caller's $0 and degrade exactly as before this fallback). Without the
+# fallback, ${_GSTACK_CODEX_SELF%/*} expands
 # empty and every derived path becomes /../scripts/... (bun then reports
 # Module not found and the model probe reads as model_unusable).
 _GSTACK_CODEX_SELF="${BASH_SOURCE[0]:-$0}"
