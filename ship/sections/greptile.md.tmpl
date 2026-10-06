@@ -1,12 +1,19 @@
 ## Step 10: Address Greptile review comments (if PR exists)
 
-Check for a PR first; with none there is nothing for Greptile to have reviewed:
+Check for a PR first. Greptile reviews a PR, so with no PR, no `gh`, no `gh` login or
+a non-GitHub remote there is nothing to triage yet:
 
 ```bash
-_PR_ERR=$(gh pr view --json number -q .number 2>&1 >/dev/null) && echo "PR: exists" || case "$_PR_ERR" in *"no pull requests found"*) echo "PR: none" ;; *) echo "PR: unknown ($_PR_ERR)" ;; esac
+if ! command -v gh >/dev/null 2>&1; then echo "PR: skip (gh not installed)"
+elif ! gh auth status >/dev/null 2>&1; then echo "PR: skip (gh not logged in)"
+elif ! _GH_ERR=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>&1 >/dev/null); then echo "PR: skip (not a GitHub remote: $(printf '%s' "$_GH_ERR" | head -1))"
+elif _PR_ERR=$(gh pr view --json number -q .number 2>&1 >/dev/null); then echo "PR: exists"
+else case "$_PR_ERR" in *"no pull requests found"*) echo "PR: skip (no PR yet)" ;; *) echo "PR: skip (PR lookup failed: $(printf '%s' "$_PR_ERR" | head -1))" ;; esac
+fi
 ```
 
-`PR: none` → skip the dispatch, record "Greptile: runs on the PR once it exists; the next /ship or /review triages it", and continue to Step 11. Otherwise dispatch:
+Only `PR: exists` dispatches. `PR: skip (<reason>)` → do not dispatch; record
+"Greptile: not run (<reason>); runs on the PR once it exists" and continue to Step 11.
 
 Dispatch a subagent through Agent with `subagent_type: "general-purpose"` and
 `run_in_background: false`, using Step 7's shared foreground-dispatch rule.
