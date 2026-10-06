@@ -178,7 +178,7 @@ http.createServer((req, res) => {
         expect(report.policy.diff).toBe(true);
         expect(report.policy.base).toBe('main');
         expect(report.source.baseCommit).toBe(git(f.repo, 'rev-parse', 'main').trim());
-        expect(report.findings.some(item => item.location.path === 'webhook.js' && /signature|authenticat|forg/i.test(`${item.rootCause} ${item.impact}`))).toBe(true);
+        expect(report.findings.some(item => item.location.path === 'webhook.js' && /signature|authentic|forg|spoof|hmac/i.test(`${item.title} ${item.rootCause} ${item.impact}`))).toBe(true);
         expect(report.findings.every(item => item.location.path === 'webhook.js')).toBe(true);
         passed = result.browseErrors.length === 0;
       } finally {
