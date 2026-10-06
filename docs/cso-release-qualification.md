@@ -126,6 +126,15 @@ reason, such as `prepared tree contains a hard-linked file`, or the filesystem
 errno and syscall. It never includes target paths. Nothing retries. Treat a
 recurrence as evidence for a defect, not as a flake to rerun.
 
+The Rails offline install runs `bundle install --jobs 1`. Ruby's
+`File.umask` getter sets the process umask to 0 for an instant, and RubyGems
+calls it for every file it extracts. With two Bundler install threads, a
+directory created by one thread during that instant comes out 0777, and the
+export refuses the tree with `prepared tree contains a publicly writable
+directory`. That refusal is correct, so the install runs on one thread rather
+than the gate being relaxed. At the app role's 0.85 CPU share the second thread
+saved no measurable time.
+
 For hashed Python requirements resolved by pip, the broker records the requested
 index URL, allowed contacted hosts, and verified wheel hash. Pip's internal
 `files.pythonhosted.org` response URL is opaque to that TLS boundary, so

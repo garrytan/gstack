@@ -1027,8 +1027,12 @@ function inspectRails(root: string, plan: PreparationPlan) {
     BUNDLE_CACHE_PATH: '/archives',
     BUNDLE_USER_HOME: '/work/.cso-bundle',
   };
+  // One install thread. Ruby's File.umask getter sets the process umask to 0
+  // for an instant, and RubyGems calls it for every extracted file, so a second
+  // Bundler thread creating a directory in that window leaves it 0777 and the
+  // prepared-tree export correctly refuses it.
   plan.offline.push(
-    command('/usr/local/bin/bundle', ['install', '--local', '--jobs', '2', '--retry', '0'], '/work', env),
+    command('/usr/local/bin/bundle', ['install', '--local', '--jobs', '1', '--retry', '0'], '/work', env),
   );
   plan.registryHosts = ['rubygems.org', 'index.rubygems.org'];
   const declared = railsDatabaseConfiguration(read(root, 'config/database.yml', true));

@@ -179,6 +179,8 @@ describe('CSO inert Rails preparation', () => {
     expect(plan.inputs[1].platform).toBe('x86_64-linux-gnu'); expect(plan.inputs[0].integritySource).toBe('registry-on-acquisition');
     expect(plan.runtimeRequirements).toEqual({ ruby: '3.3.6', bundler: '2.6.9' });
     expect(plan.offline[0].args).toContain('--local'); expect(plan.offline[0].env.BUNDLE_IGNORE_CONFIG).toBe('true');
+    // Parallel Bundler threads race RubyGems' File.umask calls and leave 0777 directories.
+    expect(plan.offline[0].args.slice(plan.offline[0].args.indexOf('--jobs'), plan.offline[0].args.indexOf('--jobs') + 2)).toEqual(['--jobs', '1']);
     expect(plan.offline[0].env.GEM_HOME).toBeUndefined(); expect(plan.offline[0].env.GEM_PATH).toBeUndefined();
   });
   test('records lock checksums separately from newly acquired archive hashes', () => {
