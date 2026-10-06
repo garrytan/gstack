@@ -186,7 +186,7 @@ describe('/spec redaction at every sink (scan-at-sink, carved: gate-and-file sec
   test('files from the scanned temp file (exact bytes, not a re-render)', () => {
     expect(SEC_GEN).toContain('ISSUE_URL=$(gh issue create --title "$(cat "$TITLE_FILE")" --body-file "$REDACT_FILE")');
     // CEO-12: the title is an agent-written file; no heredoc or quoted placeholder carries it.
-    expect(SEC_GEN).toContain('TITLE_FILE=$(mktemp "$_GT/title.XXXXXX")');
+    expect(SEC_GEN).toContain('TITLE_FILE=$(mktemp "${_GT:?}/title.XXXXXX")');
     expect(SEC_GEN).not.toContain('<<\'GSTACK_TITLE\'');
     expect(SEC_GEN).not.toMatch(/"<title>"|<<\s*'?REDACT_BODY_EOF/);
   });

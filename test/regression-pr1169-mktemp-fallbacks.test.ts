@@ -68,9 +68,9 @@ describe("#2679: skill-content mktemp guards", () => {
     // CEO-12 moved REDACT_FILE's creation from the redact-doc resolver into the
     // shared free-text block (scripts/resolvers/free-text-file.ts).
     const body = readScript("scripts/resolvers/free-text-file.ts");
-    expect(body).toMatch(/=\$\(mktemp "\$_GT\/\$\{f\.stem\}\.XXXXXX"\) \|\| \{ echo "Not sent: [^"]*" >&2; exit 1; \}/);
+    expect(body).toMatch(/=\$\(mktemp "\\\$\{_GT:\?\}\/\$\{f\.stem\}\.XXXXXX"\) \|\| \{ echo "Not sent: [^"]*" >&2; exit 1; \}/);
     const rendered = readScript("spec/sections/gate-and-file.md");
-    expect(rendered).toMatch(/REDACT_FILE=\$\(mktemp "\$_GT\/spec\.XXXXXX"\)\s*\|\|\s*\{[^}]*exit 1/);
+    expect(rendered).toMatch(/REDACT_FILE=\$\(mktemp "\$\{_GT:\?\}\/spec\.XXXXXX"\)\s*\|\|\s*\{[^}]*exit 1/);
   });
 
   test("ship pr-body template guards PR_BODY_FILE=$(mktemp ...) with a loud exit", () => {

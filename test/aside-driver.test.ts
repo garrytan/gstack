@@ -265,7 +265,7 @@ describe('Aside driver contract ({{ASIDE_SETUP}})', () => {
     expect(prelude).toContain('else aside exec "$@"; fi');
     const [, promptFile, reading] = cookbook.match(/\*\*Open-ended reading through Aside's own agent\*\*[\s\S]*?```bash\n([\s\S]*?)```[\s\S]*?```bash\n([\s\S]*?)```/)!;
     // CEO-12: the question travels in an agent-written file, never in the command.
-    expect(promptFile).toContain('PROMPT_FILE=$(mktemp "$_GT/aside-prompt.XXXXXX")');
+    expect(promptFile).toContain('PROMPT_FILE=$(mktemp "${_GT:?}/aside-prompt.XXXXXX")');
     // Prelude and call share ONE bash block (blocks are separate shells).
     expect(reading.startsWith(prelude + '\n')).toBe(true);
     expect(reading).toContain('\n_aside_exec "Open <url>. Read-only, do not submit or change anything. $(cat "$PROMPT_FILE") Then stop."');
@@ -423,7 +423,7 @@ describe('web research ({{ASIDE_RESEARCH}})', () => {
   test('the test-bootstrap research step (B2) routes through the same _aside_exec prelude', () => {
     const bootstrap = generateTestBootstrap(ctx);
     // CEO-12: the query travels in an agent-written file and goes out through the shared research send block.
-    expect(bootstrap).toContain('PROMPT_FILE=$(mktemp "$_GT/aside-prompt.XXXXXX")');
+    expect(bootstrap).toContain('PROMPT_FILE=$(mktemp "${_GT:?}/aside-prompt.XXXXXX")');
     expect(bootstrap).toContain('Prompt file text: `the best [runtime] test framework');
     expect(bootstrap).toContain('```bash\n' + asideResearchSend(ctx) + '\n```');
     expect(asideResearchSend(ctx).startsWith(asideExecPrelude(ctx) + '\n')).toBe(true);
