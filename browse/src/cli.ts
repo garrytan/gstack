@@ -860,6 +860,7 @@ async function ensureServer(flags?: GlobalFlags): Promise<ServerState> {
       } else {
         console.error(`[browse] a browse daemon for this project is running with --headed/--proxy (started by another session).`);
         console.error(`[browse] pass the same flags to use it, or run 'browse disconnect' to start a plain one.`);
+        console.error(`[browse] why: BROWSER.md, "Daemon discipline": https://github.com/garrytan/gstack/blob/main/BROWSER.md#headed-mode--proxy--browser-native-downloads-v12800`);
       }
       process.exit(1);
     }
