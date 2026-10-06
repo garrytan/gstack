@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.91.31.0] - 2026-10-06
+
+**Rails runtime qualification no longer fails at random when exporting the prepared app.**
+
+Main run 37504391826 passed 9 of its 10 native qualification rows. The Rails amd64 row failed with `PREPARED_EXPORT_REJECTED (exit 70: unrecognized helper failure)`. That failure had appeared once locally before.
+
+- **Bundler installs on one thread.** Ruby's `File.umask` getter briefly sets the process umask to 0 and then restores it, and RubyGems calls it for every file it extracts. The Rails offline step ran `bundle install --jobs 2`, so a directory created by the second install thread at that moment came out 0777. The export then refused the tree, correctly, with "prepared tree contains a publicly writable directory". The install now runs with `--jobs 1`, and the export gate is unchanged.
+  - Extracting the fixture's 69 gems on two threads in the staged image left 0777 directories in 20 of 20 rounds; extracting them on one thread left none in 20 rounds.
+  - Real `bundle install --jobs 2` runs of the fixture left them in 3 of 16 standalone installs and 1 of 18 full preparation runs.
+  - At the app container's 0.85 CPU share, one thread installs in the same time as two.
+- **The rejection reason is readable.** The helper's top-level handler prints the bare error message and exits 70, but the parser only accepted Bun's `error: ` prefix. It now accepts both forms and also reads errno-style messages, while still dropping any path.
+
 ## [1.91.30.0] - 2026-10-05
 
 **A failed eval now says what happened, with the evidence and the next command.**

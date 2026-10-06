@@ -404,15 +404,18 @@ export function validateSingleContainerProcessOutput(output: string): void {
     );
 }
 /**
- * Names why the in-image export helper refused a prepared tree. Only the
- * helper's fixed "prepared ..." messages and filesystem errno/syscall
- * names pass through, so target-controlled paths never reach the error.
+ * Names why the in-image export helper refused a prepared tree. The helper's
+ * top-level handler prints the error message alone and exits 70; an uncaught
+ * error prints it after "error: ". Only the helper's fixed "prepared ..."
+ * sentences and filesystem errno/syscall names pass through, so
+ * target-controlled paths never reach the error.
  */
 export function preparedExportRejection(stderr: string): string {
-  const reason = stderr.match(/^error: (prepared [A-Za-z ,-]+)$/m)?.[1];
+  const reason = stderr.match(/^(?:error: )?(prepared [A-Za-z ,-]+)$/m)?.[1];
   if (reason) return reason;
-  const errno = stderr.match(/^\s*code: "(E[A-Z]+)",?$/m)?.[1],
-    syscall = stderr.match(/^\s*syscall: "([a-z]+)",?$/m)?.[1];
+  const thrown = stderr.match(/^(?:error: )?(E[A-Z]+): [a-z ]+, ([a-z]+)\b/m),
+    errno = thrown?.[1] ?? stderr.match(/^\s*code: "(E[A-Z]+)",?$/m)?.[1],
+    syscall = thrown?.[2] ?? stderr.match(/^\s*syscall: "([a-z]+)",?$/m)?.[1];
   if (errno) return `filesystem error ${errno}${syscall ? ` during ${syscall}` : ''}`;
   return 'unrecognized helper failure';
 }

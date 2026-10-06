@@ -195,6 +195,9 @@ describe('CSO prepared export rejection reason', () => {
       .toBe('prepared tree contains a hard-linked file');
     expect(preparedExportRejection("ENOENT: no such file or directory, lstat '/work/secret-name'\n    path: \"/work/secret-name\",\n syscall: \"lstat\",\n   errno: -2,\n    code: \"ENOENT\"\n"))
       .toBe('filesystem error ENOENT during lstat');
+    expect(preparedExportRejection('prepared tree contains a publicly writable directory\n')).toBe('prepared tree contains a publicly writable directory');
+    expect(preparedExportRejection("ENOENT: no such file or directory, lstat '/work/secret-name'\n")).toBe('filesystem error ENOENT during lstat');
+    expect(preparedExportRejection('prepared /work/secret-name\n')).toBe('unrecognized helper failure');
     expect(preparedExportRejection('error: prepared /work/secret-name\n')).toBe('unrecognized helper failure');
     expect(preparedExportRejection('error: prepared tree contains a FIFO, socket, device, or other special object\n')).toBe('prepared tree contains a FIFO, socket, device, or other special object');
     expect(preparedExportRejection('')).toBe('unrecognized helper failure');
