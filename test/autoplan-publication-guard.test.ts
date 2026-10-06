@@ -518,6 +518,26 @@ describe('Autoplan parent publication guard', () => {
     expect(reason).not.toContain('cannot bind');
   });
   for (const [name, command] of [
+    ['a snapshot scope call', (f: any) => `bun "${ROOT}/bin/gstack-autoplan-snapshot.ts" scope "${f.active}"`],
+    ['an unrelated init', (f: any) => `bun other.ts init "${f.source}"`],
+  ] as const)
+    test(`#3045 control: ${name} keeps the generic missing-evidence denial`, () => {
+      const f = fixture(); f.message(); f.current();
+      (f.events[0] as any).input.command = command(f);
+      const reason = (f.evaluate() as any).reason;
+      expect(reason).toContain('Complete the existing snapshot init step');
+      expect(reason).not.toContain('cannot bind');
+    });
+  for (const [name, command] of [
+    ['a substituted tool path', (f: any) => `bun "$(realpath ${ROOT}/bin/gstack-autoplan-snapshot.ts)" init "${f.source}" "${f.active}" "${f.restore}"`],
+    ['a redirected literal init', (f: any) => `bun "${ROOT}/bin/gstack-autoplan-snapshot.ts" init "${f.source}" "${f.active}" "${f.restore}" > /dev/null`],
+  ] as const)
+    test(`#3045: ${name} is named as the cause`, () => {
+      const f = fixture(); f.message(); f.current();
+      (f.events[0] as any).input.command = command(f);
+      expect((f.evaluate() as any).reason).toContain('which this guard cannot bind');
+    });
+  for (const [name, command] of [
     ['a resolved-variable init piped to tail', (f: any) => `ST=$(bun -e 'console.log(require("fs").realpathSync(process.argv[1]))' "${ROOT}/bin/gstack-autoplan-snapshot.ts"); bun "$ST" init "${f.source}" "${f.active}" "${f.restore}" 2>&1 | tail -5`],
     ['an init through a variable from an earlier call', (f: any) => `bun "$SNAPSHOT_TOOL" init "${f.source}" "${f.active}" "${f.restore}"`],
     ['a chained literal init', (f: any) => `bun "${ROOT}/bin/gstack-autoplan-snapshot.ts" init "${f.source}" "${f.active}" "${f.restore}" && echo done`],
